@@ -8,7 +8,7 @@
 ***
 
 # TuxBlox 🐧
-TuxBlox is a new compatibility layer and launcher capable of running Roblox Studio on Linux, designed for both beginners and experts, and under **active development**.
+TuxBlox is a new compatibility layer and launcher capable of running Roblox on Linux, designed for both beginners and experts, and under **active development**.
 
 ## How It Works
 Similar to [Wine](https://www.winehq.org/), instead of emulating Windows or using a virtual machine, TuxBlox automatically translates the Windows version of Roblox to Linux at runtime. 
