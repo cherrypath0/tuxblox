@@ -2,3 +2,5 @@
 build/
 cert.sh
 .env
+server.js
+gitpush.sh
