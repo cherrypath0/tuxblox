@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="/style.css">
 
     <meta property="og:title" content="TuxBlox 🐧 - Roblox natively on Linux" />
     <meta property="og:site_name" content="tuxblox.net" />
@@ -24,7 +24,7 @@
         <header>
             <div class="logo-section">
                 <a href="/">
-                    <img src="tuxblox-banner-offset-small.png" alt="TuxBlox Logo" class="brand-banner-img">
+                    <img src="/tuxblox-banner-offset-small.png" alt="TuxBlox Logo" class="brand-banner-img">
                 </a>
             </div>
             <nav>
@@ -35,19 +35,16 @@
             </nav>
         </header>
 
-
         <section class="hero" style="padding: 40px 0 20px 0;">
             <h1>Installation Guide</h1>
             <p class="hero-subtitle">Follow these instructions carefully to compile and deploy your isolated environment.</p>
         </section>
-
 
         <div class="alert-box warning-alert">
             <div class="alert-title">Important Compatibility Notice</div>
             <p><strong>TuxBlox is explicitly built for Linux distributions.</strong> This utility cannot be installed on Windows or macOS environments. If you are currently operating on Windows or macOS, the Roblox Game Client is already natively supported. Please visit the <a href="https://www.roblox.com/download/" target="_blank">Official Roblox Download Page</a> to install it directly.</p>
             <p style="margin-top: 12px; font-size: 13px; opacity: 0.8;"><em>Note on Assets:</em> Due to copyright reasons, a direct pre-compiled .iso download is not available. The provided tools allow you to compile the environment locally using your own legal copy.</p>
         </div>
-
 
         <section style="margin: 40px 0;">
             <h2 style="font-size: 22px; margin-bottom: 20px; font-weight: 700;">System Requirements</h2>
@@ -71,10 +68,8 @@
             </div>
         </section>
 
-
         <section style="margin: 60px 0;">
             <h2 style="font-size: 22px; margin-bottom: 30px; font-weight: 700;">Installation Steps</h2>
-
 
             <div class="step-block">
                 <div class="step-number">01</div>
@@ -94,7 +89,6 @@
                 </div>
             </div>
 
-
             <div class="step-block">
                 <div class="step-number">02</div>
                 <div class="step-content">
@@ -105,7 +99,6 @@
                     </a>
                 </div>
             </div>
-
 
             <div class="step-block">
                 <div class="step-number">03</div>
@@ -146,7 +139,6 @@
                 </div>
             </div>
 
-
             <div class="step-block">
                 <div class="step-number">04</div>
                 <div class="step-content">
@@ -166,12 +158,10 @@
             </div>
         </section>
 
-
         <section class="disclaimer-box">
             <h4>Disclaimer</h4>
             <p>TuxBlox is an independent open-source project. It is not affiliated with, authorized by, or associated with Roblox Corporation or Microsoft Corporation. Roblox and Windows are trademarks of their respective owners.</p>
         </section>
-
 
         <footer>
             <div>&copy; 2026 TuxBlox Project (MIT License)</div>
@@ -179,10 +169,8 @@
         </footer>
     </div>
 
-
     <script>
         const copyButtons = document.querySelectorAll('.copy-btn');
-
 
         copyButtons.forEach(btn => {
             btn.addEventListener('click', () => {
@@ -197,29 +185,33 @@
             });
         });
 
-
         function detectOS() {
-            const uaPlatform = navigator.userAgentData && navigator.userAgentData.platform
-                ? navigator.userAgentData.platform
-                : '';
+            const uaData = navigator.userAgentData;
+            const platform = (uaData?.platform || navigator.platform || '').toLowerCase();
+            const ua = (navigator.userAgent || '').toLowerCase();
 
+            if (platform.includes('android') || ua.includes('android')) return 'Android';
 
-            const platform = uaPlatform || navigator.platform || navigator.userAgent || '';
+            if (
+                ua.includes('iphone') ||
+                ua.includes('ipod') ||
+                ua.includes('ipad') ||
+                (platform.includes('mac') && navigator.maxTouchPoints > 1 && ua.includes('mobile'))
+            ) {
+                return 'iOS';
+            }
 
+            if (platform.includes('win') || ua.includes('windows')) return 'Windows';
+            if (platform.includes('mac')) return 'macOS';
+            if (platform.includes('linux')) return 'Linux';
 
-            if (/Win/i.test(platform)) return 'Windows';
-            if (/Mac/i.test(platform)) return 'macOS';
-            if (/Linux/i.test(platform)) return 'Linux';
             return 'Unsupported';
         }
 
-
         const os = detectOS();
 
-
-        if (os === 'Windows' || os === 'macOS') {
+        if (os === 'Windows' || os === 'macOS' || os === 'Android' || os === 'iOS') {
             const originalNotice = document.querySelector('.alert-box.warning-alert');
-
 
             const newNotice = document.createElement('div');
             newNotice.className = 'alert-box warning-alert';
@@ -231,13 +223,10 @@
                 </a>
             `;
 
-
             originalNotice.parentNode.insertBefore(newNotice, originalNotice);
-
 
         } else if (os === 'Unsupported') {
             const originalNotice = document.querySelector('.alert-box.warning-alert');
-
 
             const newNotice = document.createElement('div');
             newNotice.className = 'alert-box warning-alert';
@@ -245,7 +234,6 @@
                 <div class="alert-title">Unsupported OS</div>
                 <p><strong>We detected your operating system to be ${os}, but your operating system is not supported for both TuxBlox and Roblox</strong></p>
             `;
-
 
             originalNotice.parentNode.insertBefore(newNotice, originalNotice);
         }

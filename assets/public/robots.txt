@@ -2,5 +2,6 @@ User-agent: *
 Allow: /
 Allow: /install
 Allow: /docs
+Disallow: /api
 
 Sitemap: https://tuxblox.net/sitemap.xml
