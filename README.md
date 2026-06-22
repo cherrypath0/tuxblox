@@ -3,7 +3,7 @@
 
 ***
 
-![TuxBlox Logo](assets/images/tuxblox-icon-medium.png)
+![TuxBlox Banner](assets/images/tuxblox-banner-small.png)
 
 # TuxBlox 🐧
 TuxBlox lets you run the native Windows Roblox client on Linux by using a lightweight, stripped-down Windows virtual machine. It skips Wine and compatibility layers entirely to give you a native experience.
