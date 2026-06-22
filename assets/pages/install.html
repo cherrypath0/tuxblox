@@ -31,7 +31,7 @@
         <div class="alert-box warning-alert">
             <div class="alert-title">Important Compatibility Notice</div>
             <p><strong>TuxBlox is explicitly built for Linux distributions.</strong> This utility cannot be installed on Windows or macOS environments. If you are currently operating on Windows or macOS, the Roblox Game Client is already natively supported. Please visit the <a href="https://www.roblox.com/download/" target="_blank">Official Roblox Download Page</a> to install it directly.</p>
-            <p style="margin-top: 12px; font-size: 13px; opacity: 0.8;"><em>Note on Assets:</em> Due to copyright reasons, a direct pre-compiled .iso download is not available. The provided tools allow you to compile the environment locally using your own legal copy.</p>
+            <p style="margin-top: 12px; font-size: 13px; opacity: 0.8;"><b>Important Note:</b> Due to copyright reasons, a direct pre-compiled .iso download is not available. The provided tools allow you to compile the environment locally using your own legal copy.</p>
         </div>
 
         <section style="margin: 40px 0;">
@@ -65,10 +65,7 @@
                     <h3>Install the TuxBlox CLI</h3>
                     <p class="step-desc">Open your terminal and run the automated installation script:</p>
                     <div class="code-box-container">
-                        <div class="code-box-header">
-                            <span class="dot"></span><span class="dot"></span><span class="dot"></span>
-                            <span class="code-title">bash</span>
-                        </div>
+                        <!--div class="code-box-header"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="code-title">bash</span></div-->
                         <div class="code-box">
                             <code class="install-cmd"><span class="t-cmd">curl</span> <span class="t-flag">-sSL</span> <span class="t-str">https://tuxblox.net/install.sh</span> | <span class="t-cmd">bash</span></code>
                             <span class="copy-btn">Copy</span>
@@ -95,35 +92,41 @@
                     <p class="step-desc">Run these commands in your terminal to select, compile, and optionally verify your environment's integrity:</p>
                     <p class="step-desc">Make sure to replace /path/to/iso/file.iso with the actual path to the ISO file</p>
 
-
                     <div class="code-box-container" style="margin-bottom: 12px;">
-                        <div class="code-box-header"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="code-title">Terminal</span></div>
+                        <!--div class="code-box-header"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="code-title">Terminal</span></div-->
                         <div class="code-box">
                             <code class="install-cmd"><span class="t-cmd">tuxblox</span> <span class="t-param">iso select</span> <span class="t-arg">/path/to/iso/file.iso</span></code>
                             <span class="copy-btn">Copy</span>
                         </div>
                     </div>
 
-
                     <div class="code-box-container" style="margin-bottom: 12px;">
-                        <div class="code-box-header"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="code-title">Terminal</span></div>
+                        <!--div class="code-box-header"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="code-title">Terminal</span></div-->
                         <div class="code-box">
                             <code class="install-cmd"><span class="t-cmd">tuxblox</span> <span class="t-param">iso selected compile</span> <span class="t-str">TuxBlox</span></code>
                             <span class="copy-btn">Copy</span>
                         </div>
                     </div>
 
-
                     <div class="code-box-container">
-                        <div class="code-box-header"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="code-title">Terminal</span></div>
+                        <!--div class="code-box-header"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="code-title">Terminal</span></div-->
                         <div class="code-box">
                             <code class="install-cmd"><span class="t-cmd">tuxblox</span> <span class="t-param">iso verify</span> <span class="t-str">TuxBlox</span></code>
                             <span class="copy-btn">Copy</span>
                         </div>
                     </div>
 
-
-                    <p class="step-desc" style="margin-top: 12px; font-size: 13.5px;">If the output reads <code style="color: #4ade80; font-family: var(--font-mono); font-weight: 500;">"Integrity verified"</code>, the compilation was successful.</p>
+                    <p class="step-desc" style="margin-top: 12px; font-size: 13.5px;">If the ISO is valid, the output should look like this:</p>
+                    <div class="code-box-container">
+                        <!--div class="code-box-header"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="code-title">Terminal</span></div-->
+                        <div class="code-box">
+                            <code class="install-cmd"><code style="color: #4ade80; font-family: var(--font-mono); font-weight: 500;">Image hash is valid</code></code>
+                        </div>
+                    </div>
+                    <p class="step-desc" style="margin-top: 12px; font-size: 13.5px;">You can check for other output results in the documentation here:</p>
+                    <a href="/docs/cli/iso-verify" target="_blank" class="btn btn-secondary" style="margin-bottom: 10px;">
+                        Go to CLI docs
+                    </a>
                 </div>
             </div>
 

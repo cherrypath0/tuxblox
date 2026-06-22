@@ -8,10 +8,10 @@
         </a>
     </div>
     <nav>
-        <a href="/">How it works</a>
-        <a href="/install" class="nav-git">Setup</a>
+        <a href="/">About</a>
+        <a href="/install">Setup</a>
         <a href="/docs">Docs</a>
-        <a href="/github" target="_blank">Source Code</a>
+        <a href="/github" target="_blank" class="nav-git">Source Code</a>
     </nav>
 </header>
 `,
@@ -20,30 +20,30 @@
     <h4>Disclaimer</h4>
     <p>TuxBlox is an independent compatibility tool intended for personal use. It is not affiliated with, authorized by, or associated with Roblox Corporation or Microsoft Corporation. Roblox and Windows are trademarks of their respective owners.</p>
 </section>
-
+ 
 <footer>
     <div>&copy; 2026 TuxBlox Project (MIT License)</div>
     <div>GitHub: <a href="https://github.com/cherrypath0" target="_blank">@cherrypath0</a></div>
 </footer>
 `
   };
-
+ 
   function loadIncludes() {
     document.querySelectorAll('[data-include]').forEach((el) => {
       const key = el.getAttribute('data-include');
       const html = TEMPLATES[key];
-
+ 
       if (!html) {
         console.warn(`[include.js] No template found for "${key}"`);
         return;
       }
-
+ 
       el.innerHTML = html;
     });
-
+ 
     document.dispatchEvent(new CustomEvent('includes:loaded'));
   }
-
+ 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', loadIncludes);
   } else {

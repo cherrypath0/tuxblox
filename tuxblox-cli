@@ -1,0 +1,48 @@
+#!/bin/bash
+
+VERSION="0.0-INDEV"
+
+if [ "$EUID" -eq 0 ]; then
+    echo "tuxblox: error: Do not run tuxblox as root!"
+    exit 1
+fi
+
+case "$1" in
+  --version)
+    echo "tuxblox version $VERSION"
+    ;;
+
+  --uninstall)
+    echo "Uninstalling tuxblox in 5 seconds, Ctrl+C to quit"
+    for i in {5..1}; do
+        echo -ne "  $i...\r"
+        sleep 1
+    done
+    echo "Uninstalling tuxblox"
+    rm -rf ~/.tuxblox/
+    echo "Uninstalled tuxblox successfully"
+    rm $0
+    ;;
+
+  --update)
+    echo "Updating tuxblox"
+    curl -sSL https://tuxblox.net/install.sh | bash
+    ;;
+
+  --help|"")
+    echo "Usage: tuxblox [options]"
+    echo ""
+    echo "Options:"
+    echo "  --version    Show the current version"
+    echo "  --uninstall  Uninstalls tuxblox"
+    echo "  --update     Updates tuxblox"
+    echo "  --help       Show this help message"
+    ;;
+
+  *)
+  
+    echo "tuxblox: unknown option '$1'"
+    echo "tuxblox: try 'tuxblox --help' for more information"
+    exit 1
+    ;;
+esac

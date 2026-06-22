@@ -22,19 +22,7 @@
 <body>
 
     <div class="container">
-        <header>
-            <div class="logo-section">
-                <a href="/">
-                    <img src="/tuxblox-banner-offset-small.png" alt="TuxBlox Logo" class="brand-banner-img">
-                </a>
-            </div>
-            <nav>
-                <a href="#about" class="nav-git">How it works</a>
-                <a href="/install">Setup</a>
-                <a href="/docs">Docs</a>
-                <a href="/github" target="_blank">Source Code</a>
-            </nav>
-        </header>
+        <div data-include="topbar"></div>
 
         <div class="alert-box warning-alert">
             <div class="alert-title">NOTICE: Still In Development</div>
@@ -73,8 +61,8 @@
                 <p>Supports VFIO passthrough setups to deliver complete, native hardware graphics performance.</p>
             </div>
             <div class="card">
-                <h3>Snapshot Recovery</h3>
-                <p>Allows you to roll back the VM state instantly if an update or configuration break occurs.</p>
+                <h3>Open Source</h3>
+                <p>This project is completely free and open source. You can view our source code at our GitHub repository.</p>
             </div>
             <div class="card">
                 <h3>Integrated CLI & Launcher</h3>
@@ -86,15 +74,9 @@
             </div>
         </section>
 
-        <section class="disclaimer-box">
-            <h4>Disclaimer</h4>
-            <p>TuxBlox is an independent compatibility tool intended for personal use. It is not affiliated with, authorized by, or associated with Roblox Corporation or Microsoft Corporation. Roblox and Windows are trademarks of their respective owners.</p>
-        </section>
-
-        <footer>
-            <div>&copy; 2026 TuxBlox Project (MIT License)</div>
-            <div>GitHub: <a href="https://github.com/cherrypath0" target="_blank">@cherrypath0</a></div>
-        </footer>
+        <div data-include="footer"></div>
     </div>
+
+    <script src="/include.js" defer></script>
 </body>
 </html>
