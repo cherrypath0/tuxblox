@@ -1,0 +1,4 @@
+*.iso
+build/
+cert.sh
+.env

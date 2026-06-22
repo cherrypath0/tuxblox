@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+Allow: /install
+Allow: /docs
+
+Sitemap: https://tuxblox.net/sitemap.xml

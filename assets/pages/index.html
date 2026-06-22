@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TuxBlox - Roblox on Linux</title>
+    <link rel="icon" type="image/x-icon" href="favicon.ico">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+
+    <meta property="og:title" content="TuxBlox 🐧 - Roblox natively on Linux" />
+    <meta property="og:site_name" content="tuxblox.net" />
+    <meta property="og:description" content="Run the native Windows Roblox client on Linux using a lightweight, stripped-down Windows virtual machine. No Wine, no compatibility wrappers." />
+    <meta property="og:image" content="https://tuxblox.net/tuxblox-icon-medium.png" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="theme-color" content="#2563EB" />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://tuxblox.net" />
+</head>
+<body>
+
+    <div class="container">
+        <header>
+            <div class="logo-section">
+                <img src="tuxblox-icon-large.png" alt="TuxBlox Logo" class="brand-logo-img">
+                <div class="brand-name">TuxBlox</div>
+            </div>
+            <nav>
+                <a href="#about" class="nav-git">How it works</a>
+                <a href="/install">Setup</a>
+                <a href="/docs">Docs</a>
+                <a href="/github" target="_blank">Source Code</a>
+            </nav>
+        </header>
+
+        <section class="hero">
+            <h1>Roblox on Linux.<br><span class="blue-text">Native.</span> <span class="orange-text">Simple.</span></h1>
+            <p class="hero-subtitle">TuxBlox lets you run the native Windows Roblox client on Linux by using a lightweight, stripped-down Windows virtual machine. It skips Wine and compatibility layers entirely to give you a native experience.</p>
+            
+            <div class="cta-group">
+                <a href="/install" class="btn btn-primary">Get Started</a>
+                <a href="/github" target="_blank" class="btn btn-secondary">
+                    <svg class="icon-svg" viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg>
+                    View Source Code
+                </a>
+            </div>
+        </section>
+
+        <section class="how-it-works" id="about">
+            <h2>How it Works</h2>
+            <p>Instead of dealing with compatibility layers, TuxBlox utilizes KVM and QEMU to launch a heavily debloated Windows environment. This setup boots straight into Roblox and nothing else. Because there is no desktop, browser, or background software, the VM devotes all its resources strictly to the game.</p>
+        </section>
+
+        <section class="features">
+            <div class="card">
+                <h3>Native Execution</h3>
+                <p>Runs the official Roblox executable without Wine or relying on translation wrappers.</p>
+            </div>
+            <div class="card">
+                <h3>Direct Booting</h3>
+                <p>Launches straight into the game with no Windows desktop clutter, stripping background system bloat.</p>
+            </div>
+            <div class="card">
+                <h3>GPU Passthrough</h3>
+                <p>Supports VFIO passthrough setups to deliver complete, native hardware graphics performance.</p>
+            </div>
+            <div class="card">
+                <h3>Snapshot Recovery</h3>
+                <p>Allows you to roll back the VM state instantly if an update or configuration break occurs.</p>
+            </div>
+            <div class="card">
+                <h3>Integrated CLI & Launcher</h3>
+                <p>Includes a dedicated CLI and standalone launcher application for streamlined management and quick configuration.</p>
+            </div>
+            <div class="card">
+                <h3>Blazingly Fast</h3>
+                <p>Engineered in C++ to minimize overhead, maximize process communication efficiency, and deliver peak hardware performance.</p>
+            </div>
+        </section>
+
+        <section class="disclaimer-box">
+            <h4>Disclaimer</h4>
+            <p>TuxBlox is an independent compatibility tool intended for personal use. It is not affiliated with, authorized by, or associated with Roblox Corporation or Microsoft Corporation. Roblox and Windows are trademarks of their respective owners.</p>
+        </section>
+
+        <footer>
+            <div>&copy; 2026 TuxBlox Project (MIT License)</div>
+            <div>GitHub: <a href="https://github.com/cherrypath0" target="_blank">@cherrypath0</a></div>
+        </footer>
+    </div>
+</body>
+</html>

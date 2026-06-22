@@ -1,0 +1,4 @@
+{
+    "/github/*": "https://github.com/cherrypath0/tuxblox/*",
+    "/security.txt": "https://tuxblox.net/.well-known/security.txt"
+}
