@@ -30,7 +30,7 @@ TuxBlox translates the macOS client files and frameworks directly into native ca
 * **Filesystem:** Unencrypted (because the compatibility layer relies on methods that require an unencrypted filesystem)
 
 ## Getting Started
-Full documentation is currently a work in progress. You can find the available setup guides inside the `docs/` folder once its available.
+Full documentation is currently a work in progress. You can find the available setup guides at [tuxblox.net/docs](https://tuxblox.net/docs) once its available.
 
 ## Disclaimer
 TuxBlox is an independent compatibility tool intended for personal use. It is not affiliated or associated with Roblox Corporation in any way.
