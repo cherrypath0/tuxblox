@@ -11,7 +11,7 @@
 # TuxBlox 🐧
 TuxBlox is an open-source project that makes the Roblox macOS Game Client compatible on Linux by translating macOS calls to Linux using a compatibility layer.
 
-## How it Works
+## How It Works
 TuxBlox translates the macOS client files and frameworks directly into native calls Linux can understand.
 
 ## Key Features

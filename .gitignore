@@ -1,5 +1,7 @@
 build/
 server/
 webdelivery/
-.env
+examples/
+*.env
 gitpush.sh
+SKILL.md

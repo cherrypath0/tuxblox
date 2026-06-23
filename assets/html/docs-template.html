@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{TITLE}} | TuxBlox Docs</title>
+    <link rel="icon" type="image/x-icon" href="https://assetdelivery.tuxblox.net/images/ico/favicon.ico">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://assetdelivery.tuxblox.net/styles/style.css">
+    <link rel="stylesheet" href="https://assetdelivery.tuxblox.net/styles/docs.css">
+
+    <meta property="og:title" content="{{TITLE}} | TuxBlox Docs 🐧" />
+    <meta property="og:site_name" content="docs.tuxblox.net" />
+    <meta property="og:description" content="An open-source project that allows Roblox to run on Linux through a custom compatibility layer" />
+    <meta property="og:image" content="https://assetdelivery.tuxblox.net/images/png/icon/tuxblox-icon-medium.png" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="theme-color" content="#2563EB" />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://docs.tuxblox.net" />
+</head>
+<body>
+
+    <div class="container">
+        <div data-include="topbar"></div>
+
+        <div class="docs-layout">
+            <nav class="docs-sidebar">
+                <div class="docs-sidebar-title">Documentation</div>
+                {{SIDEBAR}}
+            </nav>
+            <main class="docs-content">
+                <article>
+                    {{CONTENT}}
+                </article>
+                {{DOCNAV}}
+            </main>
+        </div>
+
+        <div data-include="footer"></div>
+    </div>
+
+    <script src="https://assetdelivery.tuxblox.net/scripts/include.js" defer></script>
+</body>
+</html>
