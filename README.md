@@ -1,5 +1,5 @@
 > [!WARNING]
-> **TuxBlox is exclusively distributed through [tuxblox.net](https://tuxblox.net) and this official GitHub repository.** Files downloaded from any other source are not provided by us and may contain viruses or malware. Always verify the URL before running any installation scripts.
+> **TuxBlox is distributed ONLY through [tuxblox.net](https://tuxblox.net) and this official GitHub repository.** Files downloaded from any other source are not provided by us and may contain viruses or malware. Always verify the URL before running any installation scripts.
 
 ***
 
