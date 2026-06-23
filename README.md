@@ -6,33 +6,34 @@
 ![TuxBlox Banner](assets/images/tuxblox-banner-plain-small.png)
 
 # TuxBlox 🐧
-TuxBlox lets you run the native Windows Roblox client on Linux by using a lightweight, stripped-down Windows virtual machine. It skips Wine and compatibility layers entirely to give you a native experience.
+TuxBlox is an open-source project that makes the Roblox macOS Game Client compatible on Linux by translating macOS calls to Linux using a compatibility layer.
 
 ## How it Works
-Instead of dealing with compatibility layers, TuxBlox utilizes KVM and QEMU to launch a heavily debloated Windows environment. This setup boots straight into Roblox and nothing else. Because there is no desktop, browser, or background software, the VM devotes all its resources strictly to the game.
+TuxBlox translates the macOS client files and frameworks directly into native calls Linux can understand.
 
 ## Key Features
-* **Native Execution:** Runs the official Roblox executable without Wine.
-* **Direct Booting:** Launches straight into the game with no Windows desktop clutter.
-* **GPU Passthrough:** Supports VFIO passthrough to deliver native graphics performance.
-* **Snapshot Recovery:** Allows you to roll back the VM state instantly if an update breaks something.
+* **Translation Layer:** TuxBlox translates macOS system calls to Linux on the fly, running the official Roblox client directly.
+* **Lightweight by Design:** TuxBlox runs right alongside your existing setup without bloated processes or background services hogging your RAM.
+* **Vulkan Graphics Bridge:** TuxBlox intercepts Apple's graphics calls and hands them straight to Linux Vulkan drivers for maximum frame rates.
+* **Automatic Updates:** Install it once and forget it. The built-in updater handles client updates seamlessly in the background.
+* **Built for Speed:** Written in C++ to keep system overhead minimal, ensuring your hardware focuses entirely on the game.
 
 ## System Requirements
-### Hardware Specifications
-* **Memory:** 6GB RAM minimum (8GB recommended)
-* **Storage:** 60GB available space (70GB recommended)
-* **Processor:** 2 CPU cores minimum (4 CPU cores recommended)
-* **Motherboard:** CPU with IOMMU support (Intel VT-d or AMD-Vi enabled in BIOS)
-* **Graphics:** A dedicated GPU compatible with VFIO passthrough (an integrated or second GPU is required for the Linux host during passthrough)
+### Hardware Requirements
+* **Processor:** Intel or AMD, 64-bit x86 (x86_64) Architecture with SSE3 Support
+* **Memory:** 4 GB
+* **Storage:** 1 GB
 
-### Software Dependencies
-* **OS:** A Linux distribution with KVM and QEMU configured
+### Software Requirements
+* **Operating System:** Any major 64-bit Linux distribution
+* **Kernel Version:** 5.0 or higher
+* **Filesystem:** Unencrypted (because the compatibility layer relies on methods that require an unencrypted filesystem)
 
 ## Getting Started
-Full documentation is currently a work in progress. You can find the available setup guides inside the `docs/` folder.
+Full documentation is currently a work in progress. You can find the available setup guides inside the `docs/` folder once its available.
 
 ## Disclaimer
-TuxBlox is an independent compatibility tool intended for personal use. It is not affiliated with, authorized by, or associated with Roblox Corporation or Microsoft.
+TuxBlox is an independent compatibility tool intended for personal use. It is not affiliated or associated with Roblox Corporation in any way.
 
 ## License
 This project is licensed under the MIT License. See the [LICENSE](./LICENSE) file for the full text.

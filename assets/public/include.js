@@ -11,6 +11,7 @@
         <a href="/">About</a>
         <a href="/install">Setup</a>
         <a href="/docs">Docs</a>
+        <a href="/discord" target="_blank">Discord</a>
         <a href="/github" target="_blank" class="nav-git">Source Code</a>
     </nav>
 </header>
@@ -18,7 +19,7 @@
     footer: `
 <section class="disclaimer-box">
     <h4>Disclaimer</h4>
-    <p>TuxBlox is an independent compatibility tool intended for personal use. It is not affiliated with, authorized by, or associated with Roblox Corporation or Microsoft Corporation. Roblox and Windows are trademarks of their respective owners.</p>
+    <p>TuxBlox is an independent compatibility tool intended for personal use. It is not affiliated or associated with Roblox Corporation in any way.</p>
 </section>
  
 <footer>

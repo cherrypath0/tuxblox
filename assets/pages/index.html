@@ -10,9 +10,9 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/style.css">
 
-    <meta property="og:title" content="TuxBlox 🐧 - Roblox natively on Linux" />
+    <meta property="og:title" content="TuxBlox 🐧" />
     <meta property="og:site_name" content="tuxblox.net" />
-    <meta property="og:description" content="Run the native Windows Roblox client on Linux using a lightweight, stripped-down Windows virtual machine. No Wine, no compatibility wrappers." />
+    <meta property="og:description" content="An open-source project that allows Roblox to run on Linux through a custom compatibility layer" />
     <meta property="og:image" content="https://tuxblox.net/tuxblox-icon-medium.png" />
     <meta name="twitter:card" content="summary" />
     <meta name="theme-color" content="#2563EB" />
@@ -26,12 +26,12 @@
 
         <div class="alert-box warning-alert">
             <div class="alert-title">NOTICE: Still In Development</div>
-            <p><strong>TuxBlox is still early in development, nothing is final!</strong></p>
+            <p><strong>TuxBlox is still VERY early in development, nothing is final!</strong></p>
         </div>
 
         <section class="hero">
-            <h1>Roblox on Linux.<br><span class="blue-text">Native.</span> <span class="orange-text">Simple.</span></h1>
-            <p class="hero-subtitle">TuxBlox lets you run the native Windows Roblox client on Linux by using a lightweight, stripped-down Windows virtual machine. It skips Wine and compatibility layers entirely to give you a native experience.</p>
+            <h1>Roblox on Linux.<br><span class="blue-text">Fast.</span> <span class="orange-text">Simple.</span></h1>
+            <p class="hero-subtitle">TuxBlox is an open-source project that makes the Roblox macOS Game Client compatible on Linux by translating macOS calls to Linux using a compatibility layer.</p>
             
             <div class="cta-group">
                 <a href="/install" class="btn btn-primary">Get Started</a>
@@ -44,35 +44,35 @@
 
         <section class="how-it-works" id="about">
             <h2>How it Works</h2>
-            <p>Instead of dealing with compatibility layers, TuxBlox utilizes KVM and QEMU to launch a heavily debloated Windows environment. This setup boots straight into Roblox and nothing else. Because there is no desktop, browser, or background software, the VM devotes all its resources strictly to the game.</p>
+            <p>It translates the macOS client files and frameworks directly into native calls Linux can understand.</p>
         </section>
 
         <section class="features">
+		    <div class="card">
+		        <h3>Translation Layer</h3>
+		        <p>We take the actual Mac app binaries and translate their calls on the fly, so Linux can run them directly. No extra layers, no funny business.</p>
+		    </div>
+		    <div class="card">
+		        <h3>Lightweight by Design</h3>
+		        <p>Runs right alongside your existing setup. No bloated installers, no background services eating your RAM, no waiting around for things to load.</p>
+		    </div>
+		    <div class="card">
+		        <h3>Vulkan Graphics Bridge</h3>
+		        <p>We intercept Apple's graphics calls and hand them off straight to your Linux Vulkan drivers, so you're not losing frames along the way.</p>
+		    </div>
+		    <div class="card">
+		        <h3>Fully Open Source</h3>
+		        <p>The whole project is free and lives on GitHub. Dig through the code, fork it, tear it apart. It's all out in the open.</p>
+		    </div>
             <div class="card">
-                <h3>Native Execution</h3>
-                <p>Runs the official Roblox executable without Wine or relying on translation wrappers.</p>
+                <h3>Automatic Updates</h3>
+                <p>Just install it once and forget it. The built-in updater handles everything in the background, keeping your client up to date without you lifting a finger.</p>
             </div>
-            <div class="card">
-                <h3>Direct Booting</h3>
-                <p>Launches straight into the game with no Windows desktop clutter, stripping background system bloat.</p>
-            </div>
-            <div class="card">
-                <h3>GPU Passthrough</h3>
-                <p>Supports VFIO passthrough setups to deliver complete, native hardware graphics performance.</p>
-            </div>
-            <div class="card">
-                <h3>Open Source</h3>
-                <p>This project is completely free and open source. You can view our source code at our GitHub repository.</p>
-            </div>
-            <div class="card">
-                <h3>Integrated CLI & Launcher</h3>
-                <p>Includes a dedicated CLI and standalone launcher application for streamlined management and quick configuration.</p>
-            </div>
-            <div class="card">
-                <h3>Blazingly Fast</h3>
-                <p>Engineered in C++ to minimize overhead, maximize process communication efficiency, and deliver peak hardware performance.</p>
-            </div>
-        </section>
+		    <div class="card">
+		        <h3>Built for Speed</h3>
+		        <p>The core is written in C++ to stay lean and fast, keeping overhead low so your hardware can spend its effort on the game, not the layer underneath it.</p>
+		    </div>
+		</section>
 
         <div data-include="footer"></div>
     </div>

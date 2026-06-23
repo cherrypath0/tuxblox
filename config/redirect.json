@@ -1,4 +1,5 @@
 {
     "/github/*": "https://github.com/cherrypath0/tuxblox/*",
+    "/discord/*": "https://discord.gg/QkgBMMMwdW",
     "/security.txt": "https://tuxblox.net/.well-known/security.txt"
 }

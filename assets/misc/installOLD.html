@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Install TuxBlox - Roblox on Linux</title>
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/style.css">
+
+    <meta property="og:title" content="TuxBlox 🐧 - Roblox natively on Linux" />
+    <meta property="og:site_name" content="tuxblox.net" />
+    <meta property="og:description" content="Run the native Windows Roblox client on Linux using a lightweight, stripped-down Windows virtual machine. No Wine, no compatibility wrappers." />
+    <meta property="og:image" content="https://tuxblox.net/tuxblox-icon-medium.png" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="theme-color" content="#2563EB" />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://tuxblox.net" />
+</head>
+<body>
+    <div class="container">
+        <div data-include="topbar"></div>
+
+        <section class="hero" style="padding: 40px 0 20px 0;">
+            <h1>Installation Guide</h1>
+            <p class="hero-subtitle">Follow these instructions carefully to compile and deploy your isolated environment.</p>
+        </section>
+
+        <div class="alert-box warning-alert">
+            <div class="alert-title">NOTICE: Still In Development</div>
+            <p><strong>TuxBlox is still VERY early in development, nothing is final!</strong></p>
+        </div>
+
+        <div class="alert-box warning-alert">
+            <div class="alert-title">Important Compatibility Notice</div>
+            <p><strong>TuxBlox is explicitly built for Linux distributions.</strong> This utility cannot be installed on Windows or macOS environments. If you are currently operating on Windows or macOS, the Roblox Game Client is already natively supported. Please visit the <a href="https://www.roblox.com/download/" target="_blank">Official Roblox Download Page</a> to install it directly.</p>
+            <p style="margin-top: 12px; font-size: 13px; opacity: 0.8;"><b>Important Note:</b> Due to copyright reasons, a direct pre-compiled .iso download is not available. The provided tools allow you to compile the environment locally using your own legal copy.</p>
+        </div>
+
+        <section style="margin: 40px 0;">
+            <h2 style="font-size: 22px; margin-bottom: 20px; font-weight: 700;">System Requirements</h2>
+            <div class="requirements-grid">
+                <div class="card">
+                    <h3>Hardware Specifications</h3>
+                    <ul class="req-list">
+                        <li><strong>Memory:</strong> 6GB RAM <span class="muted-tag">(8GB recommended)</span></li>
+                        <li><strong>Storage:</strong> 60GB Storage <span class="muted-tag">(70GB recommended)</span></li>
+                        <li><strong>Processor:</strong> 2 CPU cores <span class="muted-tag">(4 CPU cores recommended)</span></li>
+                        <li><strong>Motherboard:</strong> CPU with IOMMU support</li>
+                        <li><strong>Graphics:</strong> A GPU compatible with VFIO passthrough</li>
+                    </ul>
+                </div>
+                <div class="card">
+                    <h3>Software Dependencies</h3>
+                    <ul class="req-list">
+                        <li><strong>Host OS:</strong> A Linux distro with KVM/QEMU support</li>
+                    </ul>
+                </div>
+            </div>
+        </section>
+
+        <section style="margin: 60px 0;">
+            <h2 style="font-size: 22px; margin-bottom: 30px; font-weight: 700;">Installation Steps</h2>
+
+            <div class="step-block">
+                <div class="step-number">01</div>
+                <div class="step-content">
+                    <h3>Install the TuxBlox CLI</h3>
+                    <p class="step-desc">Open your terminal and run the automated installation script:</p>
+                    <div class="code-box-container">
+                        <!--div class="code-box-header"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="code-title">bash</span></div-->
+                        <div class="code-box">
+                            <code class="install-cmd"><span class="t-cmd">curl</span> <span class="t-flag">-sSL</span> <span class="t-str">https://tuxblox.net/install.sh</span> | <span class="t-cmd">bash</span></code>
+                            <span class="copy-btn">Copy</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="step-block">
+                <div class="step-number">02</div>
+                <div class="step-content">
+                    <h3>Download the Windows Disk Image (ISO)</h3>
+                    <p class="step-desc">Download an English (US) language Windows 11 ISO file directly from Microsoft:</p>
+                    <a href="https://www.microsoft.com/software-download/windows11" target="_blank" class="btn btn-secondary" style="margin-bottom: 10px;">
+                        Go to Microsoft Download Page
+                    </a>
+                </div>
+            </div>
+
+            <div class="step-block">
+                <div class="step-number">03</div>
+                <div class="step-content">
+                    <h3>Compile Environment ISO</h3>
+                    <p class="step-desc">Run these commands in your terminal to select, compile, and optionally verify your environment's integrity:</p>
+                    <p class="step-desc">Make sure to replace /path/to/iso/file.iso with the actual path to the ISO file</p>
+
+                    <div class="code-box-container" style="margin-bottom: 12px;">
+                        <!--div class="code-box-header"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="code-title">Terminal</span></div-->
+                        <div class="code-box">
+                            <code class="install-cmd"><span class="t-cmd">tuxblox</span> <span class="t-param">iso select</span> <span class="t-arg">/path/to/iso/file.iso</span></code>
+                            <span class="copy-btn">Copy</span>
+                        </div>
+                    </div>
+
+                    <div class="code-box-container" style="margin-bottom: 12px;">
+                        <!--div class="code-box-header"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="code-title">Terminal</span></div-->
+                        <div class="code-box">
+                            <code class="install-cmd"><span class="t-cmd">tuxblox</span> <span class="t-param">iso selected compile</span> <span class="t-str">TuxBlox</span></code>
+                            <span class="copy-btn">Copy</span>
+                        </div>
+                    </div>
+
+                    <div class="code-box-container">
+                        <!--div class="code-box-header"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="code-title">Terminal</span></div-->
+                        <div class="code-box">
+                            <code class="install-cmd"><span class="t-cmd">tuxblox</span> <span class="t-param">iso verify</span> <span class="t-str">TuxBlox</span></code>
+                            <span class="copy-btn">Copy</span>
+                        </div>
+                    </div>
+
+                    <p class="step-desc" style="margin-top: 12px; font-size: 13.5px;">If the ISO is valid, the output should look like this:</p>
+                    <div class="code-box-container">
+                        <!--div class="code-box-header"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="code-title">Terminal</span></div-->
+                        <div class="code-box">
+                            <code class="install-cmd"><code style="color: #4ade80; font-family: var(--font-mono); font-weight: 500;">Image hash is valid</code></code>
+                        </div>
+                    </div>
+                    <p class="step-desc" style="margin-top: 12px; font-size: 13.5px;">You can check for other output results in the documentation here:</p>
+                    <a href="/docs/cli/iso-verify" target="_blank" class="btn btn-secondary" style="margin-bottom: 10px;">
+                        Go to CLI docs
+                    </a>
+                </div>
+            </div>
+
+            <div class="step-block">
+                <div class="step-number">04</div>
+                <div class="step-content">
+                    <h3>Launch the App</h3>
+                    <p class="step-desc">You can now configure and launch TuxBlox straight from the desktop launcher application:</p>
+                    <div class="code-box-container">
+                        <!--div class="code-box-header"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="code-title">Terminal</span></div-->
+                        <div class="code-box">
+                            <code class="install-cmd"><span class="t-cmd">tuxblox</span> <span class="t-param">app</span></code>
+                            <span class="copy-btn">Copy</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <div data-include="footer"></div>
+    </div>
+
+    <script src="/include.js" defer></script>
+    <script>
+        const copyButtons = document.querySelectorAll('.copy-btn');
+
+        copyButtons.forEach(btn => {
+            btn.addEventListener('click', () => {
+                const targetCode = btn.parentElement.querySelector('.install-cmd').innerText;
+                navigator.clipboard.writeText(targetCode).then(() => {
+                    const originalText = btn.innerText;
+                    btn.innerText = 'Copied';
+                    setTimeout(() => { btn.innerText = originalText; }, 2000);
+                }).catch(err => {
+                    console.error('Failed to copy: ', err);
+                });
+            });
+        });
+
+        function detectOS() {
+            const uaData = navigator.userAgentData;
+            const platform = (uaData?.platform || navigator.platform || '').toLowerCase();
+            const ua = (navigator.userAgent || '').toLowerCase();
+
+            if (platform.includes('android') || ua.includes('android')) return 'Android';
+
+            if (
+                ua.includes('iphone') ||
+                ua.includes('ipod') ||
+                ua.includes('ipad') ||
+                (platform.includes('mac') && navigator.maxTouchPoints > 1 && ua.includes('mobile'))
+            ) {
+                return 'iOS';
+            }
+
+            if (platform.includes('win') || ua.includes('windows')) return 'Windows';
+            if (platform.includes('mac')) return 'macOS';
+            if (platform.includes('linux')) return 'Linux';
+
+            return 'Unsupported';
+        }
+
+        const os = detectOS();
+
+        if (os === 'Windows' || os === 'macOS' || os === 'Android' || os === 'iOS') {
+            const originalNotice = document.querySelector('.alert-box.warning-alert');
+
+            const newNotice = document.createElement('div');
+            newNotice.className = 'alert-box warning-alert';
+            newNotice.innerHTML = `
+                <div class="alert-title">Roblox Game Client Natively Supported</div>
+                <p><strong>We detected your operating system to be ${os}, which is natively supported by Roblox.</strong></p>
+                <a href="https://www.roblox.com/download/" target="_blank" class="btn btn-secondary" style="margin-top: 12px; display: inline-block;">
+                    Download Roblox Client
+                </a>
+            `;
+
+            originalNotice.parentNode.insertBefore(newNotice, originalNotice);
+
+        } else if (os === 'Unsupported') {
+            const originalNotice = document.querySelector('.alert-box.warning-alert');
+
+            const newNotice = document.createElement('div');
+            newNotice.className = 'alert-box warning-alert';
+            newNotice.innerHTML = `
+                <div class="alert-title">Unsupported OS</div>
+                <p><strong>We detected your operating system to be ${os}, but your operating system is not supported for both TuxBlox and Roblox</strong></p>
+            `;
+
+            originalNotice.parentNode.insertBefore(newNotice, originalNotice);
+        }
+    </script>
+</body>
+</html>
