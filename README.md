@@ -1,5 +1,6 @@
 > [!WARNING]
 > **TuxBlox is distributed ONLY through [tuxblox.net](https://tuxblox.net) and this official GitHub repository.** Files downloaded from any other source are not provided by us and may contain viruses or malware. Always verify the URL before running any installation scripts.
+
 > [!WARNING]
 > **Account safety is not guaranteed.** TuxBlox is an unofficial, unaffiliated compatibility layer. Anti-cheat detection behavior can change at any time as Roblox's systems evolve, and an account that works today may be flagged or banned tomorrow. Use at your own risk.
 
