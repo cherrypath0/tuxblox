@@ -4,3 +4,6 @@ cert.sh
 .env
 server.js
 gitpush.sh
+deployment-server.js
+*-server.js
+serverinit.sh

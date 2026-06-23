@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TuxBlox - Roblox Deployment Downloader</title>
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/style.css">
+
+    <meta property="og:title" content="TuxBlox 🐧" />
+    <meta property="og:site_name" content="tuxblox.net" />
+    <meta property="og:description" content="An open-source project that allows Roblox to run on Linux through a custom compatibility layer" />
+    <meta property="og:image" content="https://tuxblox.net/tuxblox-icon-medium.png" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="theme-color" content="#2563EB" />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://tuxblox.net" />
+</head>
+<body>
+
+    <div class="container">
+        <div data-include="topbar"></div>
+
+        <div class="alert-box warning-alert">
+            <div class="alert-title">COMPATIBILITY NOTICE</div>
+            <p>This deployment utility only pulls the official <strong>MacPlayer</strong> binaries, which are required for the TuxBlox runtime translation layer.</p>
+        </div>
+
+        <section class="hero" style="padding-bottom: 40px;">
+            <h1>Deployment<br><span class="blue-text">Downloader</span></h1>
+            <p class="hero-subtitle">Download Roblox client builds straight from Roblox's official Content Delivery Network.</p>
+            
+            <div class="card" style="max-width: 500px; border: 1px solid var(--border-color); margin-top: 20px;">
+                <h3 style="margin-bottom: 16px;">Download Version</h3>
+                <form action="https://rdd.tuxblox.net/download" method="GET">
+                    <div style="margin-bottom: 16px;">
+                        <label style="display: block; font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; margin-bottom: 6px;">Deployment Channel</label>
+                        <input type="text" name="channel" placeholder="production" value="production" style="width: 100%; padding: 10px 14px; background: #06080e; border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-color); font-family: var(--font-stack); font-size: 14px;">
+                    </div>
+                    <div style="margin-bottom: 24px;">
+                        <label style="display: block; font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; margin-bottom: 6px;">Version Hash (Optional)</label>
+                        <input type="text" name="version" placeholder="version hash" style="width: 100%; padding: 10px 14px; background: #06080e; border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-color); font-family: var(--font-mono); font-size: 13px;">
+                    </div>
+                    <button type="submit" class="btn btn-primary" style="width: 100%; justify-content: center; cursor: pointer; border: none;">
+                        Download version (.zip)
+                    </button>
+                </form>
+            </div>
+        </section>
+
+        <section class="how-it-works" style="margin-top: 40px;">
+            <h2>Developer & CLI Usage</h2>
+            <p style="color: var(--text-muted); font-size: 15px; margin-bottom: 30px;">You can programmatically query this server using standard terminal automation strings like curl or wget wrappers.</p>
+            
+            <div class="step-block">
+                <div class="step-number">01</div>
+                <div class="step-content">
+                    <h3>Default Production Pipeline</h3>
+                    <p class="step-desc">Pull the latest verified configuration directly from the primary tracking production channel.</p>
+                    <div class="code-box-container">
+                        <div class="code-box">
+                            <span>curl -O https://rdd.tuxblox.net/download</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="step-block">
+                <div class="step-number">02</div>
+                <div class="step-content">
+                    <h3>Target Tracking Channels</h3>
+                    <p class="step-desc">Specify specific beta, internal testing, or platform integration variant channels via explicit queries.</p>
+                    <div class="code-box-container">
+                        <div class="code-box">
+                            <span>curl -O "https://rdd.tuxblox.net/download?channel=zCanary"</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <div data-include="footer"></div>
+    </div>
+    <script src="/include.js" defer></script>
+</body>
+</html>

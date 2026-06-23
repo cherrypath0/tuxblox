@@ -1,18 +1,19 @@
 (function () {
   const TEMPLATES = {
     topbar: `
-<header>
+<header class="navbar-floating">
     <div class="logo-section">
         <a href="/">
             <img src="/tuxblox-banner-offset-small.png" alt="TuxBlox Logo" class="brand-banner-img">
         </a>
     </div>
-    <nav>
-        <a href="/">About</a>
-        <a href="/install">Setup</a>
-        <a href="/docs">Docs</a>
-        <a href="/discord" target="_blank">Discord</a>
-        <a href="/github" target="_blank" class="nav-git">Source Code</a>
+    <nav class="navbar-links">
+        <a href="/" class="nav-btn" data-route="/">About</a>
+        <a href="/install" class="nav-btn" data-route="/install">Setup</a>
+        <a href="/deployment" class="nav-btn" data-route="/deployment">Deployment</a>
+        <a href="/docs" class="nav-btn" data-route="/docs">Docs</a>
+        <a href="/discord" target="_blank" class="nav-btn">Discord</a>
+        <a href="/github" target="_blank" class="nav-btn nav-git">Source Code</a>
     </nav>
 </header>
 `,
@@ -40,6 +41,16 @@
       }
  
       el.innerHTML = html;
+    });
+
+    const currentPath = window.location.pathname;
+    
+    document.querySelectorAll('.navbar-links .nav-btn[data-route]').forEach((btn) => {
+      const route = btn.getAttribute('data-route');
+      
+      if (currentPath === route || currentPath === route + '.html') {
+        btn.classList.add('active');
+      }
     });
  
     document.dispatchEvent(new CustomEvent('includes:loaded'));
