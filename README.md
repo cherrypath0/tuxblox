@@ -5,7 +5,7 @@
 
 ***
 
-![TuxBlox Banner](assets/images/tuxblox-banner-plain-small.png)
+![TuxBlox Banner](assets/images/png/banner/tuxblox-banner-plain-small.png)
 
 # TuxBlox 🐧
 TuxBlox is an open-source project that makes the Roblox macOS Game Client compatible on Linux by translating macOS calls to Linux using a compatibility layer.

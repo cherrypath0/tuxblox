@@ -3,17 +3,17 @@
     topbar: `
 <header class="navbar-floating">
     <div class="logo-section">
-        <a href="/">
-            <img src="/tuxblox-banner-offset-small.png" alt="TuxBlox Logo" class="brand-banner-img">
+        <a href="https://tuxblox.net/">
+            <img src="https://assetdelivery.tuxblox.net/images/png/banner/tuxblox-banner-offset-small.png" alt="TuxBlox Logo" class="brand-banner-img">
         </a>
     </div>
     <nav class="navbar-links">
-        <a href="/" class="nav-btn" data-route="/">About</a>
-        <a href="/install" class="nav-btn" data-route="/install">Setup</a>
-        <a href="/deployment" class="nav-btn" data-route="/deployment">Deployment</a>
-        <a href="/docs" class="nav-btn" data-route="/docs">Docs</a>
-        <a href="/discord" target="_blank" class="nav-btn">Discord</a>
-        <a href="/github" target="_blank" class="nav-btn nav-git">Source Code</a>
+        <a href="https://tuxblox.net/" class="nav-btn" data-route="/">About</a>
+        <a href="https://tuxblox.net/install" class="nav-btn" data-route="/install">Setup</a>
+        <a href="https://tuxblox.net/deployment" class="nav-btn" data-route="/deployment">Deployment</a>
+        <a href="https://tuxblox.net/docs" class="nav-btn" data-route="/docs">Docs</a>
+        <a href="https://tuxblox.net/discord" target="_blank" class="nav-btn">Discord</a>
+        <a href="https://tuxblox.net/github" target="_blank" class="nav-btn nav-git">Source Code</a>
     </nav>
 </header>
 `,
