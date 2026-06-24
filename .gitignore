@@ -10,3 +10,4 @@ server/data/*
 server/modules/*
 server/middleware/*
 server/cert.sh
+server/init.sh
