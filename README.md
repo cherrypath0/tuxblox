@@ -19,7 +19,7 @@ TuxBlox translates the macOS client files and frameworks directly into native ca
 * **Lightweight by Design:** TuxBlox runs right alongside your existing setup without bloated processes or background services hogging your RAM.
 * **Vulkan Graphics Bridge:** TuxBlox intercepts Apple's graphics calls and hands them straight to Linux Vulkan drivers for maximum frame rates.
 * **Automatic Updates:** Install it once and forget it. The built-in updater handles client updates seamlessly in the background.
-* **Built for Speed:** Written in C++ to keep system overhead minimal, ensuring your hardware focuses entirely on the game.
+* **Built for Speed:** Built with a native toolkit to strip away unnecessary layers. Background bloat is basically zero, keeping your hardware focused entirely on your frame rate.
 
 ## System Requirements
 ### Hardware Requirements
