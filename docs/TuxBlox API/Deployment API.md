@@ -2,7 +2,7 @@
 
 > **DISCLAIMER:** Files are proxied directly from Roblox's official Content Delivery Network at user request. **TuxBlox does not host, store or cache any client binaries on its own servers.**
 
-> **NOTICE:** As of June 24, 2026, **authentication is required to download the MacPlayer binaries.** To protect our infrastructure from automated scraper abuse and ensure fair bandwidth for all users, you must now be authenticated to our servers to initialize a download request. **Tor traffic has also been blocked from accessing this API.**
+> **NOTICE:** As of June 24, 2026, **authentication is required to download the MacPlayer binaries.** To protect our infrastructure from automated scraper abuse and ensure fair bandwidth for all users, you must now be authenticated to our servers to initialize a download request. **Tor/proxy traffic has also been blocked from accessing this API.**
 
 ## What is the Deployment API?
 The Deployment API is a utility that queries and downloads Roblox Game Client version files from Roblox's Content Delivery Network.
