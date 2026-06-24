@@ -8,4 +8,5 @@ SKILL.md
 
 server/data/*
 server/modules/*
+server/middleware/*
 server/cert.sh
