@@ -16,7 +16,9 @@ When you request a build, the downloader kicks off a clean, stateless chain of e
 3. **On-the-Fly Optimization:** As the data passes through, it is optimized in real-time to make sure the incoming macOS binaries play nicely with the local TuxBlox translation environment.
 4. **Environment Deployment:** The finalized files are structured immediately into your target directory, ready for the runtime layer to take over.
 
+### For more information about version channels and hashes, check out the [list of Deployment Builds](./Deployment%20Builds)
+
 ## Why Do We Use It?
 **Operating systems change, and game clients update constantly.** By utilizing a live deployment downloader instead of relying on static, bundled installers, the installation environment stays incredibly lightweight, secure, and resilient against breaking updates. You get clean, official files every single time, formatted exactly the way your system needs to run them.
 
-### For more information about the API, check out the [Deployment API](https://docs.tuxblox.net/TuxBlox%20API/Deployment%20API)
+### For more information about the API, check out the [Deployment API](./Deployment%20API) documentation

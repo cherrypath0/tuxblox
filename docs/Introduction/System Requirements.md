@@ -13,3 +13,5 @@ For the best experience, keep your Linux distribution, kernel, and graphics driv
 * **Operating System:** Any major 64-bit Linux distribution
 * **Kernel Version:** 5.0 or higher
 * **Filesystem:** An unencrypted filesystem (because encrypted filesystems slows down the loading process of our binaries)
+
+## If you meet these requirements, you can proceed to the Installation Guide.

@@ -9,7 +9,7 @@
 ![TuxBlox Banner](assets/images/png/banner/tuxblox-banner-plain-small.png)
 
 # TuxBlox 🐧
-TuxBlox is an open-source project that makes the Roblox macOS Game Client compatible on Linux by translating macOS calls to Linux using a compatibility layer.
+TuxBlox is an open-source project that makes the Roblox macOS Game Client compatible on Linux by translating macOS calls to Linux using a translation layer.
 
 ## How It Works
 TuxBlox translates the macOS client files and frameworks directly into native calls Linux can understand.
@@ -30,13 +30,14 @@ TuxBlox translates the macOS client files and frameworks directly into native ca
 ### Software Requirements
 * **Operating System:** Any major 64-bit Linux distribution
 * **Kernel Version:** 5.0 or higher
-* **Filesystem:** Unencrypted (because the compatibility layer relies on methods that require an unencrypted filesystem)
+* **Filesystem:** Unencrypted (because the translation layer relies on methods that require an unencrypted filesystem)
 
 ## Getting Started
 Full documentation is currently a work in progress. You can find the available setup guides at [tuxblox.net/docs](https://tuxblox.net/docs) once its available.
 
 ## Disclaimer
 TuxBlox is an independent compatibility tool intended for personal use. It is not affiliated or associated with Roblox Corporation in any way.
+Sensitive server-side files such as databases, server code and active traffic logs, are excluded from the repository for security reasons.
 
 ## License
 This project is licensed under the MIT License. See the [LICENSE](./LICENSE) file for the full text.

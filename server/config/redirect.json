@@ -1,0 +1,10 @@
+{
+    "/github/*": "https://github.com/cherrypath0/tuxblox/*",
+    "/discord/*": "https://discord.gg/QkgBMMMwdW",
+    "/security.txt": "https://tuxblox.net/.well-known/security.txt",
+    "/rdd": "https://tuxblox.net/deployment",
+    "/roblox-deployment-downloader": "https://tuxblox.net/deployment",
+    "/roblox-deployment": "https://tuxblox.net/deployment",
+    "/favicon.ico": "https://assetdelivery.tuxblox.net/images/ico/favicon.ico",
+    "/docs/*": "https://docs.tuxblox.net/*"
+}

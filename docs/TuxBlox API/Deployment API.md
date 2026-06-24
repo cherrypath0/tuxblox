@@ -7,7 +7,8 @@
 ## What is the Deployment API?
 The Deployment API is a utility that queries and downloads Roblox Game Client version files from Roblox's Content Delivery Network.
 
-The Deployment API is used by the [Deployment Downloader](https://docs.tuxblox.net/TuxBlox%20API/Deployment%20Downloader) to Download Roblox MacPlayer version files
+The Deployment API is used by the [Deployment Downloader](./Deployment%20Downloader) to Download Roblox MacPlayer version files.
+### If you want to make your own Deployment API, check out the [Roblox ClientSettings API reference](https://create.roblox.com/docs/cloud/reference/domains/clientsettings)
 
 ## Can I use this API?
 As long as you authenticate to our servers, feel free to hook your own tools, scripts, or external apps directly into our Deployment Downloader API. We're completely open to third-party integrations.
@@ -25,7 +26,7 @@ There are multiple ways to use the API depending on your framework.
 curl -L -o tuxblox-macplayer.zip "https://rdd.tuxblox.net/download?channel=[channel]&version=[version]"
 ```
 
-### Using Python (using `requests`)
+### Using Python (`requests`)
 ```py
 import requests
 
@@ -42,7 +43,7 @@ with requests.get(url, params=params, stream=True) as response:
             f.write(chunk)
 ```
 
-### Using Node.js (using `Axios`)
+### Using Node.js (`Axios`)
 ```js
 const axios = require('axios');
 const fs = require('fs');

@@ -1,7 +1,11 @@
 build/
-server/
 webdelivery/
-examples/
 *.env
+*.db
+*.log
 gitpush.sh
 SKILL.md
+
+server/data/*
+server/modules/*
+server/cert.sh
