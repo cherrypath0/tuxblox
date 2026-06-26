@@ -37,7 +37,7 @@ Full documentation is currently a work in progress. You can find the available s
 
 ## Disclaimer
 TuxBlox is an independent compatibility tool intended for personal use. It is not affiliated or associated with Roblox Corporation in any way.
-Sensitive server-side files such as databases, server code and active traffic logs, are excluded from the repository for security reasons.
+Sensitive server-side files such as databases, server code, logs, etc. are excluded from the repository for security reasons.
 
 ## License
 This project is licensed under the MIT License. See the [LICENSE](./LICENSE) file for the full text.
