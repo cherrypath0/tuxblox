@@ -1,5 +1,8 @@
 #!/bin/bash
 
+echo "This CLI is deprecated!"
+exit 0
+
 INSTALLERVERSION="0.0-INDEV"
 SPIN_CHARS='|/—\'
 SPIN_PID=""
