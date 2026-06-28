@@ -17,17 +17,14 @@ function getTimestamp() {
     return `${pad(now.getDate())}-${pad(now.getMonth() + 1)}-${now.getFullYear()}-${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
 }
 
-function initLogging() {
+function initLogging(service = 'General') {
     if (!fs.existsSync(LOG_DIR)) {
         fs.mkdirSync(LOG_DIR, { recursive: true });
     }
-    
-    const filename = `AssetDelivery-${getTimestamp()}.log`;
+    const filename = `${service}-${getTimestamp()}.log`;
     logFilePath = path.join(LOG_DIR, filename);
-    
     fs.writeFileSync(logFilePath, `<< Log Session Started at ${new Date().toISOString()} >>\n`);
     console.log(`Logging active. Target file: ${logFilePath}`);
-
     setInterval(flushLogs, 5 * 60 * 1000);
 }
 

@@ -32,7 +32,7 @@ import requests
 
 url = "https://rdd.tuxblox.net/download"
 params = {
-    "channel": "zlive",
+    "channel": "live",
     "version": "version-abcdef1234567890"
 }
 
@@ -55,7 +55,7 @@ async function downloadBinary() {
         url: 'https://rdd.tuxblox.net/download',
         method: 'GET',
         params: {
-            channel: 'zlive',
+            channel: 'live',
             version: 'version-abcdef1234567890'
         },
         responseType: 'stream'
