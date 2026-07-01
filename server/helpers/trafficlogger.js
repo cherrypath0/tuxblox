@@ -35,7 +35,7 @@ function flushLogs() {
     logBuffer = []; 
 
     fs.appendFile(logFilePath, dataToAppend, (err) => {
-        if (err) console.error(`<< AssetDelivery >> Failed to write logs to disk:`, err);
+        if (err) console.error(`<< LOGGER >> Failed to write logs to disk:`, err);
     });
 }
 
@@ -45,7 +45,7 @@ function flushLogsSync() {
     try {
         fs.appendFileSync(logFilePath, dataToAppend);
     } catch (err) {
-        console.error(`<< AssetDelivery >> Failed to write logs on shutdown:`, err);
+        console.error(`<< LOGGER >> Failed to write logs on shutdown:`, err);
     }
 }
 

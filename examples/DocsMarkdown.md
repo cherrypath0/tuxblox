@@ -1,4 +1,4 @@
-> **WARNING:** This is a testing documentation for markup
+> **WARNING:** This is a testing documentation
 
 ![TuxBlox Logo](https://assetdelivery.tuxblox.net/images/png/banner/tuxblox-banner-docs-medium.png)
 

@@ -6,12 +6,15 @@ SKILL.md
 
 build/
 webdelivery/
+assets/
 
 server/bot
 server/data
 server/modules
 server/middleware
 server/private
+server/config
+server/logs
 
 *.env
 *.db
