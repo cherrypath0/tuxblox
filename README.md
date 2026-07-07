@@ -15,8 +15,8 @@ TuxBlox is an open-source project that runs the official Roblox Client and Studi
 Full documentation is currently a work in progress. You can find the available setup guides at [tuxblox.net/docs](https://tuxblox.net/docs) once its available.
 
 ## Features
-**Easy Setup:** You only download the installer, we do the rest. Updates happen in the background.
-**Infinite Customization**: Customize Proton flags, environment flags, or even specify a custom Proton build if you have one.
+* **Easy Setup:** You only download the installer, we do the rest. Updates happen in the background.
+* **Infinite Customization**: Customize Proton flags, environment flags, or even specify a custom Proton build if you have one.
 
 ## System Requirements
 * **Processor:** 64-bit x86 (x86_64) Architecture with SSE3 Support
