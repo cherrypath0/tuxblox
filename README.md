@@ -24,4 +24,4 @@ Full documentation is currently a work in progress. You can find the available s
 * **Kernel Version:** 5.0 or higher
 
 ## Licensing
-This project is licensed under the MIT License, other licenses are in the third-party-licenses/ directory
+This project is licensed under the MIT License, other licenses are in the `third-party-licenses/` directory
