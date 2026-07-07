@@ -1,0 +1,8 @@
+RobloxPlayer/
+RobloxStudio/
+ProtonBuild/
+
+gitpush.sh
+.env
+
+*.log
