@@ -1,8 +1,0 @@
-description, duration=15.0, requires-subtitles=True
-seek, name="Seeking to first subtitle", playback_time=0.0, start=107.5, flags=accurate+flush
-wait, duration=1.0
-switch-track, type=text, index=(string)+1
-wait, duration=1.0
-switch-track, type=text, index=(string)+1
-wait, duration=2.0
-stop;

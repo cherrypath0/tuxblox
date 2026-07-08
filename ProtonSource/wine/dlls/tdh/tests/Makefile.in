@@ -1,5 +1,0 @@
-TESTDLL   = tdh.dll
-IMPORTS   = tdh
-
-SOURCES = \
-	tdh.c

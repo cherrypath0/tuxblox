@@ -1,2 +1,0 @@
-Will not test the behavior of sched_setparam() when pid is negative because
-it is unspecified.

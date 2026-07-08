@@ -1,5 +1,0 @@
-MODULE       = iyuv_32.dll
-IMPORTS      = user32 mfplat ole32
-
-SOURCES = \
-	iyuv.c

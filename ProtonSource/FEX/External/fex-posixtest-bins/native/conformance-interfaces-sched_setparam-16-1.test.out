@@ -1,3 +1,0 @@
- Will not test the result of sched_setparam when the scheduling policy of the
-target process is not SCHED_FIFO, SCHED_RR, or SCHED_SPORADIC.
-It is implementation-defined.

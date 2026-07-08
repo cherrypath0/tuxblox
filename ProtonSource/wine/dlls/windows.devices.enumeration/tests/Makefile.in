@@ -1,5 +1,0 @@
-TESTDLL = windows.devices.enumeration.dll
-IMPORTS = cfgmgr32 combase propsys uuid
-
-SOURCES = \
-	devices.c

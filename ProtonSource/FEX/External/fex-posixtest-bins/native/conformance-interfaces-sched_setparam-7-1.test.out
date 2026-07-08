@@ -1,3 +1,0 @@
-Will not test that implementations may require the requesting process to
-have the appropriate privilege to set its own scheduling parameters or those
-of another process.

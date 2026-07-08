@@ -1,9 +1,0 @@
-Policy: SCHED_FIFO
-  The process do not have permission to change its own scheduler
-  Try to run this test as root.
-Policy: SCHED_RR
-  The process do not have permission to change its own scheduler
-  Try to run this test as root.
-Policy: SCHED_OTHER
-  The process do not have permission to change its own scheduler
-  Try to run this test as root.

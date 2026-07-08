@@ -1,7 +1,0 @@
-MODULE  = windows.storage.dll
-IMPORTS = shell32 combase
-
-SOURCES = \
-	classes.idl \
-	main.c \
-	streams.c

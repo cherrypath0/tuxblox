@@ -1,2 +1,0 @@
-Functionality of using mqdes after mq_close() and before
-mq_open() will not be tested as POSIX says this is undefined.

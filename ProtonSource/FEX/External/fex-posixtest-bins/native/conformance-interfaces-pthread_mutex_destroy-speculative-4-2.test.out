@@ -1,1 +1,0 @@
-unexpected error: pthread_mutex_destroy 4-2: Test PASS: Expected 16(EBUSY) got 0, though the standard states 'may' fail

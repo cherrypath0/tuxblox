@@ -1,3 +1,0 @@
-Will not test the conditions under which one process has permission to
-change the scheduling parameters of another process, because they are
-implementation-defined.

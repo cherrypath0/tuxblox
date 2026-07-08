@@ -1,2 +1,0 @@
-MODULE    = twain_32.dll
-IMPORTS   = twaindsm

@@ -1,1 +1,0 @@
-Test PASSED: signal was delivered before the call to sigprocmask returned.

@@ -1,2 +1,0 @@
-Will not test that the underlying kernel-scheduled entities for the system
-contention scope threads are not be affected by this sched_setparam().

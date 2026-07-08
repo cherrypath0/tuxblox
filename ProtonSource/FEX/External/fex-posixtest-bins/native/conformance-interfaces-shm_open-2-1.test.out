@@ -1,3 +1,0 @@
-Will not test that the shm_open() function create an open file description
-that refers to the shared memory object and a file descriptor that refers to
-that open file description.

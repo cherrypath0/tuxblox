@@ -1,2 +1,0 @@
-Will not test that the target process is moved to the tail of the thread
-list for its priority when it is running.

@@ -1,7 +1,0 @@
-Policy: SCHED_FIFO
-  OK
-Policy: SCHED_RR
-  OK
-Policy: SCHED_OTHER
-  OK
-Test PASSED

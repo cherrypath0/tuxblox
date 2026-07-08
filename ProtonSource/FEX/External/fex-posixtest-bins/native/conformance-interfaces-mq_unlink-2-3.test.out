@@ -1,2 +1,0 @@
-Difficult to detect whether mq_unlink will block until all the reference have been closed
-for this instance.  Will not be tested.

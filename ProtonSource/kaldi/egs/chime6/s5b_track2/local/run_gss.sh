@@ -1,1 +1,0 @@
-../../s5b_track1/local/run_gss.sh

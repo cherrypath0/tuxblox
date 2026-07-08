@@ -1,5 +1,0 @@
-TESTDLL = nsi.dll
-IMPORTS = nsi uuid iphlpapi ws2_32
-
-SOURCES = \
-	nsi.c

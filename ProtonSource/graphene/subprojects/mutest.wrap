@@ -1,4 +1,0 @@
-[wrap-git]
-directory=mutest
-url=https://github.com/ebassi/mutest.git
-revision=master

@@ -1,2 +1,0 @@
-Will not test that the shm_open() function sets errno to ENOSPC if there is
-insufficient space for the creation of the new shared memory object.

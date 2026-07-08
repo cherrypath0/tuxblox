@@ -1,2 +1,0 @@
-Will not test the behavior of sched_setscheduler() when pid is negative
- because it is unspecified.

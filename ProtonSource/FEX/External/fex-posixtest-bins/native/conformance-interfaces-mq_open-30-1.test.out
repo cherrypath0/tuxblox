@@ -1,3 +1,0 @@
-Will not test mq_open() failing with ENOSPC when there
-is not enough space to create the message queue
-as system space cannot be controlled from this test.

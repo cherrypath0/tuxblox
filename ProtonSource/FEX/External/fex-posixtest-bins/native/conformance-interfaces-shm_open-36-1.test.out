@@ -1,2 +1,0 @@
-It is very difficult to test that the shm_open() function sets errno = EINTR
-when it is interrupted by a signal.

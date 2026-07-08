@@ -1,5 +1,0 @@
-Will not test the user ID and group ID of a created
-message queue as we would need multiple users and
-groups on the system to test.
-Will not test the file permissions as testing would
-be implementation defined.

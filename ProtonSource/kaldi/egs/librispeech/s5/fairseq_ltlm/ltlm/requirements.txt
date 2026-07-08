@@ -1,4 +1,0 @@
-pandas
-kaldi_io
-graphviz
-scipy
