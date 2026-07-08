@@ -13,3 +13,16 @@ __pycache__/
 *.dll
 *.exe
 *.so
+*.tar
+*.zip
+*.tar.xz
+*.tar.gz
+
+ProtonSource/dist
+ProtonSource/dist-*
+ProtonSource/obj-*
+ProtonSource/syn-*
+
+ProtonSource/.vagrant/
+ProtonSource/vagrant_share/
+ProtonSource/build/

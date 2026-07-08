@@ -1,0 +1,77 @@
+[submodule "ProtonSource/wine"]
+	path = ProtonSource/wine
+	url = https://github.com/ValveSoftware/wine
+[submodule "ProtonSource/dxvk"]
+	path = ProtonSource/dxvk
+	url = https://github.com/doitsujin/dxvk.git
+[submodule "ProtonSource/openvr"]
+	path = ProtonSource/openvr
+	url = https://github.com/ValveSoftware/openvr
+[submodule "ProtonSource/fonts/liberation-fonts"]
+	path = ProtonSource/fonts/liberation-fonts
+	url = https://github.com/liberationfonts/liberation-fonts
+[submodule "ProtonSource/gstreamer"]
+	path = ProtonSource/gstreamer
+	url = https://github.com/GStreamer/gstreamer.git
+[submodule "ProtonSource/gst-orc"]
+	path = ProtonSource/gst-orc
+	url = https://github.com/GStreamer/orc.git
+[submodule "ProtonSource/vkd3d-proton"]
+	path = ProtonSource/vkd3d-proton
+	url = https://github.com/HansKristian-Work/vkd3d-proton
+[submodule "ProtonSource/OpenXR-SDK"]
+	path = ProtonSource/OpenXR-SDK
+	url = https://github.com/KhronosGroup/OpenXR-SDK
+[submodule "ProtonSource/dxvk-nvapi"]
+	path = ProtonSource/dxvk-nvapi
+	url = https://github.com/jp7677/dxvk-nvapi
+[submodule "ProtonSource/vkd3d"]
+	path = ProtonSource/vkd3d
+	url = https://gitlab.winehq.org/wine/vkd3d
+[submodule "ProtonSource/Vulkan-Headers"]
+	path = ProtonSource/Vulkan-Headers
+	url = https://github.com/KhronosGroup/Vulkan-Headers
+[submodule "ProtonSource/SPIRV-Headers"]
+	path = ProtonSource/SPIRV-Headers
+	url = https://github.com/KhronosGroup/SPIRV-Headers
+[submodule "ProtonSource/Vulkan-Loader"]
+	path = ProtonSource/Vulkan-Loader
+	url = https://github.com/KhronosGroup/Vulkan-Loader
+[submodule "ProtonSource/gst-libav"]
+	path = ProtonSource/gst-libav
+	url = https://github.com/GStreamer/gst-libav
+[submodule "ProtonSource/ffmpeg"]
+	path = ProtonSource/ffmpeg
+	url = https://github.com/FFmpeg/FFmpeg
+[submodule "ProtonSource/dav1d"]
+	path = ProtonSource/dav1d
+	url = https://github.com/videolan/dav1d.git
+[submodule "ProtonSource/gst-plugins-rs"]
+	path = ProtonSource/gst-plugins-rs
+	url = https://github.com/sdroege/gst-plugin-rs
+[submodule "ProtonSource/graphene"]
+	path = ProtonSource/graphene
+	url = https://github.com/ebassi/graphene
+[submodule "ProtonSource/glslang"]
+	path = ProtonSource/glslang
+	url = https://github.com/KhronosGroup/glslang
+[submodule "ProtonSource/piper"]
+	path = ProtonSource/piper
+	url = https://github.com/shaunren/piper.git
+	branch = library
+[submodule "ProtonSource/openfst"]
+	path = ProtonSource/openfst
+	url = https://github.com/alphacep/openfst
+[submodule "ProtonSource/kaldi"]
+	path = ProtonSource/kaldi
+	url = https://github.com/alphacep/kaldi
+	branch = vosk
+[submodule "ProtonSource/vosk-api"]
+	path = ProtonSource/vosk-api
+	url = https://github.com/alphacep/vosk-api
+[submodule "ProtonSource/FEX"]
+	path = ProtonSource/FEX
+	url = https://github.com/FEX-Emu/FEX/
+[submodule "ProtonSource/libsoup"]
+	path = ProtonSource/libsoup
+	url = https://github.com/GNOME/libsoup.git
