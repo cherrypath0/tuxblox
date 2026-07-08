@@ -1,0 +1,144 @@
+[require]
+shader model < 3.0
+
+[sampler 0]
+filter point point point
+address wrap wrap wrap
+
+[sampler 1]
+filter point point point
+address wrap wrap wrap
+
+[srv 0]
+size (2d, 2, 2)
+1.0 0.0 0.0 0.0     1.0 1.0 0.0 0.0
+1.0 0.0 1.0 0.0     1.0 1.0 1.0 0.0
+
+[srv 1]
+size (2d, 2, 2)
+0.25 0.5 0.75 1.0   0.25 0.5 0.75 1.0
+0.25 0.5 0.75 1.0   0.25 0.5 0.75 1.0
+
+[vertex shader]
+void main(inout float4 pos : position, out float4 tex : texcoord)
+{
+    tex = pos + 0.75;
+}
+
+[pixel shader d3dbc-hex]
+% TODO: Convert to assembly or HLSL.
+ffff0101                                                % ps_1_1
+00000042 b00f0000                                       % tex t0
+00000001 800f0000 b0e40000                              % mov r0, t0
+0000ffff                                                % end
+
+[test]
+draw quad
+probe (320, 240) f32(1, 1, 1, 0)
+probe (480, 240) f32(1, 0, 1, 0)
+probe (320, 360) f32(1, 1, 0, 0)
+probe (480, 360) f32(1, 0, 0, 0)
+
+[pixel shader d3dbc-hex]
+% TODO: Convert to assembly or HLSL.
+ffff0104                                                % ps_1_4
+00000042 800f0000 b0e40000                              % texld r0, t0
+00000042 800f0001 b0e40000                              % texld r1, t0
+00000001 80010000 80aa0001                              % mov r0.x, r1.z
+0000ffff                                                % end
+
+[test]
+draw quad
+probe (320, 240) f32(0.75, 1, 1, 0)
+probe (480, 240) f32(0.75, 0, 1, 0)
+probe (320, 360) f32(0.75, 1, 0, 0)
+probe (480, 360) f32(0.75, 0, 0, 0)
+
+[srv 0]
+size (3d, 2, 2, 2)
+1.0 0.0 0.0 0.0     1.0 1.0 0.0 0.0
+1.0 0.0 1.0 0.0     1.0 1.0 1.0 0.0
+
+1.0 0.0 0.0 1.0     1.0 1.0 0.0 1.0
+1.0 0.0 1.0 1.0     1.0 1.0 1.0 1.0
+
+[test]
+bug(mvk<1.3.0) draw quad
+probe (320, 240) f32(0.75, 1, 1, 1)
+probe (480, 240) f32(0.75, 0, 1, 1)
+probe (320, 360) f32(0.75, 1, 0, 1)
+probe (480, 360) f32(0.75, 0, 0, 1)
+
+[srv 0]
+size (cube, 1)
+1.0 0.0 0.0 0.0
+1.0 0.0 0.1 0.0
+1.0 0.0 0.2 0.0
+1.0 0.0 0.3 0.0
+1.0 0.0 0.4 0.0
+1.0 0.0 0.5 0.0
+
+[vertex shader]
+float4 coord;
+
+void main(inout float4 pos : position, out float4 tex : texcoord)
+{
+    tex = coord;
+}
+
+[test]
+uniform 0 float4  1 0 0 0
+bug(mvk<1.3.0) draw quad
+probe (0, 0) f32(0.75, 0.0, 0.0, 0)
+uniform 0 float4 -1 0 0 0
+bug(mvk<1.3.0) draw quad
+probe (0, 0) f32(0.75, 0.0, 0.1, 0)
+uniform 0 float4 0  1 0 0
+bug(mvk<1.3.0) draw quad
+probe (0, 0) f32(0.75, 0.0, 0.2, 0)
+uniform 0 float4 0 -1 0 0
+bug(mvk<1.3.0) draw quad
+probe (0, 0) f32(0.75, 0.0, 0.3, 0)
+uniform 0 float4 0 0  1 0
+bug(mvk<1.3.0) draw quad
+probe (0, 0) f32(0.75, 0.0, 0.4, 0)
+uniform 0 float4 0 0 -1 0
+bug(mvk<1.3.0) draw quad
+probe (0, 0) f32(0.75, 0.0, 0.5, 0)
+
+[vertex shader]
+void main(inout float4 pos : position, out float4 tex : texcoord)
+{
+    tex = pos;
+}
+
+[pixel shader d3dbc-hex]
+% TODO: Convert to assembly or HLSL.
+ffff0101                                                % ps_1_1
+00000051 a00f0000 3e4ccccd 3e4ccccd 3e4ccccd 3e4ccccd   % def c0, 0.2, 0.2, 0.2, 0.2
+00000040 b00f0000                                       % texcoord t0
+00000002 800f0000 b0e40000 a0e40000                     % add r0, t0, c0
+0000ffff                                                % end
+
+[test]
+draw quad
+probe (160, 120) f32(0.2, 0.7, 0.2, 1) 32
+probe (480, 120) f32(0.7, 0.7, 0.2, 1) 32
+probe (160, 360) f32(0.2, 0.2, 0.2, 1) 8
+probe (480, 360) f32(0.7, 0.2, 0.2, 1) 8
+
+[pixel shader d3dbc-hex]
+% TODO: Convert to assembly or HLSL.
+ffff0104                                                % ps_1_4
+00000051 a00f0000 3e4ccccd 3e4ccccd 3e4ccccd 3e4ccccd   % def c0, 0.2, 0.2, 0.2, 0.2
+00000040 80070000 b0e40000                              % texcrd r0.xyz, t0
+00000001 80080000 a0e40000                              % mov r0.w, c0
+00000002 800f0000 80e40000 a0e40000                     % add r0, r0, c0
+0000ffff                                                % end
+
+[test]
+draw quad
+probe (160, 120) f32(0.0, 0.7, 0.2, 0.4) 32
+probe (480, 120) f32(0.7, 0.7, 0.2, 0.4) 32
+probe (160, 360) f32(0.0, 0.0, 0.2, 0.4) 8
+probe (480, 360) f32(0.7, 0.0, 0.2, 0.4) 8

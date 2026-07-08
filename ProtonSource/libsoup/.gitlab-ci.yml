@@ -1,0 +1,148 @@
+include:
+  - component: gitlab.gnome.org/GNOME/citemplates/release-service@master
+    inputs:
+      dist-job-name: "fedora-distcheck"
+      tarball-artifact-path: "_build/meson-dist/$CI_PROJECT_NAME-$CI_COMMIT_TAG.tar.xz"
+
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
+    - if: $CI_COMMIT_TAG
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+image: registry.gitlab.gnome.org/gnome/libsoup/master:v20
+
+stages:
+  - build
+  - coverage
+  - docs
+  - deploy
+  - release
+
+.build:
+  stage: build
+  tags:
+    # We need runners supporting IPv6:
+    # https://gitlab.gnome.org/Infrastructure/GitLab/issues/313
+    - ipv6
+
+fedora-test:
+  extends: .build
+  script:
+    - cp .gitlab-ci/lcovrc ~/.lcovrc
+    - meson _build -Db_coverage=true --auto-features=enabled
+    - meson compile -C _build
+    - meson test --no-suite autobahn-quick --no-suite autobahn -C _build --verbose
+    - ninja -C _build coverage-html coverage-xml
+  artifacts:
+    reports:
+      junit: "_build/meson-logs/testlog.junit.xml"
+      coverage_report:
+        coverage_format: cobertura
+        path: "_build/meson-logs/coverage.xml"
+    name: "libsoup-${CI_JOB_NAME}-${CI_COMMIT_REF_NAME}"
+    when: always
+    paths:
+      - "_build/config.h"
+      - "_build/meson-logs/meson-log.txt"
+      - "_build/meson-logs/testlog.txt"
+      - "_build/meson-logs/coveragereport"
+  coverage: '/^\s+lines\.+:\s+([\d.]+\%)\s+/'
+
+fedora-autobahn-quick:
+  extends: .build
+  script:
+    - meson _build --auto-features=enabled -Dautobahn=enabled
+    - meson test -C _build --suite autobahn-quick --verbose
+  artifacts:
+    paths:
+      - "_build/meson-logs/autobahn-report"
+  allow_failure: true
+
+fedora-scan:
+  extends: .build
+  script:
+    - meson _build --auto-features=enabled
+    - ninja -C _build scan-build
+    - bash -c 'if [[ -n "$(ls -A _build/meson-logs/scanbuild/)" ]]; then echo "Scan build log found, assuming defects exist"; exit 1; fi'
+  artifacts:
+    reports:
+      junit: "_build/meson-logs/testlog.junit.xml"
+    when: on_failure
+    paths:
+      - _build/meson-logs/scanbuild
+
+fedora-distcheck:
+  extends: .build
+  script:
+    - git config --global --add safe.directory $CI_PROJECT_DIR
+    - meson setup _build --auto-features=enabled
+    - meson dist -C _build
+  artifacts:
+    paths:
+      - "_build/meson-dist/*.xz"
+
+fedora-asan:
+  stage: build
+  tags:
+    - asan
+  variables:
+    ASAN_OPTIONS: fast_unwind_on_malloc=0
+    SOUP_TEST_NO_IPV6: 1
+  script:
+    # Introspection doesn't work when linking to libasan, the NTLM tests fail most likely due to unsafe usage of setenv()
+    - meson _build --auto-features=enabled -Db_sanitize=address -Dintrospection=disabled -Dvapi=disabled -Dntlm=disabled -Ddocs=disabled
+    - meson test --no-suite autobahn-quick --no-suite autobahn -C _build --verbose --timeout-multiplier=2
+  artifacts:
+    reports:
+      junit: "_build/meson-logs/testlog.junit.xml"
+    when: on_failure
+    paths:
+      - "_build/meson-logs/testlog.txt"
+
+# fedora-fuzzing:
+#   stage: build
+#   allow_failure: true
+#   variables:
+#     CC: clang
+#   script:
+#     - meson _build --auto-features=enabled -Dfuzzing=enabled -Dintrospection=disabled -Dvapi=disabled
+#     - meson test -C _build --suite=fuzzing --timeout-multiplier=2
+#   artifacts:
+#     when: on_failure
+#     paths:
+#       - _build/meson-logs/
+
+reference:
+  stage: docs
+  variables:
+    MESON_ARGS: >-
+      -Ddocs=enabled
+      -Ddoc_tests=true
+      -Dvapi=disabled
+  script:
+    - mkdir -p _reference/libsoup-3.0
+    - meson ${MESON_ARGS} _build
+    - meson compile -C _build libsoup-doc --verbose
+    - meson test -C _build docs --verbose
+    - mv _build/docs/reference/libsoup-3.0/* _reference/libsoup-3.0
+    # Add libsoup-2.4 docs.
+    - cp -R /usr/share/gtk-doc/html/{glib,gio,gobject,libsoup-2.4} _reference/
+    - gtkdoc-rebase --relative --html-dir=_reference/{glib,gio,gobject,libsoup-2.4} --verbose
+    - cp .gitlab-ci/{index.html,robots.txt} _reference/
+  artifacts:
+    paths:
+      - _reference
+
+pages:
+  stage: deploy
+  needs: ['reference']
+  script:
+    - mv _reference public
+  artifacts:
+    when: on_success
+    paths:
+      - public
+  only:
+    - master
+

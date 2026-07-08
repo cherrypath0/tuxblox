@@ -1,0 +1,6 @@
+build
+build.*
+vkd3d-proton-*.tar.zst
+vkd3d-proton-*/
+/profiles/vulkan
+/profiles/profile-test

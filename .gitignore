@@ -1,8 +1,15 @@
 RobloxPlayer/
 RobloxStudio/
 ProtonBuild/
+prefix/
 
 gitpush.sh
 .env
 
+__pycache__/
+
 *.log
+*.pyc
+*.dll
+*.exe
+*.so

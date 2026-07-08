@@ -1,0 +1,91 @@
+<file duration="888032000000" frame-detection="0" skip-parsers="0" uri="file:///home/thiblahute/devel/gstreamer/gst-build/subprojects/gst-integration-testsuites/medias/big/matroska/Sintel.2010.720p.mkv" seekable="true">
+  <streams caps="video/x-matroska">
+    <stream type="video" caps="video/x-h264, level=(string)4.1, profile=(string)high, codec_data=(buffer)01640029ffe1001d67640029ac520c01401169a810100a000003000200000300611e30631901000668e8bec4c84c, stream-format=(string)avc, alignment=(string)au, width=(int)1280, height=(int)544, pixel-aspect-ratio=(fraction)1/1, framerate=(fraction)24/1, interlace-mode=(string)progressive, chroma-format=(string)4:2:0, bit-depth-luma=(uint)8, bit-depth-chroma=(uint)8, parsed=(boolean)true" id="f7c8738b9ea5c0843640cbcf3318c16bdd60920d6c0cba975b052dedfe99b989/001:001">
+      <segments>
+      </segments>
+      <tags>
+        <tag content="taglist, container-format=(string)Matroska, video-codec=(string)H264;"/>
+      </tags>
+    </stream>
+    <stream type="audio" caps="audio/x-ac3, framed=(boolean)true, rate=(int)48000, channels=(int)6, alignment=(string)frame" id="f7c8738b9ea5c0843640cbcf3318c16bdd60920d6c0cba975b052dedfe99b989/002:3668830393">
+      <segments>
+      </segments>
+      <tags>
+        <tag content="taglist, container-format=(string)Matroska, audio-codec=(string)&quot;AC-3\ audio&quot;, language-code=(string)en, title=(string)&quot;AC3\ 5.1\ \@\ 640\ Kbps&quot;, bitrate=(uint)640000;"/>
+      </tags>
+    </stream>
+    <stream type="subtitle" caps="text/x-raw, format=(string)pango-markup" id="f7c8738b9ea5c0843640cbcf3318c16bdd60920d6c0cba975b052dedfe99b989/003:3231173545">
+      <segments>
+      </segments>
+      <tags>
+        <tag content="taglist, container-format=(string)Matroska, language-code=(string)de;"/>
+      </tags>
+    </stream>
+    <stream type="subtitle" caps="text/x-raw, format=(string)pango-markup" id="f7c8738b9ea5c0843640cbcf3318c16bdd60920d6c0cba975b052dedfe99b989/004:3068045224">
+      <segments>
+      </segments>
+      <tags>
+        <tag content="taglist, container-format=(string)Matroska, language-code=(string)en;"/>
+      </tags>
+    </stream>
+    <stream type="subtitle" caps="text/x-raw, format=(string)pango-markup" id="f7c8738b9ea5c0843640cbcf3318c16bdd60920d6c0cba975b052dedfe99b989/005:575166098">
+      <segments>
+      </segments>
+      <tags>
+        <tag content="taglist, container-format=(string)Matroska, language-code=(string)es;"/>
+      </tags>
+    </stream>
+    <stream type="subtitle" caps="text/x-raw, format=(string)pango-markup" id="f7c8738b9ea5c0843640cbcf3318c16bdd60920d6c0cba975b052dedfe99b989/006:2063559820">
+      <segments>
+      </segments>
+      <tags>
+        <tag content="taglist, container-format=(string)Matroska, language-code=(string)fr;"/>
+      </tags>
+    </stream>
+    <stream type="subtitle" caps="text/x-raw, format=(string)pango-markup" id="f7c8738b9ea5c0843640cbcf3318c16bdd60920d6c0cba975b052dedfe99b989/007:745665960">
+      <segments>
+      </segments>
+      <tags>
+        <tag content="taglist, container-format=(string)Matroska, language-code=(string)it;"/>
+      </tags>
+    </stream>
+    <stream type="subtitle" caps="text/x-raw, format=(string)pango-markup" id="f7c8738b9ea5c0843640cbcf3318c16bdd60920d6c0cba975b052dedfe99b989/008:3597587624">
+      <segments>
+      </segments>
+      <tags>
+        <tag content="taglist, container-format=(string)Matroska, language-code=(string)nl;"/>
+      </tags>
+    </stream>
+    <stream type="subtitle" caps="text/x-raw, format=(string)pango-markup" id="f7c8738b9ea5c0843640cbcf3318c16bdd60920d6c0cba975b052dedfe99b989/009:747393430">
+      <segments>
+      </segments>
+      <tags>
+        <tag content="taglist, container-format=(string)Matroska, language-code=(string)pl;"/>
+      </tags>
+    </stream>
+    <stream type="subtitle" caps="text/x-raw, format=(string)pango-markup" id="f7c8738b9ea5c0843640cbcf3318c16bdd60920d6c0cba975b052dedfe99b989/010:4213450682">
+      <segments>
+      </segments>
+      <tags>
+        <tag content="taglist, container-format=(string)Matroska, language-code=(string)pt;"/>
+      </tags>
+    </stream>
+    <stream type="subtitle" caps="text/x-raw, format=(string)pango-markup" id="f7c8738b9ea5c0843640cbcf3318c16bdd60920d6c0cba975b052dedfe99b989/011:2460298390">
+      <segments>
+      </segments>
+      <tags>
+        <tag content="taglist, container-format=(string)Matroska, language-code=(string)ru;"/>
+      </tags>
+    </stream>
+    <stream type="subtitle" caps="text/x-raw, format=(string)pango-markup" id="f7c8738b9ea5c0843640cbcf3318c16bdd60920d6c0cba975b052dedfe99b989/012:1880714928">
+      <segments>
+      </segments>
+      <tags>
+        <tag content="taglist, container-format=(string)Matroska, language-code=(string)vi;"/>
+      </tags>
+    </stream>
+  </streams>
+  <tags>
+    <tag content="taglist, container-format=(string)Matroska, language-code=(string)fr, audio-codec=(string)&quot;AC-3\ audio&quot;, title=(string)&quot;AC3\ 5.1\ \@\ 640\ Kbps&quot;, bitrate=(uint)640000, video-codec=(string)H264;"/>
+  </tags>
+</file>

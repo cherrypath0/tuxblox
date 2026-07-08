@@ -1,0 +1,112 @@
+[require]
+shader model >= 5.0
+tessellation-shader
+
+[vertex shader]
+struct data
+{
+    float4 position : SV_Position;
+    float3 color : COLOR;
+    float3 zero : ZERO;
+};
+
+void main(uint id : SV_VertexID, out data output)
+{
+    float2 coords = float2((id << 1) & 2, id & 2);
+    output.position = float4(coords * float2(2, -2) + float2(-1, 1), 0, 1);
+    output.color = float3(0.0, 1.0, 0.5);
+    output.zero = float3(0.0, 0.0, 0.0);
+}
+
+[hull shader]
+struct vsdata
+{
+    float4 position : SV_Position;
+    float3 color : COLOR;
+    float3 zero : ZERO;
+};
+
+struct data
+{
+    float4 position : SV_Position;
+};
+
+struct patch_constant_data
+{
+    float edges[3] : SV_TessFactor;
+    float3 color : COLOR; // This will be placed in o0.yzw, with edges[0] in o0.x.
+    float inside : SV_InsideTessFactor;
+};
+
+void patch_constant(InputPatch<vsdata, 3> input, OutputPatch<data, 3> main_out,
+        out patch_constant_data output)
+{
+    output.edges[0] = output.edges[1] = output.edges[2] = 1.0f;
+    output.inside = 1.0f;
+    // dot(...) prevents the MS HLSL compiler from splitting this into three
+    // separate fork phases. We need one phase that writes to o0.yzw to verify
+    // that things still work when writing to an output that starts in
+    // component 1.
+    output.color = input[0].color + main_out[2].position.xyz + dot(input[0].zero, input[1].zero);
+}
+
+    [domain("tri")]
+    [outputcontrolpoints(3)]
+    [partitioning("integer")]
+    [outputtopology("triangle_cw")]
+    [patchconstantfunc("patch_constant")]
+data main(InputPatch<vsdata, 3> input, uint i : SV_OutputControlPointID)
+{
+    data o;
+    o.position = input[i].position;
+    return o;
+}
+
+[domain shader]
+struct hsdata
+{
+    float4 position : SV_Position;
+};
+
+struct data
+{
+    float4 position : SV_Position;
+    float3 color : COLOR;
+};
+
+struct patch_constant_data
+{
+    float edges[3] : SV_TessFactor;
+    float3 color : COLOR;
+    float inside : SV_InsideTessFactor;
+};
+
+    [domain("tri")]
+void main(patch_constant_data input,
+        float3 tess_coord : SV_DomainLocation,
+        const OutputPatch<hsdata, 3> patch,
+        out data output)
+{
+    output.position = tess_coord.x * patch[0].position
+                    + tess_coord.y * patch[1].position
+                    + tess_coord.z * patch[2].position;
+    output.color = input.color;
+}
+
+[pixel shader]
+struct data
+{
+    float4 position : SV_Position;
+    float3 color : COLOR;
+};
+
+float4 main(data input) : sv_target
+{
+    return float4(input.color, 1.0);
+}
+
+[test]
+% llvmpipe currently segfaults due to a bug during shader compilation in the driver.
+% WARP with SM>=6 misreads the output control point value in the patch constant phase.
+if(!llvmpipe & !warp | !llvmpipe & sm<6) todo(glsl | mvk & vulkan) draw 3 control point patch list 3
+if(!llvmpipe & !warp | !llvmpipe & sm<6) todo(mvk) probe (0, 0, 640, 480) f32(-1.0, -2.0, 0.5, 1.0)

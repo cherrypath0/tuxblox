@@ -1,0 +1,186 @@
+[require]
+shader model >= 5.0
+shader model < 6.0
+
+[pixel shader fail]
+float4 main() : sv_target
+{
+    float4 teChnique = {0, 0, 0, 0};
+    return teChnique;
+}
+
+[pixel shader fail]
+float4 main() : sv_target
+{
+    float4 fxgroup = {0, 0, 0, 0};
+    return fxgroup;
+}
+
+[pixel shader]
+float4 main() : sv_target
+{
+    float4 teChnique10 = {0, 0, 0, 0};
+    return teChnique10;
+}
+
+[pixel shader]
+float4 main() : sv_target
+{
+    float4 teChnique11 = {0, 0, 0, 0};
+    return teChnique11;
+}
+
+[pixel shader]
+float4 main() : sv_target
+{
+    float4 fxGroup = {0, 0, 0, 0};
+    return fxGroup;
+}
+
+[effect]
+technique
+{
+}
+
+technique10
+{
+}
+
+% Effects without techniques are allowed for fx_5_0
+[effect]
+float4 f;
+
+% fx_2_0 keyword is allowed with fx_5_0 profiles
+[effect]
+technique
+{
+}
+
+technique11
+{
+}
+
+[effect fail]
+technique
+{
+}
+
+tEchnique10
+{
+}
+
+[effect fail]
+technique
+{
+}
+
+tEchnique11
+{
+}
+
+[effect fail]
+float4 technique;
+
+[effect fail]
+float4 technIque;
+
+[effect fail]
+float4 technique10;
+
+[effect fail]
+float4 technique11;
+
+[effect]
+float4 technIque10;
+
+[effect]
+float4 technIque11;
+
+% Regular shaders with technique blocks
+[vertex shader]
+float4 main() : sv_position
+{
+    return 0;
+}
+
+technique
+{
+}
+
+technique10
+{
+}
+
+technique11
+{
+}
+
+fxgroup group
+{
+    technique10 {}
+}
+
+[pixel shader]
+float4 main() : sv_target
+{
+    return 0;
+}
+
+tEchnique
+{
+}
+
+technique10
+{
+}
+
+technique11
+{
+}
+
+fxgroup group
+{
+    technique10 {}
+}
+
+% Groups syntax
+
+% Name has to be specified, it belongs to global scope
+[effect fail]
+fxgroup
+{
+}
+
+% Group can't be empty
+[effect fail]
+fxgroup group
+{
+}
+
+[effect fail]
+float4 group;
+
+fxgroup group
+{
+}
+
+% Groups can only contain a list of techniques
+[effect fail]
+fxgroup group
+{
+    float4 v;
+
+    technique11 {}
+}
+
+% Group provides scope for techniques
+[effect]
+fxgroup group1
+{
+    technique11 tech0 {}
+}
+
+fxgroup group2
+{
+    technique11 tech0 {}
+}

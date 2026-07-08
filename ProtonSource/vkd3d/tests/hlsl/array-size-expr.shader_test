@@ -1,0 +1,92 @@
+[pixel shader]
+static const float4 array_st[(2 + 1) * 2] = {
+    .11, .12, .13, .14,
+    .21, .22, .23, .24,
+    .31, .32, .33, .34,
+    .41, .42, .43, .44,
+    .51, .52, .53, .54,
+    .61, .62, .63, .64,
+};
+
+float4 main() : SV_TARGET
+{
+    return array_st[1];
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (.21, .22, .23, .24)
+
+
+[pixel shader]
+static const float4 array_st[2*2][1+1] = {
+    .11, .12, .13, .14,
+    .21, .22, .23, .24,
+    .31, .32, .33, .34,
+    .41, .42, .43, .44,
+    .51, .52, .53, .54,
+    .61, .62, .63, .64,
+    .71, .72, .73, .74,
+    .81, .82, .83, .84,
+};
+
+float4 main() : SV_TARGET
+{
+    return array_st[2][1];
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (.61, .62, .63, .64)
+
+[pixel shader]
+static const int size = 8;
+static const float array[size] = {.1, .2, .3, .4, .5, .6, .7, .8};
+
+float4 main() : sv_target
+{
+    return float4(array[1], array[2], array[5], array[0]);
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (.2, .3, .6, .1)
+
+% Additional level of indirection
+[pixel shader fail(sm>=6)]
+static const float array[8] = {.1, .2, 3, .4, .5, .6, .7, .8};
+static const int idx = 2;
+static const float array2[array[idx]] = {1, 2, .3};
+
+float4 main() : sv_target
+{
+    return float4(array[1], array2[2], array[5], array[0]);
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (.2, .3, .6, .1)
+
+
+[pixel shader fail(sm>=6)]
+static const struct
+{
+    float f;
+    float2x3 m[2];
+} a = {0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 5, 1};
+
+float arr[a.m[1]._13_22_21.zxy.z]; // Fails on SM6 because size is float.
+
+float4 main() : sv_target
+{
+    return arr[4];
+}
+
+[test]
+uniform 0 float 0.0
+uniform 4 float 0.0
+uniform 8 float 0.0
+uniform 12 float 0.0
+uniform 16 float 0.42
+draw quad
+probe (0, 0) rgba (0.42, 0.42, 0.42, 0.42)

@@ -1,0 +1,2 @@
+Will not test the behavior of sched_getscheduler() when pid is negative
+ because it is unspecified.

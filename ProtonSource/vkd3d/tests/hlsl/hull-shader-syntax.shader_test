@@ -1,0 +1,192 @@
+[require]
+shader model >= 5.0
+
+%% Test patch constant function overloads.
+%% For SM < 6, the last declaration that is defined is picked.
+%% For SM >= 6, the last valid declaration is picked, even if it is not defined.
+
+[hull shader]
+struct patch_constant_data
+{
+    float edges[2] : SV_TessFactor;
+};
+
+patch_constant_data patch_constant(float x);
+patch_constant_data patch_constant(float x, uint y);
+
+patch_constant_data patch_constant()
+{
+    return (patch_constant_data)0;
+}
+
+// Missing valid return semantics (SV_TessFactor).
+float patch_constant(uint x);
+
+    [domain("isoline")]
+    [outputcontrolpoints(3)]
+    [partitioning("integer")]
+    [outputtopology("point")]
+    [patchconstantfunc("patch_constant")]
+float4 main() : POSITION
+{
+    return 0;
+}
+
+[hull shader fail(sm>=6)]
+struct patch_constant_data
+{
+    float edges[2] : SV_TessFactor;
+};
+
+patch_constant_data patch_constant(float x);
+patch_constant_data patch_constant(float x, uint y);
+
+patch_constant_data patch_constant()
+{
+    return (patch_constant_data)0;
+}
+
+patch_constant_data patch_constant(uint x : SV_PrimitiveID);
+
+    [domain("isoline")]
+    [outputcontrolpoints(3)]
+    [partitioning("integer")]
+    [outputtopology("point")]
+    [patchconstantfunc("patch_constant")]
+float4 main() : POSITION
+{
+    return 0;
+}
+
+[hull shader]
+struct patch_constant_data
+{
+    float edges[2] : SV_TessFactor;
+};
+
+patch_constant_data patch_constant()
+{
+    return (patch_constant_data)0;
+}
+
+patch_constant_data patch_constant(uint x : SV_PrimitiveID)
+{
+    return (patch_constant_data)x;
+}
+
+    [domain("isoline")]
+    [outputcontrolpoints(3)]
+    [partitioning("integer")]
+    [outputtopology("point")]
+    [patchconstantfunc("patch_constant")]
+float4 main() : POSITION
+{
+    return 0;
+}
+
+[hull shader fail]
+struct patch_constant_data
+{
+    float edges[2] : SV_TessFactor;
+};
+
+patch_constant_data patch_constant()
+{
+    return (patch_constant_data)0;
+}
+
+// x is missing a semantic.
+patch_constant_data patch_constant(uint x)
+{
+    return (patch_constant_data)x;
+}
+
+    [domain("isoline")]
+    [outputcontrolpoints(3)]
+    [partitioning("integer")]
+    [outputtopology("point")]
+    [patchconstantfunc("patch_constant")]
+float4 main() : POSITION
+{
+    return 0;
+}
+
+%% Test uniform input parameters.
+
+[hull shader fail(sm>=6)]
+// SM6 requires all function paramaters to have semantics.
+
+struct patch_constant_data
+{
+    float edges[2] : SV_TessFactor;
+};
+
+uniform float4 a;
+Texture2D<float> tex;
+
+patch_constant_data patch_constant()
+{
+    return (patch_constant_data)tex[uint2(1, 1)];
+}
+
+    [domain("isoline")]
+    [outputcontrolpoints(3)]
+    [partitioning("integer")]
+    [outputtopology("point")]
+    [patchconstantfunc("patch_constant")]
+float4 main(uniform float4 b) : POSITION
+{
+    return a + b + tex[uint2(0, 0)];
+}
+
+% Patch constant function can't have uniform parameters.
+[hull shader fail]
+struct patch_constant_data
+{
+    float edges[2] : SV_TessFactor;
+};
+
+uniform float4 a;
+Texture2D<float> tex;
+
+patch_constant_data patch_constant(uniform float4 c)
+{
+    return (patch_constant_data)tex[uint2(1, 1)];
+}
+
+    [domain("isoline")]
+    [outputcontrolpoints(3)]
+    [partitioning("integer")]
+    [outputtopology("point")]
+    [patchconstantfunc("patch_constant")]
+float4 main(uniform float4 b) : POSITION
+{
+    return a + b + tex[uint2(0, 0)];
+}
+
+% Output parameters are not supported in control point functions for SM < 6.
+[hull shader fail(sm<6)]
+struct data
+{
+    float4 val : VAL;
+};
+
+struct patch_constant_data
+{
+    float edges[2] : SV_TessFactor;
+};
+
+patch_constant_data patch_constant()
+{
+    return (patch_constant_data)0;
+}
+
+    [domain("isoline")]
+    [outputcontrolpoints(3)]
+    [partitioning("integer")]
+    [outputtopology("point")]
+    [patchconstantfunc("patch_constant")]
+void main(out data ret, InputPatch<data, 3> input)
+{
+    ret.val = 0;
+}

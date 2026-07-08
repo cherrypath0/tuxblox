@@ -1,0 +1,12 @@
+<file duration="3333333333" frame-detection="0" uri="http://127.0.0.1:8079/defaults/matroska/raw_video.mkv" seekable="true">
+  <streams caps="video/x-matroska">
+  <stream type="video" caps="video/x-raw, format=(string)I420, width=(int)320, height=(int)240, interlace-mode=(string)progressive, pixel-aspect-ratio=(fraction)1/1, chroma-site=(string)jpeg, colorimetry=(string)bt601, framerate=(fraction)30/1" id="0cb9b5f3cbf967abbc1c399bfe744f6b272579119905d9fcc70593d23d8090c8/001:16024164111892462553">
+      <tags>
+        <tag content="taglist, container-format=(string)Matroska, video-codec=(string)&quot;Uncompressed\ planar\ YUV\ 4:4:4&quot;;"/>
+      </tags>
+    </stream>
+  </streams>
+  <tags>
+    <tag content="taglist, container-format=(string)Matroska, video-codec=(string)&quot;Uncompressed\ planar\ YUV\ 4:4:4&quot;;"/>
+  </tags>
+</file>

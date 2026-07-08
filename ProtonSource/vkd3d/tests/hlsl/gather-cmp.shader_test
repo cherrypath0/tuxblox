@@ -1,0 +1,105 @@
+[require]
+shader model >= 5.0
+
+[sampler 0]
+filter linear linear linear
+address clamp clamp clamp
+comparison equal
+
+[srv 0]
+format r32-float-shadow
+size (2d, 3, 3)
+0.0 0.0 0.0
+0.4 0.1 0.0
+0.5 0.0 0.2
+
+[pixel shader]
+SamplerComparisonState s;
+Texture2D t;
+
+float4 main() : sv_target
+{
+    return t.GatherCmp(s, float2(0.2, 0.2), 0.1, int2(0, 0));
+}
+
+[test]
+todo(glsl) draw quad
+probe (0, 0) rgba(0.0, 1.0, 0.0, 0.0)
+
+[pixel shader]
+SamplerComparisonState s;
+Texture2D t;
+
+float4 main() : sv_target
+{
+    return t.GatherCmpRed(s, float2(0.6, 0.6), 0.1, int2(0, 0));
+}
+
+[test]
+todo(glsl) draw quad
+probe (0, 0) rgba(0.0, 0.0, 0.0, 1.0)
+
+[pixel shader]
+SamplerComparisonState s;
+Texture2D t;
+
+float4 main() : sv_target
+{
+    return t.GatherCmpGreen(s, float2(0.2, 0.2), 0.1, int2(0, 0));
+}
+
+[test]
+todo(glsl) draw quad
+probe (0, 0) rgba(0.0, 1.0, 0.0, 0.0)
+
+[pixel shader]
+SamplerComparisonState s;
+Texture2D t;
+
+float4 main() : sv_target
+{
+    return t.GatherCmpGreen(s, float2(0.8, 0.8), 0.2, int2(0, 0));
+}
+
+[test]
+todo(glsl) draw quad
+probe (0, 0) rgba(0.0, 1.0, 0.0, 0.0)
+
+[pixel shader]
+SamplerComparisonState s;
+Texture2D t;
+
+float4 main() : sv_target
+{
+    return t.GatherCmpGreen(s, float2(0.2, 0.2), 0.1, int2(0, 0), int2(0, 0), int2(0, 0), int2(0, 0));
+}
+
+[test]
+todo(glsl) draw quad
+probe (0, 0) rgba(0.0, 1.0, 0.0, 0.0)
+
+[pixel shader]
+SamplerComparisonState s;
+Texture2D t;
+
+float4 main() : sv_target
+{
+    return t.GatherCmpBlue(s, float2(0.2, 0.8), 0.5, int2(0, 0));
+}
+
+[test]
+todo(glsl) draw quad
+probe (0, 0) rgba(1.0, 0.0, 0.0, 0.0)
+
+[pixel shader]
+SamplerComparisonState s;
+Texture2D t;
+
+float4 main() : sv_target
+{
+    return t.GatherCmpAlpha(s, float2(0.2, 0.8), 0.4, int2(0, 0));
+}
+
+[test]
+todo(glsl) draw quad
+probe (0, 0) rgba(0.0, 0.0, 0.0, 1.0)

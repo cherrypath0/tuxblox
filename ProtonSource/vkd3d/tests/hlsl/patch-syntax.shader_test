@@ -1,0 +1,564 @@
+% Patch objects are equivalent to const arrays if not used as inputs/outputs to tessellation shaders.
+
+[pixel shader]
+InputPatch<float, 2> patch;
+
+float4 main() : SV_TARGET
+{
+    return patch[0];
+}
+
+[test]
+uniform 0 float 1
+uniform 1 float 2
+draw quad
+probe (0, 0) rgba(1.0, 1.0, 1.0, 1.0)
+
+[pixel shader]
+OutputPatch<float, 2> patch;
+
+float4 main() : SV_TARGET
+{
+    return patch[0];
+}
+
+[test]
+uniform 0 float 1
+uniform 1 float 2
+draw quad
+probe (0, 0) rgba(1.0, 1.0, 1.0, 1.0)
+
+% Assigning a patch with an array is not allowed in SM6.
+[pixel shader fail(sm>=6)]
+float data[2];
+
+float4 main() : SV_TARGET
+{
+    InputPatch<float, 2> patch = data;
+    return patch[0];
+}
+
+[test]
+uniform 0 float 1
+uniform 1 float 2
+draw quad
+probe (0, 0) rgba(1.0, 1.0, 1.0, 1.0)
+
+[pixel shader fail]
+float data[2];
+
+float4 main() : SV_TARGET
+{
+    InputPatch<float, 2> patch = data;
+    patch[0] = 3;
+    return patch[0];
+}
+
+[pixel shader fail(sm<6)]
+float4 main() : SV_TARGET
+{
+    InputPatch<float, 2> patch;  // Missing initializer.
+    return 0;
+}
+
+[pixel shader fail(sm<6)]
+InputPatch<float, 0> patch;  // Element count must be non-zero.
+
+float4 main() : SV_TARGET
+{
+    return 0;
+}
+
+[pixel shader fail(sm>=6)]
+float data[2];
+
+float4 main() : SV_TARGET
+{
+    OutputPatch<float, 2> patch = data;
+    return patch[0];
+}
+
+[test]
+uniform 0 float 1
+uniform 1 float 2
+draw quad
+probe (0, 0) rgba(1.0, 1.0, 1.0, 1.0)
+
+[pixel shader fail]
+float data[2];
+
+float4 main() : SV_TARGET
+{
+    OutputPatch<float, 2> patch = data;
+    patch[0] = 3;
+    return patch[0];
+}
+
+[pixel shader fail(sm<6)]
+float4 main() : SV_TARGET
+{
+    OutputPatch<float, 2> patch;  // Missing initializer.
+    return 0;
+}
+
+[pixel shader fail(sm<6)]
+OutputPatch<float, 0> patch;  // Element count must be non-zero.
+
+float4 main() : SV_TARGET
+{
+    return 0;
+}
+
+% InputPatch parameters can only be used in hull and geometry shaders (SM>=5).
+
+[pixel shader fail]
+struct data
+{
+    float4 val : VAL;
+};
+
+float4 main(InputPatch<data, 2> patch) : SV_TARGET
+{
+    return 0;
+}
+
+[hull shader]
+struct data
+{
+    float4 val : VAL;
+};
+
+struct patch_constant_data
+{
+    float edges[2] : SV_TessFactor;
+};
+
+patch_constant_data patch_constant()
+{
+    return (patch_constant_data)0;
+}
+
+    [domain("isoline")]
+    [outputcontrolpoints(2)]
+    [partitioning("integer")]
+    [outputtopology("point")]
+    [patchconstantfunc("patch_constant")]
+float4 main(InputPatch<data, 2> patch) : POSITION
+{
+    return 0;
+}
+
+[hull shader]
+struct data
+{
+    float4 val : VAL;
+};
+
+struct patch_constant_data
+{
+    float edges[2] : SV_TessFactor;
+};
+
+patch_constant_data patch_constant(InputPatch<data, 2> patch)
+{
+    return (patch_constant_data)0;
+}
+
+    [domain("isoline")]
+    [outputcontrolpoints(2)]
+    [partitioning("integer")]
+    [outputtopology("point")]
+    [patchconstantfunc("patch_constant")]
+float4 main(InputPatch<data, 2> patch) : POSITION
+{
+    return 0;
+}
+
+[domain shader fail(sm<6)]
+struct data
+{
+    float4 val : VAL;
+};
+
+struct patch_constant_data
+{
+    float edges[2] : SV_TessFactor;
+};
+
+    [domain("isoline")]
+float4 main(patch_constant_data input, InputPatch<data, 2> patch) : POSITION
+{
+    return 0;
+}
+
+[geometry shader fail(sm<5)]
+struct data
+{
+    float4 val : VAL;
+};
+
+    [maxvertexcount(1)]
+void main(InputPatch<data, 2> patch, inout PointStream<data> vout)
+{
+    vout.Append(patch[0]);
+}
+
+% OutputPatch parameters can only be used in hull shader patch constant functions and domain shaders.
+
+[pixel shader fail]
+struct data
+{
+    float val : VAL;
+};
+
+float4 main(OutputPatch<data, 2> patch) : SV_TARGET
+{
+    return 0;
+}
+
+[hull shader fail]
+struct data
+{
+    float4 val : VAL;
+};
+
+struct patch_constant_data
+{
+    float edges[2] : SV_TessFactor;
+};
+
+patch_constant_data patch_constant()
+{
+    return (patch_constant_data)0;
+}
+
+    [domain("isoline")]
+    [outputcontrolpoints(2)]
+    [partitioning("integer")]
+    [outputtopology("point")]
+    [patchconstantfunc("patch_constant")]
+float4 main(OutputPatch<data, 2> patch) : POSITION
+{
+    return patch[0].val;
+}
+
+[hull shader]
+struct data
+{
+    float4 val : VAL;
+};
+
+struct out_data
+{
+    float outval : OUTVAL;
+};
+
+struct patch_constant_data
+{
+    float edges[2] : SV_TessFactor;
+};
+
+patch_constant_data patch_constant(OutputPatch<out_data, 2> patch)
+{
+    return (patch_constant_data)0;
+}
+
+    [domain("isoline")]
+    [outputcontrolpoints(2)]
+    [partitioning("integer")]
+    [outputtopology("point")]
+    [patchconstantfunc("patch_constant")]
+out_data main()
+{
+    return (out_data)0;
+}
+
+[domain shader]
+struct data
+{
+    float4 val : VAL;
+};
+
+struct patch_constant_data
+{
+    float edges[2] : SV_TessFactor;
+};
+
+    [domain("isoline")]
+float4 main(patch_constant_data input, OutputPatch<data, 2> patch) : POSITION
+{
+    return 0;
+}
+
+[geometry shader fail]
+struct data
+{
+    float4 val : VAL;
+};
+
+    [maxvertexcount(1)]
+void main(OutputPatch<data, 2> patch, inout PointStream<data> vout)
+{
+    vout.Append(patch[0]);
+}
+
+% Patch parameters can't have more than 32 control points.
+
+[hull shader]
+struct data
+{
+    float4 val : VAL;
+};
+
+struct patch_constant_data
+{
+    float edges[2] : SV_TessFactor;
+};
+
+patch_constant_data patch_constant()
+{
+    return (patch_constant_data)0;
+}
+
+    [domain("isoline")]
+    [outputcontrolpoints(2)]
+    [partitioning("integer")]
+    [outputtopology("point")]
+    [patchconstantfunc("patch_constant")]
+float4 main(InputPatch<data, 32> patch) : POSITION
+{
+    return 0;
+}
+
+[hull shader fail]
+struct data
+{
+    float4 val : VAL;
+};
+
+struct patch_constant_data
+{
+    float edges[2] : SV_TessFactor;
+};
+
+patch_constant_data patch_constant()
+{
+    return (patch_constant_data)0;
+}
+
+    [domain("isoline")]
+    [outputcontrolpoints(2)]
+    [partitioning("integer")]
+    [outputtopology("point")]
+    [patchconstantfunc("patch_constant")]
+float4 main(InputPatch<data, 33> patch) : POSITION
+{
+    return 0;
+}
+
+[domain shader]
+struct data
+{
+    float4 val : VAL;
+};
+
+struct patch_constant_data
+{
+    float edges[2] : SV_TessFactor;
+};
+
+    [domain("isoline")]
+float4 main(patch_constant_data input, OutputPatch<data, 32> patch) : POSITION
+{
+    return 0;
+}
+
+[domain shader fail]
+struct data
+{
+    float4 val : VAL;
+};
+
+struct patch_constant_data
+{
+    float edges[2] : SV_TessFactor;
+};
+
+    [domain("isoline")]
+float4 main(patch_constant_data input, OutputPatch<data, 33> patch) : POSITION
+{
+    return 0;
+}
+
+% However, patch objects used in non tessellation shaders can have more than 32 elements.
+[pixel shader]
+InputPatch<float, 64> patch;
+
+float4 main() : SV_TARGET
+{
+    return patch[0];
+}
+
+% Multiple patch parameters are not allowed.
+
+[hull shader fail]
+struct data
+{
+    float4 val : VAL;
+};
+
+struct patch_constant_data
+{
+    float edges[2] : SV_TessFactor;
+};
+
+patch_constant_data patch_constant()
+{
+    return (patch_constant_data)0;
+}
+
+    [domain("isoline")]
+    [outputcontrolpoints(2)]
+    [partitioning("integer")]
+    [outputtopology("point")]
+    [patchconstantfunc("patch_constant")]
+float4 main(InputPatch<data, 2> patch, uint i : SV_OutputControlPointID, InputPatch<data, 2> patch2) : POSITION
+{
+    return 0;
+}
+
+[domain shader fail]
+struct data
+{
+    float4 val : VAL;
+};
+
+struct patch_constant_data
+{
+    float edges[2] : SV_TessFactor;
+};
+
+    [domain("isoline")]
+float4 main(OutputPatch<data, 2> patch, patch_constant_data input, OutputPatch<data, 2> patch2) : POSITION
+{
+    return 0;
+}
+
+% InputPatch types must match between the main function and the patch constant function of a hull shader.
+
+[hull shader fail]
+struct data
+{
+    float4 val : VAL;
+};
+
+struct data2
+{
+    float4 apple : APPLE;
+};
+
+struct patch_constant_data
+{
+    float edges[2] : SV_TessFactor;
+};
+
+patch_constant_data patch_constant(InputPatch<data2, 2> patch)
+{
+    return (patch_constant_data)0;
+}
+
+    [domain("isoline")]
+    [outputcontrolpoints(2)]
+    [partitioning("integer")]
+    [outputtopology("point")]
+    [patchconstantfunc("patch_constant")]
+float4 main(InputPatch<data, 2> patch) : POSITION
+{
+    return 0;
+}
+
+[hull shader fail]
+struct data
+{
+    float4 val : VAL;
+};
+
+struct patch_constant_data
+{
+    float edges[2] : SV_TessFactor;
+};
+
+patch_constant_data patch_constant(InputPatch<data, 3> patch)
+{
+    return (patch_constant_data)0;
+}
+
+    [domain("isoline")]
+    [outputcontrolpoints(2)]
+    [partitioning("integer")]
+    [outputtopology("point")]
+    [patchconstantfunc("patch_constant")]
+float4 main(InputPatch<data, 2> patch) : POSITION
+{
+    return 0;
+}
+
+% The type of a OutputPatch parameters in a hull shader patch constant function must match
+% the output type of the shader's main function.
+
+[hull shader fail]
+struct data
+{
+    float4 val : VAL;
+};
+
+struct out_data
+{
+    float outval : OUTVAL;
+};
+
+struct patch_constant_data
+{
+    float edges[2] : SV_TessFactor;
+};
+
+patch_constant_data patch_constant(OutputPatch<data, 2> patch)
+{
+    return (patch_constant_data)0;
+}
+
+    [domain("isoline")]
+    [outputcontrolpoints(2)]
+    [partitioning("integer")]
+    [outputtopology("point")]
+    [patchconstantfunc("patch_constant")]
+out_data main()
+{
+    return (out_data)0;
+}
+
+[hull shader fail]
+struct out_data
+{
+    float outval : OUTVAL;
+};
+
+struct patch_constant_data
+{
+    float edges[2] : SV_TessFactor;
+};
+
+patch_constant_data patch_constant(OutputPatch<out_data, 3> patch)
+{
+    return (patch_constant_data)0;
+}
+
+    [domain("isoline")]
+    [outputcontrolpoints(2)]
+    [partitioning("integer")]
+    [outputtopology("point")]
+    [patchconstantfunc("patch_constant")]
+out_data main()
+{
+    return (out_data)0;
+}

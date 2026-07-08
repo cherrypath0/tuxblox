@@ -1,0 +1,71 @@
+[require]
+shader model >= 4.0
+
+[srv 0]
+size (2d, 3, 3)
+0.0 0.0 0.0 1.0     1.0 0.0 0.0 1.0     2.0 0.0 0.0 1.0
+0.0 1.0 0.0 1.0     1.0 1.0 0.0 1.0     2.0 1.0 0.0 1.0
+0.0 2.0 0.0 1.0     1.0 2.0 0.0 1.0     2.0 2.0 0.0 1.0
+
+
+[pixel shader]
+Texture2D t;
+
+float4 main(float4 pos : sv_position) : sv_target
+{
+    return t.Load(int3(pos.xy, 0), int2(0, 1));
+}
+
+
+[test]
+todo(msl) draw quad
+probe (0, 0) f32(0, 1, 0, 1)
+probe (1, 0) f32(1, 1, 0, 1)
+probe (0, 1) f32(0, 2, 0, 1)
+probe (1, 1) f32(1, 2, 0, 1)
+probe (0, 2) f32(0, 0, 0, 0)
+probe (2, 2) f32(0, 0, 0, 0)
+
+[pixel shader]
+Texture2D t;
+
+float4 main(float4 pos : sv_position) : sv_target
+{
+    return t.Load(int3(pos.xy, 0), int2(-2, 0));
+}
+
+
+[test]
+todo(msl) draw quad
+probe (3, 0) f32(1, 0, 0, 1)
+probe (4, 0) f32(2, 0, 0, 1)
+probe (3, 1) f32(1, 1, 0, 1)
+probe (4, 1) f32(2, 1, 0, 1)
+probe (0, 1) f32(0, 0, 0, 0)
+probe (1, 1) f32(0, 0, 0, 0)
+
+[pixel shader fail]
+Texture2D t;
+
+float4 main(float4 pos : sv_position) : sv_target
+{
+    return t.Load(int3(pos.xy, 0), int2(8, 1));
+}
+
+[pixel shader fail]
+Texture2D t;
+
+float4 main(float4 pos : sv_position) : sv_target
+{
+    return t.Load(int3(pos.xy, 0), int2((int)pos.x, 1));
+}
+
+[pixel shader fail]
+Texture2D t;
+
+uniform int i;
+
+float4 main(float4 pos : sv_position) : sv_target
+{
+    return t.Load(int3(pos.xy, 0), int2(i, 1));
+}

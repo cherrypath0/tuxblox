@@ -1,0 +1,128 @@
+[require]
+shader model >= 5.0
+
+[uav 1]
+format r32-typeless
+size (raw_buffer, 4)
+
+1 2 3 4
+
+[pixel shader]
+RWByteAddressBuffer u : register(u1);
+
+float4 main() : sv_target
+{
+    u.Store(0, 10);
+    u.Store(4, 11.1f);
+    return 0;
+}
+
+[test]
+todo(glsl | msl) draw quad
+probe uav-1 (0) i32(10)
+if(sm<6) probe uav-1 (1) i32(11)
+if(sm>=6) probe uav-1 (1) f32(11.1)
+
+[pixel shader]
+RWByteAddressBuffer u : register(u1);
+
+float4 main() : sv_target
+{
+    u.Store2(0, uint2(10, 11));
+    u.Store2(8, float2(12.2f, 13.3f));
+    return 0;
+}
+
+[test]
+todo(glsl | msl) draw quad
+probe uav-1 (0) u32(10, 11, 12, 13)
+
+[pixel shader]
+RWByteAddressBuffer u : register(u1);
+
+float4 main() : sv_target
+{
+    u.Store(0, 20);
+    u.Store3(4, uint3(21, 22, 23));
+    return 0;
+}
+
+[test]
+todo(glsl | msl) draw quad
+probe uav-1 (0) u32(20, 21, 22, 23)
+
+[pixel shader]
+RWByteAddressBuffer u : register(u1);
+
+float4 main() : sv_target
+{
+    u.Store(0, 20);
+    u.Store3(4, float3(21.1f, 22.2f, 23.3f));
+    return 0;
+}
+
+[test]
+todo(glsl | msl) draw quad
+probe uav-1 (0) u32(20, 21, 22, 23)
+
+[require]
+shader model >= 5.0
+float64
+
+[pixel shader]
+RWByteAddressBuffer u : register(u1);
+
+float4 main() : sv_target
+{
+    u.Store(0, (double)12.2);
+    return 0;
+}
+
+[test]
+todo(glsl) draw quad
+if(sm<6) probe uav-1 (0) i32(12)
+if(sm>=6) probe uav-1 (0) f64(12.2)
+
+% SM 6 add support for templated Store<>().
+[require]
+shader model >= 6.0
+float64
+
+[pixel shader]
+RWByteAddressBuffer u : register(u1);
+
+float4 main() : sv_target
+{
+    u.Store<int64_t>(0, (int64_t)-12);
+    u.Store<double>(8, 13.3);
+    return 0;
+}
+
+[test]
+draw quad
+probe uav-1 (0) i64(-12)
+probe uav-1 (1) f64(13.3)
+
+[require]
+shader model >= 6.2
+native-16-bit
+
+[compute shader]
+RWByteAddressBuffer u : register(u1);
+
+    [numthreads(1, 1, 1)]
+void main()
+{
+    u.Store<int16_t>(0, (int16_t)11);
+    u.Store<int16_t>(2, (int16_t)-12);
+    u.Store<uint16_t>(4, (uint16_t)13);
+    u.Store<uint16_t>(6, (uint16_t)0xfff2);
+    u.Store<half>(8, 13.375);
+    u.Store<half>(10, 14.5);
+}
+
+[test]
+dispatch 1 1 1
+probe uav-1 (0) u32(0xfff4000b)
+probe uav-1 (1) u32(0xfff2000d)
+probe uav-1 (2) u32(0x4b404ab0)

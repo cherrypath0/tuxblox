@@ -1,0 +1,103 @@
+[pixel shader fail(sm<6) todo]
+uniform half h;
+
+float4 main() : sv_target
+{
+    return 0;
+}
+
+[pixel shader]
+float4 var;
+
+float4 main() : sv_target
+{
+    half4 ret = var + 0.5;
+    return ret;
+}
+
+[test]
+uniform 0 float4 1.0 2.0 3.0 4.0
+draw quad
+probe (0, 0) f32(1.5, 2.5, 3.5, 4.5)
+
+[require]
+shader model >= 2.0
+shader model < 3.0
+
+[pixel shader d3dbc-hex]
+% The same as above, but in bytecode format so we test the partial precision
+% destination modifier.
+ffff0200                                                % ps_2_0
+05000051 a00f0001 3f000000 00000000 00000000 00000000   % def c1, 0.5, 0, 0, 0
+02000001 800f0000 a0e40000                              % mov r0, c0
+03000002 802f0000 80e40000 a0000001                     % add_pp r0, r0, c1.x
+02000001 802f0800 80e40000                              % mov_pp oC0, r0
+0000ffff                                                % end
+
+[test]
+uniform 0 float4 1.0 2.0 3.0 4.0
+draw quad
+probe (0, 0) f32(1.5, 2.5, 3.5, 4.5)
+
+[require]
+options: backcompat
+
+[pixel shader]
+uniform half h;
+
+float4 main() : sv_target
+{
+    return h;
+}
+
+[test]
+uniform 0 float 10.0
+draw quad
+probe (0, 0) rgba (10.0, 10.0, 10.0, 10.0)
+
+[require]
+shader model >= 4.0
+
+[pixel shader]
+uniform float4 f;
+
+float4 main() : sv_target
+{
+    min16float4 h = f;
+    return h * min16float4(h[1], 2.0, 0.5, -0.5);
+}
+
+[test]
+uniform 0 float4 0.0 0.0 0.0 0.0
+todo(msl & sm>=6) draw quad
+probe (0, 0) rgba(0.0, 0.0, 0.0, 0.0)
+uniform 0 float4 3.0 5.0 -0.2 -10.0
+todo(msl & sm>=6) draw quad
+probe (0, 0) rgba(15.0, 10.0, -0.1, 5.0) 4096
+
+[require]
+shader model >= 6.2
+native-16-bit
+
+[pixel shader]
+uniform float4 f;
+
+float4 main() : sv_target
+{
+    half4 h = f;
+    return h * half4(h[1], 2.0, 0.5, -0.5);
+}
+
+[test]
+uniform 0 float4 0.0 0.0 0.0 0.0
+draw quad
+probe (0, 0) f32(0.0, 0.0, 0.0, 0.0)
+uniform 0 float4 3.0 5.0 -0.2 -10.0
+draw quad
+probe (0, 0) f32(15.0, 10.0, -9.99755859e-002, 5.0)
+uniform 0 float4 32768.0 32768.0 -32768.0 -32768.0
+draw quad
+probe (0, 0) f32(inf, inf, -16384.0, 16384.0)
+uniform 0 float4 0.000062 0.000062 5.97e-8 5.97e-8
+draw quad
+probe (0, 0) f32(0.0, 1.23977661e-004, 0.0, 0.0)

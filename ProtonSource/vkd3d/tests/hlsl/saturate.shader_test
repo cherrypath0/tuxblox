@@ -1,0 +1,40 @@
+[pixel shader]
+uniform float2 u;
+
+float4 main() : sv_target
+{
+    return float4(saturate(u), saturate(u.x + 0.5), saturate(-1.2));
+}
+
+[test]
+uniform 0 float4 0.7 -0.1 0.0 0.0
+draw quad
+probe (0, 0) rgba (0.7, 0.0, 1.0, 0.0)
+
+[pixel shader]
+uniform float4 u;
+
+float4 main() : sv_target
+{
+    int4 i = u;
+    return saturate(i);
+}
+
+[test]
+uniform 0 float4 -2 0 2 -1
+draw quad
+probe (0, 0) f32(0.0, 0.0, 1.0, 0.0)
+
+[pixel shader]
+uniform float4 u;
+
+float4 main() : sv_target
+{
+    half4 h = u;
+    return saturate(h);
+}
+
+[test]
+uniform 0 float4 -2.0 1.2 0.2 4.0
+draw quad
+probe (0, 0) rgba (0.0, 1.0, 0.2, 1.0)

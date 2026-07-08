@@ -1,0 +1,25 @@
+var searchData=
+[
+  ['unbounded_5ffn_0',['unbounded_fn',['../structranges_1_1views_1_1unbounded__fn.html',1,'ranges::views']]],
+  ['unbounded_5fview_1',['unbounded_view',['../structranges_1_1unbounded__view.html',1,'ranges']]],
+  ['uncurry_2',['uncurry',['../group__lazy__composition.html#gad88347c3ca41bc09af89f5e381f906c0',1,'meta::lazy::uncurry()'],['../group__composition.html#ga5fa0228061e71036b311db6c3d93ab02',1,'meta::uncurry()']]],
+  ['unformatted_5fostream_5fiterator_3',['unformatted_ostream_iterator',['../classranges_1_1unformatted__ostream__iterator.html',1,'ranges']]],
+  ['unique_4',['unique',['../group__lazy__transformation.html#ga42f3b970e80aab370d5540b4d84ef1d4',1,'meta::lazy::unique()'],['../group__transformation.html#ga851cff9736691f16f0899eac04839d58',1,'meta::unique()'],['../action_2unique_8hpp.html#a2df52ed5e91e92ea7d2d7b1ed5408fcf',1,'unique():&#160;unique.hpp'],['../group__group-algorithms.html#ga379156c62f9e56bc3e97f091eb0db830',1,'ranges::unique(I first, S last, C pred=C{}, P proj=P{})'],['../group__group-algorithms.html#ga814af01db23206bfdc5ebcf8b03658b4',1,'ranges::unique(Rng &amp;&amp;rng, C pred=C{}, P proj=P{})']]],
+  ['unique_2ehpp_5',['unique.hpp',['../view_2unique_8hpp.html',1,'(Global Namespace)'],['../algorithm_2unique_8hpp.html',1,'(Global Namespace)'],['../action_2unique_8hpp.html',1,'(Global Namespace)']]],
+  ['unique_5fbase_5ffn_6',['unique_base_fn',['../structranges_1_1views_1_1unique__base__fn.html',1,'ranges::views']]],
+  ['unique_5fcopy_7',['unique_copy',['../group__group-algorithms.html#gacf007de19488bee4f383ec78c64ce09a',1,'ranges::unique_copy(I first, S last, O out, C pred=C{}, P proj=P{})'],['../group__group-algorithms.html#gae6bce488b81818099d49631d0a83cba2',1,'ranges::unique_copy(Rng &amp;&amp;rng, O out, C pred=C{}, P proj=P{})']]],
+  ['unique_5fcopy_2ehpp_8',['unique_copy.hpp',['../unique__copy_8hpp.html',1,'']]],
+  ['unique_5ffn_9',['unique_fn',['../structranges_1_1actions_1_1unique__fn.html',1,'ranges::actions::unique_fn'],['../structranges_1_1views_1_1unique__fn.html',1,'ranges::views::unique_fn']]],
+  ['unreachable_5fsentinel_2ehpp_10',['unreachable_sentinel.hpp',['../unreachable__sentinel_8hpp.html',1,'']]],
+  ['unreachable_5fsentinel_5ft_11',['unreachable_sentinel_t',['../structranges_1_1unreachable__sentinel__t.html',1,'ranges']]],
+  ['unstable_5fremove_5fif_12',['unstable_remove_if',['../group__group-algorithms.html#gada089b0a8c7e13a304228a04da009223',1,'ranges::unstable_remove_if()'],['../action_2unstable__remove__if_8hpp.html#a116e95cd0f17177ae44e31dfb2cfd5b1',1,'ranges::actions::unstable_remove_if()'],['../group__group-algorithms.html#ga2d605007b1e7bad222775b7d74258323',1,'ranges::unstable_remove_if()']]],
+  ['unstable_5fremove_5fif_2ehpp_13',['unstable_remove_if.hpp',['../algorithm_2unstable__remove__if_8hpp.html',1,'(Global Namespace)'],['../action_2unstable__remove__if_8hpp.html',1,'(Global Namespace)']]],
+  ['unstable_5fremove_5fif_5ffn_14',['unstable_remove_if_fn',['../structranges_1_1actions_1_1unstable__remove__if__fn.html',1,'ranges::actions']]],
+  ['unwrap_5freference_15',['unwrap_reference',['../group__group-functional.html#ga3955120e57fdbe4c169ccd489b3443f7',1,'ranges']]],
+  ['unwrap_5freference_5ffn_16',['unwrap_reference_fn',['../structranges_1_1unwrap__reference__fn.html',1,'ranges']]],
+  ['upper_5fbound_17',['upper_bound',['../group__group-algorithms.html#gad7d24c12ec9bce72612fc2f8a331e34b',1,'ranges::upper_bound(I first, S last, V const &amp;val, C pred=C{}, P proj=P{})'],['../group__group-algorithms.html#ga3f1e3c5bc685841d60b0fe281285754e',1,'ranges::upper_bound(Rng &amp;&amp;rng, V const &amp;val, C pred=C{}, P proj=P{})']]],
+  ['upper_5fbound_2ehpp_18',['upper_bound.hpp',['../upper__bound_8hpp.html',1,'']]],
+  ['user_20manual_19',['User Manual',['../index.html',1,'']]],
+  ['utility_20',['Utility',['../group__group-utility.html',1,'']]],
+  ['utility_2ehpp_21',['utility.hpp',['../utility_8hpp.html',1,'']]]
+];

@@ -1,0 +1,144 @@
+% Check that -0.0f is not less than 0.0f
+[pixel shader]
+float a;
+
+float4 main() : sv_target
+{
+    return -0.0f < a;
+}
+
+[test]
+uniform 0 float 0.0
+draw quad
+probe (0, 0) rgba (0.0, 0.0, 0.0, 0.0)
+
+
+[pixel shader]
+uniform float4 f;
+
+float4 main() : sv_target
+{
+    float4 result;
+    float n = f.x/f.w;
+
+    /* '!(condition)' in SM6 forces use of the unordered instruction variant. */
+
+    result.x  = (f.y > f.x)   ?        1.0 : 0.0;
+    result.x += (f.y < f.x)   ?       10.0 : 0.0;
+    result.x += (f.y >= f.x)  ?      100.0 : 0.0;
+    result.x += (f.y <= f.x)  ?     1000.0 : 0.0;
+    result.x += !(f.y <= f.x) ?    10000.0 : 0.0;
+    result.x += !(f.y >= f.x) ?   100000.0 : 0.0;
+    result.x += !(f.y < f.x)  ?  1000000.0 : 0.0;
+    result.x += !(f.y > f.x)  ? 10000000.0 : 0.0;
+    result.y  = (n > f.x)   ?        1.0 : 0.0;
+    result.y += (n < f.x)   ?       10.0 : 0.0;
+    result.y += (n >= f.x)  ?      100.0 : 0.0;
+    result.y += (n <= f.x)  ?     1000.0 : 0.0;
+    result.y += !(n <= f.x) ?    10000.0 : 0.0;
+    result.y += !(n >= f.x) ?   100000.0 : 0.0;
+    result.y += !(n < f.x)  ?  1000000.0 : 0.0;
+    result.y += !(n > f.x)  ? 10000000.0 : 0.0;
+    result.z  = (f.z == f.y)  ?        1.0 : 0.0;
+    result.z += (f.z != f.y)  ?       10.0 : 0.0;
+    result.z += !(f.z == f.y) ?      100.0 : 0.0;
+    result.z += !(f.z != f.y) ?     1000.0 : 0.0;
+    result.z += (n == f.y)    ?    10000.0 : 0.0;
+    result.z += (n != f.y)    ?   100000.0 : 0.0;
+    result.z += !(n == f.y)   ?  1000000.0 : 0.0;
+    result.z += !(n != f.y)   ? 10000000.0 : 0.0;
+    // These compile to FCMP_ORD, but prepending a ! does not result in FCMP_UNO
+    result.w  = (f.y < f.x || f.y >= f.x) ?  1.0 : 0.0;
+    result.w += (n < f.x || n >= f.x)     ? 10.0 : 0.0;
+    return result;
+}
+
+[test]
+uniform 0 float4 0.0 1.5 1.5 0.0
+todo(msl & sm>=6) draw quad
+% SM1-3 apparently treats '0/0' as zero.
+if(sm<4) todo probe (0,0) rgba (1010101.0, 11001100.0, 1101001.0, 11.0)
+% SM4-5 optimises away the 'not' by inverting the condition, even though this is invalid for NaN.
+if(sm>=4 & sm<6) todo probe (0,0) rgba (1010101.0, 0.0, 1101001.0, 1.0)
+% SM6 emits the correct ordered/unordered instructions, so comparisons are false for NaN, and are made true with 'not'.
+% However the Windows NVIDIA driver incorrectly evalutes ord(NaN, ...).
+if(sm>=6 & !windows | sm>=6 & !nvidia) probe (0,0) f32(1010101.0, 11110000.0, 1101001.0, 1.0)
+
+
+% In shader model 2.0, native compares two numbers for equality checking if (a - b)*(a - b) is
+% positive instead of |a - b|. We check if this causes some changes in behavior for very small and
+% very large numbers.
+% For large numbers the behavior is the same, even though the multiplication reaches inf, but for
+% very small ones it is not because the multiplication results in 0.
+%
+% NOTE: Seems that subnormal numbers are considered equal to zero, at least in the WARP driver.
+% Probably this is implementation dependent and deserves separate testing, so only normal numbers
+% are passed on these tests.
+[require]
+shader model >= 2.0
+shader model < 3.0
+
+[pixel shader]
+float4 a, b;
+
+float4 main() : sv_target
+{
+    return a == b;
+}
+
+[test]
+uniform 0 float4 1e-37  1e-37 1e+38  1e+38
+uniform 4 float4     0 -1e-37 1e+38 -1e+38
+draw quad
+probe (0, 0) rgba (1.0, 1.0, 1.0, 0.0)
+
+
+[require]
+shader model >= 3.0
+shader model < 4.0
+
+[pixel shader]
+float4 a, b;
+
+float4 main() : sv_target
+{
+    return a == b;
+}
+
+[test]
+uniform 0 float4 1e-37  1e-37 1e+38  1e+38
+uniform 4 float4     0 -1e-37 1e+38 -1e+38
+draw quad
+probe (0, 0) rgba (0.0, 0.0, 1.0, 0.0)
+
+
+[require]
+shader model >= 6.0
+
+[pixel shader]
+uniform float4 f;
+
+float4 main() : sv_target
+{
+    float4 result = float4(isinf(f.x / f.y), isnan(sqrt(f.w)), isinf(sqrt(f.w)), isnan(f.x / f.y));
+    return result + float4(isinf(f.x / f.z), isnan(sqrt(f.y)), isinf(f.y / f.z), isnan(sqrt(f.z))) * 10.0;
+}
+
+[test]
+uniform 0 float4 1.5 0.0 1.0 -1.0
+todo(msl & sm>=6) draw quad
+probe (0, 0) rgba (1.0, 1.0, 0.0, 0.0)
+
+
+[pixel shader]
+uniform float4 f;
+
+float4 main() : sv_target
+{
+    return float4(isfinite(f.x / f.y), isfinite(sqrt(f.w)), isfinite(f.x / f.z), 0.0);
+}
+
+[test]
+uniform 0 float4 1.5 0.0 1.0 -1.0
+todo(msl & sm>=6) draw quad
+probe (0, 0) rgba (0.0, 0.0, 1.0, 0.0)

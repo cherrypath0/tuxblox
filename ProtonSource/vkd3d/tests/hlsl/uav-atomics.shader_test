@@ -1,0 +1,376 @@
+[header]
+test-shader-models (4.0 5.0 6.0)
+
+[require]
+format r32-sint uav-load
+format r32-uint uav-load
+
+[uav 1]
+format r32-uint
+size (buffer, 11)
+
+0xd 5 6 0x10 4 4 7 2 0 5 0
+
+[compute shader fail(sm<5)]
+RWBuffer<uint> u : register(u1);
+
+uniform uint4 v;
+
+    [numthreads(3, 1, 1)]
+void main()
+{
+    uint old;
+    InterlockedAnd(u[0], v.x);
+    InterlockedCompareStore(u[1], v.y, v.x);
+    InterlockedAdd(u[2], v.x);
+    InterlockedOr(u[3], v.x);
+    InterlockedMax(u[4], v.x);
+    InterlockedMin(u[5], v.x);
+    InterlockedXor(u[6], v.x);
+    InterlockedExchange(u[7], v.x, old);
+    InterlockedAdd(u[8], old == 2);
+    InterlockedCompareExchange(u[9], v.y, v.x, old);
+    InterlockedAdd(u[10], old == 5);
+}
+
+[test]
+uniform 0 uint4 3 5 0 0
+todo(glsl | msl) dispatch 1 1 1
+probe uav-1 (0) u32(1)
+probe uav-1 (1) u32(3)
+probe uav-1 (2) u32(15)
+probe uav-1 (3) u32(0x13)
+probe uav-1 (4) u32(4)
+probe uav-1 (5) u32(3)
+probe uav-1 (6) u32(4)
+probe uav-1 (7) u32(3)
+probe uav-1 (8) u32(1)
+probe uav-1 (9) u32(3)
+probe uav-1 (10) u32(1)
+
+uniform 0 uint4 1 2 0 0
+todo(glsl | msl) dispatch 2 1 1
+probe uav-1 (0) u32(1)
+probe uav-1 (1) u32(3)
+probe uav-1 (2) u32(21)
+probe uav-1 (3) u32(0x13)
+probe uav-1 (4) u32(4)
+probe uav-1 (5) u32(1)
+probe uav-1 (6) u32(4)
+probe uav-1 (7) u32(1)
+probe uav-1 (8) u32(1)
+probe uav-1 (9) u32(3)
+probe uav-1 (10) u32(1)
+
+[uav 2]
+format r32-sint
+size (buffer, 2)
+
+-3 1
+
+[compute shader fail(sm<5)]
+RWBuffer<int> u : register(u2);
+
+uniform int4 i;
+
+    [numthreads(3, 1, 1)]
+void main()
+{
+    InterlockedMax(u[0], i.x);
+    InterlockedMin(u[1], i.y);
+}
+
+[test]
+uniform 0 int4 1 -3 0 0
+todo(glsl | msl) dispatch 1 1 1
+probe uav-2 (0) i32(1)
+probe uav-2 (1) i32(-3)
+
+uniform 0 int4 -3 1 0 0
+todo(glsl | msl) dispatch 1 1 1
+probe uav-2 (0) i32(1)
+probe uav-2 (1) i32(-3)
+
+[uav 1]
+format r32-uint
+size (2d, 11, 1)
+
+0xd 5 6 0x10 4 4 7 2 0 5 0
+
+[compute shader fail(sm<5)]
+RWTexture2D<uint> u : register(u1);
+
+uniform uint4 v;
+
+    [numthreads(3, 1, 1)]
+void main()
+{
+    uint old;
+    InterlockedAnd(u[uint2(0, 0)], v.x);
+    InterlockedCompareStore(u[uint2(1, 0)], v.y, v.x);
+    InterlockedAdd(u[uint2(2, 0)], v.x);
+    InterlockedOr(u[uint2(3, 0)], v.x);
+    InterlockedMax(u[uint2(4, 0)], v.x);
+    InterlockedMin(u[uint2(5, 0)], v.x);
+    InterlockedXor(u[uint2(6, 0)], v.x);
+    InterlockedExchange(u[uint2(7, 0)], v.x, old);
+    InterlockedAdd(u[uint2(8, 0)], old == 2);
+    InterlockedCompareExchange(u[uint2(9, 0)], v.y, v.x, old);
+    InterlockedAdd(u[uint2(10, 0)], old == 5);
+}
+
+[test]
+uniform 0 uint4 3 5 0 0
+todo(glsl | msl) dispatch 1 1 1
+probe uav-1 (0) u32(1)
+probe uav-1 (1) u32(3)
+probe uav-1 (2) u32(15)
+probe uav-1 (3) u32(0x13)
+probe uav-1 (4) u32(4)
+probe uav-1 (5) u32(3)
+probe uav-1 (6) u32(4)
+probe uav-1 (7) u32(3)
+probe uav-1 (8) u32(1)
+probe uav-1 (9) u32(3)
+probe uav-1 (10) u32(1)
+
+[compute shader fail(sm<5)]
+RWTexture2D<int> u : register(u2);
+
+uniform int4 i;
+
+    [numthreads(3, 1, 1)]
+void main()
+{
+    InterlockedMax(u[uint2(0, 0)], i.x);
+    InterlockedMin(u[uint2(1, 0)], i.y);
+}
+
+[test]
+uniform 0 int4 1 -3 0 0
+% SPIR-V compilation currently fails because of the mismatched resource type for u2.
+todo(vulkan | opengl | msl) dispatch 1 1 1
+probe uav-2 (0) i32(1)
+probe uav-2 (1) i32(-3)
+
+uniform 0 int4 -3 1 0 0
+todo(vulkan | opengl | msl) dispatch 1 1 1
+probe uav-2 (0) i32(1)
+probe uav-2 (1) i32(-3)
+
+[uav 1]
+format r32-uint
+size (buffer, 3)
+
+1 1 1
+
+[uav 2]
+format r32-sint
+size (buffer, 3)
+
+1 1 1
+
+% When there is a sign mismatch between the destination and the value field of
+% the InterlockedMax/Min functions, uint is used as the type for both.
+% Floating point values are always converted to signed integers.
+% However, for SM6, the value field is converted to the destination type instead.
+
+[compute shader fail(sm<5)]
+RWBuffer<uint> u : register(u1);
+RWBuffer<int> s : register(u2);
+
+uniform uint i;
+uniform float a;
+
+    [numthreads(3, 1, 1)]
+void main()
+{
+    InterlockedMax(u[0], i);
+    InterlockedMin(u[1], i);
+    InterlockedMax(u[2], a);
+
+    InterlockedMax(s[0], i);
+    InterlockedMin(s[1], i);
+    InterlockedMax(s[2], a);
+}
+
+[test]
+uniform 0 uint  0xffffffff
+uniform 1 float 0x80000000
+todo(glsl | msl | vulkan & mvk<1.4.0) dispatch 1 1 1
+probe uav-1 (0) u32(0xffffffff)
+probe uav-1 (1) u32(1)
+probe uav-1 (2) u32(0x7fffffff)
+if(sm<6)  probe uav-2 (0) i32(-1)
+if(sm>=6) probe uav-2 (0) i32(1)
+if(sm<6)  probe uav-2 (1) i32(1)
+if(sm>=6) probe uav-2 (1) i32(-1)
+probe uav-2 (2) u32(0x7fffffff)
+
+[uav 1]
+format r32-uint
+size (buffer, 5)
+
+0 0 0xffffffff 0 0xffffffff
+
+[uav 2]
+format r32-sint
+size (buffer, 5)
+
+0 0 -1 0 -1
+
+% The value fields of other Interlocked functions are always uint.
+
+[compute shader fail(sm<5)]
+RWBuffer<uint> u : register(u1);
+RWBuffer<int> s : register(u2);
+
+uniform uint i;
+uniform float a;
+
+    [numthreads(3, 1, 1)]
+void main()
+{
+    uint old;
+
+    InterlockedAdd(u[0], i);
+    InterlockedAdd(u[1], a);
+    InterlockedAnd(u[2], a);
+    InterlockedExchange(u[3], i, old);
+    InterlockedCompareStore(u[4], a, 0);
+
+    InterlockedAdd(s[0], i);
+    InterlockedAdd(s[1], a);
+    InterlockedAnd(s[2], a);
+    InterlockedExchange(s[3], i, old);
+    InterlockedCompareStore(s[4], a, 0);
+}
+
+[test]
+uniform 0 uint  0xffffffff
+uniform 1 float -1
+todo(glsl | msl | vulkan & mvk<1.4.0) dispatch 1 1 1
+probe uav-1 (0) u32(0xfffffffd)
+probe uav-1 (1) u32(0)
+probe uav-1 (2) u32(0)
+probe uav-1 (3) u32(0xffffffff)
+probe uav-1 (4) u32(0xffffffff)
+probe uav-2 (0) u32(0xfffffffd)
+probe uav-2 (1) i32(0)
+probe uav-2 (2) i32(0)
+probe uav-2 (3) i32(-1)
+probe uav-2 (4) i32(-1)
+
+% Interlocked* functions return void.
+
+[compute shader fail]
+RWBuffer<uint> u : register(u1);
+
+    [numthreads(3, 1, 1)]
+void main()
+{
+    uint err = InterlockedAdd(u[0], 1);
+}
+
+[compute shader fail]
+RWBuffer<uint> u : register(u1);
+
+    [numthreads(3, 1, 1)]
+void main()
+{
+    uint old;
+    uint err = InterlockedAdd(u[0], 1, old);
+}
+
+[compute shader fail]
+RWBuffer<uint> u : register(u1);
+
+    [numthreads(3, 1, 1)]
+void main()
+{
+    uint err = InterlockedCompareStore(u[0], 0, 1);
+}
+
+[compute shader fail]
+RWBuffer<uint> u : register(u1);
+
+    [numthreads(3, 1, 1)]
+void main()
+{
+    uint old;
+    uint err = InterlockedCompareExchange(u[0], 0, 1, old);
+}
+
+
+% The underlying type of the destination parameter must be a scalar integer.
+
+[compute shader fail]
+RWBuffer<uint1> u : register(u1);
+
+    [numthreads(3, 1, 1)]
+void main()
+{
+    InterlockedAdd(u[0], 1);
+}
+
+[compute shader fail]
+RWBuffer<int1> u : register(u1);
+
+    [numthreads(3, 1, 1)]
+void main()
+{
+    InterlockedAdd(u[0], 1);
+}
+
+[compute shader fail]
+RWBuffer<float> u : register(u1);
+
+    [numthreads(3, 1, 1)]
+void main()
+{
+    InterlockedAdd(u[0], 1);
+}
+
+% Non-structured UAV targets must have scalar type.
+
+[compute shader fail]
+RWBuffer<int4> u : register(u1);
+
+     [numthreads(3, 1, 1)]
+void main()
+{
+    InterlockedAdd(u[0].x, 1);
+}
+
+% Interlocked operations on structured UAVs.
+
+[uav 1]
+stride 16
+size (buffer, 2)
+0 0 0 0
+0 0 0 0
+
+[compute shader fail(sm<5)]
+struct apple
+{
+    int2 a, b;
+};
+
+RWStructuredBuffer<apple> u : register(u1);
+
+uniform int4 i;
+
+    [numthreads(3, 1, 1)]
+void main(uint local_idx: SV_groupIndex, uint group_id : SV_GroupID)
+{
+    InterlockedAdd(u[group_id.x].a.x, i.x * local_idx + group_id.x * 10);
+    InterlockedAdd(u[group_id.x].a.y, i.y * local_idx + group_id.x * 10);
+    InterlockedAdd(u[group_id.x].b.x, i.z * local_idx + group_id.x * 10);
+    InterlockedAdd(u[group_id.x].b.y, i.w * local_idx + group_id.x * 10);
+}
+
+[test]
+write cbv-0 (0) i32(1, 2, -30, -40)
+todo(glsl | msl) dispatch 2 1 1
+probe uav-1 (0) i32(3, 6, -90, -120)
+probe uav-1 (1) i32(33, 36, -60, -90)

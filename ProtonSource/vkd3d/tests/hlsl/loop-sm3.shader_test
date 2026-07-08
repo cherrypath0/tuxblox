@@ -1,0 +1,696 @@
+[require]
+shader model >= 3.0
+
+% NOTE: While these unrolled loop tests are valid for all shader models above
+% 3.0, the comments here are in regards to shader model 3.0, since this model
+% allows for a limited subset of these.
+
+% The compiler uses `i` registers to define the number of iterations to do on
+% a loop. When this matches the value of a uniform, it reserves an `i` register
+% to be provided by the user with the integer value of the uniform via
+% SetShaderConstantI().
+%
+% This loop looks like this:
+%
+%     rep i0
+%       mad r0.xyz, r0, c1.y, r0.w
+%       add r0.w, r0.w, c1.z
+%     endrep
+%
+% NOTE: When compiled with fxc, this shader outputs warnings such as:
+%
+%     warning X4122: sum of 1.23457e+038 and 39 cannot be represented accurately in double precision
+%
+% which suggests that internally it executes a loop unrolling despite the
+% [loop] attribute being present.
+[pixel shader fail(sm<3) todo(sm<4)]
+int limit;    // In SM3, this gets i0.x as int, and c0.x as float.
+float other;  // In SM3, this should get c1.x as float.
+
+float4 main() : sv_target
+{
+    float4 sum = 0;
+
+    [loop]
+    for (int i = 0; i < limit; ++i)
+    {
+        sum *= 10;
+        sum += i;
+    }
+    sum.z = limit;
+    sum.w = other;
+    return sum;
+}
+
+[test]
+if(sm<4) write cbv-f32 (0) f32(4.0)
+if(sm<4) write cbv-f32 (4) f32(555)
+if(sm<4) write cbv-i32 (0) i32(4)
+if(sm>=4) write cbv-0 (0) i32(4)
+if(sm>=4) write cbv-0 (1) f32(555)
+todo(sm<4) draw quad
+probe (0, 0) f32(123.0, 123.0, 4.0, 555.0)
+if(sm<4) write cbv-f32 (0) f32(7.0)
+if(sm<4) write cbv-f32 (4) f32(555)
+if(sm<4) write cbv-i32 (0) i32(7)
+if(sm>=4) write cbv-0 (0) i32(7)
+todo(sm<4) draw quad
+probe (0, 0) f32(123456.0, 123456.0, 7.0, 555.0)
+
+% The compiler detects when the iterator increment happens inside the loop,
+% even if it is not the last instruction.
+[pixel shader fail(sm<3) todo(sm<4)]
+int limit;   // In SM3, this gets i0.x as int.
+float other; // In SM3, this gets c0.x as float.
+
+float4 main() : sv_target
+{
+    float4 sum = 0;
+
+    [loop]
+    for (int i = 0; i < limit;)
+    {
+        sum *= 10;
+        ++i; // Iterator increment here.
+        sum += i;
+    }
+    sum.w = other;
+    return sum;
+}
+
+[test]
+if(sm<4) write cbv-f32 (0) f32(444)
+if(sm<4) write cbv-i32 (0) i32(5)
+if(sm>=4) write cbv-0 (0) i32(5)
+if(sm>=4) write cbv-0 (1) f32(444)
+todo(sm<4) draw quad
+probe (0, 0) f32(12345.0, 12345.0, 12345.0, 444.0)
+
+% The compiler behaves the same when the iterator is initialized as zero outside
+% the loop.
+[pixel shader fail(sm<3) todo(sm<4)]
+int limit; // In SM3, this gets i0.x as int, and c0.x as float.
+
+float4 main() : sv_target
+{
+    float4 sum = 0;
+    int i = 0;
+
+    [loop]
+    for (; i < limit; ++i)
+    {
+        sum *= 10;
+        sum += i;
+    }
+    sum.w = limit;
+    return sum;
+}
+
+[test]
+if(sm<4) write cbv-f32 (0) f32(3.0)
+if(sm<4) write cbv-i32 (0) i32(3)
+if(sm>=4) write cbv-0 (0) i32(3)
+todo(sm<4) draw quad
+probe (0, 0) f32(12.0, 12.0, 12.0, 3.0)
+
+[pixel shader fail(sm<3) todo(sm<4)]
+int2 limit;  // In SM3, this gets c0.xy, and i0.x, i0.y.
+float other; // In SM3, this gets c1.x.
+
+float4 main() : sv_target
+{
+    float4 sum = 0;
+
+    for (int i = 0; i < limit.x; ++i)
+    {
+        sum.x += 1;
+        for (int j = 0; j < limit.y; ++j)
+            sum.y += 1;
+    }
+    sum.zw = limit;
+    sum += other;
+    return sum;
+}
+
+[test]
+if(sm<4) write cbv-f32 (0) f32(4.0, 3.0, 0.0, 0.0)
+if(sm<4) write cbv-f32 (4) f32(1000)
+if(sm<4) write cbv-i32 (0) i32(4)
+if(sm<4) write cbv-i32 (4) i32(3)
+if(sm>=4) write cbv-0 (0) i32(4, 3)
+if(sm>=4) write cbv-0 (2) f32(1000)
+todo(sm<4) draw quad
+probe (0, 0) f32(1004.0, 1012.0, 1004.0, 1003.0)
+
+% `while` also works this way, and detects when the iterator increases by 1.
+[pixel shader fail(sm<3) todo(sm<4)]
+int limit; // In SM3, this gets i0.x as int, and c0.x as float.
+
+float4 main() : sv_target
+{
+    float4 sum = 0;
+    int i = 0;
+
+    [loop]
+    while (i < limit)
+    {
+        i += 2;
+        sum *= 10;
+        sum += i;
+        i -= 1;
+    }
+    sum.w = limit;
+    return sum;
+}
+
+[test]
+if(sm<4) write cbv-f32 (0) f32(4.0)
+if(sm<4) write cbv-i32 (0) i32(4)
+if(sm>=4) write cbv-0 (0) i32(4)
+todo(sm<4) draw quad
+if(!warp) probe (0, 0) f32(2345.0, 2345.0, 2345.0, 4.0)
+
+% Uniforms get as many `i` registers as the last component used for a loop
+% limit.
+% Note that components are counted as if all matrices were row_major.
+[pixel shader fail(sm<3) todo(sm<4)]
+int4x3 limit; // gets from i0 to i10, and c0 to c2
+
+float4 main() : sv_target
+{
+    float4 sum = 0;
+
+    for (int i = 0; i < limit._42; ++i) // `rep i10`.
+        sum.x += 1;
+    sum.yzw = limit[3];
+    return sum;
+}
+
+[test]
+if(sm<4) write cbv-f32  (0) f32(67.0, 67.0, 67.0, 67.0)
+if(sm<4) write cbv-f32  (4) f32(67.0, 67.0, 67.0,  6.0)
+if(sm<4) write cbv-f32  (8) f32(67.0, 67.0, 67.0, 67.0)
+if(sm<4) write cbv-i32 (40) i32(6)
+if(sm>=4) write cbv-0 (0) i32(67, 67, 67, 67)
+if(sm>=4) write cbv-0 (4) i32(67, 67, 67,  6)
+if(sm>=4) write cbv-0 (8) i32(67, 67, 67, 67)
+todo(sm<4) draw quad
+probe (0, 0) f32(6.0, 67.0, 6.0, 67.0)
+
+% Note that components are counted as if all matrices were row_major.
+[pixel shader fail(sm<3) todo(sm<4)]
+row_major int3x2 limit;
+
+float4 main() : sv_target
+{
+    float4 sum = 0;
+
+    for (int i = 0; i < limit._21; ++i) // `rep i2`.
+        sum.x += 1;
+    sum.yz = limit[1];
+    return sum;
+}
+
+[test]
+if(sm<4) write cbv-f32 (0) f32(-1.0, -1.0, 0.0, 0.0)
+if(sm<4) write cbv-f32 (4) f32( 3.0, -1.0, 0.0, 0.0)
+if(sm<4) write cbv-f32 (8) f32(-1.0, -1.0, 0.0, 0.0)
+if(sm<4) write cbv-i32 (8) i32(3)
+if(sm>=4) write cbv-0 (0) i32(-1, -1, 0, 0)
+if(sm>=4) write cbv-0 (4) i32( 3, -1, 0, 0)
+if(sm>=4) write cbv-0 (8) i32(-1, -1, 0, 0)
+todo(sm<4) draw quad
+probe (0, 0) f32(3.0, 3.0, -1.0, 0.0)
+
+% The compiler allows initial offsets for the iterator (i = 42, here).
+% The way this is compiled is interesting:
+%
+%     ps_3_0
+%     def c1, 0, 0, 42, 10
+%     def c2, 1, 0, 0, 0
+%     defi i0, 255, 0, 0, 0
+%     mov r0, c1.yyyz
+%     rep i0
+%       break_ge r0.w, c0.x
+%       mad r0.xyz, r0, c1.w, r0.w
+%       add r0.w, r0.w, c2.x
+%     endrep
+%     mov oC0.xyz, r0
+%     mov oC0.w, c0.x
+%
+% Register i0 is defined as 255 (maximum number of iterations) instead of
+% defined by the uniform, and a break_ge instruction finishes the loop
+% instead.
+[pixel shader fail(sm<3)]
+int limit;
+
+float4 main() : sv_target
+{
+    float4 sum = 0;
+
+    [loop]
+    for (int i = 42; i < limit; ++i)
+    {
+        sum *= 10;
+        sum += i;
+    }
+    sum.w = limit;
+    return sum;
+}
+
+[test]
+if(sm<4) write cbv-f32 (0) f32(45.0)
+if(sm>=4) write cbv-0 (0) i32(45)
+draw quad
+probe (0, 0) f32(4674, 4674, 4674, 45)
+
+% `while` loops are valid:
+[pixel shader fail(sm<3)]
+int limit;
+
+float4 main() : sv_target
+{
+    float4 sum = 0;
+    int i = 0;
+
+    while (i < limit)
+    {
+        sum *= 1.8;
+        i += 2;
+        sum += i;
+    }
+
+    sum.w = limit;
+    return sum;
+}
+
+[test]
+if(sm<4) write cbv-f32 (0) f32(5.0)
+if(sm>=4) write cbv-0 (0) i32(5)
+draw quad
+probe (0, 0) f32(19.68, 19.68, 19.68, 5.0)
+
+% `break` can be used inside an arbitrary condition.
+[pixel shader fail(sm<3)]
+int limit;
+
+float4 main() : sv_target
+{
+    float4 sum = 0;
+    int i = 3;
+
+    for (;;)
+    {
+        sum += i;
+
+        if (i * i > limit * limit)
+            break;
+        i += 1;
+    }
+    sum.w = i;
+    return sum;
+}
+
+[test]
+if(sm<4) write cbv-f32 (0) f32(7.0)
+if(sm>=4) write cbv-0 (0) i32(7)
+draw quad
+probe (0, 0) f32(33.0, 33.0, 33.0, 8.0)
+
+% In this case the same i0 register, defined with
+%
+%     defi i0, 255, 0, 0, 0
+%
+% gets used for both `rep` instructions.
+[pixel shader fail(sm<3)]
+int limit1;
+int limit2;
+
+float4 main() : sv_target
+{
+    float4 sum = 0;
+
+    for (int i = 42; i < limit1; ++i)
+    {
+        sum.x += 1;
+        for (int j = i; j < limit2; ++j)
+            sum.y += 1;
+    }
+    sum.zw = float2(limit1, limit2);
+    return sum;
+}
+[test]
+if(sm<4) write cbv-f32 (0) f32(52.0)
+if(sm<4) write cbv-f32 (4) f32(62.0)
+if(sm>=4) write cbv-0 (0) i32(52, 62, 0, 0)
+draw quad
+probe (0, 0) f32(10.0, 155.0, 52.0, 62.0)
+
+% The compiler doesn't detect that these are `limit` iterations, and also uses
+% the `defi i0, 255, 0, 0, 0` trick.
+[pixel shader fail(sm<3)]
+int limit; // In SM3, this doesn't get i0.
+
+float4 main() : sv_target
+{
+    float4 sum = 0;
+    int i;
+
+    [loop]
+    for (i = 3; i < limit + 3; ++i)
+    {
+        sum *= 10;
+        sum += i;
+    }
+    sum.w = limit;
+    return sum;
+}
+
+[test]
+if(sm<4) write cbv-f32 (0) f32(6.0)
+if(sm>=4) write cbv-0 (0) i32(6)
+draw quad
+probe (0, 0) f32(345678.0, 345678.0, 345678.0, 6.0)
+
+% In this example, the iterator expects `limit` in i0, so it recognizes it as
+% the limit of iterations, despite a lot of shenanigans happening with the
+% iterator `i`.
+% So, the for-loop conditional could be used to identify both the iterator
+% and the limit, and then a hidden loop unrolling could be used to verify
+% that the iterator increases by one on every iteration.
+[pixel shader fail(sm<3) todo(sm<4)]
+int limit; // gets i0 and c0.
+
+float4 main() : sv_target
+{
+    float4 sum = 0;
+    int a, i = 0;
+
+    for (; i < limit;)
+    {
+        sum *= 10;
+        a = i % 3;
+        i -= a;
+        sum += a;
+        i += a + 1;
+
+        if (sum.x > 1e30)
+            break;
+    }
+    sum.w = limit;
+    return sum;
+}
+
+[test]
+if(sm<4) write cbv-f32 (0) f32(7.0)
+if(sm<4) write cbv-i32 (0) i32(7)
+if(sm>=4) write cbv-0 (0) i32(7)
+todo(sm<4) draw quad
+probe (0, 0) f32(120120.0, 120120.0, 120120.0, 7.0)
+
+% The compiler recognizes that the number of iterations depends on `limit` even
+% though the `li` temp is used, so copy-prop happens first.
+[pixel shader fail(sm<3) todo(sm<4)]
+int limit; // gets i0.
+
+float4 main() : sv_target
+{
+    int li = limit;
+    float4 sum = 0;
+
+    [loop]
+    for(int i = 0; i < li; ++i)
+        sum += i * i;
+    return sum;
+}
+
+[test]
+if(sm<4) write cbv-i32 (0) i32(5)
+if(sm>=4) write cbv-0 (0) i32(5)
+todo(sm<4) draw quad
+probe (0, 0) f32(30.0, 30.0, 30.0, 30.0)
+
+% The compiler seems to only recognize `>` and `<` expressions in the for loop's
+% condition, it uses the `defi` trick here.
+[pixel shader fail(sm<3)]
+int limit; // gets c0 but not i0.
+
+float4 main() : sv_target
+{
+    float4 sum = 0;
+
+    [loop]
+    for(int i = 0; i != limit; ++i)
+        sum += i * i;
+    return sum;
+}
+
+[test]
+if(sm<4) write cbv-f32 (0) f32(6)
+if(sm>=4) write cbv-0 (0) i32(6)
+draw quad
+probe (0, 0) f32(55.0, 55.0, 55.0, 55.0)
+
+[require]
+options: backcompat
+shader model >= 3.0
+shader model < 6.0
+
+[sampler 0]
+filter point point point
+address clamp clamp clamp
+
+[srv 0]
+size (2d, 4, 4)
+0.0 0.0 0.0 1.0     1.0 0.0 0.0 1.0     2.0 0.0 0.0 1.0     3.0 0.0 0.0 1.0
+0.0 1.0 0.0 1.0     1.0 1.0 0.0 1.0     2.0 1.0 0.0 1.0     3.0 1.0 0.0 1.0
+0.0 2.0 0.0 1.0     1.0 2.0 0.0 1.0     2.0 2.0 0.0 1.0     3.0 2.0 0.0 1.0
+0.0 3.0 0.0 1.0     1.0 3.0 0.0 1.0     2.0 3.0 0.0 1.0     3.0 3.0 0.0 1.0
+
+[pixel shader fail(sm<3) todo(sm<4)]
+sampler sam;
+
+int2 limit; // In SM3, this gets i0.x and i1.x as integer, and c0.xy as float.
+float2 step;
+
+float4 main() : sv_target
+{
+    float4 sum = 0;
+    float2 pos;
+
+    for (int i = 0; i < limit.x; ++i)
+    {
+        for (int j = 0; j < limit.y; ++j)
+        {
+            pos.x = 0.01 + i * step.x;
+            pos.y = 0.01 + j * step.y;
+            sum += tex2D(sam, pos);
+        }
+    }
+    sum.z += 1000 * limit.x + limit.y;
+    return sum;
+}
+
+[test]
+if(sm<4) write cbv-f32 (0) f32(4.0, 2.0, 0.0, 0.0)
+if(sm<4) write cbv-f32 (4) f32(0.25, 0.25, 0.0, 0.0)
+if(sm<4) write cbv-i32 (0) i32(4)
+if(sm<4) write cbv-i32 (4) i32(2)
+if(sm>=4) write cbv-0 (0) i32(4, 2)
+if(sm>=4) write cbv-0 (2) f32(0.25, 0.25)
+todo(sm<4) draw quad
+probe (0, 0) f32(12.0, 4.0, 4002, 8)
+if(sm<4) write cbv-f32 (0) f32(2.0, 3.0, 0.0, 0.0)
+if(sm<4) write cbv-f32 (4) f32(0.5, 0.25, 0.0, 0.0)
+if(sm<4) write cbv-i32 (0) i32(2)
+if(sm<4) write cbv-i32 (4) i32(3)
+if(sm>=4) write cbv-0 (0) i32(2, 3)
+if(sm>=4) write cbv-0 (2) f32(0.5, 0.25)
+todo(sm<4) draw quad
+probe (0, 0) f32(6.0, 6.0, 2003, 6)
+
+% This test fails with fxc/d3dcompiler:
+%
+%     error X3526: can't use gradient instructions in loops with break
+%
+% This is probably because the `i += 2` increment results in the compiler
+% using the break_ge strategy for the loop, but then fails because it
+% detects the tex2D() which is an operation that might require gradients.
+% This makes sense since, for gradients to work, adjacent pixels must take
+% the same flow control path.
+[pixel shader fail(sm<4) todo(sm<4)]
+sampler sam;
+int limit;
+
+float4 main() : sv_target
+{
+    float4 sum = 0;
+    float2 pos;
+
+    [loop]
+    for (int i = 0; i < limit; i += 2)
+    {
+        pos.x = 0.01 + i * 0.25;
+        pos.y = 0.01 + i * 0.25;
+        sum += tex2D(sam, pos);
+    }
+    return 0;
+}
+
+% If we remove the [loop] attribute we get similar errors:
+%
+%     warning X3553: can't use gradient instructions in loops with break, forcing loop to unroll
+%     error X3511: unable to unroll loop, loop does not appear to terminate in a timely manner (1024 iterations)
+%
+[pixel shader fail(sm<4) todo(sm<4)]
+sampler sam;
+int limit;
+
+float4 main() : sv_target
+{
+    float4 sum = 0;
+
+    for (int i = 0; i < limit; i += 2)
+        sum += tex2D(sam, float2(0, 0));
+    return 0;
+}
+
+[pixel shader fail(sm<4) todo(sm<4)]
+sampler sam;
+int limit;
+
+float4 main() : sv_target
+{
+    float4 sum = 0;
+
+    for (int i = 1; i < limit; i++)
+        sum += tex2D(sam, float2(0, 0));
+    return 0;
+}
+
+[pixel shader fail(sm<3) todo(sm<4)]
+sampler sam;
+int limit; // gets i0.x and c0.x.
+
+float4 main() : sv_target
+{
+    float4 sum = 0;
+    float2 pos;
+
+    for (int i = 0; i < limit; i += 1)
+    {
+        pos.x = 0.01 + i * 0.25;
+        pos.y = 0.01 + i * 0.25;
+        sum *= 10;
+        sum += tex2D(sam, pos);
+    }
+    sum.w = limit;
+    return sum;
+}
+
+[test]
+if(sm<4) write cbv-f32 (0) f32(2.0)
+if(sm<4) write cbv-i32 (0) i32(2)
+if(sm>=4) write cbv-0 (0) i32(2)
+todo(sm<4) draw quad
+probe (0, 0) f32(1.0, 1.0, 0.0, 2.0)
+if(sm<4) write cbv-f32 (0) f32(4.0)
+if(sm<4) write cbv-i32 (0) i32(4)
+if(sm>=4) write cbv-0 (0) i32(4)
+todo(sm<4) draw quad
+probe (0, 0) f32(123.0, 123.0, 0.0, 4.0)
+
+[require]
+options: backcompat
+shader model >= 3.0
+
+[vertex shader fail(sm<3) todo(sm<3)]
+void main(float4 p : position, out float4 position : sv_position, out float4 col[4] : COLOR)
+{
+    col[0] = float4(1.0, 0.0, 0.0, 1.0);
+    col[1] = float4(0.0, 1.0, 0.0, 1.0);
+    col[2] = float4(0.0, 0.0, 1.0, 1.0);
+    col[3] = float4(0.5, 0.5, 0.5, 1.0);
+    position = p;
+}
+
+% This shader makes fxc use the aL (loop counter) register.
+% This register is to be used on a `loop` instruction -- a variant of `rep` that
+% takes it as an argument) to relative address an array of input COLOR
+% semantics:
+%
+%    loop aL, i0
+%      add r0, r0, v0[aL]
+%    endloop
+%
+% According to the documentation, for the `loop` instruction, i0.x should be the
+% iteration count, i0.y should be the start, i0.z should be the step, and i0.w
+% should be zero, but these values are not set in the shader on this example so
+% are probably expected to be provided by the user.
+% Note that the [loop] attribute is necessary for this to happen, otherwise the
+% loop is unrolled.
+[pixel shader fail(sm<3) todo(sm<4)]
+int limit;
+
+float4 main(float4 pos : sv_position, in float4 cols[4] : COLOR) : sv_target
+{
+    float4 sum = 0;
+
+    [loop]
+    for (int i = 0; i < limit; ++i)
+        sum += cols[i];
+    return sum;
+}
+
+[test]
+if(sm<4) write cbv-i32 (0) i32(3, 0, 1, 0)
+if(sm>=4) write cbv-0 (0) i32(3)
+todo(sm<4 | msl & sm>=6) draw quad
+probe (0, 0) f32(1.0, 1.0, 1.0, 3.0)
+if(sm<4) write cbv-i32 (0) i32(4, 0, 1, 0)
+if(sm>=4) write cbv-0 (0) i32(4)
+todo(sm<4 | msl & sm>=6) draw quad
+probe (0, 0) f32(1.5, 1.5, 1.5, 4.0)
+
+% Hack values
+if(sm<4) write cbv-i32 (0) i32(2, 1, 2, 0)
+todo(sm<4) if(sm<4) draw quad
+if(sm<4) probe (0, 0) f32(0.5, 1.5, 0.5, 2.0)
+
+% This shader forces the use of the aL register, but the shader provides the
+% limit, start, step, and zero values using `defi`.
+% Note that it acknowledges that the maximum number of iterations is 4 because
+% of the size of the `cols` array.
+%
+%     defi i0, 4, 0, 1, 0
+%     ...
+%     loop aL, i0
+%         mov r0.z, r0.x
+%         break_ge r0.y, r0.z
+%         add r1, r1, v0[aL]
+%         add r0.y, r0.y, c1.z
+%     endloop
+%     ...
+%
+[pixel shader fail(sm<3)]
+int2 limit;
+
+float4 main(float4 pos : sv_position, in float4 cols[4] : COLOR) : sv_target
+{
+    float4 sum = 0;
+
+    [loop]
+    for (int i = 0; i < limit.x + limit.y; i++)
+        sum += cols[i];
+    return sum;
+}
+
+[test]
+if(sm<4) write cbv-f32 (0) f32(1.0, 2.0, 0.0, 0.0)
+if(sm>=4) write cbv-0 (0) i32(1, 2, 0, 0)
+todo(msl & sm>=6) draw quad
+probe (0, 0) f32(1.0, 1.0, 1.0, 3.0)
+if(sm<4) write cbv-f32 (0) f32(3.0, 1.0, 0.0, 0.0)
+if(sm>=4) write cbv-0 (0) i32(3, 1, 0, 0)
+todo(msl & sm>=6) draw quad
+probe (0, 0) f32(1.5, 1.5, 1.5, 4.0)

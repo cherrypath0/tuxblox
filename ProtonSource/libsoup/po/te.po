@@ -1,0 +1,131 @@
+# Telugu translation for libsoup.
+# Copyright (C) 2012 libsoup's to Swecha Telugu localisation Team <localization@swecha.net>
+# This file is distributed under the same license as the libsoup package.
+#
+# Sasi Bhushan  Boddepalli <sasi@swecha.net>, 2012.
+# Krishnababu Krothapalli <kkrothap@redhat.com>, 2012, 2013, 2014.
+msgid ""
+msgstr ""
+"Project-Id-Version: libsoup master\n"
+"Report-Msgid-Bugs-To: http://bugzilla.gnome.org/enter_bug.cgi?"
+"product=libsoup&keywords=I18N+L10N&component=general\n"
+"POT-Creation-Date: 2014-09-23 09:50+0000\n"
+"PO-Revision-Date: 2014-09-23 16:55+0530\n"
+"Last-Translator: Krishnababu Krothapalli <kkrothap@redhat.com>\n"
+"Language-Team: Telugu <kde-i18n-doc@kde.org>\n"
+"Language: te\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=n != 1;\n"
+"X-Generator: Lokalize 1.5\n"
+
+#: ../libsoup/soup-body-input-stream.c:140
+#: ../libsoup/soup-body-input-stream.c:171
+#: ../libsoup/soup-body-input-stream.c:204 ../libsoup/soup-message-io.c:196
+msgid "Connection terminated unexpectedly"
+msgstr "కనెక్షను అనుకోకుండా అంతమైంది"
+
+#: ../libsoup/soup-body-input-stream.c:462
+msgid "Invalid seek request"
+msgstr "చెల్లని సీక్ అభ్యర్ధన"
+
+#: ../libsoup/soup-body-input-stream.c:490
+msgid "Cannot truncate SoupBodyInputStream"
+msgstr "SoupBodyInputStream ట్రంకేట్ చేయలేదు"
+
+#: ../libsoup/soup-cache-input-stream.c:73
+msgid "Network stream unexpectedly closed"
+msgstr "నెట్వర్కు స్ట్రీమ్ అనుకోకుండా మూయబడింది"
+
+#: ../libsoup/soup-cache-input-stream.c:290
+msgid "Failed to completely cache the resource"
+msgstr "వనరును సంపూర్ణంగా క్యాచీ చేయుటకు విఫలమైంది"
+
+#: ../libsoup/soup-converter-wrapper.c:192
+#, c-format
+msgid "Output buffer is too small"
+msgstr "అవుట్పుట్ బఫర్ మరీ చిన్నది"
+
+#: ../libsoup/soup-message-client-io.c:41
+msgid "Could not parse HTTP response"
+msgstr "HTTP స్పందనను పార్శ్ చేయలేక పోయింది"
+
+#: ../libsoup/soup-message-client-io.c:66
+msgid "Unrecognized HTTP response encoding"
+msgstr "గుర్తించని HTTP స్పందన యెన్కోడింగ్"
+
+#: ../libsoup/soup-message-io.c:854 ../libsoup/soup-message-io.c:890
+msgid "Operation was cancelled"
+msgstr "ఆపరేషన్ రద్దు చేయబడింది"
+
+#: ../libsoup/soup-message-io.c:901
+msgid "Operation would block"
+msgstr "ఆపరేషన్ బ్లాక్ చేస్తుంది"
+
+#: ../libsoup/soup-message-server-io.c:41
+msgid "Could not parse HTTP request"
+msgstr "HTTP అభ్యర్ధనను పార్స్ చేయలేదు"
+
+#: ../libsoup/soup-request.c:140
+#, c-format
+msgid "No URI provided"
+msgstr "URl అందించబడలేదు"
+
+#: ../libsoup/soup-request.c:150
+#, c-format
+msgid "Invalid '%s' URI: %s"
+msgstr "చెల్లని '%s' URI: %s"
+
+#: ../libsoup/soup-server.c:1528
+msgid "Can't create a TLS server without a TLS certificate"
+msgstr "TLS ధృవీకరణపత్రం లేకుండా TLS సేవిక సృష్టించలేదు"
+
+#: ../libsoup/soup-server.c:1547
+#, c-format
+msgid "Could not listen on address %s, port %d: "
+msgstr "చిరునామా %s పైన వినలేదు, పోర్ట్ %d: "
+
+#: ../libsoup/soup-session.c:4466
+#, c-format
+msgid "Could not parse URI '%s'"
+msgstr "URI '%s' అన్వయించడం సాధ్యం కాదు"
+
+#: ../libsoup/soup-session.c:4503
+#, c-format
+msgid "Unsupported URI scheme '%s'"
+msgstr "మద్దతు లేని URI స్కీమ్ '%s'"
+
+#: ../libsoup/soup-session.c:4525
+#, c-format
+msgid "Not an HTTP URI"
+msgstr "HTTP URI కాదు"
+
+#: ../libsoup/soup-socket.c:142
+msgid "Can't import non-socket as SoupSocket"
+msgstr "నాన్-సాకెట్‌ను సూప్‌సాకెట్‌గా దిగుమతిచేయలేదు"
+
+#: ../libsoup/soup-socket.c:160
+msgid "Could not import existing socket: "
+msgstr "ఉన్న సాకెట్‌ను దిగుమతిచేయలేదు: "
+
+#: ../libsoup/soup-socket.c:169
+msgid "Can't import unconnected socket"
+msgstr "అనుసంధానించని సాకెట్‌ను దిగుమతిచేయలేదు"
+
+#: ../libsoup/soup-tld.c:188
+msgid "Hostname is an IP address"
+msgstr "హోస్ట్ పేరు ఒక IP చిరునామా"
+
+#: ../libsoup/soup-tld.c:198 ../libsoup/soup-tld.c:220
+msgid "Invalid hostname"
+msgstr "చెల్లని హోస్ట్ పేరు"
+
+#: ../libsoup/soup-tld.c:250
+msgid "Hostname has no base domain"
+msgstr "అతిధేయిపేరు అధార డొమైన్ కలిగిలేదు"
+
+#: ../libsoup/soup-tld.c:304
+msgid "Not enough domains"
+msgstr "సరిపోనన్ని డొమైన్ లు"
+

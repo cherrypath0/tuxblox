@@ -1,0 +1,1150 @@
+# Change Log
+
+## 3.0
+
+A new major release, yay!
+A few milestones have been reached over the last year, warranting a new major bump.
+It's been quite a while since the last release due to new things coming up constantly.
+These tags are mostly arbitrary anyway, and tend to be done when islands of calm and stability emerge.
+
+### Major items
+
+#### DXBC shader backend rewrite
+
+@doitsujin rewrote the entire DXBC backend, replacing our legacy vkd3d-shader path.
+DXVK and vkd3d-proton now share the same DXBC frontend which gives us clean,
+"readable" (as readable as DXBC can be) and lean IR to work with.
+dxil-spirv standalone project now supports DXBC as well as a result.
+
+Lots of games which used to be completely broken before due to bugs and missing features
+in the legacy vkd3d-shader backend are now fixed. E.g. Red Dead Redemption 2 runs just fine now in D3D12 mode.
+Some recently released DXBC based games also only work on the new path.
+The amount of regressions found the last months in DXBC games has been very minor,
+but it's possible there are still bugs in this area.
+However, given that DXVK uses it now as well, it's been battle tested quite extensively already.
+
+#### FSR4 support
+
+We added support for AGS WMMA intrinsics through `VK_KHR_cooperative_matrix` and `VK_KHR_shader_float8`,
+which is enough to support FSR4.
+Note that these shaders are tightly coded for AMD GPUs with some implementation defined behavior
+(particularly around matrix layouts), and they will not necessarily work on other GPU vendors.
+
+There is also a quite hacky emulation path of this which relies on int8 and float16 cooperative matrix support,
+which can run on older GPUs at significant performance cost (and some cost to theoretical correctness).
+
+Note that the default "official" build of vkd3d-proton only exposes this feature when the native
+`VK_KHR_shader_float8` is properly supported, i.e. RDNA4+ only.
+The emulation path is available when building from source with the appropriate build flags.
+The decision to not include this emulation path by default is over my pay grade.
+The aim is to be able to ship FSR4 in a more proper way in Proton.
+
+### Features
+
+We've more or less caught up on the things we can feasibly implement,
+so there isn't much exciting stuff happening on the feature front.
+
+- Implemented experimental support for D3D12 work graphs. No real-world content ships this yet.
+  This implementation is far from complete,
+  but it works on "any" GPU since we emulate the feature with normal compute shaders.
+  Funnily enough, the performance of this emulation can massively outperform native driver implementations of the feature
+  in many scenarios we've tested (at the cost of some extra VRAM usage).
+  See `docs/` for more details on implementation and some performance numbers.
+- Expose `AdvancedTextureOpsSupported` by default from SM 6.7 if `VK_KHR_maintenance8` is supported.
+- Expose the recently added sparse TIER_4.
+- Bump exposed D3D12SDKVersion to latest 618.
+- Experimentally expose support for opacity micromaps.
+  There are some details which aren't quite compatible with the D3D12 API, but some basic demo content is working fine.
+- Add support for AMD_anti_lag when exposed. The current implementation does not take frame-gen into account.
+- Implement support for tight alignment from recent AgilitySDK.
+- Add support for shared resource path on upstream Wine.
+
+### Performance
+
+- Overhaul the texture copy batching situation.
+  The new batching logic should be able to improve performance in many more cases than before.
+  - Implemented support for `VK_KHR_unified_image_layouts`.
+    Image copy batching in particular can take advantage of this to avoid a lot of unnecessary barriers.
+- Removed manual clear workaround on newer (6.15.9+) kernels on AMD, where an old kernel regression was finally fixed.
+  Kernels older than 6.10 are also not affected by this workaround.
+- Use push descriptor path on Qualcomm GPUs over BDA for speed.
+- Improve handling of GDeflate when decompression extension is not available.
+  We now ship our own fallback shader in GLSL instead of the more awkward HLSL shader that dstorage ships.
+- Bump DGC scratch size on NVIDIA. Should avoid some massive perf drops in Halo Infinite on NVIDIA.
+- Add performance optimization for The Last of Us Part 1 to prefer 2D tiling on 3D images.
+  Requires [an update to Mesa](https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/38084) as well to get the proper effect.
+- Handle depth/stencil <-> color image copies better when `VK_KHR_maintenance8` is supported.
+- Make use of `VK_EXT_zero_initialize_device_memory` to avoid manual clears on allocation.
+
+### Fixes
+
+- Emit render pass barriers as expected on tiled GPUs. Fixes misc rendering bugs reported on e.g. Turnip.
+  - For performance reasons, we deliberately skirt the spec a bit on desktop GPUs.
+- Fixed a bunch of minor correctness problems exposed by new Vulkan-ValidationLayers.
+- Adjust how `PointSamplingAddressesNeverRoundUp` is reported to match recent driver behaviors.
+- Fix overflow bugs in massive (> 4GiB) sparse resource handling.
+- Fix reporting of some esoteric format properties to better match native drivers.
+- Fix handling of NULL acceleration structure descriptors.
+- Fix some texturing bugs in Helldivers II on NVIDIA.
+- Fix some bugs with memory type handling on very old NVIDIA GPUs.
+- Fix bug when pixel shader includes root signature.
+- Make ClearUAV barrier insertion the default now.
+  Too many games screw this up, and D3D12 drivers seem to do it by default.
+- Fix shared fences when initial value is not 0. Fixes some Star Citizen issues.
+- Fix rare deadlock scenario in Ninja Gaiden 4.
+  Fixes some long-standing issues with how we deal with fence rewinds.
+- Fix some long-standing issues with how we deal with placed MSAA resources and alignment.
+- Make sure we don't clear memory of imported resources.
+  This doesn't fix any known games, but you never know :V
+- Improve correctness for many odd GS/HS/DS corner cases with primitive types and API validation.
+- Fixes crashes when index buffer SizeInBytes = 0, but VA was invalid.
+  Seen in some Saber Interactive games.
+- Fixes some potential deadlocks in VR interop APIs when multiple threads attempt to acquire Vulkan queue.
+- Fixes 16-bit aligned structured buffer strides. Not observed in any real content, but you never know!
+
+### Workarounds
+
+- Add FF VII rebirth sync bugs workarounds. Fixes some rare GPU hangs.
+- Add misc AMD workarounds for Monster Hunter Wilds caused by bugged hardware around sparse SMEM.
+  - A proper hardware workaround in RADV is still pending.
+- Workaround some Starfield bugs around `NonUniformResourceIndex` use.
+- Add performance workarounds for extremely large tessellation factors used in misc new Koei Tecmo games.
+- Add Wreckfest 2 workarounds for illegal texture placement aliasing. Fixes some broken textures.
+- Add barrier in Satisfactory that game missed. Fixes some corrupt rendering especially on AMD.
+- Ignore NOT_CLEARED flags on allocation in all games now. Native drivers seem to always clear regardless of the flag,
+  and e.g. Street Fighter 6 relies on NOT_CLEARED memory to actually be cleared :(
+- Workaround some issues with RGB9E5 and alpha write masks observed in Ninja Gaiden 4.
+- Add missing barrier in Death Stranding (the older build, not Director's Cut).
+- Add missing barrier in Wuthering Waves.
+- Workaround bugged uninitialized loop variable in Dune MMO.
+- Disable UAV compression in Spider-Man Remastered. Fixes some weird RT issues on RDNA2.
+- Add Root CBV robustness workaround for Gray Zone Warfare.
+- Disables color compression in Rise of the Tomb Raider. Fixes some glitches due to game bug on AMD.
+- Workaround some bugs in Port Royal benchmark.
+- Workaround Mafia: Definitive Edition hanging GPU when using FSR on startup due to use-after-free.
+  - The workaround applies to all uses of FSR. Plausibly workaround a hang in MGS: Delta as well, but not confirmed it was this bug.
+- Workaround Control RT path occasionally observing NaNs due to bad normalize() patterns.
+- Workaround Final Fantasy Tactics Ivalice Chronicles illegally using dynamically indexed root constants.
+
+### Misc
+
+- Added a lot more debug instrumentation as usual.
+  - Not user facing, so omitting details.
+- Make it a bit easier to use vkd3d-proton in Linux-native projects.
+- Remove `DXVK_FRAME_RATE` to align with DXVK's removal. Only `VKD3D_FRAME_RATE` remains (at least for now).
+
+## 2.14.1
+
+This is a bug-fix release which resolves some regressions introduced in 2.14.
+
+- Fix a crash on start-up which affected GPUs without sparse support. E.g. Intel iGPU or Turnip.
+  Crash could happen even if that GPU was the secondary GPU on the system.
+- Fix a memory allocation issue affecting NVK.
+- Fix a CPU performance regression issue affecting Horizon Zero Dawn Remastered on NVIDIA GPUs.
+  This fix might improve CPU performance in other games too, but unverified.
+- Not a regression fix, but add a `no_upload_hvv` workaround for Arma Reforger to workaround weird asset loading behavior.
+
+## 2.14
+
+Rolls up the usual collection of new features, performance improvements, bug fixes and the copious amount of game workarounds,
+just in time for the holidays.
+
+### Features
+
+- Implement DXGI frame statistics (exposed by DXVK DXGI).
+- Implement a global frame rate limiter (see `VKD3D_FRAME_RATE` or `DXVK_FRAME_RATE`).
+  Also improves behavior of presentation with swap interval > 1 since we use frame limiter instead
+  of duplicated presents now. Also allows support for full-screen frame rate targets in DXGI which normally would imply a mode change.
+- Implement support for planar video formats such as NV12.
+- Implement D24 depth bias correctly now on AMD when `VK_EXT_depth_bias_control` is supported.
+- Expose a new command interop interface that allows e.g. dxvk-nvapi to implement DLSS3 frame generation.
+- Use VK_KHR_compute_shader_derivatives when available.
+- Use VK_EXT_device_generated_commands when available. Expose execute indirect tier 1.1.
+- Implement GPU upload heap from latest AgilitySDKs. Allows explicit control over ReBAR instead of heuristic based hacks in games that use the new API.
+- Implement ID3DDestructionNotifier. Fixes some particular games that expect this to be supported.
+
+### Performance
+
+- Reduce some VRAM bloat on RDNA2 and 3 GPUs when `VK_MESA_image_alignment_control` is exposed.
+- Improve CPU overhead for games that query swapchain format support over and over.
+- Remove old heuristic that preferred 2 frames of latency depending on BufferCount used.
+  The default on DXGI is 3, and using 2 caused some performance issues in various games with GPU starvation,
+  especially on Deck. `VKD3D_SWAPCHAIN_LATENCY_FRAMES` is still available as an override to force a tighter default.
+- Rewrite queue submission logic to deal better with difficult submission patterns such as FSR3 3.1 Frame Generation.
+  On implementations with only one graphics queue, vkd3d-proton will now attempt to do basic software scheduling of GPU work.
+  This may regress GPU performance in some other cases and `VKD3D_CONFIG=no_staggered_submit` is a way to disable this code path.
+  One particularly big improvement is FF XVI on RADV with FSR 3 frame-gen, with almost doubled performance in some cases.
+  We are still awaiting a proper kernel-level fix for this problem to be fully resolved.
+- Rewrite queue submission logic to use fewer "dummy" wait/signal submissions.
+  Works around pathological CPU overhead in amdgpu taking 20ms+ to submit work in some cases.
+- Rewrite queue submission logic for sparse updates to be more efficient.
+
+### Fixes and workarounds
+
+- Rework various multi-sampling queries to be more spec correct.
+- Workaround bugged MSAA behavior in World of Warcraft.
+- Workaround buggy/questionable use of ID3D12PipelineLibrary in FF XVI.
+- Always use native 16-bit integers for min16int. Fixes some real-world bugs where shaders expect min16int is always implemented as 16-bit.
+- Workaround game bug leading to GPU hang in Dragon Age: Veilguard on RADV.
+- Always emit proper floating-point environment modes in DXBC shaders. Fixes glitched eyes in Dragon Age: Veilguard on NV.
+- Fix potential use-after-free bug for some sparse resource update cases.
+- Correctly validate when application attempts to allocate a too large descriptor heap.
+  Fixes Stalker 2 entering into undefined behavior.
+- A lot of misc fixes in dxil-spirv as usual.
+- Workaround broken amdgpu zerovram behavior on 6.10+ kernels. Fixes random extreme glitchiness in Helldivers 2 on AMD.
+- Workaround NV issue which lead to GPU hang when loading a save file in Star Wars: Outlaws.
+- Fix copying between BC <-> RGBA images in some cases.
+- Add workaround for a game bug in The First Descendant which lead to broken cubemap reflections in some cases.
+- Workaround Skull & Bones crashing on startup on NV GPUs by disabling Reflex support.
+- Workaround Hunt: Showdown missing precise qualifiers on vertex shaders, leading to glitched rendering.
+- Workaround poor CPU performance in Red Dead Redemption.
+
+### Misc / Debug
+
+- Add support for instruction_qa_checks. For deep debug, allows us to be notified when NaNs and Infs are generated in shaders.
+  For internal QA use.
+- Add fine-grained control of QA behavior on a per-shader basis. For narrowing down issues.
+- Remove a bunch of old and obsolete workarounds for NV drivers. New cutoff is 535 series.
+- Bump exposed SDKVersion to 614 to match latest stable AgilitySDK.
+- Add an optional code path to support DXBC via the official dxilconv library.
+  This code is not enabled in release builds,
+  and is currently only intended as a path to take advantage of QA instrumentation for DXBC shaders.
+
+## 2.13
+
+### Features
+
+- Implement Shader Model 6.8 min-spec
+  - `SV_StartInstanceLocation`
+  - `SV_StartVertexLocation`
+  - WaveSize range
+  - Implement Vulkan texturing catch-up features (esoteric comparison sampling functions)
+- Implement interop for OpenVR / OpenXR on Proton
+- Correctly support `NULL` index buffers with `VK_KHR_maintenance6`.
+- Implement `VK_MESA_image_alignment_control`. Reduces memory bloat on AMD cards in particular.
+
+### Fixes
+
+- Reimplement `VK_NV_low_latency2` to fix some issues with heavy stuttering caused by non-monotonic frame IDs.
+  Relies on a more recent dxvk-nvapi which can paper over API design issues in Reflex API.
+  Requires a more recent NVIDIA driver which fixes some bugs exposed in this new code.
+  On older NVIDIA drivers, it should *run*, but low-latency will not kick in as expected.
+- Explicitly disable variable-rate shading when depth-stencil is written in shader.
+  Fixes glitched hair rendering in Hellblade 2.
+- Correctly expose MSAA features for depth-stencil. Fixes Arma Reforger.
+- Fix bugs in MSAA resolve implementation when dealing with custom resolve formats. Fixes Arma Reforger.
+- Fix validation error in internal query resolve shader.
+- Fix some bugs in wave-ops where helper lanes participated where they were not supposed to.
+  Fixes some WaveMatch / WaveMultiPrefix use-cases in the wild.
+- Various dxil-spirv fixes to fix invalid control-flow as always.
+
+### Performance
+
+- Tweak how we opt-in to ReBAR for UPLOAD heaps. Now, only > 8 GB cards will get it.
+  On 8 GB cards, we were regularly hitting the upper limits of what the GPU could hold in VRAM,
+  and using ReBAR would be detrimental to performance since there was risk of more important
+  memory being demoted to system memory. Works well together with `VK_MESA_image_alignment_control`
+  to free up significant amounts of VRAM. Performance gains from ReBAR on 8 GB were also found to be minimal
+  compared to the larger GPUs since we quickly exhausted the limited 512 MiB budget anyway.
+- Sub-allocate small image heaps. Avoids heavy stutter in Ghost of Tsushima on desktop.
+  (Steam Deck code path does not seem to use small heaps to begin with).
+- Improve performance with ROV when used with more complicated shader code patterns.
+
+### Workarounds
+
+- Implement a crude workaround for depth-stencil sparse and MSAA sparse.
+  - Just allocates a committed resource instead. Not correct, but good enough band-aid.
+  - Allows SottR to run on RADV.
+- Disable NV_dgcc on Halo Infinite on NV drivers.
+- Workaround a missing barrier in AC: Mirage causing random corrupt geometry.
+
+### Misc
+
+- Split vkd3d-proton shader cache up by .exe name when using a unified directory with `VKD3D_SHADER_CACHE_PATH`.
+- Implement `VK_EXT_device_address_binding_report`.
+
+## 2.12
+
+### Features
+
+- Implement support for NVIDIA Reflex through `VK_NV_low_latency2`. Thanks to NVIDIA for contributing implementation
+- Implement D3D12 render pass API (tier 0)
+- Implement ID3D12DeviceRemovedExtendedDataSettings stubs. Fixes some games that rely on this existing
+- Implement `VK_EXT_device_fault`. Makes it possible to grab fault information and vendor binary if supported
+- Implement `VK_EXT_swapchain_maintenance1`
+  - Allows seamless transition between V-Sync and tearing present modes without stutter
+  - Implemented on both Mesa and NV drivers
+- Expose Shader Model 6.7 by default if
+  `VK_KHR_shader_maximal_reconvergence` and `VK_KHR_shader_quad_control` are supported
+- Add optimized descriptor copy path on Intel Arc GPUs that support `VK_EXT_descriptor_buffer`
+- Implement fallback for compute shader derivatives on NVIDIA Pascal and older GPUs.
+  Allows exposing Shader Model 6.7 by default on Pascal as well (albeit with some known cases where it does not work).
+  The workaround is expected to work with any known use of SM 6.6 compute derivatives in the wild
+
+### Fixes
+
+- Fix Atlas Fallen black screen due to edge case with MinLODClamp
+- Correctly disable alpha-to-coverage if sampler mask is exported
+- Fix format feature reports for `DXGI_FORMAT_UNKNOWN`
+- Relax root signature compatibility rules when compiling Ray Tracing pipelines.
+  Fixes GPU hang on NV in Warhammer: Darktide
+- Fix GPU hang on NV in UE5 Lyra demo
+- Explicitly validate stage IO signatures in PSO creation similar to native D3D12 runtime.
+  Fixes some scenarios where a game attempts to create an invalid pipeline that should have failed creation
+  on native D3D12
+
+### Workarounds
+
+- Workaround crash in Resident Evil 4 RT mode when tessellation is enabled
+- Workaround mesh shader glitches on NVIDIA in several UE5 titles
+- Workaround GPU hang on NVIDIA in World of Warcraft when MSAA is enabled
+- Disable RT by default in Persona 3 Reload on Deck
+
+### Performance
+
+- Implement `VK_NV_raw_access_chains`. Significantly improves GPU performance on NV GPUs in some games.
+  Games using DXBC instead of DXIL are expected to see more improvements.
+  Not all games are expected to see an uplift
+- Fix extremely poor GPU performance in some locations in Persona 3 Reload
+
+### Debug
+
+- Add support for `VKD3D_QUEUE_PROFILE`, a simple system profiling method
+  - Includes `VK_NV_low_latency2` support to debug NVIDIA Reflex sleeps
+- Root signature blobs are also dumped when dumping shaders
+  - A simple CLI tool to inspect the root-sig blobs is included in `programs/`
+- Misc improvements to breadcrumbs, debug ring, etc
+- Pipeline creation failure now dumps PSO creation commands in log
+
+## 2.11.1
+
+This release is a minor bug-fix release before the holidays.
+
+- Implement COLOR -> STENCIL fallback copy on NVIDIA
+- Implement SM 6.6 ResourceDescriptorHeap[] + UAV counters correctly on RADV
+- Fix bugged implementation of DXBC resinfo instruction, affecting Avatar: Frontiers of Pandora
+- Fix memory type used for DGC preprocess memory on NVIDIA (~5% performance, YMMV)
+- Fix crash in Callisto Protocol when booting game with DXR support
+ 
+#### More complete MSAA resolve implementation
+
+- Add depth-stencil resolve
+- Support typeless formats
+- Add MIN/MAX resolve modes
+- Implement missing code paths on NVIDIA
+ 
+#### Workarounds
+
+- Update workaround for GPU hang in CP77 when using DXR for patch 2.1.
+- Remove workaround for NO_DGCC in Halo Infinite on NVIDIA.
+- Workaround game bug in Pioneers of Pagonia causing GPU hangs on RADV.
+
+## 2.11
+
+This release rolls up a bunch of features, perf improvements and bug fixes / workarounds as usual.
+
+### Features
+
+#### DXR enabled by default
+
+`VKD3D_CONFIG=dxr` is default now, and no longer needed.
+There are some special cases where DXR is not enabled by default. The only such current example is
+"Hellblade: Senua's Sacrifice" on Deck which force-enables DXR if it is supported, even on Deck.
+New semantics are:
+
+- `dxr`: Force-enable DXR, even when it is considered unsafe
+- `nodxr`: Disable DXR
+- `dxr11`: Removed. `dxr` already implied DXR 1.1 anyway
+
+#### Sampler feedback
+
+This feature was the last feature required for FL 12.2 and is implemented through emulation.
+As demonstrated in the [implementation docs](https://github.com/HansKristian-Work/vkd3d-proton/blob/master/docs/sampler_feedback.md), all
+native implementations of this feature are fundamentally broken in some way.
+There's also no known game that ships requiring this feature, so we just consider this a checkbox feature.
+
+#### DX Ultimate (FL 12.2) now exposed by default
+
+On RDNA2+ and Turing+ we can finally expose the DX Ultimate feature set!
+
+#### Misc
+
+- Implement a bunch of missing "Vulkan-on-D3D12" features
+  - IndependentFrontAndBackStencilRefMaskSupported
+  - TriangleFanSupported
+  - DynamicIndexBufferStripCutSupported
+  - DynamicDepthBiasSupported
+  - NonNormalizedCoordinateSamplersSupported
+  - MismatchingOutputDimensionsSupported
+  - PointSamplingAddressesNeverRoundUp
+  - RasterizerDesc2Supported
+    - Explicit line rasterization mode
+  - NarrowQuadrilateralLinesSupported
+  - AnisoFilterWithPointMipSupported
+- Implement missing MSAD instruction in DXIL, allowing FSR3 to run
+- Implement some esoteric DXR features
+  - Implement support for multiple mismatching global root signatures in DXR
+    - Fixes crash in Battlefield V
+  - Implement support for LOCAL_ON_EXTERNAL dependencies in DXR
+    - Fixes DXR in Warhammer: Darktide
+- Implement support for ExecuteIndirect + Mesh shaders with state changes
+  - Currently unused by games
+
+### Performance
+
+- Improve performance of NV_device_generated_commands and NV_device_generated_commands_compute by
+  reordering and batching command preprocessing
+  - We have observed 15% FPS gains in Halo Infinite on RADV
+  - 1-2% in Starfield in some test locations
+  - Needs pending Mesa work to land to take advantage of this improvement
+- Tune memory allocation patterns for DGC preprocess buffers
+  - Avoids a lot of allocation churn
+  - Greatly reduces CPU overhead on NV
+
+### Workarounds
+
+- Work around RADV bug causing GPU hang in RE4: Separate Ways DLC
+- Work around RADV bug causing GPU hang in Lords of the Fallen
+- Work around Witcher 3 bug causing broken shadows and GPU hangs when enabling DXR
+- Work around Cyberpunk 2077 bug when RT is enabled, where game would cause spurious GPU hangs due to accessing descriptor heap out of bounds
+- Work around Windjammers 2 bug causing random crashes on startup
+- Add support for VK_EXT_image_compression_control to allow for more fine-grained workarounds for broken games running on RADV
+- Enable NV_device_generated_commands_compute on latest NV beta drivers
+  - 545.x drivers are still disabled until a fix can be confirmed on shipping drivers
+- Remove CURB_MEMORY_PSO_CACHE workaround on Mesa 23.2+
+  - Should reduce overhead in PSO creation
+
+### Fixes
+
+- Misc dxil-spirv changes to fix various bugs in game shaders as usual
+- Fix Jurassic World Evolution 2 crashing when enabling DXR
+- Fix some deprecation warnings in Meson build system
+  - Some submodule locations moved, which may cause minor disruption
+
+## 2.10
+
+This release rolls up a ton of bug fixes, game and driver workarounds, and other improvements.
+
+### Features
+
+#### DirectStorage MetaCommands
+
+We can now make use of `NV_memory_decompression` to implement
+GPU accelerated GDeflate compression in DirectStorage.
+This is demonstrated to work in Ratchet & Clank: Rift Apart.
+
+We also worked around an NV driver bug when using the fallback GDeflate shader.
+The fallback works on RADV.
+
+#### Enhanced Barriers
+
+NOTE: This isn't all that well tested because there are no games shipping with this yet to our knowledge.
+
+#### Device generated commands for compute
+
+With `NV_device_generated_commands_compute` we can efficiently implement
+Starfield's use of ExecuteIndirect which hammers multi-dispatch COMPUTE + root parameter changes.
+Previously, we would rely on a very slow workaround.
+
+NOTE: This feature is currently only enabled on RADV due to driver issues.
+
+#### Misc
+
+- Support Root Signature version 1.2
+- Implement Shader Model 6.7
+  - Includes all SM 6.7 features like AdvancedTextureOps, WaveOpsIncludeHelperLanes
+  - Caveat: Technically not Vulkan spec compliant implementation, but works fine on at least NV and RADV. Currently implemented as an opt-in option for now in case some game relies on it to work
+- Implement CreateSampler2
+- Expose inverted viewport / height feature
+- Implement RelaxedFormatCasting feature from Enhanced Barriers
+- Implement support for adjacency topologies
+- Support A8_UNORM format properly by using `VK_KHR_maintenance5`, allowing A8_UNORM UAVs to work correctly
+- Handle range checked index buffers correctly with `VK_KHR_maintenance5`
+
+#### New extension use
+
+- VK_EXT_dynamic_rendering_unused_attachments
+- VK_KHR_maintenance5
+- VK_NV_device_generated_commands_compute
+
+### Performance
+
+- Batch acceleration structure builds. Massively improves build performance on at least RADV.
+- Massively improve ExecuteIndirect performance when using COMPUTE + root parameter changes when `VK_NV_device_generated_commands_compute` is enabled.
+
+### Fixes
+
+- Fix root signature creation from DXIL library target (DXR) blobs
+- Fix some dual source blending PSOs scenarios. Fixes Star Wars Battlefront II
+- Implement wave operations in pixel shaders more strictly according to D3D12 rules
+- Fix spurious hangs in Ashes of Singularity when using shared fences and wait-before-signal
+- Fix PSO caching bug in mesh shaders. Fixes mesh shaders in Unreal Engine 5
+- Fix udiv remainder in DXBC, which fixed some Xenia bugs
+- Fix query heap tracking bug that was exposed by NV Streamline
+- Various DXIL -> SPIR-V fixes as usual
+- Rewrote descriptor set layouts to be more robust against application bugs
+  - Motivated by Armored Core VI bug (see below)
+  - Native D3D12 drivers are also robust against these application bugs :(
+
+### Workarounds
+
+- Workaround bad ReBAR performance in Age of Wonders 4
+- Remove workaround for `KHR_present_wait` on NV 535+ drivers
+- Workaround Starfield memory corruption issue where it does not correctly query for 4 KiB alignment
+- Disable ReBAR usage on Halo Infinite to workaround very poor CPU performance
+- Workaround Street Fighter 6 bug causing spurious GPU hangs
+  - Also appears to have worked around GPU hangs in Resident Evil 2
+- Workaround Armored Core VI bug causing GPU hang on Balteus fight in chapter 1
+- Workaround "firefly" glitches in Resident Evil 4 caused by dubious min16float usage
+- Workaround "firefly" glitches in Monster Hunter Rise caused by dubious shader requiring particular precise math
+- Workaround Unreal Engine 5 breaking if mesh shaders are exposed, but not barycentrics
+- Workaround NV driver bug with TIMESTAMP query heaps that could cause spurious GPU hangs
+- Workaround broken CFG code generation in Xenia's DXBC emitter
+
+## 2.9
+
+This release rolls up various development happening over the last months.
+
+### d3d12core.dll split
+
+Some games started assuming that the DLLs were laid out similar to AgilitySDK, where
+d3d12.dll is just a loader, and d3d12core.dll contains the real implementation.
+vkd3d-proton now implements this split as well. It is possible that various scripts must be updated
+to accomodate both DLLs now. Once d3d12.dll is installed in a prefix,
+only d3d12core.dll needs to be updated, as d3d12.dll is just a trivial shim either way.
+
+### Performance improvements
+
+- Greatly reduce system memory requirements on the first run of an application.
+  SPIR-V code was held in memory "just in case" it had to be recompiled later, but this is no longer the case.
+- Use `VK_EXT_graphics_pipeline_libraries` to avoid shader compilation stutter in some extreme edge cases.
+- Improve performance with certain bad occlusion query patterns in e.g. Elden Ring.
+- Improve CPU performance of `VK_EXT_descriptor_buffer` even further with vendor-specific "ultra-fast" paths.
+  - Our microbenchmark for single descriptor copies are now significantly faster than native D3D12 drivers on both RADV and NVIDIA.
+  - Intel performance numbers are TBD, but we expect a win there as well.
+- Improve VRAM oversubscription behavior when
+  `VK_EXT_pageable_device_local_memory` is supported. (NVIDIA contribution, thanks!)
+  This allows us to implement `Evict` and `MakeResident` APIs in a useful way.
+  `VK_EXT_memory_priority` is also used for static priorities as a fallback.
+
+### Features
+
+- Add `VK_EXT_image_sliced_view_of_3d` to support sliced 3D UAVs.
+- Improve DXR 1.1 support with `VK_EXT_pipeline_library_group_handles`.
+- Implement `VK_EXT_fragment_shader_interlock`. Completes FL 12.1.
+- Move to Vulkan 1.3 as minimum version.
+- D3D11on12 interoperability interfaces are now supported.
+  It is compatible with DXVK 2.2, which actually implements 11on12.
+
+### Legacy swapchain removal
+
+The old swapchain implementation is now gone.
+DXVK 2.1 is required as we now share common code.
+This means that there is no fallback for pre-2.1 DXVK versions or Wine DXGI anymore.
+
+#### Native Linux swapchain support
+
+The new swapchain can support Linux native surfaces.
+The demo applications in `demos/` with functional swapchain now builds on Linux as well.
+
+### Driver workarounds
+
+- `KHR_present_wait` is currently disabled on NVIDIA drivers due to a bug that would occur on some PRIME setups.
+  This is supposed to be fixed in the latest beta drivers, and this workaround will eventually be removed
+  when we have a confirmed major version that fixes the issue.
+- Workaround RADV bug causing memory bloat in shader caches. Can save several 100s of MBs of memory,
+  which is important on certain memory hungry titles to avoid instability.
+- Workaround NVIDIA bug with concurrent queue submissions using timeline semaphores.
+  Fixed a bunch of inexplicable `Xid 109 CTX_SWITCH_TIMEOUT` errors in many different games.
+
+### Bugfixes and game workarounds
+
+Various bugfixes for games as usual. Listing individual games is becoming impractical at this point,
+and it's best to refer to other sources for compatibility information with specific games.
+As usual, a bunch of fixes in dxil-spirv to fix shader bugs.
+
+### Misc
+
+- On Wine, use `winevulkan.dll` rather than `vulkan-1.dll` if available.
+  Works around some games that hook Vulkan despite using D3D12.
+- Improve compatibility with games relying on certain AgilitySDK details.
+- Improve build system compatibility with different `widl` versions.
+- `VKD3D_CONFIG=dxr` now enables DXR 1.1 as well. `dxr11` is kept for compat.
+- Fix HDR Metadata MinLuminance value.
+- Add `VKD3D_LIMIT_TESS_FACTORS` to work around excessive tessellation. Enabled for Wo Long.
+- (Developers) Improve debugging support with more detailed breadcrumb information.
+- (Developers) Insert more actionable information in captures and logs.
+- (Developers) Log directly to Wine when available. Makes `PROTON_LOG=1` more reliable.
+- (Developers) Set thread names on Win32 build as well.
+- (Developers) Use native Linux calling convention instead of `ms_abi`.
+
+## 2.8
+
+This release rolls up some significant new developments before the holidays.
+
+## VK_EXT_descriptor_buffer support
+
+This extension is significant in that it removes a ton of CPU overhead.
+We already had most of this in place on RADV and Steam Deck,
+but this will allow NVIDIA, Intel, Turnip, and other AMD driver implementations to hit the same optimal code paths.
+GPU bound performance increases slightly since we can also remove some shader code that was required to workaround lack of descriptor buffers.
+
+### New extension requirements
+
+To support descriptor buffers in the code base, these features are now required instead of optional.
+Note that these features are widely supported already and is not expected to cause any problems.
+If an implementation could support v2.7, it will support v2.8.
+
+- `VK_KHR_buffer_device_address`
+- `VK_KHR_push_descriptor`
+
+## Rewritten support for host accessible images
+
+The entire API feature was rewritten from scratch to support more implementations and edge cases without
+a lot of per-application hacks and workarounds.
+As the most extreme example of weird API usage, Guardians of the Galaxy should (finally) run well on NVIDIA.
+
+## Rewritten swap chain
+
+To most users, this change should be transparent.
+
+- Allow more precise control on latency and frame pacing with `VK_KHR_present_wait`.
+  - mesa-git supports this along with NVIDIA.
+  - `VKD3D_SWAPCHAIN_LATENCY_FRAMES=n` allows user to force a specific amount of latency.
+  - Implementation of DXGI latency fences is now correct.
+- Reduce CPU overhead on the main thread that presents to swap chain.
+- Fixes a spurious hang in Hitman III where game relies on asynchronous present in order to not lock up.
+- Win32 specific DXGI code is handled by DXVK. A DXVK build from Experimental or later is required for this to work.
+  This allows a native Linux implementation of vkd3d-proton, including swap chain.
+- When `VK_KHR_present_wait` is not supported, behavior should be 1:1 with old implementation.
+
+NOTE: The old swapchain implementation is still in the repository, and is expected to be removed in the next release.
+For now, `VKD3D_CONFIG=swapchain_legacy` can be used to triage any potential issues with the new one.
+
+NOTE: A driver crash was observed on NVIDIA 525.x drivers when running in some PRIME configurations.
+For now, we disable use of present_wait on these drivers.
+
+### Fixes and workarounds
+
+- Workaround GPU hangs in Spiderman Remastered: Miles Morales (same issue as the original).
+- Fix rendering bug with gun damage in Borderlands 3 on RADV.
+- Refactor how resizable BAR is used. GPUs with 4 GiB and lower will no longer attempt to use resizable BAR,
+  which can avoid some out-of-memory situations.
+- Fix GPU hang in Age of Empires IV.
+- Fix some minor issues in mesh shader implementation.
+- Fix some issues preventing RE: Village from booting on Arc.
+- Some last minute frenzied fixes for Witcher 3 next-gen update.
+  - All features except RT appears to work on RADV.
+  - Hairworks is known to crash GPU on NVIDIA. More investigation is needed to root cause.
+  - Some RT effects work on NVIDIA, others don't:
+    - GI is reported to work.
+    - AO crashes GPU. More investigation is needed to root cause.
+
+#### Implement minor missing D3D12 features
+
+An obscure feature was stubbed out and forgotten until now.
+`ID3D12Device1::SetEventOnMultipleFenceCompletion()` is now implemented.
+
+Also, implement SetEventOn(Multiple)FenceCompletion for shared D3D12 fences.
+Fixes a regression in Gears 5 causing lockup on boot.
+
+## 2.7
+
+This release rolls up a massive amount of work since the Steam Deck launch in late February
+with mostly features and fixes.
+
+### Heightened driver requirements
+
+Newer extensions are now required.
+
+- `VK_KHR_dynamic_rendering`
+- `VK_EXT_extended_dynamic_state`
+- `VK_EXT_extended_dynamic_state2` (no optional features required)
+- `VK_KHR_maintenance4`
+
+`KHR_dynamic_rendering` in particular requires Mesa 22.0 or NVIDIA 510 series, which should have
+propagated to distributions a long time ago at this point.
+
+NOTE: Proton 7.0 stable series will stick to v2.6 to avoid the hard driver requirement bump.
+Proton Experimental and any future stable beyond 7.0 will stick to v2.7 and later.
+
+`KHR_dynamic_rendering` fixes many previously unsolvable issues, but it required a rewrite,
+and it was deemed impractical to support both legacy and modern paths.
+
+### Improved pipeline cache
+
+v2.6 introduced support for pipeline libraries, but only for games which made correct use of the D3D12 API.
+To improve the situation across the board,
+vkd3d-proton now implements an internal "magic" disk cache to enable SPIR-V caching for all games.
+It is possible to disable the magic cache and let applications manage the ID3D12PipelineLibrary itself if desired.
+
+To further reduce on-disk footprint of the magic cache, we also make use of `VK_EXT_shader_module_identifier`
+to reduce the vkd3d-proton cache by >95%, since there is no need to store actual SPIR-V data on-disk.
+
+### Optimizations
+
+Mostly a lot of minor things this release.
+
+- Slightly improve GPU performance for depth render passes.
+- Improve GPU performance for certain floating-point images where UAV usage was enabled.
+- Improve GPU performance for certain use cases of WriteBufferImmediate().
+- Improve GPU performance for certain access patterns of root descriptors.
+- Improve GPU performance for back-to-back buffer-image copies.
+- Improve GPU performance when allocating large zero-cleared resources and heaps.
+- Misc things here and there to reduce overhead.
+
+### New D3D12 features
+
+#### Mesh shaders
+
+`VK_EXT_mesh_shader` is required for this. Directly compatible with D3D12.
+
+#### Advanced ExecuteIndirect
+
+Uses `VK_NV_device_generated_commands`. Supported by both RADV and NVIDIA. Allows Halo Infinite to run.
+
+#### DXR 1.1
+
+Implement some missing features from DXR 1.1:
+
+- AddToStateObject()
+- ExecuteIndirect trace rays
+- Various complex RTPSO features
+- DXIL subobject parsing
+- Misc query features
+
+With these fixes in place, e.g. Cyberpunk 2077 DXR works. `VK_KHR_raytracing_maintenance1` is required for some features.
+
+NOTE: `VKD3D_CONFIG=dxr11` is required to enable DXR 1.1 for now.
+
+#### Shared resources
+
+Basic shared resources and fences are now supported when running on Proton. Allows interop with DXVK.
+Special thanks to Derek Lesho (@Guy1524) for implementation.
+
+#### SV_Barycentrics
+
+SM 6.1 barycentrics are now exposed through `VK_KHR_fragment_shader_barycentric`.
+
+#### Preliminary HDR support
+
+vkd3d-proton can take advantage of HDR now, assuming the system itself supports it.
+
+### Game fixes and workarounds
+
+- Fix random GPU hangs in Hitman 3.
+- Fix crash in Redout 2.
+- Fix random GPU hang in F1 2021.
+- Fix random flicker in Guardians of the Galaxy.
+- Update some API checks required by latest AgilitySDK runtime features. Fix crash in F1 2022.
+- Add various workarounds for game bugs in Halo Infinite.
+- Add workaround for amdgpu kernel issue for certain games using imported host memory and multiple Vulkan devices.
+- Workaround glitched rendering in F1 2020 due to game bug.
+- Workaround certain games that violate placed resource API w.r.t. subresource initialization.
+  Spiderman Remastered and Lost Judgment are affected. More games will likely surface.
+
+### DXIL support
+
+Countless bug fixes for games released since last release. Too many to enumerate individually.
+
+### Misc
+
+- Improve compatibility with Intel ANV driver.
+- Improve correctness of GetFrameLatencyWaitableObject().
+- Add BLOB PIX decoding.
+- Improve stability when minimizing and alt-tabbing in and out of fullscreen in some games.
+- Preparation for MIT re-license is underway.
+
+### Stronger debugging facilities
+
+- For developers and power users, a breadcrumbs functionality is added to greatly aid GPU hang debugging.
+  Requires either `VK_AMD_buffer_marker` or `VK_NV_device_diagnostic_checkpoints`.
+- When capturing with RenderDoc, cached host memory is enabled by default to speed up capture and improve stability.
+- Improve shader replacement system ease-of-use.
+
+## 2.6
+
+It has been a long while since 2.5, and this release rolls up a lot of fixes, features and optimizations.
+
+### Fixes
+
+- Fix black screen rendering bug in Horizon Zero Dawn after latest game updates.
+- Fix crashes on startup in Final Fantasy VII: Remake and Warframe.
+- Fix crashes in Guardians of the Galaxy when interacting with certain game objects.
+- Fix hang on game shutdown in Elden Ring.
+- Fix broken geometry rendering in Age of Empires: IV.
+
+### Optimization
+
+- Improve generated shader code for vectorized load-store operations in DXIL.
+- Greatly reduce CPU overhead for descriptor copy operations,
+  which is a key contributor to CPU overhead in D3D12.
+
+### Features
+
+#### Pipeline library rewrite
+
+Support D3D12 pipeline libraries better where we can now also cache
+generated SPIR-V from DXBC/DXIL.
+Massively reduces subsequent load times in Monster Hunter: Rise,
+and helps other titles like Guardian of the Galaxy and Elden Ring.
+Also lays the groundwork for internal driver caches down the line for games which do not use this API.
+Also, deduplicates binary blobs for reduced disk size requirements.
+
+#### Shader models
+
+Shader model 6.6 is now fully implemented. This includes support for:
+- ResourceDescriptorHeap[] direct access
+- 64-bit atomics
+- IsHelperLane()
+- Compute shader derivatives
+- WaveSize attribute
+- Packed math intrinsics
+
+#### Minor features
+
+- Handle API feature MinResourceLODClamp correctly if `VK_EXT_image_view_min_lod` is supported.
+- Expose CastFullyTypedFormat feature.
+- Expose some advanced shader features on Intel related to UAV formats (`VK_KHR_format_feature_flags2`).
+- Support COLOR -> STENCIL copies.
+
+### Workarounds
+
+- Workaround DEATHLOOP not emitting synchronization commands correctly. Fixes menu flicker on RADV.
+- Workaround quirky API usage in Elden Ring. Removes many kinds of stutter and chug when traversing the scenery.
+- Workaround certain environments failing to create Vulkan device if some `VK_NVX_*` extensions are enabled.
+- Workaround glitched foliage rendering in Horizon Zero Dawn after latest game updates.
+- Workaround some questionable UE4 shaders causing glitched rendering on RADV.
+
+### Note on future Vulkan driver requirements
+
+2.6 is expected to be the last vkd3d-proton release before we require some newer Vulkan extensions.
+`VK_KHR_dynamic_rendering` and `VK_EXT_extended_dynamic_state`
+(and likely `dynamic_state_2` as well) will be required.
+
+`VK_KHR_dynamic_rendering` in particular requires up-to-date drivers and the legacy render pass path
+will be abandoned in favor of it. Supporting both paths at the same time is not practical.
+Moving to `VK_KHR_dynamic_rendering` allows us to fix some critical flaws with the legacy API
+which caused potential shader compilation stutters and extra CPU overhead.
+
+## 2.5
+
+This is a release with a little bit of everything!
+
+### Features
+
+#### DXR progress
+
+DXR has seen significant work in the background.
+
+- DXR 1.1 is now experimentally exposed. It can be enabled with `VKD3D_CONFIG=dxr11`.
+  Note that DXR 1.1 cannot be fully implemented in `VK_KHR_ray_tracing`'s current form, in particular
+  DispatchRays() indirect is not compatible yet,
+  although we have not observed a game which requires this API feature.
+- DXR 1.1 inline raytracing support is fully implemented.
+- DXR 1.0 support is more or less feature complete.
+  Some weird edge cases remain, but will likely not be implemented unless required by a game.
+  `VKD3D_CONFIG=dxr` will eventually be dropped when it matures.
+
+Some new DXR games are starting to come alive, especially with DXR 1.1 enabled,
+but there are significant bugs as well that we currently cannot easily debug.
+Some experimental results on NVIDIA:
+
+- **Control** - already worked
+- **DEATHLOOP** - appears to work correctly
+- **Cyberpunk 2077** - DXR can be enabled, but GPU timeouts
+- **World of Warcraft** - according to a user, it works, but we have not confirmed ourselves
+- **Metro Exodus: Enhanced Edition** -
+    gets ingame and appears to work? Not sure if it looks correct.
+    Heavy CPU stutter for some reason ...
+- **Metro Exodus** (original release) - GPU timeouts when enabling DXR
+- **Resident Evil: Village** - Appears to work, but the visual difference is subtle.
+
+It's worth experimenting with these and others.
+DXR is incredibly complicated, so expect bugs.
+From here, DXR support is mostly a case of stamping out issues one by one.
+
+#### NVIDIA DLSS
+
+NVIDIA contributed integration APIs in vkd3d-proton which enables DLSS support in D3D12 titles in Proton.
+See Proton documentation for how to enable NvAPI support.
+
+#### Shader models
+
+A fair bit of work went into DXIL translation support to catch up with native drivers.
+
+- Shader model 6.5 is exposed.
+  Shader model 6.6 should be straight forward once that becomes relevant.
+- Shader model 6.4 implementation takes advantage of `VK_KHR_shader_integer_dot_product` when supported.
+- Proper fallback for FP16 math on GPUs which do not expose native FP16 support (Polaris, Pascal).
+  Notably fixes AMD FSR shaders in Resident Evil: Village (and others).
+- Shader model 6.1 SV_Barycentric support implemented (NVIDIA only for now).
+- Support shader model 6.2 FP32 denorm control.
+
+### Performance
+
+Resizable BAR can improve GPU performance about 10-15% in the best case, depends a lot on the game.
+Horizon Zero Dawn and Death Stranding in particular improve massively with this change.
+
+By default, vkd3d-proton will now take advantage of PCI-e BAR memory types through heuristics
+as D3D12 does not expose direct support for resizable BAR, and native D3D12 drivers are known to use heuristics as well.
+Without resizable BAR enabled in BIOS/vBIOS, we only get 256 MiB which can help performance,
+but many games will improve performance even more
+when we are allowed to use more than that.
+There is an upper limit for how much VRAM is dedicated to this purpose.
+We also added `VKD3D_CONFIG=no_upload_hvv` to disable all uses of PCI-e BAR memory.
+
+Other performance improvements:
+
+- Avoid redundant descriptor update work in certain scenarios (NVIDIA contribution).
+- Minor tweaks here and there to reduce CPU overhead.
+
+### Fixes and workarounds
+
+- Fix behavior for swap chain presentation latency HANDLE. Fixes spurious deadlocks in some cases.
+- Fix many issues related to depth-stencil handling, which fixed various issues in DEATHLOOP, F1 2021, WRC 10.
+- Fix DIRT 5 rendering issues and crashes. Should be fully playable now.
+- Fix some Diablo II Resurrected rendering issues.
+- Workaround shader bugs in Psychonauts 2.
+- Workaround some Unreal Engine 4 shader bugs which multiple titles trigger.
+- Fix some stability issues when VRAM is exhausted on NVIDIA.
+- Fix CPU crash in boot-up sequence of Far Cry 6 (game is still kinda buggy though, but gets in-game).
+- Fix various bugs with host visible images. Fixes DEATHLOOP.
+- Fix various DXIL conversion bugs.
+- Add Invariant geometry workarounds for specific games which require it.
+- Fix how d3d12.dll exports symbols to be more in line with MSVC.
+- Fix some edge cases in bitfield instructions.
+- Work around extreme CPU memory bloat on the specific NVIDIA driver versions which had this bug.
+- Fix regression in Evil Genius 2: World Domination.
+- Fix crashes in Hitman 3.
+- Fix terrain rendering in Anno 1800.
+- Various correctness and crash fixes.
+
+## 2.4
+
+This is a release which focuses on performance and bug-fixes.
+
+### Performance
+
+- Improve swapchain latency and frame pacing by up to one frame.
+- Optimize lookup of format info.
+- Avoid potential pipeline compilation stutter in certain scenarios.
+- Rewrite how we handle image layouts for color and depth-stencil targets.
+  Allows us to remove a lot of dumb
+  barriers giving significant GPU-bound performance improvements.
+  ~15%-20% GPU bound uplift in Horizon Zero Dawn,
+  ~10% in Death Stranding,
+  and 5%-10% improvements in many other titles.
+
+### Features
+
+- Enable support for sparse 3D textures (tiled resources tier 3).
+
+### Bug fixes and workarounds
+
+- Various bug fixes in DXIL.
+- Fix weird bug where sun would pop through walls in RE: Village.
+- Workaround game bug in Cyberpunk 2077 where certain locales would render a black screen.
+- Fix various bugs (in benchmark and in vkd3d-proton) allowing GravityMark to run.
+- Improve robustness against certain app bugs related to NULL descriptors.
+- Fix bug with constant FP64 vector handling in DXBC.
+- Fix bug where Cyberpunk 2077 inventory screen could spuriously hang GPU on RADV.
+- Add workaround for Necromunda: Hired Gun where character models would render random garbage on RADV.
+- Fix bug in Necromunda: Hired Gun causing random screen flicker.
+- Fix windowed mode tracking when leaving fullscreen. Fix Alt-Tab handling in Horizon Zero Dawn.
+- Temporary workaround for SRV ResourceMinLODClamp. Fix black ground rendering in DIRT 5.
+  The overbright HDR rendering in DIRT 5 sadly persists however :(
+- Implement fallback maximum swapchain latency correctly.
+
+### Development features
+
+Various features which are useful for developers were added to aid debugging.
+
+- Descriptor QA can instrument shaders in runtime for GPU-assisted validation.
+  Performance is good enough (> 40 FPS) that games are actually playable in this mode.
+  See README for details.
+- Allow forcing off CONCURRENT queue, and using EXCLUSIVE queue.
+  Not valid, but can be useful as a speed hack on Polaris when `single_queue` is not an option
+  and for testing driver behavior differences.
+
+## 2.3.1
+
+This is a minor bugfix release to address some issues solved shortly after the last release.
+
+### Fixes
+
+- Improved support for older Wine and Vulkan Loader versions.
+- Fix blocky shadows in Horizon Zero Dawn.
+- Fix the install script failing on Wine installs not built with upstream vkd3d.
+- Fix minor dxil translation issues.
+
+## 2.3
+
+This release adds support for more D3D12 features and greatly improves GPU bound performance
+in many scenarios.
+
+### Features
+
+#### Early DXR 1.0 support
+
+`VK_KHR_raytracing` is used to enable cross-vendor ray-tracing support.
+The implementation is WIP, but it is good enough to run some real content.
+
+As of writing, only the NVIDIA driver works correctly.
+It is expected AMD RDNA2 GPUs will work when working drivers are available
+(amdgpu-pro 21.10 is known to not work).
+
+Games which are expected to work include:
+- Control (appears to be fully working)
+- Ghostrunner (seems to work, not exhaustively tested)
+
+To enable DXR support, `VKD3D_CONFIG=dxr %command%` should be used when launching game.
+Certain games may be unstable if DXR is enabled by default.
+
+#### Conservative rasterization
+
+Full support (tier 3) for conservative rasterization was added.
+
+#### Variable rate shading
+
+Full support (tier 2) for variable rate shading was added.
+
+#### Command list bundles
+
+Allows Kingdom Hearts remaster to get past the errors, unsure if game fully works yet.
+
+#### Write Watch and APITrace
+
+Support for `D3D12_HEAP_FLAG_ALLOW_WRITE_WATCH` has been added.
+This means [APITraces](https://github.com/Joshua-Ashton/apitrace/releases) of titles can now be captured.
+
+### Performance
+
+- Improve GPU bound performance in RE2 by up to 20% on NVIDIA.
+- Enable async compute queues. Greatly improves GPU performance and frame pacing in many titles.
+  Horizon Zero Dawn and Death Stranding see exceptional gains with this fix,
+  due to how the engines work. GPU utilization should now reach ~100%.
+  For best results, AMD Navi+ GPUs are recommended, but Polaris and earlier still
+  see great results. It is possible to disable this path, if for whatever reason
+  multiple queues are causing issues. See README.
+- Optimize bindless constant buffer GPU-bound performance on NVIDIA if certain API code paths are used.
+- Optimize sparse binding CPU overhead.
+- `TRACE` logging calls are disabled by default on release builds.
+
+### Fixes and workarounds
+
+- Fix various DXIL bugs.
+- Be more robust against broken pipeline creation API calls.
+  Avoids driver crashes in Forza Horizon 4.
+- Workaround some buggy shaders in F1 2020.
+- Fix bugs if depth bounds test is used in certain ways.
+- Fix a read out-of-bounds in `UpdateTileMappings`.
+- Fix `SV_ClipDistance` and `SV_CullDistance` in Hull Shaders.
+
+## 2.2
+
+This release is mostly a maintenance release which fixes bugs and regressions.
+It also unblocks significant future feature development.
+
+### Workaround removals
+
+- Replace old `force_bindless_texel_buffer` workaround with
+  a more correct and performant implementation.
+  Death Stranding and Cyberpunk 2077 (and probably other games as well) do the right thing by default without the hack now.
+- Remove old workaround `disable_query_optimization` for occlusion queries which was enabled for AC: Valhalla,
+  and is now replaced by a correct and efficient implementation.
+
+#### Cyberpunk 2077 status
+From recent testing on our end, it is unknown at this time if `VK_VALVE_mutable_descriptor_type` is still required for
+Cyberpunk 2077. Manual testing hasn't been able to trigger a GPU hang.
+The memory allocation rewrite in 2.2 can plausibly work around some of the bugs that `VK_VALVE_mutable_descriptor_type` fixed by accident.
+The bugs in question could also have been fixed since release day, but we cannot prove this since the bug is completely random in nature.
+
+### Regression fixes
+
+- Fix regression in Horizon Zero Dawn for screen space reflections on water surfaces.
+
+### Stability fixes
+
+- Greatly improve stability on Polaris or older cards for certain titles.
+  Crashes which used to happen in Horizon Zero Dawn and Death Stranding seem to have disappeared
+  after the memory allocation rewrite.
+  GPU memory usage should decrease on these cards as well.
+- DIRT 5 can get in-game now due to DXIL fixes, but is not yet playable.
+
+### New features
+
+- Add support for Variable Rate Shading tier 1.
+
+### Future development
+
+DXR is not yet supported, but has seen a fair bit of background work.
+
+- Basic DXR pipelines can be created successfully.
+- Memory allocation rewrite in 2.2 unblocks further DXR development.
+
+## 2.1
+
+This release fixes various bugs (mostly workarounds) and improves GPU-bound performance.
+
+New games added to "expected to work" list:
+ - The Division (was working already in 2.0, but missing from list)
+ - AC: Valhalla (*)
+
+(*): Game requires full D3D12 sparse texture support to work.
+Currently only works on NVIDIA drivers.
+RADV status remains unknown until support for this feature lands in Mesa.
+
+New games added to "kinda works, but expect a lot of jank" list:
+ - Cyberpunk 2077 (**)
+
+(**): Currently only runs correctly on AMD hardware with RADV and `VK_VALVE_mutable_descriptor_type`.
+As of game version 1.03, this requires the latest Mesa Git build.
+The game has some fatal bugs where it relies on undefined behavior with descriptor management
+which this extension works around by accident.
+The game will start and run on NVIDIA, but just like what happens without the extension on AMD,
+the GPU will randomly hang, making the game effectively unplayable.
+A game update to fix this bug would likely make the game playable on NVIDIA as well.
+Game version 1.04 changed some behavior, and support for this game will likely fluctuate over time as future patches come in.
+
+Bug fixes and workarounds:
+ - Fix various implementation bugs which caused AC: Valhalla to not work.
+ - Work around game bug in Death Stranding where accessing map could cause corrupt rendering.
+   (Several games appear to have the same kind of application bug.)
+ - Fix corrupt textures in Horizon Zero Dawn benchmark.
+ - Fix SM 6.0 wave-op detection for Horizon Zero Dawn and DIRT 5.
+ - Work around GPU hangs in certain situations where games do not use D3D12 correctly,
+   but native D3D12 drivers just render wrong results rather than hang the system.
+ - Fix invalid SPIR-V generated by FP64 code.
+ - Fix crash with minimized windows in certain cases.
+
+Performance:
+ - ~15% GPU-bound uplift in Ghostrunner. Might help UE4 titles in general.
+ - Slightly improve GPU bound performance when fully GPU bound on both AMD and NVIDIA.
+ - Slightly improve GPU bound performance on RADV in various titles.
+ - Reduce multi-threaded CPU overhead for certain D3D12 API usage patterns.
+ - Add support for `VK_VALVE_mutable_descriptor_type` which
+   improves CPU overhead, memory bloat, and avoids potential memory management thrashing on RADV.
+   Also avoids GPU hangs in certain situations where games misuse the D3D12 API.
+
+Misc:
+ - Implement `DXGI_PRESENT_TEST`.
+ - Fix log spam when `DXGI_PRESENT_ALLOW_TEARING` is used.
+
+## 2.0
+
+This initial release supports D3D12 Feature Level 12.0 and Shader Model 6.0 (DXIL).
+
+Games expected to work include:
+
+ - Control
+ - Death Stranding
+ - Devil May Cry 5
+ - Ghostrunner
+ - Horizon Zero Dawn
+ - Metro Exodus
+ - Monster Hunter World
+ - Resident Evil 2 / 3
+
+Please refer to the README for supported driver versions.
+

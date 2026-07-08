@@ -1,0 +1,2 @@
+Got EINVAL when fsync on pipe
+Test PASSED

@@ -1,0 +1,51 @@
+[require]
+shader model >= 5.0
+shader model < 6.0
+
+[pixel shader]
+float4 main() : sv_target
+{
+    return 0;
+}
+
+uint stencil_refs[2];
+
+technique11
+{
+    pass
+    {
+        SetDepthStencilState(NULL, stencil_refs[10]);
+    }
+}
+
+[effect]
+uint stencil_ref;
+uint stencil_refs[2];
+uint index;
+
+technique11
+{
+    pass
+    {
+        SetDepthStencilState(NULL, stencil_ref);
+    }
+    pass
+    {
+        SetDepthStencilState(NULL, stencil_refs[1]);
+    }
+    pass
+    {
+        SetDepthStencilState(NULL, stencil_refs[index]);
+    }
+}
+
+[effect fail]
+uint stencil_refs[2];
+
+technique11
+{
+    pass
+    {
+        SetDepthStencilState(NULL, stencil_refs[10]);
+    }
+}

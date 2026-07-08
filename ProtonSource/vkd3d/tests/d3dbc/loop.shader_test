@@ -1,0 +1,148 @@
+[require]
+shader model = 3.0
+
+% NOTE: d3dbc has two looping constructs: rep/endrep and loop/endloop.
+% rep/endrep provides a fairly straightforward loop with a specified iteration
+% count. loop/endloop additionally provides the `aL` loop counter register,
+% which can be used for indirect addressing of c# constant register in vs_2_0+
+% shaders, v# and o# I/O registers in vs_3_0 shaders, and v# input registers
+% in ps_3_0 shaders.
+
+[vertex shader]
+void main(float4 pos : POSITION, out float4 col[4] : COLOR,
+        out float4 tex[2] : TEXCOORD, out float4 out_pos : SV_POSITION)
+{
+    out_pos = pos;
+    col[0] = 1;
+    col[1] = 2;
+    col[2] = 3;
+    col[3] = 4;
+    tex[0] = 5;
+    tex[1] = 6;
+}
+
+[pixel shader d3dbc-hex]
+ffff0300                                                % ps_3_0
+05000051 a00f0000 00000000 00000000 41200000 00000000   % def c0, 0, 0, 10, 0
+0200001f 8000000a 900f0000                              % dcl_color v0
+0200001f 8001000a 900f0001                              % dcl_color1 v1
+0200001f 8002000a 900f0002                              % dcl_color2 v2
+0200001f 8003000a 900f0003                              % dcl_color3 v3
+02000001 800f0000 a0000000                              % mov r0, c0.x
+0200001b f0e40800 f0e40000                              % loop aL, i0
+05000004 800f0000 80e40000 a0aa0000 90e42000 f0e40800   %   mad r0, r0, c0.z, v0[aL]
+0000001d                                                % endloop
+02000001 800f0800 80e40000                              % mov oC0, r0
+0000ffff                                                % end
+
+% Here, `loop` uses i0.x, i0.y, and i0.z, as iteration count, start, and step,
+% respectively.
+[test]
+write cbv-i32 (0) i32(2, 0, 1, 0)
+draw quad
+probe (320, 240) f32(12, 12, 12, 12)
+write cbv-i32 (0) i32(3, 1, 1, 0)
+draw quad
+probe (320, 240) f32(234, 234, 234, 234)
+write cbv-i32 (0) i32(2, 1, 2, 0)
+draw quad
+probe (320, 240) f32(24, 24, 24, 24)
+write cbv-i32 (0) i32(3, 3, -1, 0)
+draw quad
+probe (320, 240) f32(432, 432, 432, 432)
+
+
+% Test that aL refers to the immediate enclosing loop when nesting.
+[pixel shader d3dbc-hex]
+ffff0300                                                % ps_3_0
+05000051 a00f0000 00000000 00000000 41200000 00000000   % def c0, 0, 0, 10, 0
+0200001f 8000000a 90030000                              % dcl_color v0.xy
+0200001f 8001000a 90030001                              % dcl_color1 v1.xy
+0200001f 8002000a 90030002                              % dcl_color2 v2.xy
+0200001f 8003000a 90030003                              % dcl_color3 v3.xy
+02000001 80030000 a0000000                              % mov r0.xy, c0.x
+0200001b f0e40800 f0e40000                              % loop aL, i0
+02000001 80040000 80550000                              %   mov r0.z, r0.y
+0200001b f0e40800 f0e40001                              %   loop aL, i1
+05000004 80040000 80aa0000 a0aa0000 90552000 f0e40800   %     mad r0.z, r0.z, c0.z, v0[aL].y
+0000001d                                                %   endloop
+02000001 80020000 80aa0000                              %   mov r0.y, r0.z
+05000004 80010000 80000000 a0aa0000 90002000 f0e40800   %   mad r0.x, r0.x, c0.z, v0[aL].x
+0000001d                                                % endloop
+02000001 80030800 80e40000                              % mov oC0.xy, r0
+02000001 800c0800 a0000000                              % mov oC0.zw, c0.x
+0000ffff                                                % end
+
+[test]
+write cbv-i32 (0) i32(2, 0, 1, 0)
+write cbv-i32 (4) i32(2, 2, 1, 0)
+draw quad
+probe (320, 240) f32(12, 3434, 0, 0)
+write cbv-i32 (0) i32(2, 1, 2, 0)
+write cbv-i32 (4) i32(3, 0, 1, 0)
+draw quad
+probe (320, 240) f32(24, 123123, 0, 0)
+
+
+% Test indirect addressing across different semantics.
+[pixel shader d3dbc-hex]
+ffff0300                                                % ps_3_0
+05000051 a00f0000 00000000 00000000 41200000 00000000   % def c0, 0, 0, 10, 0
+0200001f 8000000a 900f0000                              % dcl_color v0
+0200001f 8001000a 900f0001                              % dcl_color1 v1
+0200001f 8002000a 900f0002                              % dcl_color2 v2
+0200001f 8003000a 900f0003                              % dcl_color3 v3
+0200001f 80000005 900f0004                              % dcl_texcoord0 v4
+0200001f 80010005 900f0005                              % dcl_texcoord1 v5
+02000001 800f0000 a0000000                              % mov r0, c0.x
+0200001b f0e40800 f0e40000                              % loop aL, i0
+05000004 800f0000 80e40000 a0aa0000 90e42000 f0e40800   %   mad r0, r0, c0.z, v0[aL]
+0000001d                                                % endloop
+02000001 800f0800 80e40000                              % mov oC0, r0
+0000ffff                                                % end
+
+[test]
+write cbv-i32 (0) i32(6, 0, 1, 0)
+draw quad
+probe (320, 240) f32(123456, 123456, 123456, 123456)
+write cbv-i32 (0) i32(3, 1, 2, 0)
+draw quad
+probe (320, 240) f32(246, 246, 246, 246)
+
+[require]
+shader model = 2.0
+
+[vertex shader d3dbc-hex]
+fffe0200                                                % vs_2_0
+05000051 a00f0008 3c23d70a 00000000 00000000 00000000   % def c8, 0.01, 0, 0, 0
+0200001f 80000000 900f0000                              % dcl_position v0
+02000001 800f0000 a0e40000                              % mov r0, c0
+0200001b f0e40800 f0e40000                              % loop aL, i0
+04000002 800f0000 80e40000 a0e42001 f0e40800            %   add r0, r0, c[aL + 1]
+0000001d                                                % endloop
+02000001 c00f0000 90e40000                              % mov oPos, v0
+03000005 800f0000 80e40000 a0000008                     % mul r0, r0, c8.x
+02000001 d00f0000 80e40000                              % mov oD0, r0
+0000ffff                                                % end
+
+[pixel shader d3dbc-hex]
+ffff0200                     % ps_2_0
+0200001f 80000000 900f0000   % dcl v0
+02000001 800f0800 90e40000   % mov oC0, v0
+0000ffff                     % end
+
+[test]
+write cbv-f32 (0) f32(0, 0, 0, 1)
+write cbv-f32 (4) f32(1, 1, 1, 1)
+write cbv-f32 (8) f32(2, 2, 2, 1)
+write cbv-f32 (12) f32(4, 4, 4, 1)
+write cbv-f32 (16) f32(8, 8, 8, 1)
+write cbv-f32 (20) f32(16, 16, 16, 1)
+write cbv-f32 (24) f32(32, 32, 32, 1)
+write cbv-f32 (28) f32(64, 64, 64, 1)
+write cbv-i32 (0) i32(6, 0, 1, 0)
+draw quad
+probe (320, 240) f32(0.63, 0.63, 0.63, 0.07)
+write cbv-i32 (0) i32(3, 1, 2, 0)
+draw quad
+probe (320, 240) f32(0.42, 0.42, 0.42, 0.04)

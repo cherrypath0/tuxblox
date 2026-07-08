@@ -1,0 +1,98 @@
+[require]
+shader model >= 4.0
+
+[vertex shader]
+struct vs_in
+{
+    uint instance_id : SV_InstanceId;
+    uint vertex_id : SV_VertexId;
+};
+
+struct vs_out
+{
+    float4 position : SV_Position;
+    float4 color : Color;
+};
+
+void main(vs_in i, out vs_out o)
+{
+    float2 vertices[] =
+    {
+        {0.0, 0.0}, { 0.0,  2.0}, {-2.0,  0.0},
+        {0.0, 0.0}, { 2.0,  0.0}, { 0.0,  2.0},
+        {0.0, 0.0}, { 0.0, -2.0}, { 2.0,  0.0},
+        {0.0, 0.0}, {-2.0,  0.0}, { 0.0, -2.0},
+    };
+    uint pos = i.vertex_id % 3;
+    o.position = float4(vertices[pos + i.instance_id * 3], 0.0, 1.0);
+    float color = 0.25 + i.instance_id * 0.25;
+    o.color = float4(0.0, color, 0.0, color);
+}
+
+[pixel shader]
+struct vs_out
+{
+    float4 position : SV_Position;
+    float4 color : Color;
+};
+
+float4 main(vs_out i) : SV_Target
+{
+    return i.color;
+}
+
+[test]
+todo(msl) draw triangle list 3 4
+probe rtv-0 (160, 120) f32(0.0, 0.25, 0.0, 0.25)
+probe rtv-0 (480, 120) f32(0.0, 0.5, 0.0, 0.5)
+probe rtv-0 (480, 360) f32(0.0, 0.75, 0.0, 0.75)
+probe rtv-0 (160, 360) f32(0.0, 1.0, 0.0, 1.0)
+
+% In TPF and DXIL SV_VertexID and SV_InstanceID always start from zero,
+% rather than from the number specified in the API draw call. This is different
+% from other APIs, like Metal and Vulkan, so it's useful to check we're
+% offsetting properly.
+
+[vertex shader]
+static const float2 vertices[3] =
+{
+    {-1.0f,  1.0f},
+    { 3.0f,  1.0f},
+    {-1.0f, -3.0f},
+};
+
+struct vs_out
+{
+    float4 position : SV_Position;
+    uint vertex_id : vertid;
+    uint instance_id : instid;
+};
+
+void main(uint id : SV_VertexID, uint inst_id : SV_InstanceID, out vs_out o)
+{
+    const float2 pos = vertices[id % 3];
+    o.position = float4(pos, 0.0f, 1.0f);
+    o.vertex_id = id;
+    o.instance_id = inst_id;
+}
+
+[pixel shader]
+struct vs_out
+{
+    float4 position : SV_Position;
+    uint vertex_id : vertid;
+    uint instance_id : instid;
+};
+
+float4 main(const in vs_out vs) : SV_Target
+{
+    return float4(vs.vertex_id, vs.instance_id, 0.0, 0.0);
+}
+
+[test]
+todo(msl) draw triangle list 3 1 0 0
+probe (0, 0) f32(0.0, 0.0, 0.0, 0.0)
+todo(msl) draw triangle list 3 1 1 1
+todo(opengl) probe (0, 0) f32(0.0, 0.0, 0.0, 0.0)
+todo(msl) draw triangle list 3 1 2 3
+todo(opengl) probe (0, 0) f32(0.0, 0.0, 0.0, 0.0)

@@ -1,0 +1,169 @@
+[pixel shader fail(sm>=6)]
+typedef float2 Dword;
+typedef float3 dWord;
+typedef float2 fLoat;
+typedef float2 mAtrix;
+typedef float2 vEctor;
+
+float4 f()
+{
+    typedef Dword dword;
+    typedef fLoat float;
+    dword v1 = {1, 2};
+    float v2 = {2, 3};
+    DWORD v4 = 4;
+    mAtrix v5 = {1, 2};
+    maTrix v6 = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
+    matrix v7 = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
+    vector v8 = {1, 2, 3, 4};
+    vEctor v9 = {1, 2};
+    Vector v10 = {1, 2, 3, 4};
+    vectoR v11 = {1, 2, 3, 4};
+    return float4(v1.x, v2.x, v2.y, v4);
+}
+
+float4 f2()
+{
+    typedef dword dword;
+    typedef float float;
+    dword v1 = 1;
+    float v2 = 1;
+    return float4(v1, v2, v1, v1);
+}
+
+float4 main() : SV_TARGET
+{
+    return f() + f2();
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (2.0, 3.0, 4.0, 5.0)
+
+% The "dword" alias is pre-defined as lowercase
+[pixel shader fail]
+typedef float2 dword;
+
+float4 main() : sv_target
+{
+    return float4(0, 0, 0, 0);
+}
+
+[pixel shader fail]
+struct DWORD s;
+
+float4 main() : sv_target
+{
+    return float4(0, 0, 0, 0);
+}
+
+[pixel shader fail]
+typedef float2 float;
+
+float4 main() : sv_target
+{
+    return float4(0, 0, 0, 0);
+}
+
+[pixel shader fail]
+typedef float2 matrix;
+
+float4 main() : sv_target
+{
+    return float4(0, 0, 0, 0);
+}
+
+[pixel shader fail(sm<6)]
+float4 f()
+{
+    typedef float2 matrix;
+    return float4(0, 0, 0, 0);
+}
+
+float4 main() : SV_TARGET
+{
+    return f();
+}
+
+[pixel shader fail(sm<6)]
+float4 f()
+{
+    typedef float2 vector;
+    return float4(0, 0, 0, 0);
+}
+
+float4 main() : SV_TARGET
+{
+    return f();
+}
+
+[pixel shader fail]
+Matrix<float, 2, 2> m;
+
+float4 main() : sv_target
+{
+    return float4(0, 0, 0, 0);
+}
+
+[pixel shader fail]
+Vector<float, 2> v;
+
+float4 main() : sv_target
+{
+    return float4(0, 0, 0, 0);
+}
+
+[pixel shader fail(sm>=6)]
+typedef float4 texturE;
+Texture tex1;
+texture tex2;
+teXture tex3;
+texturE var;
+
+float4 main() : sv_target
+{
+    return var;
+}
+
+% Type name can't be used as an identifier in the same scope the type has been defined in
+[pixel shader fail todo]
+float4 float;
+
+float4 main() : sv_target
+{
+    return 0;
+}
+
+[pixel shader fail todo]
+float4 double;
+
+float4 main() : sv_target
+{
+    return 0;
+}
+
+[pixel shader fail(sm>=6)]
+float4 main() : sv_target
+{
+    float4 float = float4(1, 2, 3, 4);
+    return float;
+}
+
+[pixel shader fail(sm>=6)]
+float4 main() : sv_target
+{
+    float4 double = float4(1, 2, 3, 4);
+    return double;
+}
+
+[pixel shader]
+struct s
+{
+    float4 f;
+};
+
+float4 main() : sv_target
+{
+    float4 s = float4(1, 2, 3, 4);
+    return s;
+}

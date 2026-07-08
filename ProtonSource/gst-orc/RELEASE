@@ -1,0 +1,544 @@
+0.4.34
+======
+
+  - Thread-safety improvements around orc codemem allocation/freeing
+    (Seungha Yang)
+  - Add orc_parse_code() with more detailed error reporting (Francesco Romani)
+  - Implement Orc function lazy initialization correctly via atomic operations
+    (Sebastian Dröge)
+  - orc program parser fixes and improvements (Francesco Romani, Sebastian Dröge)
+  - build fixes and compiler warning fixes (Thomas Klausner, Tim-Philipp Müller,
+    Sebastian Dröge)
+  - coverity and clang scan-build static code analysis fixes (Sebastian Dröge)
+  - meson: Do not always generate static library for test library (Jeremy Bicha)
+  - ci improvements (Jordan Petridis, Nirbheek Chauhan, Tim-Philipp Müller)
+
+0.4.33
+======
+
+  - Add support for aarch64 (64-bit ARM) architecture (not yet enabled on Windows though)
+    (Marek Vasut, Dongju Chae, Gaetan Bahl)
+  - aarch32: Implement loadupdb instruction used e.g. for video pixel
+    format packing/unpacking/conversions (Marek Vasut, Gaetan Bahl)
+  - neon: Fix unsigned only implementation of loadoffb, loadoffw and loadoffl
+    (Daniel Knobe)
+  - neon: Fix testsuite not passing on arm CPUs (Gaetan Bahl)
+  - orccodemem: Fix use-after-free in error paths (Bastien Nocera)
+  - orccpu-powerpc: Fix build with kernel < 4.11 (Fabrice Fontaine)
+  - Add support for macOS Hardened Runtime (Doug Nazar)
+  - Enable only SSE and MMX backends for Windows (Seungha Yang)
+  - Fix ORC_RESTRICT definition for MSVC (Tim-Philipp Müller)
+  - pkgconfig: add -DORC_STATIC_COMPILATION flag to .pc file for static-only builds
+    (Steve Lhomme)
+
+0.4.32
+======
+
+  - Add support for JIT code generation in Universal Windows Platform apps
+    (Nirbheek Chauhan, Seungha Yang)
+  - Minor Meson build system fixes and improvements
+    (Jan Alexander Steffens, Tim-Philipp Müller)
+
+0.4.31
+======
+
+  - Fix OrcTargetPowerPCFlags enum typedef to revert API change on
+    macOS/iOS (Pablo Marcos Oltra)
+  - Fixes for various PowerPC issues (Doug Nazar)
+  - Enable flush-to-zero mode for float programs on ARM/neon (Doug Nazar)
+  - Fix some opcodes to support x2/x4 processing on PowerPC (Doug Nazar)
+
+0.4.30
+======
+
+  - Don't always generate static library but default to shared-only (Xavier Claessens)
+  - Work around false positives in Microsoft UWP certification kit (Nirbheek Chauhan)
+  - Add endbr32/endbr64 instructions on x86/x86-64 for indirect branch tracking (Wim Taymans)
+  - Fix gtk-doc build when orc is used as a meson subproject (Mathieu Duponchelle)
+  - Switch float comparison in tests to ULP method to fix spurious failures (Doug Nazar)
+  - Fix flushing of ARM icache when using dual map (Doug Nazar)
+  - Use float constants/parameters when testing float opcodes (Doug Nazar)
+  - Add support for Hygon Dhyana processor (fanjinke)
+  - Fix PPC/PPC64 CPU family detection (Doug Nazar)
+  - Add little-endian PPC support (Doug Nazar)
+  - Fix compiler warnings with clang (Matthew Waters)
+  - Mark exec mapping writable in debug mode for allowing breakpoints (Doug Nazar)
+  - Various codegen refactorings (Doug Nazar)
+  - autotools support has been dropped in favour of Meson as build system (Tim-Philipp Müller)
+  - Fix PPC CPU feature detection and add support for VSX/v2.07 (Doug Nazar)
+  - Add double/int64 support for PPC (Doug Nazar)
+
+0.4.29
+======
+
+  - PowerPC: Support ELFv2 ABI (A. Wilcox) and ppc64le (Michel Normand)
+  - Mips backend: only enable if the DSPr2 ASE is present (James Cowgill)
+  - Windows and MSVC build fixes (Nirbheek Chauhan, Tim-Philipp Müller)
+  - orccpu-arm: Allow 'cpuinfo' fallback on non-android (Edward Hervey)
+  - pkg-config file for orc-test library (Tim-Philipp Müller)
+  - orcc: add --decorator command line argument to add function decorators
+    in header files (Tim-Philipp Müller)
+  - meson: Make orcc detectable from other subprojects (Seungha Yang)
+  - meson: add options to disable tests, docs, benchmarks, examples,
+    tools, etc. (Sebastian Dröge, Tim-Philipp Müller)
+  - meson: misc. other fixes (James Cowgill, Nirbheek Chauhan, Sebastian Dröge)
+
+0.4.28
+======
+
+  - Numerous undefined behaviour fixes (Edward Hervey)
+  - Ability to disable tests (Edward Hervey)
+  - Fix meson dist behaviour (Tim-Philipp Müller)
+
+0.4.27
+======
+
+  - sse: preserve non volatile sse registers, needed for MSVC (Matej Knopp)
+  - x86: don't hard-code register size to zero in orc_x86_emit_*() functions (Igor Rondarev)
+  - Fix incorrect asm generation on 64-bit Windows when building with MSVC (Jan Schmidt)
+  - Support build using the Meson build system (Nirbheek Chauhan, Tim-Philipp Müller)
+
+0.4.26
+======
+
+  - Use 64 bit arithmetic to increment the stride if needed (Wim Taymans)
+  - Fix generation of ModR/M / SIB bytes for the EBP, R12, R13 registers
+    on X86/X86-64 (Sebastian Dröge)
+  - Fix test_parse unit test if no executable backend is available (Pascal Terjan)
+  - Add orc-test path to the -uninstalled .pc file (Josep Torra)
+  - Fix compiler warnings in the tests on OS X (Josep Torra)
+
+0.4.25
+======
+
+  - compiler: also prefer the backup function when no target, instead
+    of trying to use emulation which is usually slower (Wim Taymans)
+  - executor: fix load of parameters smaller than 64 bits, fixing crashes
+    on ldresnearb and friends in emulated code (Wim Taymans)
+  - test-limits: improve test without target (Wim Taymans)
+  - Only check for Android's liblog on Android targets, so we don't accidentally
+    pick up another liblog that may exist elsewhere (Sebastian Dröge)
+  - Don't require libtool for uninstalled setups (-uninstalled pkg-config file)
+    (Julien Isorce)
+  - Make -Bsymbolic check in configure work with clang (Koop Mast)
+  - Coverity code analyser fixes (Luis de Bethencourt)
+  - docs: update generated opcode tables
+  - add orc_version_string() function and make orcc check the liborc that is
+    being picked up to make sure the right lib is being used (Tim-Philipp Müller)
+
+0.4.24
+======
+
+  - Only reuse constants of the same size and value (Wim Taymans)
+  - Fix reading of .orc files with Windows line endings on
+    Windows (Tim-Philipp Müller)
+  - Fix out of bounds array access in the tests (Luis de Bethencourt)
+  - Remove duplicate code path in orcc (Edward Hervey)
+  - Put a limit to the memcpy test (Edward Hervey)
+  - Fix mmap leak on error path (Vincent Penquerc'h)
+
+0.4.23
+======
+
+  - Various improvements to the NEON backend to bring it closer to the SSE
+    backend (Wim Waymans)
+  - Add support for setting a custom backup function (Wim Taymans)
+  - Preserve NEON/VFP registers across subroutines (Jerome Laheurte)
+  - Fix 64 bit parameter loading on big-endian systems (Tim-Philipp Müller)
+  - Improved implementations for various opcodes (Wim Taymans)
+  - Various improvements and fixes to constants handling (Wim Taymans)
+  - Avoid some undefined operations on signed integers (Wim Taymans)
+  - Prefer user specific directories over global ones for intermediate files
+    to prevent name collisions (Fabian Deutsch)
+
+0.4.22
+======
+
+Maintenance release:
+
+  - Handle NOCONFIGURE=1 in autogen.sh (Colin Walters)
+  - Some memory leak fixes in the compiler (Sebastian Dröge, Thiago Santos)
+  - Fixes for compiler warnings on Win64 (Edward Hervey)
+  - Properly detect CPU features on Android in non-debug build (Jan Schmidt)
+  - Use Android logging system instead of stderr for debug output (Jan Schmidt)
+
+0.4.21
+======
+
+Maintenance release:
+
+  - Add libtool versioning to the linker flags again. This was accidentially
+    removed in 0.4.20 but should not cause any problems on platforms other
+    than OS X (Sebastian Dröge)
+
+
+0.4.20
+======
+
+Maintenance release:
+
+  - Fix list corruption when splitting code memory chunks, causing crashes
+    when allocating a lot of code memory and trying to free it later
+    (Tim-Philipp Müller)
+  - Add some extra checks for the number of variables used in ORC code to
+    prevent overflows and crashes in the compiler (Vincent Penquerc'h)
+  - Various compiler warnings, coverity warnings and static code analysis
+    fixes (Sebastian Dröge)
+
+0.4.19
+======
+
+Maintenance release:
+
+  - Fix out-of-tree builds (Edward Hervey)
+  - Fix many memory leaks, compiler warnings and coverity warnings (Tim-Philipp Müller,
+    Olivier Crête, Todd Agulnick, Sebastian Dröge, Vincent Penquerc'h, Edward Hervey)
+  - Documentation fix for mulhsw, mulhuw (William Manley)
+
+0.4.18
+======
+
+Maintenance release:
+
+ - Important bugfix in reading constants from bytecode. (Tim-Philipp Müller
+   and Sebastian Dröge)
+ - Documentation and code cleanup (Stefan Sauer)
+ - Fix cache flushing on iOS (Andoni Morales Alastruey)
+
+
+0.4.17
+======
+
+Maintenance release:
+
+ - Merged known distro patches.
+ - Added MIPS backend (Guillaume Emont).
+ - Disabled ARM backend because of poor coverage.
+ - Added bytecode parsing and writing.  This can be used instead of
+   manual creation of OrcPrograms.
+
+
+0.4.16
+======
+
+Fix a few bugs people noticed in 0.4.15.
+
+ - orc_init() tried to take the same mutex as generated C code that
+   calls (indirectly) orc_init().
+ - sse: Fixes for 64 bit pointers with any of the upper 32 bits set.
+
+
+0.4.15
+======
+
+This should have been release much earlier.
+
+ - Protect global resources with mutexes.  Duh.  This solves a bunch
+   of bug reports.
+ - Restore c64x-c backend.  Untested.
+ - Convert MMX and SSE backends to a new instruction scheduler.
+ - Add alignment and size hints to parser.
+
+
+0.4.14
+======
+
+Yet more bug fixing.  Altivec should work again, OS/X should
+work again.  MMX should work again.  Another codegen bug on
+SSE fixed.
+
+
+0.4.13
+======
+
+Fixes two serious code generation bugs in 0.4.12 on SSE and
+Altivec.  Also added some compatibility code to mitigate
+the previous automatic inclusion of stdint.h.
+
+
+0.4.12
+======
+
+This is primarily a bug fixing release.
+
+ - Fix gcc-4.6 warnings in generated code
+ - Codegen fixes for Altivec.  Passes regression tests again.
+ - More error checking for code allocation.
+ - NEON: floating point improvements
+ - Removed stdint.h from API.  This could theoretically cause
+   breakage if you depended on orc to include stdint.h.
+
+One new feature is the OrcCode structure, which keeps track of
+compiled code.  This now allows applications to free unused code.
+
+Internally, x86 code generation was completely refactored to add
+an intermediate stage, which will later be used for instruction
+reordering.  None of this is useful yet.
+
+
+0.4.11
+======
+
+This is primarily a bug fixing release.
+
+ - Fixes for CPUs that don't have backends
+ - Fix loading of double parameters
+ - mmx: Fix 64-bit parameter loading
+ - sse/mmx: Fix x2/x4 with certain opcodes
+
+There are still some issues with the ARM backend on certain
+architecture levels (especially ARMv6).  Some assistance from
+a user with access to such hardware would be useful.
+
+
+0.4.10
+======
+
+Changes:
+
+ - Added several simple 64-bit opcodes
+ - Improved debugging by adding ORC_CODE=emulate
+ - Allocation of mmap'd areas for code now has several fallback
+   methods, in order to placate various SELinux configurations.
+ - Various speed improvements in SSE backend
+ - Add SSE implementations of ldreslinl and ldresnearl.
+ - Update Mersenne Twister example
+
+There was a bug in the calculation of maximum loop shift that, when
+fixed, increases the speed of certain functions by a factor of two.
+However, the fix also triggers a bug in Schroedinger, which is fixed
+in the 1.0.10 release.
+
+
+0.4.9
+=====
+
+This is primarily a bug fixing release.
+
+Changes:
+
+ - Added handling for 64-bit constants
+ - Fix building and use of static library
+ - Fix register allocation on Win64 (still partly broken, however)
+ - Quiet some non-errors printed by orcc in 0.4.8.
+ - Fix implementation of several opcodes.
+
+Until this release, the shared libraries all had the same versioning
+information.  This should be fixed going forward.
+
+
+0.4.8
+=====
+
+Changes:
+
+ - Fix Windows and OS/X builds
+ - Improve behavior in failure cases
+ - Major improvements for Altivec backend
+ - Significant documentation additions
+
+Memory for executable code storage is now handled in a much more
+controlled manner, and it's now possible to reclaim this memory
+after it's no longer needed.
+
+A few more 64-bit opcodes have been added, mostly related to
+arithmetic on floating point values.
+
+The orcc tool now handles 64-bit and floating point parameters
+and constants.
+
+
+0.4.7
+=====
+
+Changes:
+
+ - Lots of specialized new opcodes and opcode prefixes.
+ - Important fixes for ARM backend
+ - Improved emulation of programs (much faster)
+ - Implemented fallback rules for almost all opcodes for
+   SSE and NEON backends
+ - Performance improvements for SSE and NEON backends.
+ - Many fixes to make larger programs compile properly.
+ - 64-bit data types are now fully implemented, although
+   there are few operations on them.
+
+Loads and stores are now handled by separate opcodes (loadb,
+storeb, etc).  For compatibility, these are automatically
+included where necessary.  This allowed new specialized
+loading opcodes, for example, resampling a source array
+for use in scaling images.
+
+Opcodes may now be prefixed by "x2" or "x4", indicating that
+a operation should be done on 2 or 4 parts of a proportionally
+larger value.  For example, "x4 addusb" performs 4 saturated
+unsigned additions on each of the four bytes of 32-bit
+quantities.  This is useful in pixel operations.
+
+The MMX backend is now (semi-) automatically generated from
+the SSE backend.
+
+The orcc tool has a new option "--inline", which creates inline
+versions of the Orc stub functions.  The orcc tool also recognizes
+a new directive '.init', which instructs the compiler to generate
+an initialization function, which when called at application init
+time, compiles all the generated functions.  This allows the
+generated stub functions to avoid checking if the function has
+already been compiled.  The use of these two features can
+dramatically decrease the cost of calling Orc functions.
+
+Known Bugs: Orc generates code that crashes on 64-bit OS/X.
+
+Plans for 0.4.8: (was 2.5 for 4 this time around, not too bad!)
+Document all the new features in 0.4.7.  Instruction scheduler.
+Code and API cleanup.
+
+
+
+0.4.6
+=====
+
+Changes:
+
+ - Various fixes to make Orc more portable
+ - Major performance improvements to NEON backend
+ - Minor performance improvements to SSE backend
+ - Major improvements to ARM backend, now passes regression
+   tests.
+
+The defaults for floating point operations have been changed
+somewhat: NANs are handled more like the IEEE 754 standard,
+and denormals in operations are treated as zeros.  The NAN
+changes causes certain SSE operations to be slightly slower,
+but produce less surprising results.  Treating denormals as
+zero has effects ranging from "slightly faster" to "now possible".
+
+New tool: orc-bugreport.  Mainly this is to provide a limited
+testing tool in the field, especially for embedded targets
+which would not have access to the testsuite that is not
+installed.
+
+The environment variable ORC_CODE can now be used to adjust
+some code generation.  See orc-bugreport --help for details.
+
+orcc has a new option to generate code that is compatible
+with older versions of Orc.  For example, if your software
+package only uses 0.4.5 features, you can use --compat 0.4.5
+to generate code that run on 0.4.5, otherwise it may generate
+code that requires 0.4.6.  Useful for generating source code
+for distribution.
+
+New NEON detection relies on Linux 2.6.29 or later.
+
+Plans for 0.4.7: (not that past predictions have been at all
+accurate) New opcodes for FIR filtering, scaling and compositing
+of images and video.  Instruction scheduler, helpful for non-OOO
+CPUs.  Minor SSE/NEON improvements.  Orcc generation of inline
+macros.
+
+
+0.4.5
+=====
+
+This release contains many small improvements related to
+converting GStreamer from liboil to Orc.
+
+The major addition in this release is the mainstreaming of
+the NEON backend, made possible by Nokia.
+
+There is a new experimental option to ./configure,
+--enable-backend, which allows you to choose a single code
+generation backend to include in the library.  This is mostly
+useful for embedded systems, and is not recommended in general.
+
+The upcoming release will focus on improving code generation
+for the SSE and NEON backends.
+
+
+0.4.4
+=====
+
+This is almost entirely a cleanup and bug fix release.
+
+ - fix register copying on x86-64
+ - better checking for partial test failures
+ - fix documention build
+ - fix build on many systems I don't personally use
+ - various fixes to build/run on Win64 (Ramiro Polla)
+ - add performance tests
+
+Next release will merge in the new pixel compositing opcodes
+and the SSE instruction scheduler.
+
+
+0.4.3
+=====
+
+New opcodes: all the 32-bit float opcodes from the orc-float
+library have been moved into the core library.
+
+New opcodes: splitlw and splitwb, which are equivalent to
+select0lw, select1lw, select0wb, and select1wb, except that
+the new opcodes split a value into two destinations in one
+opcode.
+
+New backend: c64x-c, for the TI C64x+ DSP.  This backend only
+produces source code, unlike other backends which can produce
+both source and binary code.  Generating code for this backend
+can be done using 'orcc --assembly --target=c64x-c'.
+
+Orc now understands and can generate code for two-dimensional
+arrays.  If the size of the array is known at compile time,
+this information can be used to improve generated code.
+
+Various improvements to the ARM backend by Wim Taymans.  The
+ARM backend is still experimental.
+
+
+0.4.2
+=====
+
+Bug fixes to C backend.  Turns out this is rather important on
+CPUs that don't have a native backend.
+
+New features have been postponed to 0.4.3.
+
+
+0.4.1
+=====
+
+This release introduces the orcc program, which parses .orc files and
+outputs C source files to compile into a library or application.  The
+main source file implements the functions described by the .orc source
+code, by creating Orc programs and compiling them at runtime.  Another
+source file that it outputs is a test program that can be compiled and
+run to determine if Orc is generating code correctly.  In future
+releases, the orcc tool will be expanded to output assembly code, as
+well as make it easier to use Orc in a variety of ways.
+
+Much of Schroedinger and GStreamer have been converted to use Orc
+instead of liboil, as well as converting code that wasn't able to
+use liboil.  To enable this in Schroedinger, use the --enable-orc
+configure option.  The GStreamer changes are in the orc branch in
+the repository at http://cgit.freedesktop.org/~ds/gstreamer
+
+Scheduled changes for 0.4.2 include a 2-D array mode for converting
+the remaining liboil functions used in Schroedinger and GStreamer.
+
+
+Major changes:
+
+ - Add the orcc compiler.  Generates C code that creates Orc programs
+   from .orc source files.
+ - Improved testing
+ - Fixes in the C backend
+ - Fix the MMX backend to emit 'emms' instructions.
+ - Add a few rules to the SSE backend.
+
+
+
+0.4.0
+=====
+
+Stuff happened.
+

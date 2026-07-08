@@ -1,0 +1,431 @@
+[pixel shader]
+uniform float2 a;
+
+float4 main() : SV_TARGET
+{
+    int x = a.x;
+    int y = a.y;
+    return float4(x + y, x - y, x * y, x / y);
+}
+
+[test]
+uniform 0 float4 5.0 16.0 0.0 0.0
+draw quad
+probe (0, 0) f32(21.0, -11.0, 80.0, 0.0)
+
+[pixel shader]
+uniform float2 a;
+
+float4 main() : SV_TARGET
+{
+    int x = a.x;
+    int y = a.y;
+    return float4(x % y, +x, -x, y / x);
+}
+
+[test]
+uniform 0 float4 5.0 16.0 0.0 0.0
+draw quad
+probe (0, 0) f32(5.0, 5.0, -5.0, 3.0)
+
+[pixel shader]
+uniform float2 a;
+
+float4 main() : SV_TARGET
+{
+    int x = a.x;
+    int y = a.y;
+    return float4(x / y, -x / y, x / -y, -x / -y);
+}
+
+[test]
+uniform 0 float4 42.0 5.0 0.0 0.0
+draw quad
+probe (0, 0) f32(8.0, -8.0, -8.0, 8.0)
+
+[pixel shader]
+uniform float2 a;
+
+float4 main() : SV_TARGET
+{
+    int x = a.x;
+    int y = a.y;
+    return float4(x % y, -x % y, x % -y, -x % -y);
+}
+
+[test]
+uniform 0 float4 42.0 5.0 0.0 0.0
+draw quad
+bug(mvk<1.2.11 | nvidia) probe (0, 0) f32(2.0, -2.0, 2.0, -2.0)
+
+[pixel shader]
+uniform float2 a;
+
+float4 main() : SV_TARGET
+{
+    int x = a.x;
+    int y = a.y;
+    return float4(x / y, -x / y, x / -y, -x / -y);
+}
+
+[test]
+uniform 0 float4 45.0 5.0 0.0 0.0
+draw quad
+probe (0, 0) f32(9.0, -9.0, -9.0, 9.0)
+
+[pixel shader]
+uniform float2 a;
+
+float4 main() : SV_TARGET
+{
+    int x = a.x;
+    int y = a.y;
+    return float4(x % y, -x % y, x % -y, -x % -y);
+}
+
+[test]
+uniform 0 float4 45.0 5.0 0.0 0.0
+draw quad
+bug(mvk<1.2.11 | nvidia) probe (0, 0) f32(0.0, 0.0, 0.0, 0.0)
+
+[pixel shader]
+uniform float4 a;
+
+float4 main() : SV_TARGET
+{
+    return abs(int4(a));
+}
+
+[test]
+uniform 0 float4 5.0 -7.0 0.0 -10.0
+draw quad
+probe (0, 0) f32(5.0, 7.0, 0.0, 10.0)
+
+[pixel shader]
+uniform float4 a;
+uniform float4 b;
+
+float4 main() : sv_target
+{
+    int2 x = a.xz;
+    int2 y = a.yw;
+    int2 z = b.xy;
+    int2 w = b.zw;
+    return float4(x / y, z % w);
+}
+
+[test]
+uniform 0 float4 45.0 5.0 50.0 10.0
+uniform 4 float4 3.0 8.0 2.0 5.0
+draw quad
+probe (0, 0) f32(9.0, 5.0, 1.0, 3.0)
+
+[pixel shader]
+float f;
+
+float4 main() : sv_target
+{
+    int a = 16777217; // This rounds down to 16777216 when converted to float.
+    int b = f;
+
+    return float4(a % b, a % (-b), (-a) % b, (-a) % (-b));
+}
+
+[test]
+uniform 0 float 10.0
+draw quad
+if(sm<4) probe (0, 0) f32(6, 6, -6, -6)
+if(sm>=4) bug(mvk<1.2.11 | nvidia) probe (0, 0) f32(7, 7, -7, -7)
+
+[pixel shader]
+float f;
+
+float4 main() : sv_target
+{
+    int a = 16782201; // This rounds down to 16782200 when converted to float.
+    int b = f;
+
+    return float4(a / b, a / (-b), (-a) / b, (-a) / (-b));
+}
+
+[test]
+uniform 0 float 999.0
+draw quad
+if(sm<4) probe (0, 0) f32(16798, -16798, -16798, 16798)
+if(sm>=4) probe (0, 0) f32(16799, -16799, -16799, 16799)
+
+[pixel shader]
+float f;
+
+float4 main() : sv_target
+{
+    int a = 16782200;
+    int b = f;
+
+    return float4(a / b, a / (-b), (-a) / b, (-a) / (-b));
+}
+
+[test]
+uniform 0 float 999.0
+draw quad
+probe (0, 0) f32(16798, -16798, -16798, 16798)
+
+[require]
+shader model >= 6.0
+int64
+
+[pixel shader]
+uniform int64_t2 a;
+
+float4 main() : SV_TARGET
+{
+    int64_t x = a.x;
+    int64_t y = a.y;
+    return float4(x + y, x - y, x * (y >> 4), x / y);
+}
+
+[test]
+uniform 0 int64_t2 5000000000 16000000000
+draw quad
+probe (0, 0) rgba (21.0e9, -11.0e9, 5.0e18, 0.0) 1
+
+[pixel shader]
+uniform int64_t2 a;
+
+float4 main() : SV_TARGET
+{
+    int64_t x = a.x;
+    int64_t y = a.y;
+    return float4(x % y, +x, -x, y / x);
+}
+
+[test]
+uniform 0 int64_t2 5000000000 16000000000
+draw quad
+probe (0, 0) rgba (5.0e9, 5.0e9, -5.0e9, 3.0)
+
+[pixel shader]
+uniform int64_t2 a;
+
+float4 main() : SV_TARGET
+{
+    int64_t x = a.x;
+    int64_t y = a.y;
+    return float4(x / y, -x / y, x / -y, -x / -y);
+}
+
+[test]
+uniform 0 int64_t2 42000000000 5000000000
+draw quad
+probe (0, 0) rgba (8.0, -8.0, -8.0, 8.0)
+
+[pixel shader]
+uniform int64_t2 a;
+
+float4 main() : SV_TARGET
+{
+    int64_t x = a.x;
+    int64_t y = a.y;
+    return float4(x % y, -x % y, x % -y, -x % -y);
+}
+
+[test]
+uniform 0 int64_t2 42000000000 5000000000
+draw quad
+bug(mvk<1.2.11 | nvidia) probe (0, 0) rgba (2.0e9, -2.0e9, 2.0e9, -2.0e9)
+
+[pixel shader]
+uniform int64_t2 a;
+
+float4 main() : SV_TARGET
+{
+    return float4(abs(a), 0, 0);
+}
+
+[test]
+uniform 0 int64_t2 5000000000 -7000000000
+todo(msl & sm>=6) draw quad
+probe (0, 0) rgba (5.0e9, 7.0e9, 0.0, 0.0)
+
+[pixel shader]
+uniform int64_t2 a;
+
+float4 main() : SV_TARGET
+{
+    int64_t x = a.x;
+    int64_t y = a.y;
+    return float4(x == y, y == x, x != y, y != x);
+}
+
+[test]
+uniform 0 int64_t2 42000000000 5000000000
+draw quad
+probe (0, 0) f32(0.0, 0.0, 1.0, 1.0)
+uniform 0 int64_t2 42000000000 42000000000
+draw quad
+probe (0, 0) f32(1.0, 1.0, 0.0, 0.0)
+
+[pixel shader]
+uniform int64_t2 a;
+
+float4 main() : SV_TARGET
+{
+    int64_t x = a.x;
+    int64_t y = a.y;
+    return float4(x <= y, y <= x, x >= y, y >= x);
+}
+
+[test]
+uniform 0 int64_t2 42000000000 5000000000
+draw quad
+probe (0, 0) f32(0.0, 1.0, 1.0, 0.0)
+uniform 0 int64_t2 42000000000 42000000000
+draw quad
+probe (0, 0) f32(1.0, 1.0, 1.0, 1.0)
+
+[pixel shader]
+uniform int64_t2 a;
+
+float4 main() : SV_TARGET
+{
+    int64_t x = a.x;
+    int64_t y = a.y;
+    return float4(x < y, y < x, x > y, y > x);
+}
+
+[test]
+uniform 0 int64_t2 42000000000 5000000000
+draw quad
+probe (0, 0) f32(0.0, 1.0, 1.0, 0.0)
+uniform 0 int64_t2 42000000000 42000000000
+draw quad
+probe (0, 0) f32(0.0, 0.0, 0.0, 0.0)
+
+[require]
+shader model >= 4.0
+
+[rtv 0]
+format r32g32b32a32-sint
+size (2d, 640, 480)
+
+% Minimum precision vectors in constant buffers have inconsistent behavior with
+% SM6 (see minimum-precision.shader_test), so we're reading with arrays instead.
+
+[pixel shader]
+uniform min16int u[4];
+
+int4 main() : sv_target
+{
+    min16int i = 1, j = -0xfff;
+    return int4(u[0] + i, u[1] + j, u[2] + i, u[3] + j);
+}
+
+[test]
+uniform 0 uint 0
+uniform 4 uint 0
+uniform 8 uint 0xffd
+uniform 12 uint 1
+todo(msl & sm>=6) draw quad
+probe (0, 0) i32(1, -0xfff, 0xffe, -0xffe)
+
+[pixel shader]
+uniform min16int u[2];
+uniform uint i;
+
+int4 main() : sv_target
+{
+    min16int arr[4] = {1, 2, -0x7ff, 0xfff};
+    return int4(u[0] + arr[i], u[1] + arr[i + 1], 0, 0);
+}
+
+[test]
+uniform 0 uint 2
+uniform 4 uint 0xffe
+% i is allocated differently between SM4-5 and SM6
+uniform 5 uint 2
+uniform 8 uint 2
+todo(msl & sm>=6) draw quad
+% In D3D12 with SM5 all reads to the array return 0
+if(sm>=6 | !d3d12) probe (0, 0) u32(0xfffff803, 0x1ffd, 0, 0)
+uniform 0 uint 0
+uniform 4 uint 0
+uniform 5 uint 0
+uniform 8 uint 0
+todo(msl & sm>=6) draw quad
+if(sm>=6 | !d3d12) probe (0, 0) u32(1, 2, 0, 0)
+
+[pixel shader]
+uniform min16int u[4];
+
+int4 main() : sv_target
+{
+    min16int i = -3, j = 5;
+    return int4(u[0] * i, u[1] * j, u[2] * i, u[3] * j);
+}
+
+[test]
+uniform 0 uint 7
+uniform 4 uint 0xfffffff7
+uniform 8 uint 0xfffffff9
+uniform 12 uint 9
+todo(msl & sm>=6) draw quad
+probe (0, 0) i32(-21, -45, 21, 45)
+
+[pixel shader fail todo]
+% Minimum precision signed division is not supported.
+uniform min16int4 u;
+
+int4 main() : sv_target
+{
+    min16int i = 32767, j = -5;
+    return int4(u.x / i, u.y / j, u.z / i, u.w / j);
+}
+
+[require]
+shader model >= 6.2
+native-16-bit
+
+[pixel shader]
+uniform int16_t4 u;
+
+int4 main() : sv_target
+{
+    int16_t i = 1, j = 0x7fff;
+    return int4(u.x + i, u.y + j, u.z + i, u.w + j);
+}
+
+[test]
+uniform 0 uint 0
+uniform 1 uint 0x0001fffd
+draw quad
+probe (0, 0) i32(1, 0x7fff, -2, -32768)
+
+[pixel shader]
+uniform int16_t4 u;
+
+int4 main() : sv_target
+{
+    int16_t i = -3, j = 5;
+    return int4(u.x * i, u.y * j, u.z * i, u.w * j);
+}
+
+[test]
+uniform 0 uint 0xfff70007
+uniform 1 uint4 0x9fff9
+draw quad
+probe (0, 0) i32(-21, -45, 21, 45)
+
+[pixel shader]
+uniform int16_t4 u;
+
+int4 main() : sv_target
+{
+    int16_t i = 32767, j = -5;
+    return int4(u.x / i, u.y / j, u.z / i, u.w / j);
+}
+
+[test]
+uniform 0 uint 0x000b7ffe
+uniform 1 uint 0x80007fff
+draw quad
+probe (0, 0) i32(0, -2, 1, 6553)

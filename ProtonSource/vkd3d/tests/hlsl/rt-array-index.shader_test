@@ -1,0 +1,50 @@
+[require]
+shader model >= 4.0
+rt-vp-array-index
+
+[rtv 0]
+format r32g32b32a32-float
+size (2darray, 640, 480, 4)
+
+[vertex shader]
+uint layer_offset;
+
+void main(float4 position : POSITION,
+        out float4 out_position : SV_POSITION,
+        out uint layer : SV_RenderTargetArrayIndex)
+{
+    out_position = position;
+    layer = layer_offset;
+}
+
+[pixel shader]
+uint layer_offset;
+uint draw_id;
+
+float4 main(in float4 pos : SV_Position,
+        in uint layer : SV_RenderTargetArrayIndex) : SV_Target
+{
+    return float4(layer, draw_id, 0, 0);
+}
+
+[test]
+uniform 0 uint 0
+uniform 1 uint 0
+clear rtv-0 f32(1.0, 1.0, 1.0, 1.0)
+todo(glsl) draw quad
+probe (320, 240, 0) f32(0.0, 0.0, 0.0, 0.0)
+probe (320, 240, 1) f32(1.0, 1.0, 1.0, 1.0)
+
+uniform 0 uint 1
+uniform 1 uint 1
+clear rtv-0 f32(1.0, 1.0, 1.0, 1.0)
+todo(glsl) draw quad
+probe (320, 240, 0) f32(1.0, 1.0, 1.0, 1.0)
+probe (320, 240, 1) f32(1.0, 1.0, 0.0, 0.0)
+
+uniform 0 uint 3
+uniform 1 uint 2
+clear rtv-0 f32(1.0, 1.0, 1.0, 1.0)
+todo(glsl) draw quad
+probe (320, 240, 0) f32(1.0, 1.0, 1.0, 1.0)
+probe (320, 240, 3) f32(3.0, 2.0, 0.0, 0.0)

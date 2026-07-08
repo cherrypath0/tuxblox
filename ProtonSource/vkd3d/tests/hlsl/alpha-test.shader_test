@@ -1,0 +1,78 @@
+% Testing equality comparison is a bit tricky here. The alpha test ref is
+% fed through a UNORM in d3d, so we can only pass a value that's a multiple of
+% 1/255 from 0 to 1. While we can quantize to an integer from 0-255, dividing
+% back down by 255 yields slightly inconsistent results. Fortunately, testing
+% 1.0 works and is a lot more reliable.
+
+[require]
+shader model < 4.0
+
+[vertex shader]
+void main(inout float4 pos : position, out float alpha : texcoord)
+{
+    alpha = pos.x;
+}
+
+[pixel shader]
+float4 main(float alpha : texcoord) : sv_target
+{
+    return float4(0, 1, 0, floor((alpha + 1) * 2 + 0.5) / 2);
+}
+
+[test]
+
+alpha test always
+clear rtv-0 f32(1, 0, 0, 1)
+draw quad
+probe (160, 0) f32(0, 1, 0, 0.5)
+probe (320, 0) f32(0, 1, 0, 1.0)
+probe (480, 0) f32(0, 1, 0, 1.5)
+
+alpha test equal 1.0
+clear rtv-0 f32(1, 0, 0, 1)
+draw quad
+probe (160, 0) f32(1, 0, 0, 1)
+probe (320, 0) f32(0, 1, 0, 1.0)
+probe (480, 0) f32(1, 0, 0, 1)
+
+alpha test not equal 1.0
+clear rtv-0 f32(1, 0, 0, 1)
+draw quad
+probe (160, 0) f32(0, 1, 0, 0.5)
+probe (320, 0) f32(1, 0, 0, 1)
+probe (480, 0) f32(0, 1, 0, 1.5)
+
+alpha test greater 1.0
+clear rtv-0 f32(1, 0, 0, 1)
+draw quad
+probe (160, 0) f32(1, 0, 0, 1)
+probe (320, 0) f32(1, 0, 0, 1)
+probe (480, 0) f32(0, 1, 0, 1.5)
+
+alpha test greater equal 1.0
+clear rtv-0 f32(1, 0, 0, 1)
+draw quad
+probe (160, 0) f32(1, 0, 0, 1)
+probe (320, 0) f32(0, 1, 0, 1.0)
+probe (480, 0) f32(0, 1, 0, 1.5)
+
+alpha test less equal 1.0
+clear rtv-0 f32(1, 0, 0, 1)
+draw quad
+probe (160, 0) f32(0, 1, 0, 0.5)
+probe (320, 0) f32(0, 1, 0, 1.0)
+probe (480, 0) f32(1, 0, 0, 1)
+
+alpha test less 1.0
+clear rtv-0 f32(1, 0, 0, 1)
+draw quad
+probe (160, 0) f32(0, 1, 0, 0.5)
+probe (320, 0) f32(1, 0, 0, 1)
+probe (480, 0) f32(1, 0, 0, 1)
+
+alpha test never
+clear rtv-0 f32(1, 0, 0, 1)
+draw quad
+probe (160, 0) f32(1, 0, 0, 1)
+probe (320, 0) f32(1, 0, 0, 1)
+probe (480, 0) f32(1, 0, 0, 1)

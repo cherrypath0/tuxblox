@@ -1,0 +1,7 @@
+Time before write(): 1589290316
+Time before mmap(): 1589290317
+Time before write reference: 1589290318
+Time before msync(): 1589290319
+ctime1: 1589290316, ctime2: 1589290318
+mtime1: 1589290316, mtime2: 1589290318
+Test Pass

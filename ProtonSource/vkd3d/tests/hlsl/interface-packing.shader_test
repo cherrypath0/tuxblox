@@ -1,0 +1,249 @@
+[vertex shader]
+void main(float4 pos : POSITION, out float2 color_xy : COLOR0,
+        out float2 color_zw : COLOR1, out float4 position : SV_POSITION)
+{
+    position = pos;
+    color_xy = float2(0.25, 0.5);
+    color_zw = float2(0.75, 1.0);
+}
+
+[pixel shader]
+float4 main(float2 color_xy : COLOR0, float2 color_zw : COLOR1) : SV_TARGET
+{
+    return float4(color_xy, color_zw);
+}
+
+[test]
+todo(msl & sm>=6) draw quad
+probe(320, 240) rgba(0.25, 0.5, 0.75, 1.0)
+
+% Test handling of arrays in interface blocks
+
+[require]
+shader model >= 4.0
+shader model < 6.0
+
+[input layout]
+
+[vertex shader]
+// Rules:
+// 1. Arrays always start on .x
+// 2. When placing a scalar or vector, search through the allocated slots for space *vertically*
+//    (So check if you can place at o1.y, then o2.y, o3.y before o1.z, o2.z, etc.)
+// 3. Elements with different interpolation cannot share a slot.
+// 4. The first field of a struct is always aligned.
+struct data
+{
+    float4 position : SV_Position; // Should be placed in o0
+    float  array1[2] : ARRAY1;     // Should be placed in o1.x, o2.x
+    float3 array3[1] : ARRAY3;     // Should be placed in o3.xyz
+    float  array4[2] : ARRAY4;     // Should be placed in o4.x, o5.x
+    nointerpolation float ndata : NDATA; // Should be placed in o6.x
+    uint   udata : UDATA;                // Should be placed in o6.y
+    float4 data1 : DATA1;          // Should be placed in o7.xyzw
+    float3 data2 : DATA2;          // Should be placed in o1.yzw
+    float2 data3 : DATA3;          // Should be placed in o2.yz
+    float  data4 : DATA4;          // Should be placed in o4.y
+    float2 data5 : DATA5;          // Should be placed in o5.yz
+    float2 data6 : DATA6;          // Should be placed in o4.zw
+    float  data7 : DATA7;          // Should be placed in o2.w
+    float2 data8 : DATA8;          // Should be placed in o8.xy
+    float  data9 : DATA9;          // Should be placed in o8.z (not o3.w)
+    float  data10 : DATA10;        // Should be placed in o3.w
+};
+
+void main(uint id : SV_VertexID, out data output)
+{
+    output.position = float4(id & 1 ? 3 : -1, id & 2 ? -3 : 1, 0, 1);
+    output.array1[0] = 1.0;
+    output.array1[1] = 2.0;
+    output.array3[0] = float3(3.0, 4.0, 5.0);
+    output.array4[0] = 6.0;
+    output.array4[1] = 7.0;
+    output.data1 = float4(8.0, 9.0, 10.0, 11.0);
+    output.data2 = float3(12.0, 13.0, 14.0);
+    output.data3 = float2(15.0, 16.0);
+    output.data4 = 17.0;
+    output.data5 = float2(18.0, 19.0);
+    output.data6 = float2(20.0, 21.0);
+    output.data7 = 22.0;
+    output.data8 = float2(23.0, 24.0);
+    output.data9 = 25.0;
+    output.data10 = 26.0;
+    output.ndata = 27.0;
+    output.udata = 28;
+}
+
+[pixel shader]
+struct data
+{
+    float4 position : SV_Position; // v0.xyzw
+    float  array1 : ARRAY1;        // v1.x
+    float3 data2  : DATA2;         // v1.yzw
+    float  array2 : ARRAY2;        // v2.x
+    float2 data3  : DATA3;         // v2.yz
+    float  data7  : DATA7;         // v2.w
+    float3 array3 : ARRAY3;        // v3.xyz
+    float  data10 : DATA10;        // v3.w
+    float  array4 : ARRAY4;        // v4.x
+    float  data4  : DATA4;         // v4.y
+    float2 data6  : DATA6;         // v4.zw
+    float  array5 : ARRAY5;        // v5.x
+    float2 data5  : DATA5;         // v5.yz
+    nointerpolation float ndata : NDATA; // v6.x
+    uint   udata : UDATA;          // v6.y
+    float4 data1 : DATA1;          // v7.xyzw
+    float2 data8 : DATA8;          // v8.xy
+    float  data9 : DATA9;          // v8.z
+};
+
+float4 main(data input) : SV_Target
+{
+    switch (int(input.position.x))
+    {
+        case 1: return float4(input.array1, input.data2);
+        case 2: return float4(input.array2, input.data3, input.data7);
+        case 3: return float4(input.array3, input.data10);
+        case 4: return float4(input.array4, input.data4, input.data6);
+        case 5: return float4(input.array5, input.data5, 0);
+        case 6: return float4(input.ndata, input.udata, 0, 0);
+        case 7: return input.data1;
+        case 8: return float4(input.data8, input.data9, 0);
+        default: return 0;
+    }
+}
+
+[test]
+clear rtv-0 f32(-1.0, -1.0, -1.0, -1.0)
+draw triangle list 3
+probe (0, 0) f32( 0.0,  0.0,  0.0,  0.0)
+probe (1, 0) f32( 1.0, 12.0, 13.0, 14.0)
+probe (2, 0) f32( 2.0, 15.0, 16.0, 22.0)
+probe (3, 0) f32( 3.0,  4.0,  5.0, 26.0)
+probe (4, 0) f32( 6.0, 17.0, 20.0, 21.0)
+probe (5, 0) f32( 7.0, 18.0, 19.0,  0.0)
+probe (6, 0) f32(27.0, 28.0,  0.0,  0.0)
+probe (7, 0) f32( 8.0,  9.0, 10.0, 11.0)
+probe (8, 0) f32(23.0, 24.0, 25.0,  0.0)
+
+[require]
+shader model >= 3.0
+
+[input layout]
+0 r32g32-float POSITION
+
+[vb 0]
+-1.0 -1.0
+-1.0 3.0
+3.0 -1.0
+
+[vertex shader]
+void main(float2 in_pos : POSITION, out float4 pos : SV_Position, out float4 color : COLOR)
+{
+    pos = float4(in_pos, 0.0f, 1.0f);
+    color = float4(1.0f, 2.0f, 3.0f, 4.0f);
+}
+
+[pixel shader]
+% The point of this test is to check that signature masks are handled correctly
+% when they are not contiguous, so we attempt reading only component .xw from
+% `color'. This happens when the shader is compiled by native, but not by us,
+% currently, so the same test appears in bytecode format just below.
+float4 main(float4 pos : SV_Position, float4 color : COLOR) : SV_Target
+{
+    return float4(color.x, 10.0f, 11.0f, color.w);
+}
+
+[test]
+draw triangle list 3
+probe (0, 0) rgba(1.0, 10.0, 11.0, 4.0)
+
+[require]
+shader model >= 4.0
+shader model < 4.1
+
+[pixel shader dxbc-tpf-hex]
+% The same as above, but in bytecode format.
+43425844 f1557687 26b262bd 9eb2bc5d 66f940c8 00000001 00000114          % DXBC header
+00000003 0000002c 00000080 000000b4                                     %
+4e475349 0000004c 00000002 00000008                                     % .input
+00000038 00000000 00000001 00000003 00000000 0000000f                   % .param SV_Position.xyzw, v0, float, POS
+00000044 00000000 00000000 00000003 00000001 0000090f                   % .param COLOR.xyzw, v1.xw, float
+505f5653 7469736f 006e6f69 4f4c4f43 abab0052                            %
+4e47534f 0000002c 00000001 00000008                                     % .output
+00000020 00000000 00000000 00000003 00000000 0000000f                   % .param SV_Target.xyzw, o0.xyzw, float, TARGET
+545f5653 65677261 abab0074                                              %
+52444853 00000058 00000040 00000016                                     % .text ps_4_0
+03001062 00101092 00000001                                              % dcl_input_ps linear v1.xw
+03000065 001020f2 00000000                                              % dcl_output o0.xyzw
+05000036 00102092 00000000 00101c06 00000001                            % mov o0.xw, v1.xxxw
+08000036 00102062 00000000 00004002 00000000 41200000 41300000 00000000 % mov o0.yz, l(0, 10.0, 11.0, 0)
+0100003e                                                                % ret
+
+[test]
+draw triangle list 3
+probe (0, 0) rgba(1.0, 10.0, 11.0, 4.0)
+
+[require]
+shader model >= 4.0
+
+% As of writing, the DXIL parser assumes that the semantic indices belonging
+% to a single signature item are a contiguous sequence; this is not always
+% true as exemplified here.
+
+[input layout]
+
+[vertex shader]
+static const float2 vertices[3] =
+{
+    {-1.0f,  1.0f},
+    { 3.0f,  1.0f},
+    {-1.0f, -3.0f},
+};
+
+struct foo
+{
+    float a;
+    float b[2];
+};
+
+struct vs_out
+{
+    float4 position : SV_Position;
+    foo x[2] : foo;
+};
+
+void main(uint id : SV_VertexID, out vs_out o)
+{
+    const float2 pos = vertices[id % 3];
+    o.position = float4(pos, 0.0f, 1.0f);
+
+    for (unsigned int i = 0; i < 2; ++i)
+    {
+        o.x[i].a = 1.0 + i * 10;
+        o.x[i].b[0] = 2.0 + i * 10;
+        o.x[i].b[1] = 3.0 + i * 10;
+    }
+}
+
+[pixel shader]
+struct foo
+{
+    float a;
+    float b[2];
+};
+
+struct vs_out
+{
+    float4 position : SV_Position;
+    foo x[2] : foo;
+};
+
+float4 main(const in vs_out vs) : SV_Target
+{
+    return float4(vs.x[0].a, vs.x[0].b[0], vs.x[1].b[1], vs.x[1].a);
+}
+
+[test]
+todo(sm>=6) draw triangle list 3 1
+probe (0, 0) f32(1.0, 2.0, 13.0, 11.0)

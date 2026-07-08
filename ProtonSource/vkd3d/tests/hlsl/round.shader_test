@@ -1,0 +1,53 @@
+[pixel shader]
+uniform float4 u;
+
+float4 main() : sv_target
+{
+    return round(u);
+}
+
+[test]
+uniform 0 float4 -0.4 -6.6 7.6 3.4
+draw quad
+probe (0, 0) rgba (0.0, -7.0, 8.0, 3.0) 4
+
+[pixel shader]
+uniform float4 u;
+
+float4 main() : sv_target
+{
+    float a = round(u.r);
+    int2 b = round(u.gb);
+    float4 res = float4(b, a, u.a);
+    return round(res);
+}
+
+[test]
+uniform 0 float4 -0.4 -6.6 7.6 3.4
+draw quad
+probe (0, 0) f32(-7.0, 8.0, 0.0, 3.0) 4
+
+[pixel shader]
+uniform float4 u;
+
+float4 main() : sv_target
+{
+    int4 i = u;
+    return round(i);
+}
+
+[test]
+uniform 0 float4 -1 0 2 10
+draw quad
+probe (0, 0) f32(-1.0, 0.0, 2.0, 10.0) 4
+
+[pixel shader]
+float4 main() : sv_target
+{
+    return round(float4(-1.5, -0.5, 0.5, 1.5));
+}
+
+[test]
+draw quad
+if(sm<6)  probe (0, 0) f32(-1.0,  0.0, 1.0, 2.0)
+if(sm>=6) probe (0, 0) f32(-2.0, -0.0, 0.0, 2.0)

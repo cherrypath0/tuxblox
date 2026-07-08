@@ -1,0 +1,477 @@
+[require]
+shader model < 4.0
+
+
+[pixel shader]
+// Only the used size is reserved.
+// Note that these matrices are column-major.
+float4x2 a;
+float4x2 b;
+
+float4 main() : sv_target
+{
+    float4x2 c = a;
+    float4x2 d = c + b;
+
+    return float4(d[0].x, d[1].x, d[2].x, d[3].x);
+}
+// Registers:
+//
+//   Name         Reg   Size
+//   ------------ ----- ----
+//   a            c0       1
+//   b            c1       1
+//
+[test]
+uniform 0 float4 1 2 3 4
+uniform 4 float4 100 200 300 400
+draw quad
+probe (0, 0) rgba (101, 202, 303, 404)
+
+
+[pixel shader]
+// Size 2 always are allocated before size 1
+float4x2 a;
+float4x2 b;
+
+float4 main() : sv_target
+{
+    return float4(a[0].x, a[1].x, a[2].x, b[0].y);
+}
+// Registers:
+//
+//   Name         Reg   Size
+//   ------------ ----- ----
+//   b            c0       2
+//   a            c2       1
+//
+[test]
+uniform 0 float4 1 2 3 4
+uniform 4 float4 11 12 13 14
+uniform 8 float4 21 22 23 24
+draw quad
+probe (0, 0) rgba (21, 22, 23, 11)
+
+
+[pixel shader]
+// Size 3 always allocated before size 2, probably means that they are allocated in decreasing used size.
+float4x3 a;
+float4x3 b;
+
+float4 main() : sv_target
+{
+    return float4(a[0].y, b[0].z, 0, 0);
+}
+// Registers:
+//
+//   Name         Reg   Size
+//   ------------ ----- ----
+//   b            c0       3
+//   a            c3       2
+//
+[test]
+uniform 0 float4 1 2 3 4
+uniform 4 float4 11 12 13 14
+uniform 8 float4 21 22 23 24
+uniform 12 float4 31 32 33 34
+uniform 16 float4 41 42 43 44
+draw quad
+probe (0, 0) rgba (41, 21, 0, 0)
+
+
+[pixel shader]
+// Test same used size, how a comes before b.
+float4x3 a;
+float4x3 b;
+
+float4 main() : sv_target
+{
+    return float4(a[0].z, b[0].z, 0, 0);
+}
+// Registers:
+//
+//   Name         Reg   Size
+//   ------------ ----- ----
+//   a            c0       3
+//   b            c3       3
+//
+[test]
+uniform 0 float4 1 2 3 4
+uniform 4 float4 11 12 13 14
+uniform 8 float4 21 22 23 24
+uniform 12 float4 31 32 33 34
+uniform 16 float4 41 42 43 44
+uniform 20 float4 51 52 53 54
+draw quad
+probe (0, 0) rgba (21, 51, 0, 0)
+
+
+[pixel shader]
+// Declaration order is more important than instruction order to break ties.
+float4x3 zzz;
+float4x3 aaa;
+
+float4 main() : sv_target
+{
+    return float4(aaa[0].z, zzz[0].z, 0, 0);
+}
+// Registers:
+//
+//   Name         Reg   Size
+//   ------------ ----- ----
+//   zzz          c0       3
+//   aaa          c3       3
+//
+[test]
+uniform 0 float4 1 2 3 4
+uniform 4 float4 11 12 13 14
+uniform 8 float4 21 22 23 24
+uniform 12 float4 31 32 33 34
+uniform 16 float4 41 42 43 44
+uniform 20 float4 51 52 53 54
+draw quad
+probe (0, 0) rgba (51, 21, 0, 0)
+
+
+[pixel shader]
+// Arrays follow the same rules
+float2 zzz[2], aaa[4];
+
+float4 main() : sv_target
+{
+    return float4(aaa[1], zzz[1]);
+}
+// Registers:
+//
+//   Name         Reg   Size
+//   ------------ ----- ----
+//   zzz          c0       2
+//   aaa          c2       2
+//
+[test]
+uniform 0 float4 1 2 3 4
+uniform 4 float4 11 12 13 14
+uniform 8 float4 21 22 23 24
+uniform 12 float4 31 32 33 34
+draw quad
+probe (0, 0) rgba (31, 32, 11, 12)
+
+
+[pixel shader]
+struct apple
+{
+    float2 a;
+    float3x2 b;
+    float4 c[2];
+};
+
+struct apple zzz, hhh, aaa;
+
+float4 main() : sv_target
+{
+    return float4(zzz.c[0].x, hhh.b[1].x, aaa.a);
+}
+// Registers:
+//
+//   Name         Reg   Size
+//   ------------ ----- ----
+//   zzz          c0       4
+//   hhh          c4       2
+//   aaa          c6       1
+//
+[test]
+uniform 0 float4 1 2 3 4
+uniform 4 float4 11 12 13 14
+uniform 8 float4 21 22 23 24
+uniform 12 float4 31 32 33 34
+uniform 16 float4 41 42 43 44
+uniform 20 float4 51 52 53 54
+uniform 24 float4 61 62 63 64
+draw quad
+probe (0, 0) rgba (31, 52, 61, 62)
+
+
+[pixel shader]
+// Constant buffer variables are treated indistinctively.
+float4x4 size3;
+float4x4 unused;
+
+cbuffer buff
+{
+    float4x4 size1;
+    float4x4 size4;
+};
+
+float4 main() : sv_target
+{
+    return float4(size1[3].x, size4[0].w, size3[2].z, 0);
+}
+// Registers:
+//
+//   Name         Reg   Size
+//   ------------ ----- ----
+//   size4        c0       4
+//   size3        c4       3
+//   size1        c7       1
+
+[test]
+uniform 0 float4 1 2 3 4
+uniform 4 float4 11 12 13 14
+uniform 8 float4 21 22 23 24
+uniform 12 float4 31 32 33 34
+uniform 16 float4 41 42 43 44
+uniform 20 float4 51 52 53 54
+uniform 24 float4 61 62 63 64
+uniform 28 float4 71 72 73 74
+draw quad
+probe (0, 0) rgba (74, 31, 63, 0)
+
+
+[pixel shader]
+typedef float2x2 matrix_t;
+typedef row_major matrix_t row_matrix_t;
+typedef column_major matrix_t col_matrix_t;
+uniform row_matrix_t m1;
+uniform col_matrix_t m2;
+float4 main() : COLOR
+{
+    float4 ret;
+    ret.xy = m1[0];
+    ret.zw = m2[0];
+    return ret;
+}
+// Registers:
+//
+//   Name         Reg   Size
+//   ------------ ----- ----
+//   m2           c0       2
+//   m1           c2       1
+//
+
+[test]
+uniform 0 float4 1 2 3 4
+uniform 4 float4 11 12 13 14
+uniform 8 float4 21 22 23 24
+draw quad
+probe (0, 0) rgba (21, 22, 1, 11)
+
+
+[pixel shader]
+// If there is a register reservation, the whole variable size is reserved.
+float a[4] : register(c1);
+float b[4];
+
+float4 main() : sv_target
+{
+    return float4(a[0], b[1], 0, 0);
+}
+// Registers:
+//
+//   Name         Reg   Size
+//   ------------ ----- ----
+//   a            c1       1
+//   b            c5       2
+//
+
+[test]
+uniform 0 float 0
+uniform 4 float 1
+uniform 8 float 2
+uniform 12 float 3
+uniform 16 float 4
+uniform 20 float 5
+uniform 24 float 6
+draw quad
+probe (0, 0) rgba (1, 6, 0, 0)
+
+
+[pixel shader]
+// If there is a register reservation, the whole variable size is reserved.
+float4x4 a : register(c1);
+float b[4];
+
+float4 main() : sv_target
+{
+    return float4(a[0].x, b[1], 0, 0);
+}
+// Registers:
+//
+//   Name         Reg   Size
+//   ------------ ----- ----
+//   a            c1       1
+//   b            c5       2
+//
+
+[test]
+uniform 0 float 0
+uniform 4 float 1
+uniform 8 float 2
+uniform 12 float 3
+uniform 16 float 4
+uniform 20 float 5
+uniform 24 float 6
+draw quad
+probe (0, 0) rgba (1, 6, 0, 0)
+
+
+[pixel shader]
+// If there is a register reservation, the whole variable size is reserved, even if unused.
+float4x4 unused : register(c1);
+float b[4];
+
+float4 main() : sv_target
+{
+    return float4(0, b[1], 0, 0);
+}
+// Registers:
+//
+//   Name         Reg   Size
+//   ------------ ----- ----
+//   b            c5       2
+//
+
+[test]
+uniform 0 float 0
+uniform 4 float 1
+uniform 8 float 2
+uniform 12 float 3
+uniform 16 float 4
+uniform 20 float 5
+uniform 24 float 6
+draw quad
+probe (0, 0) rgba (0, 6, 0, 0)
+
+
+[pixel shader]
+float unused[2] : register(c2); // will create a gap in c0.
+float size3[3]; // cannot be placed in c0.
+float size2[2]; // can be placed in c0.
+
+float4 main() : sv_target
+{
+    float4 res;
+
+    res.x = size3[2];
+    res.y = size2[1];
+    res.z = 0;
+    res.w = 0;
+    return res;
+}
+// Registers:
+//
+//   Name         Reg   Size
+//   ------------ ----- ----
+//   size2        c0       2
+//   size3        c4       3
+[test]
+uniform 0 float 0
+uniform 4 float 1
+uniform 8 float 2
+uniform 12 float 3
+uniform 16 float 4
+uniform 20 float 5
+uniform 24 float 6
+draw quad
+probe (0, 0) rgba (6, 1, 0, 0)
+
+
+[pixel shader]
+// Relative addressing extends the allocation size only up to the array's size.
+float idx;
+
+struct
+{
+    float dyn[5];
+    float unused;
+} a;
+
+
+float4 main() : sv_target
+{
+    return a.dyn[idx];
+}
+// Registers:
+//
+//   Name         Reg   Size
+//   ------------ ----- ----
+//   a            c0       5
+//   idx          c5       1
+//
+
+[test]
+uniform 0 float 0
+uniform 4 float 1
+uniform 8 float 2
+uniform 12 float 3
+uniform 16 float 4
+uniform 20 float 3
+draw quad
+probe (0, 0) rgba (3, 3, 3, 3)
+uniform 20 float 1
+draw quad
+probe (0, 0) rgba (1, 1, 1, 1)
+
+[pixel shader]
+float xs[2][2];
+float idx;
+
+float4 main() : sv_target
+{
+    float y[2] = {xs[0][1], xs[1][0]};
+    return y[idx];
+}
+// Registers:
+//
+//   Name         Reg   Size
+//   ------------ ----- ----
+//   xs           c0       3
+//   idx          c3       1
+//
+
+
+[test]
+uniform 0 float 0
+uniform 4 float 1
+uniform 8 float 2
+uniform 12 float 0
+draw quad
+probe (0, 0) rgba(1, 1, 1, 1)
+uniform 12 float 1
+draw quad
+probe (0, 0) rgba(2, 2, 2, 2)
+
+[vertex shader]
+float xs[2][2];
+float idx;
+
+void main(float4 pos : position, out float t : texcoord, out float4 out_pos : sv_position)
+{
+    float y[2] = {xs[0][1], xs[1][0]};
+    t = y[idx];
+    out_pos = pos;
+}
+// Registers:
+//
+//   Name         Reg   Size
+//   ------------ ----- ----
+//   xs           c0       4
+//   idx          c4       1
+//
+
+[pixel shader]
+float4 main(float t : texcoord) : sv_target
+{
+    return t;
+}
+
+[test]
+uniform 0 float 0
+uniform 4 float 1
+uniform 8 float 2
+uniform 12 float 3
+uniform 16 float 0
+draw quad
+probe (0, 0) rgba(1, 1, 1, 1)
+uniform 16 float 1
+draw quad
+probe (0, 0) rgba(2, 2, 2, 2)

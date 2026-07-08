@@ -1,0 +1,2 @@
+Will not test whether the name appears in the file system and is visible to
+other functions that take pathnames as arguments because it is unspecified.

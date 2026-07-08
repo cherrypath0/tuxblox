@@ -1,0 +1,447 @@
+[pixel shader todo(sm<4)]
+uint4 u;
+
+float4 main() : sv_target
+{
+    return countbits(u);
+}
+
+[test]
+uniform 0 uint4 0 0xffffffff 0xcccccccc 0x31415926
+todo(sm<4) draw quad
+if(sm>=4) probe (0, 0) f32(0, 32, 16, 12)
+if(sm<4)  probe (0, 0) f32(0, 0, 0, 0)
+
+[pixel shader]
+float4 main(float4 pos : sv_position) : sv_target
+{
+    uint4x4 umat =
+    {
+         1,  2,  3,  4,
+         5,  6,  7,  8,
+         9, 10, 11, 12,
+        13, 14, 15, 16,
+    };
+    uint4x4 bitscounted = countbits(umat);
+    return bitscounted[int(pos.x)];
+}
+
+[test]
+draw quad
+if(sm>=4) probe(0, 0) f32(1, 1, 2, 1)
+if(sm>=4) probe(1, 0) f32(2, 2, 3, 1)
+if(sm>=4) probe(2, 0) f32(2, 2, 3, 2)
+if(sm>=4) probe(3, 0) f32(3, 3, 4, 1)
+if(sm<4)  todo probe(0, 0) f32(0, 0, 0, 0)
+if(sm<4)  todo probe(1, 0) f32(0, 0, 0, 0)
+if(sm<4)  todo probe(2, 0) f32(0, 0, 0, 0)
+if(sm<4)  todo probe(3, 0) f32(0, 0, 0, 0)
+
+[require]
+shader model >= 4.0
+
+[pixel shader]
+float4 main() : SV_TARGET
+{
+    int x = 5;
+    int y = 15;
+
+    return float4(x >> y, y >> x, x << y, y << x);
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (0.0, 0.0, 163840.0, 480.0)
+
+[pixel shader]
+float4 main() : sv_target
+{
+    int x = 1;
+    int y = -1;
+    int z = 34;
+    uint x2 = 1;
+
+    return float4(x << y, x << z, x2 << y, x2 << z);
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (-2147483648.0, 4.0, 2147483650.0, 4.0)
+
+[pixel shader]
+float4 main() : sv_target
+{
+    int x = 2147483647;
+    int y = -1;
+    int z = 34;
+    uint x2 = 4294967295;
+
+    return float4(x >> y, x >> z, x2 >> y, x2 >> z);
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (0.0, 536870912.0, 1.0, 1073741824.0)
+
+[pixel shader]
+float4 main() : SV_TARGET
+{
+    int x = 5;
+    int y = 15;
+
+    return float4(x & y, x | y, x ^ y, ~x);
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (5.0, 15.0, 10.0, -6.0)
+
+[pixel shader]
+float4 main() : SV_TARGET
+{
+    int zero = 0;
+    int one = 1;
+
+    return float4(zero & zero, zero & one, one & zero, one & one);
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (0.0, 0.0, 0.0, 1.0)
+
+[pixel shader]
+float4 main() : SV_TARGET
+{
+    int zero = 0;
+    int one = 1;
+
+    return float4(zero | zero, zero | one, one | zero, one | one);
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (0.0, 1.0, 1.0, 1.0)
+
+[pixel shader]
+float4 main() : SV_TARGET
+{
+    int zero = 0;
+    int one = 1;
+
+    return float4(zero ^ zero, zero ^ one, one ^ zero, one ^ one);
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (0.0, 1.0, 1.0, 0.0)
+
+[pixel shader]
+float4 main() : SV_TARGET
+{
+    int a = 0;
+    int b = 0;
+    int c = 1;
+    int d = 1;
+
+    a ^= 0;
+    b ^= 1;
+    c ^= 0;
+    d ^= 1;
+
+    return float4(a, b, c, d);
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (0.0, 1.0, 1.0, 0.0)
+
+[pixel shader]
+float4 main() : SV_TARGET
+{
+    uint x = 5;
+    uint y = 15;
+
+    return float4(x >> y, y >> x, x << y, y << x);
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (0.0, 0.0, 163840.0, 480.0)
+
+[pixel shader]
+float4 main() : SV_TARGET
+{
+    int i = 7;
+
+    return float4(i << 32, i << 30, i << 28, i << 26);
+}
+
+[test]
+draw quad
+probe (0, 0) rgba(7, -1073741824, 1879048192, 469762048)
+
+[pixel shader fail]
+% Make sure that bitshifts DON'T work with floats
+float4 main() : SV_TARGET
+{
+    uint u = 5;
+    float f = 15.0;
+
+    return float4(u >> f, 0, 0, 0);
+}
+[pixel shader fail]
+float4 main() : SV_TARGET
+{
+    uint u = 5;
+    float f = 15.0;
+
+    return float4(f >> u, 0, 0, 0);
+}
+
+[pixel shader]
+float4 main() : SV_TARGET
+{
+    uint x = 5;
+    uint y = 15;
+
+    return float4(x & y, x | y, x ^ y, ~x);
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (5.0, 15.0, 10.0, 4294967296.0)
+
+[pixel shader]
+float4 main() : SV_TARGET
+{
+    uint zero = 0;
+    uint one = 1;
+
+    return float4(zero & zero, zero & one, one & zero, one & one);
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (0.0, 0.0, 0.0, 1.0)
+
+[pixel shader]
+float4 main() : SV_TARGET
+{
+    uint zero = 0;
+    uint one = 1;
+
+    return float4(zero | zero, zero | one, one | zero, one | one);
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (0.0, 1.0, 1.0, 1.0)
+
+[pixel shader]
+float4 main() : SV_TARGET
+{
+    uint zero = 0;
+    uint one = 1;
+
+    return float4(zero ^ zero, zero ^ one, one ^ zero, one ^ one);
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (0.0, 1.0, 1.0, 0.0)
+
+[rtv 0]
+format r32g32b32a32-uint
+size (2d, 640, 480)
+
+[pixel shader]
+uint4 u;
+
+uint4 main() : sv_target
+{
+    return firstbitlow(u);
+}
+
+[test]
+uniform 0 uint4 0 0xffffffff 0x00001000 0x00760400
+draw quad
+probe (0, 0) u32(0xffffffff, 0, 12, 10)
+
+[pixel shader]
+uint4 main(float4 pos : sv_position) : sv_target
+{
+    uint4x4 umat =
+    {
+         1,  2,  3,  4,
+         5,  6,  7,  8,
+         9, 10, 11, 12,
+        13, 14, 15, 16,
+    };
+    uint4x4 lobits = firstbitlow(umat);
+    return lobits[int(pos.x)];
+}
+
+[test]
+draw quad
+probe(0, 0) u32(0, 1, 0, 2)
+probe(1, 0) u32(0, 1, 0, 3)
+probe(2, 0) u32(0, 1, 0, 2)
+probe(3, 0) u32(0, 1, 0, 4)
+
+[pixel shader]
+uint4 u;
+
+uint4 main() : sv_target
+{
+    return firstbithigh(u);
+}
+
+[test]
+uniform 0 uint4 0 0xffffffff 0x00001000 0x00760400
+draw quad
+probe (0, 0) u32(0xffffffff, 31, 12, 22)
+
+[pixel shader]
+int4 i;
+
+uint4 main() : sv_target
+{
+    return firstbithigh(i);
+}
+
+[test]
+uniform 0 uint4 0 0xffffffff 0x00001db4 0xff900000
+todo(msl & sm>=6) draw quad
+probe (0, 0) i32(-1, -1, 12, 22)
+uniform 0 int4 -500 -400 -300 -7604
+todo(msl & sm>=6) draw quad
+probe (0, 0) i32(8, 8, 8, 12)
+
+[pixel shader]
+uint4 main(float4 pos : sv_position) : sv_target
+{
+    uint4x4 umat =
+    {
+         1,  2,  3,  4,
+         5,  6,  7,  8,
+         9, 10, 11, 12,
+        13, 14, 15, 16,
+    };
+    uint4x4 hibits = firstbithigh(umat);
+    return hibits[int(pos.x)];
+}
+
+[test]
+draw quad
+probe(0, 0) u32(0, 1, 1, 2)
+probe(1, 0) u32(2, 2, 2, 3)
+probe(2, 0) u32(3, 3, 3, 3)
+probe(3, 0) u32(3, 3, 3, 4)
+
+[rtv 0]
+format r32g32b32a32-float
+size (2d, 640, 480)
+
+[require]
+shader model >= 6.0
+int64
+
+[pixel shader]
+int64_t2 a;
+int2 s;
+
+float4 main() : sv_target
+{
+    int64_t x = a.x;
+    int64_t y = a.y;
+    int z = s.x;
+    int w = s.y;
+
+    return float4(x >> y, x >> -y, x >> z, x >> w);
+}
+
+[test]
+uniform 0 int64_t2 9223372036854775807 -1
+uniform 4 int4 34 66 0 0
+draw quad
+probe (0, 0) rgba (0.0, 4.611686018e18, 536870912.0, 2.305843009e18) 1
+uniform 0 int64_t2 -1 -1
+uniform 4 int4 34 66 0 0
+draw quad
+probe (0, 0) rgba (-1.0, -1.0, -1.0, -1.0) 1
+
+[pixel shader]
+uint64_t2 a;
+uint2 s;
+
+float4 main() : sv_target
+{
+    uint64_t x = a.x;
+    uint64_t y = a.y;
+    uint z = s.x;
+    uint w = s.y;
+
+    return float4(x >> y, x >> -y, x >> z, x >> w);
+}
+
+[test]
+uniform 0 uint64_t2 0xffffffffffffffff 1
+uniform 4 uint4 34 66 0 0
+draw quad
+probe (0, 0) rgba (9.223372036e18, 1.0, 1073741823.0, 4.611686018e18) 1
+
+[pixel shader]
+uint64_t2 a;
+uint2 s;
+
+float4 main() : sv_target
+{
+    uint64_t x = a.x;
+    uint64_t y = a.y;
+    uint z = s.x;
+    uint w = s.y;
+
+    return float4(x << y, x << -y, x << z, x << w);
+}
+
+[test]
+uniform 0 uint64_t2 0x83 1
+uniform 4 uint4 34 66 0 0
+draw quad
+probe (0, 0) rgba (262.0, 9.223372036e18, 2250562863104.0, 524.0) 1
+
+[pixel shader]
+uint64_t2 a;
+
+float4 main() : sv_target
+{
+    uint64_t x = a.x;
+    uint64_t y = a.y;
+
+    return float4(x ^ y, x & y, x | y, ~x);
+}
+
+[test]
+uniform 0 uint64_t2 0x300000000 0x500000000
+draw quad
+probe (0, 0) rgba (25769803776.0, 4294967296.0, 30064771072.0, 1.844674404e19) 1
+
+[pixel shader]
+uint64_t u;
+int64_t i;
+
+uint4 main() : sv_target
+{
+    return uint4(firstbitlow(u), firstbithigh(u), firstbitlow(i), firstbithigh(i));
+}
+
+[test]
+uniform 0 uint64_t2 0 0
+todo draw quad
+probe (0, 0) u32(0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff)
+uniform 0 int64_t2 -1 -1
+todo draw quad
+probe (0, 0) u32(0, 63, 0, 0xffffffff)
+uniform 0 uint64_t2 0xcccccccccccccccc 0xcccccccccccccccc
+todo draw quad
+probe (0, 0) u32(2, 63, 2, 61)

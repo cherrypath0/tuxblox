@@ -1,0 +1,33 @@
+[pixel shader fail(sm>=6)]
+float v1;
+float1 v2;
+float4 v3;
+int2 v4;
+int3 v5;
+
+float4 func()
+{
+    return noise(v1) + noise(v2) + noise(v3) + noise(v4) + noise(v5);
+}
+
+float4 main() : sv_target
+{
+    return float4(1, 2, 3, 4);
+}
+
+[test]
+draw quad
+probe (0, 0) f32(1.0, 2.0, 3.0, 4.0)
+
+[pixel shader fail]
+float2x2 v1;
+
+float4 func()
+{
+    return noise(v1);
+}
+
+float4 main() : sv_target
+{
+    return float4(1, 2, 3, 4);
+}

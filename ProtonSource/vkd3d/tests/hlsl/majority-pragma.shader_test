@@ -1,0 +1,370 @@
+[pixel shader]
+#pragma pack_matrix(row_major)
+uniform float2x2 r;
+#pragma pack_matrix(column_major)
+uniform float2x2 c;
+
+float4 main() : sv_target
+{
+    float4 ret;
+    ret.xy = mul(r, float2(0.5, 0.6));
+    ret.zw = mul(c, float2(0.5, 0.6));
+    return ret;
+}
+
+[test]
+uniform  0 float4 0.1 0.2 0.0 0.0
+uniform  4 float4 0.3 0.4 0.0 0.0
+uniform  8 float4 0.1 0.3 0.0 0.0
+uniform 12 float4 0.2 0.4 0.0 0.0
+draw quad
+probe (0, 0) rgba (0.17, 0.39, 0.17, 0.39) 1
+
+
+%% Test with a struct.
+
+[pixel shader]
+#pragma pack_matrix(row_major)
+struct apple
+{
+    float2x2 m;
+};
+#pragma pack_matrix(column_major)
+uniform struct apple a;
+
+float4 main() : sv_target
+{
+    return float4(a.m[0], a.m[1]);
+}
+
+[test]
+uniform  0 float4 0.1 0.2 0.0 0.0
+uniform  4 float4 0.3 0.4 0.0 0.0
+draw quad
+probe (0, 0) rgba (0.1, 0.2, 0.3, 0.4)
+
+
+%% Test with an array.
+
+[pixel shader]
+#pragma pack_matrix(row_major)
+uniform float2x2 m[2];
+#pragma pack_matrix(column_major)
+
+float4 main() : sv_target
+{
+    return float4(m[1][0], m[1][1]);
+}
+
+[test]
+uniform  0 float4 0.0 0.0 0.0 0.0
+uniform  4 float4 0.0 0.0 0.0 0.0
+uniform  8 float4 0.5 0.6 0.0 0.0
+uniform 12 float4 0.7 0.8 0.0 0.0
+draw quad
+probe (0, 0) rgba (0.5, 0.6, 0.7, 0.8)
+
+
+% The documentation claims these strings are subject to macro expansion.
+% In SM < 6.0 they are not.
+
+[pixel shader]
+
+#define KEY pack_matrix
+#pragma KEY(row_major)
+#define VALUE row_major
+#pragma pack_matrix(VALUE)
+#define PRAGMA pack_matrix(row_major)
+#pragma PRAGMA
+
+uniform float2x2 r;
+
+float4 main() : sv_target
+{
+    float4 ret;
+    ret.xy = mul(r, float2(0.5, 0.6));
+    ret.zw = 0.5;
+    return ret;
+}
+
+[test]
+uniform  0 float4 0.1 0.2 0.0 0.0
+uniform  4 float4 0.3 0.4 0.0 0.0
+draw quad
+if(sm<6) probe (0,0) rgba (0.23, 0.34, 0.5, 0.5) 1
+if(sm>=6) probe (0,0) rgba (0.17, 0.39, 0.5, 0.5) 1
+
+
+% The majority that applies to a typedef is the latent majority at the time
+% that typedef was declared.
+
+[pixel shader]
+#pragma pack_matrix(row_major)
+typedef float2x2 mat_t;
+#pragma pack_matrix(column_major)
+uniform mat_t m;
+
+float4 main() : sv_target
+{
+    return float4(m[0], m[1]);
+}
+
+[test]
+uniform  0 float4 0.1 0.2 0.0 0.0
+uniform  4 float4 0.3 0.4 0.0 0.0
+draw quad
+probe (0, 0) rgba (0.1, 0.2, 0.3, 0.4)
+
+
+% In fact, it's illegal to specify a contradictory majority.
+
+[pixel shader fail]
+#pragma pack_matrix(row_major)
+typedef float2x2 mat_t;
+uniform column_major mat_t m;
+
+float4 main() : sv_target
+{
+    return 0;
+}
+
+
+% This applies to arrays as well. Note that struct fields already have latent
+% majority applied (even if there have been no pragmas, as shown below), so the
+% question of typedefs is moot there.
+
+
+[pixel shader]
+#pragma pack_matrix(row_major)
+typedef float2x2 myarray_t[2];
+#pragma pack_matrix(column_major)
+uniform myarray_t a;
+
+float4 main() : sv_target
+{
+    return float4(a[0][0], a[1][1]);
+}
+
+[test]
+uniform  0 float4 0.3 0.4 0.0 0.0
+uniform  4 float4 0.0 0.0 0.0 0.0
+uniform  8 float4 0.0 0.0 0.0 0.0
+uniform 12 float4 0.5 0.6 0.0 0.0
+draw quad
+probe (0, 0) rgba (0.3, 0.4, 0.5, 0.6)
+
+
+% However, if no pack_matrix directive has been used yet, a typedef has no
+% defined majority, and the majority can be overwritten, including by a
+% subsequent pragma.
+
+[pixel shader]
+typedef float2x2 mat_t;
+#pragma pack_matrix(row_major)
+uniform mat_t m;
+
+uniform row_major mat_t r;
+uniform column_major mat_t c;
+
+float4 main() : sv_target
+{
+    return float4(m[0], m[1]);
+}
+
+[test]
+uniform  0 float4 0.1 0.2 0.0 0.0
+uniform  4 float4 0.3 0.4 0.0 0.0
+draw quad
+probe (0, 0) rgba (0.1, 0.2, 0.3, 0.4)
+
+
+% This does not apply recursively to struct or array members, however. Members
+% defined while there is no latent majority are always column-major, even if
+% the type is later used after a pack_matrix(row_major) directive.
+
+% Note that the majority of the struct or array type cannot itself be
+% overwritten with modifiers; those are only valid on matrix types.
+
+[pixel shader]
+struct apple
+{
+    float2x2 m;
+};
+#pragma pack_matrix(row_major)
+typedef struct apple apple_t;
+uniform apple_t a;
+
+float4 main() : sv_target
+{
+    return float4(a.m[0], a.m[1]);
+}
+
+[test]
+uniform  0 float4 0.2 0.4 0.0 0.0
+uniform  4 float4 0.3 0.5 0.0 0.0
+draw quad
+probe (0, 0) rgba (0.2, 0.3, 0.4, 0.5)
+
+
+[pixel shader]
+typedef float2x2 myarray_t[2];
+#pragma pack_matrix(row_major)
+typedef myarray_t myarray2_t;
+uniform myarray2_t a;
+
+float4 main() : sv_target
+{
+    return float4(a[0][0], a[1][1]);
+}
+
+[test]
+uniform  0 float4 0.3 0.0 0.0 0.0
+uniform  4 float4 0.4 0.0 0.0 0.0
+uniform  8 float4 0.0 0.5 0.0 0.0
+uniform 12 float4 0.0 0.6 0.0 0.0
+draw quad
+probe (0, 0) rgba (0.3, 0.4, 0.5, 0.6)
+
+% Compiler options
+[require]
+options: row-major
+
+[pixel shader]
+#pragma pack_matrix(column_major)
+uniform float4x4 m;
+
+float4 main() : sv_target
+{
+    float4 ret;
+    ret.xy = m[0].yz;
+    ret.zw = m[1].yz;
+    return ret;
+}
+
+[test]
+uniform  0 float4 0.1 0.5 0.9 1.3
+uniform  4 float4 0.2 0.6 1.0 1.4
+uniform  8 float4 0.3 0.7 1.1 1.5
+uniform 12 float4 0.4 0.8 1.2 1.6
+draw quad
+probe (0, 0) rgba (0.2, 0.3, 0.6, 0.7) 1
+
+[require]
+options: column-major
+
+[pixel shader]
+uniform float4x4 m;
+
+float4 main() : sv_target
+{
+    float4 ret;
+    ret.xy = m[0].yz;
+    ret.zw = m[1].yz;
+    return ret;
+}
+
+[test]
+uniform  0 float4 0.1 0.5 0.9 1.3
+uniform  4 float4 0.2 0.6 1.0 1.4
+uniform  8 float4 0.3 0.7 1.1 1.5
+uniform 12 float4 0.4 0.8 1.2 1.6
+draw quad
+probe (0, 0) rgba (0.2, 0.3, 0.6, 0.7) 1
+
+[require]
+options: row-major
+
+[pixel shader]
+uniform float4x4 m;
+
+float4 main() : sv_target
+{
+    float4 ret;
+    ret.xy = m[0].yz;
+    ret.zw = m[1].yz;
+    return ret;
+}
+
+[test]
+uniform  0 float4 0.1 0.5 0.9 1.3
+uniform  4 float4 0.2 0.6 1.0 1.4
+uniform  8 float4 0.3 0.7 1.1 1.5
+uniform 12 float4 0.4 0.8 1.2 1.6
+draw quad
+probe (0, 0) rgba (0.5, 0.9, 0.6, 1.0) 1
+
+[require]
+options: column-major
+
+[pixel shader]
+uniform float4x4 m1;
+#pragma pack_matrix(row_major)
+uniform float4x4 m2;
+
+float4 main() : sv_target
+{
+    float4 ret;
+    ret.xy = m1[0].zw;
+    ret.zw = m2[0].zw;
+    return ret;
+}
+
+[test]
+uniform  0 float4 0.1 0.5 0.9 1.3
+uniform  4 float4 0.2 0.6 1.0 1.4
+uniform  8 float4 0.3 0.7 1.1 1.5
+uniform 12 float4 0.4 0.8 1.2 1.6
+uniform 16 float4 1.7 2.1 2.5 2.9
+uniform 20 float4 1.8 2.2 2.6 3.0
+uniform 24 float4 1.9 2.3 2.7 3.1
+uniform 28 float4 2.0 2.4 2.8 3.2
+draw quad
+probe (0, 0) rgba (0.3, 0.4, 2.5, 2.9) 1
+
+[require]
+options: row-major
+
+[pixel shader]
+uniform float4x4 m1;
+#pragma pack_matrix(column_major)
+uniform float4x4 m2;
+
+float4 main() : sv_target
+{
+    float4 ret;
+    ret.xy = m1[3].zw;
+    ret.zw = m2[3].zw;
+    return ret;
+}
+
+[test]
+uniform  0 float4 0.1 0.5 0.9 1.3
+uniform  4 float4 0.2 0.6 1.0 1.4
+uniform  8 float4 0.3 0.7 1.1 1.5
+uniform 12 float4 0.4 0.8 1.2 1.6
+uniform 16 float4 1.7 2.1 2.5 2.9
+uniform 20 float4 1.8 2.2 2.6 3.0
+uniform 24 float4 1.9 2.3 2.7 3.1
+uniform 28 float4 2.0 2.4 2.8 3.2
+draw quad
+probe (0, 0) rgba (1.2, 1.6, 3.1, 3.2) 1
+
+[require]
+options: column-major row-major
+
+[pixel shader]
+uniform float2x2 m;
+
+float4 main() : sv_target
+{
+    float4 ret;
+    ret.xy = m[0];
+    ret.zw = m[1];
+    return ret;
+}
+
+[test]
+uniform  0 float4 0.1 0.2 0.0 0.0
+uniform  4 float4 0.3 0.4 0.0 0.0
+draw quad
+probe (0, 0) rgba (0.1, 0.3, 0.2, 0.4) 1

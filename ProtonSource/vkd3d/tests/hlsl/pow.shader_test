@@ -1,0 +1,38 @@
+[pixel shader]
+uniform float4 u;
+
+float4 main() : sv_target
+{
+    return float4(pow(u.y, 3), pow(u.xy, u.zw), pow(0.5, u.w));
+}
+
+[test]
+uniform 0 float4 0.4 0.8 2.5 2.0
+draw quad
+probe (0, 0) rgba (0.512, 0.101192884, 0.64, 0.25) 4
+
+
+[pixel shader]
+float4 main() : sv_target
+{
+    float2x3 a = {1, 2, 3, 4, 5, 6};
+    float3x2 b = {6, 5, 4, 3, 2, 1};
+
+    float2x2 r = pow(a, b);
+    return float4(r);
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (1.0, 32.0, 256.0, 125.0) 2
+
+
+[pixel shader fail]
+float4 main() : sv_target
+{
+    float2x2 a = {1, 2, 3, 4};
+    float4 b = {1, 2, 3, 4};
+
+    pow(a, b);
+    return 0;
+}

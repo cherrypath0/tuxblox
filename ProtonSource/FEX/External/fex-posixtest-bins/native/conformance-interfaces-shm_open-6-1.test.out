@@ -1,0 +1,2 @@
+Will not test the effect of a name which does not begin with the slash
+character because it is implementation-defined.

@@ -1,0 +1,104 @@
+[require]
+shader model >= 4.0
+
+[pixel shader]
+uniform uint4 nonconst;
+
+float4 main() : SV_TARGET
+{
+    uint a = 35, r = 2;
+
+    uint shifted = a; shifted >>= nonconst.x;
+    a >>= r;
+    return float4(a, shifted, 0, 0);
+}
+
+[test]
+uniform 0 uint4 2 0 0 0
+draw quad
+probe (0, 0) rgba (8, 8, 0, 0)
+
+[pixel shader]
+uniform uint4 nonconst;
+
+float4 main() : SV_TARGET
+{
+    int a = 5, b = -12;
+    uint r = 1;
+
+    int shifted_a = a; shifted_a >>= nonconst.x;
+    int shifted_b = b; shifted_b >>= nonconst.x;
+    a >>= r;
+    b >>= r;
+    return float4(a, b, shifted_a, shifted_b);
+}
+
+[test]
+uniform 0 uint4 1 0 0 0
+draw quad
+probe (0, 0) f32(2, -6, 2, -6)
+
+[pixel shader]
+uniform uint4 nonconst;
+
+float4 main() : SV_TARGET
+{
+    uint a = 35, r = 3;
+
+    uint shifted = a; shifted <<= nonconst.x;
+    a <<= r;
+    return float4(a, shifted, 0, 0);
+}
+
+[test]
+uniform 0 uint4 3 0 0 0
+draw quad
+probe (0, 0) rgba (280, 280, 0, 0)
+
+[pixel shader]
+uniform uint4 nonconst;
+
+float4 main() : SV_TARGET
+{
+    int a = 5, b = -12;
+    uint r = 2;
+
+    int shifted_a = a; shifted_a <<= nonconst.x;
+    int shifted_b = b; shifted_b <<= nonconst.x;
+    a <<= r;
+    b <<= r;
+    return float4(a, b, shifted_a, shifted_b);
+}
+
+[test]
+uniform 0 uint4 2 0 0 0
+draw quad
+probe (0, 0) f32(20, -48, 20, -48)
+
+[pixel shader fail]
+% Make sure that bitshifts DON'T work with floats
+float4 main() : SV_TARGET
+{
+    float x = 5.0, y = 15.0;
+    x <<= y;
+    y <<= x;
+    return float4(x, y, 0, 0);
+}
+
+[pixel shader]
+float4 main() : SV_TARGET
+{
+    int source = 55;
+    int i = -0x4141;
+    uint u = 128;
+
+    int a = source; a &= i;
+    int b = source; b |= u;
+    int c = source; c ^= i;
+
+    return float4(a, b, c, 0);
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (55, 183, -16760, 0)

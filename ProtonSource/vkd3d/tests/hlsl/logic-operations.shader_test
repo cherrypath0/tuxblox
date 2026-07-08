@@ -1,0 +1,203 @@
+[pixel shader]
+float4 main() : SV_TARGET
+{
+    float x = 5.0;
+    float y = 15.0;
+
+    return float4(x == y, x != y, x < y, x <= y);
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (0.0, 1.0, 1.0, 1.0)
+
+[pixel shader]
+float4 main() : SV_TARGET
+{
+    float x = 5.0;
+    float y = 15.0;
+    float zero = 0.0;
+
+    return float4(x > y, x >= y, !x, !zero);
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (0.0, 0.0, 0.0, 1.0)
+
+[pixel shader]
+float4 main() : SV_TARGET
+{
+    float zero = 0.0;
+    float one = 1.0;
+
+    return float4(zero && zero, zero && one, one && zero, one && one);
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (0.0, 0.0, 0.0, 1.0)
+
+[pixel shader]
+float4 main() : SV_TARGET
+{
+    float zero = 0.0;
+    float one = 1.0;
+
+    return float4(zero || zero, zero || one, one || zero, one || one);
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (0.0, 1.0, 1.0, 1.0)
+
+[pixel shader]
+float4 main() : SV_TARGET
+{
+    int x = 5;
+    int y = 15;
+
+    return float4(x == y, x != y, x < y, x <= y);
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (0.0, 1.0, 1.0, 1.0)
+
+[pixel shader]
+float4 main() : SV_TARGET
+{
+    int x = 5;
+    int y = 15;
+    int zero = 0;
+
+    return float4(x > y, x >= y, !x, !zero);
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (0.0, 0.0, 0.0, 1.0)
+
+[pixel shader]
+float4 main() : SV_TARGET
+{
+    int zero = 0;
+    int one = 1;
+
+    return float4(zero && zero, zero && one, one && zero, one && one);
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (0.0, 0.0, 0.0, 1.0)
+
+[pixel shader]
+float4 main() : SV_TARGET
+{
+    int zero = 0;
+    int one = 1;
+
+    return float4(zero || zero, zero || one, one || zero, one || one);
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (0.0, 1.0, 1.0, 1.0)
+
+[pixel shader]
+float4 main() : SV_TARGET
+{
+    uint x = 5;
+    uint y = 15;
+
+    return float4(x == y, x != y, x < y, x <= y);
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (0.0, 1.0, 1.0, 1.0)
+
+[pixel shader]
+float4 main() : SV_TARGET
+{
+    uint x = 5;
+    uint y = 15;
+    uint zero = 0;
+
+    return float4(x > y, x >= y, !x, !zero);
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (0.0, 0.0, 0.0, 1.0)
+
+[pixel shader]
+float4 main() : SV_TARGET
+{
+    uint zero = 0;
+    uint one = 1;
+
+    return float4(zero && zero, zero && one, one && zero, one && one);
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (0.0, 0.0, 0.0, 1.0)
+
+[pixel shader]
+float4 main() : SV_TARGET
+{
+    uint zero = 0;
+    uint one = 1;
+
+    return float4(zero || zero, zero || one, one || zero, one || one);
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (0.0, 1.0, 1.0, 1.0)
+
+
+[pixel shader]
+int a, b;
+
+float4 main() : SV_TARGET
+{
+    return float4(!(a && b), !!(a || b), !!!a, !(a < b));
+}
+
+[test]
+if(sm<4)  uniform 0 float 5
+if(sm<4)  uniform 4 float 0
+if(sm>=4) uniform 0 int 5
+if(sm>=4) uniform 1 int 0
+draw quad
+probe (0, 0) rgba (1.0, 1.0, 0.0, 1.0)
+if(sm<4)  uniform 0 float -1
+if(sm<4)  uniform 4 float 3
+if(sm>=4) uniform 0 int -1
+if(sm>=4) uniform 1 int 3
+draw quad
+probe (0, 0) rgba (0.0, 1.0, 0.0, 0.0)
+
+[pixel shader]
+int a, b;
+
+float4 main() : SV_TARGET
+{
+    return float4(!(a == b), !(a != b), !(a < b), !(a >= b));
+}
+
+[test]
+if(sm<4)  uniform 0 float 0
+if(sm<4)  uniform 4 float 5
+if(sm>=4) uniform 0 int 0
+if(sm>=4) uniform 1 int 5
+draw quad
+probe (0, 0) f32(1.0, 0.0, 0.0, 1.0)
+if(sm<4)  uniform 0 float -1
+if(sm<4)  uniform 4 float -1
+if(sm>=4) uniform 0 int -1
+if(sm>=4) uniform 1 int -1
+draw quad
+probe (0, 0) f32(0.0, 1.0, 1.0, 0.0)

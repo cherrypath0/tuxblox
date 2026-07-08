@@ -1,0 +1,144 @@
+[header]
+test-shader-models (2.0 3.0)
+
+[pixel shader]
+uniform float4 x;
+
+float4 main() : sv_target
+{
+    if (x.x == 9.0f)
+        discard;
+    return x;
+}
+
+[test]
+uniform 0 float4 1 2 3 4
+todo(glsl | msl & sm>=6) draw quad
+probe (0, 0) f32(1, 2, 3, 4)
+uniform 0 float4 9 8 7 6
+todo(glsl | msl & sm>=6) draw quad
+probe (0, 0) f32(1, 2, 3, 4)
+
+[pixel shader]
+uniform float4 x;
+
+float4 main() : sv_target
+{
+    [flatten]
+    if (x.x == 9.0f)
+        discard;
+    return x;
+}
+
+[test]
+uniform 0 float4 1 2 3 4
+todo(glsl | msl & sm>=6) draw quad
+probe (0, 0) f32(1, 2, 3, 4)
+uniform 0 float4 9 8 7 6
+todo(glsl | msl & sm>=6) draw quad
+probe (0, 0) f32(1, 2, 3, 4)
+
+[pixel shader]
+uniform float4 x;
+
+float4 main() : sv_target
+{
+    float4 ret = x;
+    if (x.x != 9.0f)
+        ret.w = 4.0f;
+    else
+        discard;
+    return ret;
+}
+
+[test]
+uniform 0 float4 1 2 3 4
+todo(glsl | msl & sm>=6) draw quad
+probe (0, 0) f32(1, 2, 3, 4)
+uniform 0 float4 9 8 7 6
+todo(glsl | msl & sm>=6) draw quad
+probe (0, 0) f32(1, 2, 3, 4)
+
+[pixel shader]
+uniform float4 x;
+
+float4 main() : sv_target
+{
+    float4 ret = x;
+    [flatten]
+    if (x.x != 9.0f)
+        ret.w = 4.0f;
+    else
+        discard;
+    return ret;
+}
+
+[test]
+uniform 0 float4 1 2 3 4
+todo(glsl | msl & sm>=6) draw quad
+probe (0, 0) f32(1, 2, 3, 4)
+uniform 0 float4 9 8 7 6
+todo(glsl | msl & sm>=6) draw quad
+probe (0, 0) f32(1, 2, 3, 4)
+
+[require]
+shader model >= 3.0
+
+% Check that derivatives are still computed after discarding
+% other pixels in the same quad
+[pixel shader]
+float4 main(float4 pos : sv_position) : sv_target
+{
+    if (frac((floor(pos.x) + floor(pos.y)) / 2) == 0.5)
+        discard;
+    return float4(ddx(pos.x), ddx(pos.y), ddy(pos.x), ddy(pos.y));
+}
+
+[test]
+todo(glsl | msl & sm>=6) draw quad
+probe (0, 0) f32(1, 0, 0, 1)
+probe (1, 0) f32(1, 2, 3, 4)
+probe (0, 1) f32(1, 2, 3, 4)
+probe (1, 1) f32(1, 0, 0, 1)
+probe (2, 0) f32(1, 0, 0, 1)
+probe (3, 0) f32(1, 2, 3, 4)
+probe (2, 1) f32(1, 2, 3, 4)
+probe (3, 1) f32(1, 0, 0, 1)
+
+[require]
+shader model >= 5.0
+format r32-float uav-load
+
+[uav 1]
+format r32-float
+size (2d, 2, 1)
+
+0.0 0.0
+
+% Check that side effects stop happening after discard
+[pixel shader]
+uniform float4 x;
+RWTexture2D<float> y : register(u1);
+
+float4 main(float4 pos : sv_position) : sv_target
+{
+    if (pos.x == 0.5 && pos.y == 0.5)
+        y[uint2(0, 0)] += 1;
+    if (x.x == 9.0f)
+        discard;
+    if (pos.x == 0.5 && pos.y == 0.5)
+        y[uint2(1, 0)] += 1;
+    return x;
+}
+
+[test]
+uniform 0 float4 1 2 3 4
+todo(glsl | msl) draw quad
+probe (0, 0) f32(1, 2, 3, 4)
+probe uav-1 (0, 0) f32(1.0)
+probe uav-1 (1, 0) f32(1.0)
+uniform 0 float4 9 8 7 6
+todo(glsl | msl) draw quad
+probe (0, 0) f32(1, 2, 3, 4)
+probe uav-1 (0, 0) f32(2.0)
+probe uav-1 (1, 0) f32(1.0)

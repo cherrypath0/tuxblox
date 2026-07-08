@@ -1,0 +1,57 @@
+[require]
+shader model >= 5.0
+shader model < 6.0
+
+[effect]
+DepthStencilState ds;
+RasterizerState rs;
+HullShader hs;
+ComputeShader cs;
+DomainShader doms;
+RenderTargetView rtv1;
+DepthStencilView dsv;
+BlendState bs;
+VertexShader vs;
+PixelShader ps;
+
+technique11
+{
+    pass
+    {
+        SetDepthStencilState(ds, 123);
+        SetRasterizerState(rs);
+        SetHullShader(hs);
+        SetComputeShader(cs);
+        SetDomainShader(doms);
+        OMSetRenderTargets(rtv1, dsv);
+        SetBlendState(bs, float4(1, 2, 3, 4), 0xf);
+        SetVertexShader(vs);
+        SetPixelShader(ps);
+    }
+    pass
+    {
+        SetDepthStencilState(NULL, 4);
+        SetRasterizerState(NULL);
+        SetHullShader(NULL);
+        SetComputeShader(NULL);
+        SetDomainShader(NULL);
+        OMSetRenderTargets(NULL, NULL);
+        SetBlendState(NULL, float4(5, 6, 7, 8), 0xf0);
+        SetVertexShader(NULL);
+        SetPixelShader(NULL);
+        SetGeometryShader(NULL);
+    }
+    pass
+    {
+        SetDepthStencilState(1-1, 4);
+        SetRasterizerState(1-1);
+        SetHullShader(1-1);
+        SetComputeShader(1-1);
+        SetDomainShader(1-1);
+        OMSetRenderTargets(1-1, 1-1);
+        SetBlendState(1-1, float4(5, 6, 7, 8), 0xf0);
+        SetVertexShader(1-1);
+        SetPixelShader(1-1);
+        SetGeometryShader(0u);
+    }
+}

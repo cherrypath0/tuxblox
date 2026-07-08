@@ -1,0 +1,594 @@
+[require]
+% SM < 5.0 requires that groupshared variables are arrays of N elements,
+% where N is the number of threads in a group, and they are only ever indexed
+% by SV_GroupIndex when storing (though violating this last condition gives
+% E_NOTIMPL rather than E_FAIL).
+shader model >= 4.0
+shader model < 5.0
+
+[compute shader fail todo]
+RWByteAddressBuffer u : register(u0);
+groupshared uint m;
+
+    [numthreads(4, 1, 1)]
+void main(uint local_idx : SV_GroupIndex)
+{
+    if (local_idx == 0)
+        m = 0;
+    GroupMemoryBarrierWithGroupSync();
+    u.Store(4 * local_idx, m);
+}
+
+[compute shader fail todo]
+RWByteAddressBuffer u : register(u0);
+groupshared uint m[1];
+
+    [numthreads(4, 1, 1)]
+void main(uint local_idx : SV_GroupIndex)
+{
+    if (local_idx == 0)
+        m[0] = 0;
+    GroupMemoryBarrierWithGroupSync();
+    u.Store(4 * local_idx, m[0]);
+}
+
+[compute shader notimpl todo]
+RWByteAddressBuffer u : register(u0);
+groupshared uint m[4];
+
+    [numthreads(4, 1, 1)]
+void main(uint local_idx : SV_GroupIndex)
+{
+    if (local_idx == 0)
+        m[0] = 0;
+    GroupMemoryBarrierWithGroupSync();
+    u.Store(4 * local_idx, m[0]);
+}
+
+[require]
+shader model >= 4.0
+
+% The type of a groupshared variable must not contain objects.
+[compute shader fail(sm<6)]
+struct data
+{
+    Texture2D tex;
+    uint u;
+};
+
+groupshared data m[4];
+
+    [numthreads(4, 1, 1)]
+void main(uint local_idx : SV_GroupIndex)
+{
+}
+
+% The 'groupshared' and 'uniform' attributes cannot be used together.
+[compute shader fail(sm<6)]
+uniform groupshared uint m[4];
+
+    [numthreads(4, 1, 1)]
+void main(uint local_idx : SV_GroupIndex)
+{
+}
+
+% The 'groupshared' attribute is ignored in non-compute shaders,
+% and the declared variable is considered static.
+
+[pixel shader fail todo]
+groupshared uint m;
+
+float4 main(float4 pos : SV_Position) : SV_Target
+{
+    // m is uninitialized here.
+    return m * pos;
+}
+
+[pixel shader]
+groupshared uint m;
+
+float4 main(float4 pos : SV_Position) : SV_Target
+{
+    m = 2;
+    return m * pos;
+}
+
+% Even though the 'groupshared' attribute is ignored in non-compute shaders,
+% native still checks whether the type of the variable contains objects or not.
+[pixel shader fail(sm<6) todo(sm>=5.1 & sm<6)]
+groupshared Texture2D m[4];
+
+float4 main() : SV_Target
+{
+    return 0;
+}
+
+[uav 0]
+format r32-typeless
+size (raw_buffer, 4)
+
+0 0 0 0
+
+[compute shader]
+RWByteAddressBuffer u : register(u0);
+groupshared uint m[4];
+
+    [numthreads(4, 1, 1)]
+void main(uint local_idx : SV_GroupIndex)
+{
+    m[local_idx] = 0xcafef00d;
+    GroupMemoryBarrierWithGroupSync();
+    u.Store(4 * local_idx, m[0]);
+}
+
+[test]
+todo(glsl | msl) dispatch 1 1 1
+probe uav-0 (0) u32(0xcafef00d)
+probe uav-0 (1) u32(0xcafef00d)
+probe uav-0 (2) u32(0xcafef00d)
+probe uav-0 (3) u32(0xcafef00d)
+
+[compute shader]
+RWByteAddressBuffer u : register(u0);
+groupshared uint m[4][2];
+
+    [numthreads(4, 1, 1)]
+void main(uint local_idx : SV_GroupIndex)
+{
+    m[local_idx][0] = 0xcafef00d;
+    m[local_idx][1] = 0xdeadbeef;
+    GroupMemoryBarrierWithGroupSync();
+
+    uint m_copy[4][2] = m;
+    u.Store(4 * local_idx, m_copy[local_idx][0]);
+}
+
+[test]
+todo(glsl | msl) dispatch 1 1 1
+probe uav-0 (0) u32(0xcafef00d)
+probe uav-0 (1) u32(0xcafef00d)
+probe uav-0 (2) u32(0xcafef00d)
+probe uav-0 (3) u32(0xcafef00d)
+
+[require]
+shader model >= 5.0
+
+[uav 1]
+format r32-typeless
+size (raw_buffer, 4)
+
+1 0 0 0
+
+[compute shader]
+RWByteAddressBuffer u : register(u1);
+groupshared uint m;
+
+    [numthreads(32, 1, 1)]
+void main(uint local_idx : SV_GroupIndex, uint group_id : SV_GroupID)
+{
+    if (!local_idx)
+        m = group_id.x;
+    GroupMemoryBarrierWithGroupSync();
+    InterlockedAdd(m, group_id.x);
+    GroupMemoryBarrierWithGroupSync();
+    if (!local_idx)
+        u.Store(4 * group_id.x, m);
+}
+
+[test]
+todo(glsl | msl) dispatch 4 1 1
+probe uav-1 (0) u32(0)
+probe uav-1 (1) u32(33)
+probe uav-1 (2) u32(66)
+probe uav-1 (3) u32(99)
+
+
+[uav 1]
+format r32-typeless
+size (raw_buffer, 4)
+
+1 0 0 0
+
+[compute shader]
+RWByteAddressBuffer u : register(u1);
+groupshared int m;
+
+    [numthreads(32, 1, 1)]
+void main(uint local_idx : SV_GroupIndex, uint group_id : SV_GroupID)
+{
+    if (!local_idx)
+        m = group_id.x;
+    GroupMemoryBarrierWithGroupSync();
+    InterlockedAdd(m, -group_id.x);
+    GroupMemoryBarrierWithGroupSync();
+    if (!local_idx)
+        u.Store(4 * group_id.x, m);
+}
+
+[test]
+todo(glsl | msl) dispatch 4 1 1
+probe uav-1 (0) i32(0)
+probe uav-1 (1) i32(-31)
+probe uav-1 (2) i32(-62)
+probe uav-1 (3) i32(-93)
+
+[uav 1]
+format r32-typeless
+size (raw_buffer, 8)
+
+1 0 0 0 2 0 0 0
+
+[compute shader]
+RWByteAddressBuffer u : register(u1);
+groupshared uint4 m;
+
+    [numthreads(32, 1, 1)]
+void main(uint local_idx : SV_GroupIndex, uint group_id : SV_GroupID)
+{
+    if (!local_idx)
+        m = group_id.x;
+    GroupMemoryBarrierWithGroupSync();
+    InterlockedAdd(m[local_idx % 4], group_id.x + local_idx);
+    InterlockedAdd(m.z, local_idx * 10);
+    GroupMemoryBarrierWithGroupSync();
+    if (!local_idx)
+        u.Store4(16 * group_id.x, m);
+}
+
+[test]
+todo(glsl | msl) dispatch 2 1 1
+probe uav-1 (0) u32(112)
+probe uav-1 (1) u32(120)
+probe uav-1 (2) u32(5088)
+probe uav-1 (3) u32(136)
+probe uav-1 (4) u32(121)
+probe uav-1 (5) u32(129)
+probe uav-1 (6) u32(5097)
+probe uav-1 (7) u32(145)
+
+[uav 1]
+format r32-typeless
+size (raw_buffer, 8)
+
+1 0 2 0 3 0 4 0
+
+[compute shader]
+RWByteAddressBuffer u : register(u1);
+groupshared uint4x4 m;
+
+    [numthreads(32, 1, 1)]
+void main(uint local_idx : SV_GroupIndex, uint group_id : SV_GroupID)
+{
+    if (!local_idx)
+    {
+        m = group_id.x;
+    }
+    GroupMemoryBarrierWithGroupSync();
+    InterlockedAdd(m[local_idx / 4][local_idx % 4], group_id.x + local_idx);
+    InterlockedAdd(m._m00, local_idx * 10);
+    InterlockedAdd(m[1].y, local_idx * 100);
+    GroupMemoryBarrierWithGroupSync();
+    if (!local_idx)
+    {
+        u.Store(8 * group_id.x, m[0][0]);
+        u.Store(8 * group_id.x + 4, m[1][1]);
+    }
+}
+
+[test]
+if(!llvmpipe | mesa>=25.1) todo(glsl | msl) dispatch 4 1 1
+if(!llvmpipe | mesa>=25.1) probe uav-1 (0) u32(4960)
+if(!llvmpipe | mesa>=25.1) probe uav-1 (1) u32(49625)
+if(!llvmpipe | mesa>=25.1) probe uav-1 (2) u32(4962)
+if(!llvmpipe | mesa>=25.1) probe uav-1 (3) u32(49628)
+if(!llvmpipe | mesa>=25.1) probe uav-1 (4) u32(4964)
+if(!llvmpipe | mesa>=25.1) probe uav-1 (5) u32(49631)
+if(!llvmpipe | mesa>=25.1) probe uav-1 (6) u32(4966)
+if(!llvmpipe | mesa>=25.1) probe uav-1 (7) u32(49634)
+
+[uav 1]
+format r32-float
+size (buffer, 8)
+
+1 1 1 1 0 0 0 0
+
+[uav 2]
+format r32-sint
+size (buffer, 8)
+
+1 1 1 1 0 0 0 0
+
+[compute shader]
+uniform uint idx;
+
+#define GROUP_SIZE 4
+
+struct data
+{
+    float f;
+    uint u;
+};
+
+RWBuffer<float> u : register(u1);
+RWBuffer<uint> u2 : register(u2);
+groupshared data m[GROUP_SIZE];
+
+    [numthreads(GROUP_SIZE, 1, 1)]
+void main(uint local_idx : SV_GroupIndex, uint group_id : SV_GroupID,
+        uint thread_id : SV_DispatchThreadID)
+{
+    uint i;
+    if (!local_idx)
+    {
+        for (i = 0; i < GROUP_SIZE; ++i)
+        {
+            m[i].f = group_id.x;
+            m[i].u = group_id.x;
+        }
+    }
+    GroupMemoryBarrierWithGroupSync();
+    InterlockedAdd(m[0].u, 2);
+    InterlockedAdd(m[idx].u, 1);
+    GroupMemoryBarrierWithGroupSync();
+    for (i = 0; i < local_idx; ++i)
+    {
+        m[local_idx].f += group_id.x;
+        m[local_idx].u += group_id.x;
+    }
+    u[thread_id.x] = m[local_idx].f;
+    u2[thread_id.x] = m[local_idx].u;
+}
+
+[test]
+uniform 0 uint 1
+todo(glsl | msl | vulkan & mvk<1.4.0) dispatch 2 1 1
+probe uav-1 (0) f32(0.0)
+probe uav-1 (1) f32(0.0)
+probe uav-1 (2) f32(0.0)
+probe uav-1 (3) f32(0.0)
+probe uav-1 (4) f32(1.0)
+probe uav-1 (5) f32(2.0)
+probe uav-1 (6) f32(3.0)
+probe uav-1 (7) f32(4.0)
+probe uav-2 (0) i32(8)
+probe uav-2 (1) i32(4)
+probe uav-2 (2) i32(0)
+probe uav-2 (3) i32(0)
+probe uav-2 (4) i32(9)
+probe uav-2 (5) i32(6)
+probe uav-2 (6) i32(3)
+probe uav-2 (7) i32(4)
+
+[uav 1]
+format r32-float
+size (buffer, 8)
+
+1 1 1 1 0 0 0 0
+
+[uav 2]
+format r32-sint
+size (buffer, 8)
+
+1 1 1 1 0 0 0 0
+
+[compute shader]
+uniform uint idx;
+
+#define GROUP_SIZE 4
+
+struct data
+{
+    float f;
+    uint u;
+};
+
+RWBuffer<float> u : register(u1);
+RWBuffer<uint> u2 : register(u2);
+groupshared data m[GROUP_SIZE][2];
+
+    [numthreads(GROUP_SIZE, 1, 1)]
+void main(uint local_idx : SV_GroupIndex, uint group_id : SV_GroupID,
+        uint thread_id : SV_DispatchThreadID)
+{
+    uint val = local_idx * 10 + group_id;
+    m[local_idx][group_id].f = val;
+    m[local_idx][group_id].u = val;
+    GroupMemoryBarrierWithGroupSync();
+    InterlockedAdd(m[0][group_id].u, 2 * group_id);
+    InterlockedAdd(m[idx][group_id].u, group_id);
+    GroupMemoryBarrierWithGroupSync();
+
+    data m_copy[GROUP_SIZE][2] = m;
+    u[thread_id] = m_copy[local_idx][group_id].f;
+    u2[thread_id] = m_copy[local_idx][group_id].u;
+}
+
+[test]
+uniform 0 uint 1
+todo(glsl | msl | vulkan & mvk<1.4.0) dispatch 2 1 1
+probe uav-1 (0) f32(0.0)
+probe uav-1 (1) f32(10.0)
+probe uav-1 (2) f32(20.0)
+probe uav-1 (3) f32(30.0)
+probe uav-1 (4) f32(1.0)
+probe uav-1 (5) f32(11.0)
+probe uav-1 (6) f32(21.0)
+probe uav-1 (7) f32(31.0)
+probe uav-2 (0) i32(0)
+probe uav-2 (1) i32(10)
+probe uav-2 (2) i32(20)
+probe uav-2 (3) i32(30)
+probe uav-2 (4) i32(9)
+probe uav-2 (5) i32(15)
+probe uav-2 (6) i32(21)
+probe uav-2 (7) i32(31)
+
+[uav 1]
+format r32-typeless
+size (raw_buffer, 1)
+
+0
+
+[compute shader]
+RWByteAddressBuffer u : register(u1);
+groupshared uint m;
+
+    [numthreads(32, 1, 1)]
+void main(uint local_idx : SV_GroupIndex)
+{
+    uint orig;
+    if (!local_idx)
+        m = 7;
+    GroupMemoryBarrierWithGroupSync();
+    InterlockedCompareExchange(m, local_idx, local_idx + 32, orig);
+    GroupMemoryBarrierWithGroupSync();
+    if (!local_idx)
+        u.Store(0, m);
+}
+
+[test]
+todo(glsl | msl) dispatch 1 1 1
+probe uav-1 (0) u32(39)
+
+[uav 0]
+format r32-typeless
+size (raw_buffer, 8)
+
+0xf000f 0xf000f 0xf000f 0xf000f
+0xf000f 0xf000f 0xf000f 0xf000f
+
+[compute shader]
+RWByteAddressBuffer u : register(u0);
+groupshared min16uint m[4];
+
+    [numthreads(4, 1, 1)]
+void main(uint local_idx : SV_GroupIndex, uint group_id : SV_GroupID)
+{
+    min16uint id = (min16uint)group_id.x;
+    /* 16-bit atomic ops are not supported. */
+    m[local_idx] = id + 8 * (local_idx + 1);
+    GroupMemoryBarrierWithGroupSync();
+    m[local_idx] += m[local_idx ^ 1];
+    GroupMemoryBarrierWithGroupSync();
+    /* Depending on the driver and D3D version, two or four bytes are written
+     * when using a minimum precision type, so we explicitly cast. */
+    u.Store(16 * group_id.x + 4 * local_idx, (uint)m[local_idx]);
+}
+
+[test]
+todo(glsl | msl) dispatch 2 1 1
+probe uav-0 (0) u32(0x18)
+probe uav-0 (1) u32(0x18)
+probe uav-0 (2) u32(0x38)
+probe uav-0 (3) u32(0x38)
+probe uav-0 (4) u32(0x1a)
+probe uav-0 (5) u32(0x1a)
+probe uav-0 (6) u32(0x3a)
+probe uav-0 (7) u32(0x3a)
+
+[uav 0]
+format r32-typeless
+size (raw_buffer, 8)
+
+0xf000f 0xf000f 0xf000f 0xf000f
+0xf000f 0xf000f 0xf000f 0xf000f
+
+[compute shader]
+RWByteAddressBuffer u : register(u0);
+groupshared uint4x2 m;
+
+    [numthreads(4, 1, 1)]
+void main(uint local_idx : SV_GroupIndex, uint group_id : SV_GroupID)
+{
+    m[local_idx][group_id] = group_id + 8 * (local_idx + 1);
+    GroupMemoryBarrierWithGroupSync();
+    m[local_idx] += m[local_idx ^ 1];
+    GroupMemoryBarrierWithGroupSync();
+    u.Store(16 * group_id + 4 * local_idx, m[local_idx][group_id]);
+}
+
+[test]
+todo(glsl | msl) dispatch 2 1 1
+probe uav-0 (0) u32(0x18)
+probe uav-0 (1) u32(0x18)
+probe uav-0 (2) u32(0x38)
+probe uav-0 (3) u32(0x38)
+probe uav-0 (4) u32(0x1a)
+probe uav-0 (5) u32(0x1a)
+probe uav-0 (6) u32(0x3a)
+probe uav-0 (7) u32(0x3a)
+
+[uav 0]
+format r32-typeless
+size (raw_buffer, 8)
+
+0xf000f 0xf000f 0xf000f 0xf000f
+0xf000f 0xf000f 0xf000f 0xf000f
+
+[compute shader]
+RWByteAddressBuffer u : register(u0);
+groupshared min16uint m;
+
+    [numthreads(4, 1, 1)]
+void main(uint local_idx : SV_GroupIndex, uint group_id : SV_GroupID)
+{
+    if (local_idx == 0)
+        m = local_idx + 1;
+    GroupMemoryBarrierWithGroupSync();
+    if (local_idx == 1)
+        m += (local_idx + 1) << (4 * local_idx);
+    GroupMemoryBarrierWithGroupSync();
+    if (local_idx == 2)
+        m += (local_idx + 1) << (4 * local_idx);
+    GroupMemoryBarrierWithGroupSync();
+    if (local_idx == 3)
+        m += (local_idx + 1) << (4 * local_idx);
+    GroupMemoryBarrierWithGroupSync();
+    uint m_local = m;
+    m_local += (group_id + 1) << 16;
+    u.Store(16 * group_id + 4 * local_idx, m_local);
+}
+
+[test]
+todo(glsl | msl) dispatch 2 1 1
+probe uav-0 (0) u32(0x14321)
+probe uav-0 (1) u32(0x14321)
+probe uav-0 (2) u32(0x14321)
+probe uav-0 (3) u32(0x14321)
+probe uav-0 (4) u32(0x24321)
+probe uav-0 (5) u32(0x24321)
+probe uav-0 (6) u32(0x24321)
+probe uav-0 (7) u32(0x24321)
+
+[require]
+shader model >= 6.2
+native-16-bit
+
+[uav 1]
+format r32-typeless
+size (raw_buffer, 4)
+
+0xf000f 0xf000f 0xf000f 0xf000f
+
+[compute shader]
+RWByteAddressBuffer u : register(u1);
+groupshared uint16_t m[4];
+
+    [numthreads(4, 1, 1)]
+void main(uint local_idx : SV_GroupIndex, uint group_id : SV_GroupID)
+{
+    uint16_t id = (uint16_t)group_id.x;
+    /* 16-bit atomic ops are not supported. */
+    m[local_idx] = id + 8 * (local_idx + 1);
+    GroupMemoryBarrierWithGroupSync();
+    m[local_idx] += m[local_idx ^ 1];
+    GroupMemoryBarrierWithGroupSync();
+    u.Store(8 * group_id.x + 2 * local_idx, m[local_idx]);
+}
+
+[test]
+dispatch 2 1 1
+probe uav-1 (0) u32(0x180018)
+probe uav-1 (1) u32(0x380038)
+probe uav-1 (2) u32(0x1a001a)
+probe uav-1 (3) u32(0x3a003a)

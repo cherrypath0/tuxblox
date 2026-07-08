@@ -1,0 +1,24 @@
+{
+  "jsonid": "input_profile",
+  "controller_type": "mytracker",
+  "input_bindingui_mode": "single_device",
+  "tracker_types": {
+    "TrackerRole_Waist": "{simpletrackers}/input/tracker/mytracker_waist_profile.json",
+    "TrackerRole_Chest": "{simpletrackers}/input/tracker/mytracker_chest_profile.json"
+  },
+  "input_source": {
+    "/input/trigger" : {
+        "type" : "trigger",
+		"click" : true,
+		"value" : true,
+		"order" :  2,
+        "binding_image_point" : [ 127, 62 ]
+    },
+    "/input/grip" : {
+        "type" : "button",
+		"order" :  3,
+        "binding_image_point" : [ 210, 100 ]
+    }
+  },
+  "default_bindings": []
+}

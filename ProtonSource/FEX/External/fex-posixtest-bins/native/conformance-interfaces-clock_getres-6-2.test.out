@@ -1,0 +1,9 @@
+clock_getres(-2147483648, &res);
+clock_getres(2147483647, &res);
+clock_getres(2147483647, &res);
+clock_getres(-2147483647, &res);
+clock_getres(-1073743192, &res);
+clock_getres(1073743192, &res);
+clock_getres(-1, &res);
+clock_getres(17, &res);
+All tests PASSED

@@ -1,0 +1,64 @@
+[pixel shader]
+    struct apple
+    {
+        float4 f;
+    } a;
+    struct apple b;
+    apple c;
+    struct
+    {
+        float4 f;
+    } d;
+
+    float4 main() : sv_target
+    {
+        return a.f + b.f + c.f + d.f;
+    }
+
+[pixel shader fail]
+    float4 main() : sv_target
+    {
+        struct {} x = {};
+        return x;
+    }
+
+[pixel shader fail]
+    struct
+    {
+        float4 a;
+    };
+
+    float4 main() : sv_target
+    {
+        return 0;
+    }
+
+[pixel shader fail]
+    struct apple
+    {
+        float4 f;
+    };
+    typedef struct apple myapple;
+    struct myapple a;
+
+    float4 main() : sv_target
+    {
+        return 0;
+    }
+
+[pixel shader fail]
+    struct float4 a;
+
+    float4 main() : sv_target
+    {
+        return 0;
+    }
+
+[pixel shader fail]
+    typedef float myfloat;
+    struct myfloat a;
+
+    float4 main() : sv_target
+    {
+        return 0;
+    }

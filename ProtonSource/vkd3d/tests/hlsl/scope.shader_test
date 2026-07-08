@@ -1,0 +1,229 @@
+[pixel shader fail]
+    float4 main() : sv_target
+    {
+        float4 x, x;
+
+        return 0;
+    }
+
+[pixel shader fail]
+    float4 main() : sv_target
+    {
+        float4 x;
+        float4 x;
+
+        return 0;
+    }
+
+[pixel shader fail]
+    float4 x;
+    float4 x;
+
+    float4 main() : sv_target
+    {
+        return 0;
+    }
+
+[pixel shader]
+    float4 x;
+
+    float4 main() : sv_target
+    {
+        float4 x;
+
+        return 0;
+    }
+
+[pixel shader]
+    float4 x;
+
+    float4 main(float4 x : TEXCOORD) : sv_target
+    {
+        return x;
+    }
+
+[pixel shader fail]
+    float4 main(float4 x : TEXCOORD) : sv_target
+    {
+        float4 x;
+        return 0;
+    }
+
+[pixel shader fail]
+    float4 main(float4 x : TEXCOORD, float4 x : TEXCOORD) : sv_target
+    {
+        return 0;
+    }
+
+[pixel shader]
+    float4 main() : sv_target
+    {
+        float4 x = 1;
+        {
+            return x;
+        }
+    }
+
+[pixel shader]
+    float4 main(float4 x : TEXCOORD) : sv_target
+    {
+        {
+            float4 x = 1;
+            return x;
+        }
+    }
+
+[pixel shader fail]
+    float4 main() : sv_target
+    {
+        {
+            float4 x = 1;
+        }
+        return x;
+    }
+
+[pixel shader]
+    float4 main() : sv_target
+    {
+        float4 x = 1;
+        if (1)
+        {
+            return x;
+        }
+    }
+
+[pixel shader]
+    float4 main(float4 x : TEXCOORD) : sv_target
+    {
+        if (1)
+        {
+            float4 x = 1;
+            return x;
+        }
+    }
+
+[pixel shader fail]
+    float4 main() : sv_target
+    {
+        if (1)
+        {
+            float4 x = 1;
+        }
+        return x;
+    }
+
+[pixel shader fail]
+    {
+        float4 x = 1;
+    }
+    float4 main() : sv_target
+    {
+        return 0;
+    }
+
+[pixel shader fail]
+    float4 main() : sv_target
+    {
+        return x;
+        float4 x = 1;
+    }
+
+[pixel shader fail]
+    float4 main() : sv_target
+    {
+        return x;
+    }
+    float4 x;
+
+[pixel shader fail(sm>=6)]
+float4 main() : sv_target
+{
+    float4 sum = 0;
+
+    for (int i = 0; i < 8; i += 2)
+        sum += 10 * i;
+    return sum + i; // use of 'i' outside loop.
+}
+
+[test]
+draw quad
+probe (0, 0) f32(128, 128, 128, 128)
+
+% This results in an internal error in fxc/d3dcompiler for sm>=3, but
+% compiles properly on ps_2_0.
+[pixel shader fail(sm>=3) todo(sm<3)]
+float4 main() : sv_target
+{
+    float4 sum = 0;
+
+    for (int i = 0; i < 10; i++)
+        for (int j = 0; j < 10; j++)
+            sum += 1;
+    return sum + j;
+}
+
+% This also results in an internal error, for sm>=4.
+[pixel shader fail(sm>=4) todo]
+float4 main() : sv_target
+{
+    int u = 1;
+    switch(u)
+    {
+        case 0:
+            int p = 10;
+            break;
+        case 1:
+            p = 20;
+            break;
+    }
+    return 0;
+}
+
+% Redeclaring a variable works when done by a for loop initializer.
+[pixel shader]
+float4 main() : sv_target
+{
+    float4 sum = 0;
+    int i = 99;
+
+    for (int i = 0; i < 8; i += 2)
+        sum.x += i;
+    for (int i = 10; i < 13; ++i)
+        sum.y += i;
+    return float4(sum.x, sum.y, i, 0);
+}
+
+[test]
+draw quad
+if(sm<6) probe (0, 0) f32(12, 33, 13, 0)
+if(sm>=6) probe (0, 0) f32(12, 33, 99, 0)
+
+[pixel shader fail(sm<6)]
+float4 main() : sv_target
+{
+    float4 sum = 0;
+
+    for (int i = 0; i < 8; i += 2)
+        sum += 10 * i;
+    int i = 10;
+    return sum + i;
+}
+
+[pixel shader]
+float4 main() : sv_target
+{
+   float4 sum = 0;
+   {
+      for (int i = 0; i < 10; ++i)
+         sum.x += i;
+   }
+
+   int i = 30;
+   sum.y = i;
+
+   return sum;
+}
+
+[test]
+draw quad
+probe (0, 0) f32(45, 30, 0, 0)

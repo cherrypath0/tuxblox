@@ -1,0 +1,2 @@
+pa is a multiple of page_size
+Test Pass: mmap/9-1.c Set MAP_FIXED and get EINVAL when 'addr' is illegal

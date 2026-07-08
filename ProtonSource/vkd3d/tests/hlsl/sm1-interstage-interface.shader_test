@@ -1,0 +1,61 @@
+[require]
+shader model < 4.0
+
+[input layout]
+0 r32g32-float POSITION
+0 r32g32-float TEXCOORD 0
+0 r32-float COLOR 1
+0 r32-float COLOR 0
+1 r32-float TEXCOORD 2
+1 r32-float TEXCOORD 3
+
+[vb 0]
+-1.0 -1.0   3.0 5.0   0.5   0.7
+-1.0  1.0   3.0 5.0   0.5   0.7
+ 1.0 -1.0   3.0 5.0   0.5   0.7
+ 1.0  1.0   3.0 5.0   0.5   0.7
+
+[vb 1]
+2.0   6.0
+2.0   6.0
+2.0   6.0
+2.0   6.0
+
+[vertex shader]
+
+struct vertex
+{
+    float4 position : POSITION;
+    float2 t0 : TEXCOORD0;
+    float t2 : TEXCOORD2;
+    float t3 : TEXCOORD3;
+    float c0 : COLOR0;
+    float c1 : COLOR1;
+};
+
+void main(in vertex vin, out vertex vout)
+{
+    vout = vin;
+}
+
+[pixel shader]
+
+struct vertex
+{
+    float t3 : TEXCOORD3;
+    float c1 : COLOR1;
+    float2 t0 : TEXCOORD0;
+    float c0 : COLOR0;
+};
+
+void main(struct vertex i, out float4 o : SV_Target)
+{
+    o.x = i.t0.y + i.t3;
+    o.y = i.c1;
+    o.z = i.c0;
+    o.w = i.t0.x;
+}
+
+[test]
+draw triangle strip 4
+probe (0,0) rgba(11.0, 0.5, 0.7, 3.0)

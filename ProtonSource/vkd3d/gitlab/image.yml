@@ -1,0 +1,67 @@
+image-linux:
+  stage: image
+  rules:
+    - if: $CI_PIPELINE_SOURCE == 'push' && $CI_PROJECT_PATH == "wine/vkd3d" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes:
+        - .gitlab-ci.yml
+        - gitlab/image.yml
+        - gitlab/image.docker
+  image:
+    name: gcr.io/kaniko-project/executor:debug
+    entrypoint: [""]
+  variables:
+    IMAGE_SOURCE: "$CI_DEPENDENCY_PROXY_DIRECT_GROUP_IMAGE_PREFIX/debian:trixie"
+    IMAGE_LOCAL: "$CI_REGISTRY_IMAGE:debian-trixie"
+    DOCKER_FILE: "$CI_PROJECT_DIR/gitlab/image.docker"
+  script:
+    - mkdir -p /kaniko/.docker
+    - echo "{\"auths\":{\"$CI_REGISTRY\":{\"auth\":\"$(printf "%s:%s" "$CI_REGISTRY_USER" "$CI_REGISTRY_PASSWORD" | base64 | tr -d '\n')\"},\"$CI_DEPENDENCY_PROXY_SERVER\":{\"auth\":\"$(printf "%s:%s" "$CI_DEPENDENCY_PROXY_USER" "$CI_DEPENDENCY_PROXY_PASSWORD" | base64 | tr -d '\n')\"}}}" > /kaniko/.docker/config.json
+    - sed -i "1iFROM $IMAGE_SOURCE" "$DOCKER_FILE"
+    - /kaniko/executor --context "$CI_PROJECT_DIR" --dockerfile "$DOCKER_FILE" --destination "$IMAGE_LOCAL"
+
+# Job `image-mac' must be run each time the pipeline is run on a push,
+# otherwise macOS artifacts are not regenerated and macOS jobs cannot find them.
+# So we add a dependency on image.docker too, even if that file is not really
+# used for macOS.
+image-mac:
+  stage: image
+  rules:
+    - if: $CI_PIPELINE_SOURCE == 'push' && $CI_PROJECT_PATH == "wine/vkd3d" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes:
+        - .gitlab-ci.yml
+        - gitlab/image.yml
+        - gitlab/image.docker
+  image: winehq-sonoma-pristine
+  interruptible: true
+  tags:
+    - mac
+  script:
+    - brew install cmake clang-format
+    - mkdir image
+    - mkdir image/dxc
+    - mkdir image/moltenvk
+
+    - git clone --recursive --branch v1.8.2502 https://github.com/microsoft/DirectXShaderCompiler.git
+    - cd DirectXShaderCompiler
+    # Include a fix for CMake 4+.
+    - git cherry-pick 3035d316c35289b68e8fc9d8cf21d86a204fb0e2
+    - mkdir build
+    - cd build
+    - cmake .. -C ../cmake/caches/PredefinedParams.cmake -D CMAKE_BUILD_TYPE=Release
+    - make -j$(sysctl -n hw.ncpu)
+    - cd ../..
+    - cp DirectXShaderCompiler/build/lib/libdxcompiler.dylib DirectXShaderCompiler/build/lib/libdxil.dylib image/dxc
+
+    - git clone --depth 1 --branch v1.2.9 https://github.com/KhronosGroup/MoltenVK.git
+    - cd MoltenVK
+    - ./fetchDependencies --macos
+    - make macos
+    # Do not mark MoltenVK as a portability driver, otherwise it will be harder for vkd3d to find
+    # it. Since editing JSON properly is hard, we just rename the key.
+    - 'sed -i -e "s|is_portability_driver|_is_portability_driver|g" Package/Release/MoltenVK/dylib/macOS/MoltenVK_icd.json'
+    - cd ..
+    - cp MoltenVK/Package/Release/MoltenVK/dylib/macOS/MoltenVK_icd.json image/moltenvk
+    - cp MoltenVK/Package/Release/MoltenVK/dylib/macOS/libMoltenVK.dylib image/moltenvk
+  artifacts:
+    paths:
+      - image

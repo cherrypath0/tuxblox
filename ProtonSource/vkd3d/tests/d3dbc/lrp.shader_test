@@ -1,0 +1,51 @@
+[require]
+shader model = 2.0
+
+[rtv 0]
+format r32g32b32a32-float
+size (2d, 64, 64)
+
+[vertex shader]
+void main(float4 p : POSITION, out float4 t : TEXCOORD, out float4 position : SV_Position)
+{
+    position = t = p;
+}
+
+[pixel shader d3dbc-hex]
+ffff0200                                                % ps_2_0
+05000051 a00f0002 40800000 3e800000 40000000 00000000   % def c2, 4, 0.25, 2, 0
+0200001f 80000000 b00f0000                              % dcl t0
+03000005 80030000 b0e40000 a0000002                     % mul r0.xy, t0, c2.x
+02000013 800c0000 801b0000                              % frc r0.zw, r0.wzyx
+03000002 80030000 80e40000 811b0000                     % add r0.xy, r0, -r0.wzyx
+03000005 80030000 80e40000 a0550002                     % mul r0.xy, r0, c2.y
+03000005 800c0000 801b0000 a0aa0002                     % mul r0.zw, r0.wzyx, c2.z
+02000001 800f0001 a0e40001                              % mov r1, c1
+04000012 800f0001 80e40000 80e40001 a0e40000            % lrp r1, r0, r1, c0
+02000001 800f0800 80e40001                              % mov oC0, r1
+0000ffff                                                % end
+
+[test]
+uniform 0 float4 0 .25 .75 1
+uniform 4 float4 0 .25 .75 1
+draw quad
+probe ( 4,  4) f32(0, .25, .75, 1)
+probe (20, 20) f32(0, .25, .75, 1)
+probe (36, 36) f32(0, .25, .75, 1)
+probe (52, 52) f32(0, .25, .75, 1)
+
+uniform 0 float4 0 0 0 0
+uniform 4 float4 1 1 1 1
+draw quad
+probe ( 4,  4) f32(-1.0,  0.75,  1.5, -2.0)
+probe (20, 20) f32(-0.5,  0.25,  0.5, -1.0)
+probe (36, 36) f32( 0.0, -0.25, -0.5,  0.0)
+probe (52, 52) f32( 0.5, -0.75, -1.5,  1.0)
+
+uniform 0 float4 -2 -1 4 3
+uniform 4 float4  0  1 2 1
+draw quad
+probe ( 4,  4) f32(-4,  0.5, 1, 7)
+probe (20, 20) f32(-3, -0.5, 3, 5)
+probe (36, 36) f32(-2, -1.5, 5, 3)
+probe (52, 52) f32(-1, -2.5, 7, 1)

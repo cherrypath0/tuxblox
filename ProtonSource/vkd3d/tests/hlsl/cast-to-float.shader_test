@@ -1,0 +1,37 @@
+[pixel shader]
+uniform int i;
+uniform uint u;
+uniform bool b;
+uniform float h;
+
+float4 main() : sv_target
+{
+    return float4(((float)i) + 1.5, ((float)u) - 2.5, ((float)b) / 2, (half)h);
+}
+
+[test]
+if(sm<4) uniform 0 float -1
+if(sm<4) uniform 4 float 3
+if(sm<4) uniform 8 float 1
+if(sm<4) uniform 12 float 0.5
+if(sm>=4) uniform 0 int -1
+if(sm>=4) uniform 1 uint 3
+if(sm>=4) uniform 2 int -2
+if(sm>=4) uniform 3 float 0.5
+draw quad
+probe (0, 0) rgba (0.5, 0.5, 0.5, 0.5)
+
+
+[pixel shader]
+float4 main() : sv_target
+{
+    int i = -1;
+    uint u = 3;
+    bool b = true;
+    half h = 0.5;
+    return float4(((float)i) + 1.5, ((float)u) - 2.5, ((float)b) / 2, h);
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (0.5, 0.5, 0.5, 0.5)

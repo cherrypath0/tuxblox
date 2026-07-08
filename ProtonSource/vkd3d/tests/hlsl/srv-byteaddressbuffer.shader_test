@@ -1,0 +1,78 @@
+[require]
+shader model >= 4.0
+
+[rtv 0]
+format r32g32b32a32-uint
+size (2d, 32, 32)
+
+[srv 0]
+format r32-typeless
+size (raw_buffer, 4)
+
+1 2 3 4
+
+[pixel shader]
+ByteAddressBuffer t;
+uint offset;
+uint count;
+
+uint4 main() : sv_target
+{
+    if (count == 1)
+        return uint4(t.Load(offset), 0xa, 0xb, 0xc);
+    if (count == 2)
+        return uint4(t.Load2(offset), 0xd, 0xe);
+    if (count == 3)
+        return uint4(t.Load3(offset), 0xf);
+    if (count == 4)
+        return t.Load4(offset);
+    return 0;
+}
+
+[test]
+uniform 0 uint4 0 1 0 0
+todo(msl | glsl) draw quad
+probe (0, 0) u32(0x1, 0xa, 0xb, 0xc)
+uniform 0 uint4 4 1 0 0
+todo(msl | glsl) draw quad
+probe (0, 0) u32(0x2, 0xa, 0xb, 0xc)
+uniform 0 uint4 0 2 0 0
+todo(msl | glsl) draw quad
+probe (0, 0) u32(0x1, 0x2, 0xd, 0xe)
+uniform 0 uint4 4 2 0 0
+todo(msl | glsl) draw quad
+probe (0, 0) u32(0x2, 0x3, 0xd, 0xe)
+uniform 0 uint4 0 3 0 0
+todo(msl | glsl) draw quad
+probe (0, 0) u32(0x1, 0x2, 0x3, 0xf)
+uniform 0 uint4 4 3 0 0
+todo(msl | glsl) draw quad
+probe (0, 0) u32(0x2, 0x3, 0x4, 0xf)
+uniform 0 uint4 0 4 0 0
+todo(msl | glsl) draw quad
+probe (0, 0) u32(0x1, 0x2, 0x3, 0x4)
+uniform 0 uint4 4 4 0 0
+todo(msl | glsl) draw quad
+probe (0, 0) u32(0x2, 0x3, 0x4, 0x0)
+
+% Test correct emission of resource declarations in SM 5.1 format.
+[require]
+shader model >= 5.1
+
+[srv 1]
+format r32-typeless
+size (raw_buffer, 4)
+
+4 3 2 1
+
+[pixel shader]
+ByteAddressBuffer t : register(t1);
+
+uint4 main() : sv_target
+{
+    return t.Load4(0);
+}
+
+[test]
+todo(msl | glsl) draw quad
+probe (0, 0) u32(0x4, 0x3, 0x2, 0x1)

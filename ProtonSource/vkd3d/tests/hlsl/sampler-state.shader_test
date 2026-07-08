@@ -1,0 +1,236 @@
+[require]
+options: backcompat
+
+
+[pixel shader fail(sm>=5.1) todo(sm>=5.1)]
+sampler2D sam = sampler_state
+{
+    texture = NULL;
+    mipfilter = LINEAR;
+};
+
+float4 main(): sv_target
+{
+    return tex2D(sam, float2(0, 0));
+}
+
+
+[pixel shader fail]
+float4 main(): sv_target
+{
+    sampler2D sam = sampler_state // Not allowed inside a function.
+    {
+        texture = NULL;
+        mipfilter = LINEAR;
+    };
+
+    return 0;
+}
+
+[pixel shader fail]
+sampler sam;
+
+float4 main(): sv_target
+{
+    sampler_state
+    {
+        foo = BAR;
+        bar = FOO;
+    };
+    return tex2D(sam, float2(0, 0));
+}
+
+[pixel shader fail(sm<6)]
+// cannot implicitly convert.
+float4 f = sampler_state
+{
+    texture = NULL;
+    mipfilter = LINEAR;
+};
+
+float4 main(): sv_target
+{
+    return 0;
+}
+
+
+[pixel shader fail(sm>=5.1) todo(sm>=5.1)]
+sampler sam[2] =
+{
+    sampler_state
+    {
+        texture = NULL;
+        mipfilter = LINEAR;
+    },
+    sampler_state
+    {
+        texture = NULL;
+        mipfilter = LINEAR;
+    }
+};
+
+float4 main(): sv_target
+{
+    return tex2D(sam[1], float2(0, 0));
+}
+
+
+[pixel shader fail]
+sampler sam[2] =
+{
+    sampler_state
+    {
+        texture = NULL;
+        mipfilter = LINEAR;
+    },
+};
+
+float4 main(): sv_target { return 0; }
+
+
+[pixel shader]
+sampler sam
+{
+    FOO = sampler_state {};
+};
+
+float4 main(): sv_target { return 0; }
+
+
+[pixel shader fail]
+Texture2D tex;
+
+float4 main(): sv_target
+{
+    return tex.Sample(sampler_state {}, float2(0, 0));
+}
+
+
+[pixel shader fail(sm>=5.1) todo(sm>=5.1)]
+sampler sam = sampler_state
+{
+    texture = NULL;
+    mipfilter = LINEAR;
+};
+
+float4 main(): sv_target
+{
+    sampler sam2 = sam; // pass around.
+
+    return tex2D(sam2, float2(0, 0));
+}
+
+
+[pixel shader fail(sm>=5.1) todo(sm>=5.1)]
+sampler sam = sampler_state
+{
+    foo = BAR;
+    bar = FOO;
+    mipfilter = PLACEHOLDER;
+};
+
+float4 main(): sv_target
+{
+    return tex2D(sam, float2(0, 0));
+}
+
+
+[pixel shader fail(sm>=6)]
+// default value initializers make it more permissive but if types don't match
+// then the whole initializer is discarded.
+float4 f = {
+    sampler_state
+    {
+        foo = BAR;
+        bar = FOO;
+    },
+    1, 2, 3
+};
+
+float4 main(): sv_target
+{
+    return 0;
+}
+
+
+[pixel shader fail]
+sampler sam {} = sampler_state {};
+
+float4 main() : sv_target { return 0; }
+
+
+% This fails because of invalid types.
+[pixel shader fail]
+sampler sam = 1 + sampler_state {};
+
+float4 main() : sv_target { return 0; }
+
+
+[pixel shader fail]
+sampler sam;
+sampler_state {} = sam;
+
+float4 main() : sv_target
+{
+    return 0;
+}
+
+[pixel shader fail]
+sampler_state {};
+
+float4 main() : sv_target
+{
+    return 0;
+}
+
+
+[require]
+shader model < 6.0
+options: backcompat
+
+[pixel shader fail]
+// Cannot implicitly convert.
+// Causes segfault in DXC
+Texture2D tex = sampler_state
+{
+    foo = BAR;
+    bar = FOO;
+};
+sampler sam;
+
+float4 main(): sv_target
+{
+    return tex2D(sam, float2(0, 0));
+}
+
+
+[require]
+shader model >= 5.0
+% Segfaults with 5.1 on d3dcompiler_47 10.0.19041.868
+shader model < 5.1
+options: backcompat
+
+[pixel shader fail(sm>=5.1) todo(sm>=5.1)]
+// Default values and sample_state work.
+// Requires sm5.
+
+struct
+{
+    float4 f;
+    sampler sam;
+    float2 g;
+} apple = {
+    1, 2, 3, 4,
+    sampler_state
+    {
+        texture = NULL;
+        mipfilter = LINEAR;
+    },
+    1, 1,
+};
+Texture2D tex;
+
+float4 main(): sv_target
+{
+    return tex.Sample(apple.sam, apple.g);
+}

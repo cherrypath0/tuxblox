@@ -1,0 +1,59 @@
+[package]
+name = "gst-plugin-gtk4"
+version = "0.9.11"
+authors = ["Bilal Elmoussaoui <bil.elmoussaoui@gmail.com>", "Jordan Petridis <jordan@centricular.com>", "Sebastian Dröge <sebastian@centricular.com>"]
+repository = "https://gitlab.freedesktop.org/gstreamer/gst-plugins-rs"
+license = "MPL-2.0"
+edition = "2021"
+rust-version = "1.63"
+description = "GStreamer GTK 4 Sink element and Paintable widget"
+
+[dependencies]
+gtk = { package = "gtk4", git = "https://github.com/gtk-rs/gtk4-rs", branch = "0.5", version = "0.5" }
+gdk_wayland = { package = "gdk4-wayland", git = "https://github.com/gtk-rs/gtk4-rs", branch = "0.5", version = "0.5", features = ["v4_4"], optional = true}
+gdk_x11 = { package = "gdk4-x11", git = "https://github.com/gtk-rs/gtk4-rs", branch = "0.5", version = "0.5", features = ["v4_4"], optional = true}
+
+gst = { package = "gstreamer", git = "https://gitlab.freedesktop.org/gstreamer/gstreamer-rs", branch = "0.19", version = "0.19.1", features = ["v1_16"] }
+gst_base = { package = "gstreamer-base", git = "https://gitlab.freedesktop.org/gstreamer/gstreamer-rs", branch = "0.19", version = "0.19" }
+gst_video = { package = "gstreamer-video", git = "https://gitlab.freedesktop.org/gstreamer/gstreamer-rs", branch = "0.19", version = "0.19" }
+gst_gl = { package = "gstreamer-gl", git = "https://gitlab.freedesktop.org/gstreamer/gstreamer-rs", branch = "0.19", version = "0.19", features = ["v1_16"], optional = true  }
+
+gst_gl_wayland = { package = "gstreamer-gl-wayland", git = "https://gitlab.freedesktop.org/gstreamer/gstreamer-rs", branch = "0.19", version = "0.19", features = ["v1_16"], optional = true }
+gst_gl_x11 = { package = "gstreamer-gl-x11", git = "https://gitlab.freedesktop.org/gstreamer/gstreamer-rs", branch = "0.19", version = "0.19", features = ["v1_16"], optional = true }
+gst_gl_egl = { package = "gstreamer-gl-egl", git = "https://gitlab.freedesktop.org/gstreamer/gstreamer-rs", branch = "0.19", version = "0.19", features = ["v1_16"], optional = true }
+
+once_cell = "1.0"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+gtk = { package = "gtk4", git = "https://github.com/gtk-rs/gtk4-rs", branch = "0.5", version = "0.5", features = ["v4_6"] }
+gst_gl = { package = "gstreamer-gl", git = "https://gitlab.freedesktop.org/gstreamer/gstreamer-rs", branch = "0.19", version = "0.19", features = ["v1_16"] }
+
+[lib]
+name = "gstgtk4"
+crate-type = ["cdylib", "rlib"]
+path = "src/lib.rs"
+
+[build-dependencies]
+gst-plugin-version-helper = { version = "0.7", path="../../version-helper" }
+
+[features]
+default = []
+static = []
+wayland = ["gtk/v4_6", "gdk_wayland", "gst_gl", "gst_gl_wayland"]
+x11glx = ["gtk/v4_6", "gdk_x11", "gst_gl", "gst_gl_x11"]
+x11egl = ["gtk/v4_6", "gdk_x11", "gst_gl", "gst_gl_egl"]
+capi = []
+doc = ["gst/v1_18"]
+
+[package.metadata.capi]
+min_version = "0.7.0"
+
+[package.metadata.capi.header]
+enabled = false
+
+[package.metadata.capi.library]
+install_subdir = "gstreamer-1.0"
+versioning = false
+
+[package.metadata.capi.pkg_config]
+requires_private = "gstreamer-1.0, gstreamer-base-1.0, gstreamer-video-1.0, gtk4, gobject-2.0, glib-2.0, gmodule-2.0"

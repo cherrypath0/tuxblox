@@ -1,0 +1,162 @@
+[pixel shader fail(sm<4 | sm>=6)]
+Texture1D tex1d;
+Texture1DArray tex1da;
+Texture2D tex2d;
+Texture2DMS<float4, 5> tex2dms;
+Texture2DArray tex2da;
+Texture2DMSArray<float4, 5> tex2dmsa;
+Texture3D tex3d;
+
+float4 main() : sv_target
+{
+    uint le1 = tex1d.Length;
+    uint2 le2 = tex1da.Length;
+    uint2 le3 = tex2d.Length;
+    uint2 le4 = tex2dms.Length;
+    uint3 le5 = tex2da.Length;
+    uint3 le6 = tex2dmsa.Length;
+    uint3 le7 = tex3d.Length;
+
+    return le1.xxxx + le2.xyxy + le3.xyxy + le4.xyxy + le5.xyzx + le6.xyzx + le7.xyzx;
+}
+
+[srv 0]
+size (2d, 2, 3)
+0.0 0.0 0.0 0.0  0.0 0.0 0.0 0.0
+0.0 0.0 0.0 0.0  0.0 0.0 0.0 0.0
+0.0 0.0 0.0 0.0  0.0 0.0 0.0 0.0
+
+[pixel shader fail(sm<4 | sm>=6)]
+Texture2D t;
+
+float4 main() : sv_target
+{
+    return float4(t.Length, 0, 0);
+}
+
+[test]
+todo(glsl | msl) draw quad
+probe (0, 0) rgba(2, 3, 0, 0)
+
+[pixel shader fail(sm<4 | sm>=6)]
+Texture2D t;
+
+float4 fun(float2 x) { return 1; }
+float4 fun(uint2 x) { return 2; }
+
+float4 main() : sv_target
+{
+    return fun(t.Length); // property is always uint.
+}
+
+[test]
+draw quad
+probe (0, 0) rgba(2, 2, 2, 2)
+
+[pixel shader fail]
+TextureCube texcube;
+
+float4 main() : sv_target
+{
+    return texcube.Length.xxxx;
+}
+
+[pixel shader fail]
+TextureCubeArray texcubearr;
+
+float4 main() : sv_target
+{
+    return texcubearr.Length.xxxx;
+}
+
+[require]
+shader model >= 5.0
+
+[pixel shader fail(sm<4 | sm>=6)]
+RWTexture1D<float> tex1d;
+RWTexture1DArray<float> tex1da;
+RWTexture2D<float> tex2d;
+RWTexture2DArray<float> tex2da;
+RWTexture3D<float> tex3d;
+
+float4 main() : sv_target
+{
+    uint le1 = tex1d.Length;
+    uint2 le2 = tex1da.Length;
+    uint2 le3 = tex2d.Length;
+    uint3 le4 = tex2da.Length;
+    uint3 le5 = tex3d.Length;
+
+    return le1.xxxx + le2.xyxy + le3.xyxy + le4.xyzx + le5.xyzx;
+}
+
+[srv 0]
+format r32-float
+size (buffer, 3)
+0.0 0.0 0.0
+
+[pixel shader fail(sm>=6) todo]
+Buffer<float> buff;
+
+float4 main() : sv_target
+{
+    return float4(buff.Length, 0, 0, 0);
+}
+
+[test]
+todo draw quad
+probe (0, 0) rgba(3, 0, 0, 0)
+
+[uav 1]
+format r32-float
+size (2d, 2, 4)
+0.0  0.0
+0.0  0.0
+0.0  0.0
+0.0  0.0
+
+[pixel shader fail(sm>=6)]
+RWTexture2D<float> t : register(u1);
+
+float4 main() : sv_target
+{
+    return float4(t.Length, 0, 0);
+}
+
+[test]
+todo(glsl | msl) draw quad
+probe (0, 0) rgba(2, 4, 0, 0)
+
+[uav 1]
+stride 4
+size (buffer, 5)
+0.0 0.0 0.0 0.0 0.0
+
+[pixel shader fail(sm>=6) todo]
+RWBuffer<float> buff : register(u1);
+
+float4 main() : sv_target
+{
+    return float4(buff.Length, 0, 0, 0);
+}
+
+[test]
+todo draw quad
+probe (0, 0) rgba(5, 0, 0, 0)
+
+[srv 0]
+format r32-float
+size (buffer, 4)
+0.0 0.0 0.0 0.0
+
+[pixel shader fail(sm>=6) todo]
+StructuredBuffer<float> buff;
+
+float4 main() : sv_target
+{
+    return float4(buff.Length, 0, 0, 0);
+}
+
+[test]
+todo draw quad
+probe (0, 0) rgba(4, 0, 0, 0)

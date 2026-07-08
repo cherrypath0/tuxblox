@@ -1,0 +1,2 @@
+Will not test returning EACCESS when privileges are denied
+as POSIX does not define when this error occurs.

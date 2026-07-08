@@ -1,0 +1,26 @@
+[require]
+shader model >= 5.0
+shader model < 6.0
+
+[effect]
+float4 main() : sv_position { return 0; }
+
+VertexShader vs = CompileShader(vs_4_0, main());
+GeometryShader gs = ConstructGSWithSO(vs, "foo", "nya", "mew", "boop", 1);
+
+technique11
+{
+    pass p1
+    {
+        SetGeometryShader(gs);
+    }
+
+    pass p2
+    {
+        SetGeometryShader(ConstructGSWithSO(CompileShader(vs_4_0, main()), "foo", NULL, NULL, NULL, 5));
+    }
+}
+
+[effect todo]
+float4 main() : sv_position { return 0; }
+GeometryShader gs = ConstructGSWithSO(CompileShader(vs_4_0, main()), "foo", NULL, NULL, NULL, 3 + 4 - 2);

@@ -1,0 +1,2 @@
+Will not test the behavior of implementation when an application does not
+specify exactly one of two values: O_RDONLY and O_RDWR.

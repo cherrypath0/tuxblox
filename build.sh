@@ -7,4 +7,4 @@ mkdir ProtonBuild
 cd ProtonBuild
 
 ./../ProtonSource/configure.sh
-make 2>&1 | tee build.log
+make 2>&1 | tee ../build.log

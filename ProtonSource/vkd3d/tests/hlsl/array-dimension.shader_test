@@ -1,0 +1,117 @@
+% Test what kinds of expressions are valid array dimensions.
+
+[pixel shader]
+float4 main() : sv_target
+{
+    const int dim = 4;
+    float a[2 * 2] = {0.1, 0.2, 0.3, 0.4};
+#ifdef __hlsl_dx_compiler
+    /* float array dimensions are not valid. */
+    float b[4] = a;
+#else
+    float b[4.1] = a;
+#endif
+    float c[dim] = b;
+    float d[true] = {c[0]};
+    float e[65536];
+    return float4(d[0], c[0], c[1], c[3]);
+}
+
+[test]
+draw quad
+probe (0, 0) f32(0.1, 0.1, 0.2, 0.4)
+
+[pixel shader fail]
+float4 fun() { return 0; };
+
+float a[CompileShader(ps_2_0, main())];
+
+float4 main() : sv_target { return 0; }
+
+[pixel shader]
+float4 main() : sv_target
+{
+    const uint cap = 4;
+    const float array[cap] = { 1.0, 2.0, 3.0, 4.0 };
+    return float4(array[0], array[1], array[2], array[3]);
+}
+
+[test]
+draw quad
+probe (0, 0) f32(1, 2, 3, 4)
+
+[pixel shader fail]
+float4 main() : sv_target
+{
+    uint cap = 4;
+    const float array[cap] = { 1.0, 2.0, 3.0, 4.0 };
+    return float4(array[0], array[1], array[2], array[3]);
+}
+
+[pixel shader fail(sm>=6)]
+float4 main() : sv_target
+{
+    const uint4 cap = uint4(2, 4, 1, 0);
+    const float array[cap.y] = { 1.0, 2.0, 3.0, 4.0 };
+    return float4(array[0], array[1], array[2], array[3]);
+}
+
+[test]
+draw quad
+probe (0, 0) f32(1, 2, 3, 4)
+
+[pixel shader fail(sm>=6)]
+struct nya
+{
+    float a, b;
+};
+
+float4 main() : sv_target
+{
+    const nya cap = { 5, 4 };
+    const float array[cap.b] = { 1.0, 2.0, 3.0, 4.0 };
+    return float4(array[0], array[1], array[2], array[3]);
+}
+
+[test]
+draw quad
+probe (0, 0) f32(1, 2, 3, 4)
+
+[pixel shader fail(sm>=6)]
+float4 main() : sv_target
+{
+    const float cap = 4;
+    const float array[cap] = { 1.0, 2.0, 3.0, 4.0 };
+    return float4(array[0], array[1], array[2], array[3]);
+}
+
+[test]
+draw quad
+probe (0, 0) f32(1, 2, 3, 4)
+
+[pixel shader fail]
+float foo() { return 4; }
+float4 main() : sv_target
+{
+    const float cap = foo();
+    const float array[cap] = { 1.0, 2.0, 3.0, 4.0 };
+    return float4(array[0], array[1], array[2], array[3]);
+}
+
+[pixel shader fail]
+struct nya
+{
+    float a, b;
+};
+
+float foo()
+{
+    return 5;
+}
+
+float4 main() : sv_target
+{
+    const nya cap = { foo(), 4 };
+    const float array[cap.b] = { 1.0, 2.0, 3.0, 4.0 };
+    return float4(array[0], array[1], array[2], array[3]);
+}

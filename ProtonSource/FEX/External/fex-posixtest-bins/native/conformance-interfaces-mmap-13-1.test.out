@@ -1,0 +1,5 @@
+Time before write(): 1589290314
+Time before mmap(): 1589290315
+Time before munmap(): 1589290316
+atime1: 1589290314, atime2: 1589290315, atime3: 1589290315
+Test Pass

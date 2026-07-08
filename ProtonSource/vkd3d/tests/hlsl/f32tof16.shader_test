@@ -1,0 +1,91 @@
+[require]
+shader model >= 4.0
+
+[rtv 0]
+format r32g32b32a32-uint
+size (2d, 640, 480)
+
+[pixel shader]
+uniform float a;
+
+uint4 main() : sv_target
+{
+    return f32tof16(a);
+}
+
+[test]
+uniform 0 float 42.0
+todo(msl & sm>=6) draw quad
+probe (0, 0) u32(0x5140, 0x5140, 0x5140, 0x5140)
+
+% zero
+uniform 0 float 0.0
+todo(msl & sm>=6) draw quad
+probe (0, 0) u32(0x0, 0x0, 0x0, 0x0)
+
+% negative zero
+uniform 0 uint 0x8000
+todo(msl & sm>=6) draw quad
+probe (0, 0) rgba(-0.0, -0.0, -0.0, -0.0)
+
+% subnormal number
+uniform 0 float 5.9604645e-08
+todo(msl & sm>=6) draw quad
+probe (0, 0) u32(0x1, 0x1, 0x1, 0x1)
+
+% subnormal number
+uniform 0 float 1.1920929e-07
+todo(msl & sm>=6) draw quad
+probe (0, 0) u32(0x2, 0x2, 0x2, 0x2)
+
+% subnormal number
+uniform 0 float 2.3841858e-07
+todo(msl & sm>=6) draw quad
+probe (0, 0) u32(0x4, 0x4, 0x4, 0x4)
+
+% subnormal number
+uniform 0 float 4.7683716e-07
+todo(msl & sm>=6) draw quad
+probe (0, 0) u32(0x8, 0x8, 0x8, 0x8)
+
+% subnormal number
+uniform 0 float 9.536743e-07
+todo(msl & sm>=6) draw quad
+probe (0, 0) u32(0x10, 0x10, 0x10, 0x10)
+
+% subnormal number
+uniform 0 float 1.9073486e-06
+todo(msl & sm>=6) draw quad
+probe (0, 0) u32(0x20, 0x20, 0x20, 0x20)
+
+% subnormal number
+uniform 0 float 3.8146973e-06
+todo(msl & sm>=6) draw quad
+probe (0, 0) u32(0x40, 0x40, 0x40, 0x40)
+
+% subnormal number
+uniform 0 float 7.6293945e-06
+todo(msl & sm>=6) draw quad
+probe (0, 0) u32(0x80, 0x80, 0x80, 0x80)
+
+% subnormal number
+uniform 0 float 1.5258789e-05
+todo(msl & sm>=6) draw quad
+probe (0, 0) u32(0x100, 0x100, 0x100, 0x100)
+
+% subnormal number
+uniform 0 float 3.0517578e-05
+todo(msl & sm>=6) draw quad
+probe (0, 0) u32(0x200, 0x200, 0x200, 0x200)
+
+% I'd love to use rgba probes here but msvc doesn't scanf infinity :(
+
+% positive infinity
+uniform 0 uint 0x7f800000
+todo(msl & sm>=6) draw quad
+probe (0, 0) u32(0x7c00, 0x7c00, 0x7c00, 0x7c00)
+
+% negative infinity
+uniform 0 uint 0xff800000
+todo(msl & sm>=6) draw quad
+probe (0, 0) u32(0xfc00, 0xfc00, 0xfc00, 0xfc00)

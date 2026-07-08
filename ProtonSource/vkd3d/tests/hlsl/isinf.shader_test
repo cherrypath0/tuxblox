@@ -1,0 +1,31 @@
+[pixel shader]
+float4 v;
+
+float4 main() : sv_target
+{
+    return isinf(1.0f / v) + 1.0f;
+}
+
+[test]
+uniform 0 float4 1.0 0.0 -0.0 0.0
+todo(msl & sm>=6) draw quad
+probe (0, 0) rgba(1.0, 2.0, 2.0, 2.0)
+
+[require]
+shader model >= 4.0
+
+[pixel shader]
+float4 v;
+
+float4 main() : sv_target
+{
+    return isinf(v) + 1.0f;
+}
+
+[test]
+uniform 0 float4 1.0 0.0 -1.0 2.0
+todo(msl & sm>=6) draw quad
+probe (0, 0) rgba(1.0, 1.0, 1.0, 1.0)
+uniform 0 uint4 0x7f800000 0xff800000 0xffc00001 0xff800001
+todo(msl & sm>=6) draw quad
+probe (0, 0) rgba(2.0, 2.0, 1.0, 1.0)

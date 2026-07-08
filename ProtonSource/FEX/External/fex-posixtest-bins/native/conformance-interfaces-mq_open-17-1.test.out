@@ -1,0 +1,2 @@
+Will not test setting O_EXCL without O_CREAT because
+results are undefined.

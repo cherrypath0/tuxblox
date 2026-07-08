@@ -1,0 +1,8 @@
+var searchData=
+[
+  ['adjacent_5ffind_0',['adjacent_find',['../group__group-algorithms.html#gacf0b2a91574c38d011d8b768f1ca8a01',1,'ranges::adjacent_find(I first, S last, C pred=C{}, P proj=P{})'],['../group__group-algorithms.html#gae9c39b603bb920e33e9bfbc1e0b33bdb',1,'ranges::adjacent_find(Rng &amp;&amp;rng, C pred=C{}, P proj=P{})']]],
+  ['adjacent_5fremove_5fif_1',['adjacent_remove_if',['../group__group-algorithms.html#gab7060ffb2fa3f5a8d659c0dac8d92d84',1,'ranges::adjacent_remove_if(I first, S last, Pred pred={}, Proj proj={})'],['../group__group-algorithms.html#ga3795e0ef907776e7e6d9cb3faddab960',1,'ranges::adjacent_remove_if(Rng &amp;&amp;rng, Pred pred, Proj proj={})']]],
+  ['all_5fof_2',['all_of',['../group__group-algorithms.html#ga3fbbe7ae1e71bae67c5f654de7aa3e1c',1,'ranges::all_of(I first, S last, F pred, P proj=P{})'],['../group__group-algorithms.html#gab80e37eadac4b3c68d4dc32b9baee929',1,'ranges::all_of(Rng &amp;&amp;rng, F pred, P proj=P{})']]],
+  ['any_5fcast_3',['any_cast',['../any_8hpp.html#ab91de26edc92bd0207b172297cb961da',1,'ranges::any_cast(any &amp;)'],['../any_8hpp.html#a8576f96897c73227c7ca9c15c8b5a5e3',1,'ranges::any_cast(any const &amp;x)'],['../any_8hpp.html#a5f515b766a2b56fb120cc861bc6b8b0d',1,'ranges::any_cast(any &amp;&amp;x)'],['../any_8hpp.html#afeab7507ae7b5a41c37fa593e528f176',1,'ranges::any_cast(any *p) noexcept'],['../any_8hpp.html#ae1466baca980e3dfe6a1c4909855b941',1,'ranges::any_cast(any const *p) noexcept']]],
+  ['any_5fof_4',['any_of',['../group__group-algorithms.html#gacd98a14d870997c0331a00d906cd4bbe',1,'ranges::any_of(I first, S last, F pred, P proj=P{})'],['../group__group-algorithms.html#gafa55a93ed4b80a5f2b31b5ddca3d8cb1',1,'ranges::any_of(Rng &amp;&amp;rng, F pred, P proj=P{})']]]
+];

@@ -1,0 +1,46 @@
+[pixel shader fail(sm>=6)]
+void sub2(in uniform float4 i, out float4 o)
+{
+    o = i;
+}
+
+void sub(float a, uniform float b, in float c, uniform in float d, out float4 o)
+{
+    sub2(float4(a, b, c, d), o);
+}
+
+void main(in uniform float4 a, uniform float4 b, out float4 o : sv_target)
+{
+    sub(a.x, b.x, 0.3, 0.4, o);
+}
+
+[test]
+uniform 0 float4 0.1 0.0 0.0 0.0
+uniform 4 float4 0.2 0.0 0.0 0.0
+todo(sm>=6) draw quad
+probe (0, 0) rgba (0.1, 0.2, 0.3, 0.4)
+
+[pixel shader]
+uniform float4 a;
+uniform float4 b;
+
+void sub2(in float4 i, out float4 o)
+{
+    o = i;
+}
+
+void sub(float a, float b, in float c, in float d, out float4 o)
+{
+    sub2(float4(a, b, c, d), o);
+}
+
+void main(out float4 o : sv_target)
+{
+    sub(a.x, b.x, 0.3, 0.4, o);
+}
+
+[test]
+uniform 0 float4 0.1 0.0 0.0 0.0
+uniform 4 float4 0.2 0.0 0.0 0.0
+draw quad
+probe (0, 0) rgba (0.1, 0.2, 0.3, 0.4)

@@ -1,0 +1,31 @@
+name: Ubuntu Clang Build
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: set up environment
+      run: |
+        sudo apt-get install clang gir1.2-glib-2.0 gobject-introspection gtk-doc-tools libgirepository1.0-dev libglib2.0-dev ninja-build python3-setuptools python3-wheel
+        sudo pip3 install meson==0.55.3
+
+    - name: default build
+      run: |
+        meson setup --werror --fatal-meson-warnings _build_default
+        meson compile -C _build_default
+        meson test -C _build_default -v
+
+    - name: scalar build
+      run: |
+        meson setup -Dsse2=false -Darm_neon=false -Dgcc_vector=false --werror --fatal-meson-warnings _build_scalar
+        meson compile -C _build_scalar
+        meson test -C _build_scalar -v

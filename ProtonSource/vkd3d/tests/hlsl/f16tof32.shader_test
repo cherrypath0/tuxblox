@@ -1,0 +1,87 @@
+[require]
+shader model >= 4.0
+
+[pixel shader]
+uniform uint a;
+
+float4 main() : sv_target
+{
+    return f16tof32(a);
+}
+
+[test]
+uniform 0 uint 0x5140
+todo(msl & sm>=6) draw quad
+probe (0, 0) rgba(42.0, 42.0, 42.0, 42.0)
+
+% zero
+uniform 0 uint 0x0
+todo(msl & sm>=6) draw quad
+probe (0, 0) rgba(0.0, 0.0, 0.0, 0.0)
+
+% negative zero
+uniform 0 uint 0x8000
+todo(msl & sm>=6) draw quad
+probe (0, 0) rgba(-0.0, -0.0, -0.0, -0.0)
+
+% subnormal number
+uniform 0 uint 0x1
+todo(msl & sm>=6) draw quad
+probe (0, 0) rgba(5.9604645e-08, 5.9604645e-08, 5.9604645e-08, 5.9604645e-08)
+
+% subnormal number
+uniform 0 uint 0x2
+todo(msl & sm>=6) draw quad
+probe (0, 0) rgba(1.1920929e-07, 1.1920929e-07, 1.1920929e-07, 1.1920929e-07)
+
+% subnormal number
+uniform 0 uint 0x4
+todo(msl & sm>=6) draw quad
+probe (0, 0) rgba(2.3841858e-07, 2.3841858e-07, 2.3841858e-07, 2.3841858e-07)
+
+% subnormal number
+uniform 0 uint 0x8
+todo(msl & sm>=6) draw quad
+probe (0, 0) rgba(4.7683716e-07, 4.7683716e-07, 4.7683716e-07, 4.7683716e-07)
+
+% subnormal number
+uniform 0 uint 0x10
+todo(msl & sm>=6) draw quad
+probe (0, 0) rgba(9.536743e-07, 9.536743e-07, 9.536743e-07, 9.536743e-07)
+
+% subnormal number
+uniform 0 uint 0x20
+todo(msl & sm>=6) draw quad
+probe (0, 0) rgba(1.9073486e-06, 1.9073486e-06, 1.9073486e-06, 1.9073486e-06)
+
+% subnormal number
+uniform 0 uint 0x40
+todo(msl & sm>=6) draw quad
+probe (0, 0) rgba(3.8146973e-06, 3.8146973e-06, 3.8146973e-06, 3.8146973e-06)
+
+% subnormal number
+uniform 0 uint 0x80
+todo(msl & sm>=6) draw quad
+probe (0, 0) rgba(7.6293945e-06, 7.6293945e-06, 7.6293945e-06, 7.6293945e-06)
+
+% subnormal number
+uniform 0 uint 0x100
+todo(msl & sm>=6) draw quad
+probe (0, 0) rgba(1.5258789e-05, 1.5258789e-05, 1.5258789e-05, 1.5258789e-05)
+
+% subnormal number
+uniform 0 uint 0x200
+todo(msl & sm>=6) draw quad
+probe (0, 0) rgba(3.0517578e-05, 3.0517578e-05, 3.0517578e-05, 3.0517578e-05)
+
+% I'd love to use rgba probes here but msvc doesn't scanf infinity :(
+
+% positive infinity
+uniform 0 uint 0x7c00
+todo(msl & sm>=6) draw quad
+probe (0, 0) u32(0x7f800000, 0x7f800000, 0x7f800000, 0x7f800000)
+
+% negative infinity
+uniform 0 uint 0xfc00
+todo(msl & sm>=6) draw quad
+probe (0, 0) u32(0xff800000, 0xff800000, 0xff800000, 0xff800000)

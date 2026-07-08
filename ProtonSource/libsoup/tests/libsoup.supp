@@ -1,0 +1,595 @@
+# valgrind suppressions file
+
+{
+   ld.so/map
+   Memcheck:Cond
+   fun:index
+   fun:expand_dynamic_string_token
+   fun:_dl_map_object
+}
+{
+   ld.so/relocate
+   Memcheck:Cond
+   fun:_dl_relocate_object
+   fun:dl_main
+   fun:_dl_sysdep_start
+   fun:_dl_start
+}
+
+{
+   glib/g_type_init
+   Memcheck:Leak
+   ...
+   fun:g_type_init
+}
+{
+   glib/g_type_init_with_debug_flags
+   Memcheck:Leak
+   ...
+   fun:g_type_init_with_debug_flags
+}
+{
+   glib/g_thread_init
+   Memcheck:Leak
+   ...
+   fun:g_thread_init
+}
+{
+   glib/g_thread_init_glib
+   Memcheck:Leak
+   ...
+   fun:g_thread_init_glib
+}
+{
+   glib/g_thread_self
+   Memcheck:Leak
+   ...
+   fun:g_slice_alloc0
+   fun:g_thread_self
+}
+{
+   glib/g_type_register_static
+   Memcheck:Leak
+   ...
+   fun:g_type_register_static
+}
+{
+   glib/g_boxed_type_register_static
+   Memcheck:Leak
+   ...
+   fun:g_boxed_type_register_static
+}
+{
+   glib/g_type_add_interface_static
+   Memcheck:Leak
+   ...
+   fun:g_type_add_interface_static
+}
+{
+   glib/g_type_interface_add_prerequisite
+   Memcheck:Leak
+   ...
+   fun:g_type_interface_add_prerequisite
+}
+{
+   glib/g_type_class_ref
+   Memcheck:Leak
+   ...
+   fun:g_type_class_ref
+}
+{
+   glib/g_set_prgname
+   Memcheck:Leak
+   ...
+   fun:g_set_prgname
+}
+{
+   glib/g_intern_string
+   Memcheck:Leak
+   ...
+   fun:g_intern_string
+}
+{
+   glib/g_intern_static_string
+   Memcheck:Leak
+   ...
+   fun:g_intern_static_string
+}
+{
+   glib/g_quark_from_string
+   Memcheck:Leak
+   ...
+   fun:g_quark_from_string
+}
+{
+   glib/g_quark_from_static_string
+   Memcheck:Leak
+   ...
+   fun:g_quark_from_static_string
+}
+{
+   glib/get_dispatch
+   Memcheck:Leak
+   ...
+   fun:get_dispatch
+}
+{
+   glib/g_signal_connect
+   Memcheck:Leak
+   ...
+   fun:handler_list_ensure
+}
+{
+   glib/g_signal_handlers_destroy
+   Memcheck:Leak
+   ...
+   fun:g_signal_handlers_destroy
+}
+{
+   glib/g_data_initialize
+   Memcheck:Leak
+   ...
+   fun:g_data_initialize
+}
+{
+   glib/g_static_private_set
+   Memcheck:Leak
+   ...
+   fun:g_static_private_set
+}
+{
+   glib/g_child_watch_source_init_multi_threaded
+   Memcheck:Leak
+   ...
+   fun:g_child_watch_source_init_multi_threaded
+}
+{
+   glib/xdg_mime_init
+   Memcheck:Leak
+   ...
+   fun:xdg_mime_init
+}
+{
+   glib/GResolver
+   Memcheck:Leak
+   ...
+   fun:g_resolver_get_default
+}
+{
+   glib/g_main_context_push_thread_default
+   Memcheck:Leak
+   ...
+   fun:g_main_context_push_thread_default
+}
+{
+   glib/g_socket_connection_factory
+   Memcheck:Leak
+   ...
+   fun:g_socket_connection_factory_register_type
+}
+{
+   glib/g_get_language_names
+   Memcheck:Leak
+   ...
+   fun:g_get_language_names
+}
+{
+   glib/giomodules
+   Memcheck:Leak
+   ...
+   fun:_g_io_modules_ensure_loaded
+}
+{
+   glib/giomodules2
+   Memcheck:Leak
+   ...
+   fun:_g_io_module_get_default
+}
+{
+   glib/proxydefault
+   Memcheck:Leak
+   ...
+   fun:get_default_proxy_resolver
+}
+{
+   glib/proxysettings
+   Memcheck:Leak
+   ...
+   fun:update_settings
+   fun:g_proxy_resolver_gnome_lookup
+}
+{
+   glib/tlsdefault
+   Memcheck:Leak
+   ...
+   fun:get_default_tls_backend
+}
+{
+   glib/tlsdb
+   Memcheck:Leak
+   ...
+   fun:g_tls_backend_gnutls_get_default_database
+}
+{
+   glib/tlsdb_dummy
+   Memcheck:Leak
+   ...
+   fun:g_dummy_tls_backend_get_default_database
+}
+{
+   glib/tlscache
+   Memcheck:Leak
+   ...
+   fun:g_bytes_new_with_free_func
+   fun:g_tls_client_connection_gnutls_constructed
+}
+{
+   glib/tlspriority
+   Memcheck:Leak
+   ...
+   fun:g_tls_connection_gnutls_init_priorities
+}
+{
+   glib/gfileinfo
+   Memcheck:Leak
+   ...
+   fun:ensure_attribute_hash
+   fun:lookup_attribute
+}
+{
+   glib/gfileinfo2
+   Memcheck:Leak
+   ...
+   fun:_lookup_namespace
+}
+{
+  glib/unixsignalthread
+  Memcheck:Leak
+  ...
+  fun:ensure_unix_signal_handler_installed_unlocked
+}
+{
+  glib/gioscheduler
+  Memcheck:Leak
+  ...
+  fun:init_scheduler
+}
+{
+   glib/gtestinit
+   Memcheck:Leak
+   ...
+   fun:g_test_init
+}
+{
+   glib/gtestroot
+   Memcheck:Leak
+   ...
+   fun:g_test_get_root
+}
+{
+   glib/gtestseed
+   Memcheck:Leak
+   ...
+   fun:test_run_seed
+}
+{
+   glib/gtestcase
+   Memcheck:Leak
+   ...
+   fun:g_test_create_case
+}
+{
+   glib/gtestsuite
+   Memcheck:Leak
+   ...
+   fun:g_test_create_suite
+}
+{
+   glib/gtestsuiteadd
+   Memcheck:Leak
+   ...
+   fun:g_test_suite_add
+}
+{
+   glib/gtestsuiteaddsuite
+   Memcheck:Leak
+   ...
+   fun:g_test_suite_add_suite
+}
+{
+   glib/gtestsuiterun
+   Memcheck:Leak
+   ...
+   fun:g_slist_copy
+   fun:g_test_run_suite_internal
+}
+{
+   glib/gthreadpool
+   Memcheck:Leak
+   ...
+   fun:g_thread_pool_start_thread
+}
+{
+   glib/gthreadpool1
+   Memcheck:Leak
+   ...
+   fun:g_thread_pool_wait_for_new_pool
+}
+{
+   glib/gthreadpool2
+   Memcheck:Leak
+   ...
+   fun:g_thread_pool_wait_for_new_task
+}
+{
+   glib/unused_thread_queue
+   Memcheck:Leak
+   ...
+   fun:g_async_queue_new_full
+   fun:g_thread_pool_new
+}
+{
+   glib/gthreadtls
+   Memcheck:Leak
+   ...
+   fun:_dl_allocate_tls
+   ...
+   fun:g_system_thread_new
+}
+{
+   glib/filenamecharsets
+   Memcheck:Leak
+   ...
+   fun:g_get_filename_charsets
+}
+{
+   glib/charset
+   Memcheck:Leak
+   ...
+   fun:g_get_charset
+}
+{
+   glib/tmpdir
+   Memcheck:Leak
+   ...
+   fun:g_get_tmp_dir
+}
+{
+   glib/g_get_user_name
+   Memcheck:Leak
+   ...
+   fun:g_get_user_name
+}
+{
+   glib/gtlssessioncache
+   Memcheck:Leak
+   ...
+   fun:g_tls_backend_gnutls_store_session
+}
+{
+   glib/gtlssessioncache_client
+   Memcheck:Leak
+   ...
+   fun:gnutls_session_get_data2
+   fun:g_tls_client_connection_gnutls_finish_handshake
+}
+{
+   glib/gtlssessioncache_client2
+   Memcheck:Leak
+   ...
+   fun:g_bytes_new_with_free_func
+   fun:g_tls_client_connection_gnutls_finish_handshake
+}
+{
+   glib/gtlssessioncache_client3
+   Memcheck:Leak
+   ...
+   fun:g_bytes_new_take
+   fun:g_tls_client_connection_gnutls_constructed
+}
+{
+   glib/gtlssessioncache_client4
+   Memcheck:Leak
+   ...
+   fun:g_strdup_printf
+   fun:g_tls_client_connection_gnutls_constructed
+}
+{
+   glib/gtlssessioncache_server
+   Memcheck:Leak
+   ...
+   fun:g_tls_server_connection_gnutls_db_store
+}
+{
+   glib/cached_poll_array
+   Memcheck:Leak
+   ...
+   fun:g_malloc_n
+   fun:g_main_context_iterate
+}
+{
+   glib/rand
+   Memcheck:Leak
+   ...
+   fun:g_rand_new
+   fun:g_random_int_range
+}
+{
+   glib/g_cancellable_push_current
+   Memcheck:Leak
+   ...
+   fun:g_cancellable_push_current
+}
+{
+   glib/slice_thread_local
+   Memcheck:Leak
+   ...
+   fun:thread_memory_from_self
+}
+{
+   glib/gobjectinit
+   Memcheck:Leak
+   ...
+   fun:gobject_init_ctor
+}
+{
+   glib/gtask threadpool
+   Memcheck:Leak
+   ...
+   fun:g_thread_pool_new
+   fun:g_task_thread_pool_init
+}
+{
+   glib/resources
+   Memcheck:Leak
+   ...
+   fun:g_resource_load
+}
+{
+   glib/resources2
+   Memcheck:Leak
+   ...
+   fun:g_resources_register
+}
+{
+   glib/worker
+   Memcheck:Leak
+   ...
+   fun:g_get_worker_context
+}
+{
+   glib/worker2
+   Memcheck:Leak
+   ...
+   fun:glib_worker_main
+}
+
+# probably inlines the aggressive memcpy/memcmp
+{
+   gnutls/der
+   Memcheck:Addr4
+   ...
+   fun:asn1_der_coding
+}
+# probably using uninitialized memory as padding or something
+{
+   gnutls/handshake
+   Memcheck:Cond
+   ...
+   fun:gnutls_handshake
+}
+{
+   gnutls/init
+   Memcheck:Leak
+   ...
+   fun:gnutls_global_init
+}
+# known leak in gnutls 2.12, fixed in 3.0
+{
+   gnutls/server_key_leak
+   Memcheck:Leak
+   ...
+   fun:call_get_cert_callback
+}
+
+{
+   libxml2/xmlInitGlobals
+   Memcheck:Leak
+   ...
+   fun:xmlInitGlobals
+}
+{
+   libxml2/xmlInitMemory
+   Memcheck:Leak
+   ...
+   fun:xmlInitMemory
+}
+{
+   libxml2/xmlInitParserCtxt
+   Memcheck:Leak
+   ...
+   fun:xmlInitParserCtxt
+}
+{
+   libxml2/xmlInitializeDict
+   Memcheck:Leak
+   ...
+   fun:__xmlInitializeDict
+}
+{
+   libxml2/xmlInitCharEncodingHandlers
+   Memcheck:Leak
+   ...
+   fun:xmlInitCharEncodingHandlers
+}
+{
+   libxml2/xmlNewCharEncodingHandler
+   Memcheck:Leak
+   ...
+   fun:xmlNewCharEncodingHandler
+}
+
+{
+   libsoup/interned_uri_schemes
+   Memcheck:Leak
+   ...
+   fun:g_ascii_strdown
+   fun:soup_uri_parse_scheme
+}
+{
+   libsoup/interned_headers
+   Memcheck:Leak
+   ...
+   fun:intern_header_name
+}
+{
+   libsoup/tlds
+   Memcheck:Leak
+   ...
+   fun:soup_tld_ensure_rules_hash_table
+}
+
+
+# fixme?
+{
+   glib/gmuteximpl
+   Memcheck:Leak
+   ...
+   fun:g_mutex_impl_new
+   fun:g_mutex_get_impl
+}
+{
+   glib/grecmuteximpl
+   Memcheck:Leak
+   ...
+   fun:g_rec_mutex_impl_new
+   fun:g_rec_mutex_get_impl
+}
+{
+   glib/grwlockimpl
+   Memcheck:Leak
+   ...
+   fun:g_rw_lock_impl_new
+   fun:g_rw_lock_get_impl
+}
+{
+   glib/gcondimpl
+   Memcheck:Leak
+   ...
+   fun:g_cond_impl_new
+   fun:g_cond_get_impl
+}
+{
+   glib/gprivateimpl
+   Memcheck:Leak
+   ...
+   fun:g_private_impl_new
+   fun:g_private_get_impl
+}
+{
+   glib/test_uri_base
+   Memcheck:Leak
+   ...
+   fun:g_strdup
+   fun:test_case_run
+}

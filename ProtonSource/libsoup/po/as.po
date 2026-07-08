@@ -1,0 +1,130 @@
+# Assamese translation for libsoup.
+# Copyright (C) 2012 libsoup's COPYRIGHT HOLDER
+# This file is distributed under the same license as the libsoup package.
+#
+# Nilamdyuti Goswami <ngoswami@redhat.com>, 2012, 2013, 2014.
+msgid ""
+msgstr ""
+"Project-Id-Version: libsoup master\n"
+"Report-Msgid-Bugs-To: http://bugzilla.gnome.org/enter_bug.cgi?"
+"product=libsoup&keywords=I18N+L10N&component=general\n"
+"POT-Creation-Date: 2014-08-18 09:39+0000\n"
+"PO-Revision-Date: 2014-08-18 21:29+0530\n"
+"Last-Translator: Nilamdyuti Goswami <ngoswami@redhat.com>\n"
+"Language-Team: Assamese <kde-i18n-doc@kde.org>\n"
+"Language: as\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"X-Generator: Lokalize 1.5\n"
+"Plural-Forms: nplurals=2; plural=n != 1;\n"
+
+#: ../libsoup/soup-body-input-stream.c:140
+#: ../libsoup/soup-body-input-stream.c:171
+#: ../libsoup/soup-body-input-stream.c:204 ../libsoup/soup-message-io.c:196
+msgid "Connection terminated unexpectedly"
+msgstr "সংযোগ অপ্ৰত্যাশিতভাৱে অন্ত হল"
+
+#: ../libsoup/soup-body-input-stream.c:462
+msgid "Invalid seek request"
+msgstr "অবৈধ সন্ধান অনুৰোধ"
+
+#: ../libsoup/soup-body-input-stream.c:490
+msgid "Cannot truncate SoupBodyInputStream"
+msgstr "SoupBodyInputStream চুটি কৰিব নোৱাৰি"
+
+#: ../libsoup/soup-cache-input-stream.c:73
+msgid "Network stream unexpectedly closed"
+msgstr "নেটৱৰ্ক স্ট্ৰিম অপ্ৰত্যাশিতভাৱে বন্ধ হল"
+
+#: ../libsoup/soup-cache-input-stream.c:290
+msgid "Failed to completely cache the resource"
+msgstr "সম্পদক সম্পূৰ্ণভাৱে ক্যাশ কৰিবলে ব্যৰ্থ"
+
+#: ../libsoup/soup-converter-wrapper.c:192
+#, c-format
+msgid "Output buffer is too small"
+msgstr "আউটপুট বাফাৰ অতি সৰু"
+
+#: ../libsoup/soup-message-client-io.c:41
+msgid "Could not parse HTTP response"
+msgstr "HTTP প্ৰতিক্ৰিয়া বিশ্লেষণ কৰিব পৰা নগল"
+
+#: ../libsoup/soup-message-client-io.c:66
+msgid "Unrecognized HTTP response encoding"
+msgstr "অপৰিচিত HTTP প্ৰতিক্ৰিয়া এনক'ডিং"
+
+#: ../libsoup/soup-message-io.c:854 ../libsoup/soup-message-io.c:890
+msgid "Operation was cancelled"
+msgstr "কাৰ্য্য বাতিল কৰা হৈছিল"
+
+#: ../libsoup/soup-message-io.c:901
+msgid "Operation would block"
+msgstr "কাৰ্য্য প্ৰতিৰোধ কৰিব"
+
+#: ../libsoup/soup-message-server-io.c:41
+msgid "Could not parse HTTP request"
+msgstr "HTTP অনুৰোধ বিশ্লেষণ কৰিব পৰা নগল"
+
+#: ../libsoup/soup-request.c:140
+#, c-format
+msgid "No URI provided"
+msgstr "কোনো URl প্ৰদান কৰা হোৱা নাই"
+
+#: ../libsoup/soup-request.c:150
+#, c-format
+msgid "Invalid '%s' URI: %s"
+msgstr "অবৈধ '%s' URI: %s"
+
+#: ../libsoup/soup-server.c:1528
+msgid "Can't create a TLS server without a TLS certificate"
+msgstr "এটা TLS প্ৰমাণপত্ৰ নহোৱাকৈ এটা TLS চাৰ্ভাৰ সৃষ্টি কৰিব নোৱাৰি"
+
+#: ../libsoup/soup-server.c:1547
+#, c-format
+msgid "Could not listen on address %s, port %d: "
+msgstr "ঠিকনা %s, পৰ্ট %d ত শুনিব নোৱাৰি: "
+
+#: ../libsoup/soup-session.c:4466
+#, c-format
+msgid "Could not parse URI '%s'"
+msgstr "URI '%s' বিশ্লেষণ কৰিব পৰা নগল"
+
+#: ../libsoup/soup-session.c:4503
+#, c-format
+msgid "Unsupported URI scheme '%s'"
+msgstr "অসমৰ্থিত URl আঁচনি '%s'"
+
+#: ../libsoup/soup-session.c:4525
+#, c-format
+msgid "Not an HTTP URI"
+msgstr "এটা HTTP URI নহয়"
+
+#: ../libsoup/soup-socket.c:142
+msgid "Can't import non-socket as SoupSocket"
+msgstr "SoupSocket ৰূপে নন-চকেটক ইমপৰ্ট কৰিব নোৱাৰি"
+
+#: ../libsoup/soup-socket.c:160
+msgid "Could not import existing socket: "
+msgstr "স্থায়ী চকেটক ইমপৰ্ট কৰিব নোৱাৰি"
+
+#: ../libsoup/soup-socket.c:169
+msgid "Can't import unconnected socket"
+msgstr "অসংযুক্ত চকেটক ইমপৰ্ট কৰিব নোৱাৰি"
+
+#: ../libsoup/soup-tld.c:188
+msgid "Hostname is an IP address"
+msgstr "হস্টনাম এটা IP ঠিকনা"
+
+#: ../libsoup/soup-tld.c:198 ../libsoup/soup-tld.c:220
+msgid "Invalid hostname"
+msgstr "অবৈধ হস্টনাম"
+
+#: ../libsoup/soup-tld.c:250
+msgid "Hostname has no base domain"
+msgstr "হস্টনামৰ কোনো ভিত্তি ডমেইন নাই"
+
+#: ../libsoup/soup-tld.c:304
+msgid "Not enough domains"
+msgstr "পৰ্যাপ্ত ডমেইন নাই"
+

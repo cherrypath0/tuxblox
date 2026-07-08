@@ -1,0 +1,25 @@
+[require]
+shader model >= 4.1
+shader model < 6.0
+
+[effect]
+BlendState bs
+{
+    SrcBlend[0] = one;
+    DestBlend[1] = zero;
+    BlendOp[2] = min;
+    SrcBlendAlpha[3] = dest_color;
+    DestBlendAlpha[4] = src1_alpha;
+    BlendOpAlpha[5] = add;
+};
+
+[effect]
+BlendState bs
+{
+    SrcBlend = one;
+    DestBlend = zero;
+    BlendOp = min;
+    SrcBlendAlpha = dest_color;
+    DestBlendAlpha = src1_alpha;
+    BlendOpAlpha = add;
+};

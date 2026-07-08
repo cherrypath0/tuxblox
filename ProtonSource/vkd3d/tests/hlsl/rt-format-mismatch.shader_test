@@ -1,0 +1,199 @@
+[require]
+shader model >= 4.0
+
+% Let's try to mismatch the shader target output with the RTV type in various
+% ways. All of them appears to be valid: the bits are copied as-is, without
+% being interpreted. Excessive bits are discarded, missing bits are left
+% undefined. The warnings emitted by the native validator suggest that it is
+% not an error to rely on these behaviours.
+
+[rtv 0]
+% The default, but just to be explicit.
+format r32g32b32a32-float
+size (2d, 640, 480)
+
+[pixel shader]
+float4 main() : sv_target
+{
+    return float4(22.0, -22.0, 1.0e100, -1.0e100);
+}
+
+[test]
+draw quad
+probe (0, 0) f32(22.0, -22.0, inf, -inf)
+
+[pixel shader]
+uint4 main() : sv_target
+{
+    return uint4(0, 22, 0xfeedcafe, ~0u);
+}
+
+[test]
+todo(mvk & vulkan | msl) draw quad
+todo(mvk) probe (0, 0) u32(0, 22, 0xfeedcafe, 0xffffffff)
+
+[pixel shader]
+int4 main() : sv_target
+{
+    return int4(0, 22, -22, -1000);
+}
+
+[test]
+todo(mvk & vulkan | msl) draw quad
+todo(mvk) probe (0, 0) i32(0, 22, -22, -1000)
+
+[pixel shader]
+float2 main() : sv_target
+{
+    return float2(22.0, -22.0);
+}
+
+[test]
+draw quad
+probe (0, 0) f32(22.0, -22.0)
+
+[rtv 0]
+format r32g32b32a32-uint
+size (2d, 640, 480)
+
+[pixel shader]
+float4 main() : sv_target
+{
+    return float4(22.0, -22.0, 1.0e100, -1.0e100);
+}
+
+[test]
+todo(mvk & vulkan | msl) draw quad
+todo(mvk) probe (0, 0) f32(22.0, -22.0, inf, -inf)
+
+[pixel shader]
+uint4 main() : sv_target
+{
+    return uint4(0, 22, 0xfeedcafe, ~0u);
+}
+
+[test]
+draw quad
+probe (0, 0) u32(0, 22, 0xfeedcafe, 0xffffffff)
+
+[pixel shader]
+int4 main() : sv_target
+{
+    return int4(0, 22, -22, -1000);
+}
+
+[test]
+todo(mvk & vulkan | msl) draw quad
+todo(mvk) probe (0, 0) i32(0, 22, -22, -1000)
+
+[pixel shader]
+float2 main() : sv_target
+{
+    return float2(22.0, -22.0);
+}
+
+[test]
+todo(mvk & vulkan | msl) draw quad
+todo(mvk) probe (0, 0) f32(22.0, -22.0)
+
+[rtv 0]
+format r32g32b32a32-sint
+size (2d, 640, 480)
+
+[pixel shader]
+float4 main() : sv_target
+{
+    return float4(22.0, -22.0, 1.0e100, -1.0e100);
+}
+
+[test]
+todo(mvk & vulkan | msl) draw quad
+todo(mvk) probe (0, 0) f32(22.0, -22.0, inf, -inf)
+
+[pixel shader]
+uint4 main() : sv_target
+{
+    return uint4(0, 22, 0xfeedcafe, ~0u);
+}
+
+[test]
+todo(mvk & vulkan | msl) draw quad
+todo(mvk) probe (0, 0) u32(0, 22, 0xfeedcafe, 0xffffffff)
+
+[pixel shader]
+int4 main() : sv_target
+{
+    return int4(0, 22, -22, -1000);
+}
+
+[test]
+draw quad
+probe (0, 0) i32(0, 22, -22, -1000)
+
+[pixel shader]
+float2 main() : sv_target
+{
+    return float2(22.0, -22.0);
+}
+
+[test]
+todo(mvk & vulkan | msl) draw quad
+todo(mvk) probe (0, 0) f32(22.0, -22.0)
+
+[rtv 0]
+format r32-uint
+size (2d, 640, 480)
+
+[pixel shader]
+float4 main() : sv_target
+{
+    return float4(22.0, -22.0, 1.0e100, -1.0e100);
+}
+
+[test]
+todo(mvk & vulkan | msl) draw quad
+todo(mvk) probe (0, 0) f32(22.0)
+
+[pixel shader]
+uint4 main() : sv_target
+{
+    return uint4(22, 0, 0xfeedcafe, ~0u);
+}
+
+[test]
+draw quad
+probe (0, 0) u32(22)
+
+[pixel shader]
+int4 main() : sv_target
+{
+    return int4(-22, 22, 0, -1000);
+}
+
+[test]
+todo(mvk & vulkan | msl) draw quad
+todo(mvk) probe (0, 0) i32(-22)
+
+[pixel shader]
+float2 main() : sv_target
+{
+    return float2(22.0, -22.0);
+}
+
+[test]
+todo(mvk & vulkan | msl) draw quad
+todo(mvk) probe (0, 0) f32(22.0)
+
+% For the avoidance of doubt, 64 bit types cannot be used as target outputs.
+
+[pixel shader fail]
+double2 main() : sv_target
+{
+    return 0;
+}
+
+[pixel shader fail]
+uint64_t2 main() : sv_target
+{
+    return 0;
+}

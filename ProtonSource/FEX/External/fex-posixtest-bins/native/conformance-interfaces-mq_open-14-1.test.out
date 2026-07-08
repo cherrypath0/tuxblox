@@ -1,0 +1,2 @@
+Will not test calling process privileges on name
+as POSIX does not define when this error occurs.

@@ -1,0 +1,62 @@
+[require]
+shader model >= 4.0
+
+[input layout]
+0 r32g32-float sv_position
+
+[vb 0]
+-2.0 -2.0
+ 2.0 -2.0
+-2.0  2.0
+
+ 2.0 -2.0
+-2.0  2.0
+ 2.0  2.0
+
+[vertex shader]
+void main(out uint a : A, inout float4 pos : sv_position)
+{
+    a = 2;
+}
+
+[pixel shader]
+float4 main(uint a : A, bool face : sv_isfrontface) : sv_target
+{
+    return float4(a, face, 0, 0);
+}
+
+[test]
+todo(msl & sm>=6) draw triangle list 6
+probe (160, 240) f32(2.0, 0.0, 0.0, 0.0)
+probe (480, 240) f32(2.0, 1.0, 0.0, 0.0)
+
+[require]
+shader model >= 4.0
+shader model < 4.1
+
+[pixel shader dxbc-tpf-hex]
+% As above, but compiled with native d3dcompiler_43.
+% Versions 43 and earlier will pack together "a" with "face".
+43425844 5c2e1427 858794db 4ee8c03b c5723497 00000001 00000140          % DXBC header
+00000003 0000002c 00000080 000000b4                                     %
+4e475349 0000004c 00000002 00000008                                     % .input
+00000038 00000000 00000000 00000001 00000000 00000101                   % .param A.x, v0.x, uint
+0000003a 00000000 00000009 00000001 00000000 00000202                   % .param sv_isfrontface.y, v0.y, uint, FFACE
+76730041 6673695f 746e6f72 65636166 ababab00                            %
+4e47534f 0000002c 00000001 00000008                                     % .output
+00000020 00000000 00000000 00000003 00000000 0000000f                   % .param sv_target.xyzw, o0.xyzw, float, TARGET
+745f7673 65677261 abab0074                                              %
+52444853 00000084 00000040 00000021                                     % .text ps_4_0
+03000862 00101012 00000000                                              % dcl_input_ps constant v0.x
+04000863 00101022 00000000 00000009                                     % dcl_input_ps_sgv v0.y, is_front_face
+03000065 001020f2 00000000                                              % dcl_output o0.xyzw
+05000056 00102012 00000000 0010100a 00000000                            % utof o0.x, v0.x
+07000001 00102022 00000000 0010101a 00000000 00004001 3f800000          % and o0.y, v0.y, l(0x3f800000)
+08000036 001020c2 00000000 00004002 00000000 00000000 00000000 00000000 % mov o0.zw, l(0, 0, 0, 0)
+0100003e                                                                % ret
+
+[test]
+clear rtv-0 f32(0.0, 0.0, 0.0, 0.0)
+todo(msl) draw triangle list 6
+probe (160, 240) f32(2.0, 0.0, 0.0, 0.0)
+todo(glsl) probe (480, 240) f32(2.0, 1.0, 0.0, 0.0)

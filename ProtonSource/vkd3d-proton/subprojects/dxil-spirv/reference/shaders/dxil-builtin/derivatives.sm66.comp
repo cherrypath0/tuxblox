@@ -1,0 +1,98 @@
+#version 460
+layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
+
+layout(set = 0, binding = 0) uniform texture3D _8;
+layout(set = 0, binding = 0) uniform writeonly image3D _11;
+layout(set = 0, binding = 0) uniform sampler _14;
+
+void main()
+{
+    imageStore(_11, ivec3(uvec3(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y, gl_GlobalInvocationID.z)), vec4(texture(sampler3D(_8, _14), vec3((float(gl_GlobalInvocationID.x) + 0.5) * 0.015625, (float(gl_GlobalInvocationID.y) + 0.5) * 0.015625, (float(gl_GlobalInvocationID.z) + 0.5) * 0.015625))));
+}
+
+
+#if 0
+// SPIR-V disassembly
+; SPIR-V
+; Version: 1.3
+; Generator: Unknown(30017); 21022
+; Bound: 58
+; Schema: 0
+OpCapability Shader
+OpCapability StorageImageWriteWithoutFormat
+OpCapability ComputeDerivativeGroupQuadsKHR
+OpExtension "SPV_KHR_compute_shader_derivatives"
+OpMemoryModel Logical GLSL450
+OpEntryPoint GLCompute %3 "main" %18
+OpExecutionMode %3 DerivativeGroupQuadsKHR
+OpExecutionMode %3 LocalSize 4 4 4
+OpName %3 "main"
+OpDecorate %8 DescriptorSet 0
+OpDecorate %8 Binding 0
+OpDecorate %11 DescriptorSet 0
+OpDecorate %11 Binding 0
+OpDecorate %11 NonReadable
+OpDecorate %14 DescriptorSet 0
+OpDecorate %14 Binding 0
+OpDecorate %18 BuiltIn GlobalInvocationId
+%1 = OpTypeVoid
+%2 = OpTypeFunction %1
+%5 = OpTypeFloat 32
+%6 = OpTypeImage %5 3D 0 0 0 1 Unknown
+%7 = OpTypePointer UniformConstant %6
+%8 = OpVariable %7 UniformConstant
+%9 = OpTypeImage %5 3D 0 0 0 2 Unknown
+%10 = OpTypePointer UniformConstant %9
+%11 = OpVariable %10 UniformConstant
+%12 = OpTypeSampler
+%13 = OpTypePointer UniformConstant %12
+%14 = OpVariable %13 UniformConstant
+%15 = OpTypeInt 32 0
+%16 = OpTypeVector %15 3
+%17 = OpTypePointer Input %16
+%18 = OpVariable %17 Input
+%19 = OpTypePointer Input %15
+%21 = OpConstant %15 0
+%24 = OpConstant %15 1
+%27 = OpConstant %15 2
+%33 = OpConstant %5 0.5
+%37 = OpConstant %5 0.015625
+%42 = OpTypeSampledImage %6
+%44 = OpConstant %5 0
+%45 = OpTypeVector %5 4
+%47 = OpTypeVector %5 3
+%3 = OpFunction %1 None %2
+%4 = OpLabel
+OpBranch %56
+%56 = OpLabel
+%20 = OpAccessChain %19 %18 %21
+%22 = OpLoad %15 %20
+%23 = OpAccessChain %19 %18 %24
+%25 = OpLoad %15 %23
+%26 = OpAccessChain %19 %18 %27
+%28 = OpLoad %15 %26
+%29 = OpConvertUToF %5 %22
+%30 = OpConvertUToF %5 %25
+%31 = OpConvertUToF %5 %28
+%32 = OpFAdd %5 %29 %33
+%34 = OpFAdd %5 %30 %33
+%35 = OpFAdd %5 %31 %33
+%36 = OpFMul %5 %32 %37
+%38 = OpFMul %5 %34 %37
+%39 = OpFMul %5 %35 %37
+%40 = OpLoad %6 %8
+%41 = OpLoad %12 %14
+%43 = OpSampledImage %42 %40 %41
+%48 = OpCompositeConstruct %47 %36 %38 %39
+%46 = OpImageSampleImplicitLod %45 %43 %48 None
+%49 = OpCompositeExtract %5 %46 0
+%50 = OpCompositeExtract %5 %46 1
+%51 = OpCompositeExtract %5 %46 2
+%52 = OpCompositeExtract %5 %46 3
+%53 = OpLoad %9 %11
+%54 = OpCompositeConstruct %16 %22 %25 %28
+%55 = OpCompositeConstruct %45 %49 %50 %51 %52
+OpImageWrite %53 %54 %55
+OpReturn
+OpFunctionEnd
+#endif

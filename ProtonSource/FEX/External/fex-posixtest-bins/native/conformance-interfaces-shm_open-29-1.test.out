@@ -1,0 +1,2 @@
+Will not test whether the name and shared memory object state remain valid
+after a system reboot. It is unspecified.

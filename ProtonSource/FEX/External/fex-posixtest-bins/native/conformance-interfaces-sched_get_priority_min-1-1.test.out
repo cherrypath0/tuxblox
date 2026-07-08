@@ -1,0 +1,2 @@
+The minimum priority for policy SCHED_RR is 1.
+Test PASSED

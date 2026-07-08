@@ -1,0 +1,37 @@
+[input layout]
+0 r32g32-float position
+0 r32-float color 0
+0 r32-float color 1
+0 r32-float texcoord 0
+0 r32-float texcoord 1
+0 r32-float texcoord 2
+0 r32-float texcoord 3
+0 r32-float texcoord 4
+0 r32-float texcoord 5
+0 r32-float texcoord 6
+0 r32-float texcoord 7
+
+[vb 0]
+-1.0 -1.0   0.5 0.6   0.1 0.2 0.3 0.4 0.05 0.06 0.07 0.08
+-1.0  1.0   0.5 0.6   0.1 0.2 0.3 0.4 0.05 0.06 0.07 0.08
+ 1.0 -1.0   0.5 0.6   0.1 0.2 0.3 0.4 0.05 0.06 0.07 0.08
+ 1.0  1.0   0.5 0.6   0.1 0.2 0.3 0.4 0.05 0.06 0.07 0.08
+
+[vertex shader]
+void main(float4 pos : position, inout float color[2] : color,
+        inout float texcoord[8] : texcoord, out float4 out_pos : sv_position)
+{
+    out_pos = pos;
+}
+
+[pixel shader]
+float4 main(float color[2] : color, float texcoord[8] : texcoord) : sv_target
+{
+    return float4(texcoord[0], texcoord[1], texcoord[2], texcoord[3])
+            + float4(texcoord[4], texcoord[5], texcoord[6], texcoord[7])
+            + float4(color[0], color[1], 0, 0);
+}
+
+[test]
+todo(msl & sm>=6) draw triangle strip 4
+probe (0,0) f32(.65, .86, .37, .48) 1

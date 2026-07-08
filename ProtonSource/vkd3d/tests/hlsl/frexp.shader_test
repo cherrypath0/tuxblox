@@ -1,0 +1,117 @@
+[pixel shader todo(sm<4)]
+uniform float4 f;
+
+float4 main() : sv_target
+{
+    float exp;
+    float mantissa = frexp(f.x, exp);
+    return float4(exp, mantissa, 0.0, 0.0);
+}
+
+[test]
+uniform 0 float4 3.1415927 0.0 0.0 0.0
+todo(sm<4) draw quad
+probe (0, 0) f32(2.0, 0.785398185, 0.0, 0.0)
+
+uniform 0 float4 -3.1415927 0.0 0.0 0.0
+todo(sm<4) draw quad
+if(sm<4) probe (0, 0) f32(2.0, -0.785398185, 0.0, 0.0)
+% Starting with shader model 4, negative inputs give positive mantissa.
+if(sm>=4) probe (0, 0) f32(2.0, 0.785398185, 0.0, 0.0)
+
+uniform 0 float4 7604.123 0.0 0.0 0.0
+todo(sm<4) draw quad
+probe (0, 0) f32(13.0, 0.92823765, 0.0, 0.0)
+
+uniform 0 float4 0.00001234 0.0 0.0 0.0
+todo(sm<4) draw quad
+probe (0, 0) f32(-16.0, 0.8087142, 0.0, 0.0)
+
+uniform 0 float4 0.0 0.0 0.0 0.0
+todo(sm<4) draw quad
+probe (0, 0) f32(0.0, 0.0, 0.0, 0.0)
+
+uniform 0 float4 -0.0 0.0 0.0 0.0
+todo(sm<4) draw quad
+probe (0, 0) f32(0.0, 0.0, 0.0, 0.0)
+
+uniform 0 float4 INF 0.0 0.0 0.0
+todo(sm<4) draw quad
+% Results for sm<4 are not uniform across drivers.
+if(sm>=4) probe (0, 0) f32(129, 0.5, 0, 0)
+
+uniform 0 float4 -INF 0.0 0.0 0.0
+todo(sm<4) draw quad
+% Results for sm<4 are not uniform across drivers.
+if(sm>=4) probe (0, 0) f32(129, 0.5, 0, 0)
+
+% NaN, with a well defined mantissa (pi / 4)
+uniform 0 uint4 0x7fc90fdb 0 0 0
+todo(sm<4) draw quad
+if(sm<4) probe (0, 0) f32(NAN, NAN, 0, 0)
+if(sm>=4) probe (0, 0) f32(129, 0.785398185, 0, 0)
+
+% Subnormals.
+uniform 0 uint4 0x0007ffff 0 0 0
+todo(sm<4) draw quad
+bug(llvmpipe & llvm>=16) probe (0, 0) f32(0, 0, 0, 0)
+
+[pixel shader]
+float4 main() : sv_target
+{
+    int arg = 7604;
+    int exp;
+    /* Integers are promoted to floats. */
+    int mantissa = frexp(arg, exp);
+    return float4(exp, mantissa, 0, 0);
+}
+
+[test]
+draw quad
+probe (0, 0) f32(13.0, 0.0, 0.0, 0.0)
+
+[pixel shader]
+float4 main() : sv_target
+{
+    bool arg = true;
+    bool exp;
+    /* Bools are promoted to floats. */
+    bool mantissa = frexp(arg, exp);
+    return float4(exp, mantissa, 0, 0);
+}
+
+[test]
+draw quad
+if(sm<4)  todo probe (0, 0) f32(0.0, 1.0, 0.0, 0.0)
+if(sm>=4) probe (0, 0) f32(1.0, 1.0, 0.0, 0.0)
+
+[pixel shader]
+float4 main() : sv_target
+{
+    half arg = 3.141;
+    half exp;
+    /* Halfs are promoted to floats. */
+    half mantissa = frexp(arg, exp);
+    return float4(exp, mantissa, 0, 0);
+}
+
+[test]
+draw quad
+probe (0, 0) f32(2.0, 0.785250008, 0.0, 0.0)
+
+[require]
+shader model >= 5.0
+float64
+
+[pixel shader todo]
+float4 main() : sv_target
+{
+    double arg = 3.14156265358979323;
+    double exp;
+    double mantissa = frexp(arg, exp);
+    return float4(exp, mantissa, 0, 0);
+}
+
+[test]
+todo(sm<6) draw quad
+probe (0, 0) f32(2.0, 0.785390675, 0.0, 0.0)

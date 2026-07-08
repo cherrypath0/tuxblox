@@ -1,0 +1,1 @@
+Test PASS: mmap/12-1.c The file is removed. munmap removed reference to the file associated with fd

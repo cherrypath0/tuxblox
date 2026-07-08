@@ -1,0 +1,149 @@
+[require]
+shader model < 3.0
+
+[vertex shader fail]
+void main(float4 pos : position, out float2 fog : fog, out float4 out_pos : sv_position)
+{
+    fog = 0.5;
+    out_pos = pos;
+}
+
+[require]
+shader model >= 3.0
+
+[vertex shader]
+void main(float4 pos : position, out float2 fog : fog, out float4 out_pos : sv_position)
+{
+    fog = float2(0.1, 0.2);
+    out_pos = pos;
+}
+
+[pixel shader]
+float4 main(float2 fog : fog) : sv_target
+{
+    return float4(fog, 0, 1);
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (0.1, 0.2, 0, 1)
+
+
+[require]
+fog
+
+[input layout]
+0 r32g32b32a32-float position
+
+[vb 0]
+-1.0 -1.0 0.2 1.0
+-1.0  1.0 0.2 1.0
+ 1.0 -1.0 0.6 1.0
+ 1.0  1.0 0.6 1.0
+
+[vertex shader]
+float4 main(float4 pos : position, out float fog : fog) : sv_position
+{
+    fog = 0.2;
+    return pos;
+}
+
+[pixel shader]
+float4 main() : sv_target
+{
+    return float4(0, 0, 1, 1);
+}
+
+[test]
+fog-colour 0.0 1.0 1.0 1.0
+
+fog disable
+draw triangle strip 4
+probe (160, 120) rgba (0.0, 0.0, 1.0, 1.0)
+probe (480, 360) rgba (0.0, 0.0, 1.0, 1.0)
+probe (160, 120) rgba (0.0, 0.0, 1.0, 1.0)
+probe (480, 360) rgba (0.0, 0.0, 1.0, 1.0)
+
+fog none
+draw triangle strip 4
+probe (160, 120) rgba (0.0, 0.8, 1.0, 1.0)
+probe (480, 360) rgba (0.0, 0.8, 1.0, 1.0)
+probe (160, 120) rgba (0.0, 0.8, 1.0, 1.0)
+probe (480, 360) rgba (0.0, 0.8, 1.0, 1.0)
+
+fog linear ortho 0.1 1.1
+draw triangle strip 4
+probe (160, 120) rgba (0.0, 0.2, 1.0, 1.0) 64
+probe (480, 360) rgba (0.0, 0.4, 1.0, 1.0) 64
+probe (160, 120) rgba (0.0, 0.2, 1.0, 1.0) 64
+probe (480, 360) rgba (0.0, 0.4, 1.0, 1.0) 64
+
+fog exp ortho 2.0
+draw triangle strip 4
+probe (160, 120) rgba (0.0, 0.45118836, 1.0, 1.0) 64
+probe (480, 360) rgba (0.0, 0.63212056, 1.0, 1.0) 64
+probe (160, 120) rgba (0.0, 0.45118836, 1.0, 1.0) 64
+probe (480, 360) rgba (0.0, 0.63212056, 1.0, 1.0) 64
+
+fog exp2 ortho 2.0
+draw triangle strip 4
+probe (160, 120) rgba (0.0, 0.30232367, 1.0, 1.0) 64
+probe (480, 360) rgba (0.0, 0.63212056, 1.0, 1.0) 64
+probe (160, 120) rgba (0.0, 0.30232367, 1.0, 1.0) 64
+probe (480, 360) rgba (0.0, 0.63212056, 1.0, 1.0) 64
+
+
+% Test a VS that doesn't write fog, but does write specular.
+
+[vertex shader]
+float4 main(float4 pos : position, out float4 specular : color1) : sv_position
+{
+    specular = float4(0, 0, 0, 0.3);
+    return pos;
+}
+
+[test]
+fog none
+draw triangle strip 4
+probe (160, 120) rgba (0.0, 0.7, 1.0, 1.0)
+probe (480, 360) rgba (0.0, 0.7, 1.0, 1.0)
+probe (160, 120) rgba (0.0, 0.7, 1.0, 1.0)
+probe (480, 360) rgba (0.0, 0.7, 1.0, 1.0)
+
+fog linear ortho 0.1 1.1
+draw triangle strip 4
+probe (160, 120) rgba (0.0, 0.2, 1.0, 1.0) 64
+probe (480, 360) rgba (0.0, 0.4, 1.0, 1.0) 64
+probe (160, 120) rgba (0.0, 0.2, 1.0, 1.0) 64
+probe (480, 360) rgba (0.0, 0.4, 1.0, 1.0) 64
+
+
+% Test the non-orthogonal case, where fog comes from W.
+% We don't do this using the same VB: drivers disagree on whether Z means vertex
+% Z or pixel Z (i.e. whether perspective division is applied, as well as things
+% like depth bias) so we want W to be flat 1.0 for the Z tests.
+
+[vb 0]
+-2.0  0.0 0.2 0.5
+ 0.0  2.0 0.2 0.5
+ 0.0  0.0 0.2 0.5
+
+ 0.0  0.0 0.2 0.9
+ 0.0  2.0 0.2 0.9
+ 2.0  0.0 0.2 0.9
+
+ 0.0 -2.0 0.5 0.5
+-2.0  0.0 0.5 0.5
+ 0.0  0.0 0.5 0.5
+
+ 0.0 -2.0 0.5 0.9
+ 0.0  0.0 0.5 0.9
+ 2.0  0.0 0.5 0.9
+
+[test]
+fog linear non-ortho 0.1 1.1
+draw triangle list 12
+probe (300, 220) rgba (0.0, 0.4, 1.0, 1.0) 64
+probe (340, 220) rgba (0.0, 0.8, 1.0, 1.0) 64
+probe (300, 260) rgba (0.0, 0.4, 1.0, 1.0) 64
+probe (340, 260) rgba (0.0, 0.8, 1.0, 1.0) 64

@@ -1,0 +1,3 @@
+Will not test mq_open() failing with EINVAL if mq_open()
+is not supported for the name parameter as
+unsupported names are implementation defined.

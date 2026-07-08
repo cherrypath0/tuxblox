@@ -1,0 +1,734 @@
+[require]
+shader model >= 4.0
+% SM6 requires that an output stream is declared and written to.
+shader model < 6.0
+geometry-shader
+
+[geometry shader]
+struct gs_data
+{
+    float4 pos : SV_POSITION;
+};
+
+    [maxvertexcount(4)]
+void main(point gs_data vin[1])
+{
+}
+
+[geometry shader]
+struct gs_data
+{
+    float4 pos : SV_POSITION;
+};
+
+    [maxvertexcount(4)]
+void main(line gs_data vin[2])
+{
+}
+
+[geometry shader]
+struct gs_data
+{
+    float4 pos : SV_POSITION;
+};
+
+    [maxvertexcount(4)]
+void main(triangle gs_data vin[3])
+{
+}
+
+[geometry shader]
+struct gs_data
+{
+    float4 pos : SV_POSITION;
+};
+
+    [maxvertexcount(4)]
+void main(lineadj gs_data vin[4])
+{
+}
+
+[geometry shader]
+struct gs_data
+{
+    float4 pos : SV_POSITION;
+};
+
+    [maxvertexcount(4)]
+void main(triangleadj gs_data vin[6])
+{
+}
+
+% InputPatch is not supported in SM < 5.
+[geometry shader fail(sm<5)]
+struct gs_data
+{
+    float4 pos : SV_POSITION;
+};
+
+    [maxvertexcount(4)]
+void main(InputPatch<gs_data, 8> vin)
+{
+}
+
+% Input primitives must be arrays.
+[geometry shader fail]
+struct gs_data
+{
+    float4 pos : SV_POSITION;
+};
+
+    [maxvertexcount(4)]
+void main(point gs_data vin)
+{
+}
+
+% InputPatch types take precedence over geometry primitive modifiers.
+% However, the specified primitive modifiers restrict the sizes of the patches for entry point parameters.
+[geometry shader fail(sm<5)]
+struct gs_data
+{
+    float4 pos : SV_POSITION;
+};
+
+    [maxvertexcount(4)]
+void main(line InputPatch<gs_data, 2> vin)
+{
+}
+
+[geometry shader fail]
+struct gs_data
+{
+    float4 pos : SV_POSITION;
+};
+
+    [maxvertexcount(4)]
+void main(line InputPatch<gs_data, 3> vin)
+{
+}
+
+[geometry shader fail(sm<5)]
+struct gs_data
+{
+    float4 pos : SV_POSITION;
+};
+
+float4 f(line InputPatch<gs_data, 3> patch)
+{
+    return patch[0].pos;
+}
+
+    [maxvertexcount(4)]
+void main(InputPatch<gs_data, 3> vin)
+{
+    f(vin);
+}
+
+% Geometry shaders must have an input geometry primitive.
+[geometry shader fail]
+struct gs_data
+{
+    float4 pos : SV_POSITION;
+};
+
+    [maxvertexcount(4)]
+void main()
+{
+}
+
+% Input parameters must be geometry primitives.
+[geometry shader fail]
+struct gs_data
+{
+    float4 pos : SV_POSITION;
+};
+
+struct gs_data2
+{
+    float4 x : X;
+};
+
+    [maxvertexcount(4)]
+void main(gs_data2 data2, line gs_data vin[2])
+{
+}
+
+[geometry shader fail]
+struct gs_data
+{
+    float4 pos : SV_POSITION;
+};
+
+struct gs_data2
+{
+    float4 x : X;
+};
+
+    [maxvertexcount(4)]
+void main(gs_data2 data2, line gs_data vin[2])
+{
+}
+
+% Multiple input parameters are allowed. They must have the same primitive types and dimensions.
+[geometry shader]
+struct gs_data
+{
+    float4 pos : SV_POSITION;
+};
+
+struct gs_data2
+{
+    float4 x : X;
+};
+
+struct gs_data3
+{
+    float4 y : Y;
+};
+
+    [maxvertexcount(4)]
+void main(line gs_data data[2], line gs_data2 data2[2], line gs_data3 data3[2])
+{
+}
+
+[geometry shader fail]
+struct gs_data
+{
+    float4 pos : SV_POSITION;
+};
+
+struct gs_data2
+{
+    float4 x : X;
+};
+
+struct gs_data3
+{
+    float4 y : Y;
+};
+
+    [maxvertexcount(4)]
+void main(line gs_data data[2], triangle gs_data2 data2[3], line gs_data3 data3[2])
+{
+}
+
+[geometry shader fail(sm<5)]
+struct gs_data
+{
+    float4 pos : SV_POSITION;
+};
+
+struct gs_data2
+{
+    float4 x : X;
+};
+
+struct gs_data3
+{
+    float4 y : Y;
+};
+
+    [maxvertexcount(4)]
+void main(InputPatch<gs_data, 3> data, InputPatch<gs_data2, 3> data2, InputPatch<gs_data3, 3> data3)
+{
+}
+
+[geometry shader fail]
+struct gs_data
+{
+    float4 pos : SV_POSITION;
+};
+
+struct gs_data2
+{
+    float4 x : X;
+};
+
+struct gs_data3
+{
+    float4 y : Y;
+};
+
+    [maxvertexcount(4)]
+void main(InputPatch<gs_data, 3> data, InputPatch<gs_data2, 4> data2, InputPatch<gs_data3, 3> data3)
+{
+}
+
+[geometry shader fail]
+struct gs_data
+{
+    float4 pos : SV_POSITION;
+};
+
+struct gs_data2
+{
+    float4 x : X;
+};
+
+struct gs_data3
+{
+    float4 y : Y;
+};
+
+    [maxvertexcount(4)]
+void main(InputPatch<gs_data, 3> data, InputPatch<gs_data2, 3> data2, triangle gs_data3 data3[3])
+{
+}
+
+% Geometry input parameters can be written to.
+[geometry shader]
+struct gs_data
+{
+    float4 pos : SV_POSITION;
+};
+
+    [maxvertexcount(4)]
+void main(line gs_data vin[2])
+{
+    vin[0].pos += 1;
+}
+
+% Geometry modifiers can only be used in parameter declarations.
+[geometry shader fail]
+struct gs_data
+{
+    float4 pos : SV_POSITION;
+};
+
+line float4 x[2];
+
+    [maxvertexcount(4)]
+void main(point gs_data vin[1])
+{
+}
+
+[geometry shader fail]
+struct gs_data
+{
+    float4 pos : SV_POSITION;
+};
+
+struct s
+{
+    line float4 val[2];
+};
+struct s x;
+
+    [maxvertexcount(4)]
+void main(point gs_data vin[1])
+{
+}
+
+% Geometry primitive inputs cannot be used in other shader types.
+[pixel shader fail]
+struct gs_data
+{
+    float4 pos : SV_POSITION;
+};
+
+float4 main(point gs_data vin[1]) : sv_target
+{
+    return 0;
+}
+
+% Geometry shaders must have a maxvertexcount attribute.
+[geometry shader fail]
+struct gs_data
+{
+    float val : VAL;
+};
+
+void main(point gs_data vin[1])
+{
+}
+
+% maxvertexcount must be between 1 and 1024.
+[geometry shader fail]
+struct gs_data
+{
+    float val : VAL;
+};
+
+    [maxvertexcount(0)]
+void main(point gs_data vin[1])
+{
+}
+
+[geometry shader]
+struct gs_data
+{
+    float val : VAL;
+};
+
+    [maxvertexcount(1)]
+void main(point gs_data vin[1])
+{
+}
+
+[geometry shader]
+struct gs_data
+{
+    float val : VAL;
+};
+
+    [maxvertexcount(1024)]
+void main(point gs_data vin[1])
+{
+}
+
+[geometry shader fail]
+struct gs_data
+{
+    float val : VAL;
+};
+
+    [maxvertexcount(1025)]
+void main(point gs_data vin[1])
+{
+}
+
+% Any single-element objects that contain a stream output object
+% are considered valid stream output objects.
+[geometry shader]
+struct gs_data
+{
+    float4 pos : SV_POSITION;
+};
+
+    [maxvertexcount(4)]
+void main(inout TriangleStream<gs_data> vout[1], point gs_data vin[1])
+{
+}
+
+[geometry shader fail]
+struct gs_data
+{
+    float4 pos : SV_POSITION;
+};
+
+    [maxvertexcount(4)]
+void main(inout TriangleStream<gs_data> vout[2], point gs_data vin[1])
+{
+}
+
+[geometry shader fail(sm<5) todo(sm<5)]
+struct gs_data
+{
+    float4 pos : SV_POSITION;
+};
+
+struct s1
+{
+    TriangleStream<gs_data> so;
+};
+
+struct s2
+{
+    struct s1 s;
+};
+
+    [maxvertexcount(4)]
+void main(inout struct s2 vout[1], point gs_data vin[1])
+{
+}
+
+[geometry shader fail]
+struct gs_data
+{
+    float4 pos : SV_POSITION;
+};
+
+struct s
+{
+    TriangleStream<gs_data> so;
+    float4 val;
+};
+
+    [maxvertexcount(4)]
+void main(inout struct s vout, point gs_data vin[1])
+{
+}
+
+% Stream output objects cannot be declared globally.
+[geometry shader fail]
+struct gs_data
+{
+    float4 pos : SV_POSITION;
+};
+
+TriangleStream<gs_data> so;
+
+    [maxvertexcount(4)]
+void main(inout TriangleStream<gs_data> vout, point gs_data vin[1])
+{
+}
+
+[geometry shader fail]
+struct gs_data
+{
+    float4 pos : SV_POSITION;
+};
+
+struct s
+{
+    TriangleStream<gs_data> so;
+};
+
+struct s x;
+
+    [maxvertexcount(4)]
+void main(inout TriangleStream<gs_data> vout, point gs_data vin[1])
+{
+}
+
+% Output streams must be declared as inout.
+[geometry shader]
+struct gs_data
+{
+    float4 pos : SV_POSITION;
+};
+
+    [maxvertexcount(4)]
+void main(inout TriangleStream<gs_data> vout, point gs_data vin[1])
+{
+}
+
+[geometry shader fail]
+struct gs_data
+{
+    float4 pos : SV_POSITION;
+};
+
+    [maxvertexcount(4)]
+void main(out TriangleStream<gs_data> vout, point gs_data vin[1])
+{
+}
+
+[geometry shader fail]
+struct gs_data
+{
+    float4 pos : SV_POSITION;
+};
+
+    [maxvertexcount(4)]
+void main(in TriangleStream<gs_data> vout, point gs_data vin[1])
+{
+}
+
+% out parameters and return values are not allowed.
+[geometry shader fail]
+struct gs_data
+{
+    float4 pos : SV_POSITION;
+};
+
+    [maxvertexcount(4)]
+void main(out gs_data data, point gs_data vin[1], inout TriangleStream<gs_data> vout)
+{
+    data.pos = 0;
+}
+
+[geometry shader fail]
+struct gs_data
+{
+    float4 pos : SV_POSITION;
+};
+
+    [maxvertexcount(4)]
+gs_data main(point gs_data vin[1], inout TriangleStream<gs_data> vout)
+{
+    return (gs_data)0;
+}
+
+% Output streams with nonzero stream indices are only allowed with point streams, and with SM >= 5.
+[geometry shader fail(sm<5)]
+struct gs_data
+{
+    float4 pos : SV_POSITION;
+};
+struct gs_data2
+{
+    float4 apple : APPLE;
+};
+
+    [maxvertexcount(4)]
+void main(point gs_data vin[1], inout PointStream<gs_data> vout1, inout PointStream<gs_data2> vout2)
+{
+    vout1.RestartStrip();
+    vout2.RestartStrip();
+}
+
+[geometry shader fail]
+struct gs_data
+{
+    float4 pos : SV_POSITION;
+};
+
+    [maxvertexcount(4)]
+void main(point gs_data vin[1], inout LineStream<gs_data> vout1, inout LineStream<gs_data> vout2)
+{
+    vout1.RestartStrip();
+    vout2.RestartStrip();
+}
+
+[geometry shader fail]
+struct gs_data
+{
+    float4 pos : SV_POSITION;
+};
+
+    [maxvertexcount(4)]
+void main(point gs_data vin[1], inout TriangleStream<gs_data> vout1, inout TriangleStream<gs_data> vout2)
+{
+    vout1.RestartStrip();
+    vout2.RestartStrip();
+}
+
+[geometry shader fail]
+struct gs_data
+{
+    float4 pos : SV_POSITION;
+};
+
+    [maxvertexcount(4)]
+void main(point gs_data vin[1], inout TriangleStream<gs_data> vout1, inout TriangleStream<gs_data> vout2)
+{
+    vout1.RestartStrip();
+    vout2.RestartStrip();
+}
+
+% An output stream is only validated when it is used.
+[geometry shader]
+struct gs_data
+{
+    float4 pos : SV_POSITION;
+};
+
+    [maxvertexcount(4)]
+void main(point gs_data vin[1], inout PointStream<gs_data> vout1, inout TriangleStream<gs_data> vout2)
+{
+    vout1.RestartStrip();
+}
+
+[geometry shader fail(sm<5)]
+struct gs_data
+{
+    float4 pos : SV_POSITION;
+};
+
+    [maxvertexcount(4)]
+void main(point gs_data vin[1], inout PointStream<gs_data> vout1, inout TriangleStream<gs_data> vout2)
+{
+    vout2.RestartStrip();
+}
+
+% A maximum of 4 streams are allowed.
+[geometry shader fail(sm<5)]
+struct gs_data
+{
+    float4 pos : SV_POSITION;
+};
+
+    [maxvertexcount(4)]
+void main(point gs_data vin[1], inout PointStream<gs_data> vout1, inout PointStream<gs_data> vout2,
+        inout PointStream<gs_data> vout3, inout PointStream<gs_data> vout4, inout PointStream<gs_data> vout5)
+{
+    vout4.RestartStrip();
+}
+
+[geometry shader fail]
+struct gs_data
+{
+    float4 pos : SV_POSITION;
+};
+
+    [maxvertexcount(4)]
+void main(point gs_data vin[1], inout PointStream<gs_data> vout1, inout PointStream<gs_data> vout2,
+        inout PointStream<gs_data> vout3, inout PointStream<gs_data> vout4, inout PointStream<gs_data> vout5)
+{
+    vout5.RestartStrip();
+}
+
+% Max vertex count * output data component count must be less than or equal to 1024.
+[geometry shader]
+struct gs_data
+{
+    float2 x : X;
+};
+
+    [maxvertexcount(512)]    // 512 * 2 = 1024.
+void main(point gs_data vin[1], inout PointStream<gs_data> vout)
+{
+    vout.Append(vin[0]);
+}
+
+[geometry shader fail]
+struct gs_data
+{
+    float2 x : X;
+};
+
+    [maxvertexcount(513)]
+void main(point gs_data vin[1], inout PointStream<gs_data> vout)
+{
+    vout.Append(vin[0]);
+}
+
+% The component count of the output is used, not its allocated register size.
+[geometry shader]
+struct gs_data
+{
+    float2 x : X;  // Allocates to o0.xy
+    float3 y : Y;  // Allocates to o1.xyz
+    float z : Z;   // Allocates to o0.z
+};
+
+    [maxvertexcount(170)]    // 170 * 6 = 1020 < 1024.
+void main(point gs_data vin[1], inout PointStream<gs_data> vout)
+{
+    vout.Append(vin[0]);
+}
+
+% The total component count of all outputs are used. If the allocated registers overlap,
+% the largest allocation size is used for the calculation.
+[geometry shader fail(sm<5)]
+struct gs_data
+{
+    float2 x : X;  // Allocates to o0.xy
+    float3 y : Y;  // Allocates to o1.xyz
+    float z : Z;   // Allocates to o0.z
+};
+
+struct gs_data2
+{
+    float2 x : X;  // Allocates to o0.xy
+    float4 y : Y;  // Allocates to o1.xyzw
+};
+
+    [maxvertexcount(146)]    // 146 * 7 = 1022 < 1024.
+void main(point gs_data vin[1], inout PointStream<gs_data> vout1, inout PointStream<gs_data2> vout2)
+{
+    vout1.Append(vin[0]);
+    vout2.Append((gs_data2)0);
+}
+
+[geometry shader fail]
+struct gs_data
+{
+    float2 x : X;  // Allocates to o0.xy
+    float3 y : Y;  // Allocates to o1.xyz
+    float z : Z;   // Allocates to o0.z
+};
+
+struct gs_data2
+{
+    float2 x : X;  // Allocates to o0.xy
+    float4 y : Y;  // Allocates to o1.xyzw
+};
+
+    [maxvertexcount(147)]    // 147 * 7 = 1029 > 1024.
+void main(point gs_data vin[1], inout PointStream<gs_data> vout1, inout PointStream<gs_data2> vout2)
+{
+    vout1.Append(vin[0]);
+    vout2.Append((gs_data2)0);
+}

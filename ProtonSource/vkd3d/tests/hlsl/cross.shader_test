@@ -1,0 +1,33 @@
+[pixel shader]
+uniform float4 u;
+uniform float4 v;
+
+float4 main() : sv_target
+{
+    float4 res = float4(0, 0, 0, 0);
+    res.xyz = cross(u, v);
+    return res;
+}
+
+[test]
+uniform 0 float4 1 -2 3 4
+uniform 4 float4 10 100 1000 10000
+draw quad
+probe (0, 0) rgba (-2300, -970, 120, 0)
+
+
+
+[pixel shader]
+uniform float4 u;
+
+float4 main() : sv_target
+{
+    float4 res = float4(0, 0, 0, 3.5);
+    res.xyz = cross(u, 4);
+    return res;
+}
+
+[test]
+uniform 0 float4 1 -2 3 4
+draw quad
+probe (0, 0) rgba (-20, 8, 12, 3.5)

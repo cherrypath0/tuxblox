@@ -1,0 +1,60 @@
+[require]
+shader model >= 4.0
+
+[pixel shader]
+uniform float f;
+uniform int i;
+uniform uint u;
+uniform float h;
+
+float4 main() : sv_target
+{
+    uint4 ret;
+
+    ret.x = asint(f);
+    ret.y = asint(i);
+    ret.z = asint(u);
+    ret.w = asint((half)h);
+    return ret;
+}
+
+[test]
+uniform 0 int4 123 0xc00000 456 0x7fd69345
+draw quad
+probe (320,240) rgba (123.0, 12582912.0, 456.0, 2144768896.0)
+
+[pixel shader]
+uniform float2x2 m;
+uniform float4 v;
+
+float4 main() : sv_target
+{
+    return float4(asint(m)[0][1], asint(v).y, 0, 0);
+}
+
+[test]
+uniform 0 int4 11 12 0 0
+uniform 4 int4 13 14 0 0
+uniform 8 int4 20 21 22 23
+draw quad
+probe (320,240) rgba (13.0, 21.0, 0.0, 0.0)
+
+
+[pixel shader fail]
+
+float4 main() : sv_target
+{
+    bool b = true;
+
+    return asint(b);
+}
+
+
+[pixel shader fail]
+
+float4 main() : sv_target
+{
+    double d = 1.0;
+
+    return asint(d);
+}

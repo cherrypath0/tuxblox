@@ -1,0 +1,34 @@
+#!/bin/sh
+
+set -e
+set -x
+
+topdir=`pwd`
+builddir=${topdir}/build
+installdir=${topdir}/install
+
+#rm -rf ${builddir} ${installdir}
+mkdir -p ${builddir}
+mkdir -p ${installdir}
+
+# broken 2 8
+#for micro in 0 1 3 4 5 6 7 9 10 11 12
+for micro in 9 10 11 12
+do
+  version=0.4.${micro}
+
+  git clone -n ../../ orc-${version}
+  cd ${topdir}/orc-${version}
+  git checkout orc-${version}
+
+  touch doc/version.entities.in
+  autoreconf -i -f
+  ./configure --prefix=${topdir}/install/${version}
+  make
+  make install
+  cd ${topdir}
+
+done
+
+rm -rf ${builddir}
+

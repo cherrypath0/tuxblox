@@ -1,0 +1,102 @@
+[pixel shader]
+uniform float4 f;
+
+float4 main() : sv_target
+{
+    return any(f);
+}
+
+[test]
+uniform 0 float4 1.0 1.0 1.0 1.0
+draw quad
+probe (0, 0) rgba (1.0, 1.0, 1.0, 1.0)
+uniform 0 float4 1.0 0.0 0.0 0.0
+draw quad
+probe (0, 0) rgba (1.0, 1.0, 1.0, 1.0)
+uniform 0 float4 0.0 1.0 0.0 0.0
+draw quad
+probe (0, 0) rgba (1.0, 1.0, 1.0, 1.0)
+uniform 0 float4 0.0 0.0 1.0 0.0
+draw quad
+probe (0, 0) rgba (1.0, 1.0, 1.0, 1.0)
+uniform 0 float4 0.0 0.0 0.0 1.0
+draw quad
+probe (0, 0) rgba (1.0, 1.0, 1.0, 1.0)
+uniform 0 float4 0.0 0.0 0.0 0.0
+draw quad
+probe (0, 0) rgba (0.0, 0.0, 0.0, 0.0)
+uniform 0 float4 -1.0 -1.0 -1.0 -1.0
+draw quad
+probe (0, 0) rgba (1.0, 1.0, 1.0, 1.0)
+
+[pixel shader]
+uniform float f;
+
+float4 main() : sv_target
+{
+    return any(f);
+}
+
+[test]
+uniform 0 float4 1.0 0.0 0.0 0.0
+draw quad
+probe (0, 0) rgba (1.0, 1.0, 1.0, 1.0)
+uniform 0 float4 0.0 0.0 0.0 0.0
+draw quad
+probe (0, 0) rgba (0.0, 0.0, 0.0, 0.0)
+uniform 0 float4 -1.0 0.0 0.0 0.0
+draw quad
+probe (0, 0) rgba (1.0, 1.0, 1.0, 1.0)
+
+
+[pixel shader]
+uniform uint4 b;
+
+float4 main() : sv_target
+{
+    return any((bool4)b);
+}
+
+[test]
+if(sm<4)  uniform 0 float4 1 1 1 1
+if(sm>=4) uniform 0 uint4 1 1 1 1
+draw quad
+probe (0, 0) rgba (1.0, 1.0, 1.0, 1.0)
+if(sm<4)  uniform 0 float4 1 0 0 0
+if(sm>=4) uniform 0 uint4 1 0 0 0
+draw quad
+probe (0, 0) rgba (1.0, 1.0, 1.0, 1.0)
+if(sm<4)  uniform 0 float4 0 1 0 0
+if(sm>=4) uniform 0 uint4 0 1 0 0
+draw quad
+probe (0, 0) rgba (1.0, 1.0, 1.0, 1.0)
+if(sm<4)  uniform 0 float4 0 0 1 0
+if(sm>=4) uniform 0 uint4 0 0 1 0
+draw quad
+probe (0, 0) rgba (1.0, 1.0, 1.0, 1.0)
+if(sm<4)  uniform 0 float4 0 0 0 1
+if(sm>=4) uniform 0 uint4 0 0 0 1
+draw quad
+probe (0, 0) rgba (1.0, 1.0, 1.0, 1.0)
+if(sm<4)  uniform 0 float4 0 0 0 0
+if(sm>=4) uniform 0 uint4 0 0 0 0
+draw quad
+probe (0, 0) rgba (0.0, 0.0, 0.0, 0.0)
+
+[pixel shader]
+uniform uint b;
+
+float4 main() : sv_target
+{
+    return any((bool)b);
+}
+
+[test]
+if(sm<4)  uniform 0 float4 1 0 0 0
+if(sm>=4) uniform 0 uint4 1 0 0 0
+draw quad
+probe (0, 0) rgba (1.0, 1.0, 1.0, 1.0)
+if(sm<4)  uniform 0 float4 0 0 0 0
+if(sm>=4) uniform 0 uint4 0 0 0 0
+draw quad
+probe (0, 0) rgba (0.0, 0.0, 0.0, 0.0)

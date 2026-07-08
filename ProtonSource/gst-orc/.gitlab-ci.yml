@@ -1,0 +1,327 @@
+stages:
+ - build
+ - deploy
+
+variables:
+  MESON_ARGS: --werror --fatal-meson-warnings
+
+workflow:
+  # https://docs.gitlab.com/ee/ci/yaml/index.html#switch-between-branch-pipelines-and-merge-request-pipelines
+  rules:
+  - if: '$CI_PIPELINE_SOURCE == "schedules" || $CI_PIPELINE_SOURCE == "web"'
+  - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  - if: $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS && $CI_PIPELINE_SOURCE == "push"
+    when: never
+  - if: '$CI_COMMIT_BRANCH && $CI_COMMIT_REF_PROTECTED == "true"'
+  - if: '$CI_COMMIT_TAG'
+
+#
+# Global CI policy
+#
+# This can be used to configure global behaviour our our jobs.
+#
+default:
+  retry:
+    max: 2
+    when:
+      - 'runner_system_failure'
+      - 'stuck_or_timeout_failure'
+      - 'scheduler_failure'
+      - 'api_failure'
+  interruptible: true
+
+.debian:
+  image: 'debian:stable-slim'
+  stage: build
+  variables:
+    DEPENDENCIES: >
+      meson
+      ninja-build
+      build-essential
+  before_script:
+    - apt-get update
+    - apt-get install --yes ${DEPENDENCIES}
+  script:
+    - meson setup $MESON_ARGS build/
+    - meson compile --verbose -C build/
+    - meson test -C build/
+    - meson test -C build/ --benchmark
+    - meson install -C build/
+  artifacts:
+    name: "${CI_JOB_NAME}_${CI_COMMIT_SHA}"
+    expire_in: '5 days'
+    when: 'always'
+    paths:
+      - "build/meson-logs/*txt"
+
+debian sid:
+  extends: '.debian'
+  image: 'debian:sid-slim'
+
+debian sid arm64:
+  extends: '.debian'
+  image: 'debian:sid-slim'
+  tags:
+    - 'gstreamer-arm64-linux-docker'
+  # https://gitlab.freedesktop.org/gstreamer/orc/-/issues/41
+  # https://gitlab.freedesktop.org/gstreamer/orc/-/issues/45
+  allow_failure: true
+
+debian bullseye arm64:
+  extends: '.debian'
+  image: 'debian:bullseye-slim'
+  tags:
+    - 'gstreamer-arm64-linux-docker'
+
+debian bookworm arm64:
+  extends: '.debian'
+  image: 'debian:bookworm-slim'
+  tags:
+    - 'gstreamer-arm64-linux-docker'
+  # https://gitlab.freedesktop.org/gstreamer/orc/-/issues/41
+  # https://gitlab.freedesktop.org/gstreamer/orc/-/issues/45
+  allow_failure: true
+
+.build windows:
+  image: 'registry.freedesktop.org/gstreamer/gstreamer/amd64/windows:2023-04-21.0-main'
+  stage: 'build'
+  tags:
+    - 'docker'
+    - 'windows'
+    - '2022'
+  variables:
+    # Make sure any failure in PowerShell scripts is fatal
+    # https://docs.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_preference_variables?view=powershell-6
+    ErrorActionPreference: 'Stop'
+    WarningPreference: 'Stop'
+    MESON_ARGS: ' '
+  before_script:
+    # Make sure meson is up to date, so we don't need to rebuild the image with each release
+    - pip3 install -U meson ninja
+  script:
+    # Set the code page to UTF-8
+    - chcp 65001
+
+    # For some reason, options are separated by newline instead of space, so we
+    # have to replace them first.
+    - $env:MESON_ARGS = $env:MESON_ARGS.replace("`n"," ")
+    # Gitlab executes PowerShell in docker, but VsDevCmd.bat is a batch script.
+    # Environment variables substitutions is done by PowerShell before calling
+    # cmd.exe, that's why we use $env:FOO instead of %FOO%
+    - cmd.exe /C "C:\BuildTools\Common7\Tools\VsDevCmd.bat -host_arch=amd64 -arch=$env:ARCH -app_platform=$env:PLAT &&
+        meson setup build $env:MESON_ARGS &&
+        meson compile --verbose -C build &&
+        meson test -C build &&
+        meson test -C build --benchmark"
+
+vs2019 amd64:
+  extends: '.build windows'
+  variables:
+    ARCH: 'amd64'
+    PLAT: 'Desktop'
+
+vs2019 x86:
+  extends: '.build windows'
+  variables:
+    ARCH: 'x86'
+    PLAT: 'Desktop'
+
+vs2019 cross-arm64 UWP:
+  extends: '.build windows'
+  variables:
+    ARCH: 'arm64'
+    PLAT: 'UWP'
+    MESON_ARGS: >
+      --cross-file ci/vs2019-arm64-uwp-cross-file.txt
+      --native-file ci/vs2019-x64-native-file.txt
+
+vs2019 cross-arm UWP:
+  extends: '.build windows'
+  # Known to not work, but maybe we'll want it later
+  when: 'manual'
+  allow_failure: true
+  variables:
+    ARCH: 'arm'
+    PLAT: 'UWP'
+    MESON_ARGS: >
+      --cross-file ci/vs2019-arm-uwp-cross-file.txt
+      --native-file ci/vs2019-x64-native-file.txt
+
+msys2:
+  extends: '.build windows'
+  when: 'manual'
+  allow_failure: true
+  script:
+    # XXX: Copied from https://gitlab.freedesktop.org/gstreamer/gst-ci/blob/master/gitlab/ci_template.yml#L487
+    - $env:PATH += ";C:\msys64\usr\bin;C:\msys64\mingw64\bin;C:\msys64\mingw32\bin"
+    - C:\msys64\usr\bin\bash -c "pacman-key --init && pacman-key --populate msys2 && pacman-key --refresh-keys || true"
+    - C:\msys64\usr\bin\bash -c "sed -i 's/^CheckSpace/#CheckSpace/g' /etc/pacman.conf"
+    - echo "Updating MSYS2"
+    - C:\msys64\usr\bin\bash -c "pacman -Syuu --noconfirm || echo Update failed, ignoring"
+    - echo "Killing all MSYS2 processes"
+    - taskkill /F /FI "MODULES eq msys-2.0.dll"
+    - echo "Completing MSYS2 update"
+    - C:\msys64\usr\bin\bash -c "pacman -Suu --noconfirm"
+    - echo "Installing needed MSYS2 packages"
+    - C:\msys64\usr\bin\bash -c "pacman -Sy --noconfirm --needed mingw-w64-x86_64-toolchain ninja"
+    - C:\msys64\usr\bin\bash -c "meson setup build $env:MESON_ARGS &&
+        meson compile --verbose -C build &&
+        meson test -C build &&
+        meson test -C build --benchmark"
+
+macos x86_64:
+  stage: 'build'
+  tags:
+    - gst-macos-13
+  artifacts:
+    name: "${CI_JOB_NAME}_${CI_COMMIT_SHA}"
+    expire_in: '5 days'
+    when: 'always'
+    paths:
+      - "build/meson-logs/*txt"
+  before_script:
+    - pip3 install --upgrade pip
+    # Need to install certificates for python
+    - pip3 install --upgrade certifi
+    # Anther way to install certificates
+    - open /Applications/Python\ 3.8/Install\ Certificates.command
+    # Make sure meson and ninja are up to date
+    - pip3 install -U meson ninja
+  script:
+    - CERT_PATH=$(python3 -m certifi) && export SSL_CERT_FILE=${CERT_PATH} && export REQUESTS_CA_BUNDLE=${CERT_PATH}
+    - meson setup build --werror -Dc_args='-Werror=unguarded-availability-new'
+    - meson compile --verbose -C build
+    - meson test -C build
+    - meson test -C build --benchmark
+
+ios cross-arm64:
+  stage: 'build'
+  tags:
+    - gst-ios-16
+  artifacts:
+    name: "${CI_JOB_NAME}_${CI_COMMIT_SHA}"
+    expire_in: '5 days'
+    when: 'always'
+    paths:
+      - "build/meson-logs/*txt"
+  before_script:
+    - pip3 install --upgrade pip
+    # Need to install certificates for python
+    - pip3 install --upgrade certifi
+    # Anther way to install certificates
+    - open /Applications/Python\ 3.8/Install\ Certificates.command
+    # Make sure meson and ninja are up to date
+    - pip3 install -U meson ninja
+  script:
+    - CERT_PATH=$(python3 -m certifi) && export SSL_CERT_FILE=${CERT_PATH} && export REQUESTS_CA_BUNDLE=${CERT_PATH}
+    - |
+      cat > ios-cross-file.txt <<EOF
+      [host_machine]
+      system = 'darwin'
+      cpu_family = 'aarch64'
+      cpu = 'aarch64'
+      endian = 'little'
+
+      [properties]
+      c_args      = ['-arch', 'arm64', '--sysroot=$(xcrun --sdk iphoneos --show-sdk-path)', '-miphoneos-version-min=8.0', '-Werror=unguarded-availability-new']
+      c_link_args = ['-arch', 'arm64', '--sysroot=$(xcrun --sdk iphoneos --show-sdk-path)', '-miphoneos-version-min=8.0']
+
+      [binaries]
+      ar        = '$(xcrun --find --sdk iphoneos ar)'
+      c         = '$(xcrun --find --sdk iphoneos clang)'
+      cpp       = '$(xcrun --find --sdk iphoneos clang++)'
+      ranlib    = '$(xcrun --find --sdk iphoneos ranlib)'
+      strip     = '$(xcrun --find --sdk iphoneos strip)'
+      pkgconfig = 'false'
+      EOF
+    - meson setup --werror -Dorc-test=disabled -Db_bitcode=true --cross-file ios-cross-file.txt build
+    - meson compile --verbose -C build
+
+.build android:
+  image: 'registry.freedesktop.org/gstreamer/cerbero/android:2022-09-22.0'
+  stage: 'build'
+  tags:
+    - 'gstreamer'
+  artifacts:
+    name: "${CI_JOB_NAME}_${CI_COMMIT_SHA}"
+    expire_in: '5 days'
+    when: 'always'
+    paths:
+      - "build/meson-logs/*.txt"
+  variables:
+    ANDROID_SDK: '/android/sdk'
+    ANDROID_NDK: '/android/ndk'
+    ANDROID_API: '28'
+    TOOLCHAIN: "$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64"
+  before_script:
+    - dnf install -y python3-pip gcc ninja-build
+    - pip3 install --user meson
+  script:
+    - export PATH="$HOME/.local/bin:$PATH"
+    - |
+      cat > android-cross-file.txt <<EOF
+      [host_machine]
+      system = 'android'
+      cpu_family = '$ARCH'
+      cpu = '$ARCH'
+      endian = 'little'
+
+      [properties]
+      sys_root = '$ANDROID_NDK/sysroot'
+      c_link_args     = ['-fuse-ld=gold']
+      cpp_link_args   = ['-fuse-ld=gold']
+
+      [binaries]
+      ar        = '$TOOLCHAIN/bin/${ARCH}-linux-${ANDROID_HOST}-ar'
+      c         = '$TOOLCHAIN/bin/${CLANG_ARCH}-linux-${ANDROID_HOST}${ANDROID_API}-clang'
+      cpp       = '$TOOLCHAIN/bin/${CLANG_ARCH}-linux-${ANDROID_HOST}${ANDROID_API}-clang++'
+      ranlib    = '$TOOLCHAIN/bin/${ARCH}-linux-${ANDROID_HOST}-ranlib'
+      strip     = '$TOOLCHAIN/bin/${ARCH}-linux-${ANDROID_HOST}-strip'
+      pkgconfig = 'false'
+      EOF
+    - meson setup --werror --cross-file android-cross-file.txt build
+    - meson compile --verbose -C build
+
+android arm64 cross:
+  extends: '.build android'
+  stage: 'build'
+  variables:
+    ARCH: 'aarch64'
+    CLANG_ARCH: 'aarch64'
+    ANDROID_HOST: 'android'
+
+android armv7 cross:
+  extends: '.build android'
+  stage: 'build'
+  variables:
+    ARCH: 'arm'
+    CLANG_ARCH: 'armv7a'
+    ANDROID_HOST: 'androideabi'
+
+# https://docs.gitlab.com/ee/user/project/pages/#how-it-works
+# GitLab automatically deploys the `public/` folder from an
+# artifact generated by the job named `pages`.
+pages:
+  image: 'debian:stable'
+  stage: 'deploy'
+  #needs: [ 'docs' ]
+  interruptible: false
+  before_script:
+    - apt update
+    - apt-get install --yes meson ninja-build build-essential gtk-doc-tools
+  script:
+    - meson -Dgtk_doc=enabled b
+    - ninja -C b orc-doc
+    - mkdir -p public/docs/latest/
+    - mv b/doc/html/* public/docs/latest/
+    - ls -R1 public
+  artifacts:
+    paths:
+      # The folder that contains the files to be exposed at the Page URL
+      - public
+  when: 'manual'
+  rules:
+    # This ensures that only pushes to the default branch will trigger
+    # a pages deploy
+    - if: $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH
+      when: 'manual'

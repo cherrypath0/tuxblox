@@ -1,0 +1,70 @@
+[pixel shader fail(sm<2)]
+uniform float2 u;
+
+float4 main() : sv_target
+{
+    return float4(abs(u), abs(u.x - 0.5), abs(-0.4));
+}
+
+[test]
+uniform 0 float4 0.1 0.7 0.0 0.0
+draw quad
+probe (0, 0) rgba (0.1, 0.7, 0.4, 0.4)
+uniform 0 float4 -0.7 0.1 0.0 0.0
+draw quad
+probe (0, 0) rgba (0.7, 0.1, 1.2, 0.4)
+
+[pixel shader fail(sm<2)]
+uniform float u;
+
+float4 main() : sv_target
+{
+    int i = u;
+    return float4(abs(i), abs(-8), abs(uint(3)), abs(bool(true)));
+}
+
+[test]
+uniform 0 float 2.0
+draw quad
+probe (0, 0) f32(2, 8, 3, 1)
+uniform 0 float -1.0
+draw quad
+probe (0, 0) f32(1, 8, 3, 1)
+
+[pixel shader]
+uniform float4 u;
+
+float4 main() : sv_target
+{
+    return -abs(u);
+}
+
+[test]
+uniform 0 float4 1.0 -3.0 10.0 -100.0
+draw quad
+probe (0, 0) rgba(-1.0, -3.0, -10.0, -100.0)
+
+[require]
+shader model >= 5.0
+shader model < 5.1
+
+[pixel shader dxbc-tpf-hex]
+% The same as above, but in bytecode format so that we're sure that the
+% ABSNEG source modifier is used.
+43425844 1ab08b1b ccb6cea5 90d9b116 03ae9845 00000001 000000c0  % DXBC header
+00000003 0000002c 0000003c 00000070                             %
+4e475349 00000008 00000000 00000008                             % .input
+4e47534f 0000002c 00000001 00000008                             % .output
+00000020 00000000 00000000 00000003 00000000 0000000f           % .param sv_target.xyzw, o0.xyzw, float, TARGET
+745f7673 65677261 abab0074                                      %
+58454853 00000048 00000050 00000012                             % .text ps_5_0
+0100086a                                                        % dcl_globalFlags refactoringAllowed
+04000059 00208e46 00000000 00000001                             % dcl_constantBuffer cb0[1], immediateIndexed
+03000065 001020f2 00000000                                      % dcl_output o0.xyzw
+07000036 001020f2 00000000 80208e46 000000c1 00000000 00000000  % mov o0.xyzw, -|cb0[0].xyzw|
+0100003e                                                        % ret
+
+[test]
+uniform 0 float4 1.0 -3.0 10.0 -100.0
+draw quad
+probe (0, 0) rgba(-1.0, -3.0, -10.0, -100.0)

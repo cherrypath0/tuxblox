@@ -1,0 +1,213 @@
+#version 460
+#extension GL_EXT_nonuniform_qualifier : require
+#extension GL_EXT_scalar_block_layout : require
+layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, scalar) buffer SSBO
+{
+    dvec3 _m0[];
+} _11[];
+
+layout(set = 0, binding = 0, scalar) restrict readonly buffer _13_16
+{
+    dvec3 _m0[];
+} _16[];
+
+layout(set = 0, binding = 0, std430) buffer _18_21
+{
+    double _m0[];
+} _21[];
+
+layout(set = 0, binding = 0, std430) restrict readonly buffer _23_26
+{
+    double _m0[];
+} _26[];
+
+void main()
+{
+    uint _47 = gl_GlobalInvocationID.x * 2u;
+    uint _56 = (gl_GlobalInvocationID.x * 2u) + 1u;
+    uint _65 = gl_GlobalInvocationID.x << 2u;
+    _11[0u]._m0[gl_GlobalInvocationID.x * 4u] = dvec3(_16[1u]._m0[_56].x + _16[1u]._m0[_47].x, _16[1u]._m0[_56].y + _16[1u]._m0[_47].y, _16[1u]._m0[_56].z + _16[1u]._m0[_47].z);
+    _11[0u]._m0[(gl_GlobalInvocationID.x * 4u) + 1u] = dvec3(_16[1u]._m0[_47].x - _16[1u]._m0[_56].x, _16[1u]._m0[_47].y - _16[1u]._m0[_56].y, _16[1u]._m0[_47].z - _16[1u]._m0[_56].z);
+    _11[0u]._m0[(gl_GlobalInvocationID.x * 4u) + 2u] = dvec3(_16[1u]._m0[_56].x * _16[1u]._m0[_47].x, _16[1u]._m0[_56].y * _16[1u]._m0[_47].y, _16[1u]._m0[_56].z * _16[1u]._m0[_47].z);
+    _11[0u]._m0[(gl_GlobalInvocationID.x * 4u) + 3u] = dvec3(_16[1u]._m0[_47].x / _16[1u]._m0[_56].x, _16[1u]._m0[_47].y / _16[1u]._m0[_56].y, _16[1u]._m0[_47].z / _16[1u]._m0[_56].z);
+    uint _96 = gl_GlobalInvocationID.x * 3u;
+    dvec2 _104 = dvec2(_26[3u]._m0[_96], _26[3u]._m0[_96 + 1u]);
+    _21[2u]._m0[gl_GlobalInvocationID.x] = _104.x;
+    _21[2u]._m0[gl_GlobalInvocationID.x + 1u] = _104.y;
+    _21[2u]._m0[gl_GlobalInvocationID.x + 2u] = _16[1u]._m0[_47].z;
+}
+
+
+#if 0
+// SPIR-V disassembly
+; SPIR-V
+; Version: 1.3
+; Generator: Unknown(30017); 21022
+; Bound: 115
+; Schema: 0
+OpCapability Shader
+OpCapability Float64
+OpCapability DenormPreserve
+OpCapability RuntimeDescriptorArray
+OpExtension "SPV_EXT_descriptor_indexing"
+OpExtension "SPV_KHR_float_controls"
+OpMemoryModel Logical GLSL450
+OpEntryPoint GLCompute %3 "main" %30
+OpExecutionMode %3 LocalSize 128 1 1
+OpExecutionMode %3 DenormPreserve 64
+OpName %3 "main"
+OpName %8 "SSBO"
+OpName %13 "SSBO"
+OpName %18 "SSBO"
+OpName %23 "SSBO"
+OpDecorate %7 ArrayStride 24
+OpMemberDecorate %8 0 Offset 0
+OpDecorate %8 Block
+OpDecorate %11 DescriptorSet 0
+OpDecorate %11 Binding 0
+OpDecorate %12 ArrayStride 24
+OpMemberDecorate %13 0 Offset 0
+OpDecorate %13 Block
+OpDecorate %16 DescriptorSet 0
+OpDecorate %16 Binding 0
+OpDecorate %16 NonWritable
+OpDecorate %16 Restrict
+OpDecorate %17 ArrayStride 8
+OpMemberDecorate %18 0 Offset 0
+OpDecorate %18 Block
+OpDecorate %21 DescriptorSet 0
+OpDecorate %21 Binding 0
+OpDecorate %22 ArrayStride 8
+OpMemberDecorate %23 0 Offset 0
+OpDecorate %23 Block
+OpDecorate %26 DescriptorSet 0
+OpDecorate %26 Binding 0
+OpDecorate %26 NonWritable
+OpDecorate %26 Restrict
+OpDecorate %30 BuiltIn GlobalInvocationId
+%1 = OpTypeVoid
+%2 = OpTypeFunction %1
+%5 = OpTypeFloat 64
+%6 = OpTypeVector %5 3
+%7 = OpTypeRuntimeArray %6
+%8 = OpTypeStruct %7
+%9 = OpTypeRuntimeArray %8
+%10 = OpTypePointer StorageBuffer %9
+%11 = OpVariable %10 StorageBuffer
+%12 = OpTypeRuntimeArray %6
+%13 = OpTypeStruct %12
+%14 = OpTypeRuntimeArray %13
+%15 = OpTypePointer StorageBuffer %14
+%16 = OpVariable %15 StorageBuffer
+%17 = OpTypeRuntimeArray %5
+%18 = OpTypeStruct %17
+%19 = OpTypeRuntimeArray %18
+%20 = OpTypePointer StorageBuffer %19
+%21 = OpVariable %20 StorageBuffer
+%22 = OpTypeRuntimeArray %5
+%23 = OpTypeStruct %22
+%24 = OpTypeRuntimeArray %23
+%25 = OpTypePointer StorageBuffer %24
+%26 = OpVariable %25 StorageBuffer
+%27 = OpTypeInt 32 0
+%28 = OpTypeVector %27 3
+%29 = OpTypePointer Input %28
+%30 = OpVariable %29 Input
+%31 = OpTypePointer Input %27
+%33 = OpConstant %27 0
+%35 = OpTypePointer StorageBuffer %8
+%37 = OpTypePointer StorageBuffer %13
+%39 = OpConstant %27 1
+%40 = OpTypePointer StorageBuffer %18
+%42 = OpConstant %27 2
+%43 = OpTypePointer StorageBuffer %23
+%45 = OpConstant %27 3
+%48 = OpTypePointer StorageBuffer %6
+%67 = OpConstant %27 4
+%95 = OpConstant %27 24
+%97 = OpTypePointer StorageBuffer %5
+%103 = OpTypeVector %5 2
+%3 = OpFunction %1 None %2
+%4 = OpLabel
+OpBranch %113
+%113 = OpLabel
+%32 = OpAccessChain %31 %30 %33
+%34 = OpLoad %27 %32
+%36 = OpAccessChain %35 %11 %33
+%38 = OpAccessChain %37 %16 %39
+%41 = OpAccessChain %40 %21 %42
+%44 = OpAccessChain %43 %26 %45
+%46 = OpShiftLeftLogical %27 %34 %39
+%47 = OpIMul %27 %34 %42
+%49 = OpAccessChain %48 %38 %33 %47
+%50 = OpLoad %6 %49
+%51 = OpCompositeExtract %5 %50 0
+%52 = OpCompositeExtract %5 %50 1
+%53 = OpCompositeExtract %5 %50 2
+%54 = OpBitwiseOr %27 %46 %39
+%55 = OpIMul %27 %34 %42
+%56 = OpIAdd %27 %55 %39
+%57 = OpAccessChain %48 %38 %33 %56
+%58 = OpLoad %6 %57
+%59 = OpCompositeExtract %5 %58 0
+%60 = OpCompositeExtract %5 %58 1
+%61 = OpCompositeExtract %5 %58 2
+%62 = OpFAdd %5 %59 %51
+%63 = OpFAdd %5 %60 %52
+%64 = OpFAdd %5 %61 %53
+%65 = OpShiftLeftLogical %27 %34 %42
+%66 = OpIMul %27 %34 %67
+%68 = OpCompositeConstruct %6 %62 %63 %64
+%69 = OpAccessChain %48 %36 %33 %66
+OpStore %69 %68
+%70 = OpFSub %5 %51 %59
+%71 = OpFSub %5 %52 %60
+%72 = OpFSub %5 %53 %61
+%73 = OpBitwiseOr %27 %65 %39
+%74 = OpIMul %27 %34 %67
+%75 = OpIAdd %27 %74 %39
+%76 = OpCompositeConstruct %6 %70 %71 %72
+%77 = OpAccessChain %48 %36 %33 %75
+OpStore %77 %76
+%78 = OpFMul %5 %59 %51
+%79 = OpFMul %5 %60 %52
+%80 = OpFMul %5 %61 %53
+%81 = OpBitwiseOr %27 %65 %42
+%82 = OpIMul %27 %34 %67
+%83 = OpIAdd %27 %82 %42
+%84 = OpCompositeConstruct %6 %78 %79 %80
+%85 = OpAccessChain %48 %36 %33 %83
+OpStore %85 %84
+%86 = OpFDiv %5 %51 %59
+%87 = OpFDiv %5 %52 %60
+%88 = OpFDiv %5 %53 %61
+%89 = OpBitwiseOr %27 %65 %45
+%90 = OpIMul %27 %34 %67
+%91 = OpIAdd %27 %90 %45
+%92 = OpCompositeConstruct %6 %86 %87 %88
+%93 = OpAccessChain %48 %36 %33 %91
+OpStore %93 %92
+%94 = OpIMul %27 %34 %95
+%96 = OpIMul %27 %34 %45
+%98 = OpAccessChain %97 %44 %33 %96
+%99 = OpLoad %5 %98
+%101 = OpIAdd %27 %96 %39
+%100 = OpAccessChain %97 %44 %33 %101
+%102 = OpLoad %5 %100
+%104 = OpCompositeConstruct %103 %99 %102
+%105 = OpCompositeExtract %5 %104 0
+%106 = OpCompositeExtract %5 %104 1
+%107 = OpShiftLeftLogical %27 %34 %45
+%108 = OpAccessChain %97 %41 %33 %34
+OpStore %108 %105
+%110 = OpIAdd %27 %34 %39
+%109 = OpAccessChain %97 %41 %33 %110
+OpStore %109 %106
+%112 = OpIAdd %27 %34 %42
+%111 = OpAccessChain %97 %41 %33 %112
+OpStore %111 %53
+OpReturn
+OpFunctionEnd
+#endif

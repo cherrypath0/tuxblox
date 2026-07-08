@@ -1,0 +1,43 @@
+[require]
+shader model >= 5.0
+
+[pixel shader fail todo]
+unorm uint4 var;
+
+float4 main() : sv_target
+{
+    return 0;
+}
+
+[pixel shader fail]
+float4 unorm;
+
+float4 main() : sv_target
+{
+    return 0;
+}
+
+[pixel shader fail]
+float4 snorm;
+
+float4 main() : sv_target
+{
+    return 0;
+}
+
+[pixel shader]
+unorm float var;
+
+float4 main() : sv_target
+{
+    return var;
+}
+
+[pixel shader]
+RWTexture2D<unorm float> u;
+
+float4 main() : sv_target
+{
+    u[uint2(0, 0)] = 0.7;
+    return 0;
+}

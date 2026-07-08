@@ -1,0 +1,96 @@
+
+ORC - The Oil Runtime Compiler
+==============================
+
+(and OIL stands for Optimized Inner Loops)
+
+Orc is the successor to Liboil - The Library of Optimized Inner Loops.
+
+Orc is a library and set of tools for compiling and executing
+very simple programs that operate on arrays of data.  The "language"
+is a generic assembly language that represents many of the features
+available in SIMD architectures, including saturated addition and
+subtraction, and many arithmetic operations.
+
+At this point, developers interested in using Orc should look at the
+examples and try out a few Orc programs in an experimental branch
+of their own projects.  And provide feedback on how it works.  There
+will likely be some major changes in ease of use from a developer's
+perspective over the next few releases.
+
+The 0.4 series of Orc releases will be API and ABI compatible, and
+will be incompatible with the 0.5 series when it comes out.
+
+
+Features:
+
+ - Users can create, compile, and run simple programs that use the
+   vector extensions of the CPU, all directly from an application.
+
+ - Users can compile Orc programs to assembly source code to be
+   compiled and used without linking against the Orc library.
+
+ - The generic assembly language can be extended by an application
+   by adding new opcodes.
+
+ - An application can add rules for converting existing or new opcodes
+   to binary code for a specific target.
+
+ - Current targets: SSE, MMX, MIPS, Altivec, NEON, and TI C64x+.
+   (The c64x target only produces source code.)
+
+ - Programs can optionally be emulated, which is useful for testing, or
+   if no rules are available to convert Orc opcodes to executable code.
+
+
+More information:
+
+  Web           : http://gstreamer.freedesktop.org/modules/orc.html
+  Download      : http://gstreamer.freedesktop.org/data/src/orc/
+  Documentation : http://gstreamer.freedesktop.org/data/doc/orc/
+
+
+Questions and Answers:
+
+ - Q: Why not let gcc vectorize my code?
+
+   A: Two reasons: first, since Orc's assembly language is much more
+   restrictive than C, Orc can generate better code than gcc, and
+   second, Orc can generate code for functions you define at runtime.
+   Many algorithms require gluing together several stages of operations,
+   and if each stage has several options, the total amount of code to
+   cover all combinations could be inconveniently large.
+
+ - Q: Why not use compiler intrinsics for SIMD code?
+
+   A: Compiler intrinsics only work for one target, and need to be
+   hand written.  Plus, some compilers are very picky about source
+   code that uses intrinsics, and will silently produce slow code.
+   And, of course, you can't compile intrinsics at runtime.
+
+ - Q: How big is the Orc library?
+
+   A: For embedded users, the orc-backend meson option can
+   be used to disable irrelvant targets.  Compiled with only one target
+   (SSE), the library size is about 150 kB uncompressed, or 48 kB
+   compressed.  The goal was to keep the uncompressed size under
+   about 100 kB (but that failed!).  A typical build with all targets
+   and the full ABI is around 350 kB.
+
+
+Caveats (Known Bugs):
+
+ - ?
+
+
+Future directions (Possibly outdated):
+
+ - Addition of more complex loop control and array structures.
+
+ - Addition of an option to compile the Orc library with only the
+   runtime features for a single target, e.g., for embedded systems.
+ 
+ - Addition of rewrite rules, which convert an instruction that cannot
+   be converted to binary code into a series of instructions that can.
+   This is necessary since assembly instructions on most targets do
+   not cover all the features of the Orc assembly language.

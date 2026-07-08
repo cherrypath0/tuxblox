@@ -1,0 +1,52 @@
+[pixel shader]
+uniform float4 n;
+uniform float4 i;
+uniform float4 ng;
+
+float4 main() : sv_target
+{
+    return faceforward(n, i, ng);
+}
+
+[test]
+uniform 0 float4 10.0 20.0 30.0 40.0
+uniform 4 float4 1.0 0.0 0.0 0.0
+uniform 8 float4 1.0 0.2 0.0 0.0
+draw quad
+probe (0, 0) rgba (-10.0, -20.0, -30.0, -40.0)
+
+uniform 0 float4 10.0 20.0 30.0 40.0
+uniform 4 float4 1.0 0.0 0.0 0.0
+uniform 8 float4 1.0 -0.2 0.0 0.0
+draw quad
+probe (0, 0) rgba (-10.0, -20.0, -30.0, -40.0)
+
+uniform 0 float4 10.0 20.0 30.0 40.0
+uniform 4 float4 1.0 0.0 0.0 0.0
+uniform 8 float4 -1.0 0.0 0.0 0.0
+draw quad
+probe (0, 0) rgba (10.0, 20.0, 30.0, 40.0)
+
+uniform 0 float4 10.0 20.0 30.0 40.0
+uniform 4 float4 0.0 -1.0 0.0 0.0
+uniform 8 float4 0.0 1.0 0.0 0.0
+draw quad
+probe (0, 0) rgba (10.0, 20.0, 30.0, 40.0)
+
+uniform 0 float4 10.0 20.0 30.0 40.0
+uniform 4 float4 1.0 0.0 0.0 0.0
+uniform 8 float4 0.0 1.0 0.0 0.0
+draw quad
+probe (0, 0) rgba (-10.0, -20.0, -30.0, -40.0)
+
+uniform 0 float4 10.0 20.0 30.0 40.0
+uniform 4 float4 0.0 0.0 0.0 0.0
+uniform 8 float4 0.0 1.0 0.0 0.0
+draw quad
+probe (0, 0) rgba (-10.0, -20.0, -30.0, -40.0)
+
+uniform 0 float4 10.0 20.0 30.0 40.0
+uniform 4 float4 0.0 0.0 0.0 0.0
+uniform 8 float4 0.0 0.0 0.0 0.0
+draw quad
+probe (0, 0) rgba (-10.0, -20.0, -30.0, -40.0)

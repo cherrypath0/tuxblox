@@ -1,0 +1,180 @@
+[header]
+% The sincos instruction has different semantics in SM2 and SM3. Test both versions.
+test-shader-models (2.0 3.0)
+
+[vertex shader]
+void main(float4 pos : position, out float tex : texcoord, out float4 out_pos : sv_position)
+{
+    tex = (pos.x + 1) * 320;
+    out_pos = pos;
+}
+
+[pixel shader]
+float4 main(float tex : texcoord) : sv_target
+{
+    tex = floor(tex + 0.25);
+    return float4(sin(tex), cos(tex), tan(tex), 0);
+}
+
+[test]
+draw quad
+probe ( 0, 0) f32( 0.00000000,  1.00000000,  0.00000000, 0.0)
+probe ( 1, 0) f32( 0.84147098,  0.54030231,  1.55740772, 0.0) 1024
+probe ( 2, 0) f32( 0.90929743, -0.41614684, -2.18503986, 0.0) 1024
+probe ( 3, 0) f32( 0.14112001, -0.98999250, -0.14254654, 0.0) 1024
+probe ( 4, 0) f32(-0.75680250, -0.65364362,  1.15782128, 0.0) 1024
+probe ( 5, 0) f32(-0.95892427,  0.28366219, -3.38051501, 0.0) 1024
+probe ( 6, 0) f32(-0.27941550,  0.96017029, -0.29100619, 0.0) 1024
+probe ( 7, 0) f32( 0.65698660,  0.75390225,  0.87144798, 0.0) 1024
+probe ( 8, 0) f32( 0.98935825, -0.14550003, -6.79971146, 0.0) 1024
+probe ( 9, 0) f32( 0.41211849, -0.91113026, -0.45231566, 0.0) 1024
+probe (10, 0) f32(-0.54402111, -0.83907153,  0.64836083, 0.0) 1024
+probe (11, 0) f32(-0.99999021,  0.00442570, -225.95084645, 0.0) 2048
+probe (12, 0) f32(-0.53657292,  0.84385396, -0.63585993, 0.0) 1024
+probe (13, 0) f32( 0.42016704,  0.90744678,  0.46302113, 0.0) 1024
+probe (14, 0) f32( 0.99060736,  0.13673722,  7.24460662, 0.0) 1024
+probe (15, 0) f32( 0.65028784, -0.75968791, -0.85599340, 0.0) 1024
+
+[pixel shader]
+uniform float4 a;
+
+float4 main() : sv_target
+{
+    return round(1000 * sin(a));
+}
+
+[test]
+uniform 0 float4 0.0 0.52359877 2.61799387 3.14159265
+draw quad
+probe (0, 0) f32(0.0, 500.0, 500.0, 0.0)
+
+[pixel shader]
+uniform float4 a;
+
+float4 main() : sv_target
+{
+    return round(1000 * cos(a));
+}
+
+[test]
+uniform 0 float4 0.0 0.78539816 1.57079632 2.35619449
+draw quad
+probe (0, 0) f32(1000.0, 707.0, -0.0, -707.0)
+
+[pixel shader]
+uniform float4 a;
+
+float4 main() : sv_target
+{
+    return round(1000 * tan(a));
+}
+
+[test]
+% tan(pi/2) is an asymtote and therefore undefined
+% so check 0, pi/4, 3pi/4, pi
+uniform 0 float4 0.0 0.78539816 2.35619449 3.14159265
+draw quad
+probe (0, 0) f32(0, 1000, -1000.0, 0)
+
+[pixel shader]
+uniform float4 a;
+
+float4 main() : sv_target
+{
+    return sinh(a);
+}
+
+[test]
+uniform 0 float4 -1.0 -0.88137359 0.88137359 1.0
+draw quad
+probe (0, 0) f32(-1.1752, -1.0, 1.0, 1.1752) 16
+uniform 0 float4 -0.0 0.0 -0.1 0.1
+draw quad
+probe (0, 0) f32(0.0, 0.0, -0.1001667, 0.1001667) 16
+% WARP completely misses even the order of magnitude for large arguments
+uniform 0 float4 -90.0 90.0 -100.0 100.0
+draw quad
+if(!warp) probe (0, 0) f32(-inf, inf, -inf, inf)
+
+[pixel shader]
+uniform float4 a;
+
+float4 main() : sv_target
+{
+    return cosh(a);
+}
+
+[test]
+uniform 0 float4 -1.76274717 -1.3169579 1.3169579 1.76274717
+draw quad
+probe (0, 0) f32(3.0, 2.0, 2.0, 3.0) 16
+uniform 0 float4 -0.0 0.0 -0.1 0.1
+draw quad
+probe (0, 0) f32(1.0, 1.0, 1.005004, 1.005004) 16
+% WARP completely misses even the order of magnitude for large arguments
+uniform 0 float4 -90.0 90.0 -100.0 100.0
+draw quad
+if(!warp) probe (0, 0) f32(inf, inf, inf, inf)
+
+[pixel shader]
+uniform float4 a;
+
+float4 main() : sv_target
+{
+    return tanh(a);
+}
+
+[test]
+uniform 0 float4 -1.57079633 -0.54930614 0.54930614 1.57079633
+draw quad
+probe (0, 0) f32(-0.91715234, -0.5, 0.5, 0.91715234) 64
+uniform 0 float4 -10.0 -0.0 0.0 10.0
+draw quad
+if(!warp) probe (0, 0) f32(-1.0, 0.0, 0.0, 1.0) 1
+
+[pixel shader]
+uniform float4 a;
+
+float4 main() : sv_target
+{
+    float sin_out, cos_out;
+    sincos(a.x, sin_out, cos_out);
+    return float4(sin_out, cos_out, 0.0, 0.0);
+}
+
+[test]
+uniform 0 float4 7.604 0 0 0
+draw quad
+probe (0, 0) f32(0.968916833, 0.2473865, 0, 0) 1024
+uniform 0 float4 -10.0 0 0 0
+draw quad
+probe (0, 0) f32(0.544020891, -0.839071631, 0.0, 0.0) 1024
+
+[pixel shader fail]
+float4 main() : sv_target
+{
+    // Make sure `out` variables don't work with literals
+    sincos(12345.0, 10.0, 20.0);
+    return float4(6789);
+}
+
+[pixel shader fail]
+float4 main() : sv_target
+{
+    // sincos returns void.
+    float s, c;
+    float err = sincos(12345.0, s, c);
+    return float4(6789);
+}
+
+[pixel shader]
+float4 main() : sv_target
+{
+    int sin_out, cos_out;
+    sincos(30, sin_out, cos_out);
+    return float4(sin_out, cos_out, 0, 0);
+}
+
+[test]
+draw quad
+probe (0, 0) f32(0, 0, 0, 0);

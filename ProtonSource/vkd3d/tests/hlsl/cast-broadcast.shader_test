@@ -1,0 +1,98 @@
+[pixel shader]
+struct apple
+{
+    float3 aa;
+    float4 bb;
+};
+
+struct banana
+{
+    struct apple aa;
+    int2 bb;
+    int4 cc[8];
+};
+
+float4 main() : SV_TARGET
+{
+    struct banana p = (struct banana)42;
+    return p.aa.bb + p.cc[5];
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (84.0, 84.0, 84.0, 84.0)
+
+
+[pixel shader fail]
+struct apple
+{
+    float3 aa;
+    float4 bb;
+};
+
+float4 main() : SV_TARGET
+{
+    struct apple f = 31;
+    return f.bb;
+}
+
+
+[pixel shader fail]
+struct apple
+{
+    float3 aa;
+    float4 bb;
+};
+
+float4 fun(struct apple f)
+{
+    return f.bb;
+}
+
+float4 main() : SV_TARGET
+{
+    return fun(31);
+}
+
+
+[pixel shader fail]
+float4 fun(float f[7])
+{
+    return f[1];
+}
+
+float4 main() : SV_TARGET
+{
+    return fun(32);
+}
+
+
+[pixel shader fail]
+struct apple
+{
+    float4 foo;
+    Texture2D tex;
+};
+
+float4 PSMain() : SV_TARGET
+{
+    struct apple a1;
+    a1 = (struct apple)1;
+    return a1.foo;
+}
+
+
+[pixel shader]
+float4 fun(float3 f)
+{
+    return f.xyxy;
+}
+
+float4 main() : SV_TARGET
+{
+    return fun(33);
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (33.0, 33.0, 33.0, 33.0)

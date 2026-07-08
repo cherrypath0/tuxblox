@@ -1,0 +1,7 @@
+description, duration=4.0, requires-subtitles=True, need-clock-sync=True
+wait, duration=1.0
+switch-track, type=text, index=(string)+1
+wait, duration=1.0
+switch-track, type=text, index=(string)+1
+wait, duration=4.0
+stop;

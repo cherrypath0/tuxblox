@@ -1,0 +1,1 @@
+sched_rr_get_interval() sets errno == EFAULT when interval argument points to NULL

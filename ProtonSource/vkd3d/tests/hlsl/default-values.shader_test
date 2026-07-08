@@ -1,0 +1,353 @@
+% Note that, except for effects, default values do not affect the execution.
+% The default values are intended to be obtained using reflection.
+
+[pixel shader]
+float2 a = {1, 2};
+float4x2 b = {1, 2, 3, 4, 5, 6, 7, 8};
+
+float4 main() : sv_target
+{
+    return float4(a, b[2]);
+}
+
+[test]
+if(sm<4)  uniform 0 float4 10 30 50 70
+if(sm<4)  uniform 4 float4 20 40 60 80
+if(sm<4)  uniform 8 float4 10 20 0 0
+if(sm>=4) uniform 0 float4 10 20 0 0
+if(sm>=4) uniform 4 float4 10 30 50 70
+if(sm>=4) uniform 8 float4 20 40 60 80
+draw quad
+probe (0, 0) rgba (10, 20, 50, 60)
+
+
+[pixel shader fail(sm<6)]
+float a = 7;
+float4 b = a; // initial value must be a literal expression.
+
+float4 main() : sv_target { return 0; }
+
+
+[pixel shader fail(sm<6)]
+float a = 7;
+float4 b = {1, 2, a, 4}; // initial value must be a literal expression.
+
+float4 main() : sv_target { return 0; }
+
+
+[pixel shader fail]
+Texture2D tex;
+struct
+{
+    Texture2D t;
+    float a;
+} apple = {tex, 4}; // initial value must be a literal expression.
+
+float4 main() : sv_target
+{
+    return 0;
+}
+
+
+[pixel shader]
+static const float a = 7;
+float4 b = {1, 2, a, 4}; // static constant values are allowed on the initializer.
+
+float4 main() : sv_target { return b; }
+
+[test]
+uniform 0 float4 10.0 20.0 30.0 40.0
+draw quad
+probe (0, 0) rgba (10, 20, 30, 40)
+
+
+[pixel shader]
+float4 a = {3, 5, float2(4, 4)}; // numeric type initializers are allowed.
+
+float4 main() : sv_target
+{
+    return 2 * a;
+}
+
+[test]
+uniform 0 float4 10.0 20.0 30.0 40.0
+draw quad
+probe (0, 0) rgba (20, 40, 60, 80)
+
+
+[pixel shader]
+int4 a[2] = {10, 20, float3x2(1, 2, 3, 4, 5, 6)}; // matrix numeric type initializers are allowed.
+
+float4 main() : sv_target
+{
+    return 2 * a[1];
+}
+
+[test]
+if(sm<4)  uniform 0 float4 10 20 30 40
+if(sm<4)  uniform 4 float4 50 60 70 80
+if(sm>=4) uniform 0 int4 10 20 30 40
+if(sm>=4) uniform 4 int4 50 60 70 80
+draw quad
+probe (0, 0) rgba (100, 120, 140, 160)
+
+
+[pixel shader]
+struct apple
+{
+    float3 a[2];
+    int2x2 b;
+} ap = {1, 2, 3, 4, 5, 6, 7.5, 8, 9, 10};
+
+float4 main() : sv_target
+{
+    return float4(ap.b);
+}
+
+[test]
+uniform 0 float4 10 20 30 0
+uniform 4 float4 40 50 60 0
+if(sm<4)  uniform 8 float4 70 90 0 0
+if(sm<4)  uniform 12 float4 80 100 0 0
+if(sm>=4) uniform 8 int4 70 90 0 0
+if(sm>=4) uniform 12 int4 80 100 0 0
+draw quad
+probe (0, 0) rgba (70, 80, 90, 100)
+
+
+[pixel shader]
+cbuffer buff
+{
+    float2 a = {1, 2};
+    float4x2 b = {1, 2, 3, 4, 5, 6, 7, 8};
+}
+
+float4 main() : sv_target
+{
+    return float4(a, b[2]);
+}
+
+[test]
+if(sm<4)  uniform 0 float4 10 30 50 70
+if(sm<4)  uniform 4 float4 20 40 60 80
+if(sm<4)  uniform 8 float4 10 20 0 0
+if(sm>=4) uniform 0 float4 10 20 0 0
+if(sm>=4) uniform 4 float4 10 30 50 70
+if(sm>=4) uniform 8 float4 20 40 60 80
+draw quad
+probe (0, 0) rgba (10, 20, 50, 60)
+
+
+[pixel shader fail(sm<6)]
+cbuffer buff
+{
+    float a = 7;
+    float4 b = a; // initial value must be a literal expression.
+}
+
+float4 main() : sv_target { return 0; }
+
+
+[pixel shader fail(sm<6)]
+cbuffer buff
+{
+    float a = 7;
+    float4 b = {1, 2, a, 4}; // initial value must be a literal expression.
+}
+
+float4 main() : sv_target { return 0; }
+
+
+[pixel shader]
+static const float a = 7;
+
+cbuffer buff
+{
+    float4 b = {1, 2, a, 4}; // static constant values are allowed on the initializer.
+}
+
+float4 main() : sv_target { return b; }
+
+[test]
+uniform 0 float4 10 20 30 40
+draw quad
+probe (0, 0) rgba (10, 20, 30, 40)
+
+
+[pixel shader]
+cbuffer buff
+{
+    float2 a = {1, 2};
+    float4 b = {3, 5, float2(4, 4)}; // numeric type initializers are allowed.
+}
+
+float4 main() : sv_target
+{
+    return 2 * b;
+}
+
+[test]
+if(sm<4) uniform 0 float4 30 50 40 40
+if(sm>=4) uniform 0 float4 10 20 0 0
+if(sm>=4) uniform 4 float4 30 50 40 40
+draw quad
+probe (0, 0) rgba (60, 100, 80, 80)
+
+
+[pixel shader]
+cbuffer buff
+{
+    struct apple
+    {
+        float3 a[2];
+        int2x2 b;
+    } ap = {1, 2, 3, 4, 5, 6, 7.5, 8, 9, 10};
+}
+
+float4 main() : sv_target
+{
+    return float4(ap.b);
+}
+
+[test]
+uniform 0 float4 10 20 30 0
+uniform 4 float4 40 50 60 0
+if(sm<4)  uniform 8 float4 70 90 0 0
+if(sm<4)  uniform 12 float4 80 100 0 0
+if(sm>=4) uniform 8 int4 70 90 0 0
+if(sm>=4) uniform 12 int4 80 100 0 0
+draw quad
+probe (0, 0) rgba (70, 80, 90, 100)
+
+
+% In SM4, the values in the default values initializer of matrices end up in different components
+% than for regular initializers. The values are assigned to the matrix components in Chinese
+% reading order, i.e. the components of a whole column are assigned before the next column, unlike
+% regular initializers where the components of each row are assigned before the next row.
+[pixel shader]
+int2x3 m = {1, 2, 3, 4, 5, 6};
+//   int2x3 m;                          // Offset:    0 Size:    40
+//      = 0x00000001 0x00000002 0x00000000 0x00000000
+//        0x00000003 0x00000004 0x00000000 0x00000000
+//        0x00000005 0x00000006
+
+float4 main() : sv_target
+{
+    return m[0][0];
+}
+
+
+% The same happens for numeric constructors.
+[pixel shader]
+int2x3 m = int2x3(1, 2, 3, 4, 5, 6);
+//   int2x3 m;                          // Offset:    0 Size:    40
+//      = 0x00000001 0x00000002 0x00000000 0x00000000
+//        0x00000003 0x00000004 0x00000000 0x00000000
+//        0x00000005 0x00000006
+
+float4 main() : sv_target
+{
+    return m[0][0];
+}
+
+
+[pixel shader]
+cbuffer buff
+{
+    row_major int2x3 m = {1, 2, 3, 4, 5, 6};
+    //   row_major int2x3 m;                // Offset:    0 Size:    28
+    //      = 0x00000001 0x00000003 0x00000005 0x00000000
+    //        0x00000002 0x00000004 0x00000006
+}
+
+float4 main() : sv_target
+{
+    return m[0][0];
+}
+
+
+[pixel shader fail(sm>=6)]
+struct
+{
+    float2 a[2];
+    row_major int2x3 b;
+    float3 c[2];
+} apple = {100, 101, 110, 111, 1, 2, 3, 4, 5, 6, 200, 201, 202, 210, 211, 212};
+//   struct
+//   {
+//
+//       float2 a[2];                   // Offset:    0
+//       row_major int2x3 b;            // Offset:   32
+//       float3 c[2];                   // Offset:   64
+//
+//   } apple;                           // Offset:    0 Size:    92
+//      = 0x42c80000 0x42ca0000 0x00000000 0x00000000
+//        0x42dc0000 0x42de0000 0x00000000 0x00000000
+//        0x00000001 0x00000003 0x00000005 0x00000000
+//        0x00000002 0x00000004 0x00000006 0x00000000
+//        0x43480000 0x43490000 0x434a0000 0x00000000
+//        0x43520000 0x43530000 0x43540000
+
+float4 main() : sv_target
+{
+    return float4(apple.c[0], 0);
+}
+
+
+% This compiles but default values for 'p' aren't written to the output binary.
+[pixel shader fail(sm>=6)]
+float4 fun() { return 0; };
+float2 p = {5, CompileShader(ps_2_0, fun())};
+
+float4 main() : sv_target
+{
+    return p.xyxy;
+}
+
+
+[require]
+shader model >= 5.0
+
+
+% Default values for doubles don't seem to be saved properly.
+[pixel shader todo]
+double2 m = {1, 2};
+//   double2 m;                         // Offset:    0 Size:    16
+//      = 0x00000000 0x00000000 0x40000000 0x00000000
+
+float4 main() : sv_target
+{
+    return m.y;
+}
+
+
+[pixel shader]
+static const float3x2 mat = {10, 20, 30, 40, 50, 60};
+static const float4 array[2] = {1, 2, 3, 4, 5, 6, 7, 8};
+static const int idx = 1;
+float3 u = {array[idx].xwwz.xy, mat._m21_m01.x}; // = {5, 8, 60}
+
+float4 main() : sv_target
+{
+    return u.y;
+}
+
+[pixel shader fail]
+float a = 1;
+int a = 2;
+
+float4 main() : sv_target
+{
+    return 0;
+}
+
+[pixel shader fail]
+float4 shader() : sv_target { return 0; }
+
+uniform float bb;
+uniform float4 aa = {0, compile ps_4_0 shader(), 2, bb};
+
+float4 main() : sv_target
+{
+    return aa;
+}

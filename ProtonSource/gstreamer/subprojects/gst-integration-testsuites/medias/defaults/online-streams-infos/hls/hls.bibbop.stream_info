@@ -1,0 +1,17 @@
+<file duration="60000000000" frame-detection="0" uri="http://127.0.0.1:8079/defaults/bipbop/bipbopall.m3u8" seekable="true">
+  <streams caps="application/x-hls">
+    <stream type="audio" caps="audio/mpeg, framed=(boolean)true, mpegversion=(int)4, level=(string)1, base-profile=(string)lc, profile=(string)lc, rate=(int)22050, channels=(int)1, stream-format=(string)adts" id="416447fa2e64c485da43250005767c64e121359134c5cb010c8a5c3dc77d12a4/src_0:1/00000101">
+      <tags>
+        <tag content="taglist, audio-codec=(string)&quot;MPEG-2\ AAC&quot;;"/>
+      </tags>
+    </stream>
+    <stream type="video" caps="video/x-h264, stream-format=(string)avc, alignment=(string)au, width=(int)192, height=(int)144, framerate=(fraction)0/1, parsed=(boolean)true, coded-picture-structure=(string)frame, chroma-format=(string)4:2:0, bit-depth-luma=(uint)8, bit-depth-chroma=(uint)8, colorimetry=(string)2:4:5:4, profile=(string)constrained-baseline, level=(string)1.1, codec_data=(buffer)0142e00bffe100132742e00ba918609d8035060106b6c2b5ef7c0401000428de0988" id="416447fa2e64c485da43250005767c64e121359134c5cb010c8a5c3dc77d12a4/src_0:1/00000102">
+      <tags>
+        <tag content="taglist, video-codec=(string)H.264;"/>
+      </tags>
+    </stream>
+  </streams>
+  <tags>
+    <tag content="taglist, audio-codec=(string)&quot;MPEG-2\ AAC&quot;, video-codec=(string)H.264;"/>
+  </tags>
+</file>

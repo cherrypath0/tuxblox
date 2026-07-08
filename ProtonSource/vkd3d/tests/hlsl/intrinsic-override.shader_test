@@ -1,0 +1,51 @@
+[pixel shader fail(sm>=6)]
+
+float2 max(float2 a, float2 b)
+{
+    return a + b;
+}
+
+float4 main() : sv_target
+{
+    return float4(max(0.1, 0.2), max(float2(0.1, 0.2), float2(0.3, 0.4)));
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (0.3, 0.3, 0.4, 0.6)
+
+[pixel shader fail(sm>=6)]
+
+float2 max(float2 a, float3 b)
+{
+    return a + b.xy;
+}
+
+float4 main() : sv_target
+{
+    return float4(max(0.1, 0.2), max(float2(0.1, 0.2), float2(0.3, 0.4)));
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (0.3, 0.3, 0.3, 0.4)
+
+
+[require]
+shader model >= 6.0
+
+[pixel shader]
+
+float2 max(float2 a, float2 b)
+{
+    return a + b;
+}
+
+float4 main() : sv_target
+{
+    return float4(max(0.1, 0.2), 0.0, max(float2(0.1, 0.2), float2(0.3, 0.4)));
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (0.2, 0.0, 0.3, 0.4)

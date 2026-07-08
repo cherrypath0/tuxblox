@@ -1,0 +1,219 @@
+[pixel shader]
+float myfunc()
+{
+    return 0.6;
+}
+static float a = myfunc() + 0.2;
+static float b;
+static const float c;
+float4 main() : sv_target
+{
+    return float4(a, b, c, 0);
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (0.8, 0.0, 0.0, 0.0)
+
+
+[pixel shader fail(sm<6)]
+// On SM1 this gives hr 0x88760b59.
+static uint i;
+
+float4 main() : sv_target
+{
+    return 1 / i;
+}
+
+
+[pixel shader]
+static struct
+{
+    float4 x;
+    float4 y;
+} x;
+
+float4 main() : sv_target
+{
+    return 0;
+}
+
+
+[pixel shader]
+static struct
+{
+    float4 x;
+    float3 y;
+} x;
+
+float4 main() : sv_target
+{
+    return float4(1, 2, 3, 4) + x.x;
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (1.0, 2.0, 3.0, 4.0)
+
+
+[sampler 0]
+filter linear linear linear
+address clamp clamp clamp
+
+
+[srv 0]
+size (2d, 1, 1)
+1.0 2.0 3.0 4.0
+
+
+[pixel shader fail]
+static Texture2D tex;
+sampler sam;
+
+float4 main() : sv_target
+{
+    return tex.Sample(sam, int3(0, 0, 0));
+}
+
+
+[pixel shader]
+// This is allowed in 10.0.10011.16384 but not in 9.29.952.3111
+static Texture2D tex;
+
+float4 main() : sv_target
+{
+    return 0;
+}
+
+
+[pixel shader]
+// This is allowed in 10.0.10011.16384 but not in 9.29.952.3111
+static Texture2D tex;
+sampler sam;
+
+float4 main() : sv_target
+{
+    if (0)
+        return tex.Sample(sam, int3(0, 0, 0));
+    else
+        return float4(0, 1, 2, 3);
+}
+
+
+[pixel shader todo]
+// This is allowed in 10.0.10011.16384 but not in 9.29.952.3111
+static Texture2D tex;
+sampler sam;
+
+float4 main() : sv_target
+{
+    float4 unused = tex.Sample(sam, int3(0, 1, 2));
+
+    return 0;
+}
+
+
+[pixel shader fail(sm<6)]
+// This fails, so SM4 resource samples always require a non-static
+// sampler, whether the result is used or not. Unlike the texture which can be
+// static if the result is not used.
+Texture2D tex;
+static sampler sam;
+
+float4 main() : sv_target
+{
+    float4 unused = tex.Sample(sam, float2(0, 0));
+
+    return 0;
+}
+
+
+[pixel shader fail]
+// The sampler can also never be static on SM1 style resource samples.
+static sampler sam;
+
+float4 main() : sv_target
+{
+    float4 unused = tex2D(sam, float2(0, 0));
+
+    return 0;
+}
+
+
+[pixel shader fail]
+static Texture2D tex1;
+sampler sam;
+
+float4 main() : sv_target
+{
+    static Texture2D tex2 = tex1;
+    return tex2.Sample(sam, int3(0, 0, 0));
+}
+
+
+[pixel shader fail]
+static Texture2D tex1;
+sampler sam;
+
+float4 main(Texture2D tex2) : sv_target
+{
+    tex2 = tex1;
+    return tex2.Sample(sam, int3(0, 0, 0));
+}
+
+
+[pixel shader]
+Texture2D real_tex;
+static Texture2D tex = real_tex;
+sampler sam;
+
+float4 main() : sv_target
+{
+    return tex.Sample(sam, int3(0, 0, 0));
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (1, 2, 3, 4)
+
+
+[pixel shader]
+Texture2D real_tex;
+static Texture2D tex;
+sampler sam;
+
+float4 main() : sv_target
+{
+    tex = real_tex;
+    return tex.Sample(sam, int3(0, 0, 0));
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (1, 2, 3, 4)
+
+
+[require]
+shader model >= 5.0
+format r32-float uav-load
+
+
+[uav 1]
+format r32-float
+size (2d, 1, 1)
+
+0.5
+
+
+[pixel shader]
+// This is allowed in 10.0.10011.16384 but not in 9.29.952.3111
+static RWTexture2D<float> tex;
+
+float4 main() : sv_target
+{
+    if (0)
+    {
+        tex[int2(0, 0)] = 2;
+    }
+    return 0;
+}

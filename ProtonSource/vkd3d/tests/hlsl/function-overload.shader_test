@@ -1,0 +1,728 @@
+[pixel shader fail]
+/* The same function signature cannot be defined twice. */
+
+float func(int arg)
+{
+    return 0.1;
+}
+
+float func(int arg)
+{
+    return 0.1;
+}
+
+float4 main() : sv_target
+{
+    return 0;
+}
+
+
+[pixel shader]
+/* Test a basic overload. */
+float func(int arg)
+{
+    return 0.1;
+}
+
+float func(uint arg)
+{
+    return 0.2;
+}
+
+float4 main() : sv_target
+{
+    int i = 1;
+    uint u = 1;
+    return float4(func(i), func(u), func(int2(1, 1)), func(uint2(1, 1)));
+}
+
+[test]
+draw quad
+probe (0, 0) f32(0.1, 0.2, 0.1, 0.2)
+
+
+[pixel shader fail todo]
+float func(int arg)
+{
+    return 1.0;
+}
+
+float func(uint arg)
+{
+    return 2.0;
+}
+
+float4 main() : sv_target
+{
+    return func(3); // whether 3 is signed or unsigned is unspecified.
+}
+
+
+[pixel shader]
+float func(int arg)
+{
+    return 1.0;
+}
+
+float func(uint arg)
+{
+    return 2.0;
+}
+
+float4 main() : sv_target
+{
+    int a = 3;
+    uint b = 3l;
+
+    return float4(func(a), func(b), func(3u), func(3lu));
+}
+
+[test]
+draw quad
+probe (0, 0) f32(1.0, 2.0, 2.0, 2.0)
+
+
+% float and float1 can be defined separately...
+
+[pixel shader]
+void func(float arg) {}
+void func(float1 arg) {}
+
+float4 main() : sv_target
+{
+    return 1.0;
+}
+
+
+% ...but invoking them is considered ambiguous and fails.
+
+[pixel shader fail]
+
+void func(float arg) {}
+void func(float1 arg) {}
+
+float4 main() : sv_target
+{
+    float x = 1.0;
+    func(x);
+    return 1.0;
+}
+
+[pixel shader fail]
+
+void func(float arg) {}
+void func(float1 arg) {}
+
+float4 main() : sv_target
+{
+    float1 x = {1.0};
+    func(x);
+    return 1.0;
+}
+
+
+% This holds true even if one variant isn't actually defined.
+
+[pixel shader fail]
+
+void func(float arg);
+void func(float1 arg) {}
+
+float4 main() : sv_target
+{
+    float1 x = {1.0};
+    func(x);
+    return 1.0;
+}
+
+% Narrows have the same priority, regardless of how much narrowing is done.
+[pixel shader fail]
+
+float4 func(float3 x)
+{
+    return 0.0;
+}
+
+float4 func(float2 x)
+{
+    return 1.0;
+}
+
+float4 main() : sv_target
+{
+    return func(float4(0.0, 0.0, 0.0, 0.0));
+}
+
+% That applies to widening as well.
+[pixel shader fail]
+float f(float3 x) { return 1.0; }
+float f(float4 x) { return 2.0; }
+
+float4 main() : sv_target
+{
+    return f(float(0.0));
+}
+
+% Even if one axis has less narrowing.
+[pixel shader fail]
+
+float4 func(float4x3 x)
+{
+    return float4(x[0][0], x[0][0], x[0][0], x[0][0]);
+}
+
+float4 func(float2x2 x)
+{
+    return float4(x[0][0], x[0][0], x[0][0], x[0][0]);
+}
+
+float4 main() : sv_target
+{
+    float4x4 mtx = 0;
+
+    return func(mtx);
+}
+
+% An exact match is preferred over widening.
+[pixel shader]
+float f(float x) { return 1.0; }
+float f(float2 x) { return 2.0; }
+
+float4 main() : sv_target
+{
+    return f(float(0.0));
+}
+
+[test]
+draw quad
+probe (0, 0) f32(1.0, 1.0, 1.0, 1.0)
+
+% Component type narrowing is preferred over component count narrowing.
+[pixel shader]
+float f(half4 x) { return 1.0; }
+float f(float2 x) { return 2.0; }
+
+float4 main() : sv_target
+{
+    return f(float4(0.0, 0.0, 0.0, 0.0));
+}
+
+[test]
+draw quad
+probe (0, 0) f32(1.0, 1.0, 1.0, 1.0)
+
+% Let C be the common type that would be produced in an arithmetic expression
+% between the parameter and argument types. If C is the same as the parameter, the
+% overload is preferred to the case where C is the same base type as the argument but
+% narrower. E.g. in the following example, C is "float4" for the first function
+% (same as the parameter) and "int2" for the second function (same base type as
+% the argument, but narrower), so the first function is preferred.
+
+[pixel shader]
+
+float4 func(float4 x)
+{
+    return 0.0;
+}
+
+float4 func(int2 x)
+{
+    return 1.0;
+}
+
+float4 main() : sv_target
+{
+    return func(int4(0, 0, 0, 0));
+}
+
+[test]
+draw quad
+probe (0, 0) f32(0.0, 0.0, 0.0, 0.0)
+
+% Let C be the common type that would be produced in an arithmetic expression
+% between the parameter and argument types. If C is the same as the argument,
+% the overload is preferred to the case where C is the same as the parameter
+% but different to the argument. E.g. in the following example, C is "int" for
+% the first function (same as the argument) and "float" for the second function
+% (same as the parameter), so the first function is preferred.
+
+% This is ambiguous; "bool" is no closer to "int" than it is to "float".
+[pixel shader fail]
+float f(int x) { return 1.0; }
+float f(float x) { return 2.0; }
+
+float4 main() : sv_target
+{
+    return f(true);
+}
+
+[require]
+% No minimum precision types prior to SM4.
+shader model >= 4.0
+
+% The amount of component type narrowing doesn't matter.
+[pixel shader fail]
+float f(min16float x) { return 1.0; }
+float f(min10float x) { return 2.0; }
+
+float4 main() : sv_target
+{
+    return f(float(0.0));
+}
+
+% Even for half to min16float conversion.
+[pixel shader fail]
+float f(min16float x) { return 1.0; }
+float f(min10float x) { return 2.0; }
+
+float4 main() : sv_target
+{
+    return f(half(0.0));
+}
+
+[pixel shader]
+
+float4 func(min16int x)
+{
+    return 2.0;
+}
+
+float4 func(float x)
+{
+    return 1.0;
+}
+
+float4 main() : sv_target
+{
+    return func(int(0));
+}
+
+[test]
+draw quad
+probe (0, 0) f32(2.0, 2.0, 2.0, 2.0)
+
+% Let C be the common type that would be produced in an arithmetic expression
+% between the parameter and argument types. If C is "int" and the parameter is "uint", the
+% overload is preferred to the case where C is the same as the argument.
+% E.g. in the following example, C is "int" in both cases, but "int" <-> "uint"
+% casts are preferred.
+
+[pixel shader]
+
+float4 func(uint x)
+{
+    return 2.0;
+}
+
+float4 func(min16int x)
+{
+    return 1.0;
+}
+
+float4 main() : sv_target
+{
+    return func(int(0));
+}
+
+[test]
+draw quad
+todo(sm<6) probe (0, 0) f32(2.0, 2.0, 2.0, 2.0)
+
+% Same as above.
+
+[pixel shader]
+
+float4 func(int x)
+{
+    return 2.0;
+}
+
+float4 func(min16uint x)
+{
+    return 1.0;
+}
+
+float4 main() : sv_target
+{
+    return func(uint(0));
+}
+
+[test]
+draw quad
+probe (0, 0) f32(2.0, 2.0, 2.0, 2.0)
+
+% An exact match is preferred for minimum precision types as well.
+[pixel shader todo]
+float f(min16int x) { return 1.0; }
+float f(int x) { return 2.0; }
+
+float4 main() : sv_target
+{
+    return f(min16int(0));
+}
+
+[test]
+todo(sm<6) draw quad
+probe (0, 0) f32(1.0, 1.0, 1.0, 1.0)
+
+[require]
+% Need SM5 for doubles.
+shader model >= 5.0
+
+% Let C be the common type that would be produced in an arithmetic expression
+% between the parameter and argument types. If C is a promoted type of the argument
+% (e.g: float and double for halfs; double for floats;), it is preferred over the case
+% where C is equal to the argument.
+% E.g. in the following example, C is "double" for the first function (a promoted
+% type of the "float" argument) and "float" for the second function.
+
+[pixel shader]
+
+float4 func(double x)
+{
+    return 2.0;
+}
+
+float4 func(int x)
+{
+    return 1.0;
+}
+
+float4 main() : sv_target
+{
+    return func(float(0));
+}
+
+[test]
+draw quad
+probe (0, 0) f32(2.0, 2.0, 2.0, 2.0)
+
+% Component type widening is preferred over component type narrowing.
+[pixel shader]
+float f(half x) { return 1.0; }
+float f(double x) { return 2.0; }
+
+float4 main() : sv_target
+{
+    return f(float(0.0));
+}
+
+[test]
+draw quad
+probe (0, 0) f32(2.0, 2.0, 2.0, 2.0)
+
+% Component count widening is preferred over component type narrowing.
+[pixel shader]
+float f(half x) { return 1.0; }
+float f(double2 x) { return 2.0; }
+
+float4 main() : sv_target
+{
+    return f(float(0.0));
+}
+
+[test]
+draw quad
+probe (0, 0) f32(2.0, 2.0, 2.0, 2.0)
+
+% Component count widening is preferred over component type class conversion.
+[pixel shader]
+float f(int x) { return 1.0; }
+float f(double2 x) { return 2.0; }
+
+float4 main() : sv_target
+{
+    return f(float(0.0));
+}
+
+[test]
+draw quad
+probe (0, 0) f32(2.0, 2.0, 2.0, 2.0)
+% Let C be the common type that would be produced in an arithmetic expression
+% between the parameter and argument types. If C has the same base type as the argument,
+% but with more components, it is preferred over all other cases.
+% E.g in the following example, "C" is "float2" (same base type as the "float"
+% argument, but with more components) for the first function and "double" for the
+% second function.
+
+[pixel shader]
+float func(float2 x, double y)
+{
+    return 1.0;
+}
+
+float func(half4 x, int y)
+{
+    return 2.0;
+}
+
+float4 main() : sv_target
+{
+    float4 x = 0.0;
+    float y = 0.0;
+
+    return func(x, y);
+}
+
+[test]
+draw quad
+probe (0, 0) f32(2.0)
+
+[pixel shader]
+float func(uint4 x, double y)
+{
+    return 1.0;
+}
+
+float func(int4 x, int y)
+{
+    return 2.0;
+}
+
+float4 main() : sv_target
+{
+    int x = 0.0;
+    float y = 0.0;
+
+    return func(x, y);
+}
+
+[test]
+draw quad
+probe (0, 0) f32(1.0)
+
+[pixel shader]
+float func(uint4 x, double y)
+{
+    return 1.0;
+}
+
+float func(int4 x, int y)
+{
+    return 2.0;
+}
+
+float4 main() : sv_target
+{
+    int x = 0.0;
+    float y = 0.0;
+
+    return func(x, y);
+}
+
+[test]
+draw quad
+probe (0, 0) f32(1.0)
+
+[pixel shader]
+float func(half4 x, half y, half z, half a)
+{
+    return 1.0;
+}
+
+float func(float2 x, double y, double z, double a)
+{
+    return 2.0;
+}
+
+float4 main() : sv_target
+{
+    float4 x = 0.0;
+    float y = 0.0;
+
+    return func(x, y, y, y);
+}
+
+[test]
+draw quad
+probe (0, 0) f32(1.0)
+
+[require]
+% Reset
+
+[pixel shader]
+
+float4 func(float2 x)
+{
+    return 2.0;
+}
+
+float4 func(double x)
+{
+    return 1.0;
+}
+
+float4 main() : sv_target
+{
+    return func(float(0));
+}
+
+[test]
+draw quad
+probe (0, 0) f32(2.0, 2.0, 2.0, 2.0)
+
+% Some matrices are implicitly compatible with vectors and will ambiguate with them.
+
+[pixel shader fail]
+
+float4 func(float2x2 x)
+{
+    return 2.0;
+}
+
+float4 func(float4 x)
+{
+    return 1.0;
+}
+
+float4 main() : sv_target
+{
+    return func(float4(0, 0, 0, 0));
+}
+
+[pixel shader fail]
+
+float4 func(float1x3 x)
+{
+    return 2.0;
+}
+
+float4 func(float3 x)
+{
+    return 1.0;
+}
+
+float4 main() : sv_target
+{
+    return func(float4(0, 0, 0, 0));
+}
+
+% Structs are evaluated on a per-component basis.
+
+[pixel shader fail]
+struct a
+{
+    float4 a;
+};
+
+struct b
+{
+    float a[4];
+};
+
+struct c
+{
+    float a;
+    float b;
+    float c;
+    float d;
+};
+
+float4 func(a x)
+{
+    return 1.0;
+}
+
+float4 func(b x)
+{
+    return 2.0;
+}
+
+float4 main() : sv_target
+{
+    c x = {0.0, 0.0, 0.0, 0.0};
+    return func(x);
+}
+
+% Arrays are evaluated on a per component basis.
+
+[pixel shader fail]
+
+float4 func(float4 x[1])
+{
+    return 1.0;
+}
+
+float4 func(float2 x[2])
+{
+    return 2.0;
+}
+
+float4 main() : sv_target
+{
+    float x[4] = {0, 0, 0, 0};
+    return func(x);
+}
+
+% Arrays do not implicitly convert from vectors, so they won't ambiguate.
+
+[pixel shader]
+
+float4 func(float4 x[1])
+{
+    return 1.0;
+}
+
+float4 func(float2 x[2])
+{
+    return 2.0;
+}
+
+float4 func(float4 x)
+{
+    return 42.0;
+}
+
+float4 main() : sv_target
+{
+    float4 x = float4(0, 0, 0, 0);
+    return func(x);
+}
+
+[test]
+draw quad
+probe (0, 0) f32(42.0, 42.0, 42.0, 42.0)
+
+[pixel shader]
+float func(float x, float y)
+{
+    return 1.0;
+}
+
+float3 func(float3 x, float3 y)
+{
+    return 2.0;
+}
+
+float4 main() : sv_target
+{
+    float x = 5.0;
+    half3 y = 10.0;
+    return float4(func(x, y), 0);
+}
+
+[test]
+draw quad
+probe (0, 0) f32(2.0)
+
+[pixel shader]
+float func(float3 a, float3 b, float3 c, float3 d)
+{
+    return 1.0;
+}
+
+float func(float a, float b, float c, float d)
+{
+    return 2.0;
+}
+
+float4 main() : sv_target
+{
+    float x = 10.0;
+    float3 y = 20.0;
+    return func(x, x, x, y);
+}
+
+[test]
+draw quad
+probe (0, 0) f32(1.0)

@@ -1,0 +1,208 @@
+[pixel shader]
+float4 main() : SV_TARGET
+{
+    int x = 5;
+    int y = 15;
+
+    return float4(x + y, x - y, x * y, x / y) / 100.0;
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (0.20, -0.10, 0.75, 0.0) 1
+
+[pixel shader]
+float4 main() : SV_TARGET
+{
+    int x = 5;
+    int y = 15;
+
+    return float4(x % y, +x, -x, y / x) / 10.0;
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (0.5, 0.5, -0.5, 0.3)
+
+[pixel shader]
+float4 main() : SV_TARGET
+{
+    int x = 42;
+    int y = 5;
+
+    return float4(x / y, -x / y, x / -y, -x / -y) / 10.0;
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (0.8, -0.8, -0.8, 0.8)
+
+[pixel shader]
+float4 main() : SV_TARGET
+{
+    int x = 42;
+    int y = 5;
+
+    return float4(x % y, -x % y, x % -y, -x % -y) / 10.0;
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (0.2, -0.2, 0.2, -0.2)
+
+[pixel shader]
+float4 main() : SV_TARGET
+{
+    int x = 45;
+    int y = 5;
+
+    return float4(x / y, -x / y, x / -y, -x / -y) / 10.0;
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (0.9, -0.9, -0.9, 0.9) 1
+
+[pixel shader]
+float4 main() : SV_TARGET
+{
+    int x = 45;
+    int y = 5;
+
+    return float4(x % y, -x % y, x % -y, -x % -y);
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (0.0, 0.0, 0.0, 0.0)
+
+[pixel shader fail(sm>=2&sm<6)]
+float4 main() : SV_TARGET
+{
+    int x = 1;
+    int y = 0;
+
+    return x / y;
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (0.0, 0.0, 0.0, 0.0)
+
+% Allowed regardless of shader model on 31 and below
+[pixel shader fail(sm>=2&sm<6)]
+float4 main() : SV_TARGET
+{
+    int x = 1;
+    int y = 0;
+
+    return x % y;
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (0.0, 0.0, 0.0, 0.0)
+
+
+[require]
+% Skip 1.x because of clamping.
+shader model >= 2.0
+
+[pixel shader]
+float4 main() : SV_TARGET
+{
+    int x = -2147483648;
+    int y = -1;
+
+    return x / y;
+}
+
+[test]
+draw quad
+if(sm<4) todo  probe (0,0) rgba ( 2147483648.0,  2147483648.0,  2147483648.0,  2147483648.0)
+if(sm>=4&sm<6) probe (0,0) rgba (-2147483648.0, -2147483648.0, -2147483648.0, -2147483648.0)
+if(sm>=6) probe (0,0) rgba (0.0, 0.0, 0.0, 0.0)
+
+
+[pixel shader]
+float4 main() : sv_target
+{
+    int2 x = {5, 15};
+    int2 y = {2, 5};
+    int2 z = {3, 8};
+
+    return float4(x / y, z % y);
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (2.0, 3.0, 1.0, 3.0)
+
+% On SM1, negation constant folding is performed with float arithmetic.
+[pixel shader]
+float4 main() : sv_target
+{
+    int a = -2147483648;
+
+    return int4(a, -a, 0, 0);
+}
+
+[test]
+draw quad
+todo if(sm<4) probe (0, 0) rgba(-2147483648.0, 2147483648.0, 0, 0)
+if(sm>=4) probe (0, 0) rgba(-2147483648.0, -2147483648.0, 0, 0)
+
+% Note that the negation here causes loss of precision on SM1.
+[pixel shader]
+float4 main() : sv_target
+{
+    int a = 16782201;  // This rounds down to 16782200 when converted to float.
+
+    return float4(a + 1, (-(-a)) + 1, 0, 0);
+}
+
+[test]
+draw quad
+todo if(sm<4) probe (0, 0) rgba(16782202, 16782200, 0, 0)
+if(sm>=4) probe (0, 0) rgba(16782202, 16782202, 0, 0)
+
+[pixel shader]
+float4 main() : sv_target
+{
+    int a = 16777217;  // This rounds down to 16777216 when converted to float.
+    int b = 10;
+
+    return float4(a % b, a % (-b), (-a) % b, (-a) % (-b));
+}
+
+[test]
+draw quad
+todo if(sm<4) probe (0, 0) rgba(7, 7, -6, -6)
+if(sm>=4) probe (0, 0) rgba(7, 7, -7, -7)
+
+[pixel shader]
+float4 main() : sv_target
+{
+    int a = 16782201; // This rounds down to 16782200 when converted to float.
+    int b = 999;
+
+    return float4(a / b, a / (-b), (-a) / b, (-a) / (-b));
+}
+
+[test]
+draw quad
+if(sm<4) todo probe (0, 0) rgba(16799, -16799, -16798, 16798)
+if(sm>=4) probe (0, 0) rgba(16799, -16799, -16799, 16799)
+
+[pixel shader]
+float4 main() : sv_target
+{
+    int a = 16782200;
+    int b = 999;
+
+    return float4(a / b, a / (-b), (-a) / b, (-a) / (-b));
+}
+
+[test]
+draw quad
+probe (0, 0) rgba(16798, -16798, -16798, 16798)

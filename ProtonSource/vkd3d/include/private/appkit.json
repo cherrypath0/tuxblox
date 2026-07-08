@@ -1,0 +1,205 @@
+{
+    "copyright" : [
+        "Copyright 2025 Henri Verbeet",
+        "",
+        "This library is free software; you can redistribute it and/or",
+        "modify it under the terms of the GNU Lesser General Public",
+        "License as published by the Free Software Foundation; either",
+        "version 2.1 of the License, or (at your option) any later version.",
+        "",
+        "This library is distributed in the hope that it will be useful,",
+        "but WITHOUT ANY WARRANTY; without even the implied warranty of",
+        "MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU",
+        "Lesser General Public License for more details.",
+        "",
+        "You should have received a copy of the GNU Lesser General Public",
+        "License along with this library; if not, write to the Free Software",
+        "Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA"
+    ],
+    "name" : "AppKit",
+    "interfaces" : [
+        {
+            "name" : "NSApplication",
+            "instance-methods" : [
+                {
+                    "selector" : "finishLaunching",
+                    "return-type" : "void"
+                },
+                {
+                    "selector" : "nextEventMatchingMask:untilDate:inMode:dequeue:",
+                    "return-type" : "id",
+                    "parameters" : [
+                        {"type" : "uint64_t", "name" : "mask"},
+                        {"type" : "id", "name" : "expiration"},
+                        {"type" : "id", "name" : "mode"},
+                        {"type" : "BOOL", "name" : "dequeue"}
+                    ]
+                },
+                {
+                    "selector" : "postEvent:atStart:",
+                    "return-type" : "void",
+                    "parameters" : [
+                        {"type" : "id", "name" : "event"},
+                        {"type" : "BOOL", "name" : "at_start"}
+                    ]
+                },
+                {
+                    "selector" : "sendEvent:",
+                    "return-type" : "void",
+                    "parameters" : [
+                        {"type" : "id", "name" : "event"}
+                    ]
+                },
+                {
+                    "selector" : "setActivationPolicy:",
+                    "return-type" : "BOOL",
+                    "parameters" : [
+                        {"type" : "long", "name" : "policy"}
+                    ]
+                }
+            ],
+            "properties" : [
+                {"type" : "id", "name" : "mainMenu"},
+                {"type" : "id", "name" : "sharedApplication", "readonly" : true, "class" : true}
+            ]
+        },
+        {
+            "name" : "NSEvent",
+            "class-methods" : [
+                {
+                    "selector" : "otherEventWithType:location:modifierFlags:timestamp:windowNumber:context:subtype:data1:data2:",
+                    "return-type" : "id",
+                    "parameters" : [
+                        {"type" : "unsigned long", "name" : "type"},
+                        {"type" : "NSPoint", "name" : "location"},
+                        {"type" : "NSUInteger", "name" : "flags"},
+                        {"type" : "double", "name" : "time"},
+                        {"type" : "NSInteger", "name" : "window"},
+                        {"type" : "id", "name" : "context"},
+                        {"type" : "short", "name" : "subtype"},
+                        {"type" : "NSInteger", "name" : "d1"},
+                        {"type" : "NSInteger", "name" : "d2"}
+                    ]
+                }
+            ],
+            "properties" : [
+                {"type" : "unsigned short", "name" : "keyCode", "readonly" : true},
+                {"type" : "short", "name" : "subtype", "readonly" : true},
+                {"type" : "NSUInteger", "name" : "type", "readonly" : true},
+                {"type" : "id", "name" : "window", "readonly" : true}
+            ]
+        },
+        {
+            "name" : "NSMenu",
+            "class-methods" : [
+                {
+                    "selector" : "new",
+                    "return-type" : "id"
+                }
+            ],
+            "instance-methods" : [
+                {
+                    "selector" : "addItem:",
+                    "return-type" : "void",
+                    "parameters" : [
+                        {"type" : "id", "name" : "item"}
+                    ]
+                },
+                {
+                    "selector" : "addItemWithTitle:action:keyEquivalent:",
+                    "return-type" : "id",
+                    "parameters" : [
+                        {"type" : "id", "name" : "title"},
+                        {"type" : "SEL", "name" : "selector"},
+                        {"type" : "id", "name" : "key"}
+                    ]
+                },
+                {
+                    "selector" : "performKeyEquivalent:",
+                    "return-type" : "BOOL",
+                    "parameters" : [
+                        {"type" : "id", "name" : "event"}
+                    ]
+                },
+                {
+                    "selector" : "release",
+                    "return-type" : "void"
+                }
+            ]
+        },
+        {
+            "name" : "NSMenuItem",
+            "class-methods" : [
+                {
+                    "selector" : "new",
+                    "return-type" : "id"
+                }
+            ],
+            "instance-methods" : [
+                {
+                    "selector" : "release",
+                    "return-type" : "void"
+                }
+            ],
+            "properties" : [
+                {"type" : "id", "name" : "submenu"}
+            ]
+        },
+        {
+            "name" : "NSScreen",
+            "properties" : [
+                {"type" : "double", "name" : "backingScaleFactor", "readonly" : true, "float" : true},
+                {"type" : "id", "name" : "mainScreen", "readonly" : true, "class" : true}
+            ]
+        },
+        {
+            "name" : "NSView",
+            "properties" : [
+                {"type" : "id", "name" : "layer"},
+                {"type" : "BOOL", "name" : "wantsLayer"}
+            ]
+        },
+        {
+            "name" : "NSWindow",
+            "instance-methods" : [
+                {
+                    "selector" : "center",
+                    "return-type" : "void"
+                },
+                {
+                    "selector" : "close",
+                    "return-type" : "void"
+                },
+                {
+                    "selector" : "initWithContentRect:styleMask:backing:defer:screen:",
+                    "return-type" : "id",
+                    "parameters" : [
+                        {"type" : "NSRect", "name" : "rect"},
+                        {"type" : "NSUInteger", "name" : "style"},
+                        {"type" : "NSUInteger", "name" : "backing_store_type"},
+                        {"type" : "BOOL", "name" : "defer"},
+                        {"type" : "id", "name" : "screen"}
+                    ]
+                },
+                {
+                    "selector" : "makeKeyAndOrderFront:",
+                    "return-type" : "void",
+                    "parameters" : [
+                        {"type" : "id", "name" : "sender"}
+                    ]
+                },
+                {
+                    "selector" : "release",
+                    "return-type" : "void"
+                }
+            ],
+            "properties" : [
+                {"type" : "id", "name" : "contentView"},
+                {"type" : "id", "name" : "delegate"},
+                {"type" : "BOOL", "name" : "releasedWhenClosed", "getter" : "isReleasedWhenClosed"},
+                {"type" : "id", "name" : "title"},
+                {"type" : "NSInteger", "name" : "windowNumber", "readonly" : true}
+            ]
+        }
+    ]
+}

@@ -46,4 +46,8 @@ unzip -oq "$studioZip" -d "$studioDir"
 echo ":: Cleaning up downloaded archives"
 rm -f "$playerZip" "$studioZip"
 
+echo ":: Cleaning up old prefix directory"
+rm -rf prefix
+mkdir -p prefix
+
 echo ":: Install complete."

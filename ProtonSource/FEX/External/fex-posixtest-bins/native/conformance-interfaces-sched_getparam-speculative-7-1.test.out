@@ -1,0 +1,1 @@
+sched_getparam() sets errno == EINVAL when param argument points to NULL

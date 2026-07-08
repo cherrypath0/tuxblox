@@ -1,0 +1,8 @@
+This the official GStreamer media files to be used with the default integration
+testsuites.
+
+This repo only contains the media files and is used as a submodule of the
+`gstreamer` repository.
+
+Note that this repository uses [git-lfs] so you will need to install it before
+using it.

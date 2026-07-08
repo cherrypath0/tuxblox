@@ -1,0 +1,2 @@
+The minimum priority for policy SCHED_OTHER is 0.
+Test PASSED

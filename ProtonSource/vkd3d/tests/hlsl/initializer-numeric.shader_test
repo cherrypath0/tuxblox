@@ -1,0 +1,74 @@
+[pixel shader]
+float4 main() : sv_target
+{
+    int4 aa = {1, 2, 3, 4};
+    return aa;
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (1.0, 2.0, 3.0, 4.0) 4
+
+
+[pixel shader]
+float4 main() : sv_target
+{
+    float4 aa = {1, 2, 3, 4};
+    return aa;
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (1.0, 2.0, 3.0, 4.0) 4
+
+
+[pixel shader]
+float4 main() : sv_target
+{
+    float3 aa = {1, 2, 3};
+    float4 bb = {aa.x, aa.y, aa.z, 4.0};
+    return bb;
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (1.0, 2.0, 3.0, 4.0) 4
+
+
+[pixel shader]
+float4 main() : sv_target
+{
+    float4 aa = { 1e1, 1e-1,  1., 2.f };
+    float4 bb = {  .1, .1e1, .2f, 1.e-1f };
+    return aa + bb;
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (10.1, 1.1, 1.2, 2.1) 4
+
+
+[pixel shader]
+float4 main() : sv_target
+{
+    float4 aa = { 3U, 0xfau, 020u, -1u};
+    return aa;
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (3.0, 250.0, 16.0, 4.2949673e+009) 4
+
+
+[pixel shader]
+float4 main() : sv_target
+{
+    // 3000000000 is -1294967296 when it doesn't have the 'u' suffix, except in SM6.
+    float2 aa = {3000000000, 3000000000U};
+    return float4(aa, 0.0, 0.0);
+}
+
+[test]
+draw quad
+if(sm<6)  probe (0,0) rgba (-1294967296.0, 3000000000.0, 0.0, 0.0) 4
+if(sm>=6) probe (0,0) rgba (3000000000.0, 3000000000.0, 0.0, 0.0) 4

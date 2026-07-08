@@ -1,0 +1,26 @@
+[pixel shader]
+uniform float4 a;
+
+float4 main() : sv_target
+{
+    return radians(a);
+}
+
+[test]
+uniform 0 float4 0.0 0.030 0.150 0.180
+draw quad
+probe (0, 0) rgba (0.0, 0.00052359877, 0.00261799387, 0.00314159265)
+
+
+[pixel shader]
+uniform float4 a;
+
+float4 main() : sv_target
+{
+    return degrees(a) / 100;
+}
+
+[test]
+uniform 0 float4 0.0 0.78539816 -0.78539816 0.157079632
+draw quad
+probe (0, 0) rgba (0.0, 0.45, -0.45, 0.09) 1

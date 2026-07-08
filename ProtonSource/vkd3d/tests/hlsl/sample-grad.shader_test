@@ -1,0 +1,80 @@
+[require]
+shader model >= 3.0
+options: backcompat
+
+[sampler 0]
+filter linear linear linear
+address clamp clamp clamp
+
+[srv 0]
+size (2d, 2, 2)
+levels 2
+
+1.0 0.0 1.0 0.0     1.0 0.0 1.0 0.0
+1.0 0.0 1.0 0.0     1.0 0.0 1.0 0.0
+
+0.0 0.0 1.0 0.0
+
+[pixel shader fail(sm>=5.1) todo(sm>=5.1)]
+sampler s;
+float4 grad;
+
+float4 main() : sv_target
+{
+    return tex2D(s, float2(0.5, 0.5), grad.xy, grad.zw);
+}
+
+[test]
+uniform 0 float4 0.0 0.0 0.0 0.0
+draw quad
+probe (0,0) rgba (1.0, 0.0, 1.0, 0.0)
+uniform 0 float4 1.0 1.0 1.0 1.0
+draw quad
+probe (0,0) rgba (0.0, 0.0, 1.0, 0.0)
+uniform 0 float4 2.0 2.0 2.0 2.0
+draw quad
+probe (0,0) rgba (0.0, 0.0, 1.0, 0.0)
+
+[pixel shader fail(sm>=5.1) todo(sm>=5.1)]
+sampler s;
+float4 grad;
+
+float4 main() : sv_target
+{
+    return tex2Dgrad(s, float2(0.5, 0.5), grad.xy, grad.zw);
+}
+
+[test]
+uniform 0 float4 0.0 0.0 0.0 0.0
+draw quad
+probe (0,0) rgba (1.0, 0.0, 1.0, 0.0)
+uniform 0 float4 1.0 1.0 1.0 1.0
+draw quad
+probe (0,0) rgba (0.0, 0.0, 1.0, 0.0)
+uniform 0 float4 2.0 2.0 2.0 2.0
+draw quad
+probe (0,0) rgba (0.0, 0.0, 1.0, 0.0)
+
+[require]
+shader model >= 3.0
+
+[pixel shader]
+sampler s;
+Texture2D t;
+uniform float4 grad;
+
+float4 main() : sv_target
+{
+    return t.SampleGrad(s, float2(0.5, 0.5), grad.xy, grad.zw);
+}
+
+[test]
+uniform 0 float4 0.0 0.0 0.0 0.0
+draw quad
+probe (0, 0) rgba (1.0, 0.0, 1.0, 0.0)
+uniform 0 float4 1.0 1.0 1.0 1.0
+draw quad
+probe (0, 0) rgba (0.0, 0.0, 1.0, 0.0)
+uniform 0 float4 2.0 2.0 2.0 2.0
+draw quad
+probe (0, 0) rgba (0.0, 0.0, 1.0, 0.0)

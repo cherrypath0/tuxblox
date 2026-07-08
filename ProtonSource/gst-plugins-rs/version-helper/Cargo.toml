@@ -1,0 +1,16 @@
+[package]
+name = "gst-plugin-version-helper"
+version = "0.7.5"
+authors = ["Sajeer Ahamed <ahamedsajeer.15.15@cse.mrt.ac.lk>",
+           "Sebastian Dröge <sebastian@centricular.com>"]
+categories = ["development-tools"]
+description = "build.rs helper function for GStreamer plugin metadata"
+repository = "https://gitlab.freedesktop.org/gstreamer/gst-plugins-rs"
+license = "MIT"
+homepage = "https://gstreamer.freedesktop.org"
+keywords = ["gstreamer", "multimedia", "cargo"]
+edition = "2021"
+rust-version = "1.63"
+
+[dependencies]
+chrono = { version = "0.4.23", default-features = false, features = ["std", "clock"] }

@@ -1,0 +1,249 @@
+[require]
+shader model < 6.0
+options: backcompat
+
+
+[sampler 0]
+filter linear linear linear
+address clamp clamp clamp
+
+[sampler 1]
+filter linear linear linear
+address clamp clamp clamp
+
+[sampler 2]
+filter linear linear linear
+address clamp clamp clamp
+
+[sampler 3]
+filter linear linear linear
+address clamp clamp clamp
+
+[sampler 4]
+filter linear linear linear
+address clamp clamp clamp
+
+[sampler 5]
+filter linear linear linear
+address clamp clamp clamp
+
+[srv 0]
+size (2d, 2, 2)
+0.0 0.0 0.0 1.0  0.0 1.0 0.0 1.0
+0.0 0.0 1.0 1.0  1.0 0.0 0.0 1.0
+
+[srv 1]
+size (2d, 1, 1)
+1.0 1.0 1.0 1.0
+
+[srv 2]
+size (2d, 1, 1)
+2.0 2.0 2.0 1.0
+
+[srv 3]
+size (2d, 1, 1)
+3.0 3.0 3.0 1.0
+
+[srv 4]
+size (2d, 1, 1)
+4.0 4.0 4.0 1.0
+
+[srv 5]
+size (2d, 1, 1)
+5.0 5.0 5.0 1.0
+
+
+[pixel shader]
+sampler sam;
+
+float4 main() : sv_target
+{
+    return tex2D(sam, float2(0, 0));
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (0, 0, 0, 1)
+
+
+[pixel shader]
+sampler sam;
+
+float v;
+
+float4 main() : sv_target
+{
+    return tex2D(sam, float2(0, 0)) + v;
+}
+
+[test]
+uniform 0 float4 0.5 0.0 0.0 0.0
+draw quad
+probe (0, 0) rgba (0.5, 0.5, 0.5, 1.5)
+
+
+% On sm4, textures for new separated samplers are allocated before regular textures.
+% On sm1, textures for new combined samplers are allocated before regular samplers.
+[pixel shader]
+Texture2D tex;
+sampler sam;
+
+float4 main() : sv_target
+{
+    return 10 * tex.Sample(sam, float2(0, 0)) + tex2D(sam, float2(0, 0));
+}
+
+[test]
+draw quad
+if(sm<4)  probe (0, 0) rgba(1, 1, 1, 11)
+if(sm>=4) probe (0, 0) rgba(10, 10, 10, 11)
+
+
+[pixel shader]
+Texture2D tex;
+sampler sam;
+
+float4 main() : sv_target
+{
+    return 10 * tex.Sample(sam, float2(0, 0)) + tex2D(sam, float2(0, 0));
+}
+
+[test]
+draw quad
+if(sm<4)  probe (0, 0) rgba(1, 1, 1, 11)
+if(sm>=4) probe (0, 0) rgba(10, 10, 10, 11)
+
+
+[pixel shader]
+Texture2D tex;
+sampler sam[2];
+
+float4 main() : sv_target
+{
+    return 10 * tex.Sample(sam[0], float2(0, 0)) + tex2D(sam[1], float2(0, 0));
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (21, 21, 21, 11)
+
+
+[pixel shader]
+sampler sam0;
+sampler sam1;
+sampler sam2;
+
+float4 main() : sv_target
+{
+    return 100 * tex2D(sam1, float2(0, 0)) + 10 * tex2D(sam0, float2(0, 0))
+            + tex2D(sam2, float2(0, 0));
+}
+
+[test]
+draw quad
+if(sm<4)  probe (0, 0) rgba (102, 102, 102, 111)
+if(sm>=4) probe (0, 0) rgba (12, 12, 12, 111)
+
+
+[pixel shader notimpl(sm<4)]
+Texture2D tex[2][2];
+sampler sam;
+
+float4 main() : sv_target
+{
+    return 100 * tex[0][0].Load(int3(0, 0, 0)) + 10 * tex2D(sam, float2(0, 0))
+            + tex[1][1].Sample(sam, float2(0, 0));
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (104, 104, 104, 111)
+
+
+% Sampler arrays with components that have different usage dimensions are only forbidden in SM4 upwards.
+% However, tex2D and tex1D are considered the same dimension for these purposes.
+[pixel shader fail(sm>=4)]
+sampler sam[2];
+
+float4 main() : sv_target
+{
+    return tex2D(sam[0], float2(0, 0)) + tex3D(sam[1], float3(0, 0, 0));
+}
+
+
+[pixel shader]
+sampler sam[2];
+
+float4 main() : sv_target
+{
+    return 10 * tex2D(sam[0], float2(0, 0)) + tex1D(sam[1], 0);
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (1, 1, 1, 11)
+
+
+[pixel shader]
+sampler samA;
+sampler samB;
+sampler samC;
+texture2D tex;
+
+float4 main() : sv_target
+{
+    return 100000 * tex2D(samB, float2(0, 0))
+            + 10000 * tex2D(samC, float2(0, 0))
+            + 1000 * tex2D(samA, float2(0, 0))
+            + 100 * tex.Sample(samA, float2(0, 0))
+            + 10 * tex.Sample(samC, float2(0, 0))
+            + tex.Sample(samB, float2(0, 0));
+}
+
+[test]
+draw quad
+if(sm<4)  probe (0, 0) rgba(453021, 453021, 453021, 111111)
+if(sm>=4) probe (0, 0) rgba(12333, 12333, 12333, 111111)
+
+
+[pixel shader]
+Texture2D texA;
+sampler samA[2];
+Texture2D texB[2];
+sampler samB;
+
+float4 main() : sv_target
+{
+    return 1000 * texA.Sample(samA[0], float2(0, 0))
+            + 100 * tex2D(samA[1], float2(0, 0))
+            + 10 * tex2D(samB, float2(0, 0))
+            + texB[1].Sample(samB, float2(0, 0));
+}
+
+[test]
+draw quad
+if(sm<4)  probe (0, 0) rgba(4351, 4351, 4351, 1111)
+if(sm>=4) probe (0, 0) rgba(3125, 3125, 3125, 1111)
+
+
+[require]
+shader model >= 5.0
+shader model < 6.0
+options: backcompat
+
+
+[pixel shader todo]
+struct
+{
+  Texture2D tex;
+  sampler sam;
+} foo;
+
+float4 main() : sv_target
+{
+    return 10 * foo.tex.Sample(foo.sam, float2(0, 0)) + tex2D(foo.sam, float2(0, 0));
+}
+
+[test]
+todo draw quad
+todo probe (0,0) rgba (10, 10, 10, 11)

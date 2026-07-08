@@ -1,0 +1,43 @@
+[require]
+clip-planes
+
+[pixel shader]
+float4 main() : sv_target
+{
+    return 1.0;
+}
+
+[test]
+clear rtv-0 f32(0, 0, 0, 0)
+clip-plane 1  1.0 1.0 0.0 0.0
+clip-plane 3 -1.0 1.0 0.0 0.0
+draw quad
+
+probe (320, 120) f32(1, 1, 1, 1)
+probe (320, 360) f32(0, 0, 0, 0)
+probe (160, 240) f32(0, 0, 0, 0)
+probe (480, 240) f32(0, 0, 0, 0)
+
+clear rtv-0 f32(0, 0, 0, 0)
+clip-plane 0  1.0  0.0 0.0 0.5
+clip-plane 1 -1.0  0.0 0.0 0.5
+clip-plane 2  0.0  1.0 0.0 0.5
+clip-plane 3  0.0 -1.0 0.0 0.5
+clip-plane 5  1.0  1.0 0.0 0.2
+draw quad
+
+probe (150, 130) f32(0, 0, 0, 0)
+probe (170, 110) f32(0, 0, 0, 0)
+probe (170, 130) f32(1, 1, 1, 1)
+
+probe (490, 130) f32(0, 0, 0, 0)
+probe (470, 110) f32(0, 0, 0, 0)
+probe (470, 130) f32(1, 1, 1, 1)
+
+probe (150, 350) f32(0, 0, 0, 0)
+probe (170, 370) f32(0, 0, 0, 0)
+probe (170, 350) f32(0, 0, 0, 0)
+
+probe (490, 350) f32(0, 0, 0, 0)
+probe (470, 370) f32(0, 0, 0, 0)
+probe (470, 350) f32(1, 1, 1, 1)

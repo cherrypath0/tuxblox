@@ -1,0 +1,57 @@
+#!/bin/bash
+
+topdir=`pwd`
+installdir=${topdir}/install
+
+#testfile=../test.orc
+
+for check_micro in 6 7 9 12
+do
+  testfile=test-0.4.${check_micro}.orc
+
+  compat="--compat 0.4.${check_micro}"
+
+
+  ../../tools/orcc -o impl.c ${compat} --implementation ${testfile}
+  ../../tools/orcc -o test.c ${compat} --test ${testfile}
+
+  echo "  --compat 0.4.${check_micro}"
+  echo "          compile     run"
+  echo "        impl   test   test"
+
+for micro in 0 1 3 4 5 6 7 9 10 11 12
+do
+  version=0.4.${micro}
+
+  gcc -Wall -Werror -I${installdir}/${version}/include/orc-0.4/ -c -o impl.o impl.c &>out-impl
+  res=$?
+  if [ "$res" = "0" ] ; then
+    result_impl="yes"
+  else
+    result_impl=" no"
+  fi
+
+  rm -f test
+  gcc -Wall -Werror -I${installdir}/${version}/include/orc-0.4/ -L${installdir}/${version}/lib -lorc-0.4 -lorc-test-0.4 -o test test.c &>out-test
+  res=$?
+  if [ "$res" = "0" ] ; then
+    result_test_compile="yes"
+  else
+    result_test_compile=" no"
+  fi
+
+  LD_LIBRARY_PATH=${installdir}/${version}/lib \
+  test -f ./test && ./test &>out-test
+  res=$?
+  if [ "$res" = "0" ] ; then
+    result_test_run="yes"
+  else
+    result_test_run=" no"
+  fi
+
+  echo "$version    $result_impl    $result_test_compile    $result_test_run"
+done
+
+done
+
+

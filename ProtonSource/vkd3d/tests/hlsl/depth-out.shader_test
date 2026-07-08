@@ -1,0 +1,104 @@
+[dsv]
+size (2d, 640, 480)
+
+[pixel shader]
+float depth;
+
+float main(out float4 colour : SV_Target) : SV_Depth
+{
+    colour = 0;
+    return depth;
+}
+
+[test]
+uniform 0 float 0.0
+clear dsv f32(1.0)
+depth less
+draw quad
+probe dsv (0,0) f32(0.0)
+
+uniform 0 float 0.75
+clear dsv f32(1.0)
+draw quad
+probe dsv (0,0) f32(0.75)
+
+clear dsv f32(0.5)
+depth greater
+draw quad
+probe dsv (0,0) f32(0.75)
+
+depth less
+clear dsv f32(0.5)
+draw quad
+probe dsv (0,0) f32(0.5)
+
+[rtv 0]
+format r32g32b32a32-float
+size (2d, 640, 480)
+
+[vertex shader]
+float2 depth;
+
+void main(float4 in_position : POSITION, out float4 out_position : SV_Position)
+{
+    out_position = in_position;
+    out_position.z = depth.x;
+}
+
+[pixel shader fail(sm<5) todo(sm>=5)]
+float2 depth;
+
+float4 main(out float out_depth : SV_DepthLessEqual) : SV_Target
+{
+    out_depth = depth.y;
+    return float4(0.0f, 1.0f, 0.0f, 1.0f);
+}
+
+[test]
+uniform 0 float4 0.75 0.75 0.0 0.0
+clear rtv-0 f32(1.0, 1.0, 1.0, 1.0)
+clear dsv f32(0.5)
+depth greater equal
+todo(sm<6 | msl) draw quad
+probe (0, 0) f32(0.0, 1.0, 0.0, 1.0)
+probe dsv (0,0) f32(0.75)
+
+uniform 0 float4 0.75 0.375 0.0 0.0
+clear rtv-0 f32(1.0, 1.0, 1.0, 1.0)
+clear dsv f32(0.5)
+todo(sm<6 | msl) draw quad
+probe (0, 0) f32(1.0, 1.0, 1.0, 1.0)
+probe dsv (0,0) f32(0.5)
+
+
+[pixel shader fail(sm<5) todo(sm>=5)]
+float2 depth;
+
+float4 main(out float out_depth : SV_DepthGreaterEqual) : SV_Target
+{
+    out_depth = depth.y;
+    return float4(0.0f, 1.0f, 0.0f, 1.0f);
+}
+
+[test]
+uniform 0 float4 0.75 0.75 0.0 0.0
+clear rtv-0 f32(1.0, 1.0, 1.0, 1.0)
+clear dsv f32(0.5)
+depth greater equal
+todo(sm<6 | msl) draw quad
+probe (0, 0) f32(0.0, 1.0, 0.0, 1.0)
+probe dsv (0,0) f32(0.75)
+
+uniform 0 float4 0.375 0.625 0.0 0.0
+clear rtv-0 f32(1.0, 1.0, 1.0, 1.0)
+clear dsv f32(0.5)
+todo(sm<6 | msl) draw quad
+probe (0, 0) f32(0.0, 1.0, 0.0, 1.0)
+probe dsv (0,0) f32(0.625)
+
+uniform 0 float4 0.375 0.375 0.0 0.0
+clear rtv-0 f32(1.0, 1.0, 1.0, 1.0)
+clear dsv f32(0.5)
+todo(sm<6 | msl) draw quad
+probe (0, 0) f32(1.0, 1.0, 1.0, 1.0)
+probe dsv (0,0) f32(0.5)

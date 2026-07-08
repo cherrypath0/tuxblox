@@ -1,0 +1,28 @@
+# Checksums generated with:
+#
+# ```
+# $ FILENAME=red_timed_frames_video_only_1fps.mkv
+# $ gst-launch-1.0 uridecodebin uri=file://$PWD/$FILENAME ! checksumsink |grep "^0:00" | sed "s/ /=/g" | sed "s/^/    $FILENAME./g" | sed "s/$/, \\\/g"
+# ```
+
+set-vars,\
+    red_timed_frames_video_only_1fps_mkv_0_00_00_000000000=1a247ef67c47263d0445c13dad97b36a5e1fb741, \
+    red_timed_frames_video_only_1fps_mkv_0_00_01_000000000=8d463adcbdef4da361675a34aff6e293cde9e090, \
+    red_timed_frames_video_only_1fps_mkv_0_00_02_000000000=b37282e2d52f9912e729400c92006ba6093d0258, \
+    red_timed_frames_video_only_1fps_mkv_0_00_03_000000000=4905ae378c882adad76548f4cd2432693620fa43, \
+    red_timed_frames_video_only_1fps_mkv_0_00_04_000000000=5190d3cfdfed8a7e429dc04a90dda8b790264b81, \
+    red_timed_frames_video_only_1fps_mkv_0_00_05_000000000=3a88eb1cbc53b8187138fc68d76f75ecb40ce1dd, \
+    red_timed_frames_video_only_1fps_mkv_0_00_06_000000000=4d85b8e77ecb914dea54415cedbbde3fb645c37c, \
+    red_timed_frames_video_only_1fps_mkv_0_00_07_000000000=bec1ae85f15febadfd1fdc470802ec019692e253, \
+    red_timed_frames_video_only_1fps_mkv_0_00_08_000000000=d39211ba03c2b59d936d4d80946bf09b1c69b17e, \
+    red_timed_frames_video_only_1fps_mkv_0_00_09_000000000=07cb72194267b1fb5c689ed63d9b6b9f8d71c367, \
+    red_timed_frames_video_only_1fps_mkv_0_00_10_000000000=34d0a7be58918caf4491fdfa30bf5cbc0a084f9e, \
+    red_timed_frames_video_only_1fps_mkv_0_00_11_000000000=e12a6fbcb7b6cabdc7f7e9bdb900e0e0ac407a50, \
+    red_timed_frames_video_only_1fps_mkv_0_00_12_000000000=2ed628e5735fded0327e699d8a5ed5aeb8a16177, \
+    red_timed_frames_video_only_1fps_mkv_0_00_13_000000000=9881e26a728d667ce13077d0b95d5c6441a3488f, \
+    red_timed_frames_video_only_1fps_mkv_0_00_14_000000000=3b489aee0cc0609a7c3fbb5ce97c9295683bb300, \
+    red_timed_frames_video_only_1fps_mkv_0_00_15_000000000=244741e7c4f32d4e26c4d7cac1dde5bdb27d2ba1, \
+    red_timed_frames_video_only_1fps_mkv_0_00_16_000000000=520c8b1a91162ff6e056dafbb4b0838e547aa9f9, \
+    red_timed_frames_video_only_1fps_mkv_0_00_17_000000000=da40d82a46a73435b48a149c40dfbc8b5a03ebd5, \
+    red_timed_frames_video_only_1fps_mkv_0_00_18_000000000=225c4a58fe28a9bb183dfabcaaaebfff8a94604e, \
+    red_timed_frames_video_only_1fps_mkv_0_00_19_000000000=62ee6d5ed2cc76ff0fd74d29ca7db1188edd0ee6

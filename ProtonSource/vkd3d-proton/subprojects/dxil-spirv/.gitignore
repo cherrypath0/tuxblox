@@ -1,0 +1,15 @@
+/cmake-build-debug
+/cmake-build-release
+*.iml
+/.idea
+/.vs
+/.vscode
+/external/dxc*
+/external/DirectXShaderCompiler
+/external/llvm
+/shaders-dxil
+/shaders-dxbc
+/reference/shaders-dxil
+/reference/shaders-dxbc
+/build
+/out/build

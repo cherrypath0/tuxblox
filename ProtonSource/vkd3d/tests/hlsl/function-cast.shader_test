@@ -1,0 +1,194 @@
+% Test implicit and explicit casts on function output parameters.
+
+[pixel shader]
+
+uniform float4 f;
+
+void func(out float4 o)
+{
+    o = f;
+}
+
+float4 main() : sv_target
+{
+    int4 x;
+    func(x);
+    return x;
+}
+
+[test]
+uniform 0 float4 -1.9 -1.0 2.9 4.0
+draw quad
+probe (0, 0) f32(-1.0, -1.0, 2.0, 4.0)
+
+% As above, but cast "x" to float4 first.
+% In SM 6 a cast seems to implicitly promote the type to const,
+% so it fails to match the parameter of func().
+
+[pixel shader fail(sm>=6)]
+
+uniform float4 f;
+
+void func(out float4 o)
+{
+    o = f;
+}
+
+float4 main() : sv_target
+{
+    int4 x;
+    func((float4)x);
+    return x;
+}
+
+[test]
+uniform 0 float4 -1.9 -1.0 2.9 4.0
+draw quad
+probe (0, 0) rgba (-1.0, -1.0, 2.0, 4.0)
+
+% As above, but declare "x" as float4 and cast it to int4.
+
+[pixel shader fail(sm>=6)]
+
+uniform float4 f;
+
+void func(out float4 o)
+{
+    o = f;
+}
+
+float4 main() : sv_target
+{
+    float4 x;
+    func((int4)x);
+    return x;
+}
+
+[test]
+uniform 0 float4 -1.9 -1.0 2.9 4.0
+draw quad
+probe (0, 0) rgba (-1.0, -1.0, 2.0, 4.0)
+
+
+[pixel shader]
+uniform int4 i;
+
+void func(inout float4 a)
+{
+    a += 0.1;
+}
+
+float4 main() : sv_target
+{
+    int4 x = i;
+    func(x);
+    return x;
+}
+
+[test]
+if(sm<4)  uniform 0 float4 -2 0 1 -3000000
+if(sm>=4) uniform 0 int4 -2 0 1 -3000000
+draw quad
+probe (0, 0) f32(-1.0, 0.0, 1.0, -3000000.0) 4
+
+% An explicit cast gets applied right before assignment, as if it was on the lhs.
+[pixel shader fail(sm>=6)]
+void fun(out float4 f)
+{
+    f = float4(1.4, 2.6, 3.9, 4.3);
+}
+
+float4 main() : sv_target
+{
+    float4 p;
+
+    fun((int4) p);
+    return p;
+}
+
+[test]
+draw quad
+probe (0, 0) rgba(1, 2, 3, 4)
+
+
+[pixel shader fail]
+void fun(out float2 f)
+{
+    f = float2(1, 2);
+}
+
+float4 main() : sv_target
+{
+    float4 p = {-1, -2, -3, -4};
+
+    fun(p);
+    return p;
+}
+
+[pixel shader todo fail]
+void fun(out float f)
+{
+    f = 1;
+}
+
+float4 main() : sv_target
+{
+    float4 p = {-1, -2, -3, -4};
+
+    fun(p);
+    return p;
+}
+
+% However, partial assigments can happen if there are explicit casts, as if
+% they were on the lhs of an assigment.
+[pixel shader todo]
+void fun(out float2 f)
+{
+    f = float2(1, 2);
+}
+
+float4 main() : sv_target
+{
+    float4 p = {-1, -2, -3, -4};
+
+    fun((float2) p); // partial assigment to p.xy.
+    return p;
+}
+
+[test]
+todo(sm<6) draw quad
+probe (0, 0) rgba(1, 2, -3, -4)
+
+
+[pixel shader fail]
+void fun(out float4 f)
+{
+    f = float4(1, 2, 3, 4);
+}
+
+float4 main() : sv_target
+{
+    float4 p = 0;
+
+    fun((float2)p);
+    return p;
+}
+
+
+[pixel shader fail(sm>=4)]
+void fun(out float4 f)
+{
+    f = float4(1.1, 2.3, 3.6, 4.3);
+}
+
+float4 main() : sv_target
+{
+    float4 p = 0;
+
+    fun((float2x2)(int4)(float4)(half4)p);
+    return p;
+}
+
+[test]
+draw quad
+probe (0, 0) rgba(1.1, 2.3, 3.6, 4.3)

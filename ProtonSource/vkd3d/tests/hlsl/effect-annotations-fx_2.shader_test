@@ -1,0 +1,113 @@
+[require]
+shader model < 3.0
+
+[effect]
+// Annotations on techniques
+technique t1 < int a = 1; > {}
+technique t2 < int a = 2; int t1 = 3; int t2 = 4; > {}
+
+[effect]
+// Annotations on passes
+technique t1 < int a = 1; >
+{
+    pass < int t1 = 2; > {}
+}
+
+[effect]
+// Using names from the global scope
+float a;
+
+technique t1 < int a = 1; >
+{
+    pass < int a = 2; > {}
+}
+
+[effect]
+// Evaluated literal constant expression for initial values
+technique < int a = 1+2; > {}
+
+[effect]
+// Using constant variables in the initializer
+static const int b = 123;
+technique < int a = b; > {}
+
+[effect]
+// Implicitly sized array
+technique < float a[] = {1, 2}; > {}
+
+[effect]
+// Nested braces
+technique < float4 a = {1, {{{2, {3}}, 4}}}; > {}
+
+[effect]
+// Flattening
+technique < float4 a = {1, float2(2, 3), 4}; > {}
+
+[effect]
+// Comma separated initializers
+technique < int a = 1, b = 2; > {}
+
+[effect]
+// Majority modifier
+technique < row_major float3x2 m = {1, 2, 3, 4, 5, 6}; > {}
+
+[effect]
+float4 var : SEMANTIC < int a = 123; > = 123;
+technique {}
+
+[effect]
+float4 main() : sv_target
+{
+    float var < > = 0;
+    return 0;
+}
+
+technique {}
+
+[effect]
+technique < string a = "test"; > {}
+
+[effect]
+technique < string a = ""; > {}
+
+[effect fail]
+// Without closing semicolon
+technique t1 < int a = 1 > {}
+
+[effect fail]
+// Redefinition
+technique < int a = 0; float a = 1.0; > {}
+
+[effect fail]
+technique
+{
+    pass < int a = 0; float a = 1.0; > {}
+}
+
+[effect fail]
+// Without initializer
+technique < int a; > {}
+
+[effect fail todo]
+// Type declarations are not allowed
+technique < struct s { int a; } var = { 2 }; > {}
+
+[effect fail todo]
+// Static modifier is not allowed
+technique < static int a = 5; > {}
+
+[effect fail]
+// Initializer should not depend on other annotations
+technique < int a = 1, b = a; > {}
+
+[effect fail]
+technique < int a = 1; int b = a; > {}
+
+[effect fail]
+float4 main() : sv_target
+{
+    float var < int a = 1; > = 0;
+    return 0;
+}
+
+technique {}

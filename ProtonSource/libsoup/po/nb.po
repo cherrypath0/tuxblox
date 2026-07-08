@@ -1,0 +1,172 @@
+# Norwegian bokmål translation of libsoup.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the PACKAGE package.
+# Kjartan Maraas <kmaraas@gnome.org>, 2012-2017.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: libsoup 2.57.x\n"
+"Report-Msgid-Bugs-To: http://bugzilla.gnome.org/enter_bug.cgi?product=libsoup&keywords=I18N+L10N&component=Misc\n"
+"POT-Creation-Date: 2016-10-27 12:38+0000\n"
+"PO-Revision-Date: 2017-02-14 07:59+0100\n"
+"Last-Translator: Kjartan Maraas <kmaraas@gnome.org>\n"
+"Language-Team: Norwegian bokmål <i18n-nb@lister.ping.uio.no>\n"
+"Language: nb\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: ../libsoup/soup-body-input-stream.c:140
+#: ../libsoup/soup-body-input-stream.c:171
+#: ../libsoup/soup-body-input-stream.c:204 ../libsoup/soup-message-io.c:235
+msgid "Connection terminated unexpectedly"
+msgstr "Tilkoblingen ble brutt uventet"
+
+#: ../libsoup/soup-body-input-stream.c:462
+msgid "Invalid seek request"
+msgstr "Ugyldig søkeforespørsel"
+
+#: ../libsoup/soup-body-input-stream.c:490
+msgid "Cannot truncate SoupBodyInputStream"
+msgstr "Kan ikke avkorte SoupBodyInputStream"
+
+#: ../libsoup/soup-cache-input-stream.c:74
+msgid "Network stream unexpectedly closed"
+msgstr "Nettverksstrømmen ble lukket på uventet vis"
+
+#: ../libsoup/soup-cache-input-stream.c:291
+msgid "Failed to completely cache the resource"
+msgstr "Klarte ikke å mellomlagre ressursen fullt ut"
+
+#: ../libsoup/soup-converter-wrapper.c:192
+#, c-format
+msgid "Output buffer is too small"
+msgstr "Buffer for utdata er for liten"
+
+#: ../libsoup/soup-message-client-io.c:41
+msgid "Could not parse HTTP response"
+msgstr "Kunne ikke tolke HTTP-svar"
+
+#: ../libsoup/soup-message-client-io.c:66
+msgid "Unrecognized HTTP response encoding"
+msgstr "Ikke gjenkjent koding av HTTP-svar"
+
+#: ../libsoup/soup-message-io.c:392 ../libsoup/soup-message-io.c:1020
+msgid "Operation would block"
+msgstr "Operasjonen ville blokkere"
+
+#: ../libsoup/soup-message-io.c:972 ../libsoup/soup-message-io.c:1005
+msgid "Operation was cancelled"
+msgstr "Operasjonen ble avbrutt"
+
+#: ../libsoup/soup-message-server-io.c:64
+msgid "Could not parse HTTP request"
+msgstr "Kunne ikke tolke HTTP-forespørsel"
+
+#: ../libsoup/soup-request.c:140
+#, c-format
+msgid "No URI provided"
+msgstr "Ingen URI ble oppgitt"
+
+#: ../libsoup/soup-request.c:150
+#, c-format
+msgid "Invalid “%s” URI: %s"
+msgstr "Ugyldig «%s» URI: %s"
+
+#: ../libsoup/soup-server.c:1727
+msgid "Can’t create a TLS server without a TLS certificate"
+msgstr "Kan ikke lage en TLS-tjener uten et TLS-sertifikat"
+
+#: ../libsoup/soup-server.c:1744
+#, c-format
+msgid "Could not listen on address %s, port %d: "
+msgstr "Kunne ikke lytte på adresse %s, port %d: "
+
+#: ../libsoup/soup-session.c:4525
+#, c-format
+msgid "Could not parse URI “%s”"
+msgstr "Kunne ikke tolke URI «%s»"
+
+#: ../libsoup/soup-session.c:4562
+#, c-format
+msgid "Unsupported URI scheme “%s”"
+msgstr "URI-skjema «%s» er ikke støttet"
+
+#: ../libsoup/soup-session.c:4584
+#, c-format
+msgid "Not an HTTP URI"
+msgstr "Ikke en HTTP URI"
+
+#: ../libsoup/soup-session.c:4770
+msgid "The server did not accept the WebSocket handshake."
+msgstr "Tjeneren godtok ikke WebSocket-håndtrykk."
+
+#: ../libsoup/soup-socket.c:148
+msgid "Can’t import non-socket as SoupSocket"
+msgstr "Kan ikke importere noe som ikke er en socket som SoupSocket"
+
+#: ../libsoup/soup-socket.c:166
+msgid "Could not import existing socket: "
+msgstr "Kunne ikke importere eksisterende socket: "
+
+#: ../libsoup/soup-socket.c:175
+msgid "Can’t import unconnected socket"
+msgstr "Kan ikke importere ikke-tilkoblet socket"
+
+#: ../libsoup/soup-websocket.c:338 ../libsoup/soup-websocket.c:347
+msgid "WebSocket handshake expected"
+msgstr "WebSocket-håndtrykk forventet"
+
+#: ../libsoup/soup-websocket.c:355
+msgid "Unsupported WebSocket version"
+msgstr "WebSocket-versjon ikke støttet"
+
+#: ../libsoup/soup-websocket.c:364
+msgid "Invalid WebSocket key"
+msgstr "Ugyldig WebSocket-nøkkel"
+
+#: ../libsoup/soup-websocket.c:374
+#, c-format
+msgid "Incorrect WebSocket “%s” header"
+msgstr "Ugyldig «%s»-hode for WebSocket"
+
+#: ../libsoup/soup-websocket.c:383
+msgid "Unsupported WebSocket subprotocol"
+msgstr "Ikke støttet underprotokoll av WebSocket"
+
+#: ../libsoup/soup-websocket.c:510
+msgid "Server rejected WebSocket handshake"
+msgstr "Tjener avviste håndtrykk for WebSocket"
+
+#: ../libsoup/soup-websocket.c:518 ../libsoup/soup-websocket.c:527
+msgid "Server ignored WebSocket handshake"
+msgstr "Tjener overså håndtrykk fra WebSocket"
+
+#: ../libsoup/soup-websocket.c:539
+msgid "Server requested unsupported protocol"
+msgstr "Tjener forespurte protokoll som ikke støttes"
+
+#: ../libsoup/soup-websocket.c:549
+msgid "Server requested unsupported extension"
+msgstr "Tjener forespurte utvidelse som ikke støttes"
+
+#: ../libsoup/soup-websocket.c:562
+#, c-format
+msgid "Server returned incorrect “%s” key"
+msgstr "Tjener returnerte feil «%s»-nøkkel"
+
+#: ../libsoup/soup-tld.c:188
+msgid "Hostname is an IP address"
+msgstr "Vertsnavnet er en IP-adresse"
+
+#: ../libsoup/soup-tld.c:198 ../libsoup/soup-tld.c:220
+msgid "Invalid hostname"
+msgstr "Ugyldig vertsnavn"
+
+#: ../libsoup/soup-tld.c:250
+msgid "Hostname has no base domain"
+msgstr "Vertsnavnet har ikke noe grunndomene"
+
+#: ../libsoup/soup-tld.c:304
+msgid "Not enough domains"
+msgstr "Ikke mange nok domener"

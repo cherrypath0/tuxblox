@@ -1,0 +1,80 @@
+<?xml version="1.0"?>
+<!DOCTYPE refentry PUBLIC "-//OASIS//DTD DocBook XML V4.3//EN"
+               "http://www.oasis-open.org/docbook/xml/4.3/docbookx.dtd" [
+<!ENTITY % version-entities SYSTEM "version.entities">
+%version-entities;
+<!ENTITY % local.common.attrib "xmlns:xi  CDATA  #FIXED 'http://www.w3.org/2003/XInclude'">
+]>
+<refentry id="orc-building" revision="23 aug 2019">
+<refmeta>
+<refentrytitle>Building Orc and Applications That Use Orc</refentrytitle>
+<manvolnum>3</manvolnum>
+<refmiscinfo>Orc</refmiscinfo>
+</refmeta>
+
+<refnamediv>
+<refname>Building Orc and Applications that use Orc</refname>
+<refpurpose>
+How to build Orc and applications using it.
+</refpurpose>
+</refnamediv>
+
+<refsect1>
+<title>Building Orc</title>
+
+  <!-- this has been borrowed from the glib docs via gstreamer -->
+  <para>
+    Orc uses the <ulink role="online-location" url="https://mesonbuild.com">Meson build system</ulink>
+    When using the Meson ninja backend (which is the default), the normal
+    sequence for compiling and installing the Orc library is thus:
+    <literallayout>
+      <userinput>meson builddir</userinput>
+      <userinput>ninja -C builddir</userinput>
+      <userinput>ninja -C builddir install</userinput>
+    </literallayout>
+  </para>
+
+  <para>
+    To see build options, check the meson_options.txt file and
+    <command>meson setup --help</command>, or run
+    <command>meson configure builddir</command> (after the first meson
+    configure run). You can pass build options directly when running meson
+    for the first time, or you can change options with
+    <command>meson configure builddir -Doption=xyz</command> after the
+    initial meson run.
+  </para>
+
+  <para>
+    By default, code generators for all targets are built into the
+    library.  Embedded system developers may wish to use the
+    <userinput>orc-backend</userinput> option, which will disable all other code
+    generators, saving about 200 kB in binary size.  Outside of
+    embedded systems, using the <userinput>orc-backend</userinput> option
+    is not recommended.
+  </para>
+
+</refsect1>
+
+<refsect1>
+<title>Building Orc Applications</title>
+
+<para>
+Applications and libraries can use <command>pkg-config</command> to get all the
+needed compiler and linker flags to build against Orc.  The following
+commands will provide the necessary compiler and linker flags:
+
+<literallayout>
+  <userinput>pkg-config --cflags orc-&ORC_MAJORMINOR;</userinput>
+  <userinput>pkg-config --libs orc-&ORC_MAJORMINOR;</userinput>
+</literallayout>
+</para>
+
+<para>
+When compiling from source, the default installation directory is not
+in the default path for the <command>pkg-config</command>, so you may
+need to set the PKG_CONFIG_DIR environment variable.
+</para>
+
+</refsect1>
+
+</refentry>

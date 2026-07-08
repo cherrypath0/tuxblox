@@ -1,0 +1,249 @@
+[require]
+shader model >= 5.0
+float64
+
+[pixel shader todo]
+uniform double2 d;
+uniform float2 f;
+
+float4 main() : sv_target
+{
+    double2 n = d / f;
+    return float4(d.x, d.y, n.x, n.y);
+}
+
+[test]
+uniform 0 double2 -4.5 8.5
+uniform 4 float4 -2.25 4.25 0.0 0.0
+todo(sm<6) draw quad
+probe (0, 0) rgba (-4.5, 8.5, 2.0, 2.0)
+
+
+[pixel shader todo]
+uniform double2 d;
+
+uint4 main() : sv_target
+{
+    uint4 result;
+    asuint(d.x, result.x, result.y);
+    asuint(d.y, result.z, result.w);
+    return result;
+}
+
+[test]
+uniform 0 double2 -4.5 8.500003814697266
+todo(sm<6) draw quad
+probe (0, 0) u32(0, 0xc0120000, 0x80000000, 0x40210000)
+
+
+[pixel shader todo]
+uniform uint4 u;
+
+float4 main() : sv_target
+{
+    // Low bits, high bits
+    double2 d = asdouble(u.xz, u.yw);
+    return float4(d, 0, 0);
+}
+
+[test]
+uniform 0 uint4 0xc000000 0x40020000 0x80000000 0xc04be000
+todo(sm<6) draw quad
+probe (0, 0) rgba (2.25, -55.75001526, 0.0, 0.0) 1
+
+
+[pixel shader todo]
+uniform uint2 u;
+
+float4 main() : sv_target
+{
+    double d = asdouble(u.x, u.y);
+    return float4(d, 0, 0, 0);
+}
+
+[test]
+uniform 0 uint4 0x80000000 0xc04be000 0 0
+todo(sm<6) draw quad
+probe (0, 0) rgba (-55.75001526, 0.0, 0.0, 0.0) 1
+
+
+[require]
+shader model >= 6.0
+int64
+
+[pixel shader]
+uniform uint64_t2 l;
+uniform uint2 u;
+
+float4 main() : sv_target
+{
+    uint64_t2 n = l / u;
+    uint4 result = uint4(l.x, l.y, n.x, n.y);
+    return result;
+}
+
+[test]
+uniform 0 uint64_t2 0x500000001 0x100000002
+uniform 4 uint4 10 4 0 0
+draw quad
+probe (0, 0) rgba (1.0, 2.0, 2147483648.0, 1073741824.0)
+
+
+[pixel shader]
+uniform int64_t2 l;
+uniform int2 i;
+
+float4 main() : sv_target
+{
+    int64_t2 n = l / i;
+    int4 result = int4(l.x, l.y, n.x, n.y);
+    return result;
+}
+
+[test]
+uniform 0 int64_t2 -21474836481 0x100000002
+uniform 4 int4 -20 8 0 0
+draw quad
+probe (0, 0) rgba (-1.0, 2.0, 1073741824.0, 536870912.0)
+
+[require]
+shader model >= 5.0
+float64
+
+[pixel shader todo]
+uniform double2 d;
+
+int4 main() : sv_target
+{
+    min16int4 s = min16int4(d, d);
+    return s * min16int4(2, 2, 1, 1);
+}
+
+[test]
+uniform 0 double2 0.5 1.0
+todo(sm<6) draw quad
+probe (0, 0) i32(0, 2, 0, 1)
+uniform 0 double2 -0.5 -1.0
+todo(sm<6) draw quad
+probe (0, 0) i32(0, -2, 0, -1)
+
+[pixel shader todo]
+uniform double2 d;
+
+uint4 main() : sv_target
+{
+    min16uint4 s = min16uint4(d, d);
+    return s * min16uint4(2, 2, 1, 1);
+}
+
+[test]
+uniform 0 double2 0.5 1.0
+todo(sm<6) draw quad
+probe (0, 0) u32(0, 2, 0, 1)
+
+[pixel shader todo]
+uniform min16uint u[2];
+
+uint4 main() : sv_target
+{
+    uint4 ret;
+    double2 d = double2(u[0], u[1]);
+    asuint(d.x, ret.x, ret.y);
+    asuint(d.y, ret.z, ret.w);
+    return ret;
+}
+
+[test]
+uniform 0 uint 22
+uniform 4 uint 0xff00
+todo(sm<6) draw quad
+probe (0, 0) u32(0, 0x40360000, 0, 0x40efe000)
+
+[pixel shader todo]
+uniform min16int u[2];
+
+uint4 main() : sv_target
+{
+    uint4 ret;
+    double2 d = double2(u[0], u[1]);
+    asuint(d.x, ret.x, ret.y);
+    asuint(d.y, ret.z, ret.w);
+    return ret;
+}
+
+[test]
+uniform 0 uint 22
+uniform 4 uint 0xffffff00
+todo(sm<6) draw quad
+probe (0, 0) u32(0, 0x40360000, 0, 0xc0700000)
+
+[require]
+shader model >= 6.2
+native-16-bit
+float64
+
+[pixel shader todo]
+uniform double2 d;
+
+int4 main() : sv_target
+{
+    int16_t4 s = int16_t4(d, d);
+    return s * int16_t4(2, 2, 1, 1);
+}
+
+[test]
+uniform 0 double2 0.5 1.0
+draw quad
+probe (0, 0) i32(0, 2, 0, 1)
+uniform 0 double2 -0.5 -1.0
+draw quad
+probe (0, 0) i32(0, -2, 0, -1)
+
+[pixel shader]
+uniform double2 d;
+
+uint4 main() : sv_target
+{
+    uint16_t4 s = uint16_t4(d, d);
+    return s * uint16_t4(2, 2, 1, 1);
+}
+
+[test]
+uniform 0 double2 0.5 1.0
+todo draw quad
+probe (0, 0) u32(0, 2, 0, 1)
+
+[pixel shader]
+uniform uint16_t2 u;
+
+uint4 main() : sv_target
+{
+    uint4 ret;
+    double2 d = double2(u);
+    asuint(d.x, ret.x, ret.y);
+    asuint(d.y, ret.z, ret.w);
+    return ret;
+}
+
+[test]
+uniform 0 uint 0xff000022
+
+draw quad
+probe (0, 0) u32(0, 0x40410000, 0, 0x40efe000)
+
+[pixel shader]
+uniform int16_t2 u;
+
+uint4 main() : sv_target
+{
+    uint4 ret;
+    double2 d = double2(u);
+    asuint(d.x, ret.x, ret.y);
+    asuint(d.y, ret.z, ret.w);
+    return ret;
+}
+
+[test]
+uniform 0 uint 0xff000022
+draw quad
+probe (0, 0) u32(0, 0x40410000, 0, 0xc0700000)

@@ -1,0 +1,44 @@
+% Uninitialized varyings behave generally quite different across different
+% drivers. This test is limited to what is more or less consistent.
+
+[require]
+shader model < 4.0
+
+[pixel shader]
+% The alpha channel is not consistent here.
+float4 main(float4 v : texcoord0) : sv_target
+{
+    return float4(v.xyz, 1);
+}
+
+[test]
+clear rtv-0 f32(1, 0, 0, 1)
+draw quad
+probe (0, 0) f32(0, 0, 0, 1)
+
+[pixel shader]
+float4 main(float2 v : texcoord3, float3 w : texcoord1) : sv_target
+{
+    return float4(v.xy, w.yz);
+}
+
+[test]
+clear rtv-0 f32(1, 0, 0, 1)
+draw quad
+probe (0, 0) f32(0, 0, 0, 0)
+
+[require]
+% 2.0 consistently yields white. 3.0 has no consistent results.
+% color1 also has no consistent results in 2.0 or 3.0.
+shader model < 3.0
+
+[pixel shader]
+float4 main(float4 v : color0) : sv_target
+{
+    return v;
+}
+
+[test]
+clear rtv-0 f32(1, 0, 0, 1)
+draw quad
+probe (0, 0) f32(1, 1, 1, 1)

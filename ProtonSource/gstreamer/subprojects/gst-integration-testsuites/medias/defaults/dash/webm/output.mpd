@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<MPD xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xmlns="urn:mpeg:dash:schema:mpd:2011"
+	xmlns:xlink="http://www.w3.org/1999/xlink"
+	xsi:schemaLocation="urn:mpeg:DASH:schema:MPD:2011 http://standards.iso.org/ittf/PubliclyAvailableStandards/MPEG-DASH_schema_files/DASH-MPD.xsd"
+	profiles="urn:mpeg:dash:profile:isoff-live:2011"
+	type="static"
+	mediaPresentationDuration="PT31.7S"
+	minBufferTime="PT10.6S">
+	<ProgramInformation>
+	</ProgramInformation>
+	<Period id="0" start="PT0.0S">
+		<AdaptationSet id="0" contentType="video" segmentAlignment="true" bitstreamSwitching="true" lang="eng">
+			<Representation id="0" mimeType="video/webm" codecs="vp8" bandwidth="206541" width="928" height="446">
+				<SegmentTemplate timescale="1000" initialization="init-stream$RepresentationID$.webm" media="chunk-stream$RepresentationID$-$Number%05d$.webm" startNumber="1">
+					<SegmentTimeline>
+						<S t="14" d="5980" />
+						<S d="5334" />
+						<S d="5333" />
+						<S d="5334" r="1" />
+						<S d="4450" />
+					</SegmentTimeline>
+				</SegmentTemplate>
+			</Representation>
+		</AdaptationSet>
+		<AdaptationSet id="1" contentType="audio" segmentAlignment="true" bitstreamSwitching="true" lang="eng">
+			<Representation id="1" mimeType="audio/webm" codecs="opus" bandwidth="40794" audioSamplingRate="48000">
+				<AudioChannelConfiguration schemeIdUri="urn:mpeg:dash:23003:3:audio_channel_configuration:2011" value="1" />
+				<SegmentTemplate timescale="1000" initialization="init-stream$RepresentationID$.webm" media="chunk-stream$RepresentationID$-$Number%05d$.webm" startNumber="1">
+					<SegmentTimeline>
+						<S t="0" d="5981" />
+						<S d="5340" r="1" />
+						<S d="5320" />
+						<S d="5340" />
+						<S d="4380" />
+					</SegmentTimeline>
+				</SegmentTemplate>
+			</Representation>
+		</AdaptationSet>
+	</Period>
+</MPD>

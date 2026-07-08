@@ -1,0 +1,33 @@
+#!/bin/bash
+
+COMMIT=$(printf '%03d-%s' $(git cherry $CI_MERGE_REQUEST_DIFF_BASE_SHA HEAD^ | wc -l) $(git rev-parse --short HEAD))
+
+echo -e "\033[0Ksection_start:`date +%s`:commit_$COMMIT\r\033[0KBuilding commit $COMMIT"
+
+set -Eeuxo pipefail
+
+./autogen.sh
+rm -fr build
+mkdir build
+cd build
+if ../configure CFLAGS="-I/opt/homebrew/opt/vulkan-headers/include -I/opt/homebrew/opt/spirv-headers/include -g -O2 -Wno-implicit-fallthrough -Wno-ignored-attributes -Wno-unknown-attributes -Wno-unused-but-set-variable -Wno-unused-command-line-argument -Werror" \
+        OBJCFLAGS="-g -O2 -Wno-unknown-attributes -Wno-ignored-attributes -Werror" \
+        CPPFLAGS="-DVKD3D_ABORT_ON_ERR -DVKD3D_SHADER_UNSUPPORTED_MSL" \
+        VULKAN_LIBS=-L/opt/homebrew/opt/vulkan-loader/lib \
+        --with-spirv-tools \
+        --enable-demos && \
+        make -j$(sysctl -n hw.ncpu) ; then
+    make -j$(sysctl -n hw.ncpu) AM_COLOR_TESTS=always check || \
+        touch ../tests_failed
+else
+    touch ../build_failed
+fi
+
+cat tests/d3d12.log | grep -E 'd3d12: [0-9]+ tests executed' || true
+
+mkdir -p ../artifacts/$COMMIT
+rsync -Rr config.log test-suite.log tests/*.log tests/*/*.log ../artifacts/$COMMIT || true
+
+git reset --hard
+
+echo -e "\033[0Ksection_end:`date +%s`:commit_$COMMIT\r\033[0K"

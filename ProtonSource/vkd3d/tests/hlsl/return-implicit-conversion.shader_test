@@ -1,0 +1,244 @@
+[pixel shader]
+float4 main() : sv_target
+{
+    return float2x2(0.4, 0.3, 0.2, 0.1);
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (0.4, 0.3, 0.2, 0.1)
+
+[pixel shader]
+float4 main() : sv_target
+{
+    return float1x4(0.4, 0.3, 0.2, 0.1);
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (0.4, 0.3, 0.2, 0.1)
+
+[pixel shader]
+float4 main() : sv_target
+{
+    return float4x1(0.4, 0.3, 0.2, 0.1);
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (0.4, 0.3, 0.2, 0.1)
+
+[pixel shader]
+float4x1 main() : sv_target
+{
+    return float4(0.4, 0.3, 0.2, 0.1);
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (0.4, 0.3, 0.2, 0.1)
+
+[pixel shader]
+float3 func()
+{
+    return float3x1(0.4, 0.3, 0.2);
+}
+
+float4 main() : sv_target
+{
+    return float4(func(), 0.0);
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (0.4, 0.3, 0.2, 0.0)
+
+[pixel shader]
+float3 func()
+{
+    return float1x3(0.4, 0.3, 0.2);
+}
+
+float4 main() : sv_target
+{
+    return float4(func(), 0.0);
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (0.4, 0.3, 0.2, 0.0)
+
+[pixel shader]
+float1x3 func()
+{
+    return float3(0.4, 0.3, 0.2);
+}
+
+float4 main() : sv_target
+{
+    return float4(func(), 0.0);
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (0.4, 0.3, 0.2, 0.0)
+
+[pixel shader]
+float3x1 func()
+{
+    return float3(0.4, 0.3, 0.2);
+}
+
+float4 main() : sv_target
+{
+    return float4(func(), 0.0);
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (0.4, 0.3, 0.2, 0.0)
+
+[pixel shader fail]
+float3x1 func()
+{
+    return float1x3(0.4, 0.3, 0.2);
+}
+
+float4 main() : sv_target
+{
+    return float4(func(), 0.0);
+}
+
+[pixel shader fail]
+float1x3 func()
+{
+    return float3x1(0.4, 0.3, 0.2);
+}
+
+float4 main() : sv_target
+{
+    return float4(func(), 0.0);
+}
+
+[pixel shader]
+float3 func()
+{
+    return float4(0.4, 0.3, 0.2, 0.1);
+}
+
+float4 main() : sv_target
+{
+    return float4(func(), 0.0);
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (0.4, 0.3, 0.2, 0.0)
+
+[pixel shader]
+float3 func()
+{
+    return float4x1(0.4, 0.3, 0.2, 0.1);
+}
+
+float4 main() : sv_target
+{
+    return float4(func(), 0.0);
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (0.4, 0.3, 0.2, 0.0)
+
+[pixel shader]
+float3 func()
+{
+    return float1x4(0.4, 0.3, 0.2, 0.1);
+}
+
+float4 main() : sv_target
+{
+    return float4(func(), 0.0);
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (0.4, 0.3, 0.2, 0.0)
+
+[pixel shader fail(sm<6) todo]
+float3x1 func()
+{
+    return float4(0.4, 0.3, 0.2, 0.1);
+}
+
+float4 main() : sv_target
+{
+    return float4(func(), 0.0);
+}
+
+[pixel shader]
+float3x1 func()
+{
+    return float4x1(0.4, 0.3, 0.2, 0.1);
+}
+
+float4 main() : sv_target
+{
+    return float4(func(), 0.0);
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (0.4, 0.3, 0.2, 0.0)
+
+[pixel shader fail]
+float3x1 func()
+{
+    return float1x4(0.4, 0.3, 0.2, 0.1);
+}
+
+float4 main() : sv_target
+{
+    return float4(func(), 0.0);
+}
+
+[pixel shader]
+float1x3 func()
+{
+    return float4(0.4, 0.3, 0.2, 0.1);
+}
+
+float4 main() : sv_target
+{
+    return float4(func(), 0.0);
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (0.4, 0.3, 0.2, 0.0)
+
+[pixel shader fail]
+float1x3 func()
+{
+    return float4x1(0.4, 0.3, 0.2, 0.1);
+}
+
+float4 main() : sv_target
+{
+    return float4(func(), 0.0);
+}
+
+[pixel shader]
+float1x3 func()
+{
+    return float1x4(0.4, 0.3, 0.2, 0.1);
+}
+
+float4 main() : sv_target
+{
+    return float4(func(), 0.0);
+}
+
+[test]
+draw quad
+probe (0, 0) rgba (0.4, 0.3, 0.2, 0.0)

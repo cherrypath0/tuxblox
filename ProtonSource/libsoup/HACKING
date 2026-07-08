@@ -1,0 +1,56 @@
+CODE STYLE
+----------
+
+Please use the style used by the rest of the code. Among other things,
+this means:
+
+    * 8 spaces for indentation. Note that tabs are still found in the codebase.
+
+    * Put spaces:
+        * around binary operators
+        * between if/while/for/switch and "("
+        * between function name and "("
+     	* between ")" and "{"
+        * after ","
+
+    * if/for/while bodies:
+
+        * Single-line bodies should (a) be on their own line, and (b)
+          not have braces around them
+
+        * Multi-line bodies should have braces around them, even if
+          the body is only a single statement and the braces are not
+          syntactically necessary.
+
+        * Eg:
+
+            for (i = 0; i < len; i++) {
+                if (find (i, something))
+                    break;
+                else {
+                    function_with_big_name (i, something,
+                                            something_else);
+                }
+            }
+
+    * Do not use gint, gchar, glong, and gshort. (Other g-types, such
+      as gpointer and the unsigned types are fine.)
+
+    * There is a clang-format config file that can be used on new code.
+      Avoid reformatting entire files.
+
+CORRECTNESS
+-----------
+
+    * libsoup builds with lots of -W options by default, and should
+      not print any warnings while compiling.
+
+    * There are a number of regression tests in the tests/ directory.
+      Running "ninja test" will run all of them (or at least, all of
+      the ones that it can run based on what software you have
+      installed. Eg, some tests require apache to be installed.) You
+      should run "ninja test" before submitting a patch that could
+      potentially change libsoup's behavior. If you are
+      making extensive changes, or changing very low-level functions,
+      you may want to install all of the optional pieces so you can
+      run all of the regression tests.)

@@ -1,0 +1,281 @@
+[pixel shader fail]
+float4 main() : sv_target
+{
+    return y;
+}
+
+[pixel shader fail]
+float4 main() : sv_target
+{
+    float4 x = float4(0, 0, 0, 0);
+    x.xzzx = float4(1, 2, 3, 4);
+    return x;
+}
+
+[pixel shader fail]
+float4 main(float2 pos : TEXCOORD0) : sv_target
+{
+    float4 x = pos;
+    return x;
+}
+
+[pixel shader fail]
+float4 563r(float2 45s : TEXCOORD0) : sv_target
+{
+    float4 x = 45s;
+    return float4(x.x, x.y, 0, 0);
+}
+
+[pixel shader fail]
+float4 main() : sv_target
+{
+    struct { int b,c; } x = {0};
+    return x;
+}
+
+[pixel shader fail]
+float4 main(float2 pos : TEXCOORD0) : sv_target
+{
+    return;
+}
+
+[pixel shader fail]
+void main(float2 pos : TEXCOORD0)
+{
+    return pos;
+}
+
+[pixel shader fail]
+float4 main(float2 pos : TEXCOORD0) : sv_target
+{
+    return pos;
+}
+
+[pixel shader fail(sm<6)]
+float4 main() : sv_target
+{
+    float a[0];
+    return 0;
+}
+
+[pixel shader fail(sm<6)]
+float4 main() : sv_target
+{
+    float a[65537];
+    return 0;
+}
+
+[pixel shader fail]
+float4 main() : sv_target
+{
+    int x;
+    float a[(x = 2)];
+    return 0;
+}
+
+[pixel shader fail]
+uniform float4 main() : sv_target
+{
+    return 0;
+}
+
+[pixel shader fail]
+float4 main()
+{
+    return 0;
+}
+
+[pixel shader fail]
+float4 main(out float4 o : sv_target)
+{
+    o = 1;
+    return 0;
+}
+
+[pixel shader fail]
+float4 main(out float4 o) : sv_target
+{
+    o = 1;
+    return 0;
+}
+
+[pixel shader fail]
+float4 main(in float4 i) : sv_target
+{
+    return 0;
+}
+
+[pixel shader fail]
+float4 main(float4 i) : sv_target
+{
+    return 0;
+}
+
+[pixel shader fail(sm<6)]
+float4 main() : sv_target
+{
+    const float4 x;
+    return x;
+}
+
+[pixel shader fail]
+struct input
+{
+    float4 a;
+};
+
+float4 main(struct input i) : sv_target
+{
+    return i.a;
+}
+
+[pixel shader fail]
+struct output
+{
+    float4 t : sv_target;
+    int a;
+};
+
+void main(out struct output o)
+{
+    o.t = float4(0, 0, 0, 0);
+    o.a = 0;
+}
+
+[pixel shader fail]
+uniform in float4 f;
+float4 main() : sv_target { return 0; }
+
+[pixel shader fail]
+in float4 f;
+float4 main() : sv_target { return 0; }
+
+[pixel shader fail]
+static uniform float4 f;
+float4 main() : sv_target { return 0; }
+
+[pixel shader fail]
+void main(out uniform float4 o : sv_target)
+{
+    o = 0;
+}
+
+[pixel shader fail]
+void sub(out uniform float4 o)
+{
+    o = 0;
+}
+
+void main(out float4 o : sv_target)
+{
+    sub(o);
+}
+
+[pixel shader fail(sm<6)]
+void sub(in out uniform float4 o)
+{
+}
+
+void main(out float4 o : sv_target)
+{
+    o = 0;
+    sub(o);
+}
+
+[pixel shader fail(sm<6)]
+void sub(out const float4 c, out float4 o)
+{
+    o = 0;
+}
+
+void main(out float4 o : sv_target)
+{
+    float4 c = 0;
+    sub(c, o);
+}
+
+% inout const is allowed, unlike out const in the above.
+[pixel shader]
+void sub(inout const float4 c, out float4 o)
+{
+    o = 0;
+}
+
+void main(out float4 o : sv_target)
+{
+    float4 c = 0;
+    sub(c, o);
+}
+
+[pixel shader fail]
+float4 main(void) : sv_target
+{
+    uniform float f;
+    return 0;
+}
+
+[pixel shader fail]
+float4 main(void) : sv_target
+{
+    in float f;
+    return 0;
+}
+
+[pixel shader fail(sm<6)]
+const const float4 c;
+
+float4 main() : sv_target
+{
+    return float4(0, 0, 0, 0);
+}
+
+[pixel shader fail]
+typedef struct apple
+{
+    float a;
+} apple_t;
+
+uniform const apple_t a;
+
+float4 main() : sv_target
+{
+    a.a = 1;
+    return a.a;
+}
+
+[pixel shader fail(sm<6)]
+struct apple
+{
+    sampler sam;
+    float4 aa;
+};
+
+static struct apple a;
+
+float4 main() : sv_target
+{
+    return 1.0;
+}
+
+[pixel shader fail]
+
+float4 main() : sv_target;
+
+[pixel shader fail(sm<6)]
+float4 main(void) : sv_target
+{
+    const float a;
+    return 0;
+}
+
+[pixel shader fail(sm<6)]
+struct s
+{
+    float4 f;
+};
+
+float4 main(void) : sv_target
+{
+    const struct s a;
+    return 0;
+}

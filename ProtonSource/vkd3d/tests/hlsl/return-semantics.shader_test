@@ -1,0 +1,42 @@
+[require]
+shader model >= 4.0
+
+% The return semantic gets allocated before other output semantics.
+
+[vertex shader]
+// Output signature:
+// Name                 Index   Mask Register SysValue  Format   Used
+// -------------------- ----- ------ -------- -------- ------- ------
+// SEMC                     0   x           0     NONE   float   x
+// SEMA                     0    y          0     NONE   float    y
+// SEMB                     0   x           1     NONE   float   x
+// SEMB                     1   x           2     NONE   float   x
+// SV_POSITION              0   xyzw        3      POS   float   xyzw
+
+float main(float4 pos : POSITION, out float aa : SEMA,
+        out float bb[2] : SEMB, out float4 out_pos : SV_POSITION) : SEMC
+{
+    out_pos = pos;
+    aa = 100;
+    bb[0] = 200;
+    bb[1] = 201;
+    return 300;
+}
+
+[pixel shader]
+// Input signature:
+// Name                 Index   Mask Register SysValue  Format   Used
+// -------------------- ----- ------ -------- -------- ------- ------
+// SEMC                     0   x           0     NONE   float   x
+// SEMA                     0    y          0     NONE   float    y
+// SEMB                     0   x           1     NONE   float   x
+// SEMB                     1   x           2     NONE   float   x
+
+float4 main(float cc : SEMC, float aa : SEMA, float bb[2] : SEMB) : sv_target
+{
+    return float4(cc, aa, bb[0], bb[1]);
+}
+
+[test]
+bug(mvk & sm>=6 | msl & sm>=6) draw quad
+probe (0, 0) f32(300, 100, 200, 201)

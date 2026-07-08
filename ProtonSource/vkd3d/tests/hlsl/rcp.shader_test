@@ -1,0 +1,74 @@
+[pixel shader]
+uniform float4 f;
+
+float4 main() : sv_target
+{
+    return rcp(f);
+}
+
+[test]
+uniform 0 float4 1.0 2.0 3.0 4.0
+draw quad
+probe (0, 0) rgba (1.0, 0.5, 0.3333333, 0.25) 8
+
+uniform 0 float4 -1.0 -2.0 -3.0 -4.0
+draw quad
+probe (0, 0) rgba (-1.0, -0.5, -0.3333333, -0.25) 8
+
+uniform 0 float4 12.34 56.78 -90.12 -34.56
+draw quad
+probe (0, 0) rgba (0.081037275, 0.017611835, -0.011096316, -0.028935184) 8
+
+uniform 0 float4 0.25 0.125 0.0625 0.3333333
+draw quad
+probe (0, 0) rgba (4.0, 8.0, 16.0, 3.0) 8
+
+% Degenerate cases
+uniform 0 float4 0.0 -0.0 INF -INF
+draw quad
+probe (0, 0) f32(inf, -inf, 0.0, -0.0) 8
+
+[pixel shader]
+% Check invertibility
+uniform float4 f;
+
+float4 main() : sv_target
+{
+    return rcp(rcp(f));
+}
+
+[test]
+uniform 0 float4 1.0 2.0 3.0 4.0
+draw quad
+probe (0, 0) rgba (1.0, 2.0, 3.0, 4.0) 8
+
+uniform 0 float4 7.604 3.1415 2.72 9.876
+draw quad
+probe (0, 0) rgba (7.604, 3.1415, 2.72, 9.876) 8
+
+uniform 0 float4 0.0 -0.0 INF -INF
+draw quad
+probe (0, 0) f32(0.0, -0.0, inf, -inf)
+
+[pixel shader]
+% Make sure swizzling works
+uniform float4 f;
+
+float4 main() : sv_target
+{
+    float  a = rcp(f.x);
+    float2 b = rcp(f.zy);
+    float3 c = rcp(f.wxz);
+    float4 d = rcp(f.zyxw);
+
+    return float4(a, b.y, c.z, d.w);
+}
+
+[test]
+uniform 0 float4 1.0 2.0 3.0 4.0
+draw quad
+probe (0, 0) rgba (1.0, 0.5, 0.3333333, 0.25) 8
+
+uniform 0 float4 -1.0 -2.0 -3.0 -4.0
+draw quad
+probe (0, 0) rgba (-1.0, -0.5, -0.3333333, -0.25) 8

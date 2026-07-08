@@ -1,0 +1,482 @@
+[require]
+shader model >= 5.0
+
+[hull shader]
+struct patch_constant_data
+{
+    float edges[2] : SV_TessFactor;
+};
+
+patch_constant_data patch_constant()
+{
+    return (patch_constant_data)0;
+}
+
+    [domain("isoline")]
+    [outputcontrolpoints(3)]
+    [partitioning("integer")]
+    [outputtopology("point")]
+    [patchconstantfunc("patch_constant")]
+float4 main() : POSITION
+{
+    return 0;
+}
+
+%% Test missing attributes.
+
+[hull shader fail]
+struct patch_constant_data
+{
+    float edges[2] : SV_TessFactor;
+};
+
+patch_constant_data patch_constant()
+{
+    return (patch_constant_data)0;
+}
+
+    //[domain("isoline")]
+    [outputcontrolpoints(3)]
+    [partitioning("integer")]
+    [outputtopology("point")]
+    [patchconstantfunc("patch_constant")]
+float4 main() : POSITION
+{
+    return 0;
+}
+
+% outputcontrolpoints defaults to 0 for SM >= 6.
+[hull shader fail]
+struct patch_constant_data
+{
+    float edges[2] : SV_TessFactor;
+};
+
+patch_constant_data patch_constant()
+{
+    return (patch_constant_data)0;
+}
+
+    [domain("isoline")]
+    //[outputcontrolpoints(3)]
+    [partitioning("integer")]
+    [outputtopology("point")]
+    [patchconstantfunc("patch_constant")]
+float4 main() : POSITION
+{
+    return 0;
+}
+
+[hull shader fail]
+struct patch_constant_data
+{
+    float edges[2] : SV_TessFactor;
+};
+
+patch_constant_data patch_constant()
+{
+    return (patch_constant_data)0;
+}
+
+    [domain("isoline")]
+    [outputcontrolpoints(3)]
+    //[partitioning("integer")]
+    [outputtopology("point")]
+    [patchconstantfunc("patch_constant")]
+float4 main() : POSITION
+{
+    return 0;
+}
+
+[hull shader fail]
+struct patch_constant_data
+{
+    float edges[2] : SV_TessFactor;
+};
+
+patch_constant_data patch_constant()
+{
+    return (patch_constant_data)0;
+}
+
+    [domain("isoline")]
+    [outputcontrolpoints(3)]
+    [partitioning("integer")]
+    //[outputtopology("point")]
+    [patchconstantfunc("patch_constant")]
+float4 main() : POSITION
+{
+    return 0;
+}
+
+[hull shader fail]
+struct patch_constant_data
+{
+    float edges[2] : SV_TessFactor;
+};
+
+patch_constant_data patch_constant()
+{
+    return (patch_constant_data)0;
+}
+
+    [domain("isoline")]
+    [outputcontrolpoints(3)]
+    [partitioning("integer")]
+    [outputtopology("point")]
+    //[patchconstantfunc("patch_constant")]
+float4 main() : POSITION
+{
+    return 0;
+}
+
+%% Test valid combinations of the domain and outputtopology attributes.
+
+[hull shader]
+struct patch_constant_data
+{
+    float edges[2] : SV_TessFactor;
+};
+
+patch_constant_data patch_constant()
+{
+    return (patch_constant_data)0;
+}
+
+    [domain("isoline")]
+    [outputcontrolpoints(3)]
+    [partitioning("integer")]
+    [outputtopology("point")]
+    [patchconstantfunc("patch_constant")]
+float4 main() : POSITION
+{
+    return 0;
+}
+
+[hull shader]
+struct patch_constant_data
+{
+    float edges[2] : SV_TessFactor;
+};
+
+patch_constant_data patch_constant()
+{
+    return (patch_constant_data)0;
+}
+
+    [domain("isoline")]
+    [outputcontrolpoints(3)]
+    [partitioning("integer")]
+    [outputtopology("line")]
+    [patchconstantfunc("patch_constant")]
+float4 main() : POSITION
+{
+    return 0;
+}
+
+[hull shader fail]
+struct patch_constant_data
+{
+    float edges[2] : SV_TessFactor;
+};
+
+patch_constant_data patch_constant()
+{
+    return (patch_constant_data)0;
+}
+
+    [domain("isoline")]
+    [outputcontrolpoints(3)]
+    [partitioning("integer")]
+    [outputtopology("triangle_cw")]
+    [patchconstantfunc("patch_constant")]
+float4 main() : POSITION
+{
+    return 0;
+}
+
+[hull shader fail]
+struct patch_constant_data
+{
+    float edges[2] : SV_TessFactor;
+};
+
+patch_constant_data patch_constant()
+{
+    return (patch_constant_data)0;
+}
+
+    [domain("isoline")]
+    [outputcontrolpoints(3)]
+    [partitioning("integer")]
+    [outputtopology("triangle_ccw")]
+    [patchconstantfunc("patch_constant")]
+float4 main() : POSITION
+{
+    return 0;
+}
+
+[hull shader]
+struct patch_constant_data
+{
+    float edges[3] : SV_TessFactor;
+    float inside : SV_InsideTessFactor;
+};
+
+patch_constant_data patch_constant()
+{
+    return (patch_constant_data)0;
+}
+
+    [domain("tri")]
+    [outputcontrolpoints(3)]
+    [partitioning("integer")]
+    [outputtopology("point")]
+    [patchconstantfunc("patch_constant")]
+float4 main() : POSITION
+{
+    return 0;
+}
+
+[hull shader fail]
+struct patch_constant_data
+{
+    float edges[3] : SV_TessFactor;
+    float inside : SV_InsideTessFactor;
+};
+
+patch_constant_data patch_constant()
+{
+    return (patch_constant_data)0;
+}
+
+    [domain("tri")]
+    [outputcontrolpoints(3)]
+    [partitioning("integer")]
+    [outputtopology("line")]
+    [patchconstantfunc("patch_constant")]
+float4 main() : POSITION
+{
+    return 0;
+}
+
+[hull shader]
+struct patch_constant_data
+{
+    float edges[3] : SV_TessFactor;
+    float inside : SV_InsideTessFactor;
+};
+
+patch_constant_data patch_constant()
+{
+    return (patch_constant_data)0;
+}
+
+    [domain("tri")]
+    [outputcontrolpoints(3)]
+    [partitioning("integer")]
+    [outputtopology("triangle_cw")]
+    [patchconstantfunc("patch_constant")]
+float4 main() : POSITION
+{
+    return 0;
+}
+
+[hull shader]
+struct patch_constant_data
+{
+    float edges[3] : SV_TessFactor;
+    float inside : SV_InsideTessFactor;
+};
+
+patch_constant_data patch_constant()
+{
+    return (patch_constant_data)0;
+}
+
+    [domain("tri")]
+    [outputcontrolpoints(3)]
+    [partitioning("integer")]
+    [outputtopology("triangle_ccw")]
+    [patchconstantfunc("patch_constant")]
+float4 main() : POSITION
+{
+    return 0;
+}
+
+[hull shader]
+struct patch_constant_data
+{
+    float edges[4] : SV_TessFactor;
+    float inside[2] : SV_InsideTessFactor;
+};
+
+patch_constant_data patch_constant()
+{
+    return (patch_constant_data)0;
+}
+
+    [domain("quad")]
+    [outputcontrolpoints(3)]
+    [partitioning("integer")]
+    [outputtopology("point")]
+    [patchconstantfunc("patch_constant")]
+float4 main() : POSITION
+{
+    return 0;
+}
+
+[hull shader fail]
+struct patch_constant_data
+{
+    float edges[4] : SV_TessFactor;
+    float inside[2] : SV_InsideTessFactor;
+};
+
+patch_constant_data patch_constant()
+{
+    return (patch_constant_data)0;
+}
+
+    [domain("quad")]
+    [outputcontrolpoints(3)]
+    [partitioning("integer")]
+    [outputtopology("line")]
+    [patchconstantfunc("patch_constant")]
+float4 main() : POSITION
+{
+    return 0;
+}
+
+[hull shader]
+struct patch_constant_data
+{
+    float edges[4] : SV_TessFactor;
+    float inside[2] : SV_InsideTessFactor;
+};
+
+patch_constant_data patch_constant()
+{
+    return (patch_constant_data)0;
+}
+
+    [domain("quad")]
+    [outputcontrolpoints(3)]
+    [partitioning("integer")]
+    [outputtopology("triangle_cw")]
+    [patchconstantfunc("patch_constant")]
+float4 main() : POSITION
+{
+    return 0;
+}
+
+[hull shader]
+struct patch_constant_data
+{
+    float edges[4] : SV_TessFactor;
+    float inside[2] : SV_InsideTessFactor;
+};
+
+patch_constant_data patch_constant()
+{
+    return (patch_constant_data)0;
+}
+
+    [domain("quad")]
+    [outputcontrolpoints(3)]
+    [partitioning("integer")]
+    [outputtopology("triangle_ccw")]
+    [patchconstantfunc("patch_constant")]
+float4 main() : POSITION
+{
+    return 0;
+}
+
+
+%% Test the valid range for outputcontrolpoints ([0, 32]).
+
+[hull shader fail(sm>=6)]
+struct patch_constant_data
+{
+    float edges[2] : SV_TessFactor;
+};
+
+patch_constant_data patch_constant()
+{
+    return (patch_constant_data)0;
+}
+
+    [domain("isoline")]
+    [outputcontrolpoints(0)]
+    [partitioning("integer")]
+    [outputtopology("point")]
+    [patchconstantfunc("patch_constant")]
+float4 main() : POSITION
+{
+    return 0;
+}
+
+[hull shader]
+struct patch_constant_data
+{
+    float edges[2] : SV_TessFactor;
+};
+
+patch_constant_data patch_constant()
+{
+    return (patch_constant_data)0;
+}
+
+    [domain("isoline")]
+    [outputcontrolpoints(32)]
+    [partitioning("integer")]
+    [outputtopology("point")]
+    [patchconstantfunc("patch_constant")]
+float4 main() : POSITION
+{
+    return 0;
+}
+
+[hull shader fail]
+struct patch_constant_data
+{
+    float edges[2] : SV_TessFactor;
+};
+
+patch_constant_data patch_constant()
+{
+    return (patch_constant_data)0;
+}
+
+    [domain("isoline")]
+    [outputcontrolpoints(33)]
+    [partitioning("integer")]
+    [outputtopology("point")]
+    [patchconstantfunc("patch_constant")]
+float4 main() : POSITION
+{
+    return 0;
+}
+
+
+% patchconstantfunc can't point to the main function.
+[hull shader notimpl(sm<6) fail(sm>=6)]
+struct patch_constant_data
+{
+    float edges[2] : SV_TessFactor;
+};
+
+patch_constant_data patch_constant()
+{
+    return (patch_constant_data)0;
+}
+
+    [domain("isoline")]
+    [outputcontrolpoints(3)]
+    [partitioning("integer")]
+    [outputtopology("point")]
+    [patchconstantfunc("main")]
+float4 main() : POSITION
+{
+    return 0;
+}

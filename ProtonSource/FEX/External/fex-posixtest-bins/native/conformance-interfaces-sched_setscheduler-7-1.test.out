@@ -1,0 +1,3 @@
+Will not test if implementation-defined restrictions apply as to the
+appropriate privileges required to set a process' own scheduling policy, or
+another process' scheduling policy, to a particular value.

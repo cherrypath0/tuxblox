@@ -1,0 +1,49 @@
+[require]
+shader model = 2.0
+
+[rtv 0]
+format r32g32b32a32-float
+size (2d, 64, 64)
+
+[vertex shader]
+void main(float4 p : POSITION, out float4 t : TEXCOORD, out float4 position : SV_Position)
+{
+    position = t = p;
+}
+
+[pixel shader d3dbc-hex]
+ffff0200                                                % ps_2_0
+05000051 a00f0001 41000000 3e000000 00000000 00000000   % def c1, 8.0, 0.125, 0, 0
+0200001f 80000000 b0030000                              % dcl t0.xy
+03000005 80030000 b0e40000 a0000001                     % mul r0.xy, t0, c1.x
+02000013 800c0000 801b0000                              % frc r0.zw, r0.wzyx
+03000002 80030000 80e40000 811b0000                     % add r0.xy, r0, -r0.wzyx
+03000005 80030000 80e40000 a0550001                     % mul r0.xy, r0, c1.y
+04000004 80030000 80e40000 a0e40000 a01b0000            % mad r0.xy, r0, c0, c0.wzyx
+03000020 800f0001 80000000 80550000                     % pow r1, r0.x, r0.y
+02000001 800f0800 80e40001                              % mov oC0, r1
+0000ffff                                                % end
+
+[test]
+write cbv-f32 (0) f32(2, 2, 0, 0)
+draw quad
+probe (34, 14) f32( 0.0,  0.0,  0.0,  0.0)      % pow( 0,     1)
+probe (38, 22) f32( 0.5,  0.5,  0.5,  0.5)      % pow( 0.25,  0.5)
+probe (34, 30) f32( 1.0,  1.0,  1.0,  1.0)      % pow( 0,     0)
+probe ( 2, 46) f32( 0.5,  0.5,  0.5,  0.5)      % pow(-2,    -1)
+probe (34, 46) f32( inf,  inf,  inf,  inf)      % pow( 0,    -1)
+probe (54, 46) f32( 0.8,  0.8,  0.8,  0.8) 1    % pow( 1.25, -1)
+probe (26, 62) f32( 4.0,  4.0,  4.0,  4.0) 2    % pow(-0.5,  -2)
+probe (30, 62) f32(16.0, 16.0, 16.0, 16.0) 2    % pow(-0.25, -2)
+probe (54, 62) f32( 0.64, 0.64, 0.64, 0.64) 1   % pow( 1.25, -2)
+
+[pixel shader d3dbc-hex]
+ffff0200                                                % ps_2_0
+03000020 800f0000 a0000000 a0550000                     % pow r0, c0.x, c0.y
+02000001 800f0800 80e40000                              % mov oC0, r0
+0000ffff                                                % end
+
+[test]
+write cbv-f32 (0) f32(0, -0, 0, 0)
+draw quad
+probe (32, 32) f32(1.0, 1.0, 1.0, 1.0)  % pow(0, -0)

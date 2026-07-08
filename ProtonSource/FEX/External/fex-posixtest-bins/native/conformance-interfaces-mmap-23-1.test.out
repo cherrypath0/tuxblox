@@ -1,0 +1,1 @@
+Test Fail: mmap/23-1.c Expect ENODEF, get: Permission denied

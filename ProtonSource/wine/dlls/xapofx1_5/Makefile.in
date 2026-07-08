@@ -1,0 +1,13 @@
+EXTRADEFS = -DXAPOFX1_VER=5 -DXAUDIO2_VER=7
+MODULE    = xapofx1_5.dll
+IMPORTS   = $(FAUDIO_PE_LIBS) ole32
+EXTRAINCL = $(FAUDIO_PE_CFLAGS)
+PARENTSRC = ../xaudio2_7
+
+EXTRADLLFLAGS = -Wb,--prefer-native
+
+SOURCES = \
+	xapo.c \
+	xapofx.c \
+	xaudio_allocator.c \
+	xaudio_classes.idl

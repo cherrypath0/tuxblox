@@ -1,0 +1,2 @@
+munlock() does not require that addr be a multiple of {PAGESIZE}.
+Test PASSED

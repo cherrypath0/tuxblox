@@ -1,0 +1,24 @@
+[require]
+shader model < 4.0
+
+[vertex shader]
+void main(inout float4 pos : position, out float4 tex : texcoord, out float4 diffuse : color)
+{
+    diffuse = tex = (pos + 4) / 10;
+}
+
+[pixel shader]
+float4 main(float4 tex : texcoord, float4 diffuse : color) : sv_target
+{
+    return float4(tex.xy, diffuse.xy);
+}
+
+[test]
+
+shade mode flat
+draw quad
+probe (320, 0) rgba (0.4, 0.5, 0.2, 0.2) 4
+
+shade mode linear
+draw quad
+probe (320, 0) rgba (0.4, 0.5, 0.4, 0.5) 4

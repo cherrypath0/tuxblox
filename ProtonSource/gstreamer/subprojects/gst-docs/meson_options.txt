@@ -1,0 +1,7 @@
+# Special option to tell `gst-docs` what subprojects with
+# API documentation can be used.
+option('built_subprojects', type : 'string', value : '')
+# Special entry to make `gst-docs` usable as part of a bigger
+# portal (gnome-portal for example).
+option('use_portal_index', type : 'boolean', value : true)
+option('fatal_warnings', type : 'boolean', value : false)

@@ -1,0 +1,28 @@
+# Checksums generated with:
+#
+# ```
+# $ FILENAME=timed_frames_video_only_1fps.mkv
+# $ gst-launch-1.0 uridecodebin uri=file://$PWD/$FILENAME ! checksumsink |grep "^0:00" | sed "s/ /=/g" | sed "s/^/    $FILENAME./g" | sed "s/$/, \\\/g"
+# ```
+
+set-vars,\
+    timed_frames_video_only_1fps_mkv_0_00_00_000000000=68cc0c0b6d6863a135f40297a54aec9f1593f34c, \
+    timed_frames_video_only_1fps_mkv_0_00_01_000000000=9b42849e45e15981115cff9da00ecbf7afafd462, \
+    timed_frames_video_only_1fps_mkv_0_00_02_000000000=13efd225948060c424b8cdb4c4d017dbea65f61f, \
+    timed_frames_video_only_1fps_mkv_0_00_03_000000000=919526ebc3b44b93c05806d4b6b19c82557ba2f7, \
+    timed_frames_video_only_1fps_mkv_0_00_04_000000000=6e031a9b81fb4de38bb58ab935d709661087caa4, \
+    timed_frames_video_only_1fps_mkv_0_00_05_000000000=91973bf9aad6aaae195e5867b1a59c017031e8bf, \
+    timed_frames_video_only_1fps_mkv_0_00_06_000000000=a851acac8f968a2d1a39422e14deeb31cc053270, \
+    timed_frames_video_only_1fps_mkv_0_00_07_000000000=cecd077c700f50e27abf16cd29578f6c4b2ddeb9, \
+    timed_frames_video_only_1fps_mkv_0_00_08_000000000=4c5bc35ef6232684f20ce7a379338822bff29125, \
+    timed_frames_video_only_1fps_mkv_0_00_09_000000000=595dba99a6df0a83adae856a57c5a65d14e28400, \
+    timed_frames_video_only_1fps_mkv_0_00_10_000000000=14caad2fe4b9d7fc7fe0ddc80c23ea947f35f802, \
+    timed_frames_video_only_1fps_mkv_0_00_11_000000000=b010cf26ecd8fd1c62e7ba700bedbabc33f2d967, \
+    timed_frames_video_only_1fps_mkv_0_00_12_000000000=3b82fc99840596a9baf9793cae07a8e389b48253, \
+    timed_frames_video_only_1fps_mkv_0_00_13_000000000=2b8351c57f10c49f08d5cd82f51661ec20d5a906, \
+    timed_frames_video_only_1fps_mkv_0_00_14_000000000=eea963298928f02c4c1ca5120653b2ac12669e86, \
+    timed_frames_video_only_1fps_mkv_0_00_15_000000000=10234cc70c566454023eacd826c7c81f53a447d5, \
+    timed_frames_video_only_1fps_mkv_0_00_16_000000000=27ebe46f59923e33af3d73fca44f00aefa0469be, \
+    timed_frames_video_only_1fps_mkv_0_00_17_000000000=edd55ee68ef9c953ff223dea19086f2d0eff5d0c, \
+    timed_frames_video_only_1fps_mkv_0_00_18_000000000=425eccc6c8ddecb66fb030cccbb51edc0e11426c, \
+    timed_frames_video_only_1fps_mkv_0_00_19_000000000=6aafad8a5aad561df06607266217c9076a876f5b

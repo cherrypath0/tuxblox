@@ -1,0 +1,77 @@
+[require]
+shader model >= 4.1
+
+[rtv 0]
+format r32g32b32a32-float
+size (2dms, 4, 640, 480)
+
+[pixel shader]
+float4 main(out uint sample_mask : SV_Coverage) : SV_Target
+{
+    sample_mask = 0x5;
+    return float4(1.0, 1.0, 1.0, 1.0);
+}
+
+[test]
+clear rtv-0 f32(0.0, 0.0, 0.0, 0.0)
+draw quad
+probe (0, 0) f32(0.5, 0.5, 0.5, 0.5)
+sample mask 0x0b
+clear rtv-0 f32(0.0, 0.0, 0.0, 0.0)
+draw quad
+probe (0, 0) f32(0.25, 0.25, 0.25, 0.25)
+
+[require]
+shader model >= 5.0
+format r32-uint uav-load
+
+[uav 1]
+format r32-uint
+size (2d, 4, 4)
+0   0   0   0
+0   0   0   0
+0   0   0   0
+0   0   0   0
+
+[pixel shader todo]
+RWTexture2D<uint> u : register(u1);
+
+float4 main(float4 position : SV_Position, uint coverage : SV_Coverage) : SV_Target
+{
+    InterlockedOr(u[uint2(position.x, position.y)], coverage);
+    return float4(0.0, 1.0, 0.0, 1.0);
+}
+
+[test]
+sample mask 0x01
+clear rtv-0 f32(0.0, 0.0, 0.0, 0.0)
+todo(sm<6 | msl) draw quad
+probe (0, 0) f32(0.0, 0.25, 0.0, 0.25)
+probe uav-1 (0, 0, 4, 4) u32(0x01)
+sample mask 0x03
+todo(sm<6 | msl) draw quad
+probe (0, 0) f32(0.0, 0.5, 0.0, 0.5)
+probe uav-1 (0, 0, 4, 4) u32(0x03)
+sample mask 0x07
+todo(sm<6 | msl) draw quad
+probe (0, 0) f32(0.0, 0.75, 0.0, 0.75)
+probe uav-1 (0, 0, 4, 4) u32(0x07)
+
+[uav 1]
+format r32-uint
+size (2d, 4, 4)
+0   0   0   0
+0   0   0   0
+0   0   0   0
+0   0   0   0
+
+[test]
+clear rtv-0 f32(0.0, 0.0, 0.0, 0.0)
+sample mask 0x09
+todo(sm<6 | msl) draw quad
+probe (0, 0) f32(0.0, 0.5, 0.0, 0.5)
+probe uav-1 (0, 0, 4, 4) u32(0x09)
+sample mask 0x0f
+todo(sm<6 | msl) draw quad
+probe (0, 0) f32(0.0, 1.0, 0.0, 1.0)
+probe uav-1 (0, 0, 4, 4) u32(0x0f)

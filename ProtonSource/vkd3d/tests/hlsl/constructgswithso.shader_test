@@ -1,0 +1,37 @@
+[pixel shader]
+float4 main() : sv_target { return 0; }
+
+GeometryShader gs1 = CompileShader(gs_5_0, main());
+GeometryShader gs2 = ConstructGSWithSO(gs1, "random_string", "another_string", NULL, NULL, 1);
+
+float4 ConstructGSWithSO;
+
+technique11
+{
+    pass
+    {
+        SetGeometryShader(gs2);
+    }
+}
+
+% ConstructGSWithSO for pixel shaders parses with either 2 or 6 arguments, without doing type checking.
+[pixel shader fail(sm<6)]
+float4 main() : sv_target { return 0; }
+GeometryShader gs1 = CompileShader(gs_5_0, main());
+GeometryShader gs2 = ConstructGSWithSO(gs1);
+
+[pixel shader]
+float4 main() : sv_target { return 0; }
+GeometryShader gs2 = ConstructGSWithSO("foo", "bar");
+
+[pixel shader fail(sm<6)]
+float4 main() : sv_target { return 0; }
+GeometryShader gs2 = ConstructGSWithSO(1, 2, 3);
+
+[pixel shader]
+float4 main() : sv_target { return 0; }
+GeometryShader gs2 = ConstructGSWithSO("foo", "bar", float2(42, 42), 3, 4, NULL);
+
+[pixel shader fail(sm<6)]
+float4 main() : sv_target { return 0; }
+GeometryShader gs2 = ConstructGSWithSO(1, 2, 3, 4, 5, 6, 7);

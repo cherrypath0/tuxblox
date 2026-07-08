@@ -1,0 +1,558 @@
+project('gst-plugins-rs',
+        'rust',
+        'c',
+        version: '0.9.11',
+        meson_version : '>= 0.60')
+
+# dependencies.py needs a toml parsing module
+python = import('python').find_installation(modules: ['tomllib'], required: false)
+if not python.found()
+  python = import('python').find_installation(modules: ['tomli'])
+endif
+fs = import('fs')
+host_system = host_machine.system()
+
+if get_option('debug')
+  target = 'debug'
+else
+  target = 'release'
+endif
+
+cargo = find_program('cargo', version:'>=1.40')
+cargo_wrapper = find_program('cargo_wrapper.py')
+cargo_c = find_program('cargo-cbuild', version:'>=0.9.3', required: false)
+
+rustc = meson.get_compiler('rust')
+
+if not cargo_c.found()
+  error('cargo-c missing, install it with: \'cargo install cargo-c\'')
+endif
+
+system = host_machine.system()
+exe_suffix = ''
+if system == 'windows'
+  exe_suffix = '.exe'
+  ext_dynamic = 'dll'
+  ext_static = 'lib'
+elif system == 'darwin'
+  ext_dynamic = 'dylib'
+  ext_static = 'a'
+else
+  ext_dynamic = 'so'
+  ext_static = 'a'
+endif
+
+# Extra env to pass to cargo
+extra_env = {}
+
+# Used to not lookup the same dependency multiple times which clutters logs
+deps_cache = {}
+
+# Need to depends on all gstreamer-rs deps to ensure they are built
+# before gstreamer-rs when building with gst-build.
+# Custom targets can't depend on dependency() objects so we have to depend
+# on the library variable from the subproject instead.
+glib_req = '>=2.62'
+gst_req = '>=1.20.0'
+depends = []
+
+deps = [
+  # name, subproject name, subproject dep, library object
+  ['gstreamer-1.0', 'gstreamer', 'gst_dep', 'libgst'],
+  ['gstreamer-app-1.0', 'gst-plugins-base', 'app_dep', 'gstapp'],
+  ['gstreamer-audio-1.0', 'gst-plugins-base', 'audio_dep', 'gstaudio'],
+  ['gstreamer-base-1.0', 'gstreamer', 'gst_base_dep', 'gst_base'],
+  ['gstreamer-check-1.0', 'gstreamer', 'gst_check_dep', 'gst_check'],
+  ['gstreamer-gl-1.0', 'gst-plugins-base', 'gst_gl_dep', 'gstgl'],
+  ['gstreamer-net-1.0', 'gstreamer', 'gst_net_dep', 'gst_net'],
+  ['gstreamer-rtp-1.0', 'gst-plugins-base', 'rtp_dep', 'gst_rtp'],
+  ['gstreamer-video-1.0', 'gst-plugins-base', 'video_dep', 'gstvideo'],
+  ['gstreamer-sdp-1.0', 'gst-plugins-base', 'sdp_dep', 'gstsdp'],
+  ['gstreamer-webrtc-1.0', 'gst-plugins-bad', 'gstwebrtc_dep', 'gstwebrtc'],
+]
+
+glib_dep = dependency('glib-2.0', version: glib_req)
+deps_cache += {'glib-2.0': glib_dep}
+
+foreach d: deps
+  dep = dependency(d[0], version: gst_req,
+    fallback : [d[1], d[2]])
+  set_variable(d[2], dep)
+  deps_cache += {d[0]: dep}
+  if dep.type_name() == 'internal'
+    lib = subproject(d[1]).get_variable(d[3])
+    depends += lib
+  endif
+endforeach
+
+# kept in the same order as the `members` list in Cargo.toml
+plugins = {
+  'audiofx': {
+    'library': 'libgstrsaudiofx',
+    'examples': ['hrtfrender'],
+  },
+  'claxon': {'library': 'libgstclaxon'},
+  # csound has a non-trivial external dependency, see below
+  'lewton': {'library': 'libgstlewton'},
+  'spotify': {'library': 'libgstspotify'},
+
+  'file': {'library': 'libgstrsfile'},
+  # sodium can have an external dependency, see below
+  'threadshare': {
+    'library': 'libgstthreadshare',
+    'examples': [
+      'ts-benchmark',
+      'udpsrc-benchmark-sender',
+      'tcpclientsrc-benchmark-sender',
+      'ts-standalone',
+    ],
+  },
+
+  'mp4': {'library': 'libgstmp4'},
+  'fmp4': {
+    'library': 'libgstfmp4',
+    'examples': [
+      'dash_vod',
+      'hls_live',
+      'hls_vod',
+    ],
+  },
+
+  'aws': {
+    'library': 'libgstaws',
+    'extra-deps': {'openssl': '>=1.1'},
+  },
+  'hlssink3': {'library': 'libgsthlssink3'},
+  'ndi': {'library': 'libgstndi'},
+  'onvif': {
+    'library': 'libgstrsonvif',
+    'extra-deps': {'pangocairo': ''},
+  },
+  'raptorq': {'library': 'libgstraptorq'},
+  'reqwest': {'library': 'libgstreqwest'},
+  'rtp': {'library': 'libgstrsrtp'},
+  'webrtchttp': {'library': 'libgstwebrtchttp'},
+  'webrtc': {
+    'library': 'libgstrswebrtc',
+    'examples': ['webrtcsink-stats-server'],
+  },
+
+  'textahead': {'library': 'libgsttextahead'},
+  'json': {'library': 'libgstjson'},
+  'regex': {'library': 'libgstregex'},
+  'textwrap': {'library': 'libgsttextwrap'},
+
+  'fallbackswitch': {
+    'library': 'libgstfallbackswitch',
+    'examples': ['gtk-fallbackswitch'],
+    'features': ['gtk', 'gio', 'gst-plugin-gtk4'],
+  },
+  'livesync': {
+    'library': 'libgstlivesync',
+    'examples': ['gtk-livesync'],
+    'features': ['gtk', 'gio', 'gst-plugin-gtk4'],
+  },
+  'togglerecord': {
+    'library': 'libgsttogglerecord',
+    'examples': ['gtk-recording'],
+    'features': ['gtk', 'gio', 'gst-plugin-gtk4'],
+  },
+  'tracers': {'library': 'libgstrstracers'},
+  'uriplaylistbin': {
+    'library': 'libgsturiplaylistbin',
+    'examples': ['playlist'],
+    'features': ['clap'],
+  },
+
+  'cdg': {'library': 'libgstcdg'},
+  'closedcaption': {
+    'library': 'libgstrsclosedcaption',
+    'extra-deps': {
+      'pango': '',
+      'pangocairo': '',
+      'cairo-gobject': '',
+    }
+  },
+  'dav1d': {
+    'library': 'libgstdav1d',
+    'extra-deps': {'dav1d': '>=1.0'},
+  },
+  'ffv1': {'library': 'libgstffv1'},
+  'flavors': {'library': 'libgstrsflv'},
+  'gif': {
+    'library': 'libgstgif',
+    'examples': ['testvideosrc2gif'],
+  },
+  # gtk4 is added below
+  'hsv': {'library': 'libgsthsv'},
+  'png': {
+    'library': 'libgstrspng',
+    'examples': ['pngenc'],
+  },
+  'rav1e': {'library': 'libgstrav1e'},
+  'videofx': {
+    'library': 'libgstrsvideofx',
+    'extra-deps': {'cairo-gobject': ''},
+  },
+}
+
+# Won't build on platforms where it bundles the sources because of:
+# https://github.com/qnighy/libwebp-sys2-rs/issues/12
+# the fix is:
+# https://github.com/qnighy/libwebp-sys2-rs/pull/13
+if host_system not in ['windows', 'darwin']
+  # FIXME: libwebp-sys2 will build its bundled version on msvc and apple platforms
+  # https://github.com/qnighy/libwebp-sys2-rs/issues/4
+  plugins += {'webp': {
+    'library': 'libgstrswebp',
+    'extra-deps': {'libwebpdemux': ''},
+  }}
+endif
+
+sodium_opt = get_option('sodium')
+if sodium_opt.allowed()
+  sodium_plugin = {'sodium': {
+    'library': 'libgstsodium',
+    'examples': ['generate-keys', 'encrypt-example', 'decrypt-example'],
+    'features': ['serde', 'serde_json', 'clap'],
+  }}
+  if get_option('sodium-source') == 'system'
+    sodium_dep = dependency('libsodium', required: sodium_opt.enabled())
+    extra_env += {'SODIUM_USE_PKG_CONFIG': '1'}
+    if sodium_dep.found()
+      plugins += sodium_plugin
+    endif
+  else
+    plugins += sodium_plugin
+  endif
+endif
+
+cc = meson.get_compiler('c')
+csound_option = get_option('csound')
+if csound_option.allowed()
+  # if csound isn't distributed with pkg-config then user needs to define CSOUND_LIB_DIR with its location
+
+  res = run_command(python, '-c', 'import os; print(os.environ["CSOUND_LIB_DIR"])', check: false)
+  if res.returncode() == 0
+    csound_libdir = res.stdout().strip()
+    csound_dep = cc.find_library('csound64', dirs: csound_libdir, required: false)
+    if csound_dep.found()
+      plugins += {'csound': {
+        'library': 'libgstcsound',
+        'examples': ['csound-effect'],
+      }}
+      extra_env += {'CSOUND_LIB_DIR': csound_libdir}
+    elif csound_option.enabled()
+      error('csound option is enabled, but csound64 library could not be found and CSOUND_LIB_DIR was not set')
+    endif
+  endif
+endif
+
+if get_option('gtk4').allowed()
+  gtk4_features = []
+  gl_winsys = gst_gl_dep.get_variable('gl_winsys').split()
+  gl_platforms = gst_gl_dep.get_variable('gl_platforms').split()
+  if 'wayland' in gl_winsys
+    gtk4_features += 'wayland'
+  endif
+  if 'x11' in gl_winsys
+    if 'egl' in gl_platforms
+      gtk4_features += 'x11egl'
+    endif
+    if 'glx' in gl_platforms
+      gtk4_features += 'x11glx'
+    endif
+  endif
+  plugins += {'gtk4': {
+    'library': 'libgstgtk4',
+    'examples': ['gtksink'],
+    'extra-deps': {'gtk4': '>=4.6'},
+    'features': gtk4_features,
+  }}
+endif
+
+# Process plugins list
+
+default_library = get_option('default_library')
+
+library_suffixes = []
+if default_library in ['shared', 'both']
+  library_suffixes += [ext_dynamic]
+endif
+if default_library in ['static', 'both']
+  library_suffixes += [ext_static]
+endif
+
+# cargo packages (plugins) to build
+packages = []
+# cargo features
+features = []
+# examples to build
+examples = []
+# Add the plugin library files as output
+output = []
+
+if get_option('gtk4').allowed()
+  if glib_dep.version().version_compare('>=2.74')
+    features += ['glib/v2_74', 'gio/v2_74']
+  elif glib_dep.version().version_compare('>=2.72')
+    features += ['glib/v2_72', 'gio/v2_72']
+  elif glib_dep.version().version_compare('>=2.70')
+    features += ['glib/v2_70', 'gio/v2_70']
+  elif glib_dep.version().version_compare('>=2.68')
+    features += ['glib/v2_68', 'gio/v2_68']
+  elif glib_dep.version().version_compare('>=2.66')
+    features += ['glib/v2_66', 'gio/v2_66']
+  elif glib_dep.version().version_compare('>=2.64')
+    features += ['glib/v2_64', 'gio/v2_64']
+  elif glib_dep.version().version_compare('>=2.62')
+    features += ['glib/v2_62', 'gio/v2_62']
+  elif glib_dep.version().version_compare('>=2.60')
+    features += ['glib/v2_60', 'gio/v2_60']
+  elif glib_dep.version().version_compare('>=2.58')
+    features += ['glib/v2_58', 'gio/v2_58']
+  endif
+endif
+
+if get_option('rav1e').allowed() and find_program('nasm', required: false).found()
+  features += 'gst-plugin-rav1e/asm'
+endif
+
+foreach plugin_name, details: plugins
+  plugin_opt = get_option(plugin_name)
+  if plugin_opt.allowed()
+    plugin_deps_found = true
+    foreach dep_name, dep_ver: details.get('extra-deps', {})
+      if dep_ver != ''
+        dep = dependency(dep_name, version: dep_ver, required: plugin_opt)
+      else
+        dep = dependency(dep_name, required: plugin_opt)
+      endif
+      deps_cache += {dep_name: dep}
+      if not dep.found()
+        plugin_deps_found = false
+      endif
+    endforeach
+    if plugin_deps_found
+      packages += f'gst-plugin-@plugin_name@'
+      features += details.get('features', [])
+      extra_features = run_command('dependencies.py', meson.current_source_dir(), plugin_name,
+        '--feature', '--gst-version', gst_dep.version(), capture: true, check: true).stdout().strip()
+      if extra_features != ''
+        features += extra_features.split(',')
+      endif
+
+      examples += details.get('examples', [])
+      lib = details.get('library')
+      if default_library in ['shared', 'both']
+        output += [lib + '.' + ext_dynamic]
+      endif
+      if default_library in ['static', 'both']
+        output += [lib + '.' + ext_static]
+      endif
+    endif
+  endif
+endforeach
+
+feature_args = []
+if features.length() > 0
+  feature_args += ['--features', features]
+endif
+
+plugins_install_dir = get_option('libdir') / 'gstreamer-1.0'
+pkgconfig_install_dir = get_option('libdir') / 'pkgconfig'
+
+extra_args = []
+if get_option('doc').disabled()
+  extra_args += ['--disable-doc']
+endif
+
+# 'pkgconfig' is the entry in the machine file, if specified
+pkg_config = find_program('pkgconfig', required: false)
+if pkg_config.found()
+  extra_env += {'PKG_CONFIG': pkg_config.full_path()}
+endif
+
+pkg_config_path = get_option('pkg_config_path')
+if pkg_config_path.length() > 0
+  pathsep = ':'
+  if host_system == 'windows'
+    pathsep = ';'
+  endif
+  extra_env += {'PKG_CONFIG_PATH': pathsep.join(pkg_config_path)}
+endif
+
+# get compiler and flags for rust (if any)
+rustc_cmd = ''
+rust_flags = []
+foreach rustc_arg : rustc.cmd_array()
+  if rustc_cmd == ''
+    rustc_cmd = rustc_arg
+  else
+    rust_flags += [rustc_arg]
+  endif
+endforeach
+extra_env += {'RUSTC': rustc_cmd, 'RUSTFLAGS': ' '.join(rust_flags)}
+
+rs_plugins = custom_target('gst-plugins-rs',
+  build_by_default: true,
+  output: output,
+  console: true,
+  install: true,
+  install_dir: plugins_install_dir,
+  depends: depends,
+  depfile: 'gst-plugins-rs.dep',
+  env: extra_env,
+  command: [cargo_wrapper,
+    'build',
+    meson.current_build_dir(),
+    meson.current_source_dir(),
+    meson.global_build_root(),
+    target,
+    get_option('prefix'),
+    get_option('libdir'),
+    '--packages', packages,
+    '--depfile', '@DEPFILE@',
+    '--lib-suffixes', library_suffixes,
+  ] + feature_args + extra_args)
+
+plugins = rs_plugins.to_list()
+
+# This is used by GStreamer to static link Rust plugins into gst-full
+gst_plugins = []
+pc_files = []
+plugin_names = []
+foreach plugin : plugins
+  # skip the 'lib' prefix and extension from plugin path
+  plugin_name = fs.stem(plugin.full_path()).substring(3)
+
+  option_name = plugin_name.substring(3)
+  if option_name.startswith('rs')
+    option_name = option_name.substring(2)
+  endif
+  if option_name == 'flv'
+    option_name = 'flavors'
+  endif
+  if not get_option(option_name).allowed()
+    continue
+  endif
+
+  # Extract plugin dependencies from their Cargo.toml file
+  plugin_deps = []
+  p = run_command('dependencies.py', meson.current_source_dir(), plugin_name,
+    capture: true,
+    check: true)
+  foreach dep_name : p.stdout().strip().split(',')
+    dep_name_version = dep_name.split('|')
+    dep_name = dep_name_version.get(0).strip()
+    if dep_name_version.length() > 1
+      extras = {'version': dep_name_version.get(1).strip()}
+    else
+      extras = {}
+    endif
+    if deps_cache.has_key(dep_name)
+      plugin_deps += deps_cache[dep_name]
+    else
+      dep = dependency(dep_name, required: false, kwargs: extras)
+      plugin_deps += dep
+      deps_cache += {dep_name: dep}
+    endif
+  endforeach
+
+  dep = declare_dependency(
+    link_with: plugin,
+    dependencies: plugin_deps,
+    variables: {'full_path': plugin.full_path()},
+  )
+  meson.override_dependency(plugin_name, dep)
+
+  if default_library == 'static' and plugin_name in ['gstcsound', 'gstthreadshare', 'gstgtk4']
+    warning('Static plugin @0@ is known to fail. It will not be included in libgstreamer-full.'.format(plugin_name))
+  else
+    gst_plugins += dep
+
+    pc_files += [plugin_name + '.pc']
+    if plugin_name.startswith('gst')
+      plugin_names += [plugin_name.substring(3)]
+    else
+      plugin_names += [plugin_name]
+    endif
+  endif
+endforeach
+
+subdir('docs')
+
+# We don't need to pass a command as we depends on the target above
+# but it is currently mandatory ( https://github.com/mesonbuild/meson/issues/8059 )
+# so use python as it's guaranteed to be present on any setup
+custom_target('gst-plugins-rs-pc-files',
+  build_by_default: true,
+  output: pc_files,
+  console: true,
+  install: true,
+  install_dir: pkgconfig_install_dir,
+  depends: rs_plugins,
+  command: [python, '-c', '""'])
+
+if get_option('webrtc').allowed()
+  custom_target('gst-webrtc-signalling-server',
+    build_by_default: true,
+    output: 'gst-webrtc-signalling-server',
+    console: true,
+    install: true,
+    install_dir: get_option('bindir'),
+    depfile: 'gst-webrtc-signalling-server.dep',
+    env: extra_env,
+    command: [cargo_wrapper,
+      'build',
+      meson.current_build_dir(),
+      meson.current_source_dir(),
+      meson.global_build_root(),
+      target,
+      get_option('prefix'),
+      get_option('libdir'),
+      '--depfile', '@DEPFILE@',
+      '--bin', 'gst-webrtc-signalling-server',
+      '--exe-suffix', exe_suffix,
+    ])
+endif
+
+if get_option('examples').allowed() and examples.length() > 0
+  custom_target('gst-plugins-rs-examples',
+    build_by_default: true,
+    output: examples,
+    console: true,
+    install: false,
+    depfile: 'gst-plugins-rs-examples.dep',
+    env: extra_env,
+    command: [cargo_wrapper,
+      'build',
+      meson.current_build_dir(),
+      meson.current_source_dir(),
+      meson.global_build_root(),
+      target,
+      get_option('prefix'),
+      get_option('libdir'),
+      '--depfile', '@DEPFILE@',
+      '--packages', packages,
+      '--examples', examples,
+      '--exe-suffix', exe_suffix,
+    ] + feature_args)
+endif
+
+test('tests',
+  cargo_wrapper,
+  env: extra_env,
+  args: ['test',
+    meson.current_build_dir(),
+    meson.current_source_dir(),
+    meson.global_build_root(),
+    target,
+    get_option('prefix'),
+    get_option('libdir'),
+    '--packages', packages],
+  timeout: 600)
+
+summary({
+    'Plugins': plugin_names,
+}, list_sep: ', ')

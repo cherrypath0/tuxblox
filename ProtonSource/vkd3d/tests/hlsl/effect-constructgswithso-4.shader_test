@@ -1,0 +1,40 @@
+[require]
+shader model >= 4.0
+shader model < 6.0
+
+[effect]
+float4 main() : sv_position { return 0; }
+
+VertexShader vs = CompileShader(vs_4_0, main());
+GeometryShader gs = ConstructGSWithSO(vs, "foo");
+
+technique11
+{
+    pass p1
+    {
+        SetGeometryShader(gs);
+    }
+
+    pass p2
+    {
+        SetGeometryShader(ConstructGSWithSO(gs, "mew"));
+    }
+}
+
+[effect]
+float4 main() : sv_position { return 0; }
+GeometryShader chain = ConstructGSWithSO(CompileShader(vs_4_0, main()), "foo");
+GeometryShader chained = ConstructGSWithSO(ConstructGSWithSO(chain, "nya"), "mew");
+
+technique11
+{
+    pass p1
+    {
+        SetGeometryShader(chain);
+    }
+
+    pass p2
+    {
+        SetGeometryShader(chained);
+    }
+}

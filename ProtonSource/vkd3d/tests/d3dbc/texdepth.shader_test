@@ -1,0 +1,47 @@
+[require]
+shader model < 3.0
+
+[rtv 0]
+format r32g32b32a32-float
+size (2d, 64, 64)
+
+[dsv]
+size (2d, 64, 64)
+
+[vertex shader]
+void main(float4 p : POSITION, out float4 t : TEXCOORD, out float4 position : SV_Position)
+{
+    position = p;
+    t = p * 2;
+}
+
+[pixel shader d3dbc-hex]
+ffff0104                                                % ps_1_4
+00000040 80070000 b0e40000                              % texcrd r0.xyz, t0
+00000001 80080000 80000000                              % mov r0.w, r0.x
+00000001 800f0005 80e40000                              % mov r5, r0
+0000fffd                                                % phase
+00000057 800f0005                                       % texdepth r5
+00000001 80080000 80000000                              % mov r0.w, r0.x
+0000ffff                                                % end
+
+[test]
+clear dsv f32(0.3)
+depth always
+draw quad
+probe dsv (36, 24) f32(0.5) 32  % 0.25 / 0.5
+probe dsv (28, 24) f32(0.0)     % -0.25 / 0.5
+probe dsv (36, 40) f32(0.0)     % 0.25 / -0.5
+probe dsv (28, 40) f32(0.5) 32  % -0.25 / -0.5
+probe dsv (40, 28) f32(1.0)     % 0.5 / 0.25
+probe dsv (44,  8) f32(0.5) 32  % 0.75 / 1.5
+
+% Dividing by zero is documented to yield 1.0, and WARP actually follows this,
+% but real GPUs are less consistent. AMD yields 1.0 for 0.0/0.0, but NVidia
+% yields 0.340206206. For 0.5 / 0.0, the one you'd most expect to work, both
+% AMD and NVidia yield 0.0. Whatever bug this is seems to also affect the
+% Vulkan run of vkd3d-shader, despite the fact that we use MOVC -> OpSelect.
+
+% probe dsv (32, 32) f32(1.0)     % 0.0 / 0.0
+% probe dsv (24, 32) f32(1.0)     % -0.5 / 0.0
+% probe dsv (40, 32) f32(1.0)     % 0.5 / 0.0

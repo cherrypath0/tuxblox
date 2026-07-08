@@ -1,0 +1,90 @@
+option('gssapi',
+  type : 'feature',
+  value : 'auto',
+  description : 'Build with GSSAPI support'
+)
+
+option('ntlm',
+  type : 'feature',
+  value : 'auto',
+  description : 'Build with NTLM support'
+)
+
+option('ntlm_auth',
+  type : 'string',
+  value : 'ntlm_auth',
+  description : 'Where to look for ntlm_auth, path points to ntlm_auth installation (defaultly looking in PATH)'
+)
+
+option('brotli',
+  type : 'feature',
+  value : 'auto',
+  description : 'Build with Brotli decompression support'
+)
+
+option('tls_check',
+  type : 'boolean',
+  value : true,
+  description : 'Enable TLS support through glib-networking. If you are building a package, you can disable this to allow building libsoup anyway (since glib-networking is not actually required at compile time), but you should be sure to add a runtime dependency on it.'
+)
+
+option('introspection',
+  type : 'feature',
+  value : 'auto',
+  yield : true,
+  description : 'Build GObject Introspection data'
+)
+
+option('vapi',
+  type : 'feature',
+  value : 'auto',
+  description : 'Build Vala bindings'
+)
+
+option('docs',
+  type: 'feature',
+  value: 'auto',
+  description: 'Enable generating the API reference'
+)
+
+option('doc_tests',
+  type: 'boolean',
+  value: false,
+  description: 'Enable strict validation of API docs'
+)
+
+option('tests',
+  type: 'boolean',
+  value: true,
+  description: 'Enable unit tests compilation'
+)
+
+option('autobahn',
+  type: 'feature',
+  value: 'auto',
+  description: 'Enable autobahn test suite'
+)
+
+option('installed_tests',
+  type: 'boolean',
+  value: false,
+  description: 'Install tests for as-installed testing'
+)
+
+option('sysprof',
+  type: 'feature',
+  value: 'auto',
+  description: 'enable sysprof-capture support for profiling'
+)
+
+option('fuzzing',
+  type: 'feature',
+  value: 'disabled',
+  description: 'enable fuzzing support'
+)
+
+option('pkcs11_tests',
+  type: 'feature',
+  value: 'auto',
+  description: 'enable PKCS #11 tests depending on gnutls'
+)
