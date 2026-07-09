@@ -1,5 +1,5 @@
 > [!WARNING]
-> **TuxBlox is distributed ONLY through [tuxblox.net](https://tuxblox.net) and this official GitHub repository.** Files downloaded from any other source are not provided by us and may contain viruses or malware. Always verify the URL before running any installation scripts.
+> **TuxBlox is an independent, open-source project.** It is not affiliated with, authorized, or endorsed by Roblox Corporation.
 
 > [!WARNING]
 > **Account safety is not guaranteed.** TuxBlox is an unofficial, unaffiliated compatibility layer. Anti-cheat detection behavior can change at any time as Roblox's systems evolve, and an account that works today may be flagged or banned tomorrow. Use at your own risk.
@@ -24,4 +24,9 @@ Full documentation is currently a work in progress. You can find the available s
 * **Kernel Version:** 5.0 or higher
 
 ## Licensing
-This project is licensed under the MIT License, other licenses are in the `third-party-licenses/` directory
+This project is licensed under the GPLv3 License.
+
+This project includes a modified build of Proton, which remains licensed under 
+LGPLv2.1. Proton is compiled as a separate binary and is not statically linked 
+into TuxBlox. See [`third_party_licenses/`](third_party_licenses/) for the full 
+license text of Proton and any other bundled components.
