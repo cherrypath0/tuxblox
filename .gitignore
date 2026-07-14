@@ -14,10 +14,6 @@ __pycache__/
 *.dll
 *.exe
 *.so
-*.tar
-*.zip
-*.tar.xz
-*.tar.gz
 
 ProtonSource/dist
 ProtonSource/dist-*
