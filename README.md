@@ -19,7 +19,7 @@ Full documentation is currently a work in progress. You can find documentation a
 * **Processor:** 64-bit x86 (x86_64) Architecture with SSE3 Support
 * **Operating System:** Any major 64-bit Linux distribution
 * **Kernel Version:** 5.0 or higher
-* **Storage Space:** 40 GB or higher
+* **Storage Space:** 3 GB or higher
 
 ## Legal & Disclaimer
 - **TuxBlox is an independent, open-source project.** It is not affiliated with, authorized, or endorsed by Roblox Corporation. 
