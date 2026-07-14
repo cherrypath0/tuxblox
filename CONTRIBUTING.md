@@ -1,3 +1,5 @@
+![TuxBlox Banner](https://assetdelivery.tuxblox.net/images/png/banner/tuxblox-banner-medium.png)
+
 # Contributing to TuxBlox
 
 Thanks for your interest in contributing to TuxBlox! This document covers how to get set up, our conventions, and the rules around contributions given the project's licensing structure.
@@ -6,7 +8,7 @@ Thanks for your interest in contributing to TuxBlox! This document covers how to
 
 TuxBlox is a multi-license repository, make sure to read all of these:
 
-- **TuxBlox's own launcher/compatibility layer code** (everything outside `ProtonSource/`) is licensed under **GPLv3**. Contributions here must be compatible with GPLv3.
+- **TuxBlox's own launcher code** (everything outside **`ProtonSource/`**) is licensed under **GPLv3**. Contributions here must be compatible with GPLv3.
 - **`ProtonSource/`** (our modified Proton build) remains licensed under **LGPLv2.1**, inherited from Wine/Proton. Contributions here must comply with LGPLv2.1.
 - **`third_party_licenses/`** is the license texts directory for bundled dependencies. Do not modify.
 
@@ -41,7 +43,7 @@ By submitting a pull request, you agree that your contribution is licensed under
 To keep TuxBlox on solid legal and ethical footing:
 
 - **No code that circumvents, disables, or interferes with Roblox's anti-cheat or client integrity systems.** TuxBlox aims to run the official client faithfully, not to modify or defeat its protections.
-- **No cheat, exploit, or automation tooling** (aimbots, script injection for unfair advantage, etc.), even if framed as a "plugin" or "optional feature."
+- **No cheat, exploit, or automation tooling** (aimbots, script injection, etc.), even if framed as a "plugin" or "optional feature."
 - **No inclusion of Microsoft-owned binaries, DLLs, or other proprietary redistributables.** Any Windows API behavior should be reimplemented (Wine-style), not shipped as extracted proprietary files.
 - **No code copied from sources incompatible with GPLv3 or LGPLv2.1** (e.g. code under a "no derivatives" or source-available-but-non-OSI license) without explicit written permission from the original author, provided to maintainers.
 
@@ -64,4 +66,4 @@ If you find a security vulnerability, please **do not open a public issue**. Ins
 
 ## Questions?
 
-Open a discussion thread or issue if anything here is unclear. Happy to help new contributors get oriented.
+Open a discussion thread, create an issue, or join our community on [Discord](https://tuxblox.net/discord) if anything here is unclear. Happy to help new contributors get oriented.

@@ -4,13 +4,12 @@ set -e
 cd "$(dirname "$0")"
 
 robloxPlayerUrl="https://rdd.tuxblox.net/download?noconsole=true&binary=WindowsPlayer&channel=production&version="
-robloxStudioUrl="https://rdd.tuxblox.net/download?noconsole=true&binary=WindowsStudio64&channel=production&version="
+robloxStudioUrl="https://setup.rbxcdn.com/RobloxStudioInstaller.exe"
 
 playerDir="RobloxPlayer"
 studioDir="RobloxStudio"
 
 playerZip="robloxPlayer.zip"
-studioZip="robloxStudio.zip"
 
 userAgent="TuxBlox-Client/1.0"
 
@@ -35,19 +34,15 @@ echo ":: Downloading RobloxPlayer"
 curl -A "$userAgent" -L -o "$playerZip" "$robloxPlayerUrl"
 
 echo ":: Downloading RobloxStudio"
-curl -A "$userAgent" -L -o "$studioZip" "$robloxStudioUrl"
+curl -A "$userAgent" -L -o "RobloxStudioInstaller.exe" "$robloxStudioUrl"
 
 echo ":: Extracting RobloxPlayer"
 unzip -oq "$playerZip" -d "$playerDir"
 
-echo ":: Extracting RobloxStudio"
-unzip -oq "$studioZip" -d "$studioDir"
+echo ":: Moving RobloxStudioInstaller"
+mv RobloxStudioInstaller.exe "$studioDir"
 
 echo ":: Cleaning up downloaded archives"
-rm -f "$playerZip" "$studioZip"
-
-echo ":: Cleaning up old prefix directory"
-rm -rf prefix
-mkdir -p prefix
+rm -f "$playerZip"
 
 echo ":: Install complete."

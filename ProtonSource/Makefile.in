@@ -310,6 +310,7 @@ FFMPEG_CONFIGURE_ARGS := \
 	--enable-demuxer=matroska \
 
 FFMPEG_i386-unix_CONFIGURE_ARGS := \
+	--disable-vulkan \
 	--cross-prefix=i686-linux-gnu- \
 	--arch=x86 \
 	--target-os=linux
@@ -353,30 +354,25 @@ $(eval $(call rules-meson,gst_libav,aarch64,unix))
 ## gst-plugins-rs
 ##
 
-GST_PLUGINS_RS_CARGO_ARGS = \
-	-p gst-plugin-dav1d
-
-GST_PLUGINS_RS_DEPENDS = gst_orc gstreamer gst_base dav1d
-
-$(eval $(call rules-source,gst_plugins_rs,$(SRCDIR)/gst-plugins-rs))
-$(eval $(call rules-cargo,gst_plugins_rs,i386,unix))
-$(eval $(call rules-cargo,gst_plugins_rs,x86_64,unix))
-$(eval $(call rules-cargo,gst_plugins_rs,aarch64,unix))
-
-$(OBJ)/.gst_plugins_rs-x86_64-post-build:
-	mkdir -p $(GST_PLUGINS_RS_x86_64_DST)/lib/x86_64-linux-gnu/gstreamer-1.0/
-	cp -a $(GST_PLUGINS_RS_x86_64_OBJ)/x86_64-unknown-linux-gnu/release/libgstdav1d.so $(GST_PLUGINS_RS_x86_64_DST)/lib/x86_64-linux-gnu/gstreamer-1.0/
-	touch $@
-
-$(OBJ)/.gst_plugins_rs-i386-post-build:
-	mkdir -p $(GST_PLUGINS_RS_i386_DST)/lib/i386-linux-gnu/gstreamer-1.0/
-	cp -a $(GST_PLUGINS_RS_i386_OBJ)/i686-unknown-linux-gnu/release/libgstdav1d.so $(GST_PLUGINS_RS_i386_DST)/lib/i386-linux-gnu/gstreamer-1.0/
-	touch $@
-
-$(OBJ)/.gst_plugins_rs-aarch64-post-build:
-	mkdir -p $(GST_PLUGINS_RS_aarch64_DST)/lib/aarch64-linux-gnu/gstreamer-1.0/
-	cp -a $(GST_PLUGINS_RS_aarch64_OBJ)/aarch64-unknown-linux-gnu/release/libgstdav1d.so $(GST_PLUGINS_RS_aarch64_DST)/lib/aarch64-linux-gnu/gstreamer-1.0/
-	touch $@
+#GST_PLUGINS_RS_CARGO_ARGS = \
+#	-p gst-plugin-dav1d
+#GST_PLUGINS_RS_DEPENDS = gst_orc gstreamer gst_base dav1d
+#$(eval $(call rules-source,gst_plugins_rs,$(SRCDIR)/gst-plugins-rs))
+#$(eval $(call rules-cargo,gst_plugins_rs,i386,unix))
+#$(eval $(call rules-cargo,gst_plugins_rs,x86_64,unix))
+#$(eval $(call rules-cargo,gst_plugins_rs,aarch64,unix))
+#$(OBJ)/.gst_plugins_rs-x86_64-post-build:
+#	mkdir -p $(GST_PLUGINS_RS_x86_64_DST)/lib/x86_64-linux-gnu/gstreamer-1.0/
+#	cp -a $(GST_PLUGINS_RS_x86_64_OBJ)/x86_64-unknown-linux-gnu/release/libgstdav1d.so $(GST_PLUGINS_RS_x86_64_DST)/lib/x86_64-linux-gnu/gstreamer-1.0/
+#	touch $@
+#$(OBJ)/.gst_plugins_rs-i386-post-build:
+#	mkdir -p $(GST_PLUGINS_RS_i386_DST)/lib/i386-linux-gnu/gstreamer-1.0/
+#	cp -a $(GST_PLUGINS_RS_i386_OBJ)/i686-unknown-linux-gnu/release/libgstdav1d.so $(GST_PLUGINS_RS_i386_DST)/lib/i386-linux-gnu/gstreamer-1.0/
+#	touch $@
+#$(OBJ)/.gst_plugins_rs-aarch64-post-build:
+#	mkdir -p $(GST_PLUGINS_RS_aarch64_DST)/lib/aarch64-linux-gnu/gstreamer-1.0/
+#	cp -a $(GST_PLUGINS_RS_aarch64_OBJ)/aarch64-unknown-linux-gnu/release/libgstdav1d.so $(GST_PLUGINS_RS_aarch64_DST)/lib/aarch64-linux-gnu/gstreamer-1.0/
+#	touch $@
 
 
 ##
@@ -405,6 +401,7 @@ $(eval $(call rules-cmake,spirv-headers,arm64ec,windows))
 ## glslang
 ##
 
+GLSLANG_SOURCE_ARGS = --exclude External/spirv-tools --exclude External/googletest
 $(eval $(call rules-source,glslang,$(SRCDIR)/glslang))
 $(eval $(call rules-cmake,glslang,i386,unix))
 $(eval $(call rules-cmake,glslang,x86_64,unix))
@@ -613,7 +610,8 @@ WINE_SOURCE_ARGS = \
 WINE_AUTOCONF_ARGS = \
   --enable-werror \
   --with-mingw=$(MINGW_TYPE) \
-  --disable-tests
+  --disable-tests \
+  --without-ffmpeg
 
 WINE_x86_64_AUTOCONF_ARGS = \
   --enable-archs=$(call list-join,$(comma),x86_64 $(filter-out x86_64 $(unix_ARCHS),$(windows_ARCHS))) \
@@ -833,9 +831,9 @@ $(eval $(call rules-meson,vkd3d-proton,x86_64,windows))
 $(eval $(call rules-meson,vkd3d-proton,arm64ec,windows))
 
 $(OBJ)/.vkd3d-proton-post-source:
-	sed -re 's#@VCS_TAG@#$(shell git -C $(SRCDIR)/vkd3d-proton describe --always --exclude=* --abbrev=15 --dirty=0)#' \
+	sed -re 's#@VCS_TAG@#0#' \
 	    $(SRCDIR)/vkd3d-proton/vkd3d_build.h.in > $(VKD3D_PROTON_SRC)/vkd3d_build.h.in
-	sed -re 's#@VCS_TAG@#$(shell git -C $(SRCDIR)/vkd3d-proton describe --always --tags --dirty=+)#' \
+	sed -re 's#@VCS_TAG@#tuxblox-local#' \
 	    $(SRCDIR)/vkd3d-proton/vkd3d_version.h.in > $(VKD3D_PROTON_SRC)/vkd3d_version.h.in
 	mkdir -p $(DST_LIBDIR)/wine/vkd3d-proton
 	rm -rf $(DST_LIBDIR)/wine/vkd3d-proton/version
@@ -1326,7 +1324,7 @@ endif
 ## default_pfx
 ##
 
-default_pfx: wine gst_good gst_bad gst_libav gst_plugins_rs lsteamclient steamexe vrclient wineopenxr $(WINEOPENXR64_JSON) dxvk dxvk-nvapi vkd3d-proton
+default_pfx: wine gst_good gst_bad gst_libav lsteamclient steamexe vrclient wineopenxr $(WINEOPENXR64_JSON) dxvk dxvk-nvapi vkd3d-proton
 	find $(DST_LIBDIR)/wine -type f -execdir chmod a-w '{}' '+'
 	rm -rf $(abspath $(DIST_PREFIX))
 	rm -rf $(abspath $(DIST_PREFIX_ARM64))
@@ -1489,7 +1487,13 @@ DOCKER_BASE = $(CONTAINER_ENGINE) run --rm -v $(SRC):$(SRC)$(CONTAINER_MOUNT_OPT
 .DEFAULT dist deploy redist symstore-tarball:
 	if [ "$(ENABLE_CCACHE)" -eq "1" ]; then mkdir -p $(CCACHE_DIR); fi
 	mkdir -p $(CARGO_HOME)
-	$(DOCKER_BASE) $(MAKE) -j$(J) $(filter -j%,$(MAKEFLAGS)) -f $(firstword $(MAKEFILE_LIST)) $(MFLAGS) $(MAKEOVERRIDES) CONTAINER=1 $@
+	$(DOCKER_BASE) sh -c '\
+		if ! command -v cargo >/dev/null 2>&1 || [ "$$(cargo --version | cut -d" " -f2)" \< "1.85.0" ]; then \
+			curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.85.0 >&2; \
+		fi; \
+		export PATH="$$HOME/.cargo/bin:$$PATH"; \
+		$(MAKE) -j$(J) $(filter -j%,$(MAKEFLAGS)) -f $(firstword $(MAKEFILE_LIST)) $(MFLAGS) $(MAKEOVERRIDES) CONTAINER=1 $@ \
+	'
 
 
 .PHONY: test-container

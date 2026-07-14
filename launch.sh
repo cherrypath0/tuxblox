@@ -18,7 +18,7 @@ case "$choice" in
         label="Roblox Client"
         ;;
     1|s|S|studio|Studio|STUDIO)
-        exePath="RobloxStudio/RobloxStudioBeta.exe"
+        exePath="RobloxStudio/RobloxStudioInstaller.exe"
         label="Roblox Studio"
         ;;
     *)
@@ -28,5 +28,5 @@ case "$choice" in
 esac
 
 echo "Launching $label"
-PROTON_LOG=1 ./ProtonBuild/dist/proton run "$exePath"
+PROTON_LOG=1 "$(pwd)/ProtonBuild/dist/proton" run "$exePath"
 echo "Exit code: $?"
