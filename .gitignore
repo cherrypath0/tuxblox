@@ -2,10 +2,13 @@ RobloxPlayer/
 RobloxStudio/
 ProtonBuild/
 prefix/
+production/
+builds/
 
 .env
 
 push.sh
+production.sh
 
 __pycache__/
 

@@ -117,3 +117,8 @@ echo ":: Initializing nested submodules"
 
 echo ":: Resuming build"
 make 2>&1 | tee -a ../build.log
+
+echo ":: Clearing up unnecessary junk"
+shopt -s nullglob
+rm -rf obj-* dst-*
+shopt -u nullglob

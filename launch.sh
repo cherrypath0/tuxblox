@@ -2,72 +2,63 @@
 cd "$(dirname "$0")" || exit 1
 mkdir -p ~/.local/share/tuxblox/steamapps
 mkdir -p prefix
+mkdir -p logs
 export STEAM_COMPAT_DATA_PATH="$(pwd)/prefix"
 export STEAM_COMPAT_CLIENT_INSTALL_PATH="$HOME/.local/share/tuxblox"
+export PROTON_LOG_DIR="$(pwd)/logs"
 
 choice="$1"
-
 if [ -z "$choice" ]; then
-    echo "Which do you want to launch? [0/p/player = Player (default), 1/s/studio = Studio]"
+    echo "Which do you want to launch? [player/studio]"
     read -r choice
 fi
 
-studioLnk="prefix/pfx/drive_c/users/steamuser/Desktop/Roblox Studio.lnk"
-studioInstaller="RobloxStudio/RobloxStudioInstaller.exe"
-studioInstallerUrl="https://setup.rbxcdn.com/RobloxStudioInstaller.exe"
-studioUserAgent="TuxBlox-Client/1.0"
+userAgent="TuxBlox-Client/1.0"
 
-resolveLnkTarget() {
-    local lnkPath="$1"
-    local targetWin
-    targetWin=$(strings -a "$lnkPath" 2>/dev/null | grep -oi '[A-Za-z]:\\[^"]*RobloxStudioBeta\.exe' | head -n1)
-    if [ -z "$targetWin" ]; then
-        targetWin=$(strings -el "$lnkPath" 2>/dev/null | grep -oi '[A-Za-z]:\\[^"]*RobloxStudioBeta\.exe' | head -n1)
+findExe() {
+    local targetExe="$1"
+    
+    local lnkPath="$2"
+    if [ -f "$lnkPath" ]; then
+        local targetWin
+        targetWin=$(strings -a "$lnkPath" 2>/dev/null | grep -oiE "[A-Za-z]:\\\\.*$targetExe" | head -n1)
+        [ -z "$targetWin" ] && targetWin=$(strings -el "$lnkPath" 2>/dev/null | grep -oiE "[A-Za-z]:\\\\.*$targetExe" | head -n1)
+        
+        if [ -n "$targetWin" ]; then
+            local relPath
+            relPath=$(printf '%s' "$targetWin" | sed -e 's/\\/\//g' -e 's/^[A-Za-z]://')
+            find "prefix/pfx/drive_c" -ipath "*${relPath}" -type f 2>/dev/null | head -n1 && return 0
+        fi
     fi
-    [ -z "$targetWin" ] && return 1
 
-    local relPath
-    relPath=$(printf '%s' "$targetWin" | sed -e 's/\\/\//g' -e 's/^[A-Za-z]://')
-
-    find "prefix/pfx/drive_c" -ipath "*${relPath}" -type f 2>/dev/null | head -n1
+    find "prefix/pfx/drive_c" -name "$targetExe" -type f | grep -v "Installer" | head -n1
 }
 
 case "$choice" in
     ""|0|p|P|player|Player|PLAYER)
-        exePath="RobloxPlayer/RobloxPlayerBeta.exe"
+        exePath=$(findExe "RobloxPlayerBeta.exe" "prefix/pfx/drive_c/users/steamuser/Desktop/Roblox Player.lnk")
         label="Roblox Client"
+        installer="RobloxPlayer/RobloxPlayerInstaller.exe"
+        url="https://setup.rbxcdn.com/RobloxPlayerInstaller.exe"
         ;;
     1|s|S|studio|Studio|STUDIO)
-        studioTargetUnix=""
-        if [ -f "$studioLnk" ]; then
-            studioTargetUnix="$(resolveLnkTarget "$studioLnk")"
-        fi
-
-        if [ -n "$studioTargetUnix" ]; then
-            exePath="$studioTargetUnix"
-            label="Roblox Studio"
-        else
-            echo "Existing shortcut missing or stale, reinstalling."
-            mkdir -p RobloxStudio
-            if [ ! -f "$studioInstaller" ]; then
-                echo "Roblox Studio not found. Downloading installer..."
-                if ! curl -fL -A "$studioUserAgent" -o "$studioInstaller" "$studioInstallerUrl"; then
-                    echo "Download failed."
-                    rm -f "$studioInstaller"
-                    exit 1
-                fi
-            fi
-            exePath="$studioInstaller"
-            label="Roblox Studio Installer"
-        fi
+        exePath=$(findExe "RobloxStudioBeta.exe" "prefix/pfx/drive_c/users/steamuser/Desktop/Roblox Studio.lnk")
+        label="Roblox Studio"
+        installer="RobloxStudio/RobloxStudioInstaller.exe"
+        url="https://setup.rbxcdn.com/RobloxStudioInstaller.exe"
         ;;
-    *)
-        exePath="RobloxPlayer/RobloxPlayerBeta.exe"
-        label="Roblox Client"
-        ;;
+    *) exit 1 ;;
 esac
 
-echo "Launching $label"
-echo "$exePath"
-PROTON_LOG=1 "$(pwd)/ProtonBuild/dist/proton" run "$exePath"
+if [ -z "$exePath" ]; then
+    echo "$label not found. Running installer..."
+    mkdir -p "$(dirname "$installer")"
+    [ ! -f "$installer" ] && curl -fL -A "$userAgent" -o "$installer" "$url"
+    exePath="$installer"
+fi
+
+echo "Launching $label from: $exePath"
+echo "==== START OF OUTPUT ===="
+PROTON_LOG=1 DXVK_ASYNC=1 WINEDEBUG=-all "$(pwd)/ProtonBuild/dist/proton" run "$exePath"
+echo "====  END OF OUTPUT  ===="
 echo "Exit code: $?"
