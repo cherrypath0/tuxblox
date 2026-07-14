@@ -3,7 +3,7 @@ set -eo pipefail
 cd "$(dirname "$0")"
 
 echo ":: Cleaning up previous build logs"
-rm build.log
+rm -f build.log
 
 echo ":: Cleaning up old prefix directory"
 rm -rf prefix
