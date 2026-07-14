@@ -17,13 +17,6 @@ studioInstaller="RobloxStudio/RobloxStudioInstaller.exe"
 studioInstallerUrl="https://setup.rbxcdn.com/RobloxStudioInstaller.exe"
 studioUserAgent="TuxBlox-Client/1.0"
 
-# Pull the embedded Windows target path out of the .lnk and check that the exe it
-# points to actually still exists on disk. This catches stale shortcuts left over
-# after Roblox updates to a new version-xxxx folder.
-#
-# The LocalBasePath inside a .lnk's LinkInfo structure is stored as plain ANSI
-# bytes (not UTF-16), so plain `strings` finds it; UTF-16LE is tried as a fallback
-# in case a given .lnk variant encodes it as Unicode instead.
 resolveLnkTarget() {
     local lnkPath="$1"
     local targetWin
@@ -36,9 +29,6 @@ resolveLnkTarget() {
     local relPath
     relPath=$(printf '%s' "$targetWin" | sed -e 's/\\/\//g' -e 's/^[A-Za-z]://')
 
-    # Windows paths in the .lnk are cased like "Users", but Wine prefixes use
-    # lowercase "users" on disk, so a plain -f test would false-negative here.
-    # Match case-insensitively against what's actually on disk instead.
     find "prefix/pfx/drive_c" -ipath "*${relPath}" -type f 2>/dev/null | head -n1
 }
 
