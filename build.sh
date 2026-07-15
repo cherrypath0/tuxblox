@@ -2,18 +2,47 @@
 set -eo pipefail
 cd "$(dirname "$0")"
 
+debug=0
+for arg in "$@"; do
+    case "$arg" in
+        --debug) debug=1 ;;
+    esac
+done
+
 packages=(
     python3
     podman
     curl
 )
 
+run_step() {
+    local label="$1"
+    shift
+    local start_time end_time elapsed minutes seconds
+
+    start_time=$(date +%s)
+
+    if [[ $debug -eq 1 ]]; then
+        "$@"
+    else
+        "$@" >/dev/null
+    fi
+
+    end_time=$(date +%s)
+    elapsed=$((end_time - start_time))
+    minutes=$((elapsed / 60))
+    seconds=$((elapsed % 60))
+
+    printf "Task completed in: %02d minutes, %02d seconds\n" "$minutes" "$seconds"
+    sleep 1
+}
+
 echo ":: Cleaning up previous build logs"
 rm -f build.log
 
 echo ":: Cleaning up old prefix directory"
-rm -rf prefix
-mkdir -p prefix
+rm -rf runtime
+mkdir -p runtime
 
 echo ":: Cleaning up old proton build"
 rm -rf ProtonBuild
@@ -59,7 +88,6 @@ is_installed() {
 
 pm=$(detect_pm)
 echo ":: Detected package manager: $pm"
- 
 to_install=()
 to_upgrade=()
 for pkg in "${packages[@]}"; do
@@ -71,7 +99,6 @@ for pkg in "${packages[@]}"; do
         to_install+=("$resolved_pkg")
     fi
 done
- 
 case "$pm" in
     apt)
         sudo apt-get update
@@ -106,19 +133,24 @@ esac
 echo ":: Configuring Proton"
 ./../ProtonSource/configure.sh
 
-echo ":: First-pass build"
-make 2>&1 | tee ../build.log || true
+echo ":: First-pass build (1/4)"
+run_step "first_pass_build" bash -c 'make 2>&1 | tee ../build.log || true'
 
-echo ":: Fetching external sources"
-(cd src-glslang && rm -rf External/spirv-tools External/googletest && python3 update_glslang_sources.py)
+echo ":: Fetching external sources (2/4)"
+run_step "fetch_external_sources" bash -c 'cd src-glslang && rm -rf External/spirv-tools External/googletest && python3 update_glslang_sources.py'
 
-echo ":: Initializing nested submodules"
-(cd src-dxvk-nvapi && git submodule update --init --recursive)
+echo ":: Initializing nested submodules (3/4)"
+run_step "init_submodules" bash -c 'cd src-dxvk-nvapi && git submodule update --init --recursive'
 
-echo ":: Resuming build"
-make 2>&1 | tee -a ../build.log
+echo ":: Resuming build (4/4)"
+run_step "resume_build" bash -c 'make 2>&1 | tee -a ../build.log'
 
 echo ":: Clearing up unnecessary junk"
 shopt -s nullglob
 rm -rf obj-* dst-*
 shopt -u nullglob
+
+echo "Congratulations! I'm sure after what felt like forever, you finally have TuxBlox Proton. (or as I would call it.. TB-Proton, ProtonTB.. or whatever you call it)"
+echo "Now you're probably ready to test Roblox Studio or Player, tarball the project (or however you want to compress it), and upload it to GitHub, GitLab, a repository, or your own CDN server!"
+echo -e "\n\e[31;1mWARNING:\e[0m Do NOT include the \"runtime\" directory in your tarballs or archives. It most likely contains your Roblox cookies."
+echo "You probably would NOT want to leak that. So anyway, this is a hello from the system, do whatever you want with it, assuming it's for good things of course."

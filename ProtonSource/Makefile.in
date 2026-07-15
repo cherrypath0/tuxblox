@@ -412,12 +412,12 @@ $(eval $(call rules-cmake,glslang,aarch64,unix))
 ## lsteamclient
 ##
 
-LSTEAMCLIENT_DEPENDS = wine
+# LSTEAMCLIENT_DEPENDS = wine
 
-$(eval $(call rules-source,lsteamclient,$(SRCDIR)/lsteamclient))
-$(eval $(call rules-makedep,lsteamclient,i386))
-$(eval $(call rules-makedep,lsteamclient,x86_64))
-$(eval $(call rules-makedep,lsteamclient,aarch64))
+# $(eval $(call rules-source,lsteamclient,$(SRCDIR)/lsteamclient))
+# $(eval $(call rules-makedep,lsteamclient,i386))
+# $(eval $(call rules-makedep,lsteamclient,x86_64))
+# $(eval $(call rules-makedep,lsteamclient,aarch64))
 
 
 ##
@@ -425,12 +425,12 @@ $(eval $(call rules-makedep,lsteamclient,aarch64))
 ## Note 32-bit is not supported by SteamVR, so we don't build it.
 ##
 
-OPENXR_CMAKE_ARGS = -DHAVE_FILESYSTEM_WITHOUT_LIB=0
+# OPENXR_CMAKE_ARGS = -DHAVE_FILESYSTEM_WITHOUT_LIB=0
 
-$(eval $(call rules-source,openxr,$(SRCDIR)/OpenXR-SDK))
-# $(eval $(call rules-cmake,openxr,i386,unix))
-$(eval $(call rules-cmake,openxr,x86_64,unix))
-$(eval $(call rules-cmake,openxr,aarch64,unix))
+# $(eval $(call rules-source,openxr,$(SRCDIR)/OpenXR-SDK))
+# # $(eval $(call rules-cmake,openxr,i386,unix))
+# $(eval $(call rules-cmake,openxr,x86_64,unix))
+# $(eval $(call rules-cmake,openxr,aarch64,unix))
 
 
 ##
@@ -438,14 +438,14 @@ $(eval $(call rules-cmake,openxr,aarch64,unix))
 ## Note 32-bit is not supported by SteamVR, so we don't build it.
 ##
 
-WINEOPENXR_LDFLAGS = -lopenxr_loader
-WINEOPENXR_DEPENDS = wine openxr
+# WINEOPENXR_LDFLAGS = -lopenxr_loader
+# WINEOPENXR_DEPENDS = wine openxr
 
-WINEOPENXR_aarch64_PE_ARCHS = arm64ec x86_64
+# WINEOPENXR_aarch64_PE_ARCHS = arm64ec x86_64
 
-$(eval $(call rules-source,wineopenxr,$(SRCDIR)/wineopenxr))
-$(eval $(call rules-makedep,wineopenxr,x86_64))
-$(eval $(call rules-makedep,wineopenxr,aarch64))
+# $(eval $(call rules-source,wineopenxr,$(SRCDIR)/wineopenxr))
+# $(eval $(call rules-makedep,wineopenxr,x86_64))
+# $(eval $(call rules-makedep,wineopenxr,aarch64))
 
 WINEOPENXR64_JSON := $(DST_DIR)/share/openxr/wineopenxr64.json
 $(WINEOPENXR_SRC)/wineopenxr64.json: wineopenxr
@@ -611,7 +611,9 @@ WINE_AUTOCONF_ARGS = \
   --enable-werror \
   --with-mingw=$(MINGW_TYPE) \
   --disable-tests \
-  --without-ffmpeg
+  --without-ffmpeg \
+  --without-vosk \
+  --without-piper
 
 WINE_x86_64_AUTOCONF_ARGS = \
   --enable-archs=$(call list-join,$(comma),x86_64 $(filter-out x86_64 $(unix_ARCHS),$(windows_ARCHS))) \
@@ -627,10 +629,10 @@ WINE_x86_64_AUTOCONF_ARGS += \
   VKD3D_PE_CFLAGS="-I$(VULKAN_HEADERS_x86_64_DST)/include -I$(VKD3D_x86_64_DST)/include/vkd3d" \
   VKD3D_PE_LIBS="-L$(VKD3D_x86_64_LIBDIR)/vkd3d/x86_64-windows -l:libvkd3d-1.dll -l:libvkd3d-shader-1.dll -l:libvkd3d-utils-1.dll"
 
-WINE_DEPENDS = gst_orc gstreamer gst_base ffmpeg openfst kaldi vosk
+WINE_DEPENDS = gst_orc gstreamer gst_base ffmpeg
 WINE_i386_DEPENDS = vkd3d
-WINE_x86_64_DEPENDS = piper vkd3d
-WINE_aarch64_DEPENDS = piper
+WINE_x86_64_DEPENDS = vkd3d
+# WINE_aarch64_DEPENDS = piper
 
 WINE_i386_LIBDIR = $(WINE_i386_DST)/lib
 WINE_x86_64_LIBDIR = $(WINE_x86_64_DST)/lib
@@ -680,12 +682,12 @@ endif
 ## vrclient
 ##
 
-VRCLIENT_DEPENDS = vulkan-headers wine
+# VRCLIENT_DEPENDS = vulkan-headers wine
 
-$(eval $(call rules-source,vrclient,$(SRCDIR)/vrclient_x64))
-$(eval $(call rules-makedep,vrclient,i386))
-$(eval $(call rules-makedep,vrclient,x86_64))
-$(eval $(call rules-makedep,vrclient,aarch64))
+# $(eval $(call rules-source,vrclient,$(SRCDIR)/vrclient_x64))
+# $(eval $(call rules-makedep,vrclient,i386))
+# $(eval $(call rules-makedep,vrclient,x86_64))
+# $(eval $(call rules-makedep,vrclient,aarch64))
 
 
 ##
@@ -1324,7 +1326,7 @@ endif
 ## default_pfx
 ##
 
-default_pfx: wine gst_good gst_bad gst_libav lsteamclient steamexe vrclient wineopenxr $(WINEOPENXR64_JSON) dxvk dxvk-nvapi vkd3d-proton
+default_pfx: wine gst_good gst_bad gst_libav steamexe dxvk dxvk-nvapi vkd3d-proton
 	find $(DST_LIBDIR)/wine -type f -execdir chmod a-w '{}' '+'
 	rm -rf $(abspath $(DIST_PREFIX))
 	rm -rf $(abspath $(DIST_PREFIX_ARM64))

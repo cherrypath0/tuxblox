@@ -1,11 +1,15 @@
 #!/bin/bash
 cd "$(dirname "$0")" || exit 1
 mkdir -p ~/.local/share/tuxblox/steamapps
-mkdir -p prefix
+mkdir -p runtime
 mkdir -p logs
-export STEAM_COMPAT_DATA_PATH="$(pwd)/prefix"
+export STEAM_COMPAT_DATA_PATH="$(pwd)/runtime"
 export STEAM_COMPAT_CLIENT_INSTALL_PATH="$HOME/.local/share/tuxblox"
 export PROTON_LOG_DIR="$(pwd)/logs"
+export PROTON_LOG=1 
+export PROTON_LOG_LEVEL=debug 
+export DXVK_ASYNC=1
+export WINEDEBUG=+relay,+seh,+loaddll,+timestamp,+pid
 
 choice="$1"
 if [ -z "$choice" ]; then
@@ -27,22 +31,22 @@ findExe() {
         if [ -n "$targetWin" ]; then
             local relPath
             relPath=$(printf '%s' "$targetWin" | sed -e 's/\\/\//g' -e 's/^[A-Za-z]://')
-            find "prefix/pfx/drive_c" -ipath "*${relPath}" -type f 2>/dev/null | head -n1 && return 0
+            find "runtime/pfx/drive_c" -ipath "*${relPath}" -type f 2>/dev/null | head -n1 && return 0
         fi
     fi
 
-    find "prefix/pfx/drive_c" -name "$targetExe" -type f | grep -v "Installer" | head -n1
+    find "runtime/pfx/drive_c" -name "$targetExe" -type f | grep -v "Installer" | head -n1
 }
 
 case "$choice" in
     ""|0|p|P|player|Player|PLAYER)
-        exePath=$(findExe "RobloxPlayerBeta.exe" "prefix/pfx/drive_c/users/steamuser/Desktop/Roblox Player.lnk")
+        exePath=$(findExe "RobloxPlayerBeta.exe" "runtime/pfx/drive_c/users/steamuser/Desktop/Roblox Player.lnk")
         label="Roblox Client"
         installer="RobloxPlayer/RobloxPlayerInstaller.exe"
         url="https://setup.rbxcdn.com/RobloxPlayerInstaller.exe"
         ;;
     1|s|S|studio|Studio|STUDIO)
-        exePath=$(findExe "RobloxStudioBeta.exe" "prefix/pfx/drive_c/users/steamuser/Desktop/Roblox Studio.lnk")
+        exePath=$(findExe "RobloxStudioBeta.exe" "runtime/pfx/drive_c/users/steamuser/Desktop/Roblox Studio.lnk")
         label="Roblox Studio"
         installer="RobloxStudio/RobloxStudioInstaller.exe"
         url="https://setup.rbxcdn.com/RobloxStudioInstaller.exe"
@@ -59,6 +63,6 @@ fi
 
 echo "Launching $label from: $exePath"
 echo "==== START OF OUTPUT ===="
-PROTON_LOG=1 DXVK_ASYNC=1 WINEDEBUG=-all "$(pwd)/ProtonBuild/dist/proton" run "$exePath"
+"$(pwd)/ProtonBuild/dist/proton" run "$exePath"
 echo "====  END OF OUTPUT  ===="
 echo "Exit code: $?"

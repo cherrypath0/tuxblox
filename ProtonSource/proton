@@ -1107,20 +1107,7 @@ class CompatData:
                         shutil.copyfile(srcvdf, dstvdf)
 
                 #copy openvr files into place
-                makedirs(self.prefix_dir + "/drive_c/vrclient/bin")
-                try_copy(g_proton.arch_pe_dir("wine", True) + "vrclient.dll", "drive_c/vrclient/bin",
-                        prefix=self.prefix_dir, track_file=tracked_files, link_debug=True)
-                try_copy(g_proton.arch_pe_dir("wine", False) + "vrclient_x64.dll", "drive_c/vrclient/bin",
-                        prefix=self.prefix_dir, track_file=tracked_files, link_debug=True)
-
-                try_copy(g_proton.arch_pe_dir("wine/dxvk", True) + "openvr_api_dxvk.dll", "drive_c/windows/syswow64",
-                        prefix=self.prefix_dir, track_file=tracked_files, link_debug=True)
-                try_copy(g_proton.arch_pe_dir("wine/dxvk", False) + "openvr_api_dxvk.dll", "drive_c/windows/system32",
-                        prefix=self.prefix_dir, track_file=tracked_files, link_debug=True)
-
-                makedirs(self.prefix_dir + "/drive_c/openxr")
-                try_copy(g_proton.dist_dir + "share/openxr/wineopenxr64.json", "drive_c/openxr",
-                        prefix=self.prefix_dir, track_file=tracked_files, link_debug=True)
+                # !!!REMOVED
 
                 if use_wined3d:
                     dxvkfiles = []
