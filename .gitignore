@@ -4,6 +4,7 @@ ProtonBuild/
 runtime/
 production/
 builds/
+logs/
 
 .env
 

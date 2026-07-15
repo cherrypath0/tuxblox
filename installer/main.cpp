@@ -1,2 +1,0 @@
-    ..
- std..çöüt -- ''hello world!'':
