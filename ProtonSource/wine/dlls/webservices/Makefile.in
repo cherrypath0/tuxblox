@@ -1,0 +1,18 @@
+MODULE    = webservices.dll
+IMPORTLIB = webservices
+IMPORTS   = winhttp rpcrt4 user32 ws2_32
+
+EXTRADLLFLAGS = -Wb,--prefer-native
+
+SOURCES = \
+	channel.c \
+	error.c \
+	heap.c \
+	listener.c \
+	msg.c \
+	proxy.c \
+	reader.c \
+	rsrc.rc \
+	string.c \
+	url.c \
+	writer.c

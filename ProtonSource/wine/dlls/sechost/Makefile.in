@@ -1,0 +1,10 @@
+MODULE    = sechost.dll
+IMPORTLIB = sechost
+IMPORTS   = kernelbase rpcrt4
+
+SOURCES = \
+	plugplay.idl \
+	security.c \
+	service.c \
+	svcctl.idl \
+	trace.c

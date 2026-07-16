@@ -1,0 +1,10 @@
+EXTRADEFS = -DX3DAUDIO1_VER=2 -DXAUDIO2_VER=2
+MODULE    = x3daudio1_2.dll
+PARENTSRC = ../xaudio2_7
+IMPORTS   = $(FAUDIO_PE_LIBS)
+EXTRAINCL = $(FAUDIO_PE_CFLAGS)
+
+EXTRADLLFLAGS = -Wb,--prefer-native
+
+SOURCES = \
+	x3daudio.c
