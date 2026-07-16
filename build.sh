@@ -130,8 +130,8 @@ case "$pm" in
         ;;
 esac
 
-echo ":: Configuring Proton"
-./../ProtonSource/configure.sh
+echo ":: Configuring Proton (ccache enabled for faster rebuilds)"
+./../ProtonSource/configure.sh --enable-ccache
 
 echo ":: First-pass build (1/4)"
 run_step "first_pass_build" bash -c 'make 2>&1 | tee ../build.log || true'

@@ -1,6 +1,7 @@
-[submodule "ProtonSource/wine"]
-	path = ProtonSource/wine
-	url = https://github.com/ValveSoftware/wine
+# wine used to be a submodule, now its a seperately maintained fork, integrated into TuxBlox Proton
+# [submodule "ProtonSource/wine"]
+#	path = ProtonSource/wine
+#	url = https://github.com/ValveSoftware/wine
 [submodule "ProtonSource/dxvk"]
 	path = ProtonSource/dxvk
 	url = https://github.com/doitsujin/dxvk.git

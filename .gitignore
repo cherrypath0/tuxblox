@@ -5,6 +5,7 @@ runtime/
 production/
 builds/
 logs/
+otherapps/
 
 .env
 
@@ -18,6 +19,7 @@ __pycache__/
 *.dll
 *.exe
 *.so
+*.archived
 
 ProtonSource/dist
 ProtonSource/dist-*

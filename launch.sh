@@ -51,6 +51,10 @@ case "$choice" in
         installer="RobloxStudio/RobloxStudioInstaller.exe"
         url="https://setup.rbxcdn.com/RobloxStudioInstaller.exe"
         ;;
+    w|wd|W|WD|shady|winedetector|wine|shadywine)
+        exePath="otherapps/winescore.exe"
+        label="WineScore"
+        ;;
     *) exit 1 ;;
 esac
 
