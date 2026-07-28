@@ -25,7 +25,7 @@
 
 /* Common #defines */
 #define lok ok_(file,line)
-#define KEY_WINE "Software\\TuxBlox"
+#define KEY_WINE "Software\\Wine"
 #define KEY_BASE KEY_WINE "\\reg_test"
 #define REG_EXIT_SUCCESS 0
 #define REG_EXIT_FAILURE 1

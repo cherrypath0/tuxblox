@@ -47,6 +47,8 @@
 #include "shfldr.h"
 
 #include "wine/debug.h"
+#include "wine/unixlib.h"
+#include "unixlib.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(shell);
 
@@ -1073,6 +1075,8 @@ BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID fImpLoad)
         /* get full path to this DLL for IExtractIconW_fnGetIconLocation() */
         GetModuleFileNameW(hinstDLL, swShell32Name, MAX_PATH);
         swShell32Name[MAX_PATH - 1] = '\0';
+
+        if (__wine_init_unix_call()) __wine_unixlib_handle = 0;
 
         InitChangeNotifications();
         break;

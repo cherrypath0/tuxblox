@@ -1,5 +1,7 @@
 EXTRADEFS = -D_COMDLG32_
 MODULE    = comdlg32.dll
+UNIXLIB   = comdlg32.so
+UNIX_CFLAGS = $(DBUS_CFLAGS)
 IMPORTLIB = comdlg32
 IMPORTS   = uuid shell32 shlwapi comctl32 user32 gdi32 advapi32
 DELAYIMPORTS = ole32 winspool
@@ -12,6 +14,7 @@ SOURCES = \
 	filedlg.c \
 	filedlg31.c \
 	filedlgbrowser.c \
+	filechooser_portal.c \
 	finddlg.c \
 	fontdlg.c \
 	itemdlg.c \
@@ -19,4 +22,5 @@ SOURCES = \
 	pd32_landscape.svg \
 	pd32_nocollate.svg \
 	pd32_portrait.svg \
-	printdlg.c
+	printdlg.c \
+	unixlib.c

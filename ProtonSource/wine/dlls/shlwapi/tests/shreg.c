@@ -29,7 +29,7 @@
 #include "shlwapi.h"
 
 /* Keys used for testing */
-#define REG_TEST_KEY        "Software\\TuxBlox\\Test"
+#define REG_TEST_KEY        "Software\\Wine\\Test"
 #define REG_CURRENT_VERSION "Software\\Microsoft\\Windows\\CurrentVersion\\explorer"
 
 static HMODULE hshlwapi;
@@ -513,5 +513,5 @@ START_TEST(shreg)
     test_SHRegCreateUSKeyW();
     test_SHRegCloseUSKey();
 
-    delete_key( hkey, "Software\\TuxBlox", "Test" );
+    delete_key( hkey, "Software\\Wine", "Test" );
 }

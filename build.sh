@@ -2,10 +2,12 @@
 set -eo pipefail
 cd "$(dirname "$0")"
 
-debug=0
+debug=1
+force_deps=0
 for arg in "$@"; do
     case "$arg" in
-        --debug) debug=1 ;;
+        --nodebug) debug=0 ;;
+        --reinstall-deps) force_deps=1 ;;
     esac
 done
 
@@ -15,18 +17,32 @@ packages=(
     curl
 )
 
+JOBS="${TUXBLOX_MAKE_JOBS:-$(nproc 2>/dev/null || echo 1)}"
+
+ORANGE='\e[38;5;208m'
+BLUE='\e[34m'
+RESET='\e[0m'
+
+step() {
+    echo -e "${BLUE}:: $1${RESET}"
+}
+
 run_step() {
     local label="$1"
-    shift
-    local start_time end_time elapsed minutes seconds
+    local allow_failure="$2"
+    shift 2
+    local start_time end_time elapsed minutes seconds status
 
     start_time=$(date +%s)
 
+    set +e
     if [[ $debug -eq 1 ]]; then
         "$@"
     else
         "$@" >/dev/null
     fi
+    status=$?
+    set -e
 
     end_time=$(date +%s)
     elapsed=$((end_time - start_time))
@@ -35,21 +51,59 @@ run_step() {
 
     printf "Task completed in: %02d minutes, %02d seconds\n" "$minutes" "$seconds"
     sleep 1
+
+    if [[ $status -ne 0 ]]; then
+        if [[ "$allow_failure" == "allow-fail" ]]; then
+            echo "!! Step '$label' failed as expected (exit $status) — continuing to next step." >&2
+        else
+            echo "" >&2
+            echo "!! Step '$label' failed (exit $status)" >&2
+            report_failure_cause
+            exit "$status"
+        fi
+    fi
 }
 
-echo ":: Cleaning up previous build logs"
+report_failure_cause() {
+    if [[ ! -f ../build.log ]]; then
+        echo "!! No build.log found to inspect." >&2
+        return
+    fi
+
+    local pattern='error:|undefined reference|fatal error|No such file|cannot find|ld returned|segmentation fault|core dumped|killed|signal 1[0-9]|Error [0-9]+$'
+    local total_lines last_match_from_end last_match_line
+
+    total_lines=$(wc -l < ../build.log)
+    last_match_from_end=$(tac ../build.log | grep -n -E -i -m1 "$pattern" | cut -d: -f1)
+
+    if [[ -z "$last_match_from_end" ]]; then
+        echo "!! Could not isolate a specific error pattern. Last 60 lines of build.log:" >&2
+        tail -n 60 ../build.log >&2
+        return
+    fi
+
+    last_match_line=$((total_lines - last_match_from_end + 1))
+
+    echo "!! Likely root cause (build.log line $last_match_line), with context:" >&2
+    echo "----------------------------------------------------------------------" >&2
+    sed -n "$((last_match_line > 5 ? last_match_line - 5 : 1)),$((last_match_line + 15))p" ../build.log >&2
+    echo "----------------------------------------------------------------------" >&2
+    echo "!! Full log at build.log if you need more context." >&2
+}
+
+step "Cleaning up previous build logs"
 rm -f build.log
 
-echo ":: Cleaning up old prefix directory"
+step "Cleaning up old prefix directory"
 rm -rf runtime
 mkdir -p runtime
 
-echo ":: Cleaning up old proton build"
+step "Cleaning up old proton build"
 rm -rf ProtonBuild
 mkdir ProtonBuild
 cd ProtonBuild
 
-echo ":: Updating dependencies"
+step "Updating dependencies"
 
 declare -A override_apt=()
 declare -A override_dnf=()
@@ -89,68 +143,83 @@ is_installed() {
 pm=$(detect_pm)
 echo ":: Detected package manager: $pm"
 to_install=()
-to_upgrade=()
 for pkg in "${packages[@]}"; do
     resolved_pkg="$(pkg_name "$pm" "$pkg")"
     if is_installed "$pm" "$resolved_pkg"; then
-        echo ":: $resolved_pkg already installed, will check for updates"
-        to_upgrade+=("$resolved_pkg")
+        echo ":: $resolved_pkg already installed "
     else
         to_install+=("$resolved_pkg")
     fi
 done
-case "$pm" in
-    apt)
-        sudo apt-get update
-        [ ${#to_install[@]} -gt 0 ] && sudo apt-get install -y "${to_install[@]}"
-        [ ${#to_upgrade[@]} -gt 0 ] && sudo apt-get install -y --only-upgrade "${to_upgrade[@]}"
-        ;;
-    dnf)
-        [ ${#to_install[@]} -gt 0 ] && sudo dnf install -y "${to_install[@]}"
-        [ ${#to_upgrade[@]} -gt 0 ] && sudo dnf upgrade -y "${to_upgrade[@]}"
-        ;;
-    pacman)
-        sudo pacman -Sy --needed --noconfirm "${packages[@]}"
-        ;;
-    brew)
-        brew update
-        [ ${#to_install[@]} -gt 0 ] && brew install "${to_install[@]}"
-        for p in "${to_upgrade[@]}"; do
-            brew outdated "$p" &>/dev/null && brew upgrade "$p" || echo ":: $p already up to date"
-        done
-        ;;
-    apk)
-        sudo apk update
-        [ ${#to_install[@]} -gt 0 ] && sudo apk add "${to_install[@]}"
-        [ ${#to_upgrade[@]} -gt 0 ] && sudo apk add --upgrade "${to_upgrade[@]}"
-        ;;
-    *)
-        echo "!! Unsupported or undetected package manager. Install manually: ${packages[*]}"
-        exit 1
-        ;;
-esac
 
-echo ":: Configuring Proton (ccache enabled for faster rebuilds)"
-./../ProtonSource/configure.sh --enable-ccache
+if [[ ${#to_install[@]} -eq 0 && $force_deps -eq 0 && -t 0 ]]; then
+    read -rp ":: All dependencies already installed. Reinstall/check for updates anyway? [y/N] " reinstall_choice || true
+    [[ "$reinstall_choice" =~ ^[Yy]$ ]] && force_deps=1
+fi
 
-echo ":: First-pass build (1/4)"
-run_step "first_pass_build" bash -c 'make 2>&1 | tee ../build.log || true'
+if [[ ${#to_install[@]} -gt 0 || $force_deps -eq 1 ]]; then
+    [[ $force_deps -eq 1 ]] && to_install=("${packages[@]}")
+    case "$pm" in
+        apt)
+            sudo apt-get update
+            sudo apt-get install -y "${to_install[@]}"
+            ;;
+        dnf)
+            sudo dnf install -y "${to_install[@]}"
+            ;;
+        pacman)
+            sudo pacman -Sy --needed --noconfirm "${to_install[@]}"
+            ;;
+        brew)
+            brew update
+            brew install "${to_install[@]}"
+            ;;
+        apk)
+            sudo apk update
+            sudo apk add "${to_install[@]}"
+            ;;
+        *)
+            echo "!! Unsupported or undetected package manager. Install manually: ${packages[*]}"
+            exit 1
+            ;;
+    esac
+else
+    echo ":: All dependencies satisfied, skipping package manager."
+fi
 
-echo ":: Fetching external sources (2/4)"
-run_step "fetch_external_sources" bash -c 'cd src-glslang && rm -rf External/spirv-tools External/googletest && python3 update_glslang_sources.py'
+step "Configuring Proton (ccache enabled for faster rebuilds)"
+run_step "configure_proton" strict bash -c './../ProtonSource/configure.sh --enable-ccache'
 
-echo ":: Initializing nested submodules (3/4)"
-run_step "init_submodules" bash -c 'cd src-dxvk-nvapi && git submodule update --init --recursive'
+step "First-pass build (1/4) (using $JOBS parallel jobs)"
+run_step "first_pass_build" allow-fail bash -c "set -o pipefail; make -j$JOBS 2>&1 | tee ../build.log"
 
-echo ":: Resuming build (4/4)"
-run_step "resume_build" bash -c 'make 2>&1 | tee -a ../build.log'
+step "Fetching external sources (2/4)"
+run_step "fetch_external_sources" strict bash -c 'cd src-glslang && rm -rf External/spirv-tools External/googletest && python3 update_glslang_sources.py'
 
-echo ":: Clearing up unnecessary junk"
+step "Initializing nested submodules (3/4)"
+run_step "init_submodules" strict bash -c 'cd ../ProtonSource/dxvk-nvapi && git submodule update --init --recursive'
+
+step "Ensuring wine x86_64 is configured (so its Makefile exists)"
+run_step "configure_wine_x86_64" strict bash -c 'make wine-x86_64-configure'
+
+step "Ensuring x86_64 NLS data is built (shared wrc tool depends on it)"
+run_step "build_x86_64_nls" strict bash -c 'cd obj-wine-x86_64 && make nls/locale.nls'
+
+step "Resuming build (4/4) (using $JOBS parallel jobs)"
+run_step "resume_build" strict bash -c "set -o pipefail; make -j$JOBS 2>&1 | tee -a ../build.log"
+
+step "Recording build version"
+if [[ -z "$TUXBLOX_BUILD_VERSION" ]]; then
+    read -rp "Enter version for this build: " TUXBLOX_BUILD_VERSION
+    while [[ -z "$TUXBLOX_BUILD_VERSION" ]]; do
+        read -rp "Version cannot be empty. Enter version for this build: " TUXBLOX_BUILD_VERSION
+    done
+fi
+echo "$(date '+%s') ${TUXBLOX_BUILD_VERSION}" > dist/version
+
+step "Clearing up unnecessary junk"
 shopt -s nullglob
 rm -rf obj-* dst-*
 shopt -u nullglob
 
-echo "Congratulations! I'm sure after what felt like forever, you finally have TuxBlox Proton. (or as I would call it.. TB-Proton, ProtonTB.. or whatever you call it)"
-echo "Now you're probably ready to test Roblox Studio or Player, tarball the project (or however you want to compress it), and upload it to GitHub, GitLab, a repository, or your own CDN server!"
-echo -e "\n\e[31;1mWARNING:\e[0m Do NOT include the \"runtime\" directory in your tarballs or archives. It most likely contains your Roblox cookies."
-echo "You probably would NOT want to leak that. So anyway, this is a hello from the system, do whatever you want with it, assuming it's for good things of course."
+echo -e "Successfully compiled ${ORANGE}T${RESET}${BLUE}B${RESET}-Proton!"

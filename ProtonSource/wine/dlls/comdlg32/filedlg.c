@@ -67,6 +67,7 @@
 #include "shlobj.h"
 #include "filedlgbrowser.h"
 #include "shlwapi.h"
+#include "filechooser_portal.h"
 
 #include "wine/debug.h"
 
@@ -4154,6 +4155,36 @@ BOOL WINAPI GetOpenFileNameA(OPENFILENAMEA *ofn)
     }
 }
 
+/* Scans ofn->lpstrFile (already filled by the portal path) for the last
+ * path separator to set nFileOffset and the last '.' after that offset to
+ * set nFileExtension, mirroring the computation GetFileDialog95's own
+ * completion path does (see the PathFindFileNameW/PathFindExtensionW use
+ * around FILEDLG95_OnOpen above). OFN_ALLOWMULTISELECT is special-cased:
+ * the portal write path zeroes the whole buffer up front, so if more than
+ * one file was written the WCHAR right after the first nul is guaranteed
+ * to be non-zero, safely distinguishing "directory, then filenames" from
+ * a lone full path (which, per OFN_EXPLORER semantics, is what gets
+ * written even with OFN_ALLOWMULTISELECT set when only one file is picked).
+ */
+static void update_ofn_file_offsets(OPENFILENAMEW *ofn)
+{
+    WCHAR *temp;
+    UINT first_len = lstrlenW(ofn->lpstrFile);
+
+    if ((ofn->Flags & OFN_ALLOWMULTISELECT) && ofn->lpstrFile[first_len + 1])
+    {
+        ofn->nFileOffset = first_len + 1;
+        ofn->nFileExtension = 0;
+        return;
+    }
+
+    temp = PathFindFileNameW(ofn->lpstrFile);
+    ofn->nFileOffset = (temp - ofn->lpstrFile);
+
+    temp = PathFindExtensionW(ofn->lpstrFile);
+    ofn->nFileExtension = (*temp) ? (temp - ofn->lpstrFile) + 1 : 0;
+}
+
 /***********************************************************************
  *            GetOpenFileNameW (COMDLG32.@)
  *
@@ -4166,6 +4197,54 @@ BOOL WINAPI GetOpenFileNameA(OPENFILENAMEA *ofn)
  */
 BOOL WINAPI GetOpenFileNameW(OPENFILENAMEW *ofn)
 {
+    if (ofn->Flags & OFN_EXPLORER) /* portal result shape assumes this */
+    {
+        struct filechooser_request req = { 0 };
+        struct filechooser_result res = { 0 };
+        UINT n = 0;
+        const WCHAR *p;
+
+        /* Matches init_filedlg_infoW's own reset before showing the native
+         * dialog, so CommDlgExtendedError() == 0 remains a reliable "this
+         * call didn't fail" signal on the portal path too, rather than
+         * leaking a stale nonzero code from some earlier, unrelated call. */
+        COMDLG32_SetCommDlgExtendedError(0);
+
+        req.title = ofn->lpstrTitle;
+        req.initial_dir = ofn->lpstrInitialDir;
+        req.multiple = (ofn->Flags & OFN_ALLOWMULTISELECT) != 0;
+        for (p = ofn->lpstrFilter; p && *p && n < 32; )
+        {
+            req.filters[n].name = p;
+            p += lstrlenW(p) + 1;
+            req.filters[n].pattern = p;
+            p += lstrlenW(p) + 1;
+            n++;
+        }
+        req.filter_count = n;
+        res.buf = ofn->lpstrFile;
+        res.buf_len = ofn->nMaxFile;
+
+        if (comdlg32_portal_open_file(&req, &res))
+        {
+            if (res.truncated)
+            {
+                /* Match the native path's contract (see the FNERR_BUFFERTOOSMALL
+                 * case in FILEDLG95_OnOpen above): write the needed size, in
+                 * WCHARs, into the first two bytes of lpstrFile so callers can
+                 * grow the buffer and retry. */
+                if (ofn->lpstrFile)
+                    *(WORD *)ofn->lpstrFile = (WORD)res.required_len;
+                COMDLG32_SetCommDlgExtendedError(FNERR_BUFFERTOOSMALL);
+                return FALSE;
+            }
+            if (res.cancelled) return FALSE;
+            /* fill nFileOffset/nFileExtension by scanning the written buffer */
+            update_ofn_file_offsets(ofn);
+            return TRUE;
+        }
+    }
+
     TRACE("flags 0x%08lx\n", ofn->Flags);
 
     if (!valid_struct_size( ofn->lStructSize ))
@@ -4232,6 +4311,50 @@ BOOL WINAPI GetSaveFileNameA(OPENFILENAMEA *ofn)
 BOOL WINAPI GetSaveFileNameW(
 	LPOPENFILENAMEW ofn) /* [in/out] address of init structure */
 {
+    if (ofn->Flags & OFN_EXPLORER) /* portal result shape assumes this */
+    {
+        struct filechooser_request req = { 0 };
+        struct filechooser_result res = { 0 };
+        UINT n = 0;
+        const WCHAR *p;
+
+        /* See the matching comment in GetOpenFileNameW: reset here too, at
+         * the start of dialog setup, so a stale nonzero error from an
+         * earlier call can't leak into a cancelled portal-path result. */
+        COMDLG32_SetCommDlgExtendedError(0);
+
+        req.title = ofn->lpstrTitle;
+        req.initial_dir = ofn->lpstrInitialDir;
+        if (ofn->lpstrFile && ofn->lpstrFile[0])
+            req.initial_name = ofn->lpstrFile; /* caller-prefilled suggested name */
+        for (p = ofn->lpstrFilter; p && *p && n < 32; )
+        {
+            req.filters[n].name = p;
+            p += lstrlenW(p) + 1;
+            req.filters[n].pattern = p;
+            p += lstrlenW(p) + 1;
+            n++;
+        }
+        req.filter_count = n;
+        res.buf = ofn->lpstrFile;
+        res.buf_len = ofn->nMaxFile;
+
+        if (comdlg32_portal_save_file(&req, &res))
+        {
+            if (res.truncated)
+            {
+                /* See the matching comment in GetOpenFileNameW. */
+                if (ofn->lpstrFile)
+                    *(WORD *)ofn->lpstrFile = (WORD)res.required_len;
+                COMDLG32_SetCommDlgExtendedError(FNERR_BUFFERTOOSMALL);
+                return FALSE;
+            }
+            if (res.cancelled) return FALSE;
+            update_ofn_file_offsets(ofn);
+            return TRUE;
+        }
+    }
+
     if (!valid_struct_size( ofn->lStructSize ))
     {
         COMDLG32_SetCommDlgExtendedError( CDERR_STRUCTSIZE );

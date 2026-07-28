@@ -153,7 +153,7 @@ typedef struct tagKEYCONTAINER
 #define RSAENH_SSL3_VERSION_MINOR         0
 #define RSAENH_TLS1_VERSION_MAJOR         3
 #define RSAENH_TLS1_VERSION_MINOR         1
-#define RSAENH_REGKEY "Software\\TuxBlox\\Crypto\\RSA\\%s"
+#define RSAENH_REGKEY "Software\\Wine\\Crypto\\RSA\\%s"
 
 #define RSAENH_MIN(a,b) ((a)<(b)?(a):(b))
 /******************************************************************************
@@ -1228,8 +1228,8 @@ static BOOL create_container_key(KEYCONTAINER *pKeyContainer, REGSAM sam, HKEY *
     else
         hRootKey = HKEY_CURRENT_USER;
 
-    /* @@ Wine registry key: HKLM\Software\TuxBlox\Crypto\RSA */
-    /* @@ Wine registry key: HKCU\Software\TuxBlox\Crypto\RSA */
+    /* @@ Wine registry key: HKLM\Software\Wine\Crypto\RSA */
+    /* @@ Wine registry key: HKCU\Software\Wine\Crypto\RSA */
     return RegCreateKeyExA(hRootKey, szRSABase, 0, NULL,
                            key_options, sam, NULL, phKey, NULL)
                            == ERROR_SUCCESS;
@@ -1259,8 +1259,8 @@ static BOOL open_container_key(LPCSTR pszContainerName, DWORD dwFlags, REGSAM ac
     else
         hRootKey = HKEY_CURRENT_USER;
 
-    /* @@ Wine registry key: HKLM\Software\TuxBlox\Crypto\RSA */
-    /* @@ Wine registry key: HKCU\Software\TuxBlox\Crypto\RSA */
+    /* @@ Wine registry key: HKLM\Software\Wine\Crypto\RSA */
+    /* @@ Wine registry key: HKCU\Software\Wine\Crypto\RSA */
     return RegOpenKeyExA(hRootKey, szRSABase, 0, access, phKey) ==
                          ERROR_SUCCESS;
 }

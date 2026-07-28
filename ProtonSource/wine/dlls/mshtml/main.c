@@ -270,8 +270,8 @@ static BOOL WINAPI load_compat_settings(INIT_ONCE *once, void *param, void **con
     HKEY key, host_key;
     DWORD res;
 
-    /* @@ Wine registry key: HKCU\Software\TuxBlox\MSHTML\CompatMode */
-    res = RegOpenKeyW(HKEY_CURRENT_USER, L"Software\\TuxBlox\\MSHTML\\CompatMode", &key);
+    /* @@ Wine registry key: HKCU\Software\Wine\MSHTML\CompatMode */
+    res = RegOpenKeyW(HKEY_CURRENT_USER, L"Software\\Wine\\MSHTML\\CompatMode", &key);
     if(res != ERROR_SUCCESS)
         return TRUE;
 

@@ -84,7 +84,7 @@ def filter_registry(filename):
     FILTER_KEYS = [
         r'Software\\Microsoft\\Windows\\CurrentVersion\\Fonts',
         r'Software\\Microsoft\\Windows NT\\CurrentVersion\\Fonts',
-        r'Software\\Wine\\Fonts\\External Fonts',
+        r'Software\\TuxBlox\\Fonts\\External Fonts',
     ]
 
     filtering = False

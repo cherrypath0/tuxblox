@@ -708,8 +708,8 @@ static WCHAR *find_wine_gecko_reg(void)
     DWORD res, type, size;
     HKEY hkey;
 
-    /* @@ Wine registry key: HKLM\Software\TuxBlox\MSHTML\<version> */
-    res = RegOpenKeyW(HKEY_LOCAL_MACHINE, L"Software\\TuxBlox\\MSHTML\\" GECKO_VERSION, &hkey);
+    /* @@ Wine registry key: HKLM\Software\Wine\MSHTML\<version> */
+    res = RegOpenKeyW(HKEY_LOCAL_MACHINE, L"Software\\Wine\\MSHTML\\" GECKO_VERSION, &hkey);
     if(res != ERROR_SUCCESS)
         return NULL;
 

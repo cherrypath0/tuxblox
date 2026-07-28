@@ -549,8 +549,8 @@ static DWORD get_wins_servers( SOCKADDR_INET **servers )
     IN_ADDR addrs[ARRAY_SIZE(values)];
 
     *servers = NULL;
-    /* @@ Wine registry key: HKCU\Software\TuxBlox\Network */
-    if (RegOpenKeyA( HKEY_CURRENT_USER, "Software\\TuxBlox\\Network", &key )) return 0;
+    /* @@ Wine registry key: HKCU\Software\Wine\Network */
+    if (RegOpenKeyA( HKEY_CURRENT_USER, "Software\\Wine\\Network", &key )) return 0;
 
     for (i = 0; i < ARRAY_SIZE(values); i++)
     {

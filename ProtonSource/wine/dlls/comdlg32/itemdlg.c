@@ -31,6 +31,7 @@
 #include "commdlg.h"
 #include "cdlg.h"
 #include "filedlgbrowser.h"
+#include "filechooser_portal.h"
 
 #include "wine/debug.h"
 #include "wine/list.h"
@@ -2519,12 +2520,215 @@ static ULONG WINAPI IFileDialog2_fnRelease(IFileDialog2 *iface)
     return ref;
 }
 
+/* Builds This->psia_results from a portal result buffer (see the format
+ * documented over write_open_result() in unixlib.c): either a single
+ * nul-terminated full path, or - when more than one item was picked - the
+ * containing directory once followed by each filename, double-nul
+ * terminated (the same shape GetOpenFileNameW's OFN_ALLOWMULTISELECT path
+ * consumes in filedlg.c). Mirrors on_default_action()'s own construction of
+ * psia_results above: build one ITEMIDLIST per path with
+ * SHSimpleIDListFromPath(), then wrap them in an IShellItemArray relative
+ * to the desktop folder via SHCreateShellItemArray(). */
+static HRESULT build_results_from_portal_paths(FileDialogImpl *This, WCHAR *buf)
+{
+    IShellFolder *psf_desktop;
+    LPITEMIDLIST *pidla;
+    UINT count = 0, i;
+    HRESULT hr;
+
+    if (!buf[0]) return E_FAIL;
+
+    if (buf[lstrlenW(buf) + 1])
+    {
+        /* multi-item form: directory, then each filename. dir must be sized
+         * to match path_buf (try_portal_show()'s WCHAR path_buf[MAX_PATH*4]),
+         * not MAX_PATH: write_open_result() (unixlib.c) only bounds the
+         * directory prefix it writes against out_buf_len (== ARRAY_SIZE of
+         * path_buf), not MAX_PATH, so a DOS path >= MAX_PATH WCHARs (readily
+         * reachable via Wine's Z: mapping of a deeply-nested Linux path) would
+         * otherwise overflow a MAX_PATH-sized stack buffer here. lstrcpynW is
+         * used (rather than relying solely on the matching sizes) so this
+         * stays safe even if the two declarations ever drift apart. */
+        WCHAR dir[MAX_PATH * 4];
+        WCHAR *name = buf + lstrlenW(buf) + 1;
+        UINT total = 0;
+
+        lstrcpynW(dir, buf, ARRAY_SIZE(dir));
+        while (*name)
+        {
+            total++;
+            name += lstrlenW(name) + 1;
+        }
+
+        if (!(pidla = malloc(sizeof(LPITEMIDLIST) * total)))
+            return E_OUTOFMEMORY;
+
+        name = buf + lstrlenW(buf) + 1;
+        while (*name && count < total)
+        {
+            /* Deliberately not PathCombineW(path, dir, name) here: its own
+             * implementation (dlls/kernelbase/path.c) copies dir into an
+             * internal WCHAR tmp[MAX_PATH] unconditionally, regardless of
+             * this destination buffer's size, so it silently truncates dir
+             * and then fails (zeroing the result) for exactly the long-path
+             * case dir was widened above to handle - reintroducing the same
+             * MAX_PATH ceiling under a different name. name here is always a
+             * bare filename with no path separators (it comes straight from
+             * the portal's double-nul-terminated file list), so a plain
+             * "dir + '\\' + name" join is equivalent to what PathCombineW
+             * would produce for well-formed input, and sized to match dir
+             * (WCHAR path[MAX_PATH * 4]) it doesn't truncate long dirs. */
+            WCHAR path[MAX_PATH * 4];
+            SIZE_T dir_len = min(lstrlenW(dir), ARRAY_SIZE(path) - 1);
+
+            lstrcpynW(path, dir, ARRAY_SIZE(path));
+            if (dir_len && path[dir_len - 1] != '\\' && dir_len + 1 < ARRAY_SIZE(path))
+            {
+                path[dir_len++] = '\\';
+                path[dir_len] = 0;
+            }
+            if (dir_len < ARRAY_SIZE(path))
+                lstrcpynW(path + dir_len, name, ARRAY_SIZE(path) - dir_len);
+
+            pidla[count++] = SHSimpleIDListFromPath(path);
+            name += lstrlenW(name) + 1;
+        }
+    }
+    else
+    {
+        if (!(pidla = malloc(sizeof(LPITEMIDLIST))))
+            return E_OUTOFMEMORY;
+        pidla[0] = SHSimpleIDListFromPath(buf);
+        count = 1;
+    }
+
+    hr = SHGetDesktopFolder(&psf_desktop);
+    if (SUCCEEDED(hr))
+    {
+        if (This->psia_results)
+        {
+            IShellItemArray_Release(This->psia_results);
+            This->psia_results = NULL;
+        }
+
+        hr = SHCreateShellItemArray(NULL, psf_desktop, count, (PCUITEMID_CHILD_ARRAY)pidla,
+                                     &This->psia_results);
+        IShellFolder_Release(psf_desktop);
+    }
+
+    for (i = 0; i < count; i++)
+        ILFree(pidla[i]);
+    free(pidla);
+
+    return hr;
+}
+
+/* Tries the xdg-desktop-portal native picker before falling back to Wine's
+ * own IExplorerBrowser-hosted dialog below. Reuses the same comdlg32 portal
+ * client GetOpenFileNameW/GetSaveFileNameW use (see filechooser_portal.h);
+ * see build_results_from_portal_paths() above for how a successful result
+ * is turned into This->psia_results, which GetResult()/GetResults() read
+ * from. Falls through to create_dialog() unchanged if the portal is
+ * unreachable, the result didn't fit the buffer, or the result couldn't be
+ * turned into shell items. */
+static HRESULT try_portal_show(FileDialogImpl *This)
+{
+    struct filechooser_request req = { 0 };
+    struct filechooser_result res = { 0 };
+    WCHAR path_buf[MAX_PATH * 4];
+    IShellItem *psi_initialdir;
+    LPWSTR initialdir_path = NULL;
+    UINT i;
+    BOOL ok;
+    HRESULT hr;
+
+    req.title = This->custom_title;
+    req.directory = (This->options & FOS_PICKFOLDERS) != 0;
+    req.multiple = (This->options & FOS_ALLOWMULTISELECT) != 0;
+    req.initial_name = This->set_filename;
+
+    psi_initialdir = This->psi_setfolder ? This->psi_setfolder : This->psi_defaultfolder;
+    if (psi_initialdir &&
+        SUCCEEDED(IShellItem_GetDisplayName(psi_initialdir, SIGDN_FILESYSPATH, &initialdir_path)))
+        req.initial_dir = initialdir_path;
+
+    for (i = 0; i < This->filterspec_count && i < FILECHOOSER_MAX_FILTERS; i++)
+    {
+        req.filters[i].name = This->filterspecs[i].pszName;
+        req.filters[i].pattern = This->filterspecs[i].pszSpec;
+    }
+    req.filter_count = i;
+
+    res.buf = path_buf;
+    res.buf_len = ARRAY_SIZE(path_buf);
+
+    ok = (This->dlg_type == ITEMDLG_TYPE_SAVE)
+        ? comdlg32_portal_save_file(&req, &res)
+        : comdlg32_portal_open_file(&req, &res);
+
+    if (initialdir_path) CoTaskMemFree(initialdir_path);
+
+    if (!ok || res.truncated)
+        return E_FAIL; /* caller falls back to the native dialog */
+
+    if (res.cancelled)
+        return HRESULT_FROM_WIN32(ERROR_CANCELLED);
+
+    hr = build_results_from_portal_paths(This, path_buf);
+    if (FAILED(hr))
+        return E_FAIL; /* couldn't turn the portal result into shell items; fall back to native */
+
+    /* Mirror on_default_action()'s own validation, in the same order and
+     * under the same conditions it uses (see the ONOPEN_OPEN case above):
+     * give the app's IFileDialogEvents a chance to veto an overwrite of an
+     * existing file, then a final chance to veto the pick outright via
+     * OnFileOk. Unlike the native path there's no dialog left open to
+     * re-prompt on a veto here, so on either veto we return failure and let
+     * IFileDialog2_fnShow's existing fallback take over and show the native
+     * create_dialog() UI instead - the same fallback already used when the
+     * portal itself is unreachable, so a vetoed pick behaves like "portal
+     * declined" rather than Show() returning S_OK with a selection the app's
+     * own validation would have rejected. */
+    if ((This->options & FOS_OVERWRITEPROMPT) && This->dlg_type == ITEMDLG_TYPE_SAVE)
+    {
+        IShellItem *shellitem;
+        DWORD count = 0, idx;
+        HRESULT hr2 = S_OK;
+
+        IShellItemArray_GetCount(This->psia_results, &count);
+        for (idx = 0; SUCCEEDED(hr2) && idx < count; idx++)
+        {
+            hr2 = IShellItemArray_GetItemAt(This->psia_results, idx, &shellitem);
+            if (SUCCEEDED(hr2))
+            {
+                if (shell_item_exists(shellitem))
+                    hr2 = events_OnOverwrite(This, shellitem);
+
+                IShellItem_Release(shellitem);
+            }
+        }
+
+        if (FAILED(hr2))
+            return E_FAIL;
+    }
+
+    if (events_OnFileOk(This) != S_OK)
+        return E_FAIL;
+
+    return S_OK;
+}
+
 static HRESULT WINAPI IFileDialog2_fnShow(IFileDialog2 *iface, HWND hwndOwner)
 {
     FileDialogImpl *This = impl_from_IFileDialog2(iface);
+    HRESULT hr;
     TRACE("%p (%p)\n", iface, hwndOwner);
 
     This->opendropdown_has_selection = FALSE;
+
+    hr = try_portal_show(This);
+    if (SUCCEEDED(hr) || hr == HRESULT_FROM_WIN32(ERROR_CANCELLED))
+        return hr;
 
     return create_dialog(This, hwndOwner);
 }

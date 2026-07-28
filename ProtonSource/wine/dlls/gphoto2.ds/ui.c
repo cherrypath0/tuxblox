@@ -33,7 +33,7 @@
 #include "wine/debug.h"
 #include "resource.h"
 
-static const char settings_key[] = "Software\\TuxBlox\\Gphoto2";
+static const char settings_key[] = "Software\\Wine\\Gphoto2";
 static const char settings_value[] = "SkipUI";
 static BOOL disable_dialog;
 static HBITMAP static_bitmap;

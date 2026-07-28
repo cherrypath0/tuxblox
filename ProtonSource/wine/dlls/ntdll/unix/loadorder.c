@@ -225,8 +225,8 @@ static void init_load_order(void)
     WCHAR *entry, *next, *order;
     const char *overrides = getenv( "WINEDLLOVERRIDES" );
 
-    /* @@ Wine registry key: HKCU\Software\TuxBlox\DllOverrides */
-    open_hkcu_key( "Software\\TuxBlox\\DllOverrides", &std_key );
+    /* @@ Wine registry key: HKCU\Software\Wine\DllOverrides */
+    open_hkcu_key( "Software\\Wine\\DllOverrides", &std_key );
 
     init_done = TRUE;
 
@@ -282,7 +282,7 @@ static HANDLE open_app_key( const WCHAR *app_name )
     UNICODE_STRING nameW;
     HANDLE root, app_key = 0;
 
-    if (!open_hkcu_key( "Software\\TuxBlox\\AppDefaults", &root ))
+    if (!open_hkcu_key( "Software\\Wine\\AppDefaults", &root ))
     {
         ULONG len = wcslen( app_name ) + ARRAY_SIZE(dlloverridesW);
         nameW.Length = (len - 1) * sizeof(WCHAR);
@@ -291,7 +291,7 @@ static HANDLE open_app_key( const WCHAR *app_name )
         wcscat( nameW.Buffer, dlloverridesW );
         InitializeObjectAttributes( &attr, &nameW, 0, root, NULL );
 
-        /* @@ Wine registry key: HKCU\Software\TuxBlox\AppDefaults\app.exe\DllOverrides */
+        /* @@ Wine registry key: HKCU\Software\Wine\AppDefaults\app.exe\DllOverrides */
         NtOpenKey( &app_key, KEY_ALL_ACCESS, &attr );
         NtClose( root );
         free( nameW.Buffer );

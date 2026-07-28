@@ -1,6 +1,3 @@
-## WARNING
-This is a fork of Wine from ValveSoftware, seperately maintained by TuxBlox.
-
 ## INTRODUCTION
 
 Wine is a program which allows running Microsoft Windows programs

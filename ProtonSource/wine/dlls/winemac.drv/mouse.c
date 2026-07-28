@@ -191,8 +191,8 @@ CFStringRef copy_system_cursor_name(ICONINFOEXW *info)
         asciiz_to_unicode(p, buf);
     }
 
-    /* @@ Wine registry key: HKCU\Software\TuxBlox\Mac Driver\Cursors */
-    if (!(key = open_hkcu_key("Software\\TuxBlox\\Mac Driver\\Cursors")))
+    /* @@ Wine registry key: HKCU\Software\Wine\Mac Driver\Cursors */
+    if (!(key = open_hkcu_key("Software\\Wine\\Mac Driver\\Cursors")))
     {
         char buffer[2048];
         KEY_VALUE_PARTIAL_INFORMATION *info = (void *)buffer;

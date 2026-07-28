@@ -45,7 +45,7 @@ static HRESULT (WINAPI *pSHCreateStreamOnFileA)(const char *path, DWORD mode, IS
 static HRESULT (WINAPI *pIStream_Size)(IStream *stream, ULARGE_INTEGER *size);
 
 /* Keys used for testing */
-#define REG_TEST_KEY        "Software\\TuxBlox\\Test"
+#define REG_TEST_KEY        "Software\\Wine\\Test"
 #define REG_CURRENT_VERSION "Software\\Microsoft\\Windows\\CurrentVersion\\explorer"
 
 static const char test_path1[] = "%LONGSYSTEMVAR%\\subdir1";
@@ -333,7 +333,7 @@ static void test_SHRegDuplicateHKey(void)
     HKEY hkey, hkey2;
     DWORD ret;
 
-    ret = RegCreateKeyA(HKEY_CURRENT_USER, "Software\\TuxBlox\\Test", &hkey);
+    ret = RegCreateKeyA(HKEY_CURRENT_USER, "Software\\Wine\\Test", &hkey);
     ok(!ret, "Failed to create test key, ret %ld.\n", ret);
 
     hkey2 = pSHRegDuplicateHKey(hkey);
@@ -342,7 +342,7 @@ static void test_SHRegDuplicateHKey(void)
     RegCloseKey(hkey2);
     RegCloseKey(hkey);
 
-    RegDeleteKeyA(HKEY_CURRENT_USER, "Software\\TuxBlox\\Test");
+    RegDeleteKeyA(HKEY_CURRENT_USER, "Software\\Wine\\Test");
 }
 
 static void test_SHDeleteKey(void)
@@ -350,17 +350,17 @@ static void test_SHDeleteKey(void)
     HKEY hkey, hkey2;
     DWORD ret;
 
-    ret = RegCreateKeyA(HKEY_CURRENT_USER, "Software\\TuxBlox\\Test", &hkey);
+    ret = RegCreateKeyA(HKEY_CURRENT_USER, "Software\\Wine\\Test", &hkey);
     ok(!ret, "Failed to create test key, %ld.\n", ret);
 
     ret = RegCreateKeyA(hkey, "delete_key", &hkey2);
     ok(!ret, "Failed to create test key, %ld.\n", ret);
     RegCloseKey(hkey2);
 
-    ret = RegDeleteKeyA(HKEY_CURRENT_USER, "Software\\TuxBlox\\Test");
+    ret = RegDeleteKeyA(HKEY_CURRENT_USER, "Software\\Wine\\Test");
     ok(ret == ERROR_ACCESS_DENIED, "Unexpected return value %ld.\n", ret);
 
-    ret = pSHDeleteKeyA(HKEY_CURRENT_USER, "Software\\TuxBlox\\Test");
+    ret = pSHDeleteKeyA(HKEY_CURRENT_USER, "Software\\Wine\\Test");
     ok(!ret, "Unexpected retval %lu.\n", ret);
 
     ret = RegCloseKey(hkey);
@@ -444,7 +444,7 @@ static void test_SHGetValue(void)
     ok(!strcmp(test_path1, buf), "Unexpected value %s.\n", buf);
     ok(type == REG_SZ, "Unexpected type %ld.\n", type);
 
-    delete_key(hkey, "Software\\TuxBlox", "Test");
+    delete_key(hkey, "Software\\Wine", "Test");
 }
 
 static void test_SHRegGetValue(void)
@@ -483,7 +483,7 @@ static void test_SHRegGetValue(void)
     ret = pSHRegGetValueA(HKEY_CURRENT_USER, REG_TEST_KEY, "Test2", SRRF_RT_REG_QWORD, &type, data, &size);
     ok(ret == ERROR_UNSUPPORTED_TYPE, "Unexpected retval %lu.\n", ret);
 
-    delete_key(hkey, "Software\\TuxBlox", "Test");
+    delete_key(hkey, "Software\\Wine", "Test");
 }
 
 static void test_SHQueryValueEx(void)
@@ -603,7 +603,7 @@ static void test_SHQueryValueEx(void)
 
     RegCloseKey(hKey);
 
-    delete_key(testkey, "Software\\TuxBlox", "Test");
+    delete_key(testkey, "Software\\Wine", "Test");
 }
 
 static void test_SHRegGetPath(void)
@@ -619,7 +619,7 @@ static void test_SHRegGetPath(void)
     ok(!ret, "Failed to get path, ret %lu.\n", ret);
     ok(!strcmp(test_exp_path1, buf), "Unexpected path %s.\n", buf);
 
-    delete_key(hkey, "Software\\TuxBlox", "Test");
+    delete_key(hkey, "Software\\Wine", "Test");
 }
 
 static void test_SHCopyKey(void)
@@ -660,7 +660,7 @@ static void test_SHCopyKey(void)
     ok(!pSHQueryValueExA(hKeyDst, "Common AppData", NULL, NULL, NULL, NULL), "SHQueryValueExA failed\n");
 
     RegCloseKey(hKeyDst);
-    delete_key( hkey, "Software\\TuxBlox", "Test" );
+    delete_key( hkey, "Software\\Wine", "Test" );
 }
 
 #define CHECK_FILE_SIZE(filename,exp_size) _check_file_size(filename, exp_size, __LINE__)

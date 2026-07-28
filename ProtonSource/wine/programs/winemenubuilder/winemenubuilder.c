@@ -1082,7 +1082,7 @@ static HRESULT platform_write_icon(IStream *icoStream, ICONDIRENTRY *iconDirEntr
     LARGE_INTEGER zero;
 
     *nativeIdentifier = compute_native_identifier(exeIndex, icoPathW, destFilename);
-    iconsDir = heap_wprintf(L"%s", L"c:\\pshortcuts\\icons");
+    iconsDir = heap_wprintf(L"%s", L"c:\\proton_shortcuts\\icons");
     create_directories(iconsDir);
 
     for (i = 0; i < numEntries; i++)
@@ -1183,7 +1183,7 @@ static HKEY open_menus_reg_key(void)
 {
     HKEY assocKey;
     DWORD ret;
-    ret = RegCreateKeyW(HKEY_CURRENT_USER, L"Software\\TuxBlox\\MenuFiles", &assocKey);
+    ret = RegCreateKeyW(HKEY_CURRENT_USER, L"Software\\Wine\\MenuFiles", &assocKey);
     if (ret == ERROR_SUCCESS)
         return assocKey;
     SetLastError(ret);
@@ -1259,7 +1259,7 @@ static BOOL write_desktop_entry(const WCHAR *link, const WCHAR *location, const 
 
     name = PathFindFileNameW( linkname );
 
-    shortcuts_dir = heap_wprintf(L"%s", L"c:\\pshortcuts");
+    shortcuts_dir = heap_wprintf(L"%s", L"c:\\proton_shortcuts");
     create_directories(shortcuts_dir);
     location = heap_wprintf(L"%s\\%s.desktop", shortcuts_dir, name);
     heap_free(shortcuts_dir);
@@ -1691,7 +1691,7 @@ static WCHAR* reg_get_valW(HKEY key, LPCWSTR subkey, LPCWSTR name)
 static HKEY open_associations_reg_key(void)
 {
     HKEY assocKey;
-    if (RegCreateKeyW(HKEY_CURRENT_USER, L"Software\\TuxBlox\\FileOpenAssociations", &assocKey) == ERROR_SUCCESS)
+    if (RegCreateKeyW(HKEY_CURRENT_USER, L"Software\\Wine\\FileOpenAssociations", &assocKey) == ERROR_SUCCESS)
         return assocKey;
     return NULL;
 }

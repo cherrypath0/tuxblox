@@ -89,7 +89,7 @@ void RELAY16_InitDebugLists(void)
     HANDLE root, hkey;
     DWORD count;
     WCHAR *str;
-    UNICODE_STRING config = RTL_CONSTANT_STRING( L"Software\\TuxBlox\\Debug" );
+    UNICODE_STRING config = RTL_CONSTANT_STRING( L"Software\\Wine\\Debug" );
     UNICODE_STRING relay_include = RTL_CONSTANT_STRING( L"RelayInclude" );
     UNICODE_STRING relay_exclude = RTL_CONSTANT_STRING( L"RelayExclude" );
     UNICODE_STRING snoop_include = RTL_CONSTANT_STRING( L"SnoopInclude" );
@@ -103,7 +103,7 @@ void RELAY16_InitDebugLists(void)
     attr.SecurityDescriptor = NULL;
     attr.SecurityQualityOfService = NULL;
 
-    /* @@ Wine registry key: HKCU\Software\TuxBlox\Debug */
+    /* @@ Wine registry key: HKCU\Software\Wine\Debug */
     if (NtOpenKey( &hkey, KEY_READ, &attr )) hkey = 0;
     NtClose( root );
     if (!hkey) return;

@@ -53,7 +53,7 @@ static DriverFuncs midi_driver;
 
 #define MIDI_CALL(code,args)  __wine_unix_call( midi_driver.module_unixlib, code, args )
 
-const WCHAR drv_keyW[] = L"Software\\TuxBlox\\Drivers";
+const WCHAR drv_keyW[] = L"Software\\Wine\\Drivers";
 
 static const char *get_priority_string(int prio)
 {

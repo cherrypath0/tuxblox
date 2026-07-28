@@ -237,8 +237,8 @@ static HKEY open_config_key(void)
     HKEY hkey, ret;
     DWORD res;
 
-    /* @@ Wine registry key: HKCU\Software\TuxBlox\$config_key */
-    res = RegOpenKeyW(HKEY_CURRENT_USER, L"Software\\TuxBlox", &hkey);
+    /* @@ Wine registry key: HKCU\Software\Wine\$config_key */
+    res = RegOpenKeyW(HKEY_CURRENT_USER, L"Software\\Wine", &hkey);
     if(res != ERROR_SUCCESS)
         return NULL;
 

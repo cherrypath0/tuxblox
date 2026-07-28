@@ -296,7 +296,7 @@ static BOOL AddBuiltinAFMs(void)
  *	PSDRV_GetFontMetrics
  *
  * Parses all afm files listed in the
- * HKEY_CURRENT_USER\\Software\\TuxBlox\\Fonts registry key.
+ * HKEY_CURRENT_USER\\Software\\Wine\\Fonts registry key.
  * Adds built-in data last, so it can be overridden by
  * user-supplied AFM or TTF files.
  *

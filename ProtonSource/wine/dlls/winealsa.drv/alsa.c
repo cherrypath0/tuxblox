@@ -389,7 +389,7 @@ static void get_reg_devices(EDataFlow flow, struct endpoints_info *endpoints_inf
     DWORD size;
     const WCHAR *value_name = (flow == eRender) ? ALSAOutputDevices : ALSAInputDevices;
 
-    /* @@ Wine registry key: HKCU\Software\TuxBlox\Drivers\winealsa.drv */
+    /* @@ Wine registry key: HKCU\Software\Wine\Drivers\winealsa.drv */
     if((key = reg_open_hkcu_key(drv_keyW, sizeof(drv_keyW)))){
         if((size = reg_query_value(key, value_name, key_info, sizeof(buffer)))){
             WCHAR *p = (WCHAR *)key_info->Data;

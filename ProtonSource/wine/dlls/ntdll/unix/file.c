@@ -3397,7 +3397,7 @@ void init_files(void)
     start_umask = umask( 0777 );
     umask( start_umask );
 
-    if (!open_hkcu_key( "Software\\TuxBlox", &key ))
+    if (!open_hkcu_key( "Software\\Wine", &key ))
     {
         static WCHAR showdotfilesW[] = {'S','h','o','w','D','o','t','F','i','l','e','s',0};
         char tmp[80];

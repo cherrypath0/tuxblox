@@ -31,7 +31,7 @@
 #include "wine/test.h"
 
 /* Keys for testing MRU functions */
-#define REG_TEST_BASEKEYA    "Software\\TuxBlox"
+#define REG_TEST_BASEKEYA    "Software\\Wine"
 #define REG_TEST_BASESUBKEYA "Test"
 #define REG_TEST_KEYA    REG_TEST_BASEKEYA "\\" REG_TEST_BASESUBKEYA
 #define REG_TEST_SUBKEYA "MRUTest"

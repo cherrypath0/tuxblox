@@ -3819,7 +3819,7 @@ static BOOL WINAPI fpScheduleJob(HANDLE hprinter, DWORD job_id)
     {
         port_name = L"FILE:";
     }
-    else if (!RegOpenKeyW(HKEY_CURRENT_USER, L"Software\\TuxBlox\\Printing\\Spooler", &hkey))
+    else if (!RegOpenKeyW(HKEY_CURRENT_USER, L"Software\\Wine\\Printing\\Spooler", &hkey))
     {
         DWORD type, count = sizeof(output);
         if (!RegQueryValueExW(hkey, port, NULL, &type, (BYTE *)output, &count))

@@ -142,8 +142,8 @@ static int open_http_url( const WCHAR *url )
     HKEY key;
     LONG r;
 
-    /* @@ Wine registry key: HKCU\Software\TuxBlox\WineBrowser */
-    if  (!(r = RegOpenKeyW( HKEY_CURRENT_USER, L"Software\\TuxBlox\\WineBrowser", &key )))
+    /* @@ Wine registry key: HKCU\Software\Wine\WineBrowser */
+    if  (!(r = RegOpenKeyW( HKEY_CURRENT_USER, L"Software\\Wine\\WineBrowser", &key )))
     {
         r = get_commands( key, L"Browsers", browsers, sizeof(browsers) );
         RegCloseKey( key );
@@ -166,8 +166,8 @@ static int open_mailto_url( const WCHAR *url )
     HKEY key;
     LONG r;
 
-    /* @@ Wine registry key: HKCU\Software\TuxBlox\WineBrowser */
-    if (!(r = RegOpenKeyW( HKEY_CURRENT_USER, L"Software\\TuxBlox\\WineBrowser", &key )))
+    /* @@ Wine registry key: HKCU\Software\Wine\WineBrowser */
+    if (!(r = RegOpenKeyW( HKEY_CURRENT_USER, L"Software\\Wine\\WineBrowser", &key )))
     {
         r = get_commands( key, L"Mailers", mailers, sizeof(mailers) );
         RegCloseKey( key );
@@ -176,6 +176,31 @@ static int open_mailto_url( const WCHAR *url )
         memcpy( mailers, defaultmailers, sizeof(defaultmailers) );
 
     return launch_app( mailers, url );
+}
+
+static int open_directory( const WCHAR *path )
+{
+    static const WCHAR defaultfilemanagers[] =
+        L"xdg-open\0"
+        "dolphin\0"
+        "nautilus\0"
+        "nemo\0"
+        "thunar\0"
+        "pcmanfm\0";
+    WCHAR filemanagers[256];
+    HKEY key;
+    LONG r;
+
+    /* @@ Wine registry key: HKCU\Software\Wine\WineBrowser */
+    if (!(r = RegOpenKeyW( HKEY_CURRENT_USER, L"Software\\Wine\\WineBrowser", &key )))
+    {
+        r = get_commands( key, L"FileManagers", filemanagers, sizeof(filemanagers) );
+        RegCloseKey( key );
+    }
+    if (r != ERROR_SUCCESS)
+        memcpy( filemanagers, defaultfilemanagers, sizeof(defaultfilemanagers) );
+
+    return launch_app( filemanagers, path );
 }
 
 static int open_invalid_url( const WCHAR *url )
@@ -371,12 +396,13 @@ static WCHAR *encode_unix_path(const char *src)
     return dst;
 }
 
-static WCHAR *convert_file_uri(IUri *uri)
+static WCHAR *convert_file_uri(IUri *uri, BOOL *is_dir)
 {
     char *buffer;
     WCHAR *new_path = NULL;
     BSTR filename;
     HRESULT hres;
+    DWORD attrs;
 
     hres = IUri_GetPath(uri, &filename);
     if(FAILED(hres))
@@ -384,7 +410,9 @@ static WCHAR *convert_file_uri(IUri *uri)
 
     WINE_TRACE("Windows path: %s\n", wine_dbgstr_w(filename));
 
-    if (GetFileAttributesW( filename ) == INVALID_FILE_ATTRIBUTES) return NULL;
+    attrs = GetFileAttributesW( filename );
+    if (attrs == INVALID_FILE_ATTRIBUTES) return NULL;
+    *is_dir = (attrs & FILE_ATTRIBUTE_DIRECTORY) != 0;
     if (!(buffer = wine_get_unix_file_name( filename ))) return NULL;
     new_path = encode_unix_path( buffer );
 
@@ -403,6 +431,7 @@ int wmain(int argc, WCHAR *argv[])
     DWORD scheme;
     IUri *uri;
     HRESULT hres;
+    BOOL is_dir = FALSE;
 
     /* DDE used only if -nohome is specified; avoids delay in printing usage info
      * when no parameters are passed */
@@ -424,7 +453,7 @@ int wmain(int argc, WCHAR *argv[])
     IUri_GetScheme(uri, &scheme);
 
     if(scheme == URL_SCHEME_FILE) {
-        display_uri = convert_file_uri(uri);
+        display_uri = convert_file_uri(uri, &is_dir);
         if(!display_uri) {
             WINE_ERR("Failed to convert file URL to unix path\n");
         }
@@ -438,7 +467,12 @@ int wmain(int argc, WCHAR *argv[])
 
     WINE_TRACE("opening %s\n", wine_dbgstr_w(display_uri));
 
-    if(scheme == URL_SCHEME_MAILTO)
+    if(is_dir)
+        /* TuxBlox: a real directory got here (shlexec.c's SHELL_execute now
+         * points folder-open at winebrowser.exe) - hand it to the host's
+         * file manager instead of treating it as a web URL. */
+        return open_directory(display_uri);
+    else if(scheme == URL_SCHEME_MAILTO)
         return open_mailto_url(display_uri);
     else
         /* let the browser decide how to handle the given url */

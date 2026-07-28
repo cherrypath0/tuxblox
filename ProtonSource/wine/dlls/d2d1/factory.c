@@ -1659,7 +1659,7 @@ static void d2d_settings_init(void)
     char buffer[MAX_PATH + 10];
     DWORD len;
 
-    if (RegOpenKeyA(HKEY_CURRENT_USER, "Software\\TuxBlox\\Direct2D", &default_key))
+    if (RegOpenKeyA(HKEY_CURRENT_USER, "Software\\Wine\\Direct2D", &default_key))
         default_key = NULL;
 
     len = GetModuleFileNameA(0, buffer, MAX_PATH);
@@ -1673,7 +1673,7 @@ static void d2d_settings_init(void)
             appname = p + 1;
         strcat(appname, "\\Direct2D");
 
-        if (!RegOpenKeyA(HKEY_CURRENT_USER, "Software\\TuxBlox\\AppDefaults", &tmp_key))
+        if (!RegOpenKeyA(HKEY_CURRENT_USER, "Software\\Wine\\AppDefaults", &tmp_key))
         {
             if (RegOpenKeyA(tmp_key, appname, &application_key))
                 application_key = NULL;

@@ -406,8 +406,8 @@ static void LoadSettings(void)
     TaskManagerSettings.ShowKernelTimes = FALSE;
 
     /* Open the key */
-    /* @@ Wine registry key: HKCU\Software\TuxBlox\TaskManager */
-    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\TuxBlox\\TaskManager", 0, KEY_READ, &hKey) != ERROR_SUCCESS)
+    /* @@ Wine registry key: HKCU\Software\Wine\TaskManager */
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Wine\\TaskManager", 0, KEY_READ, &hKey) != ERROR_SUCCESS)
         return;
     /* Read the settings */
     dwSize = sizeof(TASKMANAGER_SETTINGS);
@@ -423,8 +423,8 @@ static void SaveSettings(void)
 
     /* Open (or create) the key */
 
-    /* @@ Wine registry key: HKCU\Software\TuxBlox\TaskManager */
-    if (RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\TuxBlox\\TaskManager", 0, NULL,
+    /* @@ Wine registry key: HKCU\Software\Wine\TaskManager */
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\Wine\\TaskManager", 0, NULL,
                         REG_OPTION_NON_VOLATILE, KEY_WRITE, NULL, &hKey, NULL) != ERROR_SUCCESS)
         return;
     /* Save the settings */

@@ -57,7 +57,7 @@ struct DeviceInfo {
     int speaker_config;
 };
 
-static WCHAR g_drv_keyW[256] = L"Software\\TuxBlox\\Drivers\\";
+static WCHAR g_drv_keyW[256] = L"Software\\Wine\\Drivers\\";
 
 static UINT num_render_devs, num_capture_devs;
 static struct DeviceInfo *render_devs, *capture_devs;

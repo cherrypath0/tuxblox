@@ -41,7 +41,7 @@ static void test_data_key(void)
                            &IID_ISpRegDataKey, (void **)&data_key );
     ok( hr == S_OK, "got %08lx\n", hr );
 
-    res = RegCreateKeyExA( HKEY_CURRENT_USER, "Software\\TuxBloxtest\\sapi", 0, NULL, 0, KEY_ALL_ACCESS,
+    res = RegCreateKeyExA( HKEY_CURRENT_USER, "Software\\Winetest\\sapi", 0, NULL, 0, KEY_ALL_ACCESS,
                            NULL, &key, NULL );
     ok( res == ERROR_SUCCESS, "got %ld\n", res );
 
@@ -90,7 +90,7 @@ static void test_data_key(void)
                            &IID_ISpRegDataKey, (void **)&data_key );
     ok( hr == S_OK, "got %08lx\n", hr );
 
-    res = RegOpenKeyExA( HKEY_CURRENT_USER, "Software\\TuxBloxtest\\sapi", 0, KEY_ALL_ACCESS, &key );
+    res = RegOpenKeyExA( HKEY_CURRENT_USER, "Software\\Winetest\\sapi", 0, KEY_ALL_ACCESS, &key );
     ok( res == ERROR_SUCCESS, "got %ld\n", res );
 
     hr = ISpRegDataKey_SetKey( data_key, key, TRUE );
@@ -119,7 +119,7 @@ static void setup_test_voice_tokens(void)
     LSTATUS ret;
     HRESULT hr;
 
-    ret = RegCreateKeyExA( HKEY_CURRENT_USER, "Software\\TuxBloxtest\\sapi\\TestVoices\\Tokens", 0, NULL, 0,
+    ret = RegCreateKeyExA( HKEY_CURRENT_USER, "Software\\Winetest\\sapi\\TestVoices\\Tokens", 0, NULL, 0,
                            KEY_ALL_ACCESS, NULL, &key, NULL );
     ok( ret == ERROR_SUCCESS, "got %ld\n", ret );
 
@@ -166,7 +166,7 @@ static void setup_test_voice_tokens(void)
     ISpRegDataKey_Release( data_key );
 }
 
-static const WCHAR test_cat[] = L"HKEY_CURRENT_USER\\Software\\TuxBloxtest\\sapi\\TestVoices";
+static const WCHAR test_cat[] = L"HKEY_CURRENT_USER\\Software\\Winetest\\sapi\\TestVoices";
 
 static void test_token_category(void)
 {
@@ -711,7 +711,7 @@ static IClassFactory test_class_cf = { &ClassFactoryVtbl };
 
 static void test_object_token(void)
 {
-    static const WCHAR test_token_id[] = L"HKEY_LOCAL_MACHINE\\Software\\TuxBloxtest\\sapi\\TestToken";
+    static const WCHAR test_token_id[] = L"HKEY_LOCAL_MACHINE\\Software\\Winetest\\sapi\\TestToken";
     static const WCHAR *get_description = L"GetDescription";
 
     ISpObjectToken *token;
@@ -1000,13 +1000,13 @@ static void test_object_token(void)
     IUnknown_Release( obj );
     ISpObjectToken_Release( token );
 
-    RegDeleteTreeA( HKEY_LOCAL_MACHINE, "Software\\TuxBloxtest\\sapi" );
+    RegDeleteTreeA( HKEY_LOCAL_MACHINE, "Software\\Winetest\\sapi" );
 }
 
 START_TEST(token)
 {
     CoInitialize( NULL );
-    RegDeleteTreeA( HKEY_CURRENT_USER, "Software\\TuxBloxtest\\sapi" );
+    RegDeleteTreeA( HKEY_CURRENT_USER, "Software\\Winetest\\sapi" );
     test_data_key();
     setup_test_voice_tokens();
     test_token_category();

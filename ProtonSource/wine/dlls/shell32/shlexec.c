@@ -1902,7 +1902,10 @@ static BOOL SHELL_execute( LPSHELLEXECUTEINFOW sei, SHELL_ExecuteW32 execfunc )
 
         if (lpQuotedFile)
         {
-            retval = SHELL_FindExecutable( sei_tmp.lpDirectory, L"explorer",
+            /* TuxBlox: open real directories with winebrowser.exe (which shells
+             * out to the host's xdg-open) instead of Wine's own explorer.exe,
+             * so folders open in the user's actual desktop file manager. */
+            retval = SHELL_FindExecutable( sei_tmp.lpDirectory, L"winebrowser",
                                            L"open", wExec, MAX_PATH,
                                            NULL, &env, NULL, NULL );
             if (retval > 32)

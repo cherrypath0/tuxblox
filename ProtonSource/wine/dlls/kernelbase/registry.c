@@ -3486,8 +3486,8 @@ BOOL WINAPI DECLSPEC_HOTPATCH SetComputerNameExW( COMPUTER_NAME_FORMAT type, con
 
     case ComputerNameNetBIOS:
     case ComputerNamePhysicalNetBIOS:
-        /* @@ Wine registry key: HKCU\Software\TuxBlox\Network */
-        if (!RegOpenKeyExW( HKEY_CURRENT_USER, L"Software\\TuxBlox\\Network", 0, KEY_READ, &key ))
+        /* @@ Wine registry key: HKCU\Software\Wine\Network */
+        if (!RegOpenKeyExW( HKEY_CURRENT_USER, L"Software\\Wine\\Network", 0, KEY_READ, &key ))
         {
             BOOL use_dns = TRUE;
             size = sizeof(buffer);

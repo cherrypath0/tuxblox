@@ -2600,7 +2600,7 @@ static void test_save(void)
     };
 
     params.hkr = HKEY_CURRENT_USER;
-    params.pszSubKey = L"Software\\TuxBlox\\WineTest";
+    params.pszSubKey = L"Software\\Wine\\WineTest";
     params.pszValueName = L"toolbartest";
 
     rebuild_toolbar_with_buttons( &wnd );
@@ -2612,7 +2612,7 @@ static void test_save(void)
     ok_sequence(sequences, PARENT_SEQ_INDEX, save_parent_seq, "save", FALSE);
     DestroyWindow( wnd );
 
-    res = RegOpenKeyW( HKEY_CURRENT_USER, L"Software\\TuxBlox\\WineTest", &key );
+    res = RegOpenKeyW( HKEY_CURRENT_USER, L"Software\\Wine\\WineTest", &key );
     ok( !res, "got %08lx\n", res );
     res = RegQueryValueExW( key, L"toolbartest", NULL, &type, data, &size );
     ok( !res, "got %08lx\n", res );
@@ -2654,7 +2654,7 @@ static void test_save(void)
     }
 
     DestroyWindow( wnd );
-    RegOpenKeyW( HKEY_CURRENT_USER, L"Software\\TuxBlox\\WineTest", &key );
+    RegOpenKeyW( HKEY_CURRENT_USER, L"Software\\Wine\\WineTest", &key );
     RegDeleteValueW( key, L"toolbartest" );
     RegCloseKey( key );
 }

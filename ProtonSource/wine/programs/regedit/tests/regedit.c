@@ -271,7 +271,7 @@ static void delete_value_(unsigned line, const HKEY hkey, const char *name)
     lok(lr == ERROR_SUCCESS, "RegDeleteValueA failed: %ld\n", lr);
 }
 
-#define KEY_BASE "Software\\TuxBlox\\regedit_test"
+#define KEY_BASE "Software\\Wine\\regedit_test"
 
 static void test_basic_import(void)
 {

@@ -5432,7 +5432,7 @@ static void test_feature_override(void)
     ok(!delete_pf("msitest\\preselected.txt", TRUE), "file not removed\n");
     ok(!delete_pf("msitest", FALSE), "directory not removed\n");
 
-    RegDeleteKeyExA(HKEY_LOCAL_MACHINE, "Software\\TuxBlox\\msitest", access, 0);
+    RegDeleteKeyExA(HKEY_LOCAL_MACHINE, "Software\\Wine\\msitest", access, 0);
 
 error:
     DeleteFileA("msitest\\override.txt");
@@ -5901,7 +5901,7 @@ static void test_mixed_package(void)
     }
     ok(r == ERROR_SUCCESS, "Expected ERROR_SUCCESS, got %u\n", r);
 
-    res = RegOpenKeyExA(HKEY_LOCAL_MACHINE, "Software\\TuxBlox\\msitest", 0, KEY_ALL_ACCESS|KEY_WOW64_32KEY, &hkey);
+    res = RegOpenKeyExA(HKEY_LOCAL_MACHINE, "Software\\Wine\\msitest", 0, KEY_ALL_ACCESS|KEY_WOW64_32KEY, &hkey);
     ok(!res, "can't open 32-bit component key, got %ld\n", res);
     res = RegQueryValueExA(hkey, "test1", NULL, NULL, NULL, NULL);
     ok(!res, "expected RegQueryValueEx to succeed, got %ld\n", res);
@@ -5909,7 +5909,7 @@ static void test_mixed_package(void)
     ok(res, "expected RegQueryValueEx to fail, got %ld\n", res);
     RegCloseKey(hkey);
 
-    res = RegOpenKeyExA(HKEY_LOCAL_MACHINE, "Software\\TuxBlox\\msitest", 0, KEY_ALL_ACCESS|KEY_WOW64_64KEY, &hkey);
+    res = RegOpenKeyExA(HKEY_LOCAL_MACHINE, "Software\\Wine\\msitest", 0, KEY_ALL_ACCESS|KEY_WOW64_64KEY, &hkey);
     ok(!res, "can't open 64-bit component key, got %ld\n", res);
     res = RegQueryValueExA(hkey, "test1", NULL, NULL, NULL, NULL);
     ok(res, "expected RegQueryValueEx to fail, got %ld\n", res);
@@ -5942,10 +5942,10 @@ static void test_mixed_package(void)
     r = MsiInstallProductA(msifile, "REMOVE=ALL");
     ok(r == ERROR_SUCCESS, "Expected ERROR_SUCCESS, got %u\n", r);
 
-    res = RegOpenKeyExA(HKEY_LOCAL_MACHINE, "Software\\TuxBlox\\msitest", 0, KEY_ALL_ACCESS|KEY_WOW64_32KEY, &hkey);
+    res = RegOpenKeyExA(HKEY_LOCAL_MACHINE, "Software\\Wine\\msitest", 0, KEY_ALL_ACCESS|KEY_WOW64_32KEY, &hkey);
     ok(res == ERROR_FILE_NOT_FOUND, "32-bit component key not removed\n");
 
-    res = RegOpenKeyExA(HKEY_LOCAL_MACHINE, "Software\\TuxBlox\\msitest", 0, KEY_ALL_ACCESS|KEY_WOW64_64KEY, &hkey);
+    res = RegOpenKeyExA(HKEY_LOCAL_MACHINE, "Software\\Wine\\msitest", 0, KEY_ALL_ACCESS|KEY_WOW64_64KEY, &hkey);
     ok(res == ERROR_FILE_NOT_FOUND, "64-bit component key not removed\n");
 
     res = RegOpenKeyExA(HKEY_CLASSES_ROOT,
@@ -5964,7 +5964,7 @@ static void test_mixed_package(void)
     r = MsiInstallProductA(msifile, NULL);
     ok(r == ERROR_SUCCESS, "Expected ERROR_SUCCESS, got %u\n", r);
 
-    res = RegOpenKeyExA(HKEY_LOCAL_MACHINE, "Software\\TuxBlox\\msitest", 0, KEY_ALL_ACCESS|KEY_WOW64_32KEY, &hkey);
+    res = RegOpenKeyExA(HKEY_LOCAL_MACHINE, "Software\\Wine\\msitest", 0, KEY_ALL_ACCESS|KEY_WOW64_32KEY, &hkey);
     ok(!res, "can't open 32-bit component key, got %ld\n", res);
     res = RegQueryValueExA(hkey, "test1", NULL, NULL, NULL, NULL);
     ok(!res, "expected RegQueryValueEx to succeed, got %ld\n", res);
@@ -5972,7 +5972,7 @@ static void test_mixed_package(void)
     ok(res, "expected RegQueryValueEx to fail, got %ld\n", res);
     RegCloseKey(hkey);
 
-    res = RegOpenKeyExA(HKEY_LOCAL_MACHINE, "Software\\TuxBlox\\msitest", 0, KEY_ALL_ACCESS|KEY_WOW64_64KEY, &hkey);
+    res = RegOpenKeyExA(HKEY_LOCAL_MACHINE, "Software\\Wine\\msitest", 0, KEY_ALL_ACCESS|KEY_WOW64_64KEY, &hkey);
     ok(!res, "can't open 64-bit component key, got %ld\n", res);
     res = RegQueryValueExA(hkey, "test1", NULL, NULL, NULL, NULL);
     ok(res, "expected RegQueryValueEx to fail, got %ld\n", res);
@@ -6005,10 +6005,10 @@ static void test_mixed_package(void)
     r = MsiInstallProductA(msifile, "REMOVE=ALL");
     ok(r == ERROR_SUCCESS, "Expected ERROR_SUCCESS, got %u\n", r);
 
-    res = RegOpenKeyExA(HKEY_LOCAL_MACHINE, "Software\\TuxBlox\\msitest", 0, KEY_ALL_ACCESS|KEY_WOW64_32KEY, &hkey);
+    res = RegOpenKeyExA(HKEY_LOCAL_MACHINE, "Software\\Wine\\msitest", 0, KEY_ALL_ACCESS|KEY_WOW64_32KEY, &hkey);
     ok(res == ERROR_FILE_NOT_FOUND, "32-bit component key not removed\n");
 
-    res = RegOpenKeyExA(HKEY_LOCAL_MACHINE, "Software\\TuxBlox\\msitest", 0, KEY_ALL_ACCESS|KEY_WOW64_64KEY, &hkey);
+    res = RegOpenKeyExA(HKEY_LOCAL_MACHINE, "Software\\Wine\\msitest", 0, KEY_ALL_ACCESS|KEY_WOW64_64KEY, &hkey);
     ok(res == ERROR_FILE_NOT_FOUND, "64-bit component key not removed\n");
 
     res = RegOpenKeyExA(HKEY_CLASSES_ROOT,

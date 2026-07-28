@@ -342,7 +342,7 @@ static const char *cmdline_inf = "[Version]\n"
     "[DefaultInstall]\n"
     "AddReg=Add.Settings\n"
     "[Add.Settings]\n"
-    "HKCU,Software\\TuxBlox\\setupapitest,,\n";
+    "HKCU,Software\\Wine\\setupapitest,,\n";
 
 static void run_cmdline(LPCSTR section, int mode, LPCSTR path)
 {
@@ -359,10 +359,10 @@ static void ok_registry(BOOL expectsuccess)
     LONG ret;
 
     /* Functional tests for success of install and clean up */
-    ret = RegDeleteKeyA(HKEY_CURRENT_USER, "Software\\TuxBlox\\setupapitest");
+    ret = RegDeleteKeyA(HKEY_CURRENT_USER, "Software\\Wine\\setupapitest");
     ok((expectsuccess && ret == ERROR_SUCCESS) ||
        (!expectsuccess && ret == ERROR_FILE_NOT_FOUND),
-       "Expected registry key Software\\TuxBlox\\setupapitest to %s, RegDeleteKey returned %ld\n",
+       "Expected registry key Software\\Wine\\setupapitest to %s, RegDeleteKey returned %ld\n",
        expectsuccess ? "exist" : "not exist",
        ret);
 }
@@ -401,7 +401,7 @@ static const char *cmdline_inf_reg = "[Version]\n"
     "[DefaultInstall]\n"
     "DelReg=Del.Settings\n"
     "[Del.Settings]\n"
-    "HKCU,Software\\TuxBlox\\setupapitest\n";
+    "HKCU,Software\\Wine\\setupapitest\n";
 
 static void test_registry(void)
 {
@@ -411,11 +411,11 @@ static void test_registry(void)
     BOOL ret;
 
     /* First create a registry structure we would like to be deleted */
-    ok(!RegCreateKeyA(HKEY_CURRENT_USER, "Software\\TuxBlox\\setupapitest\\setupapitest", &key),
+    ok(!RegCreateKeyA(HKEY_CURRENT_USER, "Software\\Wine\\setupapitest\\setupapitest", &key),
         "Expected RegCreateKeyA to succeed\n");
 
     /* Doublecheck if the registry key is present */
-    ok(!RegOpenKeyA(HKEY_CURRENT_USER, "Software\\TuxBlox\\setupapitest\\setupapitest", &key),
+    ok(!RegOpenKeyA(HKEY_CURRENT_USER, "Software\\Wine\\setupapitest\\setupapitest", &key),
         "Expected registry key to exist\n");
 
     create_inf_file(inffile, cmdline_inf_reg);
@@ -423,13 +423,13 @@ static void test_registry(void)
     run_cmdline("DefaultInstall", 128, path);
 
     /* Check if the registry key is recursively deleted */
-    res = RegOpenKeyA(HKEY_CURRENT_USER, "Software\\TuxBlox\\setupapitest", &key);
+    res = RegOpenKeyA(HKEY_CURRENT_USER, "Software\\Wine\\setupapitest", &key);
     ok(res == ERROR_FILE_NOT_FOUND, "Didn't expect the registry key to exist\n");
     /* Just in case */
     if (res == ERROR_SUCCESS)
     {
-        RegDeleteKeyA(HKEY_CURRENT_USER, "Software\\TuxBlox\\setupapitest\\setupapitest");
-        RegDeleteKeyA(HKEY_CURRENT_USER, "Software\\TuxBlox\\setupapitest");
+        RegDeleteKeyA(HKEY_CURRENT_USER, "Software\\Wine\\setupapitest\\setupapitest");
+        RegDeleteKeyA(HKEY_CURRENT_USER, "Software\\Wine\\setupapitest");
     }
     ret = DeleteFileA(inffile);
     ok(ret, "Expected source inf to exist, last error was %ld\n", GetLastError());
@@ -444,11 +444,11 @@ static void test_install_from(void)
     BOOL ret;
 
     /* First create a registry structure we would like to be deleted */
-    ok(!RegCreateKeyA(HKEY_CURRENT_USER, "Software\\TuxBlox\\setupapitest\\setupapitest", &key),
+    ok(!RegCreateKeyA(HKEY_CURRENT_USER, "Software\\Wine\\setupapitest\\setupapitest", &key),
         "Expected RegCreateKeyA to succeed\n");
 
     /* Doublecheck if the registry key is present */
-    ok(!RegOpenKeyA(HKEY_CURRENT_USER, "Software\\TuxBlox\\setupapitest\\setupapitest", &key),
+    ok(!RegOpenKeyA(HKEY_CURRENT_USER, "Software\\Wine\\setupapitest\\setupapitest", &key),
         "Expected registry key to exist\n");
 
     create_inf_file(inffile, cmdline_inf_reg);
@@ -461,13 +461,13 @@ static void test_install_from(void)
     ok(GetLastError() == ERROR_SUCCESS, "Expected ERROR_SUCCESS, got %08lx\n", GetLastError());
 
     /* Check if the registry key is recursively deleted */
-    res = RegOpenKeyA(HKEY_CURRENT_USER, "Software\\TuxBlox\\setupapitest", &key);
+    res = RegOpenKeyA(HKEY_CURRENT_USER, "Software\\Wine\\setupapitest", &key);
     ok(res == ERROR_FILE_NOT_FOUND, "Didn't expect the registry key to exist\n");
     /* Just in case */
     if (res == ERROR_SUCCESS)
     {
-        RegDeleteKeyA(HKEY_CURRENT_USER, "Software\\TuxBlox\\setupapitest\\setupapitest");
-        RegDeleteKeyA(HKEY_CURRENT_USER, "Software\\TuxBlox\\setupapitest");
+        RegDeleteKeyA(HKEY_CURRENT_USER, "Software\\Wine\\setupapitest\\setupapitest");
+        RegDeleteKeyA(HKEY_CURRENT_USER, "Software\\Wine\\setupapitest");
     }
 
     SetupCloseInfFile(infhandle);
@@ -1031,7 +1031,7 @@ static const char dirid_inf[] = "[Version]\n"
     "[DefaultInstall]\n"
     "AddReg=Add.Settings\n"
     "[Add.Settings]\n"
-    "HKCU,Software\\TuxBlox\\setupapitest,dirid,,%%%i%%\n";
+    "HKCU,Software\\Wine\\setupapitest,dirid,,%%%i%%\n";
 
 static void check_dirid(int dirid, LPCSTR expected)
 {
@@ -1050,7 +1050,7 @@ static void check_dirid(int dirid, LPCSTR expected)
 
     size = sizeof(actual);
     actual[0] = '\0';
-    ret = RegOpenKeyA(HKEY_CURRENT_USER, "Software\\TuxBlox\\setupapitest", &key);
+    ret = RegOpenKeyA(HKEY_CURRENT_USER, "Software\\Wine\\setupapitest", &key);
     if (ret == ERROR_SUCCESS)
     {
         ret = RegQueryValueExA(key, "dirid", NULL, &type, (BYTE*)&actual, &size);

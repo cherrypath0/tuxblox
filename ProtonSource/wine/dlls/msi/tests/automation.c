@@ -1921,7 +1921,7 @@ static void test_Installer_RegistryValue(void)
 
     /* Delete keys */
     SetLastError(0xdeadbeef);
-    lRet = RegOpenKeyW( HKEY_CURRENT_USER, L"Software\\TuxBlox\\Test", &hkey );
+    lRet = RegOpenKeyW( HKEY_CURRENT_USER, L"Software\\Wine\\Test", &hkey );
     if (!lRet && GetLastError() == ERROR_CALL_NOT_IMPLEMENTED)
     {
         win_skip("Needed W-functions are not implemented\n");
@@ -1931,20 +1931,20 @@ static void test_Installer_RegistryValue(void)
         delete_key( hkey );
 
     /* Does our key exist? Shouldn't; check with all three possible value parameter types */
-    hr = Installer_RegistryValueE(curr_user, L"Software\\TuxBlox\\Test", &bRet);
+    hr = Installer_RegistryValueE(curr_user, L"Software\\Wine\\Test", &bRet);
     ok(hr == S_OK, "Installer_RegistryValueE failed, hresult %#lx\n", hr);
     ok(!bRet, "Registry key expected to not exist, but Installer_RegistryValue claims it does\n");
 
     memset(szString, 0, sizeof(szString));
-    hr = Installer_RegistryValueW(curr_user, L"Software\\TuxBlox\\Test", NULL, szString);
+    hr = Installer_RegistryValueW(curr_user, L"Software\\Wine\\Test", NULL, szString);
     ok(hr == DISP_E_BADINDEX, "Installer_RegistryValueW failed, hresult %#lx\n", hr);
 
     memset(szString, 0, sizeof(szString));
-    hr = Installer_RegistryValueI(curr_user, L"Software\\TuxBlox\\Test", 0, szString, VT_BSTR);
+    hr = Installer_RegistryValueI(curr_user, L"Software\\Wine\\Test", 0, szString, VT_BSTR);
     ok(hr == DISP_E_BADINDEX, "Installer_RegistryValueI failed, hresult %#lx\n", hr);
 
     /* Create key */
-    ok(!RegCreateKeyW( HKEY_CURRENT_USER, L"Software\\TuxBlox\\Test", &hkey ), "RegCreateKeyW failed\n");
+    ok(!RegCreateKeyW( HKEY_CURRENT_USER, L"Software\\Wine\\Test", &hkey ), "RegCreateKeyW failed\n");
 
     ok(!RegSetValueExW(hkey, L"One", 0, REG_SZ, (const BYTE *)L"One", sizeof(L"one")),
         "RegSetValueExW failed\n");
@@ -1970,53 +1970,53 @@ static void test_Installer_RegistryValue(void)
 
     /* Does our key exist? It should, and make sure we retrieve the correct default value */
     bRet = FALSE;
-    hr = Installer_RegistryValueE(curr_user, L"Software\\TuxBlox\\Test", &bRet);
+    hr = Installer_RegistryValueE(curr_user, L"Software\\Wine\\Test", &bRet);
     ok(hr == S_OK, "Installer_RegistryValueE failed, hresult %#lx\n", hr);
     ok(bRet, "Registry key expected to exist, but Installer_RegistryValue claims it does not\n");
 
     memset(szString, 0, sizeof(szString));
-    hr = Installer_RegistryValueW(curr_user, L"Software\\TuxBlox\\Test", NULL, szString);
+    hr = Installer_RegistryValueW(curr_user, L"Software\\Wine\\Test", NULL, szString);
     ok(hr == S_OK, "Installer_RegistryValueW failed, hresult %#lx\n", hr);
     ok_w2("Default registry value \"%s\" does not match expected \"%s\"\n", szString, L"One");
 
     /* Ask for the value of a nonexistent key */
     memset(szString, 0, sizeof(szString));
-    hr = Installer_RegistryValueW(curr_user, L"Software\\TuxBlox\\Test", L"%MSITEST%", szString);
+    hr = Installer_RegistryValueW(curr_user, L"Software\\Wine\\Test", L"%MSITEST%", szString);
     ok(hr == DISP_E_BADINDEX, "Installer_RegistryValueW failed, hresult %#lx\n", hr);
 
     /* Get values of keys */
     memset(szString, 0, sizeof(szString));
-    hr = Installer_RegistryValueW(curr_user, L"Software\\TuxBlox\\Test", L"One", szString);
+    hr = Installer_RegistryValueW(curr_user, L"Software\\Wine\\Test", L"One", szString);
     ok(hr == S_OK, "Installer_RegistryValueW failed, hresult %#lx\n", hr);
     ok_w2("Registry value \"%s\" does not match expected \"%s\"\n", szString, L"One");
 
     VariantInit(&vararg);
     V_VT(&vararg) = VT_BSTR;
     V_BSTR(&vararg) = SysAllocString(L"Two");
-    hr = Installer_RegistryValue(curr_user, L"Software\\TuxBlox\\Test", vararg, &varresult, VT_I4);
+    hr = Installer_RegistryValue(curr_user, L"Software\\Wine\\Test", vararg, &varresult, VT_I4);
     ok(hr == S_OK, "Installer_RegistryValue failed, hresult %#lx\n", hr);
     ok(V_I4(&varresult) == 305419896, "Registry value %ld does not match expected value\n", V_I4(&varresult));
     VariantClear(&varresult);
 
     memset(szString, 0, sizeof(szString));
-    hr = Installer_RegistryValueW(curr_user, L"Software\\TuxBlox\\Test", L"Three", szString);
+    hr = Installer_RegistryValueW(curr_user, L"Software\\Wine\\Test", L"Three", szString);
     ok(hr == S_OK, "Installer_RegistryValueW failed, hresult %#lx\n", hr);
     ok_w2("Registry value \"%s\" does not match expected \"%s\"\n", szString, L"(REG_BINARY)");
 
     memset(szString, 0, sizeof(szString));
-    hr = Installer_RegistryValueW(curr_user, L"Software\\TuxBlox\\Test", L"Four", szString);
+    hr = Installer_RegistryValueW(curr_user, L"Software\\Wine\\Test", L"Four", szString);
     ok(hr == S_OK, "Installer_RegistryValueW failed, hresult %#lx\n", hr);
     ok_w2("Registry value \"%s\" does not match expected \"%s\"\n", szString, L"Four");
 
     /* Vista does not NULL-terminate this case */
     memset(szString, 0, sizeof(szString));
-    hr = Installer_RegistryValueW(curr_user, L"Software\\TuxBlox\\Test", L"Five\0Hi\0", szString);
+    hr = Installer_RegistryValueW(curr_user, L"Software\\Wine\\Test", L"Five\0Hi\0", szString);
     ok(hr == S_OK, "Installer_RegistryValueW failed, hresult %#lx\n", hr);
     ok_w2n("Registry value \"%s\" does not match expected \"%s\"\n",
            szString, L"Five\nHi", lstrlenW(L"Five\nHi"));
 
     memset(szString, 0, sizeof(szString));
-    hr = Installer_RegistryValueW(curr_user, L"Software\\TuxBlox\\Test", L"Six", szString);
+    hr = Installer_RegistryValueW(curr_user, L"Software\\Wine\\Test", L"Six", szString);
     ok(hr == S_OK, "Installer_RegistryValueW failed, hresult %#lx\n", hr);
     ok(!lstrcmpW(szString, L"(REG_\?\?)") || broken(!lstrcmpW(szString, L"(REG_]")),
        "Registry value does not match\n");
@@ -2024,36 +2024,36 @@ static void test_Installer_RegistryValue(void)
     VariantInit(&vararg);
     V_VT(&vararg) = VT_BSTR;
     V_BSTR(&vararg) = SysAllocString(L"Seven");
-    hr = Installer_RegistryValue(curr_user, L"Software\\TuxBlox\\Test", vararg, &varresult, VT_EMPTY);
+    hr = Installer_RegistryValue(curr_user, L"Software\\Wine\\Test", vararg, &varresult, VT_EMPTY);
     ok(hr == S_OK, "Installer_RegistryValue failed, hresult %#lx\n", hr);
 
     /* Get string class name for the key */
     memset(szString, 0, sizeof(szString));
-    hr = Installer_RegistryValueI(curr_user, L"Software\\TuxBlox\\Test", 0, szString, VT_BSTR);
+    hr = Installer_RegistryValueI(curr_user, L"Software\\Wine\\Test", 0, szString, VT_BSTR);
     ok(hr == S_OK, "Installer_RegistryValueI failed, hresult %#lx\n", hr);
     ok_w2("Registry name \"%s\" does not match expected \"%s\"\n", szString, L"");
 
     /* Get name of a value by positive number (RegEnumValue like), valid index */
     memset(szString, 0, sizeof(szString));
-    hr = Installer_RegistryValueI(curr_user, L"Software\\TuxBlox\\Test", 2, szString, VT_BSTR);
+    hr = Installer_RegistryValueI(curr_user, L"Software\\Wine\\Test", 2, szString, VT_BSTR);
     ok(hr == S_OK, "Installer_RegistryValueI failed, hresult %#lx\n", hr);
     /* RegEnumValue order seems different on wine */
     todo_wine ok_w2("Registry name \"%s\" does not match expected \"%s\"\n", szString, L"Two");
 
     /* Get name of a value by positive number (RegEnumValue like), invalid index */
     memset(szString, 0, sizeof(szString));
-    hr = Installer_RegistryValueI(curr_user, L"Software\\TuxBlox\\Test", 10, szString, VT_EMPTY);
+    hr = Installer_RegistryValueI(curr_user, L"Software\\Wine\\Test", 10, szString, VT_EMPTY);
     ok(hr == S_OK, "Installer_RegistryValueI failed, hresult %#lx\n", hr);
 
     /* Get name of a subkey by negative number (RegEnumValue like), valid index */
     memset(szString, 0, sizeof(szString));
-    hr = Installer_RegistryValueI(curr_user, L"Software\\TuxBlox\\Test", -1, szString, VT_BSTR);
+    hr = Installer_RegistryValueI(curr_user, L"Software\\Wine\\Test", -1, szString, VT_BSTR);
     ok(hr == S_OK, "Installer_RegistryValueI failed, hresult %#lx\n", hr);
     ok_w2("Registry name \"%s\" does not match expected \"%s\"\n", szString, L"Eight");
 
     /* Get name of a subkey by negative number (RegEnumValue like), invalid index */
     memset(szString, 0, sizeof(szString));
-    hr = Installer_RegistryValueI(curr_user, L"Software\\TuxBlox\\Test", -10, szString, VT_EMPTY);
+    hr = Installer_RegistryValueI(curr_user, L"Software\\Wine\\Test", -10, szString, VT_EMPTY);
     ok(hr == S_OK, "Installer_RegistryValueI failed, hresult %#lx\n", hr);
 
     /* clean up */

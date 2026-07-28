@@ -175,21 +175,20 @@ BOOL WINAPI DllMain( HINSTANCE hinst, DWORD reason, LPVOID reserved )
  *	Result of multiplication and division
  *	-1: Overflow occurred or Divisor was 0
  */
- /* Original Wine implementation
 INT WINAPI MulDiv( INT nMultiplicand, INT nMultiplier, INT nDivisor)
 {
     LONGLONG ret;
 
     if (!nDivisor) return -1;
 
-    We want to deal with a positive divisor to simplify the logic.
+    /* We want to deal with a positive divisor to simplify the logic. */
     if (nDivisor < 0)
     {
       nMultiplicand = - nMultiplicand;
       nDivisor = -nDivisor;
     }
 
-    If the result is positive, we "add" to round. else, we subtract to round.
+    /* If the result is positive, we "add" to round. else, we subtract to round. */
     if ( ( (nMultiplicand <  0) && (nMultiplier <  0) ) ||
          ( (nMultiplicand >= 0) && (nMultiplier >= 0) ) )
       ret = (((LONGLONG)nMultiplicand * nMultiplier) + (nDivisor/2)) / nDivisor;
@@ -198,49 +197,6 @@ INT WINAPI MulDiv( INT nMultiplicand, INT nMultiplier, INT nDivisor)
 
     if ((ret > 2147483647) || (ret < -2147483647)) return -1;
     return ret;
-}
-ShadyWine implementation */
-INT WINAPI MulDiv(INT nNumber, INT nNumerator, INT nDenominator)
-{
-    if (nDenominator == 0)
-    {
-        SetLastError(ERROR_ARITHMETIC_OVERFLOW);
-        return -1;
-    }
-
-    /* Sign of the result: negative if an odd number of inputs are negative */
-    int sign = (nNumber < 0) ^ (nNumerator < 0) ^ (nDenominator < 0);
-
-    /* Convert to unsigned magnitudes. Use 64-bit negation to avoid
-     * overflowing on INT_MIN (-INT_MIN is undefined in 32-bit C). */
-    UINT a = nNumber < 0 ? (UINT)(-(INT64)nNumber) : (UINT)nNumber;
-    UINT b = nNumerator < 0 ? (UINT)(-(INT64)nNumerator) : (UINT)nNumerator;
-    UINT c = nDenominator < 0 ? (UINT)(-(INT64)nDenominator) : (UINT)nDenominator;
-
-    /* Windows bug: the original 16-bit assembly used 'sar' (arithmetic shift)
-     * instead of 'shr' (logical shift) to compute c/2 for rounding.
-     * When c == 0x80000000, sar gives 0xC0000000 instead of 0x40000000.
-     * We replicate this portably with: (c >> 1) | (c & 0x80000000) */
-    UINT round = (c >> 1) | (c & 0x80000000);
-
-    /* 64-bit unsigned product plus rounding term */
-    ULONGLONG prod = (ULONGLONG)a * b + round;
-
-    /* Divide; result must fit in a positive signed 32-bit int (< 0x80000000) */
-    ULONGLONG q = prod / c;
-    if (q >= 0x80000000)
-    {
-        SetLastError(ERROR_ARITHMETIC_OVERFLOW);
-        return -1;
-    }
-
-    UINT result = (UINT)q;
-
-    /* Apply sign */
-    if (sign)
-        result = (UINT)(-(INT)result);
-
-    return (INT)result;
 }
 
 /******************************************************************************

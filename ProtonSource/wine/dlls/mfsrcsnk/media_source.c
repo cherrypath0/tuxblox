@@ -2076,8 +2076,8 @@ static BOOL use_gst_byte_stream_handler(void)
     BOOL result;
     DWORD size = sizeof(result);
 
-    /* @@ Wine registry key: HKCU\Software\TuxBlox\MediaFoundation */
-    if (!RegGetValueW( HKEY_CURRENT_USER, L"Software\\TuxBlox\\MediaFoundation", L"DisableGstByteStreamHandler",
+    /* @@ Wine registry key: HKCU\Software\Wine\MediaFoundation */
+    if (!RegGetValueW( HKEY_CURRENT_USER, L"Software\\Wine\\MediaFoundation", L"DisableGstByteStreamHandler",
                        RRF_RT_REG_DWORD, NULL, &result, &size ))
         return !result;
 

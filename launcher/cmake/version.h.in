@@ -1,0 +1,5 @@
+#pragma once
+
+namespace tuxblox {
+constexpr const char* kTuxBloxVersion = "@TUXBLOX_LAUNCHER_VERSION@";
+} // namespace tuxblox

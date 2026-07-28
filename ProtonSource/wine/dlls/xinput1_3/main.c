@@ -398,13 +398,13 @@ static void get_registry_keys(HKEY *defkey, HKEY *appkey)
     HKEY hkey;
 
     *appkey = 0;
-    if (RegOpenKeyW(HKEY_CURRENT_USER, L"Software\\TuxBlox\\DirectInput\\Joysticks", defkey))
+    if (RegOpenKeyW(HKEY_CURRENT_USER, L"Software\\Wine\\DirectInput\\Joysticks", defkey))
         *defkey = 0;
 
     if (!(len = GetModuleFileNameW(0, buffer, MAX_PATH)) || len >= MAX_PATH)
         return;
 
-    if (!RegOpenKeyW(HKEY_CURRENT_USER, L"Software\\TuxBlox\\AppDefaults", &hkey))
+    if (!RegOpenKeyW(HKEY_CURRENT_USER, L"Software\\Wine\\AppDefaults", &hkey))
     {
         if ((tmp = wcsrchr(name, '/'))) name = tmp + 1;
         if ((tmp = wcsrchr(name, '\\'))) name = tmp + 1;

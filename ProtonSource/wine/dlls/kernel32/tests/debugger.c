@@ -765,7 +765,7 @@ static void crash_and_winedbg(HKEY hkey, const char* argv0)
 static void test_ExitCode(void)
 {
     static const char* AeDebug="Software\\Microsoft\\Windows NT\\CurrentVersion\\AeDebug";
-    static const char* WineDbg="Software\\TuxBlox\\WineDbg";
+    static const char* WineDbg="Software\\Wine\\WineDbg";
     char test_exe[MAX_PATH];
     DWORD ret;
     HKEY hkey;

@@ -771,7 +771,7 @@ static BOOL get_mono_path_registry(LPWSTR path)
     DWORD res, valuesize;
     BOOL ret=FALSE;
 
-    /* @@ Wine registry key: HKCU\Software\TuxBlox\Mono */
+    /* @@ Wine registry key: HKCU\Software\Wine\Mono */
     res = RegOpenKeyW(HKEY_CURRENT_USER, keyname, &hkey);
     if (res != ERROR_SUCCESS)
         return FALSE;
@@ -1613,8 +1613,8 @@ static HKEY get_app_overrides_key(void)
         if ((p = wcsrchr( appname, '/' ))) appname = p + 1;
         if ((p = wcsrchr( appname, '\\' ))) appname = p + 1;
         lstrcatW( appname, subkeyW );
-        /* @@ Wine registry key: HKCU\Software\TuxBlox\AppDefaults\app.exe\Mono\AsmOverrides */
-        if (!RegOpenKeyA( HKEY_CURRENT_USER, "Software\\TuxBlox\\AppDefaults", &tmpkey ))
+        /* @@ Wine registry key: HKCU\Software\Wine\AppDefaults\app.exe\Mono\AsmOverrides */
+        if (!RegOpenKeyA( HKEY_CURRENT_USER, "Software\\Wine\\AppDefaults", &tmpkey ))
         {
             if (RegOpenKeyW( tmpkey, appname, &appkey )) appkey = 0;
             RegCloseKey( tmpkey );
@@ -1631,8 +1631,8 @@ static DWORD get_assembly_search_flags(MonoAssemblyName *aname)
     DWORD result;
     HKEY appkey = 0, userkey;
 
-    /* @@ Wine registry key: HKCU\Software\TuxBlox\Mono\AsmOverrides */
-    if (RegOpenKeyA( HKEY_CURRENT_USER, "Software\\TuxBlox\\Mono\\AsmOverrides", &userkey )) userkey = 0;
+    /* @@ Wine registry key: HKCU\Software\Wine\Mono\AsmOverrides */
+    if (RegOpenKeyA( HKEY_CURRENT_USER, "Software\\Wine\\Mono\\AsmOverrides", &userkey )) userkey = 0;
 
     appkey = get_app_overrides_key();
 

@@ -3787,7 +3787,7 @@ static HRESULT create_document_object(BOOL is_mhtml, IUnknown *outer, REFIID rii
         FIXME("HACK: Creating HTMLDocument outside Gecko main thread\n");
         if(!gecko_main_thread_config) {
             FIXME("HACK: Dedicated main thread not configured\n");
-            FIXME("HACK: Create HKCU\\Software\\TuxBlox\\MSHTML\\MainThreadHack key\n");
+            FIXME("HACK: Create HKCU\\Software\\Wine\\MSHTML\\MainThreadHack key\n");
         }
         return create_marshaled_doc(gecko_main_thread_hwnd, riid, ppv);
     }

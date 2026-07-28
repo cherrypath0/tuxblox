@@ -389,7 +389,7 @@ static DWORD delete_key(HKEY hkey)
 
 static void test_registry(void)
 {
-    static const WCHAR keypathW[] = L"HKEY_CURRENT_USER\\Software\\TuxBlox\\Test\\";
+    static const WCHAR keypathW[] = L"HKEY_CURRENT_USER\\Software\\Wine\\Test\\";
     static const WCHAR regszW[] = L"regsz";
     WCHAR pathW[MAX_PATH];
     DWORD dwvalue, type;
@@ -429,7 +429,7 @@ static void test_registry(void)
     ok(V_VT(&value) == VT_I2, "got %d\n", V_VT(&value));
     SysFreeString(name);
 
-    ret = RegCreateKeyA(HKEY_CURRENT_USER, "Software\\TuxBlox\\Test", &root);
+    ret = RegCreateKeyA(HKEY_CURRENT_USER, "Software\\Wine\\Test", &root);
     ok(!ret, "Unexpected retval %ld.\n", ret);
 
     ret = RegSetValueExA(root, "regsz", 0, REG_SZ, (const BYTE*)"foobar", 7);
@@ -552,7 +552,7 @@ static void test_registry(void)
     VariantClear(&v);
     VariantClear(&value);
 
-    name = SysAllocString(L"HKEY_CURRENT_USER\\Software\\TuxBlox\\Test\\regsz1");
+    name = SysAllocString(L"HKEY_CURRENT_USER\\Software\\Wine\\Test\\regsz1");
     V_VT(&value) = VT_I2;
     hr = IWshShell3_RegRead(sh3, name, &value);
     ok(hr == HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND), "Unexpected hr %#lx.\n", hr);
@@ -563,7 +563,7 @@ static void test_registry(void)
     delete_key(root);
 
     /* RegWrite() */
-    ret = RegCreateKeyA(HKEY_CURRENT_USER, "Software\\TuxBlox\\Test", &root);
+    ret = RegCreateKeyA(HKEY_CURRENT_USER, "Software\\Wine\\Test", &root);
     ok(!ret, "Unexpected retval %ld.\n", ret);
 
     hr = IWshShell3_RegWrite(sh3, NULL, NULL, NULL);

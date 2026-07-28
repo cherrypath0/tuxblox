@@ -364,7 +364,7 @@ static DWORD host_write_credential( const CREDENTIALW *credential, BOOL preserve
 
 static DWORD open_cred_mgr_key(HKEY *hkey, BOOL open_for_write)
 {
-    return RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\TuxBlox\\Credential Manager", 0,
+    return RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\Wine\\Credential Manager", 0,
                            NULL, REG_OPTION_NON_VOLATILE,
                            KEY_READ | (open_for_write ? KEY_WRITE : 0), NULL, hkey, NULL);
 }

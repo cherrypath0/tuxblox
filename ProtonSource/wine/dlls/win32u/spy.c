@@ -2545,8 +2545,8 @@ static BOOL spy_init(void)
     if (spy_exclude) return TRUE;
     exclude = calloc( 1, SPY_MAX_MSGNUM + 2 );
 
-    /* @@ Wine registry key: HKCU\Software\TuxBlox\Debug */
-    if ((hkey = reg_open_hkcu_key( "Software\\TuxBlox\\Debug" )))
+    /* @@ Wine registry key: HKCU\Software\Wine\Debug */
+    if ((hkey = reg_open_hkcu_key( "Software\\Wine\\Debug" )))
     {
         char buffer[2048];
         KEY_VALUE_PARTIAL_INFORMATION *info = (void *)buffer;

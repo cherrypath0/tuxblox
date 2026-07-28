@@ -14,12 +14,16 @@ Full documentation is currently a work in progress. You can find documentation a
 ## Features
 * **Easy Setup:** You only download the installer, we do the rest. Updates happen in the background.
 * **Infinite Customization**: Customize Proton flags, environment flags, or even specify a custom Proton build if you have one.
+* **Browser Integration**: Run `./install-handler.sh` to register TuxBlox as the handler for `roblox-player:`/`roblox-studio:`/`roblox-studio-auth:` links, so "Play"/"Edit" on roblox.com launches TuxBlox directly.
 
 ## System Requirements
+### Hardware Requirements:
 * **Processor:** 64-bit x86 (x86_64) Architecture with SSE3 Support
+* **Storage Space:** 3 GB or higher
+### Software Requirements:
 * **Operating System:** Any major 64-bit Linux distribution
 * **Kernel Version:** 5.0 or higher
-* **Storage Space:** 3 GB or higher
+* **Packages**: python, podman/docker (for compiling, podman recommended)
 
 ## Legal & Disclaimer
 - **TuxBlox is an independent, open-source project.** It is not affiliated with, authorized, or endorsed by Roblox Corporation. 

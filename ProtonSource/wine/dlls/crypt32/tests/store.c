@@ -1074,7 +1074,7 @@ static const struct CertPropIDHeader *findPropID(const BYTE *buf, DWORD size,
 
 static void testRegStore(void)
 {
-    static const char tempKey[] = "Software\\TuxBlox\\CryptTemp";
+    static const char tempKey[] = "Software\\Wine\\CryptTemp";
     HCERTSTORE store;
     LONG rc;
     HKEY key = NULL;

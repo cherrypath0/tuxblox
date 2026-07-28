@@ -1071,7 +1071,7 @@ static BOOL ReadAFMDir(const WCHAR *dirname)
  *  PSDRV_GetType1Metrics
  *
  *  Reads font metrics from Type 1 AFM font files in directories listed in the
- *  HKEY_CURRENT_USER\\Software\\TuxBlox\\Fonts\\AFMPath registry string.
+ *  HKEY_CURRENT_USER\\Software\\Wine\\Fonts\\AFMPath registry string.
  *
  *  If this function fails (returns FALSE), the driver will fail to initialize
  *  and the driver heap will be destroyed, so it's not necessary to HeapFree
@@ -1084,8 +1084,8 @@ BOOL PSDRV_GetType1Metrics(void)
     DWORD len;
     WCHAR *value, *ptr, *next;
 
-    /* @@ Wine registry key: HKCU\Software\TuxBlox\Fonts */
-    if (RegOpenKeyA(HKEY_CURRENT_USER, "Software\\TuxBlox\\Fonts", &hkey) != ERROR_SUCCESS)
+    /* @@ Wine registry key: HKCU\Software\Wine\Fonts */
+    if (RegOpenKeyA(HKEY_CURRENT_USER, "Software\\Wine\\Fonts", &hkey) != ERROR_SUCCESS)
         return TRUE;
 
     if (RegQueryValueExW( hkey, L"AFMPath", NULL, NULL, NULL, &len ) == ERROR_SUCCESS)

@@ -1488,8 +1488,8 @@ void NetBTInit(void)
      * different than MS', we can't do per-adapter WINS configuration in the
      * same place.  Just do a global WINS configuration instead.
      */
-    /* @@ Wine registry key: HKCU\Software\TuxBlox\Network */
-    if (!RegOpenKeyW( HKEY_CURRENT_USER, L"Software\\TuxBlox\\Network", &hKey ))
+    /* @@ Wine registry key: HKCU\Software\Wine\Network */
+    if (!RegOpenKeyW( HKEY_CURRENT_USER, L"Software\\Wine\\Network", &hKey ))
     {
         static const char *nsValueNames[] = { "WinsServer", "BackupWinsServer" };
         char nsString[16];

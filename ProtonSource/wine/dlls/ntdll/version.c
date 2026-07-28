@@ -220,6 +220,7 @@ static char wine_version[256];
  */
 const char * CDECL wine_get_version(void)
 {
+    MESSAGE("<< TuxBlox DEBUG >> Potential Hyperion Warning: Something called wine_get_version\n");
     return wine_version;
 }
 
@@ -230,6 +231,7 @@ const char * CDECL wine_get_version(void)
 const char * CDECL wine_get_build_id(void)
 {
     const char *p = wine_version;
+    MESSAGE("<< TuxBlox DEBUG >> Potential Hyperion Warning: Something called wine_get_build_id\n");
     p += strlen(p) + 1;  /* skip version */
     return p;
 }
@@ -241,6 +243,7 @@ const char * CDECL wine_get_build_id(void)
 void CDECL wine_get_host_version( const char **sysname, const char **release )
 {
     const char *p = wine_version;
+    MESSAGE("<< TuxBlox DEBUG >> Potential Hyperion Warning: Something called wine_get_host_version\n");
     p += strlen(p) + 1;  /* skip version */
     p += strlen(p) + 1;  /* skip build id */
     if (sysname) *sysname = p;
@@ -485,9 +488,9 @@ void version_init(void)
 
     RtlOpenCurrentUser( KEY_ALL_ACCESS, &root );
     InitializeObjectAttributes( &attr, &nameW, OBJ_CASE_INSENSITIVE, root, NULL );
-    RtlInitUnicodeString( &nameW, L"Software\\TuxBlox" );
+    RtlInitUnicodeString( &nameW, L"Software\\Wine" );
 
-    /* @@ Wine registry key: HKCU\Software\TuxBlox */
+    /* @@ Wine registry key: HKCU\Software\Wine */
     if (NtOpenKey( &config_key, KEY_ALL_ACCESS, &attr )) config_key = 0;
     NtClose( root );
     if (!config_key) goto done;
@@ -502,7 +505,7 @@ void version_init(void)
     RtlInitUnicodeString( &nameW, appversion );
     attr.RootDirectory = config_key;
 
-    /* @@ Wine registry key: HKCU\Software\TuxBlox\AppDefaults\app.exe */
+    /* @@ Wine registry key: HKCU\Software\Wine\AppDefaults\app.exe */
     if (!NtOpenKey( &hkey, KEY_ALL_ACCESS, &attr ))
     {
         TRACE( "getting version from %s\n", debugstr_w(appversion) );

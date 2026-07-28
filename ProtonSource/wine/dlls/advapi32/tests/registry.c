@@ -143,9 +143,9 @@ static void setup_main_key(void)
 {
     DWORD ret;
 
-    if (!RegOpenKeyA( HKEY_CURRENT_USER, "Software\\TuxBlox\\Test", &hkey_main )) delete_key( hkey_main );
+    if (!RegOpenKeyA( HKEY_CURRENT_USER, "Software\\Wine\\Test", &hkey_main )) delete_key( hkey_main );
 
-    ret = RegCreateKeyA( HKEY_CURRENT_USER, "Software\\TuxBlox\\Test", &hkey_main );
+    ret = RegCreateKeyA( HKEY_CURRENT_USER, "Software\\Wine\\Test", &hkey_main );
     ok(ret == ERROR_SUCCESS, "expected ERROR_SUCCESS, got %ld\n", ret);
 }
 
@@ -812,16 +812,16 @@ static void test_get_value(void)
     ok(ret == ERROR_SUCCESS, "ret=%ld\n", ret);
 
     /* Query by subkey-name */
-    ret = pRegGetValueA(HKEY_CURRENT_USER, "Software\\TuxBlox\\Test", "DWORD", RRF_RT_REG_DWORD, NULL, NULL, NULL);
+    ret = pRegGetValueA(HKEY_CURRENT_USER, "Software\\Wine\\Test", "DWORD", RRF_RT_REG_DWORD, NULL, NULL, NULL);
     ok(ret == ERROR_SUCCESS, "ret=%ld\n", ret);
 
     /* Check RRF_SUBKEY_WOW64*KEY validation on a case with a subkey */
-    ret = pRegGetValueA(HKEY_CURRENT_USER, "Software\\TuxBlox\\Test", "DWORD", RRF_RT_REG_DWORD | RRF_SUBKEY_WOW6464KEY | RRF_SUBKEY_WOW6432KEY, NULL, NULL, NULL);
+    ret = pRegGetValueA(HKEY_CURRENT_USER, "Software\\Wine\\Test", "DWORD", RRF_RT_REG_DWORD | RRF_SUBKEY_WOW6464KEY | RRF_SUBKEY_WOW6432KEY, NULL, NULL, NULL);
     ok(ret == ERROR_INVALID_PARAMETER || broken(ret == ERROR_SUCCESS), /* Before Win10 */
        "ret=%ld\n", ret);
-    ret = pRegGetValueA(HKEY_CURRENT_USER, "Software\\TuxBlox\\Test", "DWORD", RRF_RT_REG_DWORD | RRF_SUBKEY_WOW6464KEY, NULL, NULL, NULL);
+    ret = pRegGetValueA(HKEY_CURRENT_USER, "Software\\Wine\\Test", "DWORD", RRF_RT_REG_DWORD | RRF_SUBKEY_WOW6464KEY, NULL, NULL, NULL);
     ok(ret == ERROR_SUCCESS, "ret=%ld\n", ret);
-    ret = pRegGetValueA(HKEY_CURRENT_USER, "Software\\TuxBlox\\Test", "DWORD", RRF_RT_REG_DWORD | RRF_SUBKEY_WOW6432KEY, NULL, NULL, NULL);
+    ret = pRegGetValueA(HKEY_CURRENT_USER, "Software\\Wine\\Test", "DWORD", RRF_RT_REG_DWORD | RRF_SUBKEY_WOW6432KEY, NULL, NULL, NULL);
     ok(ret == ERROR_SUCCESS, "ret=%ld\n", ret);
 
     /* Query REG_DWORD using RRF_RT_REG_BINARY (restricted) */
@@ -1003,20 +1003,20 @@ static void test_reg_open_key(void)
     SECURITY_DESCRIPTOR *sd;
 
     /* successful open */
-    ret = RegOpenKeyA(HKEY_CURRENT_USER, "Software\\TuxBlox\\Test", &hkResult);
+    ret = RegOpenKeyA(HKEY_CURRENT_USER, "Software\\Wine\\Test", &hkResult);
     ok(ret == ERROR_SUCCESS, "expected ERROR_SUCCESS, got %ld\n", ret);
     ok(hkResult != NULL, "expected hkResult != NULL\n");
     hkPreserve = hkResult;
 
     /* open same key twice */
-    ret = RegOpenKeyA(HKEY_CURRENT_USER, "Software\\TuxBlox\\Test", &hkResult);
+    ret = RegOpenKeyA(HKEY_CURRENT_USER, "Software\\Wine\\Test", &hkResult);
     ok(ret == ERROR_SUCCESS, "expected ERROR_SUCCESS, got %ld\n", ret);
     ok(hkResult != hkPreserve, "expected hkResult != hkPreserve\n");
     ok(hkResult != NULL, "hkResult != NULL\n");
     RegCloseKey(hkResult);
 
     /* trailing slashes */
-    ret = RegOpenKeyA(HKEY_CURRENT_USER, "Software\\TuxBlox\\Test\\\\", &hkResult);
+    ret = RegOpenKeyA(HKEY_CURRENT_USER, "Software\\Wine\\Test\\\\", &hkResult);
     ok(ret == ERROR_SUCCESS, "expected ERROR_SUCCESS, got %ld\n", ret);
     RegCloseKey(hkResult);
 
@@ -1024,13 +1024,13 @@ static void test_reg_open_key(void)
     * check that hkResult is set to NULL
     */
     hkResult = hkPreserve;
-    ret = RegOpenKeyA(HKEY_CURRENT_USER, "Software\\TuxBlox\\Nonexistent", &hkResult);
+    ret = RegOpenKeyA(HKEY_CURRENT_USER, "Software\\Wine\\Nonexistent", &hkResult);
     ok(ret == ERROR_FILE_NOT_FOUND, "expected ERROR_FILE_NOT_FOUND, got %ld\n", ret);
     ok(hkResult == NULL, "expected hkResult == NULL\n");
 
     /* open the same nonexistent key again to make sure the key wasn't created */
     hkResult = hkPreserve;
-    ret = RegOpenKeyA(HKEY_CURRENT_USER, "Software\\TuxBlox\\Nonexistent", &hkResult);
+    ret = RegOpenKeyA(HKEY_CURRENT_USER, "Software\\Wine\\Nonexistent", &hkResult);
     ok(ret == ERROR_FILE_NOT_FOUND, "expected ERROR_FILE_NOT_FOUND, got %ld\n", ret);
     ok(hkResult == NULL, "expected hkResult == NULL\n");
 
@@ -1060,13 +1060,13 @@ static void test_reg_open_key(void)
      * the value of hkResult remains unchanged
      */
     hkResult = hkPreserve;
-    ret = RegOpenKeyA(NULL, "Software\\TuxBlox\\Test", &hkResult);
+    ret = RegOpenKeyA(NULL, "Software\\Wine\\Test", &hkResult);
     ok(ret == ERROR_INVALID_HANDLE || ret == ERROR_BADKEY, /* Windows 95 returns BADKEY */
        "expected ERROR_INVALID_HANDLE or ERROR_BADKEY, got %ld\n", ret);
     ok(hkResult == hkPreserve, "expected hkResult == hkPreserve\n");
 
     /* send in NULL hkResult */
-    ret = RegOpenKeyA(HKEY_CURRENT_USER, "Software\\TuxBlox\\Test", NULL);
+    ret = RegOpenKeyA(HKEY_CURRENT_USER, "Software\\Wine\\Test", NULL);
     ok(ret == ERROR_INVALID_PARAMETER, "expected ERROR_INVALID_PARAMETER, got %ld\n", ret);
 
     ret = RegOpenKeyA(HKEY_CURRENT_USER, NULL, NULL);
@@ -1076,7 +1076,7 @@ static void test_reg_open_key(void)
     ok(ret == ERROR_INVALID_PARAMETER, "expected ERROR_INVALID_PARAMETER, got %ld\n", ret);
 
     /*  beginning backslash character */
-    ret = RegOpenKeyA(HKEY_CURRENT_USER, "\\Software\\TuxBlox\\Test", &hkResult);
+    ret = RegOpenKeyA(HKEY_CURRENT_USER, "\\Software\\Wine\\Test", &hkResult);
     ok(ret == ERROR_BAD_PATHNAME || broken(ret == ERROR_SUCCESS),  /* wow64 */
        "expected ERROR_BAD_PATHNAME or ERROR_FILE_NOT_FOUND, got %ld\n", ret);
     if (!ret) RegCloseKey(hkResult);
@@ -1185,14 +1185,14 @@ static void test_reg_open_key(void)
         return;
     }
 
-    ret = RegCreateKeyExA(HKEY_LOCAL_MACHINE, "Software\\TuxBlox", 0, NULL, 0,
+    ret = RegCreateKeyExA(HKEY_LOCAL_MACHINE, "Software\\Wine", 0, NULL, 0,
                           KEY_WOW64_32KEY | KEY_ALL_ACCESS, NULL, &hkRoot32, NULL);
     ok(ret == ERROR_SUCCESS || ret == ERROR_ACCESS_DENIED,
        "RegCreateKeyEx with KEY_WOW64_32KEY failed (err=%lu)\n", ret);
     if (ret == ERROR_ACCESS_DENIED) return;
     ok(hkRoot32 != NULL, "hkRoot32 was set\n");
 
-    ret = RegCreateKeyExA(HKEY_LOCAL_MACHINE, "Software\\TuxBlox", 0, NULL, 0,
+    ret = RegCreateKeyExA(HKEY_LOCAL_MACHINE, "Software\\Wine", 0, NULL, 0,
                           KEY_WOW64_64KEY | KEY_ALL_ACCESS, NULL, &hkRoot64, NULL);
     ok(ret == ERROR_SUCCESS || ret == ERROR_ACCESS_DENIED,
        "RegCreateKeyEx with KEY_WOW64_64KEY failed (err=%lu)\n", ret);
@@ -1248,13 +1248,13 @@ static void test_reg_open_key(void)
            "Expected RegSetKeySecurity to return success, got error %lu\n", error);
 
         hkResult = NULL;
-        ret = RegOpenKeyExA(HKEY_LOCAL_MACHINE, "Software\\TuxBlox", 0, KEY_WOW64_64KEY | KEY_READ, &hkResult);
+        ret = RegOpenKeyExA(HKEY_LOCAL_MACHINE, "Software\\Wine", 0, KEY_WOW64_64KEY | KEY_READ, &hkResult);
         ok(ret == ERROR_SUCCESS, "RegOpenKeyEx with KEY_WOW64_64KEY failed (err=%lu)\n", ret);
         ok(hkResult != NULL, "hkResult wasn't set\n");
         RegCloseKey(hkResult);
 
         hkResult = NULL;
-        ret = RegOpenKeyExA(HKEY_LOCAL_MACHINE, "Software\\TuxBlox", 0, KEY_WOW64_32KEY | KEY_READ, &hkResult);
+        ret = RegOpenKeyExA(HKEY_LOCAL_MACHINE, "Software\\Wine", 0, KEY_WOW64_32KEY | KEY_READ, &hkResult);
         ok(ret == ERROR_SUCCESS, "RegOpenKeyEx with KEY_WOW64_32KEY failed (err=%lu)\n", ret);
         ok(hkResult != NULL, "hkResult wasn't set\n");
         RegCloseKey(hkResult);
@@ -1361,7 +1361,7 @@ static void test_reg_create_key(void)
         return;
     }
 
-    ret = RegCreateKeyExA(HKEY_LOCAL_MACHINE, "Software\\TuxBlox", 0, NULL, 0,
+    ret = RegCreateKeyExA(HKEY_LOCAL_MACHINE, "Software\\Wine", 0, NULL, 0,
                           KEY_WOW64_32KEY | KEY_ALL_ACCESS, NULL, &hkRoot32, NULL);
     if (limited_user)
         ok(ret == ERROR_ACCESS_DENIED && hkRoot32 == NULL,
@@ -1370,7 +1370,7 @@ static void test_reg_create_key(void)
         ok(ret == ERROR_SUCCESS && hkRoot32 != NULL,
            "RegCreateKeyEx with KEY_WOW64_32KEY failed (err=%ld)\n", ret);
 
-    ret = RegCreateKeyExA(HKEY_LOCAL_MACHINE, "Software\\TuxBlox", 0, NULL, 0,
+    ret = RegCreateKeyExA(HKEY_LOCAL_MACHINE, "Software\\Wine", 0, NULL, 0,
                           KEY_WOW64_64KEY | KEY_ALL_ACCESS, NULL, &hkRoot64, NULL);
     if (limited_user)
         ok(ret == ERROR_ACCESS_DENIED && hkRoot64 == NULL,
@@ -1421,14 +1421,14 @@ static void test_reg_create_key(void)
            "Expected RegSetKeySecurity to return success, got error %lu\n", ret);
 
         hkey1 = NULL;
-        ret = RegCreateKeyExA(HKEY_LOCAL_MACHINE, "Software\\TuxBlox", 0, NULL, 0,
+        ret = RegCreateKeyExA(HKEY_LOCAL_MACHINE, "Software\\Wine", 0, NULL, 0,
                               KEY_WOW64_64KEY | KEY_READ, NULL, &hkey1, NULL);
         ok(ret == ERROR_SUCCESS && hkey1 != NULL,
            "RegOpenKeyEx with KEY_WOW64_64KEY failed (err=%lu)\n", ret);
         RegCloseKey(hkey1);
 
         hkey1 = NULL;
-        ret = RegCreateKeyExA(HKEY_LOCAL_MACHINE, "Software\\TuxBlox", 0, NULL, 0,
+        ret = RegCreateKeyExA(HKEY_LOCAL_MACHINE, "Software\\Wine", 0, NULL, 0,
                               KEY_WOW64_32KEY | KEY_READ, NULL, &hkey1, NULL);
         ok(ret == ERROR_SUCCESS && hkey1 != NULL,
            "RegOpenKeyEx with KEY_WOW64_32KEY failed (err=%lu)\n", ret);
@@ -1452,7 +1452,7 @@ static void test_reg_close_key(void)
     /* successfully close key
      * hkHandle remains changed after call to RegCloseKey
      */
-    ret = RegOpenKeyA(HKEY_CURRENT_USER, "Software\\TuxBlox\\Test", &hkHandle);
+    ret = RegOpenKeyA(HKEY_CURRENT_USER, "Software\\Wine\\Test", &hkHandle);
     ok(ret == ERROR_SUCCESS, "expected ERROR_SUCCESS, got %ld\n", ret);
     ret = RegCloseKey(hkHandle);
     ok(ret == ERROR_SUCCESS, "expected ERROR_SUCCESS, got %ld\n", ret);
@@ -1474,7 +1474,7 @@ static void test_reg_close_key(void)
     if (hkey_main == hkHandle)
     {
         trace("The main handle is most likely closed, so re-opening\n");
-        RegOpenKeyA( HKEY_CURRENT_USER, "Software\\TuxBlox\\Test", &hkey_main );
+        RegOpenKeyA( HKEY_CURRENT_USER, "Software\\Wine\\Test", &hkey_main );
     }
 }
 
@@ -2583,7 +2583,7 @@ static void test_rw_order(void)
 
 static void test_symlinks(void)
 {
-    static const WCHAR targetW[] = L"\\Software\\TuxBlox\\Test\\target";
+    static const WCHAR targetW[] = L"\\Software\\Wine\\Test\\target";
     BYTE buffer[1024];
     UNICODE_STRING target_str;
     WCHAR *target;
@@ -2781,19 +2781,19 @@ static void test_redirection(void)
         return;
     }
 
-    err = RegCreateKeyExA( HKEY_LOCAL_MACHINE, "Software\\TuxBlox", 0, NULL, 0,
+    err = RegCreateKeyExA( HKEY_LOCAL_MACHINE, "Software\\Wine", 0, NULL, 0,
                            KEY_WOW64_64KEY | KEY_ALL_ACCESS, NULL, &root64, NULL );
     ok( err == ERROR_SUCCESS, "RegCreateKeyExA failed: %lu\n", err );
 
-    err = RegCreateKeyExA( HKEY_LOCAL_MACHINE, "Software\\TuxBlox", 0, NULL, 0,
+    err = RegCreateKeyExA( HKEY_LOCAL_MACHINE, "Software\\Wine", 0, NULL, 0,
                            KEY_WOW64_32KEY | KEY_ALL_ACCESS, NULL, &root32, NULL );
     ok( err == ERROR_SUCCESS, "RegCreateKeyExA failed: %lu\n", err );
 
-    err = RegCreateKeyExA( HKEY_LOCAL_MACHINE, "Software\\TuxBlox\\Winetest", 0, NULL, 0,
+    err = RegCreateKeyExA( HKEY_LOCAL_MACHINE, "Software\\Wine\\Winetest", 0, NULL, 0,
                            KEY_WOW64_64KEY | KEY_ALL_ACCESS, NULL, &key64, NULL );
     ok( err == ERROR_SUCCESS, "RegCreateKeyExA failed: %lu\n", err );
 
-    err = RegCreateKeyExA( HKEY_LOCAL_MACHINE, "Software\\TuxBlox\\Winetest", 0, NULL, 0,
+    err = RegCreateKeyExA( HKEY_LOCAL_MACHINE, "Software\\Wine\\Winetest", 0, NULL, 0,
                            KEY_WOW64_32KEY | KEY_ALL_ACCESS, NULL, &key32, NULL );
     ok( err == ERROR_SUCCESS, "RegCreateKeyExA failed: %lu\n", err );
 
@@ -2851,10 +2851,10 @@ static void test_redirection(void)
     check_key_value( key, "Wow6432Node\\Wine\\Winetest", KEY_WOW64_32KEY, 0 );
     RegCloseKey( key );
 
-    check_key_value( HKEY_LOCAL_MACHINE, "Software\\TuxBlox\\Winetest", 0, ptr_size );
+    check_key_value( HKEY_LOCAL_MACHINE, "Software\\Wine\\Winetest", 0, ptr_size );
     check_key_value( HKEY_LOCAL_MACHINE, "Software\\Wow6432Node\\Wine\\Winetest", 0, 32 );
-    check_key_value( HKEY_LOCAL_MACHINE, "Software\\TuxBlox\\Winetest", KEY_WOW64_64KEY, 64 );
-    check_key_value( HKEY_LOCAL_MACHINE, "Software\\TuxBlox\\Winetest", KEY_WOW64_32KEY, 32 );
+    check_key_value( HKEY_LOCAL_MACHINE, "Software\\Wine\\Winetest", KEY_WOW64_64KEY, 64 );
+    check_key_value( HKEY_LOCAL_MACHINE, "Software\\Wine\\Winetest", KEY_WOW64_32KEY, 32 );
     check_key_value( HKEY_LOCAL_MACHINE, "Software\\Wow6432Node\\Wine\\Winetest", KEY_WOW64_64KEY, 32 );
     check_key_value( HKEY_LOCAL_MACHINE, "Software\\Wow6432Node\\Wine\\Winetest", KEY_WOW64_32KEY, 32 );
 
@@ -2906,7 +2906,7 @@ static void test_redirection(void)
     check_key_value( key, "Winetest", KEY_WOW64_32KEY, 32 );
     RegCloseKey( key );
 
-    err = RegCreateKeyExA( HKEY_LOCAL_MACHINE, "Software\\TuxBlox", 0, NULL, 0,
+    err = RegCreateKeyExA( HKEY_LOCAL_MACHINE, "Software\\Wine", 0, NULL, 0,
                            KEY_ALL_ACCESS, NULL, &key, NULL );
     ok( err == ERROR_SUCCESS, "RegCreateKeyExA failed: %lu\n", err );
     check_key_value( key, "Winetest", 0, ptr_size );
@@ -2914,7 +2914,7 @@ static void test_redirection(void)
     check_key_value( key, "Winetest", KEY_WOW64_32KEY, 32 );
     RegCloseKey( key );
 
-    err = RegCreateKeyExA( HKEY_LOCAL_MACHINE, "Software\\TuxBlox", 0, NULL, 0,
+    err = RegCreateKeyExA( HKEY_LOCAL_MACHINE, "Software\\Wine", 0, NULL, 0,
                            KEY_WOW64_64KEY | KEY_ALL_ACCESS, NULL, &key, NULL );
     ok( err == ERROR_SUCCESS, "RegCreateKeyExA failed: %lu\n", err );
     check_key_value( key, "Winetest", 0, 64 );
@@ -2922,7 +2922,7 @@ static void test_redirection(void)
     check_key_value( key, "Winetest", KEY_WOW64_32KEY, 32 );
     RegCloseKey( key );
 
-    err = RegCreateKeyExA( HKEY_LOCAL_MACHINE, "Software\\TuxBlox", 0, NULL, 0,
+    err = RegCreateKeyExA( HKEY_LOCAL_MACHINE, "Software\\Wine", 0, NULL, 0,
                            KEY_WOW64_32KEY | KEY_ALL_ACCESS, NULL, &key, NULL );
     ok( err == ERROR_SUCCESS, "RegCreateKeyExA failed: %lu\n", err );
     check_key_value( key, "Winetest", 0, 32 );
@@ -3968,7 +3968,7 @@ static void test_deleted_key(void)
     LONG res;
 
     /* Open the test key, then delete it while it's open */
-    RegOpenKeyA( HKEY_CURRENT_USER, "Software\\TuxBlox\\Test", &hkey );
+    RegOpenKeyA( HKEY_CURRENT_USER, "Software\\Wine\\Test", &hkey );
 
     delete_key( hkey_main );
 

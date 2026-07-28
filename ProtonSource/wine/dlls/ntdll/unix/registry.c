@@ -1277,7 +1277,7 @@ NTSTATUS WINAPI NtQueryLicenseValue( const UNICODE_STRING *name, ULONG *type,
 
     InitializeObjectAttributes( &attr, &keyW, 0, 0, NULL );
 
-    /* @@ Wine registry key: HKLM\Software\TuxBlox\LicenseInformation */
+    /* @@ Wine registry key: HKLM\Software\Wine\LicenseInformation */
     if (!NtOpenKey( &key, KEY_READ, &attr ))
     {
         status = NtQueryValueKey( key, name, KeyValuePartialInformation, info, info_length, &count );

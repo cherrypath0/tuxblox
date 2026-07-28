@@ -1456,7 +1456,7 @@ static void test_redirection(void)
     }
 
     InitializeObjectAttributes( &attr, &str, OBJ_CASE_INSENSITIVE, 0, NULL );
-    pRtlInitUnicodeString( &str, L"\\Registry\\Machine\\Software\\TuxBlox" );
+    pRtlInitUnicodeString( &str, L"\\Registry\\Machine\\Software\\Wine" );
     status = pNtCreateKey( &root64, KEY_WOW64_64KEY | KEY_ALL_ACCESS, &attr, 0, 0, 0, 0 );
     if (status == STATUS_ACCESS_DENIED)
     {
@@ -1469,7 +1469,7 @@ static void test_redirection(void)
     status = pNtCreateKey( &root32, KEY_WOW64_32KEY | KEY_ALL_ACCESS, &attr, 0, 0, 0, 0 );
     ok( status == STATUS_SUCCESS, "NtCreateKey failed: 0x%08lx\n", status );
 
-    pRtlInitUnicodeString( &str, L"\\Registry\\Machine\\Software\\TuxBlox\\Winetest" );
+    pRtlInitUnicodeString( &str, L"\\Registry\\Machine\\Software\\Wine\\Winetest" );
     status = pNtCreateKey( &key64, KEY_WOW64_64KEY | KEY_ALL_ACCESS, &attr, 0, 0, 0, 0 );
     ok( status == STATUS_SUCCESS, "NtCreateKey failed: 0x%08lx\n", status );
 
@@ -1530,10 +1530,10 @@ static void test_redirection(void)
     check_key_value( key, "Wow6432Node\\Wine\\Winetest", KEY_WOW64_32KEY, ptr_size == 32 ? 0 : 32 );
     pNtClose( key );
 
-    check_key_value( 0, "\\Registry\\Machine\\Software\\TuxBlox\\Winetest", 0, ptr_size );
+    check_key_value( 0, "\\Registry\\Machine\\Software\\Wine\\Winetest", 0, ptr_size );
     check_key_value( 0, "\\Registry\\Machine\\Software\\Wow6432Node\\Wine\\Winetest", 0, 32 );
-    check_key_value( 0, "\\Registry\\Machine\\Software\\TuxBlox\\Winetest", KEY_WOW64_64KEY, 64 );
-    check_key_value( 0, "\\Registry\\Machine\\Software\\TuxBlox\\Winetest", KEY_WOW64_32KEY, ptr_size );
+    check_key_value( 0, "\\Registry\\Machine\\Software\\Wine\\Winetest", KEY_WOW64_64KEY, 64 );
+    check_key_value( 0, "\\Registry\\Machine\\Software\\Wine\\Winetest", KEY_WOW64_32KEY, ptr_size );
     check_key_value( 0, "\\Registry\\Machine\\Software\\Wow6432Node\\Wine\\Winetest", KEY_WOW64_64KEY, 32 );
     check_key_value( 0, "\\Registry\\Machine\\Software\\Wow6432Node\\Wine\\Winetest", KEY_WOW64_32KEY, 32 );
 
@@ -1581,7 +1581,7 @@ static void test_redirection(void)
     check_key_value( key, "Winetest", KEY_WOW64_32KEY, 32 );
     pNtClose( key );
 
-    pRtlInitUnicodeString( &str, L"\\Registry\\Machine\\Software\\TuxBlox" );
+    pRtlInitUnicodeString( &str, L"\\Registry\\Machine\\Software\\Wine" );
     status = pNtCreateKey( &key, KEY_ALL_ACCESS, &attr, 0, 0, 0, 0 );
     ok( status == STATUS_SUCCESS, "NtCreateKey failed: 0x%08lx\n", status );
     check_key_value( key, "Winetest", 0, ptr_size );

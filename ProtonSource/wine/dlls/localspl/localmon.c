@@ -420,7 +420,7 @@ static BOOL WINAPI localmon_AddPortExW(LPWSTR pName, DWORD level, LPBYTE pBuffer
  *|  Windows >NT4.0 does not check for illegal levels (TRUE is returned)
  *
  * ToDo
- *   "HCU\Software\TuxBlox\Spooler\<portname>" - redirection
+ *   "HCU\Software\Wine\Spooler\<portname>" - redirection
  *
  */
 static BOOL WINAPI localmon_EnumPortsW(LPWSTR pName, DWORD level, LPBYTE pPorts,

@@ -3895,19 +3895,19 @@ static void test_appsearch(void)
     create_reglocator_table( hdb );
     add_reglocator_entry( hdb, "NewSignature1", 0, "htmlfile\\shell\\open\\command", "", 1 );
 
-    r = RegCreateKeyExA(HKEY_CURRENT_USER, "Software\\TuxBloxtest_msi", 0, NULL, 0, KEY_ALL_ACCESS, NULL, &hkey, NULL);
+    r = RegCreateKeyExA(HKEY_CURRENT_USER, "Software\\Winetest_msi", 0, NULL, 0, KEY_ALL_ACCESS, NULL, &hkey, NULL);
     ok( r == ERROR_SUCCESS, "Could not create key: %d.\n", r );
     r = RegSetValueExA(hkey, NULL, 0, REG_EXPAND_SZ, (const BYTE*)reg_expand_value, strlen(reg_expand_value) + 1);
     ok( r == ERROR_SUCCESS, "Could not set key value: %d.\n", r);
     RegCloseKey(hkey);
-    add_reglocator_entry( hdb, "NewSignature3", 1, "Software\\TuxBloxtest_msi", "", msidbLocatorTypeFileName );
+    add_reglocator_entry( hdb, "NewSignature3", 1, "Software\\Winetest_msi", "", msidbLocatorTypeFileName );
 
-    r = RegCreateKeyExA(HKEY_LOCAL_MACHINE, "Software\\TuxBloxtest_msi", 0, NULL, 0, KEY_ALL_ACCESS|KEY_WOW64_32KEY,
+    r = RegCreateKeyExA(HKEY_LOCAL_MACHINE, "Software\\Winetest_msi", 0, NULL, 0, KEY_ALL_ACCESS|KEY_WOW64_32KEY,
                         NULL, &hkey, NULL);
     if (r == ERROR_ACCESS_DENIED)
     {
         skip("insufficient rights\n");
-        RegDeleteKeyA(HKEY_CURRENT_USER, "Software\\TuxBloxtest_msi");
+        RegDeleteKeyA(HKEY_CURRENT_USER, "Software\\Winetest_msi");
         MsiCloseHandle(hdb);
         DeleteFileA(msifile);
         return;
@@ -3917,15 +3917,15 @@ static void test_appsearch(void)
     r = reg_set_str(hkey, NULL, "c:\\windows\\system32\\notepad.exe");
     ok( r == ERROR_SUCCESS, "Could not set key value: %d.\n", r);
     RegCloseKey(hkey);
-    add_reglocator_entry( hdb, "NewSignature4", 2, "Software\\TuxBloxtest_msi", "", msidbLocatorTypeFileName );
+    add_reglocator_entry( hdb, "NewSignature4", 2, "Software\\Winetest_msi", "", msidbLocatorTypeFileName );
 
-    r = RegCreateKeyExA(HKEY_LOCAL_MACHINE, "Software\\TuxBloxtest_msi", 0, NULL, 0, KEY_ALL_ACCESS|KEY_WOW64_64KEY,
+    r = RegCreateKeyExA(HKEY_LOCAL_MACHINE, "Software\\Winetest_msi", 0, NULL, 0, KEY_ALL_ACCESS|KEY_WOW64_64KEY,
                         NULL, &hkey, NULL);
     ok( r == ERROR_SUCCESS, "Could not create key: %d.\n", r );
     r = reg_set_str(hkey, NULL, "c:\\windows\\system32\\notepad.exe");
     ok( r == ERROR_SUCCESS, "Could not set key value: %d.\n", r);
     RegCloseKey(hkey);
-    add_reglocator_entry( hdb, "NewSignature5", 2, "Software\\TuxBloxtest_msi", "",
+    add_reglocator_entry( hdb, "NewSignature5", 2, "Software\\Winetest_msi", "",
                           msidbLocatorTypeFileName|msidbLocatorType64bit );
 
     create_drlocator_table( hdb );
@@ -3982,9 +3982,9 @@ static void test_appsearch(void)
 done:
     MsiCloseHandle( hpkg );
     DeleteFileA(msifile);
-    RegDeleteKeyA(HKEY_CURRENT_USER, "Software\\TuxBloxtest_msi");
-    RegDeleteKeyExA(HKEY_LOCAL_MACHINE, "Software\\TuxBloxtest_msi", KEY_WOW64_32KEY, 0);
-    RegDeleteKeyExA(HKEY_LOCAL_MACHINE, "Software\\TuxBloxtest_msi", KEY_WOW64_64KEY, 0);
+    RegDeleteKeyA(HKEY_CURRENT_USER, "Software\\Winetest_msi");
+    RegDeleteKeyExA(HKEY_LOCAL_MACHINE, "Software\\Winetest_msi", KEY_WOW64_32KEY, 0);
+    RegDeleteKeyExA(HKEY_LOCAL_MACHINE, "Software\\Winetest_msi", KEY_WOW64_64KEY, 0);
 }
 
 static void test_appsearch_complocator(void)
@@ -4254,7 +4254,7 @@ static void test_appsearch_reglocator(void)
 
     DeleteFileA("test.dll");
 
-    res = RegCreateKeyA(HKEY_CLASSES_ROOT, "Software\\TuxBlox", &classes);
+    res = RegCreateKeyA(HKEY_CLASSES_ROOT, "Software\\Wine", &classes);
     if (res == ERROR_ACCESS_DENIED)
     {
         skip("Not enough rights to perform tests\n");
@@ -4265,14 +4265,14 @@ static void test_appsearch_reglocator(void)
     res = reg_set_str(classes, "Value1", "regszdata");
     ok(res == ERROR_SUCCESS, "Expected ERROR_SUCCESS, got %ld\n", res);
 
-    res = RegCreateKeyA(HKEY_CURRENT_USER, "Software\\TuxBlox", &hkcu);
+    res = RegCreateKeyA(HKEY_CURRENT_USER, "Software\\Wine", &hkcu);
     ok(res == ERROR_SUCCESS, "Expected ERROR_SUCCESS, got %ld\n", res);
 
     res = reg_set_str(hkcu, "Value1", "regszdata");
     ok(res == ERROR_SUCCESS, "Expected ERROR_SUCCESS, got %ld\n", res);
 
     users = 0;
-    res = RegCreateKeyA(HKEY_USERS, "S-1-5-18\\Software\\TuxBlox", &users);
+    res = RegCreateKeyA(HKEY_USERS, "S-1-5-18\\Software\\Wine", &users);
     ok(res == ERROR_SUCCESS, "Expected ERROR_SUCCESS, got %ld\n", res);
 
     if (res == ERROR_SUCCESS)
@@ -4281,7 +4281,7 @@ static void test_appsearch_reglocator(void)
         ok(res == ERROR_SUCCESS, "Expected ERROR_SUCCESS, got %ld\n", res);
     }
 
-    res = RegCreateKeyA(HKEY_LOCAL_MACHINE, "Software\\TuxBlox", &hklm);
+    res = RegCreateKeyA(HKEY_LOCAL_MACHINE, "Software\\Wine", &hklm);
     ok(res == ERROR_SUCCESS, "Expected ERROR_SUCCESS, got %ld\n", res);
 
     res = RegSetValueA(hklm, NULL, REG_SZ, "defvalue", 8);
@@ -4414,118 +4414,118 @@ static void test_appsearch_reglocator(void)
         type |= msidbLocatorType64bit;
 
     /* HKLM, msidbLocatorTypeRawValue, REG_SZ */
-    add_reglocator_entry(hdb, "NewSignature1", 2, "Software\\TuxBlox", "Value1", type);
+    add_reglocator_entry(hdb, "NewSignature1", 2, "Software\\Wine", "Value1", type);
 
     /* HKLM, msidbLocatorTypeRawValue, positive DWORD */
-    add_reglocator_entry(hdb, "NewSignature2", 2, "Software\\TuxBlox", "Value2", type);
+    add_reglocator_entry(hdb, "NewSignature2", 2, "Software\\Wine", "Value2", type);
 
     /* HKLM, msidbLocatorTypeRawValue, negative DWORD */
-    add_reglocator_entry(hdb, "NewSignature3", 2, "Software\\TuxBlox", "Value3", type);
+    add_reglocator_entry(hdb, "NewSignature3", 2, "Software\\Wine", "Value3", type);
 
     /* HKLM, msidbLocatorTypeRawValue, REG_EXPAND_SZ */
-    add_reglocator_entry(hdb, "NewSignature4", 2, "Software\\TuxBlox", "Value4", type);
+    add_reglocator_entry(hdb, "NewSignature4", 2, "Software\\Wine", "Value4", type);
 
     /* HKLM, msidbLocatorTypeRawValue, REG_EXPAND_SZ */
-    add_reglocator_entry(hdb, "NewSignature5", 2, "Software\\TuxBlox", "Value5", type);
+    add_reglocator_entry(hdb, "NewSignature5", 2, "Software\\Wine", "Value5", type);
 
     /* HKLM, msidbLocatorTypeRawValue, REG_MULTI_SZ */
-    add_reglocator_entry(hdb, "NewSignature6", 2, "Software\\TuxBlox", "Value6", type);
+    add_reglocator_entry(hdb, "NewSignature6", 2, "Software\\Wine", "Value6", type);
 
     /* HKLM, msidbLocatorTypeRawValue, REG_BINARY */
-    add_reglocator_entry(hdb, "NewSignature7", 2, "Software\\TuxBlox", "Value7", type);
+    add_reglocator_entry(hdb, "NewSignature7", 2, "Software\\Wine", "Value7", type);
 
     /* HKLM, msidbLocatorTypeRawValue, REG_SZ first char is # */
-    add_reglocator_entry(hdb, "NewSignature8", 2, "Software\\TuxBlox", "Value8", type);
+    add_reglocator_entry(hdb, "NewSignature8", 2, "Software\\Wine", "Value8", type);
 
     type = msidbLocatorTypeFileName;
     if (is_64bit)
         type |= msidbLocatorType64bit;
 
     /* HKLM, msidbLocatorTypeFileName, signature, file exists */
-    add_reglocator_entry(hdb, "NewSignature9", 2, "Software\\TuxBlox", "Value9", type);
+    add_reglocator_entry(hdb, "NewSignature9", 2, "Software\\Wine", "Value9", type);
 
     /* HKLM, msidbLocatorTypeFileName, signature, file does not exist */
-    add_reglocator_entry(hdb, "NewSignature10", 2, "Software\\TuxBlox", "Value10", type);
+    add_reglocator_entry(hdb, "NewSignature10", 2, "Software\\Wine", "Value10", type);
 
     /* HKLM, msidbLocatorTypeFileName, no signature */
-    add_reglocator_entry(hdb, "NewSignature11", 2, "Software\\TuxBlox", "Value9", type);
+    add_reglocator_entry(hdb, "NewSignature11", 2, "Software\\Wine", "Value9", type);
 
     type = msidbLocatorTypeDirectory;
     if (is_64bit)
         type |= msidbLocatorType64bit;
 
     /* HKLM, msidbLocatorTypeDirectory, no signature, file exists */
-    add_reglocator_entry(hdb, "NewSignature12", 2, "Software\\TuxBlox", "Value9", type);
+    add_reglocator_entry(hdb, "NewSignature12", 2, "Software\\Wine", "Value9", type);
 
     /* HKLM, msidbLocatorTypeDirectory, no signature, directory exists */
-    add_reglocator_entry(hdb, "NewSignature13", 2, "Software\\TuxBlox", "Value11", type);
+    add_reglocator_entry(hdb, "NewSignature13", 2, "Software\\Wine", "Value11", type);
 
     /* HKLM, msidbLocatorTypeDirectory, signature, file exists */
-    add_reglocator_entry(hdb, "NewSignature14", 2, "Software\\TuxBlox", "Value9", type);
+    add_reglocator_entry(hdb, "NewSignature14", 2, "Software\\Wine", "Value9", type);
 
     type = msidbLocatorTypeRawValue;
     if (is_64bit)
         type |= msidbLocatorType64bit;
 
     /* HKCR, msidbLocatorTypeRawValue, REG_SZ */
-    add_reglocator_entry(hdb, "NewSignature15", 0, "Software\\TuxBlox", "Value1", type);
+    add_reglocator_entry(hdb, "NewSignature15", 0, "Software\\Wine", "Value1", type);
 
     /* HKCU, msidbLocatorTypeRawValue, REG_SZ */
-    add_reglocator_entry(hdb, "NewSignature16", 1, "Software\\TuxBlox", "Value1", type);
+    add_reglocator_entry(hdb, "NewSignature16", 1, "Software\\Wine", "Value1", type);
 
     /* HKU, msidbLocatorTypeRawValue, REG_SZ */
-    add_reglocator_entry(hdb, "NewSignature17", 3, "S-1-5-18\\Software\\TuxBlox", "Value1", type);
+    add_reglocator_entry(hdb, "NewSignature17", 3, "S-1-5-18\\Software\\Wine", "Value1", type);
 
     /* HKLM, msidbLocatorTypeRawValue, REG_SZ, NULL Name */
-    add_reglocator_entry(hdb, "NewSignature18", 2, "Software\\TuxBlox", "", type);
+    add_reglocator_entry(hdb, "NewSignature18", 2, "Software\\Wine", "", type);
 
     /* HKLM, msidbLocatorTypeRawValue, REG_SZ, key does not exist */
     add_reglocator_entry(hdb, "NewSignature19", 2, "Software\\IDontExist", "", type);
 
     /* HKLM, msidbLocatorTypeRawValue, REG_SZ, value is empty */
-    add_reglocator_entry(hdb, "NewSignature20", 2, "Software\\TuxBlox", "Value12", type);
+    add_reglocator_entry(hdb, "NewSignature20", 2, "Software\\Wine", "Value12", type);
 
     type = msidbLocatorTypeFileName;
     if (is_64bit)
         type |= msidbLocatorType64bit;
 
     /* HKLM, msidbLocatorTypeFileName, signature, file exists w/ version */
-    add_reglocator_entry(hdb, "NewSignature21", 2, "Software\\TuxBlox", "Value13", type);
+    add_reglocator_entry(hdb, "NewSignature21", 2, "Software\\Wine", "Value13", type);
 
     /* HKLM, msidbLocatorTypeFileName, file exists w/ version, version > max */
-    add_reglocator_entry(hdb, "NewSignature22", 2, "Software\\TuxBlox", "Value14", type);
+    add_reglocator_entry(hdb, "NewSignature22", 2, "Software\\Wine", "Value14", type);
 
     /* HKLM, msidbLocatorTypeFileName, file exists w/ version, sig->name ignored */
-    add_reglocator_entry(hdb, "NewSignature23", 2, "Software\\TuxBlox", "Value15", type);
+    add_reglocator_entry(hdb, "NewSignature23", 2, "Software\\Wine", "Value15", type);
 
     /* HKLM, msidbLocatorTypeFileName, no signature, directory exists */
-    add_reglocator_entry(hdb, "NewSignature24", 2, "Software\\TuxBlox", "Value11", type);
+    add_reglocator_entry(hdb, "NewSignature24", 2, "Software\\Wine", "Value11", type);
 
     /* HKLM, msidbLocatorTypeFileName, no signature, file does not exist */
-    add_reglocator_entry(hdb, "NewSignature25", 2, "Software\\TuxBlox", "Value10", type);
+    add_reglocator_entry(hdb, "NewSignature25", 2, "Software\\Wine", "Value10", type);
 
     type = msidbLocatorTypeDirectory;
     if (is_64bit)
         type |= msidbLocatorType64bit;
 
     /* HKLM, msidbLocatorTypeDirectory, signature, directory exists */
-    add_reglocator_entry(hdb, "NewSignature26", 2, "Software\\TuxBlox", "Value11", type);
+    add_reglocator_entry(hdb, "NewSignature26", 2, "Software\\Wine", "Value11", type);
 
     /* HKLM, msidbLocatorTypeDirectory, signature, file does not exist */
-    add_reglocator_entry(hdb, "NewSignature27", 2, "Software\\TuxBlox", "Value10", type);
+    add_reglocator_entry(hdb, "NewSignature27", 2, "Software\\Wine", "Value10", type);
 
     /* HKLM, msidbLocatorTypeDirectory, no signature, file does not exist */
-    add_reglocator_entry(hdb, "NewSignature28", 2, "Software\\TuxBlox", "Value10", type);
+    add_reglocator_entry(hdb, "NewSignature28", 2, "Software\\Wine", "Value10", type);
 
     type = msidbLocatorTypeFileName;
     if (is_64bit)
         type |= msidbLocatorType64bit;
 
     /* HKLM, msidbLocatorTypeFile, file exists, in quotes */
-    add_reglocator_entry(hdb, "NewSignature29", 2, "Software\\TuxBlox", "Value16", type);
+    add_reglocator_entry(hdb, "NewSignature29", 2, "Software\\Wine", "Value16", type);
 
     /* HKLM, msidbLocatorTypeFile, file exists, no quotes */
-    add_reglocator_entry(hdb, "NewSignature30", 2, "Software\\TuxBlox", "Value17", type);
+    add_reglocator_entry(hdb, "NewSignature30", 2, "Software\\Wine", "Value17", type);
 
     create_signature_table(hdb);
     add_signature_entry(hdb, "'NewSignature9', 'FileName1', '', '', '', '', '', '', ''");

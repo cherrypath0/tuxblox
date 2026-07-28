@@ -184,7 +184,7 @@ BOOL get_device_name_from_guid( const GUID *guid, char **name, EDataFlow *flow )
         return TRUE;
     }
 
-    swprintf( key_name, ARRAY_SIZE(key_name), L"Software\\TuxBlox\\Drivers\\%s\\devices", drvs.module_name );
+    swprintf( key_name, ARRAY_SIZE(key_name), L"Software\\Wine\\Drivers\\%s\\devices", drvs.module_name );
     if (RegOpenKeyExW( HKEY_CURRENT_USER, key_name, 0, KEY_READ | KEY_WOW64_64KEY, &key )) return FALSE;
 
     for (;;)
@@ -227,7 +227,7 @@ static void get_device_guid( EDataFlow flow, const char *dev_name, GUID *guid )
     LSTATUS status;
     int len;
 
-    len = swprintf( name, ARRAY_SIZE(name), L"Software\\TuxBlox\\Drivers\\%s\\devices\\%u,",
+    len = swprintf( name, ARRAY_SIZE(name), L"Software\\Wine\\Drivers\\%s\\devices\\%u,",
                     drvs.module_name, flow == eCapture );
     MultiByteToWideChar( CP_UNIXCP, 0, dev_name, -1, name + len, ARRAY_SIZE(name) - len );
     status = RegCreateKeyExW( HKEY_CURRENT_USER, name, 0, NULL, 0,

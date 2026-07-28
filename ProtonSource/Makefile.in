@@ -586,7 +586,7 @@ $(eval $(call rules-cmake,vosk,aarch64,unix))
 ##
 
 # HACK: glib 2.0 in the runtime is old and causes a lot of errors with a newer GCC
-WINE_CFLAGS += -Wno-discarded-qualifiers
+WINE_CFLAGS += -Wno-discarded-qualifiers -std=gnu11
 
 WINE_SOURCE_ARGS = \
   --exclude configure \
@@ -1412,7 +1412,6 @@ $(DIST_COPY_TARGETS): | $(DST_DIR)
 all-dist: $(DIST_COPY_TARGETS)
 
 all-dist:
-	echo `date '+%s'` `GIT_DIR=$(abspath $(SRCDIR)/.git) git describe --tags` > $(DIST_VERSION)
 
 
 ##

@@ -26,14 +26,35 @@
 
 #define COBJMACROS
 #include "wine/debug.h"
+#include "wine/unixlib.h"
 #include "pidl.h"
 #include "shell32_main.h"
 #include "commoncontrols.h"
 #include "shellapi.h"
 #include "shresdef.h"
 #include "shellfolder.h"
+#include "unixlib.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(shell);
+
+/* Tries the host desktop's native folder picker via xdg-desktop-portal.
+ * Returns TRUE if the portal was reachable at all (caller then checks
+ * whether out_path[0] got filled in vs. the user cancelling), FALSE if
+ * it wasn't (caller should fall back to the native dialog). */
+static BOOL shell32_portal_pick_folder(const WCHAR *title, const WCHAR *initial_dir,
+                                        WCHAR *out_path, SIZE_T out_path_len)
+{
+    struct portal_pick_folder_params params;
+
+    out_path[0] = 0;
+    params.title = title;
+    params.initial_dir = initial_dir;
+    params.out_path = out_path;
+    params.out_path_len = out_path_len;
+
+    if (SHELL32_UNIX_CALL(portal_pick_folder, &params)) return FALSE;
+    return TRUE;
+}
 
 #define SHV_CHANGE_NOTIFY (WM_USER + 0x1111)
 
@@ -1217,6 +1238,25 @@ LPITEMIDLIST WINAPI SHBrowseForFolderW (LPBROWSEINFOW lpbi)
     HRESULT hr;
     const WCHAR * templateName;
     INITCOMMONCONTROLSEX icex;
+    WCHAR path[MAX_PATH];
+
+    /* Only try the native portal picker when there's no live callback
+     * (BFFM_* notifications, custom initial selection, etc. all rely on
+     * the tree-view dialog's window proc and have no portal equivalent). */
+    if (lpbi->lpfn == NULL &&
+        shell32_portal_pick_folder(L"Select Folder", NULL, path, ARRAY_SIZE(path)))
+    {
+        if (!path[0])
+        {
+            TRACE("portal reachable, user cancelled\n");
+            return NULL;
+        }
+
+        TRACE("portal picked %s\n", debugstr_w(path));
+        if (lpbi->pszDisplayName)
+            lstrcpynW(lpbi->pszDisplayName, path, MAX_PATH);
+        return SHSimpleIDListFromPathW(path);
+    }
 
     info.hWnd = 0;
     info.pidlRet = NULL;

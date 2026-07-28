@@ -58,19 +58,20 @@ BOOL WINAPI DllMain( HINSTANCE hinst, DWORD reason, LPVOID reserved )
 /***********************************************************************
  *           MulDiv   (kernelbase.@)
  */
-/* Original Wine implementation
 INT WINAPI MulDiv( INT a, INT b, INT c )
 {
     LONGLONG ret;
 
     if (!c) return -1;
 
+    /* We want to deal with a positive divisor to simplify the logic. */
     if (c < 0)
     {
         a = -a;
         c = -c;
     }
 
+    /* If the result is positive, we "add" to round. else, we subtract to round. */
     if ((a < 0 && b < 0) || (a >= 0 && b >= 0))
         ret = (((LONGLONG)a * b) + (c / 2)) / c;
     else
@@ -78,51 +79,6 @@ INT WINAPI MulDiv( INT a, INT b, INT c )
 
     if (ret > 2147483647 || ret < -2147483647) return -1;
     return ret;
-}
-ShadyWine implementation */
-INT WINAPI MulDiv(INT a, INT b, INT c)
-{
-    ULONGLONG prod, q;
-    UINT ua, ub, uc;
-    int sign;
-    LONGLONG ret;
-
-    if (!c)
-    {
-        SetLastError(ERROR_ARITHMETIC_OVERFLOW);
-        return -1;
-    }
-
-    /* Windows computes the sign from all three inputs, then works with
-     * unsigned magnitudes. This avoids the INT_MIN negation overflow. */
-    sign = (a < 0) ^ (b < 0) ^ (c < 0);
-
-    /* Use 64-bit negation to get absolute values without INT_MIN overflow. */
-    ua = a < 0 ? (UINT)(-(INT64)a) : (UINT)a;
-    ub = b < 0 ? (UINT)(-(INT64)b) : (UINT)b;
-    uc = c < 0 ? (UINT)(-(INT64)c) : (UINT)c;
-
-    /* Windows bug: the original 16-bit assembly used 'sar' (arithmetic shift)
-     * instead of 'shr' (logical shift) for the rounding term. When uc is
-     * 0x80000000, sar gives 0xC0000000 instead of 0x40000000. */
-    UINT round = (uc >> 1) | (uc & 0x80000000);
-
-    prod = (ULONGLONG)ua * ub + round;
-    q = prod / uc;
-
-    /* Windows overflow check: the unsigned quotient must be < 0x80000000.
-     * This means INT_MIN (-2147483648) is also treated as overflow. */
-    if (q >= 0x80000000)
-    {
-        SetLastError(ERROR_ARITHMETIC_OVERFLOW);
-        return -1;
-    }
-
-    ret = (LONGLONG)q;
-    if (sign)
-        ret = -ret;
-
-    return (INT)ret;
 }
 
 /***********************************************************************

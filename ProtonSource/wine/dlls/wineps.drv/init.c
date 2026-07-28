@@ -102,7 +102,7 @@ static BOOL import_ntf_from_reg(void)
     DWORD len;
     BOOL ret;
 
-    if (RegOpenKeyW(HKEY_CURRENT_USER, L"Software\\TuxBlox\\Fonts", &hkey))
+    if (RegOpenKeyW(HKEY_CURRENT_USER, L"Software\\Wine\\Fonts", &hkey))
         return TRUE;
     status = RegQueryValueExW(hkey, L"NTFFile", NULL, NULL, (BYTE *)path, &len);
     RegCloseKey(hkey);

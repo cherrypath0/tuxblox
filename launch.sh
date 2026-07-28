@@ -6,16 +6,18 @@ mkdir -p logs
 export STEAM_COMPAT_DATA_PATH="$(pwd)/runtime"
 export STEAM_COMPAT_CLIENT_INSTALL_PATH="$HOME/.local/share/tuxblox"
 export PROTON_LOG_DIR="$(pwd)/logs"
-export PROTON_LOG=1 
-export PROTON_LOG_LEVEL=debug 
 export DXVK_ASYNC=1
-export WINEDEBUG=+relay,+seh,+loaddll,+timestamp,+pid
 
 choice="$1"
 if [ -z "$choice" ]; then
     echo "Which do you want to launch? [player/studio]"
     read -r choice
 fi
+
+# Set when invoked as a roblox-player:/roblox-studio: URL handler (see
+# install-handler.sh); forwarded to the exe verbatim, same as the real
+# Windows launcher would receive it via the registry's %1.
+protocolUri="$2"
 
 userAgent="TuxBlox-Client/1.0"
 
@@ -53,7 +55,7 @@ case "$choice" in
         ;;
     w|wd|W|WD|shady|winedetector|wine|shadywine)
         exePath="otherapps/winescore.exe"
-        label="WineScore"
+        label="WineScore"++
         ;;
     *) exit 1 ;;
 esac
@@ -67,6 +69,11 @@ fi
 
 echo "Launching $label from: $exePath"
 echo "==== START OF OUTPUT ===="
-"$(pwd)/ProtonBuild/dist/proton" run "$exePath"
+if [ -n "$protocolUri" ]; then
+    "$(pwd)/ProtonBuild/dist/proton" run "$exePath" "$protocolUri"
+else
+    "$(pwd)/ProtonBuild/dist/proton" run "$exePath"
+fi
+exitCode=$?
 echo "====  END OF OUTPUT  ===="
-echo "Exit code: $?"
+echo "Exit code: $exitCode"

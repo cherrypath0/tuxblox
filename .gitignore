@@ -6,6 +6,10 @@ production/
 builds/
 logs/
 otherapps/
+build/
+
+launcher/build/
+launcher/third_party/
 
 .env
 
@@ -13,6 +17,9 @@ push.sh
 production.sh
 
 __pycache__/
+
+installer/build/
+installer/third_party/
 
 *.log
 *.pyc
@@ -25,7 +32,12 @@ ProtonSource/dist
 ProtonSource/dist-*
 ProtonSource/obj-*
 ProtonSource/syn-*
+protonbuild-*.tar.gz
 
-ProtonSource/.vagrant/
-ProtonSource/vagrant_share/
-ProtonSource/build/
+.claude/
+.superpowers/
+docs/
+plan/
+CLAUDE.md
+
+/*.tar.gz

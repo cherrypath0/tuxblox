@@ -930,7 +930,21 @@ int WINAPI wWinMain(HINSTANCE hinstance,
         ERR( "Could not initialize COM\n" );
         ExitProcess(EXIT_FAILURE);
     }
-    if(parameters.root[0] && !PathIsDirectoryW(parameters.root))
+    if (parameters.root[0] && PathIsDirectoryW(parameters.root))
+    {
+        /* TuxBlox: apps commonly invoke "explorer.exe /select,<path>" or
+         * "/root,<path>" directly rather than going through ShellExecute,
+         * which would otherwise bypass shlexec.c's winebrowser redirect and
+         * always open our own GUI below. Send real directories through
+         * winebrowser.exe (host xdg-open) here too. */
+        WCHAR quoted[MAX_PATH + 2];
+        quoted[0] = '"';
+        lstrcpyW(quoted + 1, parameters.root);
+        lstrcatW(quoted, L"\"");
+        if (ShellExecuteW(NULL, L"open", L"winebrowser.exe", quoted, NULL, SW_SHOWDEFAULT) > (HINSTANCE)32)
+            ExitProcess(EXIT_SUCCESS);
+    }
+    else if(parameters.root[0] && !PathIsDirectoryW(parameters.root))
         if(ShellExecuteW(NULL,NULL,parameters.root,NULL,NULL,SW_SHOWDEFAULT) > (HINSTANCE)32)
             ExitProcess(EXIT_SUCCESS);
     init_info.dwSize = sizeof(INITCOMMONCONTROLSEX);

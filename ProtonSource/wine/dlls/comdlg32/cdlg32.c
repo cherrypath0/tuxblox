@@ -32,10 +32,12 @@
 #include "commdlg.h"
 #include "cderr.h"
 #include "wine/debug.h"
+#include "wine/unixlib.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(commdlg);
 
 #include "cdlg.h"
+#include "unixlib.h"
 
 
 HINSTANCE COMDLG32_hInstance = 0;
@@ -72,6 +74,8 @@ BOOL WINAPI DllMain(HINSTANCE hInstance, DWORD Reason, LPVOID Reserved)
 		COMDLG32_hActCtx = CreateActCtxW(&actctx);
 		if (COMDLG32_hActCtx == INVALID_HANDLE_VALUE)
 			ERR("failed to create activation context, last error %lu\n", GetLastError());
+
+		if (__wine_init_unix_call()) __wine_unixlib_handle = 0;
 
 		break;
 	}

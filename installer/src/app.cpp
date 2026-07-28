@@ -1,0 +1,163 @@
+#include "app.h"
+#include "manifest.h"
+#include "install_paths.h"
+#include "installer_steps.h"
+#include "desktop_shortcut.h"
+#include "copyright_file.h"
+#include <cstdlib>
+#include <filesystem>
+#include <string>
+#include <system_error>
+
+namespace fs = std::filesystem;
+
+namespace tuxblox {
+
+namespace {
+constexpr uint64_t kMinFreeBytes = 3ULL * 1024 * 1024 * 1024; // 3GB, per README
+constexpr const char* kManifestUrl = "https://assetdelivery.tuxblox.net/pkg/manifest.json";
+
+// Peak disk usage during install is roughly (compressed download + fully
+// extracted tree) coexisting until the tarball is deleted post-extraction.
+// 2.5x the manifest's declared artifact sizes is a conservative estimate of
+// that peak; the fixed headroom covers the prefix/runtime scratch space.
+// NOTE: these constants should be re-tuned once real artifact sizes are
+// published -- the manifest's size_bytes are placeholders today.
+constexpr double kPeakUsageFactor = 2.5;
+constexpr uint64_t kHeadroomBytes = 500ULL * 1024 * 1024; // 500MB
+
+// Best-effort cleanup of a partial install tree. Deliberately uses the
+// non-throwing overload: if cleanup fails (e.g. permissions), we must not
+// let that exception escape and overwrite the real install-failure message.
+//
+// NEVER called when isUpgrade is true: runInstall()'s own catch handler
+// already removes whatever partial temp files *this run* created
+// (.protonbuild.tar.gz.part etc.), and that is the full extent of safe
+// cleanup on an upgrade -- wiping `dir` here would destroy the user's
+// existing install (including runtime/, which holds their Roblox login
+// session) over what might be nothing more than a network hiccup.
+void cleanupBestEffort(const std::string& dir) {
+    std::error_code ec;
+    fs::remove_all(dir, ec);
+}
+} // namespace
+
+App::App() = default;
+
+App::~App() {
+    if (thread_.joinable()) {
+        thread_.join();
+    }
+}
+
+void App::start() {
+    thread_ = std::thread(&App::run, this);
+}
+
+void App::cancel() {
+    cancelRequested_.store(true);
+}
+
+AppSnapshot App::snapshot() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return snapshot_;
+}
+
+bool App::readyToLaunch() const {
+    return readyToLaunch_.load();
+}
+
+std::string App::launcherPath() const {
+    return launcherPath_;
+}
+
+void App::run() {
+    auto setPhase = [&](AppPhase phase) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        snapshot_.phase = phase;
+    };
+    auto setError = [&](const std::string& message) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        snapshot_.phase = AppPhase::Error;
+        snapshot_.errorMessage = message;
+    };
+
+    try {
+        setPhase(AppPhase::Init);
+
+        const char* home = std::getenv("HOME");
+        if (!home || home[0] == '\0') {
+            setError("HOME environment variable is not set.");
+            return;
+        }
+
+        const std::string dir = installDir();
+        // An existing install directory means this run is an upgrade in
+        // place, not a fresh install -- runs the exact same pipeline, just
+        // never wipes anything outside ProtonBuild/ (and only after the
+        // replacement is verified), and shows "Upgrading ..." wording
+        // instead of refusing outright.
+        const bool isUpgrade = fs::exists(dir);
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            snapshot_.isUpgrade = isUpgrade;
+        }
+        if (!hasEnoughDiskSpace(home, kMinFreeBytes)) {
+            setError("Not enough free disk space. TuxBlox requires at least 3GB free.");
+            return;
+        }
+        if (cancelRequested_.load()) return;
+
+        setPhase(AppPhase::FetchingManifest);
+        std::string json = fetchManifestJson(kManifestUrl, &cancelRequested_);
+        Manifest manifest = parseManifest(json);
+        if (cancelRequested_.load()) return;
+
+        // Second, precise disk-space check now that the manifest gives us the
+        // real artifact sizes. (The flat kMinFreeBytes check above still runs
+        // first as a cheap pre-network rejection.)
+        const uint64_t artifactBytes =
+            manifest.protonbuild.sizeBytes + manifest.launcher.sizeBytes + manifest.installer.sizeBytes;
+        const uint64_t requiredBytes =
+            static_cast<uint64_t>(static_cast<double>(artifactBytes) * kPeakUsageFactor) +
+            kHeadroomBytes;
+        if (!hasEnoughDiskSpace(home, requiredBytes)) {
+            setError("Not enough free disk space. This install needs approximately " +
+                     std::to_string(requiredBytes / (1024ULL * 1024ULL)) + " MB free.");
+            return;
+        }
+
+        setPhase(AppPhase::Installing);
+        auto outcome = runInstall(manifest,
+            [&](Step step, double percent) {
+                std::lock_guard<std::mutex> lock(mutex_);
+                snapshot_.currentStep = step;
+                snapshot_.overallPercent = percent;
+            },
+            &cancelRequested_, isUpgrade);
+
+        if (outcome.cancelled) {
+            if (!isUpgrade) cleanupBestEffort(dir);
+            return;
+        }
+        if (!outcome.ok) {
+            if (!isUpgrade) cleanupBestEffort(dir);
+            setError(outcome.errorMessage);
+            return;
+        }
+
+        launcherPath_ = dir + "/TuxBloxLauncher";
+        createDesktopShortcut(dir); // best-effort -- see desktop_shortcut.h
+        writeCopyrightFile(dir);    // best-effort -- see copyright_file.h
+        readyToLaunch_.store(true);
+        setPhase(AppPhase::Done);
+    } catch (const std::exception& e) {
+        // A cancel can unwind as an exception (fetchManifestJson aborts its
+        // transfer by throwing). That's user-initiated, not a failure to
+        // report -- stay silent, matching the outcome.cancelled path above.
+        if (cancelRequested_.load()) return;
+        setError(e.what());
+    }
+}
+
+} // namespace tuxblox
