@@ -42,7 +42,7 @@ By submitting a pull request, you agree that your contribution is licensed under
 
 To keep TuxBlox on solid legal and ethical footing:
 
-- **No code that circumvents, disables, or interferes with Roblox's anti-cheat or client integrity systems.** TuxBlox aims to run the official client faithfully, not to modify or defeat its protections.
+- **No anti-cheat bypasses, memory modification, or game tampering.** TuxBlox aims to run the official Roblox client by providing a high-fidelity Windows API runtime environment. We do not accept contributions that disable anti-cheat modules, inject gameplay cheats, or tamper with security checks. Platform compatibility hooks (such as Win32 API normalization, path casing fixes, or OS environment emulation) are permitted solely to ensure the official client operates as intended on Linux.
 - **No cheat, exploit, or automation tooling** (aimbots, script injection, etc.), even if framed as a "plugin" or "optional feature."
 - **No inclusion of Microsoft-owned binaries, DLLs, or other proprietary redistributables.** Any Windows API behavior should be reimplemented (Wine-style), not shipped as extracted proprietary files.
 - **No code copied from sources incompatible with GPLv3 or LGPLv2.1** (e.g. code under a "no derivatives" or source-available-but-non-OSI license) without explicit written permission from the original author, provided to maintainers.

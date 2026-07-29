@@ -5,6 +5,7 @@
 #include <SDL.h>
 #include <SDL_opengl.h>
 #include <cfloat>
+#include <cstdlib>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -339,6 +340,15 @@ Ui::Ui() = default;
 Ui::~Ui() { shutdown(); }
 
 bool Ui::init() {
+    // SDL2's X11 backend otherwise derives WM_CLASS from the on-disk binary
+    // name; desktop environments match a pinned taskbar icon's running
+    // window back to its .desktop entry via StartupWMClass == WM_CLASS, so
+    // without a fixed value here that match fails and the pin falls back to
+    // a blank icon once the window closes. Must match StartupWMClass in the
+    // .desktop entry written by ensureDesktopIntegration(). setenv() with
+    // overwrite=0 leaves an operator-provided value alone.
+    setenv("SDL_VIDEO_X11_WMCLASS", "tuxblox-launcher", 0);
+
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER) != 0) {
         return false;
     }

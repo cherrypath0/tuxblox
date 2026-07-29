@@ -1,0 +1,24 @@
+name: Forked / Modified Build
+description: You're running a fork or modified version of TuxBlox
+labels: ["wontfix", "forked-build"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Please report this to your fork's maintainers
+
+        TuxBlox developers do not maintain or triage bug reports for forks or modified
+        builds of TuxBlox. This includes builds with custom patches, third-party
+        packaging, or changes to `ProtonSource/`.
+
+        If you believe this is actually a bug in the **unmodified, official** TuxBlox
+        build, please close this and open a report using the standard "Bug Report"
+        template instead.
+
+  - type: input
+    id: forkRepo
+    attributes:
+      label: Link to the fork/modified build you're using
+      placeholder: e.g. https://github.com/someone/tuxblox-fork
+    validations:
+      required: false

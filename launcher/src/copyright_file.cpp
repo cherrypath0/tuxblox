@@ -67,21 +67,6 @@ constexpr const char* kStbLicenseTxt =
     "ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION\n"
     "WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.\n";
 
-constexpr const char* kRobloxPlayerIconHeading =
-    "Roblox Player icon\n"
-    "https://commons.wikimedia.org/wiki/File:Roblox_player_icon_black.svg\n\n";
-constexpr const char* kRobloxPlayerIconLicenseTxt =
-    "This icon consists entirely of simple geometry and is in the public\n"
-    "domain (ineligible for copyright), per its Wikimedia Commons file page.\n"
-    "\"Roblox\" and the Roblox logo are trademarks of Roblox Corporation, used\n"
-    "here only to identify the official Roblox Player application.\n";
-
-constexpr const char* kRobloxStudioIconHeading = "Roblox Studio icon\nhttps://icons8.com\n\n";
-constexpr const char* kRobloxStudioIconLicenseTxt =
-    "Icon by Icons8 (https://icons8.com). \"Roblox\" and the Roblox logo are\n"
-    "trademarks of Roblox Corporation, used here only to identify the\n"
-    "official Roblox Studio application.\n";
-
 constexpr const char* kLucideHeading =
     "Lucide icons (Home, Info, Globe, Documentation)\nhttps://lucide.dev\n\n";
 constexpr const char* kLucideLicenseTxt =
@@ -135,8 +120,6 @@ void writeCopyrightFile(const std::string& installDir) {
         writeEntry(file, kImguiHeading, kImguiLicenseTxt, kImguiLicenseTxtLen);
         writeEntry(file, kJsonHeading, kJsonLicenseTxt, kJsonLicenseTxtLen);
         writeEntry(file, kStbHeading, kStbLicenseTxt);
-        writeEntry(file, kRobloxPlayerIconHeading, kRobloxPlayerIconLicenseTxt);
-        writeEntry(file, kRobloxStudioIconHeading, kRobloxStudioIconLicenseTxt);
         writeEntry(file, kLucideHeading, kLucideLicenseTxt);
         writeEntry(file, kSimpleIconsHeading, kSimpleIconsLicenseTxt);
         file << kDivider;

@@ -74,6 +74,11 @@ void ensureDesktopIntegration(const std::string& installDir, const std::string& 
                 "Exec=\"" << launcherExePath << "\"\n"
                 "Icon=" << iconPath << "\n"
                 "Terminal=false\n"
+                // Must match the SDL_VIDEO_X11_WMCLASS value set in Ui::init()
+                // -- lets desktop environments match the running window back
+                // to this pinned launcher, so closing it doesn't leave the
+                // taskbar/dock pin showing a blank icon.
+                "StartupWMClass=tuxblox-launcher\n"
                 "Categories=Game;\n"
                 "Actions=LaunchPlayer;LaunchStudio;Documentation;\n"
                 "\n"

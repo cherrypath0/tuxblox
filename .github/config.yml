@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security Vulnerability
+    url: https://tuxblox.net/.well-known/security.txt
+    about: Please do NOT open a public issue for security vulnerabilities. See our security policy instead.
+  - name: Questions & Discussion
+    url: https://tuxblox.net/discord
+    about: General questions, usage help, or discussion — ask on Discord or open a Discussion thread.

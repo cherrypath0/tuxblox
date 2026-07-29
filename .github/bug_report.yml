@@ -1,0 +1,93 @@
+name: Bug Report
+description: Report a problem with an unmodified, official TuxBlox build
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug!
+
+        **Before you continue:** if you're running a modified or forked version of TuxBlox,
+        please use the "Forked / Modified Build" issue template instead, or report to your
+        fork's maintainers. We can only support bugs reproducible on unmodified, official
+        TuxBlox builds.
+
+  - type: checkboxes
+    id: prerequisites
+    attributes:
+      label: Checklist
+      options:
+        - label: I am running an unmodified, official TuxBlox build
+          required: true
+        - label: I have searched existing issues and this hasn't already been reported
+          required: true
+        - label: I have redacted any personal account information from logs/screenshots below
+          required: true
+
+  - type: input
+    id: tuxbloxVersion
+    attributes:
+      label: TuxBlox version
+      description: Output of `tuxblox --version` (or the release/commit you built from)
+      placeholder: e.g. v0.4.2 or commit abc1234
+    validations:
+      required: true
+
+  - type: input
+    id: distro
+    attributes:
+      label: Linux distribution and version
+      placeholder: e.g. Arch Linux (rolling), Ubuntu 24.04
+    validations:
+      required: true
+
+  - type: input
+    id: kernelVersion
+    attributes:
+      label: Kernel version
+      description: Output of `uname -r`
+      placeholder: e.g. 6.10.4-arch1-1
+    validations:
+      required: true
+
+  - type: dropdown
+    id: targetComponent
+    attributes:
+      label: Which component is affected?
+      options:
+        - Roblox Studio
+        - Roblox Player
+        - Launcher (not Proton-related)
+        - Build system / not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproSteps
+    attributes:
+      label: Steps to reproduce
+      description: What did you do, what did you expect, what happened instead?
+      placeholder: |
+        1. Launched TuxBlox with ...
+        2. Opened Studio and ...
+        3. Expected: ...
+        4. Actual: ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Paste relevant log output. Please redact any personal account information first.
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: additionalContext
+    attributes:
+      label: Additional context
+      description: GPU/driver info, DXVK/vkd3d-proton versions, anything else that might be relevant
+    validations:
+      required: false
