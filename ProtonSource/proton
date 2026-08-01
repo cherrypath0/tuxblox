@@ -42,6 +42,7 @@ from random import randrange
 #To enable debug logging, copy "user_settings.sample.py" to "user_settings.py"
 #and edit it if needed.
 
+MESSAGE_TO_BINARY_INSPECTING_PEOPLE="hello binary inspecting people" # dont delete because i want whoever sees the binary code to see this
 CURRENT_PREFIX_VERSION="11.0-100"
 
 PFX="Proton: "
