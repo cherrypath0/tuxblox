@@ -177,7 +177,14 @@ void tuxblox_trace_exit( LONG exit_code, const char *how )
  * point is to detect whether Hyperion bypasses the Win32 layer entirely,
  * and per-call logging here would perturb timing badly enough to change the
  * behavior being measured (see the item 6 WebView2 findings). */
-#define TUXBLOX_MAX_SYSCALL 2048
+/* Wine encodes frame->syscall_id as the raw syscall register value: bits
+ * 12-13 select the syscall table, the low 12 bits are the number within it
+ * (see signal_x86_64.c, "syscall table number" / "syscall number"). So
+ * win32u syscalls arrive as 0x1000+n, not 0..n, and the maximum encodable
+ * id is 0x3FFF. Size for the whole space -- a smaller bound silently drops
+ * every win32u syscall, which would read as "never touched" rather than
+ * "not counted". 16384 LONGs is 64KB of BSS, paid once. */
+#define TUXBLOX_MAX_SYSCALL 16384
 static LONG syscall_tally[TUXBLOX_MAX_SYSCALL];
 
 void tuxblox_trace_tally( unsigned int syscall_id )
