@@ -164,6 +164,41 @@ class TestBuildReport(unittest.TestCase):
         ])
         self.assertIn("<anonymous>", build_report(recs, self.ranges))
 
+    def test_out_of_order_records_produce_correct_ranking(self):
+        # Records may arrive out of order due to non-atomic logging in
+        # multi-threaded code. The report must rank by true chronological
+        # seq, not log-file arrival order. Create the same records in
+        # descending seq order and verify the report is identical.
+        in_order_recs = parse_records([
+            "REC seq=1 tid=0024 surface=NtOpenKeyEx rip=0x7f0000001100 detail=first",
+            "REC seq=2 tid=0024 surface=NtQueryObject rip=0x7f0000001200 detail=second",
+            "REC seq=3 tid=0024 surface=NtOpenKeyEx rip=0x7f0000001100 detail=third",
+        ])
+        out_of_order_recs = parse_records([
+            "REC seq=3 tid=0024 surface=NtOpenKeyEx rip=0x7f0000001100 detail=third",
+            "REC seq=1 tid=0024 surface=NtOpenKeyEx rip=0x7f0000001100 detail=first",
+            "REC seq=2 tid=0024 surface=NtQueryObject rip=0x7f0000001200 detail=second",
+        ])
+        report_in_order = build_report(in_order_recs, self.ranges)
+        report_out_of_order = build_report(out_of_order_recs, self.ranges)
+        self.assertEqual(report_in_order, report_out_of_order)
+
+    def test_cross_module_first_touch_ordering(self):
+        # Modules themselves must be ordered by first-touch sequence, not
+        # just surfaces within a module. Verify with records that touch
+        # the anonymous region before the named module.
+        ranges = parse_maps([
+            "7f0000001000-7f0000002000 r-xp 00003000 08:02 1 /x/hyperion.dll",
+            "7f0000009000-7f000000a000 rwxp 00000000 00:00 0 ",
+        ])
+        recs = parse_records([
+            "REC seq=1 tid=0024 surface=NtQueryObject rip=0x7f0000009010 detail=",
+            "REC seq=2 tid=0024 surface=NtOpenKeyEx rip=0x7f0000001100 detail=",
+        ])
+        report = build_report(recs, ranges)
+        # <anonymous> (seq=1) should appear before /x/hyperion.dll (seq=2)
+        self.assertLess(report.index("<anonymous>"), report.index("/x/hyperion.dll"))
+
 
 if __name__ == "__main__":
     unittest.main()

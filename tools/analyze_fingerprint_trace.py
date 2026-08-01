@@ -130,9 +130,20 @@ def build_report(records: List[Record], ranges: List[MapRange]) -> str:
     first appearance rather than by volume: for this investigation, what
     Hyperion touched *first* is more informative than what it touched most,
     since the process dies early.
+
+    Records are sorted by seq before grouping to ensure ordering is based on
+    true chronological sequence rather than log-file arrival order. The tracer
+    allocates seq with InterlockedIncrement but writes the log line as a
+    separate non-atomic step, so threads can allocate in order but write out
+    of order. Sorting first makes the ranking correct regardless of input order.
     """
+    # Sort by seq to ensure first-touch ordering is based on true chronology,
+    # not log-file arrival order (records can be out of order due to
+    # non-atomic logging in multi-threaded code).
+    sorted_records = sorted(records, key=lambda r: r.seq)
+
     by_module = {}
-    for rec in records:
+    for rec in sorted_records:
         hit = resolve(rec.rip, ranges)
         module = hit[0] if hit else "<unresolved>"
         rva = hit[1] if hit else rec.rip
