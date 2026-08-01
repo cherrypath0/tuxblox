@@ -23,7 +23,11 @@ Full documentation is currently a work in progress. You can find documentation a
 ### Software Requirements:
 * **Operating System:** Any major 64-bit Linux distribution
 * **Kernel Version:** 5.0 or higher
-* **Packages**: python, podman/docker (for compiling, podman recommended)
+### Required Packages (only necessary if you want to compile it yourself):
+* curl
+* nuitka
+* python
+* podman/docker
 
 ## Legal & Disclaimer
 - **TuxBlox is an independent, open-source project.** It is not affiliated with, authorized, or endorsed by Roblox Corporation. 
