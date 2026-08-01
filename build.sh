@@ -227,16 +227,16 @@ run_step "fetch_external_sources" strict bash -c 'cd src-glslang && rm -rf Exter
 step "Initializing nested submodules (3/4)"
 run_step "init_submodules" strict bash -c 'cd ../ProtonSource/dxvk-nvapi && git submodule update --init --recursive'
 
-step "Ensuring wine x86_64 is configured (so its Makefile exists)"
+step "Ensuring wine x86_64 is configured"
 run_step "configure_wine_x86_64" strict bash -c 'make wine-x86_64-configure'
 
-step "Ensuring x86_64 NLS data is built (shared wrc tool depends on it)"
+step "Ensuring x86_64 NLS data is built"
 run_step "build_x86_64_nls" strict bash -c 'cd obj-wine-x86_64 && make nls/locale.nls'
 
 step "Resuming build (4/4) (using $JOBS parallel jobs)"
 run_step "resume_build" strict bash -c "set -o pipefail; make -j$JOBS 2>&1 | tee -a ../build.log"
 
-step "Compiling proton launcher to a native binary (Nuitka)"
+step "Compiling proton launcher to a native binary"
 run_step "compile_proton_native" strict bash -c '
     set -e
     venv="../.nuitka-venv"
@@ -273,4 +273,4 @@ shopt -s nullglob
 rm -rf obj-* dst-*
 shopt -u nullglob
 
-echo -e "Successfully compiled ${ORANGE}T${RESET}${BLUE}B${RESET}-Proton!"
+echo -e "Successfully compiled TuxBlox-Proton!"
