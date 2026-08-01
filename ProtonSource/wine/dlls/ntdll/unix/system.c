@@ -4036,7 +4036,9 @@ NTSTATUS WINAPI NtQuerySystemInformation( SYSTEM_INFORMATION_CLASS class,
     case SystemFirmwareTableInformation:  /* 76 */
     {
         SYSTEM_FIRMWARE_TABLE_INFORMATION *sfti = info;
+
         tuxblox_trace_record( "SystemFirmwareTableInformation", "" );
+
         len = FIELD_OFFSET(SYSTEM_FIRMWARE_TABLE_INFORMATION, TableBuffer);
         if (size < len)
         {
