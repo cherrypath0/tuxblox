@@ -20,12 +20,6 @@ mkdir -p ~/.local/share/tuxblox/steamapps
 mkdir -p runtime
 mkdir -p logs
 
-# Kept as plain (non-exported) shell vars, not `export`ed, so nothing this
-# script spawns other than Proton itself (e.g. the `curl` calls below) ever
-# sees Wine/Proton/Steam-Play-shaped env vars in its own environment. They're
-# only turned into the real STEAM_COMPAT_* names Proton requires as an
-# inline env prefix on the actual "proton run" invocations further down.
-# See item 33 in plan/plan.txt.
 PREFIX_PATH="$(pwd)/runtime"
 CLIENT_PATH="$HOME/.local/share/tuxblox"
 protonLogDir="$(pwd)/logs"
@@ -36,24 +30,9 @@ if [ -z "$choice" ]; then
     read -r choice
 fi
 
-# Set when invoked as a roblox-player:/roblox-studio: URL handler (see
-# install-handler.sh); forwarded to the exe verbatim, same as the real
-# Windows launcher would receive it via the registry's %1.
 protocolUri="$2"
-
 userAgent="TuxBlox-Client/1.0"
 
-# Roblox's own installer bundles a copy of the real Microsoft Edge WebView2
-# Runtime bootstrapper and runs it itself on a fresh prefix, but that's a
-# blocking, silent, easy-to-miss ~30-120s network-dependent step buried
-# inside the installer's own progress bar (real Microsoft binary, downloads
-# the actual runtime from Microsoft's CDN -- not something Wine/TuxBlox can
-# avoid or speed up, same cost a fresh install pays on real Windows machines
-# that don't already have WebView2 preinstalled by the OS). Doing it here
-# instead, before Roblox's installer runs, means it happens once per fresh
-# prefix with a clearer "installing WebView2" message instead of silently
-# eating time inside Roblox's own installer, and Roblox's installer then
-# detects it's already present and skips its own copy of this step.
 ensureWebView2() {
     local wv2AppDir="runtime/pfx/drive_c/Program Files (x86)/Microsoft/EdgeWebView/Application"
     if [ -d "$wv2AppDir" ] && [ -n "$(find "$wv2AppDir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | head -n1)" ]; then
@@ -69,10 +48,6 @@ ensureWebView2() {
             return 1
         }
     fi
-    # The bootstrapper's actual runtime install finishes well before the
-    # process itself exits (it lingers doing update-service registration
-    # afterward) -- bound it so a slow/stuck exit can never block the rest
-    # of this script from launching Roblox.
     timeout 180 env "${protonEnv[@]}" "$(pwd)/ProtonBuild/dist/proton" run "$wv2Installer" /silent /install
 }
 
@@ -109,10 +84,6 @@ case "$choice" in
         installer="RobloxStudio/RobloxStudioInstaller.exe"
         url="https://setup.rbxcdn.com/RobloxStudioInstaller.exe"
         needsWebView2=1
-        # Studio's embedded WebView2 (login/create.roblox.com UI) appears to rely
-        # on a DXGI composition swapchain; DXVK's CreateSwapChainForComposition
-        # returns E_NOTIMPL unless this is enabled. Scoped to Studio only -- see
-        # dxgi_factory.cpp's enableDummyCompositionSwapchain option.
         dxvkConfig="dxgi.enableDummyCompositionSwapchain=True"
         ;;
     w|wd|W|WD|shady|winedetector|wine|shadywine)
@@ -122,11 +93,6 @@ case "$choice" in
     *) exit 1 ;;
 esac
 
-# Turned into the real STEAM_COMPAT_*/DXVK_* names Proton requires, but only
-# for the "proton run" invocations below (via `env`) -- never exported into
-# this script's own environment, so it can't leak into the `curl` calls
-# above/below or any other non-Proton program this script runs. See item 33
-# in plan/plan.txt.
 protonEnv=(
     "STEAM_COMPAT_DATA_PATH=$PREFIX_PATH"
     "STEAM_COMPAT_CLIENT_INSTALL_PATH=$CLIENT_PATH"
