@@ -167,7 +167,31 @@ void tuxblox_trace_exit( LONG exit_code, const char *how )
 {
     if (!tuxblox_trace_enabled()) return;
 
+    tuxblox_trace_tally_dump();
     TRACE_(tuxblox)( "EXIT code=%d how=%s last_seq=%d rip=0x%llx\n",
                      (int)exit_code, how, (int)trace_seq,
                      (unsigned long long)get_syscall_caller_pc() );
+}
+
+/* Per-syscall-number counters. Counters only, never per-call output: the
+ * point is to detect whether Hyperion bypasses the Win32 layer entirely,
+ * and per-call logging here would perturb timing badly enough to change the
+ * behavior being measured (see the item 6 WebView2 findings). */
+#define TUXBLOX_MAX_SYSCALL 2048
+static LONG syscall_tally[TUXBLOX_MAX_SYSCALL];
+
+void tuxblox_trace_tally( unsigned int syscall_id )
+{
+    if (!tuxblox_trace_enabled()) return;
+    if (syscall_id < TUXBLOX_MAX_SYSCALL) InterlockedIncrement( &syscall_tally[syscall_id] );
+}
+
+void tuxblox_trace_tally_dump(void)
+{
+    unsigned int i;
+
+    if (!tuxblox_trace_enabled()) return;
+    for (i = 0; i < TUXBLOX_MAX_SYSCALL; i++)
+        if (syscall_tally[i])
+            TRACE_(tuxblox)( "TALLY syscall=%u count=%d\n", i, (int)syscall_tally[i] );
 }

@@ -203,6 +203,8 @@ extern BOOL tuxblox_trace_enabled(void);
 extern void tuxblox_trace_record( const char *surface, const char *detail );
 extern void tuxblox_trace_record_us( const char *surface, const UNICODE_STRING *detail );
 extern void tuxblox_trace_exit( LONG exit_code, const char *how );
+extern void tuxblox_trace_tally( unsigned int syscall_id );
+extern void tuxblox_trace_tally_dump(void);
 extern const WCHAR system_dir[];
 extern unsigned int supported_machines_count;
 extern USHORT supported_machines[8];
