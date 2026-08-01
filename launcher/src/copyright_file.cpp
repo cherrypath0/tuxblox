@@ -68,7 +68,7 @@ constexpr const char* kStbLicenseTxt =
     "WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.\n";
 
 constexpr const char* kLucideHeading =
-    "Lucide icons (Home, Info, Globe, Documentation)\nhttps://lucide.dev\n\n";
+    "Lucide icons (Home, Info, Globe, Documentation, Settings)\nhttps://lucide.dev\n\n";
 constexpr const char* kLucideLicenseTxt =
     "ISC License\n"
     "\n"

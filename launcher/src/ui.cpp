@@ -12,6 +12,7 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 #include "tuxblox_logo_png.h"        // generated: kTuxbloxLogoPng[], kTuxbloxLogoPngLen
+#include "tuxblox_window_icon_png.h" // generated: kTuxbloxWindowIconPng[], kTuxbloxWindowIconPngLen
 #include "roblox_player_icon_png.h"  // generated: kRobloxPlayerIconPng[], kRobloxPlayerIconPngLen
 #include "roblox_studio_icon_png.h"  // generated: kRobloxStudioIconPng[], kRobloxStudioIconPngLen
 #include "icon_home_png.h"           // generated: kIconHomePng[], kIconHomePngLen
@@ -20,6 +21,7 @@
 #include "icon_docs_png.h"           // generated: kIconDocsPng[], kIconDocsPngLen
 #include "icon_github_png.h"         // generated: kIconGithubPng[], kIconGithubPngLen
 #include "icon_discord_png.h"        // generated: kIconDiscordPng[], kIconDiscordPngLen
+#include "icon_settings_png.h"       // generated: kIconSettingsPng[], kIconSettingsPngLen
 #include "inter_regular_ttf.h"       // generated: kInterRegularTtf[], kInterRegularTtfLen
 #include "inter_semibold_ttf.h"      // generated: kInterSemiBoldTtf[], kInterSemiBoldTtfLen
 #include "version.h"                 // generated: tuxblox::kTuxBloxVersion
@@ -29,6 +31,8 @@ namespace tuxblox {
 namespace {
 
 constexpr float kSidebarWidth = 160.0f;
+constexpr float kToggleWidth = 44.0f;
+constexpr float kToggleHeight = 24.0f;
 constexpr ImVec4 kAccent(0.18f, 0.62f, 0.97f, 1.0f);
 constexpr ImVec4 kAccentRunning(0.90f, 0.30f, 0.30f, 1.0f);
 // Sidebar is a visibly distinct, slightly darker panel than the content
@@ -69,6 +73,19 @@ void openUrl(const char* url) {
     }
 }
 
+// glGenerateMipmap is OpenGL 3.0+/ARB_framebuffer_object -- <SDL_opengl.h>
+// only declares the legacy 1.1 functions statically linkable via libGL, so
+// it has to be resolved as a function pointer instead. Safe to resolve
+// lazily via a function-local static: first call happens inside Ui::init(),
+// after SDL_GL_MakeCurrent() and single-threaded (no render/update threads
+// exist yet), so there's no first-call race to guard against.
+void generateMipmap(GLenum target) {
+    using GenerateMipmapFn = void (*)(GLenum);
+    static GenerateMipmapFn fn =
+        reinterpret_cast<GenerateMipmapFn>(SDL_GL_GetProcAddress("glGenerateMipmap"));
+    if (fn) fn(target);
+}
+
 bool loadPngTexture(const unsigned char* data, size_t len,
                      unsigned int* outTex, int* outW, int* outH) {
     int channels = 0;
@@ -78,9 +95,15 @@ bool loadPngTexture(const unsigned char* data, size_t len,
     GLuint tex;
     glGenTextures(1, &tex);
     glBindTexture(GL_TEXTURE_2D, tex);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    // These are all rasterized at a fixed 256px and then drawn much smaller
+    // (e.g. the 18px sidebar icons) -- plain GL_LINEAR minification with no
+    // mipmap has nothing to average over that large a downscale and aliases/
+    // shimmers ("too sharp"). Mipmapping fixes that; MAG_FILTER stays
+    // GL_LINEAR since magnification (the 72px logo, etc.) never hits this.
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, *outW, *outH, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+    generateMipmap(GL_TEXTURE_2D);
     stbi_image_free(pixels);
 
     *outTex = tex;
@@ -175,7 +198,8 @@ float renderErrorBanner(const char* text, float width, ImFont* font) {
 }
 
 void renderSidebar(App& app, const AppSnapshot& snap, float sidebarHeight,
-                    unsigned int homeIconTexture, unsigned int infoIconTexture) {
+                    unsigned int homeIconTexture, unsigned int infoIconTexture,
+                    unsigned int settingsIconTexture) {
     ImGui::PushStyleColor(ImGuiCol_ChildBg, kSidebarBg);
     ImGui::SetCursorPos(ImVec2(0.0f, 0.0f));
     ImGui::BeginChild("##sidebar", ImVec2(kSidebarWidth, sidebarHeight), false,
@@ -188,6 +212,13 @@ void renderSidebar(App& app, const AppSnapshot& snap, float sidebarHeight,
     if (renderIconRow("##nav_home", "Home", homeIconTexture, kSidebarWidth, 36.0f,
                        &homeColor, false, false, 18.0f, 16.0f, nullptr)) {
         app.setActiveTab(Tab::Start);
+    }
+
+    bool settingsSelected = snap.activeTab == Tab::Settings;
+    ImVec4 settingsColor = settingsSelected ? kSidebarItemSelected : kSidebarItemUnselected;
+    if (renderIconRow("##nav_settings", "Settings", settingsIconTexture, kSidebarWidth, 36.0f,
+                       &settingsColor, false, false, 18.0f, 16.0f, nullptr)) {
+        app.setActiveTab(Tab::Settings);
     }
 
     // Push "About" to the bottom of the sidebar.
@@ -334,6 +365,91 @@ void renderAboutTab(float contentX, float contentY, float contentW, float conten
     ImGui::TextDisabled("%s", "\xC2\xA9 2026 TuxBlox Project"); // "©" (U+00A9) UTF-8
 }
 
+// A pill-shaped on/off switch -- Dear ImGui has no built-in equivalent.
+// Draws at the current cursor position (like renderIconRow) and advances
+// past it via the InvisibleButton driving the click target. Returns true
+// on the frame it's clicked; the caller (not this function) flips the
+// backing bool and persists it, same division of responsibility as every
+// other interactive row in this file.
+bool renderToggleSwitch(const char* id, bool value) {
+    ImVec2 pos = ImGui::GetCursorScreenPos();
+    ImGui::InvisibleButton(id, ImVec2(kToggleWidth, kToggleHeight));
+    bool clicked = ImGui::IsItemClicked();
+
+    ImDrawList* drawList = ImGui::GetWindowDrawList();
+    const ImVec4& bgColor = value ? kAccent : kSidebarItemUnselected;
+    drawList->AddRectFilled(pos, ImVec2(pos.x + kToggleWidth, pos.y + kToggleHeight),
+                             ImGui::GetColorU32(bgColor), kToggleHeight * 0.5f);
+
+    float knobRadius = kToggleHeight * 0.5f - 3.0f;
+    float knobY = pos.y + kToggleHeight * 0.5f;
+    float knobX = value ? pos.x + kToggleWidth - kToggleHeight * 0.5f
+                         : pos.x + kToggleHeight * 0.5f;
+    drawList->AddCircleFilled(ImVec2(knobX, knobY), knobRadius, IM_COL32(255, 255, 255, 255));
+
+    return clicked;
+}
+
+void renderSettingsTab(App& app, const AppSnapshot& snap, float contentX, float contentY,
+                        float contentW, float /*contentH*/, char* protonBuf, size_t protonBufSize,
+                        char* globalBuf, size_t globalBufSize, bool& buffersInitialized,
+                        ImFont* semiBold) {
+    // Seeded once from whatever App loaded/last saved -- see the buffer
+    // fields' declaration comment in ui.h for why this can't just re-seed
+    // every frame (it would stomp in-progress edits).
+    if (!buffersInitialized) {
+        snprintf(protonBuf, protonBufSize, "%s", snap.settings.protonEnvVars.c_str());
+        snprintf(globalBuf, globalBufSize, "%s", snap.settings.globalEnvVars.c_str());
+        buffersInitialized = true;
+    }
+
+    ImGui::SetCursorPos(ImVec2(contentX + 24.0f, contentY + 20.0f));
+    ImGui::PushFont(semiBold);
+    ImGui::TextUnformatted("Settings");
+    ImGui::PopFont();
+
+    const float fieldWidth = contentW - 48.0f;
+    float y = contentY + 64.0f;
+
+    ImGui::SetCursorPos(ImVec2(contentX + 24.0f, y));
+    ImGui::TextUnformatted("Proton Environment Variables");
+    y += 22.0f;
+    ImGui::SetCursorPos(ImVec2(contentX + 24.0f, y));
+    ImGui::SetNextItemWidth(fieldWidth);
+    ImGui::InputText("##proton_env_vars", protonBuf, protonBufSize);
+    if (ImGui::IsItemDeactivatedAfterEdit()) {
+        Settings s = snap.settings;
+        s.protonEnvVars = protonBuf;
+        app.updateSettings(s);
+    }
+    y += 40.0f;
+
+    ImGui::SetCursorPos(ImVec2(contentX + 24.0f, y));
+    ImGui::TextUnformatted("Global Environment Variables");
+    y += 22.0f;
+    ImGui::SetCursorPos(ImVec2(contentX + 24.0f, y));
+    ImGui::SetNextItemWidth(fieldWidth);
+    ImGui::InputText("##global_env_vars", globalBuf, globalBufSize);
+    if (ImGui::IsItemDeactivatedAfterEdit()) {
+        Settings s = snap.settings;
+        s.globalEnvVars = globalBuf;
+        app.updateSettings(s);
+    }
+    y += 48.0f;
+
+    ImGui::SetCursorPos(ImVec2(contentX + 24.0f, y));
+    bool toggled = renderToggleSwitch("##send_crash_reports", snap.settings.sendCrashReports);
+    ImGui::SameLine(0.0f, 10.0f);
+    ImVec2 labelPos = ImGui::GetCursorScreenPos();
+    ImGui::SetCursorScreenPos(ImVec2(labelPos.x, labelPos.y + (kToggleHeight - ImGui::GetTextLineHeight()) * 0.5f));
+    ImGui::TextUnformatted("Send Crash Report Data");
+    if (toggled) {
+        Settings s = snap.settings;
+        s.sendCrashReports = !s.sendCrashReports;
+        app.updateSettings(s);
+    }
+}
+
 } // namespace
 
 Ui::Ui() = default;
@@ -419,15 +535,20 @@ bool Ui::init() {
         loadPngTexture(kIconDocsPng, kIconDocsPngLen, &docsIconTexture_, &w, &h);
         loadPngTexture(kIconGithubPng, kIconGithubPngLen, &githubIconTexture_, &w, &h);
         loadPngTexture(kIconDiscordPng, kIconDiscordPngLen, &discordIconTexture_, &w, &h);
+        loadPngTexture(kIconSettingsPng, kIconSettingsPngLen, &settingsIconTexture_, &w, &h);
     }
 
-    if (logoTexture_) {
-        int ch = 0;
+    // A dedicated icon-sized export (see FetchWindowIcon.cmake), not the
+    // same svg used for the in-app logo above -- decoded straight to an
+    // SDL_Surface rather than through loadPngTexture() since this never
+    // needs to be a GL texture. Independent of logoTexture_'s own success.
+    {
+        int iconWidth = 0, iconHeight = 0, ch = 0;
         unsigned char* pixels = stbi_load_from_memory(
-            kTuxbloxLogoPng, static_cast<int>(kTuxbloxLogoPngLen), &logoWidth_, &logoHeight_, &ch, 4);
+            kTuxbloxWindowIconPng, static_cast<int>(kTuxbloxWindowIconPngLen), &iconWidth, &iconHeight, &ch, 4);
         if (pixels) {
             SDL_Surface* iconSurface = SDL_CreateRGBSurfaceWithFormatFrom(
-                pixels, logoWidth_, logoHeight_, 32, logoWidth_ * 4, SDL_PIXELFORMAT_RGBA32);
+                pixels, iconWidth, iconHeight, 32, iconWidth * 4, SDL_PIXELFORMAT_RGBA32);
             if (iconSurface) {
                 SDL_SetWindowIcon(window, iconSurface);
                 SDL_FreeSurface(iconSurface);
@@ -452,6 +573,7 @@ void Ui::shutdown() {
     freeTex(docsIconTexture_);
     freeTex(githubIconTexture_);
     freeTex(discordIconTexture_);
+    freeTex(settingsIconTexture_);
     if (glContext_) {
         ImGui_ImplOpenGL3_Shutdown();
         ImGui_ImplSDL2_Shutdown();
@@ -501,7 +623,7 @@ bool Ui::renderFrame(App& app) {
 
     auto snap = app.snapshot();
 
-    renderSidebar(app, snap, static_cast<float>(h), homeIconTexture_, infoIconTexture_);
+    renderSidebar(app, snap, static_cast<float>(h), homeIconTexture_, infoIconTexture_, settingsIconTexture_);
 
     const float contentX = kSidebarWidth;
     const float contentY = 0.0f;
@@ -511,6 +633,11 @@ bool Ui::renderFrame(App& app) {
     if (snap.activeTab == Tab::Start) {
         renderStartTab(app, snap, contentX, contentY, contentW, contentH,
                         logoTexture_, playerIconTexture_, studioIconTexture_, fontSemiBold_);
+    } else if (snap.activeTab == Tab::Settings) {
+        renderSettingsTab(app, snap, contentX, contentY, contentW, contentH,
+                           protonEnvVarsBuf_, sizeof(protonEnvVarsBuf_),
+                           globalEnvVarsBuf_, sizeof(globalEnvVarsBuf_),
+                           settingsBuffersInitialized_, fontSemiBold_);
     } else {
         renderAboutTab(contentX, contentY, contentW, contentH, logoTexture_,
                         globeIconTexture_, docsIconTexture_, githubIconTexture_, discordIconTexture_,
@@ -526,6 +653,17 @@ bool Ui::renderFrame(App& app) {
     glClear(GL_COLOR_BUFFER_BIT);
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
     SDL_GL_SwapWindow(window);
+
+    // Shown after the frame is swapped (matches the installer's own
+    // SDL_ShowSimpleMessageBox placement in installer/src/ui.cpp) so the
+    // window doesn't appear to freeze mid-draw while this native modal is
+    // up. Unlike the installer's one-shot fatal error, App clears
+    // crashNotice once shown -- the launcher keeps running afterward.
+    if (snap.crashNotice.pending) {
+        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, snap.crashNotice.title.c_str(),
+            snap.crashNotice.message.c_str(), window);
+        app.clearCrashNotice();
+    }
 
     return !shouldClose_;
 }

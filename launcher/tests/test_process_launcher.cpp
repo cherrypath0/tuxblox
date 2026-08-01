@@ -110,6 +110,70 @@ int main() {
         launcher.stop(LaunchTarget::Studio);
     }
 
+    // exitCodeTitle(): a sample of the table plus the unknown-code fallback.
+    {
+        assert(std::string(exitCodeTitle(0)) == "OK");
+        assert(std::string(exitCodeTitle(1)) == "General Error");
+        assert(std::string(exitCodeTitle(139)) == "Segmentation Fault");
+        assert(std::string(exitCodeTitle(187)) == "Session terminated by Hyperion");
+        assert(std::string(exitCodeTitle(201)) == "Integrity verification failure");
+        assert(std::string(exitCodeTitle(999999)) == "Unknown exit code");
+    }
+
+    // takeExitEvent(): a process that exits on its own reports its real
+    // exit code and stopRequested == false.
+    {
+        TrackedProcess p;
+        assert(p.start({"sh", "-c", "exit 7"}));
+        std::this_thread::sleep_for(200ms);
+        p.poll();
+        assert(!p.isRunning());
+        auto ev = p.takeExitEvent();
+        assert(ev.has_value());
+        assert(ev->exitCode == 7);
+        assert(!ev->stopRequested);
+        // Reported exactly once -- a second call after no new exit finds nothing.
+        assert(!p.takeExitEvent().has_value());
+    }
+
+    // takeExitEvent(): stop() sets stopRequested == true, even though the
+    // resulting exit code (from SIGTERM) is non-zero -- callers rely on
+    // this to avoid treating a deliberate Stop as a crash.
+    {
+        TrackedProcess p;
+        assert(p.start({"sleep", "30"}));
+        assert(p.isRunning());
+        p.stop();
+        std::this_thread::sleep_for(2500ms);
+        p.poll();
+        assert(!p.isRunning());
+        auto ev = p.takeExitEvent();
+        assert(ev.has_value());
+        assert(ev->exitCode != 0);
+        assert(ev->stopRequested);
+    }
+
+    // start()'s logFilePath redirects the child's stdout/stderr.
+    {
+        namespace fs = std::filesystem;
+        fs::path logPath = fs::temp_directory_path() / "tuxblox_test_process_launcher_log.txt";
+        fs::remove(logPath);
+
+        TrackedProcess p;
+        assert(p.start({"sh", "-c", "echo hello-stdout; echo hello-stderr 1>&2"}, {}, logPath.string()));
+        std::this_thread::sleep_for(200ms);
+        p.poll();
+        assert(!p.isRunning());
+
+        std::ifstream in(logPath);
+        assert(in);
+        std::string contents((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        assert(contents.find("hello-stdout") != std::string::npos);
+        assert(contents.find("hello-stderr") != std::string::npos);
+
+        fs::remove(logPath);
+    }
+
     printf("process_launcher: all tests passed\n");
     return 0;
 }

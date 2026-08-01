@@ -15,9 +15,9 @@ file(MAKE_DIRECTORY ${GENERATED_DIR})
 # Three parallel lists, one entry per icon (kept parallel rather than
 # packed tuples -- CMake lists are just semicolon-separated strings, so a
 # "list of lists" doesn't nest cleanly).
-set(ICON_NAMES     player            studio             home       info       globe       docs       github       discord)
-set(ICON_BASENAMES roblox_player_icon roblox_studio_icon icon_home  icon_info  icon_globe  icon_docs  icon_github  icon_discord)
-set(ICON_SYMBOLS   kRobloxPlayerIconPng kRobloxStudioIconPng kIconHomePng kIconInfoPng kIconGlobePng kIconDocsPng kIconGithubPng kIconDiscordPng)
+set(ICON_NAMES     player            studio             home       info       globe       docs       github       discord      settings)
+set(ICON_BASENAMES roblox_player_icon roblox_studio_icon icon_home  icon_info  icon_globe  icon_docs  icon_github  icon_discord icon_settings)
+set(ICON_SYMBOLS   kRobloxPlayerIconPng kRobloxStudioIconPng kIconHomePng kIconInfoPng kIconGlobePng kIconDocsPng kIconGithubPng kIconDiscordPng kIconSettingsPng)
 
 list(LENGTH ICON_NAMES ICON_COUNT)
 math(EXPR ICON_LAST_INDEX "${ICON_COUNT} - 1")

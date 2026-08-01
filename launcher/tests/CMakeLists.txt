@@ -29,3 +29,7 @@ add_test(NAME process_launcher COMMAND test_process_launcher)
 add_executable(test_updater test_updater.cpp)
 target_link_libraries(test_updater PRIVATE launcher_core)
 add_test(NAME updater COMMAND test_updater)
+
+add_executable(test_settings test_settings.cpp)
+target_link_libraries(test_settings PRIVATE launcher_core)
+add_test(NAME settings COMMAND test_settings)

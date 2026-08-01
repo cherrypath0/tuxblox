@@ -27,9 +27,18 @@ private:
     unsigned int docsIconTexture_ = 0;
     unsigned int githubIconTexture_ = 0;
     unsigned int discordIconTexture_ = 0;
+    unsigned int settingsIconTexture_ = 0;
     ImFont* fontRegular_ = nullptr;
     ImFont* fontSemiBold_ = nullptr;
     bool shouldClose_ = false;
+
+    // Settings tab InputText backing buffers. Populated once from the
+    // App's settings the first time the tab is rendered (settingsBuffersInitialized_
+    // guards that) -- ImGui's InputText needs a stable buffer across
+    // frames, and nothing else writes these fields while the UI is open.
+    char protonEnvVarsBuf_[512] = {};
+    char globalEnvVarsBuf_[512] = {};
+    bool settingsBuffersInitialized_ = false;
 };
 
 } // namespace tuxblox

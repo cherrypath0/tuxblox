@@ -1,4 +1,7 @@
 #include "app.h"
+#include "crash_report.h"
+#include "install_paths.h"
+#include <cstdlib>
 
 namespace tuxblox {
 
@@ -16,6 +19,12 @@ App::App(std::string installDir, std::string currentVersion)
     // invoked explicitly from main.cpp instead, after Ui::init(), so the
     // window exists before that potential stall. See Finding 5, 2026-07-28
     // final review.
+    snapshot_.settings = loadSettings(installDir_);
+    // Safe to call unlocked here: the constructor runs before
+    // startUpdateCheck() spawns any other thread, so nothing else can be
+    // concurrently calling getenv() yet. See applyGlobalEnvVars()'s own
+    // comment for why that ordering matters everywhere else it's called.
+    applyGlobalEnvVars(snapshot_.settings.globalEnvVars);
 }
 
 App::~App() {
@@ -79,16 +88,94 @@ void App::requestStop(LaunchTarget target) {
 void App::pollProcesses() {
     bool playerRunning = processLauncher_.pollIsRunning(LaunchTarget::Player);
     bool studioRunning = processLauncher_.pollIsRunning(LaunchTarget::Studio);
-    std::lock_guard<std::mutex> lock(mutex_);
-    snapshot_.playerRunning = playerRunning;
-    snapshot_.studioRunning = studioRunning;
-    snapshot_.playerActionInFlight = playerActionInFlight_.load();
-    snapshot_.studioActionInFlight = studioActionInFlight_.load();
+    auto playerExit = processLauncher_.takeExitEvent(LaunchTarget::Player);
+    auto studioExit = processLauncher_.takeExitEvent(LaunchTarget::Studio);
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        snapshot_.playerRunning = playerRunning;
+        snapshot_.studioRunning = studioRunning;
+        snapshot_.playerActionInFlight = playerActionInFlight_.load();
+        snapshot_.studioActionInFlight = studioActionInFlight_.load();
+    }
+    if (playerExit && playerExit->exitCode != 0 && !playerExit->stopRequested) {
+        handleUnexpectedExit(LaunchTarget::Player, playerExit->exitCode);
+    }
+    if (studioExit && studioExit->exitCode != 0 && !studioExit->stopRequested) {
+        handleUnexpectedExit(LaunchTarget::Studio, studioExit->exitCode);
+    }
 }
 
 AppSnapshot App::snapshot() const {
     std::lock_guard<std::mutex> lock(mutex_);
     return snapshot_;
+}
+
+void App::updateSettings(Settings settings) {
+    saveSettings(installDir_, settings);
+    bool globalEnvChanged;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        globalEnvChanged = snapshot_.settings.globalEnvVars != settings.globalEnvVars;
+        snapshot_.settings = settings;
+    }
+    if (globalEnvChanged) {
+        applyGlobalEnvVars(settings.globalEnvVars);
+    }
+}
+
+void App::clearCrashNotice() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    snapshot_.crashNotice = CrashNotice{};
+}
+
+void App::applyGlobalEnvVars(const std::string& globalEnvVars) {
+    // setenv()/getenv() are not thread-safe in glibc (Finding 6,
+    // 2026-07-28 final review) -- this process does have other threads
+    // that may call getenv() (the update-check thread, inside curl).
+    // Unlike the Proton-child env vars, Global Environment Variables are
+    // deliberately applied to the launcher's own process (real "export"
+    // semantics -- see the settings design doc), so that hazard can't be
+    // avoided by scoping to a forked child the way launchEnvVars() is. The
+    // constructor call site is race-free (nothing else is running yet);
+    // later calls from updateSettings() (user edits, on the render thread)
+    // accept the same small, already-documented race rather than adding
+    // cross-thread coordination for a rare, user-initiated edit.
+    for (const auto& kv : parseEnvPairs(globalEnvVars)) {
+        auto pos = kv.find('=');
+        setenv(kv.substr(0, pos).c_str(), kv.substr(pos + 1).c_str(), 1);
+    }
+}
+
+void App::handleUnexpectedExit(LaunchTarget target, int exitCode) {
+    Settings settings;
+    std::string logPath;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        logPath = (target == LaunchTarget::Player) ? playerLogPath_ : studioLogPath_;
+        settings = snapshot_.settings;
+
+        CrashNotice notice;
+        notice.pending = true;
+        notice.title = "Roblox Error";
+        notice.message = std::string("Roblox has exited with a non-zero exit code.\n") +
+            "Exit Code: " + std::to_string(exitCode) + " (" + exitCodeTitle(exitCode) + ")\n" +
+            "Full log has been written to " + logPath;
+        snapshot_.crashNotice = notice;
+    }
+
+    if (settings.sendCrashReports) {
+        CrashReport report;
+        report.launcherVersion = currentVersion_;
+        report.protonVersion = readInstalledProtonVersion(installDir_).value_or("");
+        report.target = target;
+        report.exitCode = exitCode;
+        report.logPath = logPath;
+        // Detached, not joined: this must never block the render thread,
+        // and uploadCrashReport() only touches its own by-value copy of
+        // `report`, never App state, so it's safe to outlive this call
+        // (and even outlive App itself, bounded by its own short timeout).
+        std::thread(uploadCrashReport, report).detach();
+    }
 }
 
 void App::updateCheckThreadMain() {
@@ -105,10 +192,18 @@ void App::updateCheckThreadMain() {
 }
 
 void App::launchThreadMain(LaunchTarget target) {
-    auto outcome = processLauncher_.launch(target);
+    std::vector<std::string> extraEnv;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        extraEnv = parseEnvPairs(snapshot_.settings.protonEnvVars);
+    }
+    auto outcome = processLauncher_.launch(target, "", extraEnv);
     std::lock_guard<std::mutex> lock(mutex_);
     std::string& errSlot = (target == LaunchTarget::Player) ? snapshot_.playerError : snapshot_.studioError;
     errSlot = outcome.ok ? "" : outcome.errorMessage;
+    if (outcome.ok) {
+        (target == LaunchTarget::Player ? playerLogPath_ : studioLogPath_) = outcome.logPath;
+    }
     (target == LaunchTarget::Player ? playerActionInFlight_ : studioActionInFlight_).store(false);
 }
 

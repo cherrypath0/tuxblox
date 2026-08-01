@@ -3,6 +3,8 @@
 #include <atomic>
 #include <chrono>
 #include <cstdlib>
+#include <ctime>
+#include <fcntl.h>
 #include <filesystem>
 #include <mutex>
 #include <signal.h>
@@ -14,7 +16,30 @@ namespace fs = std::filesystem;
 
 namespace tuxblox {
 
-bool TrackedProcess::start(const std::vector<std::string>& argv, const std::vector<std::string>& env) {
+const char* exitCodeTitle(int exitCode) {
+    // See plan/plan.txt item 1 for this table.
+    switch (exitCode) {
+        case 0:   return "OK";
+        case 1:   return "General Error";
+        case 7:   return "Argument list too long";
+        case 68:  return "Unknown host (DNS/resolution failure)";
+        case 69:  return "Remote host unreachable";
+        case 134: return "Aborted";
+        case 137: return "Out of Memory";
+        case 139: return "Segmentation Fault";
+        case 143: return "Terminated";
+        case 187: return "Session terminated by Hyperion";
+        case 8:   return "Client crashed";
+        case 200: return "Wineserver timeout";
+        case 201: return "Integrity verification failure";
+        case 202: return "Corrupt prefix";
+        case 203: return "Session terminated for user safety";
+        default:  return "Unknown exit code";
+    }
+}
+
+bool TrackedProcess::start(const std::vector<std::string>& argv, const std::vector<std::string>& env,
+                            const std::string& logFilePath) {
     {
         std::lock_guard<std::mutex> lock(mutex_);
         if (running_) return false;
@@ -28,6 +53,16 @@ bool TrackedProcess::start(const std::vector<std::string>& argv, const std::vect
         // Own process group so stop() can SIGTERM exactly this subtree
         // without touching a sibling target or the launcher itself.
         setpgid(0, 0);
+
+        if (!logFilePath.empty()) {
+            int fd = ::open(logFilePath.c_str(), O_CREAT | O_WRONLY | O_TRUNC, 0644);
+            if (fd >= 0) {
+                dup2(fd, STDOUT_FILENO);
+                dup2(fd, STDERR_FILENO);
+                if (fd > STDERR_FILENO) close(fd);
+            }
+        }
+
         // Applied here, in the single-threaded child, rather than in the
         // (multi-threaded) parent -- see the comment on the header
         // declaration and Finding 6, 2026-07-28 final review.
@@ -49,6 +84,8 @@ bool TrackedProcess::start(const std::vector<std::string>& argv, const std::vect
         std::lock_guard<std::mutex> lock(mutex_);
         pid_ = pid;
         running_ = true;
+        stopRequested_ = false;
+        pendingExitEvent_.reset();
     }
     return true;
 }
@@ -58,7 +95,19 @@ void TrackedProcess::poll() {
     if (!running_) return;
     int status = 0;
     pid_t r = waitpid(pid_, &status, WNOHANG);
-    if (r == pid_ || r < 0) {
+    if (r == pid_) {
+        int code = 0;
+        if (WIFEXITED(status)) {
+            code = WEXITSTATUS(status);
+        } else if (WIFSIGNALED(status)) {
+            code = 128 + WTERMSIG(status);
+        }
+        pendingExitEvent_ = ExitEvent{code, stopRequested_};
+        running_ = false;
+        pid_ = -1;
+    } else if (r < 0) {
+        // waitpid() itself failed (e.g. ECHILD) -- no meaningful exit code
+        // to report, just stop tracking it.
         running_ = false;
         pid_ = -1;
     }
@@ -69,11 +118,19 @@ bool TrackedProcess::isRunning() const {
     return running_;
 }
 
+std::optional<ExitEvent> TrackedProcess::takeExitEvent() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto ev = pendingExitEvent_;
+    pendingExitEvent_.reset();
+    return ev;
+}
+
 void TrackedProcess::stop() {
     pid_t pidToKill;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         if (!running_) return;
+        stopRequested_ = true;
         pidToKill = pid_;
     }
     kill(-pidToKill, SIGTERM);
@@ -144,15 +201,29 @@ bool ProcessLauncher::pollIsRunning(LaunchTarget target) {
     return p.isRunning();
 }
 
-LaunchOutcome ProcessLauncher::launch(LaunchTarget target, const std::string& uri) {
+namespace {
+
+std::string logTimestamp() {
+    std::time_t t = std::time(nullptr);
+    std::tm tmBuf{};
+    localtime_r(&t, &tmBuf);
+    char buf[32];
+    std::strftime(buf, sizeof(buf), "%Y%m%d-%H%M%S", &tmBuf);
+    return buf;
+}
+
+} // namespace
+
+LaunchOutcome ProcessLauncher::launch(LaunchTarget target, const std::string& uri,
+                                       const std::vector<std::string>& extraEnv) {
     TrackedProcess& p = processFor(target);
     if (p.isRunning()) {
-        return {false, "already running"};
+        return {false, "already running", ""};
     }
 
     std::string exePath = resolveOrBootstrapExePath(target, installDir_);
     if (exePath.empty()) {
-        return {false, "could not resolve or download the Roblox executable"};
+        return {false, "could not resolve or download the Roblox executable", ""};
     }
 
     // Applied in the child (via TrackedProcess::start's env overlay) rather
@@ -160,18 +231,29 @@ LaunchOutcome ProcessLauncher::launch(LaunchTarget target, const std::string& ur
     // setenv()/getenv() are not thread-safe in glibc, and this (parent)
     // process has other threads that may call getenv() concurrently.
     std::vector<std::string> env = launchEnvVars(installDir_, target);
+    env.insert(env.end(), extraEnv.begin(), extraEnv.end());
 
     std::vector<std::string> argv = {protonBinaryPath(installDir_), "run", exePath};
     if (!uri.empty()) argv.push_back(uri);
 
-    if (!p.start(argv, env)) {
-        return {false, "failed to start Proton process"};
+    const std::string logsDir = installDir_ + "/logs";
+    std::error_code ec;
+    fs::create_directories(logsDir, ec);
+    const std::string targetName = target == LaunchTarget::Player ? "Player" : "Studio";
+    const std::string logPath = logsDir + "/Roblox" + targetName + "-CrashLog-" + logTimestamp() + ".log";
+
+    if (!p.start(argv, env, logPath)) {
+        return {false, "failed to start Proton process", ""};
     }
-    return {true, ""};
+    return {true, "", logPath};
 }
 
 void ProcessLauncher::stop(LaunchTarget target) {
     processFor(target).stop();
+}
+
+std::optional<ExitEvent> ProcessLauncher::takeExitEvent(LaunchTarget target) {
+    return processFor(target).takeExitEvent();
 }
 
 } // namespace tuxblox
