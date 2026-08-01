@@ -3,7 +3,7 @@
 
 ***
 
-![TuxBlox Banner](https://assetdelivery.tuxblox.net/images/png/banner/tuxblox-banner-medium.png)
+![TuxBlox Banner](https://assetdelivery.tuxblox.net/images/png/banner/tuxblox-banner.png)
 
 # TuxBlox 🐧
 TuxBlox is an open-source project that runs the official Roblox Client and Studio on Linux using a modified build of Proton.
