@@ -67,6 +67,7 @@ SOURCES = \
 	unix/system.c \
 	unix/tape.c \
 	unix/thread.c \
+	unix/tuxblox_trace.c \
 	unix/virtual.c \
 	unwind.c \
 	version.c \

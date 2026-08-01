@@ -501,6 +501,22 @@ struct syscall_frame
     DECLSPEC_ALIGN(64) XSAVE_AREA_HEADER xstate;    /* 02c0 */
 };
 
+/***********************************************************************
+ *           get_syscall_caller_pc
+ *
+ * Return the PE-side instruction pointer that entered the current syscall,
+ * or 0 if there is no active syscall frame. Used by the TuxBlox fingerprint
+ * tracer for caller attribution; this field is populated identically whether
+ * the caller came through ntdll's PE-side stub or issued a raw syscall
+ * instruction, which is what makes it usable against a packed module that
+ * resolves its own imports.
+ */
+ULONG64 get_syscall_caller_pc(void)
+{
+    struct syscall_frame *frame = get_syscall_frame();
+    return frame ? frame->rip : 0;
+}
+
 C_ASSERT( offsetof( struct syscall_frame, xsave ) == 0xc0 );
 C_ASSERT( offsetof( struct syscall_frame, xstate ) == 0x2c0 );
 C_ASSERT( sizeof( struct syscall_frame ) == 0x300);

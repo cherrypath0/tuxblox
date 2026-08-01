@@ -195,6 +195,14 @@ extern BOOL is_prefix_bootstrap;
 extern int main_argc;
 extern char **main_argv;
 extern WCHAR **main_wargv;
+
+/* TuxBlox fingerprint tracer (diagnostic; see
+ * docs/superpowers/specs/2026-08-01-player-187-fingerprint-tracer-design.md) */
+extern ULONG64 get_syscall_caller_pc(void);
+extern BOOL tuxblox_trace_enabled(void);
+extern void tuxblox_trace_record( const char *surface, const char *detail );
+extern void tuxblox_trace_record_us( const char *surface, const UNICODE_STRING *detail );
+extern void tuxblox_trace_exit( LONG exit_code, const char *how );
 extern const WCHAR system_dir[];
 extern unsigned int supported_machines_count;
 extern USHORT supported_machines[8];

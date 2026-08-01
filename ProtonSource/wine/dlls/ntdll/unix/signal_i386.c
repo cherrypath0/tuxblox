@@ -503,6 +503,17 @@ struct syscall_frame
     DECLSPEC_ALIGN(64) XSAVE_AREA_HEADER xstate; /* 240 */
 };
 
+/***********************************************************************
+ *           get_syscall_caller_pc
+ *
+ * i386 counterpart of the x86_64 accessor -- see signal_x86_64.c.
+ */
+ULONG64 get_syscall_caller_pc(void)
+{
+    struct syscall_frame *frame = get_syscall_frame();
+    return frame ? frame->eip : 0;
+}
+
 C_ASSERT( sizeof(struct syscall_frame) == 0x280 );
 
 #define RESTORE_FLAGS_INCOMPLETE_FRAME_CONTEXT 0x00008000
