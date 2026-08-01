@@ -1,6 +1,7 @@
 #include "headless_launch.h"
 #include "process_launcher.h"
 #include <cstdio>
+#include <cstdlib>
 #include <unistd.h>
 #include <vector>
 
@@ -13,7 +14,17 @@ int runHeadlessQuickLaunch(const std::string& installDir, LaunchTarget target, c
         return 1;
     }
 
-    setLaunchEnv(installDir);
+    // setenv(), not an explicit execve() envp: Proton still needs the rest
+    // of this process's inherited environment (PATH for its python3
+    // shebang, DISPLAY/WAYLAND_DISPLAY/XDG_RUNTIME_DIR, etc.). That's safe
+    // here specifically because nothing else runs in this process between
+    // setenv() and execv() below -- this process becomes Proton immediately,
+    // so these vars never reach any other, non-Proton child. See item 33 in
+    // plan/plan.txt.
+    for (const auto& kv : launchEnvVars(installDir, target)) {
+        auto pos = kv.find('=');
+        setenv(kv.substr(0, pos).c_str(), kv.substr(pos + 1).c_str(), 1);
+    }
 
     std::string proton = protonBinaryPath(installDir);
     std::vector<std::string> argvStrings = {proton, "run", exePath};

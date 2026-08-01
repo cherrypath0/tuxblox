@@ -220,7 +220,7 @@ static char wine_version[256];
  */
 const char * CDECL wine_get_version(void)
 {
-    MESSAGE("<< TuxBlox DEBUG >> Potential Hyperion Warning: Something called wine_get_version\n");
+    // MESSAGE("<< TuxBlox DEBUG >> Potential Hyperion Warning: Something called wine_get_version\n");
     return wine_version;
 }
 
@@ -231,7 +231,7 @@ const char * CDECL wine_get_version(void)
 const char * CDECL wine_get_build_id(void)
 {
     const char *p = wine_version;
-    MESSAGE("<< TuxBlox DEBUG >> Potential Hyperion Warning: Something called wine_get_build_id\n");
+    // MESSAGE("<< TuxBlox DEBUG >> Potential Hyperion Warning: Something called wine_get_build_id\n");
     p += strlen(p) + 1;  /* skip version */
     return p;
 }
@@ -243,7 +243,7 @@ const char * CDECL wine_get_build_id(void)
 void CDECL wine_get_host_version( const char **sysname, const char **release )
 {
     const char *p = wine_version;
-    MESSAGE("<< TuxBlox DEBUG >> Potential Hyperion Warning: Something called wine_get_host_version\n");
+    // MESSAGE("<< TuxBlox DEBUG >> Potential Hyperion Warning: Something called wine_get_host_version\n");
     p += strlen(p) + 1;  /* skip version */
     p += strlen(p) + 1;  /* skip build id */
     if (sysname) *sysname = p;

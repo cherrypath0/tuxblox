@@ -1,16 +1,49 @@
 #include "process_launcher.h"
+#include <algorithm>
 #include <cassert>
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <thread>
+
+static bool contains(const std::vector<std::string>& env, const std::string& kv) {
+    return std::find(env.begin(), env.end(), kv) != env.end();
+}
 
 int main() {
     using namespace tuxblox;
     using namespace std::chrono_literals;
 
     assert(protonBinaryPath("/x/tuxblox") == "/x/tuxblox/ProtonBuild/dist/proton");
+
+    // launchEnvVars(): Player gets the shared Proton vars, no DXVK_CONFIG override.
+    {
+        auto env = launchEnvVars("/x/tuxblox", LaunchTarget::Player);
+        assert(contains(env, "STEAM_COMPAT_DATA_PATH=/x/tuxblox/runtime"));
+        assert(contains(env, "STEAM_COMPAT_CLIENT_INSTALL_PATH=/x/tuxblox"));
+        assert(contains(env, "PROTON_LOG_DIR=/x/tuxblox/logs"));
+        assert(contains(env, "DXVK_ASYNC=1"));
+        assert(!contains(env, "DXVK_CONFIG=dxgi.enableDummyCompositionSwapchain=True"));
+    }
+
+    // launchEnvVars(): Studio additionally gets the composition-swapchain override.
+    {
+        auto env = launchEnvVars("/x/tuxblox", LaunchTarget::Studio);
+        assert(contains(env, "DXVK_CONFIG=dxgi.enableDummyCompositionSwapchain=True"));
+    }
+
+    // launchEnvVars() must not touch this process's own environment -- it's
+    // meant to be applied only to a Proton child (via setenv() in a
+    // soon-to-exec()'d child, or an explicit execve() envp), never to the
+    // launcher process itself, which may go on to spawn other, non-Proton
+    // children. See item 33 in plan/plan.txt.
+    {
+        assert(getenv("STEAM_COMPAT_DATA_PATH") == nullptr);
+        (void)launchEnvVars("/x/tuxblox", LaunchTarget::Player);
+        assert(getenv("STEAM_COMPAT_DATA_PATH") == nullptr);
+    }
 
     // Short-lived process: exits on its own, poll() must detect that.
     {

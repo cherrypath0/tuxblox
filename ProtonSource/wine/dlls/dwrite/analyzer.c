@@ -1416,6 +1416,17 @@ static HRESULT WINAPI dwritetextanalyzer_AnalyzeNumberSubstitution(IDWriteTextAn
 
     if (!once++)
         FIXME("(%p %u %u %p): stub\n", source, position, length, sink);
+
+    /* No real locale-specific substitution analysis, but every caller that
+     * relies on the documented contract (the whole [position, length) range
+     * must be reported to the sink, in one or more SetNumberSubstitution
+     * calls, before this returns) needs at least one call covering the
+     * entire range -- otherwise a caller that loops "keep analyzing the
+     * unreported remainder" never sees any progress and recurses without
+     * bound. Reported with NULL substitution (i.e. "no substitution here"),
+     * consistent with this being an unimplemented stub. */
+    if (length) IDWriteTextAnalysisSink_SetNumberSubstitution( sink, position, length, NULL );
+
     return S_OK;
 }
 

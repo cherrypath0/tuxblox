@@ -1743,7 +1743,18 @@
 # or 'wine_' (for user-visible functions) to avoid namespace conflicts.
 
 # Server interface
-@ cdecl -norelay wine_server_call(ptr)
+# Exported by ordinal only (-noname): the name is what Roblox/Hyperion probe for
+# via GetProcAddress to fingerprint Wine. Removing it from the export NAME table
+# (rather than intercepting lookups in LdrGetProcedureAddress) keeps the table and
+# GetProcAddress consistent -- a name that is absent from the table and also fails
+# to resolve is exactly what a real Windows ntdll looks like, whereas a name that
+# is present in the table but returns NULL is itself a loader-tampering signal.
+# Explicit ordinals are required for -noname (tools/winebuild/parser.c:658) and are
+# pinned above the auto-assigned range (1..1462 for the other 1462 exports) so they
+# cannot collide. In-tree consumers that link this by name -- conhost.exe and
+# ntoskrnl.exe -- keep working: winebuild emits ordinal imports for them
+# automatically (tools/winebuild/import.c:586).
+1500 cdecl -norelay -noname wine_server_call(ptr)
 @ cdecl wine_server_fd_to_handle(long long long ptr)
 @ cdecl wine_server_handle_to_fd(long long ptr ptr)
 
@@ -1757,7 +1768,7 @@
 @ extern -private __wine_unixlib_handle
 @ stdcall __wine_get_unix_env(ptr ptr long)
 @ stdcall __wine_set_unix_env(ptr ptr)
-@ stdcall wine_nt_to_unix_file_name(ptr ptr ptr long) compat_wine_nt_to_unix_file_name
+1501 stdcall -noname wine_nt_to_unix_file_name(ptr ptr ptr long) compat_wine_nt_to_unix_file_name
 
 # Debugging
 @ stdcall -norelay __wine_dbg_write(ptr long)
@@ -1768,6 +1779,14 @@
 @ stdcall -norelay __wine_dbg_ftrace(ptr long long)
 
 # Version
-@ cdecl wine_get_version()
-@ cdecl wine_get_build_id()
-@ cdecl wine_get_host_version(ptr ptr)
+# -noname for the same reason as wine_server_call above. Every in-tree consumer of
+# these three resolves them with GetProcAddress and already null-checks the result,
+# so they degrade gracefully rather than breaking: winecfg/about.c:113,
+# winver/winver.c:32, appwiz.cpl/addons.c:760, user32/nonclient.c:88,
+# wined3d/adapter_vk.c:1904, shell32_main.c:913, dbghelp/minidump.c:560,
+# winetest/main.c:470. The visible cost is that winecfg's About panel and winver no
+# longer display the Wine version string. shell32.dll links wine_get_host_version by
+# name and is switched to an ordinal import automatically.
+1502 cdecl -noname wine_get_version()
+1503 cdecl -noname wine_get_build_id()
+1504 cdecl -noname wine_get_host_version(ptr ptr)

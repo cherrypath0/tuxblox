@@ -94,11 +94,21 @@ std::string protonBinaryPath(const std::string& installDir) {
     return installDir + "/ProtonBuild/dist/proton";
 }
 
-void setLaunchEnv(const std::string& installDir) {
-    setenv("STEAM_COMPAT_DATA_PATH", (installDir + "/runtime").c_str(), 1);
-    setenv("STEAM_COMPAT_CLIENT_INSTALL_PATH", installDir.c_str(), 1);
-    setenv("PROTON_LOG_DIR", (installDir + "/logs").c_str(), 1);
-    setenv("DXVK_ASYNC", "1", 1);
+std::vector<std::string> launchEnvVars(const std::string& installDir, LaunchTarget target) {
+    std::vector<std::string> env = {
+        "STEAM_COMPAT_DATA_PATH=" + installDir + "/runtime",
+        "STEAM_COMPAT_CLIENT_INSTALL_PATH=" + installDir,
+        "PROTON_LOG_DIR=" + installDir + "/logs",
+        "DXVK_ASYNC=1",
+    };
+    if (target == LaunchTarget::Studio) {
+        // Studio's embedded WebView2 (login/create.roblox.com UI) appears to rely
+        // on a DXGI composition swapchain; DXVK's CreateSwapChainForComposition
+        // returns E_NOTIMPL unless this is enabled. Scoped to Studio only -- see
+        // dxgi_factory.cpp's enableDummyCompositionSwapchain option.
+        env.push_back("DXVK_CONFIG=dxgi.enableDummyCompositionSwapchain=True");
+    }
+    return env;
 }
 
 std::string resolveOrBootstrapExePath(LaunchTarget target, const std::string& installDir) {
@@ -145,17 +155,11 @@ LaunchOutcome ProcessLauncher::launch(LaunchTarget target, const std::string& ur
         return {false, "could not resolve or download the Roblox executable"};
     }
 
-    // Same 4 vars setLaunchEnv() sets, but applied in the child (via
-    // TrackedProcess::start's env overlay) rather than here in the parent --
-    // see Finding 6, 2026-07-28 final review. setLaunchEnv() itself is left
-    // unchanged and is still used as-is by headless_launch.cpp, which is
-    // single-threaded at that point and unaffected by this hazard.
-    std::vector<std::string> env = {
-        "STEAM_COMPAT_DATA_PATH=" + installDir_ + "/runtime",
-        "STEAM_COMPAT_CLIENT_INSTALL_PATH=" + installDir_,
-        "PROTON_LOG_DIR=" + installDir_ + "/logs",
-        "DXVK_ASYNC=1",
-    };
+    // Applied in the child (via TrackedProcess::start's env overlay) rather
+    // than here in the parent -- see Finding 6, 2026-07-28 final review:
+    // setenv()/getenv() are not thread-safe in glibc, and this (parent)
+    // process has other threads that may call getenv() concurrently.
+    std::vector<std::string> env = launchEnvVars(installDir_, target);
 
     std::vector<std::string> argv = {protonBinaryPath(installDir_), "run", exePath};
     if (!uri.empty()) argv.push_back(uri);

@@ -957,6 +957,17 @@ static NTSTATUS walk_node_dependencies( LDR_DDAG_NODE *node, void *context,
     return status;
 }
 
+/* real forwarder chains on Windows are at most a couple of hops (e.g.
+ * kernelbase -> kernel32 -> ntdll); this is generous headroom above that.
+ * Anything deeper means find_named_export/find_ordinal_export/
+ * find_forwarded_export have entered a cycle across two or more modules'
+ * export tables, which recurses through this trio without bound and
+ * overflows the stack instead of failing cleanly. find_forwarded_export
+ * is the only one of the three that re-enters this cycle, so counting its
+ * nesting here is enough to bound the whole chain; safe as a plain static
+ * since the loader_section is held for the entire call (see below). */
+#define MAX_FORWARD_DEPTH 32
+
 /*************************************************************************
  *		find_forwarded_export
  *
@@ -965,6 +976,7 @@ static NTSTATUS walk_node_dependencies( LDR_DDAG_NODE *node, void *context,
  */
 static FARPROC find_forwarded_export( HMODULE module, const char *forward, LPCWSTR load_path, WINE_MODREF *importer, BOOL is_dynamic )
 {
+    static unsigned int depth;
     const IMAGE_EXPORT_DIRECTORY *exports;
     DWORD exp_size;
     WINE_MODREF *wm;
@@ -974,6 +986,15 @@ static FARPROC find_forwarded_export( HMODULE module, const char *forward, LPCWS
     BOOL wm_loaded = FALSE;
 
     if (!end) return NULL;
+
+    if (depth >= MAX_FORWARD_DEPTH)
+    {
+        ERR( "forwarder chain for '%s' used by %s is over %u deep, assuming a cycle between "
+             "export tables and giving up instead of overflowing the stack\n",
+             forward, debugstr_w(get_modref(module)->ldr.FullDllName.Buffer), MAX_FORWARD_DEPTH );
+        return NULL;
+    }
+
     if (build_import_name( importer, mod_name, forward, end - forward )) return NULL;
 
     if (!(wm = find_basename_module( mod_name )))
@@ -1008,6 +1029,7 @@ static FARPROC find_forwarded_export( HMODULE module, const char *forward, LPCWS
     {
         const char *name = end + 1;
 
+        depth++;
         if (*name == '#') { /* ordinal */
             proc = find_ordinal_export( wm->ldr.DllBase, exports, exp_size,
                                         atoi(name+1) - exports->Base, load_path,
@@ -1015,6 +1037,7 @@ static FARPROC find_forwarded_export( HMODULE module, const char *forward, LPCWS
         } else
             proc = find_named_export( wm->ldr.DllBase, exports, exp_size, name, -1, load_path,
                                       importer, is_dynamic );
+        depth--;
     }
 
     if (!proc)

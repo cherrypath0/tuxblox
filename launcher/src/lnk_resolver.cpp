@@ -104,8 +104,8 @@ const char* targetExeName(LaunchTarget target) {
 
 const char* targetLnkRelPath(LaunchTarget target) {
     return target == LaunchTarget::Player
-        ? "users/steamuser/Desktop/Roblox Player.lnk"
-        : "users/steamuser/Desktop/Roblox Studio.lnk";
+        ? "users/user/Desktop/Roblox Player.lnk"
+        : "users/user/Desktop/Roblox Studio.lnk";
 }
 
 std::string extractExeRelPathFromLnkBytes(const std::vector<unsigned char>& lnkBytes,

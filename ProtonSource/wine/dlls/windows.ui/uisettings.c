@@ -234,8 +234,24 @@ DEFINE_IINSPECTABLE( uisettings2, IUISettings2, struct uisettings, IUISettings_i
 
 static HRESULT WINAPI uisettings2_get_TextScaleFactor( IUISettings2 *iface, DOUBLE *value )
 {
-    FIXME( "iface %p, value %p stub!\n", iface, value );
-    return E_NOTIMPL;
+    /* Log only the first call. Chromium's embedded WebView2 calls this in a
+     * tight nest -- 4500+ times before its thread runs out of stack -- and the
+     * fixme channel is on by default, so an unconditional FIXME() turns every
+     * one of those into a synchronous write to stderr. That blocking I/O was
+     * measurably inflating the observed startup stall (it scaled with system
+     * load, 2.2s-11.4s, in a way the call nesting alone does not). Rate-limiting
+     * here does not fix the nesting itself -- it just stops this stub from
+     * amplifying it and from burying the rest of the log. */
+    static BOOL once;
+
+    if (!once++) FIXME( "iface %p, value %p semi-stub!\n", iface, value );
+    else TRACE( "iface %p, value %p semi-stub!\n", iface, value );
+
+    /* Return a plausible real value (100% / no scaling) rather than E_NOTIMPL,
+     * matching real Windows' overwhelmingly common default. */
+    if (!value) return E_POINTER;
+    *value = 1.0;
+    return S_OK;
 }
 
 static HRESULT WINAPI uisettings2_add_TextScaleFactorChanged( IUISettings2 *iface, ITypedEventHandler_UISettings_IInspectable *handler,
@@ -567,7 +583,16 @@ static HRESULT WINAPI factory_ActivateInstance( IActivationFactory *iface, IInsp
         return hr;
     }
 
-    *instance = (IInspectable *)&impl->IUISettings5_iface;
+    /* IActivationFactory::ActivateInstance must hand back the runtime class's
+     * *default* interface, which for Windows.UI.ViewManagement.UISettings is
+     * IUISettings. Returning IUISettings5 here happened to work for callers
+     * that QueryInterface before use (C++/WinRT's try_as, WRL's As), but any
+     * consumer that trusts the ABI contract and casts the returned pointer
+     * straight to IUISettings gets silent vtable type-confusion: slot 6 is
+     * get_HandPreference on IUISettings but get_AutoHideScrollBars on
+     * IUISettings5. Every other WinRT class in the tree returns its default
+     * interface here; this was the sole exception. */
+    *instance = (IInspectable *)&impl->IUISettings_iface;
     return S_OK;
 }
 

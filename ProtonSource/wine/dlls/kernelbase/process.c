@@ -1575,12 +1575,152 @@ BOOL WINAPI DECLSPEC_HOTPATCH TerminateProcess( HANDLE handle, DWORD exit_code )
 static char *command_lineA;
 static WCHAR *command_lineW;
 
+/* Replace one occurrence of needle with replacement, returning a new heap
+ * string, or NULL if needle wasn't found (or allocation failed). Caller
+ * frees the result. */
+static WCHAR *wstr_replace_once( const WCHAR *src, const WCHAR *needle, const WCHAR *replacement )
+{
+    const WCHAR *match = wcsstr( src, needle );
+    WCHAR *out;
+    SIZE_T prefix_len, needle_len, repl_len, suffix_len;
+
+    if (!match) return NULL;
+
+    prefix_len = match - src;
+    needle_len = lstrlenW( needle );
+    repl_len = lstrlenW( replacement );
+    suffix_len = lstrlenW( match + needle_len );
+
+    out = RtlAllocateHeap( GetProcessHeap(), 0, (prefix_len + repl_len + suffix_len + 1) * sizeof(WCHAR) );
+    if (!out) return NULL;
+
+    memcpy( out, src, prefix_len * sizeof(WCHAR) );
+    memcpy( out + prefix_len, replacement, repl_len * sizeof(WCHAR) );
+    memcpy( out + prefix_len + repl_len, match + needle_len, (suffix_len + 1) * sizeof(WCHAR) );
+    return out;
+}
+
+/* Roblox/Hyperion read the process command line to fingerprint the runtime
+ * environment -- both via GetCommandLineW() and, for anti-tamper checks that
+ * specifically avoid calling exported/hookable APIs, by reading
+ * PEB->ProcessParameters->CommandLine directly. Launched through TuxBlox,
+ * that string currently leaks the host-side prefix path as-is (observed:
+ * "runtime/pfx/drive_c/users/steamuser/AppData/Local/Roblox/Versions/
+ * version-14d8b191232f4ddd/RobloxStudioBeta.exe roblox-studio-auth:/...")
+ * instead of a native Windows path. Rewrite params->CommandLine in place --
+ * not just the cached command_lineA/W below -- so both call paths see a
+ * plausible native path. */
+/* Only rewrite the command line for the Roblox process itself. Proton's own
+ * "c:\windows\system32\steam.exe" launch helper (steam_helper/steam.c) is
+ * started with argv = [steam.exe, <target path>] -- if that target path
+ * happens to still be the leaked host-side form, a content-only match on
+ * "drive_c/" would find it in argv[1] and rewrite the *whole* command line,
+ * silently dropping steam.exe's own argv[0] and corrupting its argc/argv
+ * parsing (steam_helper treats an unexpected argv[0]/argc shape as a
+ * steam:// command to forward to the native Steam client -- see Finding
+ * 2026-07-30, launch regression). Gating on the process's own image name
+ * keeps this rewrite from ever touching a command line that isn't Roblox's. */
+static BOOL is_roblox_command_line_target( const RTL_USER_PROCESS_PARAMETERS *params )
+{
+    static const WCHAR *const roblox_exes[] = { L"RobloxPlayerBeta.exe", L"RobloxStudioBeta.exe" };
+    const UNICODE_STRING *image = &params->ImagePathName;
+    SIZE_T path_len = image->Length / sizeof(WCHAR);
+    unsigned int i;
+
+    for (i = 0; i < ARRAY_SIZE(roblox_exes); i++)
+    {
+        SIZE_T name_len = lstrlenW( roblox_exes[i] );
+        if (path_len >= name_len &&
+            !wcsnicmp( image->Buffer + path_len - name_len, roblox_exes[i], name_len ))
+            return TRUE;
+    }
+    return FALSE;
+}
+
+static void fake_leaked_command_line( RTL_USER_PROCESS_PARAMETERS *params )
+{
+    static const WCHAR fwd_marker[] = L"drive_c/";
+    static const WCHAR bwd_marker[] = L"drive_c\\";
+    WCHAR *cmdline = params->CommandLine.Buffer;
+    WCHAR *drive_c, *rel_start, *exe_end, *args_start, *winpath, *replaced, *final_path, *new_cmdline, *p;
+    SIZE_T i, rel_len, final_len, args_len, total_len;
+    BOOL quoted;
+
+    if (!cmdline) return;
+    if (!is_roblox_command_line_target( params )) return;
+
+    drive_c = wcsstr( cmdline, fwd_marker );
+    if (!drive_c) drive_c = wcsstr( cmdline, bwd_marker );
+    if (!drive_c) return; /* doesn't look like a leaked host path, leave it alone */
+
+    rel_start = drive_c + ARRAY_SIZE(fwd_marker) - 1; /* both markers are the same length */
+    exe_end = wcsstr( rel_start, L".exe" );
+    if (!exe_end) return; /* unexpected shape, don't guess at a rewrite */
+    exe_end += 4;
+    rel_len = exe_end - rel_start;
+
+    /* CreateProcess quotes argv[0] whenever it's passed as the whole command
+     * line (the common case here: no extra args), so the leaked path arrives
+     * wrapped in a pair of '"': the opening one sits before "Z:", which
+     * rel_start skips straight past, and the closing one sits right after
+     * ".exe", i.e. exactly at exe_end. The rewrite must reproduce that same
+     * quoting around the new path -- dropping the open quote while still
+     * appending the close quote (previously: unconditionally tacking
+     * exe_end's contents onto the end) leaves one unbalanced trailing '"'
+     * with no matching opener. That corrupts the command line Roblox's own
+     * argv parser goes on to read, and it aborts (E_ABORT) before ever
+     * opening a log file. */
+    quoted = (cmdline[0] == '"');
+    args_start = exe_end;
+    if (quoted && *args_start == '"') args_start++;
+
+    winpath = RtlAllocateHeap( GetProcessHeap(), 0, (3 + rel_len + 1) * sizeof(WCHAR) );
+    if (!winpath) return;
+    winpath[0] = 'C'; winpath[1] = ':'; winpath[2] = '\\';
+    for (i = 0; i < rel_len; i++)
+    {
+        WCHAR c = rel_start[i];
+        winpath[3 + i] = (c == '/') ? '\\' : c;
+    }
+    winpath[3 + rel_len] = 0;
+
+    /* present a generic account name, independent of the prefix's real one */
+    replaced = wstr_replace_once( winpath, L"\\steamuser\\", L"\\user\\" );
+    final_path = replaced ? replaced : winpath;
+
+    final_len = lstrlenW( final_path );
+    args_len = lstrlenW( args_start );
+    total_len = (quoted ? 2 : 0) + final_len + args_len;
+    new_cmdline = RtlAllocateHeap( GetProcessHeap(), 0, (total_len + 1) * sizeof(WCHAR) );
+    if (new_cmdline)
+    {
+        p = new_cmdline;
+        if (quoted) *p++ = '"';
+        memcpy( p, final_path, final_len * sizeof(WCHAR) );
+        p += final_len;
+        if (quoted) *p++ = '"';
+        memcpy( p, args_start, (args_len + 1) * sizeof(WCHAR) );
+
+        /* Not freeing the previous Buffer: it isn't necessarily heap-allocated
+         * from this same heap, and this runs once at process startup, so the
+         * one-time leak is harmless. */
+        params->CommandLine.Buffer = new_cmdline;
+        params->CommandLine.Length = (USHORT)(total_len * sizeof(WCHAR));
+        params->CommandLine.MaximumLength = params->CommandLine.Length + sizeof(WCHAR);
+    }
+
+    RtlFreeHeap( GetProcessHeap(), 0, winpath );
+    if (replaced) RtlFreeHeap( GetProcessHeap(), 0, replaced );
+}
+
 /******************************************************************
  *		init_startup_info
  */
 void init_startup_info( RTL_USER_PROCESS_PARAMETERS *params )
 {
     ANSI_STRING ansi;
+
+    fake_leaked_command_line( params );
 
     command_lineW = params->CommandLine.Buffer;
     if (!RtlUnicodeStringToAnsiString( &ansi, &params->CommandLine, TRUE )) command_lineA = ansi.Buffer;

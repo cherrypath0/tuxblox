@@ -26,9 +26,9 @@ int main() {
     assert(std::string(targetExeName(LaunchTarget::Player)) == "RobloxPlayerBeta.exe");
     assert(std::string(targetExeName(LaunchTarget::Studio)) == "RobloxStudioBeta.exe");
     assert(std::string(targetLnkRelPath(LaunchTarget::Player)) ==
-           "users/steamuser/Desktop/Roblox Player.lnk");
+           "users/user/Desktop/Roblox Player.lnk");
     assert(std::string(targetLnkRelPath(LaunchTarget::Studio)) ==
-           "users/steamuser/Desktop/Roblox Studio.lnk");
+           "users/user/Desktop/Roblox Studio.lnk");
 
     // ASCII-encoded path inside otherwise-binary .lnk bytes.
     {
@@ -70,7 +70,7 @@ int main() {
             out << "fake exe";
         }
 
-        fs::path lnkDir = driveC / "users" / "steamuser" / "Desktop";
+        fs::path lnkDir = driveC / "users" / "user" / "Desktop";
         fs::create_directories(lnkDir);
         {
             std::ofstream out(lnkDir / "Roblox Player.lnk", std::ios::binary);

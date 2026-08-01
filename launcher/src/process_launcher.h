@@ -33,7 +33,15 @@ struct LaunchOutcome {
 
 std::string resolveOrBootstrapExePath(LaunchTarget target, const std::string& installDir);
 std::string protonBinaryPath(const std::string& installDir);
-void setLaunchEnv(const std::string& installDir);
+
+// Env vars ("KEY=VALUE" strings) Proton itself needs to locate the prefix
+// and render correctly. Callers must apply these only to the environment of
+// the "proton run" child (setenv() in a soon-to-exec()'d child, or an envp
+// passed to exec*e()) -- never to the launcher's own process, since that
+// process may go on to spawn other, non-Proton children (curl update
+// checks, etc.) that have no business seeing Wine/Proton/Steam-Play-shaped
+// env vars. See item 33 in plan/plan.txt.
+std::vector<std::string> launchEnvVars(const std::string& installDir, LaunchTarget target);
 
 class ProcessLauncher {
 public:

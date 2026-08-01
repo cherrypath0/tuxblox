@@ -10,6 +10,7 @@ import shutil
 import errno
 import platform
 import resource
+import signal
 import stat
 import subprocess
 import sys
@@ -52,6 +53,12 @@ def file_exists(s, *, follow_symlinks):
         return os.path.exists(s)
     #'lexists' returns True on broken symlinks
     return os.path.lexists(s)
+
+def kill_process_group(pgid, sig):
+    try:
+        os.killpg(pgid, sig)
+    except ProcessLookupError:
+        pass
 
 def nonzero(s):
     return len(s) > 0 and s != "0"
@@ -354,7 +361,7 @@ def setup_openvr_paths():
     for i, path in enumerate(contents.get('log', [])):
         contents['log'][i] = unix_to_nt_file_name(path)
 
-    openvr_paths = os.path.join(g_compatdata.prefix_dir, "drive_c/users/steamuser/AppData/Local/openvr")
+    openvr_paths = os.path.join(g_compatdata.prefix_dir, "drive_c/users/user/AppData/Local/openvr")
     makedirs(openvr_paths)
 
     openvr_paths = os.path.join(openvr_paths, "openvrpaths.vrpath")
@@ -918,14 +925,14 @@ class CompatData:
         #upgrade_pfx because Steam may drop cloud files here at any time.
         for (old, new, link) in \
                 [
-                    ("drive_c/users/steamuser/Local Settings/Application Data",
-                        self.prefix_dir + "drive_c/users/steamuser/AppData/Local",
+                    ("drive_c/users/user/Local Settings/Application Data",
+                        self.prefix_dir + "drive_c/users/user/AppData/Local",
                         "../AppData/Local"),
-                    ("drive_c/users/steamuser/Application Data",
-                        self.prefix_dir + "drive_c/users/steamuser/AppData/Roaming",
+                    ("drive_c/users/user/Application Data",
+                        self.prefix_dir + "drive_c/users/user/AppData/Roaming",
                         "./AppData/Roaming"),
-                    ("drive_c/users/steamuser/My Documents",
-                        self.prefix_dir + "drive_c/users/steamuser/Documents",
+                    ("drive_c/users/user/My Documents",
+                        self.prefix_dir + "drive_c/users/user/Documents",
                         "./Documents"),
                 ]:
 
@@ -1998,7 +2005,60 @@ class Session:
     def run_proc(self, args, local_env=None):
         if local_env is None:
             local_env = self.env
-        return subprocess.call(args, env=local_env, stderr=self.log_file, stdout=self.log_file)
+
+        # TuxBlox: launch in its own process group so a Ctrl+C (or SIGTERM) sent
+        # to proton takes the whole tree down with it -- wine, the game, and any
+        # helper processes it spawns (e.g. WebView2's gpu-process/crashpad-handler) --
+        # instead of leaving them running as orphans after proton itself exits.
+        proc = subprocess.Popen(args, env=local_env, stderr=self.log_file, stdout=self.log_file,
+                                 start_new_session=True)
+
+        def handle_signal(signum, frame):
+            # Reap via raw os.waitpid(), NOT proc.wait()/.poll() -- this handler runs
+            # nested inside the *already in-flight* outer proc.wait() call below
+            # (Python dispatches signal handlers between bytecode steps, it doesn't
+            # unwind the interrupted call first), and Popen.wait() blocks acquiring
+            # its own internal _waitpid_lock, which the outer call already holds.
+            # Calling proc.wait() here self-deadlocks forever, confirmed by reading
+            # CPython's subprocess.py: Finding 2026-07-30, Ctrl+C repro hung
+            # indefinitely past both 5s timeouts until this was changed to raw
+            # os.waitpid(), which doesn't touch that lock at all.
+            kill_process_group(proc.pid, signal.SIGTERM)
+            deadline = time.time() + 5
+            reaped = False
+            while time.time() < deadline:
+                try:
+                    if os.waitpid(proc.pid, os.WNOHANG) != (0, 0):
+                        reaped = True
+                        break
+                except ChildProcessError:
+                    reaped = True
+                    break
+                time.sleep(0.1)
+            if not reaped:
+                kill_process_group(proc.pid, signal.SIGKILL)
+                try:
+                    os.waitpid(proc.pid, 0)
+                except ChildProcessError:
+                    pass
+            # wineserver (and the winedevice/xalia helper processes connected to it)
+            # are spawned independently of this invocation's own process group --
+            # wine deliberately lets wineserver outlive any single client so it can
+            # keep serving the prefix -- so killing our own process group above
+            # leaves them running. Tear down the whole prefix session explicitly.
+            try:
+                subprocess.run([g_proton.wineserver_bin, "-k"], env=local_env, timeout=5)
+            except (subprocess.TimeoutExpired, OSError):
+                pass
+            sys.exit(128 + signum)
+
+        old_handlers = (signal.signal(signal.SIGINT, handle_signal),
+                        signal.signal(signal.SIGTERM, handle_signal))
+        try:
+            return proc.wait()
+        finally:
+            signal.signal(signal.SIGINT, old_handlers[0])
+            signal.signal(signal.SIGTERM, old_handlers[1])
 
     def run(self):
         if shutil.which('steam-runtime-launcher-interface-0') is not None:
@@ -2015,20 +2075,18 @@ class Session:
         else:
             remote_debug_proc = None
 
-        # CoD: Black Ops 3 workaround
-        if os.environ.get("SteamGameId", 0) in [
-                    "311210",   # CoD: Black Ops 3
-                    "1985810",  # CoD: Black Ops Cold War
-                    "1549250",  # Undecember
-                ]:
-            argv = [g_proton.wine_bin, "c:\\Program Files (x86)\\Steam\\steam.exe"]
+        # TuxBlox: run the target directly instead of through Proton's built-in
+        # "c:\windows\system32\steam.exe" helper (steam_helper/steam.c). That helper
+        # exists to emulate a live Steamworks client for real Steam games (achievements,
+        # overlay, cloud saves, per-title workarounds like the CoD branch this replaces)
+        # and, on some code paths, actively forwards to the host's native Steam client.
+        # Roblox is not a Steam title and needs none of that -- see plan.txt item 22.
+        if g_proton.host_pe_arch == "x86_64-windows":
+            #run with winepreloader directly to avoid restart through start.exe
+            self.env["WINELOADERNOEXEC"] = "1"
+            argv = [g_proton.lib_dir + "/wine/x86_64-unix/wine-preloader", g_proton.lib_dir + "/wine/x86_64-unix/wine"]
         else:
-            if g_proton.host_pe_arch == "x86_64-windows":
-                #run with winepreloader directly to avoid restart through start.exe
-                self.env["WINELOADERNOEXEC"] = "1"
-                argv = [g_proton.lib_dir + "/wine/x86_64-unix/wine-preloader", g_proton.lib_dir + "/wine/x86_64-unix/wine", "c:\\windows\\system32\\steam.exe"]
-            else:
-                argv = [g_proton.wine_bin, "c:\\windows\\system32\\steam.exe"]
+            argv = [g_proton.wine_bin]
 
         rc = self.run_proc(adverb + argv + sys.argv[2:] + self.cmdlineappend)
 
