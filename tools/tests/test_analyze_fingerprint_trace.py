@@ -164,24 +164,24 @@ class TestBuildReport(unittest.TestCase):
         ])
         self.assertIn("<anonymous>", build_report(recs, self.ranges))
 
-    def test_out_of_order_records_produce_correct_ranking(self):
-        # Records may arrive out of order due to non-atomic logging in
-        # multi-threaded code. The report must rank by true chronological
-        # seq, not log-file arrival order. Create the same records in
-        # descending seq order and verify the report is identical.
-        in_order_recs = parse_records([
-            "REC seq=1 tid=0024 surface=NtOpenKeyEx rip=0x7f0000001100 detail=first",
-            "REC seq=2 tid=0024 surface=NtQueryObject rip=0x7f0000001200 detail=second",
-            "REC seq=3 tid=0024 surface=NtOpenKeyEx rip=0x7f0000001100 detail=third",
+    def test_ranking_follows_seq_not_log_line_order(self):
+        # The tracer allocates seq with InterlockedIncrement and writes the
+        # line as a separate step, so a multi-threaded process can emit lines
+        # out of seq order.
+        #
+        # This bug only bites when a surface RECURS and a later-emitted line
+        # carries a smaller seq -- with one record per surface, capturing
+        # first_seq at encounter time is accidentally correct. Here
+        # NtQueryObject's true first touch is seq=1, but seq=10 is emitted
+        # first, so encounter-order tracking mis-ranks it after NtOpenKeyEx.
+        recs = parse_records([
+            "REC seq=10 tid=0031 surface=NtQueryObject rip=0x7f0000001100 detail=",
+            "REC seq=5 tid=0024 surface=NtOpenKeyEx rip=0x7f0000001100 detail=",
+            "REC seq=1 tid=0024 surface=NtQueryObject rip=0x7f0000001100 detail=",
         ])
-        out_of_order_recs = parse_records([
-            "REC seq=3 tid=0024 surface=NtOpenKeyEx rip=0x7f0000001100 detail=third",
-            "REC seq=1 tid=0024 surface=NtOpenKeyEx rip=0x7f0000001100 detail=first",
-            "REC seq=2 tid=0024 surface=NtQueryObject rip=0x7f0000001200 detail=second",
-        ])
-        report_in_order = build_report(in_order_recs, self.ranges)
-        report_out_of_order = build_report(out_of_order_recs, self.ranges)
-        self.assertEqual(report_in_order, report_out_of_order)
+        report = build_report(recs, self.ranges)
+        self.assertLess(report.index("NtQueryObject"),
+                        report.index("NtOpenKeyEx"))
 
     def test_cross_module_first_touch_ordering(self):
         # Modules themselves must be ordered by first-touch sequence, not
