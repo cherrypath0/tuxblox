@@ -14,6 +14,12 @@ TuxBlox is a multi-license repository, make sure to read all of these:
 
 By submitting a pull request, you agree that your contribution is licensed under the same license as the component you're contributing to (GPLv3 for TuxBlox's own code, LGPLv2.1 for `ProtonSource/`), and that you have the right to submit it under that license.
 
+### Required Packages for Compiling:
+* curl
+* nuitka
+* python
+* podman/docker
+
 ## Getting Started
 
 1. Fork the repository and clone your fork.
