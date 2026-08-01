@@ -31,6 +31,8 @@ packages=(
     python3
     podman
     curl
+    gcc
+    python3-venv
 )
 
 JOBS="${TUXBLOX_MAKE_JOBS:-$(nproc 2>/dev/null || echo 1)}"
@@ -125,12 +127,19 @@ cd ProtonBuild
 step "Updating dependencies"
 
 declare -A override_apt=()
-declare -A override_dnf=()
-declare -A override_pacman=()
+declare -A override_dnf=(
+    [python3-venv]="python3"
+)
+declare -A override_pacman=(
+    [python3-venv]="python"
+)
 declare -A override_brew=(
     [python3]="python@3"
+    [python3-venv]="python@3"
 )
-declare -A override_apk=()
+declare -A override_apk=(
+    [python3-venv]="python3"
+)
 
 detect_pm() {
     if command -v apt-get &>/dev/null; then echo "apt"
@@ -226,6 +235,29 @@ run_step "build_x86_64_nls" strict bash -c 'cd obj-wine-x86_64 && make nls/local
 
 step "Resuming build (4/4) (using $JOBS parallel jobs)"
 run_step "resume_build" strict bash -c "set -o pipefail; make -j$JOBS 2>&1 | tee -a ../build.log"
+
+step "Compiling proton launcher to a native binary (Nuitka)"
+run_step "compile_proton_native" strict bash -c '
+    set -e
+    venv="../.nuitka-venv"
+    if [[ ! -x "$venv/bin/nuitka" ]]; then
+        python3 -m venv "$venv"
+        "$venv/bin/pip" install --upgrade pip -q
+        "$venv/bin/pip" install nuitka -q
+    fi
+
+    workdir="$(mktemp -d)"
+    cp dist/proton "$workdir/proton.py"
+    cp dist/filelock.py "$workdir/filelock.py"
+
+    "$venv/bin/nuitka" --standalone --no-progressbar \
+        --output-filename=proton --output-dir="$workdir/out" \
+        "$workdir/proton.py"
+
+    rm -f dist/proton dist/filelock.py
+    cp -a "$workdir/out/proton.dist/." dist/
+    rm -rf "$workdir"
+'
 
 step "Recording build version"
 if [[ -z "$TUXBLOX_BUILD_VERSION" ]]; then
