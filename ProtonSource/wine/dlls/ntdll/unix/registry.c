@@ -330,6 +330,7 @@ NTSTATUS WINAPI NtCreateKey( HANDLE *key, ACCESS_MASK access, const OBJECT_ATTRI
     if (attr->Length != sizeof(OBJECT_ATTRIBUTES)) return STATUS_INVALID_PARAMETER;
     if (!attr->ObjectName->Length && !attr->RootDirectory) return STATUS_OBJECT_PATH_SYNTAX_BAD;
     if ((ret = alloc_object_attributes( attr, &objattr, &len ))) return ret;
+    tuxblox_trace_record_us( "NtCreateKey", attr->ObjectName );
     objattr->attributes |= OBJ_OPENIF | OBJ_CASE_INSENSITIVE;
 
     TRACE( "(%p,%s,%s,%x,%x,%p)\n", attr->RootDirectory, debugstr_us(attr->ObjectName),
@@ -388,6 +389,8 @@ NTSTATUS WINAPI NtOpenKeyEx( HANDLE *key, ACCESS_MASK access, const OBJECT_ATTRI
     if (attr->ObjectName->Length & 1) return STATUS_OBJECT_NAME_INVALID;
 
     TRACE( "(%p,%s,%x,%p)\n", attr->RootDirectory, debugstr_us(attr->ObjectName), access, key );
+
+    tuxblox_trace_record_us( "NtOpenKeyEx", attr->ObjectName );
 
     if (options & ~REG_OPTION_OPEN_LINK) FIXME( "options %x not implemented\n", options );
 
@@ -745,6 +748,8 @@ NTSTATUS WINAPI NtQueryValueKey( HANDLE handle, const UNICODE_STRING *name,
     TRACE( "(%p,%s,%d,%p,%d)\n", handle, debugstr_us(name), info_class, info, length );
 
     if (name->Length > MAX_VALUE_LENGTH) return STATUS_OBJECT_NAME_NOT_FOUND;
+
+    tuxblox_trace_record_us( "NtQueryValueKey", name );
 
     /* compute the length we want to retrieve */
     switch(info_class)

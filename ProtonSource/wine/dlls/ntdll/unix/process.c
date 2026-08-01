@@ -973,6 +973,8 @@ NTSTATUS WINAPI NtTerminateProcess( HANDLE handle, LONG exit_code )
     unsigned int ret;
     BOOL self;
 
+    tuxblox_trace_exit( exit_code, "NtTerminateProcess" );
+
     TRACE("handle %p, exit_code %d, process_exiting %d.\n", handle, (int)exit_code, process_exiting);
 
     if (handle == GetCurrentProcess())

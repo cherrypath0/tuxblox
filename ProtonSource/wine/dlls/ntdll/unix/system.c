@@ -3736,6 +3736,8 @@ NTSTATUS WINAPI NtQuerySystemInformation( SYSTEM_INFORMATION_CLASS class,
         ULONG i;
         RTL_PROCESS_MODULES *smi = info;
 
+        tuxblox_trace_record( "SystemModuleInformation", "" );
+
         len = offsetof( RTL_PROCESS_MODULES, Modules[ARRAY_SIZE(fake_modules)] );
         if (len <= size)
         {
@@ -4034,6 +4036,7 @@ NTSTATUS WINAPI NtQuerySystemInformation( SYSTEM_INFORMATION_CLASS class,
     case SystemFirmwareTableInformation:  /* 76 */
     {
         SYSTEM_FIRMWARE_TABLE_INFORMATION *sfti = info;
+        tuxblox_trace_record( "SystemFirmwareTableInformation", "" );
         len = FIELD_OFFSET(SYSTEM_FIRMWARE_TABLE_INFORMATION, TableBuffer);
         if (size < len)
         {
@@ -4069,6 +4072,8 @@ NTSTATUS WINAPI NtQuerySystemInformation( SYSTEM_INFORMATION_CLASS class,
 
         ULONG i;
         RTL_PROCESS_MODULE_INFORMATION_EX *module_info = info;
+
+        tuxblox_trace_record( "SystemModuleInformationEx", "" );
 
         len = sizeof(*module_info) * ARRAY_SIZE(fake_modules) + sizeof(module_info->NextOffset);
         if (len <= size)

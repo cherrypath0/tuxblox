@@ -3425,6 +3425,8 @@ static NTSTATUS get_dos_device( char **unix_name, int start_pos )
     struct stat st;
     char *new_name, *dev = *unix_name + start_pos;
 
+    tuxblox_trace_record( "get_dos_device", "" );
+
     /* special case for drive devices */
     if (dev[0] && dev[1] == ':' && !dev[2]) strcpy( dev + 1, "::" );
 
@@ -7881,6 +7883,8 @@ NTSTATUS WINAPI NtQueryVolumeInformationFile( HANDLE handle, IO_STATUS_BLOCK *io
     int fd, needs_close;
     unsigned int status;
 
+    tuxblox_trace_record( "NtQueryVolumeInformationFile", "" );
+
     status = server_get_unix_fd( handle, 0, &fd, &needs_close, &fd_type, NULL );
     if (status == STATUS_BAD_DEVICE_TYPE)
     {
@@ -8208,6 +8212,8 @@ NTSTATUS WINAPI NtQueryObject( HANDLE handle, OBJECT_INFORMATION_CLASS info_clas
     TRACE("(%p,0x%08x,%p,0x%08x,%p)\n", handle, info_class, ptr, len, used_len);
 
     if (used_len) *used_len = 0;
+
+    tuxblox_trace_record( "NtQueryObject", "" );
 
     switch (info_class)
     {
