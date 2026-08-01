@@ -20,7 +20,8 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from analyze_fingerprint_trace import parse_maps, resolve
+from analyze_fingerprint_trace import (build_report, parse_maps,
+                                       parse_records, resolve)
 
 
 class TestParseMaps(unittest.TestCase):
@@ -90,6 +91,78 @@ class TestResolve(unittest.TestCase):
             "7f0000001000-7f0000002000 r-xp 00000000 08:02 1234 /path/to/foo.dll",
         ])
         self.assertIsNone(resolve(0x7F0000002000, ranges))
+
+
+class TestParseRecords(unittest.TestCase):
+    def test_parses_a_record_behind_wines_trace_prefix(self):
+        recs = parse_records([
+            "trace:tuxblox:tuxblox_trace_record REC seq=1 tid=0024 "
+            "surface=NtOpenKeyEx rip=0x7f1234567890 "
+            "detail=\\Registry\\Machine\\Software\\Wine",
+        ])
+        self.assertEqual(len(recs), 1)
+        r = recs[0]
+        self.assertEqual(r.seq, 1)
+        self.assertEqual(r.tid, "0024")
+        self.assertEqual(r.surface, "NtOpenKeyEx")
+        self.assertEqual(r.rip, 0x7F1234567890)
+        self.assertEqual(r.detail, "\\Registry\\Machine\\Software\\Wine")
+
+    def test_detail_may_be_empty(self):
+        recs = parse_records([
+            "REC seq=7 tid=00a4 surface=NtQueryObject rip=0x400000 detail=",
+        ])
+        self.assertEqual(recs[0].detail, "")
+
+    def test_detail_may_contain_spaces(self):
+        recs = parse_records([
+            "REC seq=2 tid=0024 surface=NtOpenKeyEx rip=0x1000 detail=a b c",
+        ])
+        self.assertEqual(recs[0].detail, "a b c")
+
+    def test_non_record_lines_are_ignored(self):
+        recs = parse_records(["MAPS 7f00-7f01 r-xp 0 08:02 1 /x", "noise"])
+        self.assertEqual(recs, [])
+
+
+class TestBuildReport(unittest.TestCase):
+    def setUp(self):
+        self.ranges = parse_maps([
+            "7f0000001000-7f0000002000 r-xp 00003000 08:02 1 /x/hyperion.dll",
+            "7f0000009000-7f000000a000 rwxp 00000000 00:00 0 ",
+        ])
+
+    def test_groups_by_calling_module_and_counts_surfaces(self):
+        recs = parse_records([
+            "REC seq=1 tid=0024 surface=NtOpenKeyEx rip=0x7f0000001100 detail=k1",
+            "REC seq=2 tid=0024 surface=NtOpenKeyEx rip=0x7f0000001100 detail=k2",
+            "REC seq=3 tid=0024 surface=NtQueryObject rip=0x7f0000001200 detail=",
+        ])
+        report = build_report(recs, self.ranges)
+        self.assertIn("/x/hyperion.dll", report)
+        self.assertIn("NtOpenKeyEx", report)
+        self.assertIn("2", report)
+
+    def test_reports_first_touch_order(self):
+        recs = parse_records([
+            "REC seq=5 tid=0024 surface=NtQueryObject rip=0x7f0000001100 detail=",
+            "REC seq=9 tid=0024 surface=NtOpenKeyEx rip=0x7f0000001100 detail=",
+        ])
+        report = build_report(recs, self.ranges)
+        self.assertLess(report.index("NtQueryObject"), report.index("NtOpenKeyEx"))
+
+    def test_unresolved_addresses_do_not_crash_the_report(self):
+        recs = parse_records([
+            "REC seq=1 tid=0024 surface=NtOpenKeyEx rip=0xdeadbeef detail=",
+        ])
+        report = build_report(recs, self.ranges)
+        self.assertIn("<unresolved>", report)
+
+    def test_anonymous_jit_callers_are_labelled(self):
+        recs = parse_records([
+            "REC seq=1 tid=0024 surface=NtOpenKeyEx rip=0x7f0000009010 detail=",
+        ])
+        self.assertIn("<anonymous>", build_report(recs, self.ranges))
 
 
 if __name__ == "__main__":
