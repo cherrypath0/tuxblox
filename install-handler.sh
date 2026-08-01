@@ -1,10 +1,20 @@
 #!/bin/bash
-# Registers roblox-player:, roblox-studio:, and roblox-studio-auth: as Linux
-# URI-scheme handlers pointing at this checkout's launch.sh, so "Play"/"Edit"
-# on roblox.com (and Studio's browser-based login flow, which redirects back
-# via roblox-studio-auth:) launches TuxBlox instead of doing nothing. Run
-# once, manually. Not called from build.sh/launch.sh since it's optional
-# desktop integration, not a build dependency.
+# TuxBlox - Linux Compatibility Layer for the Roblox Engine
+# Copyright (C) 2026 TuxBlox Developers
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 set -e
 
 repoDir="$(cd "$(dirname "$0")" && pwd)"
