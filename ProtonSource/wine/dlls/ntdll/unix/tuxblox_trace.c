@@ -90,19 +90,22 @@ BOOL tuxblox_trace_enabled(void)
     return trace_state == 1;
 }
 
-/* One-shot /proc/self/maps dump. Symbolization is deliberately offline:
- * records carry raw addresses, and this map is what lets the analysis script
- * turn them into (module, RVA). Reading the whole file before emitting keeps
- * Wine's per-line trace prefix from landing in the middle of a maps line. */
-static void dump_maps_once(void)
+/* Emit the current /proc/self/maps. Called twice per traced process: once
+ * at the first record, and again at exit.
+ *
+ * The first-hit dump is taken at process startup, when only a few dozen
+ * mappings exist -- Wine's PE modules, where essentially every interesting
+ * caller lives, are mapped later. It is therefore useless for symbolizing
+ * most records, and is kept only as a fallback for a process that dies
+ * without reaching NtTerminateProcess. The exit dump is the complete one,
+ * and the analyser prefers the last block it sees. */
+static void dump_maps(void)
 {
-    static LONG done;
     char *buf, *line, *next;
     size_t cap = 512 * 1024, len = 0;
     ssize_t n;
     int fd;
 
-    if (InterlockedCompareExchange( &done, 1, 0 )) return;
     if (!(buf = malloc( cap ))) return;
     if ((fd = open( "/proc/self/maps", O_RDONLY )) == -1)
     {
@@ -113,12 +116,21 @@ static void dump_maps_once(void)
     close( fd );
     buf[len] = 0;
 
+    TRACE_(tuxblox)( "MAPS-BEGIN\n" );
     for (line = buf; line && *line; line = next)
     {
         if ((next = strchr( line, '\n' ))) *next++ = 0;
         TRACE_(tuxblox)( "MAPS %s\n", line );
     }
     free( buf );
+}
+
+static void dump_maps_once(void)
+{
+    static LONG done;
+
+    if (InterlockedCompareExchange( &done, 1, 0 )) return;
+    dump_maps();
 }
 
 static LONG trace_seq;
@@ -167,6 +179,7 @@ void tuxblox_trace_exit( LONG exit_code, const char *how )
 {
     if (!tuxblox_trace_enabled()) return;
 
+    dump_maps();
     tuxblox_trace_tally_dump();
     TRACE_(tuxblox)( "EXIT code=%d how=%s last_seq=%d rip=0x%llx\n",
                      (int)exit_code, how, (int)trace_seq,

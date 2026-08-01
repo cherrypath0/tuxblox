@@ -200,5 +200,38 @@ class TestBuildReport(unittest.TestCase):
         self.assertLess(report.index("<anonymous>"), report.index("/x/hyperion.dll"))
 
 
+class TestMultipleMapsDumps(unittest.TestCase):
+    def test_prefers_the_last_dump(self):
+        # The tracer emits a startup dump (incomplete -- PE modules are not
+        # mapped yet) and an exit dump (complete). Resolution must use the
+        # last one, or every PE-range caller resolves to nothing.
+        ranges = parse_maps([
+            "MAPS-BEGIN",
+            "MAPS 55550000-55551000 rw-p 00000000 00:00 0 ",
+            "MAPS-BEGIN",
+            "MAPS 55550000-55551000 rw-p 00000000 00:00 0 ",
+            "MAPS 6ffffff00000-6ffffff10000 r-xp 00002000 08:02 9 /x/ntdll.dll",
+        ])
+        self.assertEqual(len(ranges), 2)
+        self.assertEqual(resolve(0x6FFFFFF00500, ranges), ("/x/ntdll.dll", 0x2500))
+
+    def test_single_dump_without_marker_still_works(self):
+        # Bare /proc/self/maps input, and older logs, have no marker.
+        ranges = parse_maps([
+            "7f0000001000-7f0000002000 r-xp 00003000 08:02 1 /x/foo.dll",
+        ])
+        self.assertEqual(len(ranges), 1)
+
+    def test_empty_trailing_dump_does_not_hide_a_good_one(self):
+        # A dump that produced no parseable lines must not shadow the
+        # previous complete one.
+        ranges = parse_maps([
+            "MAPS-BEGIN",
+            "MAPS 7f0000001000-7f0000002000 r-xp 00003000 08:02 1 /x/foo.dll",
+            "MAPS-BEGIN",
+        ])
+        self.assertEqual(len(ranges), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

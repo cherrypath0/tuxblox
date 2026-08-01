@@ -53,12 +53,22 @@ _MAPS_MARKER = "MAPS "
 def parse_maps(lines: Iterable[str]) -> List[MapRange]:
     """Parse /proc/self/maps lines into MapRange records.
 
+    The tracer emits two dumps per process: one at the first record and one
+    at exit. The startup dump is taken before Wine's PE modules are mapped
+    and cannot resolve most callers, so when several dumps are present this
+    returns the LAST non-empty one. Input without any MAPS-BEGIN marker --
+    a bare /proc/self/maps file, or a log from before the marker existed --
+    is treated as a single dump.
+
     Lines that do not match the kernel's maps format are skipped, so this
     can be fed the whole trace file rather than a pre-filtered slice.
     """
-    ranges = []
+    blocks: List[List[MapRange]] = [[]]
     for line in lines:
         line = line.rstrip("\n")
+        if "MAPS-BEGIN" in line:
+            blocks.append([])
+            continue
         marker = line.find(_MAPS_MARKER)
         if marker != -1:
             line = line[marker + len(_MAPS_MARKER):]
@@ -66,14 +76,18 @@ def parse_maps(lines: Iterable[str]) -> List[MapRange]:
         if not m:
             continue
         start, end, perms, offset, path = m.groups()
-        ranges.append(MapRange(
+        blocks[-1].append(MapRange(
             start=int(start, 16),
             end=int(end, 16),
             perms=perms,
             file_offset=int(offset, 16),
             path=path.strip(),
         ))
-    return ranges
+
+    for block in reversed(blocks):
+        if block:
+            return block
+    return []
 
 
 def resolve(addr: int, ranges: List[MapRange]) -> Optional[Tuple[str, int]]:
