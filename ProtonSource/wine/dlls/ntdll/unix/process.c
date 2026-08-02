@@ -1202,8 +1202,16 @@ NTSTATUS WINAPI NtQueryInformationProcess( HANDLE handle, PROCESSINFOCLASS class
 {
     unsigned int ret = STATUS_SUCCESS;
     ULONG len = 0;
+    char class_buf[32];
 
     TRACE( "(%p,0x%08x,%p,0x%08x,%p)\n", handle, class, info, size, ret_len );
+
+    /* Diagnostic-only: log every info class queried, regardless of which
+     * case below (if any) actually handles it, so debugger/anti-tamper
+     * checks (ProcessDebugPort, ProcessDebugFlags, ...) show up in the trace
+     * even if this tracer wasn't already instrumenting that specific class. */
+    snprintf( class_buf, sizeof(class_buf), "class=%u", class );
+    tuxblox_trace_record( "NtQueryInformationProcess", class_buf );
 
     switch (class)
     {
@@ -1592,6 +1600,15 @@ NTSTATUS WINAPI NtQueryInformationProcess( HANDLE handle, PROCESSINFOCLASS class
                              MEM_EXECUTE_OPTION_PERMANENT;
         else
             *(ULONG *)info = execute_flags;
+        /* Last syscall the tracer sees before Player's anti-tamper check runs
+         * entirely in usermode (see plan.txt item 8) -- the .byfron GdiTebBatch
+         * comparison identified via Ghidra happens with no syscalls between here
+         * and NtRaiseHardError, so freezing at the existing NtRaiseHardError hook
+         * is too late to catch the registers feeding that check. Freezing here
+         * instead, one-shot via the same TUXBLOX_DEBUG_BREAK opt-in, gives a
+         * debugger time to attach and plant its own breakpoints inside
+         * RobloxPlayerBeta.dll before the check executes at all. */
+        tuxblox_trace_dump_code( get_syscall_caller_pc() );
         break;
 
     case ProcessPriorityClass:
