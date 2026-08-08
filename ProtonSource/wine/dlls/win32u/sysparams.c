@@ -1774,6 +1774,56 @@ void fixup_device_id( const struct pci_id **pci_id )
     }
 }
 
+/* tuxblox: case-insensitive substring search without pulling in extra headers */
+static BOOL ascii_strcasestr( const char *haystack, const char *needle )
+{
+    unsigned int i, j;
+
+    for (i = 0; haystack[i]; i++)
+    {
+        for (j = 0; needle[j]; j++)
+        {
+            char a = haystack[i + j], b = needle[j];
+            if (a >= 'A' && a <= 'Z') a += 'a' - 'A';
+            if (b >= 'A' && b <= 'Z') b += 'a' - 'A';
+            if (!a || a != b) break;
+        }
+        if (!needle[j]) return TRUE;
+    }
+    return FALSE;
+}
+
+/* tuxblox: catch raw Mesa/open-source-driver device names (e.g. "AMD RADV NAVI21 (ACO)")
+ * that would otherwise leak through EnumDisplayDevicesW/the registry for any GPU not
+ * already covered by gpu_device_name()'s hardcoded table -- these are a direct Wine/Linux
+ * fingerprint that a real Windows driver would never produce. */
+static BOOL gpu_name_looks_like_wine_driver( const char *name )
+{
+    static const char *const markers[] =
+    {
+        "mesa", "radv", "llvmpipe", "softpipe", "virgl", "zink", "nvk", "(aco)",
+    };
+    unsigned int i;
+
+    if (!name) return FALSE;
+    for (i = 0; i < ARRAY_SIZE(markers); i++)
+        if (ascii_strcasestr( name, markers[i] )) return TRUE;
+    return FALSE;
+}
+
+/* tuxblox: clean, Windows-plausible fallback name for a GPU that isn't in the hardcoded
+ * table above and whose raw driver-reported name looks Wine/Mesa-specific. */
+static const char *generic_gpu_name_for_vendor( UINT16 vendor )
+{
+    switch (vendor)
+    {
+    case 0x10de: return "NVIDIA Graphics Device";
+    case 0x1002: return "AMD Radeon Graphics";
+    case 0x8086: return "Intel(R) Graphics";
+    default:     return "Display Adapter";
+    }
+}
+
 static struct gpu_info *find_gpu_info( const struct list *infos, const GUID *uuid, const struct pci_id *pci_id )
 {
     struct gpu_info *info;
@@ -1845,6 +1895,7 @@ static void add_gpu( const char *name, const struct pci_id *pci_id, const GUID *
     name = gpu_device_name( pci_id->vendor, pci_id->device, name );
     if (!strcmp( name, "Wine Adapter" ) && vulkan_gpu) name = vulkan_gpu->name;
     if (!strcmp( name, "Wine Adapter" ) && opengl_gpu) name = opengl_gpu->name;
+    if (gpu_name_looks_like_wine_driver( name )) name = generic_gpu_name_for_vendor( pci_id->vendor );
     RtlUTF8ToUnicodeN( gpu->name, sizeof(gpu->name) - sizeof(WCHAR), &len, name, strlen( name ) );
 
     snprintf( gpu->path, sizeof(gpu->path), "PCI\\VEN_%04X&DEV_%04X&SUBSYS_%08X&REV_%02X\\%08X",

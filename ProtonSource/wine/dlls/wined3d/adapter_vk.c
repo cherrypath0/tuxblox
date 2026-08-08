@@ -2143,6 +2143,53 @@ static enum wined3d_display_driver guess_display_driver(enum wined3d_pci_vendor 
     }
 }
 
+/* tuxblox: catch raw Mesa/open-source-driver device names (e.g. "AMD RADV NAVI21 (ACO)")
+ * that would otherwise leak through IDXGIAdapter::GetDesc/GetDesc1 for any GPU not already
+ * covered by gpu_description_table[] -- these are a direct Wine/Linux fingerprint that a
+ * real Windows driver would never produce. Mirrors the equivalent win32u/sysparams.c fix
+ * for EnumDisplayDevicesW, which is a separate code path in a separate DLL. */
+static bool vk_device_name_looks_like_wine_driver(const char *name)
+{
+    static const char *const markers[] =
+    {
+        "mesa", "radv", "llvmpipe", "softpipe", "virgl", "zink", "nvk", "(aco)",
+    };
+    unsigned int i, j;
+
+    if (!name)
+        return false;
+
+    for (i = 0; name[i]; ++i)
+    {
+        for (j = 0; j < ARRAY_SIZE(markers); ++j)
+        {
+            const char *marker = markers[j];
+            unsigned int k;
+
+            for (k = 0; marker[k]; ++k)
+            {
+                char a = name[i + k], b = marker[k];
+                if (a >= 'A' && a <= 'Z') a += 'a' - 'A';
+                if (!a || a != b) break;
+            }
+            if (!marker[k])
+                return true;
+        }
+    }
+    return false;
+}
+
+static const char *guess_generic_device_name(enum wined3d_pci_vendor vendor)
+{
+    switch (vendor)
+    {
+        case HW_VENDOR_NVIDIA: return "NVIDIA Graphics Device";
+        case HW_VENDOR_AMD:    return "AMD Radeon Graphics";
+        case HW_VENDOR_INTEL:  return "Intel(R) Graphics";
+        default:                return "Display Adapter";
+    }
+}
+
 static bool adapter_vk_init_driver_info(struct wined3d_adapter_vk *adapter_vk,
         const VkPhysicalDeviceProperties *properties)
 {
@@ -2188,7 +2235,8 @@ static bool adapter_vk_init_driver_info(struct wined3d_adapter_vk *adapter_vk,
 
         description.vendor = properties->vendorID;
         description.device = properties->deviceID;
-        description.description = properties->deviceName;
+        description.description = vk_device_name_looks_like_wine_driver(properties->deviceName)
+                ? guess_generic_device_name(properties->vendorID) : properties->deviceName;
         description.driver = guess_display_driver(properties->vendorID);
         description.vidmem = vram_bytes;
 
