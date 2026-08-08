@@ -232,13 +232,26 @@ void tuxblox_trace_exit( LONG exit_code, const char *how )
  * not every internal Wine helper process's (services.exe, explorer.exe,
  * etc., which call NtTerminateProcess on themselves constantly as part of
  * ordinary operation). Uses a raw write(), not stdio, since this can run in
- * the last few instructions before the process actually terminates. */
+ * the last few instructions before the process actually terminates.
+ *
+ * exit_code == 0 is skipped entirely: a clean exit is never what the
+ * launcher's crash popup needs to explain, and WebView2 spawns several
+ * short-lived helper processes (renderer, GPU, network service, ...) that
+ * routinely exit 0 mid-session -- each one otherwise leaves its own marker
+ * line in the log. The launcher's findRealExitCodeInLog() takes the *last*
+ * marker line unconditionally, so on an ordinary user-initiated close, a
+ * trailing "=0" from one of those helpers could still land in the log after
+ * Proton's own wrapper exit code came back non-zero for unrelated reasons,
+ * producing a nonsensical "Roblox Error ... Exit Code: 0 (OK)" popup for a
+ * clean shutdown. Not logging 0 means the last line in the log is always an
+ * actual non-zero exit worth showing, if there is one. */
 void tuxblox_report_real_exit_code( LONG exit_code )
 {
     char buf[64];
     int len;
 
     if (!image_is_target()) return;
+    if (exit_code == 0) return;
 
     len = snprintf( buf, sizeof(buf), "TUXBLOX_REAL_EXIT_CODE=%d\n", (int)exit_code );
     if (len > 0) write( 2, buf, (size_t)len );
