@@ -27,7 +27,7 @@ namespace fs = std::filesystem;
 
 static void makeFixtureTarGz(const std::string& path) {
     struct archive* a = archive_write_new();
-    archive_write_add_filter_gzip(a);
+    archive_write_add_filter_zstd(a);
     archive_write_set_format_pax_restricted(a);
     archive_write_open_filename(a, path.c_str());
 
@@ -47,7 +47,7 @@ static void makeFixtureTarGz(const std::string& path) {
 
 static void makeFixtureTarGzNamed(const std::string& path, const char* entryName) {
     struct archive* a = archive_write_new();
-    archive_write_add_filter_gzip(a);
+    archive_write_add_filter_zstd(a);
     archive_write_set_format_pax_restricted(a);
     archive_write_open_filename(a, path.c_str());
 
@@ -67,7 +67,7 @@ static void makeFixtureTarGzNamed(const std::string& path, const char* entryName
 
 static bool extractThrows(const std::string& archivePath, const std::string& destDir) {
     try {
-        tuxblox::extractTarGz(archivePath, destDir);
+        tuxblox::extractTarZst(archivePath, destDir);
         return false;
     } catch (const std::exception&) {
         return true;
@@ -75,7 +75,7 @@ static bool extractThrows(const std::string& archivePath, const std::string& des
 }
 
 int main() {
-    using tuxblox::extractTarGz;
+    using tuxblox::extractTarZst;
 
     fs::path archivePath = fs::temp_directory_path() / "tuxblox_test_archive.tar.gz";
     fs::path destDir = fs::temp_directory_path() / "tuxblox_test_archive_extracted";
@@ -83,7 +83,7 @@ int main() {
     fs::remove_all(destDir);
     makeFixtureTarGz(archivePath.string());
 
-    extractTarGz(archivePath.string(), destDir.string());
+    extractTarZst(archivePath.string(), destDir.string());
 
     std::ifstream in(destDir / "hello.txt");
     std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());

@@ -39,7 +39,7 @@ bool isUnsafeEntryPath(const char* name) {
 
 } // namespace
 
-void extractTarGz(const std::string& archivePath, const std::string& destDir) {
+void extractTarZst(const std::string& archivePath, const std::string& destDir) {
     fs::create_directories(destDir);
 
     std::error_code canonEc;
@@ -49,7 +49,7 @@ void extractTarGz(const std::string& archivePath, const std::string& destDir) {
     }
 
     struct archive* a = archive_read_new();
-    archive_read_support_filter_gzip(a);
+    archive_read_support_filter_zstd(a);
     archive_read_support_format_tar(a);
 
     struct archive* ext = archive_write_disk_new();
@@ -62,7 +62,7 @@ void extractTarGz(const std::string& archivePath, const std::string& destDir) {
         std::string err = archive_error_string(a);
         archive_read_free(a);
         archive_write_free(ext);
-        throw std::runtime_error("extractTarGz: cannot open " + archivePath + ": " + err);
+        throw std::runtime_error("extractTarZst: cannot open " + archivePath + ": " + err);
     }
 
     struct archive_entry* entry;
@@ -73,7 +73,7 @@ void extractTarGz(const std::string& archivePath, const std::string& destDir) {
             std::string err = archive_error_string(a);
             archive_read_free(a);
             archive_write_free(ext);
-            throw std::runtime_error("extractTarGz: header error: " + err);
+            throw std::runtime_error("extractTarZst: header error: " + err);
         }
 
         const char* entryName = archive_entry_pathname(entry);
@@ -81,7 +81,7 @@ void extractTarGz(const std::string& archivePath, const std::string& destDir) {
             std::string bad = entryName ? entryName : "(null)";
             archive_read_free(a);
             archive_write_free(ext);
-            throw std::runtime_error("extractTarGz: refusing unsafe archive entry path: " + bad);
+            throw std::runtime_error("extractTarZst: refusing unsafe archive entry path: " + bad);
         }
 
         fs::path entryDest = realDest / entryName;
@@ -92,7 +92,7 @@ void extractTarGz(const std::string& archivePath, const std::string& destDir) {
             std::string err = archive_error_string(ext);
             archive_read_free(a);
             archive_write_free(ext);
-            throw std::runtime_error("extractTarGz: write header error: " + err);
+            throw std::runtime_error("extractTarZst: write header error: " + err);
         }
 
         const void* buff;
@@ -105,13 +105,13 @@ void extractTarGz(const std::string& archivePath, const std::string& destDir) {
                 std::string err = archive_error_string(a);
                 archive_read_free(a);
                 archive_write_free(ext);
-                throw std::runtime_error("extractTarGz: read data error: " + err);
+                throw std::runtime_error("extractTarZst: read data error: " + err);
             }
             if (archive_write_data_block(ext, buff, size, offset) != ARCHIVE_OK) {
                 std::string err = archive_error_string(ext);
                 archive_read_free(a);
                 archive_write_free(ext);
-                throw std::runtime_error("extractTarGz: write data error: " + err);
+                throw std::runtime_error("extractTarZst: write data error: " + err);
             }
         }
     }
