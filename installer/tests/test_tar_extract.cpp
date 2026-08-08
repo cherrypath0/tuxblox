@@ -18,10 +18,12 @@
 #include <archive.h>
 #include <archive_entry.h>
 #include <cassert>
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <vector>
 
 namespace fs = std::filesystem;
 
@@ -179,6 +181,37 @@ int main() {
     fs::remove(okArchive);
     fs::remove(linkParent);
     fs::remove_all(realParent);
+
+    // Extraction progress: onProgress must be called at least once and
+    // report a monotonically non-decreasing, always-bounded-by-total byte
+    // count -- this is what lets the installer's ExtractingProton step
+    // show incremental progress instead of jumping straight from 0% to
+    // 100% (see installer_steps.cpp's Step::ExtractingProton report()).
+    {
+        fs::path progArchive = tmp / "tuxblox_test_progress.tar.gz";
+        fs::path progDest = tmp / "tuxblox_test_progress_dest";
+        fs::remove_all(progDest);
+        makeFixtureTarGz(progArchive.string());
+
+        std::vector<uint64_t> nowSamples;
+        std::vector<uint64_t> totalSamples;
+        extractTarZst(progArchive.string(), progDest.string(),
+            [&](uint64_t now, uint64_t total) {
+                nowSamples.push_back(now);
+                totalSamples.push_back(total);
+            });
+
+        assert(!nowSamples.empty());
+        uint64_t archiveSize = fs::file_size(progArchive);
+        for (size_t i = 0; i < nowSamples.size(); ++i) {
+            assert(totalSamples[i] == archiveSize);
+            assert(nowSamples[i] <= totalSamples[i]);
+            if (i > 0) assert(nowSamples[i] >= nowSamples[i - 1]);
+        }
+
+        fs::remove(progArchive);
+        fs::remove_all(progDest);
+    }
 
     printf("tar_extract: all tests passed\n");
     return 0;

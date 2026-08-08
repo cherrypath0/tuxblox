@@ -15,12 +15,23 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #pragma once
+#include <cstdint>
+#include <functional>
 #include <string>
 
 namespace tuxblox {
 
+// Progress callback for extractTarZst: (compressedBytesConsumed,
+// compressedTotalBytes) -- an approximation of overall progress, since
+// per-entry compression ratio varies, but reported per-archive-entry so a
+// multi-thousand-file archive still advances visibly.
+using TarExtractProgressFn = std::function<void(uint64_t, uint64_t)>;
+
 // Extracts the zstd-compressed tarball at `archivePath` into `destDir`
-// (created if missing). Throws std::runtime_error on any libarchive error.
-void extractTarZst(const std::string& archivePath, const std::string& destDir);
+// (created if missing), calling `onProgress` after each entry is written.
+// `onProgress` defaults to a no-op so callers that don't need progress
+// don't have to change. Throws std::runtime_error on any libarchive error.
+void extractTarZst(const std::string& archivePath, const std::string& destDir,
+                    const TarExtractProgressFn& onProgress = TarExtractProgressFn());
 
 } // namespace tuxblox

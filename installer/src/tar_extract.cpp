@@ -44,7 +44,8 @@ bool isUnsafeEntryPath(const char* name) {
 
 } // namespace
 
-void extractTarZst(const std::string& archivePath, const std::string& destDir) {
+void extractTarZst(const std::string& archivePath, const std::string& destDir,
+                    const TarExtractProgressFn& onProgress) {
     fs::create_directories(destDir);
 
     // ARCHIVE_EXTRACT_SECURE_SYMLINKS (set below) rejects any path that passes
@@ -59,6 +60,13 @@ void extractTarZst(const std::string& archivePath, const std::string& destDir) {
     fs::path realDest = fs::weakly_canonical(fs::path(destDir), canonEc);
     if (canonEc || realDest.empty()) {
         realDest = fs::path(destDir);
+    }
+
+    uint64_t totalBytes = 0;
+    {
+        std::error_code sizeEc;
+        auto sz = fs::file_size(archivePath, sizeEc);
+        if (!sizeEc) totalBytes = static_cast<uint64_t>(sz);
     }
 
     struct archive* a = archive_read_new();
@@ -136,6 +144,13 @@ void extractTarZst(const std::string& archivePath, const std::string& destDir) {
                 archive_read_free(a);
                 archive_write_free(ext);
                 throw std::runtime_error("extractTarZst: write data error: " + err);
+            }
+        }
+
+        if (onProgress) {
+            int64_t consumed = archive_filter_bytes(a, -1);
+            if (consumed >= 0) {
+                onProgress(static_cast<uint64_t>(consumed), totalBytes);
             }
         }
     }
