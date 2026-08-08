@@ -14,6 +14,17 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
+# Every test in this directory checks correctness with plain assert().
+# CMAKE_BUILD_TYPE=Release (what installer/build.sh always configures --
+# see its cmake invocation) defines -DNDEBUG, which compiles assert() to a
+# no-op -- silently turning every test in this suite into "always passes"
+# regardless of CMAKE_BUILD_TYPE. -UNDEBUG here, scoped to this directory
+# only, keeps assert() active in every test executable without touching
+# the optimization level or NDEBUG status of installer_core or the shipped
+# TuxBloxInstaller binary (both defined in the parent CMakeLists.txt,
+# outside this directory's scope).
+add_compile_options(-UNDEBUG)
+
 add_executable(test_install_paths test_install_paths.cpp)
 target_link_libraries(test_install_paths PRIVATE installer_core)
 add_test(NAME install_paths COMMAND test_install_paths)
