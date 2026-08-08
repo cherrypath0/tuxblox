@@ -1362,7 +1362,14 @@ static int setup_config_dir(void)
     {
         mkdir( "drive_c", 0777 );
         symlink( "../drive_c", "dosdevices/c:" );
-        symlink( "/", "dosdevices/z:" );
+        /* No Z: -- mapping the whole host root as a drive letter is one of
+         * the most common Wine-detection heuristics (enumerate drives, walk
+         * one, look for /proc or /etc). This prefix only ever runs Roblox,
+         * which lives entirely under C:, so there's nothing under Z: it
+         * legitimately needs. Absolute unix paths (e.g. the wine command
+         * line itself) still resolve via the drive-independent \??\unix\
+         * fallback in unix_to_nt_file_name() (dlls/ntdll/unix/file.c), so
+         * this doesn't break launching. */
     }
     else if (errno != EEXIST) fatal_perror( "cannot create %s/dosdevices", config_dir );
 
@@ -1771,7 +1778,8 @@ void server_init_process_done(void)
      * is sent by init_process_done */
     signal_init_process();
     thread_data->syscall_table = KeServiceDescriptorTable;
-    thread_data->syscall_trace = TRACE_ON(syscall);
+    /* see the matching comment in thread.c's start_thread() */
+    thread_data->syscall_trace = TRACE_ON(syscall) || tuxblox_trace_enabled();
 
     /* always send the native TEB */
     if (!(teb = NtCurrentTeb64())) teb = NtCurrentTeb();

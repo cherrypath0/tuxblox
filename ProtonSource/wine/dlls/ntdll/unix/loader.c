@@ -719,10 +719,33 @@ BOOLEAN KeAddSystemServiceTable( ULONG_PTR *funcs, ULONG_PTR *counters, ULONG li
     return TRUE;
 }
 
+/* Name lookup for a raw syscall id, using the same table/decode trace_syscall()
+ * itself uses. Exposed so tuxblox_trace_tally_dump() can print names against the
+ * tally without going through the expensive, timing-sensitive TRACE_ON(syscall)
+ * per-call path trace_syscall() is deliberately gated behind. */
+const char *ntdll_syscall_name( UINT id )
+{
+    UINT idx = (id >> 12) & 3, num = id & 0xfff;
+    const char **names = syscall_names[idx];
+
+    return (names && names[num]) ? names[num] : NULL;
+}
+
 void trace_syscall( UINT id, ULONG_PTR *args, ULONG len )
 {
     UINT idx = (id >> 12) & 3, num = id & 0xfff;
     const char **names = syscall_names[idx];
+
+    /* Tally unconditionally: this reaches every syscall (Nt* wrapper calls
+     * and Hyperion's own raw `syscall` instructions alike, since both funnel
+     * through __wine_syscall_dispatcher regardless of entry path), and costs
+     * only an array increment when tuxblox tracing isn't active -- see
+     * tuxblox_trace_tally()'s own comment on why per-call TRACE_() output
+     * here is kept behind the separate, much more expensive TRACE_ON(syscall)
+     * check below instead of being unconditional. */
+    tuxblox_trace_tally( id );
+
+    if (!TRACE_ON(syscall)) return;
 
     if (names && names[num])
         TRACE_(syscall)( "\1SysCall  %s(", names[num] );

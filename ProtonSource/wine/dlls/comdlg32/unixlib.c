@@ -25,6 +25,7 @@
 #include "unixlib.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(commdlg);
+WINE_DECLARE_DEBUG_CHANNEL(tuxblox);
 
 #ifdef SONAME_LIBDBUS_1
 
@@ -293,6 +294,13 @@ static BOOL portal_open_or_save(const char *method, const char *title, const cha
      * regain control. Treat a dead connection the same as any other
      * portal-unreachable failure below, rather than reporting a false
      * "reachable, cancelled" result. */
+    /* This wait has no timeout (dbus_connection_read_write_dispatch's second
+     * arg is -1): if the portal backend never surfaces a dialog or never
+     * fires a Response signal for some reason, this blocks indefinitely.
+     * Bracketed with tuxblox trace markers (item 6 investigation) so a
+     * WINEDEBUG=+tuxblox capture can show whether a hang is stuck in here
+     * specifically -- a BEGIN with no matching END means yes. */
+    TRACE_(tuxblox)("portal wait BEGIN method=%s title=%s\n", method, title);
     while (!pending.done)
     {
         if (!p_dbus_connection_read_write_dispatch(conn, -1))
@@ -301,6 +309,8 @@ static BOOL portal_open_or_save(const char *method, const char *title, const cha
             break;
         }
     }
+    TRACE_(tuxblox)("portal wait END method=%s done=%d code=%u\n",
+                    method, pending.done, (unsigned int)pending.response_code);
 
     p_dbus_connection_remove_filter(conn, response_filter, &pending);
     p_dbus_message_unref(reply);

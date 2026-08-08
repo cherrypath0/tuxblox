@@ -17,9 +17,9 @@
 
 """Symbolize and summarize a TuxBlox fingerprint trace.
 
-Consumes the stderr of a Player run launched with WINEDEBUG=+tuxblox and
-turns the raw instruction pointers in each record into (module, RVA) pairs,
-grouped by calling module.
+Consumes the stderr of a Player, Studio, or msedgewebview2.exe run launched
+with WINEDEBUG=+tuxblox and turns the raw instruction pointers in each record
+into (module, RVA) pairs, grouped by calling module.
 
 Symbolization is deliberately offline: the tracer inside ntdll logs raw
 addresses plus a one-shot /proc/self/maps dump, which avoids calling PE-side

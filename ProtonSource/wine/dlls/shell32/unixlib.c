@@ -25,6 +25,7 @@
 #include "unixlib.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(shell);
+WINE_DECLARE_DEBUG_CHANNEL(tuxblox);
 
 #ifdef SONAME_LIBDBUS_1
 
@@ -243,6 +244,11 @@ static BOOL portal_open_file(const char *title, const char *initial_dir_path, BO
      * regain control. Treat a dead connection the same as any other
      * portal-unreachable failure below, rather than reporting a false
      * "reachable, cancelled" result. */
+    /* See the matching comment in dlls/comdlg32/unixlib.c's
+     * portal_open_or_save: this wait has no timeout, so a hang here would be
+     * silent. tuxblox trace markers bracket it for the same item 6
+     * investigation. */
+    TRACE_(tuxblox)("portal wait BEGIN method=OpenFile title=%s\n", title);
     while (!pending.done)
     {
         if (!p_dbus_connection_read_write_dispatch(conn, -1))
@@ -251,6 +257,8 @@ static BOOL portal_open_file(const char *title, const char *initial_dir_path, BO
             break;
         }
     }
+    TRACE_(tuxblox)("portal wait END method=OpenFile done=%d code=%u\n",
+                    pending.done, (unsigned int)pending.response_code);
 
     p_dbus_connection_remove_filter(conn, response_filter, &pending);
     p_dbus_message_unref(reply);

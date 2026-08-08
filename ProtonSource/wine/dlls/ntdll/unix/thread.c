@@ -1125,7 +1125,11 @@ static void start_thread( TEB *teb )
     BOOL suspend;
 
     thread_data->syscall_table = KeServiceDescriptorTable;
-    thread_data->syscall_trace = TRACE_ON(syscall);
+    /* also route through trace_syscall() when tuxblox tracing is active, so
+     * its (cheap, print-free in that case) tuxblox_trace_tally() call sees
+     * every syscall this thread makes -- not just when WINEDEBUG=+syscall
+     * is separately enabled. */
+    thread_data->syscall_trace = TRACE_ON(syscall) || tuxblox_trace_enabled();
     thread_data->pthread_id = pthread_self();
     pthread_setspecific( teb_key, teb );
     server_init_thread( thread_data->start, &suspend );
