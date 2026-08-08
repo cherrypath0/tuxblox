@@ -52,7 +52,7 @@ const char* exitCodeTitle(int exitCode) {
         case 201: return "Integrity verification failure";
         case 202: return "Corrupt prefix";
         case 203: return "Session terminated for user safety";
-        default:  return "Unknown exit code";
+        default:  return nullptr; // not in the table -- caller shows the bare code, no made-up description
     }
 }
 

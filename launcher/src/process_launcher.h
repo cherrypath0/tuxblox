@@ -37,8 +37,9 @@ struct ExitEvent {
 
 // Maps a process exit code to the short human-readable title used in the
 // exit-code-monitoring popup (e.g. 139 -> "Segmentation Fault"). See
-// plan/plan.txt item 1 for the table this implements. Returns "Unknown
-// exit code" for anything not in that table.
+// plan/plan.txt item 1 for the table this implements. Returns nullptr for
+// anything not in that table -- callers show the bare code rather than
+// inventing a description for a code we don't actually know the meaning of.
 const char* exitCodeTitle(int exitCode);
 
 // Proton's own process exit code is now a fixed 0/success, 1/proton-error,

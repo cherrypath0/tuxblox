@@ -18,6 +18,7 @@
 #include "ui.h"
 #include "install_paths.h"
 #include "headless_launch.h"
+#include "watch_launch.h"
 #include "copyright_file.h"
 #include "desktop_integration.h"
 #include "version.h"
@@ -79,6 +80,29 @@ int main(int argc, char** argv) {
             }
             return runHeadlessQuickLaunch(dir, target, uri);
         }
+
+        // Spawned by App::requestLaunch() as a fully detached process -- see
+        // its own comment for why the GUI hands off to this instead of
+        // staying open (backgrounded or otherwise). Unlike the headless
+        // quick-launch paths above (which execv()-replace themselves into
+        // Proton and report nothing further), this one waits for the
+        // process and shows a crash popup if warranted.
+        if (arg1 == "--watch-launch" && argc > 2) {
+            std::string arg2 = argv[2];
+            LaunchTarget watchTarget;
+            if (arg2 == "player") watchTarget = LaunchTarget::Player;
+            else if (arg2 == "studio") watchTarget = LaunchTarget::Studio;
+            else { fprintf(stderr, "TuxBlox: --watch-launch needs 'player' or 'studio'\n"); return 1; }
+
+            std::string dir;
+            try {
+                dir = installDir();
+            } catch (const std::exception& e) {
+                fprintf(stderr, "TuxBlox: %s\n", e.what());
+                return 1;
+            }
+            return runWatchAndLaunch(dir, watchTarget, "", kTuxBloxVersion);
+        }
     }
 
     // GUI mode.
@@ -120,7 +144,7 @@ int main(int argc, char** argv) {
 
     ensureDesktopIntegration(dir, exePath);
 
-    App app(dir, kTuxBloxVersion);
+    App app(dir, kTuxBloxVersion, exePath);
     app.startUpdateCheck();
 
     bool running = true;

@@ -126,14 +126,17 @@ int main() {
         launcher.stop(LaunchTarget::Studio);
     }
 
-    // exitCodeTitle(): a sample of the table plus the unknown-code fallback.
+    // exitCodeTitle(): a sample of the table plus the unknown-code fallback --
+    // nullptr, not a made-up "Unknown exit code" string (see app.cpp's
+    // handleUnexpectedExit: an undocumented code shows as a bare "Exit Code:
+    // N", no invented description).
     {
         assert(std::string(exitCodeTitle(0)) == "OK");
         assert(std::string(exitCodeTitle(1)) == "General Error");
         assert(std::string(exitCodeTitle(139)) == "Segmentation Fault");
         assert(std::string(exitCodeTitle(187)) == "Session terminated by Hyperion");
         assert(std::string(exitCodeTitle(201)) == "Integrity verification failure");
-        assert(std::string(exitCodeTitle(999999)) == "Unknown exit code");
+        assert(exitCodeTitle(999999) == nullptr);
     }
 
     // takeExitEvent(): a process that exits on its own reports its real
