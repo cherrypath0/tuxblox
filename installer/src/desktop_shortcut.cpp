@@ -34,16 +34,29 @@ namespace tuxblox {
 namespace {
 
 void runCommandBestEffort(const std::vector<std::string>& argv) {
+    // Build the argv array *before* fork() -- allocating (std::vector's
+    // reserve/push_back) in the child of a multithreaded process is a known
+    // deadlock hazard: another thread could hold the malloc arena lock at
+    // the exact moment of fork(), and that lock is never released in the
+    // child. Only touch the already-built, non-allocating pointer array
+    // after fork().
+    std::vector<char*> cargv;
+    cargv.reserve(argv.size() + 1);
+    for (const auto& a : argv) cargv.push_back(const_cast<char*>(a.c_str()));
+    cargv.push_back(nullptr);
+
     pid_t pid = fork();
     if (pid < 0) return;
     if (pid == 0) {
-        std::vector<char*> cargv;
-        cargv.reserve(argv.size() + 1);
-        for (const auto& a : argv) cargv.push_back(const_cast<char*>(a.c_str()));
-        cargv.push_back(nullptr);
         execvp(cargv[0], cargv.data());
         _exit(127);
     }
+    // Bounded, non-blocking wait -- xdg-mime/update-desktop-database talk to
+    // a D-Bus session that can hang (this repo hit exactly this failure mode
+    // once before, see 09b369a13). Give it up to ~3s, then give up rather
+    // than block the caller indefinitely; we deliberately don't kill a
+    // straggler process afterward -- it's harmless to leave running, and
+    // this is best-effort desktop integration, not worth SIGKILL complexity.
     for (int i = 0; i < 30; ++i) {
         int status = 0;
         pid_t r = waitpid(pid, &status, WNOHANG);
@@ -89,16 +102,21 @@ void createDesktopShortcut(const std::string& installDir) {
             "Terminal=false\n"
             "Categories=Game;\n";
         desktopFile.close();
+        if (!desktopFile) return;
 
         // Inside a Distrobox container, ~/.local/share/applications is
         // shared with the host (Distrobox bind-mounts $HOME by default),
         // so the .desktop file above is already visible on the host's app
         // menu -- but its Exec= path is only valid *inside* the container.
-        // distrobox-export rewrites the host-visible copy's Exec= to route
-        // through `distrobox-enter`. Best-effort: if the binary isn't on
-        // PATH, execvp's ENOENT handling above just exits 127 harmlessly,
-        // same as this file's existing behavior when e.g. an icon write
-        // fails.
+        // Best-effort: invoke `distrobox-export --app` so the host can
+        // launch it correctly (the export mechanism itself -- whether it
+        // rewrites this entry's Exec= in place or creates a separate
+        // host-side entry -- has not been verified against a real
+        // Distrobox install; confirm the actual on-disk result with a
+        // real container before relying on this for end users). If the
+        // binary isn't on PATH, execvp's ENOENT handling above just exits
+        // 127 harmlessly, same as this file's existing behavior when e.g.
+        // an icon write fails.
         if (isInsideDistrobox()) {
             runCommandBestEffort({"distrobox-export", "--app", "tuxblox-launcher"});
         }

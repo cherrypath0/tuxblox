@@ -34,13 +34,20 @@ namespace tuxblox {
 namespace {
 
 void runCommandBestEffort(const std::vector<std::string>& argv) {
+    // Build the argv array *before* fork() -- allocating (std::vector's
+    // reserve/push_back) in the child of a multithreaded process is a known
+    // deadlock hazard: another thread could hold the malloc arena lock at
+    // the exact moment of fork(), and that lock is never released in the
+    // child. Only touch the already-built, non-allocating pointer array
+    // after fork().
+    std::vector<char*> cargv;
+    cargv.reserve(argv.size() + 1);
+    for (const auto& a : argv) cargv.push_back(const_cast<char*>(a.c_str()));
+    cargv.push_back(nullptr);
+
     pid_t pid = fork();
     if (pid < 0) return;
     if (pid == 0) {
-        std::vector<char*> cargv;
-        cargv.reserve(argv.size() + 1);
-        for (const auto& a : argv) cargv.push_back(const_cast<char*>(a.c_str()));
-        cargv.push_back(nullptr);
         execvp(cargv[0], cargv.data());
         _exit(127);
     }
@@ -137,11 +144,15 @@ void ensureDesktopIntegration(const std::string& installDir, const std::string& 
         // shared with the host (Distrobox bind-mounts $HOME by default),
         // so both .desktop files above are already visible on the host's
         // app menu -- but their Exec= lines are only valid *inside* the
-        // container. distrobox-export rewrites the host-visible copies'
-        // Exec= to route through `distrobox-enter`. Best-effort, same as
-        // the xdg-mime calls above: if the binary isn't on PATH,
-        // runCommandBestEffort's execvp ENOENT handling exits 127
-        // harmlessly.
+        // container. Best-effort: invoke `distrobox-export --app` for each
+        // so the host can launch them correctly (the export mechanism
+        // itself -- whether it rewrites these entries' Exec= in place or
+        // creates separate host-side entries -- has not been verified
+        // against a real Distrobox install; confirm the actual on-disk
+        // result with a real container before relying on this for end
+        // users). Best-effort, same as the xdg-mime calls above: if the
+        // binary isn't on PATH, runCommandBestEffort's execvp ENOENT
+        // handling exits 127 harmlessly.
         if (isInsideDistrobox()) {
             runCommandBestEffort({"distrobox-export", "--app", "tuxblox-launcher"});
             runCommandBestEffort({"distrobox-export", "--app", "tuxblox-url-handler"});
