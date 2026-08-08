@@ -151,6 +151,32 @@ int main() {
         assert(lastPercent > 99.9);
     }
 
+    // Extraction progress: ExtractingProton must report intermediate
+    // fractions, not just 0.0 then 1.0 -- guards against the "Upgrading
+    // Proton" bar freezing for the whole extraction step (previously
+    // extractTarZst had no progress callback at all).
+    {
+        fs::path installDir9 = work / "install_extract_progress";
+        std::vector<double> extractPercents;
+        auto outcome = runInstall(manifest,
+            [&](Step step, double percent) {
+                if (step == Step::ExtractingProton) extractPercents.push_back(percent);
+            },
+            nullptr, /*isUpgrade=*/false, installDir9.string(),
+            robloxPlayerUrl, robloxStudioUrl);
+
+        assert(outcome.ok);
+        // The fixture archive (makeFixtureTarZst) packs exactly one entry
+        // ("dist/proton"), so extractTarZst's onProgress fires exactly once
+        // during extraction. Expect 2 bookend report() calls (0.0 and 1.0,
+        // unconditional in installer_steps.cpp around the extractTarZst
+        // call) PLUS >=1 real intermediate call from the onProgress wiring
+        // this test guards. Do NOT weaken this back to `>= 2` -- that would
+        // be satisfied by the two bookend calls alone and pass identically
+        // whether or not onProgress is actually wired up.
+        assert(extractPercents.size() >= 3);
+    }
+
     // Already-cached path: if a Roblox installer is already present (e.g.
     // from an earlier run, or the user already used it), it must not be
     // re-downloaded -- point the manifest-adjacent URL at a nonexistent
