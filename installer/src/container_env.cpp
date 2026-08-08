@@ -21,16 +21,16 @@
 namespace tuxblox {
 
 bool isInsideDistrobox(const std::function<const char*(const char*)>& getenvFn,
-                        bool containerEnvExists) {
+                        bool genericContainerMarkerExists) {
     const char* containerId = getenvFn("CONTAINER_ID");
     if (!containerId || containerId[0] == '\0') return false;
-    return containerEnvExists;
+    return genericContainerMarkerExists;
 }
 
 bool isInsideDistrobox() {
     return isInsideDistrobox(
         [](const char* name) { return std::getenv(name); },
-        std::filesystem::exists("/run/.containerenv"));
+        std::filesystem::exists("/run/.containerenv") || std::filesystem::exists("/.dockerenv"));
 }
 
 } // namespace tuxblox

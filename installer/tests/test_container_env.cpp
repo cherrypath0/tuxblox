@@ -30,7 +30,7 @@ int main() {
 
     assert(isInsideDistrobox(envWith(nullptr), true) == false);   // no CONTAINER_ID at all
     assert(isInsideDistrobox(envWith(""), true) == false);        // empty CONTAINER_ID
-    assert(isInsideDistrobox(envWith("my-box"), false) == false); // CONTAINER_ID set, no /run/.containerenv
+    assert(isInsideDistrobox(envWith("my-box"), false) == false); // CONTAINER_ID set, no generic container marker (neither /run/.containerenv nor /.dockerenv)
     assert(isInsideDistrobox(envWith("my-box"), true) == true);   // both signals present
 
     printf("container_env: all tests passed\n");

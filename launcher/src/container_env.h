@@ -20,13 +20,17 @@
 namespace tuxblox {
 
 // Testable core. `getenvFn` mimics std::getenv (returns nullptr if unset);
-// `containerEnvExists` mimics fs::exists("/run/.containerenv"). True only
-// when both distrobox's own marker (the CONTAINER_ID env var it exports
-// inside the container) and the generic OCI container marker are present
-// -- requiring both avoids false positives from unrelated Podman/Toolbox
+// `genericContainerMarkerExists` mimics fs::exists("/run/.containerenv") ||
+// fs::exists("/.dockerenv") -- the generic "we are inside some OCI/Docker
+// container" signal, true for either a podman-backed container (which
+// creates /run/.containerenv) or a docker/lilipod-backed one (which creates
+// /.dockerenv instead; Distrobox supports both backends). True only when
+// both distrobox's own marker (the CONTAINER_ID env var it exports inside
+// the container) and this generic container marker are present --
+// requiring both avoids false positives from unrelated Podman/Toolbox
 // containers that only set one of the two.
 bool isInsideDistrobox(const std::function<const char*(const char*)>& getenvFn,
-                        bool containerEnvExists);
+                        bool genericContainerMarkerExists);
 
 // Convenience overload using the real environment.
 bool isInsideDistrobox();
