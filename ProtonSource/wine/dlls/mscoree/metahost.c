@@ -861,7 +861,33 @@ static BOOL get_mono_path_datadir(LPWSTR path)
     else
         return FALSE;
 
-    if (!wcsncmp( data_dir, L"\\??\\unix", 8 )) return FALSE;
+    if (!wcsncmp( data_dir, L"\\??\\unix", 8 ))
+    {
+        /* TuxBlox: WINEDATADIR always points outside the prefix's C: (it's
+         * the Proton distribution's own share/wine dir, not part of the
+         * game prefix) -- without the Z: drive, a path like that can only
+         * be expressed via this NT-native \??\unix\ bridge form, which
+         * get_mono_path_dos()'s DOS-path resolution (CreateFileW +
+         * GetFinalPathNameByHandleW on a "drive-letter" path) can't walk.
+         * This used to just give up here, silently falling through to the
+         * "not found" popup even though the bundled mono was sitting right
+         * there. Route through get_mono_path_unix() instead -- the same
+         * function already used a few lines down for the analogous
+         * \\?\unix\ fallback paths -- after converting to its expected
+         * Win32-namespace \\?\unix\ form. */
+        const WCHAR unix_prefix[] = L"\\\\?\\unix";
+        const WCHAR *unix_tail = data_dir + 8; /* skip the NT-native "\??\unix" prefix */
+        WCHAR *unix_path = malloc((wcslen(unix_prefix) + wcslen(unix_tail) + wcslen(suffix) + 1) * sizeof(WCHAR));
+        lstrcpyW( unix_path, unix_prefix );
+        lstrcatW( unix_path, unix_tail );
+        lstrcatW( unix_path, suffix );
+
+        ret = get_mono_path_unix( unix_path, path );
+
+        free( unix_path );
+        return ret;
+    }
+
     data_dir += 4;  /* skip \??\ prefix */
     package_dir = malloc((wcslen(data_dir) + wcslen(suffix) + 1) * sizeof(WCHAR));
     lstrcpyW( package_dir, data_dir );
