@@ -23,6 +23,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <vector>
 
 namespace fs = std::filesystem;
 
@@ -122,6 +123,28 @@ int main() {
             std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
             assert(content == "fake roblox player installer");
         }
+    }
+
+    // Progress-fallback: even though these are small file:// downloads with
+    // known Content-Length, this exercises the report() plumbing added for
+    // the manifest-size fallback -- collects every (step, percent) update
+    // during DownloadingProton and asserts overallPercent strictly
+    // increases from its first sample to its last (never flat), which
+    // would previously report a flat 0.0 the moment curl doesn't know the
+    // total. See installer_steps.cpp's DownloadingProton report() lambda.
+    {
+        fs::path installDir8 = work / "install_progress_fallback";
+        std::vector<double> protonPercents;
+        auto outcome = runInstall(manifest,
+            [&](Step step, double percent) {
+                if (step == Step::DownloadingProton) protonPercents.push_back(percent);
+            },
+            nullptr, /*isUpgrade=*/false, installDir8.string(),
+            robloxPlayerUrl, robloxStudioUrl);
+
+        assert(outcome.ok);
+        assert(protonPercents.size() >= 2);
+        assert(protonPercents.front() < protonPercents.back());
     }
 
     // Already-cached path: if a Roblox installer is already present (e.g.
