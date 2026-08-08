@@ -197,6 +197,7 @@ InstallOutcome runInstall(const Manifest& manifest,
             const std::string playerInstallerPath = playerDir + "/RobloxPlayerInstaller.exe";
             if (!fs::exists(playerInstallerPath)) {
                 fs::create_directories(playerDir);
+                // No manifest-declared size for these (fetched from Roblox's own CDN, outside the Manifest struct) -- no fallback available.
                 auto robloxOutcome = downloadFile(robloxPlayerInstallerUrl, playerInstallerPath,
                     [&](uint64_t now, uint64_t total) {
                         double frac = total > 0 ? static_cast<double>(now) / static_cast<double>(total) : 0.0;
@@ -219,6 +220,7 @@ InstallOutcome runInstall(const Manifest& manifest,
             const std::string studioInstallerPath = studioDir + "/RobloxStudioInstaller.exe";
             if (!fs::exists(studioInstallerPath)) {
                 fs::create_directories(studioDir);
+                // No manifest-declared size for these (fetched from Roblox's own CDN, outside the Manifest struct) -- no fallback available.
                 auto robloxOutcome = downloadFile(robloxStudioInstallerUrl, studioInstallerPath,
                     [&](uint64_t now, uint64_t total) {
                         double frac = total > 0 ? static_cast<double>(now) / static_cast<double>(total) : 0.0;

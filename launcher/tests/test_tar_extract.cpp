@@ -47,6 +47,33 @@ static void makeFixtureTarGz(const std::string& path) {
     archive_write_free(a);
 }
 
+// Packs two small regular-file entries, so a per-entry progress callback
+// fires more than once -- used only by the extraction-progress test below,
+// so its monotonicity assertion (nowSamples[i] >= nowSamples[i - 1]) has
+// more than one sample to actually compare.
+static void makeFixtureTarGzTwoEntries(const std::string& path) {
+    struct archive* a = archive_write_new();
+    archive_write_add_filter_zstd(a);
+    archive_write_set_format_pax_restricted(a);
+    archive_write_open_filename(a, path.c_str());
+
+    const char* contents[2] = {"hello from entry one", "hello from entry two, slightly longer"};
+    const char* names[2] = {"hello1.txt", "hello2.txt"};
+    for (int i = 0; i < 2; ++i) {
+        struct archive_entry* entry = archive_entry_new();
+        archive_entry_set_pathname(entry, names[i]);
+        archive_entry_set_size(entry, static_cast<int64_t>(strlen(contents[i])));
+        archive_entry_set_filetype(entry, AE_IFREG);
+        archive_entry_set_perm(entry, 0644);
+        archive_write_header(a, entry);
+        archive_write_data(a, contents[i], strlen(contents[i]));
+        archive_entry_free(entry);
+    }
+
+    archive_write_close(a);
+    archive_write_free(a);
+}
+
 static void makeFixtureTarGzNamed(const std::string& path, const char* entryName) {
     struct archive* a = archive_write_new();
     archive_write_add_filter_zstd(a);
@@ -126,7 +153,10 @@ int main() {
         fs::path progArchive = tmp / "tuxblox_test_progress.tar.gz";
         fs::path progDest = tmp / "tuxblox_test_progress_dest";
         fs::remove_all(progDest);
-        makeFixtureTarGz(progArchive.string());
+        // Two entries so onProgress fires more than once (it fires once per
+        // archive entry) -- otherwise the monotonicity check below never
+        // actually compares two samples.
+        makeFixtureTarGzTwoEntries(progArchive.string());
 
         std::vector<uint64_t> nowSamples;
         std::vector<uint64_t> totalSamples;
@@ -136,7 +166,7 @@ int main() {
                 totalSamples.push_back(total);
             });
 
-        assert(!nowSamples.empty());
+        assert(nowSamples.size() >= 2); // two entries -> at least two progress callbacks
         uint64_t archiveSize = fs::file_size(progArchive);
         for (size_t i = 0; i < nowSamples.size(); ++i) {
             assert(totalSamples[i] == archiveSize);

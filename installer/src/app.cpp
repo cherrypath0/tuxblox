@@ -48,7 +48,7 @@ constexpr uint64_t kHeadroomBytes = 500ULL * 1024 * 1024; // 500MB
 //
 // NEVER called when isUpgrade is true: runInstall()'s own catch handler
 // already removes whatever partial temp files *this run* created
-// (.protonbuild.tar.gz.part etc.), and that is the full extent of safe
+// (.protonbuild.tar.zst.part etc.), and that is the full extent of safe
 // cleanup on an upgrade -- wiping `dir` here would destroy the user's
 // existing install (including runtime/, which holds their Roblox login
 // session) over what might be nothing more than a network hiccup.
