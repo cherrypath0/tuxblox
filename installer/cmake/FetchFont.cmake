@@ -61,7 +61,7 @@ add_custom_command(
 )
 
 # The OFL license text itself gets embedded too, so the installer can write
-# it into the *installed* tree at ~/.local/share/tuxblox/COPYRIGHT.txt
+# it into the *installed* tree at ~/.tuxblox/COPYRIGHT.txt
 # (Task 7) -- end users get proper attribution without this repo needing to
 # carry a separate third_party_licenses/ entry for a font that's only ever
 # shipped inside the installer binary, never inside this repo's own tree.

@@ -27,7 +27,7 @@ std::string installDir() {
     if (!home || home[0] == '\0') {
         throw std::runtime_error("installDir: HOME environment variable is not set");
     }
-    return std::string(home) + "/.local/share/tuxblox";
+    return std::string(home) + "/.tuxblox";
 }
 
 bool hasEnoughDiskSpace(const std::string& path, uint64_t minBytes) {

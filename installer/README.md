@@ -1,6 +1,6 @@
 # TuxBlox Installer
 
-A standalone graphical installer for [TuxBlox](https://tuxblox.net). It downloads and installs the compiled Proton build, the TuxBlox Launcher, and itself into `~/.local/share/tuxblox/`, then hands off to the Launcher. Run against an existing install, it auto-detects that (no separate flag needed) and switches into upgrade mode: it replaces only `ProtonBuild/` and the Launcher/Installer binaries, leaving `runtime/` (the Wine prefix, including the user's Roblox login) and everything else untouched, showing "Upgrading Proton"/"Upgrading TuxBlox" instead of the fresh-install wording. This is also how the Launcher applies its own updates -- it doesn't download or apply anything itself, it verifies/fetches this same persisted `TuxBloxInstaller` binary and execs it. It does not handle repair or uninstall.
+A standalone graphical installer for [TuxBlox](https://tuxblox.net). It downloads and installs the compiled Proton build, the TuxBlox Launcher, and itself into `~/.tuxblox/`, then hands off to the Launcher. Run against an existing install, it auto-detects that (no separate flag needed) and switches into upgrade mode: it replaces only `ProtonBuild/` and the Launcher/Installer binaries, leaving `runtime/` (the Wine prefix, including the user's Roblox login) and everything else untouched, showing "Upgrading Proton"/"Upgrading TuxBlox" instead of the fresh-install wording. This is also how the Launcher applies its own updates -- it doesn't download or apply anything itself, it verifies/fetches this same persisted `TuxBloxInstaller` binary and execs it. It does not handle repair or uninstall.
 
 Built with [Dear ImGui](https://github.com/ocornut/imgui) + SDL2 + OpenGL3, in C++17.
 
@@ -34,4 +34,4 @@ The Inter font (OFL-1.1) is fetched and embedded at build time by `cmake/FetchFo
 
 This installer is licensed under the same license as the rest of the repository. See the [`LICENSE`](../LICENSE) file at the project root.
 
-It bundles the third-party components listed above, each under its own license. Rather than duplicating those license texts in this repository, the installer embeds them at build time and writes them out as `COPYRIGHT.txt` alongside the installed product (`~/.local/share/tuxblox/COPYRIGHT.txt`). See `src/copyright_file.cpp`.
+It bundles the third-party components listed above, each under its own license. Rather than duplicating those license texts in this repository, the installer embeds them at build time and writes them out as `COPYRIGHT.txt` alongside the installed product (`~/.tuxblox/COPYRIGHT.txt`). See `src/copyright_file.cpp`.

@@ -26,7 +26,7 @@ int main() {
     using tuxblox::hasEnoughDiskSpace;
 
     setenv("HOME", "/tmp/tuxblox_test_home", 1);
-    assert(installDir() == "/tmp/tuxblox_test_home/.local/share/tuxblox");
+    assert(installDir() == "/tmp/tuxblox_test_home/.tuxblox");
 
     unsetenv("HOME");
     bool threw = false;

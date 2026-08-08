@@ -21,7 +21,7 @@
 
 namespace tuxblox {
 
-// Returns the fixed TuxBlox install directory: $HOME/.local/share/tuxblox
+// Returns the fixed TuxBlox install directory: $HOME/.tuxblox
 // Throws std::runtime_error if HOME is not set.
 std::string installDir();
 
