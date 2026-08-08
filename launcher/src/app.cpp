@@ -17,7 +17,9 @@
 #include "app.h"
 #include "crash_report.h"
 #include "install_paths.h"
+#include "container_env.h"
 #include <cstdlib>
+#include <filesystem>
 
 namespace tuxblox {
 
@@ -41,6 +43,20 @@ App::App(std::string installDir, std::string currentVersion)
     // concurrently calling getenv() yet. See applyGlobalEnvVars()'s own
     // comment for why that ordering matters everywhere else it's called.
     applyGlobalEnvVars(snapshot_.settings.globalEnvVars);
+
+    // A missing /dev/dri inside a Distrobox container almost always means
+    // the container was created without GPU passthrough -- Roblox will
+    // fail to render under Proton/DXVK. Check-and-warn only: a missing
+    // device node can't be fixed from inside the container, so this exists
+    // purely to turn a confusing downstream crash into an actionable
+    // message before the user even tries to launch.
+    if (isInsideDistrobox() && !std::filesystem::exists("/dev/dri")) {
+        snapshot_.containerWarning =
+            "Running inside a Distrobox container without GPU passthrough -- "
+            "Roblox will likely fail to render. Recreate the container with "
+            "GPU access, e.g. `distrobox create --nvidia ...` or "
+            "`--additional-flags \"--device /dev/dri\"`.";
+    }
 }
 
 App::~App() {

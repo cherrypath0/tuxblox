@@ -681,6 +681,15 @@ bool Ui::renderFrame(App& app) {
         app.clearCrashNotice();
     }
 
+    // One-time startup notice -- containerWarning is never cleared in
+    // AppSnapshot (see its declaration comment), so "already shown" is
+    // tracked here in Ui's own per-session state instead.
+    if (!snap.containerWarning.empty() && !containerWarningShown_) {
+        containerWarningShown_ = true;
+        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_WARNING, "Distrobox GPU Passthrough",
+            snap.containerWarning.c_str(), window);
+    }
+
     return !shouldClose_;
 }
 

@@ -47,6 +47,7 @@ private:
     ImFont* fontRegular_ = nullptr;
     ImFont* fontSemiBold_ = nullptr;
     bool shouldClose_ = false;
+    bool containerWarningShown_ = false;
 
     // Settings tab InputText backing buffers. Populated once from the
     // App's settings the first time the tab is rendered (settingsBuffersInitialized_

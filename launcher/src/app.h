@@ -48,6 +48,13 @@ struct AppSnapshot {
     Tab activeTab = Tab::Start;
     Settings settings;
     CrashNotice crashNotice;
+    // Set once at startup (App's constructor) if running inside a
+    // Distrobox container without an apparent GPU device node -- empty if
+    // there's nothing to warn about. Unlike CrashNotice, this describes a
+    // standing fact about the environment rather than a one-off event, so
+    // it's never cleared back to empty by the UI -- only whether it has
+    // already been *shown* is tracked, in Ui's own state (see ui.h).
+    std::string containerWarning;
 };
 
 class App {
