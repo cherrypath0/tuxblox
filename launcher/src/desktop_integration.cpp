@@ -16,6 +16,7 @@
 
 #include "desktop_integration.h"
 #include "tuxblox_logo_png.h" // generated at build time: kTuxbloxLogoPng[], kTuxbloxLogoPngLen
+#include "container_env.h"
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
@@ -130,6 +131,20 @@ void ensureDesktopIntegration(const std::string& installDir, const std::string& 
             runCommandBestEffort({"xdg-mime", "default", "tuxblox-url-handler.desktop", "x-scheme-handler/roblox-studio"});
             runCommandBestEffort({"xdg-mime", "default", "tuxblox-url-handler.desktop", "x-scheme-handler/roblox-studio-auth"});
             runCommandBestEffort({"update-desktop-database", appsDir});
+        }
+
+        // Inside a Distrobox container, ~/.local/share/applications is
+        // shared with the host (Distrobox bind-mounts $HOME by default),
+        // so both .desktop files above are already visible on the host's
+        // app menu -- but their Exec= lines are only valid *inside* the
+        // container. distrobox-export rewrites the host-visible copies'
+        // Exec= to route through `distrobox-enter`. Best-effort, same as
+        // the xdg-mime calls above: if the binary isn't on PATH,
+        // runCommandBestEffort's execvp ENOENT handling exits 127
+        // harmlessly.
+        if (isInsideDistrobox()) {
+            runCommandBestEffort({"distrobox-export", "--app", "tuxblox-launcher"});
+            runCommandBestEffort({"distrobox-export", "--app", "tuxblox-url-handler"});
         }
     } catch (...) {
         // Best-effort -- must never fail an otherwise-working launch.
