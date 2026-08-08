@@ -26,7 +26,7 @@
 
 namespace fs = std::filesystem;
 
-static void makeFixtureTarGz(const std::string& path, const char* fileContent) {
+static void makeFixtureTarZst(const std::string& path, const char* fileContent) {
     struct archive* a = archive_write_new();
     archive_write_add_filter_zstd(a);
     archive_write_set_format_pax_restricted(a);
@@ -52,14 +52,14 @@ int main() {
     fs::remove_all(work);
     fs::create_directories(work);
 
-    fs::path tarballSrc = work / "protonbuild.tar.gz";
+    fs::path tarballSrc = work / "protonbuild.tar.zst";
     fs::path launcherSrc = work / "TuxBloxLauncherSrc";
     fs::path installerSrc = work / "TuxBloxInstallerSrc";
     fs::path robloxPlayerSrc = work / "RobloxPlayerInstallerSrc.exe";
     fs::path robloxStudioSrc = work / "RobloxStudioInstallerSrc.exe";
     fs::path installDirPath = work / "install";
 
-    makeFixtureTarGz(tarballSrc.string(), "fake proton dist");
+    makeFixtureTarZst(tarballSrc.string(), "fake proton dist");
     {
         std::ofstream out(launcherSrc, std::ios::binary);
         out << "fake launcher binary";
@@ -171,16 +171,16 @@ int main() {
         assert(badOutcome.errorMessage.find("checksum mismatch") != std::string::npos);
     }
 
-    // Extraction-failure path: checksum-valid but corrupt (non-tar.gz)
+    // Extraction-failure path: checksum-valid but corrupt (non-tar.zst)
     // artifact. Downloads successfully, passes checksum verification, then
-    // throws inside extractTarGz -- exercising the catch-all handler. The
-    // partially-downloaded .protonbuild.tar.gz.part temp file must be
+    // throws inside extractTarZst -- exercising the catch-all handler. The
+    // partially-downloaded .protonbuild.tar.zst.part temp file must be
     // cleaned up rather than left orphaned in the install directory.
     {
-        fs::path corruptSrc = work / "corrupt_protonbuild.tar.gz";
+        fs::path corruptSrc = work / "corrupt_protonbuild.tar.zst";
         {
             std::ofstream out(corruptSrc, std::ios::binary);
-            out << "this is not a valid gzip/tar archive";
+            out << "this is not a valid zstd/tar archive";
         }
 
         fs::path installDir5 = work / "install_extract_failure";
@@ -194,7 +194,7 @@ int main() {
         assert(!corruptOutcome.ok);
         assert(!corruptOutcome.cancelled);
 
-        fs::path leftoverTarPart = installDir5 / ".protonbuild.tar.gz.part";
+        fs::path leftoverTarPart = installDir5 / ".protonbuild.tar.zst.part";
         assert(!fs::exists(leftoverTarPart));
     }
 

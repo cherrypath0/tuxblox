@@ -54,7 +54,7 @@ InstallOutcome runInstall(const Manifest& manifest,
 
     // Declared here (rather than inside the try block) so the catch handler
     // below can safely attempt cleanup regardless of which step threw.
-    const std::string tarPath = dir + "/.protonbuild.tar.gz.part";
+    const std::string tarPath = dir + "/.protonbuild.tar.zst.part";
     const std::string launcherTmpPath = dir + "/.TuxBloxLauncher.part";
     const std::string installerTmpPath = dir + "/.TuxBloxInstaller.part";
 
@@ -94,10 +94,10 @@ InstallOutcome runInstall(const Manifest& manifest,
 
         // Step 4: Extracting Proton
         //
-        // PACKING CONVENTION: protonbuild-*.tar.gz must be packed WITHOUT a
+        // PACKING CONVENTION: protonbuild-*.tar.zst must be packed WITHOUT a
         // top-level "ProtonBuild/" directory -- entries should extract directly
         // to e.g. dist/proton, runtime/, etc. Pack from inside the build-output
-        // directory (`tar czf protonbuild-x.y.z.tar.gz -C <build-output-dir> .`)
+        // directory (`tar --zstd -cf protonbuild-x.y.z.tar.zst -C <build-output-dir> .`)
         // rather than one level above it. A tarball packed the wrong way
         // silently produces ProtonBuild/ProtonBuild/... and breaks launch.sh,
         // which looks for ProtonBuild/dist/proton.
