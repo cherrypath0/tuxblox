@@ -68,6 +68,7 @@ add_library(launcher_core STATIC
     src/copyright_file.cpp
     src/settings.cpp
     src/crash_report.cpp
+    src/container_env.cpp
 )
 target_include_directories(launcher_core PUBLIC
     src third_party ${CMAKE_BINARY_DIR}/generated

@@ -52,3 +52,7 @@ add_test(NAME tar_extract COMMAND test_tar_extract)
 add_executable(test_installer_steps test_installer_steps.cpp)
 target_link_libraries(test_installer_steps PRIVATE installer_core)
 add_test(NAME installer_steps COMMAND test_installer_steps)
+
+add_executable(test_container_env test_container_env.cpp)
+target_link_libraries(test_container_env PRIVATE installer_core)
+add_test(NAME container_env COMMAND test_container_env)

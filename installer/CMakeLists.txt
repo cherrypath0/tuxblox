@@ -58,6 +58,7 @@ add_library(installer_core STATIC
     src/install_paths.cpp
     src/progress.cpp
     src/installer_steps.cpp
+    src/container_env.cpp
 )
 target_include_directories(installer_core PUBLIC
     src third_party

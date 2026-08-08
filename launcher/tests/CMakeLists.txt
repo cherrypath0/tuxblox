@@ -60,3 +60,7 @@ add_test(NAME updater COMMAND test_updater)
 add_executable(test_settings test_settings.cpp)
 target_link_libraries(test_settings PRIVATE launcher_core)
 add_test(NAME settings COMMAND test_settings)
+
+add_executable(test_container_env test_container_env.cpp)
+target_link_libraries(test_container_env PRIVATE launcher_core)
+add_test(NAME container_env COMMAND test_container_env)
