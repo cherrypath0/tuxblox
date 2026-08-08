@@ -28,7 +28,7 @@ namespace fs = std::filesystem;
 
 static void makeFixtureTarGz(const std::string& path, const char* fileContent) {
     struct archive* a = archive_write_new();
-    archive_write_add_filter_gzip(a);
+    archive_write_add_filter_zstd(a);
     archive_write_set_format_pax_restricted(a);
     archive_write_open_filename(a, path.c_str());
 
