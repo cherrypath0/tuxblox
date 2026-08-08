@@ -16,14 +16,43 @@
 
 #include "desktop_shortcut.h"
 #include "tuxblox_logo_png.h" // generated at build time: kTuxbloxLogoPng[], kTuxbloxLogoPngLen
+#include "container_env.h"
+#include <chrono>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <sys/wait.h>
 #include <system_error>
+#include <thread>
+#include <unistd.h>
+#include <vector>
 
 namespace fs = std::filesystem;
 
 namespace tuxblox {
+
+namespace {
+
+void runCommandBestEffort(const std::vector<std::string>& argv) {
+    pid_t pid = fork();
+    if (pid < 0) return;
+    if (pid == 0) {
+        std::vector<char*> cargv;
+        cargv.reserve(argv.size() + 1);
+        for (const auto& a : argv) cargv.push_back(const_cast<char*>(a.c_str()));
+        cargv.push_back(nullptr);
+        execvp(cargv[0], cargv.data());
+        _exit(127);
+    }
+    for (int i = 0; i < 30; ++i) {
+        int status = 0;
+        pid_t r = waitpid(pid, &status, WNOHANG);
+        if (r == pid || r < 0) return;
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+}
+
+} // namespace
 
 void createDesktopShortcut(const std::string& installDir) {
     try {
@@ -59,6 +88,20 @@ void createDesktopShortcut(const std::string& installDir) {
             "Icon=" << iconPath << "\n"
             "Terminal=false\n"
             "Categories=Game;\n";
+        desktopFile.close();
+
+        // Inside a Distrobox container, ~/.local/share/applications is
+        // shared with the host (Distrobox bind-mounts $HOME by default),
+        // so the .desktop file above is already visible on the host's app
+        // menu -- but its Exec= path is only valid *inside* the container.
+        // distrobox-export rewrites the host-visible copy's Exec= to route
+        // through `distrobox-enter`. Best-effort: if the binary isn't on
+        // PATH, execvp's ENOENT handling above just exits 127 harmlessly,
+        // same as this file's existing behavior when e.g. an icon write
+        // fails.
+        if (isInsideDistrobox()) {
+            runCommandBestEffort({"distrobox-export", "--app", "tuxblox-launcher"});
+        }
     } catch (...) {
         // Best-effort -- a missing shortcut must not fail an otherwise
         // successful install.
