@@ -33,6 +33,14 @@ int main() {
     assert(versionNeedsUpdate("0.1.0", "0.2.0") == true);
     assert(versionNeedsUpdate("0.2.0", "0.1.0") == true); // no downgrade protection
 
+    // downloadProgressFraction: the manifest-size fallback this task adds.
+    // Deterministic and independent of any real download/curl timing --
+    // see updater.h's doc comment for why this is exposed.
+    assert(downloadProgressFraction(50, 100, 999) == 0.5);   // total known -- ignores manifestSize entirely
+    assert(downloadProgressFraction(50, 0, 200) == 0.25);    // total unknown -- falls back to manifestSize
+    assert(downloadProgressFraction(0, 0, 0) == 0.0);        // neither known -- 0.0, not a divide-by-zero
+    assert(downloadProgressFraction(0, 100, 999) == 0.0);    // total known, now=0 -- 0.0 fraction, not the fallback
+
     fs::path work = fs::temp_directory_path() / "tuxblox_test_updater";
     fs::remove_all(work);
     fs::create_directories(work);

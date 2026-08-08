@@ -38,6 +38,11 @@ bool versionNeedsUpdate(const std::string& installed, const std::string& require
     return installed != required;
 }
 
+double downloadProgressFraction(uint64_t now, uint64_t total, uint64_t manifestSize) {
+    uint64_t effectiveTotal = total > 0 ? total : manifestSize;
+    return effectiveTotal > 0 ? static_cast<double>(now) / static_cast<double>(effectiveTotal) : 0.0;
+}
+
 UpdateResult runUpdateCheck(const std::string& currentLauncherVersion,
                              const std::string& manifestUrl,
                              const UpdateProgressFn& onProgress,
@@ -90,8 +95,13 @@ UpdateResult runUpdateCheck(const std::string& currentLauncherVersion,
         const std::string newPath = installerPath + ".new";
         auto dlOutcome = downloadFile(manifest.installer.url, newPath,
             [&](uint64_t now, uint64_t total) {
-                double frac = total > 0 ? static_cast<double>(now) / static_cast<double>(total) : 0.0;
-                report(UpdatePhase::PreparingUpdater, frac);
+                // Some CDN configurations (chunked responses) don't report a
+                // Content-Length, leaving curl's `total` at 0 for the whole
+                // transfer -- fall back to the manifest's declared size
+                // (fetched and verified before this step runs) so the bar
+                // still advances instead of sitting at 0% until it jumps to
+                // 100%.
+                report(UpdatePhase::PreparingUpdater, downloadProgressFraction(now, total, manifest.installer.sizeBytes));
             }, cancel);
 
         if (dlOutcome.result == DownloadResult::Cancelled) {

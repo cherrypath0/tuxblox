@@ -16,6 +16,7 @@
 
 #pragma once
 #include <atomic>
+#include <cstdint>
 #include <functional>
 #include <string>
 
@@ -49,6 +50,12 @@ struct UpdateResult {
     bool needsHandoff = false;  // true if the installer should be exec'd to apply the update
     std::string installerPath;  // valid iff needsHandoff -- the binary to exec
 };
+
+// Exposed for unit testing: computes the download-progress fraction
+// (0.0-1.0), falling back to `manifestSize` when curl doesn't report a
+// total (`total == 0`, e.g. a chunked response with no Content-Length).
+// Returns 0.0 if neither `total` nor `manifestSize` is known.
+double downloadProgressFraction(uint64_t now, uint64_t total, uint64_t manifestSize);
 
 // Checks manifest.json against the currently-installed launcher/Proton
 // versions. If either is out of date, ensures a verified copy of the
