@@ -1255,17 +1255,17 @@ HKLM,Software\Wow6432Node\Registered Applications,"SymbolicLinkValue",0x60000,"\
 
 [LicenseInformation]
 ; based on information from http://www.geoffchappell.com/notes/windows/license/install.htm
-HKLM,Software\Wine\LicenseInformation,"Kernel-MUI-Language-Allowed",,"EMPTY"
-HKLM,Software\Wine\LicenseInformation,"Kernel-MUI-Language-Disallowed",,"EMPTY"
-HKLM,Software\Wine\LicenseInformation,"Kernel-MUI-Number-Allowed",0x10001,1000
-HKLM,Software\Wine\LicenseInformation,"Shell-InBoxGames-FreeCell-EnableGame",0x10001,0x00000001
-HKLM,Software\Wine\LicenseInformation,"Shell-InBoxGames-Hearts-EnableGame",0x10001,0x00000001
-HKLM,Software\Wine\LicenseInformation,"Shell-InBoxGames-Minesweeper-EnableGame",0x10001,0x00000001
-HKLM,Software\Wine\LicenseInformation,"Shell-InBoxGames-PurblePlace-EnableGame",0x10001,0x00000001
-HKLM,Software\Wine\LicenseInformation,"Shell-InBoxGames-Shanghai-EnableGame",0x10001,0x00000001
-HKLM,Software\Wine\LicenseInformation,"Shell-InBoxGames-Solitaire-EnableGame",0x10001,0x00000001
-HKLM,Software\Wine\LicenseInformation,"Shell-InBoxGames-SpiderSolitaire-EnableGame",0x10001,0x00000001
-HKLM,Software\Wine\LicenseInformation,"Shell-PremiumInBoxGames-Chess-EnableGame",0x10001,0x00000001
+HKLM,Software\TuxBlox\LicenseInformation,"Kernel-MUI-Language-Allowed",,"EMPTY"
+HKLM,Software\TuxBlox\LicenseInformation,"Kernel-MUI-Language-Disallowed",,"EMPTY"
+HKLM,Software\TuxBlox\LicenseInformation,"Kernel-MUI-Number-Allowed",0x10001,1000
+HKLM,Software\TuxBlox\LicenseInformation,"Shell-InBoxGames-FreeCell-EnableGame",0x10001,0x00000001
+HKLM,Software\TuxBlox\LicenseInformation,"Shell-InBoxGames-Hearts-EnableGame",0x10001,0x00000001
+HKLM,Software\TuxBlox\LicenseInformation,"Shell-InBoxGames-Minesweeper-EnableGame",0x10001,0x00000001
+HKLM,Software\TuxBlox\LicenseInformation,"Shell-InBoxGames-PurblePlace-EnableGame",0x10001,0x00000001
+HKLM,Software\TuxBlox\LicenseInformation,"Shell-InBoxGames-Shanghai-EnableGame",0x10001,0x00000001
+HKLM,Software\TuxBlox\LicenseInformation,"Shell-InBoxGames-Solitaire-EnableGame",0x10001,0x00000001
+HKLM,Software\TuxBlox\LicenseInformation,"Shell-InBoxGames-SpiderSolitaire-EnableGame",0x10001,0x00000001
+HKLM,Software\TuxBlox\LicenseInformation,"Shell-PremiumInBoxGames-Chess-EnableGame",0x10001,0x00000001
 
 [ColorFiles]
 srgb color space profile.icm,"@%11%\mscms.dll,-1"

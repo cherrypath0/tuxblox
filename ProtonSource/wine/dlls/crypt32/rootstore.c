@@ -664,9 +664,9 @@ static void sync_trusted_roots_from_known_locations( HKEY key, HCERTSTORE cached
     WCHAR hash_str[20 * 2 + 1];
     DWORD value;
 
-    if (RegOpenKeyExW( HKEY_LOCAL_MACHINE, L"Software\\Wine\\HostImportedCertificates", 0, KEY_ALL_ACCESS, &import_key ))
+    if (RegOpenKeyExW( HKEY_LOCAL_MACHINE, L"Software\\TuxBlox\\HostImportedCertificates", 0, KEY_ALL_ACCESS, &import_key ))
     {
-        if (RegCreateKeyExW( HKEY_LOCAL_MACHINE, L"Software\\Wine\\HostImportedCertificates_tmp", 0, NULL, 0,
+        if (RegCreateKeyExW( HKEY_LOCAL_MACHINE, L"Software\\TuxBlox\\HostImportedCertificates_tmp", 0, NULL, 0,
                              KEY_ALL_ACCESS, NULL, &import_key, NULL ))
             return;
 

@@ -935,7 +935,7 @@ static HANDLE get_key_flush_mutex(void)
     char buffer[256];
     HANDLE mutex;
 
-    snprintf( buffer, ARRAY_SIZE(buffer), "\\Sessions\\%u\\BaseNamedObjects\\__wine_regkey_flush",
+    snprintf( buffer, ARRAY_SIZE(buffer), "\\Sessions\\%u\\BaseNamedObjects\\RegKeyFlushMutex",
               (int)NtCurrentTeb()->Peb->SessionId );
     name.Length = name.MaximumLength = (strlen(buffer) + 1) * sizeof(WCHAR);
     ascii_to_unicode( bufferW, buffer, name.Length / sizeof(WCHAR) );
@@ -1268,7 +1268,7 @@ NTSTATUS WINAPI NtQueryLicenseValue( const UNICODE_STRING *name, ULONG *type,
     static const WCHAR nameW[] = {'\\','R','e','g','i','s','t','r','y','\\',
                                   'M','a','c','h','i','n','e','\\',
                                   'S','o','f','t','w','a','r','e','\\',
-                                  'W','i','n','e','\\','L','i','c','e','n','s','e',
+                                  'T','u','x','B','l','o','x','\\','L','i','c','e','n','s','e',
                                   'I','n','f','o','r','m','a','t','i','o','n',0};
     UNICODE_STRING keyW = RTL_CONSTANT_STRING( nameW );
     KEY_VALUE_PARTIAL_INFORMATION *info;
@@ -1284,7 +1284,7 @@ NTSTATUS WINAPI NtQueryLicenseValue( const UNICODE_STRING *name, ULONG *type,
 
     InitializeObjectAttributes( &attr, &keyW, 0, 0, NULL );
 
-    /* @@ Wine registry key: HKLM\Software\Wine\LicenseInformation */
+    /* @@ Wine registry key: HKLM\Software\TuxBlox\LicenseInformation */
     if (!NtOpenKey( &key, KEY_READ, &attr ))
     {
         status = NtQueryValueKey( key, name, KeyValuePartialInformation, info, info_length, &count );

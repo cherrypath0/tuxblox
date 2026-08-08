@@ -631,12 +631,12 @@ NTSTATUS WINAPI DriverEntry( DRIVER_OBJECT *driver, UNICODE_STRING *path )
     CloseHandle( CreateThread( NULL, 0, registry_flush_thread, thread, 0, NULL ));
 
 #ifdef _WIN64
-    /* create a symlink so that the Wine port overrides key can be edited with 32-bit reg or regedit */
-    RegCreateKeyExW( HKEY_LOCAL_MACHINE, L"Software\\Wow6432Node\\Wine\\Ports", 0, NULL,
+    /* create a symlink so that the TuxBlox port overrides key can be edited with 32-bit reg or regedit */
+    RegCreateKeyExW( HKEY_LOCAL_MACHINE, L"Software\\Wow6432Node\\TuxBlox\\Ports", 0, NULL,
                      REG_OPTION_CREATE_LINK, KEY_SET_VALUE, NULL, &wow64_ports_key, NULL );
     RegSetValueExW( wow64_ports_key, L"SymbolicLinkValue", 0, REG_LINK,
-                    (BYTE *)L"\\REGISTRY\\MACHINE\\Software\\Wine\\Ports",
-                    sizeof(L"\\REGISTRY\\MACHINE\\Software\\Wine\\Ports") - sizeof(WCHAR) );
+                    (BYTE *)L"\\REGISTRY\\MACHINE\\Software\\TuxBlox\\Ports",
+                    sizeof(L"\\REGISTRY\\MACHINE\\Software\\TuxBlox\\Ports") - sizeof(WCHAR) );
     RegCloseKey( wow64_ports_key );
 #endif
 

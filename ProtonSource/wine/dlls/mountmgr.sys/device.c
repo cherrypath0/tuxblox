@@ -1057,7 +1057,7 @@ static void create_drive_devices(void)
     enum device_type drive_type;
     WCHAR driveW[] = L"a:";
 
-    if (RegOpenKeyW( HKEY_LOCAL_MACHINE, L"Software\\Wine\\Drives", &drives_key )) drives_key = 0;
+    if (RegOpenKeyW( HKEY_LOCAL_MACHINE, L"Software\\TuxBlox\\Drives", &drives_key )) drives_key = 0;
 
     for (i = 0; i < MAX_DOS_DRIVES; i++)
     {
@@ -1312,7 +1312,7 @@ found:
            wine_dbgstr_a(mount_point), type );
 
     /* hack: force the drive type in the registry */
-    if (!RegCreateKeyW( HKEY_LOCAL_MACHINE, L"Software\\Wine\\Drives", &hkey ))
+    if (!RegCreateKeyW( HKEY_LOCAL_MACHINE, L"Software\\TuxBlox\\Drives", &hkey ))
     {
         const WCHAR *type_name = drive_types[type];
         WCHAR name[] = L"a:";
@@ -1363,7 +1363,7 @@ NTSTATUS remove_dos_device( int letter, const char *udi )
         MOUNTMGR_CALL( set_dosdev_symlink, &params );
 
         /* clear the registry key too */
-        if (!RegOpenKeyW( HKEY_LOCAL_MACHINE, L"Software\\Wine\\Drives", &hkey ))
+        if (!RegOpenKeyW( HKEY_LOCAL_MACHINE, L"Software\\TuxBlox\\Drives", &hkey ))
         {
             WCHAR name[] = L"a:";
             name[0] += drive->drive;
@@ -2005,7 +2005,7 @@ static void create_port_devices( DRIVER_OBJECT *driver, const char *devices )
 
     /* @@ Wine registry key: HKLM\Software\Wine\Ports */
 
-    RegCreateKeyExW( HKEY_LOCAL_MACHINE, L"Software\\Wine\\Ports", 0, NULL, 0,
+    RegCreateKeyExW( HKEY_LOCAL_MACHINE, L"Software\\TuxBlox\\Ports", 0, NULL, 0,
                      KEY_QUERY_VALUE, NULL, &wine_ports_key, NULL );
 
     /* add user-defined serial ports */

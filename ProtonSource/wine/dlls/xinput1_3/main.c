@@ -688,7 +688,7 @@ static DWORD WINAPI hid_update_thread_proc(void *param)
     {
         .cbSize = sizeof(WNDCLASSEXW),
         .hInstance = xinput_instance,
-        .lpszClassName = L"__wine_xinput_devnotify",
+        .lpszClassName = L"XInputDeviceNotifyClass",
         .lpfnWndProc = xinput_devnotify_wndproc,
     };
     HDEVNOTIFY notif;
@@ -746,7 +746,7 @@ static BOOL WINAPI start_update_thread_once( INIT_ONCE *once, void *param, void 
     if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, (void*)hid_update_thread_proc, &module))
         WARN("Failed to increase module's reference count, error: %lu\n", GetLastError());
 
-    steam_overlay_event = CreateEventA(NULL, TRUE, FALSE, "__wine_steamclient_GameOverlayActivated");
+    steam_overlay_event = CreateEventA(NULL, TRUE, FALSE, "GameOverlayActivatedEvent");
 
     start_event = CreateEventA(NULL, FALSE, FALSE, NULL);
     if (!start_event) ERR("failed to create start event, error %lu\n", GetLastError());

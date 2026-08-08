@@ -3255,7 +3255,7 @@ HKLM
                 }
             }
         }
-        NoRemove Wine
+        NoRemove TuxBlox
         {
             'Time Zones'
             {

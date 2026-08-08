@@ -519,7 +519,7 @@ BOOL WINAPI DllMain( HINSTANCE inst, DWORD reason, void *reserved )
     {
       case DLL_PROCESS_ATTACH:
         DisableThreadLibraryCalls(inst);
-        steam_overlay_event = CreateEventA(NULL, TRUE, FALSE, "__wine_steamclient_GameOverlayActivated");
+        steam_overlay_event = CreateEventA(NULL, TRUE, FALSE, "GameOverlayActivatedEvent");
         DINPUT_instance = inst;
         register_di_em_win_class();
         break;

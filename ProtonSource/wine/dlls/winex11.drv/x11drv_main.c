@@ -725,7 +725,7 @@ static NTSTATUS x11drv_init( void *arg )
     RtlInitUnicodeString( &str, buffer );
     InitializeObjectAttributes( &attr, &str, OBJ_CASE_INSENSITIVE | OBJ_OPENIF, 0, NULL );
 
-    str.Length = sprintf( path, "\\Sessions\\%u\\BaseNamedObjects\\__wine_steamclient_GameOverlayActivated",
+    str.Length = sprintf( path, "\\Sessions\\%u\\BaseNamedObjects\\GameOverlayActivatedEvent",
                           (int)NtCurrentTeb()->Peb->SessionId );
     ascii_to_unicode( buffer, path, str.Length + 1 );
     str.Length *= sizeof(WCHAR);

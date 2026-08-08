@@ -713,7 +713,7 @@ NTSTATUS WINAPI HidRegisterMinidriver(HID_MINIDRIVER_REGISTRATION *registration)
     if (!(driver = calloc(1, sizeof(*driver))))
         return STATUS_NO_MEMORY;
 
-    driver->steam_overlay_event = CreateEventA(NULL, TRUE, FALSE, "__wine_steamclient_GameOverlayActivated");
+    driver->steam_overlay_event = CreateEventA(NULL, TRUE, FALSE, "GameOverlayActivatedEvent");
 
     driver->DriverUnload = registration->DriverObject->DriverUnload;
     registration->DriverObject->DriverUnload = driver_unload;

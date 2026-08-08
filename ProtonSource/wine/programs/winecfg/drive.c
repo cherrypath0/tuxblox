@@ -134,8 +134,8 @@ static DWORD get_drive_type( char letter )
 
     swprintf(driveValue, 4, L"%c:", letter);
 
-    if (RegOpenKeyW(HKEY_LOCAL_MACHINE, L"Software\\Wine\\Drives", &hKey) != ERROR_SUCCESS)
-        WINE_TRACE("  Unable to open Software\\Wine\\Drives\n" );
+    if (RegOpenKeyW(HKEY_LOCAL_MACHINE, L"Software\\TuxBlox\\Drives", &hKey) != ERROR_SUCCESS)
+        WINE_TRACE("  Unable to open Software\\TuxBlox\\Drives\n" );
     else
     {
         WCHAR buffer[80];

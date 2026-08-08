@@ -107,7 +107,7 @@ static DWORD WINAPI monitor_thread_proc( void *param )
     WNDCLASSEXW wndclass =
     {
         .cbSize = sizeof(WNDCLASSEXW),
-        .lpszClassName = L"__wine_gaming_input_devnotify",
+        .lpszClassName = L"GamingInputDeviceNotifyClass",
         .lpfnWndProc = devnotify_wndproc,
     };
     HANDLE start_event = param;
