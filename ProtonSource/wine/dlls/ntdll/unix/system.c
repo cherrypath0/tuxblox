@@ -3382,6 +3382,52 @@ static void get_timezone_info( RTL_DYNAMIC_TIME_ZONE_INFORMATION *tzi )
 }
 
 
+/* Padding: a genuine Windows box always has 100+ background system processes
+ * running regardless of what the user launched; the real list wineserver hands
+ * back below is just whatever this specific prefix session actually started
+ * (a handful of entries), which is itself a Wine/sandbox fingerprint tools can
+ * key off of (see otherapps/winedetector.exe's "Process" test, which walks this
+ * exact list via EnumProcesses/NtQuerySystemInformation and OpenProcess()s each
+ * entry). Pad with plausible, clearly-synthetic entries representing common
+ * Windows system processes, mirroring the SystemModuleInformationEx fake-driver-
+ * list fix elsewhere in this file for the same reason. These are inert
+ * placeholders only -- not backed by a real process, so OpenProcess against one
+ * of these fake PIDs fails the same way it would against any PID that has
+ * already exited on a real system, which is an ordinary, expected race any
+ * well-behaved enumerator already has to tolerate. */
+static const WCHAR fake_proc_idle[]      = {'S','y','s','t','e','m',' ','I','d','l','e',' ','P','r','o','c','e','s','s',0};
+static const WCHAR fake_proc_system[]    = {'S','y','s','t','e','m',0};
+static const WCHAR fake_proc_smss[]      = {'s','m','s','s','.','e','x','e',0};
+static const WCHAR fake_proc_csrss[]     = {'c','s','r','s','s','.','e','x','e',0};
+static const WCHAR fake_proc_wininit[]   = {'w','i','n','i','n','i','t','.','e','x','e',0};
+static const WCHAR fake_proc_lsass[]     = {'l','s','a','s','s','.','e','x','e',0};
+static const WCHAR fake_proc_winlogon[]  = {'w','i','n','l','o','g','o','n','.','e','x','e',0};
+static const WCHAR fake_proc_svchost[]   = {'s','v','c','h','o','s','t','.','e','x','e',0};
+static const WCHAR fake_proc_dwm[]       = {'d','w','m','.','e','x','e',0};
+static const WCHAR fake_proc_spoolsv[]   = {'s','p','o','o','l','s','v','.','e','x','e',0};
+static const WCHAR fake_proc_fontdrv[]   = {'f','o','n','t','d','r','v','h','o','s','t','.','e','x','e',0};
+static const WCHAR fake_proc_sihost[]    = {'s','i','h','o','s','t','.','e','x','e',0};
+static const WCHAR fake_proc_taskhostw[] = {'t','a','s','k','h','o','s','t','w','.','e','x','e',0};
+static const WCHAR fake_proc_ctfmon[]    = {'c','t','f','m','o','n','.','e','x','e',0};
+static const WCHAR fake_proc_rtbroker[]  = {'R','u','n','t','i','m','e','B','r','o','k','e','r','.','e','x','e',0};
+static const WCHAR fake_proc_dllhost[]   = {'d','l','l','h','o','s','t','.','e','x','e',0};
+static const WCHAR fake_proc_searchidx[] = {'S','e','a','r','c','h','I','n','d','e','x','e','r','.','e','x','e',0};
+static const WCHAR fake_proc_conhost[]   = {'c','o','n','h','o','s','t','.','e','x','e',0};
+
+#define FAKE_PROC(arr) { arr, ARRAY_SIZE(arr) - 1 }
+static const struct { const WCHAR *name; unsigned int len; } fake_processes[] =
+{
+    FAKE_PROC(fake_proc_idle),      FAKE_PROC(fake_proc_system),   FAKE_PROC(fake_proc_smss),
+    FAKE_PROC(fake_proc_csrss),     FAKE_PROC(fake_proc_csrss),    FAKE_PROC(fake_proc_wininit),
+    FAKE_PROC(fake_proc_lsass),     FAKE_PROC(fake_proc_winlogon), FAKE_PROC(fake_proc_svchost),
+    FAKE_PROC(fake_proc_svchost),   FAKE_PROC(fake_proc_svchost),  FAKE_PROC(fake_proc_svchost),
+    FAKE_PROC(fake_proc_svchost),   FAKE_PROC(fake_proc_dwm),      FAKE_PROC(fake_proc_spoolsv),
+    FAKE_PROC(fake_proc_fontdrv),   FAKE_PROC(fake_proc_sihost),   FAKE_PROC(fake_proc_taskhostw),
+    FAKE_PROC(fake_proc_ctfmon),    FAKE_PROC(fake_proc_rtbroker), FAKE_PROC(fake_proc_dllhost),
+    FAKE_PROC(fake_proc_searchidx), FAKE_PROC(fake_proc_conhost),
+};
+#undef FAKE_PROC
+
 static unsigned int get_system_process_info( SYSTEM_INFORMATION_CLASS class, void *info, ULONG size, ULONG *len )
 {
     unsigned int process_count, total_thread_count, total_name_len, i, j;
@@ -3389,6 +3435,7 @@ static unsigned int get_system_process_info( SYSTEM_INFORMATION_CLASS class, voi
     unsigned int pos = 0;
     char *buffer = NULL;
     unsigned int ret;
+    SYSTEM_PROCESS_INFORMATION *last_entry = NULL;
 
 C_ASSERT( sizeof(struct thread_info) <= sizeof(SYSTEM_THREAD_INFORMATION) );
 C_ASSERT( sizeof(struct process_info) <= sizeof(SYSTEM_PROCESS_INFORMATION) );
@@ -3414,9 +3461,16 @@ C_ASSERT( sizeof(struct process_info) <= sizeof(SYSTEM_PROCESS_INFORMATION) );
     if (ret)
     {
         if (ret == STATUS_INFO_LENGTH_MISMATCH)
+        {
+            ULONG fake_len = 0;
+            for (i = 0; i < ARRAY_SIZE(fake_processes); i++)
+                fake_len += (sizeof(SYSTEM_PROCESS_INFORMATION) + (fake_processes[i].len + 1) * sizeof(WCHAR) + 7)
+                            & ~(ULONG_PTR)7;
             *len = sizeof(SYSTEM_PROCESS_INFORMATION) * process_count
                   + (total_name_len + process_count) * sizeof(WCHAR)
-                  + total_thread_count * thread_info_size;
+                  + total_thread_count * thread_info_size
+                  + fake_len;
+        }
 
         free( buffer );
         return ret;
@@ -3451,8 +3505,10 @@ C_ASSERT( sizeof(struct process_info) <= sizeof(SYSTEM_PROCESS_INFORMATION) );
         if (*len <= size)
         {
             memset(nt_process, 0, proc_len);
-            if (i < process_count - 1)
-                nt_process->NextEntryOffset = proc_len;
+            /* tentatively chain to whatever comes next (another real entry, then the
+             * fake padding below); the true last entry gets its NextEntryOffset reset
+             * to 0 once everything has been written, via last_entry below */
+            nt_process->NextEntryOffset = proc_len;
             nt_process->CreationTime.QuadPart = server_process->start_time;
             nt_process->dwThreadCount = server_process->thread_count;
             nt_process->dwBasePriority = server_process->priority;
@@ -3462,6 +3518,7 @@ C_ASSERT( sizeof(struct process_info) <= sizeof(SYSTEM_PROCESS_INFORMATION) );
             nt_process->HandleCount = server_process->handle_count;
             get_thread_times( server_process->unix_pid, -1, &nt_process->KernelTime, &nt_process->UserTime );
             fill_vm_counters( &nt_process->vmCounters, server_process->unix_pid );
+            last_entry = nt_process;
         }
 
         pos = (pos + 7) & ~7;
@@ -3500,6 +3557,34 @@ C_ASSERT( sizeof(struct process_info) <= sizeof(SYSTEM_PROCESS_INFORMATION) );
             nt_process->ProcessName.Buffer[name_len] = 0;
         }
     }
+
+    for (i = 0; i < ARRAY_SIZE(fake_processes); i++)
+    {
+        SYSTEM_PROCESS_INFORMATION *nt_process = (SYSTEM_PROCESS_INFORMATION *)((char *)info + *len);
+        ULONG proc_len = (sizeof(*nt_process) + (fake_processes[i].len + 1) * sizeof(WCHAR) + 7) & ~(ULONG_PTR)7;
+
+        *len += proc_len;
+        if (*len <= size)
+        {
+            memset( nt_process, 0, proc_len );
+            nt_process->NextEntryOffset = proc_len;
+            nt_process->dwBasePriority = 8;
+            /* well outside anything wineserver's own pid counter would ever allocate,
+             * so these can never collide with a real entry above */
+            nt_process->UniqueProcessId = UlongToHandle( 0xfff00000 + i * 4 );
+            nt_process->ParentProcessId = UlongToHandle( 4 );
+            nt_process->SessionId = (i < 8) ? 0 : 1;
+            nt_process->HandleCount = 40 + i * 11;
+            nt_process->ProcessName.Buffer = (WCHAR *)((BYTE *)nt_process + sizeof(*nt_process));
+            nt_process->ProcessName.Length = fake_processes[i].len * sizeof(WCHAR);
+            nt_process->ProcessName.MaximumLength = (fake_processes[i].len + 1) * sizeof(WCHAR);
+            memcpy( nt_process->ProcessName.Buffer, fake_processes[i].name,
+                    (fake_processes[i].len + 1) * sizeof(WCHAR) );
+            last_entry = nt_process;
+        }
+    }
+
+    if (last_entry) last_entry->NextEntryOffset = 0;
 
     if (*len > size) ret = STATUS_INFO_LENGTH_MISMATCH;
     free( buffer );
