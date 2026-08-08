@@ -41,6 +41,17 @@ struct ExitEvent {
 // exit code" for anything not in that table.
 const char* exitCodeTitle(int exitCode);
 
+// Proton's own process exit code is now a fixed 0/success, 1/proton-error,
+// 2/process-error contract (see ProtonSource/proton's exit-code contract
+// note on Session.run()) -- it no longer carries the wrapped process's real,
+// non-truncated exit code (e.g. Hyperion's -2147467260). That value is
+// relayed separately as a "TUXBLOX_REAL_EXIT_CODE=<n>" marker line on
+// Proton's own stderr, which ends up in the crash log at `logPath` (same
+// file TrackedProcess::start() captures). Scans the log for the last such
+// marker; returns nullopt if none is present (e.g. the failure never
+// reached ntdll at all, or Proton itself is what failed -- exitCode == 1).
+std::optional<int> findRealExitCodeInLog(const std::string& logPath);
+
 class TrackedProcess {
 public:
     // `env` entries are "KEY=VALUE" strings, applied via setenv() in the

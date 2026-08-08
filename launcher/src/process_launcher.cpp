@@ -19,9 +19,11 @@
 #include <atomic>
 #include <chrono>
 #include <cstdlib>
+#include <cstring>
 #include <ctime>
 #include <fcntl.h>
 #include <filesystem>
+#include <fstream>
 #include <mutex>
 #include <signal.h>
 #include <sys/wait.h>
@@ -52,6 +54,28 @@ const char* exitCodeTitle(int exitCode) {
         case 203: return "Session terminated for user safety";
         default:  return "Unknown exit code";
     }
+}
+
+std::optional<int> findRealExitCodeInLog(const std::string& logPath) {
+    if (logPath.empty()) return std::nullopt;
+
+    std::ifstream in(logPath);
+    if (!in) return std::nullopt;
+
+    constexpr const char* kMarker = "TUXBLOX_REAL_EXIT_CODE=";
+    const size_t markerLen = std::strlen(kMarker);
+
+    std::optional<int> found;
+    std::string line;
+    while (std::getline(in, line)) {
+        if (line.compare(0, markerLen, kMarker) != 0) continue;
+        try {
+            found = std::stoi(line.substr(markerLen));
+        } catch (const std::exception&) {
+            // Malformed line -- ignore and keep whatever was found earlier.
+        }
+    }
+    return found;
 }
 
 bool TrackedProcess::start(const std::vector<std::string>& argv, const std::vector<std::string>& env,
@@ -184,10 +208,34 @@ std::vector<std::string> launchEnvVars(const std::string& installDir, LaunchTarg
     return env;
 }
 
+namespace {
+
+// Copies a host-side exe (living outside the prefix entirely -- e.g. a
+// freshly downloaded installer under installDir/RobloxPlayer/) into the
+// prefix's own C: before it's ever handed to Proton. Launching an exe via
+// its raw path outside C: relies on ntdll's \??\unix\ bridge, which stopped
+// working for the executable IMAGE itself once the Z: drive was removed
+// (plan/plan.txt item 20): the process silently fails to launch at all --
+// no window, no trace, just an early exit (observed as exit code 245) --
+// instead of erroring visibly. Staging a real copy inside C: sidesteps the
+// bridge entirely. Mirrors launch.sh's own stageInPrefix(); keep both in
+// sync if this changes.
+std::string stageInPrefix(const std::string& installDir, const std::string& srcPath) {
+    const std::string stageDir = installDir + "/runtime/pfx/drive_c/TuxBloxStaging";
+    std::error_code ec;
+    fs::create_directories(stageDir, ec);
+    const std::string dest = stageDir + "/" + fs::path(srcPath).filename().string();
+    fs::copy_file(srcPath, dest, fs::copy_options::overwrite_existing, ec);
+    if (ec) return srcPath; // best-effort -- fall back to the raw path if the copy failed
+    return dest;
+}
+
+} // namespace
+
 std::string resolveOrBootstrapExePath(LaunchTarget target, const std::string& installDir) {
     const std::string driveC = installDir + "/runtime/pfx/drive_c";
     std::string found = resolveExePath(target, driveC);
-    if (!found.empty()) return found;
+    if (!found.empty()) return found; // already inside the prefix's C: -- no staging needed
 
     const bool isPlayer = target == LaunchTarget::Player;
     const std::string cacheDir = installDir + (isPlayer ? "/RobloxPlayer" : "/RobloxStudio");
@@ -195,14 +243,14 @@ std::string resolveOrBootstrapExePath(LaunchTarget target, const std::string& in
     const std::string installerPath = cacheDir + "/" + installerName;
     const std::string url = std::string("https://setup.rbxcdn.com/") + installerName;
 
-    if (fs::exists(installerPath)) return installerPath;
+    if (fs::exists(installerPath)) return stageInPrefix(installDir, installerPath);
 
     std::error_code ec;
     fs::create_directories(cacheDir, ec);
     std::atomic<bool> noCancel{false};
     auto outcome = downloadFile(url, installerPath, [](uint64_t, uint64_t) {}, &noCancel);
     if (outcome.result != DownloadResult::Ok) return "";
-    return installerPath;
+    return stageInPrefix(installDir, installerPath);
 }
 
 ProcessLauncher::ProcessLauncher(std::string installDir) : installDir_(std::move(installDir)) {}

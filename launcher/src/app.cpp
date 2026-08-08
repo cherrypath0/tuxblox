@@ -80,6 +80,14 @@ bool App::needsInstallerHandoff() const {
     return needsInstallerHandoff_.load();
 }
 
+bool App::isBackgrounded() const {
+    return backgrounded_.load();
+}
+
+bool App::shouldQuit() const {
+    return quitRequested_.load();
+}
+
 std::string App::installerHandoffPath() const {
     // Safe without a lock: installerHandoffPath_ is written in
     // updateCheckThreadMain() strictly before the release-store to
@@ -129,12 +137,8 @@ void App::pollProcesses() {
         snapshot_.playerActionInFlight = playerActionInFlight_.load();
         snapshot_.studioActionInFlight = studioActionInFlight_.load();
     }
-    if (playerExit && playerExit->exitCode != 0 && !playerExit->stopRequested) {
-        handleUnexpectedExit(LaunchTarget::Player, playerExit->exitCode);
-    }
-    if (studioExit && studioExit->exitCode != 0 && !studioExit->stopRequested) {
-        handleUnexpectedExit(LaunchTarget::Studio, studioExit->exitCode);
-    }
+    if (playerExit) handleTrackedExit(LaunchTarget::Player, *playerExit);
+    if (studioExit) handleTrackedExit(LaunchTarget::Studio, *studioExit);
 }
 
 AppSnapshot App::snapshot() const {
@@ -178,6 +182,27 @@ void App::applyGlobalEnvVars(const std::string& globalEnvVars) {
     }
 }
 
+void App::handleTrackedExit(LaunchTarget target, const ExitEvent& ev) {
+    // Only a backgrounded (tray-mode) run drives the whole-launcher
+    // quit/popup behavior below -- a run that never got past launchThreadMain
+    // successfully never set backgrounded_ in the first place, so there's
+    // nothing to close.
+    if (!backgrounded_.load()) return;
+
+    // A user-initiated Stop, or a clean 0 exit, isn't a crash -- there's
+    // nothing to show, so just close the whole launcher quietly. Matches
+    // "launching ... should make the launcher go in to the background ...
+    // until it exits, and if it exits with code 0, the launcher should also
+    // exit" -- a deliberate Stop is the same idea (no popup, just close).
+    if (ev.stopRequested || ev.exitCode == 0) {
+        quitRequested_.store(true);
+        return;
+    }
+
+    handleUnexpectedExit(target, ev.exitCode); // populates crashNotice, fires telemetry if enabled
+    quitRequested_.store(true);
+}
+
 void App::handleUnexpectedExit(LaunchTarget target, int exitCode) {
     Settings settings;
     std::string logPath;
@@ -186,13 +211,41 @@ void App::handleUnexpectedExit(LaunchTarget target, int exitCode) {
         logPath = (target == LaunchTarget::Player) ? playerLogPath_ : studioLogPath_;
         settings = snapshot_.settings;
 
+        // Proton's own exit code is now a fixed 0/1/2 contract (1 == Proton
+        // itself failed; 2 == the wrapped process exited abnormally, not a
+        // Proton bug -- see ProtonSource/proton's exit-code contract note).
+        // The real, non-truncated underlying code (e.g. Hyperion's
+        // -2147467260) is relayed separately as a marker line in the crash
+        // log -- prefer showing that when it's there, since "2" on its own
+        // tells the user nothing. Falls back to the raw exitCode for
+        // anything that reached ntdll_report_real_exit_code's target check
+        // but didn't produce a Proton wrapper code at all (e.g. a signal
+        // that killed Proton itself, reported as 128+signum by
+        // TrackedProcess::poll -- exitCode is already the meaningful value
+        // in that case).
+        int displayCode = exitCode;
+        if (exitCode == 2) {
+            if (auto real = findRealExitCodeInLog(logPath)) displayCode = *real;
+        }
+
         CrashNotice notice;
         notice.pending = true;
-        notice.title = "Roblox Error";
-        notice.message = std::string("Roblox has exited with a non-zero exit code.\n") +
-            "Exit Code: " + std::to_string(exitCode) + " (" + exitCodeTitle(exitCode) + ")\n" +
-            "Full log has been written to " + logPath;
+        if (exitCode == 1) {
+            // Proton itself failed before/while supervising the process --
+            // not Roblox's fault. See plan/plan.txt item 1's "if not
+            // roblox" template.
+            notice.title = "TuxBlox Error";
+            notice.message = std::string("A TuxBlox process has exited with a non-zero exit code.\n") +
+                "Exit Code: " + std::to_string(displayCode) + " (" + exitCodeTitle(displayCode) + ")\n" +
+                "Full log has been written to " + logPath;
+        } else {
+            notice.title = "Roblox Error";
+            notice.message = std::string("Roblox has exited with a non-zero exit code.\n") +
+                "Exit Code: " + std::to_string(displayCode) + " (" + exitCodeTitle(displayCode) + ")\n" +
+                "Full log has been written to " + logPath;
+        }
         snapshot_.crashNotice = notice;
+        exitCode = displayCode;
     }
 
     if (settings.sendCrashReports) {
@@ -235,6 +288,8 @@ void App::launchThreadMain(LaunchTarget target) {
     errSlot = outcome.ok ? "" : outcome.errorMessage;
     if (outcome.ok) {
         (target == LaunchTarget::Player ? playerLogPath_ : studioLogPath_) = outcome.logPath;
+        // Go into background/tray mode -- see isBackgrounded()'s doc comment.
+        backgrounded_.store(true);
     }
     (target == LaunchTarget::Player ? playerActionInFlight_ : studioActionInFlight_).store(false);
 }

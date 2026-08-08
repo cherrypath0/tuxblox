@@ -24,6 +24,7 @@
 #include <cstdlib>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <vector>
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
@@ -100,6 +101,38 @@ void generateMipmap(GLenum target) {
     static GenerateMipmapFn fn =
         reinterpret_cast<GenerateMipmapFn>(SDL_GL_GetProcAddress("glGenerateMipmap"));
     if (fn) fn(target);
+}
+
+// Simple box-filter downsample from srcW x srcH RGBA to dstW x dstH RGBA --
+// good enough for a small tray icon; stb_image itself has no resize support,
+// and pulling in stb_image_resize.h as a second vendored dependency just for
+// this one call isn't worth it.
+std::vector<unsigned char> downsampleRgba(const unsigned char* src, int srcW, int srcH, int dstW, int dstH) {
+    std::vector<unsigned char> out(static_cast<size_t>(dstW) * static_cast<size_t>(dstH) * 4);
+    for (int dy = 0; dy < dstH; dy++) {
+        int sy0 = dy * srcH / dstH, sy1 = (dy + 1) * srcH / dstH;
+        if (sy1 <= sy0) sy1 = sy0 + 1;
+        for (int dx = 0; dx < dstW; dx++) {
+            int sx0 = dx * srcW / dstW, sx1 = (dx + 1) * srcW / dstW;
+            if (sx1 <= sx0) sx1 = sx0 + 1;
+            long sum[4] = {0, 0, 0, 0};
+            int count = 0;
+            for (int sy = sy0; sy < sy1 && sy < srcH; sy++) {
+                for (int sx = sx0; sx < sx1 && sx < srcW; sx++) {
+                    const unsigned char* p = src + (static_cast<size_t>(sy) * srcW + sx) * 4;
+                    sum[0] += p[0]; sum[1] += p[1]; sum[2] += p[2]; sum[3] += p[3];
+                    count++;
+                }
+            }
+            unsigned char* o = out.data() + (static_cast<size_t>(dy) * dstW + dx) * 4;
+            if (count == 0) { o[0] = o[1] = o[2] = o[3] = 0; continue; }
+            o[0] = static_cast<unsigned char>(sum[0] / count);
+            o[1] = static_cast<unsigned char>(sum[1] / count);
+            o[2] = static_cast<unsigned char>(sum[2] / count);
+            o[3] = static_cast<unsigned char>(sum[3] / count);
+        }
+    }
+    return out;
 }
 
 bool loadPngTexture(const unsigned char* data, size_t len,
@@ -464,6 +497,17 @@ void renderSettingsTab(App& app, const AppSnapshot& snap, float contentX, float 
         s.sendCrashReports = !s.sendCrashReports;
         app.updateSettings(s);
     }
+    y += kToggleHeight + 8.0f;
+
+    ImGui::SetCursorPos(ImVec2(contentX + 24.0f, y));
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.55f, 0.55f, 0.58f, 1.0f));
+    ImGui::PushTextWrapPos(contentX + 24.0f + fieldWidth);
+    ImGui::TextUnformatted(
+        "Crash reports include only the exit code, Roblox/Proton version, and basic system info -- "
+        "never account info, session cookies, file paths, or gameplay data. "
+        "See our privacy policy at tuxblox.net/privacy for details.");
+    ImGui::PopTextWrapPos();
+    ImGui::PopStyleColor();
 }
 
 } // namespace
@@ -569,6 +613,16 @@ bool Ui::init() {
                 SDL_SetWindowIcon(window, iconSurface);
                 SDL_FreeSurface(iconSurface);
             }
+
+            // Same source pixels, downsampled to a real system-tray icon
+            // size -- prepared once here rather than on the frame
+            // background mode actually engages, so entering the background
+            // (see renderFrame()) is just a TrayIcon::init() call away, no
+            // decode work on that path.
+            constexpr int kTraySize = 24;
+            trayIconRgba_ = downsampleRgba(pixels, iconWidth, iconHeight, kTraySize, kTraySize);
+            trayIconSize_ = kTraySize;
+
             stbi_image_free(pixels);
         }
     }
@@ -617,64 +671,98 @@ bool Ui::renderFrame(App& app) {
 
     app.pollProcesses();
 
-    ImGui_ImplOpenGL3_NewFrame();
-    ImGui_ImplSDL2_NewFrame();
-    ImGui::NewFrame();
+    // Entering background/tray mode: Player or Studio just launched. Hide
+    // the main window and stand up a tray icon in its place instead of
+    // rendering the normal UI -- see plan/plan.txt item 24 and App::
+    // isBackgrounded()'s doc comment. trayIcon_.init() is a no-op-safe
+    // best-effort call: on a desktop with no system tray manager running it
+    // just returns false and the window stays hidden with no visible icon,
+    // rather than failing the whole background transition.
+    if (app.isBackgrounded() && !windowHidden_) {
+        windowHidden_ = true;
+        SDL_HideWindow(window);
+        if (!trayIconRgba_.empty()) {
+            trayIcon_.init(trayIconRgba_.data(), trayIconSize_);
+        }
+    }
 
-    int w, h;
-    SDL_GetWindowSize(window, &w, &h);
-    int drawW, drawH;
-    SDL_GL_GetDrawableSize(window, &drawW, &drawH);
-    ImGui::GetIO().DisplayFramebufferScale = ImVec2(
-        w > 0 ? static_cast<float>(drawW) / static_cast<float>(w) : 1.0f,
-        h > 0 ? static_cast<float>(drawH) / static_cast<float>(h) : 1.0f);
-
-    ImGui::SetNextWindowPos(ImVec2(0, 0));
-    ImGui::SetNextWindowSize(ImVec2(static_cast<float>(w), static_cast<float>(h)));
-    ImGui::Begin("##launcher", nullptr,
-        ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
-        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse);
-
-    ImGui::PushFont(fontRegular_);
+    if (windowHidden_) {
+        // Left-click on the tray icon restores the window (e.g. to check
+        // Settings or watch progress) -- backgrounded mode itself doesn't
+        // end until the tracked process actually exits (see App::
+        // handleTrackedExit), so this doesn't race with that.
+        if (trayIcon_.isActive() && trayIcon_.pollClicked()) {
+            trayIcon_.shutdown();
+            SDL_ShowWindow(window);
+            SDL_RaiseWindow(window);
+            windowHidden_ = false;
+        }
+    }
 
     auto snap = app.snapshot();
 
-    renderSidebar(app, snap, static_cast<float>(h), homeIconTexture_, infoIconTexture_, settingsIconTexture_);
+    if (!windowHidden_) {
+        ImGui_ImplOpenGL3_NewFrame();
+        ImGui_ImplSDL2_NewFrame();
+        ImGui::NewFrame();
 
-    const float contentX = kSidebarWidth;
-    const float contentY = 0.0f;
-    const float contentW = static_cast<float>(w) - kSidebarWidth;
-    const float contentH = static_cast<float>(h);
+        int w, h;
+        SDL_GetWindowSize(window, &w, &h);
+        int drawW, drawH;
+        SDL_GL_GetDrawableSize(window, &drawW, &drawH);
+        ImGui::GetIO().DisplayFramebufferScale = ImVec2(
+            w > 0 ? static_cast<float>(drawW) / static_cast<float>(w) : 1.0f,
+            h > 0 ? static_cast<float>(drawH) / static_cast<float>(h) : 1.0f);
 
-    if (snap.activeTab == Tab::Start) {
-        renderStartTab(app, snap, contentX, contentY, contentW, contentH,
-                        logoTexture_, playerIconTexture_, studioIconTexture_, fontSemiBold_);
-    } else if (snap.activeTab == Tab::Settings) {
-        renderSettingsTab(app, snap, contentX, contentY, contentW, contentH,
-                           protonEnvVarsBuf_, sizeof(protonEnvVarsBuf_),
-                           globalEnvVarsBuf_, sizeof(globalEnvVarsBuf_),
-                           settingsBuffersInitialized_, fontSemiBold_);
-    } else {
-        renderAboutTab(contentX, contentY, contentW, contentH, logoTexture_,
-                        globeIconTexture_, docsIconTexture_, githubIconTexture_, discordIconTexture_,
-                        fontSemiBold_);
+        ImGui::SetNextWindowPos(ImVec2(0, 0));
+        ImGui::SetNextWindowSize(ImVec2(static_cast<float>(w), static_cast<float>(h)));
+        ImGui::Begin("##launcher", nullptr,
+            ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+            ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse);
+
+        ImGui::PushFont(fontRegular_);
+
+        renderSidebar(app, snap, static_cast<float>(h), homeIconTexture_, infoIconTexture_, settingsIconTexture_);
+
+        const float contentX = kSidebarWidth;
+        const float contentY = 0.0f;
+        const float contentW = static_cast<float>(w) - kSidebarWidth;
+        const float contentH = static_cast<float>(h);
+
+        if (snap.activeTab == Tab::Start) {
+            renderStartTab(app, snap, contentX, contentY, contentW, contentH,
+                            logoTexture_, playerIconTexture_, studioIconTexture_, fontSemiBold_);
+        } else if (snap.activeTab == Tab::Settings) {
+            renderSettingsTab(app, snap, contentX, contentY, contentW, contentH,
+                               protonEnvVarsBuf_, sizeof(protonEnvVarsBuf_),
+                               globalEnvVarsBuf_, sizeof(globalEnvVarsBuf_),
+                               settingsBuffersInitialized_, fontSemiBold_);
+        } else {
+            renderAboutTab(contentX, contentY, contentW, contentH, logoTexture_,
+                            globeIconTexture_, docsIconTexture_, githubIconTexture_, discordIconTexture_,
+                            fontSemiBold_);
+        }
+
+        ImGui::PopFont();
+        ImGui::End();
+
+        ImGui::Render();
+        glViewport(0, 0, drawW, drawH);
+        glClearColor(0.10980392f, 0.10980392f, 0.12941176f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT);
+        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+        SDL_GL_SwapWindow(window);
     }
-
-    ImGui::PopFont();
-    ImGui::End();
-
-    ImGui::Render();
-    glViewport(0, 0, drawW, drawH);
-    glClearColor(0.10980392f, 0.10980392f, 0.12941176f, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT);
-    ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-    SDL_GL_SwapWindow(window);
 
     // Shown after the frame is swapped (matches the installer's own
     // SDL_ShowSimpleMessageBox placement in installer/src/ui.cpp) so the
     // window doesn't appear to freeze mid-draw while this native modal is
     // up. Unlike the installer's one-shot fatal error, App clears
     // crashNotice once shown -- the launcher keeps running afterward.
+    // Passing `window` here even while windowHidden_ is fine -- SDL parents
+    // the message box to it without needing it to be visible; this is also
+    // exactly the "no launcher GUI, only the popup" behavior requested for
+    // a backgrounded crash.
     if (snap.crashNotice.pending) {
         SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, snap.crashNotice.title.c_str(),
             snap.crashNotice.message.c_str(), window);
@@ -684,10 +772,18 @@ bool Ui::renderFrame(App& app) {
     // One-time startup notice -- containerWarning is never cleared in
     // AppSnapshot (see its declaration comment), so "already shown" is
     // tracked here in Ui's own per-session state instead.
-    if (!snap.containerWarning.empty() && !containerWarningShown_) {
+    if (!windowHidden_ && !snap.containerWarning.empty() && !containerWarningShown_) {
         containerWarningShown_ = true;
         SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_WARNING, "Distrobox GPU Passthrough",
             snap.containerWarning.c_str(), window);
+    }
+
+    // Backgrounded run has reached its outcome (clean exit, user-initiated
+    // stop, or crash -- crashNotice, if any, was just shown above): close
+    // the whole launcher, matching "if it exits with code 0, the launcher
+    // should also exit; if not, [popup] then exit."
+    if (app.shouldQuit()) {
+        shouldClose_ = true;
     }
 
     return !shouldClose_;

@@ -16,6 +16,8 @@
 
 #pragma once
 #include "app.h"
+#include "tray_icon.h"
+#include <vector>
 
 struct ImFont;
 
@@ -48,6 +50,14 @@ private:
     ImFont* fontSemiBold_ = nullptr;
     bool shouldClose_ = false;
     bool containerWarningShown_ = false;
+
+    // Set once the app enters background/tray mode (App::isBackgrounded())
+    // -- drives hiding the main window and standing up trayIcon_ in its
+    // place. See renderFrame()'s handling of App::isBackgrounded().
+    bool windowHidden_ = false;
+    TrayIcon trayIcon_;
+    std::vector<unsigned char> trayIconRgba_; // prepared once in init(), see loadTrayIconRgba()
+    int trayIconSize_ = 0;
 
     // Settings tab InputText backing buffers. Populated once from the
     // App's settings the first time the tab is rendered (settingsBuffersInitialized_

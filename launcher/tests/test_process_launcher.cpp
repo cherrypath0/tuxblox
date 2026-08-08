@@ -190,6 +190,61 @@ int main() {
         fs::remove(logPath);
     }
 
+    // resolveOrBootstrapExePath(): a pre-existing cached installer (living
+    // outside the prefix, e.g. installDir/RobloxPlayer/RobloxPlayerInstaller.exe)
+    // must be staged into runtime/pfx/drive_c/TuxBloxStaging before use --
+    // launching it via its raw host path silently fails post-Z:-removal
+    // (observed as exit code 245). See plan/plan.txt item 20.
+    {
+        namespace fs = std::filesystem;
+        fs::path installDir = fs::temp_directory_path() / "tuxblox_test_stage_install_dir";
+        fs::remove_all(installDir);
+        fs::create_directories(installDir / "RobloxPlayer");
+        {
+            std::ofstream out(installDir / "RobloxPlayer" / "RobloxPlayerInstaller.exe");
+            out << "fake installer";
+        }
+
+        std::string exePath = resolveOrBootstrapExePath(LaunchTarget::Player, installDir.string());
+        fs::path expected = installDir / "runtime" / "pfx" / "drive_c" / "TuxBloxStaging" / "RobloxPlayerInstaller.exe";
+        assert(exePath == expected.string());
+        assert(fs::exists(expected));
+
+        fs::remove_all(installDir);
+    }
+
+    // findRealExitCodeInLog(): picks up Proton's relayed
+    // "TUXBLOX_REAL_EXIT_CODE=<n>" marker line, taking the last occurrence
+    // if there are several (e.g. a stale line from an earlier launch that
+    // appended to the same log).
+    {
+        namespace fs = std::filesystem;
+        fs::path logPath = fs::temp_directory_path() / "tuxblox_test_real_exit_code_log.txt";
+        {
+            std::ofstream out(logPath);
+            out << "some proton startup noise\n";
+            out << "TUXBLOX_REAL_EXIT_CODE=-2147467260\n";
+            out << "more noise\n";
+        }
+        auto real = findRealExitCodeInLog(logPath.string());
+        assert(real.has_value());
+        assert(*real == -2147467260);
+        fs::remove(logPath);
+    }
+
+    // findRealExitCodeInLog(): no marker present, or no log at all -> nullopt.
+    {
+        namespace fs = std::filesystem;
+        fs::path logPath = fs::temp_directory_path() / "tuxblox_test_real_exit_code_log_empty.txt";
+        {
+            std::ofstream out(logPath);
+            out << "nothing relevant here\n";
+        }
+        assert(!findRealExitCodeInLog(logPath.string()).has_value());
+        assert(!findRealExitCodeInLog("/nonexistent/tuxblox_test_no_such_log.txt").has_value());
+        fs::remove(logPath);
+    }
+
     printf("process_launcher: all tests passed\n");
     return 0;
 }

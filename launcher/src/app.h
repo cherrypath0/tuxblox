@@ -76,6 +76,21 @@ public:
     void pollProcesses();
     AppSnapshot snapshot() const;
 
+    // True once a launch (Player or Studio) has actually started -- Ui uses
+    // this to hide the main window and show a tray icon instead, per
+    // plan/plan.txt item 24 and item 1's "goes to the background until it
+    // exits" behavior. Stays true for the rest of this process's lifetime
+    // once set (there is currently no path back to the normal foreground
+    // GUI -- the backgrounded run always ends in shouldQuit()).
+    bool isBackgrounded() const;
+    // True once the backgrounded launch's outcome has been decided and the
+    // whole application should exit: either the process exited cleanly (0),
+    // the user explicitly stopped it, or it crashed and the resulting
+    // crashNotice has already been queued for display. The render loop
+    // checks this after showing any pending crashNotice, so the popup (if
+    // any) is still seen before the app actually closes.
+    bool shouldQuit() const;
+
     // Persists `settings` (settings.json), re-applies Global Environment
     // Variables to the launcher's own process, and updates the snapshot.
     void updateSettings(Settings settings);
@@ -91,6 +106,12 @@ private:
     // wasn't a user-requested stop: populates the crash notice and, if
     // enabled, fires off a telemetry upload on its own detached thread.
     void handleUnexpectedExit(LaunchTarget target, int exitCode);
+    // Called from pollProcesses() for every running->stopped transition
+    // while backgrounded (see isBackgrounded()) -- decides whether this is
+    // a quiet exit (clean 0, or a user-initiated stop) or a crash (routes to
+    // handleUnexpectedExit), and either way sets quitRequested_ so the whole
+    // launcher closes once the outcome (and any popup) has been shown.
+    void handleTrackedExit(LaunchTarget target, const ExitEvent& ev);
 
     std::string installDir_;
     std::string currentVersion_;
@@ -98,6 +119,8 @@ private:
     mutable std::mutex mutex_;
     AppSnapshot snapshot_;
     std::atomic<bool> needsInstallerHandoff_{false};
+    std::atomic<bool> backgrounded_{false};
+    std::atomic<bool> quitRequested_{false};
     std::string installerHandoffPath_; // written once, before needsInstallerHandoff_ is set -- see updateCheckThreadMain
     std::atomic<bool> updateCancel_{false};
     std::atomic<bool> playerActionInFlight_{false};
