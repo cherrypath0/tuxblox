@@ -156,7 +156,7 @@ static BOOL write_display_settings(HKEY parent_hkey, CGDirectDisplayID displayID
     WCHAR* buf = NULL;
 
     snprintf(display_key_name, sizeof(display_key_name), "Display 0x%08x", CGDisplayUnitNumber(displayID));
-    /* @@ Wine registry key: HKLM\Software\Wine\Mac Driver\Initial Display Mode\Display 0xnnnnnnnn */
+    /* @@ Wine registry key: HKLM\Software\TuxBlox\Mac Driver\Initial Display Mode\Display 0xnnnnnnnn */
     if (!(display_hkey = reg_create_ascii_key(parent_hkey, display_key_name, REG_OPTION_VOLATILE, NULL)))
         return FALSE;
 
@@ -218,13 +218,13 @@ static void init_original_display_mode(void)
     if (inited_original_display_mode)
         return;
 
-    /* @@ Wine registry key: HKLM\Software\Wine\Mac Driver */
-    mac_driver_hkey = reg_create_ascii_key(NULL, "\\Registry\\Machine\\Software\\Wine\\Mac Driver",
+    /* @@ Wine registry key: HKLM\Software\TuxBlox\Mac Driver */
+    mac_driver_hkey = reg_create_ascii_key(NULL, "\\Registry\\Machine\\Software\\TuxBlox\\Mac Driver",
                                            0, NULL);
     if (!mac_driver_hkey)
         return;
 
-    /* @@ Wine registry key: HKLM\Software\Wine\Mac Driver\Initial Display Mode */
+    /* @@ Wine registry key: HKLM\Software\TuxBlox\Mac Driver\Initial Display Mode */
     if (!(parent_hkey = reg_create_key(mac_driver_hkey, initial_mode_keyW, sizeof(initial_mode_keyW),
                                        REG_OPTION_VOLATILE, &disposition)))
     {
@@ -289,7 +289,7 @@ static void free_display_mode_descriptor(struct display_mode_descriptor* desc)
 static struct display_mode_descriptor* create_original_display_mode_descriptor(CGDirectDisplayID displayID)
 {
     static const char display_key_format[] =
-        "\\Registry\\Machine\\Software\\Wine\\Mac Driver\\Initial Display Mode\\Display 0x%08x";
+        "\\Registry\\Machine\\Software\\TuxBlox\\Mac Driver\\Initial Display Mode\\Display 0x%08x";
     struct display_mode_descriptor* ret = NULL;
     struct display_mode_descriptor* desc;
     char display_key[sizeof(display_key_format) + 10];
@@ -302,7 +302,7 @@ static struct display_mode_descriptor* create_original_display_mode_descriptor(C
     init_original_display_mode();
 
     snprintf(display_key, sizeof(display_key), display_key_format, CGDisplayUnitNumber(displayID));
-    /* @@ Wine registry key: HKLM\Software\Wine\Mac Driver\Initial Display Mode\Display 0xnnnnnnnn */
+    /* @@ Wine registry key: HKLM\Software\TuxBlox\Mac Driver\Initial Display Mode\Display 0xnnnnnnnn */
     if (!(hkey = reg_open_key(NULL, nameW, asciiz_to_unicode(nameW, display_key) - sizeof(WCHAR))))
         return NULL;
 

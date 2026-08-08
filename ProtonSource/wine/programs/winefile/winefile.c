@@ -1188,7 +1188,7 @@ static windowOptions load_registry_settings(void)
 	windowOptions opts;
 	LOGFONTW logfont;
 
-        RegOpenKeyExW( HKEY_CURRENT_USER, L"Software\\Wine\\WineFile", 0, KEY_QUERY_VALUE, &hKey );
+        RegOpenKeyExW( HKEY_CURRENT_USER, L"Software\\TuxBlox\\WineFile", 0, KEY_QUERY_VALUE, &hKey );
 
         size = sizeof(opts.start_x);
         if( RegQueryValueExW( hKey, L"startX", NULL, &type,
@@ -1232,7 +1232,7 @@ static void save_registry_settings(void)
 	width = wi.rcWindow.right - wi.rcWindow.left;
 	height = wi.rcWindow.bottom - wi.rcWindow.top;
 
-        if ( RegCreateKeyExW( HKEY_CURRENT_USER, L"Software\\Wine\\WineFile",
+        if ( RegCreateKeyExW( HKEY_CURRENT_USER, L"Software\\TuxBlox\\WineFile",
                               0, NULL, REG_OPTION_NON_VOLATILE,
                               KEY_SET_VALUE, NULL, &hKey, NULL ) != ERROR_SUCCESS )
         {

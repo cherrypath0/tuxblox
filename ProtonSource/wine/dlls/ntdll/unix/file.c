@@ -3397,7 +3397,7 @@ void init_files(void)
     start_umask = umask( 0777 );
     umask( start_umask );
 
-    if (!open_hkcu_key( "Software\\Wine", &key ))
+    if (!open_hkcu_key( "Software\\TuxBlox", &key ))
     {
         static WCHAR showdotfilesW[] = {'S','h','o','w','D','o','t','F','i','l','e','s',0};
         char tmp[80];
@@ -5106,6 +5106,65 @@ NTSTATUS WINAPI NtDeleteFile( OBJECT_ATTRIBUTES *attr )
 }
 
 
+/* Hide wineboot.exe/winedevice.exe/winecfg.exe from GetFileAttributes-style
+ * existence probes made by Roblox itself or TuxBlox's own Wine-detection
+ * test tools, without renaming the files. CreateProcess resolves executables
+ * through a completely different code path (NtCreateUserProcess's image
+ * loader, not NtQueryAttributesFile/NtQueryFullAttributesFile), so Wine's own
+ * internal launches of these programs -- run_wineboot() below in this same
+ * file, services.c spawning winedevice.exe -- are unaffected regardless of
+ * which process is asking here; those never run under one of the gated
+ * process names anyway. Kept local to this file rather than reusing
+ * kernelbase's is_roblox_command_line_target(), since kernelbase and this
+ * unix-side ntdll are separate binaries. */
+static BOOL current_process_probes_for_wine_files(void)
+{
+    /* WCHAR literals here can't use L"..." -- this file is built with the
+     * host's plain gcc as part of the unix-side ntdll split, where wchar_t
+     * is 4 bytes, not Wine's 2-byte WCHAR (same reason wine_tz_map and
+     * wine_fonts_keyW above use per-character arrays instead of L"..."). */
+    static const WCHAR player_betaW[] =
+        {'R','o','b','l','o','x','P','l','a','y','e','r','B','e','t','a','.','e','x','e',0};
+    static const WCHAR studio_betaW[] =
+        {'R','o','b','l','o','x','S','t','u','d','i','o','B','e','t','a','.','e','x','e',0};
+    static const WCHAR player_installerW[] =
+        {'R','o','b','l','o','x','P','l','a','y','e','r','I','n','s','t','a','l','l','e','r','.','e','x','e',0};
+    static const WCHAR studio_installerW[] =
+        {'R','o','b','l','o','x','S','t','u','d','i','o','I','n','s','t','a','l','l','e','r','.','e','x','e',0};
+    static const WCHAR winedetectorW[] =
+        {'w','i','n','e','d','e','t','e','c','t','o','r','.','e','x','e',0};
+    static const WCHAR winescoreW[] =
+        {'w','i','n','e','s','c','o','r','e','.','e','x','e',0};
+    static const WCHAR *const target_exes[] =
+        { player_betaW, studio_betaW, player_installerW, studio_installerW, winedetectorW, winescoreW };
+    const WCHAR *name = NtCurrentTeb()->Peb->ProcessParameters->ImagePathName.Buffer;
+    const WCHAR *p = wcsrchr( name, '\\' );
+    unsigned int i;
+
+    p = p ? p + 1 : name;
+    for (i = 0; i < ARRAY_SIZE(target_exes); i++)
+        if (!wcsicmp( p, target_exes[i] )) return TRUE;
+    return FALSE;
+}
+
+static BOOL is_hidden_wine_support_file( const char *unix_name )
+{
+    static const char *const hidden_names[] = { "/wineboot.exe", "/winedevice.exe", "/winecfg.exe" };
+    size_t name_len = strlen( unix_name );
+    unsigned int i;
+
+    if (!current_process_probes_for_wine_files()) return FALSE;
+
+    for (i = 0; i < ARRAY_SIZE(hidden_names); i++)
+    {
+        size_t tail_len = strlen( hidden_names[i] );
+        if (name_len >= tail_len && !strcasecmp( unix_name + name_len - tail_len, hidden_names[i] ))
+            return TRUE;
+    }
+    return FALSE;
+}
+
+
 /******************************************************************************
  *              NtQueryFullAttributesFile   (NTDLL.@)
  */
@@ -5122,7 +5181,9 @@ NTSTATUS WINAPI NtQueryFullAttributesFile( const OBJECT_ATTRIBUTES *attr,
         ULONG attributes;
         struct stat st;
 
-        if (get_file_info( unix_name, &st, &attributes, NULL ) == -1)
+        if (is_hidden_wine_support_file( unix_name ))
+            status = STATUS_OBJECT_NAME_NOT_FOUND;
+        else if (get_file_info( unix_name, &st, &attributes, NULL ) == -1)
             status = errno_to_status( errno );
         else if (!S_ISREG(st.st_mode) && !S_ISDIR(st.st_mode))
             status = STATUS_INVALID_INFO_CLASS;
@@ -5151,7 +5212,9 @@ NTSTATUS WINAPI NtQueryAttributesFile( const OBJECT_ATTRIBUTES *attr, FILE_BASIC
         ULONG attributes;
         struct stat st;
 
-        if (get_file_info( unix_name, &st, &attributes, NULL ) == -1)
+        if (is_hidden_wine_support_file( unix_name ))
+            status = STATUS_OBJECT_NAME_NOT_FOUND;
+        else if (get_file_info( unix_name, &st, &attributes, NULL ) == -1)
             status = errno_to_status( errno );
         else if (!S_ISREG(st.st_mode) && !S_ISDIR(st.st_mode))
             status = STATUS_INVALID_INFO_CLASS;

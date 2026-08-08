@@ -65,7 +65,7 @@ struct hash
     BOOL               finished;
 };
 
-static const char dss_path_fmt[] = "Software\\Wine\\Crypto\\DSS\\%s";
+static const char dss_path_fmt[] = "Software\\TuxBlox\\Crypto\\DSS\\%s";
 
 #define S(s) sizeof(s), s
 static const PROV_ENUMALGS_EX supported_base_algs[] =
@@ -87,8 +87,8 @@ static BOOL create_container_regkey( struct container *container, REGSAM sam, HK
     else
         rootkey = HKEY_CURRENT_USER;
 
-    /* @@ Wine registry key: HKLM\Software\Wine\Crypto\DSS */
-    /* @@ Wine registry key: HKCU\Software\Wine\Crypto\DSS */
+    /* @@ Wine registry key: HKLM\Software\TuxBlox\Crypto\DSS */
+    /* @@ Wine registry key: HKCU\Software\TuxBlox\Crypto\DSS */
     return !RegCreateKeyExA( rootkey, path, 0, NULL, REG_OPTION_NON_VOLATILE, sam, NULL, hkey, NULL );
 }
 
@@ -123,8 +123,8 @@ static BOOL open_container_regkey( const char *name, DWORD flags, REGSAM access,
     else
         rootkey = HKEY_CURRENT_USER;
 
-    /* @@ Wine registry key: HKLM\Software\Wine\Crypto\DSS */
-    /* @@ Wine registry key: HKCU\Software\Wine\Crypto\DSS */
+    /* @@ Wine registry key: HKLM\Software\TuxBlox\Crypto\DSS */
+    /* @@ Wine registry key: HKCU\Software\TuxBlox\Crypto\DSS */
     return !RegOpenKeyExA( rootkey, path, 0, access, hkey );
 }
 
@@ -261,8 +261,8 @@ static void delete_key_container( const char *name, DWORD flags )
     else
         rootkey = HKEY_CURRENT_USER;
 
-    /* @@ Wine registry key: HKLM\Software\Wine\Crypto\DSS */
-    /* @@ Wine registry key: HKCU\Software\Wine\Crypto\DSS */
+    /* @@ Wine registry key: HKLM\Software\TuxBlox\Crypto\DSS */
+    /* @@ Wine registry key: HKCU\Software\TuxBlox\Crypto\DSS */
     RegDeleteKeyExA( rootkey, path, 0, 0 );
 }
 

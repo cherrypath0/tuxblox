@@ -1873,7 +1873,7 @@ static void find_fallback_font(enum usp10_script scriptid, WCHAR *FaceName)
 {
     HKEY hkey;
 
-    if (!RegOpenKeyA(HKEY_CURRENT_USER, "Software\\Wine\\Uniscribe\\Fallback", &hkey))
+    if (!RegOpenKeyA(HKEY_CURRENT_USER, "Software\\TuxBlox\\Uniscribe\\Fallback", &hkey))
     {
         WCHAR value[10];
         DWORD count = LF_FACESIZE * sizeof(WCHAR);

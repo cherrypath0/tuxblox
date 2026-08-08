@@ -247,8 +247,8 @@ static void handle_emulate_modeset_change( HWND hwnd )
     const WCHAR *value = L"N";
     HKEY hkey;
 
-    /* Registry key can be found in HKCU\Software\Wine\X11 Driver */
-    if (!RegCreateKeyExW( HKEY_CURRENT_USER, L"Software\\Wine\\X11 Driver", 0, NULL, 0,
+    /* Registry key can be found in HKCU\Software\TuxBlox\X11 Driver */
+    if (!RegCreateKeyExW( HKEY_CURRENT_USER, L"Software\\TuxBlox\\X11 Driver", 0, NULL, 0,
                           KEY_SET_VALUE, NULL, &hkey, NULL ))
     {
         if (IsDlgButtonChecked( hwnd, IDC_EMULATE_MODESET ) == BST_CHECKED) value = L"Y";
@@ -266,8 +266,8 @@ static BOOL get_option( const WCHAR *option, BOOL default_value )
 #define IS_OPTION_TRUE(ch) \
     ((ch) == 'y' || (ch) == 'Y' || (ch) == 't' || (ch) == 'T' || (ch) == '1')
 
-    /* Registry key can be found in HKCU\Software\Wine\X11 Driver */
-    if (!RegGetValueW( HKEY_CURRENT_USER, L"Software\\Wine\\X11 Driver", option, RRF_RT_REG_SZ, NULL,
+    /* Registry key can be found in HKCU\Software\TuxBlox\X11 Driver */
+    if (!RegGetValueW( HKEY_CURRENT_USER, L"Software\\TuxBlox\\X11 Driver", option, RRF_RT_REG_SZ, NULL,
                        (BYTE *)buffer, &size ))
         ret = IS_OPTION_TRUE(buffer[0]);
 

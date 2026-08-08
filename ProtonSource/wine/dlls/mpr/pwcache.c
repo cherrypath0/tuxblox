@@ -30,7 +30,7 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(mpr);
 
-static const char mpr_key[] = "Software\\Wine\\Wine\\Mpr\\";
+static const char mpr_key[] = "Software\\TuxBlox\\Wine\\Mpr\\";
 
 static inline BYTE hex( BYTE x )
 {
@@ -100,7 +100,7 @@ DWORD WINAPI WNetCachePassword(
 	   pbPassword, debugstr_a(pbPassword), cbPassword,
 	   nType, x );
 
-    /* @@ Wine registry key: HKCU\Software\Wine\Wine\Mpr */
+    /* @@ Wine registry key: HKCU\Software\TuxBlox\Wine\Mpr */
     r = RegCreateKeyA( HKEY_CURRENT_USER, mpr_key, &hkey );
     if( r )
         return WN_ACCESS_DENIED;
@@ -139,7 +139,7 @@ UINT WINAPI WNetRemoveCachedPassword(
     WARN( "(%p(%s), %d, %d): totally insecure\n",
            pbResource, debugstr_a(pbResource), cbResource, nType );
 
-    /* @@ Wine registry key: HKCU\Software\Wine\Wine\Mpr */
+    /* @@ Wine registry key: HKCU\Software\TuxBlox\Wine\Mpr */
     r = RegCreateKeyA( HKEY_CURRENT_USER, mpr_key, &hkey );
     if( r )
         return WN_ACCESS_DENIED;
@@ -194,7 +194,7 @@ DWORD WINAPI WNetGetCachedPassword(
 
     memset( pbPassword, 0, *pcbPassword);
 
-    /* @@ Wine registry key: HKCU\Software\Wine\Wine\Mpr */
+    /* @@ Wine registry key: HKCU\Software\TuxBlox\Wine\Mpr */
     r = RegCreateKeyA( HKEY_CURRENT_USER, mpr_key, &hkey );
     if( r )
         return WN_ACCESS_DENIED;
@@ -253,7 +253,7 @@ UINT WINAPI WNetEnumCachedPasswords(
            debugstr_an(pbPrefix,cbPrefix), cbPrefix,
 	   nType, enumPasswordProc, param );
 
-    /* @@ Wine registry key: HKCU\Software\Wine\Wine\Mpr */
+    /* @@ Wine registry key: HKCU\Software\TuxBlox\Wine\Mpr */
     r = RegCreateKeyA( HKEY_CURRENT_USER, mpr_key, &hkey );
     if( r )
         return WN_ACCESS_DENIED;

@@ -428,7 +428,7 @@ static int disable_crash_dialog(void)
     DWORD type, data, size;
     int ret = 0;
 
-    if (RegCreateKeyA( HKEY_CURRENT_USER, "Software\\Wine\\WineDbg", &key )) return 0;
+    if (RegCreateKeyA( HKEY_CURRENT_USER, "Software\\TuxBlox\\WineDbg", &key )) return 0;
     size = sizeof(data);
     if (RegQueryValueExA( key, "ShowCrashDialog", NULL, &type, (BYTE *)&data, &size )) ret = 1;
     else if (type != REG_DWORD || data) ret = 2;
@@ -444,7 +444,7 @@ static void restore_crash_dialog( int prev )
     DWORD data = 1;
 
     if (!prev) return;
-    if (RegOpenKeyA( HKEY_CURRENT_USER, "Software\\Wine\\WineDbg", &key )) return;
+    if (RegOpenKeyA( HKEY_CURRENT_USER, "Software\\TuxBlox\\WineDbg", &key )) return;
     if (prev == 1) RegDeleteKeyValueA( key, NULL, "ShowCrashDialog" );
     else RegSetValueExA( key, "ShowCrashDialog", 0, REG_DWORD, (BYTE *)&data, sizeof(data) );
     RegCloseKey( key );

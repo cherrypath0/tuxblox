@@ -742,8 +742,8 @@ static char *query_opengl_option( const char *name )
     char *str = NULL;
     DWORD len;
 
-    /* @@ Wine registry key: HKCU\Software\Wine\OpenGL */
-    defkey = open_hkcu_key( "Software\\Wine\\OpenGL" );
+    /* @@ Wine registry key: HKCU\Software\TuxBlox\OpenGL */
+    defkey = open_hkcu_key( "Software\\TuxBlox\\OpenGL" );
 
     /* open the app-specific key */
     appname = NtCurrentTeb()->Peb->ProcessParameters->ImagePathName.Buffer;
@@ -760,8 +760,8 @@ static char *query_opengl_option( const char *name )
         bufferW[i] = 0;
         appname = bufferW;
 
-        /* @@ Wine registry key: HKCU\Software\Wine\AppDefaults\app.exe\OpenGL */
-        if ((tmpkey = open_hkcu_key( "Software\\Wine\\AppDefaults" )))
+        /* @@ Wine registry key: HKCU\Software\TuxBlox\AppDefaults\app.exe\OpenGL */
+        if ((tmpkey = open_hkcu_key( "Software\\TuxBlox\\AppDefaults" )))
         {
             static const WCHAR openglW[] = {'\\','O','p','e','n','G','L',0};
             memcpy( appname + i, openglW, sizeof(openglW) );

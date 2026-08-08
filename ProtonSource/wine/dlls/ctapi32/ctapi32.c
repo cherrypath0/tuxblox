@@ -41,8 +41,8 @@ static BOOL load_functions(void) {
 	HKEY key_handle;
 
 	/* Try to get name of low level library from registry */
-        /* @@ Wine registry key: HKCU\Software\Wine\ctapi32 */
-	result = RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Wine\\ctapi32", 0, KEY_READ, &key_handle);
+        /* @@ Wine registry key: HKCU\Software\TuxBlox\ctapi32 */
+	result = RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\TuxBlox\\ctapi32", 0, KEY_READ, &key_handle);
 	if (result == ERROR_SUCCESS) {
 		DWORD type, size;
 		WCHAR buffer_w[MAX_PATH];
@@ -61,7 +61,7 @@ static BOOL load_functions(void) {
         if (!CTAPI_CALL( attach, soname )) return TRUE;
 
 	MESSAGE("Wine cannot find any usable hardware library, ctapi32.dll not working.\n");
-	MESSAGE("Please create the key \"HKEY_CURRENT_USER\\Software\\Wine\\ctapi32\" in your registry\n");
+	MESSAGE("Please create the key \"HKEY_CURRENT_USER\\Software\\TuxBlox\\ctapi32\" in your registry\n");
 	MESSAGE("and set the value \"library\" to your library name (e.g. \"libctapi-cyberjack.so.1\" or \"/usr/lib/readers/libctapi.so\").\n");
 	return FALSE;
 }

@@ -1041,8 +1041,8 @@ static Cursor create_xcursor_system_cursor( const ICONINFOEXW *info )
     }
     valueA[0] = 0;
 
-    /* @@ Wine registry key: HKCU\Software\Wine\X11 Driver\Cursors */
-    if ((key = open_hkcu_key( "Software\\Wine\\X11 Driver\\Cursors" )))
+    /* @@ Wine registry key: HKCU\Software\TuxBlox\X11 Driver\Cursors */
+    if ((key = open_hkcu_key( "Software\\TuxBlox\\X11 Driver\\Cursors" )))
     {
         char buffer[4096];
         KEY_VALUE_PARTIAL_INFORMATION *value = (void *)buffer;

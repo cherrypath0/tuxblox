@@ -111,8 +111,8 @@ BOOL get_app_key(HKEY *defkey, HKEY *appkey)
 
     *appkey = 0;
 
-    /* @@ Wine registry key: HKCU\Software\Wine\DirectInput */
-    if (RegOpenKeyA(HKEY_CURRENT_USER, "Software\\Wine\\DirectInput", defkey))
+    /* @@ Wine registry key: HKCU\Software\TuxBlox\DirectInput */
+    if (RegOpenKeyA(HKEY_CURRENT_USER, "Software\\TuxBlox\\DirectInput", defkey))
         *defkey = 0;
 
     len = GetModuleFileNameA(0, buffer, MAX_PATH);
@@ -120,8 +120,8 @@ BOOL get_app_key(HKEY *defkey, HKEY *appkey)
     {
         HKEY tmpkey;
 
-        /* @@ Wine registry key: HKCU\Software\Wine\AppDefaults\app.exe\DirectInput */
-        if (!RegOpenKeyA(HKEY_CURRENT_USER, "Software\\Wine\\AppDefaults", &tmpkey))
+        /* @@ Wine registry key: HKCU\Software\TuxBlox\AppDefaults\app.exe\DirectInput */
+        if (!RegOpenKeyA(HKEY_CURRENT_USER, "Software\\TuxBlox\\AppDefaults", &tmpkey))
         {
             char *p, *appname = buffer;
             if ((p = strrchr(appname, '/'))) appname = p + 1;
@@ -334,14 +334,14 @@ int dinput_device_object_index_from_id( IDirectInputDevice8W *iface, DWORD id )
  */
 static HKEY get_mapping_key( const WCHAR *device, const WCHAR *username, const WCHAR *guid, BOOL delete )
 {
-    static const WCHAR format[] = L"Software\\Wine\\DirectInput\\Mappings\\%s\\%s\\%s";
+    static const WCHAR format[] = L"Software\\TuxBlox\\DirectInput\\Mappings\\%s\\%s\\%s";
     SIZE_T len = wcslen( format ) + wcslen( username ) + wcslen( device ) + wcslen( guid ) + 1;
     WCHAR *keyname;
     HKEY hkey;
 
     if (!(keyname = malloc( sizeof(WCHAR) * len ))) return 0;
 
-    /* The key used is HKCU\Software\Wine\DirectInput\Mappings\[username]\[device]\[mapping_guid] */
+    /* The key used is HKCU\Software\TuxBlox\DirectInput\Mappings\[username]\[device]\[mapping_guid] */
     swprintf( keyname, len, format, username, device, guid );
 
     if (delete) RegDeleteTreeW( HKEY_CURRENT_USER, keyname );

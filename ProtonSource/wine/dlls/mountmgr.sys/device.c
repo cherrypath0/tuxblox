@@ -2003,7 +2003,7 @@ static void create_port_devices( DRIVER_OBJECT *driver, const char *devices )
         port_prefix = L"LPT";
     }
 
-    /* @@ Wine registry key: HKLM\Software\Wine\Ports */
+    /* @@ Wine registry key: HKLM\Software\TuxBlox\Ports */
 
     RegCreateKeyExW( HKEY_LOCAL_MACHINE, L"Software\\TuxBlox\\Ports", 0, NULL, 0,
                      KEY_QUERY_VALUE, NULL, &wine_ports_key, NULL );

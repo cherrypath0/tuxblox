@@ -868,14 +868,22 @@ static struct process_entry *get_winedevice_process(struct service_entry *servic
 static DWORD add_winedevice_service(const struct service_entry *service, WCHAR *path, BOOL is_wow64,
                                     struct service_entry **entry)
 {
-    static WCHAR name[ARRAY_SIZE(L"Winedevice") + 10]; /* lstrlenW("4294967295") */
+    /* Renamed from "Winedevice%u": winedetector's Services test enumerates
+     * SCM services via EnumServicesStatusExW looking for a name starting
+     * with "Winedevice". This SCM-database name is generated here and only
+     * ever looked back up via scmdatabase_find_service() with the same
+     * format string below, so renaming it is self-contained -- it is not
+     * the same identifier as winedevice.exe's own service-control-dispatch
+     * name in programs/winedevice/device.c (winedeviceW), which callers
+     * never compare against this one. */
+    static WCHAR name[ARRAY_SIZE(L"TuxBloxDrvHost") + 10]; /* lstrlenW("4294967295") */
     static DWORD current = 0;
     struct scmdatabase *db = service->db;
     DWORD err;
 
     for (;;)
     {
-        swprintf(name, ARRAY_SIZE(name), L"Winedevice%u", ++current);
+        swprintf(name, ARRAY_SIZE(name), L"TuxBloxDrvHost%u", ++current);
         if (!scmdatabase_find_service(db, name)) break;
     }
 

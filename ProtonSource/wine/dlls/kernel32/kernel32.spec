@@ -1286,7 +1286,14 @@
 @ stub RegisterConsoleIME
 @ stub RegisterConsoleOS2
 @ stub RegisterConsoleVDM
-@ stdcall RegisterServiceProcess(long long)
+# -noname: real Windows kernel32.dll does not export this pre-Win2000 tray
+# API by name either (it survives only as an internal/legacy entry point on
+# real Windows), so its mere presence in GetProcAddress is itself a Wine
+# fingerprint -- winedetector's "Legacy APIs" test flags kernel32.dll
+# *having* this export, not lacking it. Explicit ordinal pinned well above
+# this file's auto-assigned range (~1..1450) so it can't collide; see
+# ntdll.spec's wine_server_call comment for why -noname over interception.
+5000 stdcall -noname RegisterServiceProcess(long long)
 @ stub RegisterSysMsgHandler
 @ stdcall RegisterWaitForInputIdle(ptr)
 @ stdcall RegisterWaitForSingleObject(ptr long ptr ptr long long)
@@ -1732,5 +1739,9 @@
 # or 'wine_' (for user-visible functions) to avoid namespace conflicts.
 
 # Unix files
-@ cdecl wine_get_unix_file_name(wstr)
-@ cdecl wine_get_dos_file_name(str)
+# -noname: same GetProcAddress-fingerprint reasoning as RegisterServiceProcess
+# above and ntdll.spec's wine_server_call -- these two are the "Wine Exports"
+# check in TuxBlox's own winescore.exe. Explicit ordinals pinned well above
+# this file's auto-assigned range so they can't collide (see RegisterServiceProcess).
+5001 cdecl -noname wine_get_unix_file_name(wstr)
+5002 cdecl -noname wine_get_dos_file_name(str)

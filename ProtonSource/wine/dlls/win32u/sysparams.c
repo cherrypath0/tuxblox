@@ -2944,8 +2944,8 @@ static BOOL get_default_desktop_size( DWORD *width, DWORD *height )
     DWORD size;
     HKEY hkey;
 
-    /* @@ Wine registry key: HKCU\Software\Wine\Explorer\Desktops */
-    if (!(hkey = reg_open_hkcu_key( "Software\\Wine\\Explorer\\Desktops" ))) return FALSE;
+    /* @@ Wine registry key: HKCU\Software\TuxBlox\Explorer\Desktops */
+    if (!(hkey = reg_open_hkcu_key( "Software\\TuxBlox\\Explorer\\Desktops" ))) return FALSE;
 
     size = query_reg_ascii_value( hkey, "Default", value, sizeof(buffer) );
     NtClose( hkey );
@@ -6171,13 +6171,13 @@ void sysparams_init(void)
     }
 
     /* this one must be non-volatile */
-    if (!(hkey = reg_create_ascii_key( hkcu_key, "Software\\Wine", 0, NULL )))
+    if (!(hkey = reg_create_ascii_key( hkcu_key, "Software\\TuxBlox", 0, NULL )))
     {
         ERR("Can't create wine registry branch\n");
         return;
     }
 
-    /* @@ Wine registry key: HKCU\Software\Wine\Temporary System Parameters */
+    /* @@ Wine registry key: HKCU\Software\TuxBlox\Temporary System Parameters */
     if (!(volatile_base_key = reg_create_ascii_key( hkey, "Temporary System Parameters", REG_OPTION_VOLATILE, &dispos )))
         ERR("Can't create non-permanent wine registry branch\n");
 
@@ -6209,8 +6209,8 @@ void sysparams_init(void)
             default_entries[i]->hdr.init( default_entries[i] );
     }
 
-    /* @@ Wine registry key: HKCU\Software\Wine\X11 Driver */
-    hkey = reg_open_hkcu_key( "Software\\Wine\\X11 Driver" );
+    /* @@ Wine registry key: HKCU\Software\TuxBlox\X11 Driver */
+    hkey = reg_open_hkcu_key( "Software\\TuxBlox\\X11 Driver" );
 
     /* open the app-specific key */
 
@@ -6231,8 +6231,8 @@ void sysparams_init(void)
         app_compat_flags = get_app_compat_flags( appname );
         if (app_compat_flags) TRACE( "Found %s AppCompatFlags %s\n", debugstr_w(appname), debugstr_a(app_compat_flags) );
 
-        /* @@ Wine registry key: HKCU\Software\Wine\AppDefaults\app.exe\X11 Driver */
-        if ((tmpkey = reg_open_hkcu_key( "Software\\Wine\\AppDefaults" )))
+        /* @@ Wine registry key: HKCU\Software\TuxBlox\AppDefaults\app.exe\X11 Driver */
+        if ((tmpkey = reg_open_hkcu_key( "Software\\TuxBlox\\AppDefaults" )))
         {
             memcpy( appname + i, x11driverW, sizeof(x11driverW) );
             appkey = reg_open_key( tmpkey, appname, lstrlenW( appname ) * sizeof(WCHAR) );

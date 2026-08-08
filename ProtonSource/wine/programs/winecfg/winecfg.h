@@ -161,7 +161,7 @@ static inline void set_textW(HWND dialog, WORD id, const WCHAR *text)
     SetWindowTextW(GetDlgItem(dialog, id), text);
 }
 
-#define WINE_KEY_ROOT L"Software\\Wine"
+#define WINE_KEY_ROOT L"Software\\TuxBlox"
 #define MAXBUFLEN 256
 
 extern HMENU     hPopupMenus;

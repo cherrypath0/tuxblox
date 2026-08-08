@@ -283,8 +283,8 @@ static void setup_options(void)
     HKEY hkey, appkey = 0;
     DWORD len;
 
-    /* @@ Wine registry key: HKCU\Software\Wine\Mac Driver */
-    hkey = open_hkcu_key("Software\\Wine\\Mac Driver");
+    /* @@ Wine registry key: HKCU\Software\TuxBlox\Mac Driver */
+    hkey = open_hkcu_key("Software\\TuxBlox\\Mac Driver");
 
     /* open the app-specific key */
 
@@ -298,8 +298,8 @@ static void setup_options(void)
         HKEY tmpkey;
         memcpy(buffer, appname, len * sizeof(WCHAR));
         memcpy(buffer + len, macdriverW, sizeof(macdriverW));
-        /* @@ Wine registry key: HKCU\Software\Wine\AppDefaults\app.exe\Mac Driver */
-        if ((tmpkey = open_hkcu_key("Software\\Wine\\AppDefaults")))
+        /* @@ Wine registry key: HKCU\Software\TuxBlox\AppDefaults\app.exe\Mac Driver */
+        if ((tmpkey = open_hkcu_key("Software\\TuxBlox\\AppDefaults")))
         {
             appkey = reg_open_key(tmpkey, buffer, lstrlenW(buffer) * sizeof(WCHAR));
             NtClose(tmpkey);

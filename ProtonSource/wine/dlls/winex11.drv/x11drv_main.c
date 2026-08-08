@@ -452,8 +452,8 @@ static void setup_options(void)
     HKEY hkey, appkey = 0;
     DWORD len;
 
-    /* @@ Wine registry key: HKCU\Software\Wine\X11 Driver */
-    hkey = open_hkcu_key( "Software\\Wine\\X11 Driver" );
+    /* @@ Wine registry key: HKCU\Software\TuxBlox\X11 Driver */
+    hkey = open_hkcu_key( "Software\\TuxBlox\\X11 Driver" );
 
     /* open the app-specific key */
 
@@ -472,8 +472,8 @@ static void setup_options(void)
         if ((process_name = malloc( len * 3 + 1 )))
             ntdll_wcstoumbs( appname, len + 1, process_name, len * 3 + 1, FALSE );
         memcpy( appname + i, x11driverW, sizeof(x11driverW) );
-        /* @@ Wine registry key: HKCU\Software\Wine\AppDefaults\app.exe\X11 Driver */
-        if ((tmpkey = open_hkcu_key( "Software\\Wine\\AppDefaults" )))
+        /* @@ Wine registry key: HKCU\Software\TuxBlox\AppDefaults\app.exe\X11 Driver */
+        if ((tmpkey = open_hkcu_key( "Software\\TuxBlox\\AppDefaults" )))
         {
             appkey = reg_open_key( tmpkey, appname, lstrlenW( appname ) * sizeof(WCHAR) );
             NtClose( tmpkey );

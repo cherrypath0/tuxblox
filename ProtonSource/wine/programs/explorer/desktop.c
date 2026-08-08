@@ -880,8 +880,8 @@ static const WCHAR *get_default_desktop_name(void)
         if (wcsicmp( buffer, L"Default" )) return buffer;
     }
 
-    /* @@ Wine registry key: HKCU\Software\Wine\Explorer */
-    if (!RegOpenKeyW( HKEY_CURRENT_USER, L"Software\\Wine\\Explorer", &hkey ))
+    /* @@ Wine registry key: HKCU\Software\TuxBlox\Explorer */
+    if (!RegOpenKeyW( HKEY_CURRENT_USER, L"Software\\TuxBlox\\Explorer", &hkey ))
     {
         if (!RegQueryValueExW( hkey, L"Desktop", 0, NULL, (LPBYTE)buffer, &size ) && *buffer) ret = buffer;
         RegCloseKey( hkey );
@@ -900,8 +900,8 @@ static BOOL get_default_desktop_size( const WCHAR *name, unsigned int *width, un
     *width = 800;
     *height = 600;
 
-    /* @@ Wine registry key: HKCU\Software\Wine\Explorer\Desktops */
-    if (!RegOpenKeyW( HKEY_CURRENT_USER, L"Software\\Wine\\Explorer\\Desktops", &hkey ))
+    /* @@ Wine registry key: HKCU\Software\TuxBlox\Explorer\Desktops */
+    if (!RegOpenKeyW( HKEY_CURRENT_USER, L"Software\\TuxBlox\\Explorer\\Desktops", &hkey ))
     {
         if (!RegQueryValueExW( hkey, name, 0, NULL, (LPBYTE)buffer, &size ))
         {
@@ -920,8 +920,8 @@ static BOOL get_default_enable_shell( const WCHAR *name )
     BOOL result;
     DWORD size = sizeof(result);
 
-    /* @@ Wine registry key: HKCU\Software\Wine\Explorer\Desktops */
-    if (!RegOpenKeyW( HKEY_CURRENT_USER, L"Software\\Wine\\Explorer\\Desktops", &hkey ))
+    /* @@ Wine registry key: HKCU\Software\TuxBlox\Explorer\Desktops */
+    if (!RegOpenKeyW( HKEY_CURRENT_USER, L"Software\\TuxBlox\\Explorer\\Desktops", &hkey ))
     {
         if (!RegGetValueW( hkey, name, L"EnableShell", RRF_RT_REG_DWORD, NULL, &result, &size ))
             found = TRUE;
@@ -955,8 +955,8 @@ static BOOL get_default_show_systray( const WCHAR *name )
     BOOL result;
     DWORD size = sizeof(result);
 
-    /* @@ Wine registry key: HKCU\Software\Wine\Explorer\Desktops */
-    if (name && !RegOpenKeyW( HKEY_CURRENT_USER, L"Software\\Wine\\Explorer\\Desktops", &hkey ))
+    /* @@ Wine registry key: HKCU\Software\TuxBlox\Explorer\Desktops */
+    if (name && !RegOpenKeyW( HKEY_CURRENT_USER, L"Software\\TuxBlox\\Explorer\\Desktops", &hkey ))
     {
         if (!RegGetValueW( hkey, name, L"ShowSystray", RRF_RT_REG_DWORD, NULL, &result, &size ))
             found = TRUE;
@@ -964,8 +964,8 @@ static BOOL get_default_show_systray( const WCHAR *name )
     }
 
     /* Try again with a global Explorer setting */
-    /* @@ Wine registry key: HKCU\Software\Wine\Explorer */
-    if (!found && !RegOpenKeyW( HKEY_CURRENT_USER, L"Software\\Wine\\Explorer", &hkey ))
+    /* @@ Wine registry key: HKCU\Software\TuxBlox\Explorer */
+    if (!found && !RegOpenKeyW( HKEY_CURRENT_USER, L"Software\\TuxBlox\\Explorer", &hkey ))
     {
         if (!RegGetValueW( hkey, NULL, L"ShowSystray", RRF_RT_REG_DWORD, NULL, &result, &size ))
             found = TRUE;
@@ -1008,8 +1008,8 @@ static void load_graphics_driver( const WCHAR *driver, GUID *guid )
     {
         lstrcpyW( buffer, default_driver );
 
-        /* @@ Wine registry key: HKCU\Software\Wine\Drivers */
-        if (!RegOpenKeyW( HKEY_CURRENT_USER, L"Software\\Wine\\Drivers", &hkey ))
+        /* @@ Wine registry key: HKCU\Software\TuxBlox\Drivers */
+        if (!RegOpenKeyW( HKEY_CURRENT_USER, L"Software\\TuxBlox\\Drivers", &hkey ))
         {
             DWORD count = sizeof(buffer);
             RegQueryValueExW( hkey, L"Graphics", 0, NULL, (LPBYTE)buffer, &count );

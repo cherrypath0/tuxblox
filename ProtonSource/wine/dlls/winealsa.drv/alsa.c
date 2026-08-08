@@ -88,7 +88,7 @@ static const REFERENCE_TIME def_period = 100000;
 static const REFERENCE_TIME min_period = 50000;
 
 static const WCHAR drv_keyW[] = {'S','o','f','t','w','a','r','e','\\',
-    'W','i','n','e','\\','D','r','i','v','e','r','s','\\',
+    'T','u','x','B','l','o','x','\\','D','r','i','v','e','r','s','\\',
     'w','i','n','e','a','l','s','a','.','d','r','v'};
 
 static ULONG_PTR zero_bits = 0;
@@ -389,7 +389,7 @@ static void get_reg_devices(EDataFlow flow, struct endpoints_info *endpoints_inf
     DWORD size;
     const WCHAR *value_name = (flow == eRender) ? ALSAOutputDevices : ALSAInputDevices;
 
-    /* @@ Wine registry key: HKCU\Software\Wine\Drivers\winealsa.drv */
+    /* @@ Wine registry key: HKCU\Software\TuxBlox\Drivers\winealsa.drv */
     if((key = reg_open_hkcu_key(drv_keyW, sizeof(drv_keyW)))){
         if((size = reg_query_value(key, value_name, key_info, sizeof(buffer)))){
             WCHAR *p = (WCHAR *)key_info->Data;

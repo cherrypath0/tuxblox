@@ -22,7 +22,7 @@
 
 /* FIXME:
  * - No way to override automatic /proc detection, maybe provide an
- *   HKEY_LOCAL_MACHINE\Software\Wine\Wine\Scsi regkey
+ *   HKEY_LOCAL_MACHINE\Software\TuxBlox\Wine\Scsi regkey
  * - Somewhat debating an #ifdef linux... technically all this code will
  *   run on another UNIX.. it will fail nicely.
  * - Please add support for mapping multiple channels on host adapters to

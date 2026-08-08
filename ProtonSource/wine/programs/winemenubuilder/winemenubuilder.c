@@ -1183,7 +1183,7 @@ static HKEY open_menus_reg_key(void)
 {
     HKEY assocKey;
     DWORD ret;
-    ret = RegCreateKeyW(HKEY_CURRENT_USER, L"Software\\Wine\\MenuFiles", &assocKey);
+    ret = RegCreateKeyW(HKEY_CURRENT_USER, L"Software\\TuxBlox\\MenuFiles", &assocKey);
     if (ret == ERROR_SUCCESS)
         return assocKey;
     SetLastError(ret);
@@ -1691,7 +1691,7 @@ static WCHAR* reg_get_valW(HKEY key, LPCWSTR subkey, LPCWSTR name)
 static HKEY open_associations_reg_key(void)
 {
     HKEY assocKey;
-    if (RegCreateKeyW(HKEY_CURRENT_USER, L"Software\\Wine\\FileOpenAssociations", &assocKey) == ERROR_SUCCESS)
+    if (RegCreateKeyW(HKEY_CURRENT_USER, L"Software\\TuxBlox\\FileOpenAssociations", &assocKey) == ERROR_SUCCESS)
         return assocKey;
     return NULL;
 }

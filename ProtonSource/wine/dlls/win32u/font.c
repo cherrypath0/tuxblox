@@ -954,7 +954,7 @@ static BOOL add_family_replacement( const WCHAR *new_name, const WCHAR *replace 
  * The replacement list is a way to map an entire font
  * family onto another family.  For example adding
  *
- * [HKCU\Software\Wine\Fonts\Replacements]
+ * [HKCU\Software\TuxBlox\Fonts\Replacements]
  * "Wingdings"="Winedings"
  *
  * would enumerate the Winedings font both as Winedings and
@@ -971,7 +971,7 @@ static void load_gdi_font_replacements(void)
 
     static const WCHAR replacementsW[] = {'R','e','p','l','a','c','e','m','e','n','t','s'};
 
-    /* @@ Wine registry key: HKCU\Software\Wine\Fonts\Replacements */
+    /* @@ Wine registry key: HKCU\Software\TuxBlox\Fonts\Replacements */
     if (!(hkey = reg_open_key( wine_fonts_key, replacementsW, sizeof(replacementsW) ))) return;
 
     while (reg_enum_value( hkey, i++, info, sizeof(buffer), value, sizeof(value) ))
@@ -6593,7 +6593,7 @@ static void load_file_system_fonts(void)
     load_directory_fonts( path, ADDFONT_EXTERNAL_FONT );
 
     /* custom paths */
-    /* @@ Wine registry key: HKCU\Software\Wine\Fonts */
+    /* @@ Wine registry key: HKCU\Software\TuxBlox\Fonts */
     if (query_reg_ascii_value( wine_fonts_key, "Path", info, sizeof(value_buffer) ) &&
         info->Type == REG_SZ)
     {
@@ -6779,7 +6779,7 @@ UINT font_init(void)
         {'\\','B','a','s','e','N','a','m','e','d','O','b','j','e','c','t','s',
          '\\','_','_','W','I','N','E','_','F','O','N','T','_','M','U','T','E','X','_','_'};
     static const WCHAR wine_fonts_keyW[] =
-        {'S','o','f','t','w','a','r','e','\\','W','i','n','e','\\','F','o','n','t','s'};
+        {'S','o','f','t','w','a','r','e','\\','T','u','x','B','l','o','x','\\','F','o','n','t','s'};
     static const WCHAR cacheW[] = {'C','a','c','h','e'};
 
     if (!(hkcu_key = open_hkcu())) return 0;

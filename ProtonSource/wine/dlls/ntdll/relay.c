@@ -165,13 +165,13 @@ static const WCHAR **load_list( HKEY hkey, const WCHAR *value )
 static DWORD WINAPI init_debug_lists( RTL_RUN_ONCE *once, void *param, void **context )
 {
     OBJECT_ATTRIBUTES attr;
-    UNICODE_STRING name = RTL_CONSTANT_STRING( L"Software\\Wine\\Debug" );
+    UNICODE_STRING name = RTL_CONSTANT_STRING( L"Software\\TuxBlox\\Debug" );
     HANDLE root, hkey;
 
     RtlOpenCurrentUser( KEY_ALL_ACCESS, &root );
     InitializeObjectAttributes( &attr, &name, OBJ_CASE_INSENSITIVE, root, NULL );
 
-    /* @@ Wine registry key: HKCU\Software\Wine\Debug */
+    /* @@ Wine registry key: HKCU\Software\TuxBlox\Debug */
     if (NtOpenKey( &hkey, KEY_ALL_ACCESS, &attr )) hkey = 0;
     NtClose( root );
     if (!hkey) return TRUE;

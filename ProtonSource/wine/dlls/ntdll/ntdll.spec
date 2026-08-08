@@ -1755,8 +1755,8 @@
 # ntoskrnl.exe -- keep working: winebuild emits ordinal imports for them
 # automatically (tools/winebuild/import.c:586).
 1500 cdecl -norelay -noname wine_server_call(ptr)
-@ cdecl wine_server_fd_to_handle(long long long ptr)
-@ cdecl wine_server_handle_to_fd(long long ptr ptr)
+1511 cdecl -noname wine_server_fd_to_handle(long long long ptr)
+1512 cdecl -noname wine_server_handle_to_fd(long long ptr ptr)
 
 # Unix interface
 @ stdcall __wine_unix_call(int64 long ptr) compat___wine_unix_call
@@ -1771,12 +1771,22 @@
 1501 stdcall -noname wine_nt_to_unix_file_name(ptr ptr ptr long) compat_wine_nt_to_unix_file_name
 
 # Debugging
-@ stdcall -norelay __wine_dbg_write(ptr long)
-@ cdecl -norelay __wine_dbg_get_channel_flags(ptr)
-@ cdecl -norelay __wine_dbg_header(long long str)
-@ cdecl -norelay __wine_dbg_output(str)
-@ cdecl -norelay __wine_dbg_strdup(str)
-@ stdcall -norelay __wine_dbg_ftrace(ptr long long)
+# -noname for the same reason as wine_server_call/wine_get_version above --
+# winedetector (and the hexacorn.com "internal and legacy APIs" technique it
+# cites) walks this exact set of debug exports with GetProcAddress:
+# __wine_dbg_output, __wine_dbg_strdup, __wine_dbg_get_channel_flags. The
+# other three in this block are the same fingerprint surface, just not yet
+# probed by that particular tool, so they're hidden alongside them rather
+# than leaving a partial fix. All six are only ever called by TRACE/WARN/ERR
+# macros compiled directly against this import library, so winebuild's
+# ordinal-import codegen (tools/winebuild/import.c:586) keeps every in-tree
+# caller working exactly as it does for wine_server_call.
+1505 stdcall -norelay -noname __wine_dbg_write(ptr long)
+1506 cdecl -norelay -noname __wine_dbg_get_channel_flags(ptr)
+1507 cdecl -norelay -noname __wine_dbg_header(long long str)
+1508 cdecl -norelay -noname __wine_dbg_output(str)
+1509 cdecl -norelay -noname __wine_dbg_strdup(str)
+1510 stdcall -norelay -noname __wine_dbg_ftrace(ptr long long)
 
 # Version
 # -noname for the same reason as wine_server_call above. Every in-tree consumer of

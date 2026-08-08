@@ -107,15 +107,15 @@ void setup_dsound_options(void)
 
     buffer[MAX_PATH]='\0';
 
-    /* @@ Wine registry key: HKCU\Software\Wine\DirectSound */
-    if (RegOpenKeyA( HKEY_CURRENT_USER, "Software\\Wine\\DirectSound", &hkey )) hkey = 0;
+    /* @@ Wine registry key: HKCU\Software\TuxBlox\DirectSound */
+    if (RegOpenKeyA( HKEY_CURRENT_USER, "Software\\TuxBlox\\DirectSound", &hkey )) hkey = 0;
 
     len = GetModuleFileNameA( 0, buffer, MAX_PATH );
     if (len && len < MAX_PATH)
     {
         HKEY tmpkey;
-        /* @@ Wine registry key: HKCU\Software\Wine\AppDefaults\app.exe\DirectSound */
-        if (!RegOpenKeyA( HKEY_CURRENT_USER, "Software\\Wine\\AppDefaults", &tmpkey ))
+        /* @@ Wine registry key: HKCU\Software\TuxBlox\AppDefaults\app.exe\DirectSound */
+        if (!RegOpenKeyA( HKEY_CURRENT_USER, "Software\\TuxBlox\\AppDefaults", &tmpkey ))
         {
             char *p, *appname = buffer;
             if ((p = strrchr( appname, '/' ))) appname = p + 1;

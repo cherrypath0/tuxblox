@@ -116,8 +116,8 @@ static BOOL get_app_key(HKEY *defkey, HKEY *appkey)
 {
     *appkey = 0;
 
-    /* Registry key can be found in HKCU\Software\Wine\DirectInput */
-    if (RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\Wine\\DirectInput\\Joysticks", 0, NULL, 0,
+    /* Registry key can be found in HKCU\Software\TuxBlox\DirectInput */
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\TuxBlox\\DirectInput\\Joysticks", 0, NULL, 0,
                 KEY_SET_VALUE | KEY_READ, NULL, defkey, NULL))
         *defkey = 0;
 

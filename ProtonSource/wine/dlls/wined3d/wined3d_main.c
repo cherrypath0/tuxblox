@@ -319,14 +319,14 @@ static BOOL wined3d_dll_init(HINSTANCE hInstDLL)
 
     DisableThreadLibraryCalls(hInstDLL);
 
-    /* @@ Wine registry key: HKCU\Software\Wine\Direct3D */
-    if ( RegOpenKeyA( HKEY_CURRENT_USER, "Software\\Wine\\Direct3D", &hkey ) ) hkey = 0;
+    /* @@ Wine registry key: HKCU\Software\TuxBlox\Direct3D */
+    if ( RegOpenKeyA( HKEY_CURRENT_USER, "Software\\TuxBlox\\Direct3D", &hkey ) ) hkey = 0;
 
     if (wined3d_get_app_name(buffer, ARRAY_SIZE(buffer)))
     {
         HKEY tmpkey;
-        /* @@ Wine registry key: HKCU\Software\Wine\AppDefaults\app.exe\Direct3D */
-        if (!RegOpenKeyA(HKEY_CURRENT_USER, "Software\\Wine\\AppDefaults", &tmpkey))
+        /* @@ Wine registry key: HKCU\Software\TuxBlox\AppDefaults\app.exe\Direct3D */
+        if (!RegOpenKeyA(HKEY_CURRENT_USER, "Software\\TuxBlox\\AppDefaults", &tmpkey))
         {
             strcat(buffer, "\\Direct3D");
             TRACE("Application name %s.\n", buffer);

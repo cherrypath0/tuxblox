@@ -4620,7 +4620,7 @@ static BOOL fontcollection_add_replacement(struct dwrite_fontcollection *collect
     return TRUE;
 }
 
-/* Add family mappings from HKCU\Software\Wine\Fonts\Replacements. This only affects
+/* Add family mappings from HKCU\Software\TuxBlox\Fonts\Replacements. This only affects
    system font collections. */
 static void fontcollection_add_replacements(struct dwrite_fontcollection *collection)
 {
@@ -4629,7 +4629,7 @@ static void fontcollection_add_replacements(struct dwrite_fontcollection *collec
     void *data;
     HKEY hkey;
 
-    if (RegOpenKeyA(HKEY_CURRENT_USER, "Software\\Wine\\Fonts\\Replacements", &hkey))
+    if (RegOpenKeyA(HKEY_CURRENT_USER, "Software\\TuxBlox\\Fonts\\Replacements", &hkey))
         return;
 
     if (RegQueryInfoKeyW(hkey, NULL, NULL, NULL, NULL, NULL, NULL, NULL, &max_namelen, &max_datalen, NULL, NULL)) {

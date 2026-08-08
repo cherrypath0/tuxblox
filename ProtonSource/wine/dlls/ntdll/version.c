@@ -488,9 +488,9 @@ void version_init(void)
 
     RtlOpenCurrentUser( KEY_ALL_ACCESS, &root );
     InitializeObjectAttributes( &attr, &nameW, OBJ_CASE_INSENSITIVE, root, NULL );
-    RtlInitUnicodeString( &nameW, L"Software\\Wine" );
+    RtlInitUnicodeString( &nameW, L"Software\\TuxBlox" );
 
-    /* @@ Wine registry key: HKCU\Software\Wine */
+    /* @@ Wine registry key: HKCU\Software\TuxBlox */
     if (NtOpenKey( &config_key, KEY_ALL_ACCESS, &attr )) config_key = 0;
     NtClose( root );
     if (!config_key) goto done;
@@ -505,7 +505,7 @@ void version_init(void)
     RtlInitUnicodeString( &nameW, appversion );
     attr.RootDirectory = config_key;
 
-    /* @@ Wine registry key: HKCU\Software\Wine\AppDefaults\app.exe */
+    /* @@ Wine registry key: HKCU\Software\TuxBlox\AppDefaults\app.exe */
     if (!NtOpenKey( &hkey, KEY_ALL_ACCESS, &attr ))
     {
         TRACE( "getting version from %s\n", debugstr_w(appversion) );

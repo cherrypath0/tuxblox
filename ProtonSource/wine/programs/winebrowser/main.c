@@ -142,8 +142,8 @@ static int open_http_url( const WCHAR *url )
     HKEY key;
     LONG r;
 
-    /* @@ Wine registry key: HKCU\Software\Wine\WineBrowser */
-    if  (!(r = RegOpenKeyW( HKEY_CURRENT_USER, L"Software\\Wine\\WineBrowser", &key )))
+    /* @@ Wine registry key: HKCU\Software\TuxBlox\WineBrowser */
+    if  (!(r = RegOpenKeyW( HKEY_CURRENT_USER, L"Software\\TuxBlox\\WineBrowser", &key )))
     {
         r = get_commands( key, L"Browsers", browsers, sizeof(browsers) );
         RegCloseKey( key );
@@ -166,8 +166,8 @@ static int open_mailto_url( const WCHAR *url )
     HKEY key;
     LONG r;
 
-    /* @@ Wine registry key: HKCU\Software\Wine\WineBrowser */
-    if (!(r = RegOpenKeyW( HKEY_CURRENT_USER, L"Software\\Wine\\WineBrowser", &key )))
+    /* @@ Wine registry key: HKCU\Software\TuxBlox\WineBrowser */
+    if (!(r = RegOpenKeyW( HKEY_CURRENT_USER, L"Software\\TuxBlox\\WineBrowser", &key )))
     {
         r = get_commands( key, L"Mailers", mailers, sizeof(mailers) );
         RegCloseKey( key );
@@ -191,8 +191,8 @@ static int open_directory( const WCHAR *path )
     HKEY key;
     LONG r;
 
-    /* @@ Wine registry key: HKCU\Software\Wine\WineBrowser */
-    if (!(r = RegOpenKeyW( HKEY_CURRENT_USER, L"Software\\Wine\\WineBrowser", &key )))
+    /* @@ Wine registry key: HKCU\Software\TuxBlox\WineBrowser */
+    if (!(r = RegOpenKeyW( HKEY_CURRENT_USER, L"Software\\TuxBlox\\WineBrowser", &key )))
     {
         r = get_commands( key, L"FileManagers", filemanagers, sizeof(filemanagers) );
         RegCloseKey( key );

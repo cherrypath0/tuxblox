@@ -476,12 +476,12 @@ static WCHAR *get_key_container_path(const CERT_CONTEXT *ctx)
         if (!CryptGetProvParam(keyctx.hCryptProv, PP_CONTAINER, (BYTE *)str, &size, 0)) return NULL;
 
         len = MultiByteToWideChar(CP_ACP, 0, str, -1, NULL, 0);
-        if (!(ret = malloc(sizeof(L"Software\\Wine\\Crypto\\RSA\\") + len * sizeof(WCHAR))))
+        if (!(ret = malloc(sizeof(L"Software\\TuxBlox\\Crypto\\RSA\\") + len * sizeof(WCHAR))))
         {
             free(str);
             return NULL;
         }
-        wcscpy(ret, L"Software\\Wine\\Crypto\\RSA\\");
+        wcscpy(ret, L"Software\\TuxBlox\\Crypto\\RSA\\");
         MultiByteToWideChar(CP_ACP, 0, str, -1, ret + wcslen(ret), len);
         free(str);
     }
@@ -493,19 +493,19 @@ static WCHAR *get_key_container_path(const CERT_CONTEXT *ctx)
             free(prov);
             return NULL;
         }
-        if (!(ret = malloc(sizeof(L"Software\\Wine\\Crypto\\RSA\\") + wcslen(prov->pwszContainerName) * sizeof(WCHAR))))
+        if (!(ret = malloc(sizeof(L"Software\\TuxBlox\\Crypto\\RSA\\") + wcslen(prov->pwszContainerName) * sizeof(WCHAR))))
         {
             free(prov);
             return NULL;
         }
-        wcscpy(ret, L"Software\\Wine\\Crypto\\RSA\\");
+        wcscpy(ret, L"Software\\TuxBlox\\Crypto\\RSA\\");
         wcscat(ret, prov->pwszContainerName);
         free(prov);
     }
 
-    if (!ret && GetUserNameW(username, &len) && (ret = malloc(sizeof(L"Software\\Wine\\Crypto\\RSA\\") + len * sizeof(WCHAR))))
+    if (!ret && GetUserNameW(username, &len) && (ret = malloc(sizeof(L"Software\\TuxBlox\\Crypto\\RSA\\") + len * sizeof(WCHAR))))
     {
-        wcscpy(ret, L"Software\\Wine\\Crypto\\RSA\\");
+        wcscpy(ret, L"Software\\TuxBlox\\Crypto\\RSA\\");
         wcscat(ret, username);
     }
 

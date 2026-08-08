@@ -960,8 +960,8 @@ static const WCHAR *get_default_desktop( void *buf, size_t buf_size )
     memcpy( buffer, appname, len * sizeof(WCHAR) );
     asciiz_to_unicode( buffer + len, "\\Explorer" );
 
-    /* @@ Wine registry key: HKCU\Software\Wine\AppDefaults\app.exe\Explorer */
-    if ((tmpkey = reg_open_hkcu_key( "Software\\Wine\\AppDefaults" )))
+    /* @@ Wine registry key: HKCU\Software\TuxBlox\AppDefaults\app.exe\Explorer */
+    if ((tmpkey = reg_open_hkcu_key( "Software\\TuxBlox\\AppDefaults" )))
     {
         appkey = reg_open_key( tmpkey, buffer, lstrlenW(buffer) * sizeof(WCHAR) );
         NtClose( tmpkey );
@@ -973,8 +973,8 @@ static const WCHAR *get_default_desktop( void *buf, size_t buf_size )
         }
     }
 
-    /* @@ Wine registry key: HKCU\Software\Wine\Explorer */
-    if ((appkey = reg_open_hkcu_key( "Software\\Wine\\Explorer" )))
+    /* @@ Wine registry key: HKCU\Software\TuxBlox\Explorer */
+    if ((appkey = reg_open_hkcu_key( "Software\\TuxBlox\\Explorer" )))
     {
         len = query_reg_ascii_value( appkey, "Desktop", info, buf_size );
         NtClose( appkey );

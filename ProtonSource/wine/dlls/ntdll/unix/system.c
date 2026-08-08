@@ -3172,7 +3172,7 @@ static BOOL get_tz_info_from_zoneinfo_name( RTL_DYNAMIC_TIME_ZONE_INFORMATION *t
     static const WCHAR wine_tz_map[] = { '\\','R','e','g','i','s','t','r','y','\\',
         'M','a','c','h','i','n','e','\\',
         'S','o','f','t','w','a','r','e','\\',
-        'W','i','n','e','\\',
+        'T','u','x','B','l','o','x','\\',
         'T','i','m','e',' ','Z','o','n','e','s','\\',
         'T','Z',' ','M','a','p','p','i','n','g',
         0 };

@@ -764,14 +764,14 @@ static BOOL get_mono_path_local(LPWSTR path)
 
 static BOOL get_mono_path_registry(LPWSTR path)
 {
-    static const WCHAR keyname[] = {'S','o','f','t','w','a','r','e','\\','W','i','n','e','\\','M','o','n','o',0};
+    static const WCHAR keyname[] = {'S','o','f','t','w','a','r','e','\\','T','u','x','B','l','o','x','\\','M','o','n','o',0};
     static const WCHAR valuename[] = {'R','u','n','t','i','m','e','P','a','t','h',0};
     WCHAR base_path[MAX_PATH], mono_dll_path[MAX_PATH];
     HKEY hkey;
     DWORD res, valuesize;
     BOOL ret=FALSE;
 
-    /* @@ Wine registry key: HKCU\Software\Wine\Mono */
+    /* @@ Wine registry key: HKCU\Software\TuxBlox\Mono */
     res = RegOpenKeyW(HKEY_CURRENT_USER, keyname, &hkey);
     if (res != ERROR_SUCCESS)
         return FALSE;
@@ -1639,8 +1639,8 @@ static HKEY get_app_overrides_key(void)
         if ((p = wcsrchr( appname, '/' ))) appname = p + 1;
         if ((p = wcsrchr( appname, '\\' ))) appname = p + 1;
         lstrcatW( appname, subkeyW );
-        /* @@ Wine registry key: HKCU\Software\Wine\AppDefaults\app.exe\Mono\AsmOverrides */
-        if (!RegOpenKeyA( HKEY_CURRENT_USER, "Software\\Wine\\AppDefaults", &tmpkey ))
+        /* @@ Wine registry key: HKCU\Software\TuxBlox\AppDefaults\app.exe\Mono\AsmOverrides */
+        if (!RegOpenKeyA( HKEY_CURRENT_USER, "Software\\TuxBlox\\AppDefaults", &tmpkey ))
         {
             if (RegOpenKeyW( tmpkey, appname, &appkey )) appkey = 0;
             RegCloseKey( tmpkey );
@@ -1657,8 +1657,8 @@ static DWORD get_assembly_search_flags(MonoAssemblyName *aname)
     DWORD result;
     HKEY appkey = 0, userkey;
 
-    /* @@ Wine registry key: HKCU\Software\Wine\Mono\AsmOverrides */
-    if (RegOpenKeyA( HKEY_CURRENT_USER, "Software\\Wine\\Mono\\AsmOverrides", &userkey )) userkey = 0;
+    /* @@ Wine registry key: HKCU\Software\TuxBlox\Mono\AsmOverrides */
+    if (RegOpenKeyA( HKEY_CURRENT_USER, "Software\\TuxBlox\\Mono\\AsmOverrides", &userkey )) userkey = 0;
 
     appkey = get_app_overrides_key();
 
