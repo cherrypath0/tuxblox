@@ -34,6 +34,11 @@ std::string resolveInstallDir(const std::string& override) {
 
 } // namespace
 
+double downloadProgressFraction(uint64_t now, uint64_t total, uint64_t manifestSize) {
+    uint64_t effectiveTotal = total > 0 ? total : manifestSize;
+    return effectiveTotal > 0 ? static_cast<double>(now) / static_cast<double>(effectiveTotal) : 0.0;
+}
+
 InstallOutcome runInstall(const Manifest& manifest,
                            const StepProgressFn& onProgress,
                            const std::atomic<bool>* cancel,
@@ -77,9 +82,7 @@ InstallOutcome runInstall(const Manifest& manifest,
                 // (fetched and verified before this step runs) so the bar
                 // still advances instead of sitting at 0% until it jumps to
                 // 100%.
-                uint64_t effectiveTotal = total > 0 ? total : manifest.protonbuild.sizeBytes;
-                double frac = effectiveTotal > 0 ? static_cast<double>(now) / static_cast<double>(effectiveTotal) : 0.0;
-                report(Step::DownloadingProton, frac);
+                report(Step::DownloadingProton, downloadProgressFraction(now, total, manifest.protonbuild.sizeBytes));
             }, cancel);
         if (dlOutcome.result == DownloadResult::Cancelled) return {false, true, ""};
         if (dlOutcome.result == DownloadResult::Failed) {
@@ -127,9 +130,7 @@ InstallOutcome runInstall(const Manifest& manifest,
         report(Step::DownloadingLauncher, 0.0);
         dlOutcome = downloadFile(manifest.launcher.url, launcherTmpPath,
             [&](uint64_t now, uint64_t total) {
-                uint64_t effectiveTotal = total > 0 ? total : manifest.launcher.sizeBytes;
-                double frac = effectiveTotal > 0 ? static_cast<double>(now) / static_cast<double>(effectiveTotal) : 0.0;
-                report(Step::DownloadingLauncher, frac);
+                report(Step::DownloadingLauncher, downloadProgressFraction(now, total, manifest.launcher.sizeBytes));
             }, cancel);
         if (dlOutcome.result == DownloadResult::Cancelled) return {false, true, ""};
         if (dlOutcome.result == DownloadResult::Failed) {
@@ -155,9 +156,7 @@ InstallOutcome runInstall(const Manifest& manifest,
         report(Step::DownloadingInstaller, 0.0);
         dlOutcome = downloadFile(manifest.installer.url, installerTmpPath,
             [&](uint64_t now, uint64_t total) {
-                uint64_t effectiveTotal = total > 0 ? total : manifest.installer.sizeBytes;
-                double frac = effectiveTotal > 0 ? static_cast<double>(now) / static_cast<double>(effectiveTotal) : 0.0;
-                report(Step::DownloadingInstaller, frac);
+                report(Step::DownloadingInstaller, downloadProgressFraction(now, total, manifest.installer.sizeBytes));
             }, cancel);
         if (dlOutcome.result == DownloadResult::Cancelled) { fs::remove(launcherTmpPath); return {false, true, ""}; }
         if (dlOutcome.result == DownloadResult::Failed) {

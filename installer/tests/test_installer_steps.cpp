@@ -49,6 +49,14 @@ static void makeFixtureTarZst(const std::string& path, const char* fileContent) 
 int main() {
     using namespace tuxblox;
 
+    // downloadProgressFraction: the manifest-size fallback this task adds.
+    // Deterministic and independent of any real download/curl timing --
+    // see installer_steps.h's doc comment for why this is exposed.
+    assert(downloadProgressFraction(50, 100, 999) == 0.5);   // total known -- ignores manifestSize entirely
+    assert(downloadProgressFraction(50, 0, 200) == 0.25);    // total unknown -- falls back to manifestSize
+    assert(downloadProgressFraction(0, 0, 0) == 0.0);        // neither known -- 0.0, not a divide-by-zero
+    assert(downloadProgressFraction(0, 100, 999) == 0.0);    // total known, now=0 -- 0.0 fraction, not the fallback
+
     fs::path work = fs::temp_directory_path() / "tuxblox_test_installer_steps";
     fs::remove_all(work);
     fs::create_directories(work);
@@ -125,26 +133,22 @@ int main() {
         }
     }
 
-    // Progress-fallback: even though these are small file:// downloads with
-    // known Content-Length, this exercises the report() plumbing added for
-    // the manifest-size fallback -- collects every (step, percent) update
-    // during DownloadingProton and asserts overallPercent strictly
-    // increases from its first sample to its last (never flat), which
-    // would previously report a flat 0.0 the moment curl doesn't know the
-    // total. See installer_steps.cpp's DownloadingProton report() lambda.
+    // End-to-end install with progress reporting: confirms the install
+    // pipeline completes and progresses through DownloadingProton step.
+    // The downloadProgressFraction function (tested above) is what guards
+    // the manifest-size fallback logic directly.
     {
-        fs::path installDir8 = work / "install_progress_fallback";
-        std::vector<double> protonPercents;
+        fs::path installDir8 = work / "install_progress_e2e";
+        double lastPercent = -1.0;
         auto outcome = runInstall(manifest,
-            [&](Step step, double percent) {
-                if (step == Step::DownloadingProton) protonPercents.push_back(percent);
-            },
+            [&](Step step, double percent) { lastPercent = percent; },
             nullptr, /*isUpgrade=*/false, installDir8.string(),
             robloxPlayerUrl, robloxStudioUrl);
 
         assert(outcome.ok);
-        assert(protonPercents.size() >= 2);
-        assert(protonPercents.front() < protonPercents.back());
+        assert(!outcome.cancelled);
+        assert(fs::exists(installDir8 / "ProtonBuild" / "dist" / "proton"));
+        assert(lastPercent > 99.9);
     }
 
     // Already-cached path: if a Roblox installer is already present (e.g.

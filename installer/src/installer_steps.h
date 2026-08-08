@@ -16,6 +16,7 @@
 
 #pragma once
 #include <atomic>
+#include <cstdint>
 #include <functional>
 #include <string>
 #include "manifest.h"
@@ -31,6 +32,12 @@ struct InstallOutcome {
 
 // Called on every progress update: (currentStep, overallPercent).
 using StepProgressFn = std::function<void(Step, double)>;
+
+// Exposed for unit testing: computes the download-progress fraction
+// (0.0-1.0), falling back to `manifestSize` when curl doesn't report a
+// total (`total == 0`, e.g. a chunked response with no Content-Length).
+// Returns 0.0 if neither `total` nor `manifestSize` is known.
+double downloadProgressFraction(uint64_t now, uint64_t total, uint64_t manifestSize);
 
 // Runs the full install pipeline against an already-fetched manifest:
 // create directories, download+verify+extract Proton, download+verify+move
