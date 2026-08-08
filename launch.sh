@@ -110,7 +110,11 @@ case "$choice" in
         ;;
     w|wd|W|WD|shady|winedetector|wine|shadywine)
         exePath="otherapps/winescore.exe"
-        label="WineScore"++
+        label="WineScore"
+        ;;
+    w2|wd2|W2|WD2|winedetector2|wine2)
+        exePath="otherapps/winedetector.exe"
+        label="WineDetector"
         ;;
     *) exit 1 ;;
 esac
