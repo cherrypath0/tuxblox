@@ -111,7 +111,7 @@ InstallOutcome runInstall(const Manifest& manifest,
         if (isUpgrade) {
             fs::remove_all(dir + "/ProtonBuild");
         }
-        extractTarGz(tarPath, dir + "/ProtonBuild");
+        extractTarZst(tarPath, dir + "/ProtonBuild");
         fs::remove(tarPath);
         report(Step::ExtractingProton, 1.0);
         if (isCancelled()) return {false, true, ""};
