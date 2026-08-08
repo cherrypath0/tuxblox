@@ -974,6 +974,7 @@ NTSTATUS WINAPI NtTerminateProcess( HANDLE handle, LONG exit_code )
     BOOL self;
 
     tuxblox_trace_exit( exit_code, "NtTerminateProcess" );
+    tuxblox_report_real_exit_code( exit_code );
 
     TRACE("handle %p, exit_code %d, process_exiting %d.\n", handle, (int)exit_code, process_exiting);
 
@@ -1600,15 +1601,11 @@ NTSTATUS WINAPI NtQueryInformationProcess( HANDLE handle, PROCESSINFOCLASS class
                              MEM_EXECUTE_OPTION_PERMANENT;
         else
             *(ULONG *)info = execute_flags;
-        /* Last syscall the tracer sees before Player's anti-tamper check runs
-         * entirely in usermode (see plan.txt item 8) -- the .byfron GdiTebBatch
-         * comparison identified via Ghidra happens with no syscalls between here
-         * and NtRaiseHardError, so freezing at the existing NtRaiseHardError hook
-         * is too late to catch the registers feeding that check. Freezing here
-         * instead, one-shot via the same TUXBLOX_DEBUG_BREAK opt-in, gives a
-         * debugger time to attach and plant its own breakpoints inside
-         * RobloxPlayerBeta.dll before the check executes at all. */
-        tuxblox_trace_dump_code( get_syscall_caller_pc() );
+        /* The debug-break/PC-hook installation that used to live here moved to
+         * the top of this function (fires on the first NtQueryInformationProcess
+         * call of any class) -- see the comment there. Not every Roblox build
+         * queries ProcessExecuteFlags at all (session 8), so this case is no
+         * longer a reliable place to hang a one-shot hook. */
         break;
 
     case ProcessPriorityClass:

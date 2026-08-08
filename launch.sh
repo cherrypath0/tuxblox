@@ -16,12 +16,12 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 cd "$(dirname "$0")" || exit 1
-mkdir -p ~/.local/share/tuxblox/steamapps
+mkdir -p ~/.tuxblox/steamapps
 mkdir -p runtime
 mkdir -p logs
 
 PREFIX_PATH="$(pwd)/runtime"
-CLIENT_PATH="$HOME/.local/share/tuxblox"
+CLIENT_PATH="$HOME/.tuxblox"
 protonLogDir="$(pwd)/logs"
 
 choice="$1"
@@ -32,6 +32,26 @@ fi
 
 protocolUri="$2"
 userAgent="TuxBlox-Client/1.0"
+
+# Copies a host-side exe (living outside the prefix entirely, e.g. a freshly
+# downloaded installer) into the prefix's own C: before it's ever handed to
+# proton/wine. Launching an exe via its raw host path relies on ntdll's
+# \??\unix\ bridge, which stopped fully working for the executable IMAGE
+# itself once the Z: drive was removed (see item 20 in plan.txt) -- the
+# process's own working-directory bridging was fixed separately, but the
+# target-exe path itself silently failed to launch at all (no window, no
+# trace, just an early exit) rather than erroring visibly. Staging a real
+# copy inside C: sidesteps the bridge entirely instead of chasing every edge
+# case in it.
+stageInPrefix() {
+    local srcPath="$1"
+    local stageDir
+    stageDir="$(pwd)/runtime/pfx/drive_c/TuxBloxStaging"
+    mkdir -p "$stageDir"
+    local dest="$stageDir/$(basename "$srcPath")"
+    cp -f "$srcPath" "$dest"
+    printf '%s' "$dest"
+}
 
 ensureWebView2() {
     local wv2AppDir="runtime/pfx/drive_c/Program Files (x86)/Microsoft/EdgeWebView/Application"
@@ -48,7 +68,9 @@ ensureWebView2() {
             return 1
         }
     fi
-    timeout 180 env "${protonEnv[@]}" "$(pwd)/ProtonBuild/dist/proton" run "$wv2Installer" /silent /install
+    local stagedWv2Installer
+    stagedWv2Installer=$(stageInPrefix "$wv2Installer")
+    timeout 180 env "${protonEnv[@]}" "$(pwd)/ProtonBuild/dist/proton" run "$stagedWv2Installer" /silent /install
 }
 
 findExe() {
@@ -101,6 +123,31 @@ protonEnv=(
 )
 [ -n "$dxvkConfig" ] && protonEnv+=("DXVK_CONFIG=$dxvkConfig")
 
+# Opt-in fingerprint tracing: set TUXBLOX_TRACE=1 to turn it on for a
+# specific launch (e.g. `TUXBLOX_TRACE=1 ./launch.sh studio` when actively
+# investigating something like the WebView2 login hang). Off by default --
+# the per-syscall tallying/logging this does has real overhead and was the
+# likely cause of reports of slow/unstable launches when it was previously
+# always-on. Merged with (not replacing) any WINEDEBUG the caller already
+# set, so a manual `WINEDEBUG=+ole,+relay ./launch.sh studio`-style one-off
+# investigation still works alongside this.
+if [ -n "$TUXBLOX_TRACE" ]; then
+    tuxbloxDebugFlags="+tuxblox,+timestamp,+service"
+    if [ -n "$WINEDEBUG" ]; then
+        protonEnv+=("WINEDEBUG=$WINEDEBUG,$tuxbloxDebugFlags")
+    else
+        protonEnv+=("WINEDEBUG=$tuxbloxDebugFlags")
+    fi
+
+    # One trace log per launch, newest 20 kept (older ones pruned before
+    # writing a new one) so this can't grow without bound across repeated
+    # investigation runs.
+    traceLogDir="$(pwd)/logs/tuxblox-traces"
+    mkdir -p "$traceLogDir"
+    find "$traceLogDir" -maxdepth 1 -name 'trace-*.log' -type f 2>/dev/null | sort | head -n -19 | xargs -r rm -f
+    traceLogFile="$traceLogDir/trace-$(date +%Y%m%dT%H%M%S).log"
+fi
+
 [ -n "$needsWebView2" ] && ensureWebView2
 
 if [ -z "$exePath" ]; then
@@ -111,11 +158,37 @@ if [ -z "$exePath" ]; then
 fi
 
 echo "Launching $label from: $exePath"
-echo "==== START OF OUTPUT ===="
-if [ -n "$protocolUri" ]; then
-    env "${protonEnv[@]}" "$(pwd)/ProtonBuild/dist/proton" run "$exePath" "$protocolUri"
+
+if [[ "$exePath" == runtime/pfx/drive_c/* ]]; then
+    # Already inside the prefix's C: (an installed game found by findExe) --
+    # just make it absolute, since proton's own subprocess cwd is pinned
+    # inside the prefix now (see ProtonSource/proton's run_proc) and this
+    # script's cwd no longer matches it.
+    exePath="$(pwd)/$exePath"
 else
-    env "${protonEnv[@]}" "$(pwd)/ProtonBuild/dist/proton" run "$exePath"
+    # Lives outside the prefix (a freshly downloaded installer, or
+    # otherapps/) -- stage a copy inside C: rather than launching it via its
+    # raw host path (see stageInPrefix above for why).
+    exePath=$(stageInPrefix "$exePath")
+fi
+
+echo "==== START OF OUTPUT ===="
+if [ -n "$traceLogFile" ]; then
+    # Tracing enabled (TUXBLOX_TRACE=1) -- tee stderr into the trace log as
+    # well as passing it through normally.
+    if [ -n "$protocolUri" ]; then
+        env "${protonEnv[@]}" "$(pwd)/ProtonBuild/dist/proton" run "$exePath" "$protocolUri" 2> >(tee -a "$traceLogFile" >&2)
+    else
+        env "${protonEnv[@]}" "$(pwd)/ProtonBuild/dist/proton" run "$exePath" 2> >(tee -a "$traceLogFile" >&2)
+    fi
+else
+    # Common path: run directly with no process substitution, so Ctrl+C
+    # signals this foreground job the normal, simple way.
+    if [ -n "$protocolUri" ]; then
+        env "${protonEnv[@]}" "$(pwd)/ProtonBuild/dist/proton" run "$exePath" "$protocolUri"
+    else
+        env "${protonEnv[@]}" "$(pwd)/ProtonBuild/dist/proton" run "$exePath"
+    fi
 fi
 exitCode=$?
 echo "====  END OF OUTPUT  ===="

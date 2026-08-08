@@ -42,7 +42,7 @@ from random import randrange
 #To enable debug logging, copy "user_settings.sample.py" to "user_settings.py"
 #and edit it if needed.
 
-MESSAGE_TO_BINARY_INSPECTING_PEOPLE="hello binary inspecting people" # dont delete because i want whoever sees the binary code to see this
+VARIABLE999="hello binary inspecting people" # dont delete because i want whoever sees the binary code to see this
 CURRENT_PREFIX_VERSION="11.0-100"
 
 PFX="Proton: "
@@ -984,8 +984,13 @@ class CompatData:
             if not file_exists(self.prefix_dir + "/dosdevices/c:", follow_symlinks=False):
                 os.symlink("../drive_c", self.prefix_dir + "/dosdevices/c:")
 
-            if not file_exists(self.prefix_dir + "/dosdevices/z:", follow_symlinks=False):
-                os.symlink("/", self.prefix_dir + "/dosdevices/z:")
+            # No Z: -- mapping the whole host root as a drive letter is one of
+            # the most common Wine-detection heuristics (enumerate drives,
+            # walk one, look for /proc or /etc). This launcher only ever runs
+            # Roblox, which lives entirely under C:, so nothing legitimately
+            # needs Z:. Absolute unix paths still resolve via ntdll's
+            # drive-independent \??\unix\ fallback, so this doesn't break
+            # launching anything through wine.
 
             # collect configuration info
             steamdir = os.environ["STEAM_COMPAT_CLIENT_INSTALL_PATH"]
@@ -2011,8 +2016,18 @@ class Session:
         # to proton takes the whole tree down with it -- wine, the game, and any
         # helper processes it spawns (e.g. WebView2's gpu-process/crashpad-handler) --
         # instead of leaving them running as orphans after proton itself exits.
+        #
+        # cwd is pinned to drive_c rather than inherited from wherever this
+        # launcher itself was invoked from (normally the TuxBlox repo/install
+        # dir, outside the prefix entirely). Without the Z: drive, a unix path
+        # outside C: can only be represented via ntdll's \??\unix\ bridge form,
+        # and RtlSetCurrentDirectory_U corrupts that string when storing it
+        # (strips 4 chars assuming a \??\<drive>: prefix), breaking the
+        # process's own working directory and leaking a malformed path into
+        # any child that inherits it. Starting wine already inside C: avoids
+        # that codepath for the process's own cwd entirely.
         proc = subprocess.Popen(args, env=local_env, stderr=self.log_file, stdout=self.log_file,
-                                 start_new_session=True)
+                                 cwd=g_compatdata.prefix_dir + "drive_c", start_new_session=True)
 
         def handle_signal(signum, frame):
             # Reap via raw os.waitpid(), NOT proc.wait()/.poll() -- this handler runs
@@ -2051,15 +2066,47 @@ class Session:
                 subprocess.run([g_proton.wineserver_bin, "-k"], env=local_env, timeout=5)
             except (subprocess.TimeoutExpired, OSError):
                 pass
-            sys.exit(128 + signum)
+            # TuxBlox: bucket 2 ("a process error not related to proton"),
+            # not the raw 128+signum -- see the exit-code contract note on
+            # Session.run(). A user-initiated Ctrl+C/SIGTERM mid-launch is
+            # not a Proton bug, it's the wrapped process being torn down.
+            sys.exit(2)
 
         old_handlers = (signal.signal(signal.SIGINT, handle_signal),
                         signal.signal(signal.SIGTERM, handle_signal))
         try:
-            return proc.wait()
+            rc = proc.wait()
         finally:
             signal.signal(signal.SIGINT, old_handlers[0])
             signal.signal(signal.SIGTERM, old_handlers[1])
+
+        self._relay_real_exit_code()
+        return rc
+
+    def _relay_real_exit_code(self):
+        # TuxBlox: the wrapped process's real, non-truncated exit code (see
+        # tuxblox_report_real_exit_code() in dlls/ntdll/unix/tuxblox_trace.c)
+        # is written to *its own* stderr, which run_proc() redirects into
+        # this run's own log file (self.log_file) -- not into Proton's own
+        # stdout/stderr, which is all the launcher/launch.sh actually
+        # capture. Relay it across that boundary: scan the log for the
+        # marker line and re-emit it on Proton's own stderr. Harmless no-op
+        # for any run_proc() call whose target never wrote the marker (e.g.
+        # wineboot, wineserver -k) -- image_is_target() already scopes the
+        # marker itself to Player/Studio/WebView2.
+        if not self.log_file:
+            return
+        try:
+            with open(self.log_file.name, "r", errors="replace") as f:
+                real_code_line = None
+                for line in f:
+                    if line.startswith("TUXBLOX_REAL_EXIT_CODE="):
+                        real_code_line = line.strip()
+            if real_code_line:
+                print(real_code_line, file=sys.stderr)
+                sys.stderr.flush()
+        except OSError:
+            pass
 
     def run(self):
         if shutil.which('steam-runtime-launcher-interface-0') is not None:
@@ -2150,6 +2197,18 @@ if __name__ == "__main__":
     else:
         log("Need a verb.")
         sys.exit(1)
+
+    # TuxBlox: fixed exit-code contract for Proton's own process, which the
+    # launcher relies on to tell "Proton itself broke" apart from "the thing
+    # Proton ran broke" -- the real, non-truncated exit code of the wrapped
+    # process (which this collapses to 0/2) still reaches the launcher
+    # separately, via Session._relay_real_exit_code()'s marker line.
+    #   0 - the wrapped process exited cleanly (its own exit code was 0)
+    #   1 - Proton itself failed (every early sys.exit(1) above, plus any
+    #       uncaught exception escaping to here, already uses this value)
+    #   2 - the wrapped process exited abnormally -- not a Proton bug
+    if sys.argv[1] in ("run", "waitforexitandrun", "runinprefix"):
+        rc = 0 if rc == 0 else 2
 
     sys.exit(rc)
 

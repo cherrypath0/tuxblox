@@ -3514,8 +3514,15 @@ NTSTATUS WINAPI NtQuerySystemInformation( SYSTEM_INFORMATION_CLASS class,
 {
     unsigned int ret = STATUS_SUCCESS;
     ULONG len = 0;
+    char class_buf[32];
 
     TRACE( "(0x%08x,%p,0x%08x,%p)\n", class, info, size, ret_size );
+
+    /* Diagnostic-only: log every info class queried, not just the ones the
+     * cases below already call tuxblox_trace_record for, so a class this
+     * tracer doesn't otherwise know about still shows up in the trace. */
+    snprintf( class_buf, sizeof(class_buf), "class=%u", class );
+    tuxblox_trace_record( "NtQuerySystemInformation", class_buf );
 
     switch (class)
     {
@@ -4064,15 +4071,79 @@ NTSTATUS WINAPI NtQuerySystemInformation( SYSTEM_INFORMATION_CLASS class,
 
     case SystemModuleInformationEx:  /* 77 */
     {
-        /* FIXME: return some fake info for now */
-        static const char *fake_modules[] =
+        /* FIXME: return fake but plausible-looking module info. A genuine Windows
+         * box has 100+ drivers loaded; returning only a handful (as this used to)
+         * is itself a Wine/sandbox fingerprint that anti-tamper checks (e.g.
+         * Roblox's client) key off of and abort on, so pad this out to a
+         * realistic-looking driver set instead of a minimal placeholder list. */
+        static const struct { const char *name; ULONG size; } fake_modules[] =
         {
-            "\\SystemRoot\\system32\\ntoskrnl.exe",
-            "\\SystemRoot\\system32\\hal.dll",
-            "\\SystemRoot\\system32\\drivers\\mountmgr.sys"
+            { "\\SystemRoot\\system32\\ntoskrnl.exe", 0x800000 },
+            { "\\SystemRoot\\system32\\hal.dll", 0x40000 },
+            { "\\SystemRoot\\system32\\kdcom.dll", 0x10000 },
+            { "\\SystemRoot\\system32\\mcupdate_GenuineIntel.dll", 0x90000 },
+            { "\\SystemRoot\\system32\\CLFS.SYS", 0xa0000 },
+            { "\\SystemRoot\\system32\\tm.sys", 0x50000 },
+            { "\\SystemRoot\\system32\\PSHED.dll", 0x20000 },
+            { "\\SystemRoot\\system32\\BOOTVID.dll", 0x10000 },
+            { "\\SystemRoot\\system32\\CI.dll", 0x180000 },
+            { "\\SystemRoot\\system32\\cng.sys", 0x110000 },
+            { "\\SystemRoot\\system32\\Wdf01000.sys", 0xa0000 },
+            { "\\SystemRoot\\system32\\WDFLDR.SYS", 0x20000 },
+            { "\\SystemRoot\\system32\\ACPI.sys", 0xb0000 },
+            { "\\SystemRoot\\system32\\WMILIB.SYS", 0x10000 },
+            { "\\SystemRoot\\system32\\msisadrv.sys", 0x10000 },
+            { "\\SystemRoot\\system32\\pci.sys", 0x60000 },
+            { "\\SystemRoot\\system32\\vdrvroot.sys", 0x20000 },
+            { "\\SystemRoot\\system32\\pdc.sys", 0x30000 },
+            { "\\SystemRoot\\system32\\partmgr.sys", 0x30000 },
+            { "\\SystemRoot\\system32\\spaceport.sys", 0xa0000 },
+            { "\\SystemRoot\\system32\\volmgr.sys", 0x30000 },
+            { "\\SystemRoot\\system32\\volmgrx.sys", 0x100000 },
+            { "\\SystemRoot\\system32\\drivers\\mountmgr.sys", 0x50000 },
+            { "\\SystemRoot\\system32\\fvevol.sys", 0xa0000 },
+            { "\\SystemRoot\\system32\\volsnap.sys", 0x70000 },
+            { "\\SystemRoot\\system32\\rdyboost.sys", 0x50000 },
+            { "\\SystemRoot\\system32\\storahci.sys", 0x30000 },
+            { "\\SystemRoot\\system32\\CLASSPNP.SYS", 0x60000 },
+            { "\\SystemRoot\\system32\\fileinfo.sys", 0x30000 },
+            { "\\SystemRoot\\system32\\Wof.sys", 0x40000 },
+            { "\\SystemRoot\\system32\\Ntfs.sys", 0x2a0000 },
+            { "\\SystemRoot\\system32\\fltmgr.sys", 0xa0000 },
+            { "\\SystemRoot\\system32\\msrpc.sys", 0x70000 },
+            { "\\SystemRoot\\system32\\ksecdd.sys", 0x50000 },
+            { "\\SystemRoot\\system32\\ndis.sys", 0x140000 },
+            { "\\SystemRoot\\system32\\NETIO.SYS", 0x120000 },
+            { "\\SystemRoot\\system32\\ksecpkg.sys", 0x50000 },
+            { "\\SystemRoot\\system32\\tcpip.sys", 0x350000 },
+            { "\\SystemRoot\\system32\\fwpkclnt.sys", 0x90000 },
+            { "\\SystemRoot\\system32\\wfplwfs.sys", 0x40000 },
+            { "\\SystemRoot\\system32\\netbios.sys", 0x20000 },
+            { "\\SystemRoot\\system32\\tdx.sys", 0x30000 },
+            { "\\SystemRoot\\system32\\afd.sys", 0x1a0000 },
+            { "\\SystemRoot\\system32\\nsiproxy.sys", 0x20000 },
+            { "\\SystemRoot\\system32\\npsvctrig.sys", 0x10000 },
+            { "\\SystemRoot\\system32\\mssmbios.sys", 0x20000 },
+            { "\\SystemRoot\\system32\\ndistapi.sys", 0x10000 },
+            { "\\SystemRoot\\system32\\ndiswan.sys", 0x40000 },
+            { "\\SystemRoot\\system32\\NDProxy.sys", 0x30000 },
+            { "\\SystemRoot\\system32\\usbccgp.sys", 0x50000 },
+            { "\\SystemRoot\\system32\\usbhub.sys", 0x70000 },
+            { "\\SystemRoot\\system32\\USBXHCI.SYS", 0x60000 },
+            { "\\SystemRoot\\system32\\HIDCLASS.SYS", 0x30000 },
+            { "\\SystemRoot\\system32\\hidparse.sys", 0x10000 },
+            { "\\SystemRoot\\system32\\kbdclass.sys", 0x20000 },
+            { "\\SystemRoot\\system32\\mouclass.sys", 0x20000 },
+            { "\\SystemRoot\\system32\\kbdhid.sys", 0x10000 },
+            { "\\SystemRoot\\system32\\mouhid.sys", 0x10000 },
+            { "\\SystemRoot\\system32\\cdrom.sys", 0x40000 },
+            { "\\SystemRoot\\system32\\dxgkrnl.sys", 0x2c0000 },
         };
 
         ULONG i;
+        /* start at the top of the address space and work down, so this lands in
+         * canonical kernel-space range on both 32- and 64-bit without an #ifdef */
+        ULONG_PTR base = (ULONG_PTR)-1;
         RTL_PROCESS_MODULE_INFORMATION_EX *module_info = info;
 
         tuxblox_trace_record( "SystemModuleInformationEx", "" );
@@ -4084,12 +4155,13 @@ NTSTATUS WINAPI NtQuerySystemInformation( SYSTEM_INFORMATION_CLASS class,
             for (i = 0; i < ARRAY_SIZE(fake_modules); i++)
             {
                 RTL_PROCESS_MODULE_INFORMATION *sm = &module_info[i].BaseInfo;
-                sm->ImageBaseAddress = (char *)0x10000000 + 0x200000 * i;
-                sm->ImageSize = 0x200000;
+                base -= (fake_modules[i].size + 0x1000) & ~(ULONG_PTR)0xfff;
+                sm->ImageBaseAddress = (void *)base;
+                sm->ImageSize = fake_modules[i].size;
                 sm->LoadOrderIndex = i;
                 sm->LoadCount = 1;
-                strcpy( (char *)sm->Name, fake_modules[i] );
-                sm->NameOffset = strrchr( fake_modules[i], '\\' ) - fake_modules[i] + 1;
+                strcpy( (char *)sm->Name, fake_modules[i].name );
+                sm->NameOffset = strrchr( fake_modules[i].name, '\\' ) - fake_modules[i].name + 1;
                 module_info[i].NextOffset = sizeof(*module_info);
             }
             module_info[ARRAY_SIZE(fake_modules)].NextOffset = 0;
@@ -4243,11 +4315,20 @@ NTSTATUS WINAPI NtQuerySystemInformation( SYSTEM_INFORMATION_CLASS class,
     {
         static const char version[] = PACKAGE_VERSION;
         struct utsname buf;
+        char result_buf[64];
 
         uname( &buf );
         snprintf( info, size, "%s%c%s%c%s%c%s", version, 0, wine_build, 0, buf.sysname, 0, buf.release );
         len = strlen(version) + strlen(wine_build) + strlen(buf.sysname) + strlen(buf.release) + 4;
         if (size < len) ret = STATUS_INFO_LENGTH_MISMATCH;
+        /* Diagnostic-only: this class only exists as a Wine extension (real
+         * Windows returns STATUS_INVALID_INFO_CLASS for it, the default case
+         * below), so a caller reaching this point at all -- regardless of
+         * whether the buffer was actually big enough -- has already learned
+         * "this is Wine" from the status code alone. Log size/len/ret so a
+         * trace capture can tell success from a too-small-buffer probe. */
+        snprintf( result_buf, sizeof(result_buf), "size=%u len=%u ret=0x%x", (unsigned)size, (unsigned)len, ret );
+        tuxblox_trace_record( "SystemWineVersionInformation", result_buf );
         break;
     }
 
@@ -4963,6 +5044,8 @@ NTSTATUS WINAPI NtRaiseHardError( NTSTATUS status, ULONG count,
                                   ULONG params_mask, void **params,
                                   HARDERROR_RESPONSE_OPTION option, HARDERROR_RESPONSE *response )
 {
+    tuxblox_trace_record( "NtRaiseHardError", "" );
+
     FIXME( "%#08x %u %#x %p %u %p: stub\n", status, count, params_mask, params, option, response );
     return STATUS_NOT_IMPLEMENTED;
 }
