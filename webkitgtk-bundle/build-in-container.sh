@@ -20,7 +20,21 @@ export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig:$PREFIX/lib/x86_64-linux-gnu/pkgco
 # with "error while loading shared libraries". This also isn't just a build-time
 # concern: the whole point of this prefix is to ship it as a relocatable tarball, so
 # an incomplete rpath here would leave the final WebKitGTK bundle broken at runtime.
-export LDFLAGS="-Wl,-rpath,$PREFIX/lib -Wl,-rpath,$PREFIX/lib/x86_64-linux-gnu"
+# -L (not just -Wl,-rpath,) and CPPFLAGS's -I are needed too, not discovered until
+# the GnuTLS/nettle chain (Task 4's TLS backend addition): every from-source
+# cross-dependency up to that point was either found via pkg-config (meson builds,
+# which compute their own -I/-L from PKG_CONFIG_PATH automatically) or didn't
+# depend on another from-source library at all. nettle's configure.ac checks for
+# GMP with a bare `AC_CHECK_LIB(gmp, __gmpn_zero_p, ...)` -- no pkg-config, no
+# --with-gmp-* flag -- so without an explicit -L search path the compiler falls
+# through to system default paths only, silently decides GMP isn't present, and
+# nettle builds its own bundled mini-gmp instead of linking the real GMP this
+# script builds a few steps earlier. (GMP itself ships no .pc file, so this can't
+# be fixed by PKG_CONFIG_PATH alone the way the meson-based gaps were.) CPPFLAGS's
+# -I mirrors the same reasoning for header lookup during compilation, not just the
+# configure-time link check.
+export LDFLAGS="-Wl,-rpath,$PREFIX/lib -Wl,-rpath,$PREFIX/lib/x86_64-linux-gnu -L$PREFIX/lib -L$PREFIX/lib/x86_64-linux-gnu"
+export CPPFLAGS="-I$PREFIX/include"
 export CFLAGS="-O2"
 export CXXFLAGS="-O2"
 # From-source libraries (starting with glib) install build-time tools -- e.g.
@@ -209,3 +223,93 @@ fetch_and_extract \
 meson setup /build/gtk4/_build /build/gtk4 --prefix="$PREFIX" \
     -Dmedia-gstreamer=disabled -Dvulkan=disabled -Dbuild-tests=false -Dbuild-demos=false -Dbuild-examples=false
 ninja -C /build/gtk4/_build -j"$JOBS" install
+
+# --- TLS backend for libsoup/GIO -------------------------------------------------
+# libsoup above was built with -Dtls_check=false, which only skips a *build-machine*
+# sanity assert -- it does NOT mean TLS is handled. libsoup has no TLS implementation
+# of its own in any configuration; it always delegates to GIO's pluggable TLS backend
+# at runtime, which is provided by the separate glib-networking project as a
+# dynamically-loaded GIO module. Without it, GIO silently falls back to a dummy
+# backend and every HTTPS request WebKitGTK makes -- all of them, for Roblox --
+# fails. This section builds glib-networking and its own dependency chain (GnuTLS,
+# the GNOME-stack default / "please don't second-guess our defaults" per
+# glib-networking's own meson.options, over the OpenSSL alternative) from source, so
+# the bundle in this prefix has real, working TLS, not just TLS-shaped libraries.
+#
+# Chain: GMP (bignum arithmetic) -> Nettle (crypto primitives, links the real GMP,
+# not its bundled mini-gmp fallback) -> p11-kit (PKCS#11 + system trust-store
+# integration, already have its other dependencies libffi/libtasn1 from earlier in
+# this script) -> GnuTLS (the TLS protocol implementation) -> glib-networking (the
+# GIO module that makes GnuTLS visible to GIO/libsoup at runtime).
+
+echo ":: Building gmp $GMP_VERSION"
+fetch_and_extract "https://gmplib.org/download/gmp/gmp-${GMP_VERSION}.tar.xz" /build/gmp
+cd /build/gmp && ./configure --prefix="$PREFIX" && make -j"$JOBS" && make install && cd /build
+
+echo ":: Building nettle $NETTLE_VERSION"
+fetch_and_extract "https://ftp.gnu.org/gnu/nettle/nettle-${NETTLE_VERSION}.tar.gz" /build/nettle
+cd /build/nettle
+# --libdir="$PREFIX/lib" is required, not cosmetic: nettle's own configure.ac
+# silently overrides libdir to "$PREFIX/lib64" on 64-bit ABIs whenever the caller
+# hasn't explicitly set --libdir (see its configure.ac's `libdir='${exec_prefix}/lib64'`
+# branch) -- a third libdir convention this prefix would otherwise have to track
+# alongside plain lib (autotools/cmake) and lib/x86_64-linux-gnu (meson). Forcing it
+# to plain lib keeps every autotools build in this script landing in the same place.
+./configure --prefix="$PREFIX" --libdir="$PREFIX/lib" --disable-documentation
+make -j"$JOBS"
+make install
+cd /build
+
+echo ":: Building p11-kit $P11KIT_VERSION"
+fetch_and_extract \
+    "https://github.com/p11-glue/p11-kit/releases/download/${P11KIT_VERSION}/p11-kit-${P11KIT_VERSION}.tar.xz" \
+    /build/p11-kit
+meson setup /build/p11-kit/_build /build/p11-kit --prefix="$PREFIX"
+ninja -C /build/p11-kit/_build -j"$JOBS" install
+
+echo ":: Building gnutls $GNUTLS_VERSION"
+fetch_and_extract \
+    "https://www.gnupg.org/ftp/gcrypt/gnutls/v${GNUTLS_VERSION%.*}/gnutls-${GNUTLS_VERSION}.tar.xz" \
+    /build/gnutls
+cd /build/gnutls
+# --with-default-trust-store-file / --with-default-trust-store-dir: without an
+# explicit choice, gnutls's own configure probes a short list of common distro CA
+# bundle paths and bakes in whatever it finds on THIS build machine -- fine for the
+# container, meaningless for the arbitrary target Linux machine this relocatable
+# bundle actually runs on later. /etc/ssl/certs/ca-certificates.crt (Debian/Ubuntu/
+# Arch) and the /etc/ssl/certs hash-symlink directory (near-universal across Linux
+# distros regardless of each one's own "native" bundle location, since most also
+# maintain that directory for OpenSSL/cross-tool compatibility) are the most
+# broadly-portable choice available, not merely what happens to exist here.
+# --with-included-unistring: gnutls needs libunistring (Unicode string ops); rather
+# than adding yet another external from-source library for a single internal
+# utility dependency, gnutls's own build explicitly supports compiling a bundled
+# copy in directly -- the sanctioned self-contained-build path, not a workaround.
+# --disable-doc/--disable-manpages/--disable-guile/--without-tpm2/--without-tpm:
+# documentation and Guile bindings are irrelevant to a C library consumed by
+# libsoup/WebKitGTK; TPM2/TPM1 hardware-backed key storage is a niche feature this
+# embedded-webview use case has no need for and that would otherwise pull in
+# tpm2-tss/trousers as further from-source dependencies for no practical benefit.
+./configure --prefix="$PREFIX" \
+    --with-default-trust-store-file=/etc/ssl/certs/ca-certificates.crt \
+    --with-default-trust-store-dir=/etc/ssl/certs \
+    --disable-doc --disable-manpages --disable-guile --without-tpm2 --without-tpm \
+    --with-included-unistring
+make -j"$JOBS"
+make install
+cd /build
+
+echo ":: Building glib-networking $GLIB_NETWORKING_VERSION"
+fetch_and_extract \
+    "https://download.gnome.org/sources/glib-networking/${GLIB_NETWORKING_VERSION%.*}/glib-networking-${GLIB_NETWORKING_VERSION}.tar.xz" \
+    /build/glib-networking
+# -Dgnome_proxy=disabled: this option (default 'enabled', not 'auto') needs
+# gsettings-desktop-schemas, which Debian 12's package ships as schema data only --
+# no .pc file at all, so it can never be satisfied via pkg-config on this baseline
+# regardless of whether the apt package is installed. Not a loss of real capability:
+# `libproxy` (left enabled -- its dependency, libproxy-dev, is a normal apt package)
+# already covers proxy auto-detection across desktop environments, including its own
+# internal GNOME/gsettings-aware config module; gnome_proxy would only have added a
+# second, GNOME-specific, largely-overlapping resolver on top of that.
+meson setup /build/glib-networking/_build /build/glib-networking --prefix="$PREFIX" -Dgnome_proxy=disabled
+ninja -C /build/glib-networking/_build -j"$JOBS" install

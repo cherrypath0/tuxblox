@@ -18,6 +18,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     wayland-protocols libdrm-dev libtiff-dev libxml2-dev \
     libx11-dev libxext-dev libxrender-dev libxi-dev libxrandr-dev \
     libxcursor-dev libxdamage-dev libxfixes-dev libxinerama-dev \
+    libproxy-dev \
     && rm -rf /var/lib/apt/lists/*
 # Task 4 (gtk4, libsoup-3, libsecret, libgudev, libpsl) additions, added up front after
 # inspecting each project's meson.build/meson.options rather than discovering them one
@@ -58,6 +59,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 #     libxml2-dev satisfies that build-time check with no behavior tradeoff --
 #     dtd_validation only validates protocol XML during code generation, it doesn't
 #     change anything about the resulting wayland-client library.
+#   - libproxy-dev: glib-networking's `libproxy` meson option (its general,
+#     cross-desktop proxy auto-detection backend) defaults to the feature value
+#     'enabled', not 'auto' -- an unconditional hard requirement unless the
+#     package backing it is present. Cheap, ordinary system package (pulls a
+#     single runtime lib, libproxy1v5) kept enabled rather than disabled --
+#     proxy auto-detection is a real feature a user behind a corporate/system
+#     proxy would notice missing, and it resolves whatever the *target*
+#     machine's own proxy configuration is at runtime, not anything baked in
+#     at build time. (glib-networking's *separate* `gnome_proxy` option, a
+#     GNOME/GSettings-specific proxy resolver, is explicitly disabled in
+#     build-in-container.sh instead of enabled here -- Debian 12's
+#     gsettings-desktop-schemas package ships no .pc file at all, so it can
+#     never satisfy that option's pkg-config check on this baseline regardless
+#     of whether the apt package is installed; see the comment at that
+#     -Dgnome_proxy=disabled flag for why that's an acceptable trim rather
+#     than a real functionality loss.)
 
 # Debian 12 bookworm's apt-packaged meson (1.0.1) is too old for GLib 2.84.x, which
 # requires meson >= 1.4.0. pip's meson installs to /usr/local/bin, which precedes
