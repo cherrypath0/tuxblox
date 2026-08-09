@@ -370,3 +370,52 @@ fetch_and_extract \
     /build/wpebackend-fdo
 meson setup /build/wpebackend-fdo/_build /build/wpebackend-fdo --prefix="$PREFIX"
 ninja -C /build/wpebackend-fdo/_build -j"$JOBS" install
+
+# --- GStreamer (native Linux) -----------------------------------------------------
+# This is a *native Linux* GStreamer build for WebKitGTK's <video>/<audio> support --
+# unrelated to and independent from the existing ProtonSource/gstreamer submodule,
+# which cross-compiles GStreamer for the Windows target for use *inside* the Wine
+# prefix by Windows apps. Same project, completely different build/purpose/toolchain.
+#
+# Unlike GTK-4/Mesa/libsecret earlier in this script, all three components here
+# configured cleanly with a bare `meson setup --prefix=$PREFIX` -- no flag corrections
+# needed. Verified directly: a real build against this same persistent prefix
+# completed with exit code 0 and `pkg-config --modversion` printing real version
+# strings for all three modules before this was appended here.
+#
+# Known real gap, intentionally out of this task's scope (brief only covers
+# gstreamer + gst-plugins-base + gst-plugins-bad, matching the plan's Global
+# Constraints dependency list): the Containerfile has no codec libraries for ogg,
+# vorbis, theora, or alsa, so gst-plugins-base's corresponding 'auto' features
+# silently resolved to disabled rather than failing the build -- confirmed by
+# inspecting the installed plugin set afterward (no libgstogg/libgstvorbis/
+# libgsttheora/libgstalsa present in $PREFIX/lib/x86_64-linux-gnu/gstreamer-1.0/).
+# gst-plugins-bad's build produced GL-backed plugins (opengl, waylandsink,
+# ximagesink) using Mesa/Wayland/X11 from Task 5, and gstreamer-gl-*.pc modules are
+# present, so the accelerated video path has real plugin coverage -- but actual
+# audio/video *codec* decoding for common web formats (Vorbis/Theora audio-video,
+# ALSA output) has no plugin backing it yet. gst-plugins-good/gst-plugins-ugly/
+# gst-libav (none of which are in this plan's dependency list) are the usual source
+# of that codec coverage upstream; flagged here rather than silently building them,
+# since it's outside this task's brief the same way Task 4 flagged the TLS gap
+# before a later task filled it in.
+echo ":: Building gstreamer $GSTREAMER_VERSION"
+fetch_and_extract \
+    "https://gstreamer.freedesktop.org/src/gstreamer/gstreamer-${GSTREAMER_VERSION}.tar.xz" \
+    /build/gstreamer
+meson setup /build/gstreamer/_build /build/gstreamer --prefix="$PREFIX"
+ninja -C /build/gstreamer/_build -j"$JOBS" install
+
+echo ":: Building gst-plugins-base $GSTREAMER_VERSION"
+fetch_and_extract \
+    "https://gstreamer.freedesktop.org/src/gst-plugins-base/gst-plugins-base-${GSTREAMER_VERSION}.tar.xz" \
+    /build/gst-plugins-base
+meson setup /build/gst-plugins-base/_build /build/gst-plugins-base --prefix="$PREFIX"
+ninja -C /build/gst-plugins-base/_build -j"$JOBS" install
+
+echo ":: Building gst-plugins-bad $GSTREAMER_VERSION"
+fetch_and_extract \
+    "https://gstreamer.freedesktop.org/src/gst-plugins-bad/gst-plugins-bad-${GSTREAMER_VERSION}.tar.xz" \
+    /build/gst-plugins-bad
+meson setup /build/gst-plugins-bad/_build /build/gst-plugins-bad --prefix="$PREFIX"
+ninja -C /build/gst-plugins-bad/_build -j"$JOBS" install
