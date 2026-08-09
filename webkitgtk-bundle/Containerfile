@@ -15,4 +15,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpixman-1-dev libjpeg62-turbo-dev bison flex gettext \
     && rm -rf /var/lib/apt/lists/*
 
+# Debian 12 bookworm's apt-packaged meson (1.0.1) is too old for GLib 2.84.x, which
+# requires meson >= 1.4.0. pip's meson installs to /usr/local/bin, which precedes
+# /usr/bin on PATH, so this shadows (without removing) the apt package.
+RUN pip3 install --break-system-packages --upgrade 'meson>=1.4.0'
+
 WORKDIR /build
+RUN mkdir -p /build-scripts
