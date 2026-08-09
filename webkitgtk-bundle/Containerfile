@@ -81,6 +81,38 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # /usr/bin on PATH, so this shadows (without removing) the apt package.
 RUN pip3 install --break-system-packages --upgrade 'meson>=1.4.0'
 
+# Task 5 (mesa, wpebackend-fdo) additions:
+#   - python3-mako, python3-yaml: mesa's top-level meson.build unconditionally
+#     `run_command`s a python snippet that imports both `mako` (>=0.8.0) and `yaml`
+#     (PyYAML) and hard-errors if either import fails -- this check runs regardless
+#     of which gallium/vulkan drivers are selected, so it's not something
+#     `-Dgallium-drivers=softpipe` (our software-only build) can skip. These are
+#     Python code-generation tools consumed only at mesa's build time (glsl/NIR
+#     codegen etc.), never linked into or shipped inside the runtime .so files, so
+#     they belong with the container's other build-time-only tools (ruby, gperf,
+#     unifdef) rather than needing to be from-source-vendored into the bundle.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3-mako python3-yaml \
+    && rm -rf /var/lib/apt/lists/*
+
+# Mesa's X11-platform EGL/GLX path (meson.build ~line 2087 onward) needs the XCB
+# protocol bindings directly -- discovered via a real build failure ("Dependency
+# xcb-randr not found"), not anticipated in Task 4's X11 package list, which only
+# covered Xlib-style libx11/libxext/etc (GTK4's own needs). Mesa additionally talks
+# to the X server over XCB for DRI2/DRI3/GLX/present/randr/shm/sync/xfixes, none of
+# which Task 4's Xlib packages provide -- XCB and Xlib are separate client library
+# families in Debian's packaging even though both talk to the same X server.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libxcb1-dev libx11-xcb-dev libxcb-keysyms1-dev libxcb-dri2-0-dev \
+    libxcb-dri3-dev libxcb-glx0-dev libxcb-present-dev libxcb-randr0-dev \
+    libxcb-shm0-dev libxcb-sync-dev libxcb-xfixes0-dev \
+    libxshmfence-dev \
+    && rm -rf /var/lib/apt/lists/*
+# libxshmfence-dev: found via a second real build failure one step past the xcb-randr
+# one above -- mesa's DRI3 path (mesa/meson.build ~line 2157) additionally needs
+# xshmfence (X11's shared-memory fence sync primitive used to synchronize DRI3/Present
+# buffer swaps), a separate library from the xcb-* protocol bindings already added.
+
 # gdk-pixbuf's meson.build hard-requires the shared-mime-info package at configure
 # time (via pkg-config's shared-mime-info.pc, which ships data/build metadata, not
 # a library) -- without it "meson setup" fails with

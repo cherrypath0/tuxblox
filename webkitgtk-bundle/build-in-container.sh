@@ -313,3 +313,60 @@ fetch_and_extract \
 # second, GNOME-specific, largely-overlapping resolver on top of that.
 meson setup /build/glib-networking/_build /build/glib-networking --prefix="$PREFIX" -Dgnome_proxy=disabled
 ninja -C /build/glib-networking/_build -j"$JOBS" install
+
+echo ":: Building mesa $MESA_VERSION"
+fetch_and_extract "https://archive.mesa3d.org/mesa-${MESA_VERSION}.tar.xz" /build/mesa
+# The plan brief's original flags (-Dgallium-drivers=swrast, -Dosmesa=true) don't
+# match current Mesa's actual meson.options -- verified directly against the real
+# mesa-${MESA_VERSION} source tree, not assumed from the brief:
+#   - 'swrast' is not a valid -Dgallium-drivers choice at all (meson.options lists
+#     'softpipe' and 'llvmpipe', not 'swrast'). Mesa's own top-level meson.build
+#     (see the "compatibility for swrast as an internal-ish driver name" comment
+#     there) computes with_gallium_swrast = with_gallium_softpipe or
+#     with_gallium_llvmpipe internally -- 'swrast' is the resulting internal
+#     DRI/EGL *driver name* (swrast_dri.so) that either gallium driver registers
+#     under, not a selectable value itself. 'softpipe' is chosen over 'llvmpipe'
+#     specifically to avoid pulling in a from-source or system LLVM: llvmpipe
+#     JIT-compiles via libLLVM, which would either need llvm-dev from this
+#     container's apt (coupling the relocatable bundle's software GL path to
+#     whatever LLVM version happens to be on THIS build machine, the same
+#     class of portability problem this whole bundle exists to avoid) or a
+#     full from-source LLVM build (a huge, out-of-scope new vendored
+#     dependency not in versions.env or the plan's library list). softpipe is
+#     a pure-C rasterizer with no such coupling -- slower, but this Mesa copy
+#     is explicitly not the GPU-accelerated path per the brief's own note.
+#   - '-Dosmesa=true' is a no-op in current Mesa: meson.options marks it
+#     'deprecated: true' with description "Does nothing, left here for a
+#     while to avoid build breakages" -- the standalone OSMesa off-screen
+#     target it used to control was removed from the tree entirely (no
+#     src/gallium/targets/osmesa/ directory exists in ${MESA_VERSION}).
+#     Dropped rather than passed-but-ignored, to not misrepresent what the
+#     flag does to a future reader of this script.
+#   - '-Dvulkan-drivers=[]' is kept -- Roblox/WebKitGTK have no Vulkan
+#     dependency here, only GL/EGL, and this avoids pulling in
+#     glslang/spirv-tools as further build dependencies for an unused driver
+#     class.
+# Needs python3-mako + python3-yaml (see Containerfile) -- mesa's own configure-time
+# python check hard-requires both regardless of driver selection.
+meson setup /build/mesa/_build /build/mesa --prefix="$PREFIX" \
+    -Dplatforms=x11,wayland -Dgallium-drivers=softpipe -Dvulkan-drivers=[]
+ninja -C /build/mesa/_build -j"$JOBS" install
+
+echo ":: Building libwpe $LIBWPE_VERSION"
+fetch_and_extract \
+    "https://wpewebkit.org/releases/libwpe-${LIBWPE_VERSION}.tar.xz" /build/libwpe
+# libwpe (WPE's core windowing-abstraction library, providing the wpe-1.0 pkg-config
+# module) is a real, hard dependency of wpebackend-fdo below (its meson.build does
+# dependency('wpe-1.0', ..., fallback: ['libwpe', 'libwpe_dep']) -- not in the
+# original plan brief/versions.env, discovered while actually building this task
+# rather than guessed at during planning; see the comment on LIBWPE_VERSION in
+# versions.env.
+meson setup /build/libwpe/_build /build/libwpe --prefix="$PREFIX"
+ninja -C /build/libwpe/_build -j"$JOBS" install
+
+echo ":: Building wpebackend-fdo $WPEBACKEND_FDO_VERSION"
+fetch_and_extract \
+    "https://wpewebkit.org/releases/wpebackend-fdo-${WPEBACKEND_FDO_VERSION}.tar.xz" \
+    /build/wpebackend-fdo
+meson setup /build/wpebackend-fdo/_build /build/wpebackend-fdo --prefix="$PREFIX"
+ninja -C /build/wpebackend-fdo/_build -j"$JOBS" install
