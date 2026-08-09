@@ -9,9 +9,28 @@ source "$(dirname "$0")/versions.env"
 PREFIX=/opt/tuxblox-webview
 mkdir -p "$PREFIX"
 export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig:$PREFIX/lib/x86_64-linux-gnu/pkgconfig"
-export LDFLAGS="-Wl,-rpath,$PREFIX/lib"
+# meson defaults to Debian's multiarch libdir (lib/x86_64-linux-gnu) for its own
+# installs, while the autotools/cmake builds earlier in this script (icu, libtasn1,
+# sqlite, lcms2, libwebp, openjpeg) land in plain lib -- so both directories need to
+# be on the rpath, not just plain lib. Without lib/x86_64-linux-gnu here, any binary
+# that actually executes during a later build step (not just links) and pulls in a
+# meson-installed lib -- e.g. gdk-pixbuf's own build running
+# gdk-pixbuf-query-loaders, which is dynamically linked against libgobject-2.0 and
+# (transitively) libffi, both installed to lib/x86_64-linux-gnu -- fails at runtime
+# with "error while loading shared libraries". This also isn't just a build-time
+# concern: the whole point of this prefix is to ship it as a relocatable tarball, so
+# an incomplete rpath here would leave the final WebKitGTK bundle broken at runtime.
+export LDFLAGS="-Wl,-rpath,$PREFIX/lib -Wl,-rpath,$PREFIX/lib/x86_64-linux-gnu"
 export CFLAGS="-O2"
 export CXXFLAGS="-O2"
+# From-source libraries (starting with glib) install build-time tools -- e.g.
+# glib-compile-resources, glib-genmarshal, glib-mkenums -- into $PREFIX/bin. Later
+# meson-based builds in this script invoke those tools by bare name (as
+# dependencies discovered via meson's `find_program()`), so $PREFIX/bin must be on
+# PATH or those lookups fail with "Program 'glib-compile-resources' not found or
+# not executable" once a build (gdk-pixbuf, and everything after it) actually
+# needs one of GLib's own tools rather than just its headers/libs.
+export PATH="$PREFIX/bin:$PATH"
 JOBS="${JOBS:-$(nproc)}"
 
 fetch_and_extract() {
@@ -76,3 +95,39 @@ cmake -B /build/openjpeg/_build -S /build/openjpeg -DCMAKE_INSTALL_PREFIX="$PREF
     -DBUILD_SHARED_LIBS=ON
 cmake --build /build/openjpeg/_build -j"$JOBS"
 cmake --install /build/openjpeg/_build
+
+echo ":: Building cairo $CAIRO_VERSION"
+fetch_and_extract "https://cairographics.org/releases/cairo-${CAIRO_VERSION}.tar.xz" /build/cairo
+meson setup /build/cairo/_build /build/cairo --prefix="$PREFIX"
+ninja -C /build/cairo/_build -j"$JOBS" install
+
+echo ":: Building harfbuzz $HARFBUZZ_VERSION"
+fetch_and_extract \
+    "https://github.com/harfbuzz/harfbuzz/releases/download/${HARFBUZZ_VERSION}/harfbuzz-${HARFBUZZ_VERSION}.tar.xz" \
+    /build/harfbuzz
+meson setup /build/harfbuzz/_build /build/harfbuzz --prefix="$PREFIX"
+ninja -C /build/harfbuzz/_build -j"$JOBS" install
+
+echo ":: Building pango $PANGO_VERSION"
+fetch_and_extract \
+    "https://download.gnome.org/sources/pango/${PANGO_VERSION%.*}/pango-${PANGO_VERSION}.tar.xz" \
+    /build/pango
+meson setup /build/pango/_build /build/pango --prefix="$PREFIX"
+ninja -C /build/pango/_build -j"$JOBS" install
+
+echo ":: Building gdk-pixbuf $GDK_PIXBUF_VERSION"
+fetch_and_extract \
+    "https://download.gnome.org/sources/gdk-pixbuf/${GDK_PIXBUF_VERSION%.*}/gdk-pixbuf-${GDK_PIXBUF_VERSION}.tar.xz" \
+    /build/gdk-pixbuf
+meson setup /build/gdk-pixbuf/_build /build/gdk-pixbuf --prefix="$PREFIX" -Dman=false
+ninja -C /build/gdk-pixbuf/_build -j"$JOBS" install
+
+echo ":: Building graphene $GRAPHENE_VERSION"
+# graphene's "1.10.8" GitHub release has no uploaded release asset (only 1.10.6 and
+# earlier do) -- release-download URLs 404 for it. GitHub's auto-generated tag
+# source archive works for every tag, same pattern already used for openjpeg above.
+fetch_and_extract \
+    "https://github.com/ebassi/graphene/archive/refs/tags/${GRAPHENE_VERSION}.tar.gz" \
+    /build/graphene
+meson setup /build/graphene/_build /build/graphene --prefix="$PREFIX"
+ninja -C /build/graphene/_build -j"$JOBS" install

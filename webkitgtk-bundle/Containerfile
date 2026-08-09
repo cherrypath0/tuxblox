@@ -12,13 +12,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential cmake ninja-build meson pkg-config git curl ca-certificates \
     ruby gperf unifdef python3 python3-pip patchelf \
     libz-dev libpng-dev libfreetype6-dev libfontconfig1-dev libexpat1-dev \
-    libpixman-1-dev libjpeg62-turbo-dev bison flex gettext \
+    libpixman-1-dev libjpeg62-turbo-dev bison flex gettext shared-mime-info \
     && rm -rf /var/lib/apt/lists/*
 
 # Debian 12 bookworm's apt-packaged meson (1.0.1) is too old for GLib 2.84.x, which
 # requires meson >= 1.4.0. pip's meson installs to /usr/local/bin, which precedes
 # /usr/bin on PATH, so this shadows (without removing) the apt package.
 RUN pip3 install --break-system-packages --upgrade 'meson>=1.4.0'
+
+# gdk-pixbuf's meson.build hard-requires the shared-mime-info package at configure
+# time (via pkg-config's shared-mime-info.pc, which ships data/build metadata, not
+# a library) -- without it "meson setup" fails with
+# "Dependency shared-mime-info not found (tried pkg-config and cmake)". Debian's
+# shared-mime-info package installs shared-mime-info.pc to /usr/share/pkgconfig,
+# which is on the default pkg-config search path already, so no PKG_CONFIG_PATH
+# change is needed -- just installing the package above is enough.
 
 WORKDIR /build
 RUN mkdir -p /build-scripts
