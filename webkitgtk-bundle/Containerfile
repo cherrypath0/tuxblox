@@ -1,0 +1,18 @@
+# webkitgtk-bundle/Containerfile
+# Old-glibc-baseline builder image: Debian 12 "bookworm" ships glibc 2.36, old enough
+# to cover Ubuntu 22.04+/Debian 12+ and everything newer -- matching the same
+# reasoning as the deferred installer/proton GLIBC-floor fix (see project memory
+# glibc_floor_installer_bug.md). This container provides build-TIME tools only; the
+# base libraries it links against (zlib, libpng, freetype, fontconfig, expat, pixman)
+# come from this image's own system packages and are NOT vendored -- see Global
+# Constraints in the plan this Containerfile belongs to.
+FROM debian:12
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential cmake ninja-build meson pkg-config git curl ca-certificates \
+    ruby gperf unifdef python3 python3-pip patchelf \
+    libz-dev libpng-dev libfreetype6-dev libfontconfig1-dev libexpat1-dev \
+    libpixman-1-dev libjpeg62-turbo-dev bison flex gettext \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
