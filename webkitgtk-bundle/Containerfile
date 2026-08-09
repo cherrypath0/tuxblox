@@ -13,7 +13,51 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ruby gperf unifdef python3 python3-pip patchelf \
     libz-dev libpng-dev libfreetype6-dev libfontconfig1-dev libexpat1-dev \
     libpixman-1-dev libjpeg62-turbo-dev bison flex gettext shared-mime-info \
+    libudev-dev libgcrypt20-dev libnghttp2-dev \
+    libepoxy-dev libxkbcommon-dev libwayland-dev libwayland-egl-backend-dev \
+    wayland-protocols libdrm-dev libtiff-dev libxml2-dev \
+    libx11-dev libxext-dev libxrender-dev libxi-dev libxrandr-dev \
+    libxcursor-dev libxdamage-dev libxfixes-dev libxinerama-dev \
     && rm -rf /var/lib/apt/lists/*
+# Task 4 (gtk4, libsoup-3, libsecret, libgudev, libpsl) additions, added up front after
+# inspecting each project's meson.build/meson.options rather than discovering them one
+# failure at a time:
+#   - libudev-dev: libgudev's own dependency('libudev', ...) has no required:false --
+#     hard build requirement, no auto-detection fallback.
+#   - libgcrypt20-dev: libsecret's meson.options 'crypto' option defaults to the combo
+#     value 'libgcrypt' (not 'auto'), so dependency('libgcrypt') is unconditionally
+#     required unless that option is explicitly overridden. Left at the default rather
+#     than disabling crypto -- libsecret's whole purpose is transport-encrypted
+#     credential storage, and Roblox's login/cookie persistence is exactly the kind of
+#     thing that should go through a real Secret Service backend, not a stripped one.
+#   - libnghttp2-dev: libsoup's dependency('libnghttp2') also has no required:false --
+#     HTTP/2 support is a hard link-time requirement of libsoup-3, not an optional
+#     feature toggle.
+#   - libepoxy-dev, libxkbcommon-dev, libwayland-dev, libwayland-egl-backend-dev,
+#     wayland-protocols, libdrm-dev, libtiff-dev: all hard, unconditional
+#     dependency() calls in gtk4's top-level meson.build (epoxy, xkbcommon when
+#     wayland-backend is on, wayland-client/wayland-protocols/wayland-egl when
+#     wayland-backend is on, libdrm when building on Linux regardless of backend
+#     choice, libtiff for gdk-pixbuf-adjacent image loading).
+#   - libx11-dev and friends (xext, xrender, xi, xrandr, xcursor, xdamage, xfixes,
+#     xinerama): gtk4's meson.options defaults x11-backend=true and wayland-backend=true
+#     (both booleans, not features -- turning either off changes the GDK backend ABI).
+#     Building both backends (rather than disabling X11 to dodge these packages) matters
+#     because TuxBlox targets arbitrary Linux desktops, many of which are still X11-only
+#     or XWayland-dependent; dropping the X11 backend would silently break those users.
+#   - libxml2-dev: Debian 12's system libwayland-dev is 1.21.0, older than gtk4
+#     4.18.6's stated minimum (wayland-client >= 1.23.0), so meson falls back to
+#     building gtk4's bundled `subprojects/wayland.wrap` (upstream wayland 1.23.0,
+#     pinned by that wrap file) from source instead -- exactly the kind of
+#     old-baseline-container mismatch this whole build already routes around by
+#     building most of the stack from source rather than trusting the base distro's
+#     versions. That subproject's wayland-scanner enables `dtd_validation` (protocol
+#     XML schema validation) by default, which needs libxml-2.0; gtk4's own
+#     dependency() call for wayland-client already disables the *separate*
+#     `documentation` option via default_options, but not dtd_validation. Installing
+#     libxml2-dev satisfies that build-time check with no behavior tradeoff --
+#     dtd_validation only validates protocol XML during code generation, it doesn't
+#     change anything about the resulting wayland-client library.
 
 # Debian 12 bookworm's apt-packaged meson (1.0.1) is too old for GLib 2.84.x, which
 # requires meson >= 1.4.0. pip's meson installs to /usr/local/bin, which precedes

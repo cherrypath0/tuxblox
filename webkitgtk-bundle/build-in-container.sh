@@ -131,3 +131,81 @@ fetch_and_extract \
     /build/graphene
 meson setup /build/graphene/_build /build/graphene --prefix="$PREFIX"
 ninja -C /build/graphene/_build -j"$JOBS" install
+
+echo ":: Building libpsl $LIBPSL_VERSION"
+fetch_and_extract \
+    "https://github.com/rockdaboot/libpsl/releases/download/${LIBPSL_VERSION}/libpsl-${LIBPSL_VERSION}.tar.gz" \
+    /build/libpsl
+meson setup /build/libpsl/_build /build/libpsl --prefix="$PREFIX"
+ninja -C /build/libpsl/_build -j"$JOBS" install
+
+echo ":: Building libgudev $LIBGUDEV_VERSION"
+fetch_and_extract \
+    "https://download.gnome.org/sources/libgudev/${LIBGUDEV_VERSION%%.*}/libgudev-${LIBGUDEV_VERSION}.tar.xz" \
+    /build/libgudev
+meson setup /build/libgudev/_build /build/libgudev --prefix="$PREFIX"
+ninja -C /build/libgudev/_build -j"$JOBS" install
+
+echo ":: Building libsecret $LIBSECRET_VERSION"
+fetch_and_extract \
+    "https://download.gnome.org/sources/libsecret/${LIBSECRET_VERSION%.*}/libsecret-${LIBSECRET_VERSION}.tar.xz" \
+    /build/libsecret
+# libsecret's meson.options declares `introspection` as a plain boolean (default
+# true), unlike the `feature`-typed (auto/enabled/disabled) introspection options
+# used everywhere else in this chain (glib, pango, gtk4, libsoup, ...) -- so it's a
+# hard, unconditional dependency on the separate gobject-introspection project
+# (g-ir-scanner/g-ir-compiler + the gobject-introspection-1.0 pkg-config module),
+# which nothing earlier in this script builds. Every other component in the stack
+# already resolves its own introspection option to "not found -> skip" the same
+# way, since that tooling isn't present; libsecret's option just isn't shaped to
+# degrade the same way. Introspection only gates .gir/.typelib generation and
+# introspection-only tests (see libsecret/meson.build's `if get_option('introspection')`
+# blocks) -- it does not affect the C library or headers WebKitGTK links against, so
+# disabling it here doesn't drop any functionality Roblox's pages could depend on;
+# it only means libsecret wouldn't be usable from GI-based bindings (Python/gjs),
+# which is out of scope for this C/C++ build chain.
+meson setup /build/libsecret/_build /build/libsecret --prefix="$PREFIX" -Dmanpage=false -Dgtk_doc=false -Dintrospection=false
+ninja -C /build/libsecret/_build -j"$JOBS" install
+
+echo ":: Building libsoup $LIBSOUP_VERSION"
+fetch_and_extract \
+    "https://download.gnome.org/sources/libsoup/${LIBSOUP_VERSION%.*}/libsoup-${LIBSOUP_VERSION}.tar.xz" \
+    /build/libsoup
+# -Dtls_check=false: libsoup itself has no bundled TLS implementation in ANY
+# configuration -- it always delegates to GIO's pluggable TLS backend, which is
+# provided at runtime by the separate glib-networking project (a dynamically loaded
+# GIO module, not something libsoup links against at build time). `tls_check` (default
+# true) is purely a build-machine sanity assert: it runs a test program and fails the
+# *build* if the machine doing the building doesn't already have glib-networking
+# installed. Since this container never runs the libsoup it's building, that check
+# is meaningless here regardless of its value -- libsoup's own meson_options.txt
+# documents exactly this escape hatch for packagers who provide glib-networking as a
+# separate runtime dependency instead of a build-time one.
+#
+# IMPORTANT -- this is NOT the same as "TLS is handled, ship it": nothing in this
+# plan's Global Constraints dependency list (glib, cairo, pango, gdk-pixbuf, GTK-4,
+# libsoup, Mesa, GStreamer, libgudev, libsecret, libtasn1, libwebp, lcms2, openjpeg,
+# sqlite, wpebackend-fdo, ICU) currently builds glib-networking or a TLS backend for
+# it (gnutls or openssl). Without glib-networking present as a GIO module in the
+# final bundle, GIO falls back to its dummy TLS backend at runtime and every HTTPS
+# connection WebKitGTK makes -- which is all of them for Roblox -- will fail. A later
+# task MUST build glib-networking (+ gnutls or openssl) and install it into this same
+# prefix before the bundle produced by this plan is functionally complete. Flagged
+# in this task's report rather than silently building it here, since it's outside
+# this task's brief (gtk4/libsoup-3/libsecret/libgudev/libpsl) and pulls in its own
+# dependency chain (nettle, p11-kit, gnutls/openssl, etc.) that deserves its own task.
+meson setup /build/libsoup/_build /build/libsoup --prefix="$PREFIX" \
+    -Dvapi=disabled -Dgssapi=disabled -Dsysprof=disabled -Dtls_check=false
+ninja -C /build/libsoup/_build -j"$JOBS" install
+
+echo ":: Building gtk4 $GTK4_VERSION"
+fetch_and_extract \
+    "https://download.gnome.org/sources/gtk/${GTK4_VERSION%.*}/gtk-${GTK4_VERSION}.tar.xz" \
+    /build/gtk4
+# Brief's original flag was "-Ddemos=false" -- gtk4's meson.options actually names
+# this option "build-demos" (there is no bare "demos" option; "-Ddemos=false" fails
+# meson setup immediately with "Unknown option: demos"). Confirmed against the real
+# gtk-4.18.6 tarball's meson.options before fixing.
+meson setup /build/gtk4/_build /build/gtk4 --prefix="$PREFIX" \
+    -Dmedia-gstreamer=disabled -Dvulkan=disabled -Dbuild-tests=false -Dbuild-demos=false -Dbuild-examples=false
+ninja -C /build/gtk4/_build -j"$JOBS" install
