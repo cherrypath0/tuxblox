@@ -310,7 +310,13 @@ static gboolean sync_invoke_trampoline(void *data)
     return 0; /* G_SOURCE_REMOVE */
 }
 
-void gtk_thread_invoke_sync(void (*fn)(void *data), void *data)
+/* Returns TRUE if fn was actually invoked (on the GTK thread) and this
+ * function waited for it to finish, FALSE if it bailed out early without
+ * running fn at all (init never succeeded) -- callers whose fn fills an
+ * out-param need this to distinguish "ran, filled it" from "didn't run,
+ * output untouched" rather than silently getting stale/uninitialized
+ * output on the FALSE path. */
+BOOL gtk_thread_invoke_sync(void (*fn)(void *data), void *data)
 {
     /* struct sync_invoke_ctx is stack-allocated (automatic storage), not
      * static -- PTHREAD_MUTEX_INITIALIZER/PTHREAD_COND_INITIALIZER are only
@@ -336,7 +342,7 @@ void gtk_thread_invoke_sync(void (*fn)(void *data), void *data)
         WARN("gtk_thread_invoke_sync called without a successful unix_init\n");
         pthread_mutex_destroy(&ctx.lock);
         pthread_cond_destroy(&ctx.cond);
-        return;
+        return FALSE;
     }
 
     p_g_main_context_invoke_full(p_g_main_context_default(), 0, sync_invoke_trampoline, &ctx, NULL);
@@ -347,21 +353,42 @@ void gtk_thread_invoke_sync(void (*fn)(void *data), void *data)
 
     pthread_mutex_destroy(&ctx.lock);
     pthread_cond_destroy(&ctx.cond);
+    return TRUE;
 }
 
-/* unix_init_impl must run its actual init work exactly once. Task 5 (a
- * later task) calls webview2loader_unix_init() on every environment
- * creation, which can happen repeatedly and from multiple PE threads. Doing
- * the env-var setenv()s / library dlopen()s / thread-creation more than
- * once would: (a) race setenv() against concurrent getenv() calls
- * elsewhere in this heavily multithreaded process -- a real glibc
- * environ-realloc crash risk; (b) leak a dlopen() refcount per call with no
- * matching dlclose(); (c) let two PE threads calling unix_init concurrently
- * data-race on the p_* function-pointer globals. `initialized`/`init_ok`
- * cache the one-time result, guarded by the same lock already used for the
- * GTK-thread-ready handshake below. */
-static BOOL initialized;
+/* unix_init_impl must run its actual init work exactly once, even when
+ * called concurrently from multiple PE threads (Task 5 calls
+ * webview2loader_unix_init() on every environment creation). A plain
+ * "static BOOL initialized, checked-and-set under gtk_thread_ready_lock"
+ * is NOT enough by itself: the init body's own
+ * `pthread_cond_wait(&gtk_thread_ready_cond, &gtk_thread_ready_lock)`
+ * (waiting for the GTK thread to finish starting up) necessarily RELEASES
+ * gtk_thread_ready_lock for the duration of the wait -- pthread_cond_wait's
+ * whole contract is "atomically unlock and block, then relock before
+ * returning". A second thread arriving during that window would see
+ * `initialized` still FALSE and race the first thread through
+ * set_webkit_relocation_env()/load_bundle_functions()/pthread_create() a
+ * second time -- the exact setenv-vs-getenv race, doubled dlopen refcount,
+ * and p_*-function-pointer data race the idempotency fix was meant to
+ * prevent in the first place, just deferred to a narrower window instead
+ * of eliminated.
+ *
+ * Fixed with a three-state guard instead of a plain boolean:
+ *   INIT_IDLE    -- nobody has started init yet; the calling thread does it.
+ *   INIT_RUNNING -- another thread is already running the init body
+ *                   (including its own internal wait for the GTK thread);
+ *                   later arrivals wait on init_state_cond instead of
+ *                   redoing any of the work.
+ *   INIT_DONE    -- init_ok holds the final, cached result.
+ * `init_state` is set to INIT_RUNNING BEFORE the running thread does
+ * anything that could release gtk_thread_ready_lock, so any thread that
+ * acquires the lock while init is in flight -- including exactly the
+ * pthread_cond_wait release window described above -- always observes
+ * INIT_RUNNING, never a stale INIT_IDLE. */
+enum { INIT_IDLE, INIT_RUNNING, INIT_DONE };
+static int init_state = INIT_IDLE;
 static BOOL init_ok;
+static pthread_cond_t init_state_cond = PTHREAD_COND_INITIALIZER;
 
 static NTSTATUS unix_init_impl(void *args)
 {
@@ -370,12 +397,31 @@ static NTSTATUS unix_init_impl(void *args)
 
     pthread_mutex_lock(&gtk_thread_ready_lock);
 
-    if (initialized)
+    if (init_state == INIT_DONE)
     {
         params->success = init_ok;
         pthread_mutex_unlock(&gtk_thread_ready_lock);
         return init_ok ? STATUS_SUCCESS : STATUS_NOT_SUPPORTED;
     }
+
+    if (init_state == INIT_RUNNING)
+    {
+        /* Another thread got here first and is running (or about to run)
+         * the one-time init body below, including its own wait for the GTK
+         * thread to start up. Wait for it to publish INIT_DONE instead of
+         * also running set_webkit_relocation_env()/load_bundle_functions()/
+         * pthread_create() ourselves. */
+        while (init_state == INIT_RUNNING)
+            pthread_cond_wait(&init_state_cond, &gtk_thread_ready_lock);
+        params->success = init_ok;
+        pthread_mutex_unlock(&gtk_thread_ready_lock);
+        return init_ok ? STATUS_SUCCESS : STATUS_NOT_SUPPORTED;
+    }
+
+    /* init_state == INIT_IDLE: we're the thread that does the real work.
+     * Claim it immediately, while still holding the lock, before anything
+     * below can release it. */
+    init_state = INIT_RUNNING;
 
     params->success = FALSE;
 
@@ -398,6 +444,12 @@ static NTSTATUS unix_init_impl(void *args)
         WARN("pthread_create failed for the GTK thread\n");
         goto done;
     }
+    /* Nothing ever joins the GTK thread (it either runs its main loop
+     * forever on success, or returns immediately on failure -- see
+     * gtk_thread_proc). Detach it so a failed init doesn't leak a
+     * thread descriptor; harmless on the success path since a running,
+     * detached thread is exactly as alive as a running, joinable one. */
+    pthread_detach(gtk_thread);
 
     while (!gtk_thread_ready) pthread_cond_wait(&gtk_thread_ready_cond, &gtk_thread_ready_lock);
 
@@ -418,7 +470,8 @@ static NTSTATUS unix_init_impl(void *args)
 
 done:
     init_ok = params->success;
-    initialized = TRUE;
+    init_state = INIT_DONE;
+    pthread_cond_broadcast(&init_state_cond);
     pthread_mutex_unlock(&gtk_thread_ready_lock);
     return init_ok ? STATUS_SUCCESS : STATUS_NOT_SUPPORTED;
 }
