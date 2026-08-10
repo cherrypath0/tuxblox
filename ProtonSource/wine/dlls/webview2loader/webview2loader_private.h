@@ -14,6 +14,13 @@
  * returns immediately and reports completion via a callback/event later. */
 BOOL start_async_work(LPTHREAD_START_ROUTINE proc, void *ctx);
 
+/* Runs unix_init on the unixlib side: dlopens the bundled GLib/GObject/
+ * GTK4/WebKitGTK-6.0 libraries, sets the WebKitGTK relocation env vars, and
+ * starts the dedicated GTK main-loop thread. Returns TRUE on success (the
+ * bundle loaded and the GTK thread is up and ready), FALSE otherwise (e.g.
+ * TUXBLOX_WEBVIEW_DIR unset, or the bundle failed to dlopen/dlsym). */
+BOOL webview2loader_unix_init(void);
+
 /* Interface/object definitions land here in later tasks:
  * Task 5: ICoreWebView2Environment
  * Task 6: ICoreWebView2Controller

@@ -30,6 +30,16 @@ BOOL start_async_work(LPTHREAD_START_ROUTINE proc, void *ctx)
     return TRUE;
 }
 
+/* Not exported -- just so Task 4's dlopen/GTK-thread machinery is
+ * independently testable before any real DLL export calls into it.
+ * CreateCoreWebView2EnvironmentWithOptions starts calling this in Task 5. */
+BOOL webview2loader_unix_init(void)
+{
+    struct init_params params = { 0 };
+    WEBVIEW2LOADER_UNIX_CALL(init, &params);
+    return params.success;
+}
+
 HRESULT WINAPI CreateCoreWebView2EnvironmentWithOptions(PCWSTR browserExecutableFolder, PCWSTR userDataFolder,
                                                           void *environmentOptions, void *environmentCreatedHandler)
 {
