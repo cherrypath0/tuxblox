@@ -552,6 +552,95 @@ echo ":: Building webkitgtk $WEBKITGTK_VERSION"
 fetch_and_extract \
     "https://webkitgtk.org/releases/webkitgtk-${WEBKITGTK_VERSION}.tar.xz" \
     /build/webkitgtk
+
+# --- Task 8 finding: WEBKIT_EXEC_PATH is gated behind ENABLE_DEVELOPER_MODE upstream,
+# and this build does not (and should not) set -DDEVELOPER_MODE=ON --------------------
+# Task 8 (packaging) set out to verify -- not just trust -- the claim that
+# WEBKIT_EXEC_PATH overrides the compiled-in PKGLIBEXECDIR path at runtime (needed
+# because the extracted tarball's real install location isn't known until TuxBlox's own
+# build runs, and can't match whatever $PREFIX this container build used). Verification
+# method: `strings lib/libwebkitgtk-6.0.so.4.16.9 | grep WEBKIT_EXEC_PATH` on the
+# as-built (pre-patch) library returned NOTHING -- the getenv() call was compiled out
+# entirely. Root cause, confirmed by reading the real upstream source
+# (Source/WebKit/Shared/glib/ProcessExecutablePathGLib.cpp): the whole WEBKIT_EXEC_PATH
+# check lives inside `#if ENABLE(DEVELOPER_MODE)`, and this build's cmake invocation
+# below never sets `-DDEVELOPER_MODE=ON` (deliberately -- DEVELOPER_MODE also flips
+# DEVELOPER_MODE_FATAL_WARNINGS ON by default, changes ENABLE_THUNDER/USE_CAPSTONE
+# defaults, and pulls in other dev-only behavior with a much broader blast radius than
+# this one path-resolution fix needs).
+#
+# Fix: patch ONLY the WEBKIT_EXEC_PATH check to run unconditionally, leaving every
+# other DEVELOPER_MODE-gated branch in the same function (the getExecutablePath()
+# dev-convenience fallback) untouched. This is a narrow, TuxBlox-specific patch to
+# upstream WebKit source, applied here (not via a vendored .patch file, to keep the
+# whole change visible in one place) before the normal configure/build/install below.
+WEBKIT_EXEC_PATH_FIX_TARGET=/build/webkitgtk/Source/WebKit/Shared/glib/ProcessExecutablePathGLib.cpp
+python3 - "$WEBKIT_EXEC_PATH_FIX_TARGET" <<'PYEOF'
+import sys
+path = sys.argv[1]
+with open(path) as f:
+    src = f.read()
+
+old = '''static String findWebKitProcess(const char* processName)
+{
+#if ENABLE(DEVELOPER_MODE)
+    static const char* execDirectory = g_getenv("WEBKIT_EXEC_PATH");
+    if (execDirectory) {
+        String processPath = FileSystem::pathByAppendingComponent(FileSystem::stringFromFileSystemRepresentation(execDirectory), StringView::fromLatin1(processName));
+        if (FileSystem::fileExists(processPath))
+            return processPath;
+    }
+
+    static String executablePath = getExecutablePath();
+    if (!executablePath.isNull()) {
+        String processPath = FileSystem::pathByAppendingComponent(executablePath, StringView::fromLatin1(processName));
+        if (FileSystem::fileExists(processPath))
+            return processPath;
+    }
+#endif
+
+    return FileSystem::pathByAppendingComponent(FileSystem::stringFromFileSystemRepresentation(PKGLIBEXECDIR), StringView::fromLatin1(processName));
+}'''
+
+new = '''static String findWebKitProcess(const char* processName)
+{
+    // TuxBlox patch: WEBKIT_EXEC_PATH must work in release (non-DEVELOPER_MODE)
+    // builds too -- this is the only available runtime override for the
+    // PKGLIBEXECDIR path, which is a compile-time absolute-path constant that
+    // patchelf/RPATH rewriting cannot touch (see webkitgtk-bundle/README.md).
+    // Upstream gates this check behind ENABLE(DEVELOPER_MODE); ungated here.
+    // Every other DEVELOPER_MODE-gated behavior in this function (the
+    // getExecutablePath() dev-convenience fallback) is left untouched.
+    static const char* execDirectory = g_getenv("WEBKIT_EXEC_PATH");
+    if (execDirectory) {
+        String processPath = FileSystem::pathByAppendingComponent(FileSystem::stringFromFileSystemRepresentation(execDirectory), StringView::fromLatin1(processName));
+        if (FileSystem::fileExists(processPath))
+            return processPath;
+    }
+
+#if ENABLE(DEVELOPER_MODE)
+    static String executablePath = getExecutablePath();
+    if (!executablePath.isNull()) {
+        String processPath = FileSystem::pathByAppendingComponent(executablePath, StringView::fromLatin1(processName));
+        if (FileSystem::fileExists(processPath))
+            return processPath;
+    }
+#endif
+
+    return FileSystem::pathByAppendingComponent(FileSystem::stringFromFileSystemRepresentation(PKGLIBEXECDIR), StringView::fromLatin1(processName));
+}'''
+
+if old not in src:
+    sys.exit("ERROR: expected original ProcessExecutablePathGLib.cpp text not found -- "
+             "upstream source may have changed shape; re-check this patch against the "
+             "new version before continuing")
+
+with open(path, 'w') as f:
+    f.write(src.replace(old, new))
+print(":: WEBKIT_EXEC_PATH patch applied to ProcessExecutablePathGLib.cpp")
+PYEOF
+# --- end Task 8 WEBKIT_EXEC_PATH fix ---------------------------------------------------
+
 # -DCMAKE_C(XX)_COMPILER_LAUNCHER=ccache: the standard, non-invasive way to interpose
 # ccache into a CMake build without renaming/symlinking the compiler itself -- CMake
 # prefixes every actual compile command with the launcher. See the ccache comment
@@ -597,3 +686,12 @@ cmake -B /build/webkitgtk/_build -S /build/webkitgtk -GNinja \
     -DENABLE_BUBBLEWRAP_SANDBOX=OFF
 cmake --build /build/webkitgtk/_build -j"$JOBS"
 cmake --install /build/webkitgtk/_build
+
+# Guard against a future upstream version silently changing shape in a way the Task 8
+# patch above no longer actually applies to (the python patch step already fails loudly
+# if its exact expected source text isn't found, but this double-checks the *compiled
+# result* too, catching e.g. a differently-shaped fix upstream ends up applying itself).
+if ! strings "$PREFIX"/lib/libwebkitgtk-6.0.so.* 2>/dev/null | grep -q '^WEBKIT_EXEC_PATH$'; then
+    echo "ERROR: WEBKIT_EXEC_PATH string not found in installed libwebkitgtk-6.0.so -- the Task 8 patch did not take effect" >&2
+    exit 1
+fi

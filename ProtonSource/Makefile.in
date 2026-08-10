@@ -1259,6 +1259,33 @@ all-dist: $(DIST_XALIA)
 
 
 ##
+## webkitgtk (bundled WebView2 replacement backend)
+##
+## Vendored as a prebuilt, relocatable tarball -- see ../webkitgtk-bundle/README.md for
+## how it's built. Modeled directly on the GECKO_* block above, except the tarball is
+## committed to contrib/ rather than fetched over the network at build time (WebKitGTK
+## isn't published anywhere as a ready-to-use relocatable x86_64 tarball the way
+## wine-gecko/wine-mono are -- this repo has to build and vendor its own).
+##
+## WEBKITGTK_VER must be kept in sync BY HAND with webkitgtk-bundle/versions.env's
+## WEBKITGTK_VERSION -- they live in two different build systems that don't share
+## variables. Update both together when webkitgtk-bundle/build.sh is re-run for a
+## version bump.
+
+WEBKITGTK_VER := 2.52.5
+WEBKITGTK_x86_64_TARBALL := webkitgtk-$(WEBKITGTK_VER)-x86_64.tar.xz
+WEBKITGTK_DST := $(DST_LIBDIR)/tuxblox-webview
+
+$(OBJ)/.webkitgtk-x86_64-dist: $(SRC)/contrib/$(WEBKITGTK_x86_64_TARBALL)
+	rm -rf $(WEBKITGTK_DST)
+	mkdir -p $(WEBKITGTK_DST)
+	tar -xJf $(SRC)/contrib/$(WEBKITGTK_x86_64_TARBALL) -C $(WEBKITGTK_DST) --strip-components=1
+	touch $@
+
+all-dist: $(OBJ)/.webkitgtk-x86_64-dist
+
+
+##
 ## ICU
 ##
 
