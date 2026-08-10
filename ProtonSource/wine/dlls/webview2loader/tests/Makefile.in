@@ -1,0 +1,5 @@
+TESTDLL   = webview2loader.dll
+IMPORTS   = webview2loader
+
+SOURCES = \
+	webview2loader.c

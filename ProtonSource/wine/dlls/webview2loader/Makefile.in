@@ -1,0 +1,8 @@
+MODULE    = webview2loader.dll
+UNIXLIB   = webview2loader.so
+IMPORTLIB = webview2loader
+
+SOURCES = \
+	main.c \
+	unixlib.c \
+	webview2loader.spec
