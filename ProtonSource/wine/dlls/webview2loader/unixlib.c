@@ -40,7 +40,6 @@ WINE_DEFAULT_DEBUG_CHANNEL(webview2loader);
  * referenced by address, only used as typeof() operands (which, like
  * sizeof(), emits no symbol reference), so this never actually links
  * against a real libglib/libgtk/libwebkitgtk. */
-typedef void GObject;
 typedef void GtkWidget;
 typedef void GtkWindow;
 typedef void GMainContext;
@@ -49,7 +48,6 @@ typedef void WebKitWebView;
 typedef void WebKitNetworkSession;
 typedef void WebKitCookieManager;
 typedef int gboolean;
-typedef unsigned int guint;
 typedef gboolean (*GSourceFunc)(void *user_data);
 typedef void (*GCallback)(void);
 
@@ -71,7 +69,18 @@ extern unsigned long g_signal_connect_data(void *instance, const char *detailed_
                                             void (*destroy_data)(void *data, void *closure),
                                             int connect_flags);
 
-extern void gtk_init(void);
+/* NOT gtk_init() -- confirmed via `strings`/`nm -D` against the real
+ * committed libgtk-4.so.1.1800.6 that GTK4's gtk_init() is implemented as
+ * `if (!gtk_init_check()) { g_warning(...); exit(1); }` (the library
+ * contains the "Failed to open display" g_warning string and exports both
+ * gtk_init and gtk_init_check as plain functions -- the G_OS_WIN32-only
+ * gtk_init()/gtk_init_check() ABI-check macros in gtkmain.h don't apply on
+ * Linux). Calling gtk_init() from the GTK thread would exit(1) the whole
+ * Roblox process the moment DISPLAY/WAYLAND_DISPLAY isn't usable, with no
+ * chance to return STATUS_NOT_SUPPORTED gracefully instead. gtk_init_check()
+ * has the identical signature/no-arg contract but returns gboolean instead
+ * of aborting. */
+extern gboolean gtk_init_check(void);
 extern GtkWidget *gtk_window_new(void);
 extern void gtk_window_set_child(GtkWindow *window, GtkWidget *child);
 extern void gtk_window_present(GtkWindow *window);
@@ -96,7 +105,7 @@ extern WebKitCookieManager *webkit_network_session_get_cookie_manager(WebKitNetw
     DO_FUNC(g_signal_connect_data)
 
 #define GTK_FUNCS \
-    DO_FUNC(gtk_init); \
+    DO_FUNC(gtk_init_check); \
     DO_FUNC(gtk_window_new); \
     DO_FUNC(gtk_window_set_child); \
     DO_FUNC(gtk_window_present); \
@@ -217,7 +226,19 @@ static void set_webkit_relocation_env(const char *dir)
     setenv("GST_PLUGIN_SCANNER", path, 1);
 
     snprintf(path, sizeof(path), "%s/lib/x86_64-linux-gnu/gstreamer-1.0", dir);
+    /* GStreamer 1.x reads GST_PLUGIN_SYSTEM_PATH_1_0 first and only falls
+     * back to the unsuffixed GST_PLUGIN_SYSTEM_PATH when the _1_0-suffixed
+     * one is unset. ProtonSource/proton sets GST_PLUGIN_SYSTEM_PATH_1_0
+     * unconditionally for its own bundled GStreamer, so under this repo's
+     * Proton the unsuffixed var alone is inert -- the bundle's own
+     * gstreamer-1.0 plugins (built specifically for this bundle) would
+     * never be found and WebKit's media pipeline would silently fall back
+     * to Proton's differently-versioned GStreamer plugins instead. Set
+     * both: the suffixed one to actually take effect here, the unsuffixed
+     * one kept for any other GStreamer-based consumer that only checks the
+     * unsuffixed name. */
     setenv("GST_PLUGIN_SYSTEM_PATH", path, 1);
+    setenv("GST_PLUGIN_SYSTEM_PATH_1_0", path, 1);
 
     snprintf(path, sizeof(path), "%s/share", dir);
     setenv("XDG_DATA_DIRS", path, 1);
@@ -231,18 +252,34 @@ static GMainLoop *gtk_main_loop;
 static pthread_mutex_t gtk_thread_ready_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t gtk_thread_ready_cond = PTHREAD_COND_INITIALIZER;
 static BOOL gtk_thread_ready;
+/* Set (under gtk_thread_ready_lock, before gtk_thread_ready is signalled) to
+ * whether the GTK thread actually finished initializing successfully --
+ * distinct from gtk_thread_ready, which only means "the thread reached the
+ * ready-signal point", success or not. unix_init_impl must not report
+ * STATUS_SUCCESS unless this is TRUE too. */
+static BOOL gtk_thread_init_ok;
 
 static void *gtk_thread_proc(void *arg)
 {
-    p_gtk_init();
-    gtk_main_loop = p_g_main_loop_new(NULL, 0);
+    BOOL ok = p_gtk_init_check();
+
+    /* Only build the main loop if init actually succeeded -- calling
+     * g_main_loop_new()/g_main_loop_run() after a failed gtk_init_check()
+     * would run an event loop nothing can ever usefully post GTK/WebKit
+     * work through. */
+    if (ok)
+    {
+        gtk_main_loop = p_g_main_loop_new(NULL, 0);
+        if (!gtk_main_loop) ok = FALSE;
+    }
 
     pthread_mutex_lock(&gtk_thread_ready_lock);
+    gtk_thread_init_ok = ok;
     gtk_thread_ready = TRUE;
     pthread_cond_signal(&gtk_thread_ready_cond);
     pthread_mutex_unlock(&gtk_thread_ready_lock);
 
-    p_g_main_loop_run(gtk_main_loop);
+    if (ok) p_g_main_loop_run(gtk_main_loop);
     return NULL;
 }
 
@@ -275,39 +312,115 @@ static gboolean sync_invoke_trampoline(void *data)
 
 void gtk_thread_invoke_sync(void (*fn)(void *data), void *data)
 {
-    struct sync_invoke_ctx ctx = { fn, data, PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER, FALSE };
+    /* struct sync_invoke_ctx is stack-allocated (automatic storage), not
+     * static -- PTHREAD_MUTEX_INITIALIZER/PTHREAD_COND_INITIALIZER are only
+     * POSIX-sanctioned for statically-allocated objects (works in practice
+     * on glibc, but pthread_*_init()/pthread_*_destroy() is the portable,
+     * correct way to initialize a lock/condvar living on the stack). The
+     * actual synchronization behaviour below (invoke on the GTK thread,
+     * block the caller on ctx.done) is unchanged. */
+    struct sync_invoke_ctx ctx;
+
+    ctx.fn = fn;
+    ctx.data = data;
+    ctx.done = FALSE;
+    pthread_mutex_init(&ctx.lock, NULL);
+    pthread_cond_init(&ctx.cond, NULL);
+
+    /* No later task calls this yet (Task 5 is the first caller), but guard
+     * against a null-deref if it's ever reached before a successful
+     * unix_init (e.g. on i386, where init always returns
+     * STATUS_NOT_SUPPORTED since the bundle is x86_64-only). */
+    if (!p_g_main_context_invoke_full || !p_g_main_context_default)
+    {
+        WARN("gtk_thread_invoke_sync called without a successful unix_init\n");
+        pthread_mutex_destroy(&ctx.lock);
+        pthread_cond_destroy(&ctx.cond);
+        return;
+    }
 
     p_g_main_context_invoke_full(p_g_main_context_default(), 0, sync_invoke_trampoline, &ctx, NULL);
 
     pthread_mutex_lock(&ctx.lock);
     while (!ctx.done) pthread_cond_wait(&ctx.cond, &ctx.lock);
     pthread_mutex_unlock(&ctx.lock);
+
+    pthread_mutex_destroy(&ctx.lock);
+    pthread_cond_destroy(&ctx.cond);
 }
+
+/* unix_init_impl must run its actual init work exactly once. Task 5 (a
+ * later task) calls webview2loader_unix_init() on every environment
+ * creation, which can happen repeatedly and from multiple PE threads. Doing
+ * the env-var setenv()s / library dlopen()s / thread-creation more than
+ * once would: (a) race setenv() against concurrent getenv() calls
+ * elsewhere in this heavily multithreaded process -- a real glibc
+ * environ-realloc crash risk; (b) leak a dlopen() refcount per call with no
+ * matching dlclose(); (c) let two PE threads calling unix_init concurrently
+ * data-race on the p_* function-pointer globals. `initialized`/`init_ok`
+ * cache the one-time result, guarded by the same lock already used for the
+ * GTK-thread-ready handshake below. */
+static BOOL initialized;
+static BOOL init_ok;
 
 static NTSTATUS unix_init_impl(void *args)
 {
     struct init_params *params = args;
     const char *dir;
 
+    pthread_mutex_lock(&gtk_thread_ready_lock);
+
+    if (initialized)
+    {
+        params->success = init_ok;
+        pthread_mutex_unlock(&gtk_thread_ready_lock);
+        return init_ok ? STATUS_SUCCESS : STATUS_NOT_SUPPORTED;
+    }
+
     params->success = FALSE;
 
     if (!(dir = getenv("TUXBLOX_WEBVIEW_DIR")) || !dir[0])
-        return STATUS_NOT_SUPPORTED;
+    {
+        WARN("TUXBLOX_WEBVIEW_DIR not set -- not running under this repo's proton\n");
+        goto done;
+    }
 
     set_webkit_relocation_env(dir);
     if (!load_bundle_functions())
-        return STATUS_NOT_SUPPORTED;
+        goto done;
 
-    pthread_mutex_lock(&gtk_thread_ready_lock);
-    if (!gtk_thread_ready)
+    /* Check pthread_create()'s return value -- if thread creation fails,
+     * nothing will ever set gtk_thread_ready, so waiting on the condvar
+     * below would block forever on a PE thread parked inside a
+     * WINE_UNIX_CALL (not cancellable), hanging the whole app. */
+    if (pthread_create(&gtk_thread, NULL, gtk_thread_proc, NULL) != 0)
     {
-        pthread_create(&gtk_thread, NULL, gtk_thread_proc, NULL);
-        while (!gtk_thread_ready) pthread_cond_wait(&gtk_thread_ready_cond, &gtk_thread_ready_lock);
+        WARN("pthread_create failed for the GTK thread\n");
+        goto done;
     }
-    pthread_mutex_unlock(&gtk_thread_ready_lock);
+
+    while (!gtk_thread_ready) pthread_cond_wait(&gtk_thread_ready_cond, &gtk_thread_ready_lock);
+
+    /* gtk_thread_ready being set only means the thread reached the
+     * ready-signal point, not that gtk_init_check()/g_main_loop_new()
+     * actually succeeded (e.g. no usable DISPLAY/WAYLAND_DISPLAY). Treat
+     * that the same as any other init failure rather than reporting
+     * STATUS_SUCCESS for a main loop that either doesn't exist or was
+     * never started, which would hang every later gtk_thread_invoke_sync()
+     * call waiting on a loop that isn't running. */
+    if (!gtk_thread_init_ok)
+    {
+        WARN("GTK init failed on the GTK thread (no usable display?)\n");
+        goto done;
+    }
 
     params->success = TRUE;
-    return STATUS_SUCCESS;
+
+done:
+    init_ok = params->success;
+    initialized = TRUE;
+    pthread_mutex_unlock(&gtk_thread_ready_lock);
+    return init_ok ? STATUS_SUCCESS : STATUS_NOT_SUPPORTED;
 }
 
 const unixlib_entry_t __wine_unix_call_funcs[] =
