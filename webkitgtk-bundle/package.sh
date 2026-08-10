@@ -6,9 +6,11 @@
 # self-contained path so the extracted tarball works regardless of where TuxBlox's
 # build later unpacks it, then tars up only the runtime-relevant subset.
 #
-# Two corrections vs. the original plan draft, both found by inspecting the real
-# populated prefix rather than trusting the plan's assumptions -- see README.md's
-# "Corrections found while implementing this task" section for the full reasoning:
+# Several corrections vs. the original plan draft, all found by inspecting the real
+# populated prefix (and, for the strip/gdk-pixbuf items, by testing the packaged
+# result OUTSIDE this build container) rather than trusting assumptions -- see
+# README.md's "Corrections found while implementing this task" section for the full
+# reasoning:
 #
 # 1. RPATH/RUNPATH rewriting must cover every ELF file in the shipped tree, not just
 #    lib/*.so*. WebKitWebProcess/WebKitNetworkProcess/WebKitGPUProcess/jsc (under
@@ -38,6 +40,22 @@ source "$(dirname "$0")/versions.env"
 
 PREFIX=/opt/tuxblox-webview
 cd "$PREFIX"
+
+# Task 8 post-review correction (2026-08-10), I-2: gdk-pixbuf's loaders.cache (the
+# module registry gdk_pixbuf_get_formats()/loader lookup reads at runtime) has each
+# loader's absolute .so path baked into the cache FILE ITSELF at build time -- a
+# problem RPATH/env-vars can't touch, since it's data, not an ELF dynamic-section
+# entry or a getenv() call. Regenerating it needs the real final install path, which
+# isn't known until TuxBlox's own Proton build runs (see ProtonSource/Makefile.in's
+# extraction rule, which now runs gdk-pixbuf-query-loaders again post-extraction to
+# rebuild the cache with correct paths) -- but that means gdk-pixbuf-query-loaders
+# itself has to actually be IN the shipped tarball, even though bin/ as a whole is
+# deliberately excluded below (build-time CLI tools nothing at runtime needs). Copied
+# into libexec/ specifically (not left in bin/, which is never tarred) so it's swept
+# up by the same find/RPATH-rewrite loop as everything else without special-casing
+# the tar command below for one extra top-level directory.
+mkdir -p libexec/gdk-pixbuf-tools
+cp -a bin/gdk-pixbuf-query-loaders libexec/gdk-pixbuf-tools/
 
 echo ":: Rewriting RPATH/RUNPATH on every ELF file in the packaged tree"
 find include lib libexec etc share -type f \
@@ -105,6 +123,22 @@ find include lib libexec etc share -type f \
     # a tarball extracted somewhere with no relationship to /opt/tuxblox-webview, per
     # the brief's Step 3 verification command.
     patchelf --set-rpath "\$ORIGIN:\$ORIGIN/${up}lib:\$ORIGIN/${up}lib/x86_64-linux-gnu" "$f"
+
+    # Task 8 post-review correction (2026-08-10), C-2: strip debug symbols. The
+    # committed tarball came in at 160.9 MiB -- over GitHub's 100 MiB hard per-file
+    # limit, which would have made `git push` reject the commit outright. Root cause:
+    # the meson-built half of this dependency chain doesn't set a release buildtype
+    # (unlike WebKitGTK's own -DCMAKE_BUILD_TYPE=Release), so most of these .so's
+    # carry full debug symbol tables. --strip-unneeded removes symbols not needed for
+    # relocation/dynamic linking (debug info, local symbols) while preserving the
+    # dynamic symbol table every shared library needs to actually be loaded and
+    # linked against -- safe to run unconditionally on every ELF file this loop
+    # already confirmed has a dynamic section (the --print-rpath probe above), same
+    # class of file `strip` is meant for. Run after patchelf, not before: patchelf's
+    # RPATH/DT_NEEDED edits are dynamic-section changes, unaffected by stripping
+    # symbol/debug sections afterward, so the order only matters for not having to
+    # re-probe the ELF-magic/dynamic-section checks twice.
+    strip --strip-unneeded "$f"
 done
 
 mkdir -p /out

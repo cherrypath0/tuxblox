@@ -10,15 +10,14 @@ FROM debian:12
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential cmake ninja-build meson pkg-config git curl ca-certificates \
-    ruby gperf unifdef python3 python3-pip patchelf ccache \
+    ruby gperf unifdef python3 python3-pip patchelf ccache nasm \
     libz-dev libpng-dev libfreetype6-dev libfontconfig1-dev libexpat1-dev \
-    libpixman-1-dev libjpeg62-turbo-dev bison flex gettext shared-mime-info \
+    libpixman-1-dev bison flex gettext shared-mime-info \
     libudev-dev libgcrypt20-dev libnghttp2-dev \
     libepoxy-dev libxkbcommon-dev libwayland-dev libwayland-egl-backend-dev \
-    wayland-protocols libdrm-dev libtiff-dev libxml2-dev \
+    wayland-protocols libdrm-dev libtiff-dev \
     libx11-dev libxext-dev libxrender-dev libxi-dev libxrandr-dev \
     libxcursor-dev libxdamage-dev libxfixes-dev libxinerama-dev \
-    libproxy-dev \
     && rm -rf /var/lib/apt/lists/*
 # ccache (Task 7 addition): every `podman run` in this whole pipeline uses --rm, so a
 # container's entire /build scratch tree -- including every already-compiled .o file
@@ -58,35 +57,48 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 #     Building both backends (rather than disabling X11 to dodge these packages) matters
 #     because TuxBlox targets arbitrary Linux desktops, many of which are still X11-only
 #     or XWayland-dependent; dropping the X11 backend would silently break those users.
-#   - libxml2-dev: Debian 12's system libwayland-dev is 1.21.0, older than gtk4
-#     4.18.6's stated minimum (wayland-client >= 1.23.0), so meson falls back to
-#     building gtk4's bundled `subprojects/wayland.wrap` (upstream wayland 1.23.0,
-#     pinned by that wrap file) from source instead -- exactly the kind of
-#     old-baseline-container mismatch this whole build already routes around by
-#     building most of the stack from source rather than trusting the base distro's
-#     versions. That subproject's wayland-scanner enables `dtd_validation` (protocol
-#     XML schema validation) by default, which needs libxml-2.0; gtk4's own
-#     dependency() call for wayland-client already disables the *separate*
-#     `documentation` option via default_options, but not dtd_validation. Installing
-#     libxml2-dev satisfies that build-time check with no behavior tradeoff --
-#     dtd_validation only validates protocol XML during code generation, it doesn't
-#     change anything about the resulting wayland-client library.
-#   - libproxy-dev: glib-networking's `libproxy` meson option (its general,
-#     cross-desktop proxy auto-detection backend) defaults to the feature value
-#     'enabled', not 'auto' -- an unconditional hard requirement unless the
-#     package backing it is present. Cheap, ordinary system package (pulls a
-#     single runtime lib, libproxy1v5) kept enabled rather than disabled --
-#     proxy auto-detection is a real feature a user behind a corporate/system
-#     proxy would notice missing, and it resolves whatever the *target*
-#     machine's own proxy configuration is at runtime, not anything baked in
-#     at build time. (glib-networking's *separate* `gnome_proxy` option, a
-#     GNOME/GSettings-specific proxy resolver, is explicitly disabled in
-#     build-in-container.sh instead of enabled here -- Debian 12's
-#     gsettings-desktop-schemas package ships no .pc file at all, so it can
-#     never satisfy that option's pkg-config check on this baseline regardless
-#     of whether the apt package is installed; see the comment at that
-#     -Dgnome_proxy=disabled flag for why that's an acceptable trim rather
-#     than a real functionality loss.)
+#   - libxml2-dev (ORIGINAL reasoning, superseded by the Task 8 post-review
+#     correction below -- kept for history): Debian 12's system libwayland-dev is
+#     1.21.0, older than gtk4 4.18.6's stated minimum (wayland-client >= 1.23.0), so
+#     meson falls back to building gtk4's bundled `subprojects/wayland.wrap`
+#     (upstream wayland 1.23.0, pinned by that wrap file) from source instead --
+#     exactly the kind of old-baseline-container mismatch this whole build already
+#     routes around by building most of the stack from source rather than trusting
+#     the base distro's versions. That subproject's wayland-scanner enables
+#     `dtd_validation` (protocol XML schema validation) by default, which needs
+#     libxml-2.0; gtk4's own dependency() call for wayland-client already disables
+#     the *separate* `documentation` option via default_options, but not
+#     dtd_validation. `libxml2-dev` used to satisfy that build-time check with no
+#     behavior tradeoff -- dtd_validation only validates protocol XML during code
+#     generation, it doesn't change anything about the resulting wayland-client
+#     library. As of the Task 8 post-review correction, this same check is now
+#     satisfied by the vendored libxml2 build in build-in-container.sh instead (see
+#     that correction's comment there) -- `libxml2-dev` itself was removed from this
+#     apt list entirely, not kept alongside the vendored copy.
+#   - libproxy-dev (ORIGINAL reasoning, superseded -- kept for history): glib-networking's
+#     `libproxy` meson option (its general, cross-desktop proxy auto-detection
+#     backend) defaults to the feature value 'enabled', not 'auto' -- an
+#     unconditional hard requirement unless the package backing it is present.
+#     Originally kept enabled (rather than disabled) on the theory that proxy
+#     auto-detection is a real feature a user behind a corporate/system proxy would
+#     notice missing. Task 8's post-review correction found this reasoning was
+#     incomplete: `libproxy-dev` satisfies the *build-time* check inside this
+#     container, but the resulting glib-networking libproxy module still links
+#     against the *build container's own system* `libproxy.so.1` at runtime --
+#     never vendored into $PREFIX the way every other real runtime dependency in
+#     this bundle is -- so the shipped tarball carried a dangling dependency on a
+#     library that was never actually going to be present on an arbitrary target
+#     machine (confirmed via `ldd` against the packaged bundle run outside this
+#     container). Since nothing else in this chain needs libproxy either, the
+#     simplest correct fix was to stop building it at all
+#     (`-Dlibproxy=disabled` in build-in-container.sh) rather than either vendoring
+#     yet another library or accepting a broken runtime dependency -- see that
+#     correction's comment there for the full reasoning. (glib-networking's
+#     *separate* `gnome_proxy` option, a GNOME/GSettings-specific proxy resolver,
+#     is disabled for an unrelated, still-valid reason: Debian 12's
+#     gsettings-desktop-schemas package ships no .pc file at all, so it can never
+#     satisfy that option's pkg-config check on this baseline regardless of
+#     whether the apt package is installed.)
 
 # Debian 12 bookworm's apt-packaged meson (1.0.1) is too old for GLib 2.84.x, which
 # requires meson >= 1.4.0. pip's meson installs to /usr/local/bin, which precedes
@@ -163,14 +175,25 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 #     (`-DUSE_GBM` defaults ON, `find_package(GBM)` + `FATAL_ERROR` if missing, and
 #     `ENABLE_GPU_PROCESS` itself `WEBKIT_OPTION_DEPEND`s on `USE_GBM`) -- without a
 #     working Mesa, WebKitGTK's own configure step would fail the same way.
-#   - libmanette-0.2-dev: OptionsGTK.cmake's `ENABLE_GAMEPAD` defaults ON (PUBLIC) and
-#     does `find_package(Manette 0.2.4)` + `FATAL_ERROR` if not found -- a real,
-#     previously-unlisted hard dependency, not something `-D`-toggleable away without
-#     losing the Gamepad API (relevant to Roblox, a game platform).
-#   - libenchant-2-dev: `ENABLE_SPELLCHECK` defaults ON, `find_package(Enchant)` +
-#     `FATAL_ERROR` if missing. Enchant is a spell-checker *abstraction* layer (it
-#     builds/links fine with zero dictionary backends present -- this package alone
-#     is sufficient to satisfy WebKitGTK's configure check).
+#   - libmanette-0.2-dev (ORIGINAL reasoning, superseded by the Task 8 post-review
+#     correction -- kept for history, package REMOVED from the apt list below):
+#     OptionsGTK.cmake's `ENABLE_GAMEPAD` defaults ON (PUBLIC) and does
+#     `find_package(Manette 0.2.4)` + `FATAL_ERROR` if not found -- a real,
+#     previously-unlisted hard dependency. Originally satisfied by installing this
+#     package; Task 8's post-review found that approach left the shipped bundle
+#     depending on the build container's own system `libmanette-0.2.so.0` at
+#     runtime (never vendored, so absent on any real target machine -- confirmed via
+#     `ldd` outside the container). Rather than adding libmanette to the from-source
+#     vendored chain for a feature (browser Gamepad API access) this embedded-WebView
+#     use case doesn't need, `ENABLE_GAMEPAD` is now explicitly disabled instead
+#     (`-DENABLE_GAMEPAD=OFF` in build-in-container.sh) -- see that correction's
+#     comment there.
+#   - libenchant-2-dev (ORIGINAL reasoning, superseded -- kept for history, package
+#     REMOVED below): `ENABLE_SPELLCHECK` defaults ON, `find_package(Enchant)` +
+#     `FATAL_ERROR` if missing. Same Task 8 post-review finding and fix as
+#     libmanette above -- disabled instead of vendored
+#     (`-DENABLE_SPELLCHECK=OFF`); in-page spellcheck-as-you-type isn't a capability
+#     this embedded browser surface needs.
 #   - libseccomp-dev, bubblewrap, xdg-dbus-proxy: `ENABLE_BUBBLEWRAP_SANDBOX` defaults
 #     ON on Linux. `BubblewrapSandboxChecks.cmake` hard-requires libseccomp
 #     (`find_package(Libseccomp)` + `FATAL_ERROR`), plus `find_program(bwrap)` and
@@ -188,16 +211,34 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 #     already established for X11/Wayland/DRM -- not something this relocatable
 #     prefix vendors or can vendor (they're setuid/namespace-privileged system tools).
 #   - libsystemd-dev: `ENABLE_JOURNALD_LOG` defaults ON, `find_package(Journald)` +
-#     `FATAL_ERROR` if neither libsystemd nor libelogind is found.
-#   - libhyphen-dev: `USE_LIBHYPHEN` defaults ON (PUBLIC), `find_package(Hyphen)` +
-#     `FATAL_ERROR` if missing (automatic-hyphenation CSS support).
-#   - libxslt1-dev: `ENABLE_XSLT` defaults ON, `find_package(LibXslt 1.1.13 REQUIRED)`
-#     -- an ordinary REQUIRED find_package, not gated by a manual FATAL_ERROR check,
-#     but just as hard a build requirement. Pairs with the already-apt-installed
-#     libxml2-dev (Task 4) the same way upstream libxslt itself depends on libxml2.
+#     `FATAL_ERROR` if neither libsystemd nor libelogind is found. Kept as a system
+#     package deliberately (not vendored) -- see the Task 8 post-review correction
+#     below for why libsystemd specifically belongs on the "assumed present on any
+#     real target Linux system" side of the boundary, the same as X11/Wayland/DRM.
+#   - libhyphen-dev (ORIGINAL reasoning, superseded -- kept for history, package
+#     REMOVED below): `USE_LIBHYPHEN` defaults ON (PUBLIC), `find_package(Hyphen)` +
+#     `FATAL_ERROR` if missing (automatic-hyphenation CSS support). Same Task 8
+#     post-review finding as libmanette/libenchant above -- disabled instead of
+#     vendored (`-DUSE_LIBHYPHEN=OFF`); CSS `hyphens: auto` support isn't a
+#     capability this embedded browser surface needs.
+#   - libxslt1-dev (ORIGINAL reasoning, superseded -- kept for history, package
+#     REMOVED below): `ENABLE_XSLT` defaults ON, `find_package(LibXslt 1.1.13
+#     REQUIRED)` -- an ordinary REQUIRED find_package, not gated by a manual
+#     FATAL_ERROR check, but just as hard a build requirement. Originally paired
+#     with the (also since-removed) apt `libxml2-dev`. Unlike gamepad/spellcheck/
+#     hyphenation, XSLT support is genuinely needed for real web content (XML/XSLT
+#     is still used in the wild, and WebKitGTK's own `find_package(LibXml2 ...
+#     REQUIRED)` a few lines earlier in OptionsGTK.cmake makes libxml2 itself an
+#     unconditional dependency regardless of ENABLE_XSLT) -- not something to
+#     silently drop the way gamepad/spellcheck/hyphenation were. Task 8's
+#     post-review correction vendors both libxml2 and libxslt from source into
+#     $PREFIX instead of relying on system packages, sidestepping the runtime
+#     portability problem entirely rather than working around it -- see
+#     build-in-container.sh's libxml2/libxslt section for the build steps, and the
+#     comment below for the full reasoning.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libxxf86vm-dev libmanette-0.2-dev libenchant-2-dev libseccomp-dev \
-    bubblewrap xdg-dbus-proxy libsystemd-dev libhyphen-dev libxslt1-dev \
+    libxxf86vm-dev libseccomp-dev \
+    bubblewrap xdg-dbus-proxy libsystemd-dev \
     && rm -rf /var/lib/apt/lists/*
 # Real, deliberately-scoped-out Task 7 gaps (documented here rather than silently
 # built or silently skipped, same style as Task 5's Vulkan-drivers trim and Task 6's
@@ -222,6 +263,56 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # can't be pinned the way this whole bundle's versions.env convention requires --
 # losing it only degrades the symbol quality of WebKit's own internal crash
 # backtraces, a debugging nicety, not a user-facing capability.
+
+# --- Task 8 post-review correction (2026-08-10): host-dependency triage -----------
+# Task 8's review ran `ldd` against the packaged tarball OUTSIDE this build container
+# for the first time in this whole plan (every prior verification, including Task 8's
+# own original pass, only ever tested from inside this same Debian-12 builder, where
+# all these -dev packages' matching runtime .so's are naturally present) -- and found
+# the bundle failed to load on a real target machine. Missing: libjpeg.so.62 (a
+# Debian-*specific* soname -- most other distros ship libjpeg.so.8, meaning this
+# wasn't "install a package on the target," it was unsatisfiable on non-Debian hosts
+# entirely as built), libxml2, libmanette, libhyphen, libselinux, plus a wider
+# unresolved-NEEDED sweep also turning up libenchant-2, libproxy, libxslt,
+# libsystemd, libbrotlidec, libzstd, libmount, libatomic, libxshmfence. Resolved by
+# category (full reasoning also in the plan document's own
+# "Post-Task-8-review correction" section):
+#   - Disabled via WebKit CMake flags (real but minor feature loss, same pattern as
+#     the AVIF/JPEG-XL/Speech-Synthesis trims above): ENABLE_SPELLCHECK (enchant),
+#     ENABLE_GAMEPAD (manette), USE_LIBHYPHEN (hyphen) -- each package this used to
+#     pull in has been removed from the apt lists above; see the "superseded" notes
+#     inline at each one's original entry for exactly what changed and why.
+#   - Vendored from source into $PREFIX instead (build-in-container.sh, new section
+#     right after openjpeg): libjpeg-turbo, libxml2, libxslt -- genuinely needed for
+#     real web-content rendering (WebKitGTK's own OptionsGTK.cmake has unconditional
+#     `find_package(JPEG REQUIRED)` and `find_package(LibXml2 ... REQUIRED)` calls,
+#     not gated behind any disableable option), so simply turning them off wasn't an
+#     option the way spellcheck/gamepad/hyphenation were. Vendoring sidesteps the
+#     cross-distro soname portability problem entirely (particularly libjpeg's
+#     Debian-specific `.so.62`) rather than trying to work around it.
+#   - libproxy: no longer built at all (`-Dlibproxy=disabled` on glib-networking in
+#     build-in-container.sh) -- nothing in this bundle actually vendors libproxy
+#     itself, so the module was always going to be dead weight linking against a
+#     library that would never be present on a real target machine either way.
+#   - Extended the system-provided (not vendored, assumed present on any real target
+#     Linux desktop) boundary established by Task 4 for X11/Wayland/DRM/gcrypt/
+#     nghttp2/tiff/udev to also cover: libselinux, libmount, libbrotlidec, libzstd,
+#     libsystemd, libatomic, libxshmfence. All seven were ALREADY satisfied at
+#     build time in this container -- five as already-explicit apt packages
+#     (libsystemd-dev, libxshmfence-dev above; libmount-dev/libbrotli-dev/
+#     libzstd-dev pulled in transitively by other -dev packages already installed
+#     here) and libatomic1 as a base dependency of gcc itself -- so no Containerfile
+#     change was needed for this category; it's a documentation-only correction
+#     (see webkitgtk-bundle/README.md's system-provided-libraries section). These
+#     are effectively part of the Linux kernel/init-system ABI on any modern distro
+#     (SELinux/mount/compression/systemd/atomics/X11-shm-fence primitives), present
+#     virtually everywhere, and just as impractical to vendor as X11/Wayland/DRM
+#     already were.
+#   - Verification methodology corrected going forward: the dependency-closure check
+#     now runs against a target OUTSIDE this build container (see
+#     webkitgtk-bundle/verify-outside-container.sh) -- testing only from inside the
+#     builder, where every -dev package's matching runtime library is naturally
+#     present, is precisely how all of the above was missed across Tasks 1-8.
 
 WORKDIR /build
 RUN mkdir -p /build-scripts

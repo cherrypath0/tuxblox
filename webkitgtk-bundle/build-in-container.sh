@@ -122,6 +122,70 @@ cmake -B /build/openjpeg/_build -S /build/openjpeg -DCMAKE_INSTALL_PREFIX="$PREF
 cmake --build /build/openjpeg/_build -j"$JOBS"
 cmake --install /build/openjpeg/_build
 
+# --- Task 8 post-review correction (2026-08-10): libjpeg-turbo, libxml2, libxslt --
+# Originally satisfied by this container's system packages (libjpeg62-turbo-dev,
+# libxml2-dev, libxslt1-dev in Containerfile) -- Task 8's review ran `ldd` against
+# the packaged tarball OUTSIDE this build container for the first time in this whole
+# plan and found the shipped bundle depended on the build machine's own system
+# copies of all three at runtime, none of which get vendored into $PREFIX by
+# installing a -dev package. libjpeg is the worst offender: Debian ships
+# `libjpeg.so.62`, a Debian-*specific* soname (most other distros ship
+# `libjpeg.so.8`), so this wasn't just "missing on a minimal target," it was
+# unsatisfiable on most non-Debian hosts entirely as originally built. All three are
+# genuine, unconditional WebKitGTK requirements -- OptionsGTK.cmake has
+# `find_package(JPEG REQUIRED)` and `find_package(LibXml2 2.9.13 REQUIRED)` with no
+# disable option at all, and `find_package(LibXslt 1.1.13 REQUIRED)` whenever
+# ENABLE_XSLT is on (kept on -- real web content still uses XSLT) -- so simply
+# turning them off the way spellcheck/gamepad/hyphenation were below wasn't an
+# option. Built from source into $PREFIX instead, the same as every other real
+# dependency in this chain, which sidesteps the soname/portability problem entirely.
+# Placed here (before cairo) rather than right before WebKitGTK itself because
+# gdk-pixbuf's JPEG loader (a few steps below) and gtk4's bundled wayland-scanner
+# subproject (dtd_validation, needs libxml2 -- see Containerfile's Task 4 comment,
+# now superseded) both need these earlier in the pipeline too.
+echo ":: Building libjpeg-turbo $LIBJPEG_TURBO_VERSION"
+fetch_and_extract \
+    "https://github.com/libjpeg-turbo/libjpeg-turbo/releases/download/${LIBJPEG_TURBO_VERSION}/libjpeg-turbo-${LIBJPEG_TURBO_VERSION}.tar.gz" \
+    /build/libjpeg-turbo
+# -DWITH_JPEG8=1: makes the installed libjpeg.so report itself under the modern
+# libjpeg-turbo/libjpeg v8 API/ABI (SONAME libjpeg.so.8), matching what most
+# non-Debian distros ship and what gdk-pixbuf/WebKitGTK both link against by name
+# (`libjpeg`) rather than caring about the exact SONAME -- deliberately NOT
+# reproducing Debian's own `.so.62` (the original, Debian/Ubuntu-specific v6.2 ABI
+# numbering) that caused this whole correction. -DENABLE_SHARED=ON/-DENABLE_STATIC=OFF:
+# only a shared library is needed (RPATH-relocated the same way as everything else
+# in this bundle); skip building+installing the static .a nothing here links.
+cmake -B /build/libjpeg-turbo/_build -S /build/libjpeg-turbo \
+    -DCMAKE_INSTALL_PREFIX="$PREFIX" -DCMAKE_BUILD_TYPE=Release \
+    -DWITH_JPEG8=1 -DENABLE_SHARED=ON -DENABLE_STATIC=OFF
+cmake --build /build/libjpeg-turbo/_build -j"$JOBS"
+cmake --install /build/libjpeg-turbo/_build
+
+echo ":: Building libxml2 $LIBXML2_VERSION"
+fetch_and_extract \
+    "https://download.gnome.org/sources/libxml2/${LIBXML2_VERSION%.*}/libxml2-${LIBXML2_VERSION}.tar.xz" \
+    /build/libxml2
+# -Dpython=disabled: libxml2's meson build can also build Python bindings; nothing
+# in this C/C++ dependency chain needs them, and building them would pull in a
+# python3-dev header dependency this Containerfile doesn't otherwise need.
+meson setup /build/libxml2/_build /build/libxml2 --prefix="$PREFIX" -Dpython=disabled
+ninja -C /build/libxml2/_build -j"$JOBS" install
+
+echo ":: Building libxslt $LIBXSLT_VERSION"
+fetch_and_extract \
+    "https://download.gnome.org/sources/libxslt/${LIBXSLT_VERSION%.*}/libxslt-${LIBXSLT_VERSION}.tar.xz" \
+    /build/libxslt
+# libxslt ${LIBXSLT_VERSION} ships both an autotools ./configure and a CMakeLists.txt
+# but no meson.build -- autotools chosen to match this script's existing convention
+# for every other non-meson dependency (gmp, nettle, gnutls, icu, sqlite, lcms2,
+# libwebp, libtasn1, ...). --without-python: same reasoning as libxml2's
+# -Dpython=disabled above -- no Python bindings needed here.
+cd /build/libxslt
+./configure --prefix="$PREFIX" --with-libxml-prefix="$PREFIX" --without-python
+make -j"$JOBS"
+make install
+cd /build
+
 echo ":: Building cairo $CAIRO_VERSION"
 fetch_and_extract "https://cairographics.org/releases/cairo-${CAIRO_VERSION}.tar.xz" /build/cairo
 meson setup /build/cairo/_build /build/cairo --prefix="$PREFIX"
@@ -318,12 +382,24 @@ fetch_and_extract \
 # -Dgnome_proxy=disabled: this option (default 'enabled', not 'auto') needs
 # gsettings-desktop-schemas, which Debian 12's package ships as schema data only --
 # no .pc file at all, so it can never be satisfied via pkg-config on this baseline
-# regardless of whether the apt package is installed. Not a loss of real capability:
-# `libproxy` (left enabled -- its dependency, libproxy-dev, is a normal apt package)
-# already covers proxy auto-detection across desktop environments, including its own
-# internal GNOME/gsettings-aware config module; gnome_proxy would only have added a
-# second, GNOME-specific, largely-overlapping resolver on top of that.
-meson setup /build/glib-networking/_build /build/glib-networking --prefix="$PREFIX" -Dgnome_proxy=disabled
+# regardless of whether the apt package is installed.
+#
+# -Dlibproxy=disabled: Task 8 post-review correction (2026-08-10) -- originally left
+# enabled on the theory that its apt dependency (libproxy-dev) was a normal, cheap
+# system package and proxy auto-detection is a real feature a corporate-proxy user
+# would notice missing. Review found that reasoning incomplete: libproxy-dev
+# satisfies this *build-time* check inside the container, but the resulting
+# glib-networking libproxy module still links against the *build container's own
+# system* libproxy.so.1 at runtime -- never vendored into $PREFIX the way every real
+# dependency in this bundle is -- so the shipped tarball carried a dependency on a
+# library that would never actually be present on an arbitrary target machine
+# (confirmed via `ldd` against the packaged bundle run OUTSIDE this container, the
+# corrected verification methodology this whole review round introduced). With both
+# proxy resolvers now off, WebKitGTK falls back to no automatic proxy
+# auto-detection -- a real, accepted capability loss (same tier as the disabled
+# spellcheck/gamepad/hyphenation features below), not a portability workaround.
+meson setup /build/glib-networking/_build /build/glib-networking --prefix="$PREFIX" \
+    -Dgnome_proxy=disabled -Dlibproxy=disabled
 ninja -C /build/glib-networking/_build -j"$JOBS" install
 
 echo ":: Building mesa $MESA_VERSION"
@@ -675,12 +751,27 @@ PYEOF
 # with more consistently-free RAM than the one this was developed on), that has not
 # been validated here and should be treated as unverified, not as a documented-safe
 # option -- watch for cc1plus OOM kills specifically inside WebCore, not just JSC.
+# -DENABLE_SPELLCHECK=OFF -DENABLE_GAMEPAD=OFF -DUSE_LIBHYPHEN=OFF: Task 8 post-review
+# correction (2026-08-10). Originally satisfied by installing libenchant-2-dev/
+# libmanette-0.2-dev/libhyphen-dev in the Containerfile (real, unconditional
+# find_package()+FATAL_ERROR requirements when these options are left at their
+# default ON). Review found -- via `ldd` run against the packaged tarball OUTSIDE
+# this build container, this whole review round's corrected methodology -- that all
+# three left the shipped bundle depending on the build container's own system copies
+# of libenchant-2/libmanette-0.2/libhyphen at runtime, none of which get vendored
+# into $PREFIX by installing a -dev package, so none would be present on a real
+# target machine. Rather than adding three more libraries to the from-source
+# vendored chain for features (in-page spellcheck, Gamepad API, CSS automatic
+# hyphenation) this embedded-WebView use case doesn't need, all three are simply
+# disabled -- same tier of accepted, documented capability loss as the
+# AVIF/JPEG-XL/Speech-Synthesis trims already accepted above.
 cmake -B /build/webkitgtk/_build -S /build/webkitgtk -GNinja \
     -DPORT=GTK -DUSE_GTK4=ON -DCMAKE_INSTALL_PREFIX="$PREFIX" \
     -DCMAKE_BUILD_TYPE=Release -DENABLE_INTROSPECTION=OFF -DENABLE_DOCUMENTATION=OFF \
     -DENABLE_MINIBROWSER=OFF \
     -DUSE_AVIF=OFF -DUSE_JPEGXL=OFF -DENABLE_SPEECH_SYNTHESIS=OFF -DUSE_LIBBACKTRACE=OFF \
     -DUSE_SYSTEM_SYSPROF_CAPTURE=OFF \
+    -DENABLE_SPELLCHECK=OFF -DENABLE_GAMEPAD=OFF -DUSE_LIBHYPHEN=OFF \
     -DCMAKE_PREFIX_PATH="$PREFIX" -DICU_ROOT="$PREFIX" \
     -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
     -DENABLE_BUBBLEWRAP_SANDBOX=OFF

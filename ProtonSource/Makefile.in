@@ -1279,7 +1279,17 @@ WEBKITGTK_DST := $(DST_LIBDIR)/tuxblox-webview
 $(OBJ)/.webkitgtk-x86_64-dist: $(SRC)/contrib/$(WEBKITGTK_x86_64_TARBALL)
 	rm -rf $(WEBKITGTK_DST)
 	mkdir -p $(WEBKITGTK_DST)
-	tar -xJf $(SRC)/contrib/$(WEBKITGTK_x86_64_TARBALL) -C $(WEBKITGTK_DST) --strip-components=1
+	tar --no-same-owner -xJf $(SRC)/contrib/$(WEBKITGTK_x86_64_TARBALL) -C $(WEBKITGTK_DST) --strip-components=1
+	@# Task 8 post-review correction (I-2): gdk-pixbuf's loaders.cache bakes in each
+	@# loader .so's absolute path at the time it was generated (webkitgtk-bundle's own
+	@# build-time /opt/tuxblox-webview prefix) -- not fixable by RPATH or an env var,
+	@# since it's a data file gdk-pixbuf reads, not an ELF dynamic-section entry or a
+	@# getenv() call. Regenerate it now that the real final path ($(WEBKITGTK_DST)) is
+	@# known, using the gdk-pixbuf-query-loaders binary webkitgtk-bundle/package.sh
+	@# specifically ships (under libexec/gdk-pixbuf-tools/) just for this step.
+	loaders_cache="$$(find $(WEBKITGTK_DST)/lib -name loaders.cache)"; \
+	loaders_dir="$$(dirname "$$loaders_cache")/loaders"; \
+	"$(WEBKITGTK_DST)/libexec/gdk-pixbuf-tools/gdk-pixbuf-query-loaders" "$$loaders_dir"/*.so > "$$loaders_cache"
 	touch $@
 
 all-dist: $(OBJ)/.webkitgtk-x86_64-dist

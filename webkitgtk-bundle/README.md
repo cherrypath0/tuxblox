@@ -60,11 +60,31 @@ terms):
 | `GIO_EXTRA_MODULES` | GIO's TLS backend module (glib-networking's GnuTLS module) | `<extract-dir>/lib/x86_64-linux-gnu/gio/modules` | **Required.** Verified: `GTlsBackendDummy` (no TLS at all) without it, `GTlsBackendGnutls` (real) with it. |
 | `GBM_BACKENDS_PATH` | Mesa's GBM backend search path (`libgbm`) | `<extract-dir>/lib/x86_64-linux-gnu/gbm` | **Required.** Verified against a real DRM render node: `gbm_create_device()` fails (logs the exact compiled-in `/opt/tuxblox-webview/...` path it tried) without it, succeeds with it. |
 | `LIBGL_DRIVERS_PATH` | Mesa's DRI driver search path (`libGL`/`libEGL`) | `<extract-dir>/lib/x86_64-linux-gnu/dri` | **Not load-bearing for this specific build** (see below) -- set anyway, it's free insurance. |
+| `GST_PLUGIN_SCANNER` | Where `libgstreamer-1.0.so` looks for the `gst-plugin-scanner` helper it spawns to introspect plugins out-of-process | `<extract-dir>/libexec/gstreamer-1.0/gst-plugin-scanner` | **Recommended, not independently verified to the same standard as the five above.** `libgstreamer-1.0.so` has a compiled-in absolute default (`/opt/tuxblox-webview/libexec/gstreamer-1.0/gst-plugin-scanner`) and its own `strings` output documents `GST_PLUGIN_SCANNER` as a real runtime override ("Trying GST_PLUGIN_SCANNER env var: %s") -- confirmed the mechanism exists, not exercised end-to-end with a real relocated GStreamer plugin load the way WEBKIT_EXEC_PATH was. |
+| `GST_PLUGIN_SYSTEM_PATH` | Where GStreamer looks for its own plugin `.so`s (`libgst*.so` under `lib/x86_64-linux-gnu/gstreamer-1.0/`) | `<extract-dir>/lib/x86_64-linux-gnu/gstreamer-1.0` | Same confidence tier as `GST_PLUGIN_SCANNER` above -- a real, standard GStreamer env var (confirmed present in `libgstreamer-1.0.so`'s own strings output), not independently exercised end-to-end here. |
+| `XDG_DATA_DIRS` | The general, standard freedesktop.org mechanism GLib/GTK use to find shared data (icon themes, mime info, and -- see below -- GSettings schemas) relative to an install prefix | `<extract-dir>/share` | Recommended as the general-purpose fallback; confirmed as a real, standard mechanism (present in `libgio-2.0.so`'s own strings output) but not independently exercised end-to-end here. |
+| `GSETTINGS_SCHEMA_DIR` | The more specific GIO override for where compiled GSettings schemas (`share/glib-2.0/schemas/gschemas.compiled`) are found, taking precedence over `XDG_DATA_DIRS`-based discovery | `<extract-dir>/share/glib-2.0/schemas` | Same confidence tier as `XDG_DATA_DIRS` above -- confirmed real and present (`gschemas.compiled` genuinely ships in the bundle, pre-compiled at build time), not independently exercised end-to-end here. |
 
 where `<extract-dir>` is the tarball's own root (i.e. what's inside the `webkitgtk/`
 top-level directory the tarball's `--transform` wraps everything in -- for
 `ProtonSource/Makefile.in`'s extraction rule, that's `$(DST_DIR)/lib/tuxblox-webview`
 after `--strip-components=1`).
+
+**On top of the environment variables above**, one file needs actual regeneration,
+not just an env var: gdk-pixbuf's `loaders.cache` (`lib/x86_64-linux-gnu/gdk-pixbuf-2.0/
+2.10.0/loaders.cache`) bakes each image-loader `.so`'s absolute path into the cache
+FILE ITSELF at the time it was generated (this build's own `/opt/tuxblox-webview`) --
+not an ELF dynamic-section entry `patchelf` can rewrite, and not a `getenv()` call any
+environment variable can override. `ProtonSource/Makefile.in`'s extraction rule now
+re-runs `gdk-pixbuf-query-loaders` (shipped in the tarball specifically for this,
+under `libexec/gdk-pixbuf-tools/` -- `bin/` itself is still excluded) against the
+just-extracted loaders directory immediately after extraction, once the real final
+path is known, and overwrites `loaders.cache` with freshly-correct paths. If this
+bundle's extraction location ever needs to move without going through
+`ProtonSource/Makefile.in` (e.g. a manual re-extraction for testing), re-run that same
+command by hand: `<extract-dir>/libexec/gdk-pixbuf-tools/gdk-pixbuf-query-loaders
+<extract-dir>/lib/x86_64-linux-gnu/gdk-pixbuf-2.0/2.10.0/loaders/*.so >
+<extract-dir>/lib/x86_64-linux-gnu/gdk-pixbuf-2.0/2.10.0/loaders.cache`.
 
 ### Why WEBKIT_EXEC_PATH needed an actual source patch, not just documentation
 
@@ -117,9 +137,20 @@ assumption, discovered by testing rather than assumed. `strings` searched across
 string `LIBGL_DRIVERS_PATH` and found **zero matches anywhere**:
 
 ```
-$ grep -rl 'LIBGL_DRIVERS_PATH' lib/ libexec/
-(no matches -- exit 1)
+$ find lib libexec -type f -name '*.so*' -o -type f ! -name '*.so*' | \
+    xargs -I{} sh -c 'strings -a {} | grep -q LIBGL_DRIVERS_PATH && echo {}'
+(no matches)
 ```
+
+(Task 8 post-review correction, I-3: an earlier draft of this section used
+`grep -rl 'LIBGL_DRIVERS_PATH' lib/ libexec/` here, which greps each file's raw
+*binary* bytes directly -- unreliable for a multi-byte search string that can
+straddle a `grep` internal buffer boundary or otherwise not line up the way it does
+in decoded ASCII, and not actually how this finding was re-confirmed. `strings -a`
+extracts printable-string runs first, the same tool and technique used throughout
+the rest of this file's verification -- that's what actually gave the correct
+"zero matches" answer above, and what should be trusted/reproduced going forward,
+not a raw binary `grep -r`.)
 
 An `eglInitialize()` test against `EGL_PLATFORM_SURFACELESS_MESA` (software
 rendering, no real GPU driver needed) succeeds identically whether
@@ -182,20 +213,102 @@ this repo) for the full command transcripts and raw output.
 
 The tarball ships `include/`, `lib/`, `libexec/`, `etc/`, `share/` from the build
 prefix (minus `libexec/installed-tests` and `share/installed-tests`, ~22 MB of
-gdk-pixbuf/GLib "make check" test fixtures never consumed at runtime). `bin/` and
-`sbin/` (build-time CLI tools -- `glib-compile-resources`, ICU's `genccode`, etc.)
-are excluded entirely: nothing that `dlopen()`s this bundle as an embedded WebView
-needs them. This is a real correction versus an earlier draft of `package.sh`, which
-only tarred `include lib` and would have silently shipped a bundle whose
-`WebKitWebProcess`/`WebKitNetworkProcess`/`WebKitGPUProcess` binaries (which live
-under `libexec/`, not `lib/`) simply weren't in the archive at all.
+gdk-pixbuf/GLib "make check" test fixtures never consumed at runtime), plus one
+specific binary copied out of `bin/` into `libexec/gdk-pixbuf-tools/`
+(`gdk-pixbuf-query-loaders` -- see the `loaders.cache` note above). The rest of
+`bin/` and all of `sbin/` (build-time CLI tools -- `glib-compile-resources`, ICU's
+`genccode`, etc.) are excluded entirely: nothing else that `dlopen()`s this bundle as
+an embedded WebView needs them. This is a real correction versus an earlier draft of
+`package.sh`, which only tarred `include lib` and would have silently shipped a
+bundle whose `WebKitWebProcess`/`WebKitNetworkProcess`/`WebKitGPUProcess` binaries
+(which live under `libexec/`, not `lib/`) simply weren't in the archive at all.
 
-Known, not yet addressed: the tarball is not yet aggressively size-optimized (`share/`
-still carries `man`/`info`/`gdb`/`bash-completion`/`zsh`/`aclocal`/`gettext`/`cmake`/
-`pkgconfig`/`xml` subdirectories that are almost certainly unnecessary at runtime).
-Left as-is per this plan's self-review notes, which flagged tarball size as a real
-but deliberately-deferred concern -- worth a pass once Plans 2-4 prove the bundle
-works end-to-end, not before.
+Every ELF file in the shipped tree is stripped (`strip --strip-unneeded`, in
+`package.sh`'s same per-file loop as the RPATH rewrite) -- a Task 8 post-review
+correction, C-2: the first committed tarball came in at 160.9 MiB, over GitHub's
+100 MiB hard per-file limit (`git push` would have rejected the commit outright).
+Root cause was unstripped debug symbols across the meson-built half of this
+dependency chain (unlike WebKitGTK's own build, which already sets
+`-DCMAKE_BUILD_TYPE=Release`); stripping brought it back under the limit with no
+functional loss (`--strip-unneeded` keeps the dynamic symbol table every shared
+library needs to actually load/link, only removing debug info and local symbols).
+
+Known, not yet addressed: the tarball is still not aggressively size-optimized
+beyond stripping (`share/` still carries `man`/`info`/`gdb`/`bash-completion`/`zsh`/
+`aclocal`/`gettext`/`cmake`/`pkgconfig`/`xml` subdirectories that are almost
+certainly unnecessary at runtime). Left as-is per this plan's self-review notes,
+which flagged tarball size as a real but deliberately-deferred concern beyond what
+C-2 required -- worth a further pass once Plans 2-4 prove the bundle works
+end-to-end, not before.
+
+## System-provided libraries (not vendored)
+
+This bundle vendors almost its entire dependency chain from source into `lib/` --
+but not everything. A small set of libraries are deliberately treated as "assumed
+present on any real target Linux desktop" rather than built from source, on the
+theory that they're effectively part of the Linux kernel/init-system/X-Window-System
+ABI on any modern distro -- present virtually everywhere already, and unusually
+impractical or pointless to vendor (some, like the X11/Wayland client libraries,
+have to match whatever display server the target machine is actually running
+anyway). This boundary has grown twice since the plan's original Global Constraints:
+
+- **Foundational (established from Task 1)**: zlib (`libz`), `libpng`, `freetype`,
+  `fontconfig`, `expat`, `pixman`.
+- **Extended in Task 4**: X11 core + extensions (`libX11`, `libXext`, `libXrender`,
+  `libXi`, `libXrandr`, `libXcursor`, `libXdamage`, `libXfixes`, `libXinerama`,
+  `libXxf86vm`, the `libxcb*` family), Wayland (`libwayland-client/server/egl/cursor`),
+  DRM (`libdrm`), `libepoxy`, `libxkbcommon`, `libgcrypt`, `libnghttp2`, `libtiff`,
+  `libudev`.
+- **Extended by the Task 8 post-review correction (2026-08-10)**: `libselinux`,
+  `libmount`, `libbrotlidec`/`libbrotlienc`/`libbrotlicommon`, `libzstd`,
+  `libsystemd`, `libatomic`, `libxshmfence`. Found missing by running `ldd` against
+  the packaged bundle on this repo's own (Arch Linux) host machine -- outside the
+  build container for the first time in this whole plan -- and accepted onto this
+  same boundary for the same reasoning as the two entries above: these are
+  effectively part of the Linux kernel/init-system ABI itself (SELinux, device
+  mounting, compression, systemd, atomics, X11 shared-memory fence primitives), not
+  anything WebKitGTK-stack-specific.
+- **Also assumed present, but as external executables rather than linked
+  libraries**: `bwrap` (bubblewrap) and `xdg-dbus-proxy` -- *not* currently a live
+  runtime dependency, since `ENABLE_BUBBLEWRAP_SANDBOX=OFF` (see below), but their
+  absolute host paths are still compiled into `libwebkitgtk-6.0.so` as
+  `-DBWRAP_EXECUTABLE`/`-DDBUS_PROXY_EXECUTABLE` string literals from this
+  container's own `/usr/bin`, worth knowing about if that sandbox is ever
+  re-enabled in a future build.
+
+Deliberately vendored instead of relying on this boundary, despite being common
+system libraries elsewhere, because a real WebKitGTK requirement made them
+unsuitable for it: `libjpeg` (Debian ships a distro-specific `libjpeg.so.62`
+SONAME most other distros don't -- see `build-in-container.sh`'s libjpeg-turbo
+section), `libxml2`, `libxslt`. See `verify-outside-container.sh` below for how the
+distinction between "genuinely system-provided" and "actually needs vendoring" gets
+tested for real rather than assumed.
+
+## Verifying outside the build container
+
+Every dependency-closure check in this plan, through Task 8's own original pass,
+ran from *inside* the `tuxblox-webkitgtk-builder` container -- where every `-dev`
+package this `Containerfile` installs has its matching runtime `.so` sitting right
+there on the default library search path. That made it structurally impossible to
+notice a shipped bundle depending on one of those system libraries at runtime, since
+the check itself always ran somewhere those libraries happened to already be
+present. This was a real, whole-plan methodology gap, not a one-off oversight --
+found by Task 8's own post-review, which ran `ldd` against the packaged tarball on
+this repo's actual host machine (Arch Linux, sharing essentially none of Debian's
+package layout) for the first time and immediately found real, previously-invisible
+bugs (`libjpeg.so.62`, `libxml2`, `libmanette`, `libhyphen`, `libselinux`, and more).
+
+    ./verify-outside-container.sh [path/to/webkitgtk-*.tar.xz]
+
+Runs the same dependency-closure sweep from two places that are *not* the build
+container: a bare `debian:12-slim` container with nothing installed beyond what that
+base image ships, and this repo's own host machine, whatever distro that happens to
+be. Classifies every unresolved `NEEDED` entry against the system-provided boundary
+documented above, so its output distinguishes real bugs from accepted, documented
+assumptions about the target system. Run this (not just the in-container RPATH
+sweep in `package.sh`) after any dependency version bump or new library addition --
+it is the only check in this whole pipeline that can actually catch this class of
+bug.
 
 ## Bubblewrap sandbox
 
