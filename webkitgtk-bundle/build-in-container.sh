@@ -46,6 +46,18 @@ export CXXFLAGS="-O2"
 # needs one of GLib's own tools rather than just its headers/libs.
 export PATH="$PREFIX/bin:$PATH"
 JOBS="${JOBS:-$(nproc)}"
+# ccache (Task 7 addition, see the matching Containerfile comment for the full "every
+# container run is --rm, so nothing survives without this" rationale). Defaults to
+# /ccache so the common invocation is just `-v webkitgtk-ccache:/ccache`, matching
+# webkitgtk-prefix's own convention; still works with no mount at all (ccache just
+# writes into the container's own throwaway filesystem and provides zero benefit
+# across runs in that case, but never errors). Only wired into the WebKitGTK cmake
+# invocation below (via CMAKE_C_COMPILER_LAUNCHER/CMAKE_CXX_COMPILER_LAUNCHER) --
+# the earlier meson/autotools dependency builds each run at most once per from-scratch
+# script execution already, so there's nothing to gain caching them, and retrofitting
+# every one of them was out of scope for what this task actually needed.
+export CCACHE_DIR="${CCACHE_DIR:-/ccache}"
+mkdir -p "$CCACHE_DIR"
 
 fetch_and_extract() {
     local url="$1" dest_dir="$2"
@@ -419,3 +431,128 @@ fetch_and_extract \
     /build/gst-plugins-bad
 meson setup /build/gst-plugins-bad/_build /build/gst-plugins-bad --prefix="$PREFIX"
 ninja -C /build/gst-plugins-bad/_build -j"$JOBS" install
+
+# --- WebKitGTK itself -------------------------------------------------------------
+# This is the step every prior task (1-6) exists to make possible: build the actual
+# webkit2gtk-6.0 library against the full from-source dependency chain above. Flags
+# below were verified against the REAL Source/cmake/OptionsGTK.cmake,
+# Source/cmake/WebKitFeatures.cmake, Source/cmake/BubblewrapSandboxChecks.cmake, and
+# Source/cmake/GStreamerChecks.cmake in the actual webkitgtk-${WEBKITGTK_VERSION}
+# source tree -- not assumed from the plan brief, which (correctly, per its own
+# instructions) only sketched a starting point.
+#
+# -DUSE_SOUP2 (in the plan brief's original flags) does not exist as an option in
+# this WebKitGTK version at all -- verified by grepping the whole source tree for
+# "SOUP2": zero matches anywhere in Source/cmake. Recent WebKitGTK dropped libsoup2
+# support entirely; this build already only has libsoup-3 (Task 4), which is the only
+# choice available, so the flag is simply omitted rather than passed as a no-op
+# (CMake would otherwise warn "Manually-specified variables were not used by the
+# project").
+#
+# -DUSE_GTK4=ON is technically redundant (OptionsGTK.cmake already defaults USE_GTK4
+# to ON), kept anyway per the brief for explicitness/self-documentation -- this whole
+# bundle's reason to exist is GTK4-based WebKitGTK-6.0, not the GTK3/WebKit2GTK-4.1
+# API this source tree can alternatively build.
+#
+# Real, previously-unlisted hard dependencies turned up by actually reading
+# OptionsGTK.cmake's `find_package(... REQUIRED)` / `message(FATAL_ERROR ...)` checks
+# (full accounting, including the apt packages this needed, is in the Containerfile's
+# Task 7 comment block) are now satisfied by that Containerfile update, EXCEPT the
+# four toggled off below, which were judged disproportionately heavy for what they'd
+# add (see the Containerfile's matching comment for the full reasoning on each):
+#   -DUSE_AVIF=OFF               -- would need libavif + an AV1 decoder (dav1d/libaom)
+#   -DUSE_JPEGXL=OFF             -- would need libjxl + Google's `highway` SIMD library
+#   -DENABLE_SPEECH_SYNTHESIS=OFF -- would need CMU Flite (full offline TTS + voice data)
+#   -DUSE_LIBBACKTRACE=OFF        -- upstream has no tagged release to pin in versions.env
+#
+# USE_WOFF2 needs NO flag and NO libwoff2 build: OptionsGTK.cmake's own WOFF2Checks
+# probe (a real compile-test for FreeType's `FT_CONFIG_OPTION_USE_BROTLI`) detects
+# that this container's system FreeType (2.12.1, via apt) already has brotli-based
+# WOFF2 decoding built in, and silently prefers that over `USE_WOFF2`/libwoff2 --
+# confirmed directly by compiling that exact probe against the container's FreeType
+# before writing this step. Real WOFF2 web-font support is retained for free.
+#
+# USE_GBM (default ON) needing a real Mesa with GBM/EGL/GLX actually built is why the
+# Containerfile's libxxf86vm-dev fix matters here specifically -- without it, Mesa
+# (Task 5) silently produced zero usable libraries (see that Containerfile comment),
+# and this configure step would have failed immediately on "GBM is required for
+# USE_GBM".
+#
+# -DUSE_SYSTEM_SYSPROF_CAPTURE=OFF: the only flag correction found by actually running
+# `cmake` rather than just reading source -- `USE_SYSTEM_SYSPROF_CAPTURE` defaults ON
+# and Source/CMakeLists.txt hard-requires a system `sysprof-capture-4` pkg-config
+# module for it (`CMake Error ... system libsysprof-capture-4 not found, consider
+# using USE_SYSTEM_SYSPROF_CAPTURE=NO`), which this container has no apt package for
+# (GNOME Sysprof's capture library, a profiling/tracing helper). No new dependency
+# needed either way: WebKitGTK vendors its own copy at
+# Source/ThirdParty/libsysprof-capture specifically as the non-system fallback for
+# this option, so turning it off just builds that bundled copy instead -- exactly
+# what the CMake error message itself suggests.
+# -DCMAKE_PREFIX_PATH="$PREFIX" and -DICU_ROOT="$PREFIX": a REAL, previously-hidden
+# bug found only by actually running the full build, not visible from configure
+# output alone. Root cause: unlike the meson/autotools builds earlier in this script,
+# CMake's OWN dependency-resolution model does not read PKG_CONFIG_PATH (WebKit's
+# hand-written Source/cmake/Find*.cmake modules mostly do, via pkg_check_modules --
+# e.g. FindGLib.cmake, FindHarfBuzz.cmake -- but `find_package(ICU ...)` in
+# OptionsGTK.cmake uses CMake's own bundled, pkg-config-blind Modules/FindICU.cmake).
+# Several of this Task 7 Containerfile's new apt packages (libmanette-0.2-dev,
+# libenchant-2-dev, etc.) transitively pulled in Debian's OWN libicu-dev (72.1) and
+# libglib2.0-dev (2.74) as dependencies, alongside the real 77.1/2.84.4 copies this
+# script builds from source into $PREFIX -- so both a system AND a from-source copy
+# of ICU coexist in this container for the first time in this plan. Without a root
+# hint, CMake's FindICU resolved ICU_INCLUDE_DIR/ICU_UC_LIBRARY to plain
+# /usr/include and /usr/lib/x86_64-linux-gnu/libicuuc.so (system 72.1) -- but actual
+# compiles still ended up pulling in $PREFIX/include/unicode/*.h instead (shadowed by
+# -I$PREFIX/include already on the compile command for unrelated reasons, e.g. glib.h
+# living in the same include dir), producing object code that calls ICU's
+# version-suffixed entry points as `_77` (encoded via urename.h's
+# U_ICU_VERSION_SHORT macro at compile time) while the linker was only given
+# system ICU 72.1's library (which only exports `_72`-suffixed symbols) -- a real,
+# reproducible "undefined reference to `u_strToLower_77'" (and ~40 more ICU symbols)
+# failure linking libjavascriptcoregtk-6.0.so, confirmed against the real build
+# before this fix, and confirmed resolved (CMakeCache.txt's ICU_INCLUDE_DIR/
+# ICU_UC_LIBRARY_RELEASE/etc. all consistently pointing at $PREFIX afterward) with
+# this fix in place. CMAKE_PREFIX_PATH is the general form (protects every other
+# CMake-native, non-pkg-config-aware find_package call in this same tree against the
+# identical class of system-vs-$PREFIX ambiguity, e.g. if a future dependency bump
+# pulls in another apt package with more transitive system-library collisions);
+# ICU_ROOT is FindICU.cmake's own documented, more specific hint variable, added
+# redundantly since it's the officially-sanctioned mechanism for exactly this
+# scenario. Neither flag affects resolution of the genuinely-system-only libraries
+# this bundle deliberately does NOT vendor (freetype, fontconfig, X11, zlib, libpng,
+# libjpeg, libxml2, etc.) -- $PREFIX simply contains no alternate copies of those, so
+# find_package still falls through to the system paths for them exactly as before.
+echo ":: Building webkitgtk $WEBKITGTK_VERSION"
+fetch_and_extract \
+    "https://webkitgtk.org/releases/webkitgtk-${WEBKITGTK_VERSION}.tar.xz" \
+    /build/webkitgtk
+# -DCMAKE_C(XX)_COMPILER_LAUNCHER=ccache: the standard, non-invasive way to interpose
+# ccache into a CMake build without renaming/symlinking the compiler itself -- CMake
+# prefixes every actual compile command with the launcher. See the ccache comment
+# earlier in this script (shared environment) and in the Containerfile for why this
+# matters specifically for this --rm-per-run pipeline.
+#
+# A real memory characteristic worth recording here since it directly caused a build
+# failure while developing this step: WebKitGTK's heaviest individual translation
+# units (e.g. Source/JavaScriptCore/dfg/DFGSpeculativeJIT.cpp, and several of the
+# unified-source bundle files under DerivedSources/unified-sources/) can peak at
+# ~2GB RSS per compiler process, confirmed via a real container-cgroup OOM kill
+# (`journalctl -k`: "Memory cgroup out of memory: Killed process ... (cc1plus)
+# ... anon-rss:1948984kB") at `-e JOBS=3 --memory=5g`. That is a materially heavier
+# per-TU footprint than every earlier from-source dependency in this script. At
+# `-e JOBS=2 --memory=6g` a full targeted rebuild of just JavaScriptCore (2705/2705
+# objects, ending in `Linking CXX shared library lib/libjavascriptcoregtk-6.0.so...`)
+# completed cleanly with no kill. Callers on a memory-constrained host should budget
+# accordingly -- prefer a lower JOBS with headroom per job over a higher JOBS that
+# looks fine on average but starves whichever heavy file happens to land in the same
+# batch as another one.
+cmake -B /build/webkitgtk/_build -S /build/webkitgtk -GNinja \
+    -DPORT=GTK -DUSE_GTK4=ON -DCMAKE_INSTALL_PREFIX="$PREFIX" \
+    -DCMAKE_BUILD_TYPE=Release -DENABLE_INTROSPECTION=OFF -DENABLE_DOCUMENTATION=OFF \
+    -DENABLE_MINIBROWSER=OFF \
+    -DUSE_AVIF=OFF -DUSE_JPEGXL=OFF -DENABLE_SPEECH_SYNTHESIS=OFF -DUSE_LIBBACKTRACE=OFF \
+    -DUSE_SYSTEM_SYSPROF_CAPTURE=OFF \
+    -DCMAKE_PREFIX_PATH="$PREFIX" -DICU_ROOT="$PREFIX" \
+    -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+cmake --build /build/webkitgtk/_build -j"$JOBS"
+cmake --install /build/webkitgtk/_build

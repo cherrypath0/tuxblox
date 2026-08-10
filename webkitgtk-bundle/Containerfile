@@ -10,7 +10,7 @@ FROM debian:12
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential cmake ninja-build meson pkg-config git curl ca-certificates \
-    ruby gperf unifdef python3 python3-pip patchelf \
+    ruby gperf unifdef python3 python3-pip patchelf ccache \
     libz-dev libpng-dev libfreetype6-dev libfontconfig1-dev libexpat1-dev \
     libpixman-1-dev libjpeg62-turbo-dev bison flex gettext shared-mime-info \
     libudev-dev libgcrypt20-dev libnghttp2-dev \
@@ -20,6 +20,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxcursor-dev libxdamage-dev libxfixes-dev libxinerama-dev \
     libproxy-dev \
     && rm -rf /var/lib/apt/lists/*
+# ccache (Task 7 addition): every `podman run` in this whole pipeline uses --rm, so a
+# container's entire /build scratch tree -- including every already-compiled .o file
+# -- is discarded the moment that run ends, regardless of whether it succeeded or hit
+# a real, fixable bug partway through. WebKitGTK alone is ~9400 build targets; without
+# ccache, debugging any build-time issue in it means recompiling everything already
+# proven to work, every single time, just to reach the untested part again. ccache
+# (a compiler output cache keyed on preprocessed source + flags) turns that into a
+# near-instant replay for anything unchanged, as long as its cache directory is
+# mounted from a persistent volume across runs (see build-in-container.sh's
+# CCACHE_DIR / CMAKE_C(XX)_COMPILER_LAUNCHER wiring) -- the same "persist across
+# ephemeral containers via a named volume" pattern this script already uses for the
+# install prefix itself (webkitgtk-prefix).
 # Task 4 (gtk4, libsoup-3, libsecret, libgudev, libpsl) additions, added up front after
 # inspecting each project's meson.build/meson.options rather than discovering them one
 # failure at a time:
@@ -120,6 +132,96 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # shared-mime-info package installs shared-mime-info.pc to /usr/share/pkgconfig,
 # which is on the default pkg-config search path already, so no PKG_CONFIG_PATH
 # change is needed -- just installing the package above is enough.
+
+# Task 7 (WebKitGTK itself) additions. Found by reading the REAL Source/cmake/
+# OptionsGTK.cmake / WebKitFeatures.cmake / BubblewrapSandboxChecks.cmake in the
+# actual webkitgtk-2.52.5 source tree (not guessed from the brief) and cross-checked
+# against what actually pkg-config-resolves in the existing webkitgtk-prefix volume,
+# same methodology as Tasks 4/5's precedent for expanding the apt package boundary
+# when real hard `find_package(... REQUIRED)` / `message(FATAL_ERROR ...)` checks in
+# WebKitGTK's own CMake turn up dependencies the plan's Global Constraints list never
+# anticipated. All of these are ordinary, stable, near-universally-available Debian
+# packages (spell-check/gamepad/sandboxing/logging system integration, not anything
+# TuxBlox/WebKitGTK-stack-specific), matching the same class of "system lib" boundary
+# Task 4 already established for X11/Wayland/DRM/gcrypt/nghttp2/tiff/udev:
+#   - libxxf86vm-dev: a REAL BUG FIX for Mesa (Task 5), not just a Task 7 addition --
+#     mesa/meson.build (~line 2167) does an unconditional `dependency('xxf86vm')`
+#     (no `required: false`) on the code path taken whenever GLX resolves to 'dri'
+#     with direct rendering (the default for an X11-platform build, which Task 5's
+#     `-Dplatforms=x11,wayland` selects). Verified directly: re-running Task 5's
+#     exact `meson setup` invocation against the real mesa-25.1.8 source with today's
+#     Containerfile fails outright with "Dependency xxf86vm not found", and the
+#     persistent webkitgtk-prefix volume confirms it -- zero Mesa-produced libraries
+#     (no libGL, libEGL, libgbm, libglapi, no DRI driver .so) exist anywhere in the
+#     prefix despite Task 5/6's reports claiming a clean `ninja install`. Both facts
+#     agree: every "full rerun" since Task 5 was actually failing at the Mesa step
+#     under `set -euo pipefail`, and Task 6's later steps that report success (e.g.
+#     GStreamer) must have run via its own "fast iteration" scratch invocations
+#     against the volume rather than a genuinely clean from-scratch full run, since a
+#     mid-script failure would have aborted before ever reaching them. This directly
+#     matters for Task 7: WebKitGTK's own OptionsGTK.cmake hard-requires GBM
+#     (`-DUSE_GBM` defaults ON, `find_package(GBM)` + `FATAL_ERROR` if missing, and
+#     `ENABLE_GPU_PROCESS` itself `WEBKIT_OPTION_DEPEND`s on `USE_GBM`) -- without a
+#     working Mesa, WebKitGTK's own configure step would fail the same way.
+#   - libmanette-0.2-dev: OptionsGTK.cmake's `ENABLE_GAMEPAD` defaults ON (PUBLIC) and
+#     does `find_package(Manette 0.2.4)` + `FATAL_ERROR` if not found -- a real,
+#     previously-unlisted hard dependency, not something `-D`-toggleable away without
+#     losing the Gamepad API (relevant to Roblox, a game platform).
+#   - libenchant-2-dev: `ENABLE_SPELLCHECK` defaults ON, `find_package(Enchant)` +
+#     `FATAL_ERROR` if missing. Enchant is a spell-checker *abstraction* layer (it
+#     builds/links fine with zero dictionary backends present -- this package alone
+#     is sufficient to satisfy WebKitGTK's configure check).
+#   - libseccomp-dev, bubblewrap, xdg-dbus-proxy: `ENABLE_BUBBLEWRAP_SANDBOX` defaults
+#     ON on Linux. `BubblewrapSandboxChecks.cmake` hard-requires libseccomp
+#     (`find_package(Libseccomp)` + `FATAL_ERROR`), plus `find_program(bwrap)` and
+#     `find_program(xdg-dbus-proxy)` at CMake-configure time, whose *absolute host
+#     paths* get baked in as compile-time `-DBWRAP_EXECUTABLE="..."` /
+#     `-DDBUS_PROXY_EXECUTABLE="..."` string literals (not looked up again at
+#     runtime). Since apt installs both to the standard `/usr/bin` on Debian --
+#     which is also where they'd live on a real target system that has bubblewrap
+#     installed, the same FHS path this container itself uses -- the baked-in path
+#     should resolve correctly on a real deployment target, unlike the Task 4 ledger's
+#     GIO_MODULE_DIR risk (which pointed at this build's own $PREFIX, not a stable
+#     system path). Still a real *runtime* dependency worth flagging: WebKit's process
+#     sandbox needs bubblewrap + xdg-dbus-proxy actually installed on the end user's
+#     machine, the same "assumed present on the target Linux system" boundary Task 4
+#     already established for X11/Wayland/DRM -- not something this relocatable
+#     prefix vendors or can vendor (they're setuid/namespace-privileged system tools).
+#   - libsystemd-dev: `ENABLE_JOURNALD_LOG` defaults ON, `find_package(Journald)` +
+#     `FATAL_ERROR` if neither libsystemd nor libelogind is found.
+#   - libhyphen-dev: `USE_LIBHYPHEN` defaults ON (PUBLIC), `find_package(Hyphen)` +
+#     `FATAL_ERROR` if missing (automatic-hyphenation CSS support).
+#   - libxslt1-dev: `ENABLE_XSLT` defaults ON, `find_package(LibXslt 1.1.13 REQUIRED)`
+#     -- an ordinary REQUIRED find_package, not gated by a manual FATAL_ERROR check,
+#     but just as hard a build requirement. Pairs with the already-apt-installed
+#     libxml2-dev (Task 4) the same way upstream libxslt itself depends on libxml2.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libxxf86vm-dev libmanette-0.2-dev libenchant-2-dev libseccomp-dev \
+    bubblewrap xdg-dbus-proxy libsystemd-dev libhyphen-dev libxslt1-dev \
+    && rm -rf /var/lib/apt/lists/*
+# Real, deliberately-scoped-out Task 7 gaps (documented here rather than silently
+# built or silently skipped, same style as Task 5's Vulkan-drivers trim and Task 6's
+# gst-plugins-good deferral): USE_AVIF (libavif + an AV1 decoder such as dav1d),
+# USE_JPEGXL (libjxl + Google's `highway` SIMD dispatch library), and
+# ENABLE_SPEECH_SYNTHESIS's USE_FLITE path (CMU Flite, a full offline TTS engine with
+# bundled voice data) are all real, default-ON, hard `find_package`+`FATAL_ERROR`
+# requirements in WebKitGTK's own OptionsGTK.cmake that have NO graceful "auto"
+# fallback (unlike USE_WOFF2, which silently prefers FreeType's own built-in
+# brotli-based WOFF2 decoder -- confirmed present in this container's system
+# FreeType 2.12.1 by directly compiling WOFF2Checks.cmake's own
+# `FT_CONFIG_OPTION_USE_BROTLI` probe -- so libwoff2/brotli were never actually
+# needed here). Each of AVIF/JPEG-XL/Flite would be a genuinely new, disproportionately
+# heavy from-source dependency chain for a narrow capability (two still-niche modern
+# image codecs already largely superseded in practice by the WebP support this bundle
+# already has from Task 2, and the rarely-used Web Speech Synthesis API) -- explicitly
+# disabled via `-DUSE_AVIF=OFF -DUSE_JPEGXL=OFF -DENABLE_SPEECH_SYNTHESIS=OFF` in
+# build-in-container.sh's WebKitGTK cmake invocation rather than silently expanding
+# scope further. `-DUSE_LIBBACKTRACE=OFF` is disabled for a different reason: it has
+# no tagged upstream release at all (github.com/ianlancetaylor/libbacktrace ships zero
+# tags/releases, consumed everywhere else only as a rolling git submodule), which
+# can't be pinned the way this whole bundle's versions.env convention requires --
+# losing it only degrades the symbol quality of WebKit's own internal crash
+# backtraces, a debugging nicety, not a user-facing capability.
 
 WORKDIR /build
 RUN mkdir -p /build-scripts
