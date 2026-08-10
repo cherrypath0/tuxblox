@@ -1,16 +1,34 @@
 #!/bin/bash
+# TuxBlox - Linux Compatibility Layer for the Roblox Engine
+# Copyright (C) 2026 TuxBlox Developers
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 # webkitgtk-bundle/package.sh
-# Runs INSIDE the container after build-in-container.sh (and, for the WEBKIT_EXEC_PATH
-# fix, the webkitgtk-specific rebuild -- see README.md) have populated the
-# webkitgtk-prefix volume. Rewrites every ELF file's RPATH to a relative,
-# self-contained path so the extracted tarball works regardless of where TuxBlox's
-# build later unpacks it, then tars up only the runtime-relevant subset.
+# Runs INSIDE the container after build-in-container.sh has populated the
+# webkitgtk-prefix volume (build.sh runs both in sequence; build-in-container.sh
+# always rebuilds WebKitGTK itself, including the WEBKIT_EXEC_PATH source patch, so
+# there is no separate "rebuild WebKitGTK only" step to run first). Rewrites every
+# ELF file's RPATH to a relative, self-contained path so the extracted tarball works
+# regardless of where TuxBlox's build later unpacks it, then tars up only the
+# runtime-relevant subset.
 #
 # Several corrections vs. the original plan draft, all found by inspecting the real
 # populated prefix (and, for the strip/gdk-pixbuf items, by testing the packaged
 # result OUTSIDE this build container) rather than trusting assumptions -- see
-# README.md's "Corrections found while implementing this task" section for the full
-# reasoning:
+# README.md's "Runtime relocatability" and "Bundle contents and what was
+# deliberately left out" sections for the user-facing consequences:
 #
 # 1. RPATH/RUNPATH rewriting must cover every ELF file in the shipped tree, not just
 #    lib/*.so*. WebKitWebProcess/WebKitNetworkProcess/WebKitGPUProcess/jsc (under
@@ -111,7 +129,7 @@ find include lib libexec etc share -type f \
     up=""
     for ((i = 0; i < depth; i++)); do up="../$up"; done
     # Both lib/ AND lib/x86_64-linux-gnu/ are needed, not just lib/ -- found by
-    # actually testing this (see README.md's relocation-verification section).
+    # actually testing this (see README.md's "Verification performed" section).
     # WebKitGTK's own CMake build installs to plain lib/, but every meson-built
     # dependency underneath it (glib, gtk4, mesa, gio's TLS module, ...) installs to
     # Debian's multiarch lib/x86_64-linux-gnu/ convention instead (the same
@@ -155,8 +173,23 @@ mkdir -p /out
 # "not found" dependencies -- including libwebkitgtk-6.0.so.4 itself -- purely from
 # broken symlinks, RPATH already being completely correct). The "S" flag restricts
 # --transform to member archive paths only, leaving symlink target text untouched.
+#
+# --exclude='*.a' (final-review finding I-5): several dependencies install a static
+# archive alongside their shared library (libnettle.a and libhogweed.a at ~18 MB
+# each, libpcre2-{8,16,32}.a, libsqlite3.a, libgmp.a, libwebp*.a, liblcms2.a,
+# libopenjp2.a, libtasn1.a -- ~50 MB uncompressed, 5.1 MiB of the compressed
+# tarball, measured). A static archive is link-time-only input: nothing that
+# dlopen()s this bundle at runtime can consume one, and this bundle is never linked
+# against at build time (README.md's "Note on pkg-config against a relocated bundle"
+# -- the .pc files don't even work relocated). They're also invisible to the RPATH/
+# strip loop above, which skips them on the ELF-magic check ("!<arch>", not \x7fELF).
+# Dropping them matters beyond tidiness: this tarball is committed to git, and the
+# 100 MiB GitHub per-file hard limit was already hit once during Task 8 (C-2, fixed
+# by stripping) -- WebKitGTK grows with every release, so headroom for the next
+# version bump is worth keeping.
 tar -cJf "/out/webkitgtk-${WEBKITGTK_VERSION}-x86_64.tar.xz" \
     --exclude='libexec/installed-tests' --exclude='share/installed-tests' \
+    --exclude='*.a' \
     --transform 's,^,webkitgtk/,S' \
     include lib libexec etc share
 

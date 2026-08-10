@@ -53,6 +53,11 @@ environment variables at runtime, computed relative to wherever the tarball actu
 gets extracted (`$(DST_DIR)/lib/tuxblox-webview` in `ProtonSource/Makefile.in`'s
 terms):
 
+> **Read "LD_LIBRARY_PATH beats this bundle's RUNPATH" below before wiring this into
+> Wine.** The RPATH work described here is correct in isolation, but Proton puts its
+> own library directory ahead of it in the loader's search order inside every wine
+> process -- which is exactly where Plans 2-4 will `dlopen()` this bundle.
+
 | Variable | What it fixes | Value to set it to | Status |
 |---|---|---|---|
 | `WEBKIT_EXEC_PATH` | Where `libwebkitgtk-6.0.so` looks for `WebKitWebProcess`/`WebKitNetworkProcess`/`WebKitGPUProcess` | `<extract-dir>/libexec/webkitgtk-6.0` | **Required.** Verified end-to-end (real page load fails without it, succeeds with it). |
@@ -233,13 +238,35 @@ dependency chain (unlike WebKitGTK's own build, which already sets
 functional loss (`--strip-unneeded` keeps the dynamic symbol table every shared
 library needs to actually load/link, only removing debug info and local symbols).
 
+Static archives (`*.a`) are excluded too -- a final-review finding (I-5). Several
+dependencies install one alongside their shared library (`libnettle.a` and
+`libhogweed.a` at ~18 MB each, `libpcre2-{8,16,32}.a`, `libsqlite3.a`, `libgmp.a`,
+`libwebp*.a`, `liblcms2.a`, `libopenjp2.a`, `libtasn1.a`), ~50 MB uncompressed and a
+measured 5.1 MiB of the compressed tarball. A static archive is link-time-only
+input: nothing that `dlopen()`s this bundle at runtime can consume one, and nothing
+links against this bundle at build time either (see the pkg-config note below --
+the shipped `.pc` files don't survive relocation anyway). They were also invisible
+to `package.sh`'s RPATH/strip loop, which skips them on the ELF-magic check
+(`!<arch>`, not `\x7fELF`).
+
 Known, not yet addressed: the tarball is still not aggressively size-optimized
-beyond stripping (`share/` still carries `man`/`info`/`gdb`/`bash-completion`/`zsh`/
-`aclocal`/`gettext`/`cmake`/`pkgconfig`/`xml` subdirectories that are almost
+beyond stripping and the `*.a` exclusion (`include/` is ~25 MB of headers, and
+`share/` still carries `locale` (~28 MB) plus `man`/`info`/`gdb`/`bash-completion`/
+`zsh`/`aclocal`/`gettext`/`cmake`/`pkgconfig`/`xml` subdirectories that are almost
 certainly unnecessary at runtime). Left as-is per this plan's self-review notes,
 which flagged tarball size as a real but deliberately-deferred concern beyond what
 C-2 required -- worth a further pass once Plans 2-4 prove the bundle works
-end-to-end, not before.
+end-to-end, not before. Headroom matters here specifically because this tarball is
+committed to git and GitHub's 100 MiB per-file hard limit was already hit once
+(C-2); WebKitGTK grows with every release.
+
+### Note on pkg-config against a relocated bundle
+
+The bundle's own `.pc` files (e.g. `webkitgtk-6.0.pc`, `gio-2.0.pc`) still contain
+the build's own absolute prefix (`prefix=/opt/tuxblox-webview`) baked into their
+`Cflags:`/`Libs:` lines, so `pkg-config --cflags` against a relocated copy returns
+nonexistent paths. Anything in Plans 2-4 that wants to build against this bundle
+needs to know its layout directly rather than discover it via `pkg-config`.
 
 ## System-provided libraries (not vendored)
 
@@ -317,3 +344,139 @@ WebKitGTK's process sandbox (`ENABLE_BUBBLEWRAP_SANDBOX`) is built with
 `build-in-container.sh` and Task 7/8's reports for the full reasoning. This trades
 away WebKit's process-level sandboxing for genuine host independence (no runtime
 dependency on `/usr/bin/bwrap`/`/usr/bin/xdg-dbus-proxy`).
+
+---
+
+# Carried forward: unresolved issues for later plans
+
+Everything below was found by the final whole-branch review of this bundling work
+(2026-08-10). None of it is a defect in the tarball this directory produces -- the
+bundle itself verifies clean -- but each one is a real decision or obligation that
+lands on whoever does the actual Wine integration (Plans 2-4) or cuts the first
+release that ships this bundle. Written down here rather than left in a review
+transcript, because none of it is discoverable from the code alone.
+
+## LD_LIBRARY_PATH beats this bundle's RUNPATH (REQUIRED DESIGN DECISION for Plans 2-4)
+
+**This is the finding most likely to break the first attempt at loading this bundle
+inside Wine, and it is not visible from any test run outside a real Proton process.**
+
+`ProtonSource/proton` (lines 1519-1520) prepends `<dist>/lib/x86_64-linux-gnu`
+(plus the aarch64/i386 siblings) to `LD_LIBRARY_PATH` for every wine process it
+launches. In `ld.so`'s search order, `LD_LIBRARY_PATH` is consulted **before**
+`DT_RUNPATH` -- and `patchelf --set-rpath` writes `DT_RUNPATH`, not `DT_RPATH`. So
+inside a wine process, Proton's own libraries win over this bundle's for any soname
+they both provide, regardless of how correct the RPATH work above is.
+
+They provide a lot of the same sonames. Measured against a real build:
+
+- **72 files / ~36 distinct libraries overlap** between this bundle and Proton's own
+  `dist/files/lib/x86_64-linux-gnu`: the entire native-Linux GStreamer stack
+  (`libgstreamer-1.0.so.0`, `libgstbase/app/audio/video/gl/pbutils/codecparsers/...`)
+  plus `libgraphene-1.0.so.0`.
+- **The versions differ**: Proton ships GStreamer 1.29.x (`libgstreamer-1.0.so.0.2902.0`)
+  and graphene 1.11.x; this bundle ships GStreamer 1.26.5 and graphene 1.10.8.
+- **Worse, Proton's `libgstreamer-1.0.so.0.2902.0` has no RUNPATH at all** and lists
+  `libglib-2.0.so.0` in its `NEEDED` entries. `ld.so` deduplicates by soname, so
+  whichever `libglib-2.0.so.0` gets loaded into the process first wins **for
+  everything in that process**. If Proton's GStreamer (via winegstreamer) has already
+  pulled in an older system GLib, this bundle's WebKitGTK -- built against GLib
+  2.84.4 -- can then fail to resolve symbols, or resolve them against the wrong
+  implementation.
+
+Nothing here is fixed in this directory; it has to be decided by whichever plan wires
+the bundle into Wine. Options, roughly in order of bluntness:
+
+1. **`patchelf --force-rpath --set-rpath ...` in `package.sh`.** `DT_RPATH` is
+   consulted *before* `LD_LIBRARY_PATH` and is inherited transitively by
+   dependencies that lack their own, so this makes the bundle win by default.
+   `DT_RPATH` is formally deprecated, but universally supported. Cheapest fix;
+   affects the artifact, so it belongs in a repackage, not in the consumer.
+2. **`dlmopen(LM_ID_NEWLM, ...)` instead of `dlopen()`.** Loads the whole bundle into
+   a private linker namespace with its own search scope, giving true isolation from
+   Proton's libraries. Strongest guarantee, but a separate namespace has real
+   consequences (symbol sharing with the host process, `malloc`/TLS behavior,
+   callbacks crossing the namespace boundary) that need designing for, not just
+   swapping the call.
+3. **Scrub `LD_LIBRARY_PATH` in the environment handed specifically to WebKit's
+   helper processes** (`WebKitWebProcess`/`WebKitNetworkProcess`/`WebKitGPUProcess`,
+   spawned via `WEBKIT_EXEC_PATH`). Cheap and effective for the three child
+   processes, which is where most of the real work happens -- but does nothing for
+   the in-process `libwebkitgtk-6.0.so` load itself.
+
+Whichever is chosen, verify it *in a real wine process*, not just against an
+extracted tarball on the host: the collision only exists when Proton's own
+`LD_LIBRARY_PATH` is in effect.
+
+## gdk-pixbuf `loaders.cache` is relocated a second time by the installer (UNRESOLVED)
+
+`ProtonSource/Makefile.in`'s extraction rule regenerates `loaders.cache` after
+unpacking, so its baked-in absolute loader paths match the real extraction directory
+(see the `loaders.cache` note earlier in this file). That fixes exactly one
+relocation -- the one from this bundle's `/opt/tuxblox-webview` build prefix to the
+Proton build's `$(DST_DIR)/lib/tuxblox-webview`.
+
+**There is a second relocation the fix does not account for.**
+`installer/src/installer_steps.cpp` packs the finished Proton build as
+`protonbuild-*.tar.zst` and extracts it to `~/.tuxblox/ProtonBuild` on the end
+user's machine. The `loaders.cache` regenerated at Proton-build time therefore
+contains the *build machine's* absolute paths (e.g.
+`/home/<maintainer>/.../ProtonBuild/dist/files/lib/tuxblox-webview/...`), which do
+not exist on any user's system -- reintroducing precisely the stale-absolute-path
+bug the Makefile step was written to solve, one hop later.
+
+Impact is bounded but real: only the GIF and TIFF loaders ship as separate modules
+(PNG and JPEG are compiled into `libgdk_pixbuf-2.0.so.0` itself -- it links
+`libpng16`/`libjpeg.so.8` directly), so the visible effect is those two formats
+failing to decode through gdk-pixbuf, not a hard failure. It will get worse if a
+future gdk-pixbuf ships more loaders as modules.
+
+Needs a decision in a later plan or an installer change; both options are
+straightforward:
+
+- Regenerate the cache at **install time or first launch** (the tarball already ships
+  `libexec/gdk-pixbuf-tools/gdk-pixbuf-query-loaders` for exactly this purpose), or
+- set **`GDK_PIXBUF_MODULE_FILE`** at runtime to a cache generated into a writable
+  per-user location, alongside the other environment variables in the contract table
+  above.
+
+## Supply-chain hardening gap (known limitation, not blocking)
+
+Nothing in this pipeline verifies what it downloads:
+
+- `build-in-container.sh` fetches ~28 source tarballs with a bare `curl -fL` and no
+  checksum or signature check. `versions.env` pins *versions*, which protects against
+  upstream drift but not against a compromised or substituted mirror.
+- `Containerfile` uses the moving `FROM debian:12` tag rather than a digest, and
+  `pip3 install --break-system-packages --upgrade 'meson>=1.4.0'` is unpinned -- so
+  two runs months apart can legitimately produce different toolchains.
+
+For a component that renders live web content and handles Roblox login sessions,
+this is worth closing before the bundle ships in an actual release: add a
+`sha256sums` file next to `versions.env` and verify it inside `fetch_and_extract`,
+pin the base image by digest, and pin the meson version exactly. Not blocking today
+(the artifact in `ProtonSource/contrib/` was built and verified by hand), but it is
+the difference between "pinned" and "reproducible", and the whole point of this
+directory is that someone can rebuild it in six months for a security update and
+trust the result.
+
+## Third-party license attribution needed before release
+
+This bundle vendors roughly 28 libraries that were not previously part of anything
+TuxBlox ships -- WebKitGTK, GTK-4, GLib, GnuTLS (with LGPLv3 `libunistring`
+compiled in), Nettle/Hogweed, GMP, libsecret, GStreamer, Mesa, ICU, SQLite,
+libsoup, Cairo, Pango, HarfBuzz, gdk-pixbuf, libxml2/libxslt, libjpeg-turbo,
+libwebp, and others -- almost all LGPL or similarly notice-bearing. Redistributing
+them in a release carries attribution obligations (license text + notice, and for
+the LGPL components, source availability). TuxBlox also *modifies* WebKit: the
+`WEBKIT_EXEC_PATH` patch applied in `build-in-container.sh`.
+
+The repo already has machinery for this -- `third_party_licenses/` and
+`installer/cmake/EmbedThirdPartyLicenses.cmake`, which generates the installed
+product's `COPYRIGHT.txt` -- but it currently covers only Proton and the installer's
+own vendored dependencies, not anything in this bundle.
+
+**Deliberately not done here:** `CLAUDE.md` states `third_party_licenses/` holds
+license texts for bundled dependencies and must not be modified, so this is flagged
+for the repo owner to handle rather than changed unilaterally. It should be resolved
+before any release ships this bundle, not before this work merges.
