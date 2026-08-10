@@ -44,3 +44,5 @@ plan/
 CLAUDE.md
 
 /*.tar.gz
+
+webkitgtk-bundle/out/
