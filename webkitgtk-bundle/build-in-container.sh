@@ -522,6 +522,32 @@ ninja -C /build/gst-plugins-bad/_build -j"$JOBS" install
 # this bundle deliberately does NOT vendor (freetype, fontconfig, X11, zlib, libpng,
 # libjpeg, libxml2, etc.) -- $PREFIX simply contains no alternate copies of those, so
 # find_package still falls through to the system paths for them exactly as before.
+#
+# -DENABLE_BUBBLEWRAP_SANDBOX=OFF: a deliberate capability tradeoff, not a build
+# workaround (added after this task's initial review round -- the Containerfile's
+# libseccomp-dev/bubblewrap/xdg-dbus-proxy packages were originally added believing
+# ENABLE_BUBBLEWRAP_SANDBOX's default-ON state was just a normal build-time
+# requirement to satisfy, the same as everything else in that comment block).
+# Real problem found in review: in this WebKitGTK 6.0 (the "2022 GLib API")
+# configuration, the bubblewrap process sandbox has NO runtime opt-out --
+# webkit_web_context_set_sandbox_enabled() is compiled out entirely under the 2022
+# GLib API, and a failed sandbox spawn at runtime is a hard g_error() abort, not a
+# graceful fallback. With the sandbox left enabled, the built libwebkitgtk-6.0.so
+# would have a real, undeclared HARD RUNTIME dependency on /usr/bin/bwrap and
+# /usr/bin/xdg-dbus-proxy existing on whatever end-user Linux system this bundle is
+# unpacked onto -- directly conflicting with this whole plan's relocatable,
+# zero-host-package goal (the same reason every other dependency in this pipeline is
+# built from source into $PREFIX rather than assumed present on the target machine).
+# Disabling it trades away WebKit's process-level sandboxing (defense-in-depth
+# against a compromised renderer process reaching the rest of the host) for genuine
+# host independence -- consistent with this plan's existing choice to vendor
+# everything rather than lean on host packages. This tradeoff is also documented in
+# the plan document's Task 8 section. libseccomp-dev/bubblewrap/xdg-dbus-proxy are
+# left in the Containerfile even though they're now unused at cmake-configure time
+# (BubblewrapSandboxChecks.cmake's whole body is gated behind
+# `if (ENABLE_BUBBLEWRAP_SANDBOX)`) -- harmless build-time-only leftovers, not
+# something that affects the shipped bundle either way; not cleaned up here to keep
+# this fix narrowly scoped to the two review findings it addresses.
 echo ":: Building webkitgtk $WEBKITGTK_VERSION"
 fetch_and_extract \
     "https://webkitgtk.org/releases/webkitgtk-${WEBKITGTK_VERSION}.tar.xz" \
@@ -532,20 +558,34 @@ fetch_and_extract \
 # earlier in this script (shared environment) and in the Containerfile for why this
 # matters specifically for this --rm-per-run pipeline.
 #
-# A real memory characteristic worth recording here since it directly caused a build
-# failure while developing this step: WebKitGTK's heaviest individual translation
-# units (e.g. Source/JavaScriptCore/dfg/DFGSpeculativeJIT.cpp, and several of the
-# unified-source bundle files under DerivedSources/unified-sources/) can peak at
-# ~2GB RSS per compiler process, confirmed via a real container-cgroup OOM kill
-# (`journalctl -k`: "Memory cgroup out of memory: Killed process ... (cc1plus)
-# ... anon-rss:1948984kB") at `-e JOBS=3 --memory=5g`. That is a materially heavier
-# per-TU footprint than every earlier from-source dependency in this script. At
-# `-e JOBS=2 --memory=6g` a full targeted rebuild of just JavaScriptCore (2705/2705
-# objects, ending in `Linking CXX shared library lib/libjavascriptcoregtk-6.0.so...`)
-# completed cleanly with no kill. Callers on a memory-constrained host should budget
-# accordingly -- prefer a lower JOBS with headroom per job over a higher JOBS that
-# looks fine on average but starves whichever heavy file happens to land in the same
-# batch as another one.
+# A real memory characteristic worth recording here since it directly caused TWO
+# separate build failures while developing this step, at two different JOBS values --
+# corrected after an earlier version of this comment understated the second one:
+#   - `-e JOBS=3 --memory=5g`: failed early, inside JavaScriptCore, compiling
+#     Source/JavaScriptCore/dfg/DFGSpeculativeJIT.cpp -- a real container-cgroup OOM
+#     kill (`journalctl -k`: "Memory cgroup out of memory: Killed process ...
+#     (cc1plus) ... anon-rss:1948984kB").
+#   - `-e JOBS=2 --memory=6g`: a *targeted* rebuild of just JavaScriptCore alone
+#     (2705/2705 objects, ending in a clean `Linking CXX shared library
+#     lib/libjavascriptcoregtk-6.0.so...`) completed with no kill -- but that is NOT
+#     the same claim as "JOBS=2 is safe for the full build". A subsequent FULL build
+#     at this same `-e JOBS=2 --memory=6g` got to [8044/9423] (85%, inside WebCore
+#     this time, not JSC) before hitting the identical class of container-cgroup OOM
+#     kill on one of WebCore's unified-source translation units. WebCore's heaviest
+#     unified-source bundles are apparently heavier than JSC's, and JOBS=2 was NOT
+#     actually safe for the full tree on this host, even though it looked safe from
+#     the JSC-only test alone.
+#   - `-e JOBS=1 --memory=6g`: this is the setting the actual full, successful,
+#     installed build (the one this repo's persisted results/report are based on)
+#     used. Confirmed known-safe end-to-end for the complete ~9423-target tree on
+#     this host. Higher JOBS values were not confirmed stable for the full build --
+#     do not assume JOBS=2 is safe based on the JSC-only data point above; that was
+#     real data but for a smaller, apparently-less-memory-hungry subset of the tree.
+# Net guidance for a future caller: JOBS=1 is the known-safe default this script's
+# own successful run used. If you have headroom to try higher parallelism (a host
+# with more consistently-free RAM than the one this was developed on), that has not
+# been validated here and should be treated as unverified, not as a documented-safe
+# option -- watch for cc1plus OOM kills specifically inside WebCore, not just JSC.
 cmake -B /build/webkitgtk/_build -S /build/webkitgtk -GNinja \
     -DPORT=GTK -DUSE_GTK4=ON -DCMAKE_INSTALL_PREFIX="$PREFIX" \
     -DCMAKE_BUILD_TYPE=Release -DENABLE_INTROSPECTION=OFF -DENABLE_DOCUMENTATION=OFF \
@@ -553,6 +593,7 @@ cmake -B /build/webkitgtk/_build -S /build/webkitgtk -GNinja \
     -DUSE_AVIF=OFF -DUSE_JPEGXL=OFF -DENABLE_SPEECH_SYNTHESIS=OFF -DUSE_LIBBACKTRACE=OFF \
     -DUSE_SYSTEM_SYSPROF_CAPTURE=OFF \
     -DCMAKE_PREFIX_PATH="$PREFIX" -DICU_ROOT="$PREFIX" \
-    -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+    -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+    -DENABLE_BUBBLEWRAP_SANDBOX=OFF
 cmake --build /build/webkitgtk/_build -j"$JOBS"
 cmake --install /build/webkitgtk/_build
