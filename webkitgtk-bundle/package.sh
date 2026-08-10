@@ -140,7 +140,15 @@ find include lib libexec etc share -type f \
     # container's own system copy* instead of the bundle's -- caught by `ldd` against
     # a tarball extracted somewhere with no relationship to /opt/tuxblox-webview, per
     # the brief's Step 3 verification command.
-    patchelf --set-rpath "\$ORIGIN:\$ORIGIN/${up}lib:\$ORIGIN/${up}lib/x86_64-linux-gnu" "$f"
+    # --force-rpath: writes DT_RPATH instead of DT_RUNPATH. DT_RPATH is
+    # consulted by ld.so BEFORE LD_LIBRARY_PATH (DT_RUNPATH is consulted
+    # AFTER), and is inherited transitively by libraries this one loads --
+    # required because Proton's own `proton` script prepends its own
+    # lib/x86_64-linux-gnu to LD_LIBRARY_PATH for every wine process, which
+    # would otherwise win the soname race against this bundle's own,
+    # different-versioned GStreamer/graphene builds. See
+    # "LD_LIBRARY_PATH beats this bundle's RUNPATH" in README.md.
+    patchelf --force-rpath --set-rpath "\$ORIGIN:\$ORIGIN/${up}lib:\$ORIGIN/${up}lib/x86_64-linux-gnu" "$f"
 
     # Task 8 post-review correction (2026-08-10), C-2: strip debug symbols. The
     # committed tarball came in at 160.9 MiB -- over GitHub's 100 MiB hard per-file

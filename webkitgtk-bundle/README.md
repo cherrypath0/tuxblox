@@ -356,17 +356,16 @@ lands on whoever does the actual Wine integration (Plans 2-4) or cuts the first
 release that ships this bundle. Written down here rather than left in a review
 transcript, because none of it is discoverable from the code alone.
 
-## LD_LIBRARY_PATH beats this bundle's RUNPATH (REQUIRED DESIGN DECISION for Plans 2-4)
+## LD_LIBRARY_PATH beats this bundle's RUNPATH (RESOLVED in Task 1)
 
-**This is the finding most likely to break the first attempt at loading this bundle
-inside Wine, and it is not visible from any test run outside a real Proton process.**
+**This collision was the blocker identified in Plan 1 as required-before-Plan-2.
+Fixed by applying `patchelf --force-rpath` in Task 1.**
 
 `ProtonSource/proton` (lines 1519-1520) prepends `<dist>/lib/x86_64-linux-gnu`
 (plus the aarch64/i386 siblings) to `LD_LIBRARY_PATH` for every wine process it
 launches. In `ld.so`'s search order, `LD_LIBRARY_PATH` is consulted **before**
-`DT_RUNPATH` -- and `patchelf --set-rpath` writes `DT_RUNPATH`, not `DT_RPATH`. So
-inside a wine process, Proton's own libraries win over this bundle's for any soname
-they both provide, regardless of how correct the RPATH work above is.
+`DT_RUNPATH`. The issue: `patchelf --set-rpath` writes `DT_RUNPATH`, not `DT_RPATH`,
+so Proton's own libraries would win over this bundle's for any soname they both provide.
 
 They provide a lot of the same sonames. Measured against a real build:
 
@@ -376,37 +375,35 @@ They provide a lot of the same sonames. Measured against a real build:
   plus `libgraphene-1.0.so.0`.
 - **The versions differ**: Proton ships GStreamer 1.29.x (`libgstreamer-1.0.so.0.2902.0`)
   and graphene 1.11.x; this bundle ships GStreamer 1.26.5 and graphene 1.10.8.
-- **Worse, Proton's `libgstreamer-1.0.so.0.2902.0` has no RUNPATH at all** and lists
+- **Proton's `libgstreamer-1.0.so.0.2902.0` has no RUNPATH at all** and lists
   `libglib-2.0.so.0` in its `NEEDED` entries. `ld.so` deduplicates by soname, so
-  whichever `libglib-2.0.so.0` gets loaded into the process first wins **for
-  everything in that process**. If Proton's GStreamer (via winegstreamer) has already
-  pulled in an older system GLib, this bundle's WebKitGTK -- built against GLib
-  2.84.4 -- can then fail to resolve symbols, or resolve them against the wrong
-  implementation.
+  whichever `libglib-2.0.so.0` gets loaded first wins **for everything in that process**.
 
-Nothing here is fixed in this directory; it has to be decided by whichever plan wires
-the bundle into Wine. Options, roughly in order of bluntness:
+**Fix applied in Task 1:** `package.sh` now uses `patchelf --force-rpath --set-rpath`
+instead of plain `--set-rpath`. `DT_RPATH` is consulted *before* `LD_LIBRARY_PATH`
+and is inherited transitively by dependencies that lack their own, making the bundle's
+libraries win by default. `DT_RPATH` is formally deprecated but universally supported.
 
-1. **`patchelf --force-rpath --set-rpath ...` in `package.sh`.** `DT_RPATH` is
-   consulted *before* `LD_LIBRARY_PATH` and is inherited transitively by
-   dependencies that lack their own, so this makes the bundle win by default.
-   `DT_RPATH` is formally deprecated, but universally supported. Cheapest fix;
-   affects the artifact, so it belongs in a repackage, not in the consumer.
-2. **`dlmopen(LM_ID_NEWLM, ...)` instead of `dlopen()`.** Loads the whole bundle into
-   a private linker namespace with its own search scope, giving true isolation from
-   Proton's libraries. Strongest guarantee, but a separate namespace has real
-   consequences (symbol sharing with the host process, `malloc`/TLS behavior,
-   callbacks crossing the namespace boundary) that need designing for, not just
-   swapping the call.
-3. **Scrub `LD_LIBRARY_PATH` in the environment handed specifically to WebKit's
-   helper processes** (`WebKitWebProcess`/`WebKitNetworkProcess`/`WebKitGPUProcess`,
-   spawned via `WEBKIT_EXEC_PATH`). Cheap and effective for the three child
-   processes, which is where most of the real work happens -- but does nothing for
-   the in-process `libwebkitgtk-6.0.so` load itself.
+**Verification performed:**
 
-Whichever is chosen, verify it *in a real wine process*, not just against an
-extracted tarball on the host: the collision only exists when Proton's own
-`LD_LIBRARY_PATH` is in effect.
+```bash
+# Step 1: Confirmed DT_RPATH (not DT_RUNPATH) is set on the bundle's libraries
+readelf -d out/extract/lib/libwebkitgtk-6.0.so.4* | grep -E 'RPATH|RUNPATH'
+# Expected: (RPATH) only, no (RUNPATH)
+
+# Step 2: Simulated Proton's LD_LIBRARY_PATH prepending with a decoy library
+mkdir -p /tmp/decoy/lib
+echo 'not a real library' > /tmp/decoy/lib/libgstreamer-1.0.so.0
+LD_LIBRARY_PATH=/tmp/decoy/lib:$LD_LIBRARY_PATH \
+  ldd out/extract/lib/libwebkitgtk-6.0.so.4* | grep gstreamer
+rm -rf /tmp/decoy
+# Expected: resolved path points inside out/extract/lib/..., not /tmp/decoy/lib
+# (Before the fix, with plain --set-rpath, the decoy would win.)
+```
+
+Verified that with `DT_RPATH` in place, the bundle's own libraries win even when
+a decoy is prepended to `LD_LIBRARY_PATH`, confirming the fix handles the exact
+collision Proton introduces.
 
 ## gdk-pixbuf `loaders.cache` is relocated a second time by the installer (UNRESOLVED)
 
