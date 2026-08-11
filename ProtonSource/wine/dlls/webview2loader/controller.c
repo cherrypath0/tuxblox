@@ -6,6 +6,7 @@
 #include <winuser.h>
 #include <wine/debug.h>
 
+#include "unixlib.h"
 #include "webview2loader_private.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(webview2loader);
@@ -17,8 +18,27 @@ struct controller_impl
     UINT64 native_handle;
     BOOL visible;
     RECT bounds;
+    BOOL destroyed; /* guards native_destroy() against running twice --
+                      * once via an explicit Close() and again from
+                      * Release() hitting refcount 0, or two Close() calls
+                      * (real WebView2's Close() is documented idempotent) */
     ICoreWebView2 *webview; /* created lazily by get_CoreWebView2, Task 7 */
 };
+
+/* Tears down the real GTK window/WebKitWebView this controller owns.
+ * Idempotent: real WebView2 allows Close() to be called more than once,
+ * and Release() at refcount 0 must still clean up if Close() was never
+ * called at all -- both paths funnel through here exactly once. */
+static void controller_destroy_native(struct controller_impl *ctrl)
+{
+    struct destroy_webview_params params;
+
+    if (ctrl->destroyed) return;
+    ctrl->destroyed = TRUE;
+
+    params.handle = ctrl->native_handle;
+    WEBVIEW2LOADER_UNIX_CALL(destroy_webview, &params);
+}
 
 static inline struct controller_impl *impl_from_ICoreWebView2Controller(ICoreWebView2Controller *iface)
 {
@@ -49,6 +69,7 @@ static ULONG WINAPI controller_Release(ICoreWebView2Controller *iface)
     if (!ref)
     {
         if (ctrl->webview) ICoreWebView2_Release(ctrl->webview);
+        controller_destroy_native(ctrl);
         free(ctrl);
     }
     return ref;
@@ -86,6 +107,7 @@ static HRESULT WINAPI controller_put_Bounds(ICoreWebView2Controller *iface, RECT
 static HRESULT WINAPI controller_Close(ICoreWebView2Controller *iface)
 {
     TRACE("(%p)\n", iface);
+    controller_destroy_native(impl_from_ICoreWebView2Controller(iface));
     return S_OK;
 }
 

@@ -93,6 +93,12 @@ extern GtkWidget *gtk_window_new(void);
 extern void gtk_window_set_child(GtkWindow *window, GtkWidget *child);
 extern void gtk_window_present(GtkWindow *window);
 extern void gtk_widget_show(GtkWidget *widget);
+/* Destroys the window and, since it's still set as the window's child at
+ * that point, its WebKitWebView along with it -- GTK4's normal container
+ * ownership model tears down children when their parent is destroyed, so
+ * no separate g_object_unref() on the view is needed here. Confirmed real
+ * (`nm -D libgtk-4.so.1*`) against the committed bundle. */
+extern void gtk_window_destroy(GtkWindow *window);
 
 extern GtkWidget *webkit_web_view_new(void);
 extern void webkit_web_view_load_uri(WebKitWebView *web_view, const char *uri);
@@ -117,7 +123,8 @@ extern WebKitCookieManager *webkit_network_session_get_cookie_manager(WebKitNetw
     DO_FUNC(gtk_window_new); \
     DO_FUNC(gtk_window_set_child); \
     DO_FUNC(gtk_window_present); \
-    DO_FUNC(gtk_widget_show)
+    DO_FUNC(gtk_widget_show); \
+    DO_FUNC(gtk_window_destroy)
 
 /* NB: no webkit_cookie_manager_delete_all_cookies here -- Task 4 Step 1's
  * `nm -D ... | grep -i cookie` against the real committed bundle found no
@@ -569,8 +576,31 @@ static NTSTATUS unix_create_webview_impl(void *args)
     return nv ? STATUS_SUCCESS : STATUS_NOT_SUPPORTED;
 }
 
+/* Destroying nv->window tears down nv->view along with it (still its
+ * child at this point -- see gtk_window_destroy's declaration comment
+ * above), so this is the one native GTK/WebKit call needed per webview;
+ * frees the small unix-side bookkeeping struct itself afterward. */
+static void destroy_webview_on_gtk_thread(void *data)
+{
+    struct native_webview *nv = data;
+
+    p_gtk_window_destroy(nv->window);
+    free(nv);
+}
+
+static NTSTATUS unix_destroy_webview_impl(void *args)
+{
+    struct destroy_webview_params *params = args;
+    struct native_webview *nv = (struct native_webview *)(ULONG_PTR)params->handle;
+
+    if (!nv) return STATUS_SUCCESS;
+    gtk_thread_invoke_sync(destroy_webview_on_gtk_thread, nv);
+    return STATUS_SUCCESS;
+}
+
 const unixlib_entry_t __wine_unix_call_funcs[] =
 {
     unix_init_impl,
     unix_create_webview_impl,
+    unix_destroy_webview_impl,
 };
