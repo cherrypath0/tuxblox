@@ -1,8 +1,10 @@
 MODULE    = webview2loader.dll
 UNIXLIB   = webview2loader.so
 IMPORTLIB = webview2loader
+IMPORTS   = ole32 uuid
 
 SOURCES = \
+	environment.c \
 	main.c \
 	unixlib.c \
 	webview2loader.spec
