@@ -6,6 +6,7 @@
 #include <winbase.h>
 #include <wine/debug.h>
 
+#include "unixlib.h"
 #include "webview2loader_private.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(webview2loader);
@@ -49,14 +50,49 @@ static ULONG WINAPI environment_Release(ICoreWebView2Environment *iface)
     return ref;
 }
 
-/* Task 6 replaces this body once the GTK window/controller machinery
- * exists; the vtable slot itself, and this object's real QueryInterface/
- * AddRef/Release/get_BrowserVersionString, are this task's deliverable. */
-static HRESULT WINAPI environment_CreateCoreWebView2Controller(ICoreWebView2Environment *iface,
-                                                                 HWND parentWindow, void *handler)
+struct create_controller_ctx
 {
-    FIXME("(%p, %p, %p): not yet implemented, see Task 6\n", iface, parentWindow, handler);
-    return E_NOTIMPL;
+    ICoreWebView2CreateCoreWebView2ControllerCompletedHandler *handler;
+};
+
+static DWORD WINAPI create_controller_worker(void *arg)
+{
+    struct create_controller_ctx *ctx = arg;
+    struct create_webview_params params = { 0 };
+    ICoreWebView2Controller *controller = NULL;
+    HRESULT hr = E_FAIL;
+
+    WEBVIEW2LOADER_UNIX_CALL(create_webview, &params);
+    if (params.handle)
+        hr = controller_create(params.handle, &controller);
+
+    ICoreWebView2CreateCoreWebView2ControllerCompletedHandler_Invoke(ctx->handler, hr, controller);
+    ICoreWebView2CreateCoreWebView2ControllerCompletedHandler_Release(ctx->handler);
+    if (controller) ICoreWebView2Controller_Release(controller);
+    free(ctx);
+    return 0;
+}
+
+static HRESULT WINAPI environment_CreateCoreWebView2Controller(ICoreWebView2Environment *iface,
+                                                                 HWND parentWindow, void *handler_raw)
+{
+    struct create_controller_ctx *ctx;
+    ICoreWebView2CreateCoreWebView2ControllerCompletedHandler *handler = handler_raw;
+
+    TRACE("(%p, %p, %p)\n", iface, parentWindow, handler);
+    if (!handler) return E_POINTER;
+    if (!(ctx = malloc(sizeof(*ctx)))) return E_OUTOFMEMORY;
+
+    ICoreWebView2CreateCoreWebView2ControllerCompletedHandler_AddRef(handler);
+    ctx->handler = handler;
+
+    if (!start_async_work(create_controller_worker, ctx))
+    {
+        ICoreWebView2CreateCoreWebView2ControllerCompletedHandler_Release(handler);
+        free(ctx);
+        return E_FAIL;
+    }
+    return S_OK;
 }
 
 static HRESULT WINAPI environment_CreateWebResourceResponse(ICoreWebView2Environment *iface, void *content,

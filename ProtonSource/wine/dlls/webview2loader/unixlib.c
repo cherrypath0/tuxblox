@@ -476,7 +476,41 @@ done:
     return init_ok ? STATUS_SUCCESS : STATUS_NOT_SUPPORTED;
 }
 
+struct native_webview
+{
+    GtkWidget *window;
+    WebKitWebView *view;
+};
+
+/* Handles are just the native_webview*'s address, truncated to fit a
+ * UINT64 -- unix-side memory, never dereferenced on the PE side, matching
+ * the "opaque handle" shape other unixlib bridges in this tree use for
+ * unix-owned objects PE code only ever passes back by value. */
+static void create_webview_on_gtk_thread(void *data)
+{
+    struct native_webview **out = data;
+    struct native_webview *nv = calloc(1, sizeof(*nv));
+
+    nv->window = p_gtk_window_new();
+    nv->view = p_webkit_web_view_new();
+    p_gtk_window_set_child(nv->window, nv->view);
+    p_gtk_widget_show(nv->window);
+
+    *out = nv;
+}
+
+static NTSTATUS unix_create_webview_impl(void *args)
+{
+    struct create_webview_params *params = args;
+    struct native_webview *nv = NULL;
+
+    gtk_thread_invoke_sync(create_webview_on_gtk_thread, &nv);
+    params->handle = (UINT64)(ULONG_PTR)nv;
+    return nv ? STATUS_SUCCESS : STATUS_NOT_SUPPORTED;
+}
+
 const unixlib_entry_t __wine_unix_call_funcs[] =
 {
     unix_init_impl,
+    unix_create_webview_impl,
 };

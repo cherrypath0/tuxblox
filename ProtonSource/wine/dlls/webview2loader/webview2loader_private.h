@@ -99,9 +99,153 @@ struct ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler
 /* Constructs an ICoreWebView2Environment (refcount 1). */
 HRESULT environment_create(ICoreWebView2Environment **out);
 
+/* Task 6: ICoreWebView2Controller.
+ *
+ * ICoreWebView2 itself is only forward-declared -- its full ~40-method
+ * vtable is Task 7's deliverable, not this task's. But controller_Release
+ * and controller_get_CoreWebView2 (controller.c) need to AddRef/Release a
+ * cached ICoreWebView2*, and this header's hand-written-COBJMACROS
+ * convention (see the Task 5 comment above) expands to "(This)->lpVtbl->
+ * Method(This,...)" -- which needs an actual lpVtbl member to compile
+ * against, not just an opaque incomplete type. Define the minimal 3-slot
+ * vtbl every COM interface starts with (QueryInterface/AddRef/Release, in
+ * that fixed order -- COM's IUnknown-layout-compatibility guarantee) so
+ * ICoreWebView2_AddRef/_Release below compile now. Task 7 replaces this
+ * whole typedef block with the real, full vtbl, keeping these same first
+ * three slots, so nothing written against this partial definition needs to
+ * change when it does. */
+typedef struct ICoreWebView2 ICoreWebView2;
+typedef struct ICoreWebView2Vtbl
+{
+    HRESULT (WINAPI *QueryInterface)(ICoreWebView2 *This, REFIID riid, void **ppv);
+    ULONG   (WINAPI *AddRef)(ICoreWebView2 *This);
+    ULONG   (WINAPI *Release)(ICoreWebView2 *This);
+} ICoreWebView2Vtbl;
+struct ICoreWebView2 { const ICoreWebView2Vtbl *lpVtbl; };
+
+#ifdef COBJMACROS
+#define ICoreWebView2_QueryInterface(This,riid,ppv) (This)->lpVtbl->QueryInterface(This,riid,ppv)
+#define ICoreWebView2_AddRef(This) (This)->lpVtbl->AddRef(This)
+#define ICoreWebView2_Release(This) (This)->lpVtbl->Release(This)
+#endif
+
+typedef struct ICoreWebView2Controller ICoreWebView2Controller;
+typedef struct ICoreWebView2ControllerVtbl
+{
+    HRESULT (WINAPI *QueryInterface)(ICoreWebView2Controller *This, REFIID riid, void **ppv);
+    ULONG   (WINAPI *AddRef)(ICoreWebView2Controller *This);
+    ULONG   (WINAPI *Release)(ICoreWebView2Controller *This);
+    HRESULT (WINAPI *get_IsVisible)(ICoreWebView2Controller *This, BOOL *isVisible);
+    HRESULT (WINAPI *put_IsVisible)(ICoreWebView2Controller *This, BOOL isVisible);
+    HRESULT (WINAPI *get_Bounds)(ICoreWebView2Controller *This, RECT *bounds);
+    HRESULT (WINAPI *put_Bounds)(ICoreWebView2Controller *This, RECT bounds);
+    HRESULT (WINAPI *get_ZoomFactor)(ICoreWebView2Controller *This, double *zoomFactor);
+    HRESULT (WINAPI *put_ZoomFactor)(ICoreWebView2Controller *This, double zoomFactor);
+    HRESULT (WINAPI *add_ZoomFactorChanged)(ICoreWebView2Controller *This, void *eventHandler, void *token);
+    HRESULT (WINAPI *remove_ZoomFactorChanged)(ICoreWebView2Controller *This, void *token);
+    HRESULT (WINAPI *SetBoundsAndZoomFactor)(ICoreWebView2Controller *This, RECT bounds, double zoomFactor);
+    HRESULT (WINAPI *MoveFocus)(ICoreWebView2Controller *This, int reason);
+    HRESULT (WINAPI *add_MoveFocusRequested)(ICoreWebView2Controller *This, void *eventHandler, void *token);
+    HRESULT (WINAPI *remove_MoveFocusRequested)(ICoreWebView2Controller *This, void *token);
+    HRESULT (WINAPI *add_GotFocus)(ICoreWebView2Controller *This, void *eventHandler, void *token);
+    HRESULT (WINAPI *remove_GotFocus)(ICoreWebView2Controller *This, void *token);
+    HRESULT (WINAPI *add_LostFocus)(ICoreWebView2Controller *This, void *eventHandler, void *token);
+    HRESULT (WINAPI *remove_LostFocus)(ICoreWebView2Controller *This, void *token);
+    HRESULT (WINAPI *add_AcceleratorKeyPressed)(ICoreWebView2Controller *This, void *eventHandler, void *token);
+    HRESULT (WINAPI *remove_AcceleratorKeyPressed)(ICoreWebView2Controller *This, void *token);
+    HRESULT (WINAPI *get_ParentWindow)(ICoreWebView2Controller *This, HWND *parentWindow);
+    HRESULT (WINAPI *put_ParentWindow)(ICoreWebView2Controller *This, HWND parentWindow);
+    HRESULT (WINAPI *NotifyParentWindowPositionChanged)(ICoreWebView2Controller *This);
+    HRESULT (WINAPI *Close)(ICoreWebView2Controller *This);
+    HRESULT (WINAPI *get_CoreWebView2)(ICoreWebView2Controller *This, ICoreWebView2 **webview);
+} ICoreWebView2ControllerVtbl;
+struct ICoreWebView2Controller { const ICoreWebView2ControllerVtbl *lpVtbl; };
+
+#ifdef COBJMACROS
+#define ICoreWebView2Controller_QueryInterface(This,riid,ppv) (This)->lpVtbl->QueryInterface(This,riid,ppv)
+#define ICoreWebView2Controller_AddRef(This) (This)->lpVtbl->AddRef(This)
+#define ICoreWebView2Controller_Release(This) (This)->lpVtbl->Release(This)
+#define ICoreWebView2Controller_get_IsVisible(This,isVisible) (This)->lpVtbl->get_IsVisible(This,isVisible)
+#define ICoreWebView2Controller_put_IsVisible(This,isVisible) (This)->lpVtbl->put_IsVisible(This,isVisible)
+#define ICoreWebView2Controller_get_Bounds(This,bounds) (This)->lpVtbl->get_Bounds(This,bounds)
+#define ICoreWebView2Controller_put_Bounds(This,bounds) (This)->lpVtbl->put_Bounds(This,bounds)
+#define ICoreWebView2Controller_get_ZoomFactor(This,zoomFactor) (This)->lpVtbl->get_ZoomFactor(This,zoomFactor)
+#define ICoreWebView2Controller_put_ZoomFactor(This,zoomFactor) (This)->lpVtbl->put_ZoomFactor(This,zoomFactor)
+#define ICoreWebView2Controller_add_ZoomFactorChanged(This,eventHandler,token) \
+    (This)->lpVtbl->add_ZoomFactorChanged(This,eventHandler,token)
+#define ICoreWebView2Controller_remove_ZoomFactorChanged(This,token) \
+    (This)->lpVtbl->remove_ZoomFactorChanged(This,token)
+#define ICoreWebView2Controller_SetBoundsAndZoomFactor(This,bounds,zoomFactor) \
+    (This)->lpVtbl->SetBoundsAndZoomFactor(This,bounds,zoomFactor)
+#define ICoreWebView2Controller_MoveFocus(This,reason) (This)->lpVtbl->MoveFocus(This,reason)
+#define ICoreWebView2Controller_add_MoveFocusRequested(This,eventHandler,token) \
+    (This)->lpVtbl->add_MoveFocusRequested(This,eventHandler,token)
+#define ICoreWebView2Controller_remove_MoveFocusRequested(This,token) \
+    (This)->lpVtbl->remove_MoveFocusRequested(This,token)
+#define ICoreWebView2Controller_add_GotFocus(This,eventHandler,token) \
+    (This)->lpVtbl->add_GotFocus(This,eventHandler,token)
+#define ICoreWebView2Controller_remove_GotFocus(This,token) (This)->lpVtbl->remove_GotFocus(This,token)
+#define ICoreWebView2Controller_add_LostFocus(This,eventHandler,token) \
+    (This)->lpVtbl->add_LostFocus(This,eventHandler,token)
+#define ICoreWebView2Controller_remove_LostFocus(This,token) (This)->lpVtbl->remove_LostFocus(This,token)
+#define ICoreWebView2Controller_add_AcceleratorKeyPressed(This,eventHandler,token) \
+    (This)->lpVtbl->add_AcceleratorKeyPressed(This,eventHandler,token)
+#define ICoreWebView2Controller_remove_AcceleratorKeyPressed(This,token) \
+    (This)->lpVtbl->remove_AcceleratorKeyPressed(This,token)
+#define ICoreWebView2Controller_get_ParentWindow(This,parentWindow) (This)->lpVtbl->get_ParentWindow(This,parentWindow)
+#define ICoreWebView2Controller_put_ParentWindow(This,parentWindow) (This)->lpVtbl->put_ParentWindow(This,parentWindow)
+#define ICoreWebView2Controller_NotifyParentWindowPositionChanged(This) \
+    (This)->lpVtbl->NotifyParentWindowPositionChanged(This)
+#define ICoreWebView2Controller_Close(This) (This)->lpVtbl->Close(This)
+#define ICoreWebView2Controller_get_CoreWebView2(This,webview) (This)->lpVtbl->get_CoreWebView2(This,webview)
+#endif
+
+DEFINE_GUID(IID_ICoreWebView2Controller, 0x4d00c0d1, 0x9434, 0x4eb6, 0x80, 0x78, 0x86, 0x97, 0xa5, 0x60, 0x33, 0x4f);
+DEFINE_GUID(IID_ICoreWebView2CreateCoreWebView2ControllerCompletedHandler,
+            0x6c4819f3, 0xc9b7, 0x4260, 0x81, 0x27, 0xc9, 0xf5, 0xbd, 0xe7, 0xf6, 0x8c);
+
+typedef struct ICoreWebView2CreateCoreWebView2ControllerCompletedHandler
+    ICoreWebView2CreateCoreWebView2ControllerCompletedHandler;
+typedef struct ICoreWebView2CreateCoreWebView2ControllerCompletedHandlerVtbl
+{
+    HRESULT (WINAPI *QueryInterface)(ICoreWebView2CreateCoreWebView2ControllerCompletedHandler *This, REFIID riid, void **ppv);
+    ULONG   (WINAPI *AddRef)(ICoreWebView2CreateCoreWebView2ControllerCompletedHandler *This);
+    ULONG   (WINAPI *Release)(ICoreWebView2CreateCoreWebView2ControllerCompletedHandler *This);
+    HRESULT (WINAPI *Invoke)(ICoreWebView2CreateCoreWebView2ControllerCompletedHandler *This, HRESULT errorCode,
+                              ICoreWebView2Controller *result);
+} ICoreWebView2CreateCoreWebView2ControllerCompletedHandlerVtbl;
+struct ICoreWebView2CreateCoreWebView2ControllerCompletedHandler
+{ const ICoreWebView2CreateCoreWebView2ControllerCompletedHandlerVtbl *lpVtbl; };
+
+#ifdef COBJMACROS
+#define ICoreWebView2CreateCoreWebView2ControllerCompletedHandler_QueryInterface(This,riid,ppv) \
+    (This)->lpVtbl->QueryInterface(This,riid,ppv)
+#define ICoreWebView2CreateCoreWebView2ControllerCompletedHandler_AddRef(This) (This)->lpVtbl->AddRef(This)
+#define ICoreWebView2CreateCoreWebView2ControllerCompletedHandler_Release(This) (This)->lpVtbl->Release(This)
+#define ICoreWebView2CreateCoreWebView2ControllerCompletedHandler_Invoke(This,errorCode,result) \
+    (This)->lpVtbl->Invoke(This,errorCode,result)
+#endif
+
+/* Constructs an ICoreWebView2Controller (refcount 1) wrapping the unix-side
+ * native_handle returned by the unix_create_webview call. */
+HRESULT controller_create(UINT64 native_handle, ICoreWebView2Controller **out);
+
+/* webview_create_for_controller: Task 7 calls this from webview.c to build
+ * the real ICoreWebView2 lazily and cache it on the controller, since
+ * get_CoreWebView2 needs somewhere to store it. */
+void controller_set_webview(ICoreWebView2Controller *iface, ICoreWebView2 *webview);
+UINT64 controller_get_native_handle(ICoreWebView2Controller *iface);
+
+/* Generic ignore-args E_NOTIMPL stub, cast to whatever vtable slot type is
+ * needed. Deliberate: with 20+ genuinely-unimplemented methods per
+ * interface (real WebView2 has ~50 on ICoreWebView2 alone), writing a
+ * distinct 3-line function per slot adds nothing -- none of them read their
+ * arguments, and every real caller invokes them through the correctly-typed
+ * vtable slot, so the mismatched declared signature is never observed. */
+HRESULT WINAPI webview2_stub_e_notimpl(void *iface, ...);
+
 /* Interface/object definitions land here in later tasks:
- * Task 6: ICoreWebView2Controller
- * Task 7: ICoreWebView2
+ * Task 7: ICoreWebView2 (full vtbl, replacing the partial one above)
  * Task 8: ICoreWebView2_2 / ICoreWebView2CookieManager
  */
 

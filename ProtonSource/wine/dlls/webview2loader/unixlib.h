@@ -10,10 +10,17 @@ struct init_params
     BOOL success;
 };
 
+struct create_webview_params
+{
+    /* out */
+    UINT64 handle; /* 0 on failure */
+};
+
 enum webview2loader_unix_funcs
 {
     unix_init,
-    /* Tasks 5-8 append further entries below this line -- always
+    unix_create_webview,
+    /* Tasks 7-8 append further entries below this line -- always
      * appending, never reordering, since the enum's integer values are
      * the unix-call dispatch table's indices (see __wine_unix_call_funcs
      * in unixlib.c). */

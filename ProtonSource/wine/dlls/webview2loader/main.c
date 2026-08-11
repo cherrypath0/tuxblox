@@ -132,3 +132,8 @@ HRESULT WINAPI GetAvailableCoreWebView2BrowserVersionString(PCWSTR browserExecut
     if (versionInfo) *versionInfo = NULL;
     return E_FAIL;
 }
+
+HRESULT WINAPI webview2_stub_e_notimpl(void *iface, ...)
+{
+    return E_NOTIMPL;
+}

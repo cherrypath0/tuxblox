@@ -117,8 +117,97 @@ static void test_create_environment(void)
     FreeLibrary(mod);
 }
 
+struct test_ctrl_handler
+{
+    ICoreWebView2CreateCoreWebView2ControllerCompletedHandlerVtbl *vtbl;
+    HANDLE done_event;
+    HRESULT result_hr;
+    ICoreWebView2Controller *result_ctrl;
+};
+static HRESULT WINAPI test_ctrl_handler_QI(ICoreWebView2CreateCoreWebView2ControllerCompletedHandler *iface, REFIID riid, void **ppv) { *ppv = iface; return S_OK; }
+static ULONG WINAPI test_ctrl_handler_AddRef(ICoreWebView2CreateCoreWebView2ControllerCompletedHandler *iface) { return 2; }
+static ULONG WINAPI test_ctrl_handler_Release(ICoreWebView2CreateCoreWebView2ControllerCompletedHandler *iface) { return 1; }
+static HRESULT WINAPI test_ctrl_handler_Invoke(ICoreWebView2CreateCoreWebView2ControllerCompletedHandler *iface,
+                                                HRESULT errorCode, ICoreWebView2Controller *result)
+{
+    struct test_ctrl_handler *h = (struct test_ctrl_handler *)iface;
+    h->result_hr = errorCode;
+    h->result_ctrl = result;
+    if (result) ICoreWebView2Controller_AddRef(result);
+    SetEvent(h->done_event);
+    return S_OK;
+}
+static ICoreWebView2CreateCoreWebView2ControllerCompletedHandlerVtbl test_ctrl_handler_vtbl =
+{ test_ctrl_handler_QI, test_ctrl_handler_AddRef, test_ctrl_handler_Release, test_ctrl_handler_Invoke };
+
+/* Shared by every test from here on that needs a live environment +
+ * controller (test_create_controller below, and Task 7/8's test_navigate /
+ * test_delete_all_cookies) -- built once here rather than duplicated per
+ * test. Returns FALSE (and leaves *out_mod/*out_env/*out_ctrl untouched) if
+ * TUXBLOX_WEBVIEW_DIR isn't set or either async step fails/times out; the
+ * caller is expected to `skip()`/return in that case. On TRUE, caller owns
+ * one ref each on *out_env and *out_ctrl (release both, then FreeLibrary
+ * *out_mod, when done). */
+static BOOL create_test_controller(HMODULE *out_mod, ICoreWebView2Environment **out_env,
+                                    ICoreWebView2Controller **out_ctrl)
+{
+    HRESULT (WINAPI *pCreateEnv)(PCWSTR, PCWSTR, void *, void *);
+    struct test_env_handler env_handler = { &test_env_handler_vtbl };
+    struct test_ctrl_handler ctrl_handler = { &test_ctrl_handler_vtbl };
+
+    if (!getenv("TUXBLOX_WEBVIEW_DIR")) return FALSE;
+
+    *out_mod = LoadLibraryA("webview2loader.dll");
+    pCreateEnv = (void *)GetProcAddress(*out_mod, "CreateCoreWebView2EnvironmentWithOptions");
+
+    env_handler.done_event = CreateEventW(NULL, FALSE, FALSE, NULL);
+    pCreateEnv(NULL, NULL, NULL, &env_handler);
+    WaitForSingleObject(env_handler.done_event, 10000);
+    CloseHandle(env_handler.done_event);
+    if (env_handler.result_hr != S_OK) { FreeLibrary(*out_mod); return FALSE; }
+
+    ctrl_handler.done_event = CreateEventW(NULL, FALSE, FALSE, NULL);
+    ICoreWebView2Environment_CreateCoreWebView2Controller(env_handler.result_env, NULL, &ctrl_handler);
+    WaitForSingleObject(ctrl_handler.done_event, 10000);
+    CloseHandle(ctrl_handler.done_event);
+    if (ctrl_handler.result_hr != S_OK)
+    {
+        ICoreWebView2Environment_Release(env_handler.result_env);
+        FreeLibrary(*out_mod);
+        return FALSE;
+    }
+
+    *out_env = env_handler.result_env;
+    *out_ctrl = ctrl_handler.result_ctrl;
+    return TRUE;
+}
+
+static void test_create_controller(void)
+{
+    HMODULE mod;
+    ICoreWebView2Environment *env;
+    ICoreWebView2Controller *ctrl;
+
+    if (!create_test_controller(&mod, &env, &ctrl))
+    {
+        skip("TUXBLOX_WEBVIEW_DIR not set or environment/controller creation failed\n");
+        return;
+    }
+
+    {
+        BOOL visible = FALSE;
+        ICoreWebView2Controller_get_IsVisible(ctrl, &visible);
+        ok(visible, "expected controller to start visible\n");
+    }
+
+    ICoreWebView2Controller_Release(ctrl);
+    ICoreWebView2Environment_Release(env);
+    FreeLibrary(mod);
+}
+
 START_TEST(webview2loader)
 {
     test_module_loads();
     test_create_environment();
+    test_create_controller();
 }
