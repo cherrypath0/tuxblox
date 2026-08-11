@@ -4,6 +4,14 @@
 
 #include "config.h"
 
+/* dlmopen()/Lmid_t/dlinfo()/RTLD_DI_LMID/LM_ID_NEWLM below are GNU
+ * extensions, only declared by glibc's <dlfcn.h> when _GNU_SOURCE is
+ * defined before it's included. Verified (not assumed) that Wine's own
+ * build already provides this: configure.ac's generic Linux case
+ * unconditionally does AC_DEFINE(_GNU_SOURCE, 1, ...), and the built
+ * ProtonBuild/obj-wine-{x86_64,i386}/include/config.h confirms
+ * `#define _GNU_SOURCE 1` is present -- config.h is included first, above,
+ * so no separate local #define is needed here. */
 #include <dlfcn.h>
 #include <limits.h>
 #include <pthread.h>
@@ -138,14 +146,61 @@ GLIB_FUNCS; GOBJECT_FUNCS; GTK_FUNCS; WEBKIT_FUNCS;
 
 static void *glib_handle, *gobject_handle, *gtk_handle, *webkit_handle;
 
-static void *load_one(const char *dir, const char *relpath)
+/* Loads relpath into the isolated linker namespace identified by *lmid.
+ *
+ * On the very first call, *lmid must be LM_ID_NEWLM: dlmopen() then creates
+ * a brand new, empty linker namespace and loads this library into it. We
+ * capture which namespace it actually landed in (via dlinfo()'s
+ * RTLD_DI_LMID request) back into *lmid, so every subsequent call --
+ * passing that same *lmid instead of LM_ID_NEWLM again -- joins THE SAME
+ * namespace rather than each spawning its own brand new one. This matters
+ * because these four libraries have real dependencies on each other (gtk
+ * needs gobject needs glib) and must be able to resolve each other's
+ * symbols/sonames within one shared namespace.
+ *
+ * Why a namespace instead of plain dlopen()+RTLD_GLOBAL (round 2's
+ * attempted fix, which did NOT work): investigation round 3
+ * (investigation-glib-collision-round3-report.md) traced the real crash
+ * cause with LD_DEBUG=libs,files and found the host's own
+ * /usr/lib/libharfbuzz.so.0 gets loaded into the process's DEFAULT
+ * namespace by something intrinsic to Wine's own early startup, before our
+ * own unix_init ever runs -- and that host harfbuzz pulls in the host's
+ * own GLib as ITS transitive dependency. RTLD_GLOBAL only affects whether
+ * OUR OWN loaded libraries become visible to OUR OWN later dlopen() calls;
+ * it does nothing about a library loaded earlier, by something entirely
+ * outside our control, into the shared default namespace. Once the host's
+ * libharfbuzz.so.0 is resident in the default namespace, glibc's dynamic
+ * linker reuses that exact mapping for ANY later same-soname request in
+ * that namespace -- including from the bundle's own libgtk-4.so.1/
+ * libpango*, regardless of those libraries' own (correct) RPATH, since
+ * RPATH only affects where a library's OWN deps are searched, not whether
+ * an already-loaded soname gets reused. dlmopen(LM_ID_NEWLM, ...) sidesteps
+ * this entirely: everything loaded into the new namespace resolves its own
+ * dependencies (including transitive ones like harfbuzz) only against
+ * libraries already in THAT namespace, never reusing anything the default
+ * namespace (host or Wine) has already loaded. */
+static void *load_one(const char *dir, const char *relpath, Lmid_t *lmid)
 {
     char path[PATH_MAX];
     void *h;
 
     snprintf(path, sizeof(path), "%s/%s", dir, relpath);
-    h = dlopen(path, RTLD_NOW);
-    if (!h) WARN("failed to load %s: %s\n", path, dlerror());
+    h = dlmopen(*lmid, path, RTLD_NOW);
+    if (!h)
+    {
+        WARN("failed to load %s: %s\n", path, dlerror());
+        return NULL;
+    }
+
+    if (*lmid == LM_ID_NEWLM)
+    {
+        if (dlinfo(h, RTLD_DI_LMID, lmid) != 0)
+        {
+            WARN("dlinfo(RTLD_DI_LMID) failed for %s: %s\n", path, dlerror());
+            return NULL;
+        }
+    }
+
     return h;
 }
 
@@ -167,6 +222,11 @@ static void *load_one(const char *dir, const char *relpath)
  * all. */
 static BOOL load_bundle_functions(void)
 {
+    /* Starts as LM_ID_NEWLM so the first load_one() call creates a fresh
+     * isolated namespace; load_one() overwrites this with the namespace it
+     * actually landed in, so every later call joins that same namespace
+     * instead of each creating its own. */
+    Lmid_t lmid = LM_ID_NEWLM;
     const char *dir = getenv("TUXBLOX_WEBVIEW_DIR");
     if (!dir || !dir[0])
     {
@@ -174,10 +234,10 @@ static BOOL load_bundle_functions(void)
         return FALSE;
     }
 
-    if (!(glib_handle = load_one(dir, "lib/x86_64-linux-gnu/libglib-2.0.so.0"))) return FALSE;
-    if (!(gobject_handle = load_one(dir, "lib/x86_64-linux-gnu/libgobject-2.0.so.0"))) return FALSE;
-    if (!(gtk_handle = load_one(dir, "lib/x86_64-linux-gnu/libgtk-4.so.1"))) return FALSE;
-    if (!(webkit_handle = load_one(dir, "lib/libwebkitgtk-6.0.so.4"))) return FALSE;
+    if (!(glib_handle = load_one(dir, "lib/x86_64-linux-gnu/libglib-2.0.so.0", &lmid))) return FALSE;
+    if (!(gobject_handle = load_one(dir, "lib/x86_64-linux-gnu/libgobject-2.0.so.0", &lmid))) return FALSE;
+    if (!(gtk_handle = load_one(dir, "lib/x86_64-linux-gnu/libgtk-4.so.1", &lmid))) return FALSE;
+    if (!(webkit_handle = load_one(dir, "lib/libwebkitgtk-6.0.so.4", &lmid))) return FALSE;
 
 #define DO_FUNC(f) if (!(p_##f = dlsym(glib_handle, #f))) \
     { WARN("failed to load symbol %s\n", #f); return FALSE; }
