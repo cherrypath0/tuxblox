@@ -277,6 +277,29 @@ echo ":: Building libsoup $LIBSOUP_VERSION"
 fetch_and_extract \
     "https://download.gnome.org/sources/libsoup/${LIBSOUP_VERSION%.*}/libsoup-${LIBSOUP_VERSION}.tar.xz" \
     /build/libsoup
+# Plan 2 (webview2loader) investigation finding: libsoup/libsoup/soup-init.c's ELF
+# constructor calls soup2_is_loaded(), which probes for a libsoup2-only symbol via
+# `dlopen(NULL, RTLD_LAZY | RTLD_GLOBAL)` + `dlsym(handle, "soup_uri_new")` and calls
+# the fatal g_error() (aborts the process) if it finds a match. This is meant to catch
+# a real misconfiguration (libsoup2 and libsoup3 loaded in the same process at once),
+# but `dlopen(NULL, ...)` -- the "handle for the whole program" call -- is a documented
+# rough edge when made from code running inside a dlmopen()-isolated linker namespace,
+# which is exactly how webview2loader's unixlib.c loads this entire bundle (Task 6's
+# fix for a separate, already-solved host-glib collision, see unixlib.c's own
+# comments). Verified via disassembly + `nm -D` across the whole bundle, the whole
+# Wine dist tree, and the host system: nothing anywhere actually defines
+# `soup_uri_new` -- there is no real libsoup2/libsoup3 coexistence happening, so this
+# is a false-positive-shaped fatal error triggered by the probe mechanism itself, not
+# a real conflict. We only ever load exactly one libsoup per namespace in this
+# deployment, so the scenario this check guards against cannot occur here regardless
+# of whether the check runs -- disable the call at its one call site (leaving the
+# function itself, and its dlopen/dlsym calls, untouched/uncalled) rather than
+# reimplementing or trying to make the probe namespace-safe.
+sed -i 's/if (soup2_is_loaded ())/if (0 \&\& soup2_is_loaded ())/' /build/libsoup/libsoup/soup-init.c
+grep -q 'if (0 && soup2_is_loaded ())' /build/libsoup/libsoup/soup-init.c || {
+    echo "ERROR: soup2_is_loaded() patch did not apply -- libsoup source layout changed, update the sed pattern above" >&2
+    exit 1
+}
 # -Dtls_check=false: libsoup itself has no bundled TLS implementation in ANY
 # configuration -- it always delegates to GIO's pluggable TLS backend, which is
 # provided at runtime by the separate glib-networking project (a dynamically loaded
@@ -641,9 +664,33 @@ ninja -C /build/gst-plugins-bad/_build -j"$JOBS" install
 # something that affects the shipped bundle either way; not cleaned up here to keep
 # this fix narrowly scoped to the two review findings it addresses.
 echo ":: Building webkitgtk $WEBKITGTK_VERSION"
-fetch_and_extract \
-    "https://webkitgtk.org/releases/webkitgtk-${WEBKITGTK_VERSION}.tar.xz" \
-    /build/webkitgtk
+# Unlike every other fetch_and_extract() call in this script (each of which is
+# ephemeral container filesystem, redone in full on every run -- fine, since each
+# individually takes seconds to low minutes), webkitgtk's own /build/webkitgtk is
+# backed by a DEDICATED persistent volume (webkitgtk-src-build, see build.sh) because
+# this is the one genuinely expensive step (hours for a real from-scratch compile,
+# even with ccache -- ccache only speeds up recompiling individual translation units
+# it has already seen, not the cmake configure + ninja dependency-graph walk, and a
+# 2026-08-11 investigation found a real, unexplained ccache staleness case for one
+# file, see the ledger for that plan's Task 6 investigation). Persisting the actual
+# _build directory instead means ninja's own incremental build (correctness-tracked
+# by real file content/mtimes, not a separate cache keyed by its own hashing scheme)
+# does the skip-if-unchanged work, and is what actually gets a re-run down to seconds
+# when nothing in webkitgtk changed. Skip the fetch entirely when the persisted tree
+# already matches this run's version (recorded in a marker file keyed by the actual
+# download URL, so bumping WEBKITGTK_VERSION in versions.env correctly triggers a
+# full, clean re-fetch -- including wiping any stale persisted _build state -- rather
+# than silently reusing source that doesn't match).
+WEBKITGTK_URL="https://webkitgtk.org/releases/webkitgtk-${WEBKITGTK_VERSION}.tar.xz"
+WEBKITGTK_MARKER=/build/webkitgtk/.tuxblox-fetched-from
+if [ -f "$WEBKITGTK_MARKER" ] && [ "$(cat "$WEBKITGTK_MARKER")" = "$WEBKITGTK_URL" ]; then
+    echo "   (persisted source+build tree already at $WEBKITGTK_VERSION -- skipping download+extract)"
+else
+    echo "   (no matching persisted source -- fetching fresh, wiping any stale persisted state)"
+    rm -rf /build/webkitgtk
+    fetch_and_extract "$WEBKITGTK_URL" /build/webkitgtk
+    echo "$WEBKITGTK_URL" > "$WEBKITGTK_MARKER"
+fi
 
 # --- Task 8 finding: WEBKIT_EXEC_PATH is gated behind ENABLE_DEVELOPER_MODE upstream,
 # and this build does not (and should not) set -DDEVELOPER_MODE=ON --------------------
@@ -722,14 +769,20 @@ new = '''static String findWebKitProcess(const char* processName)
     return FileSystem::pathByAppendingComponent(FileSystem::stringFromFileSystemRepresentation(PKGLIBEXECDIR), StringView::fromLatin1(processName));
 }'''
 
-if old not in src:
+if new in src:
+    # Expected on a re-run against the persisted webkitgtk-src-build volume (the
+    # marker-file check above only skips a version-matched *fetch*; this patch step
+    # still runs every time regardless, since it's cheap and this check makes it
+    # correctly idempotent either way).
+    print(":: WEBKIT_EXEC_PATH patch already applied, skipping")
+elif old not in src:
     sys.exit("ERROR: expected original ProcessExecutablePathGLib.cpp text not found -- "
              "upstream source may have changed shape; re-check this patch against the "
              "new version before continuing")
-
-with open(path, 'w') as f:
-    f.write(src.replace(old, new))
-print(":: WEBKIT_EXEC_PATH patch applied to ProcessExecutablePathGLib.cpp")
+else:
+    with open(path, 'w') as f:
+        f.write(src.replace(old, new))
+    print(":: WEBKIT_EXEC_PATH patch applied to ProcessExecutablePathGLib.cpp")
 PYEOF
 # --- end Task 8 WEBKIT_EXEC_PATH fix ---------------------------------------------------
 
