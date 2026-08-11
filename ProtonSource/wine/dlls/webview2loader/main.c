@@ -3,18 +3,33 @@
 
 #include <windef.h>
 #include <winbase.h>
+#include <winternl.h>
 #include <wine/debug.h>
 #include <wine/unixlib.h>
 
-/* Must come before webview2loader_private.h: this is the one .c file in
- * the module where DEFINE_GUID(IID_ICoreWebView2Environment, ...) and
+/* This is the one .c file in the module where the two
+ * DEFINE_GUID(IID_ICoreWebView2Environment, ...) /
  * DEFINE_GUID(IID_ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler,
- * ...) in that header actually allocate storage for those GUIDs, rather
- * than just extern-declaring them -- same convention as
- * dlls/mfplat/main.c's own "#include initguid.h before the private header
- * that DEFINE_GUIDs" pattern in this fork. environment.c includes the same
- * header without this, so it only sees the extern declarations and links
- * against these definitions. */
+ * ...) lines in webview2loader_private.h actually allocate storage for
+ * those GUIDs, rather than just extern-declaring them -- same convention
+ * as dlls/mfplat/main.c's own "#include initguid.h before the specific
+ * headers whose GUIDs are wanted" pattern in this fork. environment.c
+ * includes the private header without INITGUID defined, so it only sees
+ * the extern declarations and links against these definitions.
+ *
+ * <objbase.h> is included here, BEFORE <initguid.h>, on purpose: the
+ * private header below also includes <objbase.h>, which pulls in widl's
+ * generated headers for IUnknown/IMalloc/IMallocSpy/etc., each of which
+ * uses DEFINE_GUID for ITS OWN GUIDs too. If INITGUID were still active
+ * when that chain runs, main.o would end up allocating storage for every
+ * GUID objbase.h's chain touches (measured: 133 of them), not just the 2
+ * this module actually owns -- and the first task to add an interface
+ * whose GUID isn't already accidentally covered here would collide with
+ * libs/uuid's own definitions at link time. Including <objbase.h> here
+ * first means the private header's own #include <objbase.h> is a no-op
+ * (include guard), so INITGUID is live for exactly the two DEFINE_GUID
+ * lines in webview2loader_private.h and nothing else. */
+#include <objbase.h>
 #include <initguid.h>
 
 #include "unixlib.h"
@@ -29,6 +44,18 @@ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID reserved)
     case DLL_PROCESS_ATTACH:
         DisableThreadLibraryCalls(inst);
         if (__wine_init_unix_call()) __wine_unixlib_handle = 0;
+        /* CreateCoreWebView2EnvironmentWithOptions (and, from Task 6/7/8
+         * onward, CreateCoreWebView2Controller/Navigate) hand work off to
+         * a detached worker thread via start_async_work() and return
+         * immediately; the completion handler it invokes, and the cleanup
+         * after it, are all code/data inside this module. A caller is
+         * free to FreeLibrary() this DLL the instant its completion
+         * handler runs, which can race the worker thread still unwinding
+         * afterward -- unmapping the module out from under it. Pin the
+         * module for the process lifetime to close that race, same as
+         * dlls/msvcrt/main.c does for the same "can't safely unload while
+         * our own code might still be running" reason. */
+        LdrAddRefDll(LDR_ADDREF_DLL_PIN, inst);
         break;
     }
     return TRUE;

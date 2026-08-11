@@ -23,6 +23,8 @@ static inline struct environment_impl *impl_from_ICoreWebView2Environment(ICoreW
 
 static HRESULT WINAPI environment_QueryInterface(ICoreWebView2Environment *iface, REFIID riid, void **ppv)
 {
+    if (!ppv) return E_POINTER;
+
     if (IsEqualGUID(riid, &IID_IUnknown) || IsEqualGUID(riid, &IID_ICoreWebView2Environment))
     {
         *ppv = iface;
@@ -61,6 +63,8 @@ static HRESULT WINAPI environment_CreateWebResourceResponse(ICoreWebView2Environ
                                                               int statusCode, LPCWSTR reasonPhrase,
                                                               LPCWSTR headers, void **response)
 {
+    FIXME("(%p, %p, %d, %s, %s, %p): stub\n", iface, content, statusCode, debugstr_w(reasonPhrase),
+          debugstr_w(headers), response);
     return E_NOTIMPL;
 }
 
@@ -83,7 +87,18 @@ static HRESULT WINAPI environment_get_BrowserVersionString(ICoreWebView2Environm
 static HRESULT WINAPI environment_add_NewBrowserVersionAvailable(ICoreWebView2Environment *iface,
                                                                    void *eventHandler, void *token)
 {
-    return E_NOTIMPL; /* no-op per design spec -- we never report a new version */
+    /* Kept as E_NOTIMPL exactly as specified by the task brief (verified
+     * against the design spec's own "E_NOTIMPL for unconfirmed call
+     * sites" convention) -- NOT a no-op. A caller that registers a
+     * handler here gets a real failure back, not a silent success; it
+     * will never see a NewBrowserVersionAvailable event, since we never
+     * report a new version, but it also never gets told registration
+     * "worked" when it didn't. remove_NewBrowserVersionAvailable() below
+     * still unconditionally returns S_OK: since add() always fails, no
+     * real caller has a token to remove, making that S_OK effectively
+     * unreachable in practice rather than actually inconsistent. */
+    FIXME("(%p, %p, %p): stub\n", iface, eventHandler, token);
+    return E_NOTIMPL;
 }
 
 static HRESULT WINAPI environment_remove_NewBrowserVersionAvailable(ICoreWebView2Environment *iface, void *token)
