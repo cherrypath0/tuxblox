@@ -634,15 +634,34 @@ struct suspend_probe_ctx
     HANDLE ready_event;
     HANDLE probe_done;
     volatile LONG ticks;
+    volatile LONG stop;
     BOOL context_ok;
 };
+
+/* static (program lifetime), deliberately NOT a stack-local in
+ * test_suspend_thread_after_webview: on the exact WAIT_TIMEOUT path this
+ * test exists to catch (a real SIGUSR1 regression), the prober thread is
+ * stuck forever inside the OS's SuspendThread call and the target thread
+ * is still alive and spinning -- both keep touching this struct
+ * indefinitely. A stack-local ctx would have its frame reused/destroyed
+ * the moment test_suspend_thread_after_webview returns, so those two
+ * still-live threads would then be writing into freed/reused stack memory
+ * and eventually SetEvent()ing a closed handle -- corrupting the rest of
+ * the test suite on exactly the case this test is supposed to fail
+ * cleanly on instead. A static struct sidesteps that: the memory stays
+ * valid for the whole process lifetime, at the cost of intentionally
+ * leaking a wedged thread + its handles specifically when a real
+ * regression is present -- an acceptable trade since that path already
+ * means this build has the underlying bug and this test process shouldn't
+ * be trusted for anything further anyway. */
+static struct suspend_probe_ctx g_suspend_probe_ctx;
 
 static DWORD WINAPI suspend_target_thread(void *arg)
 {
     struct suspend_probe_ctx *ctx = arg;
 
     SetEvent(ctx->ready_event);
-    for (;;)
+    while (!ctx->stop)
     {
         InterlockedIncrement(&ctx->ticks);
         Sleep(1);
@@ -658,6 +677,12 @@ static DWORD WINAPI suspend_prober_thread(void *arg)
     LONG before, after;
 
     target = CreateThread(NULL, 0, suspend_target_thread, ctx, 0, NULL);
+    if (!target)
+    {
+        ctx->context_ok = FALSE;
+        SetEvent(ctx->probe_done);
+        return 0;
+    }
     WaitForSingleObject(ctx->ready_event, INFINITE);
     Sleep(20); /* let the target thread actually start ticking */
 
@@ -665,7 +690,15 @@ static DWORD WINAPI suspend_prober_thread(void *arg)
      * via SIGUSR1 (ntdll's usr1_handler). If that handler has been silently
      * replaced (the real bug), this call can hang indefinitely waiting for
      * an acknowledgment that will never come. */
-    SuspendThread(target);
+    if (SuspendThread(target) == (DWORD)-1)
+    {
+        ctx->context_ok = FALSE;
+        ctx->stop = TRUE;
+        WaitForSingleObject(target, 2000);
+        CloseHandle(target);
+        SetEvent(ctx->probe_done);
+        return 0;
+    }
 
     before = ctx->ticks;
     Sleep(50);
@@ -675,7 +708,12 @@ static DWORD WINAPI suspend_prober_thread(void *arg)
     ctx->context_ok = GetThreadContext(target, &c) && before == after;
 
     ResumeThread(target);
-    TerminateThread(target, 0);
+    ctx->stop = TRUE;
+    /* Bounded join, not INFINITE: this is best-effort cleanup only, not
+     * part of the actual assertion above -- if the target is wedged for
+     * some unrelated reason, this shouldn't become a second place to
+     * hang. */
+    WaitForSingleObject(target, 2000);
     CloseHandle(target);
 
     SetEvent(ctx->probe_done);
@@ -687,7 +725,7 @@ static void test_suspend_thread_after_webview(void)
     HMODULE mod;
     ICoreWebView2Environment *env;
     ICoreWebView2Controller *ctrl;
-    struct suspend_probe_ctx ctx = { 0 };
+    struct suspend_probe_ctx *ctx = &g_suspend_probe_ctx;
     HANDLE prober;
 
     if (!create_test_controller(&mod, &env, &ctrl))
@@ -696,18 +734,30 @@ static void test_suspend_thread_after_webview(void)
         return;
     }
 
-    ctx.ready_event = CreateEventW(NULL, FALSE, FALSE, NULL);
-    ctx.probe_done = CreateEventW(NULL, FALSE, FALSE, NULL);
-    prober = CreateThread(NULL, 0, suspend_prober_thread, &ctx, 0, NULL);
+    ZeroMemory(ctx, sizeof(*ctx));
+    ctx->ready_event = CreateEventW(NULL, FALSE, FALSE, NULL);
+    ctx->probe_done = CreateEventW(NULL, FALSE, FALSE, NULL);
+    prober = CreateThread(NULL, 0, suspend_prober_thread, ctx, 0, NULL);
+    ok(prober != NULL, "failed to create prober thread, error %lu\n", GetLastError());
 
-    ok(WaitForSingleObject(ctx.probe_done, 5000) == WAIT_OBJECT_0,
-       "SuspendThread/GetThreadContext on an unrelated thread hung after webview creation -- "
-       "ntdll's SIGUSR1 suspend handshake looks clobbered (JSConfigureSignalForGC regression?)\n");
-    ok(ctx.context_ok, "GetThreadContext after SuspendThread failed, or the target thread didn't actually stop\n");
-
-    CloseHandle(prober);
-    CloseHandle(ctx.ready_event);
-    CloseHandle(ctx.probe_done);
+    if (prober && WaitForSingleObject(ctx->probe_done, 5000) == WAIT_OBJECT_0)
+    {
+        ok(ctx->context_ok, "GetThreadContext after SuspendThread failed, or the target thread didn't actually stop\n");
+        CloseHandle(prober);
+        CloseHandle(ctx->ready_event);
+        CloseHandle(ctx->probe_done);
+    }
+    else
+    {
+        ok(FALSE, "SuspendThread/GetThreadContext on an unrelated thread hung after webview creation -- "
+                  "ntdll's SIGUSR1 suspend handshake looks clobbered (JSConfigureSignalForGC regression?)\n");
+        /* Deliberately leak `prober`'s handle and both events here: the
+         * prober (and the target thread it spawned) may still be alive
+         * and touching g_suspend_probe_ctx indefinitely, so closing
+         * handles it might still SetEvent()/use here would be exactly the
+         * use-after-close/corruption this static-context rewrite was
+         * meant to eliminate. */
+    }
 
     ICoreWebView2Controller_Release(ctrl);
     ICoreWebView2Environment_Release(env);

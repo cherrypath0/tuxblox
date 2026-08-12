@@ -193,42 +193,60 @@ extern void soup_cookie_free(SoupCookie *cookie);
 /* Task 11 real-bug fix: JavaScriptCore's real, public, exported C API for
  * moving its GC/JIT "safepoint" signal off its Linux default of SIGUSR1 --
  * confirmed exported (`nm -D libjavascriptcoregtk-6.0.so.1 | grep
- * JSConfigureSignalForGC`) and confirmed by a standalone dlopen probe
- * (outside Wine entirely, described in the fix commit) to be the ONLY
- * mechanism in this exact bundled build that actually works.
+ * JSConfigureSignalForGC`), confirmed via a standalone dlopen probe (outside
+ * Wine entirely) to actually work end-to-end, and returns bool (see below),
+ * matching its real declared signature (WebKitGTK's own
+ * Source/JavaScriptCore/API/JSBasePrivate.h: "JS_EXPORT bool
+ * JSConfigureSignalForGC(int signal);", documented as "Call this function
+ * before any of JSC initialization starts. Otherwise, it fails.").
  *
- * The JSC_SIGNAL_FOR_GC env var mentioned in WebKit's own stderr warning
+ * The JSC_SIGNAL_FOR_GC env var WebKit's own stderr warning suggests
  * ("Overriding existing handler for signal %d. Set JSC_SIGNAL_FOR_GC if you
- * want WebKit to use a different signal") was tried first and found broken
- * against this real bundle: EVERY value tried (bare decimal signal numbers
- * 1/5/10/30/34.../64, the string "SIGPWR") printed "ERROR: invalid option:
- * JSC_SIGNAL_FOR_GC=<value>" on stderr and left JSC on its SIGUSR1 default
- * anyway; the only two values Options' parser silently accepted without
- * that error, "0" and "-1", each instead crash-abort the whole process
- * inside JSC::initialize() itself (confirmed via a coredump backtrace
- * through WTF::initialize() -> abort()) -- actively worse than doing
- * nothing. JSConfigureSignalForGC(), by contrast, is a real, stable,
- * embedder-facing API call (same category as the Android runtime's own use
- * of a non-default GC-suspend signal for this exact collision-avoidance
- * reason) verified end-to-end with a standalone probe: calling it with
- * SIGPWR (30) before the first webkit_web_view_new() means JSC never touches
+ * want WebKit to use a different signal") ALSO actually works -- confirmed
+ * with the same kind of standalone probe used below (dummy SIGUSR1 handler
+ * installed beforehand survives webview creation with JSC_SIGNAL_FOR_GC=30
+ * set, and a subsequent raise(SIGUSR1) no longer crashes). The permanent
+ * "ERROR: invalid option: JSC_SIGNAL_FOR_GC=<value>" line it prints on
+ * stderr on every single run is a red herring from a separate, unrelated
+ * generic scan over all JSC_-prefixed env vars (WebKit's Options.cpp) that
+ * doesn't gate whether the variable actually took effect -- it's silently
+ * non-fatal by default, but would CRASH() the whole process instead if
+ * WebKit's own JSC_validateOptions is ever set (by us or anything else
+ * sharing this environment), which the exported API has no exposure to at
+ * all. The exported API call below is used instead because it's strictly
+ * better on every axis that matters here: no permanent stderr noise, no
+ * exposure to validateOptions, and no dependency on an env var actually
+ * propagating unmangled through Proton's own environment plumbing -- not
+ * because the env var doesn't work.
+ *
+ * (Earlier investigation here initially misread the "0"/"-1" crash-aborts
+ * seen while probing plausible env var values as evidence the var was
+ * being ignored. It isn't: sigaction(0, ...)/sigaction(-1, ...)
+ * legitimately fail for those signal numbers, which trips a real
+ * RELEASE_ASSERT inside WTF's own signal-setup code
+ * (Source/WTF/wtf/posix/ThreadingPOSIX.cpp) -- that assert firing is
+ * itself proof the env var's value WAS being read and used, the opposite
+ * of what was originally concluded.)
+ *
+ * Verified end-to-end with a standalone probe: calling this with SIGPWR
+ * (30) before the first webkit_web_view_new() means JSC never touches
  * SIGUSR1 at all -- no "Overriding existing handler" line, and a dummy
  * SIGUSR1 handler installed beforehand (standing in for ntdll's real
  * usr1_handler, dlls/ntdll/unix/signal_x86_64.c -- "used to signal a thread
  * that it got suspended", the actual mechanism SuspendThread/
  * GetThreadContext/SetThreadContext rely on on Linux) survives completely
- * intact afterward. WITHOUT calling it, the same probe reproduces the real
- * crash mechanism directly: the dummy handler gets silently replaced, and a
- * plain raise(SIGUSR1) afterward segfaults the whole process outright --
- * matching this plan's own real Roblox Studio reproduction, where two
- * unrelated threads (ordinary NtWaitForAlertByThreadId/
- * NtWaitForMultipleObjects waiters, not anything of ours) crashed
- * simultaneously inside Roblox's bundled ucrtbase.dll within ~15ms of that
- * same stderr line appearing. Declared here as its own extern (not folded
- * into WEBKIT_FUNCS) because it lives in libjavascriptcoregtk-6.0.so.1, a
- * separate library from libwebkitgtk-6.0.so.4 -- see javascriptcore_handle
- * below. */
-extern void JSConfigureSignalForGC(int signalNumber);
+ * intact afterward, and a subsequent raise(SIGUSR1) returns normally.
+ * WITHOUT calling it, the same probe reproduces the real crash mechanism
+ * directly: the dummy handler gets silently replaced, and a plain
+ * raise(SIGUSR1) afterward segfaults the whole process outright -- matching
+ * this plan's own real Roblox Studio reproduction, where two unrelated
+ * threads (ordinary NtWaitForAlertByThreadId/NtWaitForMultipleObjects
+ * waiters, not anything of ours) crashed simultaneously inside Roblox's
+ * bundled ucrtbase.dll within ~15ms of that same stderr line appearing.
+ * Declared here as its own extern (not folded into WEBKIT_FUNCS) because it
+ * lives in libjavascriptcoregtk-6.0.so.1, a separate library from
+ * libwebkitgtk-6.0.so.4 -- see javascriptcore_handle below. */
+extern _Bool JSConfigureSignalForGC(int signalNumber);
 
 #define GLIB_FUNCS \
     DO_FUNC(g_main_context_default); \
@@ -441,14 +459,26 @@ static BOOL load_bundle_functions(void)
      * pthread_once on the FIRST WebKitWebView construction, so this only
      * needs to run once, before that first call, not once per webview. See
      * JSConfigureSignalForGC's own extern declaration comment above for the
-     * full evidence trail (why the JSC_SIGNAL_FOR_GC env var doesn't work
-     * against this bundle, and how this call was verified end-to-end with a
-     * standalone dlopen probe outside Wine). SIGPWR (30): confirmed via grep
-     * that dlls/ntdll/unix/signal_x86_64.c never installs a handler for it
-     * (only SIGINT/FPE/ABRT/QUIT/USR1/TRAP/SEGV/ILL/BUS/SYS), same choice
-     * Android's ART runtime made for its own GC-suspend signal for exactly
-     * this kind of collision-avoidance reason. */
-    p_JSConfigureSignalForGC(30);
+     * full evidence trail (why the exported API was chosen over the also-
+     * working-but-noisier JSC_SIGNAL_FOR_GC env var, and how this call was
+     * verified end-to-end with a standalone dlopen probe outside Wine).
+     * SIGPWR (30): confirmed via grep that dlls/ntdll/unix/signal_x86_64.c
+     * never installs a handler for it (only SIGINT/FPE/ABRT/QUIT/USR1/
+     * TRAP/SEGV/ILL/BUS/SYS), same choice Android's ART runtime made for
+     * its own GC-suspend signal for exactly this kind of collision-avoidance
+     * reason.
+     *
+     * The real signature returns bool ("fails" if JSC already started
+     * initializing on some other path before this runs) -- MUST be checked,
+     * not just called for effect: a silent no-op here would mean the
+     * original crash is still fully possible with zero indication anything
+     * went wrong, defeating the entire point of this fix. */
+    if (!p_JSConfigureSignalForGC(30))
+    {
+        ERR("JSConfigureSignalForGC(SIGPWR) failed -- JSC already initialized; "
+            "SuspendThread/GetThreadContext will be unreliable\n");
+        return FALSE;
+    }
 
     return TRUE;
 }
