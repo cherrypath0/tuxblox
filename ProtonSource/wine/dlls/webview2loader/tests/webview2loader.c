@@ -59,6 +59,109 @@ static void test_module_loads(void)
     FreeLibrary(mod);
 }
 
+/* Real Task 11 bug-fix regression test: GetAvailableCoreWebView2BrowserVersionString
+ * was left as Task 3's original E_FAIL stub -- real Roblox Studio calls this
+ * free-function export (no environment/controller needed) as the very first
+ * webview2loader thing it does on startup, to check "is a WebView2 runtime
+ * installed" before ever attempting to create an environment. An E_FAIL here
+ * made Studio believe no runtime was present and show its own "WebView2
+ * installation required" fallback dialog even though environment/controller
+ * creation both actually work (confirmed via a real captured launch trace;
+ * see this task's own report for the exact log lines). Only test_module_loads
+ * previously touched this export, and only via GetProcAddress -- it never
+ * actually called it or checked the result, which is exactly how the E_FAIL
+ * stub survived unnoticed this long. */
+static void test_get_available_browser_version_string(void)
+{
+    HMODULE mod = LoadLibraryA("webview2loader.dll");
+    HRESULT (WINAPI *pGetVersion)(PCWSTR, LPWSTR *);
+    LPWSTR version = NULL;
+    HRESULT hr;
+
+    ok(mod != NULL, "LoadLibraryA failed\n");
+    if (!mod) return;
+
+    pGetVersion = (void *)GetProcAddress(mod, "GetAvailableCoreWebView2BrowserVersionString");
+    ok(pGetVersion != NULL, "missing export\n");
+    if (pGetVersion)
+    {
+        hr = pGetVersion(NULL, &version);
+        ok(hr == S_OK, "GetAvailableCoreWebView2BrowserVersionString returned %#lx\n", hr);
+        ok(version != NULL, "expected a non-NULL version string\n");
+        if (version)
+        {
+            /* Must match environment_get_BrowserVersionString's own fixed
+             * string exactly (environment.c) -- Roblox should see the same
+             * reported version regardless of which of the two functions it
+             * calls. */
+            ok(!wcscmp(version, L"109.0.1518.140"), "unexpected version string %s\n", wine_dbgstr_w(version));
+            CoTaskMemFree(version);
+        }
+
+        /* E_POINTER on a NULL out-param, matching environment_get_BrowserVersionString's
+         * own convention for the same failure case. */
+        hr = pGetVersion(NULL, NULL);
+        ok(hr == E_POINTER, "expected E_POINTER for a NULL versionInfo, got %#lx\n", hr);
+    }
+
+    FreeLibrary(mod);
+}
+
+/* Regression test for the CompareBrowserVersions crash found while verifying
+ * the fix above: real Roblox Studio calls this immediately after
+ * GetAvailableCoreWebView2BrowserVersionString during its own startup
+ * runtime check, and it was entirely unimplemented (not even in
+ * webview2loader.spec) until now -- Wine's builtin "unimplemented function"
+ * trampoline hard-aborted the whole process the first time this became
+ * reachable (see CompareBrowserVersions's own comment in main.c). */
+static void test_compare_browser_versions(void)
+{
+    HMODULE mod = LoadLibraryA("webview2loader.dll");
+    HRESULT (WINAPI *pCompare)(PCWSTR, PCWSTR, int *);
+    int result;
+    HRESULT hr;
+
+    ok(mod != NULL, "LoadLibraryA failed\n");
+    if (!mod) return;
+
+    pCompare = (void *)GetProcAddress(mod, "CompareBrowserVersions");
+    ok(pCompare != NULL, "missing export\n");
+    if (pCompare)
+    {
+        result = 12345;
+        hr = pCompare(L"109.0.1518.140", L"109.0.1518.140", &result);
+        ok(hr == S_OK, "equal versions returned %#lx\n", hr);
+        ok(result == 0, "expected 0 for equal versions, got %d\n", result);
+
+        hr = pCompare(L"108.0.0.0", L"109.0.1518.140", &result);
+        ok(hr == S_OK, "lesser version returned %#lx\n", hr);
+        ok(result == -1, "expected -1 for a lesser version1, got %d\n", result);
+
+        hr = pCompare(L"110.0.0.0", L"109.0.1518.140", &result);
+        ok(hr == S_OK, "greater version returned %#lx\n", hr);
+        ok(result == 1, "expected 1 for a greater version1, got %d\n", result);
+
+        /* Real documented contract (learn.microsoft.com): "Directly use the
+         * versionInfo obtained from GetAvailableCoreWebView2BrowserVersionString
+         * as input, channel information is ignored" -- a trailing channel
+         * suffix must not change the numeric comparison. */
+        hr = pCompare(L"109.0.1518.140 canary", L"109.0.1518.140", &result);
+        ok(hr == S_OK, "channel-suffixed version returned %#lx\n", hr);
+        ok(result == 0, "expected channel suffix to be ignored, got %d\n", result);
+
+        hr = pCompare(NULL, L"109.0.1518.140", &result);
+        ok(hr == E_INVALIDARG, "expected E_INVALIDARG for a NULL version1, got %#lx\n", hr);
+
+        hr = pCompare(L"109.0.1518.140", L"109.0.1518.140", NULL);
+        ok(hr == E_INVALIDARG, "expected E_INVALIDARG for a NULL result, got %#lx\n", hr);
+
+        hr = pCompare(L"not a version", L"109.0.1518.140", &result);
+        ok(hr == E_INVALIDARG, "expected E_INVALIDARG for an unparsable version1, got %#lx\n", hr);
+    }
+
+    FreeLibrary(mod);
+}
+
 struct test_env_handler
 {
     ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandlerVtbl *vtbl;
@@ -987,6 +1090,8 @@ static void test_suspend_thread_after_webview(void)
 START_TEST(webview2loader)
 {
     test_module_loads();
+    test_get_available_browser_version_string();
+    test_compare_browser_versions();
     test_create_environment();
     test_create_controller();
     test_navigate();

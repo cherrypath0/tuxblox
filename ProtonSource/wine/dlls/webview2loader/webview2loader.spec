@@ -1,5 +1,6 @@
 @ stdcall CreateCoreWebView2EnvironmentWithOptions(wstr wstr ptr ptr)
 @ stdcall GetAvailableCoreWebView2BrowserVersionString(wstr ptr)
+@ stdcall CompareBrowserVersions(wstr wstr ptr)
 
 # Test-support only -- NOT part of the real WebView2Loader.dll API surface.
 # Exists so tests/webview2loader.c can verify DeleteAllCookies actually
