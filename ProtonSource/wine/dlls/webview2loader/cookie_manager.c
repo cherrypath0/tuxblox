@@ -320,10 +320,10 @@ invoke:
     return 0;
 }
 
-static HRESULT WINAPI cm_GetCookies(ICoreWebView2CookieManager *iface, LPCWSTR uri, void *handler_raw)
+static HRESULT WINAPI cm_GetCookies(ICoreWebView2CookieManager *iface, LPCWSTR uri,
+                                     ICoreWebView2GetCookiesCompletedHandler *handler)
 {
     struct cookie_manager_impl *cm = impl_from_iface(iface);
-    ICoreWebView2GetCookiesCompletedHandler *handler = handler_raw;
     struct get_cookies_worker_ctx *ctx;
 
     TRACE("(%p, %s, %p)\n", iface, debugstr_w(uri), handler);

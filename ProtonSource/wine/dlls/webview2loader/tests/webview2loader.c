@@ -177,7 +177,7 @@ static ICoreWebView2CreateCoreWebView2ControllerCompletedHandlerVtbl test_ctrl_h
 /* Shared by every test from here on that needs a live environment +
  * controller (test_create_controller below, and Task 7/8's test_navigate /
  * test_delete_all_cookies) -- built once here rather than duplicated per
- * test. Returns FALSE (and leaves *out_mod/*out_env/*out_ctrl untouched) if
+ * test. Returns FALSE (and leaves *out_mod, *out_env, *out_ctrl untouched) if
  * TUXBLOX_WEBVIEW_DIR isn't set or either async step fails/times out; the
  * caller is expected to `skip()`/return in that case. On TRUE, caller owns
  * one ref each on *out_env and *out_ctrl (release both, then FreeLibrary
@@ -637,11 +637,23 @@ static void test_get_cookies(void)
                    "GetCookies(NULL) timed out\n");
                 CloseHandle(cookies_handler.done_event);
 
+                ok(cookies_handler.result_hr == S_OK, "GetCookies(NULL) handler hr %#lx\n", cookies_handler.result_hr);
+                /* Code review finding (Important 3a, fixed): this assertion
+                 * used to be conditional (only checked inside the `if
+                 * (cookies_handler.result_hr == S_OK && ...)` branch below),
+                 * so a real regression that made GetCookies succeed with an
+                 * empty/NULL list was indistinguishable from the fixture
+                 * server simply not running -- both silently skip()'d. A real
+                 * WebView2 GetCookies call that reports S_OK must hand back a
+                 * real (even if empty) ICoreWebView2CookieList per its own
+                 * documented contract; asserting that unconditionally here
+                 * catches that regression instead of masking it as a skip. */
+                ok(cookies_handler.result_hr != S_OK || cookies_handler.result_list != NULL,
+                   "GetCookies(NULL) reported S_OK but returned a NULL cookie list\n");
+
                 count = 0;
                 if (cookies_handler.result_hr == S_OK && cookies_handler.result_list)
                     ICoreWebView2CookieList_get_Count(cookies_handler.result_list, &count);
-                else
-                    ok(cookies_handler.result_hr == S_OK, "GetCookies(NULL) handler hr %#lx\n", cookies_handler.result_hr);
 
                 if (!count)
                 {
@@ -663,7 +675,31 @@ static void test_get_cookies(void)
 
                 if (count)
                 {
-                    /* Real verification #2: filtering by a URI whose host has
+                    /* Real verification #2 (code review finding, Important 3b,
+                     * fixed: this used to be exclusion-only, which an
+                     * implementation that returned an empty list for EVERY
+                     * non-NULL uri would also pass): filtering by the
+                     * fixture's OWN uri must actually INCLUDE its cookie --
+                     * proves the filtered path (webkit_cookie_manager_get_cookies)
+                     * really does real uri-scoped matching, not just "return
+                     * nothing for any filter". */
+                    cookies_handler.done_event = CreateEventW(NULL, FALSE, FALSE, NULL);
+                    hr = ICoreWebView2CookieManager_GetCookies(cm, L"http://127.0.0.1:18765/", &cookies_handler);
+                    ok(hr == S_OK, "matching-uri GetCookies returned %#lx\n", hr);
+                    ok(WaitForSingleObject(cookies_handler.done_event, 15000) == WAIT_OBJECT_0,
+                       "matching-uri GetCookies timed out\n");
+                    CloseHandle(cookies_handler.done_event);
+
+                    ok(cookies_handler.result_hr == S_OK, "matching-uri GetCookies handler hr %#lx\n", cookies_handler.result_hr);
+                    if (cookies_handler.result_list)
+                    {
+                        ok(cookie_list_contains(cookies_handler.result_list, L"tuxblox_test_cookie", L"1"),
+                           "expected the fixture's own uri to include the fixture cookie\n");
+                        ICoreWebView2CookieList_Release(cookies_handler.result_list);
+                        cookies_handler.result_list = NULL;
+                    }
+
+                    /* Real verification #3: filtering by a URI whose host has
                      * nothing to do with 127.0.0.1 must exclude the fixture's
                      * cookie -- exercises real WebKit uri-scoped cookie
                      * matching (webkit_cookie_manager_get_cookies), not a

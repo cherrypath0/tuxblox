@@ -1275,15 +1275,40 @@ static NTSTATUS unix_count_cookies_impl(void *args)
  * file's existing Task 8 helper) map onto that split directly -- no
  * hand-rolled domain/path cookie-applicability matching needed here, WebKit
  * already implements the standard algorithm underneath. */
+/* Code review finding (Critical, fixed): the first version of this struct
+ * stored a raw `struct get_cookies_params *params` pointer -- the PE-side
+ * caller's own heap allocation -- and had on_get_cookies_done() write
+ * straight into it unconditionally, with no liveness check. That's exactly
+ * the bug struct count_cookies_ctx (above) was already careful to avoid: on
+ * a real ETIMEDOUT, unix_get_cookies_impl returns and releases its own ref
+ * while the WebKit async op can still be in flight (GAsyncReadyCallback has
+ * no synchronous cancel, same reasoning as struct delete_cookies_ctx's own
+ * comment). The PE side then sees success==FALSE, invokes the caller's
+ * handler with E_FAIL, and frees `params`. A callback that completes AFTER
+ * that point would write up to ~1.2MB into freed heap -- silent corruption,
+ * the same crash class this plan already spent hours on for the SIGUSR1
+ * bug. Fixed by mirroring struct count_cookies_ctx's own already-correct
+ * pattern exactly: every out-field the callback writes lives IN this ctx
+ * (safe for the callback to touch at any time, since ctx is refcounted and
+ * only freed once both sides are done with it), and gets copied into
+ * `params` only under ctx->lock, only if ctx->done, by
+ * unix_get_cookies_impl itself after the wait -- never touched directly by
+ * the callback. */
 struct get_cookies_ctx
 {
     struct native_webview *nv;
-    struct get_cookies_params *params; /* PE-side's heap allocation; not owned, valid for our whole lifetime */
     char *uri_utf8; /* NULL => unfiltered (get_all_cookies); non-NULL => filtered (get_cookies) */
     pthread_mutex_t lock;
     pthread_cond_t cond;
     BOOL done;
     LONG refs; /* same "whichever side finishes last frees ctx" pattern as struct delete_cookies_ctx */
+
+    /* out -- written only by on_get_cookies_done, read only by
+     * unix_get_cookies_impl under ctx->lock after ctx->done is observed
+     * true (see this struct's own leading comment). */
+    BOOL success;
+    UINT32 count;
+    struct unix_cookie cookies[WEBVIEW2LOADER_MAX_COOKIES];
 };
 
 static void get_cookies_ctx_release(struct get_cookies_ctx *ctx)
@@ -1295,30 +1320,48 @@ static void get_cookies_ctx_release(struct get_cookies_ctx *ctx)
     free(ctx);
 }
 
-/* Fills one struct unix_cookie from a real SoupCookie*, truncating any
- * field that somehow exceeds its fixed buffer (see unixlib.h's own comment
- * on WEBVIEW2LOADER_MAX_COOKIES and the WEBVIEW2LOADER_COOKIE_*_MAX
- * constants for why fixed buffers are used at all) via ntdll_umbstowcs's
- * own documented safe-truncation behavior
- * ("Returns the number of characters converted, which may be less than the
- * entire source string") rather than risking a buffer overflow. */
-static void fill_unix_cookie(struct unix_cookie *dst, SoupCookie *cookie)
+/* Copies one UTF-8 field (src, byte length n) into a fixed WCHAR dst[cap]
+ * buffer, or fails rather than silently truncating (code review finding,
+ * Important 1: an earlier version truncated via ntdll_umbstowcs's own
+ * safe-truncation behavior with no diagnostic, which is memory-safe but
+ * hands Studio a corrupted cookie *value* as if it were real data -- worse
+ * than dropping the cookie outright for a caller that trusts what GetCookies
+ * returns). Every UTF-8 encoding of a Unicode codepoint is at least as many
+ * bytes as its UTF-16 encoding (1-3 UTF-8 bytes -> 1 UTF-16 unit for BMP
+ * codepoints, 4 UTF-8 bytes -> a 2-unit UTF-16 surrogate pair) -- so if the
+ * source's byte length already fits within the destination's WCHAR capacity,
+ * the decoded string is GUARANTEED to fit too, no truncation possible. When
+ * it doesn't fit that conservative check (rare for any real cookie field
+ * given these caps -- see WEBVIEW2LOADER_COOKIE_*_MAX's own comment in
+ * unixlib.h), this fails closed rather than guess. */
+static BOOL copy_field_or_fail(const char *src, WCHAR *dst, ULONG cap, const char *field)
 {
-    const char *name = p_soup_cookie_get_name(cookie);
-    const char *value = p_soup_cookie_get_value(cookie);
-    const char *domain = p_soup_cookie_get_domain(cookie);
-    const char *path = p_soup_cookie_get_path(cookie);
-    GDateTime *expires = p_soup_cookie_get_expires(cookie);
-    ULONG n;
+    ULONG n = src ? strlen(src) : 0;
 
-    n = name ? strlen(name) : 0;
-    dst->name[ntdll_umbstowcs(name ? name : "", n, dst->name, WEBVIEW2LOADER_COOKIE_NAME_MAX - 1)] = 0;
-    n = value ? strlen(value) : 0;
-    dst->value[ntdll_umbstowcs(value ? value : "", n, dst->value, WEBVIEW2LOADER_COOKIE_VALUE_MAX - 1)] = 0;
-    n = domain ? strlen(domain) : 0;
-    dst->domain[ntdll_umbstowcs(domain ? domain : "", n, dst->domain, WEBVIEW2LOADER_COOKIE_DOMAIN_MAX - 1)] = 0;
-    n = path ? strlen(path) : 0;
-    dst->path[ntdll_umbstowcs(path ? path : "", n, dst->path, WEBVIEW2LOADER_COOKIE_PATH_MAX - 1)] = 0;
+    if (n >= cap)
+    {
+        ERR("cookie %s is %u bytes, exceeding this build's %u-WCHAR cap -- dropping this cookie "
+            "rather than returning a truncated value\n", field, (unsigned)n, (unsigned)(cap - 1));
+        dst[0] = 0;
+        return FALSE;
+    }
+    dst[ntdll_umbstowcs(src ? src : "", n, dst, cap - 1)] = 0;
+    return TRUE;
+}
+
+/* Fills one struct unix_cookie from a real SoupCookie*. Returns FALSE (and
+ * leaves dst only partially filled -- caller must not use it) if any string
+ * field doesn't fit its fixed buffer; see copy_field_or_fail's own comment
+ * for why that's a hard failure now, not a truncation. */
+static BOOL fill_unix_cookie(struct unix_cookie *dst, SoupCookie *cookie)
+{
+    GDateTime *expires;
+
+    if (!copy_field_or_fail(p_soup_cookie_get_name(cookie), dst->name, WEBVIEW2LOADER_COOKIE_NAME_MAX, "name") ||
+        !copy_field_or_fail(p_soup_cookie_get_value(cookie), dst->value, WEBVIEW2LOADER_COOKIE_VALUE_MAX, "value") ||
+        !copy_field_or_fail(p_soup_cookie_get_domain(cookie), dst->domain, WEBVIEW2LOADER_COOKIE_DOMAIN_MAX, "domain") ||
+        !copy_field_or_fail(p_soup_cookie_get_path(cookie), dst->path, WEBVIEW2LOADER_COOKIE_PATH_MAX, "path"))
+        return FALSE;
 
     /* NULL expires == session cookie, real libsoup semantics (soup-cookie.c's
      * own doc comment) and exactly real ICoreWebView2Cookie::IsSession's own
@@ -1326,7 +1369,7 @@ static void fill_unix_cookie(struct unix_cookie *dst, SoupCookie *cookie)
      * "this is a session cookie" (learn.microsoft.com's real
      * ICoreWebView2Cookie reference: "The default is -1.0, which means
      * cookies are session cookies by default."), not a placeholder. */
-    if (expires)
+    if ((expires = p_soup_cookie_get_expires(cookie)))
     {
         dst->expires = (double)p_g_date_time_to_unix(expires);
         dst->is_session = FALSE;
@@ -1344,33 +1387,65 @@ static void fill_unix_cookie(struct unix_cookie *dst, SoupCookie *cookie)
      * headers -- see this function's own file-level extern comment) --
      * passed straight through, no translation table needed. */
     dst->same_site = (INT32)p_soup_cookie_get_same_site_policy(cookie);
+    return TRUE;
 }
 
 static void on_get_cookies_done(GObject *source, GAsyncResult *res, void *user_data)
 {
     struct get_cookies_ctx *ctx = user_data;
     GList *cookies, *l;
-    UINT32 n = 0;
+    UINT32 total = 0, n = 0;
+    BOOL success;
 
     if (ctx->uri_utf8)
         cookies = p_webkit_cookie_manager_get_cookies_finish((WebKitCookieManager *)source, res, NULL);
     else
         cookies = p_webkit_cookie_manager_get_all_cookies_finish((WebKitCookieManager *)source, res, NULL);
 
-    for (l = cookies; l && n < WEBVIEW2LOADER_MAX_COOKIES; l = l->next, n++)
-        fill_unix_cookie(&ctx->params->cookies[n], l->data);
-    /* If the real store somehow holds more than WEBVIEW2LOADER_MAX_COOKIES
-     * cookies, this truncates rather than overflows -- surfaced via ERR so
-     * it's visible in a trace if it ever actually matters (not expected for
-     * anything Roblox's real login flow sets). */
-    if (l) ERR("cookie store has more than %u cookies; result truncated\n", (unsigned)WEBVIEW2LOADER_MAX_COOKIES);
+    /* Code review finding (Important 2, fixed): the first version filled up
+     * to WEBVIEW2LOADER_MAX_COOKIES and reported success==TRUE regardless,
+     * silently handing back an incomplete list if the real store ever held
+     * more. That's a real hazard specifically for clearAllCookiesAndRunCallbackHelper
+     * (the actual real caller this whole fix targets) -- it's
+     * enumerate-then-act, with no way to tell "GetCookies gave me everything"
+     * from "GetCookies quietly gave me a subset". Counting the real list
+     * length FIRST (a second pass, but a cheap one -- just pointer-chasing,
+     * no allocation) makes exceeding the cap a real, distinguishable failure
+     * (success==FALSE, same as any other GetCookies failure) instead of a
+     * silently-wrong S_OK. */
+    for (l = cookies; l; l = l->next) total++;
 
-    ctx->params->count = n;
-    ctx->params->success = TRUE;
+    if (total > WEBVIEW2LOADER_MAX_COOKIES)
+    {
+        ERR("cookie store holds %u cookies, exceeding this build's %u-cookie cap -- failing this "
+            "GetCookies call rather than returning a silently incomplete list\n",
+            (unsigned)total, (unsigned)WEBVIEW2LOADER_MAX_COOKIES);
+        success = FALSE;
+    }
+    else
+    {
+        success = TRUE;
+        for (l = cookies; l; l = l->next)
+        {
+            /* fill_unix_cookie itself can still reject an individual cookie
+             * whose field(s) don't fit (copy_field_or_fail) -- that cookie is
+             * dropped (loudly, via that function's own ERR) rather than
+             * failing the whole call; unlike the total-count cap above, a
+             * single oversized field is not something clearAllCookiesAndRunCallbackHelper's
+             * enumerate-then-act semantics can be silently wrong about in
+             * the same way (the cookie that didn't fit couldn't have been
+             * meaningfully acted on by real WebView2 either, since Studio
+             * receives it via the same fixed-ish LPWSTR-returning real
+             * WebView2 API either way). */
+            if (fill_unix_cookie(&ctx->cookies[n], l->data)) n++;
+        }
+    }
 
     if (cookies) p_g_list_free_full(cookies, (GDestroyNotify)p_soup_cookie_free);
 
     pthread_mutex_lock(&ctx->lock);
+    ctx->success = success;
+    ctx->count = n;
     ctx->done = TRUE;
     pthread_cond_signal(&ctx->cond);
     pthread_mutex_unlock(&ctx->lock);
@@ -1401,6 +1476,10 @@ static NTSTATUS unix_get_cookies_impl(void *args)
     params->success = FALSE;
     params->count = 0;
     if (!nv) return STATUS_INVALID_HANDLE;
+    /* Heap-allocated (not a stack local) for the same reason struct
+     * get_cookies_params itself is -- this ctx now embeds the same
+     * WEBVIEW2LOADER_MAX_COOKIES-sized cookies array (~1.2MB), see this
+     * struct's own leading comment for why it moved here from `params`. */
     if (!(ctx = calloc(1, sizeof(*ctx)))) return STATUS_NO_MEMORY;
 
     /* NULL or empty uri => unfiltered, matching real GetCookies semantics
@@ -1411,7 +1490,6 @@ static NTSTATUS unix_get_cookies_impl(void *args)
     if (uri_utf8 && !uri_utf8[0]) { free(uri_utf8); uri_utf8 = NULL; }
 
     ctx->nv = nv;
-    ctx->params = params;
     ctx->uri_utf8 = uri_utf8;
     ctx->refs = 2;
     pthread_mutex_init(&ctx->lock, NULL);
@@ -1428,6 +1506,21 @@ static NTSTATUS unix_get_cookies_impl(void *args)
     pthread_mutex_lock(&ctx->lock);
     while (!ctx->done)
         if (pthread_cond_timedwait(&ctx->cond, &ctx->lock, &deadline) == ETIMEDOUT) break;
+    /* Only trust ctx->success/ctx->count/ctx->cookies if the callback
+     * actually ran (ctx->done true) -- mirrors unix_count_cookies_impl's own
+     * identical "don't read fields the callback may not have written yet"
+     * guard directly above in this file. This is also what makes the
+     * Critical fix above actually safe: params (the caller's own buffer) is
+     * only ever written here, under this lock, after that check -- never by
+     * the callback itself, so a callback that fires after a real timeout
+     * (params already freed by the PE-side caller) touches only this ctx,
+     * which stays valid until BOTH sides release their ref. */
+    if (ctx->done)
+    {
+        params->success = ctx->success;
+        params->count = ctx->count;
+        if (ctx->success) memcpy(params->cookies, ctx->cookies, ctx->count * sizeof(*ctx->cookies));
+    }
     pthread_mutex_unlock(&ctx->lock);
 
     get_cookies_ctx_release(ctx); /* this function's own ref -- safe unconditionally, same as

@@ -461,6 +461,18 @@ HRESULT WINAPI webview2_stub_e_notimpl(void *iface, ...);
 DEFINE_GUID(IID_ICoreWebView2_2, 0x9E8F0CF8, 0xE670, 0x4B5E, 0xB2, 0xBC, 0x73, 0xE0, 0x61, 0xE3, 0x18, 0x4C);
 DEFINE_GUID(IID_ICoreWebView2CookieManager, 0x177CD9E7, 0xB6F5, 0x451A, 0x94, 0xA0, 0x5D, 0x7A, 0x3A, 0x4C, 0x41, 0x41);
 
+/* Forward declaration: ICoreWebView2GetCookiesCompletedHandler's full
+ * definition lives further down (Task 11 section, below), but GetCookies's
+ * vtable slot needs the real typed pointer here, not `void *` -- unlike
+ * every other completion-handler-typed vtable slot in this header
+ * (CreateCoreWebView2Controller/CreateCoreWebView2EnvironmentWithOptions
+ * both deliberately keep `void *handler`), GetCookies is the one method
+ * this fix actually implements against a caller that constructs a real
+ * ICoreWebView2GetCookiesCompletedHandler*, so the tighter type costs
+ * nothing and catches a real type mismatch at compile time instead of
+ * only at the call site's own cast. */
+typedef struct ICoreWebView2GetCookiesCompletedHandler ICoreWebView2GetCookiesCompletedHandler;
+
 typedef struct ICoreWebView2CookieManager ICoreWebView2CookieManager;
 typedef struct ICoreWebView2CookieManagerVtbl
 {
@@ -470,7 +482,8 @@ typedef struct ICoreWebView2CookieManagerVtbl
     HRESULT (WINAPI *CreateCookie)(ICoreWebView2CookieManager *This, LPCWSTR name, LPCWSTR value, LPCWSTR domain,
                                     LPCWSTR path, void **cookie);
     HRESULT (WINAPI *CopyCookie)(ICoreWebView2CookieManager *This, void *cookie, void **result);
-    HRESULT (WINAPI *GetCookies)(ICoreWebView2CookieManager *This, LPCWSTR uri, void *handler);
+    HRESULT (WINAPI *GetCookies)(ICoreWebView2CookieManager *This, LPCWSTR uri,
+                                  ICoreWebView2GetCookiesCompletedHandler *handler);
     HRESULT (WINAPI *AddOrUpdateCookie)(ICoreWebView2CookieManager *This, void *cookie);
     HRESULT (WINAPI *DeleteCookie)(ICoreWebView2CookieManager *This, void *cookie);
     HRESULT (WINAPI *DeleteCookies)(ICoreWebView2CookieManager *This, LPCWSTR name, LPCWSTR uri);
@@ -642,7 +655,9 @@ struct ICoreWebView2CookieList { const ICoreWebView2CookieListVtbl *lpVtbl; };
 DEFINE_GUID(IID_ICoreWebView2GetCookiesCompletedHandler,
             0x5a4f5069, 0x5c15, 0x47c3, 0x86, 0x46, 0xf4, 0xde, 0x1c, 0x11, 0x66, 0x70);
 
-typedef struct ICoreWebView2GetCookiesCompletedHandler ICoreWebView2GetCookiesCompletedHandler;
+/* ICoreWebView2GetCookiesCompletedHandler itself was already forward-declared
+ * above, alongside ICoreWebView2CookieManagerVtbl's GetCookies slot -- see
+ * that forward declaration's own comment for why. */
 typedef struct ICoreWebView2GetCookiesCompletedHandlerVtbl
 {
     HRESULT (WINAPI *QueryInterface)(ICoreWebView2GetCookiesCompletedHandler *This, REFIID riid, void **ppv);
