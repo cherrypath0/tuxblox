@@ -593,6 +593,127 @@ static void test_v2_base_slots_not_null(void)
     FreeLibrary(mod);
 }
 
+/* Regression test for the real Task 11 e2e finding: WebKitGTK's
+ * JavaScriptCore installs its own process-wide SIGUSR1 handler the first
+ * time a WebKitWebView is created (its GC/JIT "safepoint" signal), silently
+ * replacing ntdll's own usr1_handler (dlls/ntdll/unix/signal_x86_64.c),
+ * which SuspendThread/GetThreadContext/SetThreadContext rely on to signal a
+ * thread that it got suspended. Confirmed against a real Roblox Studio
+ * launch: moments after WebKit's own "Overriding existing handler for
+ * signal 10" stderr line appeared, two completely unrelated threads
+ * crashed simultaneously inside ucrtbase.dll.
+ *
+ * The fix (unixlib.c's load_bundle_functions, via the real, exported
+ * JSConfigureSignalForGC() API from libjavascriptcoregtk-6.0.so.1) moves
+ * JSC's GC/JIT signal off SIGUSR1 before the first webview is ever created.
+ * NOT the JSC_SIGNAL_FOR_GC env var WebKit's own warning text suggests --
+ * tried first and found genuinely broken against this real bundle (every
+ * value from bare decimal signal numbers to signal names printed "ERROR:
+ * invalid option" on stderr and left JSC on SIGUSR1 anyway; the two values
+ * that DID parse, "0" and "-1", instead crash-abort JSC::initialize()
+ * itself outright -- see unixlib.c's own comment on JSConfigureSignalForGC
+ * for the full evidence trail from a standalone dlopen probe outside Wine).
+ *
+ * This test exercises the actual downstream symptom directly -- a real
+ * Win32 SuspendThread/GetThreadContext/ResumeThread cycle on an unrelated
+ * thread, performed AFTER a real webview has been created
+ * (create_test_controller's controller creation already calls
+ * webkit_web_view_new() via unix_create_webview_impl, so by the time it
+ * returns JSC has already had its one chance to install its handler) --
+ * rather than only checking that some particular API got called, since the
+ * process-wide signal collision, not any specific call site, is the real
+ * defect this must keep catching even if the exact mechanism changes again.
+ *
+ * The probe runs on its own thread and is only waited on with a bounded
+ * timeout: a regression here manifests as ntdll's suspend handshake hanging
+ * forever (SuspendThread never receiving the "thread got suspended" signal
+ * back), not as a clean failure return, so an unbounded wait would hang the
+ * whole test suite instead of just failing this one test. */
+struct suspend_probe_ctx
+{
+    HANDLE ready_event;
+    HANDLE probe_done;
+    volatile LONG ticks;
+    BOOL context_ok;
+};
+
+static DWORD WINAPI suspend_target_thread(void *arg)
+{
+    struct suspend_probe_ctx *ctx = arg;
+
+    SetEvent(ctx->ready_event);
+    for (;;)
+    {
+        InterlockedIncrement(&ctx->ticks);
+        Sleep(1);
+    }
+    return 0;
+}
+
+static DWORD WINAPI suspend_prober_thread(void *arg)
+{
+    struct suspend_probe_ctx *ctx = arg;
+    HANDLE target;
+    CONTEXT c;
+    LONG before, after;
+
+    target = CreateThread(NULL, 0, suspend_target_thread, ctx, 0, NULL);
+    WaitForSingleObject(ctx->ready_event, INFINITE);
+    Sleep(20); /* let the target thread actually start ticking */
+
+    /* The call this whole test exists to exercise -- implemented on Linux
+     * via SIGUSR1 (ntdll's usr1_handler). If that handler has been silently
+     * replaced (the real bug), this call can hang indefinitely waiting for
+     * an acknowledgment that will never come. */
+    SuspendThread(target);
+
+    before = ctx->ticks;
+    Sleep(50);
+    after = ctx->ticks;
+
+    c.ContextFlags = CONTEXT_FULL;
+    ctx->context_ok = GetThreadContext(target, &c) && before == after;
+
+    ResumeThread(target);
+    TerminateThread(target, 0);
+    CloseHandle(target);
+
+    SetEvent(ctx->probe_done);
+    return 0;
+}
+
+static void test_suspend_thread_after_webview(void)
+{
+    HMODULE mod;
+    ICoreWebView2Environment *env;
+    ICoreWebView2Controller *ctrl;
+    struct suspend_probe_ctx ctx = { 0 };
+    HANDLE prober;
+
+    if (!create_test_controller(&mod, &env, &ctrl))
+    {
+        skip("TUXBLOX_WEBVIEW_DIR not set or environment/controller creation failed\n");
+        return;
+    }
+
+    ctx.ready_event = CreateEventW(NULL, FALSE, FALSE, NULL);
+    ctx.probe_done = CreateEventW(NULL, FALSE, FALSE, NULL);
+    prober = CreateThread(NULL, 0, suspend_prober_thread, &ctx, 0, NULL);
+
+    ok(WaitForSingleObject(ctx.probe_done, 5000) == WAIT_OBJECT_0,
+       "SuspendThread/GetThreadContext on an unrelated thread hung after webview creation -- "
+       "ntdll's SIGUSR1 suspend handshake looks clobbered (JSConfigureSignalForGC regression?)\n");
+    ok(ctx.context_ok, "GetThreadContext after SuspendThread failed, or the target thread didn't actually stop\n");
+
+    CloseHandle(prober);
+    CloseHandle(ctx.ready_event);
+    CloseHandle(ctx.probe_done);
+
+    ICoreWebView2Controller_Release(ctrl);
+    ICoreWebView2Environment_Release(env);
+    FreeLibrary(mod);
+}
+
 START_TEST(webview2loader)
 {
     test_module_loads();
@@ -603,4 +724,5 @@ START_TEST(webview2loader)
     test_remove_navigation_completed();
     test_v2_base_slots_not_null();
     test_delete_all_cookies();
+    test_suspend_thread_after_webview();
 }

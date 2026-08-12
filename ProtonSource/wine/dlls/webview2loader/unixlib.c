@@ -190,6 +190,46 @@ extern void webkit_cookie_manager_delete_cookie(WebKitCookieManager *cookie_mana
  * instead, entirely through the already-legitimate Navigate() path.) */
 extern void soup_cookie_free(SoupCookie *cookie);
 
+/* Task 11 real-bug fix: JavaScriptCore's real, public, exported C API for
+ * moving its GC/JIT "safepoint" signal off its Linux default of SIGUSR1 --
+ * confirmed exported (`nm -D libjavascriptcoregtk-6.0.so.1 | grep
+ * JSConfigureSignalForGC`) and confirmed by a standalone dlopen probe
+ * (outside Wine entirely, described in the fix commit) to be the ONLY
+ * mechanism in this exact bundled build that actually works.
+ *
+ * The JSC_SIGNAL_FOR_GC env var mentioned in WebKit's own stderr warning
+ * ("Overriding existing handler for signal %d. Set JSC_SIGNAL_FOR_GC if you
+ * want WebKit to use a different signal") was tried first and found broken
+ * against this real bundle: EVERY value tried (bare decimal signal numbers
+ * 1/5/10/30/34.../64, the string "SIGPWR") printed "ERROR: invalid option:
+ * JSC_SIGNAL_FOR_GC=<value>" on stderr and left JSC on its SIGUSR1 default
+ * anyway; the only two values Options' parser silently accepted without
+ * that error, "0" and "-1", each instead crash-abort the whole process
+ * inside JSC::initialize() itself (confirmed via a coredump backtrace
+ * through WTF::initialize() -> abort()) -- actively worse than doing
+ * nothing. JSConfigureSignalForGC(), by contrast, is a real, stable,
+ * embedder-facing API call (same category as the Android runtime's own use
+ * of a non-default GC-suspend signal for this exact collision-avoidance
+ * reason) verified end-to-end with a standalone probe: calling it with
+ * SIGPWR (30) before the first webkit_web_view_new() means JSC never touches
+ * SIGUSR1 at all -- no "Overriding existing handler" line, and a dummy
+ * SIGUSR1 handler installed beforehand (standing in for ntdll's real
+ * usr1_handler, dlls/ntdll/unix/signal_x86_64.c -- "used to signal a thread
+ * that it got suspended", the actual mechanism SuspendThread/
+ * GetThreadContext/SetThreadContext rely on on Linux) survives completely
+ * intact afterward. WITHOUT calling it, the same probe reproduces the real
+ * crash mechanism directly: the dummy handler gets silently replaced, and a
+ * plain raise(SIGUSR1) afterward segfaults the whole process outright --
+ * matching this plan's own real Roblox Studio reproduction, where two
+ * unrelated threads (ordinary NtWaitForAlertByThreadId/
+ * NtWaitForMultipleObjects waiters, not anything of ours) crashed
+ * simultaneously inside Roblox's bundled ucrtbase.dll within ~15ms of that
+ * same stderr line appearing. Declared here as its own extern (not folded
+ * into WEBKIT_FUNCS) because it lives in libjavascriptcoregtk-6.0.so.1, a
+ * separate library from libwebkitgtk-6.0.so.4 -- see javascriptcore_handle
+ * below. */
+extern void JSConfigureSignalForGC(int signalNumber);
+
 #define GLIB_FUNCS \
     DO_FUNC(g_main_context_default); \
     DO_FUNC(g_main_context_invoke_full); \
@@ -245,11 +285,21 @@ extern void soup_cookie_free(SoupCookie *cookie);
 #define SOUP_FUNCS \
     DO_FUNC(soup_cookie_free)
 
+/* libjavascriptcoregtk-6.0.so.1 -- see JSConfigureSignalForGC's own extern
+ * declaration comment above. Confirmed a real NEEDED dependency of
+ * libwebkitgtk-6.0.so.4 (`readelf -d libwebkitgtk-6.0.so.4 | grep
+ * javascriptcore`), same situation as soup_handle: already resident in the
+ * shared isolated namespace by the time this runs, so this load_one() call
+ * just joins that namespace and hands back a handle scoped to its own
+ * exported symbols. */
+#define JAVASCRIPTCORE_FUNCS \
+    DO_FUNC(JSConfigureSignalForGC)
+
 #define DO_FUNC(f) typeof(f) *p_##f
-GLIB_FUNCS; GOBJECT_FUNCS; GTK_FUNCS; WEBKIT_FUNCS; SOUP_FUNCS;
+GLIB_FUNCS; GOBJECT_FUNCS; GTK_FUNCS; WEBKIT_FUNCS; SOUP_FUNCS; JAVASCRIPTCORE_FUNCS;
 #undef DO_FUNC
 
-static void *glib_handle, *gobject_handle, *gtk_handle, *webkit_handle, *soup_handle;
+static void *glib_handle, *gobject_handle, *gtk_handle, *webkit_handle, *soup_handle, *javascriptcore_handle;
 
 /* Loads relpath into the isolated linker namespace identified by *lmid.
  *
@@ -354,6 +404,10 @@ static BOOL load_bundle_functions(void)
      * library in this function rather than assuming dlsym(webkit_handle, ...)
      * would also find a transitively-loaded dependency's symbols. */
     if (!(soup_handle = load_one(dir, "lib/x86_64-linux-gnu/libsoup-3.0.so.0", &lmid))) return FALSE;
+    /* Task 11: see JAVASCRIPTCORE_FUNCS's own comment above -- already
+     * resident in the shared namespace as libwebkitgtk-6.0.so.4's own
+     * dependency, same situation as soup_handle just above. */
+    if (!(javascriptcore_handle = load_one(dir, "lib/libjavascriptcoregtk-6.0.so.1", &lmid))) return FALSE;
 
 #define DO_FUNC(f) if (!(p_##f = dlsym(glib_handle, #f))) \
     { WARN("failed to load symbol %s\n", #f); return FALSE; }
@@ -375,6 +429,26 @@ static BOOL load_bundle_functions(void)
     { WARN("failed to load symbol %s\n", #f); return FALSE; }
     SOUP_FUNCS;
 #undef DO_FUNC
+#define DO_FUNC(f) if (!(p_##f = dlsym(javascriptcore_handle, #f))) \
+    { WARN("failed to load symbol %s\n", #f); return FALSE; }
+    JAVASCRIPTCORE_FUNCS;
+#undef DO_FUNC
+
+    /* Task 11 real-bug fix -- must run here, before this function returns
+     * and unix_init_impl goes on to pthread_create() the GTK thread that
+     * will eventually call webkit_web_view_new() (create_webview_on_gtk_thread
+     * below): JSC's Options/signal-handler setup happens lazily, once, via
+     * pthread_once on the FIRST WebKitWebView construction, so this only
+     * needs to run once, before that first call, not once per webview. See
+     * JSConfigureSignalForGC's own extern declaration comment above for the
+     * full evidence trail (why the JSC_SIGNAL_FOR_GC env var doesn't work
+     * against this bundle, and how this call was verified end-to-end with a
+     * standalone dlopen probe outside Wine). SIGPWR (30): confirmed via grep
+     * that dlls/ntdll/unix/signal_x86_64.c never installs a handler for it
+     * (only SIGINT/FPE/ABRT/QUIT/USR1/TRAP/SEGV/ILL/BUS/SYS), same choice
+     * Android's ART runtime made for its own GC-suspend signal for exactly
+     * this kind of collision-avoidance reason. */
+    p_JSConfigureSignalForGC(30);
 
     return TRUE;
 }
