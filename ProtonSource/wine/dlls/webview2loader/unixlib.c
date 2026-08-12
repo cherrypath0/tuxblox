@@ -169,6 +169,21 @@ extern void webkit_cookie_manager_get_all_cookies(WebKitCookieManager *cookie_ma
                                                     GAsyncReadyCallback callback, gpointer user_data);
 extern GList *webkit_cookie_manager_get_all_cookies_finish(WebKitCookieManager *cookie_manager,
                                                              GAsyncResult *result, GError **error);
+/* Task 11 real-bug fix: the real, exported, URI-scoped sibling of
+ * get_all_cookies above (confirmed real and exported via `nm -D
+ * libwebkitgtk-6.0.so.4* | grep webkit_cookie_manager_get_cookies` against
+ * the committed bundle, and its exact signature confirmed against the real
+ * committed header, include/webkitgtk-6.0/webkit/WebKitCookieManager.h) --
+ * this is what lets unix_get_cookies_impl below satisfy real
+ * ICoreWebView2CookieManager::GetCookies's own documented uri-filtering
+ * semantics ("Gets a list of cookies matching the specific URI") without
+ * hand-rolling domain/path cookie-applicability matching ourselves: WebKit
+ * already implements the standard algorithm here. */
+extern void webkit_cookie_manager_get_cookies(WebKitCookieManager *cookie_manager, const char *uri,
+                                                GCancellable *cancellable, GAsyncReadyCallback callback,
+                                                gpointer user_data);
+extern GList *webkit_cookie_manager_get_cookies_finish(WebKitCookieManager *cookie_manager,
+                                                         GAsyncResult *result, GError **error);
 extern void webkit_cookie_manager_delete_cookie(WebKitCookieManager *cookie_manager, SoupCookie *cookie,
                                                  GCancellable *cancellable, GAsyncReadyCallback callback,
                                                  gpointer user_data);
@@ -189,6 +204,36 @@ extern void webkit_cookie_manager_delete_cookie(WebKitCookieManager *cookie_mana
  * tests/cookie_test_server.py for how cookie-add verification works now
  * instead, entirely through the already-legitimate Navigate() path.) */
 extern void soup_cookie_free(SoupCookie *cookie);
+/* Task 11 real-bug fix: real per-cookie field accessors, confirmed real and
+ * exported (`nm -D libsoup-3.0.so.0* | grep soup_cookie_get`) and their
+ * exact signatures confirmed against the real committed header,
+ * include/libsoup-3.0/libsoup/soup-cookie.h -- not guessed. get_expires
+ * returns a GDateTime* owned by the cookie (transfer-none per the real
+ * libsoup source's own doc comment: "owned by @cookie and should not be
+ * modified or freed"), or NULL for a session cookie -- NULL-ness is exactly
+ * real ICoreWebView2Cookie::IsSession's own signal (see
+ * struct unix_cookie's own comment in unixlib.h). SoupSameSitePolicy's
+ * three values are numerically identical to COREWEBVIEW2_COOKIE_SAME_SITE_KIND's
+ * (both confirmed from their real headers), so no translation table is
+ * needed to pass one straight through as the other's underlying int. */
+extern const char *soup_cookie_get_name(SoupCookie *cookie);
+extern const char *soup_cookie_get_value(SoupCookie *cookie);
+extern const char *soup_cookie_get_domain(SoupCookie *cookie);
+extern const char *soup_cookie_get_path(SoupCookie *cookie);
+typedef void GDateTime;
+extern GDateTime *soup_cookie_get_expires(SoupCookie *cookie);
+extern gboolean soup_cookie_get_http_only(SoupCookie *cookie);
+extern gboolean soup_cookie_get_secure(SoupCookie *cookie);
+typedef enum { SOUP_SAME_SITE_POLICY_NONE, SOUP_SAME_SITE_POLICY_LAX, SOUP_SAME_SITE_POLICY_STRICT } SoupSameSitePolicy;
+extern SoupSameSitePolicy soup_cookie_get_same_site_policy(SoupCookie *cookie);
+/* GLib, not libsoup -- GDateTime is core GLib, already resident via
+ * glib_handle (confirmed real/exported: `nm -D libglib-2.0.so.0* | grep
+ * g_date_time_to_unix` against the committed bundle). gint64 is GLib's own
+ * 8-byte signed integer typedef; declared here as `long long` (same width,
+ * same x86-64 calling-convention register) purely so typeof() below has
+ * something to compute a function-pointer type from, matching this file's
+ * existing convention for every other hand-declared extern. */
+extern long long g_date_time_to_unix(GDateTime *datetime);
 
 /* Task 11 real-bug fix: JavaScriptCore's real, public, exported C API for
  * moving its GC/JIT "safepoint" signal off its Linux default of SIGUSR1 --
@@ -255,7 +300,8 @@ extern _Bool JSConfigureSignalForGC(int signalNumber);
     DO_FUNC(g_main_loop_run); \
     DO_FUNC(g_main_loop_quit); \
     DO_FUNC(g_free); \
-    DO_FUNC(g_list_free_full)
+    DO_FUNC(g_list_free_full); \
+    DO_FUNC(g_date_time_to_unix)
 
 #define GOBJECT_FUNCS \
     DO_FUNC(g_object_unref); \
@@ -295,13 +341,23 @@ extern _Bool JSConfigureSignalForGC(int signalNumber);
     DO_FUNC(webkit_network_session_get_cookie_manager); \
     DO_FUNC(webkit_cookie_manager_get_all_cookies); \
     DO_FUNC(webkit_cookie_manager_get_all_cookies_finish); \
+    DO_FUNC(webkit_cookie_manager_get_cookies); \
+    DO_FUNC(webkit_cookie_manager_get_cookies_finish); \
     DO_FUNC(webkit_cookie_manager_delete_cookie)
 
 /* libsoup-3.0 -- needs its own dlopen handle (soup_handle below), separate
  * from webkit_handle; see soup_cookie_free's own extern declaration comment
  * above for why. */
 #define SOUP_FUNCS \
-    DO_FUNC(soup_cookie_free)
+    DO_FUNC(soup_cookie_free); \
+    DO_FUNC(soup_cookie_get_name); \
+    DO_FUNC(soup_cookie_get_value); \
+    DO_FUNC(soup_cookie_get_domain); \
+    DO_FUNC(soup_cookie_get_path); \
+    DO_FUNC(soup_cookie_get_expires); \
+    DO_FUNC(soup_cookie_get_http_only); \
+    DO_FUNC(soup_cookie_get_secure); \
+    DO_FUNC(soup_cookie_get_same_site_policy)
 
 /* libjavascriptcoregtk-6.0.so.1 -- see JSConfigureSignalForGC's own extern
  * declaration comment above. Confirmed a real NEEDED dependency of
@@ -1204,6 +1260,181 @@ static NTSTATUS unix_count_cookies_impl(void *args)
     return STATUS_SUCCESS;
 }
 
+/* Task 11 real-bug fix: GetCookies. Same async-worker/refcounted-ctx shape
+ * as unix_delete_all_cookies_impl/unix_count_cookies_impl above (see
+ * struct delete_cookies_ctx's own comment for why a heap-allocated,
+ * refcounted ctx is required here rather than a stack local -- the
+ * GAsyncReadyCallback this hangs off has no synchronous cancel/disconnect
+ * primitive, unlike navigate's "load-changed" GObject signal).
+ *
+ * Real ICoreWebView2CookieManager::GetCookies uri semantics (verified
+ * against learn.microsoft.com's real ICoreWebView2CookieManager reference,
+ * not guessed): a non-empty uri filters to cookies applicable to that URI;
+ * NULL or empty returns every cookie under the profile. WebKit's own
+ * webkit_cookie_manager_get_cookies (uri-scoped) vs. get_all_cookies (this
+ * file's existing Task 8 helper) map onto that split directly -- no
+ * hand-rolled domain/path cookie-applicability matching needed here, WebKit
+ * already implements the standard algorithm underneath. */
+struct get_cookies_ctx
+{
+    struct native_webview *nv;
+    struct get_cookies_params *params; /* PE-side's heap allocation; not owned, valid for our whole lifetime */
+    char *uri_utf8; /* NULL => unfiltered (get_all_cookies); non-NULL => filtered (get_cookies) */
+    pthread_mutex_t lock;
+    pthread_cond_t cond;
+    BOOL done;
+    LONG refs; /* same "whichever side finishes last frees ctx" pattern as struct delete_cookies_ctx */
+};
+
+static void get_cookies_ctx_release(struct get_cookies_ctx *ctx)
+{
+    if (InterlockedDecrement(&ctx->refs)) return;
+    pthread_mutex_destroy(&ctx->lock);
+    pthread_cond_destroy(&ctx->cond);
+    free(ctx->uri_utf8);
+    free(ctx);
+}
+
+/* Fills one struct unix_cookie from a real SoupCookie*, truncating any
+ * field that somehow exceeds its fixed buffer (see unixlib.h's own comment
+ * on WEBVIEW2LOADER_MAX_COOKIES and the WEBVIEW2LOADER_COOKIE_*_MAX
+ * constants for why fixed buffers are used at all) via ntdll_umbstowcs's
+ * own documented safe-truncation behavior
+ * ("Returns the number of characters converted, which may be less than the
+ * entire source string") rather than risking a buffer overflow. */
+static void fill_unix_cookie(struct unix_cookie *dst, SoupCookie *cookie)
+{
+    const char *name = p_soup_cookie_get_name(cookie);
+    const char *value = p_soup_cookie_get_value(cookie);
+    const char *domain = p_soup_cookie_get_domain(cookie);
+    const char *path = p_soup_cookie_get_path(cookie);
+    GDateTime *expires = p_soup_cookie_get_expires(cookie);
+    ULONG n;
+
+    n = name ? strlen(name) : 0;
+    dst->name[ntdll_umbstowcs(name ? name : "", n, dst->name, WEBVIEW2LOADER_COOKIE_NAME_MAX - 1)] = 0;
+    n = value ? strlen(value) : 0;
+    dst->value[ntdll_umbstowcs(value ? value : "", n, dst->value, WEBVIEW2LOADER_COOKIE_VALUE_MAX - 1)] = 0;
+    n = domain ? strlen(domain) : 0;
+    dst->domain[ntdll_umbstowcs(domain ? domain : "", n, dst->domain, WEBVIEW2LOADER_COOKIE_DOMAIN_MAX - 1)] = 0;
+    n = path ? strlen(path) : 0;
+    dst->path[ntdll_umbstowcs(path ? path : "", n, dst->path, WEBVIEW2LOADER_COOKIE_PATH_MAX - 1)] = 0;
+
+    /* NULL expires == session cookie, real libsoup semantics (soup-cookie.c's
+     * own doc comment) and exactly real ICoreWebView2Cookie::IsSession's own
+     * signal -- -1.0/TRUE is real WebView2's own documented sentinel for
+     * "this is a session cookie" (learn.microsoft.com's real
+     * ICoreWebView2Cookie reference: "The default is -1.0, which means
+     * cookies are session cookies by default."), not a placeholder. */
+    if (expires)
+    {
+        dst->expires = (double)p_g_date_time_to_unix(expires);
+        dst->is_session = FALSE;
+    }
+    else
+    {
+        dst->expires = -1.0;
+        dst->is_session = TRUE;
+    }
+
+    dst->is_http_only = p_soup_cookie_get_http_only(cookie) ? TRUE : FALSE;
+    dst->is_secure = p_soup_cookie_get_secure(cookie) ? TRUE : FALSE;
+    /* SoupSameSitePolicy's 3 values are numerically identical to
+     * COREWEBVIEW2_COOKIE_SAME_SITE_KIND's (both verified against their real
+     * headers -- see this function's own file-level extern comment) --
+     * passed straight through, no translation table needed. */
+    dst->same_site = (INT32)p_soup_cookie_get_same_site_policy(cookie);
+}
+
+static void on_get_cookies_done(GObject *source, GAsyncResult *res, void *user_data)
+{
+    struct get_cookies_ctx *ctx = user_data;
+    GList *cookies, *l;
+    UINT32 n = 0;
+
+    if (ctx->uri_utf8)
+        cookies = p_webkit_cookie_manager_get_cookies_finish((WebKitCookieManager *)source, res, NULL);
+    else
+        cookies = p_webkit_cookie_manager_get_all_cookies_finish((WebKitCookieManager *)source, res, NULL);
+
+    for (l = cookies; l && n < WEBVIEW2LOADER_MAX_COOKIES; l = l->next, n++)
+        fill_unix_cookie(&ctx->params->cookies[n], l->data);
+    /* If the real store somehow holds more than WEBVIEW2LOADER_MAX_COOKIES
+     * cookies, this truncates rather than overflows -- surfaced via ERR so
+     * it's visible in a trace if it ever actually matters (not expected for
+     * anything Roblox's real login flow sets). */
+    if (l) ERR("cookie store has more than %u cookies; result truncated\n", (unsigned)WEBVIEW2LOADER_MAX_COOKIES);
+
+    ctx->params->count = n;
+    ctx->params->success = TRUE;
+
+    if (cookies) p_g_list_free_full(cookies, (GDestroyNotify)p_soup_cookie_free);
+
+    pthread_mutex_lock(&ctx->lock);
+    ctx->done = TRUE;
+    pthread_cond_signal(&ctx->cond);
+    pthread_mutex_unlock(&ctx->lock);
+
+    get_cookies_ctx_release(ctx); /* this callback's own ref */
+}
+
+static void start_get_cookies_on_gtk_thread(void *data)
+{
+    struct get_cookies_ctx *ctx = data;
+    WebKitNetworkSession *session = p_webkit_web_view_get_network_session(ctx->nv->view);
+    WebKitCookieManager *mgr = p_webkit_network_session_get_cookie_manager(session);
+
+    if (ctx->uri_utf8)
+        p_webkit_cookie_manager_get_cookies(mgr, ctx->uri_utf8, NULL, on_get_cookies_done, ctx);
+    else
+        p_webkit_cookie_manager_get_all_cookies(mgr, NULL, on_get_cookies_done, ctx);
+}
+
+static NTSTATUS unix_get_cookies_impl(void *args)
+{
+    struct get_cookies_params *params = args;
+    struct native_webview *nv = (struct native_webview *)(ULONG_PTR)params->handle;
+    struct get_cookies_ctx *ctx;
+    char *uri_utf8;
+    struct timespec deadline;
+
+    params->success = FALSE;
+    params->count = 0;
+    if (!nv) return STATUS_INVALID_HANDLE;
+    if (!(ctx = calloc(1, sizeof(*ctx)))) return STATUS_NO_MEMORY;
+
+    /* NULL or empty uri => unfiltered, matching real GetCookies semantics
+     * (see this function's own leading comment) -- wcs_to_utf8(NULL)
+     * already returns NULL, so only the empty-string case needs an extra
+     * check here. */
+    uri_utf8 = wcs_to_utf8(params->uri);
+    if (uri_utf8 && !uri_utf8[0]) { free(uri_utf8); uri_utf8 = NULL; }
+
+    ctx->nv = nv;
+    ctx->params = params;
+    ctx->uri_utf8 = uri_utf8;
+    ctx->refs = 2;
+    pthread_mutex_init(&ctx->lock, NULL);
+    pthread_cond_init(&ctx->cond, NULL);
+
+    gtk_thread_invoke_sync(start_get_cookies_on_gtk_thread, ctx);
+
+    /* Bounded wait, not indefinite -- same rationale and same 10s bound as
+     * unix_delete_all_cookies_impl/unix_count_cookies_impl above (local
+     * cookie-store enumeration, not a real network round-trip). */
+    clock_gettime(CLOCK_REALTIME, &deadline);
+    deadline.tv_sec += 10;
+
+    pthread_mutex_lock(&ctx->lock);
+    while (!ctx->done)
+        if (pthread_cond_timedwait(&ctx->cond, &ctx->lock, &deadline) == ETIMEDOUT) break;
+    pthread_mutex_unlock(&ctx->lock);
+
+    get_cookies_ctx_release(ctx); /* this function's own ref -- safe unconditionally, same as
+                                    * unix_delete_all_cookies_impl's own identical release call. */
+    return STATUS_SUCCESS;
+}
+
 const unixlib_entry_t __wine_unix_call_funcs[] =
 {
     unix_init_impl,
@@ -1212,4 +1443,5 @@ const unixlib_entry_t __wine_unix_call_funcs[] =
     unix_navigate_and_wait_impl,
     unix_delete_all_cookies_impl,
     unix_count_cookies_impl,
+    unix_get_cookies_impl,
 };

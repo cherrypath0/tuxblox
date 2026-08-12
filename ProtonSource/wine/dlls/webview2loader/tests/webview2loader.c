@@ -521,6 +521,190 @@ static void test_delete_all_cookies(void)
     FreeLibrary(mod);
 }
 
+struct test_cookies_handler
+{
+    ICoreWebView2GetCookiesCompletedHandlerVtbl *vtbl;
+    HANDLE done_event;
+    HRESULT result_hr;
+    ICoreWebView2CookieList *result_list;
+};
+static HRESULT WINAPI test_cookies_handler_QI(ICoreWebView2GetCookiesCompletedHandler *iface, REFIID riid, void **ppv)
+{ *ppv = iface; return S_OK; }
+static ULONG WINAPI test_cookies_handler_AddRef(ICoreWebView2GetCookiesCompletedHandler *iface) { return 2; }
+static ULONG WINAPI test_cookies_handler_Release(ICoreWebView2GetCookiesCompletedHandler *iface) { return 1; }
+static HRESULT WINAPI test_cookies_handler_Invoke(ICoreWebView2GetCookiesCompletedHandler *iface,
+                                                   HRESULT errorCode, ICoreWebView2CookieList *result)
+{
+    struct test_cookies_handler *h = (struct test_cookies_handler *)iface;
+    h->result_hr = errorCode;
+    h->result_list = result;
+    if (result) ICoreWebView2CookieList_AddRef(result);
+    SetEvent(h->done_event);
+    return S_OK;
+}
+static ICoreWebView2GetCookiesCompletedHandlerVtbl test_cookies_handler_vtbl =
+{ test_cookies_handler_QI, test_cookies_handler_AddRef, test_cookies_handler_Release, test_cookies_handler_Invoke };
+
+static BOOL cookie_list_contains(ICoreWebView2CookieList *list, LPCWSTR name, LPCWSTR value)
+{
+    UINT32 count = 0, i;
+
+    ICoreWebView2CookieList_get_Count(list, &count);
+    for (i = 0; i < count; i++)
+    {
+        ICoreWebView2Cookie *cookie = NULL;
+        BOOL match = FALSE;
+
+        if (SUCCEEDED(ICoreWebView2CookieList_GetValueAtIndex(list, i, &cookie)) && cookie)
+        {
+            LPWSTR n = NULL, v = NULL;
+            ICoreWebView2Cookie_get_Name(cookie, &n);
+            ICoreWebView2Cookie_get_Value(cookie, &v);
+            match = n && v && !wcscmp(n, name) && !wcscmp(v, value);
+            CoTaskMemFree(n);
+            CoTaskMemFree(v);
+            ICoreWebView2Cookie_Release(cookie);
+        }
+        if (match) return TRUE;
+    }
+    return FALSE;
+}
+
+/* Real Task 11 bug-fix regression test: ICoreWebView2CookieManager::GetCookies
+ * was left E_NOTIMPL by Task 8 (see cookie_manager.c's cm_vtbl history) --
+ * real Roblox Studio's own login startup flow depends on it working
+ * (clearAllCookiesAndRunCallbackHelper calling GetCookies, confirmed via a
+ * real captured FLog trace; see this task's own report for the exact log
+ * lines). Same real-cookie-fixture methodology as test_delete_all_cookies:
+ * a real Set-Cookie header from tests/cookie_test_server.py, no DLL-exposed
+ * injection primitive (CONTRIBUTING.md's hard rule against granting a
+ * capability a normal Windows client wouldn't have, already enforced once
+ * in this file's history -- see that test's own comment).
+ *
+ * Two real verifications: (1) GetCookies(NULL, ...) returns a real,
+ * non-empty list containing the fixture's actual name/value, proving the
+ * whole real GetCookies -> ICoreWebView2CookieList -> ICoreWebView2Cookie
+ * chain works end-to-end, not just that the call returns S_OK; (2) filtering
+ * by an unrelated (non-resolvable, never actually contacted -- GetCookies is
+ * a local cookie-jar lookup, not a network fetch) URI excludes the fixture's
+ * cookie, exercising real WebKit uri-scoped cookie matching
+ * (webkit_cookie_manager_get_cookies) rather than a no-op filter. */
+static void test_get_cookies(void)
+{
+    HMODULE mod;
+    ICoreWebView2Environment *env;
+    ICoreWebView2Controller *ctrl;
+    ICoreWebView2 *webview = NULL, *webview_v2 = NULL;
+    ICoreWebView2CookieManager *cm = NULL;
+    const struct webview2_2_vtbl_combined *v2vtbl;
+    struct test_nav_handler nav_handler = { &test_nav_handler_vtbl };
+    struct test_cookies_handler cookies_handler = { &test_cookies_handler_vtbl };
+    UINT32 count;
+    UINT64 token;
+    HRESULT hr;
+
+    if (!create_test_controller(&mod, &env, &ctrl))
+    {
+        skip("TUXBLOX_WEBVIEW_DIR not set or environment/controller creation failed\n");
+        return;
+    }
+
+    ICoreWebView2Controller_get_CoreWebView2(ctrl, &webview);
+    ok(webview != NULL, "expected a webview\n");
+    if (webview)
+    {
+        hr = ICoreWebView2_QueryInterface(webview, &IID_ICoreWebView2_2, (void **)&webview_v2);
+        ok(hr == S_OK, "QueryInterface(IID_ICoreWebView2_2) failed: %#lx\n", hr);
+        if (SUCCEEDED(hr))
+        {
+            v2vtbl = (const struct webview2_2_vtbl_combined *)webview_v2->lpVtbl;
+            hr = v2vtbl->ext.get_CookieManager(webview_v2, &cm);
+            ok(hr == S_OK && cm != NULL, "get_CookieManager failed: %#lx\n", hr);
+
+            if (cm)
+            {
+                nav_handler.done_event = CreateEventW(NULL, FALSE, FALSE, NULL);
+                nav_handler.is_success = FALSE;
+                ICoreWebView2_add_NavigationCompleted(webview, &nav_handler, &token);
+                ICoreWebView2_Navigate(webview, L"http://127.0.0.1:18765/");
+                WaitForSingleObject(nav_handler.done_event, 30000);
+                CloseHandle(nav_handler.done_event);
+
+                cookies_handler.done_event = CreateEventW(NULL, FALSE, FALSE, NULL);
+                hr = ICoreWebView2CookieManager_GetCookies(cm, NULL, &cookies_handler);
+                ok(hr == S_OK, "GetCookies returned %#lx\n", hr);
+                ok(WaitForSingleObject(cookies_handler.done_event, 15000) == WAIT_OBJECT_0,
+                   "GetCookies(NULL) timed out\n");
+                CloseHandle(cookies_handler.done_event);
+
+                count = 0;
+                if (cookies_handler.result_hr == S_OK && cookies_handler.result_list)
+                    ICoreWebView2CookieList_get_Count(cookies_handler.result_list, &count);
+                else
+                    ok(cookies_handler.result_hr == S_OK, "GetCookies(NULL) handler hr %#lx\n", cookies_handler.result_hr);
+
+                if (!count)
+                {
+                    skip("tests/cookie_test_server.py doesn't seem to be running on 127.0.0.1:18765 "
+                         "(no cookie observed after navigating there -- run `python3 cookie_test_server.py` "
+                         "alongside this test to exercise the real GetCookies verification) -- skipping\n");
+                }
+                else
+                {
+                    /* Real verification #1: the actual fixture cookie is really
+                     * in the unfiltered result, with the right name/value --
+                     * proves the whole real chain (WebKit -> unix call ->
+                     * ICoreWebView2Cookie/List construction) works, not just
+                     * that the call returned S_OK. */
+                    ok(cookie_list_contains(cookies_handler.result_list, L"tuxblox_test_cookie", L"1"),
+                       "expected GetCookies(NULL) to include the real fixture cookie\n");
+                }
+                if (cookies_handler.result_list) { ICoreWebView2CookieList_Release(cookies_handler.result_list); cookies_handler.result_list = NULL; }
+
+                if (count)
+                {
+                    /* Real verification #2: filtering by a URI whose host has
+                     * nothing to do with 127.0.0.1 must exclude the fixture's
+                     * cookie -- exercises real WebKit uri-scoped cookie
+                     * matching (webkit_cookie_manager_get_cookies), not a
+                     * no-op filter. This URI is never actually contacted --
+                     * GetCookies is a local cookie-jar lookup, not a network
+                     * fetch. */
+                    cookies_handler.done_event = CreateEventW(NULL, FALSE, FALSE, NULL);
+                    hr = ICoreWebView2CookieManager_GetCookies(cm, L"http://tuxblox-test-unrelated.invalid/", &cookies_handler);
+                    ok(hr == S_OK, "filtered GetCookies returned %#lx\n", hr);
+                    ok(WaitForSingleObject(cookies_handler.done_event, 15000) == WAIT_OBJECT_0,
+                       "filtered GetCookies timed out\n");
+                    CloseHandle(cookies_handler.done_event);
+
+                    ok(cookies_handler.result_hr == S_OK, "filtered GetCookies handler hr %#lx\n", cookies_handler.result_hr);
+                    if (cookies_handler.result_list)
+                    {
+                        ok(!cookie_list_contains(cookies_handler.result_list, L"tuxblox_test_cookie", L"1"),
+                           "expected an unrelated-domain filter to exclude the fixture cookie\n");
+                        ICoreWebView2CookieList_Release(cookies_handler.result_list);
+                        cookies_handler.result_list = NULL;
+                    }
+
+                    /* Clean up after this test the same real way
+                     * test_delete_all_cookies does, so a re-run (or a test
+                     * that happens to run after this one) doesn't see this
+                     * test's own leftover cookie. */
+                    ICoreWebView2CookieManager_DeleteAllCookies(cm);
+                }
+
+                ICoreWebView2CookieManager_Release(cm);
+            }
+            ICoreWebView2_Release(webview_v2);
+        }
+        ICoreWebView2_Release(webview);
+    }
+
+    ICoreWebView2Controller_Release(ctrl);
+    ICoreWebView2Environment_Release(env);
+    FreeLibrary(mod);
+}
+
 /* Regression test for a real bug found in code review: webview2_2_vtbl's
  * `base` member (webview.c) must be a verbatim, full 61-entry copy of
  * ICoreWebView2Vtbl -- an earlier version supplied only 53 initializers,
@@ -774,5 +958,6 @@ START_TEST(webview2loader)
     test_remove_navigation_completed();
     test_v2_base_slots_not_null();
     test_delete_all_cookies();
+    test_get_cookies();
     test_suspend_thread_after_webview();
 }

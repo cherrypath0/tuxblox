@@ -535,4 +535,131 @@ struct webview2_2_vtbl_combined
  * see webview2_get_CookieManager in webview.c). */
 HRESULT cookie_manager_create(UINT64 native_handle, ICoreWebView2CookieManager **out);
 
+/* Task 11 real-bug fix: GetCookies was left E_NOTIMPL by Task 8, and real
+ * Roblox Studio's own startup flow (clearAllCookiesAndRunCallbackHelper,
+ * per a real captured FLog trace -- see this task's own report for the
+ * exact log lines) depends on it succeeding. These three interfaces are
+ * the real, verified ICoreWebView2CookieManager::GetCookies completion
+ * chain -- ICoreWebView2Cookie (one cookie), ICoreWebView2CookieList (the
+ * result GetCookies hands back), ICoreWebView2GetCookiesCompletedHandler
+ * (the completion callback GetCookies invokes). Verified byte-for-byte
+ * against the real Microsoft.Web.WebView2 1.0.4129.50 NuGet package's own
+ * WebView2.h (downloaded directly from
+ * https://api.nuget.org/v3-flatcontainer/microsoft.web.webview2/1.0.4129.50/
+ * and grepped for real, not reconstructed from memory or guessed), same
+ * verification method this plan's Global Constraints section used for
+ * every other IID/vtable in this file. IIDs and vtable slot order below
+ * are a direct transcription of that real header's
+ * ICoreWebView2Cookie/ICoreWebView2CookieList/
+ * ICoreWebView2GetCookiesCompletedHandler definitions. */
+
+/* COREWEBVIEW2_COOKIE_SAME_SITE_KIND: verified real values (WebView2.h) --
+ * numerically identical to libsoup's own SoupSameSitePolicy
+ * (SOUP_SAME_SITE_POLICY_NONE/LAX/STRICT, soup-cookie.h), confirmed via
+ * both real headers rather than assumed, so unixlib.c can pass
+ * soup_cookie_get_same_site_policy()'s return value straight through as
+ * this enum's underlying INT32 without a translation table. */
+typedef enum
+{
+    COREWEBVIEW2_COOKIE_SAME_SITE_KIND_NONE = 0,
+    COREWEBVIEW2_COOKIE_SAME_SITE_KIND_LAX = 1,
+    COREWEBVIEW2_COOKIE_SAME_SITE_KIND_STRICT = 2,
+} COREWEBVIEW2_COOKIE_SAME_SITE_KIND;
+
+DEFINE_GUID(IID_ICoreWebView2Cookie, 0xAD26D6BE, 0x1486, 0x43E6, 0xBF, 0x87, 0xA2, 0x03, 0x40, 0x06, 0xCA, 0x21);
+
+/* Real vtable order (WebView2.h's ICoreWebView2CookieVtbl): note there is
+ * deliberately no put_Name/put_Domain/put_Path in the real interface --
+ * only Value/Expires/IsHttpOnly/SameSite/IsSecure have setters; Name,
+ * Domain, and Path are get-only on an already-constructed cookie (real
+ * WebView2 semantics: those three are fixed at CreateCookie time). Not an
+ * omission here -- verified against the real header, which has no such
+ * slots either. */
+typedef struct ICoreWebView2Cookie ICoreWebView2Cookie;
+typedef struct ICoreWebView2CookieVtbl
+{
+    HRESULT (WINAPI *QueryInterface)(ICoreWebView2Cookie *This, REFIID riid, void **ppv);
+    ULONG   (WINAPI *AddRef)(ICoreWebView2Cookie *This);
+    ULONG   (WINAPI *Release)(ICoreWebView2Cookie *This);
+    HRESULT (WINAPI *get_Name)(ICoreWebView2Cookie *This, LPWSTR *name);
+    HRESULT (WINAPI *get_Value)(ICoreWebView2Cookie *This, LPWSTR *value);
+    HRESULT (WINAPI *put_Value)(ICoreWebView2Cookie *This, LPCWSTR value);
+    HRESULT (WINAPI *get_Domain)(ICoreWebView2Cookie *This, LPWSTR *domain);
+    HRESULT (WINAPI *get_Path)(ICoreWebView2Cookie *This, LPWSTR *path);
+    HRESULT (WINAPI *get_Expires)(ICoreWebView2Cookie *This, double *expires);
+    HRESULT (WINAPI *put_Expires)(ICoreWebView2Cookie *This, double expires);
+    HRESULT (WINAPI *get_IsHttpOnly)(ICoreWebView2Cookie *This, BOOL *isHttpOnly);
+    HRESULT (WINAPI *put_IsHttpOnly)(ICoreWebView2Cookie *This, BOOL isHttpOnly);
+    HRESULT (WINAPI *get_SameSite)(ICoreWebView2Cookie *This, COREWEBVIEW2_COOKIE_SAME_SITE_KIND *sameSite);
+    HRESULT (WINAPI *put_SameSite)(ICoreWebView2Cookie *This, COREWEBVIEW2_COOKIE_SAME_SITE_KIND sameSite);
+    HRESULT (WINAPI *get_IsSecure)(ICoreWebView2Cookie *This, BOOL *isSecure);
+    HRESULT (WINAPI *put_IsSecure)(ICoreWebView2Cookie *This, BOOL isSecure);
+    HRESULT (WINAPI *get_IsSession)(ICoreWebView2Cookie *This, BOOL *isSession);
+} ICoreWebView2CookieVtbl;
+struct ICoreWebView2Cookie { const ICoreWebView2CookieVtbl *lpVtbl; };
+
+#ifdef COBJMACROS
+#define ICoreWebView2Cookie_QueryInterface(This,riid,ppv) (This)->lpVtbl->QueryInterface(This,riid,ppv)
+#define ICoreWebView2Cookie_AddRef(This) (This)->lpVtbl->AddRef(This)
+#define ICoreWebView2Cookie_Release(This) (This)->lpVtbl->Release(This)
+#define ICoreWebView2Cookie_get_Name(This,name) (This)->lpVtbl->get_Name(This,name)
+#define ICoreWebView2Cookie_get_Value(This,value) (This)->lpVtbl->get_Value(This,value)
+#define ICoreWebView2Cookie_put_Value(This,value) (This)->lpVtbl->put_Value(This,value)
+#define ICoreWebView2Cookie_get_Domain(This,domain) (This)->lpVtbl->get_Domain(This,domain)
+#define ICoreWebView2Cookie_get_Path(This,path) (This)->lpVtbl->get_Path(This,path)
+#define ICoreWebView2Cookie_get_Expires(This,expires) (This)->lpVtbl->get_Expires(This,expires)
+#define ICoreWebView2Cookie_put_Expires(This,expires) (This)->lpVtbl->put_Expires(This,expires)
+#define ICoreWebView2Cookie_get_IsHttpOnly(This,isHttpOnly) (This)->lpVtbl->get_IsHttpOnly(This,isHttpOnly)
+#define ICoreWebView2Cookie_put_IsHttpOnly(This,isHttpOnly) (This)->lpVtbl->put_IsHttpOnly(This,isHttpOnly)
+#define ICoreWebView2Cookie_get_SameSite(This,sameSite) (This)->lpVtbl->get_SameSite(This,sameSite)
+#define ICoreWebView2Cookie_put_SameSite(This,sameSite) (This)->lpVtbl->put_SameSite(This,sameSite)
+#define ICoreWebView2Cookie_get_IsSecure(This,isSecure) (This)->lpVtbl->get_IsSecure(This,isSecure)
+#define ICoreWebView2Cookie_put_IsSecure(This,isSecure) (This)->lpVtbl->put_IsSecure(This,isSecure)
+#define ICoreWebView2Cookie_get_IsSession(This,isSession) (This)->lpVtbl->get_IsSession(This,isSession)
+#endif
+
+DEFINE_GUID(IID_ICoreWebView2CookieList, 0xf7f6f714, 0x5d2a, 0x43c6, 0x95, 0x03, 0x34, 0x6e, 0xce, 0x02, 0xd1, 0x86);
+
+typedef struct ICoreWebView2CookieList ICoreWebView2CookieList;
+typedef struct ICoreWebView2CookieListVtbl
+{
+    HRESULT (WINAPI *QueryInterface)(ICoreWebView2CookieList *This, REFIID riid, void **ppv);
+    ULONG   (WINAPI *AddRef)(ICoreWebView2CookieList *This);
+    ULONG   (WINAPI *Release)(ICoreWebView2CookieList *This);
+    HRESULT (WINAPI *get_Count)(ICoreWebView2CookieList *This, UINT32 *value);
+    HRESULT (WINAPI *GetValueAtIndex)(ICoreWebView2CookieList *This, UINT32 index, ICoreWebView2Cookie **value);
+} ICoreWebView2CookieListVtbl;
+struct ICoreWebView2CookieList { const ICoreWebView2CookieListVtbl *lpVtbl; };
+
+#ifdef COBJMACROS
+#define ICoreWebView2CookieList_QueryInterface(This,riid,ppv) (This)->lpVtbl->QueryInterface(This,riid,ppv)
+#define ICoreWebView2CookieList_AddRef(This) (This)->lpVtbl->AddRef(This)
+#define ICoreWebView2CookieList_Release(This) (This)->lpVtbl->Release(This)
+#define ICoreWebView2CookieList_get_Count(This,value) (This)->lpVtbl->get_Count(This,value)
+#define ICoreWebView2CookieList_GetValueAtIndex(This,index,value) (This)->lpVtbl->GetValueAtIndex(This,index,value)
+#endif
+
+DEFINE_GUID(IID_ICoreWebView2GetCookiesCompletedHandler,
+            0x5a4f5069, 0x5c15, 0x47c3, 0x86, 0x46, 0xf4, 0xde, 0x1c, 0x11, 0x66, 0x70);
+
+typedef struct ICoreWebView2GetCookiesCompletedHandler ICoreWebView2GetCookiesCompletedHandler;
+typedef struct ICoreWebView2GetCookiesCompletedHandlerVtbl
+{
+    HRESULT (WINAPI *QueryInterface)(ICoreWebView2GetCookiesCompletedHandler *This, REFIID riid, void **ppv);
+    ULONG   (WINAPI *AddRef)(ICoreWebView2GetCookiesCompletedHandler *This);
+    ULONG   (WINAPI *Release)(ICoreWebView2GetCookiesCompletedHandler *This);
+    HRESULT (WINAPI *Invoke)(ICoreWebView2GetCookiesCompletedHandler *This, HRESULT errorCode,
+                              ICoreWebView2CookieList *result);
+} ICoreWebView2GetCookiesCompletedHandlerVtbl;
+struct ICoreWebView2GetCookiesCompletedHandler { const ICoreWebView2GetCookiesCompletedHandlerVtbl *lpVtbl; };
+
+#ifdef COBJMACROS
+#define ICoreWebView2GetCookiesCompletedHandler_QueryInterface(This,riid,ppv) \
+    (This)->lpVtbl->QueryInterface(This,riid,ppv)
+#define ICoreWebView2GetCookiesCompletedHandler_AddRef(This) (This)->lpVtbl->AddRef(This)
+#define ICoreWebView2GetCookiesCompletedHandler_Release(This) (This)->lpVtbl->Release(This)
+#define ICoreWebView2GetCookiesCompletedHandler_Invoke(This,errorCode,result) \
+    (This)->lpVtbl->Invoke(This,errorCode,result)
+#endif
+
 #endif /* __WINE_WEBVIEW2LOADER_PRIVATE_H */
