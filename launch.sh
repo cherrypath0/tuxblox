@@ -127,6 +127,16 @@ protonEnv=(
 )
 [ -n "$dxvkConfig" ] && protonEnv+=("DXVK_CONFIG=$dxvkConfig")
 
+# Force Wine's own webview2loader.dll (this repo's WebKitGTK-backed
+# replacement, see docs/superpowers/plans/2026-08-10-webview2loader-core.md)
+# instead of the real WebView2Loader.dll Roblox ships next to the exe --
+# scoped to exactly the two Roblox launches via needsWebView2, same flag
+# ensureWebView2 already uses. ensureWebView2's real-runtime install below
+# stays as a harmless fallback for now (Plan 2 doesn't touch it): if this
+# override is ever unset, Roblox falls back to the real runtime it
+# installed, rather than failing outright.
+[ -n "$needsWebView2" ] && protonEnv+=("WINEDLLOVERRIDES=webview2loader=b")
+
 # Opt-in fingerprint tracing: set TUXBLOX_TRACE=1 to turn it on for a
 # specific launch (e.g. `TUXBLOX_TRACE=1 ./launch.sh studio` when actively
 # investigating something like the WebView2 login hang). Off by default --
