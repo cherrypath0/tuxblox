@@ -3,3 +3,8 @@ IMPORTS   = webview2loader
 
 SOURCES = \
 	webview2loader.c
+
+PROGRAMS = webview2_e2e.exe
+
+webview2_e2e.exe_SOURCES = webview2_e2e.c
+webview2_e2e.exe_IMPORTS = webview2loader
