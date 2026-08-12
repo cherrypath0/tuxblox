@@ -355,11 +355,172 @@ HRESULT webview_create(UINT64 native_handle, ICoreWebView2 **out)
     return S_OK;
 }
 
-/* Task 8 replaces this with real IID_ICoreWebView2_2 handling; for now the
- * only two IIDs ICoreWebView2 answers to are IUnknown and ICoreWebView2
- * itself (handled in webview_QueryInterface above). */
+/* --- Task 8: ICoreWebView2_2 extension --- */
+
+static HRESULT WINAPI webview2_get_CookieManager(ICoreWebView2 *iface, ICoreWebView2CookieManager **cookieManager)
+{
+    struct webview_impl *wv = impl_from_ICoreWebView2(iface);
+    if (!cookieManager) return E_POINTER;
+    return cookie_manager_create(wv->native_handle, cookieManager);
+}
+
+static HRESULT WINAPI webview2_get_Environment(ICoreWebView2 *iface, ICoreWebView2Environment **environment)
+{
+    return E_NOTIMPL; /* not needed for the login-dialog proof; no stored back-reference to the environment yet */
+}
+
+/* struct webview2_2_vtbl_combined itself is declared in
+ * webview2loader_private.h (not here) -- tests/webview2loader.c's
+ * test_delete_all_cookies needs to see it too, to reach through
+ * webview_v2->lpVtbl and call ext.get_CookieManager directly. This is the
+ * one place that actually builds an instance of it. */
+static const struct webview2_2_vtbl_combined webview2_2_vtbl =
+{
+    /* Must be a verbatim, full 61-entry copy of webview_vtbl above (NOT 56 --
+     * see the fix note on this exact spot: an earlier version of this table
+     * supplied only 53 initializers here based on a wrong "56 entries"
+     * premise carried over from the task brief/comments, silently
+     * zero-initializing the trailing 8 real ICoreWebView2 slots
+     * (remove_ContainsFullScreenElementChanged, get_ContainsFullScreenElement,
+     * add_WebResourceRequested, remove_WebResourceRequested,
+     * AddWebResourceRequestedFilter, RemoveWebResourceRequestedFilter,
+     * add_WindowCloseRequested, remove_WindowCloseRequested) to NULL function
+     * pointers per C aggregate-initialization rules -- a real interface has
+     * 61 methods total (verified by counting ICoreWebView2Vtbl in
+     * webview2loader_private.h and cross-checking against webview_vtbl's own
+     * 61 initializers just above), and calling any of those 8 slots through
+     * either the v2 pointer or the original ICoreWebView2* (same object,
+     * same lpVtbl once swapped) crashed on a NULL-pointer call instead of
+     * returning E_NOTIMPL. Caught by code review, not by the test suite --
+     * test_delete_all_cookies never called a base-interface method past
+     * slot 53. See test_v2_base_slots_not_null below for the regression
+     * coverage added for this. */
+    {
+        webview_QueryInterface, webview_AddRef, webview_Release,
+        (void *)webview2_stub_e_notimpl, /* get_Settings */
+        webview_get_Source, webview_Navigate, webview_NavigateToString,
+        (void *)webview2_stub_e_notimpl, /* add_NavigationStarting */
+        (void *)webview2_stub_e_notimpl, /* remove_NavigationStarting */
+        (void *)webview2_stub_e_notimpl, /* add_ContentLoading */
+        (void *)webview2_stub_e_notimpl, /* remove_ContentLoading */
+        (void *)webview2_stub_e_notimpl, /* add_SourceChanged */
+        (void *)webview2_stub_e_notimpl, /* remove_SourceChanged */
+        (void *)webview2_stub_e_notimpl, /* add_HistoryChanged */
+        (void *)webview2_stub_e_notimpl, /* remove_HistoryChanged */
+        webview_add_NavigationCompleted, webview_remove_NavigationCompleted,
+        (void *)webview2_stub_e_notimpl, /* add_FrameNavigationStarting */
+        (void *)webview2_stub_e_notimpl, /* remove_FrameNavigationStarting */
+        (void *)webview2_stub_e_notimpl, /* add_FrameNavigationCompleted */
+        (void *)webview2_stub_e_notimpl, /* remove_FrameNavigationCompleted */
+        (void *)webview2_stub_e_notimpl, /* add_ScriptDialogOpening */
+        (void *)webview2_stub_e_notimpl, /* remove_ScriptDialogOpening */
+        (void *)webview2_stub_e_notimpl, /* add_PermissionRequested */
+        (void *)webview2_stub_e_notimpl, /* remove_PermissionRequested */
+        (void *)webview2_stub_e_notimpl, /* add_ProcessFailed */
+        (void *)webview2_stub_e_notimpl, /* remove_ProcessFailed */
+        (void *)webview2_stub_e_notimpl, /* AddScriptToExecuteOnDocumentCreated */
+        (void *)webview2_stub_e_notimpl, /* RemoveScriptToExecuteOnDocumentCreated */
+        (void *)webview2_stub_e_notimpl, /* ExecuteScript */
+        (void *)webview2_stub_e_notimpl, /* CapturePreview */
+        (void *)webview2_stub_e_notimpl, /* Reload */
+        (void *)webview2_stub_e_notimpl, /* PostWebMessageAsJson */
+        (void *)webview2_stub_e_notimpl, /* PostWebMessageAsString */
+        (void *)webview2_stub_e_notimpl, /* add_WebMessageReceived */
+        (void *)webview2_stub_e_notimpl, /* remove_WebMessageReceived */
+        (void *)webview2_stub_e_notimpl, /* CallDevToolsProtocolMethod */
+        (void *)webview2_stub_e_notimpl, /* get_BrowserProcessId */
+        (void *)webview2_stub_e_notimpl, /* get_CanGoBack */
+        (void *)webview2_stub_e_notimpl, /* get_CanGoForward */
+        (void *)webview2_stub_e_notimpl, /* GoBack */
+        (void *)webview2_stub_e_notimpl, /* GoForward */
+        (void *)webview2_stub_e_notimpl, /* GetDevToolsProtocolEventReceiver */
+        (void *)webview2_stub_e_notimpl, /* Stop */
+        (void *)webview2_stub_e_notimpl, /* add_NewWindowRequested */
+        (void *)webview2_stub_e_notimpl, /* remove_NewWindowRequested */
+        (void *)webview2_stub_e_notimpl, /* add_DocumentTitleChanged */
+        (void *)webview2_stub_e_notimpl, /* remove_DocumentTitleChanged */
+        (void *)webview2_stub_e_notimpl, /* get_DocumentTitle */
+        (void *)webview2_stub_e_notimpl, /* AddHostObjectToScript */
+        (void *)webview2_stub_e_notimpl, /* RemoveHostObjectFromScript */
+        (void *)webview2_stub_e_notimpl, /* OpenDevToolsWindow */
+        (void *)webview2_stub_e_notimpl, /* add_ContainsFullScreenElementChanged */
+        (void *)webview2_stub_e_notimpl, /* remove_ContainsFullScreenElementChanged */
+        (void *)webview2_stub_e_notimpl, /* get_ContainsFullScreenElement */
+        (void *)webview2_stub_e_notimpl, /* add_WebResourceRequested */
+        (void *)webview2_stub_e_notimpl, /* remove_WebResourceRequested */
+        (void *)webview2_stub_e_notimpl, /* AddWebResourceRequestedFilter */
+        (void *)webview2_stub_e_notimpl, /* RemoveWebResourceRequestedFilter */
+        (void *)webview2_stub_e_notimpl, /* add_WindowCloseRequested */
+        (void *)webview2_stub_e_notimpl, /* remove_WindowCloseRequested */
+    },
+    {
+        (void *)webview2_stub_e_notimpl, /* add_WebResourceResponseReceived */
+        (void *)webview2_stub_e_notimpl, /* remove_WebResourceResponseReceived */
+        (void *)webview2_stub_e_notimpl, /* NavigateWithWebResourceRequest */
+        (void *)webview2_stub_e_notimpl, /* add_DOMContentLoaded */
+        (void *)webview2_stub_e_notimpl, /* remove_DOMContentLoaded */
+        webview2_get_CookieManager,
+        webview2_get_Environment,
+    },
+};
+
 HRESULT webview_query_interface_v2(ICoreWebView2 *iface, REFIID riid, void **ppv)
 {
+    if (IsEqualGUID(riid, &IID_ICoreWebView2_2))
+    {
+        /* Re-point lpVtbl at the combined table -- safe: struct
+         * webview2_2_vtbl_combined's `base` member is layout-identical to
+         * ICoreWebView2Vtbl (same fields, same order), so this cast doesn't
+         * change any already-resolved slot, only adds the 7 new ones.
+         *
+         * Note on the vtable swap: re-pointing lpVtbl here means a caller
+         * holding the original ICoreWebView2* also observes the wider
+         * vtable afterward. This is intentional and harmless (the first 61
+         * slots are byte-identical, so every existing ICoreWebView2_* call
+         * macro still resolves to the exact same function pointers) --
+         * Roblox is only ever expected to call ICoreWebView2_2 methods
+         * through the pointer QueryInterface itself returned, per normal
+         * COM usage, not through the original one. */
+        struct webview_impl *wv = impl_from_ICoreWebView2(iface);
+        wv->ICoreWebView2_iface.lpVtbl = (const ICoreWebView2Vtbl *)&webview2_2_vtbl;
+        *ppv = iface;
+        ICoreWebView2_AddRef(iface);
+        return S_OK;
+    }
     *ppv = NULL;
-    return E_NOINTERFACE; /* Task 8 adds IID_ICoreWebView2_2 handling here */
+    return E_NOINTERFACE;
+}
+
+/* --- Test-support-only export, listed in webview2loader.spec alongside
+ * the two real WebView2 API exports but NOT part of the real
+ * WebView2Loader.dll surface (same "__wine_*" naming convention this fork
+ * already uses elsewhere, e.g. dlls/ntdll's __wine_unix_call, for internal
+ * hooks). Exists so tests/webview2loader.c's test_delete_all_cookies can
+ * verify DeleteAllCookies actually reduced the real cookie count, not just
+ * that it returns S_OK.
+ *
+ * A matching __wine_test_webview2loader_add_cookie export used to live here
+ * too (to add a test cookie the same test could then verify got deleted),
+ * removed after code review: unlike this read-only count, it let any
+ * in-process code holding a live ICoreWebView2* inject an arbitrary cookie
+ * into the real cookie store with zero validation -- a real capability
+ * beyond what a normal Windows client has, shipped in the SAME production
+ * DLL that replaces the real WebView2Loader.dll (this Makefile.in has no
+ * test/production build split, so there was no way to keep that export out
+ * of a real build). test_delete_all_cookies now adds its test cookie
+ * through the already-legitimate, already-implemented Navigate() path
+ * instead (a real HTTP response's Set-Cookie header, via
+ * tests/cookie_test_server.py) -- a capability any real WebView2 client
+ * already has, not a new DLL export. */
+UINT32 WINAPI __wine_test_webview2loader_count_cookies(ICoreWebView2 *webview)
+{
+    struct webview_impl *wv;
+    struct count_cookies_params params;
+
+    if (!webview) return 0;
+    wv = impl_from_ICoreWebView2(webview);
+    params.handle = wv->native_handle;
+    params.count = 0;
+    WEBVIEW2LOADER_UNIX_CALL(count_cookies, &params);
+    return params.count;
 }

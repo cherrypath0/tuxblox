@@ -5,6 +5,7 @@ IMPORTS   = ole32 user32 uuid
 
 SOURCES = \
 	controller.c \
+	cookie_manager.c \
 	environment.c \
 	main.c \
 	unixlib.c \

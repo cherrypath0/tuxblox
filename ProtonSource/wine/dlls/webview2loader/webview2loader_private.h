@@ -441,8 +441,98 @@ UINT64 controller_get_native_handle(ICoreWebView2Controller *iface);
  * vtable slot, so the mismatched declared signature is never observed. */
 HRESULT WINAPI webview2_stub_e_notimpl(void *iface, ...);
 
-/* Interface/object definitions land here in later tasks:
- * Task 8: ICoreWebView2_2 / ICoreWebView2CookieManager
- */
+/* Task 8: ICoreWebView2_2 / ICoreWebView2CookieManager.
+ *
+ * ICoreWebView2_2's vtable is a strict, identically-signatured 61-entry
+ * prefix extension of ICoreWebView2's (this is how Microsoft's own WebView2
+ * COM versioning works -- each numbered interface only ever appends; 61 is
+ * ICoreWebView2Vtbl's real member count, verified by counting it below and
+ * cross-checked against webview.c's own already-correct 61-entry
+ * webview_vtbl -- an earlier version of this comment said 56, which was
+ * simply wrong and led to a real bug: see the fix note at webview2_2_vtbl's
+ * definition in webview.c for what that caused and how it was caught), so
+ * this reuses the same underlying struct webview_impl object and a single
+ * combined vtable rather than a second, near-duplicate 61-entry stub table:
+ * QueryInterface for IID_ICoreWebView2_2 returns the same object pointer
+ * with the combined vtable installed, which is safe specifically because
+ * both webview.c (Task 7) and cookie_manager.c (this task) are written by
+ * us and agree on that layout. */
+
+DEFINE_GUID(IID_ICoreWebView2_2, 0x9E8F0CF8, 0xE670, 0x4B5E, 0xB2, 0xBC, 0x73, 0xE0, 0x61, 0xE3, 0x18, 0x4C);
+DEFINE_GUID(IID_ICoreWebView2CookieManager, 0x177CD9E7, 0xB6F5, 0x451A, 0x94, 0xA0, 0x5D, 0x7A, 0x3A, 0x4C, 0x41, 0x41);
+
+typedef struct ICoreWebView2CookieManager ICoreWebView2CookieManager;
+typedef struct ICoreWebView2CookieManagerVtbl
+{
+    HRESULT (WINAPI *QueryInterface)(ICoreWebView2CookieManager *This, REFIID riid, void **ppv);
+    ULONG   (WINAPI *AddRef)(ICoreWebView2CookieManager *This);
+    ULONG   (WINAPI *Release)(ICoreWebView2CookieManager *This);
+    HRESULT (WINAPI *CreateCookie)(ICoreWebView2CookieManager *This, LPCWSTR name, LPCWSTR value, LPCWSTR domain,
+                                    LPCWSTR path, void **cookie);
+    HRESULT (WINAPI *CopyCookie)(ICoreWebView2CookieManager *This, void *cookie, void **result);
+    HRESULT (WINAPI *GetCookies)(ICoreWebView2CookieManager *This, LPCWSTR uri, void *handler);
+    HRESULT (WINAPI *AddOrUpdateCookie)(ICoreWebView2CookieManager *This, void *cookie);
+    HRESULT (WINAPI *DeleteCookie)(ICoreWebView2CookieManager *This, void *cookie);
+    HRESULT (WINAPI *DeleteCookies)(ICoreWebView2CookieManager *This, LPCWSTR name, LPCWSTR uri);
+    HRESULT (WINAPI *DeleteCookiesWithDomainAndPath)(ICoreWebView2CookieManager *This, LPCWSTR name, LPCWSTR domain, LPCWSTR path);
+    HRESULT (WINAPI *DeleteAllCookies)(ICoreWebView2CookieManager *This);
+} ICoreWebView2CookieManagerVtbl;
+struct ICoreWebView2CookieManager { const ICoreWebView2CookieManagerVtbl *lpVtbl; };
+
+#ifdef COBJMACROS
+#define ICoreWebView2CookieManager_QueryInterface(This,riid,ppv) (This)->lpVtbl->QueryInterface(This,riid,ppv)
+#define ICoreWebView2CookieManager_AddRef(This) (This)->lpVtbl->AddRef(This)
+#define ICoreWebView2CookieManager_Release(This) (This)->lpVtbl->Release(This)
+#define ICoreWebView2CookieManager_CreateCookie(This,name,value,domain,path,cookie) \
+    (This)->lpVtbl->CreateCookie(This,name,value,domain,path,cookie)
+#define ICoreWebView2CookieManager_CopyCookie(This,cookie,result) (This)->lpVtbl->CopyCookie(This,cookie,result)
+#define ICoreWebView2CookieManager_GetCookies(This,uri,handler) (This)->lpVtbl->GetCookies(This,uri,handler)
+#define ICoreWebView2CookieManager_AddOrUpdateCookie(This,cookie) (This)->lpVtbl->AddOrUpdateCookie(This,cookie)
+#define ICoreWebView2CookieManager_DeleteCookie(This,cookie) (This)->lpVtbl->DeleteCookie(This,cookie)
+#define ICoreWebView2CookieManager_DeleteCookies(This,name,uri) (This)->lpVtbl->DeleteCookies(This,name,uri)
+#define ICoreWebView2CookieManager_DeleteCookiesWithDomainAndPath(This,name,domain,path) \
+    (This)->lpVtbl->DeleteCookiesWithDomainAndPath(This,name,domain,path)
+#define ICoreWebView2CookieManager_DeleteAllCookies(This) (This)->lpVtbl->DeleteAllCookies(This)
+#endif
+
+/* ICoreWebView2_2's vtable: ICoreWebView2's 61 entries verbatim (see
+ * webview.c's webview_vtbl -- must stay byte-identical in the first 61
+ * slots) plus 7 more. Only declared here as a slot COUNT/ORDER contract via
+ * the extension struct below; webview.c builds the actual combined table. */
+typedef struct
+{
+    HRESULT (WINAPI *add_WebResourceResponseReceived)(ICoreWebView2 *This, void *eventHandler, void *token);
+    HRESULT (WINAPI *remove_WebResourceResponseReceived)(ICoreWebView2 *This, void *token);
+    HRESULT (WINAPI *NavigateWithWebResourceRequest)(ICoreWebView2 *This, void *request);
+    HRESULT (WINAPI *add_DOMContentLoaded)(ICoreWebView2 *This, void *eventHandler, void *token);
+    HRESULT (WINAPI *remove_DOMContentLoaded)(ICoreWebView2 *This, void *token);
+    HRESULT (WINAPI *get_CookieManager)(ICoreWebView2 *This, ICoreWebView2CookieManager **cookieManager);
+    HRESULT (WINAPI *get_Environment)(ICoreWebView2 *This, ICoreWebView2Environment **environment);
+} webview2_2_extension_vtbl;
+
+/* Combined vtable: webview_vtbl's 61 entries (Task 7, byte-identical
+ * layout/order -- ICoreWebView2_2 only ever appends per Microsoft's own
+ * versioning discipline) plus the 7 ICoreWebView2_2-specific ones. Defined
+ * as one struct so a single object can be QueryInterface'd as either IID
+ * and get a working, layout-correct vtable pointer back either way.
+ *
+ * Declared here (not in webview.c, where the brief's Step 5 originally put
+ * it) because tests/webview2loader.c's test_delete_all_cookies (Step 7)
+ * needs to reach through webview_v2->lpVtbl to call ext.get_CookieManager
+ * directly -- the brief's own Step 7 text says as much ("struct
+ * webview2_2_vtbl_combined and its ext member must be visible to this
+ * test -- move that struct's definition from webview.c into
+ * webview2loader_private.h so both files share it"). webview.c still
+ * defines and owns the actual `webview2_2_vtbl` instance/data. */
+struct webview2_2_vtbl_combined
+{
+    ICoreWebView2Vtbl base;
+    webview2_2_extension_vtbl ext;
+};
+
+/* Constructs an ICoreWebView2CookieManager (refcount 1) bound to the given
+ * unix-side native_handle (the same handle struct webview_impl carries --
+ * see webview2_get_CookieManager in webview.c). */
+HRESULT cookie_manager_create(UINT64 native_handle, ICoreWebView2CookieManager **out);
 
 #endif /* __WINE_WEBVIEW2LOADER_PRIVATE_H */
