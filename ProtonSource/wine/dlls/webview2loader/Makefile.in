@@ -8,4 +8,5 @@ SOURCES = \
 	environment.c \
 	main.c \
 	unixlib.c \
+	webview.c \
 	webview2loader.spec

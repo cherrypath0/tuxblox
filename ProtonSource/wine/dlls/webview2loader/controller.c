@@ -114,8 +114,12 @@ static HRESULT WINAPI controller_Close(ICoreWebView2Controller *iface)
 static HRESULT WINAPI controller_get_CoreWebView2(ICoreWebView2Controller *iface, ICoreWebView2 **webview)
 {
     struct controller_impl *ctrl = impl_from_ICoreWebView2Controller(iface);
+    HRESULT hr;
+
     if (!webview) return E_POINTER;
-    if (!ctrl->webview) return E_FAIL; /* Task 7 wires this up */
+    if (!ctrl->webview && FAILED(hr = webview_create(ctrl->native_handle, &ctrl->webview)))
+        return hr;
+
     ICoreWebView2_AddRef(ctrl->webview);
     *webview = ctrl->webview;
     return S_OK;
@@ -165,17 +169,6 @@ HRESULT controller_create(UINT64 native_handle, ICoreWebView2Controller **out)
     SetRect(&ctrl->bounds, 0, 0, 800, 600);
     *out = &ctrl->ICoreWebView2Controller_iface;
     return S_OK;
-}
-
-/* webview_create_for_controller: Task 7 calls this from webview.c to build
- * the real ICoreWebView2 lazily and cache it on the controller, since
- * get_CoreWebView2 (above) needs somewhere to store it. Declared here
- * rather than in the header because it's controller-internal wiring, not
- * part of any COM interface. */
-void controller_set_webview(ICoreWebView2Controller *iface, ICoreWebView2 *webview)
-{
-    struct controller_impl *ctrl = impl_from_ICoreWebView2Controller(iface);
-    ctrl->webview = webview;
 }
 
 UINT64 controller_get_native_handle(ICoreWebView2Controller *iface)

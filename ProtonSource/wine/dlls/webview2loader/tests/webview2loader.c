@@ -205,9 +205,164 @@ static void test_create_controller(void)
     FreeLibrary(mod);
 }
 
+struct test_nav_handler
+{
+    ICoreWebView2NavigationCompletedEventHandlerVtbl *vtbl;
+    HANDLE done_event;
+    BOOL is_success;
+};
+static HRESULT WINAPI test_nav_handler_QI(ICoreWebView2NavigationCompletedEventHandler *iface, REFIID riid, void **ppv) { *ppv = iface; return S_OK; }
+static ULONG WINAPI test_nav_handler_AddRef(ICoreWebView2NavigationCompletedEventHandler *iface) { return 2; }
+static ULONG WINAPI test_nav_handler_Release(ICoreWebView2NavigationCompletedEventHandler *iface) { return 1; }
+static HRESULT WINAPI test_nav_handler_Invoke(ICoreWebView2NavigationCompletedEventHandler *iface,
+                                               ICoreWebView2 *sender, ICoreWebView2NavigationCompletedEventArgs *args)
+{
+    struct test_nav_handler *h = (struct test_nav_handler *)iface;
+    ICoreWebView2NavigationCompletedEventArgs_get_IsSuccess(args, &h->is_success);
+    SetEvent(h->done_event);
+    return S_OK;
+}
+static ICoreWebView2NavigationCompletedEventHandlerVtbl test_nav_handler_vtbl =
+{ test_nav_handler_QI, test_nav_handler_AddRef, test_nav_handler_Release, test_nav_handler_Invoke };
+
+static void test_navigate(void)
+{
+    HMODULE mod;
+    ICoreWebView2Environment *env;
+    ICoreWebView2Controller *ctrl;
+    ICoreWebView2 *webview = NULL;
+    struct test_nav_handler nav_handler = { &test_nav_handler_vtbl };
+    UINT64 token;
+
+    if (!create_test_controller(&mod, &env, &ctrl))
+    {
+        skip("TUXBLOX_WEBVIEW_DIR not set or environment/controller creation failed\n");
+        return;
+    }
+
+    ICoreWebView2Controller_get_CoreWebView2(ctrl, &webview);
+    ok(webview != NULL, "expected a webview\n");
+    if (webview)
+    {
+        nav_handler.done_event = CreateEventW(NULL, FALSE, FALSE, NULL);
+        ICoreWebView2_add_NavigationCompleted(webview, &nav_handler, &token);
+        ICoreWebView2_Navigate(webview, L"about:blank");
+
+        ok(WaitForSingleObject(nav_handler.done_event, 30000) == WAIT_OBJECT_0, "navigation timed out\n");
+        ok(nav_handler.is_success, "expected navigation to about:blank to succeed\n");
+
+        CloseHandle(nav_handler.done_event);
+        ICoreWebView2_Release(webview);
+    }
+
+    ICoreWebView2Controller_Release(ctrl);
+    ICoreWebView2Environment_Release(env);
+    FreeLibrary(mod);
+}
+
+/* Regression test for the dangling-stack-pointer GObject callback bug: a
+ * second Navigate() on the SAME webview re-emits "load-changed" on the
+ * same underlying WebKitWebView. Before unix_navigate_and_wait_impl
+ * disconnected its "load-changed" handler unconditionally on return
+ * (unixlib.c), the first Navigate() call's connection would still be live
+ * -- pointing at that first call's now-returned, stack-reused
+ * navigate_ctx -- when the second call's own load-changed(FINISHED)
+ * fires, invoking on_load_changed against freed/reused stack memory.
+ * This doesn't assert anything about the corruption directly (that would
+ * show up as a crash, which the test harness/coredump check around this
+ * suite already catches) -- the point is that BOTH navigations complete
+ * cleanly with no crash, exercising the exact "second load-changed
+ * emission on the same view" path the bug lived in. */
+static void test_navigate_twice(void)
+{
+    HMODULE mod;
+    ICoreWebView2Environment *env;
+    ICoreWebView2Controller *ctrl;
+    ICoreWebView2 *webview = NULL;
+    struct test_nav_handler nav_handler = { &test_nav_handler_vtbl };
+    UINT64 token;
+
+    if (!create_test_controller(&mod, &env, &ctrl))
+    {
+        skip("TUXBLOX_WEBVIEW_DIR not set or environment/controller creation failed\n");
+        return;
+    }
+
+    ICoreWebView2Controller_get_CoreWebView2(ctrl, &webview);
+    ok(webview != NULL, "expected a webview\n");
+    if (webview)
+    {
+        nav_handler.done_event = CreateEventW(NULL, FALSE, FALSE, NULL);
+        ICoreWebView2_add_NavigationCompleted(webview, &nav_handler, &token);
+
+        ICoreWebView2_Navigate(webview, L"about:blank");
+        ok(WaitForSingleObject(nav_handler.done_event, 30000) == WAIT_OBJECT_0, "first navigation timed out\n");
+        ok(nav_handler.is_success, "expected first navigation to succeed\n");
+
+        nav_handler.is_success = FALSE;
+        ICoreWebView2_Navigate(webview, L"about:blank");
+        ok(WaitForSingleObject(nav_handler.done_event, 30000) == WAIT_OBJECT_0, "second navigation timed out\n");
+        ok(nav_handler.is_success, "expected second navigation to succeed\n");
+
+        CloseHandle(nav_handler.done_event);
+        ICoreWebView2_Release(webview);
+    }
+
+    ICoreWebView2Controller_Release(ctrl);
+    ICoreWebView2Environment_Release(env);
+    FreeLibrary(mod);
+}
+
+/* Regression coverage for webview_remove_NavigationCompleted, previously
+ * untested: a handler removed before its Navigate() completes must never
+ * be invoked. */
+static void test_remove_navigation_completed(void)
+{
+    HMODULE mod;
+    ICoreWebView2Environment *env;
+    ICoreWebView2Controller *ctrl;
+    ICoreWebView2 *webview = NULL;
+    struct test_nav_handler nav_handler = { &test_nav_handler_vtbl };
+    UINT64 token;
+
+    if (!create_test_controller(&mod, &env, &ctrl))
+    {
+        skip("TUXBLOX_WEBVIEW_DIR not set or environment/controller creation failed\n");
+        return;
+    }
+
+    ICoreWebView2Controller_get_CoreWebView2(ctrl, &webview);
+    ok(webview != NULL, "expected a webview\n");
+    if (webview)
+    {
+        nav_handler.done_event = CreateEventW(NULL, FALSE, FALSE, NULL);
+        nav_handler.is_success = FALSE;
+        ICoreWebView2_add_NavigationCompleted(webview, &nav_handler, &token);
+        ICoreWebView2_remove_NavigationCompleted(webview, (void *)(ULONG_PTR)token);
+        ICoreWebView2_Navigate(webview, L"about:blank");
+
+        /* A short bounded wait, not the full 30s used elsewhere: if the
+         * removed handler were (incorrectly) still invoked, it would fire
+         * well within a couple of seconds for a real about:blank load. A
+         * WAIT_TIMEOUT here is the expected, passing outcome. */
+        ok(WaitForSingleObject(nav_handler.done_event, 5000) == WAIT_TIMEOUT,
+           "removed NavigationCompleted handler was invoked anyway\n");
+
+        CloseHandle(nav_handler.done_event);
+        ICoreWebView2_Release(webview);
+    }
+
+    ICoreWebView2Controller_Release(ctrl);
+    ICoreWebView2Environment_Release(env);
+    FreeLibrary(mod);
+}
+
 START_TEST(webview2loader)
 {
     test_module_loads();
     test_create_environment();
     test_create_controller();
+    test_navigate();
+    test_navigate_twice();
+    test_remove_navigation_completed();
 }

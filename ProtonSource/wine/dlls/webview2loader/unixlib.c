@@ -13,6 +13,7 @@
  * `#define _GNU_SOURCE 1` is present -- config.h is included first, above,
  * so no separate local #define is needed here. */
 #include <dlfcn.h>
+#include <errno.h>
 #include <limits.h>
 #include <pthread.h>
 #include <stdio.h>
@@ -56,6 +57,7 @@ typedef void WebKitWebView;
 typedef void WebKitNetworkSession;
 typedef void WebKitCookieManager;
 typedef int gboolean;
+typedef unsigned long gulong;
 typedef gboolean (*GSourceFunc)(void *user_data);
 typedef void (*GCallback)(void);
 
@@ -76,6 +78,15 @@ extern unsigned long g_signal_connect_data(void *instance, const char *detailed_
                                             GCallback c_handler, void *data,
                                             void (*destroy_data)(void *data, void *closure),
                                             int connect_flags);
+/* Needed to tear down the per-navigation "load-changed" connection
+ * unix_navigate_and_wait_impl makes below -- without this, the connection
+ * outlives the stack-allocated struct navigate_ctx it points at as
+ * closure data, and any later "load-changed" emission on the same view
+ * (a second Navigate(), or the page's own internal post-login redirect)
+ * calls back into freed/reused stack memory. Confirmed real via
+ * `nm -D libgobject-2.0.so.0*` against the committed bundle, same as
+ * g_signal_connect_data above. */
+extern void g_signal_handler_disconnect(void *instance, unsigned long handler_id);
 
 /* NOT gtk_init() -- confirmed via `strings`/`nm -D` against the real
  * committed libgtk-4.so.1.1800.6 that GTK4's gtk_init() is implemented as
@@ -116,7 +127,8 @@ extern WebKitCookieManager *webkit_network_session_get_cookie_manager(WebKitNetw
 
 #define GOBJECT_FUNCS \
     DO_FUNC(g_object_unref); \
-    DO_FUNC(g_signal_connect_data)
+    DO_FUNC(g_signal_connect_data); \
+    DO_FUNC(g_signal_handler_disconnect)
 
 #define GTK_FUNCS \
     DO_FUNC(gtk_init_check); \
@@ -598,9 +610,137 @@ static NTSTATUS unix_destroy_webview_impl(void *args)
     return STATUS_SUCCESS;
 }
 
+/* WebKitGTK's own WebKitLoadEvent enum (webkit2/webkit-web-view.h) --
+ * stable public ABI, hand-declared here for the same reason the function
+ * tables above are (no real header at Wine's build time). */
+enum { WEBKIT_LOAD_STARTED, WEBKIT_LOAD_REDIRECTED, WEBKIT_LOAD_COMMITTED, WEBKIT_LOAD_FINISHED };
+
+struct navigate_ctx
+{
+    struct native_webview *nv;
+    char *uri_utf8;
+    pthread_mutex_t lock;
+    pthread_cond_t cond;
+    BOOL done;
+    BOOL success;
+    gulong handler_id;
+};
+
+static void on_load_changed(WebKitWebView *view, int load_event, void *user_data)
+{
+    struct navigate_ctx *ctx = user_data;
+
+    if (load_event != WEBKIT_LOAD_FINISHED) return;
+
+    pthread_mutex_lock(&ctx->lock);
+    ctx->success = TRUE;
+    ctx->done = TRUE;
+    pthread_cond_signal(&ctx->cond);
+    pthread_mutex_unlock(&ctx->lock);
+}
+
+/* Manual WCHAR->UTF-8 conversion via ntdll_wcstoumbs, not a library helper
+ * -- follows dlls/comdlg32/unixlib.c's wcs_to_utf8 exactly, matching this
+ * codebase's existing convention for the same operation rather than
+ * inventing a second one. (ntdll_wcstoumbs is declared in
+ * wine/unixlib.h -- already included above -- so no extra declaration is
+ * needed here.) */
+static char *wcs_to_utf8(const WCHAR *src)
+{
+    ULONG srclen, retlen;
+    char *ret;
+
+    if (!src) return NULL;
+    srclen = wcslen(src);
+    if (!(ret = malloc(srclen * 3 + 1))) return NULL;
+    retlen = ntdll_wcstoumbs(src, srclen, ret, srclen * 3, FALSE);
+    ret[retlen] = 0;
+    return ret;
+}
+
+static void navigate_on_gtk_thread(void *data)
+{
+    struct navigate_ctx *ctx = data;
+
+    ctx->handler_id = p_g_signal_connect_data(ctx->nv->view, "load-changed", (GCallback)on_load_changed,
+                                               ctx, NULL, 0);
+    p_webkit_web_view_load_uri(ctx->nv->view, ctx->uri_utf8);
+}
+
+/* Tears down the "load-changed" connection navigate_on_gtk_thread made,
+ * regardless of whether on_load_changed ever actually fired for it.
+ *
+ * This MUST run unconditionally before unix_navigate_and_wait_impl
+ * returns -- not just on the success path -- because ctx is stack-local
+ * to that function: once it returns, &ctx is dangling, but the signal
+ * connection stays live on the WebKitWebView until explicitly
+ * disconnected. If a later "load-changed" emission (a second Navigate()
+ * call, or -- the exact scenario this whole plan targets -- the page's
+ * own internal redirect right after a successful Studio login) reached a
+ * still-connected handler pointing at a dangling ctx, that would be a
+ * callback into freed/reused stack memory.
+ *
+ * Deliberately NOT done by having on_load_changed self-disconnect on
+ * WEBKIT_LOAD_FINISHED instead: that would leave the connection live
+ * forever on the timeout path (network hang, WebKit process crash --
+ * on_load_changed simply never runs), which is exactly the case the
+ * bounded wait below exists to handle gracefully. Disconnecting here,
+ * unconditionally, after the wait loop -- success or timeout -- is the
+ * one path guaranteed to run before this function returns either way.
+ * Runs via gtk_thread_invoke_sync (synchronous: blocks until actually
+ * done on the GTK thread) so that by the time unix_navigate_and_wait_impl
+ * returns, no further on_load_changed invocation for this ctx can occur --
+ * signal emission and this disconnect both only ever happen on the single
+ * dedicated GTK thread, so they can't race each other, only serialize. */
+static void disconnect_load_changed_on_gtk_thread(void *data)
+{
+    struct navigate_ctx *ctx = data;
+
+    if (ctx->handler_id) p_g_signal_handler_disconnect(ctx->nv->view, ctx->handler_id);
+}
+
+static NTSTATUS unix_navigate_and_wait_impl(void *args)
+{
+    struct navigate_params *params = args;
+    struct native_webview *nv = (struct native_webview *)(ULONG_PTR)params->handle;
+    struct navigate_ctx ctx = { nv, NULL, PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER, FALSE, FALSE, 0 };
+    struct timespec deadline;
+
+    params->is_success = FALSE;
+    if (!nv) return STATUS_INVALID_HANDLE;
+
+    ctx.uri_utf8 = wcs_to_utf8(params->uri);
+
+    gtk_thread_invoke_sync(navigate_on_gtk_thread, &ctx);
+
+    /* Bounded wait, not indefinite: a real page can fail to ever fire
+     * load-changed(FINISHED) (network failure, WebKit process crash). 30s
+     * comfortably covers Studio's real login page per this investigation's
+     * own earlier tracing; a stuck navigation should surface as a timeout
+     * (is_success stays FALSE), not hang Roblox's calling thread forever. */
+    clock_gettime(CLOCK_REALTIME, &deadline);
+    deadline.tv_sec += 30;
+
+    pthread_mutex_lock(&ctx.lock);
+    while (!ctx.done)
+        if (pthread_cond_timedwait(&ctx.cond, &ctx.lock, &deadline) == ETIMEDOUT) break;
+    pthread_mutex_unlock(&ctx.lock);
+
+    /* Always disconnect before touching ctx again or returning -- see the
+     * comment on disconnect_load_changed_on_gtk_thread above for why this
+     * can't just live inside on_load_changed instead. */
+    gtk_thread_invoke_sync(disconnect_load_changed_on_gtk_thread, &ctx);
+
+    params->is_success = ctx.success;
+    params->navigation_id = (UINT64)(ULONG_PTR)&ctx; /* unique-enough per call; real WebView2's IDs aren't otherwise observable to us */
+    free(ctx.uri_utf8);
+    return STATUS_SUCCESS;
+}
+
 const unixlib_entry_t __wine_unix_call_funcs[] =
 {
     unix_init_impl,
     unix_create_webview_impl,
     unix_destroy_webview_impl,
+    unix_navigate_and_wait_impl,
 };
