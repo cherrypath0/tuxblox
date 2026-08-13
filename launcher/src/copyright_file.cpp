@@ -26,7 +26,7 @@ namespace {
 
 constexpr const char* kCopyrightIntro =
     "This file contains the complete copyright notices and license texts for all \n"
-    "third-party software components, fonts, and dependencies used within this \n"
+    "all third-party software components, fonts, and dependencies used within this \n"
     "application. \n"
     "\n"
     "These components are provided under their respective open-source licenses, \n"
@@ -41,9 +41,6 @@ constexpr const char* kImguiHeading = "Dear ImGui\nhttps://github.com/ocornut/im
 constexpr const char* kJsonHeading = "JSON for Modern C++ (nlohmann/json)\nhttps://github.com/nlohmann/json\n\n";
 constexpr const char* kStbHeading = "stb_image.h (stb single-file libraries)\nhttps://github.com/nothings/stb\n\n";
 
-// Copied verbatim from the exact pinned commit launcher/vendor.sh vendors
-// (31c1ad37456438565541f4919958214b6e762fb4) -- re-verify this text against
-// the new pinned commit's license block if that pin is ever bumped.
 constexpr const char* kStbLicenseTxt =
     "This software is available under 2 licenses -- choose whichever you prefer.\n"
     "------------------------------------------------------------------------------\n"
@@ -83,35 +80,23 @@ constexpr const char* kStbLicenseTxt =
     "ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION\n"
     "WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.\n";
 
-constexpr const char* kLucideHeading =
-    "Lucide icons (Home, Info, Globe, Documentation, Settings)\nhttps://lucide.dev\n\n";
-constexpr const char* kLucideLicenseTxt =
-    "ISC License\n"
-    "\n"
-    "Copyright (c) for portions of Lucide are held by Cole Bemis 2013-2022 as\n"
-    "part of Feather (MIT). All other copyright (c) for Lucide are held by\n"
-    "Lucide Contributors 2022.\n"
-    "\n"
-    "Permission to use, copy, modify, and/or distribute this software for any\n"
-    "purpose with or without fee is hereby granted, provided that the above\n"
-    "copyright notice and this permission notice appear in all copies.\n"
-    "\n"
-    "THE SOFTWARE IS PROVIDED \"AS IS\" AND THE AUTHOR DISCLAIMS ALL WARRANTIES\n"
-    "WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF\n"
-    "MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR\n"
-    "ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES\n"
-    "WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN\n"
-    "ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF\n"
-    "OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.\n";
-
 constexpr const char* kSimpleIconsHeading =
-    "Simple Icons (GitHub, Discord brand marks)\nhttps://simpleicons.org\n\n";
+    "Simple Icons (GitHub, Discord brand marks, Roblox logo)\n"
+    "Source: https://simpleicons.org\n\n";
+
 constexpr const char* kSimpleIconsLicenseTxt =
-    "Released under CC0 1.0 Universal (public domain dedication):\n"
-    "https://creativecommons.org/publicdomain/zero/1.0/\n"
-    "\"GitHub\" and \"Discord\" and their respective logos are trademarks of\n"
-    "GitHub, Inc. and Discord Inc., used here only to identify the linked\n"
-    "services.\n";
+    "The underlying vector files from Simple Icons are released under CC0 1.0 Universal\n"
+    "(Public Domain Dedication). The resulting PNG assets are dedicated to the public domain:\n"
+    "https://creativecommons.org\n\n"
+    "NOTE: The underlying brand marks remain protected by trademark laws.\n"
+    "\"GitHub\" is a trademark of Microsoft Corporation;\n"
+    "\"Discord\" is a trademark of Discord, Inc.;\n"
+    "\"Roblox\" is a trademark of Roblox Corporation.\n\n"
+    "DISCLAIMER OF AFFILIATION:\n"
+    "This software is an independent, third-party custom launcher.\n"
+    "It is not affiliated with, authorized, maintained, sponsored, or endorsed\n"
+    "by Roblox Corporation or any of its affiliates. The Roblox logo is used\n"
+    "strictly as a functional icon to identify the target game service.\n";
 
 void writeEntry(std::ofstream& file, const char* heading,
                  const unsigned char* text, std::size_t textLen) {
@@ -136,7 +121,6 @@ void writeCopyrightFile(const std::string& installDir) {
         writeEntry(file, kImguiHeading, kImguiLicenseTxt, kImguiLicenseTxtLen);
         writeEntry(file, kJsonHeading, kJsonLicenseTxt, kJsonLicenseTxtLen);
         writeEntry(file, kStbHeading, kStbLicenseTxt);
-        writeEntry(file, kLucideHeading, kLucideLicenseTxt);
         writeEntry(file, kSimpleIconsHeading, kSimpleIconsLicenseTxt);
         file << kDivider;
     } catch (...) {
