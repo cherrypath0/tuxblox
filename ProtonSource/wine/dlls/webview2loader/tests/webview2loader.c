@@ -916,6 +916,426 @@ static void test_v2_base_slots_not_null(void)
     FreeLibrary(mod);
 }
 
+/* Generic IUnknown-shaped handler for the Task 11 registration-only add_X/
+ * remove_X regression tests below (WebMessageReceived, the shared
+ * generic_listener add/remove pair, and Environment8's
+ * add/remove_ProcessInfosChanged) -- all three call sites only ever do
+ * `handler->lpVtbl->AddRef(handler)` / `->Release(handler)` on whatever is
+ * registered (see each one's own comment in webview.c/environment.c for
+ * why a bare IUnknown* is enough), so a real 3-slot IUnknown vtable is all
+ * a test double needs here; no Invoke of any kind is ever expected. */
+struct test_iunknown_handler
+{
+    IUnknownVtbl *vtbl;
+    LONG ref;
+};
+static HRESULT WINAPI test_iunknown_handler_QI(IUnknown *iface, REFIID riid, void **ppv) { *ppv = iface; return S_OK; }
+static ULONG WINAPI test_iunknown_handler_AddRef(IUnknown *iface)
+{
+    struct test_iunknown_handler *h = (struct test_iunknown_handler *)iface;
+    return InterlockedIncrement(&h->ref);
+}
+static ULONG WINAPI test_iunknown_handler_Release(IUnknown *iface)
+{
+    struct test_iunknown_handler *h = (struct test_iunknown_handler *)iface;
+    return InterlockedDecrement(&h->ref);
+}
+static IUnknownVtbl test_iunknown_handler_vtbl =
+{ test_iunknown_handler_QI, test_iunknown_handler_AddRef, test_iunknown_handler_Release };
+
+/* Task 11 regression test: real Roblox Studio's embedded-login-dialog flow
+ * QueryInterfaces a freshly-created controller/environment pair for
+ * IID_ICoreWebView2Controller4 and IID_ICoreWebView2Environment8 right after
+ * CreateCoreWebView2Controller succeeds, and treated E_NOINTERFACE on
+ * either as fatal to the whole onCreateCoreWebView2ControllerCompleted
+ * callback -- see controller_QueryInterface's and environment_QueryInterface's
+ * own comments for the full story and the real captured FLog evidence. This
+ * exercises both QueryInterfaces for real, confirms every widened vtable
+ * slot is non-NULL (same regression class as test_v2_base_slots_not_null's
+ * own "56 vs 61" bug: a short/miscounted combined-vtable initializer
+ * silently NULLs trailing slots), and confirms the Controller2/3/4
+ * state-only properties start at real WebView2's documented defaults and
+ * round-trip a real put/get pair. */
+static void test_controller4_environment8_queryinterface(void)
+{
+    HMODULE mod;
+    ICoreWebView2Environment *env, *env8 = NULL;
+    ICoreWebView2Controller *ctrl, *ctrl4 = NULL;
+    HRESULT hr;
+
+    if (!create_test_controller(&mod, &env, &ctrl))
+    {
+        skip("TUXBLOX_WEBVIEW_DIR not set or environment/controller creation failed\n");
+        return;
+    }
+
+    hr = ICoreWebView2Controller_QueryInterface(ctrl, &IID_ICoreWebView2Controller4, (void **)&ctrl4);
+    ok(hr == S_OK, "QueryInterface(IID_ICoreWebView2Controller4) failed: %#lx\n", hr);
+    if (SUCCEEDED(hr))
+    {
+        const struct webview2_controller4_vtbl_combined *c4vtbl =
+            (const struct webview2_controller4_vtbl_combined *)ctrl4->lpVtbl;
+        void *const *slots;
+        unsigned int count, i;
+        COREWEBVIEW2_COLOR color;
+        double scale = 0;
+        BOOL detect = FALSE, drop = FALSE;
+        COREWEBVIEW2_BOUNDS_MODE mode;
+
+        slots = (void *const *)&c4vtbl->base;
+        count = sizeof(c4vtbl->base) / sizeof(void *);
+        for (i = 0; i < count; i++)
+            ok(slots[i] != NULL, "Controller4 combined vtable base slot %u is NULL\n", i);
+        slots = (void *const *)&c4vtbl->ext;
+        count = sizeof(c4vtbl->ext) / sizeof(void *);
+        for (i = 0; i < count; i++)
+            ok(slots[i] != NULL, "Controller4 extension vtable slot %u is NULL\n", i);
+
+        /* Real WebView2 documented defaults -- see controller_create's own
+         * comment in controller.c for each one. */
+        hr = c4vtbl->ext.get_DefaultBackgroundColor(ctrl4, &color);
+        ok(hr == S_OK && color.A == 255 && color.R == 255 && color.G == 255 && color.B == 255,
+           "expected opaque white default background, got hr=%#lx A=%u R=%u G=%u B=%u\n",
+           hr, color.A, color.R, color.G, color.B);
+
+        hr = c4vtbl->ext.get_RasterizationScale(ctrl4, &scale);
+        ok(hr == S_OK && scale == 1.0, "expected default RasterizationScale 1.0, got hr=%#lx scale=%f\n", hr, scale);
+
+        hr = c4vtbl->ext.get_ShouldDetectMonitorScaleChanges(ctrl4, &detect);
+        ok(hr == S_OK && detect, "expected ShouldDetectMonitorScaleChanges to default TRUE, got hr=%#lx value=%d\n", hr, detect);
+
+        hr = c4vtbl->ext.get_BoundsMode(ctrl4, &mode);
+        ok(hr == S_OK && mode == COREWEBVIEW2_BOUNDS_MODE_USE_RAW_PIXELS,
+           "expected default BoundsMode USE_RAW_PIXELS, got hr=%#lx mode=%d\n", hr, mode);
+
+        hr = c4vtbl->ext.get_AllowExternalDrop(ctrl4, &drop);
+        ok(hr == S_OK && drop, "expected AllowExternalDrop to default TRUE, got hr=%#lx value=%d\n", hr, drop);
+
+        /* Round-trip a real put/get pair, not just check the default. */
+        color.A = 128; color.R = 10; color.G = 20; color.B = 30;
+        hr = c4vtbl->ext.put_DefaultBackgroundColor(ctrl4, color);
+        ok(hr == S_OK, "put_DefaultBackgroundColor failed: %#lx\n", hr);
+        color.A = color.R = color.G = color.B = 0;
+        hr = c4vtbl->ext.get_DefaultBackgroundColor(ctrl4, &color);
+        ok(hr == S_OK && color.A == 128 && color.R == 10 && color.G == 20 && color.B == 30,
+           "put/get_DefaultBackgroundColor round-trip failed (hr=%#lx)\n", hr);
+
+        ICoreWebView2Controller_Release(ctrl4);
+    }
+
+    hr = ICoreWebView2Environment_QueryInterface(env, &IID_ICoreWebView2Environment8, (void **)&env8);
+    ok(hr == S_OK, "QueryInterface(IID_ICoreWebView2Environment8) failed: %#lx\n", hr);
+    if (SUCCEEDED(hr))
+    {
+        const struct webview2_environment8_vtbl_combined *e8vtbl =
+            (const struct webview2_environment8_vtbl_combined *)env8->lpVtbl;
+        void *const *slots;
+        unsigned int count, i;
+
+        slots = (void *const *)&e8vtbl->base;
+        count = sizeof(e8vtbl->base) / sizeof(void *);
+        for (i = 0; i < count; i++)
+            ok(slots[i] != NULL, "Environment8 combined vtable base slot %u is NULL\n", i);
+        slots = (void *const *)&e8vtbl->ext;
+        count = sizeof(e8vtbl->ext) / sizeof(void *);
+        for (i = 0; i < count; i++)
+            ok(slots[i] != NULL, "Environment8 extension vtable slot %u is NULL\n", i);
+
+        /* GetProcessInfos is intentionally still E_NOTIMPL (see this
+         * struct's own comment in webview2loader_private.h) -- confirm
+         * that's a real E_NOTIMPL return through the widened pointer, not a
+         * crash. */
+        hr = e8vtbl->ext.GetProcessInfos(env8, NULL);
+        ok(hr == E_NOTIMPL, "GetProcessInfos via ICoreWebView2Environment8 returned %#lx, expected E_NOTIMPL\n", hr);
+
+        ICoreWebView2Environment_Release(env8);
+    }
+
+    ICoreWebView2Controller_Release(ctrl);
+    ICoreWebView2Environment_Release(env);
+    FreeLibrary(mod);
+}
+
+/* Task 11 regression test: ICoreWebView2Environment8::add_ProcessInfosChanged
+ * was the third recurrence of the "E_NOTIMPL from an add_X call treated as
+ * fatal" whack-a-mole pattern -- see environment8_add_ProcessInfosChanged's
+ * own comment in environment.c. Confirms a real token comes back, that the
+ * handler is really AddRef'd (matching struct env_listener's ownership),
+ * and that remove both releases it and tolerates an unknown/already-removed
+ * token, same as every other add_X/remove_X pair in this DLL. */
+static void test_environment8_process_infos_changed(void)
+{
+    HMODULE mod;
+    ICoreWebView2Environment *env, *env8 = NULL;
+    ICoreWebView2Controller *ctrl;
+    HRESULT hr;
+
+    if (!create_test_controller(&mod, &env, &ctrl))
+    {
+        skip("TUXBLOX_WEBVIEW_DIR not set or environment/controller creation failed\n");
+        return;
+    }
+
+    hr = ICoreWebView2Environment_QueryInterface(env, &IID_ICoreWebView2Environment8, (void **)&env8);
+    ok(hr == S_OK, "QueryInterface(IID_ICoreWebView2Environment8) failed: %#lx\n", hr);
+    if (SUCCEEDED(hr))
+    {
+        const struct webview2_environment8_vtbl_combined *e8vtbl =
+            (const struct webview2_environment8_vtbl_combined *)env8->lpVtbl;
+        struct test_iunknown_handler handler = { &test_iunknown_handler_vtbl, 1 };
+        UINT64 token = 0;
+
+        hr = e8vtbl->ext.add_ProcessInfosChanged(env8, &handler, &token);
+        ok(hr == S_OK, "add_ProcessInfosChanged failed: %#lx\n", hr);
+        ok(handler.ref == 2, "expected handler to be AddRef'd once, ref=%ld\n", handler.ref);
+        ok(token != 0, "expected a non-zero registration token\n");
+
+        hr = e8vtbl->ext.remove_ProcessInfosChanged(env8, (void *)(ULONG_PTR)token);
+        ok(hr == S_OK, "remove_ProcessInfosChanged failed: %#lx\n", hr);
+        ok(handler.ref == 1, "expected handler back at ref 1 after remove, ref=%ld\n", handler.ref);
+
+        /* Real WebView2 tolerates removing an already-gone/unknown token. */
+        hr = e8vtbl->ext.remove_ProcessInfosChanged(env8, (void *)(ULONG_PTR)token);
+        ok(hr == S_OK, "remove_ProcessInfosChanged on an already-removed token returned %#lx, expected S_OK\n", hr);
+
+        ICoreWebView2Environment_Release(env8);
+    }
+
+    ICoreWebView2Controller_Release(ctrl);
+    ICoreWebView2Environment_Release(env);
+    FreeLibrary(mod);
+}
+
+/* Task 11 regression test: ICoreWebView2::get_Settings was the fourth
+ * recurrence of the same whack-a-mole pattern -- see webview_get_Settings's
+ * own comment in webview.c. Confirms a real ICoreWebView2Settings comes
+ * back with every property at its real WebView2-documented default (all
+ * TRUE), that a put/get pair round-trips for real, and that the same
+ * lazily-created object is returned (and independently AddRef'd) on a
+ * second get_Settings call, matching struct webview_impl's "created lazily,
+ * cached" comment. */
+static void test_get_settings(void)
+{
+    HMODULE mod;
+    ICoreWebView2Environment *env;
+    ICoreWebView2Controller *ctrl;
+    ICoreWebView2 *webview = NULL;
+    ICoreWebView2Settings *settings = NULL, *settings2 = NULL;
+    HRESULT hr;
+
+    if (!create_test_controller(&mod, &env, &ctrl))
+    {
+        skip("TUXBLOX_WEBVIEW_DIR not set or environment/controller creation failed\n");
+        return;
+    }
+
+    ICoreWebView2Controller_get_CoreWebView2(ctrl, &webview);
+    ok(webview != NULL, "expected a webview\n");
+    if (webview)
+    {
+        hr = ICoreWebView2_get_Settings(webview, (void **)&settings);
+        ok(hr == S_OK, "get_Settings failed: %#lx\n", hr);
+        if (SUCCEEDED(hr))
+        {
+            BOOL value;
+
+#define CHECK_DEFAULT_TRUE(Name) \
+            do { \
+                value = FALSE; \
+                hr = ICoreWebView2Settings_get_##Name(settings, &value); \
+                ok(hr == S_OK && value, "expected " #Name " to default TRUE, got hr=%#lx value=%d\n", hr, value); \
+            } while (0)
+
+            CHECK_DEFAULT_TRUE(IsScriptEnabled);
+            CHECK_DEFAULT_TRUE(IsWebMessageEnabled);
+            CHECK_DEFAULT_TRUE(AreDefaultScriptDialogsEnabled);
+            CHECK_DEFAULT_TRUE(IsStatusBarEnabled);
+            CHECK_DEFAULT_TRUE(AreDevToolsEnabled);
+            CHECK_DEFAULT_TRUE(AreDefaultContextMenusEnabled);
+            CHECK_DEFAULT_TRUE(AreHostObjectsAllowed);
+            CHECK_DEFAULT_TRUE(IsZoomControlEnabled);
+            CHECK_DEFAULT_TRUE(IsBuiltInErrorPageEnabled);
+#undef CHECK_DEFAULT_TRUE
+
+            hr = ICoreWebView2Settings_put_IsScriptEnabled(settings, FALSE);
+            ok(hr == S_OK, "put_IsScriptEnabled failed: %#lx\n", hr);
+            value = TRUE;
+            hr = ICoreWebView2Settings_get_IsScriptEnabled(settings, &value);
+            ok(hr == S_OK && !value, "put/get_IsScriptEnabled round-trip failed (hr=%#lx value=%d)\n", hr, value);
+
+            /* Same object, cached -- not a fresh one each call. */
+            hr = ICoreWebView2_get_Settings(webview, (void **)&settings2);
+            ok(hr == S_OK, "second get_Settings failed: %#lx\n", hr);
+            ok(settings2 == settings, "expected get_Settings to return the same cached object\n");
+            if (settings2) ICoreWebView2Settings_Release(settings2);
+
+            ICoreWebView2Settings_Release(settings);
+        }
+        ICoreWebView2_Release(webview);
+    }
+
+    ICoreWebView2Controller_Release(ctrl);
+    ICoreWebView2Environment_Release(env);
+    FreeLibrary(mod);
+}
+
+/* Task 11 regression test: add_WebMessageReceived (the second recurrence of
+ * the whack-a-mole pattern, see struct wm_listener's own comment in
+ * webview.c) and the shared generic_listener add/remove pair that every
+ * other remaining add_X/remove_X event on ICoreWebView2 uses (the third
+ * recurrence -- add_NavigationStarting specifically, per that same
+ * comment). Confirms both real registrations hand back a real token and
+ * really AddRef the handler, and that remove really releases it and
+ * tolerates an unknown token, mirroring
+ * test_environment8_process_infos_changed's own checks for the sibling
+ * fix on the environment side. */
+static void test_webview_event_registration(void)
+{
+    HMODULE mod;
+    ICoreWebView2Environment *env;
+    ICoreWebView2Controller *ctrl;
+    ICoreWebView2 *webview = NULL;
+    HRESULT hr;
+
+    if (!create_test_controller(&mod, &env, &ctrl))
+    {
+        skip("TUXBLOX_WEBVIEW_DIR not set or environment/controller creation failed\n");
+        return;
+    }
+
+    ICoreWebView2Controller_get_CoreWebView2(ctrl, &webview);
+    ok(webview != NULL, "expected a webview\n");
+    if (webview)
+    {
+        struct test_iunknown_handler wm_handler = { &test_iunknown_handler_vtbl, 1 };
+        struct test_iunknown_handler nav_starting_handler = { &test_iunknown_handler_vtbl, 1 };
+        UINT64 wm_token = 0, nav_starting_token = 0;
+
+        hr = ICoreWebView2_add_WebMessageReceived(webview, (void *)&wm_handler, &wm_token);
+        ok(hr == S_OK, "add_WebMessageReceived failed: %#lx\n", hr);
+        ok(wm_handler.ref == 2, "expected WebMessageReceived handler to be AddRef'd once, ref=%ld\n", wm_handler.ref);
+        ok(wm_token != 0, "expected a non-zero WebMessageReceived token\n");
+
+        hr = ICoreWebView2_add_NavigationStarting(webview, (void *)&nav_starting_handler, &nav_starting_token);
+        ok(hr == S_OK, "add_NavigationStarting failed: %#lx\n", hr);
+        ok(nav_starting_handler.ref == 2, "expected NavigationStarting handler to be AddRef'd once, ref=%ld\n",
+           nav_starting_handler.ref);
+        ok(nav_starting_token != 0, "expected a non-zero NavigationStarting token\n");
+        ok(nav_starting_token != wm_token, "expected distinct tokens for distinct registrations\n");
+
+        hr = ICoreWebView2_remove_WebMessageReceived(webview, (void *)(ULONG_PTR)wm_token);
+        ok(hr == S_OK, "remove_WebMessageReceived failed: %#lx\n", hr);
+        ok(wm_handler.ref == 1, "expected WebMessageReceived handler back at ref 1 after remove, ref=%ld\n", wm_handler.ref);
+        hr = ICoreWebView2_remove_WebMessageReceived(webview, (void *)(ULONG_PTR)wm_token);
+        ok(hr == S_OK, "remove_WebMessageReceived on an already-removed token returned %#lx, expected S_OK\n", hr);
+
+        hr = ICoreWebView2_remove_NavigationStarting(webview, (void *)(ULONG_PTR)nav_starting_token);
+        ok(hr == S_OK, "remove_NavigationStarting failed: %#lx\n", hr);
+        ok(nav_starting_handler.ref == 1, "expected NavigationStarting handler back at ref 1 after remove, ref=%ld\n",
+           nav_starting_handler.ref);
+
+        ICoreWebView2_Release(webview);
+    }
+
+    ICoreWebView2Controller_Release(ctrl);
+    ICoreWebView2Environment_Release(env);
+    FreeLibrary(mod);
+}
+
+struct test_add_script_handler
+{
+    ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandlerVtbl *vtbl;
+    HANDLE done_event;
+    HRESULT result_hr;
+    LPWSTR result_id;
+};
+static HRESULT WINAPI test_add_script_handler_QI(ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler *iface,
+                                                   REFIID riid, void **ppv) { *ppv = iface; return S_OK; }
+static ULONG WINAPI test_add_script_handler_AddRef(ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler *iface)
+{ return 2; }
+static ULONG WINAPI test_add_script_handler_Release(ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler *iface)
+{ return 1; }
+static HRESULT WINAPI test_add_script_handler_Invoke(ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler *iface,
+                                                       HRESULT errorCode, LPCWSTR result)
+{
+    struct test_add_script_handler *h = (struct test_add_script_handler *)iface;
+    h->result_hr = errorCode;
+    h->result_id = result ? _wcsdup(result) : NULL;
+    SetEvent(h->done_event);
+    return S_OK;
+}
+static ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandlerVtbl test_add_script_handler_vtbl =
+{ test_add_script_handler_QI, test_add_script_handler_AddRef, test_add_script_handler_Release, test_add_script_handler_Invoke };
+
+/* Task 11 regression test: AddScriptToExecuteOnDocumentCreated was the
+ * fifth and final recurrence of the whack-a-mole pattern, fixed last in
+ * this task and unverified against a real launch until this task's own
+ * end-to-end pass confirmed it (see webview_AddScriptToExecuteOnDocumentCreated's
+ * own comment in webview.c and this task's report for the real captured
+ * FLog evidence: "setInitScript calling AddScriptToExecuteOnDocumentCreated"
+ * / "AddScriptToExecuteOnDocumentCreated: result=0"). Confirms the real
+ * async completion semantics (S_OK returned synchronously, Invoke fires
+ * later with S_OK and a real, non-empty, unique script id string), and that
+ * RemoveScriptToExecuteOnDocumentCreated is a real synchronous S_OK no-op. */
+static void test_add_script_to_execute_on_document_created(void)
+{
+    HMODULE mod;
+    ICoreWebView2Environment *env;
+    ICoreWebView2Controller *ctrl;
+    ICoreWebView2 *webview = NULL;
+    HRESULT hr;
+
+    if (!create_test_controller(&mod, &env, &ctrl))
+    {
+        skip("TUXBLOX_WEBVIEW_DIR not set or environment/controller creation failed\n");
+        return;
+    }
+
+    ICoreWebView2Controller_get_CoreWebView2(ctrl, &webview);
+    ok(webview != NULL, "expected a webview\n");
+    if (webview)
+    {
+        struct test_add_script_handler handler = { &test_add_script_handler_vtbl };
+        struct test_add_script_handler handler2 = { &test_add_script_handler_vtbl };
+
+        handler.done_event = CreateEventW(NULL, FALSE, FALSE, NULL);
+        hr = ICoreWebView2_AddScriptToExecuteOnDocumentCreated(webview, L"window.__tuxbloxTest = 1;", &handler);
+        ok(hr == S_OK, "AddScriptToExecuteOnDocumentCreated returned %#lx\n", hr);
+        ok(WaitForSingleObject(handler.done_event, 10000) == WAIT_OBJECT_0,
+           "AddScriptToExecuteOnDocumentCreated completion handler never fired\n");
+        ok(handler.result_hr == S_OK, "expected completion hr S_OK, got %#lx\n", handler.result_hr);
+        ok(handler.result_id != NULL && handler.result_id[0] != 0,
+           "expected a real, non-empty script id\n");
+        CloseHandle(handler.done_event);
+
+        /* A second call gets a distinct id -- confirms next_script_id
+         * actually advances rather than returning a fixed placeholder. */
+        handler2.done_event = CreateEventW(NULL, FALSE, FALSE, NULL);
+        hr = ICoreWebView2_AddScriptToExecuteOnDocumentCreated(webview, L"window.__tuxbloxTest = 2;", &handler2);
+        ok(hr == S_OK, "second AddScriptToExecuteOnDocumentCreated returned %#lx\n", hr);
+        ok(WaitForSingleObject(handler2.done_event, 10000) == WAIT_OBJECT_0,
+           "second AddScriptToExecuteOnDocumentCreated completion handler never fired\n");
+        ok(handler.result_id && handler2.result_id && wcscmp(handler.result_id, handler2.result_id),
+           "expected two AddScriptToExecuteOnDocumentCreated calls to get distinct script ids\n");
+        CloseHandle(handler2.done_event);
+
+        free(handler.result_id);
+        free(handler2.result_id);
+
+        hr = ICoreWebView2_RemoveScriptToExecuteOnDocumentCreated(webview, L"tuxblox-script-1");
+        ok(hr == S_OK, "RemoveScriptToExecuteOnDocumentCreated returned %#lx, expected S_OK\n", hr);
+        /* Real WebView2 tolerates an unknown/already-removed id too. */
+        hr = ICoreWebView2_RemoveScriptToExecuteOnDocumentCreated(webview, L"not-a-real-script-id");
+        ok(hr == S_OK, "RemoveScriptToExecuteOnDocumentCreated on an unknown id returned %#lx, expected S_OK\n", hr);
+
+        ICoreWebView2_Release(webview);
+    }
+
+    ICoreWebView2Controller_Release(ctrl);
+    ICoreWebView2Environment_Release(env);
+    FreeLibrary(mod);
+}
+
 /* Regression test for the real Task 11 e2e finding: WebKitGTK's
  * JavaScriptCore installs its own process-wide SIGUSR1 handler the first
  * time a WebKitWebView is created (its GC/JIT "safepoint" signal), silently
@@ -1098,6 +1518,11 @@ START_TEST(webview2loader)
     test_navigate_twice();
     test_remove_navigation_completed();
     test_v2_base_slots_not_null();
+    test_controller4_environment8_queryinterface();
+    test_environment8_process_infos_changed();
+    test_get_settings();
+    test_webview_event_registration();
+    test_add_script_to_execute_on_document_created();
     test_delete_all_cookies();
     test_get_cookies();
     test_suspend_thread_after_webview();

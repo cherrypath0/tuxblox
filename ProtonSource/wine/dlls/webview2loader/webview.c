@@ -4,6 +4,7 @@
 
 #include <windef.h>
 #include <winbase.h>
+#include <winuser.h>
 #include <wine/debug.h>
 
 #include "unixlib.h"
@@ -18,6 +19,61 @@ struct nav_listener
     UINT64 token;
 };
 
+/* Task 11 real bug fix: real Roblox Studio's embedded-login-dialog flow
+ * (parented to a real HWND, not the CookieManager flow's HWND_MESSAGE --
+ * confirmed via a direct file-based logger added and removed during this
+ * investigation, see this task's report) calls add_WebMessageReceived
+ * immediately after getting the webview back, before ever calling
+ * Navigate(). This was left E_NOTIMPL since Task 7/8, harmlessly, because
+ * nothing on the login-dialog path had reached it before this task's
+ * Controller4/Environment8 QueryInterface fix cleared the way -- Studio
+ * treats a failed add_WebMessageReceived as fatal to the whole embedded
+ * browser setup (it needs a reliable channel for the login page to post
+ * the completed auth token back), aborting before Navigate().
+ *
+ * This only wires up real add/remove *registration* (a listener list,
+ * mirroring nav_listener/webview_add_NavigationCompleted exactly) so the
+ * call itself succeeds -- it does NOT implement the other half (an actual
+ * page calling window.chrome.webview.postMessage(...) and this DLL
+ * detecting and dispatching that through WebKitGTK back to these
+ * listeners). That would need real unixlib.c/WebKitGTK JS-bridge work,
+ * which is out of scope here: nothing in the evidence shows it's needed to
+ * reach Navigate(), only that the registration call itself must not fail.
+ * `handler` is stored as a bare IUnknown* (AddRef/Release only) rather than
+ * a fully-typed ICoreWebView2WebMessageReceivedEventHandler*, since this
+ * DLL never Invokes it -- same rationale as why this file's completion
+ * handlers elsewhere are only ever typed when actually invoked. */
+struct wm_listener
+{
+    struct wm_listener *next;
+    IUnknown *handler;
+    UINT64 token;
+};
+
+/* Task 11 real bug fix, continued: add_WebMessageReceived wasn't the only
+ * event registration Studio's embedded-login-dialog flow calls before
+ * Navigate() -- once that one stopped being fatal, the exact same
+ * "E_NOTIMPL from an add_X call treated as fatal, abort before Navigate()"
+ * pattern immediately recurred on add_NavigationStarting (confirmed via the
+ * same direct file-based logger). Rather than chase these one rebuild cycle
+ * at a time, every remaining add_X/remove_X event-registration pair on
+ * ICoreWebView2 (the ones that were still plain webview2_stub_e_notimpl)
+ * gets the same treatment as add_WebMessageReceived: a real, working
+ * registration (so the call succeeds and returns a real token) backed by
+ * one shared listener list, since none of them need to actually fire --
+ * nothing in the evidence shows Studio's login-dialog path depends on any
+ * of these events actually being raised, only that registering for them
+ * must not fail. A single shared list is enough because this DLL never
+ * walks it selectively by event type (it only ever fires
+ * NavigationCompleted, which keeps its own dedicated, real listener list
+ * above -- unaffected by this). */
+struct generic_listener
+{
+    struct generic_listener *next;
+    IUnknown *handler;
+    UINT64 token;
+};
+
 struct webview_impl
 {
     ICoreWebView2 ICoreWebView2_iface;
@@ -25,8 +81,11 @@ struct webview_impl
     UINT64 native_handle;
     LPWSTR source;
     struct nav_listener *listeners;
+    struct wm_listener *wm_listeners;
+    struct generic_listener *generic_listeners;
     UINT64 next_token;
     CRITICAL_SECTION cs;
+    ICoreWebView2Settings *settings; /* created lazily by get_Settings, Task 11 */
 };
 
 struct nav_args_impl
@@ -82,7 +141,12 @@ static ULONG WINAPI webview_Release(ICoreWebView2 *iface)
     if (!ref)
     {
         struct nav_listener *l = wv->listeners;
+        struct wm_listener *wml = wv->wm_listeners;
+        struct generic_listener *gl = wv->generic_listeners;
         while (l) { struct nav_listener *next = l->next; ICoreWebView2NavigationCompletedEventHandler_Release(l->handler); free(l); l = next; }
+        while (wml) { struct wm_listener *next = wml->next; wml->handler->lpVtbl->Release(wml->handler); free(wml); wml = next; }
+        while (gl) { struct generic_listener *next = gl->next; gl->handler->lpVtbl->Release(gl->handler); free(gl); gl = next; }
+        if (wv->settings) ICoreWebView2Settings_Release(wv->settings);
         CoTaskMemFree(wv->source);
         DeleteCriticalSection(&wv->cs);
         free(wv);
@@ -265,6 +329,108 @@ static HRESULT WINAPI webview_remove_NavigationCompleted(ICoreWebView2 *iface, v
     return S_OK; /* real WebView2 tolerates removing an already-gone/unknown token */
 }
 
+/* --- Task 11: WebMessageReceived registration -- see struct wm_listener's
+ * own comment above for what this does and doesn't implement. --- */
+
+static HRESULT WINAPI webview_add_WebMessageReceived(ICoreWebView2 *iface, void *eventHandler_raw, void *token_raw)
+{
+    struct webview_impl *wv = impl_from_ICoreWebView2(iface);
+    IUnknown *handler = eventHandler_raw;
+    UINT64 *token = token_raw;
+    struct wm_listener *l;
+
+    if (!handler || !token) return E_POINTER;
+    if (!(l = malloc(sizeof(*l)))) return E_OUTOFMEMORY;
+
+    handler->lpVtbl->AddRef(handler); /* IUnknown_AddRef isn't available under
+                                        * this DLL's __WINESRC__ build flags --
+                                        * calling straight through lpVtbl is
+                                        * equivalent and always works. */
+    l->handler = handler;
+
+    EnterCriticalSection(&wv->cs);
+    l->token = ++wv->next_token;
+    l->next = wv->wm_listeners;
+    wv->wm_listeners = l;
+    LeaveCriticalSection(&wv->cs);
+
+    *token = l->token;
+    return S_OK;
+}
+
+static HRESULT WINAPI webview_remove_WebMessageReceived(ICoreWebView2 *iface, void *token_raw)
+{
+    struct webview_impl *wv = impl_from_ICoreWebView2(iface);
+    UINT64 token = (UINT64)(ULONG_PTR)token_raw; /* see webview_remove_NavigationCompleted's comment on this cast */
+    struct wm_listener **cur;
+
+    EnterCriticalSection(&wv->cs);
+    for (cur = &wv->wm_listeners; *cur; cur = &(*cur)->next)
+    {
+        if ((*cur)->token == token)
+        {
+            struct wm_listener *dead = *cur;
+            *cur = dead->next;
+            LeaveCriticalSection(&wv->cs);
+            dead->handler->lpVtbl->Release(dead->handler);
+            free(dead);
+            return S_OK;
+        }
+    }
+    LeaveCriticalSection(&wv->cs);
+    return S_OK; /* real WebView2 tolerates removing an already-gone/unknown token */
+}
+
+/* --- Task 11: shared registration for every remaining add_X/remove_X
+ * event pair -- see struct generic_listener's own comment above for why a
+ * single shared list/pair of functions covers all of them. --- */
+
+static HRESULT WINAPI webview_generic_add_event(ICoreWebView2 *iface, void *eventHandler_raw, void *token_raw)
+{
+    struct webview_impl *wv = impl_from_ICoreWebView2(iface);
+    IUnknown *handler = eventHandler_raw;
+    UINT64 *token = token_raw;
+    struct generic_listener *l;
+
+    if (!handler || !token) return E_POINTER;
+    if (!(l = malloc(sizeof(*l)))) return E_OUTOFMEMORY;
+
+    handler->lpVtbl->AddRef(handler);
+    l->handler = handler;
+
+    EnterCriticalSection(&wv->cs);
+    l->token = ++wv->next_token;
+    l->next = wv->generic_listeners;
+    wv->generic_listeners = l;
+    LeaveCriticalSection(&wv->cs);
+
+    *token = l->token;
+    return S_OK;
+}
+
+static HRESULT WINAPI webview_generic_remove_event(ICoreWebView2 *iface, void *token_raw)
+{
+    struct webview_impl *wv = impl_from_ICoreWebView2(iface);
+    UINT64 token = (UINT64)(ULONG_PTR)token_raw; /* see webview_remove_NavigationCompleted's comment on this cast */
+    struct generic_listener **cur;
+
+    EnterCriticalSection(&wv->cs);
+    for (cur = &wv->generic_listeners; *cur; cur = &(*cur)->next)
+    {
+        if ((*cur)->token == token)
+        {
+            struct generic_listener *dead = *cur;
+            *cur = dead->next;
+            LeaveCriticalSection(&wv->cs);
+            dead->handler->lpVtbl->Release(dead->handler);
+            free(dead);
+            return S_OK;
+        }
+    }
+    LeaveCriticalSection(&wv->cs);
+    return S_OK; /* real WebView2 tolerates removing an already-gone/unknown token */
+}
+
 static HRESULT WINAPI webview_QueryInterface(ICoreWebView2 *iface, REFIID riid, void **ppv)
 {
     if (IsEqualGUID(riid, &IID_IUnknown) || IsEqualGUID(riid, &IID_ICoreWebView2))
@@ -277,44 +443,227 @@ static HRESULT WINAPI webview_QueryInterface(ICoreWebView2 *iface, REFIID riid, 
     return webview_query_interface_v2(iface, riid, ppv);
 }
 
+/* --- Task 11: AddScriptToExecuteOnDocumentCreated -- see this method's
+ * own comment in webview2loader_private.h for what this does and doesn't
+ * implement. Real async semantics: returns S_OK immediately, Invoke happens
+ * on a worker thread, same shape as environment_CreateCoreWebView2Controller
+ * / webview_Navigate elsewhere in this file. --- */
+
+struct add_script_ctx
+{
+    ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler *handler;
+};
+
+static DWORD WINAPI add_script_worker(void *arg)
+{
+    struct add_script_ctx *ctx = arg;
+    static LONG next_script_id;
+    WCHAR id[32];
+
+    wsprintfW(id, L"tuxblox-script-%d", InterlockedIncrement(&next_script_id));
+    ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler_Invoke(ctx->handler, S_OK, id);
+    ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler_Release(ctx->handler);
+    free(ctx);
+    return 0;
+}
+
+static HRESULT WINAPI webview_AddScriptToExecuteOnDocumentCreated(ICoreWebView2 *iface, LPCWSTR javaScript,
+                                                                    void *handler_raw)
+{
+    struct add_script_ctx *ctx;
+    ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler *handler = handler_raw;
+
+    if (!handler) return E_POINTER;
+    if (!(ctx = malloc(sizeof(*ctx)))) return E_OUTOFMEMORY;
+
+    ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler_AddRef(handler);
+    ctx->handler = handler;
+
+    if (!start_async_work(add_script_worker, ctx))
+    {
+        ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler_Release(handler);
+        free(ctx);
+        return E_FAIL;
+    }
+    return S_OK;
+}
+
+static HRESULT WINAPI webview_RemoveScriptToExecuteOnDocumentCreated(ICoreWebView2 *iface, LPCWSTR id)
+{
+    /* Nothing tracks injected scripts to actually remove (see this
+     * method's own comment in webview2loader_private.h) -- real WebView2
+     * tolerates an unknown/already-removed id too, so unconditional S_OK
+     * is not a behavioral shortcut here, it's the correct response either
+     * way. */
+    return S_OK;
+}
+
+/* --- Task 11: ICoreWebView2Settings -- a small, real, plain-old-fields
+ * object, same shape/spirit as NavigationCompletedEventArgs above. Defaults
+ * match real WebView2's own documented defaults (every property here
+ * defaults to TRUE on real Windows). --- */
+
+struct settings_impl
+{
+    ICoreWebView2Settings iface;
+    LONG ref;
+    BOOL is_script_enabled;
+    BOOL is_web_message_enabled;
+    BOOL are_default_script_dialogs_enabled;
+    BOOL is_status_bar_enabled;
+    BOOL are_dev_tools_enabled;
+    BOOL are_default_context_menus_enabled;
+    BOOL are_host_objects_allowed;
+    BOOL is_zoom_control_enabled;
+    BOOL is_built_in_error_page_enabled;
+};
+
+static inline struct settings_impl *impl_from_ICoreWebView2Settings(ICoreWebView2Settings *iface)
+{
+    return CONTAINING_RECORD(iface, struct settings_impl, iface);
+}
+
+static HRESULT WINAPI settings_QueryInterface(ICoreWebView2Settings *iface, REFIID riid, void **ppv)
+{
+    if (IsEqualGUID(riid, &IID_IUnknown) || IsEqualGUID(riid, &IID_ICoreWebView2Settings))
+    { *ppv = iface; ICoreWebView2Settings_AddRef(iface); return S_OK; }
+    *ppv = NULL;
+    return E_NOINTERFACE;
+}
+static ULONG WINAPI settings_AddRef(ICoreWebView2Settings *iface)
+{ return InterlockedIncrement(&impl_from_ICoreWebView2Settings(iface)->ref); }
+static ULONG WINAPI settings_Release(ICoreWebView2Settings *iface)
+{
+    struct settings_impl *s = impl_from_ICoreWebView2Settings(iface);
+    LONG ref = InterlockedDecrement(&s->ref);
+    if (!ref) free(s);
+    return ref;
+}
+
+/* One get/put pair per BOOL field -- named to match the real property,
+ * mechanically identical bodies (matches this file's existing
+ * Controller2/3/4 property pattern in controller.c). */
+#define SETTINGS_BOOL_PROPERTY(Name, field) \
+    static HRESULT WINAPI settings_get_##Name(ICoreWebView2Settings *iface, BOOL *value) \
+    { if (!value) return E_POINTER; *value = impl_from_ICoreWebView2Settings(iface)->field; return S_OK; } \
+    static HRESULT WINAPI settings_put_##Name(ICoreWebView2Settings *iface, BOOL value) \
+    { impl_from_ICoreWebView2Settings(iface)->field = value; return S_OK; }
+
+SETTINGS_BOOL_PROPERTY(IsScriptEnabled, is_script_enabled)
+SETTINGS_BOOL_PROPERTY(IsWebMessageEnabled, is_web_message_enabled)
+SETTINGS_BOOL_PROPERTY(AreDefaultScriptDialogsEnabled, are_default_script_dialogs_enabled)
+SETTINGS_BOOL_PROPERTY(IsStatusBarEnabled, is_status_bar_enabled)
+SETTINGS_BOOL_PROPERTY(AreDevToolsEnabled, are_dev_tools_enabled)
+SETTINGS_BOOL_PROPERTY(AreDefaultContextMenusEnabled, are_default_context_menus_enabled)
+SETTINGS_BOOL_PROPERTY(AreHostObjectsAllowed, are_host_objects_allowed)
+SETTINGS_BOOL_PROPERTY(IsZoomControlEnabled, is_zoom_control_enabled)
+SETTINGS_BOOL_PROPERTY(IsBuiltInErrorPageEnabled, is_built_in_error_page_enabled)
+#undef SETTINGS_BOOL_PROPERTY
+
+static const ICoreWebView2SettingsVtbl settings_vtbl =
+{
+    settings_QueryInterface,
+    settings_AddRef,
+    settings_Release,
+    settings_get_IsScriptEnabled,
+    settings_put_IsScriptEnabled,
+    settings_get_IsWebMessageEnabled,
+    settings_put_IsWebMessageEnabled,
+    settings_get_AreDefaultScriptDialogsEnabled,
+    settings_put_AreDefaultScriptDialogsEnabled,
+    settings_get_IsStatusBarEnabled,
+    settings_put_IsStatusBarEnabled,
+    settings_get_AreDevToolsEnabled,
+    settings_put_AreDevToolsEnabled,
+    settings_get_AreDefaultContextMenusEnabled,
+    settings_put_AreDefaultContextMenusEnabled,
+    settings_get_AreHostObjectsAllowed,
+    settings_put_AreHostObjectsAllowed,
+    settings_get_IsZoomControlEnabled,
+    settings_put_IsZoomControlEnabled,
+    settings_get_IsBuiltInErrorPageEnabled,
+    settings_put_IsBuiltInErrorPageEnabled,
+};
+
+HRESULT settings_create(ICoreWebView2Settings **out)
+{
+    struct settings_impl *s = calloc(1, sizeof(*s));
+    if (!s) return E_OUTOFMEMORY;
+
+    s->iface.lpVtbl = &settings_vtbl;
+    s->ref = 1;
+    s->is_script_enabled = TRUE;
+    s->is_web_message_enabled = TRUE;
+    s->are_default_script_dialogs_enabled = TRUE;
+    s->is_status_bar_enabled = TRUE;
+    s->are_dev_tools_enabled = TRUE;
+    s->are_default_context_menus_enabled = TRUE;
+    s->are_host_objects_allowed = TRUE;
+    s->is_zoom_control_enabled = TRUE;
+    s->is_built_in_error_page_enabled = TRUE;
+    *out = &s->iface;
+    return S_OK;
+}
+
+static HRESULT WINAPI webview_get_Settings(ICoreWebView2 *iface, void **settings)
+{
+    /* void ** here, not ICoreWebView2Settings **, to match this DLL's own
+     * ICoreWebView2Vtbl.get_Settings slot declaration in
+     * webview2loader_private.h (kept generic there, like every other
+     * not-yet-defined-interface slot in that table) -- a mismatched
+     * function pointer type on this vtable assignment would be a
+     * -Werror build failure, same reason every still-stubbed slot in this
+     * table is cast through (void *). */
+    struct webview_impl *wv = impl_from_ICoreWebView2(iface);
+    HRESULT hr;
+
+    if (!settings) return E_POINTER;
+    if (!wv->settings && FAILED(hr = settings_create(&wv->settings)))
+        return hr;
+
+    ICoreWebView2Settings_AddRef(wv->settings);
+    *settings = wv->settings;
+    return S_OK;
+}
+
 static const ICoreWebView2Vtbl webview_vtbl =
 {
     webview_QueryInterface,
     webview_AddRef,
     webview_Release,
-    (void *)webview2_stub_e_notimpl, /* get_Settings */
+    webview_get_Settings,
     webview_get_Source,
     webview_Navigate,
     webview_NavigateToString,
-    (void *)webview2_stub_e_notimpl, /* add_NavigationStarting */
-    (void *)webview2_stub_e_notimpl, /* remove_NavigationStarting */
-    (void *)webview2_stub_e_notimpl, /* add_ContentLoading */
-    (void *)webview2_stub_e_notimpl, /* remove_ContentLoading */
-    (void *)webview2_stub_e_notimpl, /* add_SourceChanged */
-    (void *)webview2_stub_e_notimpl, /* remove_SourceChanged */
-    (void *)webview2_stub_e_notimpl, /* add_HistoryChanged */
-    (void *)webview2_stub_e_notimpl, /* remove_HistoryChanged */
+    webview_generic_add_event, /* add_NavigationStarting */
+    webview_generic_remove_event, /* remove_NavigationStarting */
+    webview_generic_add_event, /* add_ContentLoading */
+    webview_generic_remove_event, /* remove_ContentLoading */
+    webview_generic_add_event, /* add_SourceChanged */
+    webview_generic_remove_event, /* remove_SourceChanged */
+    webview_generic_add_event, /* add_HistoryChanged */
+    webview_generic_remove_event, /* remove_HistoryChanged */
     webview_add_NavigationCompleted,
     webview_remove_NavigationCompleted,
-    (void *)webview2_stub_e_notimpl, /* add_FrameNavigationStarting */
-    (void *)webview2_stub_e_notimpl, /* remove_FrameNavigationStarting */
-    (void *)webview2_stub_e_notimpl, /* add_FrameNavigationCompleted */
-    (void *)webview2_stub_e_notimpl, /* remove_FrameNavigationCompleted */
-    (void *)webview2_stub_e_notimpl, /* add_ScriptDialogOpening */
-    (void *)webview2_stub_e_notimpl, /* remove_ScriptDialogOpening */
-    (void *)webview2_stub_e_notimpl, /* add_PermissionRequested */
-    (void *)webview2_stub_e_notimpl, /* remove_PermissionRequested */
-    (void *)webview2_stub_e_notimpl, /* add_ProcessFailed */
-    (void *)webview2_stub_e_notimpl, /* remove_ProcessFailed */
-    (void *)webview2_stub_e_notimpl, /* AddScriptToExecuteOnDocumentCreated */
-    (void *)webview2_stub_e_notimpl, /* RemoveScriptToExecuteOnDocumentCreated */
+    webview_generic_add_event, /* add_FrameNavigationStarting */
+    webview_generic_remove_event, /* remove_FrameNavigationStarting */
+    webview_generic_add_event, /* add_FrameNavigationCompleted */
+    webview_generic_remove_event, /* remove_FrameNavigationCompleted */
+    webview_generic_add_event, /* add_ScriptDialogOpening */
+    webview_generic_remove_event, /* remove_ScriptDialogOpening */
+    webview_generic_add_event, /* add_PermissionRequested */
+    webview_generic_remove_event, /* remove_PermissionRequested */
+    webview_generic_add_event, /* add_ProcessFailed */
+    webview_generic_remove_event, /* remove_ProcessFailed */
+    webview_AddScriptToExecuteOnDocumentCreated,
+    webview_RemoveScriptToExecuteOnDocumentCreated,
     (void *)webview2_stub_e_notimpl, /* ExecuteScript */
     (void *)webview2_stub_e_notimpl, /* CapturePreview */
     (void *)webview2_stub_e_notimpl, /* Reload */
     (void *)webview2_stub_e_notimpl, /* PostWebMessageAsJson */
     (void *)webview2_stub_e_notimpl, /* PostWebMessageAsString */
-    (void *)webview2_stub_e_notimpl, /* add_WebMessageReceived */
-    (void *)webview2_stub_e_notimpl, /* remove_WebMessageReceived */
+    webview_add_WebMessageReceived,
+    webview_remove_WebMessageReceived,
     (void *)webview2_stub_e_notimpl, /* CallDevToolsProtocolMethod */
     (void *)webview2_stub_e_notimpl, /* get_BrowserProcessId */
     (void *)webview2_stub_e_notimpl, /* get_CanGoBack */
@@ -323,23 +672,23 @@ static const ICoreWebView2Vtbl webview_vtbl =
     (void *)webview2_stub_e_notimpl, /* GoForward */
     (void *)webview2_stub_e_notimpl, /* GetDevToolsProtocolEventReceiver */
     (void *)webview2_stub_e_notimpl, /* Stop */
-    (void *)webview2_stub_e_notimpl, /* add_NewWindowRequested */
-    (void *)webview2_stub_e_notimpl, /* remove_NewWindowRequested */
-    (void *)webview2_stub_e_notimpl, /* add_DocumentTitleChanged */
-    (void *)webview2_stub_e_notimpl, /* remove_DocumentTitleChanged */
+    webview_generic_add_event, /* add_NewWindowRequested */
+    webview_generic_remove_event, /* remove_NewWindowRequested */
+    webview_generic_add_event, /* add_DocumentTitleChanged */
+    webview_generic_remove_event, /* remove_DocumentTitleChanged */
     (void *)webview2_stub_e_notimpl, /* get_DocumentTitle */
     (void *)webview2_stub_e_notimpl, /* AddHostObjectToScript */
     (void *)webview2_stub_e_notimpl, /* RemoveHostObjectFromScript */
     (void *)webview2_stub_e_notimpl, /* OpenDevToolsWindow */
-    (void *)webview2_stub_e_notimpl, /* add_ContainsFullScreenElementChanged */
-    (void *)webview2_stub_e_notimpl, /* remove_ContainsFullScreenElementChanged */
+    webview_generic_add_event, /* add_ContainsFullScreenElementChanged */
+    webview_generic_remove_event, /* remove_ContainsFullScreenElementChanged */
     (void *)webview2_stub_e_notimpl, /* get_ContainsFullScreenElement */
-    (void *)webview2_stub_e_notimpl, /* add_WebResourceRequested */
-    (void *)webview2_stub_e_notimpl, /* remove_WebResourceRequested */
+    webview_generic_add_event, /* add_WebResourceRequested */
+    webview_generic_remove_event, /* remove_WebResourceRequested */
     (void *)webview2_stub_e_notimpl, /* AddWebResourceRequestedFilter */
     (void *)webview2_stub_e_notimpl, /* RemoveWebResourceRequestedFilter */
-    (void *)webview2_stub_e_notimpl, /* add_WindowCloseRequested */
-    (void *)webview2_stub_e_notimpl, /* remove_WindowCloseRequested */
+    webview_generic_add_event, /* add_WindowCloseRequested */
+    webview_generic_remove_event, /* remove_WindowCloseRequested */
 };
 
 HRESULT webview_create(UINT64 native_handle, ICoreWebView2 **out)
@@ -397,36 +746,36 @@ static const struct webview2_2_vtbl_combined webview2_2_vtbl =
      * coverage added for this. */
     {
         webview_QueryInterface, webview_AddRef, webview_Release,
-        (void *)webview2_stub_e_notimpl, /* get_Settings */
+        webview_get_Settings,
         webview_get_Source, webview_Navigate, webview_NavigateToString,
-        (void *)webview2_stub_e_notimpl, /* add_NavigationStarting */
-        (void *)webview2_stub_e_notimpl, /* remove_NavigationStarting */
-        (void *)webview2_stub_e_notimpl, /* add_ContentLoading */
-        (void *)webview2_stub_e_notimpl, /* remove_ContentLoading */
-        (void *)webview2_stub_e_notimpl, /* add_SourceChanged */
-        (void *)webview2_stub_e_notimpl, /* remove_SourceChanged */
-        (void *)webview2_stub_e_notimpl, /* add_HistoryChanged */
-        (void *)webview2_stub_e_notimpl, /* remove_HistoryChanged */
+        webview_generic_add_event, /* add_NavigationStarting */
+        webview_generic_remove_event, /* remove_NavigationStarting */
+        webview_generic_add_event, /* add_ContentLoading */
+        webview_generic_remove_event, /* remove_ContentLoading */
+        webview_generic_add_event, /* add_SourceChanged */
+        webview_generic_remove_event, /* remove_SourceChanged */
+        webview_generic_add_event, /* add_HistoryChanged */
+        webview_generic_remove_event, /* remove_HistoryChanged */
         webview_add_NavigationCompleted, webview_remove_NavigationCompleted,
-        (void *)webview2_stub_e_notimpl, /* add_FrameNavigationStarting */
-        (void *)webview2_stub_e_notimpl, /* remove_FrameNavigationStarting */
-        (void *)webview2_stub_e_notimpl, /* add_FrameNavigationCompleted */
-        (void *)webview2_stub_e_notimpl, /* remove_FrameNavigationCompleted */
-        (void *)webview2_stub_e_notimpl, /* add_ScriptDialogOpening */
-        (void *)webview2_stub_e_notimpl, /* remove_ScriptDialogOpening */
-        (void *)webview2_stub_e_notimpl, /* add_PermissionRequested */
-        (void *)webview2_stub_e_notimpl, /* remove_PermissionRequested */
-        (void *)webview2_stub_e_notimpl, /* add_ProcessFailed */
-        (void *)webview2_stub_e_notimpl, /* remove_ProcessFailed */
-        (void *)webview2_stub_e_notimpl, /* AddScriptToExecuteOnDocumentCreated */
-        (void *)webview2_stub_e_notimpl, /* RemoveScriptToExecuteOnDocumentCreated */
+        webview_generic_add_event, /* add_FrameNavigationStarting */
+        webview_generic_remove_event, /* remove_FrameNavigationStarting */
+        webview_generic_add_event, /* add_FrameNavigationCompleted */
+        webview_generic_remove_event, /* remove_FrameNavigationCompleted */
+        webview_generic_add_event, /* add_ScriptDialogOpening */
+        webview_generic_remove_event, /* remove_ScriptDialogOpening */
+        webview_generic_add_event, /* add_PermissionRequested */
+        webview_generic_remove_event, /* remove_PermissionRequested */
+        webview_generic_add_event, /* add_ProcessFailed */
+        webview_generic_remove_event, /* remove_ProcessFailed */
+        webview_AddScriptToExecuteOnDocumentCreated,
+        webview_RemoveScriptToExecuteOnDocumentCreated,
         (void *)webview2_stub_e_notimpl, /* ExecuteScript */
         (void *)webview2_stub_e_notimpl, /* CapturePreview */
         (void *)webview2_stub_e_notimpl, /* Reload */
         (void *)webview2_stub_e_notimpl, /* PostWebMessageAsJson */
         (void *)webview2_stub_e_notimpl, /* PostWebMessageAsString */
-        (void *)webview2_stub_e_notimpl, /* add_WebMessageReceived */
-        (void *)webview2_stub_e_notimpl, /* remove_WebMessageReceived */
+        webview_add_WebMessageReceived,
+        webview_remove_WebMessageReceived,
         (void *)webview2_stub_e_notimpl, /* CallDevToolsProtocolMethod */
         (void *)webview2_stub_e_notimpl, /* get_BrowserProcessId */
         (void *)webview2_stub_e_notimpl, /* get_CanGoBack */
@@ -435,30 +784,30 @@ static const struct webview2_2_vtbl_combined webview2_2_vtbl =
         (void *)webview2_stub_e_notimpl, /* GoForward */
         (void *)webview2_stub_e_notimpl, /* GetDevToolsProtocolEventReceiver */
         (void *)webview2_stub_e_notimpl, /* Stop */
-        (void *)webview2_stub_e_notimpl, /* add_NewWindowRequested */
-        (void *)webview2_stub_e_notimpl, /* remove_NewWindowRequested */
-        (void *)webview2_stub_e_notimpl, /* add_DocumentTitleChanged */
-        (void *)webview2_stub_e_notimpl, /* remove_DocumentTitleChanged */
+        webview_generic_add_event, /* add_NewWindowRequested */
+        webview_generic_remove_event, /* remove_NewWindowRequested */
+        webview_generic_add_event, /* add_DocumentTitleChanged */
+        webview_generic_remove_event, /* remove_DocumentTitleChanged */
         (void *)webview2_stub_e_notimpl, /* get_DocumentTitle */
         (void *)webview2_stub_e_notimpl, /* AddHostObjectToScript */
         (void *)webview2_stub_e_notimpl, /* RemoveHostObjectFromScript */
         (void *)webview2_stub_e_notimpl, /* OpenDevToolsWindow */
-        (void *)webview2_stub_e_notimpl, /* add_ContainsFullScreenElementChanged */
-        (void *)webview2_stub_e_notimpl, /* remove_ContainsFullScreenElementChanged */
+        webview_generic_add_event, /* add_ContainsFullScreenElementChanged */
+        webview_generic_remove_event, /* remove_ContainsFullScreenElementChanged */
         (void *)webview2_stub_e_notimpl, /* get_ContainsFullScreenElement */
-        (void *)webview2_stub_e_notimpl, /* add_WebResourceRequested */
-        (void *)webview2_stub_e_notimpl, /* remove_WebResourceRequested */
+        webview_generic_add_event, /* add_WebResourceRequested */
+        webview_generic_remove_event, /* remove_WebResourceRequested */
         (void *)webview2_stub_e_notimpl, /* AddWebResourceRequestedFilter */
         (void *)webview2_stub_e_notimpl, /* RemoveWebResourceRequestedFilter */
-        (void *)webview2_stub_e_notimpl, /* add_WindowCloseRequested */
-        (void *)webview2_stub_e_notimpl, /* remove_WindowCloseRequested */
+        webview_generic_add_event, /* add_WindowCloseRequested */
+        webview_generic_remove_event, /* remove_WindowCloseRequested */
     },
     {
-        (void *)webview2_stub_e_notimpl, /* add_WebResourceResponseReceived */
-        (void *)webview2_stub_e_notimpl, /* remove_WebResourceResponseReceived */
+        webview_generic_add_event, /* add_WebResourceResponseReceived */
+        webview_generic_remove_event, /* remove_WebResourceResponseReceived */
         (void *)webview2_stub_e_notimpl, /* NavigateWithWebResourceRequest */
-        (void *)webview2_stub_e_notimpl, /* add_DOMContentLoaded */
-        (void *)webview2_stub_e_notimpl, /* remove_DOMContentLoaded */
+        webview_generic_add_event, /* add_DOMContentLoaded */
+        webview_generic_remove_event, /* remove_DOMContentLoaded */
         webview2_get_CookieManager,
         webview2_get_Environment,
     },
@@ -487,6 +836,9 @@ HRESULT webview_query_interface_v2(ICoreWebView2 *iface, REFIID riid, void **ppv
         ICoreWebView2_AddRef(iface);
         return S_OK;
     }
+    /* Final fallback for ICoreWebView2 -- reached once neither IUnknown,
+     * ICoreWebView2, nor ICoreWebView2_2 matched riid. */
+    WARN("no interface for %s\n", debugstr_guid(riid));
     *ppv = NULL;
     return E_NOINTERFACE;
 }

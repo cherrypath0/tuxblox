@@ -330,6 +330,128 @@ HRESULT webview_create(UINT64 native_handle, ICoreWebView2 **out);
  * not this declaration. */
 HRESULT webview_query_interface_v2(ICoreWebView2 *iface, REFIID riid, void **ppv);
 
+/* Task 11 real bug fix, continued a third time: once add_ProcessInfosChanged
+ * stopped being fatal, the exact same pattern recurred a fourth time --
+ * Studio calls webview->get_Settings() (confirmed via the same direct
+ * file-based logger) before Navigate(), and a failed get_Settings is fatal
+ * too. Unlike the earlier fixes, get_Settings can't be satisfied by a
+ * registration-only stub: real WebView2 apps read/write real settings
+ * (Roblox's own startup flow plausibly does, e.g. to ensure scripting is
+ * enabled for its login page) and a caller expecting a real, working
+ * ICoreWebView2Settings object back is a reasonable thing to depend on
+ * synchronously, unlike an event that might just never fire. All 10 real
+ * properties get real, working get/put bodies backed by plain fields
+ * (matches this file's existing "cheap state, no real dispatch" pattern
+ * used for the Controller2/3/4 properties) -- defaults match real
+ * WebView2's own documented defaults (every one of these defaults to TRUE
+ * on real Windows). Base ICoreWebView2Settings only (not Settings2-9):
+ * no evidence Studio's login-dialog path QueryInterfaces this object
+ * further, matching this task's "fix exactly what the evidence shows,
+ * nothing more" approach throughout. */
+DEFINE_GUID(IID_ICoreWebView2Settings, 0xe562e4f0, 0xd7fa, 0x43ac, 0x8d, 0x71, 0xc0, 0x51, 0x50, 0x49, 0x9f, 0x00);
+
+typedef struct ICoreWebView2Settings ICoreWebView2Settings;
+typedef struct ICoreWebView2SettingsVtbl
+{
+    HRESULT (WINAPI *QueryInterface)(ICoreWebView2Settings *This, REFIID riid, void **ppv);
+    ULONG   (WINAPI *AddRef)(ICoreWebView2Settings *This);
+    ULONG   (WINAPI *Release)(ICoreWebView2Settings *This);
+    HRESULT (WINAPI *get_IsScriptEnabled)(ICoreWebView2Settings *This, BOOL *value);
+    HRESULT (WINAPI *put_IsScriptEnabled)(ICoreWebView2Settings *This, BOOL value);
+    HRESULT (WINAPI *get_IsWebMessageEnabled)(ICoreWebView2Settings *This, BOOL *value);
+    HRESULT (WINAPI *put_IsWebMessageEnabled)(ICoreWebView2Settings *This, BOOL value);
+    HRESULT (WINAPI *get_AreDefaultScriptDialogsEnabled)(ICoreWebView2Settings *This, BOOL *value);
+    HRESULT (WINAPI *put_AreDefaultScriptDialogsEnabled)(ICoreWebView2Settings *This, BOOL value);
+    HRESULT (WINAPI *get_IsStatusBarEnabled)(ICoreWebView2Settings *This, BOOL *value);
+    HRESULT (WINAPI *put_IsStatusBarEnabled)(ICoreWebView2Settings *This, BOOL value);
+    HRESULT (WINAPI *get_AreDevToolsEnabled)(ICoreWebView2Settings *This, BOOL *value);
+    HRESULT (WINAPI *put_AreDevToolsEnabled)(ICoreWebView2Settings *This, BOOL value);
+    HRESULT (WINAPI *get_AreDefaultContextMenusEnabled)(ICoreWebView2Settings *This, BOOL *value);
+    HRESULT (WINAPI *put_AreDefaultContextMenusEnabled)(ICoreWebView2Settings *This, BOOL value);
+    HRESULT (WINAPI *get_AreHostObjectsAllowed)(ICoreWebView2Settings *This, BOOL *value);
+    HRESULT (WINAPI *put_AreHostObjectsAllowed)(ICoreWebView2Settings *This, BOOL value);
+    HRESULT (WINAPI *get_IsZoomControlEnabled)(ICoreWebView2Settings *This, BOOL *value);
+    HRESULT (WINAPI *put_IsZoomControlEnabled)(ICoreWebView2Settings *This, BOOL value);
+    HRESULT (WINAPI *get_IsBuiltInErrorPageEnabled)(ICoreWebView2Settings *This, BOOL *value);
+    HRESULT (WINAPI *put_IsBuiltInErrorPageEnabled)(ICoreWebView2Settings *This, BOOL value);
+} ICoreWebView2SettingsVtbl;
+struct ICoreWebView2Settings { const ICoreWebView2SettingsVtbl *lpVtbl; };
+
+#ifdef COBJMACROS
+#define ICoreWebView2Settings_QueryInterface(This,riid,ppv) (This)->lpVtbl->QueryInterface(This,riid,ppv)
+#define ICoreWebView2Settings_AddRef(This) (This)->lpVtbl->AddRef(This)
+#define ICoreWebView2Settings_Release(This) (This)->lpVtbl->Release(This)
+#define ICoreWebView2Settings_get_IsScriptEnabled(This,value) (This)->lpVtbl->get_IsScriptEnabled(This,value)
+#define ICoreWebView2Settings_put_IsScriptEnabled(This,value) (This)->lpVtbl->put_IsScriptEnabled(This,value)
+#define ICoreWebView2Settings_get_IsWebMessageEnabled(This,value) (This)->lpVtbl->get_IsWebMessageEnabled(This,value)
+#define ICoreWebView2Settings_put_IsWebMessageEnabled(This,value) (This)->lpVtbl->put_IsWebMessageEnabled(This,value)
+#define ICoreWebView2Settings_get_AreDefaultScriptDialogsEnabled(This,value) \
+    (This)->lpVtbl->get_AreDefaultScriptDialogsEnabled(This,value)
+#define ICoreWebView2Settings_put_AreDefaultScriptDialogsEnabled(This,value) \
+    (This)->lpVtbl->put_AreDefaultScriptDialogsEnabled(This,value)
+#define ICoreWebView2Settings_get_IsStatusBarEnabled(This,value) (This)->lpVtbl->get_IsStatusBarEnabled(This,value)
+#define ICoreWebView2Settings_put_IsStatusBarEnabled(This,value) (This)->lpVtbl->put_IsStatusBarEnabled(This,value)
+#define ICoreWebView2Settings_get_AreDevToolsEnabled(This,value) (This)->lpVtbl->get_AreDevToolsEnabled(This,value)
+#define ICoreWebView2Settings_put_AreDevToolsEnabled(This,value) (This)->lpVtbl->put_AreDevToolsEnabled(This,value)
+#define ICoreWebView2Settings_get_AreDefaultContextMenusEnabled(This,value) \
+    (This)->lpVtbl->get_AreDefaultContextMenusEnabled(This,value)
+#define ICoreWebView2Settings_put_AreDefaultContextMenusEnabled(This,value) \
+    (This)->lpVtbl->put_AreDefaultContextMenusEnabled(This,value)
+#define ICoreWebView2Settings_get_AreHostObjectsAllowed(This,value) (This)->lpVtbl->get_AreHostObjectsAllowed(This,value)
+#define ICoreWebView2Settings_put_AreHostObjectsAllowed(This,value) (This)->lpVtbl->put_AreHostObjectsAllowed(This,value)
+#define ICoreWebView2Settings_get_IsZoomControlEnabled(This,value) (This)->lpVtbl->get_IsZoomControlEnabled(This,value)
+#define ICoreWebView2Settings_put_IsZoomControlEnabled(This,value) (This)->lpVtbl->put_IsZoomControlEnabled(This,value)
+#define ICoreWebView2Settings_get_IsBuiltInErrorPageEnabled(This,value) \
+    (This)->lpVtbl->get_IsBuiltInErrorPageEnabled(This,value)
+#define ICoreWebView2Settings_put_IsBuiltInErrorPageEnabled(This,value) \
+    (This)->lpVtbl->put_IsBuiltInErrorPageEnabled(This,value)
+#endif
+
+/* Constructs an ICoreWebView2Settings (refcount 1) with real WebView2
+ * default values (see this interface's own comment above). */
+HRESULT settings_create(ICoreWebView2Settings **out);
+
+/* Task 11 real bug fix, continued a fifth time: once get_Settings stopped
+ * being fatal, the same pattern recurred again -- Studio calls
+ * AddScriptToExecuteOnDocumentCreated (confirmed via the same direct
+ * file-based logger) before Navigate(), most plausibly to inject its own
+ * postMessage/bridging JS into the login page before any of the page's own
+ * scripts run. Implemented with real async semantics (matches this file's
+ * existing CreateCoreWebView2Controller/Navigate pattern: returns S_OK
+ * immediately, the real completion Invoke happens on a worker thread) and
+ * a real, unique scriptId string, but does NOT actually inject the script
+ * into the page via WebKitGTK -- that would need real unixlib.c/WebKitGTK
+ * work with no evidence yet that it's needed to reach Navigate(), same
+ * reasoning as GetProcessInfos/CreateWebResourceRequest staying E_NOTIMPL
+ * elsewhere in this file. RemoveScriptToExecuteOnDocumentCreated is a
+ * simple synchronous no-op success for the same reason (nothing is really
+ * tracking injected scripts to remove). */
+DEFINE_GUID(IID_ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler,
+            0xb99369f3, 0x9b11, 0x47b5, 0xbc, 0x6f, 0x8e, 0x78, 0x95, 0xfc, 0xea, 0x17);
+
+typedef struct ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler
+    ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler;
+typedef struct ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandlerVtbl
+{
+    HRESULT (WINAPI *QueryInterface)(ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler *This,
+                                      REFIID riid, void **ppv);
+    ULONG   (WINAPI *AddRef)(ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler *This);
+    ULONG   (WINAPI *Release)(ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler *This);
+    HRESULT (WINAPI *Invoke)(ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler *This,
+                              HRESULT errorCode, LPCWSTR result);
+} ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandlerVtbl;
+struct ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler
+{ const ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandlerVtbl *lpVtbl; };
+
+#ifdef COBJMACROS
+#define ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler_QueryInterface(This,riid,ppv) \
+    (This)->lpVtbl->QueryInterface(This,riid,ppv)
+#define ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler_AddRef(This) (This)->lpVtbl->AddRef(This)
+#define ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler_Release(This) (This)->lpVtbl->Release(This)
+#define ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler_Invoke(This,errorCode,result) \
+    (This)->lpVtbl->Invoke(This,errorCode,result)
+#endif
+
 typedef struct ICoreWebView2Controller ICoreWebView2Controller;
 typedef struct ICoreWebView2ControllerVtbl
 {
@@ -676,5 +798,123 @@ struct ICoreWebView2GetCookiesCompletedHandler { const ICoreWebView2GetCookiesCo
 #define ICoreWebView2GetCookiesCompletedHandler_Invoke(This,errorCode,result) \
     (This)->lpVtbl->Invoke(This,errorCode,result)
 #endif
+
+/* Task 11 (QueryInterface capability-probe fix): real Roblox Studio's
+ * onCreateCoreWebView2ControllerCompleted, right after a successful
+ * CreateCoreWebView2Controller (hr=S_OK, non-null controller -- confirmed
+ * via a direct file-based logger added and removed during this
+ * investigation, see this task's report for the raw evidence), calls
+ * ICoreWebView2Controller_QueryInterface for IID_ICoreWebView2Controller4
+ * and ICoreWebView2Environment_QueryInterface for
+ * IID_ICoreWebView2Environment8. Both came back E_NOINTERFACE (neither was
+ * recognized before this task), and Studio treats that combination as a
+ * hard failure of the whole completion callback -- "WebView2 failed
+ * onCreateCoreWebView2ControllerCompleted" in its own FLog -- even though
+ * the controller it just got back is perfectly valid, so Navigate() is
+ * never reached. Note this is a DIFFERENT controller/environment pair than
+ * the one clearAllCookiesAndRunCallbackHelper uses (that one, parented to
+ * HWND_MESSAGE, only gets as far as an Environment10 QueryInterface, which
+ * is harmless because that flow doesn't need it); this fix targets the
+ * *second* controller/environment pair, the one parented to a real HWND for
+ * the actual embedded login dialog.
+ *
+ * Real chain per WebView2.h (each numbered interface strictly appends, same
+ * versioning discipline as ICoreWebView2_2 above): ICoreWebView2Environment
+ * -> Environment2 -> ... -> Environment8; ICoreWebView2Controller ->
+ * Controller2 -> Controller3 -> Controller4. IIDs and vtable slot order
+ * below are a direct transcription of the real 1.0.4129.50 WebView2.h,
+ * verified the same way as everywhere else in this file.
+ *
+ * Method bodies: the cheap, state-only property getters/setters (added by
+ * Controller2/Controller3/Controller4) are given real, working
+ * implementations backed by plain fields on struct controller_impl --
+ * unlike a one-shot completed-handler Invoke, a caller might reasonably
+ * read back a value it just set (or rely on a real documented default,
+ * e.g. AllowExternalDrop defaults to TRUE in real WebView2), and an
+ * unconditional-at-startup setter returning E_NOTIMPL is exactly the kind
+ * of thing that already caused this bug once. The heavier,
+ * object-constructing/event-registration methods (CreateWebResourceRequest,
+ * CreateCoreWebView2CompositionController, CreateCoreWebView2PointerInfo,
+ * GetAutomationProviderForWindow, add/remove_BrowserProcessExited,
+ * CreatePrintSettings, get_UserDataFolder,
+ * add/remove_ProcessInfosChanged, GetProcessInfos) stay
+ * webview2_stub_e_notimpl, matching this file's existing "most real, rest
+ * E_NOTIMPL" precedent (see get_Environment's own comment in webview.c) --
+ * there's no evidence Studio's login-dialog path calls any of these, and
+ * unlike the simple property accessors, getting one of these wrong (e.g.
+ * fabricating a fake UserDataFolder path or a fake process list) risks
+ * introducing a new bug more than leaving it E_NOTIMPL does. */
+
+typedef struct
+{
+    BYTE A, R, G, B;
+} COREWEBVIEW2_COLOR;
+
+typedef enum
+{
+    COREWEBVIEW2_BOUNDS_MODE_USE_RAW_PIXELS = 0,
+    COREWEBVIEW2_BOUNDS_MODE_USE_RASTERIZATION_SCALE = 1,
+} COREWEBVIEW2_BOUNDS_MODE;
+
+DEFINE_GUID(IID_ICoreWebView2Controller4, 0x97d418d5, 0xa426, 0x4e49, 0xa1, 0x51, 0xe1, 0xa1, 0x0f, 0x32, 0x7d, 0x9e);
+DEFINE_GUID(IID_ICoreWebView2Environment8, 0xd6eb91dd, 0xc3d2, 0x45e5, 0xbd, 0x29, 0x6d, 0xc2, 0xbc, 0x4d, 0xe9, 0xcf);
+
+/* Controller2 (2) + Controller3 (8) + Controller4 (2) = 12 new slots appended
+ * after ICoreWebView2Controller's real 26. */
+typedef struct
+{
+    HRESULT (WINAPI *get_DefaultBackgroundColor)(ICoreWebView2Controller *This, COREWEBVIEW2_COLOR *value);
+    HRESULT (WINAPI *put_DefaultBackgroundColor)(ICoreWebView2Controller *This, COREWEBVIEW2_COLOR value);
+    HRESULT (WINAPI *get_RasterizationScale)(ICoreWebView2Controller *This, double *scale);
+    HRESULT (WINAPI *put_RasterizationScale)(ICoreWebView2Controller *This, double scale);
+    HRESULT (WINAPI *get_ShouldDetectMonitorScaleChanges)(ICoreWebView2Controller *This, BOOL *value);
+    HRESULT (WINAPI *put_ShouldDetectMonitorScaleChanges)(ICoreWebView2Controller *This, BOOL value);
+    HRESULT (WINAPI *add_RasterizationScaleChanged)(ICoreWebView2Controller *This, void *eventHandler, void *token);
+    HRESULT (WINAPI *remove_RasterizationScaleChanged)(ICoreWebView2Controller *This, void *token);
+    HRESULT (WINAPI *get_BoundsMode)(ICoreWebView2Controller *This, COREWEBVIEW2_BOUNDS_MODE *boundsMode);
+    HRESULT (WINAPI *put_BoundsMode)(ICoreWebView2Controller *This, COREWEBVIEW2_BOUNDS_MODE boundsMode);
+    HRESULT (WINAPI *get_AllowExternalDrop)(ICoreWebView2Controller *This, BOOL *value);
+    HRESULT (WINAPI *put_AllowExternalDrop)(ICoreWebView2Controller *This, BOOL value);
+} webview2_controller4_extension_vtbl;
+
+/* Combined vtable: ICoreWebView2Controller's real 26 entries (byte-identical
+ * layout/order to controller_vtbl in controller.c) plus the 12 above.
+ * Declared here, not controller.c, so tests/webview2loader.c can reach
+ * ext.* directly -- same reasoning as webview2_2_vtbl_combined above. */
+struct webview2_controller4_vtbl_combined
+{
+    ICoreWebView2ControllerVtbl base;
+    webview2_controller4_extension_vtbl ext;
+};
+
+/* Environment2 (1) + Environment3 (2) + Environment4 (1) + Environment5 (2)
+ * + Environment6 (1) + Environment7 (1) + Environment8 (3) = 11 new slots
+ * appended after ICoreWebView2Environment's real 8 total slots. */
+typedef struct
+{
+    HRESULT (WINAPI *CreateWebResourceRequest)(ICoreWebView2Environment *This, LPCWSTR uri, LPCWSTR method,
+                                                 void *postData, LPCWSTR headers, void **value);
+    HRESULT (WINAPI *CreateCoreWebView2CompositionController)(ICoreWebView2Environment *This, HWND parentWindow,
+                                                                void *handler);
+    HRESULT (WINAPI *CreateCoreWebView2PointerInfo)(ICoreWebView2Environment *This, void **value);
+    HRESULT (WINAPI *GetAutomationProviderForWindow)(ICoreWebView2Environment *This, HWND hwnd, void **provider);
+    HRESULT (WINAPI *add_BrowserProcessExited)(ICoreWebView2Environment *This, void *eventHandler, void *token);
+    HRESULT (WINAPI *remove_BrowserProcessExited)(ICoreWebView2Environment *This, void *token);
+    HRESULT (WINAPI *CreatePrintSettings)(ICoreWebView2Environment *This, void **printSettings);
+    HRESULT (WINAPI *get_UserDataFolder)(ICoreWebView2Environment *This, LPWSTR *value);
+    HRESULT (WINAPI *add_ProcessInfosChanged)(ICoreWebView2Environment *This, void *eventHandler, void *token);
+    HRESULT (WINAPI *remove_ProcessInfosChanged)(ICoreWebView2Environment *This, void *token);
+    HRESULT (WINAPI *GetProcessInfos)(ICoreWebView2Environment *This, void **processInfoCollection);
+} webview2_environment8_extension_vtbl;
+
+/* Combined vtable: ICoreWebView2Environment's real 8 entries
+ * (byte-identical layout/order to environment_vtbl in environment.c) plus
+ * the 11 above. Declared here for the same tests-visibility reason as the
+ * controller one above. */
+struct webview2_environment8_vtbl_combined
+{
+    ICoreWebView2EnvironmentVtbl base;
+    webview2_environment8_extension_vtbl ext;
+};
 
 #endif /* __WINE_WEBVIEW2LOADER_PRIVATE_H */

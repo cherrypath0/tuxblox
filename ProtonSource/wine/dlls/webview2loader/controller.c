@@ -23,6 +23,18 @@ struct controller_impl
                       * Release() hitting refcount 0, or two Close() calls
                       * (real WebView2's Close() is documented idempotent) */
     ICoreWebView2 *webview; /* created lazily by get_CoreWebView2, Task 7 */
+
+    /* Task 11: Controller2/3/4 state-only properties -- see the extension
+     * vtable's own comment in webview2loader_private.h for why these get
+     * real bodies instead of E_NOTIMPL. Defaults match real WebView2's own
+     * documented defaults, not arbitrary picks. */
+    COREWEBVIEW2_COLOR default_bg_color;   /* real default: opaque white */
+    double rasterization_scale;            /* real default: 1.0 */
+    BOOL should_detect_monitor_scale_changes; /* real default: TRUE */
+    COREWEBVIEW2_BOUNDS_MODE bounds_mode;  /* matches this controller's
+                                             * existing raw-pixel put_Bounds
+                                             * behavior */
+    BOOL allow_external_drop;              /* real default: TRUE */
 };
 
 /* Tears down the real GTK window/WebKitWebView this controller owns.
@@ -45,17 +57,10 @@ static inline struct controller_impl *impl_from_ICoreWebView2Controller(ICoreWeb
     return CONTAINING_RECORD(iface, struct controller_impl, ICoreWebView2Controller_iface);
 }
 
-static HRESULT WINAPI controller_QueryInterface(ICoreWebView2Controller *iface, REFIID riid, void **ppv)
-{
-    if (IsEqualGUID(riid, &IID_IUnknown) || IsEqualGUID(riid, &IID_ICoreWebView2Controller))
-    {
-        *ppv = iface;
-        ICoreWebView2Controller_AddRef(iface);
-        return S_OK;
-    }
-    *ppv = NULL;
-    return E_NOINTERFACE;
-}
+/* Body defined further down (after controller4_vtbl, which it references),
+ * same forward-declare-the-prototype-only pattern webview.c already uses
+ * for webview_QueryInterface/webview2_2_vtbl. */
+static HRESULT WINAPI controller_QueryInterface(ICoreWebView2Controller *iface, REFIID riid, void **ppv);
 
 static ULONG WINAPI controller_AddRef(ICoreWebView2Controller *iface)
 {
@@ -155,6 +160,150 @@ static const ICoreWebView2ControllerVtbl controller_vtbl =
     controller_get_CoreWebView2,
 };
 
+/* --- Task 11: ICoreWebView2Controller2/3/4 extension --- */
+
+static HRESULT WINAPI controller4_get_DefaultBackgroundColor(ICoreWebView2Controller *iface, COREWEBVIEW2_COLOR *value)
+{
+    if (!value) return E_POINTER;
+    *value = impl_from_ICoreWebView2Controller(iface)->default_bg_color;
+    return S_OK;
+}
+
+static HRESULT WINAPI controller4_put_DefaultBackgroundColor(ICoreWebView2Controller *iface, COREWEBVIEW2_COLOR value)
+{
+    impl_from_ICoreWebView2Controller(iface)->default_bg_color = value;
+    return S_OK;
+}
+
+static HRESULT WINAPI controller4_get_RasterizationScale(ICoreWebView2Controller *iface, double *scale)
+{
+    if (!scale) return E_POINTER;
+    *scale = impl_from_ICoreWebView2Controller(iface)->rasterization_scale;
+    return S_OK;
+}
+
+static HRESULT WINAPI controller4_put_RasterizationScale(ICoreWebView2Controller *iface, double scale)
+{
+    impl_from_ICoreWebView2Controller(iface)->rasterization_scale = scale;
+    return S_OK;
+}
+
+static HRESULT WINAPI controller4_get_ShouldDetectMonitorScaleChanges(ICoreWebView2Controller *iface, BOOL *value)
+{
+    if (!value) return E_POINTER;
+    *value = impl_from_ICoreWebView2Controller(iface)->should_detect_monitor_scale_changes;
+    return S_OK;
+}
+
+static HRESULT WINAPI controller4_put_ShouldDetectMonitorScaleChanges(ICoreWebView2Controller *iface, BOOL value)
+{
+    impl_from_ICoreWebView2Controller(iface)->should_detect_monitor_scale_changes = value;
+    return S_OK;
+}
+
+static HRESULT WINAPI controller4_get_BoundsMode(ICoreWebView2Controller *iface, COREWEBVIEW2_BOUNDS_MODE *boundsMode)
+{
+    if (!boundsMode) return E_POINTER;
+    *boundsMode = impl_from_ICoreWebView2Controller(iface)->bounds_mode;
+    return S_OK;
+}
+
+static HRESULT WINAPI controller4_put_BoundsMode(ICoreWebView2Controller *iface, COREWEBVIEW2_BOUNDS_MODE boundsMode)
+{
+    impl_from_ICoreWebView2Controller(iface)->bounds_mode = boundsMode;
+    return S_OK;
+}
+
+static HRESULT WINAPI controller4_get_AllowExternalDrop(ICoreWebView2Controller *iface, BOOL *value)
+{
+    if (!value) return E_POINTER;
+    *value = impl_from_ICoreWebView2Controller(iface)->allow_external_drop;
+    return S_OK;
+}
+
+static HRESULT WINAPI controller4_put_AllowExternalDrop(ICoreWebView2Controller *iface, BOOL value)
+{
+    impl_from_ICoreWebView2Controller(iface)->allow_external_drop = value;
+    return S_OK;
+}
+
+/* base must be a verbatim copy of controller_vtbl above (26 entries) --
+ * see webview2_2_vtbl's own fix note in webview.c for what happens when
+ * this copy silently drifts short. */
+static const struct webview2_controller4_vtbl_combined controller4_vtbl =
+{
+    {
+        controller_QueryInterface,
+        controller_AddRef,
+        controller_Release,
+        controller_get_IsVisible,
+        controller_put_IsVisible,
+        controller_get_Bounds,
+        controller_put_Bounds,
+        (void *)webview2_stub_e_notimpl, /* get_ZoomFactor */
+        (void *)webview2_stub_e_notimpl, /* put_ZoomFactor */
+        (void *)webview2_stub_e_notimpl, /* add_ZoomFactorChanged */
+        (void *)webview2_stub_e_notimpl, /* remove_ZoomFactorChanged */
+        (void *)webview2_stub_e_notimpl, /* SetBoundsAndZoomFactor */
+        (void *)webview2_stub_e_notimpl, /* MoveFocus */
+        (void *)webview2_stub_e_notimpl, /* add_MoveFocusRequested */
+        (void *)webview2_stub_e_notimpl, /* remove_MoveFocusRequested */
+        (void *)webview2_stub_e_notimpl, /* add_GotFocus */
+        (void *)webview2_stub_e_notimpl, /* remove_GotFocus */
+        (void *)webview2_stub_e_notimpl, /* add_LostFocus */
+        (void *)webview2_stub_e_notimpl, /* remove_LostFocus */
+        (void *)webview2_stub_e_notimpl, /* add_AcceleratorKeyPressed */
+        (void *)webview2_stub_e_notimpl, /* remove_AcceleratorKeyPressed */
+        (void *)webview2_stub_e_notimpl, /* get_ParentWindow */
+        (void *)webview2_stub_e_notimpl, /* put_ParentWindow */
+        (void *)webview2_stub_e_notimpl, /* NotifyParentWindowPositionChanged */
+        controller_Close,
+        controller_get_CoreWebView2,
+    },
+    {
+        controller4_get_DefaultBackgroundColor,
+        controller4_put_DefaultBackgroundColor,
+        controller4_get_RasterizationScale,
+        controller4_put_RasterizationScale,
+        controller4_get_ShouldDetectMonitorScaleChanges,
+        controller4_put_ShouldDetectMonitorScaleChanges,
+        (void *)webview2_stub_e_notimpl, /* add_RasterizationScaleChanged */
+        (void *)webview2_stub_e_notimpl, /* remove_RasterizationScaleChanged */
+        controller4_get_BoundsMode,
+        controller4_put_BoundsMode,
+        controller4_get_AllowExternalDrop,
+        controller4_put_AllowExternalDrop,
+    },
+};
+
+static HRESULT WINAPI controller_QueryInterface(ICoreWebView2Controller *iface, REFIID riid, void **ppv)
+{
+    if (IsEqualGUID(riid, &IID_IUnknown) || IsEqualGUID(riid, &IID_ICoreWebView2Controller))
+    {
+        *ppv = iface;
+        ICoreWebView2Controller_AddRef(iface);
+        return S_OK;
+    }
+    if (IsEqualGUID(riid, &IID_ICoreWebView2Controller4))
+    {
+        /* Real Roblox Studio QueryInterfaces for exactly this IID right
+         * after a successful CreateCoreWebView2Controller for the embedded
+         * login dialog -- see the extension vtable's own comment in
+         * webview2loader_private.h. Re-point lpVtbl at the combined table,
+         * same safe swap technique as webview_query_interface_v2 uses for
+         * ICoreWebView2_2 (the combined struct's `base` member is
+         * layout-identical to ICoreWebView2ControllerVtbl). */
+        struct controller_impl *ctrl = impl_from_ICoreWebView2Controller(iface);
+        ctrl->ICoreWebView2Controller_iface.lpVtbl = (const ICoreWebView2ControllerVtbl *)&controller4_vtbl;
+        *ppv = iface;
+        ICoreWebView2Controller_AddRef(iface);
+        return S_OK;
+    }
+    WARN("no interface for %s\n", debugstr_guid(riid));
+    *ppv = NULL;
+    return E_NOINTERFACE;
+}
+
 HRESULT controller_create(UINT64 native_handle, ICoreWebView2Controller **out)
 {
     struct controller_impl *ctrl = calloc(1, sizeof(*ctrl));
@@ -167,6 +316,16 @@ HRESULT controller_create(UINT64 native_handle, ICoreWebView2Controller **out)
     ctrl->native_handle = native_handle;
     ctrl->visible = TRUE;
     SetRect(&ctrl->bounds, 0, 0, 800, 600);
+    /* Task 11: real WebView2 documented defaults for the Controller2/3/4
+     * properties -- see the field comments on struct controller_impl. */
+    ctrl->default_bg_color.A = 255;
+    ctrl->default_bg_color.R = 255;
+    ctrl->default_bg_color.G = 255;
+    ctrl->default_bg_color.B = 255;
+    ctrl->rasterization_scale = 1.0;
+    ctrl->should_detect_monitor_scale_changes = TRUE;
+    ctrl->bounds_mode = COREWEBVIEW2_BOUNDS_MODE_USE_RAW_PIXELS;
+    ctrl->allow_external_drop = TRUE;
     *out = &ctrl->ICoreWebView2Controller_iface;
     return S_OK;
 }
