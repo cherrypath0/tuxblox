@@ -236,23 +236,19 @@ run_step "build_x86_64_nls" strict bash -c 'cd obj-wine-x86_64 && make nls/local
 step "Resuming build (4/4) (using $JOBS parallel jobs)"
 run_step "resume_build" strict bash -c "set -o pipefail; make -j$JOBS 2>&1 | tee -a ../build.log"
 
-step "Compiling proton launcher to a native binary"
+step "Compiling proton launcher to a native binary (podman, old-glibc baseline)"
 run_step "compile_proton_native" strict bash -c '
     set -e
-    venv="../.nuitka-venv"
-    if [[ ! -x "$venv/bin/nuitka" ]]; then
-        python3 -m venv "$venv"
-        "$venv/bin/pip" install --upgrade pip -q
-        "$venv/bin/pip" install nuitka -q
-    fi
+    podman build -t tuxblox-old-glibc-builder -f ../build-container/Containerfile ../build-container
 
     workdir="$(mktemp -d)"
     cp dist/proton "$workdir/proton.py"
     cp dist/filelock.py "$workdir/filelock.py"
+    mkdir -p "$workdir/out"
 
-    "$venv/bin/nuitka" --standalone --no-progressbar \
-        --output-filename=proton --output-dir="$workdir/out" \
-        "$workdir/proton.py"
+    podman run --rm --userns=keep-id -v "$workdir:/work:Z" -w /work tuxblox-old-glibc-builder \
+        nuitka --standalone --no-progressbar \
+        --output-filename=proton --output-dir=/work/out /work/proton.py
 
     rm -f dist/proton dist/filelock.py
     cp -a "$workdir/out/proton.dist/." dist/
