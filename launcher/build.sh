@@ -36,7 +36,9 @@ install_deps() {
     case "$mgr" in
         apt)
             sudo apt-get update
-            sudo apt-get install -y podman curl git
+            # uidmap provides newuidmap/newgidmap, required for --userns=keep-id;
+            # it's only an apt Recommends of podman, so --no-install-recommends hosts miss it.
+            sudo apt-get install -y podman curl git uidmap
             ;;
         dnf)
             sudo dnf install -y podman curl git
@@ -48,7 +50,8 @@ install_deps() {
             brew install podman curl git
             ;;
         apk)
-            sudo apk add podman curl git
+            # uidmap provides newuidmap/newgidmap, required for --userns=keep-id.
+            sudo apk add podman curl git uidmap
             ;;
         *)
             echo "!! Unknown package manager. Install manually: podman, curl, git" >&2
@@ -65,8 +68,16 @@ echo ":: Vendoring third-party sources"
 echo ":: Building builder container image (old-glibc baseline)"
 podman build -t tuxblox-old-glibc-builder -f ../build-container/Containerfile ../build-container
 
+# A build/ configured outside the container records host paths in CMakeCache.txt;
+# cmake hard-errors if that cache is reused from /src/build inside the container.
+if [[ -f build/CMakeCache.txt ]] && \
+   ! grep -q '^CMAKE_CACHEFILE_DIR:INTERNAL=/src/build$' build/CMakeCache.txt; then
+    echo ":: Dropping stale host-configured build/ (not configured inside the container)"
+    rm -rf build
+fi
+
 echo ":: Configuring + Building (in podman, rootless, old-glibc baseline)"
-podman run --rm --userns=keep-id -v "$(pwd):/src:Z" -w /src tuxblox-old-glibc-builder \
-    bash -c "cmake -B build -S . -DCMAKE_BUILD_TYPE=Release && cmake --build build -j$JOBS"
+podman run --rm --userns=keep-id -e JOBS="$JOBS" -v "$(pwd):/src:Z" -w /src tuxblox-old-glibc-builder \
+    bash -c 'cmake -B build -S . -DCMAKE_BUILD_TYPE=Release && cmake --build build -j"$JOBS"'
 
 echo ":: Done. Binary at build/TuxBloxLauncher"
