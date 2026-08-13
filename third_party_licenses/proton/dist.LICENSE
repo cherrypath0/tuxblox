@@ -32,6 +32,20 @@ Browse the source code for more information
 
 ---- ---- ---- ----
 
+This software contains a further modified version of the above, forked from Valve's Proton, licensed under GPLv3 (relicensed from LGPL 2.1 per LGPL §3).
+
+    Copyright (c) 2026, cherrypath0. All rights reserved.
+
+Visit TuxBlox at
+
+    https://tuxblox.net
+
+View TuxBlox's modifications at
+
+    https://github.com/cherrypath0/tuxblox
+
+---- ---- ---- ----
+
 This software contains a modified version of Wine licensed under the LGPL 2.1. Wine is
 
     Copyright (c) 1993-2022 the Wine project authors
