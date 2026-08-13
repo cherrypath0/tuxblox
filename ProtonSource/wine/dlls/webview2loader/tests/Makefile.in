@@ -1,5 +1,5 @@
 TESTDLL   = webview2loader.dll
-IMPORTS   = webview2loader
+IMPORTS   = webview2loader ole32
 
 SOURCES = \
 	webview2loader.c

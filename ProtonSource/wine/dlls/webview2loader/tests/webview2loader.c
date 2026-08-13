@@ -734,7 +734,7 @@ static void test_get_cookies(void)
                 CloseHandle(nav_handler.done_event);
 
                 cookies_handler.done_event = CreateEventW(NULL, FALSE, FALSE, NULL);
-                hr = ICoreWebView2CookieManager_GetCookies(cm, NULL, &cookies_handler);
+                hr = ICoreWebView2CookieManager_GetCookies(cm, NULL, (ICoreWebView2GetCookiesCompletedHandler *)&cookies_handler);
                 ok(hr == S_OK, "GetCookies returned %#lx\n", hr);
                 ok(WaitForSingleObject(cookies_handler.done_event, 15000) == WAIT_OBJECT_0,
                    "GetCookies(NULL) timed out\n");
@@ -787,7 +787,7 @@ static void test_get_cookies(void)
                      * really does real uri-scoped matching, not just "return
                      * nothing for any filter". */
                     cookies_handler.done_event = CreateEventW(NULL, FALSE, FALSE, NULL);
-                    hr = ICoreWebView2CookieManager_GetCookies(cm, L"http://127.0.0.1:18765/", &cookies_handler);
+                    hr = ICoreWebView2CookieManager_GetCookies(cm, L"http://127.0.0.1:18765/", (ICoreWebView2GetCookiesCompletedHandler *)&cookies_handler);
                     ok(hr == S_OK, "matching-uri GetCookies returned %#lx\n", hr);
                     ok(WaitForSingleObject(cookies_handler.done_event, 15000) == WAIT_OBJECT_0,
                        "matching-uri GetCookies timed out\n");
@@ -810,7 +810,7 @@ static void test_get_cookies(void)
                      * GetCookies is a local cookie-jar lookup, not a network
                      * fetch. */
                     cookies_handler.done_event = CreateEventW(NULL, FALSE, FALSE, NULL);
-                    hr = ICoreWebView2CookieManager_GetCookies(cm, L"http://tuxblox-test-unrelated.invalid/", &cookies_handler);
+                    hr = ICoreWebView2CookieManager_GetCookies(cm, L"http://tuxblox-test-unrelated.invalid/", (ICoreWebView2GetCookiesCompletedHandler *)&cookies_handler);
                     ok(hr == S_OK, "filtered GetCookies returned %#lx\n", hr);
                     ok(WaitForSingleObject(cookies_handler.done_event, 15000) == WAIT_OBJECT_0,
                        "filtered GetCookies timed out\n");
@@ -1645,7 +1645,7 @@ static void test_close_then_navigate_fails_cleanly(void)
         if (cm)
         {
             cookies_handler.done_event = CreateEventW(NULL, FALSE, FALSE, NULL);
-            hr = ICoreWebView2CookieManager_GetCookies(cm, NULL, &cookies_handler);
+            hr = ICoreWebView2CookieManager_GetCookies(cm, NULL, (ICoreWebView2GetCookiesCompletedHandler *)&cookies_handler);
             ok(hr == S_OK, "GetCookies after Close returned %#lx, expected S_OK (failure reported async)\n", hr);
             ok(WaitForSingleObject(cookies_handler.done_event, 15000) == WAIT_OBJECT_0,
                "GetCookies after Close never completed (hung instead of failing cleanly?)\n");
