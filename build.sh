@@ -270,7 +270,9 @@ echo "$(date '+%s') ${TUXBLOX_BUILD_VERSION}" > dist/version
 
 step "Clearing up unnecessary junk"
 shopt -s nullglob
-rm -rf obj-* dst-*
+if [ -z "$TUXBLOX_KEEP_OBJ" ]; then
+    rm -rf obj-* dst-*
+fi
 shopt -u nullglob
 
 echo -e "Successfully compiled TuxBlox-Proton!"
