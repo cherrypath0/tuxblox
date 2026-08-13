@@ -33,6 +33,53 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(webview2loader);
 
+/* Task 7 crash fix, round 8: WARN()/ERR()/TRACE()/FIXME() (the macros
+ * above route through) are NOT safe to call from gtk_thread (spawned via
+ * a raw pthread_create() a few hundred lines down -- see that call's own
+ * site) or from anything that runs ON gtk_thread (every *_on_gtk_thread
+ * function, and any GLib callback dispatched through the GMainLoop that
+ * function runs). Confirmed via a real coredump: __wine_dbg_header
+ * (dlls/ntdll/thread.c) derives its scratch-buffer pointer from
+ * NtCurrentTeb(), which requires a valid, Wine-initialized TEB --
+ * something only Wine's own thread-creation path sets up (a wineserver
+ * round-trip + arch_prctl(ARCH_SET_GS, ...), see dlls/ntdll/unix/thread.c
+ * and dlls/ntdll/unix/signal_x86_64.c), and which a plain host
+ * pthread_create() thread never gets. On this thread, NtCurrentTeb() is
+ * garbage: sometimes that crashes cleanly (as this one did, real
+ * relaunch, real coredump), and on an unlucky day it instead writes
+ * through that garbage pointer into whatever unrelated, mapped, writable
+ * memory it happens to land on -- a very plausible unifying explanation
+ * for this whole function's own multi-round Xlib corruption saga (rounds
+ * 1-6, see sync_window_geometry_on_gtk_thread's own git log), not just
+ * this specific crash.
+ *
+ * No Wine-internal API exists to retrofit a valid TEB onto an
+ * already-running foreign thread after the fact -- TEB setup is
+ * interleaved into Wine's own thread-creation sequence, not a separable
+ * step. Established precedent elsewhere in this exact Wine tree (grep
+ * "pthread_create" across every dlls subdirectory's unixlib.c/unix
+ * sources): every other raw-pthread thread body either logs nothing at
+ * all
+ * (dlls/winealsa.drv/alsamidi.c, dlls/wineoss.drv/ossmidi.c,
+ * dlls/winebus.sys/bus_udev.c), or uses the underlying native library's
+ * own TEB-independent logging instead of Wine's
+ * (dlls/winegstreamer/wg_parser.c uses GStreamer's GST_* macros, never
+ * Wine's TRACE/WARN/ERR/FIXME). This file already links GLib, but a
+ * plain stderr write needs no new symbol resolution and no dependency on
+ * GLib's log-handler configuration being sane in this exact runtime --
+ * the simplest, lowest-risk TEB-independent option, matching this
+ * function's own %04x:%s-style shape closely enough to stay readable
+ * next to real WARN/ERR output from the PE-calling-thread call sites
+ * elsewhere in this file (those are unaffected -- gtk_thread_invoke_sync
+ * can only ever be called from a thread other than gtk_thread itself,
+ * since it blocks waiting for gtk_thread to run the posted work, so every
+ * WARN/ERR immediately following an `if (!gtk_thread_invoke_sync(...))`
+ * check in this file runs on the PE-calling thread, not gtk_thread, and
+ * is unaffected by this issue). Use this from gtk_thread_proc and
+ * anything reachable from it instead of WARN/ERR/TRACE/FIXME. */
+#define GTK_THREAD_LOG(fmt, ...) \
+    fprintf(stderr, "%04x:warn:webview2loader:%s " fmt, (unsigned int)(ULONG_PTR)pthread_self(), __func__, ##__VA_ARGS__)
+
 /* Minimal hand-declared subset of GLib/GObject/GTK4/WebKitGTK-6.0 types and
  * function signatures actually used below. Deliberately NOT the real
  * glib.h/gtk/gtk.h/webkit/webkit.h -- those aren't available (or wanted) at
@@ -112,6 +159,11 @@ extern void g_main_loop_run(GMainLoop *loop);
 extern void g_main_loop_quit(GMainLoop *loop);
 
 extern void g_object_unref(void *object);
+/* Task 7 crash fix round 6: real signature returns the same pointer
+ * (gpointer g_object_ref(gpointer object)) so it can be used inline, but
+ * this file only ever calls it for its ref-taking side effect -- see
+ * sync_window_geometry_on_gtk_thread's own comment on why. */
+extern void *g_object_ref(void *object);
 /* g_signal_connect_data lives in libgobject-2.0.so, not libglib-2.0.so --
  * the GObject signal system is part of GObject, not core GLib (confirmed
  * via `nm -D libgobject-2.0.so.0* | grep g_signal_connect_data` against the
@@ -185,6 +237,17 @@ extern int gdk_surface_get_height(GdkSurface *surface);
  * Wayland. */
 extern unsigned long gdk_x11_surface_get_xid(GdkSurface *surface);
 extern Display *gdk_x11_display_get_xdisplay(GdkDisplay *display);
+/* Task 7 crash fix round 5: a real GdkDisplay-liveness check. Round 4's
+ * investigation (a dedicated subagent verifying the dlmopen/RTLD_NOLOAD
+ * namespace join is provably correct, ruling out a cross-namespace
+ * libX11 mismatch) narrowed this down to the most concrete remaining
+ * lead: nothing between resolving `display` here and actually using it
+ * a few lines down re-checks that the underlying X11 connection is still
+ * open -- the existing live_webviews registry only covers the per-webview
+ * handle, not this shared, singleton-ish connection object. Real, public
+ * GDK4 API (gdk4/gdk/gdkdisplay.h: "gdk_display_is_closed: ... Finds out
+ * if the display has been closed.") -- exactly the check needed here. */
+extern gboolean gdk_display_is_closed(GdkDisplay *display);
 extern void gtk_widget_set_visible(GtkWidget *widget, gboolean visible);
 extern void gtk_window_set_default_size(GtkWindow *window, int width, int height);
 
@@ -199,6 +262,30 @@ extern void gtk_window_set_default_size(GtkWindow *window, int width, int height
  * linking against libX11 at Wine's own build time. */
 extern int XMoveResizeWindow(Display *display, unsigned long w, int x, int y,
                               unsigned int width, unsigned int height);
+
+/* Task 7 real-launch crash fix, round 3: a real relaunch still segfaulted
+ * at this exact call site (_XGetRequest, deep inside XMoveResizeWindow)
+ * even after both the NULL-Display* guard and the stale-handle registry
+ * above -- confirmed via coredump/GDB that the handle was genuinely live
+ * and every intermediate value (surface, xid, display) was non-NULL right
+ * up to the fault. Xlib's per-Display connection state (request buffers,
+ * sequence counters, etc.) is not safe to touch from more than one thread
+ * at a time unless the caller brackets *every* access -- including raw
+ * calls like this one that bypass GDK's own higher-level API entirely --
+ * with XLockDisplay/XUnlockDisplay, and that only works at all if
+ * XInitThreads was called before any other Xlib activity in the process
+ * (see gtk_thread_proc's own call to it, added alongside this). WebKitGTK
+ * is known to touch the shared X11 connection from auxiliary threads of
+ * its own (compositing/GL) outside GDK's main-loop thread, so this raw
+ * call -- previously unguarded -- was exactly the kind of access this
+ * class of Xlib bug hits. */
+extern int XInitThreads(void); /* real return type is Xlib's Status, itself
+                                 * just a typedef for int -- same convention
+                                 * XMoveResizeWindow's own declaration above
+                                 * already uses for the same reason (no real
+                                 * <X11/Xlib.h> include in this file). */
+extern void XLockDisplay(Display *display);
+extern void XUnlockDisplay(Display *display);
 
 extern GtkWidget *webkit_web_view_new(void);
 extern void webkit_web_view_load_uri(WebKitWebView *web_view, const char *uri);
@@ -352,6 +439,7 @@ extern _Bool JSConfigureSignalForGC(int signalNumber);
 
 #define GOBJECT_FUNCS \
     DO_FUNC(g_object_unref); \
+    DO_FUNC(g_object_ref); \
     DO_FUNC(g_signal_connect_data); \
     DO_FUNC(g_signal_handler_disconnect)
 
@@ -369,6 +457,7 @@ extern _Bool JSConfigureSignalForGC(int signalNumber);
     DO_FUNC(gdk_surface_get_height); \
     DO_FUNC(gdk_x11_surface_get_xid); \
     DO_FUNC(gdk_x11_display_get_xdisplay); \
+    DO_FUNC(gdk_display_is_closed); \
     DO_FUNC(gtk_widget_set_visible); \
     DO_FUNC(gtk_window_set_default_size); \
     DO_FUNC(gtk_window_destroy)
@@ -437,7 +526,10 @@ extern _Bool JSConfigureSignalForGC(int signalNumber);
  * already requires to load at all (see load_one's own sibling helper,
  * join_loaded, just below). */
 #define X11_FUNCS \
-    DO_FUNC(XMoveResizeWindow)
+    DO_FUNC(XMoveResizeWindow); \
+    DO_FUNC(XInitThreads); \
+    DO_FUNC(XLockDisplay); \
+    DO_FUNC(XUnlockDisplay)
 
 #define DO_FUNC(f) typeof(f) *p_##f
 GLIB_FUNCS; GOBJECT_FUNCS; GTK_FUNCS; WEBKIT_FUNCS; SOUP_FUNCS; JAVASCRIPTCORE_FUNCS; X11_FUNCS;
@@ -749,7 +841,22 @@ static BOOL gtk_thread_init_ok;
 
 static void *gtk_thread_proc(void *arg)
 {
-    BOOL ok = p_gtk_init_check();
+    BOOL ok;
+
+    /* Task 7 UAF/Xlib-locking fix round 3 -- see XInitThreads' own extern
+     * comment above for the full crash evidence this addresses. Must be
+     * the first Xlib call made anywhere in the process (Xlib's own
+     * documented requirement); gtk_init_check() below is what actually
+     * opens the X11 display connection this DLL later issues raw
+     * XMoveResizeWindow calls against, so this has to run strictly before
+     * it. GDK likely also calls this internally as part of opening its own
+     * X11 backend -- calling it again there is a documented no-op/safe, so
+     * there's no harm doing it twice; what matters is that it happens
+     * before ANY Xlib activity, which this guarantees regardless of GDK's
+     * own internal ordering. */
+    p_XInitThreads();
+
+    ok = p_gtk_init_check();
 
     /* Only build the main loop if init actually succeeded -- calling
      * g_main_loop_new()/g_main_loop_run() after a failed gtk_init_check()
@@ -970,6 +1077,73 @@ struct native_webview
     WebKitWebView *view;
 };
 
+/* Task 7 real-launch crash fix, round 2: a defensive NULL-Display* check
+ * in sync_window_geometry_on_gtk_thread (see that function's own comment)
+ * stopped one crash but a second, real relaunch still segfaulted at the
+ * exact same call site, this time with a *non-NULL* but garbage `xid`
+ * argument reaching XMoveResizeWindow (confirmed via coredump: the value
+ * looked like a stale heap pointer, not a plausible X11 resource id --
+ * the textbook fingerprint of reading through a freed allocation).
+ *
+ * Root cause: controller.c's controller_push_geometry_to_native (the
+ * put_Bounds/put_IsVisible/WH_CALLWNDPROC-hook entry point for this unix
+ * call) checks `ctrl->native_handle` for non-zero, then separately reads
+ * it again a few lines later to fill params.handle -- two unlocked reads,
+ * not one atomic snapshot. controller_destroy_native (Close()) frees this
+ * struct via the destroy_webview unix call *before* it zeroes its own
+ * `ctrl->native_handle` copy. That leaves a real, narrow window where a
+ * concurrent put_Bounds/put_IsVisible call (or Task 5's window-move hook,
+ * which can run on a different thread than whatever releases the last
+ * COM ref and triggers Close()) can pass the first check, then read the
+ * not-yet-zeroed handle *after* the unix-side object it points to has
+ * already been freed, and hand that dangling pointer to this DLL's own
+ * WEBVIEW2LOADER_UNIX_CALL(sync_window_geometry, ...) -- a genuine
+ * use-after-free, not a bug in the geometry math itself.
+ *
+ * Fixing that race properly belongs in controller.c (this task's
+ * confirmed real, concrete bug is scoped to this file per Task 7's own
+ * brief); this is a defense-in-depth guard entirely on the unix side:
+ * a small live-handle registry, touched only from the functions below
+ * that already run exclusively on the single dedicated GTK thread via
+ * gtk_thread_invoke_sync (create_webview_on_gtk_thread,
+ * destroy_webview_on_gtk_thread, and the *_on_gtk_thread handlers that
+ * dereference a caller-supplied handle). Because gtk_thread_invoke_sync
+ * serializes every one of these onto that one thread -- never two of
+ * them running concurrently -- registering/unregistering/checking this
+ * array needs no lock of its own: destroy unregisters (and only then
+ * frees) strictly before any later-queued handler's check can run, so a
+ * stale handle is reliably caught as "not live" instead of dereferenced,
+ * turning what would otherwise be a crash into the same graceful
+ * "nothing to do" outcome this file already uses throughout for
+ * degraded/unavailable state. */
+#define MAX_LIVE_WEBVIEWS 64
+static struct native_webview *live_webviews[MAX_LIVE_WEBVIEWS];
+
+static void live_webview_register(struct native_webview *nv)
+{
+    int i;
+    for (i = 0; i < MAX_LIVE_WEBVIEWS; i++)
+        if (!live_webviews[i]) { live_webviews[i] = nv; return; }
+    GTK_THREAD_LOG("live_webviews registry full (%d entries) -- UAF guard won't cover handle %p\n",
+        MAX_LIVE_WEBVIEWS, nv);
+}
+
+static void live_webview_unregister(struct native_webview *nv)
+{
+    int i;
+    for (i = 0; i < MAX_LIVE_WEBVIEWS; i++)
+        if (live_webviews[i] == nv) { live_webviews[i] = NULL; return; }
+}
+
+static BOOL live_webview_is_valid(struct native_webview *nv)
+{
+    int i;
+    if (!nv) return FALSE;
+    for (i = 0; i < MAX_LIVE_WEBVIEWS; i++)
+        if (live_webviews[i] == nv) return TRUE;
+    return FALSE;
+}
+
 /* Handles are just the native_webview*'s address, truncated to fit a
  * UINT64 -- unix-side memory, never dereferenced on the PE side, matching
  * the "opaque handle" shape other unixlib bridges in this tree use for
@@ -1001,6 +1175,7 @@ static void create_webview_on_gtk_thread(void *data)
     if (!ctx->is_message_only)
         p_gtk_widget_show(nv->window);
 
+    live_webview_register(nv); /* Task 7 UAF guard -- see struct native_webview's own comment above */
     ctx->nv = nv;
 }
 
@@ -1023,6 +1198,14 @@ static void destroy_webview_on_gtk_thread(void *data)
 {
     struct native_webview *nv = data;
 
+    /* Task 7 UAF guard -- see struct native_webview's own comment above.
+     * Unregister strictly before freeing, and before the GTK/WebKit calls
+     * below too: every other *_on_gtk_thread handler that checks this
+     * registry only ever runs serialized on this same thread, so once this
+     * line has executed, any such handler still queued behind this one for
+     * the same (now-dying) handle will see it as no-longer-live, however
+     * close the PE-side caller's original handle read came to this. */
+    live_webview_unregister(nv);
     p_gtk_window_destroy(nv->window);
     free(nv);
 }
@@ -1571,7 +1754,7 @@ static BOOL copy_field_or_fail(const char *src, WCHAR *dst, ULONG cap, const cha
 
     if (n >= cap)
     {
-        ERR("cookie %s is %u bytes, exceeding this build's %u-WCHAR cap -- dropping this cookie "
+        GTK_THREAD_LOG("cookie %s is %u bytes, exceeding this build's %u-WCHAR cap -- dropping this cookie "
             "rather than returning a truncated value\n", field, (unsigned)n, (unsigned)(cap - 1));
         dst[0] = 0;
         return FALSE;
@@ -1648,7 +1831,7 @@ static void on_get_cookies_done(GObject *source, GAsyncResult *res, void *user_d
 
     if (total > WEBVIEW2LOADER_MAX_COOKIES)
     {
-        ERR("cookie store holds %u cookies, exceeding this build's %u-cookie cap -- failing this "
+        GTK_THREAD_LOG("cookie store holds %u cookies, exceeding this build's %u-cookie cap -- failing this "
             "GetCookies call rather than returning a silently incomplete list\n",
             (unsigned)total, (unsigned)WEBVIEW2LOADER_MAX_COOKIES);
         success = FALSE;
@@ -1781,6 +1964,14 @@ static void get_window_visible_on_gtk_thread(void *data)
     struct get_window_visible_params *params = data;
     struct native_webview *nv = (struct native_webview *)(ULONG_PTR)params->handle;
 
+    /* Task 7 UAF guard -- see struct native_webview's own comment above. */
+    if (!live_webview_is_valid(nv))
+    {
+        GTK_THREAD_LOG("stale/destroyed native window handle %p -- reporting not visible\n", nv);
+        params->visible = FALSE;
+        return;
+    }
+
     params->visible = p_gtk_widget_get_visible(nv->window);
 }
 
@@ -1796,6 +1987,13 @@ static NTSTATUS unix_get_window_visible_impl(void *args)
     return STATUS_SUCCESS;
 }
 
+/* Task 7 diagnostic (round 7) -- see this counter's own use, further down
+ * in sync_window_geometry_on_gtk_thread, for why. File-scope so it
+ * persists/accumulates across every call for the life of the process
+ * (this function only ever runs serialized on the single GTK thread, so
+ * this needs no lock). */
+static unsigned long xmove_call_count;
+
 /* Plan 3 Task 3: real position/size/visibility sync, called (via Task 4's
  * controller_push_geometry_to_native) from put_Bounds/put_IsVisible. See
  * this file's own X11_FUNCS/gdk_x11_surface_get_xid extern comments above
@@ -1806,11 +2004,27 @@ static void sync_window_geometry_on_gtk_thread(void *data)
     struct native_webview *nv = (struct native_webview *)(ULONG_PTR)params->handle;
     GtkNative *native;
     GdkSurface *surface;
+    GdkDisplay *gdisplay;
     unsigned long xid;
+    Display *display;
     int width = params->screen_bounds.right - params->screen_bounds.left;
     int height = params->screen_bounds.bottom - params->screen_bounds.top;
 
     params->success = FALSE;
+
+    /* Task 7 UAF guard -- see struct native_webview's own comment above.
+     * This is the exact call site a real Studio relaunch crashed in twice
+     * (first via a NULL Display*, now confirmed via coredump/GDB analysis
+     * to be a stale handle: XMoveResizeWindow's `xid` argument read back
+     * as a heap-pointer-shaped value, not a plausible X11 resource id --
+     * the fingerprint of dereferencing already-freed memory). */
+    if (!live_webview_is_valid(nv))
+    {
+        GTK_THREAD_LOG("stale/destroyed native window handle %p -- skipping geometry sync\n", nv);
+        params->success = TRUE; /* never fatal to the controller, matches this
+                                  * function's existing degrade-gracefully pattern */
+        return;
+    }
 
     /* Visibility is applied unconditionally, before the params->visible
      * guard below, so a transition to hidden actually hides the window on
@@ -1834,10 +2048,31 @@ static void sync_window_geometry_on_gtk_thread(void *data)
     surface = native ? p_gtk_native_get_surface(native) : NULL;
     if (!surface)
     {
-        WARN("no GdkSurface yet for native window %p -- skipping position sync\n", nv->window);
+        GTK_THREAD_LOG("no GdkSurface yet for native window %p -- skipping position sync\n", nv->window);
         params->success = TRUE;
         return;
     }
+
+    /* Task 7 crash fix round 6: hold a real GObject reference on `surface`
+     * (and, below, on `gdisplay`) for the entire span these are used,
+     * instead of just re-checking validity right before each use. Rounds
+     * 4-5 each added a fresh "is this still valid?" check immediately
+     * before the point that then crashed -- and each time, a real relaunch
+     * crashed again right after that check passed, always in the same
+     * neighborhood (inside XLockDisplay/XMoveResizeWindow, touching this
+     * same connection). That is the textbook signature of a TOCTOU race:
+     * if something on a thread this code doesn't control (WebKitGTK's own
+     * compositing/GL threads remain the leading suspect, per the
+     * XInitThreads comment below) can invalidate the surface/display
+     * between a check and the use it's guarding, no amount of re-checking
+     * immediately beforehand closes that gap, because "immediately
+     * beforehand" still isn't atomic with the use. g_object_ref/unref is
+     * GLib's own, idiomatic answer to exactly this: a GObject cannot be
+     * finalized while any caller holds a reference on it, regardless of
+     * what any other thread does concurrently, which closes the race
+     * structurally rather than narrowing it. Released at every exit below
+     * and at the end of the function. */
+    p_g_object_ref(surface);
 
     xid = p_gdk_x11_surface_get_xid(surface);
     if (!xid)
@@ -1845,6 +2080,36 @@ static void sync_window_geometry_on_gtk_thread(void *data)
         /* Not an X11 surface (Wayland) -- gdk_x11_surface_get_xid already
          * logged GLib's own non-fatal CRITICAL. */
         params->success = TRUE;
+        p_g_object_unref(surface);
+        return;
+    }
+
+    /* Task 7 crash fix, round 10: real, in-context diagnostic data from an
+     * actual crash (round 9, GTK_THREAD_LOG -- see this function's own git
+     * log for the full forensic trail) caught this function returning a
+     * non-zero but structurally-impossible xid red-handed: 140411963110096
+     * (0x7fb4352ef2d0) on the very first XMoveResizeWindow call this
+     * process ever made -- ruling out any theory involving corruption
+     * accumulating over many calls, and confirming round 2's original
+     * finding (a heap-pointer-shaped xid) was not a one-off. X11 resource
+     * IDs are a protocol-level 32-bit quantity (core protocol section 2.3,
+     * "Every RESOURCE ... is a 32-bit value") -- ANY value here that
+     * doesn't fit in 32 bits is proof-positive not a real XID, full stop,
+     * regardless of what specifically went wrong upstream to produce it
+     * (surface is structurally guaranteed live here -- ref'd via
+     * g_object_ref above before this call -- so this isn't a freed
+     * `surface`; whatever's wrong lives inside gdk_x11_surface_get_xid's
+     * own read, or in memory it reads through, which is real signal for
+     * whoever picks this back up, but doesn't change what the guard below
+     * needs to do). Degrades the same way the !xid check just above
+     * already does for the "not an X11 surface" case -- never fatal to
+     * the controller, per the plan's own Error Handling section. */
+    if (xid > 0xffffffffUL)
+    {
+        GTK_THREAD_LOG("xid %lu (0x%lx) for native window %p exceeds the 32-bit X11 resource ID range "
+                        "-- not a real XID, skipping position sync\n", xid, xid, nv->window);
+        params->success = TRUE;
+        p_g_object_unref(surface);
         return;
     }
 
@@ -1859,12 +2124,119 @@ static void sync_window_geometry_on_gtk_thread(void *data)
      * 1x1) matches this function's existing degrade-gracefully pattern used
      * for the "no surface"/"no XID" cases just above -- never fatal to the
      * controller, per the plan's own Error Handling section. */
+    /* Task 7 crash fix round 5: check the GdkDisplay CONNECTION's own
+     * liveness before converting it to a raw Display* at all. A dedicated
+     * investigation into round 4's crash (still inside XLockDisplay,
+     * dereferencing `display`, even with a live nv handle and a non-NULL
+     * surface/xid/display) confirmed the dlmopen/RTLD_NOLOAD namespace
+     * join used to resolve p_XLockDisplay/p_XMoveResizeWindow is provably
+     * correct (same loaded libX11.so.6 instance GDK itself uses) -- ruling
+     * out a cross-namespace mismatch -- and narrowed this down to the most
+     * concrete remaining gap: nothing here re-validates that the
+     * underlying X11 connection itself is still open. The existing
+     * live_webviews registry only covers the per-webview handle, not this
+     * shared, longer-lived connection object -- if something closes it
+     * (see gdk_display_is_closed's own extern comment above) between
+     * whenever GDK last touched it and this call, dereferencing it here is
+     * a real, structurally-analogous UAF to the one that registry already
+     * fixed for `nv`, just one level up the object graph. (Round 6: this
+     * check alone wasn't sufficient either, see the g_object_ref comment
+     * above -- kept anyway as a fast, cheap early-out; the ref taken just
+     * below is what actually closes the race.) */
+    gdisplay = p_gdk_surface_get_display(surface);
+    if (!gdisplay || p_gdk_display_is_closed(gdisplay))
+    {
+        GTK_THREAD_LOG("no live GdkDisplay for native window %p -- skipping position sync\n", nv->window);
+        params->success = TRUE;
+        p_g_object_unref(surface);
+        return;
+    }
+    p_g_object_ref(gdisplay); /* see the g_object_ref comment on `surface` above */
+
+    /* Task 7 real-launch crash fix: gdk_x11_display_get_xdisplay can return
+     * NULL here even though the xid lookup above already succeeded (see
+     * this file's own investigation notes for the Task 7 crash report --
+     * best-effort root cause points at a stale/UAF'd surface rather than a
+     * legitimate GDK_IS_X11_DISPLAY backend mismatch, since a real X11
+     * GdkSurface's display can't validly be a non-X11 backend). Passing a
+     * NULL Display* straight into XMoveResizeWindow segfaults inside libX11
+     * (_XGetRequest dereferencing display->request) -- confirmed via
+     * systemd-coredump across every real launch this session. Guard it the
+     * same degrade-gracefully way as the !surface/!xid checks above: never
+     * fatal to the controller. */
+    display = p_gdk_x11_display_get_xdisplay(gdisplay);
+    if (!display)
+    {
+        GTK_THREAD_LOG("no Display* for native window %p -- skipping position sync\n", nv->window);
+        params->success = TRUE;
+        p_g_object_unref(gdisplay);
+        p_g_object_unref(surface);
+        return;
+    }
+
     if (width > 0 && height > 0)
     {
-        p_XMoveResizeWindow(p_gdk_x11_display_get_xdisplay(p_gdk_surface_get_display(surface)), xid,
-                             params->screen_bounds.left, params->screen_bounds.top,
+        /* Task 7 UAF/Xlib-locking fix round 3 -- see XInitThreads' own
+         * extern comment above for the full crash evidence. This raw Xlib
+         * call bypasses GDK's own request serialization entirely, so it
+         * has to bracket itself with XLockDisplay/XUnlockDisplay against
+         * whatever else (WebKitGTK's own auxiliary compositing/GL threads
+         * are the leading suspect) may be using this same Display*
+         * connection concurrently -- otherwise this is exactly the kind of
+         * unsynchronized access that corrupts Xlib's per-Display request
+         * buffers and segfaults deep inside _XGetRequest, which is what a
+         * real relaunch kept hitting here even with a live handle, a
+         * non-NULL surface/xid, and a non-NULL Display*.
+         *
+         * Rounds 4-5 findings (see git log for the full forensic trail):
+         * a real relaunch crashed again even with this locking in place
+         * (round 4, inside XLockDisplay itself while dereferencing
+         * `display`), and again even after adding a gdk_display_is_closed
+         * liveness check immediately beforehand (round 5, same site,
+         * right after that check passed) -- confirming a TOCTOU race, not
+         * a one-shot validity problem. Round 6 (this version) holds real
+         * GObject references on `surface` and `gdisplay` for the entire
+         * span they're used (see the g_object_ref comment above), which
+         * closes that race structurally: GLib's own reference counting
+         * guarantees neither object can be finalized while a ref is held,
+         * regardless of what any other thread does concurrently. */
+        /* Task 7 diagnostic, round 9: round 7's original diagnostic (a
+         * call counter + xid/display logged immediately around this call)
+         * was the right instinct, but used WARN() -- itself unsafe on this
+         * thread (see GTK_THREAD_LOG's own comment above) -- so it crashed
+         * on its own logging bug before ever collecting real data (round
+         * 7's crash), and got stripped back to a silent counter (round 8)
+         * while that logging bug got fixed for real. Now that
+         * GTK_THREAD_LOG is safe to call from this thread (round 8,
+         * confirmed via a real relaunch: that fix genuinely eliminated the
+         * wine_dbg_log crash path, but round 8's OWN real relaunch still
+         * crashed with the ORIGINAL _XGetRequest/XMoveResizeWindow
+         * signature -- these are two real, separate bugs, not one), retry
+         * the same diagnostic idea for real. Also dumps the first 32 raw
+         * bytes at `display` itself -- not because this file knows Xlib's
+         * private struct layout (it deliberately doesn't, see Display's
+         * own typedef comment), just as a raw byte-level sanity check: if
+         * a future crash's coredump can be compared against a LOGGED
+         * "last known good" dump of the same pointer, a mismatch would
+         * itself be evidence of corruption between calls, no struct
+         * knowledge required to observe that much. */
+        ++xmove_call_count;
+        GTK_THREAD_LOG("before XMoveResizeWindow: call #%lu xid=%lu display=%p bytes=%016lx %016lx %016lx %016lx\n",
+                        xmove_call_count, xid, (void *)display,
+                        display ? *(unsigned long *)display : 0,
+                        display ? *(unsigned long *)((char *)display + 8) : 0,
+                        display ? *(unsigned long *)((char *)display + 16) : 0,
+                        display ? *(unsigned long *)((char *)display + 24) : 0);
+        p_XLockDisplay(display);
+        GTK_THREAD_LOG("after XLockDisplay: call #%lu (locked ok)\n", xmove_call_count);
+        p_XMoveResizeWindow(display, xid, params->screen_bounds.left, params->screen_bounds.top,
                              (unsigned int)width, (unsigned int)height);
+        GTK_THREAD_LOG("after XMoveResizeWindow: call #%lu returned successfully\n", xmove_call_count);
+        p_XUnlockDisplay(display);
+        GTK_THREAD_LOG("after XUnlockDisplay: call #%lu (unlocked ok)\n", xmove_call_count);
     }
+    p_g_object_unref(gdisplay);
+    p_g_object_unref(surface);
     params->success = TRUE;
 }
 
@@ -1887,9 +2259,14 @@ static void get_window_geometry_on_gtk_thread(void *data)
 {
     struct get_window_geometry_params *params = data;
     struct native_webview *nv = (struct native_webview *)(ULONG_PTR)params->handle;
-    GtkNative *native = p_gtk_widget_get_native(nv->window);
-    GdkSurface *surface = native ? p_gtk_native_get_surface(native) : NULL;
+    GtkNative *native;
+    GdkSurface *surface;
 
+    /* Task 7 UAF guard -- see struct native_webview's own comment above. */
+    if (!live_webview_is_valid(nv)) { params->success = FALSE; return; }
+
+    native = p_gtk_widget_get_native(nv->window);
+    surface = native ? p_gtk_native_get_surface(native) : NULL;
     if (!surface) { params->success = FALSE; return; }
     params->screen_bounds.left = 0;
     params->screen_bounds.top = 0;
