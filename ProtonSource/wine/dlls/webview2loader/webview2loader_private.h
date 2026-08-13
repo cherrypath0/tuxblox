@@ -571,7 +571,7 @@ struct ICoreWebView2CreateCoreWebView2ControllerCompletedHandler
 
 /* Constructs an ICoreWebView2Controller (refcount 1) wrapping the unix-side
  * native_handle returned by the unix_create_webview call. */
-HRESULT controller_create(UINT64 native_handle, ICoreWebView2Controller **out);
+HRESULT controller_create(UINT64 native_handle, HWND parent_window, ICoreWebView2Controller **out);
 
 UINT64 controller_get_native_handle(ICoreWebView2Controller *iface);
 

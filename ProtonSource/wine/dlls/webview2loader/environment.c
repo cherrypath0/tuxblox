@@ -77,6 +77,7 @@ static ULONG WINAPI environment_Release(ICoreWebView2Environment *iface)
 struct create_controller_ctx
 {
     ICoreWebView2CreateCoreWebView2ControllerCompletedHandler *handler;
+    HWND parent_window;
 };
 
 static DWORD WINAPI create_controller_worker(void *arg)
@@ -86,9 +87,10 @@ static DWORD WINAPI create_controller_worker(void *arg)
     ICoreWebView2Controller *controller = NULL;
     HRESULT hr = E_FAIL;
 
+    params.is_message_only = (ctx->parent_window == HWND_MESSAGE); /* Task 2 wires this field in */
     WEBVIEW2LOADER_UNIX_CALL(create_webview, &params);
     if (params.handle)
-        hr = controller_create(params.handle, &controller);
+        hr = controller_create(params.handle, ctx->parent_window, &controller);
 
     ICoreWebView2CreateCoreWebView2ControllerCompletedHandler_Invoke(ctx->handler, hr, controller);
     ICoreWebView2CreateCoreWebView2ControllerCompletedHandler_Release(ctx->handler);
@@ -109,6 +111,7 @@ static HRESULT WINAPI environment_CreateCoreWebView2Controller(ICoreWebView2Envi
 
     ICoreWebView2CreateCoreWebView2ControllerCompletedHandler_AddRef(handler);
     ctx->handler = handler;
+    ctx->parent_window = parentWindow; /* Plan 3 Task 1: previously discarded */
 
     if (!start_async_work(create_controller_worker, ctx))
     {

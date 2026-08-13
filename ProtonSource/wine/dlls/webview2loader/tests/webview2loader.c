@@ -1056,6 +1056,81 @@ static void test_controller4_environment8_queryinterface(void)
     FreeLibrary(mod);
 }
 
+/* Plan 3 Task 1 regression test: parentWindow was previously discarded by
+ * environment_CreateCoreWebView2Controller (only TRACE()'d) -- this
+ * confirms it now round-trips through controller_create into
+ * struct controller_impl, observable via a real get_ParentWindow call
+ * (newly implemented by this task; previously E_NOTIMPL like every other
+ * unimplemented ICoreWebView2Controller slot). No GTK/display is needed:
+ * a plain message-only window (HWND_MESSAGE) and a fabricated non-NULL
+ * HWND value are both just opaque handles as far as storage/retrieval is
+ * concerned -- this test never dereferences either one. */
+static void test_controller_parent_window(void)
+{
+    HMODULE mod;
+    ICoreWebView2Environment *env;
+    ICoreWebView2Controller *ctrl;
+    HWND fake_parent = (HWND)(ULONG_PTR)0x00120034; /* opaque, never dereferenced */
+    HWND out = NULL;
+    HRESULT hr;
+    struct test_ctrl_handler ctrl_handler = { &test_ctrl_handler_vtbl };
+    HRESULT (WINAPI *pCreateEnv)(PCWSTR, PCWSTR, void *, void *);
+    struct test_env_handler env_handler = { &test_env_handler_vtbl };
+
+    if (!getenv("TUXBLOX_WEBVIEW_DIR"))
+    {
+        skip("TUXBLOX_WEBVIEW_DIR not set\n");
+        return;
+    }
+
+    mod = LoadLibraryA("webview2loader.dll");
+    pCreateEnv = (void *)GetProcAddress(mod, "CreateCoreWebView2EnvironmentWithOptions");
+    env_handler.done_event = CreateEventW(NULL, FALSE, FALSE, NULL);
+    pCreateEnv(NULL, NULL, NULL, &env_handler);
+    WaitForSingleObject(env_handler.done_event, 10000);
+    CloseHandle(env_handler.done_event);
+    if (env_handler.result_hr != S_OK) { skip("environment creation failed\n"); FreeLibrary(mod); return; }
+    env = env_handler.result_env;
+
+    /* Real (non-HWND_MESSAGE) parent: get_ParentWindow must echo it back. */
+    ctrl_handler.done_event = CreateEventW(NULL, FALSE, FALSE, NULL);
+    ICoreWebView2Environment_CreateCoreWebView2Controller(env, fake_parent, &ctrl_handler);
+    WaitForSingleObject(ctrl_handler.done_event, 10000);
+    CloseHandle(ctrl_handler.done_event);
+    ok(ctrl_handler.result_hr == S_OK, "controller creation failed: %#lx\n", ctrl_handler.result_hr);
+    ctrl = ctrl_handler.result_ctrl;
+    if (ctrl)
+    {
+        hr = ICoreWebView2Controller_get_ParentWindow(ctrl, &out);
+        ok(hr == S_OK, "get_ParentWindow failed: %#lx\n", hr);
+        ok(out == fake_parent, "expected ParentWindow %p, got %p\n", fake_parent, out);
+        ok(hr != E_POINTER, "sanity\n");
+        hr = ICoreWebView2Controller_get_ParentWindow(ctrl, NULL);
+        ok(hr == E_POINTER, "expected E_POINTER for a NULL out-param, got %#lx\n", hr);
+        ICoreWebView2Controller_Release(ctrl);
+    }
+
+    /* HWND_MESSAGE parent: get_ParentWindow must echo HWND_MESSAGE back too
+     * -- storage is unconditional, only geometry-sync behavior (Task 2+)
+     * differs for this case. */
+    ctrl_handler.done_event = CreateEventW(NULL, FALSE, FALSE, NULL);
+    ICoreWebView2Environment_CreateCoreWebView2Controller(env, HWND_MESSAGE, &ctrl_handler);
+    WaitForSingleObject(ctrl_handler.done_event, 10000);
+    CloseHandle(ctrl_handler.done_event);
+    ok(ctrl_handler.result_hr == S_OK, "HWND_MESSAGE controller creation failed: %#lx\n", ctrl_handler.result_hr);
+    ctrl = ctrl_handler.result_ctrl;
+    if (ctrl)
+    {
+        hr = ICoreWebView2Controller_get_ParentWindow(ctrl, &out);
+        ok(hr == S_OK, "get_ParentWindow (HWND_MESSAGE) failed: %#lx\n", hr);
+        ok(out == HWND_MESSAGE, "expected ParentWindow HWND_MESSAGE, got %p\n", out);
+        ICoreWebView2Controller_Release(ctrl);
+    }
+
+    ICoreWebView2Environment_Release(env);
+    FreeLibrary(mod);
+}
+
 /* Task 11 regression test: ICoreWebView2Environment8::add_ProcessInfosChanged
  * was the third recurrence of the "E_NOTIMPL from an add_X call treated as
  * fatal" whack-a-mole pattern -- see environment8_add_ProcessInfosChanged's
@@ -1607,6 +1682,7 @@ START_TEST(webview2loader)
     test_remove_navigation_completed();
     test_v2_base_slots_not_null();
     test_controller4_environment8_queryinterface();
+    test_controller_parent_window();
     test_environment8_process_infos_changed();
     test_get_settings();
     test_webview_event_registration();

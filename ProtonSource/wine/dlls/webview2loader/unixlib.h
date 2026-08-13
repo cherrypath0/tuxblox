@@ -12,6 +12,14 @@ struct init_params
 
 struct create_webview_params
 {
+    /* in */
+    BOOL is_message_only; /* Plan 3 Task 2: TRUE => never show the native
+                            * GTK window (CookieManager's HWND_MESSAGE
+                            * flow). Added by Task 1 alongside the
+                            * parentWindow plumbing that computes it; not
+                            * yet honored by unix_create_webview_impl until
+                            * Task 2. */
+
     /* out */
     UINT64 handle; /* 0 on failure */
 };

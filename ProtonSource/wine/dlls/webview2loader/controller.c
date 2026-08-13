@@ -24,6 +24,18 @@ struct controller_impl
                       * (real WebView2's Close() is documented idempotent) */
     ICoreWebView2 *webview; /* created lazily by get_CoreWebView2, Task 7 */
 
+    HWND parent_window;   /* Plan 3 Task 1: real HWND, or HWND_MESSAGE for
+                            * the CookieManager flow -- see is_message_only.
+                            * NULL is also possible (existing NULL-parent
+                            * test callers); treated the same as a real
+                            * HWND except geometry sync (Task 4/5) skips it,
+                            * since there is no screen origin to compute
+                            * against. */
+    BOOL is_message_only; /* TRUE iff parent_window == HWND_MESSAGE at
+                            * creation time -- cached rather than
+                            * recomputed, since HWND_MESSAGE is a value, not
+                            * something that can change after the fact. */
+
     /* Task 11: Controller2/3/4 state-only properties -- see the extension
      * vtable's own comment in webview2loader_private.h for why these get
      * real bodies instead of E_NOTIMPL. Defaults match real WebView2's own
@@ -132,6 +144,13 @@ static HRESULT WINAPI controller_put_Bounds(ICoreWebView2Controller *iface, RECT
     return S_OK;
 }
 
+static HRESULT WINAPI controller_get_ParentWindow(ICoreWebView2Controller *iface, HWND *parentWindow)
+{
+    if (!parentWindow) return E_POINTER;
+    *parentWindow = impl_from_ICoreWebView2Controller(iface)->parent_window;
+    return S_OK;
+}
+
 static HRESULT WINAPI controller_Close(ICoreWebView2Controller *iface)
 {
     TRACE("(%p)\n", iface);
@@ -176,7 +195,7 @@ static const ICoreWebView2ControllerVtbl controller_vtbl =
     (void *)webview2_stub_e_notimpl, /* remove_LostFocus */
     (void *)webview2_stub_e_notimpl, /* add_AcceleratorKeyPressed */
     (void *)webview2_stub_e_notimpl, /* remove_AcceleratorKeyPressed */
-    (void *)webview2_stub_e_notimpl, /* get_ParentWindow */
+    controller_get_ParentWindow, /* was: (void *)webview2_stub_e_notimpl */
     (void *)webview2_stub_e_notimpl, /* put_ParentWindow */
     (void *)webview2_stub_e_notimpl, /* NotifyParentWindowPositionChanged */
     controller_Close,
@@ -277,7 +296,7 @@ static const struct webview2_controller4_vtbl_combined controller4_vtbl =
         (void *)webview2_stub_e_notimpl, /* remove_LostFocus */
         (void *)webview2_stub_e_notimpl, /* add_AcceleratorKeyPressed */
         (void *)webview2_stub_e_notimpl, /* remove_AcceleratorKeyPressed */
-        (void *)webview2_stub_e_notimpl, /* get_ParentWindow */
+        controller_get_ParentWindow, /* was: (void *)webview2_stub_e_notimpl */
         (void *)webview2_stub_e_notimpl, /* put_ParentWindow */
         (void *)webview2_stub_e_notimpl, /* NotifyParentWindowPositionChanged */
         controller_Close,
@@ -327,20 +346,20 @@ static HRESULT WINAPI controller_QueryInterface(ICoreWebView2Controller *iface, 
     return E_NOINTERFACE;
 }
 
-HRESULT controller_create(UINT64 native_handle, ICoreWebView2Controller **out)
+HRESULT controller_create(UINT64 native_handle, HWND parent_window, ICoreWebView2Controller **out)
 {
     struct controller_impl *ctrl = calloc(1, sizeof(*ctrl));
 
-    TRACE("(%s, %p)\n", wine_dbgstr_longlong(native_handle), out);
+    TRACE("(%s, %p, %p)\n", wine_dbgstr_longlong(native_handle), parent_window, out);
     if (!ctrl) return E_OUTOFMEMORY;
 
     ctrl->ICoreWebView2Controller_iface.lpVtbl = &controller_vtbl;
     ctrl->ref = 1;
     ctrl->native_handle = native_handle;
     ctrl->visible = TRUE;
+    ctrl->parent_window = parent_window;
+    ctrl->is_message_only = (parent_window == HWND_MESSAGE);
     SetRect(&ctrl->bounds, 0, 0, 800, 600);
-    /* Task 11: real WebView2 documented defaults for the Controller2/3/4
-     * properties -- see the field comments on struct controller_impl. */
     ctrl->default_bg_color.A = 255;
     ctrl->default_bg_color.R = 255;
     ctrl->default_bg_color.G = 255;
