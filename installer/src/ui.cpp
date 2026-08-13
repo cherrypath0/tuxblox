@@ -214,20 +214,20 @@ bool Ui::renderFrame(App& app) {
         ImGui::Image((void*)(intptr_t)logoTexture_, ImVec2(logoDisplaySize, logoDisplaySize));
     }
 
-    const char* statusText = "Starting...";
+    std::string statusText = "Starting...";
     switch (snap.phase) {
         case AppPhase::Init:             statusText = "Checking system requirements"; break;
         case AppPhase::FetchingManifest: statusText = "Contacting TuxBlox servers"; break;
-        case AppPhase::Installing:       statusText = stepLabel(snap.currentStep, snap.isUpgrade); break;
+        case AppPhase::Installing:       statusText = snap.currentStepLabel; break;
         case AppPhase::Error:            statusText = "Error"; break;
         case AppPhase::Done:             statusText = "Launching TuxBlox"; break;
     }
 
     ImGui::SetCursorPosY(148.0f);
     ImGui::PushFont(fontSemiBold_);
-    float textWidth = ImGui::CalcTextSize(statusText).x;
+    float textWidth = ImGui::CalcTextSize(statusText.c_str()).x;
     ImGui::SetCursorPosX((w - textWidth) * 0.5f);
-    ImGui::TextUnformatted(statusText);
+    ImGui::TextUnformatted(statusText.c_str());
     ImGui::PopFont();
 
     ImGui::SetCursorPosX(40.0f);

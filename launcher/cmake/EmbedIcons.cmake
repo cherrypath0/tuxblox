@@ -27,10 +27,10 @@ file(MAKE_DIRECTORY ${GENERATED_DIR})
 # Four parallel lists, one entry per icon (kept parallel rather than
 # packed tuples -- CMake lists are just semicolon-separated strings, so a
 # "list of lists" doesn't nest cleanly).
-set(ICON_NAMES       player          studio          home       info       globe       docs       github       discord      settings)
-set(ICON_BASENAMES   roblox_player_icon roblox_studio_icon icon_home  icon_info  icon_globe  icon_docs  icon_github  icon_discord icon_settings)
-set(ICON_SOURCE_PNGS roblox-player.png roblox-studio.png home.png  info.png   globe.png   docs.png   github.png   discord.png  settings.png)
-set(ICON_SYMBOLS     kRobloxPlayerIconPng kRobloxStudioIconPng kIconHomePng kIconInfoPng kIconGlobePng kIconDocsPng kIconGithubPng kIconDiscordPng kIconSettingsPng)
+set(ICON_NAMES       player          studio          home       info       globe       docs       github       discord      settings      privacy)
+set(ICON_BASENAMES   roblox_player_icon roblox_studio_icon icon_home  icon_info  icon_globe  icon_docs  icon_github  icon_discord icon_settings icon_privacy)
+set(ICON_SOURCE_PNGS roblox-player.png roblox-studio.png home.png  info.png   globe.png   docs.png   github.png   discord.png  settings.png  privacy.png)
+set(ICON_SYMBOLS     kRobloxPlayerIconPng kRobloxStudioIconPng kIconHomePng kIconInfoPng kIconGlobePng kIconDocsPng kIconGithubPng kIconDiscordPng kIconSettingsPng kIconPrivacyPng)
 
 list(LENGTH ICON_NAMES ICON_COUNT)
 math(EXPR ICON_LAST_INDEX "${ICON_COUNT} - 1")

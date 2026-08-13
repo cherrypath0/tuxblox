@@ -16,14 +16,16 @@
 
 #include "app.h"
 #include "container_env.h"
+#include "manifest.h"
 #include <filesystem>
+#include <optional>
 #include <sys/wait.h>
 #include <unistd.h>
 
 namespace tuxblox {
 
 namespace {
-constexpr const char* kManifestUrl = "https://assetdelivery.tuxblox.net/pkg/manifest.json";
+constexpr const char* kSetupBaseUrl = "https://setup.tuxblox.net";
 } // namespace
 
 App::App(std::string installDir, std::string currentVersion, std::string launcherExePath)
@@ -65,7 +67,10 @@ App::~App() {
     // window is already gone by the time the destructor runs. See Finding
     // 2, 2026-07-28 final review.
     updateCancel_.store(true);
+    uninstallCancel_.store(true);
     if (updateThread_.joinable()) updateThread_.join();
+    if (uninstallThread_.joinable()) uninstallThread_.join();
+    if (wipePrefixThread_.joinable()) wipePrefixThread_.join();
 }
 
 void App::startUpdateCheck() {
@@ -75,6 +80,10 @@ void App::startUpdateCheck() {
 
 bool App::needsInstallerHandoff() const {
     return needsInstallerHandoff_.load();
+}
+
+bool App::needsUninstallHandoff() const {
+    return needsUninstallHandoff_.load();
 }
 
 bool App::shouldQuit() const {
@@ -121,6 +130,109 @@ void App::requestLaunch(LaunchTarget target) {
     shouldQuit_.store(true);
 }
 
+void App::requestUninstall() {
+    if (uninstallThread_.joinable()) return; // already in progress -- ignore repeat clicks
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        snapshot_.uninstall.inProgress = true;
+        snapshot_.uninstall.errorMessage.clear();
+    }
+    uninstallThread_ = std::thread(&App::uninstallThreadMain, this);
+}
+
+void App::uninstallThreadMain() {
+    std::string channel;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        channel = snapshot_.settings.channel;
+    }
+
+    auto fail = [&](const std::string& message) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        snapshot_.uninstall.inProgress = false;
+        snapshot_.uninstall.errorMessage = message;
+    };
+
+    // Any working TuxBloxInstaller build can run --uninstall (it doesn't
+    // need to match the currently-installed version), so this always goes
+    // for the channel's latest release rather than requiring a specific
+    // one -- simpler than threading a version through, and this path is
+    // only reached at all when nothing's cached locally yet (see
+    // ensureInstallerBinary).
+    std::optional<std::string> latestVersion;
+    try {
+        latestVersion = fetchLatestVersion(kSetupBaseUrl, channel, &uninstallCancel_);
+    } catch (const std::exception& e) {
+        fail(std::string("Couldn't reach tuxblox.net to prepare the uninstaller: ") + e.what());
+        return;
+    }
+    if (!latestVersion.has_value()) {
+        fail("No published release found for the current channel -- can't fetch an uninstaller.");
+        return;
+    }
+
+    const std::string manifestUrl =
+        std::string(kSetupBaseUrl) + "/v1/" + channel + "/" + *latestVersion + "/manifest.json";
+    Manifest manifest;
+    try {
+        std::string json = fetchManifestJson(manifestUrl, &uninstallCancel_);
+        manifest = parseManifest(json, kSetupBaseUrl);
+    } catch (const std::exception& e) {
+        fail(std::string("Couldn't fetch the release manifest: ") + e.what());
+        return;
+    }
+
+    EnsureInstallerResult ensured = ensureInstallerBinary(manifest, installDir_, &uninstallCancel_, nullptr);
+    if (!ensured.ok) {
+        fail(ensured.errorMessage.empty() ? "Failed to prepare the uninstaller." : ensured.errorMessage);
+        return;
+    }
+
+    installerHandoffPath_ = ensured.installerPath; // see its declaration comment on write-before-flag ordering
+    needsUninstallHandoff_.store(true);
+}
+
+void App::requestWipePrefix() {
+    if (wipePrefixThread_.joinable()) return; // already in progress -- ignore repeat clicks
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        snapshot_.wipePrefix.inProgress = true;
+        snapshot_.wipePrefix.errorMessage.clear();
+    }
+    wipePrefixThread_ = std::thread(&App::wipePrefixThreadMain, this);
+}
+
+void App::wipePrefixThreadMain() {
+    namespace fs = std::filesystem;
+    const std::string runtimeDir = installDir_ + "/runtime";
+
+    std::string error;
+    std::error_code ec;
+    if (fs::exists(runtimeDir, ec) && !ec) {
+        // Wipe contents rather than the directory itself (fs::remove_all on
+        // runtimeDir would also work since anything that needs it recreates
+        // it lazily -- but leaving the empty directory in place matches
+        // "wipe the contents of runtime/" literally, and means nothing
+        // downstream has to distinguish "never launched yet" from "just
+        // wiped").
+        for (const auto& entry : fs::directory_iterator(runtimeDir, ec)) {
+            if (ec) break;
+            std::error_code removeEc;
+            fs::remove_all(entry.path(), removeEc); // best-effort per entry
+            if (removeEc && error.empty()) {
+                error = "Failed to remove " + entry.path().string() + ": " + removeEc.message();
+            }
+        }
+    }
+    if (ec && error.empty()) {
+        error = "Failed to read " + runtimeDir + ": " + ec.message();
+    }
+
+    std::lock_guard<std::mutex> lock(mutex_);
+    snapshot_.wipePrefix.inProgress = false;
+    snapshot_.wipePrefix.errorMessage = error;
+}
+
 AppSnapshot App::snapshot() const {
     std::lock_guard<std::mutex> lock(mutex_);
     return snapshot_;
@@ -158,11 +270,35 @@ void App::applyGlobalEnvVars(const std::string& globalEnvVars) {
 }
 
 void App::updateCheckThreadMain() {
-    auto result = runUpdateCheck(currentVersion_, kManifestUrl,
-        [&](UpdateProgress p) {
-            std::lock_guard<std::mutex> lock(mutex_);
-            snapshot_.update = p;
-        },
+    std::string channel;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        channel = snapshot_.settings.channel;
+    }
+
+    auto report = [&](UpdateProgress p) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        snapshot_.update = p;
+    };
+
+    report({UpdatePhase::CheckingManifest, 0.0});
+
+    std::optional<std::string> latestVersion;
+    try {
+        latestVersion = fetchLatestVersion(kSetupBaseUrl, channel, &updateCancel_);
+    } catch (const std::exception& e) {
+        report({UpdatePhase::Error, 0.0, e.what()});
+        return;
+    }
+    if (!latestVersion.has_value()) {
+        // No releases published for this channel yet -- there's nothing to
+        // update to, so this isn't an error, just nothing further to do.
+        report({UpdatePhase::UpToDate, 1.0});
+        return;
+    }
+
+    auto result = runUpdateCheck(currentVersion_, kSetupBaseUrl, channel, *latestVersion,
+        [&](UpdateProgress p) { report(p); },
         &updateCancel_, installDir_);
     if (result.needsHandoff) {
         installerHandoffPath_ = result.installerPath; // see installerHandoffPath()'s comment

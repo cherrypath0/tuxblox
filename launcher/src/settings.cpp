@@ -27,7 +27,11 @@ namespace tuxblox {
 namespace {
 
 std::string settingsFilePath(const std::string& installDir) {
-    return installDir + "/launcher_settings.json";
+    return installDir + "/settings.json";
+}
+
+bool isKnownChannel(const std::string& channel) {
+    return channel == "stable" || channel == "canary" || channel == "dev";
 }
 
 } // namespace
@@ -44,6 +48,13 @@ Settings loadSettings(const std::string& installDir) {
         settings.protonEnvVars = j.at("proton_env_vars").get<std::string>();
         settings.globalEnvVars = j.at("global_env_vars").get<std::string>();
         settings.sendCrashReports = j.at("send_crash_reports").get<bool>();
+        // Read leniently (.value(), not .at()): unlike the three fields
+        // above, a settings.json written before this field existed must
+        // NOT wholesale-reset to defaults just because "channel" is
+        // missing -- it should just default to "stable" and keep whatever
+        // else was already there.
+        std::string channel = j.value("channel", std::string("stable"));
+        settings.channel = isKnownChannel(channel) ? channel : "stable";
         return settings;
     } catch (...) {
         // Missing file, unreadable file, parse error, or a missing/wrong-typed
@@ -63,6 +74,7 @@ void saveSettings(const std::string& installDir, const Settings& settings) {
         j["proton_env_vars"] = settings.protonEnvVars;
         j["global_env_vars"] = settings.globalEnvVars;
         j["send_crash_reports"] = settings.sendCrashReports;
+        j["channel"] = settings.channel;
 
         std::ofstream file(settingsFilePath(installDir), std::ios::binary);
         if (!file) return;

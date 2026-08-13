@@ -27,8 +27,25 @@ namespace tuxblox {
 
 enum class Tab { Start, About, Settings };
 
+struct UninstallProgress {
+    // True from the moment requestUninstall() is called until either the
+    // uninstaller handoff fires (App::needsUninstallHandoff()) or it fails
+    // (errorMessage gets set) -- drives the Settings tab's button showing a
+    // disabled "Uninstalling..." state instead of the two-click confirm.
+    bool inProgress = false;
+    std::string errorMessage; // non-empty iff the last attempt failed
+};
+
+// Same shape as UninstallProgress, for the Wipe Prefix button.
+struct WipePrefixProgress {
+    bool inProgress = false;
+    std::string errorMessage;
+};
+
 struct AppSnapshot {
     UpdateProgress update;
+    UninstallProgress uninstall;
+    WipePrefixProgress wipePrefix;
     Tab activeTab = Tab::Start;
     Settings settings;
     // Set once at startup (App's constructor) if running inside a
@@ -71,6 +88,28 @@ public:
     // watcher process -- Ui's render loop checks this to end immediately.
     bool shouldQuit() const;
 
+    // Fetches the latest release's manifest for the current channel,
+    // ensures a verified TuxBloxInstaller binary is staged at
+    // <installDir>/TuxBloxInstaller (same fetch-verify dance as an update
+    // handoff -- see updater.h's ensureInstallerBinary), and once ready
+    // sets needsUninstallHandoff(). Runs in the background; snapshot().uninstall
+    // reflects progress/errors for the UI. A no-op while already in
+    // progress (repeat clicks on a disabled button shouldn't restart it).
+    void requestUninstall();
+    // True once requestUninstall() has a verified installer ready to be
+    // exec'd with --uninstall -- the caller should stop the render loop,
+    // exec() installerHandoffPath() with that flag, and never return.
+    bool needsUninstallHandoff() const;
+
+    // Deletes the contents of <installDir>/runtime (the Wine prefix) in the
+    // background, leaving the runtime/ directory itself in place empty --
+    // the next launch recreates whatever it needs inside it. Purely local
+    // (no network, unlike requestUninstall()), but still backgrounded since
+    // a heavily-used prefix can be a few GB and this shouldn't freeze the
+    // UI thread. snapshot().wipePrefix reflects progress/errors. A no-op
+    // while already in progress.
+    void requestWipePrefix();
+
     AppSnapshot snapshot() const;
 
     // Persists `settings` (settings.json), re-applies Global Environment
@@ -79,6 +118,8 @@ public:
 
 private:
     void updateCheckThreadMain();
+    void uninstallThreadMain();
+    void wipePrefixThreadMain();
     void applyGlobalEnvVars(const std::string& globalEnvVars);
 
     std::string installDir_;
@@ -88,11 +129,26 @@ private:
     mutable std::mutex mutex_;
     AppSnapshot snapshot_;
     std::atomic<bool> needsInstallerHandoff_{false};
+    std::atomic<bool> needsUninstallHandoff_{false};
     std::atomic<bool> shouldQuit_{false};
-    std::string installerHandoffPath_; // written once, before needsInstallerHandoff_ is set -- see updateCheckThreadMain
+    // Written once by whichever of updateCheckThreadMain/uninstallThreadMain
+    // gets there first, strictly before that same thread sets its handoff
+    // flag -- same happens-before idiom as needsInstallerHandoff_ itself.
+    // The two threads' write windows don't overlap in practice (uninstall
+    // is a rare, explicit user action; update-check runs once at startup),
+    // so a single shared field is fine without extra synchronization.
+    std::string installerHandoffPath_;
     std::atomic<bool> updateCancel_{false};
+    std::atomic<bool> uninstallCancel_{false};
 
     std::thread updateThread_;
+    std::thread uninstallThread_;
+    // No cancel flag: unlike the two threads above (both network-bound,
+    // hence cancellable so shutdown isn't held hostage by a slow download),
+    // this is a local fs::remove_all with no cancellation point of its own
+    // -- the destructor just joins it and accepts the (typically brief)
+    // wait.
+    std::thread wipePrefixThread_;
 };
 
 } // namespace tuxblox

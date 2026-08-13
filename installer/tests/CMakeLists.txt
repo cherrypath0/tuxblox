@@ -56,3 +56,7 @@ add_test(NAME installer_steps COMMAND test_installer_steps)
 add_executable(test_container_env test_container_env.cpp)
 target_link_libraries(test_container_env PRIVATE installer_core)
 add_test(NAME container_env COMMAND test_container_env)
+
+add_executable(test_uninstall test_uninstall.cpp)
+target_link_libraries(test_uninstall PRIVATE installer_core)
+add_test(NAME uninstall COMMAND test_uninstall)

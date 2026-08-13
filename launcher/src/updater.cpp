@@ -43,45 +43,20 @@ double downloadProgressFraction(uint64_t now, uint64_t total, uint64_t manifestS
     return effectiveTotal > 0 ? static_cast<double>(now) / static_cast<double>(effectiveTotal) : 0.0;
 }
 
-UpdateResult runUpdateCheck(const std::string& currentLauncherVersion,
-                             const std::string& manifestUrl,
-                             const UpdateProgressFn& onProgress,
-                             const std::atomic<bool>* cancel,
-                             const std::string& installDirOverride) {
+EnsureInstallerResult ensureInstallerBinary(const Manifest& manifest, const std::string& dir,
+                                             const std::atomic<bool>* cancel,
+                                             const UpdateProgressFn& onProgress) {
     auto report = [&](UpdatePhase phase, double fraction, const std::string& err = "") {
         if (onProgress) onProgress({phase, fraction, err});
     };
-
-    report(UpdatePhase::CheckingManifest, 0.0);
-
-    Manifest manifest;
-    try {
-        std::string json = fetchManifestJson(manifestUrl, cancel);
-        manifest = parseManifest(json);
-    } catch (const std::exception& e) {
-        report(UpdatePhase::Error, 0.0, e.what());
-        return {};
-    }
-
-    const std::string dir = resolveInstallDir(installDirOverride);
-
-    const bool launcherNeedsUpdate = versionNeedsUpdate(currentLauncherVersion, manifest.tuxbloxVersion);
-    auto installedProtonVersion = readInstalledProtonVersion(dir);
-    const bool protonNeedsUpdate =
-        !installedProtonVersion.has_value() || versionNeedsUpdate(*installedProtonVersion, manifest.protonVersion);
-
-    if (!launcherNeedsUpdate && !protonNeedsUpdate) {
-        report(UpdatePhase::UpToDate, 1.0);
-        return {};
-    }
 
     report(UpdatePhase::PreparingUpdater, 0.0);
     const std::string installerPath = dir + "/TuxBloxInstaller";
 
     // Re-fetch the installer only if it's missing or stale relative to the
     // manifest -- a bare "is it there" check isn't enough, since the
-    // installer artifact itself gets version bumps independently of
-    // tuxblox_version/proton_version.
+    // installer artifact itself can change independently of requiredVersion
+    // (a re-upload of the same release's installer binary, for instance).
     bool needsFetch = true;
     if (fs::exists(installerPath)) {
         try {
@@ -109,15 +84,16 @@ UpdateResult runUpdateCheck(const std::string& currentLauncherVersion,
             return {};
         }
         if (dlOutcome.result == DownloadResult::Failed) {
-            report(UpdatePhase::Error, 0.0, "Downloading updater failed: " + dlOutcome.errorMessage);
-            return {};
+            std::string err = "Downloading updater failed: " + dlOutcome.errorMessage;
+            report(UpdatePhase::Error, 0.0, err);
+            return {false, "", err};
         }
 
         std::string actualSha = sha256File(newPath);
         if (actualSha != manifest.installer.sha256) {
             fs::remove(newPath);
             report(UpdatePhase::Error, 0.0, "Updater checksum mismatch");
-            return {};
+            return {false, "", "Updater checksum mismatch"};
         }
 
         chmod(newPath.c_str(), 0755);
@@ -125,14 +101,61 @@ UpdateResult runUpdateCheck(const std::string& currentLauncherVersion,
         fs::rename(newPath, installerPath, renameEc);
         if (renameEc) {
             fs::remove(newPath);
-            report(UpdatePhase::Error, 0.0, "Failed to install updater: " + renameEc.message());
-            return {};
+            std::string err = "Failed to install updater: " + renameEc.message();
+            report(UpdatePhase::Error, 0.0, err);
+            return {false, "", err};
         }
     } else {
         chmod(installerPath.c_str(), 0755);
     }
 
-    return {true, installerPath};
+    return {true, installerPath, ""};
+}
+
+UpdateResult runUpdateCheck(const std::string& currentLauncherVersion,
+                             const std::string& baseUrl,
+                             const std::string& channel,
+                             const std::string& requiredVersion,
+                             const UpdateProgressFn& onProgress,
+                             const std::atomic<bool>* cancel,
+                             const std::string& installDirOverride) {
+    auto report = [&](UpdatePhase phase, double fraction, const std::string& err = "") {
+        if (onProgress) onProgress({phase, fraction, err});
+    };
+
+    report(UpdatePhase::CheckingManifest, 0.0);
+
+    const std::string manifestUrl = baseUrl + "/v1/" + channel + "/" + requiredVersion + "/manifest.json";
+
+    Manifest manifest;
+    try {
+        std::string json = fetchManifestJson(manifestUrl, cancel);
+        manifest = parseManifest(json, baseUrl);
+    } catch (const std::exception& e) {
+        report(UpdatePhase::Error, 0.0, e.what());
+        return {};
+    }
+
+    const std::string dir = resolveInstallDir(installDirOverride);
+
+    // One release version now covers both the launcher and Proton together
+    // (see updater.h's doc comment) -- both compared against the same
+    // requiredVersion rather than separate tuxbloxVersion/protonVersion
+    // fields that no longer exist on Manifest.
+    const bool launcherNeedsUpdate = versionNeedsUpdate(currentLauncherVersion, requiredVersion);
+    auto installedProtonVersion = readInstalledProtonVersion(dir);
+    const bool protonNeedsUpdate =
+        !installedProtonVersion.has_value() || versionNeedsUpdate(*installedProtonVersion, requiredVersion);
+
+    if (!launcherNeedsUpdate && !protonNeedsUpdate) {
+        report(UpdatePhase::UpToDate, 1.0);
+        return {};
+    }
+
+    EnsureInstallerResult ensured = ensureInstallerBinary(manifest, dir, cancel, onProgress);
+    if (!ensured.ok) return {};
+
+    return {true, ensured.installerPath};
 }
 
 } // namespace tuxblox

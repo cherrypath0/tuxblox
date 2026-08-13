@@ -35,25 +35,28 @@ int main() {
         assert(s.protonEnvVars.empty());
         assert(s.globalEnvVars.empty());
         assert(s.sendCrashReports == true);
+        assert(s.channel == "stable");
     }
 
-    // Round-trip, including sendCrashReports = false.
+    // Round-trip, including sendCrashReports = false and a non-default channel.
     {
         Settings s;
         s.protonEnvVars = "PROTON_LOG=1 DXVK_HUD=fps";
         s.globalEnvVars = "MY_VAR=hello";
         s.sendCrashReports = false;
+        s.channel = "canary";
         saveSettings(dir, s);
 
         Settings loaded = loadSettings(dir);
         assert(loaded.protonEnvVars == "PROTON_LOG=1 DXVK_HUD=fps");
         assert(loaded.globalEnvVars == "MY_VAR=hello");
         assert(loaded.sendCrashReports == false);
+        assert(loaded.channel == "canary");
     }
 
     // Malformed JSON -> defaults, not a crash.
     {
-        std::ofstream out(dir + "/launcher_settings.json", std::ios::binary);
+        std::ofstream out(dir + "/settings.json", std::ios::binary);
         out << "{ not json";
         out.close();
 
@@ -61,12 +64,13 @@ int main() {
         assert(s.protonEnvVars.empty());
         assert(s.globalEnvVars.empty());
         assert(s.sendCrashReports == true);
+        assert(s.channel == "stable");
     }
 
     // Missing field -> defaults wholesale (loadSettings never throws, never
     // partially applies).
     {
-        std::ofstream out(dir + "/launcher_settings.json", std::ios::binary);
+        std::ofstream out(dir + "/settings.json", std::ios::binary);
         out << R"({"proton_env_vars": "FOO=bar"})";
         out.close();
 
@@ -74,6 +78,35 @@ int main() {
         assert(s.protonEnvVars.empty());
         assert(s.globalEnvVars.empty());
         assert(s.sendCrashReports == true);
+        assert(s.channel == "stable");
+    }
+
+    // A settings.json written before "channel" existed (all three original
+    // fields present, no channel key at all) must NOT wholesale-reset --
+    // channel alone falls back to "stable" while everything else loads
+    // normally. This is the one field read leniently (.value(), not .at())
+    // specifically so upgrading the launcher doesn't wipe existing settings.
+    {
+        std::ofstream out(dir + "/settings.json", std::ios::binary);
+        out << R"({"proton_env_vars": "FOO=bar", "global_env_vars": "BAZ=qux", "send_crash_reports": false})";
+        out.close();
+
+        Settings s = loadSettings(dir);
+        assert(s.protonEnvVars == "FOO=bar");
+        assert(s.globalEnvVars == "BAZ=qux");
+        assert(s.sendCrashReports == false);
+        assert(s.channel == "stable");
+    }
+
+    // An unrecognized channel value (hand-edited or from a future version)
+    // falls back to "stable" rather than being trusted verbatim.
+    {
+        std::ofstream out(dir + "/settings.json", std::ios::binary);
+        out << R"({"proton_env_vars": "", "global_env_vars": "", "send_crash_reports": true, "channel": "nightly"})";
+        out.close();
+
+        Settings s = loadSettings(dir);
+        assert(s.channel == "stable");
     }
 
     // parseEnvPairs: empty string.

@@ -40,16 +40,28 @@ int curlCancelCallback(void* clientp, curl_off_t /*dltotal*/, curl_off_t /*dlnow
     return shouldAbortTransfer(cancel) ? 1 : 0;
 }
 
-Artifact parseArtifact(const nlohmann::json& artifacts, const char* name) {
-    if (!artifacts.contains(name)) {
-        throw std::runtime_error(std::string("manifest missing artifact: ") + name);
+// A manifest artifact's "url" is always a path relative to the setup
+// origin ("/v1/canary/0.2.0/launcher"), never a full URL -- resolving it
+// here (once, at parse time) means every other artifact.url use site just
+// gets something curl can fetch directly, same as before this schema
+// change.
+std::string resolveUrl(const std::string& baseUrl, const std::string& maybeRelative) {
+    if (maybeRelative.rfind("http://", 0) == 0 || maybeRelative.rfind("https://", 0) == 0 ||
+        maybeRelative.rfind("file://", 0) == 0) {
+        return maybeRelative; // already absolute -- defensive, the server never emits this today
     }
+    return baseUrl + maybeRelative;
+}
+
+Artifact parseArtifact(const nlohmann::json& a, const std::string& name, const std::string& baseUrl) {
     try {
-        const auto& a = artifacts.at(name);
         Artifact artifact;
-        artifact.url = a.at("url").get<std::string>();
+        artifact.url = resolveUrl(baseUrl, a.at("url").get<std::string>());
         artifact.sha256 = a.at("sha256").get<std::string>();
-        artifact.sizeBytes = a.at("size_bytes").get<uint64_t>();
+        artifact.sizeBytes = a.at("size").get<uint64_t>();
+        artifact.displayname = a.at("displayname").get<std::string>();
+        artifact.filename = a.at("filename").get<std::string>();
+        artifact.path = a.at("path").get<std::string>();
         return artifact;
     } catch (const nlohmann::json::exception& e) {
         throw std::runtime_error(std::string("manifest artifact '") + name + "' field error: " + e.what());
@@ -61,11 +73,11 @@ Artifact parseArtifact(const nlohmann::json& artifacts, const char* name) {
 // changes -- kept as a single named constant rather than a bare literal so
 // it's the one obvious place to change, not a magic number buried in a
 // comparison.
-constexpr int kSupportedManifestVersion = 1;
+constexpr int kSupportedManifestVersion = 2;
 
 } // namespace
 
-Manifest parseManifest(const std::string& jsonText) {
+Manifest parseManifest(const std::string& jsonText, const std::string& baseUrl) {
     nlohmann::json j;
     try {
         j = nlohmann::json::parse(jsonText);
@@ -87,10 +99,13 @@ Manifest parseManifest(const std::string& jsonText) {
                                      " (this installer supports version " +
                                      std::to_string(kSupportedManifestVersion) + ")");
         }
-        m.tuxbloxVersion = j.at("tuxblox_version").get<std::string>();
-        m.protonbuild = parseArtifact(j.at("artifacts"), "protonbuild");
-        m.launcher = parseArtifact(j.at("artifacts"), "launcher");
-        m.installer = parseArtifact(j.at("artifacts"), "installer");
+        m.channel = j.at("channel").get<std::string>();
+        for (const auto& [name, value] : j.at("artifacts").items()) {
+            m.artifacts[name] = parseArtifact(value, name, baseUrl);
+        }
+        if (m.artifacts.empty()) {
+            throw std::runtime_error("manifest 'artifacts' object is empty");
+        }
         return m;
     } catch (const std::runtime_error&) {
         throw;  // re-throw runtime_error as-is
@@ -139,6 +154,20 @@ std::string fetchManifestJson(const std::string& url, const std::atomic<bool>* c
         throw std::runtime_error("fetchManifestJson: HTTP " + std::to_string(httpCode));
     }
     return body;
+}
+
+std::optional<std::string> fetchLatestVersion(const std::string& baseUrl, const std::string& channel,
+                                               const std::atomic<bool>* cancel) {
+    std::string json = fetchManifestJson(baseUrl + "/v2/latest.json", cancel);
+
+    nlohmann::json j;
+    try {
+        j = nlohmann::json::parse(json);
+        const std::string version = j.at("channels").at(channel).get<std::string>();
+        return version.empty() ? std::nullopt : std::make_optional(version);
+    } catch (const nlohmann::json::exception& e) {
+        throw std::runtime_error(std::string("latest.json field error: ") + e.what());
+    }
 }
 
 } // namespace tuxblox

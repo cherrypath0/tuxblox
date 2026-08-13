@@ -67,22 +67,34 @@ void runCommandBestEffort(const std::vector<std::string>& argv) {
 
 } // namespace
 
-void ensureDesktopIntegration(const std::string& installDir, const std::string& launcherExePath) {
+void ensureDesktopIntegration(const std::string& launcherExePath) {
     try {
-        const std::string iconPath = installDir + "/tuxblox.png";
+        const char* home = std::getenv("HOME");
+        if (!home || home[0] == '\0') return;
+        const std::string appsDir = std::string(home) + "/.local/share/applications";
+
+        // kTuxbloxLogoPng is already fully embedded in this binary (fetched
+        // and rasterized once at build time -- see FetchLogo.cmake); this
+        // write is not loading a separate asset, it's just producing the
+        // one real file .desktop Icon= entries are required to point at
+        // (the XDG desktop-entry spec has no way to reference bytes inside
+        // a binary directly). Installed under the standard per-user icon
+        // theme location/size bucket rather than next to the install
+        // directory, so Icon= can name it ("tuxblox") instead of hardcoding
+        // an absolute path -- proper icon-theme lookup/scaling, and it
+        // stops being something that has to live under installDir at all.
+        const std::string iconThemeDir = std::string(home) + "/.local/share/icons/hicolor/256x256/apps";
+        std::error_code ec;
+        fs::create_directories(iconThemeDir, ec);
+        if (ec) return;
         {
-            std::ofstream iconFile(iconPath, std::ios::binary);
+            std::ofstream iconFile(iconThemeDir + "/tuxblox.png", std::ios::binary);
             if (!iconFile) return;
             iconFile.write(reinterpret_cast<const char*>(kTuxbloxLogoPng),
                             static_cast<std::streamsize>(kTuxbloxLogoPngLen));
             if (!iconFile) return;
         }
 
-        const char* home = std::getenv("HOME");
-        if (!home || home[0] == '\0') return;
-        const std::string appsDir = std::string(home) + "/.local/share/applications";
-
-        std::error_code ec;
         fs::create_directories(appsDir, ec);
         if (ec) return;
 
@@ -96,7 +108,7 @@ void ensureDesktopIntegration(const std::string& installDir, const std::string& 
                 "Name=TuxBlox\n"
                 "Comment=Launch TuxBlox (Roblox on Linux via Proton)\n"
                 "Exec=\"" << launcherExePath << "\"\n"
-                "Icon=" << iconPath << "\n"
+                "Icon=tuxblox\n"
                 "Terminal=false\n"
                 // Must match the SDL_VIDEO_X11_WMCLASS value set in Ui::init()
                 // -- lets desktop environments match the running window back
@@ -138,6 +150,12 @@ void ensureDesktopIntegration(const std::string& installDir, const std::string& 
             runCommandBestEffort({"xdg-mime", "default", "tuxblox-url-handler.desktop", "x-scheme-handler/roblox-studio"});
             runCommandBestEffort({"xdg-mime", "default", "tuxblox-url-handler.desktop", "x-scheme-handler/roblox-studio-auth"});
             runCommandBestEffort({"update-desktop-database", appsDir});
+            // Best-effort, same reasoning as update-desktop-database above --
+            // not every desktop environment needs this to pick up a newly
+            // added icon-theme file, but GTK-based ones (and the icon
+            // picker in some app launchers) can otherwise keep showing a
+            // generic icon until the theme cache is rebuilt.
+            runCommandBestEffort({"gtk-update-icon-cache", std::string(home) + "/.local/share/icons/hicolor"});
         }
 
         // Inside a Distrobox container, ~/.local/share/applications is

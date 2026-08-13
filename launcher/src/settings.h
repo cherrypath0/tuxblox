@@ -26,9 +26,15 @@ struct Settings {
     std::string protonEnvVars;  // applied only to the "proton run" child
     std::string globalEnvVars;  // applied to the launcher process itself (setenv), inherited by everything it spawns
     bool sendCrashReports = true;
+    // One of "stable"/"canary"/"dev" -- which /v1/<channel>/... the update
+    // checker resolves against. Defaults to "stable" even though it may
+    // have no releases published yet (see manifest.h's fetchLatestVersion):
+    // that's the correct long-term default for a public installer, not a
+    // reflection of what's actually shipped today.
+    std::string channel = "stable";
 };
 
-// installDir + "/launcher_settings.json". Never throws: a missing file,
+// installDir + "/settings.json". Never throws: a missing file,
 // unreadable file, parse error, or malformed/missing fields all fall back
 // to a default-constructed Settings{} -- a corrupt settings file must never
 // crash the launcher.

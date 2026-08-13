@@ -50,36 +50,43 @@ int main() {
     const std::string installerSha = sha256File(installerSrc.string());
     const uint64_t installerSize = fs::file_size(installerSrc);
 
-    auto writeManifest = [&](const fs::path& path, const std::string& tuxbloxVersion,
-                              const std::string& protonVersion, const std::string& installerSha256) {
+    const std::string fileBaseUrl = "file://" + work.string();
+
+    // Writes a manifest fixture at <work>/v1/<channel>/<version>/manifest.json
+    // -- runUpdateCheck constructs exactly this path from (baseUrl, channel,
+    // requiredVersion), so exercising it through the real path-construction
+    // logic (not a flat file it can be pointed at directly) is deliberate.
+    auto writeManifest = [&](const std::string& channel, const std::string& version,
+                              const std::string& installerUrl, const std::string& installerSha256) {
+        fs::path dir = work / "v1" / channel / version;
+        fs::create_directories(dir);
         std::ostringstream body;
         body << "{\n"
-                "  \"manifest_version\": 1,\n"
-                "  \"tuxblox_version\": \"" << tuxbloxVersion << "\",\n"
-                "  \"proton_version\": \"" << protonVersion << "\",\n"
+                "  \"channel\": \"" << channel << "\",\n"
+                "  \"manifest_version\": 2,\n"
                 "  \"artifacts\": {\n"
-                "    \"protonbuild\": {\"url\": \"file:///nonexistent\", \"sha256\": \"x\", \"size_bytes\": 1},\n"
-                "    \"launcher\": {\"url\": \"file:///nonexistent\", \"sha256\": \"x\", \"size_bytes\": 1},\n"
-                "    \"installer\": {\"url\": \"file://" << installerSrc.string() << "\", "
-                "\"sha256\": \"" << installerSha256 << "\", \"size_bytes\": " << installerSize << "}\n"
+                "    \"proton\": {\"url\": \"file:///nonexistent\", \"sha256\": \"x\", \"size\": 1},\n"
+                "    \"launcher\": {\"url\": \"file:///nonexistent\", \"sha256\": \"x\", \"size\": 1},\n"
+                "    \"installer\": {\"url\": \"" << installerUrl << "\", "
+                "\"sha256\": \"" << installerSha256 << "\", \"size\": " << installerSize << "}\n"
                 "  }\n"
                 "}\n";
-        std::ofstream out(path);
+        std::ofstream out(dir / "manifest.json");
         out << body.str();
     };
+    const std::string installerFileUrl = "file://" + installerSrc.string();
 
-    // --- Up-to-date path: both launcher and Proton versions match the
-    // manifest, no installer fetch happens, needsHandoff stays false. ---
+    // --- Up-to-date path: both launcher and Proton versions match
+    // requiredVersion, no installer fetch happens, needsHandoff stays false. ---
     {
         fs::path installDirPath = work / "install_uptodate";
         fs::create_directories(installDirPath / "ProtonBuild" / "dist");
         { std::ofstream out(installDirPath / "ProtonBuild" / "dist" / "version"); out << "1700000000 0.1.0"; }
 
-        fs::path manifestSrc = work / "manifest_uptodate.json";
-        writeManifest(manifestSrc, "0.1.0", "0.1.0", installerSha);
+        writeManifest("ch-uptodate", "0.1.0", installerFileUrl, installerSha);
 
         std::vector<UpdatePhase> phases;
-        auto result = runUpdateCheck("0.1.0", "file://" + manifestSrc.string(),
+        auto result = runUpdateCheck("0.1.0", fileBaseUrl, "ch-uptodate", "0.1.0",
             [&](UpdateProgress p) { phases.push_back(p.phase); }, nullptr, installDirPath.string());
 
         assert(!result.needsHandoff);
@@ -88,18 +95,18 @@ int main() {
         assert(!fs::exists(installDirPath / "TuxBloxInstaller")); // never fetched -- nothing needed it
     }
 
-    // --- Proton out of date: installer gets fetched, verified, and handed
-    // off; the launcher itself does no Proton downloading/extracting. ---
+    // --- Proton out of date (launcher itself already current): installer
+    // gets fetched, verified, and handed off; the launcher itself does no
+    // Proton downloading/extracting. ---
     {
         fs::path installDirPath = work / "install_proton_stale";
         fs::create_directories(installDirPath / "ProtonBuild" / "dist");
         { std::ofstream out(installDirPath / "ProtonBuild" / "dist" / "version"); out << "1700000000 0.1.0"; }
 
-        fs::path manifestSrc = work / "manifest_proton_stale.json";
-        writeManifest(manifestSrc, "0.1.0", "0.2.0", installerSha);
+        writeManifest("ch-protonstale", "0.2.0", installerFileUrl, installerSha);
 
         std::vector<UpdatePhase> phases;
-        auto result = runUpdateCheck("0.1.0", "file://" + manifestSrc.string(),
+        auto result = runUpdateCheck("0.2.0", fileBaseUrl, "ch-protonstale", "0.2.0",
             [&](UpdateProgress p) { phases.push_back(p.phase); }, nullptr, installDirPath.string());
 
         assert(result.needsHandoff);
@@ -115,16 +122,16 @@ int main() {
         assert(fs::exists(installDirPath / "ProtonBuild" / "dist" / "version"));
     }
 
-    // --- Launcher itself out of date: same handoff path. ---
+    // --- Launcher itself out of date (Proton already current): same
+    // handoff path. ---
     {
         fs::path installDirPath = work / "install_launcher_stale";
         fs::create_directories(installDirPath / "ProtonBuild" / "dist");
-        { std::ofstream out(installDirPath / "ProtonBuild" / "dist" / "version"); out << "1700000000 0.1.0"; }
+        { std::ofstream out(installDirPath / "ProtonBuild" / "dist" / "version"); out << "1700000000 0.2.0"; }
 
-        fs::path manifestSrc = work / "manifest_launcher_stale.json";
-        writeManifest(manifestSrc, "0.2.0", "0.1.0", installerSha);
+        writeManifest("ch-launcherstale", "0.2.0", installerFileUrl, installerSha);
 
-        auto result = runUpdateCheck("0.1.0", "file://" + manifestSrc.string(),
+        auto result = runUpdateCheck("0.1.0", fileBaseUrl, "ch-launcherstale", "0.2.0",
             [](UpdateProgress) {}, nullptr, installDirPath.string());
 
         assert(result.needsHandoff);
@@ -144,27 +151,12 @@ int main() {
         // implementation should skip the download entirely.
         assert(sha256File(cachedInstaller.string()) == installerSha);
 
-        fs::path manifestSrc = work / "manifest_installer_cached.json";
-        writeManifest(manifestSrc, "0.2.0", "0.1.0", installerSha);
-
         // Point the manifest's installer URL at a nonexistent file -- if the
         // implementation incorrectly tries to re-fetch, this would fail the
         // whole update check instead of silently succeeding.
-        std::ostringstream body;
-        body << "{\n"
-                "  \"manifest_version\": 1,\n"
-                "  \"tuxblox_version\": \"0.2.0\",\n"
-                "  \"proton_version\": \"0.1.0\",\n"
-                "  \"artifacts\": {\n"
-                "    \"protonbuild\": {\"url\": \"file:///nonexistent\", \"sha256\": \"x\", \"size_bytes\": 1},\n"
-                "    \"launcher\": {\"url\": \"file:///nonexistent\", \"sha256\": \"x\", \"size_bytes\": 1},\n"
-                "    \"installer\": {\"url\": \"file:///nonexistent/should_not_be_fetched\", "
-                "\"sha256\": \"" << installerSha << "\", \"size_bytes\": " << installerSize << "}\n"
-                "  }\n"
-                "}\n";
-        { std::ofstream out(manifestSrc); out << body.str(); }
+        writeManifest("ch-installercached", "0.2.0", "file:///nonexistent/should_not_be_fetched", installerSha);
 
-        auto result = runUpdateCheck("0.1.0", "file://" + manifestSrc.string(),
+        auto result = runUpdateCheck("0.1.0", fileBaseUrl, "ch-installercached", "0.2.0",
             [](UpdateProgress) {}, nullptr, installDirPath.string());
 
         assert(result.needsHandoff);
@@ -178,12 +170,11 @@ int main() {
         fs::create_directories(installDirPath / "ProtonBuild" / "dist");
         { std::ofstream out(installDirPath / "ProtonBuild" / "dist" / "version"); out << "1700000000 0.1.0"; }
 
-        fs::path manifestSrc = work / "manifest_bad_checksum.json";
-        writeManifest(manifestSrc, "0.1.0", "0.2.0",
+        writeManifest("ch-badchecksum", "0.2.0", installerFileUrl,
             "0000000000000000000000000000000000000000000000000000000000000");
 
         std::vector<UpdatePhase> phases;
-        auto result = runUpdateCheck("0.1.0", "file://" + manifestSrc.string(),
+        auto result = runUpdateCheck("0.1.0", fileBaseUrl, "ch-badchecksum", "0.2.0",
             [&](UpdateProgress p) { phases.push_back(p.phase); }, nullptr, installDirPath.string());
 
         assert(!result.needsHandoff);

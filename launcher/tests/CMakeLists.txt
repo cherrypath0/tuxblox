@@ -64,3 +64,7 @@ add_test(NAME settings COMMAND test_settings)
 add_executable(test_container_env test_container_env.cpp)
 target_link_libraries(test_container_env PRIVATE launcher_core)
 add_test(NAME container_env COMMAND test_container_env)
+
+add_executable(test_single_instance test_single_instance.cpp)
+target_link_libraries(test_single_instance PRIVATE launcher_core)
+add_test(NAME single_instance COMMAND test_single_instance)

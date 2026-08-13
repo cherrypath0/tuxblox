@@ -31,14 +31,12 @@ namespace tuxblox {
 
 namespace {
 constexpr uint64_t kMinFreeBytes = 3ULL * 1024 * 1024 * 1024; // 3GB, per README
-constexpr const char* kManifestUrl = "https://assetdelivery.tuxblox.net/pkg/manifest.json";
+constexpr const char* kSetupBaseUrl = "https://setup.tuxblox.net";
 
 // Peak disk usage during install is roughly (compressed download + fully
 // extracted tree) coexisting until the tarball is deleted post-extraction.
 // 2.5x the manifest's declared artifact sizes is a conservative estimate of
 // that peak; the fixed headroom covers the prefix/runtime scratch space.
-// NOTE: these constants should be re-tuned once real artifact sizes are
-// published -- the manifest's size_bytes are placeholders today.
 constexpr double kPeakUsageFactor = 2.5;
 constexpr uint64_t kHeadroomBytes = 500ULL * 1024 * 1024; // 500MB
 
@@ -47,18 +45,19 @@ constexpr uint64_t kHeadroomBytes = 500ULL * 1024 * 1024; // 500MB
 // let that exception escape and overwrite the real install-failure message.
 //
 // NEVER called when isUpgrade is true: runInstall()'s own catch handler
-// already removes whatever partial temp files *this run* created
-// (.protonbuild.tar.zst.part etc.), and that is the full extent of safe
-// cleanup on an upgrade -- wiping `dir` here would destroy the user's
-// existing install (including runtime/, which holds their Roblox login
-// session) over what might be nothing more than a network hiccup.
+// already removes whatever partial temp files *this run* created (each
+// artifact's .<name>.part or .<name>.tar.part), and that is the full
+// extent of safe cleanup on an upgrade -- wiping `dir` here would destroy
+// the user's existing install (including runtime/, which holds their
+// Roblox login session) over what might be nothing more than a network
+// hiccup.
 void cleanupBestEffort(const std::string& dir) {
     std::error_code ec;
     fs::remove_all(dir, ec);
 }
 } // namespace
 
-App::App() = default;
+App::App(std::string channel) : channel_(std::move(channel)) {}
 
 App::~App() {
     if (thread_.joinable()) {
@@ -125,15 +124,26 @@ void App::run() {
         if (cancelRequested_.load()) return;
 
         setPhase(AppPhase::FetchingManifest);
-        std::string json = fetchManifestJson(kManifestUrl, &cancelRequested_);
-        Manifest manifest = parseManifest(json);
+        auto latestVersion = fetchLatestVersion(kSetupBaseUrl, channel_, &cancelRequested_);
+        if (cancelRequested_.load()) return;
+        if (!latestVersion.has_value()) {
+            setError("No releases available for the '" + channel_ + "' channel yet.");
+            return;
+        }
+        const std::string manifestUrl =
+            std::string(kSetupBaseUrl) + "/v1/" + channel_ + "/" + *latestVersion + "/manifest.json";
+        std::string json = fetchManifestJson(manifestUrl, &cancelRequested_);
+        Manifest manifest = parseManifest(json, kSetupBaseUrl);
         if (cancelRequested_.load()) return;
 
         // Second, precise disk-space check now that the manifest gives us the
         // real artifact sizes. (The flat kMinFreeBytes check above still runs
-        // first as a cheap pre-network rejection.)
-        const uint64_t artifactBytes =
-            manifest.protonbuild.sizeBytes + manifest.launcher.sizeBytes + manifest.installer.sizeBytes;
+        // first as a cheap pre-network rejection.) Sums every artifact the
+        // manifest lists, not a fixed set -- see runInstall's own comment.
+        uint64_t artifactBytes = 0;
+        for (const auto& [name, art] : manifest.artifacts) {
+            artifactBytes += art.sizeBytes;
+        }
         const uint64_t requiredBytes =
             static_cast<uint64_t>(static_cast<double>(artifactBytes) * kPeakUsageFactor) +
             kHeadroomBytes;
@@ -145,9 +155,9 @@ void App::run() {
 
         setPhase(AppPhase::Installing);
         auto outcome = runInstall(manifest,
-            [&](Step step, double percent) {
+            [&](const std::string& label, double percent) {
                 std::lock_guard<std::mutex> lock(mutex_);
-                snapshot_.currentStep = step;
+                snapshot_.currentStepLabel = label;
                 snapshot_.overallPercent = percent;
             },
             &cancelRequested_, isUpgrade);
@@ -162,7 +172,7 @@ void App::run() {
             return;
         }
 
-        launcherPath_ = dir + "/TuxBloxLauncher";
+        launcherPath_ = outcome.launcherPath;
         createDesktopShortcut(dir); // best-effort -- see desktop_shortcut.h
         writeCopyrightFile(dir);    // best-effort -- see copyright_file.h
         readyToLaunch_.store(true);

@@ -66,6 +66,7 @@ add_library(installer_core STATIC
     src/progress.cpp
     src/installer_steps.cpp
     src/container_env.cpp
+    src/uninstall.cpp
 )
 target_include_directories(installer_core PUBLIC
     src third_party

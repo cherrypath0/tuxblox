@@ -69,23 +69,31 @@ void runCommandBestEffort(const std::vector<std::string>& argv) {
 
 void createDesktopShortcut(const std::string& installDir) {
     try {
-        // kTuxbloxLogoPng is already a complete, valid .png file's raw bytes
-        // (FetchLogo.cmake rasterizes the logo svg to an actual PNG file,
-        // then BinToHeader.cmake embeds that file's bytes verbatim) -- so
-        // this is a direct byte-for-byte write, no re-encoding needed.
-        const std::string iconPath = installDir + "/tuxblox.png";
-        std::ofstream iconFile(iconPath, std::ios::binary);
-        if (!iconFile) return;
-        iconFile.write(reinterpret_cast<const char*>(kTuxbloxLogoPng),
-                        static_cast<std::streamsize>(kTuxbloxLogoPngLen));
-        iconFile.close();
-        if (!iconFile) return;
-
         const char* home = std::getenv("HOME");
         if (!home || home[0] == '\0') return;
         const std::string appsDir = std::string(home) + "/.local/share/applications";
 
+        // kTuxbloxLogoPng is already a complete, valid .png file's raw bytes
+        // (FetchLogo.cmake rasterizes the logo svg to an actual PNG file,
+        // then BinToHeader.cmake embeds that file's bytes verbatim) -- so
+        // this is a direct byte-for-byte write, no re-encoding needed.
+        // Written under the standard per-user icon theme location/size
+        // bucket (not installDir) so the .desktop entry below can name it
+        // ("tuxblox") instead of hardcoding an absolute path -- proper
+        // icon-theme lookup/scaling, and it's no longer tied to installDir
+        // existing at all.
+        const std::string iconThemeDir = std::string(home) + "/.local/share/icons/hicolor/256x256/apps";
         std::error_code ec;
+        fs::create_directories(iconThemeDir, ec);
+        if (ec) return;
+        {
+            std::ofstream iconFile(iconThemeDir + "/tuxblox.png", std::ios::binary);
+            if (!iconFile) return;
+            iconFile.write(reinterpret_cast<const char*>(kTuxbloxLogoPng),
+                            static_cast<std::streamsize>(kTuxbloxLogoPngLen));
+            if (!iconFile) return;
+        }
+
         fs::create_directories(appsDir, ec);
         if (ec) return;
 
@@ -98,11 +106,17 @@ void createDesktopShortcut(const std::string& installDir) {
             "Name=TuxBlox Launcher\n"
             "Comment=Launch TuxBlox (Roblox on Linux via Proton)\n"
             "Exec=\"" << installDir << "/TuxBloxLauncher\"\n"
-            "Icon=" << iconPath << "\n"
+            "Icon=tuxblox\n"
             "Terminal=false\n"
             "Categories=Game;\n";
         desktopFile.close();
         if (!desktopFile) return;
+
+        // Best-effort, same reasoning as desktop_integration.cpp's identical
+        // call -- not every desktop environment needs this to pick up a
+        // newly added icon-theme file, but GTK-based ones can otherwise
+        // keep showing a generic icon until the theme cache is rebuilt.
+        runCommandBestEffort({"gtk-update-icon-cache", std::string(home) + "/.local/share/icons/hicolor"});
 
         // Inside a Distrobox container, ~/.local/share/applications is
         // shared with the host (Distrobox bind-mounts $HOME by default),

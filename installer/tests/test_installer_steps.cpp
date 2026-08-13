@@ -64,6 +64,7 @@ int main() {
     fs::path tarballSrc = work / "protonbuild.tar.zst";
     fs::path launcherSrc = work / "TuxBloxLauncherSrc";
     fs::path installerSrc = work / "TuxBloxInstallerSrc";
+    fs::path widgetSrc = work / "WidgetSrc"; // a non-launcher/installer/proton artifact, to prove genericness
     fs::path robloxPlayerSrc = work / "RobloxPlayerInstallerSrc.exe";
     fs::path robloxStudioSrc = work / "RobloxStudioInstallerSrc.exe";
     fs::path installDirPath = work / "install";
@@ -78,6 +79,10 @@ int main() {
         out << "fake installer binary";
     }
     {
+        std::ofstream out(widgetSrc, std::ios::binary);
+        out << "fake widget contents";
+    }
+    {
         std::ofstream out(robloxPlayerSrc, std::ios::binary);
         out << "fake roblox player installer";
     }
@@ -88,39 +93,89 @@ int main() {
     const std::string robloxPlayerUrl = "file://" + robloxPlayerSrc.string();
     const std::string robloxStudioUrl = "file://" + robloxStudioSrc.string();
 
-    Manifest manifest;
-    manifest.manifestVersion = 1;
-    manifest.tuxbloxVersion = "0.1.0-test";
-    manifest.protonbuild.url = "file://" + tarballSrc.string();
-    manifest.protonbuild.sha256 = sha256File(tarballSrc.string());
-    manifest.protonbuild.sizeBytes = fs::file_size(tarballSrc);
-    manifest.launcher.url = "file://" + launcherSrc.string();
-    manifest.launcher.sha256 = sha256File(launcherSrc.string());
-    manifest.launcher.sizeBytes = fs::file_size(launcherSrc);
-    manifest.installer.url = "file://" + installerSrc.string();
-    manifest.installer.sha256 = sha256File(installerSrc.string());
-    manifest.installer.sizeBytes = fs::file_size(installerSrc);
+    // Builds a manifest with the standard proton/launcher/installer trio
+    // PLUS a 4th, arbitrary "widget" artifact installed under a subfolder
+    // (path: "/extras") -- installer_steps.cpp hardcodes nothing about any
+    // of these names beyond "launcher" (needed to know what to exec at the
+    // end), so this is what actually exercises "installs everything inside
+    // artifacts" rather than just the historically-fixed three.
+    auto buildManifest = [&]() {
+        Manifest m;
+        m.manifestVersion = 2;
+        m.channel = "canary";
+
+        Artifact proton;
+        proton.url = "file://" + tarballSrc.string();
+        proton.sha256 = sha256File(tarballSrc.string());
+        proton.sizeBytes = fs::file_size(tarballSrc);
+        proton.displayname = "Proton";
+        proton.filename = "ProtonBuild";
+        proton.path = "/";
+        m.artifacts["proton"] = proton;
+
+        Artifact launcher;
+        launcher.url = "file://" + launcherSrc.string();
+        launcher.sha256 = sha256File(launcherSrc.string());
+        launcher.sizeBytes = fs::file_size(launcherSrc);
+        launcher.displayname = "Launcher";
+        launcher.filename = "TuxBloxLauncher";
+        launcher.path = "/";
+        m.artifacts["launcher"] = launcher;
+
+        Artifact installer;
+        installer.url = "file://" + installerSrc.string();
+        installer.sha256 = sha256File(installerSrc.string());
+        installer.sizeBytes = fs::file_size(installerSrc);
+        installer.displayname = "Updater";
+        installer.filename = "TuxBloxInstaller";
+        installer.path = "/";
+        m.artifacts["installer"] = installer;
+
+        Artifact widget;
+        widget.url = "file://" + widgetSrc.string();
+        widget.sha256 = sha256File(widgetSrc.string());
+        widget.sizeBytes = fs::file_size(widgetSrc);
+        widget.displayname = "Widget";
+        widget.filename = "widget.txt";
+        widget.path = "/extras";
+        m.artifacts["widget"] = widget;
+
+        return m;
+    };
+    const Manifest manifest = buildManifest();
 
     // Happy path: fresh install. Also pre-warms the Roblox Player/Studio
     // installer cache -- never runs them, only downloads and caches them
     // at the exact paths the launcher's own lazy-download fallback checks.
     {
-        Step lastStep = Step::CreatingDirectory;
+        std::string lastLabel;
         double lastPercent = -1.0;
         auto outcome = runInstall(manifest,
-            [&](Step step, double percent) { lastStep = step; lastPercent = percent; },
+            [&](const std::string& label, double percent) { lastLabel = label; lastPercent = percent; },
             nullptr, /*isUpgrade=*/false, installDirPath.string(),
             robloxPlayerUrl, robloxStudioUrl);
 
         assert(outcome.ok);
         assert(!outcome.cancelled);
-        assert(lastStep == Step::MovingExecutables);
+        assert(lastLabel == "Downloading Roblox Studio"); // chronologically the final phase
         assert(lastPercent > 99.9);
         assert(fs::exists(installDirPath / "steamapps"));
         assert(fs::exists(installDirPath / "runtime"));
         assert(fs::exists(installDirPath / "ProtonBuild" / "dist" / "proton"));
         assert(fs::exists(installDirPath / "TuxBloxLauncher"));
         assert(fs::exists(installDirPath / "TuxBloxInstaller"));
+        // The 4th, non-hardcoded artifact: proves the pipeline installs
+        // whatever the manifest lists, not a fixed trio -- and that
+        // artifact.path ("/extras") actually places it in a subfolder.
+        assert(fs::exists(installDirPath / "extras" / "widget.txt"));
+        {
+            std::ifstream in(installDirPath / "extras" / "widget.txt", std::ios::binary);
+            std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+            assert(content == "fake widget contents");
+        }
+        // The launcher's resolved install path comes back from the
+        // pipeline itself, not assumed by the caller.
+        assert(outcome.launcherPath == (installDirPath / "TuxBloxLauncher").string());
 
         fs::path playerCached = installDirPath / "RobloxPlayer" / "RobloxPlayerInstaller.exe";
         fs::path studioCached = installDirPath / "RobloxStudio" / "RobloxStudioInstaller.exe";
@@ -133,48 +188,40 @@ int main() {
         }
     }
 
-    // End-to-end install with progress reporting: confirms the install
-    // pipeline completes and progresses through DownloadingProton step.
-    // The downloadProgressFraction function (tested above) is what guards
-    // the manifest-size fallback logic directly.
+    // A manifest with no "launcher" artifact fails fast, before any
+    // downloading -- there'd be nothing to hand back for the caller to
+    // exec, so this is the one case installer_steps.cpp still hardcodes a
+    // check for.
     {
-        fs::path installDir8 = work / "install_progress_e2e";
-        double lastPercent = -1.0;
-        auto outcome = runInstall(manifest,
-            [&](Step step, double percent) { lastPercent = percent; },
-            nullptr, /*isUpgrade=*/false, installDir8.string(),
-            robloxPlayerUrl, robloxStudioUrl);
-
-        assert(outcome.ok);
+        Manifest noLauncher = manifest;
+        noLauncher.artifacts.erase("launcher");
+        fs::path installDirNoLauncher = work / "install_no_launcher";
+        auto outcome = runInstall(noLauncher, [](const std::string&, double) {}, nullptr, false,
+            installDirNoLauncher.string(), robloxPlayerUrl, robloxStudioUrl);
+        assert(!outcome.ok);
         assert(!outcome.cancelled);
-        assert(fs::exists(installDir8 / "ProtonBuild" / "dist" / "proton"));
-        assert(lastPercent > 99.9);
+        assert(outcome.errorMessage.find("launcher") != std::string::npos);
+        assert(!fs::exists(installDirNoLauncher / "steamapps")); // failed before doing anything
     }
 
-    // Extraction progress: ExtractingProton must report intermediate
-    // fractions, not just 0.0 then 1.0 -- guards against the "Upgrading
-    // Proton" bar freezing for the whole extraction step (previously
-    // extractTarZst had no progress callback at all).
+    // Extraction progress: the Proton phase must report intermediate
+    // fractions across download+verify+extract, not just jump from 0 to
+    // 100 -- guards against the "Downloading/Upgrading Proton" bar
+    // freezing for the whole step.
     {
         fs::path installDir9 = work / "install_extract_progress";
-        std::vector<double> extractPercents;
+        std::vector<double> protonPercents;
         auto outcome = runInstall(manifest,
-            [&](Step step, double percent) {
-                if (step == Step::ExtractingProton) extractPercents.push_back(percent);
+            [&](const std::string& label, double percent) {
+                if (label == "Downloading Proton") protonPercents.push_back(percent);
             },
             nullptr, /*isUpgrade=*/false, installDir9.string(),
             robloxPlayerUrl, robloxStudioUrl);
 
         assert(outcome.ok);
-        // The fixture archive (makeFixtureTarZst) packs exactly one entry
-        // ("dist/proton"), so extractTarZst's onProgress fires exactly once
-        // during extraction. Expect 2 bookend report() calls (0.0 and 1.0,
-        // unconditional in installer_steps.cpp around the extractTarZst
-        // call) PLUS >=1 real intermediate call from the onProgress wiring
-        // this test guards. Do NOT weaken this back to `>= 2` -- that would
-        // be satisfied by the two bookend calls alone and pass identically
-        // whether or not onProgress is actually wired up.
-        assert(extractPercents.size() >= 3);
+        // Do NOT weaken this to a smaller bound -- it exists specifically
+        // to catch progress reporting collapsing back to a start/end jump.
+        assert(protonPercents.size() >= 4);
     }
 
     // Already-cached path: if a Roblox installer is already present (e.g.
@@ -188,7 +235,7 @@ int main() {
         fs::create_directories(playerCached.parent_path());
         { std::ofstream out(playerCached, std::ios::binary); out << "already cached, must survive"; }
 
-        auto outcome = runInstall(manifest, [](Step, double) {}, nullptr, false, installDir2.string(),
+        auto outcome = runInstall(manifest, [](const std::string&, double) {}, nullptr, false, installDir2.string(),
             "file:///nonexistent/should_not_be_fetched_player.exe", robloxStudioUrl);
 
         assert(outcome.ok);
@@ -202,7 +249,7 @@ int main() {
     // covers it later, when the user actually launches).
     {
         fs::path installDir3 = work / "install_roblox_fetch_failed";
-        auto outcome = runInstall(manifest, [](Step, double) {}, nullptr, false, installDir3.string(),
+        auto outcome = runInstall(manifest, [](const std::string&, double) {}, nullptr, false, installDir3.string(),
             "file:///nonexistent/should_fail_but_not_abort_install.exe", robloxStudioUrl);
 
         assert(outcome.ok);
@@ -215,9 +262,9 @@ int main() {
     {
         fs::path installDir4 = work / "install_bad_checksum";
         Manifest badManifest = manifest;
-        badManifest.protonbuild.sha256 =
+        badManifest.artifacts["proton"].sha256 =
             "0000000000000000000000000000000000000000000000000000000000000";
-        auto badOutcome = runInstall(badManifest, [](Step, double) {}, nullptr, false, installDir4.string(),
+        auto badOutcome = runInstall(badManifest, [](const std::string&, double) {}, nullptr, false, installDir4.string(),
             robloxPlayerUrl, robloxStudioUrl);
         assert(!badOutcome.ok);
         assert(!badOutcome.cancelled);
@@ -227,8 +274,9 @@ int main() {
     // Extraction-failure path: checksum-valid but corrupt (non-tar.zst)
     // artifact. Downloads successfully, passes checksum verification, then
     // throws inside extractTarZst -- exercising the catch-all handler. The
-    // partially-downloaded .protonbuild.tar.zst.part temp file must be
-    // cleaned up rather than left orphaned in the install directory.
+    // partially-downloaded temp file (named after the component key, e.g.
+    // ".proton.tar.part") must be cleaned up rather than left orphaned in
+    // the install directory.
     {
         fs::path corruptSrc = work / "corrupt_protonbuild.tar.zst";
         {
@@ -238,23 +286,24 @@ int main() {
 
         fs::path installDir5 = work / "install_extract_failure";
         Manifest corruptManifest = manifest;
-        corruptManifest.protonbuild.url = "file://" + corruptSrc.string();
-        corruptManifest.protonbuild.sha256 = sha256File(corruptSrc.string());
-        corruptManifest.protonbuild.sizeBytes = fs::file_size(corruptSrc);
+        corruptManifest.artifacts["proton"].url = "file://" + corruptSrc.string();
+        corruptManifest.artifacts["proton"].sha256 = sha256File(corruptSrc.string());
+        corruptManifest.artifacts["proton"].sizeBytes = fs::file_size(corruptSrc);
 
-        auto corruptOutcome = runInstall(corruptManifest, [](Step, double) {}, nullptr, false, installDir5.string(),
-            robloxPlayerUrl, robloxStudioUrl);
+        auto corruptOutcome = runInstall(corruptManifest, [](const std::string&, double) {}, nullptr, false,
+            installDir5.string(), robloxPlayerUrl, robloxStudioUrl);
         assert(!corruptOutcome.ok);
         assert(!corruptOutcome.cancelled);
 
-        fs::path leftoverTarPart = installDir5 / ".protonbuild.tar.zst.part";
+        fs::path leftoverTarPart = installDir5 / ".proton.tar.part";
         assert(!fs::exists(leftoverTarPart));
     }
 
     // Upgrade path: an existing install (simulated: pre-populate the same
     // directory structure a prior install would have left) gets its
-    // ProtonBuild/ replaced and its launcher/installer binaries replaced,
-    // while runtime/ and other pre-existing content survive untouched.
+    // ProtonBuild/ replaced and its launcher/installer/widget files
+    // replaced, while runtime/ and other pre-existing content survive
+    // untouched.
     {
         fs::path installDir6 = work / "install_upgrade";
         fs::create_directories(installDir6 / "steamapps");
@@ -271,8 +320,8 @@ int main() {
         fs::path runtimeMarker = installDir6 / "runtime" / "session_cookie.txt";
         { std::ofstream out(runtimeMarker); out << "must survive the upgrade"; }
 
-        auto upgradeOutcome = runInstall(manifest, [](Step, double) {}, nullptr, /*isUpgrade=*/true, installDir6.string(),
-            robloxPlayerUrl, robloxStudioUrl);
+        auto upgradeOutcome = runInstall(manifest, [](const std::string&, double) {}, nullptr, /*isUpgrade=*/true,
+            installDir6.string(), robloxPlayerUrl, robloxStudioUrl);
 
         assert(upgradeOutcome.ok);
         assert(!upgradeOutcome.cancelled);
@@ -281,6 +330,7 @@ int main() {
         assert(!fs::exists(installDir6 / "ProtonBuild" / "stale_file_removed_in_new_build.txt")); // old ProtonBuild wiped
         assert(fs::exists(installDir6 / "TuxBloxLauncher"));
         assert(fs::exists(installDir6 / "TuxBloxInstaller"));
+        assert(fs::exists(installDir6 / "extras" / "widget.txt"));
     }
 
     // Upgrade + checksum-mismatch path: a failed upgrade must not touch
@@ -293,10 +343,10 @@ int main() {
         { std::ofstream out(survivorMarker); out << "must survive a failed upgrade"; }
 
         Manifest badUpgradeManifest = manifest;
-        badUpgradeManifest.protonbuild.sha256 =
+        badUpgradeManifest.artifacts["proton"].sha256 =
             "0000000000000000000000000000000000000000000000000000000000000";
-        auto badUpgradeOutcome = runInstall(badUpgradeManifest, [](Step, double) {}, nullptr, true, installDir7.string(),
-            robloxPlayerUrl, robloxStudioUrl);
+        auto badUpgradeOutcome = runInstall(badUpgradeManifest, [](const std::string&, double) {}, nullptr, true,
+            installDir7.string(), robloxPlayerUrl, robloxStudioUrl);
 
         assert(!badUpgradeOutcome.ok);
         assert(!badUpgradeOutcome.cancelled);

@@ -28,10 +28,17 @@ struct InstallOutcome {
     bool ok = false;
     bool cancelled = false;
     std::string errorMessage; // populated when !ok && !cancelled
+    // The "launcher" artifact's final installed path, populated iff ok --
+    // the caller should exec this. Artifact placement is otherwise fully
+    // generic (see runInstall's comment), so this is the one thing the
+    // pipeline still has to hand back by name.
+    std::string launcherPath;
 };
 
-// Called on every progress update: (currentStep, overallPercent).
-using StepProgressFn = std::function<void(Step, double)>;
+// Called on every progress update: (currentPhaseLabel, overallPercent).
+// The label is already fully resolved -- fresh-install vs "Upgrading ..."
+// wording is decided at the point it's generated, not looked up separately.
+using StepProgressFn = std::function<void(const std::string&, double)>;
 
 // Exposed for unit testing: computes the download-progress fraction
 // (0.0-1.0), falling back to `manifestSize` when curl doesn't report a
@@ -40,19 +47,31 @@ using StepProgressFn = std::function<void(Step, double)>;
 double downloadProgressFraction(uint64_t now, uint64_t total, uint64_t manifestSize);
 
 // Runs the full install pipeline against an already-fetched manifest:
-// create directories, download+verify+extract Proton, download+verify+move
-// the Launcher and the Installer itself (persisted so the launcher can
-// invoke it again later for updates). Reports progress via `onProgress`.
-// Aborts early if `*cancel` becomes true, returning
-// InstallOutcome::cancelled = true.
+// create directories, then for EVERY artifact manifest.artifacts lists
+// (not a fixed, hardcoded set) -- download it, verify its sha256, and
+// either extract it (if its url ends in a recognized archive extension --
+// ".tar.zst", ".tar.gz", ".tar.xz", ".tar.bz2") into
+// installDir + artifact.path + "/" + artifact.filename/, or move it into
+// place at installDir + artifact.path + "/" + artifact.filename directly
+// (chmod 0755). A future manifest with a 5th artifact, or one installed
+// under a different path, needs no code change here to be picked up.
+//
+// The one artifact this treats specially is "launcher" (if present): its
+// installed path becomes the thing the caller should exec once the
+// pipeline succeeds. This is the sole remaining hardcoded assumption --
+// unavoidable, since something has to be the app's actual entry point.
+//
+// Reports progress via `onProgress`. Aborts early if `*cancel` becomes
+// true, returning InstallOutcome::cancelled = true.
 //
 // `isUpgrade`, when true, means an existing install was found at the
-// target directory: the pipeline replaces only ProtonBuild/ (wiped, but
-// only after the replacement tarball is downloaded and checksum-verified)
-// and the Launcher/Installer binaries, leaving `runtime/` and everything
-// else untouched -- never re-wipes the whole directory the way a fresh
-// install populates it. `onProgress`'s step labels (see
-// `stepLabel(Step, bool)`) reflect this with "Upgrading ..." wording.
+// target directory: an archive artifact's extraction directory is wiped
+// (but only after the replacement tarball is downloaded and
+// checksum-verified) before extracting the new one; a plain-file artifact
+// simply overwrites the old file at the same path either way. Never
+// touches anything outside artifacts' own declared paths (runtime/,
+// steamapps/, etc. are left alone). Progress labels read "Upgrading
+// <displayname>" instead of "Downloading <displayname>" in this mode.
 //
 // Also pre-warms the Roblox Player/Studio installer cache (same cache
 // paths the launcher's own lazy-download fallback checks) so the first

@@ -15,62 +15,45 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #pragma once
-#include <array>
-#include <cstddef>
+#include <string>
+#include <vector>
 
 namespace tuxblox {
 
-// The INSTALLING steps and their percentage weights, in order.
-// Weights must sum to 100.
-enum class Step : size_t {
-    CreatingDirectory = 0,
-    DownloadingProton,
-    VerifyingProton,
-    ExtractingProton,
-    DownloadingLauncher,
-    VerifyingLauncher,
-    DownloadingInstaller,
-    VerifyingInstaller,
-    // Pre-warms the Roblox Player/Studio installer cache (same URLs/cache
-    // paths launch.sh and the launcher's own lazy-download fallback
-    // already use) so the first "Launch Player"/"Launch Studio" click
-    // doesn't need to download it -- these installers are never *run*
-    // here, only fetched; running one happens later, on first launch.
-    DownloadingRobloxPlayer,
-    DownloadingRobloxStudio,
-    MovingExecutables,
-    Count
+// One weighted phase of the install pipeline. `label` is already fully
+// resolved (fresh-install vs "Upgrading ..." wording decided by the
+// caller, not looked up here) since it's built per-artifact from whatever
+// the manifest happens to list -- there's no fixed, compile-time set of
+// phases to hang a lookup table off of.
+struct ProgressPhase {
+    std::string label;
+    double weight; // percentage points; every phase's weight should sum to 100 across the whole sequence
 };
 
-constexpr std::array<int, static_cast<size_t>(Step::Count)> kStepWeights = {
-    2, 39, 3, 22, 9, 2, 9, 2, 5, 5, 2
-};
-
-// `isUpgrade` selects between the fresh-install wording ("Downloading
-// Proton", "Downloading Launcher", ...) and the upgrade wording an
-// existing install sees ("Upgrading Proton" / "Upgrading TuxBlox",
-// collapsing the Proton-artifact steps and the launcher/installer-artifact
-// steps into those two user-facing labels respectively).
-const char* stepLabel(Step step, bool isUpgrade);
-
-// Tracks overall install progress (0.0-100.0) across the weighted steps.
+// Tracks overall install progress (0.0-100.0) across a caller-supplied,
+// dynamically-sized sequence of weighted phases. The phase list isn't
+// known at compile time -- it's built at runtime from however many
+// artifacts a given manifest lists (see installer_steps.cpp).
 class Progress {
 public:
-    // Marks `step` as the current step, with 0 fractional progress within it.
-    void beginStep(Step step);
+    explicit Progress(std::vector<ProgressPhase> phases);
 
-    // Sets fractional completion (0.0-1.0) within the current step.
-    void setStepFraction(double fraction);
+    // Marks phase `index` as current, with 0 fractional progress within it.
+    void beginPhase(size_t index);
 
-    // Current step, for display.
-    Step currentStep() const { return currentStep_; }
+    // Sets fractional completion (0.0-1.0) within the current phase.
+    void setPhaseFraction(double fraction);
 
-    // Overall progress across all steps, 0.0-100.0.
+    // Current phase's label, for display.
+    const std::string& currentLabel() const;
+
+    // Overall progress across all phases, 0.0-100.0.
     double overallPercent() const;
 
 private:
-    Step currentStep_ = Step::CreatingDirectory;
-    double stepFraction_ = 0.0;
+    std::vector<ProgressPhase> phases_;
+    size_t currentIndex_ = 0;
+    double phaseFraction_ = 0.0;
 };
 
 } // namespace tuxblox

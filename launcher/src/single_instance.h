@@ -19,6 +19,12 @@
 
 namespace tuxblox {
 
-void ensureDesktopIntegration(const std::string& launcherExePath);
+// Attempts to become the sole running GUI launcher instance by acquiring an
+// exclusive advisory lock on a file under `installDir`. Returns true if this
+// process now holds the lock and should proceed, false if another instance
+// already holds it. The lock is tied to the open file descriptor, so it's
+// released automatically -- even on a crash -- whenever this process exits;
+// there is no corresponding "release" function to call.
+bool acquireSingleInstanceLock(const std::string& installDir);
 
 } // namespace tuxblox

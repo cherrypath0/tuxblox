@@ -22,6 +22,7 @@
 #include <SDL_opengl.h>
 #include <cfloat>
 #include <cstdlib>
+#include <string>
 #include <sys/wait.h>
 #include <unistd.h>
 #include <vector>
@@ -39,6 +40,7 @@
 #include "icon_github_png.h"         // generated: kIconGithubPng[], kIconGithubPngLen
 #include "icon_discord_png.h"        // generated: kIconDiscordPng[], kIconDiscordPngLen
 #include "icon_settings_png.h"       // generated: kIconSettingsPng[], kIconSettingsPngLen
+#include "icon_privacy_png.h"        // generated: kIconPrivacyPng[], kIconPrivacyPngLen
 #include "inter_regular_ttf.h"       // generated: kInterRegularTtf[], kInterRegularTtfLen
 #include "inter_semibold_ttf.h"      // generated: kInterSemiBoldTtf[], kInterSemiBoldTtfLen
 #include "version.h"                 // generated: tuxblox::kTuxBloxVersion
@@ -62,6 +64,11 @@ constexpr ImVec4 kSidebarItemUnselected(0.30f, 0.30f, 0.33f, 1.0f);
 constexpr ImU32 kSeparatorColor = IM_COL32(255, 255, 255, 20);
 constexpr ImVec4 kErrorBannerBg(0.35f, 0.16f, 0.16f, 1.0f);
 constexpr ImVec4 kErrorBannerText(1.0f, 0.78f, 0.78f, 1.0f);
+// Uninstall button: a muted red at rest, brighter/more urgent once armed by
+// a first click -- the color change itself is part of the "this is now one
+// click from actually happening" signal, on top of the label text change.
+constexpr ImVec4 kDangerColor(0.5f, 0.18f, 0.18f, 1.0f);
+constexpr ImVec4 kDangerColorArmed(0.75f, 0.20f, 0.20f, 1.0f);
 // Explicit transparent resting background for rows that should stay
 // invisible until hovered (About's link rows) -- passing nullptr for
 // renderIconRow's bgColor instead would fall through to Dear ImGui's own
@@ -102,11 +109,55 @@ void generateMipmap(GLenum target) {
     if (fn) fn(target);
 }
 
+// glGenerateMipmap's box filter averages RGB straight across alpha, ignoring
+// it -- so a fully-transparent texel's (0,0,0) RGB (stb_image's decode of
+// "no color data here") bleeds into neighboring opaque texels once a mip
+// level's filter footprint reaches them, producing a dark ring right around
+// the icon that gets more visible (reads as a blurry border) the further a
+// texture is downscaled. Fix at the source: before mipmapping, spread each
+// opaque texel's RGB a few pixels out into the fully-transparent texels
+// around it (alpha stays 0, so this is invisible at full res) so the box
+// filter always has a sensible color to average with near an edge. Iterates
+// out from the existing color a ring at a time -- enough passes to outrun
+// the ~2x-per-level footprint growth for the mip levels these icons are
+// actually drawn at (500ish px source down to ~20-30px on screen).
+void bleedTransparentEdges(unsigned char* pixels, int w, int h) {
+    std::vector<unsigned char> hasColor(static_cast<size_t>(w) * h);
+    for (int i = 0; i < w * h; ++i) hasColor[i] = pixels[i * 4 + 3] != 0;
+
+    constexpr int kIterations = 16;
+    for (int iter = 0; iter < kIterations; ++iter) {
+        bool anyChanged = false;
+        for (int y = 0; y < h; ++y) {
+            for (int x = 0; x < w; ++x) {
+                int idx = y * w + x;
+                if (hasColor[idx]) continue;
+                const int nx[4] = {x - 1, x + 1, x, x};
+                const int ny[4] = {y, y, y - 1, y + 1};
+                for (int n = 0; n < 4; ++n) {
+                    if (nx[n] < 0 || nx[n] >= w || ny[n] < 0 || ny[n] >= h) continue;
+                    int nidx = ny[n] * w + nx[n];
+                    if (!hasColor[nidx]) continue;
+                    pixels[idx * 4 + 0] = pixels[nidx * 4 + 0];
+                    pixels[idx * 4 + 1] = pixels[nidx * 4 + 1];
+                    pixels[idx * 4 + 2] = pixels[nidx * 4 + 2];
+                    // Alpha (byte 3) is deliberately left alone -- still 0.
+                    hasColor[idx] = 1;
+                    anyChanged = true;
+                    break;
+                }
+            }
+        }
+        if (!anyChanged) break;
+    }
+}
+
 bool loadPngTexture(const unsigned char* data, size_t len,
                      unsigned int* outTex, int* outW, int* outH) {
     int channels = 0;
     unsigned char* pixels = stbi_load_from_memory(data, static_cast<int>(len), outW, outH, &channels, 4);
     if (!pixels) return false;
+    bleedTransparentEdges(pixels, *outW, *outH);
 
     GLuint tex;
     glGenTextures(1, &tex);
@@ -118,6 +169,11 @@ bool loadPngTexture(const unsigned char* data, size_t len,
     // GL_LINEAR since magnification (the 72px logo, etc.) never hits this.
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    // A mild negative bias pulls sampling toward the sharper end of the mip
+    // chain than trilinear filtering would pick on its own -- these icons
+    // are flat single-color glyphs with no fine detail to shimmer, so the
+    // usual aliasing tradeoff for sharpness isn't really visible here.
+    glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_LOD_BIAS, -0.75f);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, *outW, *outH, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
     generateMipmap(GL_TEXTURE_2D);
     stbi_image_free(pixels);
@@ -226,14 +282,14 @@ void renderSidebar(App& app, const AppSnapshot& snap, float sidebarHeight,
     bool homeSelected = snap.activeTab == Tab::Start;
     ImVec4 homeColor = homeSelected ? kSidebarItemSelected : kSidebarItemUnselected;
     if (renderIconRow("##nav_home", "Home", homeIconTexture, kSidebarWidth, 36.0f,
-                       &homeColor, false, false, 18.0f, 16.0f, nullptr)) {
+                       &homeColor, false, false, 22.0f, 16.0f, nullptr)) {
         app.setActiveTab(Tab::Start);
     }
 
     bool settingsSelected = snap.activeTab == Tab::Settings;
     ImVec4 settingsColor = settingsSelected ? kSidebarItemSelected : kSidebarItemUnselected;
     if (renderIconRow("##nav_settings", "Settings", settingsIconTexture, kSidebarWidth, 36.0f,
-                       &settingsColor, false, false, 18.0f, 16.0f, nullptr)) {
+                       &settingsColor, false, false, 22.0f, 16.0f, nullptr)) {
         app.setActiveTab(Tab::Settings);
     }
 
@@ -244,7 +300,7 @@ void renderSidebar(App& app, const AppSnapshot& snap, float sidebarHeight,
     bool aboutSelected = snap.activeTab == Tab::About;
     ImVec4 aboutColor = aboutSelected ? kSidebarItemSelected : kSidebarItemUnselected;
     if (renderIconRow("##nav_about", "About", infoIconTexture, kSidebarWidth, 36.0f,
-                       &aboutColor, false, false, 18.0f, 16.0f, nullptr)) {
+                       &aboutColor, false, false, 22.0f, 16.0f, nullptr)) {
         app.setActiveTab(Tab::About);
     }
 
@@ -268,7 +324,7 @@ void renderSidebar(App& app, const AppSnapshot& snap, float sidebarHeight,
 void renderLaunchButton(App& app, LaunchTarget target, const char* id, const char* label,
                          unsigned int iconTexture, float x, float y, float w, float h, ImFont* semiBold) {
     ImGui::SetCursorPos(ImVec2(x, y));
-    if (renderIconRow(id, label, iconTexture, w, h, &kAccent, false, true, 22.0f, 0.0f, semiBold)) {
+    if (renderIconRow(id, label, iconTexture, w, h, &kAccent, false, true, 28.0f, 0.0f, semiBold)) {
         app.requestLaunch(target);
     }
 }
@@ -326,7 +382,8 @@ void renderStartTab(App& app, const AppSnapshot& snap, float contentX, float con
 void renderAboutTab(float contentX, float contentY, float contentW, float contentH,
                      unsigned int logoTexture, unsigned int globeIconTexture,
                      unsigned int docsIconTexture, unsigned int githubIconTexture,
-                     unsigned int discordIconTexture, ImFont* semiBold) {
+                     unsigned int discordIconTexture, unsigned int privacyIconTexture,
+                     ImFont* semiBold) {
     const float logoSize = 72.0f;
     ImGui::SetCursorPos(ImVec2(contentX + (contentW - logoSize) * 0.5f, contentY + 20.0f));
     if (logoTexture) {
@@ -346,13 +403,14 @@ void renderAboutTab(float contentX, float contentY, float contentW, float conten
         {"##link_docs",    "Documentation", "https://tuxblox.net/docs",    docsIconTexture},
         {"##link_github",  "GitHub",        "https://tuxblox.net/github",  githubIconTexture},
         {"##link_discord", "Discord",       "https://tuxblox.net/discord", discordIconTexture},
+        {"##link_privacy", "Privacy Policy", "https://tuxblox.net/privacy", privacyIconTexture},
     };
 
     float y = contentY + logoSize + 64.0f;
     for (const auto& link : links) {
         ImGui::SetCursorPos(ImVec2(contentX + 24.0f, y));
         if (renderIconRow(link.id, link.label, link.icon, contentW - 48.0f, 30.0f,
-                           &kTransparent, false, false, 18.0f, 8.0f, nullptr)) {
+                           &kTransparent, false, false, 22.0f, 8.0f, nullptr)) {
             openUrl(link.url);
         }
         y += 36.0f;
@@ -391,9 +449,45 @@ bool renderToggleSwitch(const char* id, bool value) {
     return clicked;
 }
 
+// A destructive-action button requiring a second click within 5 seconds to
+// actually fire, e.g. "Uninstall TuxBlox" -> "Click again to uninstall".
+// `pending`/`deadlineMs` are the caller's per-button confirm state (see
+// their declaration comment in ui.h); `busy` shows `busyLabel` and disables
+// the button instead (e.g. while a background thread carries out the
+// action from a previous confirm). Returns true on the frame the second,
+// confirming click lands -- the caller is responsible for actually doing
+// the thing.
+bool renderDangerButton(const char* id, const char* restLabel, const char* confirmLabel,
+                         const char* busyLabel, bool busy, bool& pending, uint32_t& deadlineMs,
+                         ImVec2 size) {
+    if (pending && SDL_GetTicks() >= deadlineMs) pending = false;
+
+    std::string label = busy ? busyLabel : (pending ? confirmLabel : restLabel);
+    label += "##";
+    label += id;
+
+    ImGui::PushStyleColor(ImGuiCol_Button, pending ? kDangerColorArmed : kDangerColor);
+    ImGui::BeginDisabled(busy);
+    bool confirmed = false;
+    if (ImGui::Button(label.c_str(), size)) {
+        if (pending) {
+            pending = false;
+            confirmed = true;
+        } else {
+            pending = true;
+            deadlineMs = SDL_GetTicks() + 5000;
+        }
+    }
+    ImGui::EndDisabled();
+    ImGui::PopStyleColor();
+    return confirmed;
+}
+
 void renderSettingsTab(App& app, const AppSnapshot& snap, float contentX, float contentY,
-                        float contentW, float /*contentH*/, char* protonBuf, size_t protonBufSize,
+                        float contentW, float contentH, char* protonBuf, size_t protonBufSize,
                         char* globalBuf, size_t globalBufSize, bool& buffersInitialized,
+                        bool& uninstallConfirmPending, uint32_t& uninstallConfirmDeadlineMs,
+                        bool& wipePrefixConfirmPending, uint32_t& wipePrefixConfirmDeadlineMs,
                         ImFont* semiBold) {
     // Seeded once from whatever App loaded/last saved -- see the buffer
     // fields' declaration comment in ui.h for why this can't just re-seed
@@ -404,18 +498,46 @@ void renderSettingsTab(App& app, const AppSnapshot& snap, float contentX, float 
         buffersInitialized = true;
     }
 
-    ImGui::SetCursorPos(ImVec2(contentX + 24.0f, contentY + 20.0f));
+    // Settings is the one tab whose content can outgrow the window (env var
+    // fields, future options, ...), so it alone scrolls -- in its own child
+    // region rather than letting the outer ##launcher window scroll, which
+    // would drag the sidebar and its own scrollbar along with it. Content
+    // below is laid out in this child's local coordinates (origin at
+    // contentX/contentY), not the outer window's.
+    ImGui::SetCursorPos(ImVec2(contentX, contentY));
+    ImGui::BeginChild("##settings_scroll", ImVec2(contentW, contentH), false);
+
+    ImGui::SetCursorPos(ImVec2(24.0f, 20.0f));
     ImGui::PushFont(semiBold);
     ImGui::TextUnformatted("Settings");
     ImGui::PopFont();
 
     const float fieldWidth = contentW - 48.0f;
-    float y = contentY + 64.0f;
+    float y = 64.0f;
 
-    ImGui::SetCursorPos(ImVec2(contentX + 24.0f, y));
+    ImGui::SetCursorPos(ImVec2(24.0f, y));
+    ImGui::TextUnformatted("Update Channel");
+    y += 22.0f;
+    ImGui::SetCursorPos(ImVec2(24.0f, y));
+    ImGui::SetNextItemWidth(200.0f);
+    {
+        static const char* kChannels[] = {"stable", "canary", "dev"};
+        int currentIndex = 0;
+        for (int i = 0; i < 3; ++i) {
+            if (snap.settings.channel == kChannels[i]) { currentIndex = i; break; }
+        }
+        if (ImGui::Combo("##update_channel", &currentIndex, kChannels, 3)) {
+            Settings s = snap.settings;
+            s.channel = kChannels[currentIndex];
+            app.updateSettings(s);
+        }
+    }
+    y += 48.0f;
+
+    ImGui::SetCursorPos(ImVec2(24.0f, y));
     ImGui::TextUnformatted("Proton Environment Variables");
     y += 22.0f;
-    ImGui::SetCursorPos(ImVec2(contentX + 24.0f, y));
+    ImGui::SetCursorPos(ImVec2(24.0f, y));
     ImGui::SetNextItemWidth(fieldWidth);
     ImGui::InputText("##proton_env_vars", protonBuf, protonBufSize);
     if (ImGui::IsItemDeactivatedAfterEdit()) {
@@ -425,10 +547,10 @@ void renderSettingsTab(App& app, const AppSnapshot& snap, float contentX, float 
     }
     y += 40.0f;
 
-    ImGui::SetCursorPos(ImVec2(contentX + 24.0f, y));
+    ImGui::SetCursorPos(ImVec2(24.0f, y));
     ImGui::TextUnformatted("Global Environment Variables");
     y += 22.0f;
-    ImGui::SetCursorPos(ImVec2(contentX + 24.0f, y));
+    ImGui::SetCursorPos(ImVec2(24.0f, y));
     ImGui::SetNextItemWidth(fieldWidth);
     ImGui::InputText("##global_env_vars", globalBuf, globalBufSize);
     if (ImGui::IsItemDeactivatedAfterEdit()) {
@@ -438,7 +560,7 @@ void renderSettingsTab(App& app, const AppSnapshot& snap, float contentX, float 
     }
     y += 48.0f;
 
-    ImGui::SetCursorPos(ImVec2(contentX + 24.0f, y));
+    ImGui::SetCursorPos(ImVec2(24.0f, y));
     bool toggled = renderToggleSwitch("##send_crash_reports", snap.settings.sendCrashReports);
     ImGui::SameLine(0.0f, 10.0f);
     ImVec2 labelPos = ImGui::GetCursorScreenPos();
@@ -451,15 +573,49 @@ void renderSettingsTab(App& app, const AppSnapshot& snap, float contentX, float 
     }
     y += kToggleHeight + 8.0f;
 
-    ImGui::SetCursorPos(ImVec2(contentX + 24.0f, y));
+    ImGui::SetCursorPos(ImVec2(24.0f, y));
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.55f, 0.55f, 0.58f, 1.0f));
-    ImGui::PushTextWrapPos(contentX + 24.0f + fieldWidth);
+    ImGui::PushTextWrapPos(24.0f + fieldWidth);
     ImGui::TextUnformatted(
-        "Crash reports include only the exit code, Roblox/Proton version, and basic system info -- "
-        "never account info, session cookies, file paths, or gameplay data. "
-        "See our privacy policy at tuxblox.net/privacy for details.");
+        "Crash reports include only the exit code, Roblox/Proton version, and basic system info, "
+        "see our privacy policy at tuxblox.net/privacy");
     ImGui::PopTextWrapPos();
     ImGui::PopStyleColor();
+    y += 60.0f; // clears the two-line note above; not measured exactly, same approximation as everywhere else in this tab
+
+    ImGui::SetCursorPos(ImVec2(24.0f, y));
+    ImGui::TextUnformatted("Danger Zone");
+    y += 22.0f;
+
+    constexpr ImVec2 kDangerBtnSize(220.0f, 32.0f);
+
+    ImGui::SetCursorPos(ImVec2(24.0f, y));
+    if (renderDangerButton("wipe_prefix_btn", "Wipe Prefix", "Click again to wipe prefix",
+                            "Wiping...", snap.wipePrefix.inProgress,
+                            wipePrefixConfirmPending, wipePrefixConfirmDeadlineMs, kDangerBtnSize)) {
+        app.requestWipePrefix();
+    }
+    y += kDangerBtnSize.y + 8.0f;
+
+    if (!snap.wipePrefix.errorMessage.empty()) {
+        ImGui::SetCursorPos(ImVec2(24.0f, y));
+        y += renderErrorBanner(snap.wipePrefix.errorMessage.c_str(), fieldWidth, nullptr) + 8.0f;
+    }
+
+    ImGui::SetCursorPos(ImVec2(24.0f, y));
+    if (renderDangerButton("uninstall_btn", "Uninstall TuxBlox", "Click again to uninstall",
+                            "Uninstalling...", snap.uninstall.inProgress,
+                            uninstallConfirmPending, uninstallConfirmDeadlineMs, kDangerBtnSize)) {
+        app.requestUninstall();
+    }
+    y += kDangerBtnSize.y + 8.0f;
+
+    if (!snap.uninstall.errorMessage.empty()) {
+        ImGui::SetCursorPos(ImVec2(24.0f, y));
+        renderErrorBanner(snap.uninstall.errorMessage.c_str(), fieldWidth, nullptr);
+    }
+
+    ImGui::EndChild();
 }
 
 } // namespace
@@ -548,6 +704,7 @@ bool Ui::init() {
         loadPngTexture(kIconGithubPng, kIconGithubPngLen, &githubIconTexture_, &w, &h);
         loadPngTexture(kIconDiscordPng, kIconDiscordPngLen, &discordIconTexture_, &w, &h);
         loadPngTexture(kIconSettingsPng, kIconSettingsPngLen, &settingsIconTexture_, &w, &h);
+        loadPngTexture(kIconPrivacyPng, kIconPrivacyPngLen, &privacyIconTexture_, &w, &h);
     }
 
     // A dedicated icon-sized export (see FetchWindowIcon.cmake), not the
@@ -586,6 +743,7 @@ void Ui::shutdown() {
     freeTex(githubIconTexture_);
     freeTex(discordIconTexture_);
     freeTex(settingsIconTexture_);
+    freeTex(privacyIconTexture_);
     if (glContext_) {
         ImGui_ImplOpenGL3_Shutdown();
         ImGui_ImplSDL2_Shutdown();
@@ -627,9 +785,13 @@ bool Ui::renderFrame(App& app) {
 
     ImGui::SetNextWindowPos(ImVec2(0, 0));
     ImGui::SetNextWindowSize(ImVec2(static_cast<float>(w), static_cast<float>(h)));
+    // NoScrollbar/NoScrollWithMouse: only Settings' own content can overflow
+    // (see renderSettingsTab's child region), so it alone should scroll --
+    // never the whole window, which would drag the sidebar along with it.
     ImGui::Begin("##launcher", nullptr,
         ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
-        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse);
+        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
+        ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 
     ImGui::PushFont(fontRegular_);
 
@@ -647,11 +809,13 @@ bool Ui::renderFrame(App& app) {
         renderSettingsTab(app, snap, contentX, contentY, contentW, contentH,
                            protonEnvVarsBuf_, sizeof(protonEnvVarsBuf_),
                            globalEnvVarsBuf_, sizeof(globalEnvVarsBuf_),
-                           settingsBuffersInitialized_, fontSemiBold_);
+                           settingsBuffersInitialized_,
+                           uninstallConfirmPending_, uninstallConfirmDeadlineMs_,
+                           wipePrefixConfirmPending_, wipePrefixConfirmDeadlineMs_, fontSemiBold_);
     } else {
         renderAboutTab(contentX, contentY, contentW, contentH, logoTexture_,
                         globeIconTexture_, docsIconTexture_, githubIconTexture_, discordIconTexture_,
-                        fontSemiBold_);
+                        privacyIconTexture_, fontSemiBold_);
     }
 
     ImGui::PopFont();

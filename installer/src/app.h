@@ -19,7 +19,6 @@
 #include <mutex>
 #include <string>
 #include <thread>
-#include "progress.h"
 
 namespace tuxblox {
 
@@ -33,12 +32,15 @@ enum class AppPhase {
 
 struct AppSnapshot {
     AppPhase phase = AppPhase::Init;
-    Step currentStep = Step::CreatingDirectory;
+    // Already fully resolved (fresh-install vs "Upgrading ..." wording
+    // decided at the point it's generated -- see installer_steps.cpp) since
+    // the label set isn't fixed at compile time, it's built per-artifact
+    // from whatever the manifest lists.
+    std::string currentStepLabel = "Preparing";
     double overallPercent = 0.0;
     std::string errorMessage;
     // True if an existing install was found and this run is upgrading it in
-    // place rather than doing a fresh install -- selects "Upgrading ..."
-    // step wording (see stepLabel(Step, bool)) and changes cleanup-on-failure
+    // place rather than doing a fresh install -- changes cleanup-on-failure
     // behavior (an upgrade failure must never wipe the user's existing
     // install, only whatever partial files this run itself created).
     bool isUpgrade = false;
@@ -48,7 +50,10 @@ struct AppSnapshot {
 // of current state for the UI to poll each frame.
 class App {
 public:
-    App();
+    // `channel` selects which /v1/<channel>/... release to install/upgrade
+    // to -- "stable" when run standalone (main.cpp's default), or whatever
+    // the launcher passed via --channel when handing off an upgrade.
+    explicit App(std::string channel = "stable");
     ~App();
 
     // Starts the background install pipeline (INIT -> ... -> DONE/ERROR).
@@ -72,6 +77,7 @@ public:
 private:
     void run(); // background thread entry point
 
+    std::string channel_;
     mutable std::mutex mutex_;
     AppSnapshot snapshot_;
     std::atomic<bool> cancelRequested_{false};

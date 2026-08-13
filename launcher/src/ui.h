@@ -16,6 +16,7 @@
 
 #pragma once
 #include "app.h"
+#include <cstdint>
 
 struct ImFont;
 
@@ -44,6 +45,7 @@ private:
     unsigned int githubIconTexture_ = 0;
     unsigned int discordIconTexture_ = 0;
     unsigned int settingsIconTexture_ = 0;
+    unsigned int privacyIconTexture_ = 0;
     ImFont* fontRegular_ = nullptr;
     ImFont* fontSemiBold_ = nullptr;
     bool shouldClose_ = false;
@@ -56,6 +58,18 @@ private:
     char protonEnvVarsBuf_[512] = {};
     char globalEnvVarsBuf_[512] = {};
     bool settingsBuffersInitialized_ = false;
+
+    // Two-click confirmation state for the Settings tab's "Danger Zone"
+    // buttons (see renderDangerButton() in ui.cpp). The first click arms
+    // one (button relabels, e.g. "Click again to uninstall") until its
+    // *ConfirmDeadlineMs_ (SDL_GetTicks(), so it's monotonic and
+    // pause-immune); a second click before that deadline actually triggers
+    // the action. Left armed with no second click, it just reverts on its
+    // own next frame past the deadline -- no explicit "cancel" path needed.
+    bool uninstallConfirmPending_ = false;
+    uint32_t uninstallConfirmDeadlineMs_ = 0;
+    bool wipePrefixConfirmPending_ = false;
+    uint32_t wipePrefixConfirmDeadlineMs_ = 0;
 };
 
 } // namespace tuxblox

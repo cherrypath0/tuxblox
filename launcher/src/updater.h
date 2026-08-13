@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #pragma once
+#include "manifest.h"
 #include <atomic>
 #include <cstdint>
 #include <functional>
@@ -51,14 +52,33 @@ struct UpdateResult {
     std::string installerPath;  // valid iff needsHandoff -- the binary to exec
 };
 
+struct EnsureInstallerResult {
+    bool ok = false;
+    std::string installerPath;  // valid iff ok
+    std::string errorMessage;   // valid iff !ok
+};
+
+// Ensures a verified copy of the installer binary is present at
+// <dir>/TuxBloxInstaller, fetching a fresh one first if it's missing or its
+// checksum no longer matches `manifest.installer`. Shared by runUpdateCheck
+// (below) and the uninstall path (App::requestUninstall()) -- both need a
+// working TuxBloxInstaller to hand off to and neither wants to duplicate
+// this fetch-verify-install dance.
+EnsureInstallerResult ensureInstallerBinary(const Manifest& manifest, const std::string& dir,
+                                             const std::atomic<bool>* cancel,
+                                             const UpdateProgressFn& onProgress);
+
 // Exposed for unit testing: computes the download-progress fraction
 // (0.0-1.0), falling back to `manifestSize` when curl doesn't report a
 // total (`total == 0`, e.g. a chunked response with no Content-Length).
 // Returns 0.0 if neither `total` nor `manifestSize` is known.
 double downloadProgressFraction(uint64_t now, uint64_t total, uint64_t manifestSize);
 
-// Checks manifest.json against the currently-installed launcher/Proton
-// versions. If either is out of date, ensures a verified copy of the
+// Fetches baseUrl + "/v1/" + channel + "/" + requiredVersion + "/manifest.json"
+// and checks it against the currently-installed launcher/Proton versions
+// (both compared against `requiredVersion` -- a per-channel release bundles
+// launcher+Proton under one version now, there's no separate proton_version
+// to track). If either is out of date, ensures a verified copy of the
 // installer binary is present at <installDir>/TuxBloxInstaller (fetching a
 // fresh one first if it's missing or its checksum no longer matches the
 // manifest's `artifacts.installer` entry) and returns
@@ -68,7 +88,9 @@ double downloadProgressFraction(uint64_t now, uint64_t total, uint64_t manifestS
 // once handed off to, run in its "upgrade" mode (an existing install
 // directory).
 UpdateResult runUpdateCheck(const std::string& currentLauncherVersion,
-                             const std::string& manifestUrl,
+                             const std::string& baseUrl,
+                             const std::string& channel,
+                             const std::string& requiredVersion,
                              const UpdateProgressFn& onProgress,
                              const std::atomic<bool>* cancel,
                              const std::string& installDirOverride = "");

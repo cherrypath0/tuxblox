@@ -21,7 +21,9 @@
 #include "watch_launch.h"
 #include "copyright_file.h"
 #include "desktop_integration.h"
+#include "single_instance.h"
 #include "version.h"
+#include <SDL.h>
 #include <cstdio>
 #include <filesystem>
 #include <string>
@@ -124,6 +126,22 @@ int main(int argc, char** argv) {
         std::filesystem::create_directories(dir, ec);
     }
 
+    // Only the GUI itself is single-instance -- the headless quick-launch
+    // and --watch-launch paths above already returned before reaching here,
+    // so a launch-and-watch helper running in the background never trips
+    // this. Same SDL_Init(SDL_INIT_VIDEO)/SDL_ShowSimpleMessageBox/SDL_Quit
+    // shape as the crash popups in watch_launch.cpp -- SDL_ShowSimpleMessageBox
+    // needs a video subsystem already up to pick a real backend, or it just
+    // hangs with no dialog ever appearing instead of failing loudly.
+    if (!acquireSingleInstanceLock(dir)) {
+        if (SDL_Init(SDL_INIT_VIDEO) == 0) {
+            SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "TuxBlox Error",
+                "An instance of the TuxBlox Launcher is already running!", nullptr);
+            SDL_Quit();
+        }
+        return 1;
+    }
+
     std::string exePath = selfExePath();
     if (exePath.empty()) {
         exePath = dir + "/TuxBloxLauncher"; // fallback -- matches the installer's canonical install path
@@ -142,17 +160,34 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    ensureDesktopIntegration(dir, exePath);
+    ensureDesktopIntegration(exePath);
 
     App app(dir, kTuxBloxVersion, exePath);
     app.startUpdateCheck();
 
     bool running = true;
-    while (running && !app.needsInstallerHandoff()) {
+    while (running && !app.needsInstallerHandoff() && !app.needsUninstallHandoff()) {
         running = ui.renderFrame(app);
     }
 
     ui.shutdown();
+
+    if (app.needsUninstallHandoff()) {
+        // Same handoff shape as an update, but with --uninstall instead of
+        // --channel: the installer removes ~/.tuxblox and this launcher's
+        // desktop/URL-handler registrations, then shows its own
+        // confirmation popup. This process never returns on success.
+        std::string installerPath = app.installerHandoffPath();
+        char* installerArgv[] = {
+            const_cast<char*>(installerPath.c_str()),
+            const_cast<char*>("--uninstall"),
+            nullptr
+        };
+        execv(installerPath.c_str(), installerArgv);
+        // Only reached if execv() itself failed.
+        fprintf(stderr, "TuxBlox: uninstaller ready but failed to launch it at %s\n", installerPath.c_str());
+        return 1;
+    }
 
     if (app.needsInstallerHandoff()) {
         // The installer, run against this already-existing install
@@ -162,7 +197,17 @@ int main(int argc, char** argv) {
         // Proton"/"Upgrading TuxBlox" progress, then re-execs the launcher
         // when done -- this process never returns on success.
         std::string installerPath = app.installerHandoffPath();
-        char* installerArgv[] = {const_cast<char*>(installerPath.c_str()), nullptr};
+        // Carries the user's selected update channel across the handoff --
+        // without this, the installer would fall back to its own default
+        // channel and silently switch the user off whatever they picked in
+        // Settings.
+        std::string channel = app.snapshot().settings.channel;
+        char* installerArgv[] = {
+            const_cast<char*>(installerPath.c_str()),
+            const_cast<char*>("--channel"),
+            const_cast<char*>(channel.c_str()),
+            nullptr
+        };
         execv(installerPath.c_str(), installerArgv);
         // Only reached if execv() itself failed -- the installer binary is
         // in place on disk either way, so the next manual launch (or a

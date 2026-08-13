@@ -16,6 +16,7 @@
 
 #include "app.h"
 #include "ui.h"
+#include "uninstall.h"
 #include <SDL.h>
 #include <string>
 #include <unistd.h>
@@ -27,10 +28,42 @@ constexpr const char* kErrorTitle =
     "TuxBlox Installer has encountered an error and has to quit!";
 } // namespace
 
-int main(int, char**) {
+int main(int argc, char** argv) {
     using namespace tuxblox;
 
-    App app;
+    // --uninstall -- passed by the launcher's Settings tab. Headless, same
+    // as this binary already is for none of its other modes (it's always
+    // windowed) -- but this one specifically must not show the install UI
+    // at all, just do the removal and report the result.
+    if (argc > 1 && std::string(argv[1]) == "--uninstall") {
+        bool ok = performUninstall();
+        if (SDL_Init(SDL_INIT_VIDEO) == 0) {
+            if (ok) {
+                SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, "TuxBlox Uninstalled",
+                    "TuxBlox has been completely removed from this system.", nullptr);
+            } else {
+                SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "TuxBlox Error",
+                    "Desktop shortcuts and URL handlers were removed, but ~/.tuxblox could not be "
+                    "fully deleted. You may need to remove it manually.", nullptr);
+            }
+            SDL_Quit();
+        }
+        return ok ? 0 : 1;
+    }
+
+    // --channel <name> -- passed by the launcher during an upgrade handoff
+    // so the install stays on whatever channel the user picked in
+    // Settings. Defaults to "stable" when run standalone (a fresh,
+    // directly-downloaded install with no channel info available).
+    std::string channel = "stable";
+    for (int i = 1; i + 1 < argc; ++i) {
+        if (std::string(argv[i]) == "--channel") {
+            channel = argv[i + 1];
+            break;
+        }
+    }
+
+    App app(channel);
     app.start();
 
     Ui ui;

@@ -211,9 +211,9 @@ int main() {
 
     // Extraction progress: onProgress must be called at least once and
     // report a monotonically non-decreasing, always-bounded-by-total byte
-    // count -- this is what lets the installer's ExtractingProton step
-    // show incremental progress instead of jumping straight from 0% to
-    // 100% (see installer_steps.cpp's Step::ExtractingProton report()).
+    // count -- this is what lets an archive artifact's install phase show
+    // incremental progress during extraction instead of jumping straight
+    // from 0% to 100% (see installer_steps.cpp's extractTarZst call).
     {
         fs::path progArchive = tmp / "tuxblox_test_progress.tar.gz";
         fs::path progDest = tmp / "tuxblox_test_progress_dest";
