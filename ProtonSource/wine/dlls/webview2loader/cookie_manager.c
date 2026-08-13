@@ -16,7 +16,17 @@ struct cookie_manager_impl
 {
     ICoreWebView2CookieManager ICoreWebView2CookieManager_iface;
     LONG ref;
-    UINT64 native_handle;
+    /* Final-review fix (Important 1, native_handle use-after-free): an
+     * AddRef'd back-reference to the owning webview, not a UINT64
+     * native_handle snapshotted at creation time. The old cached-handle
+     * design meant a cookie manager handed out before Controller::Close()
+     * kept forwarding a now-freed unix-side pointer into every unix call
+     * forever after -- reading the handle live via webview_get_native_handle
+     * on every call instead means a Close() that runs at any point,
+     * including after this cookie manager was already returned to the
+     * caller, is observed immediately (handle reads back as 0, which every
+     * unix call already treats as STATUS_INVALID_HANDLE). */
+    ICoreWebView2 *webview;
 };
 
 static inline struct cookie_manager_impl *impl_from_iface(ICoreWebView2CookieManager *iface)
@@ -34,8 +44,13 @@ static HRESULT WINAPI cm_QueryInterface(ICoreWebView2CookieManager *iface, REFII
 static ULONG WINAPI cm_AddRef(ICoreWebView2CookieManager *iface) { return InterlockedIncrement(&impl_from_iface(iface)->ref); }
 static ULONG WINAPI cm_Release(ICoreWebView2CookieManager *iface)
 {
-    LONG ref = InterlockedDecrement(&impl_from_iface(iface)->ref);
-    if (!ref) free(impl_from_iface(iface));
+    struct cookie_manager_impl *cm = impl_from_iface(iface);
+    LONG ref = InterlockedDecrement(&cm->ref);
+    if (!ref)
+    {
+        ICoreWebView2_Release(cm->webview);
+        free(cm);
+    }
     return ref;
 }
 
@@ -332,7 +347,9 @@ static HRESULT WINAPI cm_GetCookies(ICoreWebView2CookieManager *iface, LPCWSTR u
 
     ctx->uri = NULL;
     if (uri && FAILED(copy_out_wstr(uri, &ctx->uri))) { free(ctx); return E_OUTOFMEMORY; }
-    ctx->native_handle = cm->native_handle;
+    /* Final-review fix (Important 1): read the handle live, not a cached
+     * field on cm itself -- see struct cookie_manager_impl's own comment. */
+    ctx->native_handle = webview_get_native_handle(cm->webview);
 
     ICoreWebView2GetCookiesCompletedHandler_AddRef(handler);
     ctx->handler = handler;
@@ -349,7 +366,10 @@ static HRESULT WINAPI cm_GetCookies(ICoreWebView2CookieManager *iface, LPCWSTR u
 
 static HRESULT WINAPI cm_DeleteAllCookies(ICoreWebView2CookieManager *iface)
 {
-    struct delete_all_cookies_params params = { impl_from_iface(iface)->native_handle };
+    /* Final-review fix (Important 1): read live, see struct
+     * cookie_manager_impl's own comment on why this can't be a cached
+     * field anymore. */
+    struct delete_all_cookies_params params = { webview_get_native_handle(impl_from_iface(iface)->webview) };
 
     TRACE("(%p)\n", iface);
     WEBVIEW2LOADER_UNIX_CALL(delete_all_cookies, &params);
@@ -371,14 +391,18 @@ static const ICoreWebView2CookieManagerVtbl cm_vtbl =
     cm_DeleteAllCookies,
 };
 
-HRESULT cookie_manager_create(UINT64 native_handle, ICoreWebView2CookieManager **out)
+HRESULT cookie_manager_create(ICoreWebView2 *webview, ICoreWebView2CookieManager **out)
 {
     struct cookie_manager_impl *cm = calloc(1, sizeof(*cm));
     if (!cm) return E_OUTOFMEMORY;
 
     cm->ICoreWebView2CookieManager_iface.lpVtbl = &cm_vtbl;
     cm->ref = 1;
-    cm->native_handle = native_handle;
+    /* Final-review fix (Important 1): AddRef and hold the owning webview
+     * itself rather than snapshotting its native_handle -- see this
+     * struct's own comment above. */
+    ICoreWebView2_AddRef(webview);
+    cm->webview = webview;
     *out = &cm->ICoreWebView2CookieManager_iface;
     return S_OK;
 }

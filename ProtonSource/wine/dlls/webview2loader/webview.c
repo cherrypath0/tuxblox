@@ -101,6 +101,33 @@ static inline struct webview_impl *impl_from_ICoreWebView2(ICoreWebView2 *iface)
     return CONTAINING_RECORD(iface, struct webview_impl, ICoreWebView2_iface);
 }
 
+/* Final-review fix (Important 1, native_handle use-after-free): see these
+ * functions' own declaration comments in webview2loader_private.h. Guarded
+ * by wv->cs, same lock webview_get_Source/navigate_worker already use for
+ * wv->source -- native_handle can now be written (invalidated) from a
+ * different thread than the ones reading it (a controller's Close() vs. an
+ * in-flight Navigate/GetCookies worker thread), so this needs the same
+ * protection, not a bare field read. */
+UINT64 webview_get_native_handle(ICoreWebView2 *iface)
+{
+    struct webview_impl *wv = impl_from_ICoreWebView2(iface);
+    UINT64 handle;
+
+    EnterCriticalSection(&wv->cs);
+    handle = wv->native_handle;
+    LeaveCriticalSection(&wv->cs);
+    return handle;
+}
+
+void webview_invalidate_native_handle(ICoreWebView2 *iface)
+{
+    struct webview_impl *wv = impl_from_ICoreWebView2(iface);
+
+    EnterCriticalSection(&wv->cs);
+    wv->native_handle = 0;
+    LeaveCriticalSection(&wv->cs);
+}
+
 /* --- NavigationCompletedEventArgs: a small, real, throwaway object built
  * fresh per navigation completion --- */
 static HRESULT WINAPI args_QueryInterface(ICoreWebView2NavigationCompletedEventArgs *iface, REFIID riid, void **ppv)
@@ -197,7 +224,13 @@ static DWORD WINAPI navigate_worker(void *arg)
     ICoreWebView2NavigationCompletedEventHandler **snapshot = NULL;
     SIZE_T count = 0, i;
 
-    params.handle = wv->native_handle;
+    /* Final-review fix (Important 1): read live, under wv->cs, rather than
+     * a bare wv->native_handle -- if Close() ran on the owning controller
+     * after this worker was spawned but before it got here, this observes
+     * 0 (see webview_invalidate_native_handle), and the unix call below
+     * fails cleanly with STATUS_INVALID_HANDLE instead of dereferencing
+     * freed unix-side memory. */
+    params.handle = webview_get_native_handle(&wv->ICoreWebView2_iface);
     params.uri = ctx->uri;
     WEBVIEW2LOADER_UNIX_CALL(navigate_and_wait, &params);
 
@@ -708,9 +741,11 @@ HRESULT webview_create(UINT64 native_handle, ICoreWebView2 **out)
 
 static HRESULT WINAPI webview2_get_CookieManager(ICoreWebView2 *iface, ICoreWebView2CookieManager **cookieManager)
 {
-    struct webview_impl *wv = impl_from_ICoreWebView2(iface);
     if (!cookieManager) return E_POINTER;
-    return cookie_manager_create(wv->native_handle, cookieManager);
+    /* Final-review fix (Important 1): pass the owning webview itself, not
+     * a UINT64 native_handle snapshot -- see cookie_manager_create's own
+     * declaration comment in webview2loader_private.h for why. */
+    return cookie_manager_create(iface, cookieManager);
 }
 
 static HRESULT WINAPI webview2_get_Environment(ICoreWebView2 *iface, ICoreWebView2Environment **environment)
@@ -866,12 +901,13 @@ HRESULT webview_query_interface_v2(ICoreWebView2 *iface, REFIID riid, void **ppv
  * already has, not a new DLL export. */
 UINT32 WINAPI __wine_test_webview2loader_count_cookies(ICoreWebView2 *webview)
 {
-    struct webview_impl *wv;
     struct count_cookies_params params;
 
     if (!webview) return 0;
-    wv = impl_from_ICoreWebView2(webview);
-    params.handle = wv->native_handle;
+    /* Final-review fix (Important 1): read live via the same accessor
+     * every other consumer of this webview's native_handle now uses,
+     * instead of reaching into struct webview_impl directly. */
+    params.handle = webview_get_native_handle(webview);
     params.count = 0;
     WEBVIEW2LOADER_UNIX_CALL(count_cookies, &params);
     return params.count;

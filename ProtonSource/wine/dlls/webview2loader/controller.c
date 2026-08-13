@@ -50,6 +50,21 @@ static void controller_destroy_native(struct controller_impl *ctrl)
 
     params.handle = ctrl->native_handle;
     WEBVIEW2LOADER_UNIX_CALL(destroy_webview, &params);
+
+    /* Final-review fix (Important 1, native_handle use-after-free): the
+     * unix call above just freed the unix-side native_webview struct
+     * ctrl->native_handle points at. Zero this controller's own copy, and
+     * invalidate ctrl->webview's copy too (a distinct object, created
+     * lazily by get_CoreWebView2) -- every ICoreWebView2CookieManager ever
+     * handed out from that webview reads its handle live from it rather
+     * than caching one (see cookie_manager_create), so invalidating the
+     * webview here also covers every outstanding cookie manager. Any call
+     * that reaches the unix side after this point (Navigate, GetCookies,
+     * cookie ops, get_Source, ...) now sees handle 0, which every unix
+     * call already treats as STATUS_INVALID_HANDLE -- a clean failure
+     * instead of a dereference of freed unix-side memory. */
+    ctrl->native_handle = 0;
+    if (ctrl->webview) webview_invalidate_native_handle(ctrl->webview);
 }
 
 static inline struct controller_impl *impl_from_ICoreWebView2Controller(ICoreWebView2Controller *iface)
@@ -73,8 +88,16 @@ static ULONG WINAPI controller_Release(ICoreWebView2Controller *iface)
     LONG ref = InterlockedDecrement(&ctrl->ref);
     if (!ref)
     {
-        if (ctrl->webview) ICoreWebView2_Release(ctrl->webview);
+        /* Must run before releasing ctrl->webview below: controller_destroy_native
+         * (Final-review fix, Important 1) invalidates ctrl->webview's own
+         * native_handle copy via webview_invalidate_native_handle, which needs
+         * ctrl->webview to still be a live object. Releasing it first could drop
+         * its refcount to 0 right here (if no other caller is holding a
+         * reference of its own) and free it, making the invalidation call
+         * afterward a dereference of freed memory -- swapping the order avoids
+         * that regardless of whether any external reference is outstanding. */
         controller_destroy_native(ctrl);
+        if (ctrl->webview) ICoreWebView2_Release(ctrl->webview);
         free(ctrl);
     }
     return ref;

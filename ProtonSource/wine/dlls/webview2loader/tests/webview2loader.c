@@ -1507,6 +1507,94 @@ static void test_suspend_thread_after_webview(void)
     FreeLibrary(mod);
 }
 
+/* Final-review regression test (Important 1, native_handle use-after-free):
+ * real WebView2 apps are documented to call get_CoreWebView2() and then
+ * Close() on the same controller -- Controller::Close() frees the unix-side
+ * native_webview struct that both the webview object obtained beforehand
+ * and every ICoreWebView2CookieManager created from it used to keep
+ * forwarding into the unix side by value, forever after, per the bug this
+ * fix addresses. Confirms that a Navigate() issued on that still-live
+ * ICoreWebView2* AFTER Close(), and a GetCookies() issued on a cookie
+ * manager obtained BEFORE Close(), both complete with a clean failure
+ * (is_success FALSE / a failing HRESULT via their real async completion
+ * handlers) instead of hanging or crashing on a dereference of the freed
+ * unix-side struct. */
+static void test_close_then_navigate_fails_cleanly(void)
+{
+    HMODULE mod;
+    ICoreWebView2Environment *env;
+    ICoreWebView2Controller *ctrl;
+    ICoreWebView2 *webview = NULL, *webview_v2 = NULL;
+    ICoreWebView2CookieManager *cm = NULL;
+    const struct webview2_2_vtbl_combined *v2vtbl;
+    struct test_nav_handler nav_handler = { &test_nav_handler_vtbl };
+    struct test_cookies_handler cookies_handler = { &test_cookies_handler_vtbl };
+    UINT64 token;
+    HRESULT hr;
+
+    if (!create_test_controller(&mod, &env, &ctrl))
+    {
+        skip("TUXBLOX_WEBVIEW_DIR not set or environment/controller creation failed\n");
+        return;
+    }
+
+    ICoreWebView2Controller_get_CoreWebView2(ctrl, &webview);
+    ok(webview != NULL, "expected a webview\n");
+    if (webview)
+    {
+        hr = ICoreWebView2_QueryInterface(webview, &IID_ICoreWebView2_2, (void **)&webview_v2);
+        ok(hr == S_OK, "QueryInterface(IID_ICoreWebView2_2) failed: %#lx\n", hr);
+        if (SUCCEEDED(hr))
+        {
+            v2vtbl = (const struct webview2_2_vtbl_combined *)webview_v2->lpVtbl;
+            hr = v2vtbl->ext.get_CookieManager(webview_v2, &cm);
+            ok(hr == S_OK && cm != NULL, "get_CookieManager failed: %#lx\n", hr);
+        }
+
+        /* The sequence this fix targets: get_CoreWebView2 (and, via that
+         * webview, get_CookieManager) already happened above; Close() now
+         * frees the unix-side struct both still point at. */
+        hr = ICoreWebView2Controller_Close(ctrl);
+        ok(hr == S_OK, "Close failed: %#lx\n", hr);
+
+        nav_handler.done_event = CreateEventW(NULL, FALSE, FALSE, NULL);
+        nav_handler.is_success = TRUE; /* seeded wrong on purpose -- a real fix must flip this to FALSE */
+        ICoreWebView2_add_NavigationCompleted(webview, &nav_handler, &token);
+        hr = ICoreWebView2_Navigate(webview, L"about:blank");
+        ok(hr == S_OK, "Navigate after Close returned %#lx, expected S_OK (failure reported async, via the completion handler)\n", hr);
+        ok(WaitForSingleObject(nav_handler.done_event, 30000) == WAIT_OBJECT_0,
+           "Navigate after Close never completed (hung instead of failing cleanly?)\n");
+        ok(!nav_handler.is_success, "expected Navigate after Close to report failure, not silently succeed\n");
+        CloseHandle(nav_handler.done_event);
+
+        if (cm)
+        {
+            cookies_handler.done_event = CreateEventW(NULL, FALSE, FALSE, NULL);
+            hr = ICoreWebView2CookieManager_GetCookies(cm, NULL, &cookies_handler);
+            ok(hr == S_OK, "GetCookies after Close returned %#lx, expected S_OK (failure reported async)\n", hr);
+            ok(WaitForSingleObject(cookies_handler.done_event, 15000) == WAIT_OBJECT_0,
+               "GetCookies after Close never completed (hung instead of failing cleanly?)\n");
+            ok(cookies_handler.result_hr != S_OK,
+               "expected GetCookies after Close to report a failure hr, got %#lx\n", cookies_handler.result_hr);
+            if (cookies_handler.result_list) { ICoreWebView2CookieList_Release(cookies_handler.result_list); cookies_handler.result_list = NULL; }
+            CloseHandle(cookies_handler.done_event);
+
+            ICoreWebView2CookieManager_Release(cm);
+        }
+
+        if (webview_v2) ICoreWebView2_Release(webview_v2);
+        ICoreWebView2_Release(webview);
+    }
+
+    /* Controller was already Close()'d above -- Release() below must not
+     * double-run the native teardown (struct controller_impl's own
+     * `destroyed` guard) or, on the ordering half of this same fix, touch
+     * ctrl->webview after it's already been freed. */
+    ICoreWebView2Controller_Release(ctrl);
+    ICoreWebView2Environment_Release(env);
+    FreeLibrary(mod);
+}
+
 START_TEST(webview2loader)
 {
     test_module_loads();
@@ -1525,5 +1613,6 @@ START_TEST(webview2loader)
     test_add_script_to_execute_on_document_created();
     test_delete_all_cookies();
     test_get_cookies();
+    test_close_then_navigate_fails_cleanly();
     test_suspend_thread_after_webview();
 }

@@ -546,6 +546,37 @@ static BOOL load_bundle_functions(void)
  * safe to call before any dlopen of the bundle's own libraries, since
  * unlike LD_LIBRARY_PATH these are read by WebKitGTK itself via getenv()
  * at actual use time, not cached by ld.so at process start. */
+/* Final-review fix (Important 2): prepends `value` onto whatever is already
+ * in env var `name` (":"-joined, PATH-style), rather than overwriting it
+ * outright via a plain setenv(..., 1). Used specifically for the two vars
+ * below that collide with something else already relying on them in this
+ * SAME process (Proton's own bundled GStreamer's GST_PLUGIN_SYSTEM_PATH_1_0,
+ * and any other in-process consumer of XDG_DATA_DIRS) -- see each call
+ * site's own comment. If `name` isn't set yet, this is equivalent to a
+ * plain setenv(name, value, 1) (no leading ":" is emitted). */
+static void prepend_env(const char *name, const char *value)
+{
+    const char *existing = getenv(name);
+    char *joined;
+    size_t len;
+
+    if (!existing || !existing[0])
+    {
+        setenv(name, value, 1);
+        return;
+    }
+
+    len = strlen(value) + 1 + strlen(existing) + 1;
+    if (!(joined = malloc(len)))
+    {
+        WARN("out of memory prepending %s to %s -- leaving existing value in place\n", value, name);
+        return;
+    }
+    snprintf(joined, len, "%s:%s", value, existing);
+    setenv(name, joined, 1);
+    free(joined);
+}
+
 static void set_webkit_relocation_env(const char *dir)
 {
     char path[PATH_MAX];
@@ -576,12 +607,32 @@ static void set_webkit_relocation_env(const char *dir)
      * to Proton's differently-versioned GStreamer plugins instead. Set
      * both: the suffixed one to actually take effect here, the unsuffixed
      * one kept for any other GStreamer-based consumer that only checks the
-     * unsuffixed name. */
+     * unsuffixed name.
+     *
+     * Final-review fix (Important 2): this DLL runs inside the Roblox
+     * process, not a child -- Proton's own launcher script already set
+     * GST_PLUGIN_SYSTEM_PATH_1_0 for its OWN bundled GStreamer before this
+     * ever runs. A plain setenv(..., 1) here overwrote that outright,
+     * meaning Wine's own winegstreamer.so (unrelated to WebKit, but living
+     * in the same process/environment) would get pointed at this bundle's
+     * different-version GStreamer plugins instead of Proton's own.
+     * Prepending instead of replacing keeps this bundle's plugins found
+     * first (same effective behavior as before for WebKit) while leaving
+     * Proton's own path reachable afterward for winegstreamer.so or any
+     * other in-process GStreamer consumer. GST_PLUGIN_SYSTEM_PATH
+     * (unsuffixed) has no such known collision -- left as a plain setenv,
+     * out of scope for this fix. */
     setenv("GST_PLUGIN_SYSTEM_PATH", path, 1);
-    setenv("GST_PLUGIN_SYSTEM_PATH_1_0", path, 1);
+    prepend_env("GST_PLUGIN_SYSTEM_PATH_1_0", path);
 
     snprintf(path, sizeof(path), "%s/share", dir);
-    setenv("XDG_DATA_DIRS", path, 1);
+    /* Final-review fix (Important 2): same reasoning as
+     * GST_PLUGIN_SYSTEM_PATH_1_0 above -- a plain setenv(..., 1) replaced
+     * XDG_DATA_DIRS outright, dropping whatever the host/Proton already
+     * had there for any other in-process consumer of XDG data dirs.
+     * Prepending keeps this bundle's share/ directory found first (same
+     * effective behavior as before) without discarding the rest. */
+    prepend_env("XDG_DATA_DIRS", path);
 
     snprintf(path, sizeof(path), "%s/share/glib-2.0/schemas", dir);
     setenv("GSETTINGS_SCHEMA_DIR", path, 1);
@@ -844,7 +895,17 @@ static NTSTATUS unix_create_webview_impl(void *args)
     struct create_webview_params *params = args;
     struct native_webview *nv = NULL;
 
-    gtk_thread_invoke_sync(create_webview_on_gtk_thread, &nv);
+    /* Final-review fix (Important 3): explicit return-value check for
+     * consistency/audit-completeness with the other 6 call sites (see
+     * gtk_thread_invoke_sync's own declaration comment) -- functionally
+     * this site was already safe on a FALSE return (nv stays NULL, so the
+     * existing `nv ? ... : STATUS_NOT_SUPPORTED` below already reported
+     * failure correctly and nothing was ever allocated to leak), but
+     * leaving the return value silently unchecked here made this site
+     * look like the same "ignored return value" bug as the other 6 on a
+     * quick read. */
+    if (!gtk_thread_invoke_sync(create_webview_on_gtk_thread, &nv))
+        WARN("gtk_thread_invoke_sync failed -- GTK thread not running\n");
     params->handle = (UINT64)(ULONG_PTR)nv;
     return nv ? STATUS_SUCCESS : STATUS_NOT_SUPPORTED;
 }
@@ -867,7 +928,21 @@ static NTSTATUS unix_destroy_webview_impl(void *args)
     struct native_webview *nv = (struct native_webview *)(ULONG_PTR)params->handle;
 
     if (!nv) return STATUS_SUCCESS;
-    gtk_thread_invoke_sync(destroy_webview_on_gtk_thread, nv);
+    /* Final-review fix (Important 3): if this returns FALSE,
+     * destroy_webview_on_gtk_thread never ran, so `nv` (and the native
+     * GTK window/WebKitWebView it owns) is never freed. There is no
+     * callback/ctx to release here -- destroy_webview_on_gtk_thread does
+     * its work synchronously inline, not via a later async callback -- so
+     * unlike the three refcounted-ctx cookie paths below, nothing can be
+     * un-waited-for; this can only be logged so the leak is visible in
+     * traces instead of silent. In practice this is unreachable once a
+     * webview has actually been created (see unix_create_webview_impl:
+     * creating one already required a successful invoke, and this file
+     * has no path that makes gtk_thread_invoke_sync start failing again
+     * once it has succeeded once), but the check costs nothing and keeps
+     * this call site consistent with the other 6. */
+    if (!gtk_thread_invoke_sync(destroy_webview_on_gtk_thread, nv))
+        WARN("gtk_thread_invoke_sync failed -- GTK thread not running, native webview leaked\n");
     return STATUS_SUCCESS;
 }
 
@@ -972,7 +1047,21 @@ static NTSTATUS unix_navigate_and_wait_impl(void *args)
 
     ctx.uri_utf8 = wcs_to_utf8(params->uri);
 
-    gtk_thread_invoke_sync(navigate_on_gtk_thread, &ctx);
+    /* Final-review fix (Important 3): if this returns FALSE,
+     * navigate_on_gtk_thread never ran -- no "load-changed" signal
+     * connection was ever made (ctx.handler_id stays 0) and WebKit was
+     * never told to load anything, so on_load_changed can never fire.
+     * Without this check, the bounded wait below would still block for
+     * the full 30s waiting on a completion that can't happen, for
+     * nothing. Skip straight to failure instead; the disconnect call
+     * further down is also skipped since there's nothing to disconnect
+     * (and it would fail the same way for the same reason). */
+    if (!gtk_thread_invoke_sync(navigate_on_gtk_thread, &ctx))
+    {
+        WARN("gtk_thread_invoke_sync failed -- GTK thread not running, failing Navigate without waiting\n");
+        free(ctx.uri_utf8);
+        return STATUS_NOT_SUPPORTED;
+    }
 
     /* Bounded wait, not indefinite: a real page can fail to ever fire
      * load-changed(FINISHED) (network failure, WebKit process crash). 30s
@@ -989,8 +1078,19 @@ static NTSTATUS unix_navigate_and_wait_impl(void *args)
 
     /* Always disconnect before touching ctx again or returning -- see the
      * comment on disconnect_load_changed_on_gtk_thread above for why this
-     * can't just live inside on_load_changed instead. */
-    gtk_thread_invoke_sync(disconnect_load_changed_on_gtk_thread, &ctx);
+     * can't just live inside on_load_changed instead. Final-review fix
+     * (Important 3): the invoke above already succeeded once in this same
+     * call and gtk_thread_invoke_sync has no path back to FALSE once the
+     * GTK thread is confirmed running (see unix_destroy_webview_impl's own
+     * comment on this), so this is unreachable in practice -- checked
+     * anyway, with a WARN, for consistency with the other 6 call sites and
+     * because ctx is stack-local here: if this ever did return FALSE, the
+     * signal connection would stay live pointing at memory that's about to
+     * go out of scope, which is worth surfacing loudly rather than
+     * silently ignoring. */
+    if (!gtk_thread_invoke_sync(disconnect_load_changed_on_gtk_thread, &ctx))
+        WARN("gtk_thread_invoke_sync failed while disconnecting load-changed -- "
+             "GTK thread not running, signal connection could not be torn down\n");
 
     params->is_success = ctx.success;
     params->navigation_id = (UINT64)(ULONG_PTR)&ctx; /* unique-enough per call; real WebView2's IDs aren't otherwise observable to us */
@@ -1129,7 +1229,21 @@ static NTSTATUS unix_delete_all_cookies_impl(void *args)
     pthread_mutex_init(&ctx->lock, NULL);
     pthread_cond_init(&ctx->cond, NULL);
 
-    gtk_thread_invoke_sync(start_get_all_cookies_on_gtk_thread, ctx);
+    /* Final-review fix (Important 3): if this returns FALSE,
+     * start_get_all_cookies_on_gtk_thread never ran -- webkit_cookie_manager_
+     * get_all_cookies was never even started, so on_get_all_cookies_done can
+     * never fire and release the callback's ref (ctx->refs's second count).
+     * Without this check, ctx would leak (refs never reaches 0) AND the
+     * bounded wait below would still block for the full 10s for a callback
+     * that's never coming. Reclaim that ref ourselves (standing in for the
+     * callback that will now never run) and bail out before the wait. */
+    if (!gtk_thread_invoke_sync(start_get_all_cookies_on_gtk_thread, ctx))
+    {
+        WARN("gtk_thread_invoke_sync failed -- GTK thread not running, failing DeleteAllCookies without waiting\n");
+        delete_cookies_ctx_release(ctx); /* the callback's ref, which will now never be released by on_get_all_cookies_done */
+        delete_cookies_ctx_release(ctx); /* this function's own ref */
+        return STATUS_NOT_SUPPORTED;
+    }
 
     /* Bounded wait, not indefinite -- same rationale as
      * unix_navigate_and_wait_impl's own 30s bound (a stuck WebKit network
@@ -1241,7 +1355,19 @@ static NTSTATUS unix_count_cookies_impl(void *args)
 
     sctx.nv = nv;
     sctx.wait_ctx = ctx;
-    gtk_thread_invoke_sync(start_count_cookies_on_gtk_thread, &sctx);
+    /* Final-review fix (Important 3): same leaked-ref/wasted-timeout hazard
+     * as unix_delete_all_cookies_impl above -- if this returns FALSE,
+     * start_count_cookies_on_gtk_thread never ran, on_count_cookies_done
+     * never fires to release the callback's ref, and the wait below would
+     * block the full 10s for nothing. Reclaim the ref ourselves and bail
+     * out before waiting. */
+    if (!gtk_thread_invoke_sync(start_count_cookies_on_gtk_thread, &sctx))
+    {
+        WARN("gtk_thread_invoke_sync failed -- GTK thread not running, failing count_cookies without waiting\n");
+        count_cookies_ctx_release(ctx); /* the callback's ref, which will now never be released by on_count_cookies_done */
+        count_cookies_ctx_release(ctx); /* this function's own ref */
+        return STATUS_NOT_SUPPORTED;
+    }
 
     clock_gettime(CLOCK_REALTIME, &deadline);
     deadline.tv_sec += 10;
@@ -1495,7 +1621,20 @@ static NTSTATUS unix_get_cookies_impl(void *args)
     pthread_mutex_init(&ctx->lock, NULL);
     pthread_cond_init(&ctx->cond, NULL);
 
-    gtk_thread_invoke_sync(start_get_cookies_on_gtk_thread, ctx);
+    /* Final-review fix (Important 3): same leaked-ref/wasted-timeout hazard
+     * as unix_delete_all_cookies_impl/unix_count_cookies_impl above -- if
+     * this returns FALSE, start_get_cookies_on_gtk_thread never ran,
+     * on_get_cookies_done never fires to release the callback's ref, and
+     * the wait below would block the full 10s for nothing. Reclaim the ref
+     * ourselves (get_cookies_ctx_release also frees ctx->uri_utf8 once the
+     * refcount actually reaches 0) and bail out before waiting. */
+    if (!gtk_thread_invoke_sync(start_get_cookies_on_gtk_thread, ctx))
+    {
+        WARN("gtk_thread_invoke_sync failed -- GTK thread not running, failing GetCookies without waiting\n");
+        get_cookies_ctx_release(ctx); /* the callback's ref, which will now never be released by on_get_cookies_done */
+        get_cookies_ctx_release(ctx); /* this function's own ref */
+        return STATUS_NOT_SUPPORTED;
+    }
 
     /* Bounded wait, not indefinite -- same rationale and same 10s bound as
      * unix_delete_all_cookies_impl/unix_count_cookies_impl above (local

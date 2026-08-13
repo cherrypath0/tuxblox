@@ -324,6 +324,26 @@ struct ICoreWebView2NavigationCompletedEventArgs { const ICoreWebView2Navigation
  * native_handle owned by the controller that created it. */
 HRESULT webview_create(UINT64 native_handle, ICoreWebView2 **out);
 
+/* Final-review fix (Important 1, native_handle use-after-free): reads the
+ * webview's own native_handle field under its internal lock. Every
+ * consumer that used to read struct webview_impl::native_handle directly
+ * (navigate_worker, __wine_test_webview2loader_count_cookies,
+ * cookie_manager_create's caller) now goes through this instead, so they
+ * all observe the same live value -- including 0 once
+ * webview_invalidate_native_handle (below) has run. */
+UINT64 webview_get_native_handle(ICoreWebView2 *iface);
+
+/* Final-review fix (Important 1, continued): called by
+ * controller_destroy_native once the unix-side native_webview has been
+ * freed, so this webview object (and, transitively, every
+ * ICoreWebView2CookieManager created from it via cookie_manager_create,
+ * which reads the handle live through webview_get_native_handle rather
+ * than caching its own copy) stops handing out the now-dangling handle.
+ * Subsequent calls see 0, which every unix call already treats as
+ * STATUS_INVALID_HANDLE -- a clean failure instead of a dereference of
+ * freed unix-side memory. */
+void webview_invalidate_native_handle(ICoreWebView2 *iface);
+
 /* Task 8 extension point: QueryInterface's fallback for any IID beyond
  * IUnknown/ICoreWebView2 (e.g. IID_ICoreWebView2_2). Defined for real in
  * webview.c already (returns E_NOINTERFACE) -- Task 8 replaces that body,
@@ -666,9 +686,16 @@ struct webview2_2_vtbl_combined
 };
 
 /* Constructs an ICoreWebView2CookieManager (refcount 1) bound to the given
- * unix-side native_handle (the same handle struct webview_impl carries --
- * see webview2_get_CookieManager in webview.c). */
-HRESULT cookie_manager_create(UINT64 native_handle, ICoreWebView2CookieManager **out);
+ * webview (see webview2_get_CookieManager in webview.c). Final-review fix
+ * (Important 1, native_handle use-after-free): takes the owning
+ * ICoreWebView2* itself, AddRef'd and held for this cookie manager's own
+ * lifetime, rather than a UINT64 native_handle snapshotted at creation
+ * time -- every unix call this cookie manager makes reads the handle live
+ * via webview_get_native_handle(cm->webview) instead, so a Close() that
+ * runs after this cookie manager was already handed out still correctly
+ * invalidates it (see controller_destroy_native / webview_invalidate_
+ * native_handle). */
+HRESULT cookie_manager_create(ICoreWebView2 *webview, ICoreWebView2CookieManager **out);
 
 /* Task 11 real-bug fix: GetCookies was left E_NOTIMPL by Task 8, and real
  * Roblox Studio's own startup flow (clearAllCookiesAndRunCallbackHelper,
