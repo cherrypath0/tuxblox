@@ -58,9 +58,25 @@ int main(int argc, char **argv)
     nav_handler_t nav_h = { &nav_vtbl };
     ICoreWebView2 *webview;
     WCHAR uri[MAX_PATH + 8] = L"file://";
+    WNDCLASSA wc = { 0 };
+    HWND parent;
+    RECT bounds = { 20, 20, 620, 420 };
 
     if (argc < 2) { fprintf(stderr, "usage: %s <path-to-e2e_fixture.html>\n", argv[0]); return 1; }
     MultiByteToWideChar(CP_ACP, 0, argv[1], -1, uri + 7, MAX_PATH);
+
+    /* Plan 3 Task 6: a real, visible, DRAGGABLE parent window -- previously
+     * this harness passed NULL as parentWindow, so it never exercised any
+     * of Plan 3's window-docking work (Tasks 1-5). WS_OVERLAPPEDWINDOW
+     * gives it a real titlebar a human can drag, exercising the
+     * WH_CALLWNDPROC hook (Task 5) as well as put_Bounds (Task 4). */
+    wc.lpfnWndProc = DefWindowProcA;
+    wc.hInstance = GetModuleHandleA(NULL);
+    wc.lpszClassName = "tuxblox_webview2_e2e_parent";
+    RegisterClassA(&wc);
+    parent = CreateWindowExA(0, wc.lpszClassName, "webview2loader e2e -- drag me", WS_OVERLAPPEDWINDOW,
+                              CW_USEDEFAULT, CW_USEDEFAULT, 700, 500, NULL, NULL, wc.hInstance, NULL);
+    ShowWindow(parent, SW_SHOW);
 
     if (!(mod = LoadLibraryA("webview2loader.dll"))) { fprintf(stderr, "LoadLibrary failed: %lu\n", GetLastError()); return 1; }
     pCreate = (void *)GetProcAddress(mod, "CreateCoreWebView2EnvironmentWithOptions");
@@ -71,9 +87,12 @@ int main(int argc, char **argv)
     if (!env_h.env) { fprintf(stderr, "environment creation failed\n"); return 1; }
 
     ctrl_h.ev = CreateEventW(NULL, FALSE, FALSE, NULL);
-    ICoreWebView2Environment_CreateCoreWebView2Controller(env_h.env, NULL, &ctrl_h);
+    ICoreWebView2Environment_CreateCoreWebView2Controller(env_h.env, parent, &ctrl_h);
     WaitForSingleObject(ctrl_h.ev, 10000);
     if (!ctrl_h.ctrl) { fprintf(stderr, "controller creation failed\n"); return 1; }
+
+    ICoreWebView2Controller_put_Bounds(ctrl_h.ctrl, bounds);
+    ICoreWebView2Controller_put_IsVisible(ctrl_h.ctrl, TRUE);
 
     ICoreWebView2Controller_get_CoreWebView2(ctrl_h.ctrl, &webview);
 
@@ -85,12 +104,14 @@ int main(int argc, char **argv)
     ICoreWebView2_Navigate(webview, uri);
     WaitForSingleObject(nav_done, 30000);
 
-    printf("Window is up -- inspect it visually, then press Enter to exit.\n");
+    printf("Drag/move/minimize/restore the 'webview2loader e2e -- drag me' window -- "
+           "the WebKitGTK window should visually track it. Press Enter to exit.\n");
     getchar();
 
     ICoreWebView2_Release(webview);
     ICoreWebView2Controller_Release(ctrl_h.ctrl);
     ICoreWebView2Environment_Release(env_h.env);
+    DestroyWindow(parent);
     FreeLibrary(mod);
     return nav_success ? 0 : 1;
 }
