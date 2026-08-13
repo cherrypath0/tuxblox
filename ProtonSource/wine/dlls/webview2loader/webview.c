@@ -936,7 +936,7 @@ UINT32 WINAPI __wine_test_webview2loader_window_is_visible(ICoreWebView2Controll
 
 /* Test-support-only exports (Plan 3 Task 3). */
 BOOL WINAPI __wine_test_webview2loader_sync_window_geometry(ICoreWebView2Controller *controller,
-                                                              const RECT *screen_bounds, BOOL visible)
+                                                            const RECT *screen_bounds, BOOL visible)
 {
     struct sync_window_geometry_params params;
 

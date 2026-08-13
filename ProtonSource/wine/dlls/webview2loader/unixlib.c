@@ -1812,6 +1812,11 @@ static void sync_window_geometry_on_gtk_thread(void *data)
 
     params->success = FALSE;
 
+    /* Visibility is applied unconditionally, before the params->visible
+     * guard below, so a transition to hidden actually hides the window on
+     * this same call rather than requiring a separate one -- the guard right
+     * after only short-circuits the size/position work that's meaningless
+     * once the window is (or is becoming) invisible. */
     p_gtk_widget_set_visible(nv->window, params->visible);
     if (!params->visible)
     {
@@ -1843,9 +1848,23 @@ static void sync_window_geometry_on_gtk_thread(void *data)
         return;
     }
 
-    p_XMoveResizeWindow(p_gdk_x11_display_get_xdisplay(p_gdk_surface_get_display(surface)), xid,
-                         params->screen_bounds.left, params->screen_bounds.top,
-                         (unsigned int)width, (unsigned int)height);
+    /* Code review fix (Important 1): mirror the width>0 && height>0 guard
+     * gtk_window_set_default_size already gets above -- a non-positive width
+     * or height here (e.g. a transient zero-size Bounds update that arrives
+     * before the controller is actually hidden) would otherwise be cast to
+     * `unsigned int` for XMoveResizeWindow, wrapping a negative value into a
+     * huge one; X11's ConfigureWindow protocol requires width/height >= 1
+     * (0 is BadValue), and there is no guarantee the server tolerates the
+     * wrapped huge value either. Skipping the move (rather than clamping to
+     * 1x1) matches this function's existing degrade-gracefully pattern used
+     * for the "no surface"/"no XID" cases just above -- never fatal to the
+     * controller, per the plan's own Error Handling section. */
+    if (width > 0 && height > 0)
+    {
+        p_XMoveResizeWindow(p_gdk_x11_display_get_xdisplay(p_gdk_surface_get_display(surface)), xid,
+                             params->screen_bounds.left, params->screen_bounds.top,
+                             (unsigned int)width, (unsigned int)height);
+    }
     params->success = TRUE;
 }
 
