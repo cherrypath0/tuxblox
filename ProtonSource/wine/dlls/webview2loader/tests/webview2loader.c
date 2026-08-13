@@ -1806,20 +1806,16 @@ static void test_compute_screen_bounds(void)
 
 /* Plan 3 Task 4, layer 3 (integration): put_Bounds/put_IsVisible must
  * really reach the native window now, verified via Task 3's test-support
- * geometry getter -- no ClientToScreen composition to verify here (parent
- * is NULL, so controller_push_geometry_to_native's own NULL-parent guard,
- * see Step 3, means this exercises the "skip, no crash" path instead) --
- * NULL-parent behavior is covered by test_hwnd_message_never_shows_window's
- * sibling case; this test's job is confirming a REAL parent HWND drives a
- * real geometry push. */
+ * geometry getter. Uses a real parent HWND to exercise the actual geometry
+ * push path via controller_push_geometry_to_native. */
 static void test_put_bounds_syncs_native_window(void)
 {
-    HMODULE mod;
+    HMODULE mod = NULL;
     HRESULT (WINAPI *pCreateEnv)(PCWSTR, PCWSTR, void *, void *);
     struct test_env_handler env_handler = { &test_env_handler_vtbl };
     struct test_ctrl_handler ctrl_handler = { &test_ctrl_handler_vtbl };
-    ICoreWebView2Controller *ctrl;
-    HWND real_parent;
+    ICoreWebView2Controller *ctrl = NULL;
+    HWND real_parent = NULL;
     RECT bounds = { 0, 0, 500, 400 }, got;
     BOOL (WINAPI *pGetGeometry)(ICoreWebView2Controller *, RECT *);
     WNDCLASSA wc = { 0 };
@@ -1831,10 +1827,11 @@ static void test_put_bounds_syncs_native_window(void)
     wc.hInstance = GetModuleHandleA(NULL);
     wc.lpszClassName = "tuxblox_test_put_bounds_wndclass";
     RegisterClassA(&wc);
+
     real_parent = CreateWindowExA(0, wc.lpszClassName, "test", WS_OVERLAPPEDWINDOW,
                                    10, 20, 300, 300, NULL, NULL, wc.hInstance, NULL);
     ok(real_parent != NULL, "CreateWindowExA failed, error %lu\n", GetLastError());
-    if (!real_parent) return;
+    if (!real_parent) goto cleanup;
 
     mod = LoadLibraryA("webview2loader.dll");
     pCreateEnv = (void *)GetProcAddress(mod, "CreateCoreWebView2EnvironmentWithOptions");
@@ -1845,9 +1842,7 @@ static void test_put_bounds_syncs_native_window(void)
     if (env_handler.result_hr != S_OK)
     {
         skip("environment creation failed\n");
-        DestroyWindow(real_parent);
-        FreeLibrary(mod);
-        return;
+        goto cleanup;
     }
 
     ctrl_handler.done_event = CreateEventW(NULL, FALSE, FALSE, NULL);
@@ -1864,6 +1859,7 @@ static void test_put_bounds_syncs_native_window(void)
         Sleep(200);
 
         pGetGeometry = (void *)GetProcAddress(mod, "__wine_test_webview2loader_get_window_geometry");
+        ok(pGetGeometry != NULL, "missing __wine_test_webview2loader_get_window_geometry export\n");
         if (pGetGeometry)
         {
             ZeroMemory(&got, sizeof(got));
@@ -1875,10 +1871,14 @@ static void test_put_bounds_syncs_native_window(void)
         ICoreWebView2Controller_Release(ctrl);
     }
 
-    ICoreWebView2Environment_Release(env_handler.result_env);
-    DestroyWindow(real_parent);
+cleanup:
+    if (env_handler.result_env)
+        ICoreWebView2Environment_Release(env_handler.result_env);
+    if (real_parent)
+        DestroyWindow(real_parent);
     UnregisterClassA(wc.lpszClassName, wc.hInstance);
-    FreeLibrary(mod);
+    if (mod)
+        FreeLibrary(mod);
 }
 
 START_TEST(webview2loader)
