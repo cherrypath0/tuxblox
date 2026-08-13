@@ -16,9 +16,10 @@ By submitting a pull request, you agree that your contribution is licensed under
 
 ### Required Packages for Compiling:
 * curl
-* nuitka
-* python
-* podman/docker
+* git
+* podman
+
+`installer/build.sh`, `launcher/build.sh`, and `build.sh`'s Proton-compile step build inside a pinned old-glibc-baseline container (`build-container/Containerfile`) using `podman run --userns=keep-id`, a podman-specific rootless flag -- **docker is not a drop-in substitute for these three build paths**, even though it's fine for anything else in the repo that doesn't rely on that flag. `python`/`nuitka` are no longer required on the host: the Proton-compile step now runs a pinned Nuitka version baked into that same container image.
 
 ## Getting Started
 
