@@ -36,6 +36,13 @@ pkg_check_modules(CURL REQUIRED libcurl)
 pkg_check_modules(ARCHIVE REQUIRED libarchive)
 pkg_check_modules(OPENSSL REQUIRED openssl)
 find_package(OpenGL REQUIRED)
+# glibc >= 2.34 merged libpthread/libdl's symbols into libc.so itself, so std::thread
+# links "for free" on a newer-glibc host -- but the old-glibc-baseline container this
+# project builds inside (see build-container/Containerfile) still needs them explicit.
+# Threads::Threads is load-bearing (std::thread is used); ${CMAKE_DL_LIBS} is
+# defensive (nothing in this target calls dlopen/dlsym directly, but SDL2/OpenGL's
+# transitive needs and general old-glibc-baseline safety make it cheap insurance).
+find_package(Threads REQUIRED)
 
 set(IMGUI_DIR ${CMAKE_SOURCE_DIR}/third_party/imgui)
 add_library(imgui STATIC
@@ -64,7 +71,7 @@ target_include_directories(installer_core PUBLIC
     src third_party
     ${CURL_INCLUDE_DIRS} ${ARCHIVE_INCLUDE_DIRS} ${OPENSSL_INCLUDE_DIRS})
 target_link_libraries(installer_core PUBLIC
-    ${CURL_LIBRARIES} ${ARCHIVE_LIBRARIES} ${OPENSSL_LIBRARIES})
+    ${CURL_LIBRARIES} ${ARCHIVE_LIBRARIES} ${OPENSSL_LIBRARIES} Threads::Threads)
 target_compile_options(installer_core PUBLIC
     ${CURL_CFLAGS_OTHER} ${ARCHIVE_CFLAGS_OTHER} ${OPENSSL_CFLAGS_OTHER})
 
@@ -80,7 +87,7 @@ add_executable(TuxBloxInstaller
     src/copyright_file.cpp
 )
 target_include_directories(TuxBloxInstaller PRIVATE ${CMAKE_BINARY_DIR}/generated)
-target_link_libraries(TuxBloxInstaller PRIVATE installer_core imgui ${SDL2_LIBRARIES} OpenGL::GL)
+target_link_libraries(TuxBloxInstaller PRIVATE installer_core imgui ${SDL2_LIBRARIES} OpenGL::GL ${CMAKE_DL_LIBS} Threads::Threads)
 add_dependencies(TuxBloxInstaller generate_logo_header generate_font_header generate_thirdparty_license_headers)
 
 enable_testing()

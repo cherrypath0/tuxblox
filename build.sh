@@ -32,7 +32,7 @@ packages=(
     podman
     curl
     gcc
-    python3-venv
+    uidmap
 )
 
 JOBS="${TUXBLOX_MAKE_JOBS:-$(nproc 2>/dev/null || echo 1)}"
@@ -127,19 +127,25 @@ cd ProtonBuild
 step "Updating dependencies"
 
 declare -A override_apt=()
+# uidmap provides newuidmap/newgidmap (needed for podman's --userns=keep-id); on
+# dnf/pacman hosts those ship as part of shadow-utils/shadow, which are normally
+# already installed by default, so map to those instead of a nonexistent "uidmap"
+# package name.
 declare -A override_dnf=(
-    [python3-venv]="python3"
+    [uidmap]="shadow-utils"
 )
 declare -A override_pacman=(
-    [python3-venv]="python"
+    [uidmap]="shadow"
 )
 declare -A override_brew=(
     [python3]="python@3"
-    [python3-venv]="python@3"
+    # macOS podman runs rootless containers inside a Linux VM ("podman machine"),
+    # which already has newuidmap/newgidmap set up internally -- there's no separate
+    # host formula for this. Alias to the already-required "podman" formula so the
+    # check is a harmless no-op instead of failing on a formula that doesn't exist.
+    [uidmap]="podman"
 )
-declare -A override_apk=(
-    [python3-venv]="python3"
-)
+declare -A override_apk=()
 
 detect_pm() {
     if command -v apt-get &>/dev/null; then echo "apt"
@@ -215,6 +221,9 @@ else
     echo ":: All dependencies satisfied, skipping package manager."
 fi
 
+step "Checking rootless podman and warming the old-glibc builder image"
+run_step "check_podman" strict bash -c 'podman info >/dev/null && podman build -t tuxblox-old-glibc-builder -f ../build-container/Containerfile ../build-container'
+
 step "Configuring Proton (ccache enabled for faster rebuilds)"
 run_step "configure_proton" strict bash -c './../ProtonSource/configure.sh --enable-ccache'
 
@@ -236,23 +245,19 @@ run_step "build_x86_64_nls" strict bash -c 'cd obj-wine-x86_64 && make nls/local
 step "Resuming build (4/4) (using $JOBS parallel jobs)"
 run_step "resume_build" strict bash -c "set -o pipefail; make -j$JOBS 2>&1 | tee -a ../build.log"
 
-step "Compiling proton launcher to a native binary"
+step "Compiling proton launcher to a native binary (podman, old-glibc baseline)"
 run_step "compile_proton_native" strict bash -c '
     set -e
-    venv="../.nuitka-venv"
-    if [[ ! -x "$venv/bin/nuitka" ]]; then
-        python3 -m venv "$venv"
-        "$venv/bin/pip" install --upgrade pip -q
-        "$venv/bin/pip" install nuitka -q
-    fi
+    podman build -t tuxblox-old-glibc-builder -f ../build-container/Containerfile ../build-container
 
     workdir="$(mktemp -d)"
     cp dist/proton "$workdir/proton.py"
     cp dist/filelock.py "$workdir/filelock.py"
+    mkdir -p "$workdir/out"
 
-    "$venv/bin/nuitka" --standalone --no-progressbar \
-        --output-filename=proton --output-dir="$workdir/out" \
-        "$workdir/proton.py"
+    podman run --rm --userns=keep-id -v "$workdir:/work:Z" -w /work tuxblox-old-glibc-builder \
+        nuitka --standalone --no-progressbar \
+        --output-filename=proton --output-dir=/work/out /work/proton.py
 
     rm -f dist/proton dist/filelock.py
     cp -a "$workdir/out/proton.dist/." dist/
