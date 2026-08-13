@@ -36,28 +36,22 @@ install_deps() {
     case "$mgr" in
         apt)
             sudo apt-get update
-            sudo apt-get install -y build-essential cmake pkg-config \
-                libsdl2-dev libcurl4-openssl-dev libarchive-dev libssl-dev \
-                librsvg2-bin git
+            sudo apt-get install -y podman curl git
             ;;
         dnf)
-            sudo dnf install -y gcc-c++ cmake pkgconfig \
-                SDL2-devel libcurl-devel libarchive-devel openssl-devel \
-                librsvg2-tools git
+            sudo dnf install -y podman curl git
             ;;
         pacman)
-            sudo pacman -S --needed --noconfirm base-devel cmake pkgconf \
-                sdl2 curl libarchive openssl librsvg git
+            sudo pacman -S --needed --noconfirm podman curl git
             ;;
         brew)
-            brew install cmake pkg-config sdl2 curl libarchive openssl librsvg git
+            brew install podman curl git
             ;;
         apk)
-            sudo apk add build-base cmake pkgconf sdl2-dev curl-dev \
-                libarchive-dev openssl-dev librsvg git
+            sudo apk add podman curl git
             ;;
         *)
-            echo "!! Unknown package manager. Install manually: cmake, pkg-config, SDL2, libcurl, libarchive, openssl, rsvg-convert (librsvg), git" >&2
+            echo "!! Unknown package manager. Install manually: podman, curl, git" >&2
             ;;
     esac
 }
@@ -68,10 +62,11 @@ install_deps
 echo ":: Vendoring third-party sources"
 ./vendor.sh
 
-echo ":: Configuring"
-cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
+echo ":: Building builder container image (old-glibc baseline)"
+podman build -t tuxblox-old-glibc-builder -f ../build-container/Containerfile ../build-container
 
-echo ":: Building"
-cmake --build build -j"$JOBS"
+echo ":: Configuring + Building (in podman, rootless, old-glibc baseline)"
+podman run --rm --userns=keep-id -v "$(pwd):/src:Z" -w /src tuxblox-old-glibc-builder \
+    bash -c "cmake -B build -S . -DCMAKE_BUILD_TYPE=Release && cmake --build build -j$JOBS"
 
 echo ":: Done. Binary at build/TuxBloxLauncher"
