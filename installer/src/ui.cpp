@@ -29,8 +29,15 @@
 
 namespace {
 
+// Multiplier applied to every pixel size/position/font size in this file so
+// the window reads at the same visual size regardless of display
+// resolution -- set once in Ui::init() from the desktop resolution relative
+// to a 1440p baseline (see the SDL_GetDesktopDisplayMode call there).
+float g_uiScale = 1.0f;
+
 // Everything above the Cancel button (which starts at y=222 -- see the
 // button's SetCursorPosY below) counts as "title bar" for drag purposes.
+// Base (1440p, scale == 1.0) value -- scaled by g_uiScale in windowHitTest.
 constexpr int kDragRegionHeight = 205;
 
 // Lets the window manager/compositor handle a press-and-drag in the top
@@ -41,7 +48,7 @@ constexpr int kDragRegionHeight = 205;
 // Wayland compositors too, which refuse to let a client reposition its
 // own surface directly.
 SDL_HitTestResult SDLCALL windowHitTest(SDL_Window*, const SDL_Point* area, void*) {
-    return area->y < kDragRegionHeight ? SDL_HITTEST_DRAGGABLE : SDL_HITTEST_NORMAL;
+    return area->y < kDragRegionHeight * g_uiScale ? SDL_HITTEST_DRAGGABLE : SDL_HITTEST_NORMAL;
 }
 
 } // namespace
@@ -56,6 +63,22 @@ bool Ui::init() {
         return false;
     }
 
+    // Every pixel size/position/font size in this file is authored against a
+    // 1440p baseline (g_uiScale == 1.0 there); scale it by the desktop's
+    // actual resolution relative to that baseline so the window occupies the
+    // same proportion of the screen at any resolution, rather than a fixed
+    // pixel count that reads tiny on 4K and oversized on 1080p. Clamped so
+    // an unusual/multi-monitor display mode can't produce a degenerate
+    // window.
+    {
+        SDL_DisplayMode mode;
+        if (SDL_GetDesktopDisplayMode(0, &mode) == 0 && mode.h > 0) {
+            g_uiScale = static_cast<float>(mode.h) / 1440.0f;
+        }
+        if (g_uiScale < 0.75f) g_uiScale = 0.75f;
+        if (g_uiScale > 3.0f) g_uiScale = 3.0f;
+    }
+
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 2);
@@ -64,7 +87,7 @@ bool Ui::init() {
 
     SDL_Window* window = SDL_CreateWindow("TuxBlox Installer",
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-        480, 280,
+        static_cast<int>(480 * g_uiScale), static_cast<int>(280 * g_uiScale),
         SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN | SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_BORDERLESS);
     if (!window) return false;
     window_ = window;
@@ -89,6 +112,10 @@ bool Ui::init() {
     style.PopupRounding = 14.0f;
     style.FrameRounding = 8.0f;
     style.GrabRounding = 8.0f;
+    // Scales all of ImGui's own built-in metrics (padding, spacing, and the
+    // rounding values set above) by the same factor as everything else in
+    // this file.
+    style.ScaleAllSizes(g_uiScale);
 
     ImGui_ImplSDL2_InitForOpenGL(window, gl);
     ImGui_ImplOpenGL3_Init("#version 150");
@@ -99,13 +126,13 @@ bool Ui::init() {
     regularCfg.FontDataOwnedByAtlas = false;
     fontRegular_ = ImGui::GetIO().Fonts->AddFontFromMemoryTTF(
         const_cast<unsigned char*>(kInterRegularTtf), static_cast<int>(kInterRegularTtfLen),
-        16.0f, &regularCfg);
+        16.0f * g_uiScale, &regularCfg);
 
     ImFontConfig semiBoldCfg;
     semiBoldCfg.FontDataOwnedByAtlas = false;
     fontSemiBold_ = ImGui::GetIO().Fonts->AddFontFromMemoryTTF(
         const_cast<unsigned char*>(kInterSemiBoldTtf), static_cast<int>(kInterSemiBoldTtfLen),
-        19.0f, &semiBoldCfg);
+        19.0f * g_uiScale, &semiBoldCfg);
 
     int channels = 0;
     unsigned char* pixels = stbi_load_from_memory(
@@ -208,9 +235,9 @@ bool Ui::renderFrame(App& app) {
     auto snap = app.snapshot();
 
     if (logoTexture_) {
-        float logoDisplaySize = 96.0f;
+        float logoDisplaySize = 96.0f * g_uiScale;
         ImGui::SetCursorPosX((w - logoDisplaySize) * 0.5f);
-        ImGui::SetCursorPosY(24.0f);
+        ImGui::SetCursorPosY(24.0f * g_uiScale);
         ImGui::Image((void*)(intptr_t)logoTexture_, ImVec2(logoDisplaySize, logoDisplaySize));
     }
 
@@ -223,15 +250,15 @@ bool Ui::renderFrame(App& app) {
         case AppPhase::Done:             statusText = "Launching TuxBlox"; break;
     }
 
-    ImGui::SetCursorPosY(148.0f);
+    ImGui::SetCursorPosY(148.0f * g_uiScale);
     ImGui::PushFont(fontSemiBold_);
     float textWidth = ImGui::CalcTextSize(statusText.c_str()).x;
     ImGui::SetCursorPosX((w - textWidth) * 0.5f);
     ImGui::TextUnformatted(statusText.c_str());
     ImGui::PopFont();
 
-    ImGui::SetCursorPosX(40.0f);
-    ImGui::SetCursorPosY(182.0f);
+    ImGui::SetCursorPosX(40.0f * g_uiScale);
+    ImGui::SetCursorPosY(182.0f * g_uiScale);
     // ProgressBar's size_arg does NOT consult PushItemWidth (that stack is
     // only read by CalcItemSize() when size.x == 0.0f) -- passing -1 here
     // used to mean "fill to 1px before the content region's right edge",
@@ -239,12 +266,12 @@ bool Ui::renderFrame(App& app) {
     // right edge (~9px margin) while staying anchored 40px from the left.
     // Passing the width explicitly is the only way to get it symmetric.
     ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(0.18f, 0.62f, 0.97f, 1.0f));
-    ImGui::ProgressBar(static_cast<float>(snap.overallPercent / 100.0), ImVec2(w - 80.0f, 0));
+    ImGui::ProgressBar(static_cast<float>(snap.overallPercent / 100.0), ImVec2(w - 80.0f * g_uiScale, 0));
     ImGui::PopStyleColor();
 
-    float buttonWidth = 100.0f;
+    float buttonWidth = 100.0f * g_uiScale;
     ImGui::SetCursorPosX((w - buttonWidth) * 0.5f);
-    ImGui::SetCursorPosY(222.0f);
+    ImGui::SetCursorPosY(222.0f * g_uiScale);
     ImGui::PushFont(fontRegular_);
     if (ImGui::Button("Cancel", ImVec2(buttonWidth, 0))) {
         app.cancel();

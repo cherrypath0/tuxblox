@@ -49,6 +49,14 @@ namespace tuxblox {
 
 namespace {
 
+// Multiplier applied to every pixel size/position/font size in this file so
+// the whole UI reads at the same visual size regardless of display
+// resolution -- set once in Ui::init() from the desktop resolution relative
+// to a 1440p baseline (see the SDL_GetDesktopDisplayMode call there). All
+// the constants below are the baseline (1440p, scale == 1.0) values; callers
+// multiply by g_uiScale at the point of use.
+float g_uiScale = 1.0f;
+
 constexpr float kSidebarWidth = 160.0f;
 constexpr float kToggleWidth = 44.0f;
 constexpr float kToggleHeight = 24.0f;
@@ -227,7 +235,8 @@ bool renderIconRow(const char* id, const char* label, unsigned int iconTexture,
     ImVec2 textSize = ImGui::CalcTextSize(label);
     if (font) ImGui::PopFont();
 
-    float contentWidth = (iconTexture ? iconSize + 8.0f : 0.0f) + textSize.x;
+    float iconGap = 8.0f * g_uiScale;
+    float contentWidth = (iconTexture ? iconSize + iconGap : 0.0f) + textSize.x;
     float startX = centerContent ? pos.x + (w - contentWidth) * 0.5f : pos.x + leftPadding;
 
     if (iconTexture) {
@@ -235,7 +244,7 @@ bool renderIconRow(const char* id, const char* label, unsigned int iconTexture,
         drawList->AddImage((void*)(intptr_t)iconTexture, ImVec2(startX, iconY),
                             ImVec2(startX + iconSize, iconY + iconSize),
                             ImVec2(0, 0), ImVec2(1, 1), tint);
-        startX += iconSize + 8.0f;
+        startX += iconSize + iconGap;
     }
 
     float textY = pos.y + (h - textSize.y) * 0.5f;
@@ -253,7 +262,7 @@ float renderErrorBanner(const char* text, float width, ImFont* font) {
     ImVec2 pos = ImGui::GetCursorScreenPos();
     ImDrawList* drawList = ImGui::GetWindowDrawList();
 
-    constexpr float kPadding = 10.0f;
+    float kPadding = 10.0f * g_uiScale;
     ImFont* resolvedFont = font ? font : ImGui::GetFont();
     float resolvedFontSize = font ? font->FontSize : ImGui::GetFontSize();
     float wrapWidth = width - kPadding * 2.0f;
@@ -262,7 +271,7 @@ float renderErrorBanner(const char* text, float width, ImFont* font) {
     float bannerHeight = textSize.y + kPadding * 2.0f;
 
     drawList->AddRectFilled(pos, ImVec2(pos.x + width, pos.y + bannerHeight),
-                             ImGui::GetColorU32(kErrorBannerBg), 6.0f);
+                             ImGui::GetColorU32(kErrorBannerBg), 6.0f * g_uiScale);
     drawList->AddText(resolvedFont, resolvedFontSize, ImVec2(pos.x + kPadding, pos.y + kPadding),
                        ImGui::GetColorU32(kErrorBannerText), text, nullptr, wrapWidth);
 
@@ -272,35 +281,40 @@ float renderErrorBanner(const char* text, float width, ImFont* font) {
 void renderSidebar(App& app, const AppSnapshot& snap, float sidebarHeight,
                     unsigned int homeIconTexture, unsigned int infoIconTexture,
                     unsigned int settingsIconTexture) {
+    float sidebarWidth = kSidebarWidth * g_uiScale;
+    float rowHeight = 36.0f * g_uiScale;
+    float iconSize = 22.0f * g_uiScale;
+    float leftPadding = 16.0f * g_uiScale;
+
     ImGui::PushStyleColor(ImGuiCol_ChildBg, kSidebarBg);
     ImGui::SetCursorPos(ImVec2(0.0f, 0.0f));
-    ImGui::BeginChild("##sidebar", ImVec2(kSidebarWidth, sidebarHeight), false,
+    ImGui::BeginChild("##sidebar", ImVec2(sidebarWidth, sidebarHeight), false,
         ImGuiWindowFlags_NoScrollbar);
 
-    ImGui::Dummy(ImVec2(0.0f, 8.0f));
+    ImGui::Dummy(ImVec2(0.0f, 8.0f * g_uiScale));
 
     bool homeSelected = snap.activeTab == Tab::Start;
     ImVec4 homeColor = homeSelected ? kSidebarItemSelected : kSidebarItemUnselected;
-    if (renderIconRow("##nav_home", "Home", homeIconTexture, kSidebarWidth, 36.0f,
-                       &homeColor, false, false, 22.0f, 16.0f, nullptr)) {
+    if (renderIconRow("##nav_home", "Home", homeIconTexture, sidebarWidth, rowHeight,
+                       &homeColor, false, false, iconSize, leftPadding, nullptr)) {
         app.setActiveTab(Tab::Start);
     }
 
     bool settingsSelected = snap.activeTab == Tab::Settings;
     ImVec4 settingsColor = settingsSelected ? kSidebarItemSelected : kSidebarItemUnselected;
-    if (renderIconRow("##nav_settings", "Settings", settingsIconTexture, kSidebarWidth, 36.0f,
-                       &settingsColor, false, false, 22.0f, 16.0f, nullptr)) {
+    if (renderIconRow("##nav_settings", "Settings", settingsIconTexture, sidebarWidth, rowHeight,
+                       &settingsColor, false, false, iconSize, leftPadding, nullptr)) {
         app.setActiveTab(Tab::Settings);
     }
 
     // Push "About" to the bottom of the sidebar.
-    float remaining = sidebarHeight - ImGui::GetCursorPosY() - 44.0f;
+    float remaining = sidebarHeight - ImGui::GetCursorPosY() - 44.0f * g_uiScale;
     if (remaining > 0.0f) ImGui::Dummy(ImVec2(0.0f, remaining));
 
     bool aboutSelected = snap.activeTab == Tab::About;
     ImVec4 aboutColor = aboutSelected ? kSidebarItemSelected : kSidebarItemUnselected;
-    if (renderIconRow("##nav_about", "About", infoIconTexture, kSidebarWidth, 36.0f,
-                       &aboutColor, false, false, 22.0f, 16.0f, nullptr)) {
+    if (renderIconRow("##nav_about", "About", infoIconTexture, sidebarWidth, rowHeight,
+                       &aboutColor, false, false, iconSize, leftPadding, nullptr)) {
         app.setActiveTab(Tab::About);
     }
 
@@ -312,9 +326,9 @@ void renderSidebar(App& app, const AppSnapshot& snap, float sidebarHeight,
     // clipped to the child's own bounds.
     ImVec2 winPos = ImGui::GetWindowPos();
     ImGui::GetWindowDrawList()->AddLine(
-        ImVec2(winPos.x + kSidebarWidth, winPos.y),
-        ImVec2(winPos.x + kSidebarWidth, winPos.y + sidebarHeight),
-        kSeparatorColor, 1.0f);
+        ImVec2(winPos.x + sidebarWidth, winPos.y),
+        ImVec2(winPos.x + sidebarWidth, winPos.y + sidebarHeight),
+        kSeparatorColor, 1.0f * g_uiScale);
 }
 
 // Clicking either launch button spawns a detached watcher process and
@@ -324,7 +338,7 @@ void renderSidebar(App& app, const AppSnapshot& snap, float sidebarHeight,
 void renderLaunchButton(App& app, LaunchTarget target, const char* id, const char* label,
                          unsigned int iconTexture, float x, float y, float w, float h, ImFont* semiBold) {
     ImGui::SetCursorPos(ImVec2(x, y));
-    if (renderIconRow(id, label, iconTexture, w, h, &kAccent, false, true, 28.0f, 0.0f, semiBold)) {
+    if (renderIconRow(id, label, iconTexture, w, h, &kAccent, false, true, 28.0f * g_uiScale, 0.0f, semiBold)) {
         app.requestLaunch(target);
     }
 }
@@ -332,8 +346,11 @@ void renderLaunchButton(App& app, LaunchTarget target, const char* id, const cha
 void renderStartTab(App& app, const AppSnapshot& snap, float contentX, float contentY,
                      float contentW, float contentH, unsigned int logoTexture,
                      unsigned int playerIconTexture, unsigned int studioIconTexture, ImFont* semiBold) {
-    const float logoSize = 72.0f;
-    ImGui::SetCursorPos(ImVec2(contentX + (contentW - logoSize) * 0.5f, contentY + 20.0f));
+    const float logoSize = 72.0f * g_uiScale;
+    const float pad24 = 24.0f * g_uiScale;
+    const float pad48 = 48.0f * g_uiScale;
+    const float pad16 = 16.0f * g_uiScale;
+    ImGui::SetCursorPos(ImVec2(contentX + (contentW - logoSize) * 0.5f, contentY + 20.0f * g_uiScale));
     if (logoTexture) {
         ImGui::Image((void*)(intptr_t)logoTexture, ImVec2(logoSize, logoSize));
     }
@@ -345,37 +362,37 @@ void renderStartTab(App& app, const AppSnapshot& snap, float contentX, float con
         const char* label = updatePhaseLabel(snap.update.phase);
         ImGui::PushFont(semiBold);
         float textWidth = ImGui::CalcTextSize(label).x;
-        ImGui::SetCursorPos(ImVec2(contentX + (contentW - textWidth) * 0.5f, contentY + logoSize + 32.0f));
+        ImGui::SetCursorPos(ImVec2(contentX + (contentW - textWidth) * 0.5f, contentY + logoSize + 32.0f * g_uiScale));
         ImGui::TextUnformatted(label);
         ImGui::PopFont();
 
-        ImGui::SetCursorPos(ImVec2(contentX + 24.0f, contentY + logoSize + 64.0f));
+        ImGui::SetCursorPos(ImVec2(contentX + pad24, contentY + logoSize + 64.0f * g_uiScale));
         ImGui::PushStyleColor(ImGuiCol_PlotHistogram, kAccent);
-        ImGui::ProgressBar(static_cast<float>(snap.update.fraction), ImVec2(contentW - 48.0f, 0));
+        ImGui::ProgressBar(static_cast<float>(snap.update.fraction), ImVec2(contentW - pad48, 0));
         ImGui::PopStyleColor();
     } else {
-        const float buttonW = (contentW - 48.0f - 16.0f) / 2.0f;
-        const float buttonH = 48.0f;
-        float buttonY = contentY + logoSize + 32.0f;
+        const float buttonW = (contentW - pad48 - pad16) / 2.0f;
+        const float buttonH = 48.0f * g_uiScale;
+        float buttonY = contentY + logoSize + 32.0f * g_uiScale;
 
         // A manifest fetch/parse failure is non-fatal (design intent: "Start
         // tab still usable"). Surface it above the buttons rather than
         // blocking them.
         if (snap.update.phase == UpdatePhase::Error) {
-            ImGui::SetCursorPos(ImVec2(contentX + 24.0f, buttonY));
-            float bannerHeight = renderErrorBanner(snap.update.errorMessage.c_str(), contentW - 48.0f, nullptr);
-            buttonY += bannerHeight + 12.0f;
+            ImGui::SetCursorPos(ImVec2(contentX + pad24, buttonY));
+            float bannerHeight = renderErrorBanner(snap.update.errorMessage.c_str(), contentW - pad48, nullptr);
+            buttonY += bannerHeight + 12.0f * g_uiScale;
         }
 
         renderLaunchButton(app, LaunchTarget::Player, "##launch_player", "Launch Player", playerIconTexture,
-            contentX + 24.0f, buttonY, buttonW, buttonH, semiBold);
+            contentX + pad24, buttonY, buttonW, buttonH, semiBold);
         renderLaunchButton(app, LaunchTarget::Studio, "##launch_studio", "Launch Studio", studioIconTexture,
-            contentX + 24.0f + buttonW + 16.0f, buttonY, buttonW, buttonH, semiBold);
+            contentX + pad24 + buttonW + pad16, buttonY, buttonW, buttonH, semiBold);
     }
 
     char footer[64];
     snprintf(footer, sizeof(footer), "TuxBlox v%s", kTuxBloxVersion);
-    ImGui::SetCursorPos(ImVec2(contentX + 24.0f, contentY + contentH - 28.0f));
+    ImGui::SetCursorPos(ImVec2(contentX + pad24, contentY + contentH - 28.0f * g_uiScale));
     ImGui::TextDisabled("%s", footer);
 }
 
@@ -384,8 +401,10 @@ void renderAboutTab(float contentX, float contentY, float contentW, float conten
                      unsigned int docsIconTexture, unsigned int githubIconTexture,
                      unsigned int discordIconTexture, unsigned int privacyIconTexture,
                      ImFont* semiBold) {
-    const float logoSize = 72.0f;
-    ImGui::SetCursorPos(ImVec2(contentX + (contentW - logoSize) * 0.5f, contentY + 20.0f));
+    const float logoSize = 72.0f * g_uiScale;
+    const float pad24 = 24.0f * g_uiScale;
+    const float pad48 = 48.0f * g_uiScale;
+    ImGui::SetCursorPos(ImVec2(contentX + (contentW - logoSize) * 0.5f, contentY + 20.0f * g_uiScale));
     if (logoTexture) {
         ImGui::Image((void*)(intptr_t)logoTexture, ImVec2(logoSize, logoSize));
     }
@@ -393,7 +412,7 @@ void renderAboutTab(float contentX, float contentY, float contentW, float conten
     ImGui::PushFont(semiBold);
     const char* title = "About TuxBlox";
     float titleWidth = ImGui::CalcTextSize(title).x;
-    ImGui::SetCursorPos(ImVec2(contentX + (contentW - titleWidth) * 0.5f, contentY + logoSize + 24.0f));
+    ImGui::SetCursorPos(ImVec2(contentX + (contentW - titleWidth) * 0.5f, contentY + logoSize + 24.0f * g_uiScale));
     ImGui::TextUnformatted(title);
     ImGui::PopFont();
 
@@ -406,21 +425,21 @@ void renderAboutTab(float contentX, float contentY, float contentW, float conten
         {"##link_privacy", "Privacy Policy", "https://tuxblox.net/privacy", privacyIconTexture},
     };
 
-    float y = contentY + logoSize + 64.0f;
+    float y = contentY + logoSize + 64.0f * g_uiScale;
     for (const auto& link : links) {
-        ImGui::SetCursorPos(ImVec2(contentX + 24.0f, y));
-        if (renderIconRow(link.id, link.label, link.icon, contentW - 48.0f, 30.0f,
-                           &kTransparent, false, false, 22.0f, 8.0f, nullptr)) {
+        ImGui::SetCursorPos(ImVec2(contentX + pad24, y));
+        if (renderIconRow(link.id, link.label, link.icon, contentW - pad48, 30.0f * g_uiScale,
+                           &kTransparent, false, false, 22.0f * g_uiScale, 8.0f * g_uiScale, nullptr)) {
             openUrl(link.url);
         }
-        y += 36.0f;
+        y += 36.0f * g_uiScale;
     }
 
     char versionFooter[64];
     snprintf(versionFooter, sizeof(versionFooter), "TuxBlox v%s", kTuxBloxVersion);
-    ImGui::SetCursorPos(ImVec2(contentX + 24.0f, contentY + contentH - 46.0f));
+    ImGui::SetCursorPos(ImVec2(contentX + pad24, contentY + contentH - 46.0f * g_uiScale));
     ImGui::TextDisabled("%s", versionFooter);
-    ImGui::SetCursorPos(ImVec2(contentX + 24.0f, contentY + contentH - 28.0f));
+    ImGui::SetCursorPos(ImVec2(contentX + pad24, contentY + contentH - 28.0f * g_uiScale));
     ImGui::TextDisabled("%s", "\xC2\xA9 2026 TuxBlox Project"); // "©" (U+00A9) UTF-8
 }
 
@@ -431,19 +450,22 @@ void renderAboutTab(float contentX, float contentY, float contentW, float conten
 // backing bool and persists it, same division of responsibility as every
 // other interactive row in this file.
 bool renderToggleSwitch(const char* id, bool value) {
+    float toggleWidth = kToggleWidth * g_uiScale;
+    float toggleHeight = kToggleHeight * g_uiScale;
+
     ImVec2 pos = ImGui::GetCursorScreenPos();
-    ImGui::InvisibleButton(id, ImVec2(kToggleWidth, kToggleHeight));
+    ImGui::InvisibleButton(id, ImVec2(toggleWidth, toggleHeight));
     bool clicked = ImGui::IsItemClicked();
 
     ImDrawList* drawList = ImGui::GetWindowDrawList();
     const ImVec4& bgColor = value ? kAccent : kSidebarItemUnselected;
-    drawList->AddRectFilled(pos, ImVec2(pos.x + kToggleWidth, pos.y + kToggleHeight),
-                             ImGui::GetColorU32(bgColor), kToggleHeight * 0.5f);
+    drawList->AddRectFilled(pos, ImVec2(pos.x + toggleWidth, pos.y + toggleHeight),
+                             ImGui::GetColorU32(bgColor), toggleHeight * 0.5f);
 
-    float knobRadius = kToggleHeight * 0.5f - 3.0f;
-    float knobY = pos.y + kToggleHeight * 0.5f;
-    float knobX = value ? pos.x + kToggleWidth - kToggleHeight * 0.5f
-                         : pos.x + kToggleHeight * 0.5f;
+    float knobRadius = toggleHeight * 0.5f - 3.0f * g_uiScale;
+    float knobY = pos.y + toggleHeight * 0.5f;
+    float knobX = value ? pos.x + toggleWidth - toggleHeight * 0.5f
+                         : pos.x + toggleHeight * 0.5f;
     drawList->AddCircleFilled(ImVec2(knobX, knobY), knobRadius, IM_COL32(255, 255, 255, 255));
 
     return clicked;
@@ -504,22 +526,24 @@ void renderSettingsTab(App& app, const AppSnapshot& snap, float contentX, float 
     // would drag the sidebar and its own scrollbar along with it. Content
     // below is laid out in this child's local coordinates (origin at
     // contentX/contentY), not the outer window's.
+    const float pad24 = 24.0f * g_uiScale;
+
     ImGui::SetCursorPos(ImVec2(contentX, contentY));
     ImGui::BeginChild("##settings_scroll", ImVec2(contentW, contentH), false);
 
-    ImGui::SetCursorPos(ImVec2(24.0f, 20.0f));
+    ImGui::SetCursorPos(ImVec2(pad24, 20.0f * g_uiScale));
     ImGui::PushFont(semiBold);
     ImGui::TextUnformatted("Settings");
     ImGui::PopFont();
 
-    const float fieldWidth = contentW - 48.0f;
-    float y = 64.0f;
+    const float fieldWidth = contentW - 48.0f * g_uiScale;
+    float y = 64.0f * g_uiScale;
 
-    ImGui::SetCursorPos(ImVec2(24.0f, y));
+    ImGui::SetCursorPos(ImVec2(pad24, y));
     ImGui::TextUnformatted("Update Channel");
-    y += 22.0f;
-    ImGui::SetCursorPos(ImVec2(24.0f, y));
-    ImGui::SetNextItemWidth(200.0f);
+    y += 22.0f * g_uiScale;
+    ImGui::SetCursorPos(ImVec2(pad24, y));
+    ImGui::SetNextItemWidth(200.0f * g_uiScale);
     {
         static const char* kChannels[] = {"stable", "canary", "dev"};
         int currentIndex = 0;
@@ -532,12 +556,12 @@ void renderSettingsTab(App& app, const AppSnapshot& snap, float contentX, float 
             app.updateSettings(s);
         }
     }
-    y += 48.0f;
+    y += 48.0f * g_uiScale;
 
-    ImGui::SetCursorPos(ImVec2(24.0f, y));
+    ImGui::SetCursorPos(ImVec2(pad24, y));
     ImGui::TextUnformatted("Proton Environment Variables");
-    y += 22.0f;
-    ImGui::SetCursorPos(ImVec2(24.0f, y));
+    y += 22.0f * g_uiScale;
+    ImGui::SetCursorPos(ImVec2(pad24, y));
     ImGui::SetNextItemWidth(fieldWidth);
     ImGui::InputText("##proton_env_vars", protonBuf, protonBufSize);
     if (ImGui::IsItemDeactivatedAfterEdit()) {
@@ -545,12 +569,12 @@ void renderSettingsTab(App& app, const AppSnapshot& snap, float contentX, float 
         s.protonEnvVars = protonBuf;
         app.updateSettings(s);
     }
-    y += 40.0f;
+    y += 40.0f * g_uiScale;
 
-    ImGui::SetCursorPos(ImVec2(24.0f, y));
+    ImGui::SetCursorPos(ImVec2(pad24, y));
     ImGui::TextUnformatted("Global Environment Variables");
-    y += 22.0f;
-    ImGui::SetCursorPos(ImVec2(24.0f, y));
+    y += 22.0f * g_uiScale;
+    ImGui::SetCursorPos(ImVec2(pad24, y));
     ImGui::SetNextItemWidth(fieldWidth);
     ImGui::InputText("##global_env_vars", globalBuf, globalBufSize);
     if (ImGui::IsItemDeactivatedAfterEdit()) {
@@ -558,60 +582,61 @@ void renderSettingsTab(App& app, const AppSnapshot& snap, float contentX, float 
         s.globalEnvVars = globalBuf;
         app.updateSettings(s);
     }
-    y += 48.0f;
+    y += 48.0f * g_uiScale;
 
-    ImGui::SetCursorPos(ImVec2(24.0f, y));
+    float toggleHeight = kToggleHeight * g_uiScale;
+    ImGui::SetCursorPos(ImVec2(pad24, y));
     bool toggled = renderToggleSwitch("##send_crash_reports", snap.settings.sendCrashReports);
-    ImGui::SameLine(0.0f, 10.0f);
+    ImGui::SameLine(0.0f, 10.0f * g_uiScale);
     ImVec2 labelPos = ImGui::GetCursorScreenPos();
-    ImGui::SetCursorScreenPos(ImVec2(labelPos.x, labelPos.y + (kToggleHeight - ImGui::GetTextLineHeight()) * 0.5f));
+    ImGui::SetCursorScreenPos(ImVec2(labelPos.x, labelPos.y + (toggleHeight - ImGui::GetTextLineHeight()) * 0.5f));
     ImGui::TextUnformatted("Send Crash Report Data");
     if (toggled) {
         Settings s = snap.settings;
         s.sendCrashReports = !s.sendCrashReports;
         app.updateSettings(s);
     }
-    y += kToggleHeight + 8.0f;
+    y += toggleHeight + 8.0f * g_uiScale;
 
-    ImGui::SetCursorPos(ImVec2(24.0f, y));
+    ImGui::SetCursorPos(ImVec2(pad24, y));
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.55f, 0.55f, 0.58f, 1.0f));
-    ImGui::PushTextWrapPos(24.0f + fieldWidth);
+    ImGui::PushTextWrapPos(pad24 + fieldWidth);
     ImGui::TextUnformatted(
         "Crash reports include only the exit code, Roblox/Proton version, and basic system info, "
         "see our privacy policy at tuxblox.net/privacy");
     ImGui::PopTextWrapPos();
     ImGui::PopStyleColor();
-    y += 60.0f; // clears the two-line note above; not measured exactly, same approximation as everywhere else in this tab
+    y += 60.0f * g_uiScale; // clears the two-line note above; not measured exactly, same approximation as everywhere else in this tab
 
-    ImGui::SetCursorPos(ImVec2(24.0f, y));
+    ImGui::SetCursorPos(ImVec2(pad24, y));
     ImGui::TextUnformatted("Danger Zone");
-    y += 22.0f;
+    y += 22.0f * g_uiScale;
 
-    constexpr ImVec2 kDangerBtnSize(220.0f, 32.0f);
+    ImVec2 dangerBtnSize(220.0f * g_uiScale, 32.0f * g_uiScale);
 
-    ImGui::SetCursorPos(ImVec2(24.0f, y));
+    ImGui::SetCursorPos(ImVec2(pad24, y));
     if (renderDangerButton("wipe_prefix_btn", "Wipe Prefix", "Click again to wipe prefix",
                             "Wiping...", snap.wipePrefix.inProgress,
-                            wipePrefixConfirmPending, wipePrefixConfirmDeadlineMs, kDangerBtnSize)) {
+                            wipePrefixConfirmPending, wipePrefixConfirmDeadlineMs, dangerBtnSize)) {
         app.requestWipePrefix();
     }
-    y += kDangerBtnSize.y + 8.0f;
+    y += dangerBtnSize.y + 8.0f * g_uiScale;
 
     if (!snap.wipePrefix.errorMessage.empty()) {
-        ImGui::SetCursorPos(ImVec2(24.0f, y));
-        y += renderErrorBanner(snap.wipePrefix.errorMessage.c_str(), fieldWidth, nullptr) + 8.0f;
+        ImGui::SetCursorPos(ImVec2(pad24, y));
+        y += renderErrorBanner(snap.wipePrefix.errorMessage.c_str(), fieldWidth, nullptr) + 8.0f * g_uiScale;
     }
 
-    ImGui::SetCursorPos(ImVec2(24.0f, y));
+    ImGui::SetCursorPos(ImVec2(pad24, y));
     if (renderDangerButton("uninstall_btn", "Uninstall TuxBlox", "Click again to uninstall",
                             "Uninstalling...", snap.uninstall.inProgress,
-                            uninstallConfirmPending, uninstallConfirmDeadlineMs, kDangerBtnSize)) {
+                            uninstallConfirmPending, uninstallConfirmDeadlineMs, dangerBtnSize)) {
         app.requestUninstall();
     }
-    y += kDangerBtnSize.y + 8.0f;
+    y += dangerBtnSize.y + 8.0f * g_uiScale;
 
     if (!snap.uninstall.errorMessage.empty()) {
-        ImGui::SetCursorPos(ImVec2(24.0f, y));
+        ImGui::SetCursorPos(ImVec2(pad24, y));
         renderErrorBanner(snap.uninstall.errorMessage.c_str(), fieldWidth, nullptr);
     }
 
@@ -637,6 +662,22 @@ bool Ui::init() {
         return false;
     }
 
+    // Every pixel size/position/font size in this file is authored against a
+    // 1440p baseline (g_uiScale == 1.0 there); scale it by the desktop's
+    // actual resolution relative to that baseline so the window and its
+    // contents occupy the same proportion of the screen at any resolution,
+    // rather than a fixed pixel count that reads tiny on 4K and oversized on
+    // 1080p. Clamped so an unusual/multi-monitor display mode can't produce
+    // a degenerate window.
+    {
+        SDL_DisplayMode mode;
+        if (SDL_GetDesktopDisplayMode(0, &mode) == 0 && mode.h > 0) {
+            g_uiScale = static_cast<float>(mode.h) / 1440.0f;
+        }
+        if (g_uiScale < 0.75f) g_uiScale = 0.75f;
+        if (g_uiScale > 3.0f) g_uiScale = 3.0f;
+    }
+
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 2);
@@ -648,11 +689,11 @@ bool Ui::init() {
     // moving/resizing it like any other application window.
     SDL_Window* window = SDL_CreateWindow("TuxBlox",
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-        760, 480,
+        static_cast<int>(760 * g_uiScale), static_cast<int>(480 * g_uiScale),
         SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN | SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_RESIZABLE);
     if (!window) return false;
     window_ = window;
-    SDL_SetWindowMinimumSize(window, 640, 420);
+    SDL_SetWindowMinimumSize(window, static_cast<int>(640 * g_uiScale), static_cast<int>(420 * g_uiScale));
 
     SDL_GLContext gl = SDL_GL_CreateContext(window);
     if (!gl) return false;
@@ -676,6 +717,10 @@ bool Ui::init() {
     style.GrabRounding = 8.0f;
     style.Colors[ImGuiCol_WindowBg] = ImVec4(28.0f / 255.0f, 28.0f / 255.0f, 33.0f / 255.0f, 1.0f);
     style.Colors[ImGuiCol_ChildBg] = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
+    // Scales all of ImGui's own built-in metrics (padding, spacing,
+    // scrollbar size, and the rounding values set above) by the same factor
+    // as everything else in this file.
+    style.ScaleAllSizes(g_uiScale);
 
     ImGui_ImplSDL2_InitForOpenGL(window, gl);
     ImGui_ImplOpenGL3_Init("#version 150");
@@ -684,13 +729,13 @@ bool Ui::init() {
     regularCfg.FontDataOwnedByAtlas = false;
     fontRegular_ = ImGui::GetIO().Fonts->AddFontFromMemoryTTF(
         const_cast<unsigned char*>(kInterRegularTtf), static_cast<int>(kInterRegularTtfLen),
-        16.0f, &regularCfg);
+        16.0f * g_uiScale, &regularCfg);
 
     ImFontConfig semiBoldCfg;
     semiBoldCfg.FontDataOwnedByAtlas = false;
     fontSemiBold_ = ImGui::GetIO().Fonts->AddFontFromMemoryTTF(
         const_cast<unsigned char*>(kInterSemiBoldTtf), static_cast<int>(kInterSemiBoldTtfLen),
-        19.0f, &semiBoldCfg);
+        19.0f * g_uiScale, &semiBoldCfg);
 
     loadPngTexture(kTuxbloxLogoPng, kTuxbloxLogoPngLen, &logoTexture_, &logoWidth_, &logoHeight_);
     {
@@ -797,9 +842,9 @@ bool Ui::renderFrame(App& app) {
 
     renderSidebar(app, snap, static_cast<float>(h), homeIconTexture_, infoIconTexture_, settingsIconTexture_);
 
-    const float contentX = kSidebarWidth;
+    const float contentX = kSidebarWidth * g_uiScale;
     const float contentY = 0.0f;
-    const float contentW = static_cast<float>(w) - kSidebarWidth;
+    const float contentW = static_cast<float>(w) - contentX;
     const float contentH = static_cast<float>(h);
 
     if (snap.activeTab == Tab::Start) {
