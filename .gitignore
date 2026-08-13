@@ -35,8 +35,6 @@ ProtonSource/syn-*
 protonbuild-*.tar.gz
 protonbuild-*.tar.zst
 
-.nuitka-venv/
-
 .claude/
 .superpowers/
 docs/
