@@ -575,6 +575,13 @@ HRESULT controller_create(UINT64 native_handle, HWND parent_window, ICoreWebView
 
 UINT64 controller_get_native_handle(ICoreWebView2Controller *iface);
 
+/* Plan 3 Task 4/5: pushes ctrl's current bounds/visibility to the real
+ * native window, computing the absolute screen rect via ClientToScreen.
+ * No-op if the controller is HWND_MESSAGE-parented, has no parent, or has
+ * already been Close()'d. Defined in controller.c; also called from Task
+ * 5's window_sync.c hook callback. */
+void controller_push_geometry_to_native(ICoreWebView2Controller *iface);
+
 /* Generic ignore-args E_NOTIMPL stub, cast to whatever vtable slot type is
  * needed. Deliberate: with 20+ genuinely-unimplemented methods per
  * interface (real WebView2 has ~50 on ICoreWebView2 alone), writing a

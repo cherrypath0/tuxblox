@@ -115,6 +115,59 @@ static ULONG WINAPI controller_Release(ICoreWebView2Controller *iface)
     return ref;
 }
 
+/* Plan 3 Task 4: pure arithmetic, no HWND/GTK touched -- client_origin is
+ * the parent HWND's client-area screen origin (as ClientToScreen(hwnd,
+ * &(POINT){0,0}) would report), client_bounds is the client-relative
+ * RECT already received via put_Bounds. Exported as a test-support DLL
+ * export (Step 3 below, webview2loader.spec) so the design spec's
+ * Testing Strategy item 1 ("pure arithmetic, given known input rects") is
+ * exercised without any real window. */
+static RECT controller_compute_screen_bounds(POINT client_origin, RECT client_bounds)
+{
+    RECT out;
+    out.left = client_origin.x + client_bounds.left;
+    out.top = client_origin.y + client_bounds.top;
+    out.right = client_origin.x + client_bounds.right;
+    out.bottom = client_origin.y + client_bounds.bottom;
+    return out;
+}
+
+/* Shared by put_Bounds/put_IsVisible below and by Task 5's WH_CALLWNDPROC
+ * hook callback (window_sync.c) -- one place computes the absolute screen
+ * rect and issues the sync_window_geometry unix call, so both triggers
+ * (an explicit put_Bounds/put_IsVisible call, and the parent HWND itself
+ * moving/showing/hiding) stay in lockstep. Takes ICoreWebView2Controller*
+ * (the public interface pointer), not struct controller_impl* directly --
+ * struct controller_impl is private to this file, but Task 5's
+ * window_sync.c needs to trigger this same push from its hook callback
+ * without seeing the struct's internals, so this function (declared in
+ * webview2loader_private.h, defined here) is this file's one exposed,
+ * opaque-pointer entry point for it, mirroring every other cross-file
+ * boundary in this DLL (e.g. controller_get_native_handle). */
+void controller_push_geometry_to_native(ICoreWebView2Controller *iface)
+{
+    struct controller_impl *ctrl = impl_from_ICoreWebView2Controller(iface);
+    struct sync_window_geometry_params params;
+    POINT origin = { 0, 0 };
+
+    /* No real screen position to compute against for either case -- see
+     * struct controller_impl's own field comments. Matches this plan's
+     * Error Handling section: never fatal, just skip. */
+    if (ctrl->is_message_only || !ctrl->parent_window) return;
+    if (!ctrl->native_handle) return; /* Close()'d already */
+
+    if (!ClientToScreen(ctrl->parent_window, &origin))
+        return; /* parent HWND gone/invalid -- nothing to sync against */
+
+    params.handle = ctrl->native_handle;
+    params.screen_bounds = controller_compute_screen_bounds(origin, ctrl->bounds);
+    params.visible = ctrl->visible;
+    params.success = FALSE;
+    WEBVIEW2LOADER_UNIX_CALL(sync_window_geometry, &params);
+    /* Failure here degrades to a floating/stale window, matching this
+     * plan's own Error Handling section -- never fatal to the controller. */
+}
+
 static HRESULT WINAPI controller_get_IsVisible(ICoreWebView2Controller *iface, BOOL *isVisible)
 {
     if (!isVisible) return E_POINTER;
@@ -125,9 +178,7 @@ static HRESULT WINAPI controller_get_IsVisible(ICoreWebView2Controller *iface, B
 static HRESULT WINAPI controller_put_IsVisible(ICoreWebView2Controller *iface, BOOL isVisible)
 {
     impl_from_ICoreWebView2Controller(iface)->visible = isVisible;
-    /* Task 3 of Plan 3 (window-sync) is what actually shows/hides the
-     * native window in step with Studio's HWND; here we just track state,
-     * matching this plan's explicit non-goal of HWND-level embedding. */
+    controller_push_geometry_to_native(iface);
     return S_OK;
 }
 
@@ -141,6 +192,7 @@ static HRESULT WINAPI controller_get_Bounds(ICoreWebView2Controller *iface, RECT
 static HRESULT WINAPI controller_put_Bounds(ICoreWebView2Controller *iface, RECT bounds)
 {
     impl_from_ICoreWebView2Controller(iface)->bounds = bounds;
+    controller_push_geometry_to_native(iface);
     return S_OK;
 }
 
@@ -375,4 +427,13 @@ HRESULT controller_create(UINT64 native_handle, HWND parent_window, ICoreWebView
 UINT64 controller_get_native_handle(ICoreWebView2Controller *iface)
 {
     return impl_from_ICoreWebView2Controller(iface)->native_handle;
+}
+
+/* Test-support-only export (Plan 3 Task 4) -- exercises the pure
+ * client-origin + client-bounds composition arithmetic without any real
+ * HWND, per the design spec's own Testing Strategy item 1. */
+void WINAPI __wine_test_webview2loader_compute_screen_bounds(const POINT *client_origin, const RECT *client_bounds,
+                                                                RECT *out)
+{
+    *out = controller_compute_screen_bounds(*client_origin, *client_bounds);
 }

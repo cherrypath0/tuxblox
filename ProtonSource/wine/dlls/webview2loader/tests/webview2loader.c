@@ -1776,6 +1776,111 @@ static void test_sync_window_geometry(void)
     FreeLibrary(mod);
 }
 
+/* Plan 3 Task 4, layer 1 (design spec Testing Strategy item 1): pure
+ * geometry-math test, no real HWND/GTK/display needed -- just confirms the
+ * client-relative-bounds + screen-origin composition arithmetic. */
+static void test_compute_screen_bounds(void)
+{
+    HMODULE mod;
+    void (WINAPI *pCompute)(const POINT *, const RECT *, RECT *);
+    POINT origin = { 100, 50 };
+    RECT client = { 10, 20, 210, 220 };
+    RECT out;
+
+    mod = LoadLibraryA("webview2loader.dll");
+    ok(mod != NULL, "LoadLibraryA failed\n");
+    if (!mod) return;
+
+    pCompute = (void *)GetProcAddress(mod, "__wine_test_webview2loader_compute_screen_bounds");
+    ok(pCompute != NULL, "missing __wine_test_webview2loader_compute_screen_bounds export\n");
+    if (pCompute)
+    {
+        ZeroMemory(&out, sizeof(out));
+        pCompute(&origin, &client, &out);
+        ok(out.left == 110 && out.top == 70 && out.right == 310 && out.bottom == 270,
+           "expected {110,70,310,270}, got {%ld,%ld,%ld,%ld}\n", out.left, out.top, out.right, out.bottom);
+    }
+
+    FreeLibrary(mod);
+}
+
+/* Plan 3 Task 4, layer 3 (integration): put_Bounds/put_IsVisible must
+ * really reach the native window now, verified via Task 3's test-support
+ * geometry getter -- no ClientToScreen composition to verify here (parent
+ * is NULL, so controller_push_geometry_to_native's own NULL-parent guard,
+ * see Step 3, means this exercises the "skip, no crash" path instead) --
+ * NULL-parent behavior is covered by test_hwnd_message_never_shows_window's
+ * sibling case; this test's job is confirming a REAL parent HWND drives a
+ * real geometry push. */
+static void test_put_bounds_syncs_native_window(void)
+{
+    HMODULE mod;
+    HRESULT (WINAPI *pCreateEnv)(PCWSTR, PCWSTR, void *, void *);
+    struct test_env_handler env_handler = { &test_env_handler_vtbl };
+    struct test_ctrl_handler ctrl_handler = { &test_ctrl_handler_vtbl };
+    ICoreWebView2Controller *ctrl;
+    HWND real_parent;
+    RECT bounds = { 0, 0, 500, 400 }, got;
+    BOOL (WINAPI *pGetGeometry)(ICoreWebView2Controller *, RECT *);
+    WNDCLASSA wc = { 0 };
+    HRESULT hr;
+
+    if (!getenv("TUXBLOX_WEBVIEW_DIR")) { skip("TUXBLOX_WEBVIEW_DIR not set\n"); return; }
+
+    wc.lpfnWndProc = DefWindowProcA;
+    wc.hInstance = GetModuleHandleA(NULL);
+    wc.lpszClassName = "tuxblox_test_put_bounds_wndclass";
+    RegisterClassA(&wc);
+    real_parent = CreateWindowExA(0, wc.lpszClassName, "test", WS_OVERLAPPEDWINDOW,
+                                   10, 20, 300, 300, NULL, NULL, wc.hInstance, NULL);
+    ok(real_parent != NULL, "CreateWindowExA failed, error %lu\n", GetLastError());
+    if (!real_parent) return;
+
+    mod = LoadLibraryA("webview2loader.dll");
+    pCreateEnv = (void *)GetProcAddress(mod, "CreateCoreWebView2EnvironmentWithOptions");
+    env_handler.done_event = CreateEventW(NULL, FALSE, FALSE, NULL);
+    pCreateEnv(NULL, NULL, NULL, &env_handler);
+    WaitForSingleObject(env_handler.done_event, 10000);
+    CloseHandle(env_handler.done_event);
+    if (env_handler.result_hr != S_OK)
+    {
+        skip("environment creation failed\n");
+        DestroyWindow(real_parent);
+        FreeLibrary(mod);
+        return;
+    }
+
+    ctrl_handler.done_event = CreateEventW(NULL, FALSE, FALSE, NULL);
+    ICoreWebView2Environment_CreateCoreWebView2Controller(env_handler.result_env, real_parent, &ctrl_handler);
+    WaitForSingleObject(ctrl_handler.done_event, 10000);
+    CloseHandle(ctrl_handler.done_event);
+    ok(ctrl_handler.result_hr == S_OK, "controller creation failed\n");
+    ctrl = ctrl_handler.result_ctrl;
+
+    if (ctrl)
+    {
+        hr = ICoreWebView2Controller_put_Bounds(ctrl, bounds);
+        ok(hr == S_OK, "put_Bounds failed: %#lx\n", hr);
+        Sleep(200);
+
+        pGetGeometry = (void *)GetProcAddress(mod, "__wine_test_webview2loader_get_window_geometry");
+        if (pGetGeometry)
+        {
+            ZeroMemory(&got, sizeof(got));
+            ok(pGetGeometry(ctrl, &got), "get_window_geometry call failed\n");
+            ok(got.right - got.left == 500 && got.bottom - got.top == 400,
+               "expected size 500x400 after put_Bounds, got %ldx%ld\n",
+               got.right - got.left, got.bottom - got.top);
+        }
+        ICoreWebView2Controller_Release(ctrl);
+    }
+
+    ICoreWebView2Environment_Release(env_handler.result_env);
+    DestroyWindow(real_parent);
+    UnregisterClassA(wc.lpszClassName, wc.hInstance);
+    FreeLibrary(mod);
+}
+
 START_TEST(webview2loader)
 {
     test_module_loads();
@@ -1799,4 +1904,6 @@ START_TEST(webview2loader)
     test_close_then_navigate_fails_cleanly();
     test_suspend_thread_after_webview();
     test_sync_window_geometry();
+    test_compute_screen_bounds();
+    test_put_bounds_syncs_native_window();
 }

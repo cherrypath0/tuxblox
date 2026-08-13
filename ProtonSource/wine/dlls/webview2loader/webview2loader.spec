@@ -13,3 +13,4 @@
 @ stdcall __wine_test_webview2loader_window_is_visible(ptr)
 @ stdcall __wine_test_webview2loader_sync_window_geometry(ptr ptr long)
 @ stdcall __wine_test_webview2loader_get_window_geometry(ptr ptr)
+@ stdcall __wine_test_webview2loader_compute_screen_bounds(ptr ptr ptr)
