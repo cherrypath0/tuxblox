@@ -933,3 +933,30 @@ UINT32 WINAPI __wine_test_webview2loader_window_is_visible(ICoreWebView2Controll
     WEBVIEW2LOADER_UNIX_CALL(get_window_visible, &params);
     return params.visible;
 }
+
+/* Test-support-only exports (Plan 3 Task 3). */
+BOOL WINAPI __wine_test_webview2loader_sync_window_geometry(ICoreWebView2Controller *controller,
+                                                              const RECT *screen_bounds, BOOL visible)
+{
+    struct sync_window_geometry_params params;
+
+    if (!controller || !screen_bounds) return FALSE;
+    params.handle = controller_get_native_handle(controller);
+    params.screen_bounds = *screen_bounds;
+    params.visible = visible;
+    params.success = FALSE;
+    WEBVIEW2LOADER_UNIX_CALL(sync_window_geometry, &params);
+    return params.success;
+}
+
+BOOL WINAPI __wine_test_webview2loader_get_window_geometry(ICoreWebView2Controller *controller, RECT *out_bounds)
+{
+    struct get_window_geometry_params params;
+
+    if (!controller || !out_bounds) return FALSE;
+    params.handle = controller_get_native_handle(controller);
+    params.success = FALSE;
+    WEBVIEW2LOADER_UNIX_CALL(get_window_geometry, &params);
+    if (params.success) *out_bounds = params.screen_bounds;
+    return params.success;
+}

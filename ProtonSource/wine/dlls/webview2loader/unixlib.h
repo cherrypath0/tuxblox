@@ -151,6 +151,30 @@ struct get_window_visible_params
     BOOL visible;
 };
 
+struct sync_window_geometry_params
+{
+    UINT64 handle;
+    RECT screen_bounds; /* absolute on-screen rect; PE side has already
+                          * composed ClientToScreen with the client-relative
+                          * Bounds (see controller.c's
+                          * controller_push_geometry_to_native) */
+    BOOL visible;
+
+    /* out */
+    BOOL success;
+};
+
+struct get_window_geometry_params
+{
+    UINT64 handle;
+
+    /* out */
+    BOOL success;
+    RECT screen_bounds; /* current on-screen rect as GTK/X11 report it back --
+                          * test-support only, mirrors sync_window_geometry's
+                          * own field name */
+};
+
 enum webview2loader_unix_funcs
 {
     unix_init,
@@ -161,6 +185,8 @@ enum webview2loader_unix_funcs
     unix_count_cookies,
     unix_get_cookies,
     unix_get_window_visible, /* Plan 3 Task 2: test-support only */
+    unix_sync_window_geometry,
+    unix_get_window_geometry, /* test-support only */
     /* Further tasks append further entries below this line -- always
      * appending, never reordering, since the enum's integer values are
      * the unix-call dispatch table's indices (see __wine_unix_call_funcs

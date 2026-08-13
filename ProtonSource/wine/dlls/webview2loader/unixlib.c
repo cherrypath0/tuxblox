@@ -154,6 +154,52 @@ extern gboolean gtk_widget_get_visible(GtkWidget *widget);
  * (`nm -D libgtk-4.so.1*`) against the committed bundle. */
 extern void gtk_window_destroy(GtkWindow *window);
 
+/* Plan 3 Task 3: position-sync support types/externs. GTK4 removed
+ * GTK3's gtk_window_move/gtk_window_resize/gdk_window_move_resize entirely
+ * -- confirmed by grepping the real bundled gtk-4.0/gdk headers
+ * (ProtonBuild/dist/files/lib/tuxblox-webview/include/gtk-4.0/):
+ * GdkToplevel's only position-related call is gdk_toplevel_begin_move (an
+ * interactive, user-gesture-driven drag), and even the X11-specific
+ * gdkx11surface.h has no move/resize entry point. There is no cross-backend,
+ * public GTK4 API for programmatic absolute window positioning at all, so
+ * this resolves the toplevel's real X11 XID via gdk_x11_surface_get_xid and
+ * moves/resizes it directly via Xlib's XMoveResizeWindow (see X11_FUNCS
+ * below for how libX11.so.6 gets into this file's namespace without adding
+ * a new dependency). */
+typedef void GdkSurface;
+typedef void GdkDisplay;
+typedef void GtkNative;
+typedef void Display; /* Xlib's opaque connection handle */
+
+extern GtkNative *gtk_widget_get_native(GtkWidget *widget);
+extern GdkSurface *gtk_native_get_surface(GtkNative *self);
+extern GdkDisplay *gdk_surface_get_display(GdkSurface *surface);
+extern int gdk_surface_get_width(GdkSurface *surface);
+extern int gdk_surface_get_height(GdkSurface *surface);
+/* Real, exported by libgtk-4.so.1 itself (GTK4 merged GDK into one .so);
+ * confirmed via `nm -D libgtk-4.so.1.1800.6` against the bundle. Returns
+ * the real X11 Window XID, or 0 (with a non-fatal GLib CRITICAL logged --
+ * same "CRITICAL but non-fatal" behavior this file already relies on for
+ * webkit_cookie_manager_replace_cookies(NULL), see that call's own comment)
+ * if `surface` isn't backed by the X11 GDK backend, i.e. running under
+ * Wayland. */
+extern unsigned long gdk_x11_surface_get_xid(GdkSurface *surface);
+extern Display *gdk_x11_display_get_xdisplay(GdkDisplay *display);
+extern void gtk_widget_set_visible(GtkWidget *widget, gboolean visible);
+extern void gtk_window_set_default_size(GtkWindow *window, int width, int height);
+
+/* Real Xlib entry point, confirmed exported by the HOST's own libX11.so.6
+ * (`nm -D /usr/lib/libX11.so.6`) -- this file never dlopen()s libX11
+ * itself (see x11_handle below: it is already resident in the same
+ * dlmopen namespace as libgtk-4.so.1's own mandatory NEEDED dependency by
+ * the time load_bundle_functions finishes loading gtk_handle). Declared
+ * here, not via a real <X11/Xlib.h> include, for the same reason every
+ * other extern in this file is hand-declared: typeof() needs a real
+ * signature to compute a function-pointer type from, without actually
+ * linking against libX11 at Wine's own build time. */
+extern int XMoveResizeWindow(Display *display, unsigned long w, int x, int y,
+                              unsigned int width, unsigned int height);
+
 extern GtkWidget *webkit_web_view_new(void);
 extern void webkit_web_view_load_uri(WebKitWebView *web_view, const char *uri);
 extern const char *webkit_web_view_get_uri(WebKitWebView *web_view);
@@ -316,6 +362,15 @@ extern _Bool JSConfigureSignalForGC(int signalNumber);
     DO_FUNC(gtk_window_present); \
     DO_FUNC(gtk_widget_show); \
     DO_FUNC(gtk_widget_get_visible); \
+    DO_FUNC(gtk_widget_get_native); \
+    DO_FUNC(gtk_native_get_surface); \
+    DO_FUNC(gdk_surface_get_display); \
+    DO_FUNC(gdk_surface_get_width); \
+    DO_FUNC(gdk_surface_get_height); \
+    DO_FUNC(gdk_x11_surface_get_xid); \
+    DO_FUNC(gdk_x11_display_get_xdisplay); \
+    DO_FUNC(gtk_widget_set_visible); \
+    DO_FUNC(gtk_window_set_default_size); \
     DO_FUNC(gtk_window_destroy)
 
 /* Task 8: webkit_cookie_manager_delete_all_cookies does NOT exist in this
@@ -371,11 +426,24 @@ extern _Bool JSConfigureSignalForGC(int signalNumber);
 #define JAVASCRIPTCORE_FUNCS \
     DO_FUNC(JSConfigureSignalForGC)
 
+/* libX11.so.6 -- NOT part of the Plan-1 bundle (Plan 1 only bundles
+ * GTK4/WebKitGTK/GLib and friends). Real, confirmed NEEDED dependency of
+ * the bundle's own libgtk-4.so.1 (`readelf -d libgtk-4.so.1.1800.6 | grep
+ * NEEDED` lists libX11.so.6 -- GTK4 always links X11 backend support, even
+ * when the process ultimately runs under Wayland), so it is unconditionally
+ * already resident in the SAME isolated dlmopen namespace by the time
+ * gtk_handle finishes loading below -- joined here via RTLD_NOLOAD rather
+ * than loaded fresh, adding no new host dependency beyond what GTK4 itself
+ * already requires to load at all (see load_one's own sibling helper,
+ * join_loaded, just below). */
+#define X11_FUNCS \
+    DO_FUNC(XMoveResizeWindow)
+
 #define DO_FUNC(f) typeof(f) *p_##f
-GLIB_FUNCS; GOBJECT_FUNCS; GTK_FUNCS; WEBKIT_FUNCS; SOUP_FUNCS; JAVASCRIPTCORE_FUNCS;
+GLIB_FUNCS; GOBJECT_FUNCS; GTK_FUNCS; WEBKIT_FUNCS; SOUP_FUNCS; JAVASCRIPTCORE_FUNCS; X11_FUNCS;
 #undef DO_FUNC
 
-static void *glib_handle, *gobject_handle, *gtk_handle, *webkit_handle, *soup_handle, *javascriptcore_handle;
+static void *glib_handle, *gobject_handle, *gtk_handle, *webkit_handle, *soup_handle, *javascriptcore_handle, *x11_handle;
 
 /* Loads relpath into the isolated linker namespace identified by *lmid.
  *
@@ -435,6 +503,25 @@ static void *load_one(const char *dir, const char *relpath, Lmid_t *lmid)
     return h;
 }
 
+/* Joins an ALREADY-LOADED library in the same dlmopen namespace without
+ * loading anything new -- distinct from load_one() above, which loads a
+ * bundle-relative path fresh. libX11.so.6 isn't a bundle file (see
+ * X11_FUNCS's own comment); it only ever gets INTO this namespace as
+ * libgtk-4.so.1's own transitive NEEDED dependency, resolved automatically
+ * by the dynamic linker (from the host's own /usr/lib/libX11.so.6, per
+ * `ldconfig -p`) the moment load_one() dlmopen()s libgtk-4.so.1 itself --
+ * shared-object NEEDED dependencies are always mapped in immediately
+ * regardless of RTLD_NOW/RTLD_LAZY (only individual SYMBOL resolution is
+ * ever lazy). RTLD_NOLOAD hands back a handle to that existing mapping
+ * without incrementing dlopen's own "fresh load" bookkeeping incorrectly
+ * or risking a second, separate mapping. */
+static void *join_loaded(const char *soname, Lmid_t lmid)
+{
+    void *h = dlmopen(lmid, soname, RTLD_NOW | RTLD_NOLOAD);
+    if (!h) WARN("failed to join already-loaded %s: %s\n", soname, dlerror());
+    return h;
+}
+
 /* Relative paths below were confirmed real against the committed bundle in
  * Task 4 Step 1 -- re-check with `nm -D`/`ls` if this ever stops finding a
  * symbol, rather than guessing a new name.
@@ -468,6 +555,10 @@ static BOOL load_bundle_functions(void)
     if (!(glib_handle = load_one(dir, "lib/x86_64-linux-gnu/libglib-2.0.so.0", &lmid))) return FALSE;
     if (!(gobject_handle = load_one(dir, "lib/x86_64-linux-gnu/libgobject-2.0.so.0", &lmid))) return FALSE;
     if (!(gtk_handle = load_one(dir, "lib/x86_64-linux-gnu/libgtk-4.so.1", &lmid))) return FALSE;
+    /* Plan 3 Task 3: libX11.so.6 is already resident in this same namespace
+     * as libgtk-4.so.1's own mandatory dependency -- see X11_FUNCS's own
+     * comment. */
+    if (!(x11_handle = join_loaded("libX11.so.6", lmid))) return FALSE;
     if (!(webkit_handle = load_one(dir, "lib/libwebkitgtk-6.0.so.4", &lmid))) return FALSE;
     /* Task 8: libsoup-3.0 is already a real NEEDED dependency of
      * libwebkitgtk-6.0.so.4 (confirmed via `readelf -d`), so it's already
@@ -508,6 +599,10 @@ static BOOL load_bundle_functions(void)
 #define DO_FUNC(f) if (!(p_##f = dlsym(javascriptcore_handle, #f))) \
     { WARN("failed to load symbol %s\n", #f); return FALSE; }
     JAVASCRIPTCORE_FUNCS;
+#undef DO_FUNC
+#define DO_FUNC(f) if (!(p_##f = dlsym(x11_handle, #f))) \
+    { WARN("failed to load symbol %s\n", #f); return FALSE; }
+    X11_FUNCS;
 #undef DO_FUNC
 
     /* Task 11 real-bug fix -- must run here, before this function returns
@@ -1701,6 +1796,101 @@ static NTSTATUS unix_get_window_visible_impl(void *args)
     return STATUS_SUCCESS;
 }
 
+/* Plan 3 Task 3: real position/size/visibility sync, called (via Task 4's
+ * controller_push_geometry_to_native) from put_Bounds/put_IsVisible. See
+ * this file's own X11_FUNCS/gdk_x11_surface_get_xid extern comments above
+ * for why position sync specifically has to go through raw Xlib. */
+static void sync_window_geometry_on_gtk_thread(void *data)
+{
+    struct sync_window_geometry_params *params = data;
+    struct native_webview *nv = (struct native_webview *)(ULONG_PTR)params->handle;
+    GtkNative *native;
+    GdkSurface *surface;
+    unsigned long xid;
+    int width = params->screen_bounds.right - params->screen_bounds.left;
+    int height = params->screen_bounds.bottom - params->screen_bounds.top;
+
+    params->success = FALSE;
+
+    p_gtk_widget_set_visible(nv->window, params->visible);
+    if (!params->visible)
+    {
+        params->success = TRUE; /* nothing more to sync while hidden */
+        return;
+    }
+
+    if (width > 0 && height > 0)
+        p_gtk_window_set_default_size(nv->window, width, height);
+
+    /* Position: X11-only, see this task's own header note for why GTK4 has
+     * no cross-backend equivalent. Degrades gracefully (size/visibility
+     * still applied above) under Wayland. */
+    native = p_gtk_widget_get_native(nv->window);
+    surface = native ? p_gtk_native_get_surface(native) : NULL;
+    if (!surface)
+    {
+        WARN("no GdkSurface yet for native window %p -- skipping position sync\n", nv->window);
+        params->success = TRUE;
+        return;
+    }
+
+    xid = p_gdk_x11_surface_get_xid(surface);
+    if (!xid)
+    {
+        /* Not an X11 surface (Wayland) -- gdk_x11_surface_get_xid already
+         * logged GLib's own non-fatal CRITICAL. */
+        params->success = TRUE;
+        return;
+    }
+
+    p_XMoveResizeWindow(p_gdk_x11_display_get_xdisplay(p_gdk_surface_get_display(surface)), xid,
+                         params->screen_bounds.left, params->screen_bounds.top,
+                         (unsigned int)width, (unsigned int)height);
+    params->success = TRUE;
+}
+
+static NTSTATUS unix_sync_window_geometry_impl(void *args)
+{
+    struct sync_window_geometry_params *params = args;
+    struct native_webview *nv = (struct native_webview *)(ULONG_PTR)params->handle;
+
+    params->success = FALSE;
+    if (!nv) return STATUS_INVALID_HANDLE;
+    if (!gtk_thread_invoke_sync(sync_window_geometry_on_gtk_thread, params))
+        WARN("gtk_thread_invoke_sync failed -- GTK thread not running, geometry sync skipped\n");
+    return STATUS_SUCCESS;
+}
+
+/* Test-support only (Plan 3 Task 3): real GdkSurface width/height readback
+ * so a test can confirm sync_window_geometry actually changed the on-screen
+ * window, not just that the call returned success. */
+static void get_window_geometry_on_gtk_thread(void *data)
+{
+    struct get_window_geometry_params *params = data;
+    struct native_webview *nv = (struct native_webview *)(ULONG_PTR)params->handle;
+    GtkNative *native = p_gtk_widget_get_native(nv->window);
+    GdkSurface *surface = native ? p_gtk_native_get_surface(native) : NULL;
+
+    if (!surface) { params->success = FALSE; return; }
+    params->screen_bounds.left = 0;
+    params->screen_bounds.top = 0;
+    params->screen_bounds.right = p_gdk_surface_get_width(surface);
+    params->screen_bounds.bottom = p_gdk_surface_get_height(surface);
+    params->success = TRUE;
+}
+
+static NTSTATUS unix_get_window_geometry_impl(void *args)
+{
+    struct get_window_geometry_params *params = args;
+    struct native_webview *nv = (struct native_webview *)(ULONG_PTR)params->handle;
+
+    params->success = FALSE;
+    if (!nv) return STATUS_INVALID_HANDLE;
+    if (!gtk_thread_invoke_sync(get_window_geometry_on_gtk_thread, params))
+        WARN("gtk_thread_invoke_sync failed -- GTK thread not running\n");
+    return STATUS_SUCCESS;
+}
+
 const unixlib_entry_t __wine_unix_call_funcs[] =
 {
     unix_init_impl,
@@ -1711,4 +1901,6 @@ const unixlib_entry_t __wine_unix_call_funcs[] =
     unix_count_cookies_impl,
     unix_get_cookies_impl,
     unix_get_window_visible_impl,
+    unix_sync_window_geometry_impl,
+    unix_get_window_geometry_impl,
 };

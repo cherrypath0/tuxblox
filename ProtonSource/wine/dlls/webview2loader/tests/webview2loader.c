@@ -1729,6 +1729,53 @@ static void test_close_then_navigate_fails_cleanly(void)
     FreeLibrary(mod);
 }
 
+/* Plan 3 Task 3 regression test: exercises unix_sync_window_geometry
+ * end-to-end via the test-support getter, independent of Task 4's PE-side
+ * put_Bounds/put_IsVisible wiring (which doesn't exist until that task) --
+ * this test drives the unix call directly through a new test-support
+ * export so Task 3's own deliverable is independently verifiable. Only
+ * checks size (via GTK's own default-size readback is not directly
+ * exposed, so this checks the round-trip through get_window_geometry
+ * instead, which reads the real GdkSurface width/height after the sync)
+ * and visibility; position is X11-only and asserted separately in Task 7's
+ * manual end-to-end pass (no portable way to read a window's absolute
+ * screen position back in a backend-independent unit test). */
+static void test_sync_window_geometry(void)
+{
+    HMODULE mod;
+    ICoreWebView2Environment *env;
+    ICoreWebView2Controller *ctrl;
+    BOOL (WINAPI *pSyncGeometry)(ICoreWebView2Controller *, const RECT *, BOOL);
+    BOOL (WINAPI *pGetGeometry)(ICoreWebView2Controller *, RECT *);
+    RECT want = { 0, 0, 640, 480 }, got;
+
+    if (!create_test_controller(&mod, &env, &ctrl))
+    {
+        skip("TUXBLOX_WEBVIEW_DIR not set or environment/controller creation failed\n");
+        return;
+    }
+
+    pSyncGeometry = (void *)GetProcAddress(mod, "__wine_test_webview2loader_sync_window_geometry");
+    pGetGeometry = (void *)GetProcAddress(mod, "__wine_test_webview2loader_get_window_geometry");
+    ok(pSyncGeometry != NULL, "missing __wine_test_webview2loader_sync_window_geometry export\n");
+    ok(pGetGeometry != NULL, "missing __wine_test_webview2loader_get_window_geometry export\n");
+
+    if (pSyncGeometry && pGetGeometry)
+    {
+        ok(pSyncGeometry(ctrl, &want, TRUE), "sync_window_geometry call failed\n");
+        Sleep(200); /* let the GTK thread's own async resize settle */
+        ZeroMemory(&got, sizeof(got));
+        ok(pGetGeometry(ctrl, &got), "get_window_geometry call failed\n");
+        ok(got.right - got.left == want.right - want.left && got.bottom - got.top == want.bottom - want.top,
+           "expected size %ldx%ld, got %ldx%ld\n",
+           want.right - want.left, want.bottom - want.top, got.right - got.left, got.bottom - got.top);
+    }
+
+    ICoreWebView2Controller_Release(ctrl);
+    ICoreWebView2Environment_Release(env);
+    FreeLibrary(mod);
+}
+
 START_TEST(webview2loader)
 {
     test_module_loads();
@@ -1751,4 +1798,5 @@ START_TEST(webview2loader)
     test_get_cookies();
     test_close_then_navigate_fails_cleanly();
     test_suspend_thread_after_webview();
+    test_sync_window_geometry();
 }

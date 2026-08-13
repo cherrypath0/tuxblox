@@ -11,3 +11,5 @@
 # risk, not just test scaffolding).
 @ stdcall __wine_test_webview2loader_count_cookies(ptr)
 @ stdcall __wine_test_webview2loader_window_is_visible(ptr)
+@ stdcall __wine_test_webview2loader_sync_window_geometry(ptr ptr long)
+@ stdcall __wine_test_webview2loader_get_window_geometry(ptr ptr)
