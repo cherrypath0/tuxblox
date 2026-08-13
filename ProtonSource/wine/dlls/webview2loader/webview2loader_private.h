@@ -583,10 +583,19 @@ UINT64 controller_get_native_handle(ICoreWebView2Controller *iface);
 void controller_push_geometry_to_native(ICoreWebView2Controller *iface);
 
 /* Plan 3 Task 5 -- window_sync.c. See that file's own header comment for
- * the WH_CALLWNDPROC per-thread refcounting design. */
+ * the WH_CALLWNDPROC per-thread refcounting design.
+ *
+ * Review fix (Important finding, post-Task-5): window_hook_track hands
+ * back the thread id it discovers for hwnd via tid_out (NULL if the
+ * caller doesn't need it) -- callers MUST save this and pass it back to
+ * window_hook_untrack rather than trying to re-derive it from hwnd later,
+ * since by untrack time hwnd may already be destroyed (GetWindowThread-
+ * ProcessId returns 0 for a dead HWND, which used to make untrack a
+ * silent, entry-leaking no-op -- see window_sync.c's own comment on
+ * window_hook_track for the full use-after-free consequence this caused). */
 typedef void (CALLBACK *window_sync_callback)(void *user_data);
-BOOL window_hook_track(HWND hwnd, window_sync_callback callback, void *user_data);
-void window_hook_untrack(HWND hwnd, window_sync_callback callback, void *user_data);
+BOOL window_hook_track(HWND hwnd, window_sync_callback callback, void *user_data, DWORD *tid_out);
+void window_hook_untrack(DWORD tid, HWND hwnd, window_sync_callback callback, void *user_data);
 
 /* Generic ignore-args E_NOTIMPL stub, cast to whatever vtable slot type is
  * needed. Deliberate: with 20+ genuinely-unimplemented methods per

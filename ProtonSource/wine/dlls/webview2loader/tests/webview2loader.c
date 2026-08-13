@@ -73,11 +73,12 @@ static void CALLBACK hook_test_callback(void *user_data)
 static void test_window_hook_tracks_correct_hwnd(void)
 {
     HMODULE mod;
-    BOOL (WINAPI *pTrack)(HWND, void *, void *);
-    void (WINAPI *pUntrack)(HWND, void *, void *);
+    BOOL (WINAPI *pTrack)(HWND, void *, void *, DWORD *);
+    void (WINAPI *pUntrack)(DWORD, HWND, void *, void *);
     WNDCLASSA wc = { 0 };
     HWND tracked, decoy;
     LONG before;
+    DWORD tid = 0;
 
     mod = LoadLibraryA("webview2loader.dll");
     ok(mod != NULL, "LoadLibraryA failed\n");
@@ -100,7 +101,8 @@ static void test_window_hook_tracks_correct_hwnd(void)
     ok(tracked != NULL && decoy != NULL, "CreateWindowExA failed, error %lu\n", GetLastError());
 
     g_hook_test_fire_count = 0;
-    ok(pTrack(tracked, hook_test_callback, NULL), "window_hook_track failed\n");
+    ok(pTrack(tracked, hook_test_callback, NULL, &tid), "window_hook_track failed\n");
+    ok(tid != 0, "window_hook_track did not report a thread id\n");
 
     /* Moving the DECOY (untracked) window must not fire the callback. */
     SetWindowPos(decoy, NULL, 50, 50, 200, 200, SWP_NOZORDER);
@@ -114,7 +116,7 @@ static void test_window_hook_tracks_correct_hwnd(void)
     Sleep(50);
     ok(g_hook_test_fire_count > before, "tracked window move did not fire the hook callback\n");
 
-    pUntrack(tracked, hook_test_callback, NULL);
+    pUntrack(tid, tracked, hook_test_callback, NULL);
 
     /* After untracking, further moves must not fire it. */
     before = g_hook_test_fire_count;
@@ -124,6 +126,75 @@ static void test_window_hook_tracks_correct_hwnd(void)
 
     DestroyWindow(tracked);
     DestroyWindow(decoy);
+    UnregisterClassA(wc.lpszClassName, wc.hInstance);
+    FreeLibrary(mod);
+}
+
+/* Review fix regression test (Important finding, post-Task-5):
+ * window_hook_untrack used to re-derive "which thread's registry do I
+ * search" by calling GetWindowThreadProcessId(hwnd, NULL) again at
+ * untrack time. That returns 0 for an already-destroyed HWND, which used
+ * to make untrack silently no-op -- leaving the tracked_entry (whose
+ * user_data is a pointer into the caller's object, e.g. a controller_impl
+ * about to be freed by controller_destroy_native) permanently in the
+ * registry. Since HWND values get recycled by the OS, a later unrelated
+ * window on the same thread could receive that same value and
+ * incorrectly fire the stale callback against freed memory -- a real
+ * use-after-free, not just a leak.
+ *
+ * The fix: window_hook_track now hands back the thread id it discovered
+ * while the window was still alive (tid_out), and window_hook_untrack
+ * takes that id directly instead of re-deriving it. This test proves the
+ * entry is actually removed from the internal registry even after
+ * DestroyWindow, using the __wine_test_webview2loader_hook_entry_count
+ * introspection export added specifically to make this observable (the
+ * old bug was a silent no-op, not a visible failure, so without a way to
+ * inspect registry state directly there would be no way to distinguish
+ * "fixed" from "still silently leaking" from outside window_sync.c). */
+static void test_window_hook_untrack_after_hwnd_destroyed(void)
+{
+    HMODULE mod;
+    BOOL (WINAPI *pTrack)(HWND, void *, void *, DWORD *);
+    void (WINAPI *pUntrack)(DWORD, HWND, void *, void *);
+    UINT (WINAPI *pCount)(DWORD);
+    WNDCLASSA wc = { 0 };
+    HWND victim;
+    DWORD tid = 0;
+
+    mod = LoadLibraryA("webview2loader.dll");
+    ok(mod != NULL, "LoadLibraryA failed\n");
+    if (!mod) return;
+
+    pTrack = (void *)GetProcAddress(mod, "__wine_test_webview2loader_hook_track");
+    pUntrack = (void *)GetProcAddress(mod, "__wine_test_webview2loader_hook_untrack");
+    pCount = (void *)GetProcAddress(mod, "__wine_test_webview2loader_hook_entry_count");
+    ok(pTrack != NULL && pUntrack != NULL && pCount != NULL, "missing hook test exports\n");
+    if (!pTrack || !pUntrack || !pCount) { FreeLibrary(mod); return; }
+
+    wc.lpfnWndProc = DefWindowProcA;
+    wc.hInstance = GetModuleHandleA(NULL);
+    wc.lpszClassName = "tuxblox_test_hook_destroyed_wndclass";
+    RegisterClassA(&wc);
+
+    victim = CreateWindowExA(0, wc.lpszClassName, "victim", WS_OVERLAPPEDWINDOW,
+                              0, 0, 200, 200, NULL, NULL, wc.hInstance, NULL);
+    ok(victim != NULL, "CreateWindowExA failed, error %lu\n", GetLastError());
+
+    ok(pTrack(victim, hook_test_callback, NULL, &tid), "window_hook_track failed\n");
+    ok(tid != 0, "window_hook_track did not report a thread id\n");
+    ok(pCount(tid) == 1, "expected 1 tracked entry right after track, got %u\n", pCount(tid));
+
+    DestroyWindow(victim);
+
+    /* Untrack using the tid captured at track time -- NOT re-derived from
+     * the now-dead HWND. This is exactly the fix under test: before it,
+     * window_hook_untrack tried GetWindowThreadProcessId(victim, NULL)
+     * here, got 0 (victim is destroyed), and silently no-op'd, leaving
+     * the entry below at count 1 forever instead of 0. */
+    pUntrack(tid, victim, hook_test_callback, NULL);
+    ok(pCount(tid) == 0, "entry was not removed after DestroyWindow + untrack (leaked/dangling), got %u\n",
+       pCount(tid));
+
     UnregisterClassA(wc.lpszClassName, wc.hInstance);
     FreeLibrary(mod);
 }
@@ -1954,6 +2025,7 @@ START_TEST(webview2loader)
 {
     test_module_loads();
     test_window_hook_tracks_correct_hwnd();
+    test_window_hook_untrack_after_hwnd_destroyed();
     test_get_available_browser_version_string();
     test_compare_browser_versions();
     test_create_environment();

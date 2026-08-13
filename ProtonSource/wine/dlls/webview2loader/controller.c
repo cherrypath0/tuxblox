@@ -35,6 +35,20 @@ struct controller_impl
                             * creation time -- cached rather than
                             * recomputed, since HWND_MESSAGE is a value, not
                             * something that can change after the fact. */
+    DWORD parent_thread_id; /* Review fix (Important finding, post-Task-5):
+                              * the thread id window_hook_track discovered
+                              * for parent_window at track time (0 if
+                              * tracking was never installed, e.g.
+                              * is_message_only/NULL parent, or
+                              * SetWindowsHookExW failed). controller_impl
+                              * is calloc'd, so this is 0 by default without
+                              * needing a separate bool. Saved here rather
+                              * than re-derived from parent_window at
+                              * destroy time specifically because
+                              * parent_window may already be destroyed by
+                              * then -- see window_hook_untrack's own
+                              * comment in window_sync.c for the
+                              * use-after-free this prevents. */
 
     /* Task 11: Controller2/3/4 state-only properties -- see the extension
      * vtable's own comment in webview2loader_private.h for why these get
@@ -69,8 +83,19 @@ static void controller_destroy_native(struct controller_impl *ctrl)
     if (ctrl->destroyed) return;
     ctrl->destroyed = TRUE;
 
-    if (!ctrl->is_message_only && ctrl->parent_window)
-        window_hook_untrack(ctrl->parent_window, controller_geometry_sync_callback, &ctrl->ICoreWebView2Controller_iface);
+    /* Review fix (Important finding, post-Task-5): pass the thread id
+     * captured at track time (ctrl->parent_thread_id), not
+     * ctrl->parent_window -- by this point parent_window may already be a
+     * destroyed HWND (Studio tearing down its own top-level window before
+     * releasing/closing this controller), and re-deriving the thread id
+     * from a dead HWND silently fails, leaking the tracked_entry whose
+     * user_data points at this ctrl, which is about to be freed. Guarded
+     * on parent_thread_id != 0 rather than is_message_only/parent_window
+     * again, since that's the actual "was tracking ever installed"
+     * signal now (0 covers is_message_only, NULL parent, and a failed
+     * SetWindowsHookExW at track time, all in one check). */
+    if (ctrl->parent_thread_id)
+        window_hook_untrack(ctrl->parent_thread_id, ctrl->parent_window, controller_geometry_sync_callback, &ctrl->ICoreWebView2Controller_iface);
 
     params.handle = ctrl->native_handle;
     WEBVIEW2LOADER_UNIX_CALL(destroy_webview, &params);
@@ -441,7 +466,8 @@ HRESULT controller_create(UINT64 native_handle, HWND parent_window, ICoreWebView
      * works, it just won't track top-level moves independent of explicit
      * put_Bounds calls. */
     if (!ctrl->is_message_only && ctrl->parent_window)
-        window_hook_track(ctrl->parent_window, controller_geometry_sync_callback, &ctrl->ICoreWebView2Controller_iface);
+        window_hook_track(ctrl->parent_window, controller_geometry_sync_callback, &ctrl->ICoreWebView2Controller_iface,
+                           &ctrl->parent_thread_id);
 
     *out = &ctrl->ICoreWebView2Controller_iface;
     return S_OK;

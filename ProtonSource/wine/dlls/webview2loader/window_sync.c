@@ -93,7 +93,25 @@ static LRESULT CALLBACK call_wnd_proc(int nCode, WPARAM wParam, LPARAM lParam)
     return CallNextHookEx(NULL, nCode, wParam, lParam);
 }
 
-BOOL window_hook_track(HWND hwnd, window_sync_callback callback, void *user_data)
+/* Review fix (Important finding, post-Task-5): window_hook_track hands
+ * back the thread id it discovered via GetWindowThreadProcessId(hwnd, NULL)
+ * -- taken here, while hwnd is guaranteed still alive (that's how this
+ * function found which thread to hook in the first place). Callers must
+ * hang onto *tid_out and pass it back to window_hook_untrack instead of
+ * letting untrack re-derive it from hwnd. Re-deriving at untrack time is
+ * exactly the bug this fixes: GetWindowThreadProcessId returns 0 for an
+ * already-destroyed HWND, which used to make window_hook_untrack silently
+ * no-op -- leaving the tracked_entry (whose user_data is a pointer into the
+ * caller's about-to-be-freed object, see controller.c's
+ * controller_destroy_native) permanently in the registry. Since HWND
+ * values get recycled by the OS after destruction, a later, unrelated
+ * window created on the same thread could receive that same recycled
+ * value; call_wnd_proc's cwp->hwnd match is purely by value with no
+ * liveness check, so it would then fire the stale callback against freed
+ * memory -- a real use-after-free, not just a leak. Capturing tid once,
+ * at track time, means untrack never depends on hwnd still being valid to
+ * find the right thread's registry. */
+BOOL window_hook_track(HWND hwnd, window_sync_callback callback, void *user_data, DWORD *tid_out)
 {
     DWORD tid;
     struct thread_hook *th;
@@ -138,12 +156,17 @@ BOOL window_hook_track(HWND hwnd, window_sync_callback callback, void *user_data
     th->entries = entry;
     th->refcount++;
     LeaveCriticalSection(&hook_cs);
+    if (tid_out) *tid_out = tid;
     return TRUE;
 }
 
-void window_hook_untrack(HWND hwnd, window_sync_callback callback, void *user_data)
+/* tid is the value window_hook_track handed back via tid_out at install
+ * time -- NOT re-derived from hwnd here (see window_hook_track's comment
+ * above for why re-deriving was the bug). hwnd/callback/user_data are
+ * still needed to identify which of possibly-several entries on that
+ * thread to remove; they're never dereferenced, only compared by value. */
+void window_hook_untrack(DWORD tid, HWND hwnd, window_sync_callback callback, void *user_data)
 {
-    DWORD tid = hwnd ? GetWindowThreadProcessId(hwnd, NULL) : 0;
     struct thread_hook *th, **th_cur;
     struct tracked_entry **cur, *dead;
 
@@ -186,12 +209,36 @@ void window_hook_untrack(HWND hwnd, window_sync_callback callback, void *user_da
  * test EXE (which only ever links against webview2loader's import lib, see
  * tests/webview2loader.c's own file-level comment on IID_* linkage) can
  * reach the same functions. */
-BOOL WINAPI __wine_test_webview2loader_hook_track(HWND hwnd, window_sync_callback callback, void *user_data)
+BOOL WINAPI __wine_test_webview2loader_hook_track(HWND hwnd, window_sync_callback callback, void *user_data, DWORD *tid_out)
 {
-    return window_hook_track(hwnd, callback, user_data);
+    return window_hook_track(hwnd, callback, user_data, tid_out);
 }
 
-void WINAPI __wine_test_webview2loader_hook_untrack(HWND hwnd, window_sync_callback callback, void *user_data)
+void WINAPI __wine_test_webview2loader_hook_untrack(DWORD tid, HWND hwnd, window_sync_callback callback, void *user_data)
 {
-    window_hook_untrack(hwnd, callback, user_data);
+    window_hook_untrack(tid, hwnd, callback, user_data);
+}
+
+/* Review-fix regression test support (Important finding, post-Task-5):
+ * returns how many tracked_entry structs are currently registered for
+ * thread tid (0 if no thread_hook exists for tid at all). Lets a test
+ * assert an entry was actually unlinked by window_hook_untrack -- even
+ * after the tracked HWND has already been destroyed, which is exactly the
+ * scenario the fix above addresses and which was previously unobservable
+ * from outside this file (the old buggy behavior was a silent no-op, not
+ * a visible failure). */
+UINT WINAPI __wine_test_webview2loader_hook_entry_count(DWORD tid)
+{
+    struct thread_hook *th;
+    struct tracked_entry *e;
+    UINT count = 0;
+
+    EnterCriticalSection(&hook_cs);
+    for (th = hooks; th && th->thread_id != tid; th = th->next);
+    if (th)
+    {
+        for (e = th->entries; e; e = e->next) count++;
+    }
+    LeaveCriticalSection(&hook_cs);
+    return count;
 }
