@@ -1131,6 +1131,65 @@ static void test_controller_parent_window(void)
     FreeLibrary(mod);
 }
 
+/* Plan 3 Task 2 regression test: a controller parented to HWND_MESSAGE
+ * (the CookieManager flow, see webview.c's own file-level comment) must
+ * never show a visible native GTK window -- previously
+ * create_webview_on_gtk_thread called gtk_widget_show unconditionally,
+ * producing a real, empty, floating top-level window for this flow (a
+ * Minor finding parked at the end of Plan 2's final review). A
+ * non-HWND_MESSAGE controller must still show one, unchanged from Plan 2's
+ * baseline behavior. */
+static void test_hwnd_message_never_shows_window(void)
+{
+    HMODULE mod;
+    ICoreWebView2Environment *env;
+    ICoreWebView2Controller *ctrl;
+    UINT32 (WINAPI *pIsVisible)(ICoreWebView2Controller *);
+
+    if (!create_test_controller(&mod, &env, &ctrl))
+    {
+        skip("TUXBLOX_WEBVIEW_DIR not set or environment/controller creation failed\n");
+        return;
+    }
+
+    pIsVisible = (void *)GetProcAddress(mod, "__wine_test_webview2loader_window_is_visible");
+    ok(pIsVisible != NULL, "missing __wine_test_webview2loader_window_is_visible export\n");
+    if (pIsVisible)
+        ok(pIsVisible(ctrl), "expected the default (NULL-parented) controller's native window to be visible\n");
+
+    ICoreWebView2Controller_Release(ctrl);
+    ICoreWebView2Environment_Release(env);
+
+    {
+        HRESULT (WINAPI *pCreateEnv)(PCWSTR, PCWSTR, void *, void *);
+        struct test_env_handler env_handler = { &test_env_handler_vtbl };
+        struct test_ctrl_handler ctrl_handler = { &test_ctrl_handler_vtbl };
+
+        pCreateEnv = (void *)GetProcAddress(mod, "CreateCoreWebView2EnvironmentWithOptions");
+        env_handler.done_event = CreateEventW(NULL, FALSE, FALSE, NULL);
+        pCreateEnv(NULL, NULL, NULL, &env_handler);
+        WaitForSingleObject(env_handler.done_event, 10000);
+        CloseHandle(env_handler.done_event);
+        ok(env_handler.result_hr == S_OK, "second environment creation failed\n");
+
+        ctrl_handler.done_event = CreateEventW(NULL, FALSE, FALSE, NULL);
+        ICoreWebView2Environment_CreateCoreWebView2Controller(env_handler.result_env, HWND_MESSAGE, &ctrl_handler);
+        WaitForSingleObject(ctrl_handler.done_event, 10000);
+        CloseHandle(ctrl_handler.done_event);
+        ok(ctrl_handler.result_hr == S_OK, "HWND_MESSAGE controller creation failed\n");
+
+        if (ctrl_handler.result_ctrl && pIsVisible)
+        {
+            ok(!pIsVisible(ctrl_handler.result_ctrl),
+               "expected the HWND_MESSAGE controller's native window to never be shown\n");
+            ICoreWebView2Controller_Release(ctrl_handler.result_ctrl);
+        }
+        ICoreWebView2Environment_Release(env_handler.result_env);
+    }
+
+    FreeLibrary(mod);
+}
+
 /* Task 11 regression test: ICoreWebView2Environment8::add_ProcessInfosChanged
  * was the third recurrence of the "E_NOTIMPL from an add_X call treated as
  * fatal" whack-a-mole pattern -- see environment8_add_ProcessInfosChanged's
@@ -1683,6 +1742,7 @@ START_TEST(webview2loader)
     test_v2_base_slots_not_null();
     test_controller4_environment8_queryinterface();
     test_controller_parent_window();
+    test_hwnd_message_never_shows_window();
     test_environment8_process_infos_changed();
     test_get_settings();
     test_webview_event_registration();

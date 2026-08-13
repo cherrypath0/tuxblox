@@ -912,3 +912,24 @@ UINT32 WINAPI __wine_test_webview2loader_count_cookies(ICoreWebView2 *webview)
     WEBVIEW2LOADER_UNIX_CALL(count_cookies, &params);
     return params.count;
 }
+
+/* Test-support-only export (Plan 3 Task 2) -- see
+ * __wine_test_webview2loader_count_cookies's own comment just above for the
+ * naming convention and why this stays read-only/diagnostic rather than a
+ * capability grant. Takes the CONTROLLER (not a webview) since the native
+ * window/handle a controller owns is what Task 2 needs to verify -- the
+ * controller's own native_handle happens to be numerically the same handle
+ * the webview created from it uses (both wrap the same struct
+ * native_webview*, see controller_get_CoreWebView2), but going through
+ * controller_get_native_handle keeps this correct even before
+ * get_CoreWebView2 has ever been called. */
+UINT32 WINAPI __wine_test_webview2loader_window_is_visible(ICoreWebView2Controller *controller)
+{
+    struct get_window_visible_params params;
+
+    if (!controller) return 0;
+    params.handle = controller_get_native_handle(controller);
+    params.visible = FALSE;
+    WEBVIEW2LOADER_UNIX_CALL(get_window_visible, &params);
+    return params.visible;
+}

@@ -10,3 +10,4 @@
 # export here -- that one was reviewed and removed as a real capability
 # risk, not just test scaffolding).
 @ stdcall __wine_test_webview2loader_count_cookies(ptr)
+@ stdcall __wine_test_webview2loader_window_is_visible(ptr)

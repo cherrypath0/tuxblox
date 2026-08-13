@@ -146,6 +146,7 @@ extern GtkWidget *gtk_window_new(void);
 extern void gtk_window_set_child(GtkWindow *window, GtkWidget *child);
 extern void gtk_window_present(GtkWindow *window);
 extern void gtk_widget_show(GtkWidget *widget);
+extern gboolean gtk_widget_get_visible(GtkWidget *widget);
 /* Destroys the window and, since it's still set as the window's child at
  * that point, its WebKitWebView along with it -- GTK4's normal container
  * ownership model tears down children when their parent is destroyed, so
@@ -314,6 +315,7 @@ extern _Bool JSConfigureSignalForGC(int signalNumber);
     DO_FUNC(gtk_window_set_child); \
     DO_FUNC(gtk_window_present); \
     DO_FUNC(gtk_widget_show); \
+    DO_FUNC(gtk_widget_get_visible); \
     DO_FUNC(gtk_window_destroy)
 
 /* Task 8: webkit_cookie_manager_delete_all_cookies does NOT exist in this
@@ -877,37 +879,45 @@ struct native_webview
  * UINT64 -- unix-side memory, never dereferenced on the PE side, matching
  * the "opaque handle" shape other unixlib bridges in this tree use for
  * unix-owned objects PE code only ever passes back by value. */
+struct create_webview_ctx
+{
+    BOOL is_message_only;
+
+    /* out */
+    struct native_webview *nv;
+};
+
 static void create_webview_on_gtk_thread(void *data)
 {
-    struct native_webview **out = data;
+    struct create_webview_ctx *ctx = data;
     struct native_webview *nv = calloc(1, sizeof(*nv));
 
     nv->window = p_gtk_window_new();
     nv->view = p_webkit_web_view_new();
     p_gtk_window_set_child(nv->window, nv->view);
-    p_gtk_widget_show(nv->window);
+    /* Plan 3 Task 2: HWND_MESSAGE-parented controllers (the CookieManager
+     * flow) still need a real, live WebKitWebView -- Navigate/GetCookies/
+     * DeleteAllCookies all operate on it, already proven end-to-end in
+     * Plan 2 -- but must never show a visible top-level window (real
+     * WebView2's own HWND_MESSAGE semantics: the browser process runs,
+     * there is simply no visible top-level HWND). Previously this call was
+     * unconditional, producing the "stray empty top-level window" finding
+     * parked at the end of Plan 2's final review. */
+    if (!ctx->is_message_only)
+        p_gtk_widget_show(nv->window);
 
-    *out = nv;
+    ctx->nv = nv;
 }
 
 static NTSTATUS unix_create_webview_impl(void *args)
 {
     struct create_webview_params *params = args;
-    struct native_webview *nv = NULL;
+    struct create_webview_ctx ctx = { params->is_message_only, NULL };
 
-    /* Final-review fix (Important 3): explicit return-value check for
-     * consistency/audit-completeness with the other 6 call sites (see
-     * gtk_thread_invoke_sync's own declaration comment) -- functionally
-     * this site was already safe on a FALSE return (nv stays NULL, so the
-     * existing `nv ? ... : STATUS_NOT_SUPPORTED` below already reported
-     * failure correctly and nothing was ever allocated to leak), but
-     * leaving the return value silently unchecked here made this site
-     * look like the same "ignored return value" bug as the other 6 on a
-     * quick read. */
-    if (!gtk_thread_invoke_sync(create_webview_on_gtk_thread, &nv))
+    if (!gtk_thread_invoke_sync(create_webview_on_gtk_thread, &ctx))
         WARN("gtk_thread_invoke_sync failed -- GTK thread not running\n");
-    params->handle = (UINT64)(ULONG_PTR)nv;
-    return nv ? STATUS_SUCCESS : STATUS_NOT_SUPPORTED;
+    params->handle = (UINT64)(ULONG_PTR)ctx.nv;
+    return ctx.nv ? STATUS_SUCCESS : STATUS_NOT_SUPPORTED;
 }
 
 /* Destroying nv->window tears down nv->view along with it (still its
@@ -1667,6 +1677,30 @@ static NTSTATUS unix_get_cookies_impl(void *args)
     return STATUS_SUCCESS;
 }
 
+/* Test-support only (Plan 3 Task 2): real gtk_widget_get_visible readback,
+ * so a test can assert the HWND_MESSAGE skip actually took effect instead
+ * of just "the call didn't crash". Read-only, same low-risk diagnostic
+ * shape as unix_count_cookies_impl. */
+static void get_window_visible_on_gtk_thread(void *data)
+{
+    struct get_window_visible_params *params = data;
+    struct native_webview *nv = (struct native_webview *)(ULONG_PTR)params->handle;
+
+    params->visible = p_gtk_widget_get_visible(nv->window);
+}
+
+static NTSTATUS unix_get_window_visible_impl(void *args)
+{
+    struct get_window_visible_params *params = args;
+    struct native_webview *nv = (struct native_webview *)(ULONG_PTR)params->handle;
+
+    params->visible = FALSE;
+    if (!nv) return STATUS_INVALID_HANDLE;
+    if (!gtk_thread_invoke_sync(get_window_visible_on_gtk_thread, params))
+        WARN("gtk_thread_invoke_sync failed -- GTK thread not running\n");
+    return STATUS_SUCCESS;
+}
+
 const unixlib_entry_t __wine_unix_call_funcs[] =
 {
     unix_init_impl,
@@ -1676,4 +1710,5 @@ const unixlib_entry_t __wine_unix_call_funcs[] =
     unix_delete_all_cookies_impl,
     unix_count_cookies_impl,
     unix_get_cookies_impl,
+    unix_get_window_visible_impl,
 };

@@ -143,6 +143,14 @@ struct get_cookies_params
     struct unix_cookie cookies[WEBVIEW2LOADER_MAX_COOKIES];
 };
 
+struct get_window_visible_params
+{
+    UINT64 handle;
+
+    /* out */
+    BOOL visible;
+};
+
 enum webview2loader_unix_funcs
 {
     unix_init,
@@ -152,6 +160,7 @@ enum webview2loader_unix_funcs
     unix_delete_all_cookies,
     unix_count_cookies,
     unix_get_cookies,
+    unix_get_window_visible, /* Plan 3 Task 2: test-support only */
     /* Further tasks append further entries below this line -- always
      * appending, never reordering, since the enum's integer values are
      * the unix-call dispatch table's indices (see __wine_unix_call_funcs
