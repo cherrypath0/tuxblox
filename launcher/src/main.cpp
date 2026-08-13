@@ -20,6 +20,7 @@
 #include "headless_launch.h"
 #include "watch_launch.h"
 #include "copyright_file.h"
+#include "license_file.h"
 #include "desktop_integration.h"
 #include "single_instance.h"
 #include "version.h"
@@ -119,8 +120,9 @@ int main(int argc, char** argv) {
     // Best-effort: the installer normally creates this directory first, but
     // the launcher must be self-sufficient (e.g. a manually built/copied
     // binary run before any installer has). Downstream best-effort steps
-    // (writeCopyrightFile, ensureDesktopIntegration) already tolerate a
-    // still-missing directory, so a failure here is not fatal.
+    // (writeCopyrightFile, ensureLicenseFile, ensureDesktopIntegration)
+    // already tolerate a still-missing directory, so a failure here is not
+    // fatal.
     {
         std::error_code ec;
         std::filesystem::create_directories(dir, ec);
@@ -148,6 +150,7 @@ int main(int argc, char** argv) {
     }
 
     writeCopyrightFile(dir);
+    ensureLicenseFile(dir);
 
     // Ui::init() runs before anything that can block, so the window appears
     // immediately -- see Finding 5, 2026-07-28 final review. In particular,

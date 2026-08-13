@@ -73,6 +73,7 @@ add_library(launcher_core STATIC
     src/headless_launch.cpp
     src/desktop_integration.cpp
     src/copyright_file.cpp
+    src/license_file.cpp
     src/settings.cpp
     src/crash_report.cpp
     src/container_env.cpp
@@ -91,6 +92,7 @@ include(cmake/FetchWindowIcon.cmake)
 include(cmake/FetchFont.cmake)
 include(cmake/EmbedIcons.cmake)
 include(cmake/EmbedThirdPartyLicenses.cmake)
+include(cmake/EmbedLicense.cmake)
 
 add_executable(TuxBloxLauncher
     src/main.cpp
@@ -100,7 +102,7 @@ add_executable(TuxBloxLauncher
 )
 target_include_directories(TuxBloxLauncher PRIVATE ${CMAKE_BINARY_DIR}/generated)
 target_link_libraries(TuxBloxLauncher PRIVATE launcher_core imgui ${SDL2_LIBRARIES} OpenGL::GL ${CMAKE_DL_LIBS} Threads::Threads)
-add_dependencies(TuxBloxLauncher generate_logo_header generate_window_icon_header generate_font_header generate_icon_headers generate_thirdparty_license_headers)
+add_dependencies(TuxBloxLauncher generate_logo_header generate_window_icon_header generate_font_header generate_icon_headers generate_thirdparty_license_headers generate_license_header)
 
 enable_testing()
 add_subdirectory(tests)
