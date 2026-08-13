@@ -36,6 +36,7 @@ pkg_check_modules(CURL REQUIRED libcurl)
 pkg_check_modules(ARCHIVE REQUIRED libarchive)
 pkg_check_modules(OPENSSL REQUIRED openssl)
 find_package(OpenGL REQUIRED)
+find_package(Threads REQUIRED)
 
 set(IMGUI_DIR ${CMAKE_SOURCE_DIR}/third_party/imgui)
 add_library(imgui STATIC
@@ -91,7 +92,7 @@ add_executable(TuxBloxLauncher
     src/watch_launch.cpp
 )
 target_include_directories(TuxBloxLauncher PRIVATE ${CMAKE_BINARY_DIR}/generated)
-target_link_libraries(TuxBloxLauncher PRIVATE launcher_core imgui ${SDL2_LIBRARIES} OpenGL::GL)
+target_link_libraries(TuxBloxLauncher PRIVATE launcher_core imgui ${SDL2_LIBRARIES} OpenGL::GL ${CMAKE_DL_LIBS} Threads::Threads)
 add_dependencies(TuxBloxLauncher generate_logo_header generate_window_icon_header generate_font_header generate_icon_headers generate_thirdparty_license_headers)
 
 enable_testing()
