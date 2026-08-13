@@ -582,6 +582,12 @@ UINT64 controller_get_native_handle(ICoreWebView2Controller *iface);
  * 5's window_sync.c hook callback. */
 void controller_push_geometry_to_native(ICoreWebView2Controller *iface);
 
+/* Plan 3 Task 5 -- window_sync.c. See that file's own header comment for
+ * the WH_CALLWNDPROC per-thread refcounting design. */
+typedef void (CALLBACK *window_sync_callback)(void *user_data);
+BOOL window_hook_track(HWND hwnd, window_sync_callback callback, void *user_data);
+void window_hook_untrack(HWND hwnd, window_sync_callback callback, void *user_data);
+
 /* Generic ignore-args E_NOTIMPL stub, cast to whatever vtable slot type is
  * needed. Deliberate: with 20+ genuinely-unimplemented methods per
  * interface (real WebView2 has ~50 on ICoreWebView2 alone), writing a

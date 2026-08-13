@@ -10,4 +10,5 @@ SOURCES = \
 	main.c \
 	unixlib.c \
 	webview.c \
-	webview2loader.spec
+	webview2loader.spec \
+	window_sync.c

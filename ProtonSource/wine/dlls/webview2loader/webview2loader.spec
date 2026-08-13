@@ -14,3 +14,5 @@
 @ stdcall __wine_test_webview2loader_sync_window_geometry(ptr ptr long)
 @ stdcall __wine_test_webview2loader_get_window_geometry(ptr ptr)
 @ stdcall __wine_test_webview2loader_compute_screen_bounds(ptr ptr ptr)
+@ stdcall __wine_test_webview2loader_hook_track(ptr ptr ptr)
+@ stdcall __wine_test_webview2loader_hook_untrack(ptr ptr ptr)

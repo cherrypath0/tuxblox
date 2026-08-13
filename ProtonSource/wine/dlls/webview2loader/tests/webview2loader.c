@@ -59,6 +59,75 @@ static void test_module_loads(void)
     FreeLibrary(mod);
 }
 
+/* Plan 3 Task 5 standalone hook-mechanism test (design spec Testing
+ * Strategy item 2) -- two plain win32 windows, no GTK/display-driving
+ * webview involved. Confirms window_hook_track correctly filters
+ * WM_WINDOWPOSCHANGED by HWND: moving the TRACKED window must fire the
+ * callback; moving the UNTRACKED decoy window must not. */
+static LONG g_hook_test_fire_count;
+static void CALLBACK hook_test_callback(void *user_data)
+{
+    InterlockedIncrement(&g_hook_test_fire_count);
+}
+
+static void test_window_hook_tracks_correct_hwnd(void)
+{
+    HMODULE mod;
+    BOOL (WINAPI *pTrack)(HWND, void *, void *);
+    void (WINAPI *pUntrack)(HWND, void *, void *);
+    WNDCLASSA wc = { 0 };
+    HWND tracked, decoy;
+    LONG before;
+
+    mod = LoadLibraryA("webview2loader.dll");
+    ok(mod != NULL, "LoadLibraryA failed\n");
+    if (!mod) return;
+
+    pTrack = (void *)GetProcAddress(mod, "__wine_test_webview2loader_hook_track");
+    pUntrack = (void *)GetProcAddress(mod, "__wine_test_webview2loader_hook_untrack");
+    ok(pTrack != NULL && pUntrack != NULL, "missing hook track/untrack test exports\n");
+    if (!pTrack || !pUntrack) { FreeLibrary(mod); return; }
+
+    wc.lpfnWndProc = DefWindowProcA;
+    wc.hInstance = GetModuleHandleA(NULL);
+    wc.lpszClassName = "tuxblox_test_hook_wndclass";
+    RegisterClassA(&wc);
+
+    tracked = CreateWindowExA(0, wc.lpszClassName, "tracked", WS_OVERLAPPEDWINDOW,
+                               0, 0, 200, 200, NULL, NULL, wc.hInstance, NULL);
+    decoy = CreateWindowExA(0, wc.lpszClassName, "decoy", WS_OVERLAPPEDWINDOW,
+                             0, 0, 200, 200, NULL, NULL, wc.hInstance, NULL);
+    ok(tracked != NULL && decoy != NULL, "CreateWindowExA failed, error %lu\n", GetLastError());
+
+    g_hook_test_fire_count = 0;
+    ok(pTrack(tracked, hook_test_callback, NULL), "window_hook_track failed\n");
+
+    /* Moving the DECOY (untracked) window must not fire the callback. */
+    SetWindowPos(decoy, NULL, 50, 50, 200, 200, SWP_NOZORDER);
+    Sleep(50);
+    ok(g_hook_test_fire_count == 0, "decoy window move incorrectly fired the hook callback (%ld times)\n",
+       g_hook_test_fire_count);
+
+    /* Moving the TRACKED window must fire it. */
+    before = g_hook_test_fire_count;
+    SetWindowPos(tracked, NULL, 75, 75, 250, 250, SWP_NOZORDER);
+    Sleep(50);
+    ok(g_hook_test_fire_count > before, "tracked window move did not fire the hook callback\n");
+
+    pUntrack(tracked, hook_test_callback, NULL);
+
+    /* After untracking, further moves must not fire it. */
+    before = g_hook_test_fire_count;
+    SetWindowPos(tracked, NULL, 100, 100, 250, 250, SWP_NOZORDER);
+    Sleep(50);
+    ok(g_hook_test_fire_count == before, "hook callback fired after untrack\n");
+
+    DestroyWindow(tracked);
+    DestroyWindow(decoy);
+    UnregisterClassA(wc.lpszClassName, wc.hInstance);
+    FreeLibrary(mod);
+}
+
 /* Real Task 11 bug-fix regression test: GetAvailableCoreWebView2BrowserVersionString
  * was left as Task 3's original E_FAIL stub -- real Roblox Studio calls this
  * free-function export (no environment/controller needed) as the very first
@@ -1884,6 +1953,7 @@ cleanup:
 START_TEST(webview2loader)
 {
     test_module_loads();
+    test_window_hook_tracks_correct_hwnd();
     test_get_available_browser_version_string();
     test_compare_browser_versions();
     test_create_environment();

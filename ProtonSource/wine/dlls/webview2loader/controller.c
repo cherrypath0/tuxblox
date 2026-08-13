@@ -49,6 +49,15 @@ struct controller_impl
     BOOL allow_external_drop;              /* real default: TRUE */
 };
 
+/* Plan 3 Task 5: adapter from the WH_CALLWNDPROC hook's void(void*) shape
+ * (window_sync_callback) to controller_push_geometry_to_native's
+ * ICoreWebView2Controller* parameter -- see window_sync.c's own header
+ * comment for why the hook exists at all. */
+static void CALLBACK controller_geometry_sync_callback(void *user_data)
+{
+    controller_push_geometry_to_native((ICoreWebView2Controller *)user_data);
+}
+
 /* Tears down the real GTK window/WebKitWebView this controller owns.
  * Idempotent: real WebView2 allows Close() to be called more than once,
  * and Release() at refcount 0 must still clean up if Close() was never
@@ -59,6 +68,9 @@ static void controller_destroy_native(struct controller_impl *ctrl)
 
     if (ctrl->destroyed) return;
     ctrl->destroyed = TRUE;
+
+    if (!ctrl->is_message_only && ctrl->parent_window)
+        window_hook_untrack(ctrl->parent_window, controller_geometry_sync_callback, &ctrl->ICoreWebView2Controller_iface);
 
     params.handle = ctrl->native_handle;
     WEBVIEW2LOADER_UNIX_CALL(destroy_webview, &params);
@@ -420,6 +432,17 @@ HRESULT controller_create(UINT64 native_handle, HWND parent_window, ICoreWebView
     ctrl->should_detect_monitor_scale_changes = TRUE;
     ctrl->bounds_mode = COREWEBVIEW2_BOUNDS_MODE_USE_RAW_PIXELS;
     ctrl->allow_external_drop = TRUE;
+
+    /* Plan 3 Task 5: track this controller's top-level parent for
+     * move/show/hide -- only for a real (non-HWND_MESSAGE, non-NULL)
+     * parent, matching the design spec's own "installed when a controller
+     * with a real parent is created" rule. Failure here is non-fatal
+     * (matches this plan's Error Handling section): the controller still
+     * works, it just won't track top-level moves independent of explicit
+     * put_Bounds calls. */
+    if (!ctrl->is_message_only && ctrl->parent_window)
+        window_hook_track(ctrl->parent_window, controller_geometry_sync_callback, &ctrl->ICoreWebView2Controller_iface);
+
     *out = &ctrl->ICoreWebView2Controller_iface;
     return S_OK;
 }
