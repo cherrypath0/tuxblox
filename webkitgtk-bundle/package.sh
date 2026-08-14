@@ -75,6 +75,18 @@ cd "$PREFIX"
 mkdir -p libexec/gdk-pixbuf-tools
 cp -a bin/gdk-pixbuf-query-loaders libexec/gdk-pixbuf-tools/
 
+# webview2loader-host (plan 2026-08-14, Task 2): build-in-container.sh compiles this
+# straight into $PREFIX/bin (there's no from-source dependency chain here, just a
+# plain gcc invocation -- see that script's own comment), but bin/ as a whole is
+# deliberately excluded from the shipped tarball below (build-time CLI tools nothing
+# at runtime needs, per this file's own top-of-file comment #2). This is the one
+# bin/ binary that IS a real runtime artifact -- Task 3's unixlib.c execs it -- so,
+# same reasoning and same mechanism as gdk-pixbuf-query-loaders just above, it's
+# copied into libexec/ so the find/RPATH-rewrite loop and the tar command below pick
+# it up automatically without special-casing either one for a second top-level
+# bin/-derived file.
+cp -a bin/webview2loader-host libexec/
+
 echo ":: Rewriting RPATH/RUNPATH on every ELF file in the packaged tree"
 find include lib libexec etc share -type f \
     -not -path 'libexec/installed-tests/*' -not -path 'share/installed-tests/*' \

@@ -855,3 +855,26 @@ if ! strings "$PREFIX"/lib/libwebkitgtk-6.0.so.* 2>/dev/null | grep -q '^WEBKIT_
     echo "ERROR: WEBKIT_EXEC_PATH string not found in installed libwebkitgtk-6.0.so -- the Task 8 patch did not take effect" >&2
     exit 1
 fi
+
+# --- webview2loader-host (plan 2026-08-14, Task 2) --------------------------------
+# The separate helper process that owns the GTK4/WebKitGTK main loop out-of-process
+# from Wine (see the design spec's Lifecycle/IPC Protocol sections and Task 3's
+# unixlib.c client, not yet written as of this task). Built as a plain two-file gcc
+# invocation, not folded into any of the meson/cmake dependency builds above --
+# there's nothing to configure and no reason to give it its own build system. Source
+# lives at /src/host (the whole webkitgtk-bundle tree is bind-mounted read-only at
+# /src by build.sh's podman run, and build.sh additionally overlays Task 1's shared
+# protocol header at /src/host/webview2loader_ipc_protocol.h so this single source
+# tree compiles unmodified on both the Wine side and this GTK-process side).
+#
+# PKG_CONFIG_PATH is not re-derived inline here: it's already exported once at the
+# top of this script (see the LDFLAGS/CPPFLAGS block above) and every other build
+# step in this file already relies on that same exported value rather than repeating
+# it per-invocation -- matching that existing convention rather than inventing a new
+# one for just this step.
+echo ":: Building webview2loader-host"
+gcc -O2 -Wall -Werror -o "$PREFIX/bin/webview2loader-host" \
+    /src/host/main.c /src/host/ipc.c \
+    -I/src/host \
+    $(pkg-config --cflags gtk4) \
+    $(pkg-config --libs gtk4)
