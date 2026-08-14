@@ -21,10 +21,14 @@
  * that Task 3's unixlib.c (Wine side) talks to over a socket, using the
  * wire protocol in webview2loader_ipc_protocol.h. This task only wires up
  * the dispatch loop skeleton -- WV2L_OP_INIT is handled for real (there's
- * nothing more to initialize yet beyond GTK itself, done in main() below),
- * every other opcode is a stub that consumes its request struct and replies
- * with an honest all-zero/failure response so the wire stays framed. Tasks
- * 4-6 replace each stub with the real ported handler.
+ * nothing more to initialize yet beyond GTK itself, done in main() below).
+ * Every other opcode defined in the protocol header has its own named case
+ * that fully reads its specific request struct and replies with an honest
+ * all-zero/failure response, so the wire always stays correctly framed no
+ * matter which of the 10 opcodes Task 3 sends first -- `default:` is
+ * reserved for a genuinely out-of-range opcode value (real protocol
+ * corruption), not for "not implemented yet". Tasks 4-6 replace each stub
+ * with the real ported handler, one case at a time.
  *
  * Deviation from the plan brief's example, found while actually compiling
  * this against the real GTK4 headers this bundle builds (build-in-container.sh
@@ -44,7 +48,6 @@
 #include <glib-unix.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <sys/prctl.h>
 #include <signal.h>
 #include "ipc.h"
@@ -72,12 +75,14 @@ static gboolean on_ipc_readable(gint fd, GIOCondition condition, gpointer user_d
         if (ipc_write_full(fd, &p, sizeof(p)) < 0) { g_main_loop_quit(g_loop); return G_SOURCE_REMOVE; }
         return G_SOURCE_CONTINUE;
     }
-    /* Every other opcode: read its struct (still need to consume the exact
-     * byte count so the stream stays framed for whatever request comes
-     * next), respond with an all-zero/failure struct. Tasks 4-6 replace
-     * each case with the real ported handler; until then this is an
-     * honest "not implemented yet", never a hang or a protocol
-     * desync. */
+    /* Every opcode below: fully read its own request struct (still need to
+     * consume the exact byte count so the stream stays framed for whatever
+     * request comes next, whatever its size -- these structs are NOT all
+     * the same size), respond with an all-zero/failure struct of the same
+     * type. Tasks 4-6 replace each case with the real ported handler; until
+     * then this is an honest "not implemented yet" for that one call, never
+     * a hang, a crash, or a protocol desync that would take down the whole
+     * IPC channel for every other opcode too. */
     case WV2L_OP_CREATE_WEBVIEW:
     {
         struct wv2l_create_webview_params p;
@@ -86,6 +91,83 @@ static gboolean on_ipc_readable(gint fd, GIOCondition condition, gpointer user_d
         if (ipc_write_full(fd, &p, sizeof(p)) < 0) { g_main_loop_quit(g_loop); return G_SOURCE_REMOVE; }
         return G_SOURCE_CONTINUE;
     }
+    case WV2L_OP_DESTROY_WEBVIEW:
+    {
+        struct wv2l_destroy_webview_params p;
+        if (ipc_read_full(fd, &p, sizeof(p)) < 0) { g_main_loop_quit(g_loop); return G_SOURCE_REMOVE; }
+        /* No `out` fields defined for this opcode (see the protocol header) --
+         * write the struct back unchanged, same framing contract as every
+         * other opcode: caller always gets exactly one response struct back. */
+        if (ipc_write_full(fd, &p, sizeof(p)) < 0) { g_main_loop_quit(g_loop); return G_SOURCE_REMOVE; }
+        return G_SOURCE_CONTINUE;
+    }
+    case WV2L_OP_NAVIGATE_AND_WAIT:
+    {
+        struct wv2l_navigate_params p;
+        if (ipc_read_full(fd, &p, sizeof(p)) < 0) { g_main_loop_quit(g_loop); return G_SOURCE_REMOVE; }
+        p.is_success = 0;
+        p.navigation_id = 0;
+        if (ipc_write_full(fd, &p, sizeof(p)) < 0) { g_main_loop_quit(g_loop); return G_SOURCE_REMOVE; }
+        return G_SOURCE_CONTINUE;
+    }
+    case WV2L_OP_DELETE_ALL_COOKIES:
+    {
+        struct wv2l_delete_all_cookies_params p;
+        if (ipc_read_full(fd, &p, sizeof(p)) < 0) { g_main_loop_quit(g_loop); return G_SOURCE_REMOVE; }
+        /* No `out` fields defined for this opcode either -- see above. */
+        if (ipc_write_full(fd, &p, sizeof(p)) < 0) { g_main_loop_quit(g_loop); return G_SOURCE_REMOVE; }
+        return G_SOURCE_CONTINUE;
+    }
+    case WV2L_OP_COUNT_COOKIES:
+    {
+        struct wv2l_count_cookies_params p;
+        if (ipc_read_full(fd, &p, sizeof(p)) < 0) { g_main_loop_quit(g_loop); return G_SOURCE_REMOVE; }
+        p.count = 0;
+        if (ipc_write_full(fd, &p, sizeof(p)) < 0) { g_main_loop_quit(g_loop); return G_SOURCE_REMOVE; }
+        return G_SOURCE_CONTINUE;
+    }
+    case WV2L_OP_GET_COOKIES:
+    {
+        struct wv2l_get_cookies_params p;
+        if (ipc_read_full(fd, &p, sizeof(p)) < 0) { g_main_loop_quit(g_loop); return G_SOURCE_REMOVE; }
+        p.success = 0;
+        p.count = 0;
+        if (ipc_write_full(fd, &p, sizeof(p)) < 0) { g_main_loop_quit(g_loop); return G_SOURCE_REMOVE; }
+        return G_SOURCE_CONTINUE;
+    }
+    case WV2L_OP_GET_WINDOW_VISIBLE:
+    {
+        struct wv2l_get_window_visible_params p;
+        if (ipc_read_full(fd, &p, sizeof(p)) < 0) { g_main_loop_quit(g_loop); return G_SOURCE_REMOVE; }
+        p.visible = 0;
+        if (ipc_write_full(fd, &p, sizeof(p)) < 0) { g_main_loop_quit(g_loop); return G_SOURCE_REMOVE; }
+        return G_SOURCE_CONTINUE;
+    }
+    case WV2L_OP_SYNC_WINDOW_GEOMETRY:
+    {
+        struct wv2l_sync_window_geometry_params p;
+        if (ipc_read_full(fd, &p, sizeof(p)) < 0) { g_main_loop_quit(g_loop); return G_SOURCE_REMOVE; }
+        p.success = 0;
+        if (ipc_write_full(fd, &p, sizeof(p)) < 0) { g_main_loop_quit(g_loop); return G_SOURCE_REMOVE; }
+        return G_SOURCE_CONTINUE;
+    }
+    case WV2L_OP_GET_WINDOW_GEOMETRY:
+    {
+        struct wv2l_get_window_geometry_params p;
+        if (ipc_read_full(fd, &p, sizeof(p)) < 0) { g_main_loop_quit(g_loop); return G_SOURCE_REMOVE; }
+        p.success = 0;
+        p.screen_bounds.left = 0;
+        p.screen_bounds.top = 0;
+        p.screen_bounds.right = 0;
+        p.screen_bounds.bottom = 0;
+        if (ipc_write_full(fd, &p, sizeof(p)) < 0) { g_main_loop_quit(g_loop); return G_SOURCE_REMOVE; }
+        return G_SOURCE_CONTINUE;
+    }
+    /* Reserved for a truly out-of-range/garbage opcode value that doesn't
+     * match any of the 10 real opcodes above -- genuine protocol corruption,
+     * so terminating the helper here (rather than trying to guess a framing)
+     * is still the right call. Every opcode wv2l_opcode actually defines has
+     * its own case above and must never fall through to here. */
     default:
         fprintf(stderr, "webview2loader-host: unknown/unimplemented opcode %u\n", opcode);
         g_main_loop_quit(g_loop);

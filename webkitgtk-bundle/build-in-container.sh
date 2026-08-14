@@ -868,10 +868,19 @@ fi
 # tree compiles unmodified on both the Wine side and this GTK-process side).
 #
 # PKG_CONFIG_PATH is not re-derived inline here: it's already exported once at the
-# top of this script (see the LDFLAGS/CPPFLAGS block above) and every other build
-# step in this file already relies on that same exported value rather than repeating
-# it per-invocation -- matching that existing convention rather than inventing a new
-# one for just this step.
+# top of this script and every other build step in this file already relies on
+# that same exported value rather than repeating it per-invocation -- matching
+# that existing convention rather than inventing a new one for just this step.
+# Note this is PKG_CONFIG_PATH specifically, not the LDFLAGS/CPPFLAGS/CFLAGS also
+# exported up there: those are consumed automatically by the meson/autotools/cmake
+# build systems every other step in this script drives, but a bare `gcc` invocation
+# like this one does NOT read any of those env vars on its own -- gcc has no
+# implicit LDFLAGS/CPPFLAGS/CFLAGS behavior, only what's literally on its command
+# line. That's harmless here specifically because `pkg-config --cflags/--libs gtk4`
+# below already supplies every -I/-L/-l flag this compile actually needs; it would
+# matter for a future addition to this step that needed anything from those other
+# exported vars.
+
 echo ":: Building webview2loader-host"
 gcc -O2 -Wall -Werror -o "$PREFIX/bin/webview2loader-host" \
     /src/host/main.c /src/host/ipc.c \

@@ -36,6 +36,30 @@ resp = a.recv(4)
 success, = struct.unpack("<i", resp)
 assert success == 1, f"expected success=1, got {success}"
 print("WV2L_OP_INIT round-trip OK")
+
+# Regression guard for the "default: kills the whole process" bug a review round
+# caught in this exact dispatch loop: WV2L_OP_DESTROY_WEBVIEW = 2,
+# struct wv2l_destroy_webview_params { uint64_t handle; } -> 8 bytes, no `out`
+# fields, so main.c's stub case just echoes the struct back unchanged. What this
+# actually proves isn't the echoed bytes (trivial) -- it's that sending a
+# not-yet-implemented opcode gets a clean, well-framed response instead of
+# silently killing the helper (the old `default:` behavior), confirmed below by
+# still being able to talk to the SAME process afterward.
+a.sendall(struct.pack("<I", 2) + struct.pack("<Q", 0xDEADBEEF))
+resp = a.recv(8)
+handle, = struct.unpack("<Q", resp)
+assert handle == 0xDEADBEEF, f"expected echoed handle=0xDEADBEEF, got {handle:#x}"
+assert p.poll() is None, "helper process exited after a stub opcode -- it should have stayed alive"
+print("WV2L_OP_DESTROY_WEBVIEW stub round-trip OK (process still alive)")
+
+# And the process is still genuinely responsive, not just technically running --
+# a second WV2L_OP_INIT after the stub call still gets a real answer.
+a.sendall(struct.pack("<I", 0) + struct.pack("<i", 0))
+resp = a.recv(4)
+success, = struct.unpack("<i", resp)
+assert success == 1, f"expected success=1 on second WV2L_OP_INIT, got {success}"
+print("post-stub WV2L_OP_INIT round-trip OK")
+
 a.close()
 p.wait(timeout=5)
 PYEOF
