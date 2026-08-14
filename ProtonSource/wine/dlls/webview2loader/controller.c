@@ -199,6 +199,66 @@ void controller_push_geometry_to_native(ICoreWebView2Controller *iface)
     params.handle = ctrl->native_handle;
     params.screen_bounds = controller_compute_screen_bounds(origin, ctrl->bounds);
     params.visible = ctrl->visible;
+    /* Task 7 crash fix, round 15: real WebView2 embeds its browser control
+     * as a genuine child of the app's own HWND -- the previous design here
+     * (an independent top-level GTK window, manually repositioned via raw
+     * XMoveResizeWindow to visually overlay the parent) only ever
+     * approximated that, and per the repo owner's own direct, explicit
+     * feedback against a real build ("webview will be in the SAME window
+     * as the one roblox launches, not separate"), an approximation isn't
+     * good enough -- real X11-level reparenting is needed. Wine's own
+     * winex11.drv exposes the parent HWND's real X11 "whole window" XID
+     * via a window property specifically for this kind of external-code
+     * embedding use case (confirmed via that driver's own source:
+     * dlls/winex11.drv/window.c sets/removes __wine_x11_whole_window on
+     * every real top-level HWND, and X11DRV_get_whole_window itself falls
+     * back to reading this same property when it has no local win-data --
+     * i.e. this is the sanctioned way for code outside the driver to
+     * discover it, not an internal-only accident). 0 if the property
+     * isn't set (e.g. parent_window isn't a real top-level, or Wine hasn't
+     * created its whole_window yet) -- the unix side degrades to the
+     * previous floating-window behavior in that case, same
+     * never-fatal-just-degrade pattern this whole plan already uses
+     * throughout. */
+    /* Task 7 crash fix, round 18: a real relaunch (the first one to
+     * actually reach this code path with logging enabled) proved via
+     * direct XQueryTree inspection that reparenting was NEVER happening
+     * at all -- every webview2loader-created X11 window still reported
+     * the real root window as its parent, and __wine_x11_whole_window
+     * was never observed non-zero. Root cause: ctrl->parent_window is
+     * commonly a CHILD HWND (a real WebView2 host normally embeds the
+     * browser control inside a child placeholder panel, not directly
+     * inside its own top-level window), and winex11.drv only ever
+     * creates/sets __wine_x11_whole_window on genuine top-level HWNDs --
+     * plain WS_CHILD windows share their top-level ancestor's own X11
+     * surface and never get one of their own. Querying the property
+     * directly on ctrl->parent_window in that case silently, always
+     * returns 0/NULL, which this code already had a graceful fallback
+     * for (see the comment above) -- meaning the whole reparenting
+     * feature was quietly falling back to the pre-round-15
+     * floating-window behavior on every real run, never actually
+     * failing loudly enough to notice without this specific diagnostic.
+     * Fix: resolve the real top-level ancestor via GetAncestor(...,
+     * GA_ROOT) first -- a real, standard Win32 API (winuser.h) for
+     * exactly this child-to-top-level walk -- and query the property on
+     * THAT HWND instead. Falls back to ctrl->parent_window itself if
+     * GetAncestor somehow returns NULL (shouldn't happen for a live
+     * HWND, but never fatal, matching this whole plan's own pattern). */
+    {
+        HWND top_level = GetAncestor(ctrl->parent_window, GA_ROOT);
+        if (!top_level) top_level = ctrl->parent_window;
+        params.parent_xid = (UINT64)(ULONG_PTR)GetPropA(top_level, "__wine_x11_whole_window");
+        /* Unconditional (not TUXBLOX_TRACE-gated) -- round 18 was added
+         * specifically because the previous silent-fallback behavior was
+         * undetectable without a live debugger. This one line is cheap
+         * enough (once per put_Bounds/geometry-sync call, not per frame)
+         * to always log, and losing it to a missing env var is exactly
+         * what already cost a full extra investigation round. */
+        WARN("parent_window=%p top_level_ancestor=%p __wine_x11_whole_window=%s (parent_xid=0x%s)\n",
+             ctrl->parent_window, top_level,
+             params.parent_xid ? "set" : "NOT SET (0) -- will degrade to floating-window fallback",
+             wine_dbgstr_longlong(params.parent_xid));
+    }
     params.success = FALSE;
     WEBVIEW2LOADER_UNIX_CALL(sync_window_geometry, &params);
     /* Failure here degrades to a floating/stale window, matching this

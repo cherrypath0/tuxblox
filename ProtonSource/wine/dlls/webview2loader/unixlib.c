@@ -196,9 +196,34 @@ extern void g_signal_handler_disconnect(void *instance, unsigned long handler_id
 extern gboolean gtk_init_check(void);
 extern GtkWidget *gtk_window_new(void);
 extern void gtk_window_set_child(GtkWindow *window, GtkWidget *child);
+/* Task 7 crash fix, round 13: real GTK4 API (docs.gtk.org/gtk4/method.
+ * Window.set_decorated.html) -- without this, nv->window is a completely
+ * ordinary top-level GtkWindow as far as the window manager (KWin, in
+ * this environment) is concerned, so it draws its own full title bar,
+ * borders, and min/max/close controls on it, exactly like any other
+ * independent app window. Real WebView2 controls on native Windows are
+ * borderless child controls with zero window chrome of their own -- the
+ * actual visual target here. Fixing round 12's position/xid bug alone
+ * (real, kept -- XMoveResizeWindow now genuinely succeeds with a valid
+ * xid) still wasn't enough on its own for this to visually read as
+ * "docked into Studio" rather than "a second window sitting on top of
+ * the first": confirmed via the repo owner's own live screenshots, which
+ * show this window's own titled frame even after position sync started
+ * genuinely working. */
+extern void gtk_window_set_decorated(GtkWindow *window, gboolean setting);
 extern void gtk_window_present(GtkWindow *window);
 extern void gtk_widget_show(GtkWidget *widget);
 extern gboolean gtk_widget_get_visible(GtkWidget *widget);
+/* Task 7 crash fix, round 11: diagnostic-only (repo owner wants real
+ * docking fixed, not just the crash guarded -- see this file's own git
+ * log). Real, documented GTK4 API (docs.gtk.org/gtk4/method.Widget.
+ * get_realized.html / get_mapped.html) used here purely to observe the
+ * ACTUAL live realize/map state of nv->window at the moment
+ * gdk_x11_surface_get_xid returns garbage, rather than relying on GTK4's
+ * own documented (but unverified-live) contract that gtk_widget_show()
+ * on a toplevel synchronously realizes+maps it. */
+extern gboolean gtk_widget_get_realized(GtkWidget *widget);
+extern gboolean gtk_widget_get_mapped(GtkWidget *widget);
 /* Destroys the window and, since it's still set as the window's child at
  * that point, its WebKitWebView along with it -- GTK4's normal container
  * ownership model tears down children when their parent is destroyed, so
@@ -262,6 +287,112 @@ extern void gtk_window_set_default_size(GtkWindow *window, int width, int height
  * linking against libX11 at Wine's own build time. */
 extern int XMoveResizeWindow(Display *display, unsigned long w, int x, int y,
                               unsigned int width, unsigned int height);
+
+/* Task 7 crash fix, round 15: real X11-level reparenting -- see this
+ * file's own sync_window_geometry_on_gtk_thread and controller.c's
+ * controller_push_geometry_to_native for the full rationale (repo
+ * owner's direct ask: real embedding, not a manually-repositioned
+ * floating window). Real Xlib entry points, same host-resident-library
+ * situation as XMoveResizeWindow's own extern comment above -- no new
+ * host dependency. */
+extern int XReparentWindow(Display *display, unsigned long w, unsigned long parent, int x, int y);
+/* Real return type is Xlib's Bool (an int), per the same "hand-declare,
+ * no real header" convention as every other extern in this file. Used to
+ * translate the already-computed absolute screen position into
+ * coordinates relative to the NEW parent (whatever offset the parent's
+ * own window-manager decorations/borders/Wine-drawn chrome introduce
+ * between its own top-left corner and the root window's origin) --
+ * genuine X11 coordinate translation, not a guessed/hardcoded offset. */
+extern int XTranslateCoordinates(Display *display, unsigned long src_w, unsigned long dest_w,
+                                  int src_x, int src_y, int *dest_x_return, int *dest_y_return,
+                                  unsigned long *child_return);
+extern unsigned long XDefaultRootWindow(Display *display);
+
+/* Task 7 crash fix, round 17: a real, reproducible crash found via the
+ * fast unit-test pass (not yet a real relaunch -- caught before it could
+ * become one): XReparentWindow (round 15) against a stale/invalid
+ * parent_xid produced a genuine X11 protocol error (BadWindow, request
+ * code 7 == ReparentWindow), and Xlib's OWN default error handler
+ * (installed by GDK during its own init, or Xlib's own built-in default
+ * if nothing else claimed it) treats ANY X protocol error as FATAL --
+ * calling exit()/abort() on the whole process. This is a real, serious
+ * hazard specifically FOR round 15's own new XReparentWindow call: unlike
+ * XMoveResizeWindow (always operating on a window this DLL itself
+ * created and fully owns the lifecycle of), XReparentWindow's second
+ * argument is a window this DLL does NOT own or control the lifecycle of
+ * at all (Wine's own winex11.drv, reading a value that could be stale --
+ * see parent_xid's own comment on whole_window recreation) -- exactly
+ * the kind of externally-sourced, not-fully-trustworthy value real,
+ * defensive Xlib code brackets with a custom, non-fatal error handler.
+ * Real Xlib API (XSetErrorHandler, X11/Xlib.h) -- installed in
+ * gtk_thread_proc AFTER gtk_init_check() succeeds (so it overrides
+ * whatever handler GDK's own X11 backend init installed, rather than
+ * being overridden BY it), covering every raw Xlib call this file makes
+ * from that point on, not just XReparentWindow specifically. */
+typedef struct
+{
+    int type;
+    Display *display;
+    unsigned long serial;
+    unsigned char error_code;
+    unsigned char request_code;
+    unsigned char minor_code;
+    unsigned long resourceid;
+} XErrorEvent;
+extern int (*XSetErrorHandler(int (*handler)(Display *, XErrorEvent *)))(Display *, XErrorEvent *);
+
+/* Task 7 crash fix, round 18: forces the just-issued XReparentWindow
+ * request (and any error reply the server sends back for it) to actually
+ * complete/arrive before the code right after it checks whether
+ * x11_error_handler fired -- see that call site's own comment. Real,
+ * standard Xlib API (X11/Xlib.h); the `int` second parameter is
+ * Xlib's own Bool `discard` flag (0 == don't discard queued events, just
+ * flush and wait, which is what's wanted here -- discarding would also
+ * throw away legitimate unrelated events other parts of this file's own
+ * event handling might still need). */
+extern int XSync(Display *display, int discard);
+
+/* Task 7 crash fix, round 19: the actual root-cause fix for the
+ * put_Bounds-after-reparent size-readback bug -- see
+ * sync_window_geometry_on_gtk_thread's own comment at the XSendEvent call
+ * site for the full ICCCM-based explanation. XSendEvent's real signature
+ * takes an XEvent* (a union of every core event struct, padded to the
+ * largest member's size); this file has no real <X11/Xlib.h> to pull that
+ * union in from, so -- same hand-declare convention as XErrorEvent above --
+ * only the ConfigureNotify-shaped view of it is declared here
+ * (XConfigureEvent, matching real Xlib's exact field layout/order), which is
+ * exactly the view XSendEvent's own wire-marshalling code reads through
+ * once `.type == ConfigureNotify` selects that branch internally. Passed to
+ * XSendEvent via a cast, the same pattern any real X11 client code sending
+ * a synthetic ConfigureNotify uses -- safe because XConfigureEvent is
+ * smaller than the real XEvent union it's standing in for. */
+typedef struct
+{
+    int type;
+    unsigned long serial;
+    int send_event;
+    Display *display;
+    unsigned long event;
+    unsigned long window;
+    int x, y;
+    int width, height;
+    int border_width;
+    unsigned long above;
+    int override_redirect;
+} XConfigureEvent;
+extern int XSendEvent(Display *display, unsigned long w, int propagate, long event_mask, void *event_send);
+/* Real X11 core protocol constants (X11/X.h) -- ConfigureNotify's numeric
+ * event-type code and the StructureNotifyMask event-selection bit a client
+ * must pass to XSendEvent for the server to actually deliver a synthetic
+ * event to a window that didn't itself opt into receiving it via
+ * SelectInput (StructureNotifyMask is exactly the mask GDK/GTK always
+ * selects on its own toplevel surfaces already, for its own real-event
+ * handling -- this just has to match that same bit for XSendEvent's
+ * targeted delivery to reach it). Hand-declared, not pulled from a real
+ * header, for the same reason every other X11 constant/struct in this file
+ * is -- no real X11 headers are available at Wine's own build time here. */
+#define TUXBLOX_ConfigureNotify 22
+#define TUXBLOX_StructureNotifyMask (1L << 17)
 
 /* Task 7 real-launch crash fix, round 3: a real relaunch still segfaulted
  * at this exact call site (_XGetRequest, deep inside XMoveResizeWindow)
@@ -446,10 +577,13 @@ extern _Bool JSConfigureSignalForGC(int signalNumber);
 #define GTK_FUNCS \
     DO_FUNC(gtk_init_check); \
     DO_FUNC(gtk_window_new); \
+    DO_FUNC(gtk_window_set_decorated); \
     DO_FUNC(gtk_window_set_child); \
     DO_FUNC(gtk_window_present); \
     DO_FUNC(gtk_widget_show); \
     DO_FUNC(gtk_widget_get_visible); \
+    DO_FUNC(gtk_widget_get_realized); \
+    DO_FUNC(gtk_widget_get_mapped); \
     DO_FUNC(gtk_widget_get_native); \
     DO_FUNC(gtk_native_get_surface); \
     DO_FUNC(gdk_surface_get_display); \
@@ -529,7 +663,13 @@ extern _Bool JSConfigureSignalForGC(int signalNumber);
     DO_FUNC(XMoveResizeWindow); \
     DO_FUNC(XInitThreads); \
     DO_FUNC(XLockDisplay); \
-    DO_FUNC(XUnlockDisplay)
+    DO_FUNC(XUnlockDisplay); \
+    DO_FUNC(XReparentWindow); \
+    DO_FUNC(XTranslateCoordinates); \
+    DO_FUNC(XDefaultRootWindow); \
+    DO_FUNC(XSetErrorHandler); \
+    DO_FUNC(XSync); \
+    DO_FUNC(XSendEvent)
 
 #define DO_FUNC(f) typeof(f) *p_##f
 GLIB_FUNCS; GOBJECT_FUNCS; GTK_FUNCS; WEBKIT_FUNCS; SOUP_FUNCS; JAVASCRIPTCORE_FUNCS; X11_FUNCS;
@@ -697,6 +837,48 @@ static BOOL load_bundle_functions(void)
     X11_FUNCS;
 #undef DO_FUNC
 
+    /* Task 7 crash fix, round 12: symbol-resolution sanity check (repo
+     * owner wants real docking fixed, not just guarded -- round 11's own
+     * live realized=1/mapped=1 data ruled out the "called before realize"
+     * theory for real, pointing back at whether p_gdk_x11_surface_get_xid
+     * is actually the real GTK4 symbol at all, per the round-9 subagent
+     * investigation's own suggested next step). No live debugger is
+     * available in this environment (ptrace_scope=1, no passwordless
+     * sudo -- see this file's own git log), so this does the equivalent
+     * self-inspection from inside the process instead: read this
+     * process's own /proc/self/maps (no ptrace needed -- a process can
+     * always read its own maps) to find the bundled libgtk-4.so.1's real
+     * load base, and log it alongside the actual resolved function
+     * pointer. Comparing the two (offset = pointer - base) against the
+     * real bundled .so file's own symbol table (`nm -D`/`readelf`, done
+     * separately, outside this process) tells whether dlsym resolved the
+     * genuine exported symbol or something else. Logged once, at load
+     * time, not per-call. */
+    {
+        FILE *maps = fopen("/proc/self/maps", "r");
+        char line[512];
+        unsigned long gtk_base = 0;
+
+        if (maps)
+        {
+            while (fgets(line, sizeof(line), maps))
+            {
+                if (strstr(line, "libgtk-4.so.1") && !gtk_base)
+                {
+                    gtk_base = strtoul(line, NULL, 16);
+                    break;
+                }
+            }
+            fclose(maps);
+        }
+        GTK_THREAD_LOG("symbol-resolution check: libgtk-4.so.1 load base=0x%lx "
+                        "p_gdk_x11_surface_get_xid=%p (offset=0x%lx) "
+                        "p_gtk_native_get_surface=%p p_gdk_surface_get_display=%p\n",
+                        gtk_base, (void *)p_gdk_x11_surface_get_xid,
+                        gtk_base ? (unsigned long)p_gdk_x11_surface_get_xid - gtk_base : 0,
+                        (void *)p_gtk_native_get_surface, (void *)p_gdk_surface_get_display);
+    }
+
     /* Task 11 real-bug fix -- must run here, before this function returns
      * and unix_init_impl goes on to pthread_create() the GTK thread that
      * will eventually call webkit_web_view_new() (create_webview_on_gtk_thread
@@ -839,6 +1021,49 @@ static BOOL gtk_thread_ready;
  * STATUS_SUCCESS unless this is TRUE too. */
 static BOOL gtk_thread_init_ok;
 
+/* Task 7 crash fix, round 17 -- see the XSetErrorHandler extern's own
+ * comment above (near XDefaultRootWindow) for the full BadWindow crash
+ * this addresses. Xlib's documented contract for a custom error handler:
+ * it runs synchronously on whichever thread issued the offending
+ * request (always gtk_thread here -- every raw Xlib call in this file is
+ * made from that single serialized thread), must not call back into
+ * Xlib itself, and its return value is ignored by Xlib (only NOT calling
+ * exit()/abort() matters). GTK_THREAD_LOG rather than WARN/ERR for the
+ * same TEB-safety reason documented on that macro itself. Deliberately
+ * generic ("an X11 request failed") rather than a NULL-checked display
+ * name / request-code table lookup: the goal here is solely "don't let
+ * one bad window ID committed by external, not-fully-trustworthy state
+ * (see parent_xid's own comment) take down the whole process," not a
+ * full diagnostic decoder -- request_code/error_code are still logged
+ * raw for anyone reading the log to cross-reference against
+ * /usr/include/X11/Xproto.h by hand if needed. */
+/* Task 7 crash fix, round 18 -- see x11_error_handler's own comment just
+ * below for why this exists. */
+static BOOL x11_error_seen_during_call;
+
+static int x11_error_handler(Display *display, XErrorEvent *event)
+{
+    GTK_THREAD_LOG("Xlib reported a non-fatal X11 protocol error (request_code=%u "
+                    "minor_code=%u error_code=%u serial=%lu) -- ignoring instead of "
+                    "letting Xlib's own default handler abort the process\n",
+                    event ? (unsigned)event->request_code : 0,
+                    event ? (unsigned)event->minor_code : 0,
+                    event ? (unsigned)event->error_code : 0,
+                    event ? event->serial : 0UL);
+    /* Task 7 crash fix, round 18: the repo owner's own reviewer correctly
+     * flagged this handler as the prime suspect for turning a real,
+     * silent XReparentWindow failure into an invisible no-op -- exactly
+     * the tradeoff a non-fatal error handler makes. Setting this flag
+     * (checked immediately after XReparentWindow + XSync, see that call
+     * site's own comment) makes that tradeoff observable again instead of
+     * genuinely invisible: gtk_thread is single-threaded by this whole
+     * file's own established invariant (every raw Xlib call happens on
+     * this one serialized thread), so a plain static flag needs no
+     * locking, same as xmove_call_count just below. */
+    x11_error_seen_during_call = TRUE;
+    return 0;
+}
+
 static void *gtk_thread_proc(void *arg)
 {
     BOOL ok;
@@ -853,10 +1078,72 @@ static void *gtk_thread_proc(void *arg)
      * X11 backend -- calling it again there is a documented no-op/safe, so
      * there's no harm doing it twice; what matters is that it happens
      * before ANY Xlib activity, which this guarantees regardless of GDK's
-     * own internal ordering. */
-    p_XInitThreads();
+     * own internal ordering.
+     *
+     * Code review fix: the real return value (a real Xlib Status, non-zero
+     * on success) was previously discarded. If this ever legitimately
+     * fails (rare, but real -- e.g. a libX11 build without thread support),
+     * Xlib's own documented behavior is for XLockDisplay/XUnlockDisplay to
+     * silently become no-ops, which would quietly reopen the exact TOCTOU
+     * race rounds 3-6 spent most of their effort closing, with nothing
+     * anywhere indicating the locking had become inert. Loud diagnostic
+     * (GTK_THREAD_LOG -- see its own comment for why not WARN/ERR here)
+     * rather than a hard init failure: this thread can still do useful
+     * work (visibility/size sync, cookies, navigation) even if X11 position
+     * sync specifically degrades. */
+    if (!p_XInitThreads())
+        GTK_THREAD_LOG("XInitThreads() failed -- XLockDisplay/XUnlockDisplay will silently "
+                        "no-op per Xlib's own documented behavior, reopening the exact TOCTOU "
+                        "race this file's own git log documents fixing\n");
+
+    /* Task 7 crash fix, round 12: force GTK4's own backend selection to
+     * X11, not Wayland. Round 11's live diagnostic data (realized=1,
+     * mapped=1, every single call) conclusively ruled out any lifecycle/
+     * ordering theory for the deterministic garbage xid rounds 9-11 kept
+     * observing. This environment is a genuine Wayland compositor session
+     * (WAYLAND_DISPLAY set, confirmed via the repo's own env at real
+     * launch time) and GDK_BACKEND is never set anywhere in this
+     * codebase -- GTK4's own documented behavior is to auto-detect and
+     * PREFER native Wayland over X11 whenever both are available, unless
+     * an app explicitly forces otherwise. If the bundled GTK4 stack this
+     * DLL loads actually initialized under the native Wayland backend,
+     * every gdk_x11_surface_get_xid(surface) call this file makes is a
+     * real type mismatch: `surface` would be a GdkWaylandSurface*, not a
+     * GdkX11Surface*, and if this GDK4 build's internal type-check for
+     * that cast doesn't cleanly reject it (returning the documented safe
+     * 0 the `!xid` guard above already handles), the function instead
+     * reads whatever real pointer-sized field a Wayland surface happens
+     * to store at the offset an X11 surface would keep its XID at --
+     * exactly matching every round-9-through-11 observation: always
+     * non-zero (never a clean 0 -- consistent with an unchecked/
+     * mis-validated cast, not a failed one), always pointer-shaped (a
+     * real, valid Wayland-surface-internal pointer, not corrupted/freed
+     * memory -- consistent with nothing rounds 1-6's UAF/locking/
+     * ref-counting fixes ever finding a genuinely invalid object), and
+     * always the exact same value per surface (a fixed struct offset read
+     * deterministically, not a race). Must be set via setenv() here,
+     * before gtk_init_check() below -- that's the one call that actually
+     * opens GDK's display connection and locks in its backend choice; GDK
+     * reads GDK_BACKEND during that same call, so this has to land before
+     * it, same ordering requirement XInitThreads() above already has for
+     * a different reason. */
+    setenv("GDK_BACKEND", "x11", 1);
 
     ok = p_gtk_init_check();
+
+    /* Task 7 crash fix, round 17: install AFTER gtk_init_check() (not
+     * before), specifically so this overrides whatever error handler
+     * GDK's own X11 backend init installed for itself while opening the
+     * display connection above, rather than being silently clobbered BY
+     * it -- same "must come after the call that locks in GDK's own X11
+     * setup" ordering already established for GDK_BACKEND above, just on
+     * the other side of that call instead of before it. Installed
+     * unconditionally (not gated on `ok`): even a failed gtk_init_check()
+     * may have partially opened an X11 display connection this thread
+     * could still make raw Xlib calls against before exiting, and a
+     * missing handler here is exactly the fatal-abort gap this round
+     * fixes, so there's no safe case to skip it in. */
+    p_XSetErrorHandler(x11_error_handler);
 
     /* Only build the main loop if init actually succeeded -- calling
      * g_main_loop_new()/g_main_loop_run() after a failed gtk_init_check()
@@ -1075,6 +1362,16 @@ struct native_webview
 {
     GtkWidget *window;
     WebKitWebView *view;
+    /* Task 7 crash fix, round 15: which real X11 parent window (if any)
+     * nv->window has already been XReparentWindow'd into -- see
+     * sync_window_geometry_on_gtk_thread's own comment. 0 means "not
+     * reparented yet" (still an independent top-level, or no valid
+     * parent_xid has ever been supplied). Re-checked against the current
+     * params->parent_xid on every call so a change (including recovering
+     * from Wine recreating the parent's whole_window, a real, documented
+     * risk noted in that same comment) re-reparents on the next call
+     * rather than silently going stale. */
+    unsigned long reparented_into;
 };
 
 /* Task 7 real-launch crash fix, round 2: a defensive NULL-Display* check
@@ -1156,12 +1453,80 @@ struct create_webview_ctx
     struct native_webview *nv;
 };
 
+/* Task 7 crash fix, round 14: a real, reproducible double-destroy crash
+ * (coredump, RAX == 0xaaaaaaaaaaaaaaaa -- GLib's own "gc-friendly" freed-
+ * memory poison fill -- reading through nv->window inside GTK4's own
+ * gtk_window_destroy(), called from this file's own destroy_webview_
+ * on_gtk_thread) surfaced for the first time only after round 12's
+ * GDK_BACKEND=x11 fix made these windows genuinely X11/WM-backed for the
+ * first time this whole session (rounds 1-11 were silently Wayland-
+ * backed the entire time, per round 12's own root-cause finding -- a
+ * window that's not really window-manager-managed can't receive a real
+ * close request from one either, which is almost certainly why this
+ * exact crash class never surfaced before). GTK4's own documented
+ * default behavior for GtkWindow::close-request (docs.gtk.org/gtk4/
+ * signal.Window.close-request.html) is to destroy the window itself
+ * unless a connected handler returns TRUE to stop that. This file never
+ * connected one, so any window-manager-initiated close (the WM's own
+ * close button, Alt+F4, etc. -- all real possibilities once a window is
+ * genuinely WM-managed) could trigger GTK4 to self-destroy nv->window
+ * out from under this file's own bookkeeping; a later, entirely normal
+ * Close()/Release() on the same real WebView2 controller then calls this
+ * file's own destroy_webview_on_gtk_thread, which tries to destroy the
+ * same (already GTK-internally-destroyed) widget a second time -- a
+ * genuine double-destroy, exactly matching the observed poisoned-read
+ * crash. Real WebView2 controllers are never independently closable by
+ * the user or window manager at all (only via the real API's own
+ * Close()), so unconditionally stopping this signal is the correct
+ * semantic fix, not just a crash workaround -- matches round 13's
+ * decoration fix in spirit (this window was never supposed to be a
+ * normal, independently-manageable top-level in the first place). */
+static gboolean on_close_request(GtkWindow *window, void *user_data)
+{
+    return TRUE; /* GDK_EVENT_STOP -- stop GTK4's own default handler,
+                  * which would otherwise destroy the window itself. */
+}
+
 static void create_webview_on_gtk_thread(void *data)
 {
     struct create_webview_ctx *ctx = data;
     struct native_webview *nv = calloc(1, sizeof(*nv));
 
+    /* Code review fix: calloc() can fail under real memory pressure --
+     * dereferencing NULL two lines below would kill the single dedicated
+     * GTK thread (and everything downstream of it: every future
+     * gtk_thread_invoke_sync call from any controller). ctx->nv staying
+     * NULL is already a real, handled failure path -- unix_create_webview_
+     * impl (below) already reports STATUS_NOT_SUPPORTED whenever ctx.nv is
+     * NULL, exactly the same as if gtk_thread_invoke_sync itself had
+     * failed to run this at all -- so simply not setting it here is
+     * sufficient, no new signaling needed. */
+    if (!nv)
+    {
+        GTK_THREAD_LOG("calloc failed for a new native_webview -- out of memory, failing create\n");
+        return;
+    }
+
     nv->window = p_gtk_window_new();
+    /* Task 7 crash fix, round 13 -- see gtk_window_set_decorated's own
+     * extern comment above. Set before the window is ever shown (below)
+     * so the window manager never draws chrome on it even momentarily;
+     * unconditional (not gated on is_message_only) since a message-only
+     * controller's window is never shown at all, so this is a harmless
+     * no-op for that case rather than something that needs its own
+     * branch. */
+    p_gtk_window_set_decorated(nv->window, FALSE);
+    /* Task 7 crash fix, round 14 -- see on_close_request's own comment
+     * just above for the full crash evidence and reasoning. Connected
+     * unconditionally (both is_message_only and real controllers can, in
+     * principle, end up window-manager-visible/-addressable), before the
+     * window is ever shown, so there's no window in existence yet that
+     * could receive a close request before this handler is wired up. No
+     * disconnect/cleanup needed -- the connection's lifetime is exactly
+     * nv->window's own lifetime, torn down together by
+     * destroy_webview_on_gtk_thread's own gtk_window_destroy call. */
+    p_g_signal_connect_data(nv->window, "close-request", (GCallback)on_close_request,
+                             NULL, NULL, 0);
     nv->view = p_webkit_web_view_new();
     p_gtk_window_set_child(nv->window, nv->view);
     /* Plan 3 Task 2: HWND_MESSAGE-parented controllers (the CookieManager
@@ -1843,8 +2208,10 @@ static void on_get_cookies_done(GObject *source, GAsyncResult *res, void *user_d
         {
             /* fill_unix_cookie itself can still reject an individual cookie
              * whose field(s) don't fit (copy_field_or_fail) -- that cookie is
-             * dropped (loudly, via that function's own ERR) rather than
-             * failing the whole call; unlike the total-count cap above, a
+             * dropped (loudly, via that function's own GTK_THREAD_LOG -- see
+             * that macro's own comment for why not ERR/WARN here, this runs
+             * on gtk_thread) rather than failing the whole call; unlike the
+             * total-count cap above, a
              * single oversized field is not something clearAllCookiesAndRunCallbackHelper's
              * enumerate-then-act semantics can be silently wrong about in
              * the same way (the cookie that didn't fit couldn't have been
@@ -1994,6 +2361,27 @@ static NTSTATUS unix_get_window_visible_impl(void *args)
  * this needs no lock). */
 static unsigned long xmove_call_count;
 
+/* Code review fix (cleanup, round 11): the round 9-11 diagnostic
+ * GTK_THREAD_LOG calls in sync_window_geometry_on_gtk_thread fire on
+ * every successful call -- currently dormant only because the xid range
+ * guard rejects every real xid this session, but once the underlying xid
+ * bug is actually fixed this would fire on every single put_Bounds call,
+ * i.e. every drag-follow frame, with no way to silence it (GTK_THREAD_LOG
+ * is a plain fprintf, it doesn't go through WINEDEBUG's own channel
+ * gating). Gated behind an explicit opt-in env var instead of firing
+ * unconditionally or being deleted outright -- still genuinely useful for
+ * whoever picks the xid investigation back up. Checked once, lazily,
+ * cached here -- this function only ever runs on the single serialized
+ * GTK thread, so no lock is needed for the cache either. */
+static int geometry_debug_enabled = -1; /* -1 = not yet checked */
+
+static BOOL geometry_debug_on(void)
+{
+    if (geometry_debug_enabled < 0)
+        geometry_debug_enabled = getenv("TUXBLOX_WEBVIEW_GEOMETRY_DEBUG") ? 1 : 0;
+    return geometry_debug_enabled;
+}
+
 /* Plan 3 Task 3: real position/size/visibility sync, called (via Task 4's
  * controller_push_geometry_to_native) from put_Bounds/put_IsVisible. See
  * this file's own X11_FUNCS/gdk_x11_surface_get_xid extern comments above
@@ -2074,6 +2462,22 @@ static void sync_window_geometry_on_gtk_thread(void *data)
      * and at the end of the function. */
     p_g_object_ref(surface);
 
+    /* Task 7 crash fix, round 11: real-time object-graph diagnostic (repo
+     * owner wants real docking fixed, not just the crash guarded -- the
+     * blank second native-parent window they're seeing is exactly the
+     * predicted symptom of position sync never actually landing). A prior
+     * root-cause investigation (docs/source reading only, no live state)
+     * concluded gtk_widget_show() on a toplevel is documented as
+     * synchronous realize+map, making a "called before realize" ordering
+     * bug look unlikely -- but that was theory, not observation. Logging
+     * the ACTUAL live gtk_widget_get_realized()/get_mapped() state right
+     * here settles it with real data instead. */
+    if (geometry_debug_on())
+        GTK_THREAD_LOG("object graph before gdk_x11_surface_get_xid: nv=%p nv->window=%p native=%p "
+                        "surface=%p realized=%d mapped=%d\n",
+                        nv, nv->window, native, surface,
+                        p_gtk_widget_get_realized(nv->window), p_gtk_widget_get_mapped(nv->window));
+
     xid = p_gdk_x11_surface_get_xid(surface);
     if (!xid)
     {
@@ -2123,59 +2527,68 @@ static void sync_window_geometry_on_gtk_thread(void *data)
      * wrapped huge value either. Skipping the move (rather than clamping to
      * 1x1) matches this function's existing degrade-gracefully pattern used
      * for the "no surface"/"no XID" cases just above -- never fatal to the
-     * controller, per the plan's own Error Handling section. */
-    /* Task 7 crash fix round 5: check the GdkDisplay CONNECTION's own
-     * liveness before converting it to a raw Display* at all. A dedicated
-     * investigation into round 4's crash (still inside XLockDisplay,
-     * dereferencing `display`, even with a live nv handle and a non-NULL
-     * surface/xid/display) confirmed the dlmopen/RTLD_NOLOAD namespace
-     * join used to resolve p_XLockDisplay/p_XMoveResizeWindow is provably
-     * correct (same loaded libX11.so.6 instance GDK itself uses) -- ruling
-     * out a cross-namespace mismatch -- and narrowed this down to the most
-     * concrete remaining gap: nothing here re-validates that the
-     * underlying X11 connection itself is still open. The existing
-     * live_webviews registry only covers the per-webview handle, not this
-     * shared, longer-lived connection object -- if something closes it
-     * (see gdk_display_is_closed's own extern comment above) between
-     * whenever GDK last touched it and this call, dereferencing it here is
-     * a real, structurally-analogous UAF to the one that registry already
-     * fixed for `nv`, just one level up the object graph. (Round 6: this
-     * check alone wasn't sufficient either, see the g_object_ref comment
-     * above -- kept anyway as a fast, cheap early-out; the ref taken just
-     * below is what actually closes the race.) */
-    gdisplay = p_gdk_surface_get_display(surface);
-    if (!gdisplay || p_gdk_display_is_closed(gdisplay))
-    {
-        GTK_THREAD_LOG("no live GdkDisplay for native window %p -- skipping position sync\n", nv->window);
-        params->success = TRUE;
-        p_g_object_unref(surface);
-        return;
-    }
-    p_g_object_ref(gdisplay); /* see the g_object_ref comment on `surface` above */
-
-    /* Task 7 real-launch crash fix: gdk_x11_display_get_xdisplay can return
-     * NULL here even though the xid lookup above already succeeded (see
-     * this file's own investigation notes for the Task 7 crash report --
-     * best-effort root cause points at a stale/UAF'd surface rather than a
-     * legitimate GDK_IS_X11_DISPLAY backend mismatch, since a real X11
-     * GdkSurface's display can't validly be a non-X11 backend). Passing a
-     * NULL Display* straight into XMoveResizeWindow segfaults inside libX11
-     * (_XGetRequest dereferencing display->request) -- confirmed via
-     * systemd-coredump across every real launch this session. Guard it the
-     * same degrade-gracefully way as the !surface/!xid checks above: never
-     * fatal to the controller. */
-    display = p_gdk_x11_display_get_xdisplay(gdisplay);
-    if (!display)
-    {
-        GTK_THREAD_LOG("no Display* for native window %p -- skipping position sync\n", nv->window);
-        params->success = TRUE;
-        p_g_object_unref(gdisplay);
-        p_g_object_unref(surface);
-        return;
-    }
-
+     * controller, per the plan's own Error Handling section.
+     *
+     * Code review fix (cleanup): the GdkDisplay lookup/liveness-check/ref
+     * and the raw Display* lookup below are only ever needed for the
+     * actual XMoveResizeWindow call inside this same guard -- moved inside
+     * it (previously ran unconditionally, wasted work on every no-op
+     * zero-size call). */
     if (width > 0 && height > 0)
     {
+        /* Task 7 crash fix round 5: check the GdkDisplay CONNECTION's own
+         * liveness before converting it to a raw Display* at all. A
+         * dedicated investigation into round 4's crash (still inside
+         * XLockDisplay, dereferencing `display`, even with a live nv
+         * handle and a non-NULL surface/xid/display) confirmed the
+         * dlmopen/RTLD_NOLOAD namespace join used to resolve
+         * p_XLockDisplay/p_XMoveResizeWindow is provably correct (same
+         * loaded libX11.so.6 instance GDK itself uses) -- ruling out a
+         * cross-namespace mismatch -- and narrowed this down to the most
+         * concrete remaining gap: nothing here re-validates that the
+         * underlying X11 connection itself is still open. The existing
+         * live_webviews registry only covers the per-webview handle, not
+         * this shared, longer-lived connection object -- if something
+         * closes it (see gdk_display_is_closed's own extern comment
+         * above) between whenever GDK last touched it and this call,
+         * dereferencing it here is a real, structurally-analogous UAF to
+         * the one that registry already fixed for `nv`, just one level up
+         * the object graph. (Round 6: this check alone wasn't sufficient
+         * either, see the g_object_ref comment above -- kept anyway as a
+         * fast, cheap early-out; the ref taken just below is what
+         * actually closes the race.) */
+        gdisplay = p_gdk_surface_get_display(surface);
+        if (!gdisplay || p_gdk_display_is_closed(gdisplay))
+        {
+            GTK_THREAD_LOG("no live GdkDisplay for native window %p -- skipping position sync\n", nv->window);
+            params->success = TRUE;
+            p_g_object_unref(surface);
+            return;
+        }
+        p_g_object_ref(gdisplay); /* see the g_object_ref comment on `surface` above */
+
+        /* Task 7 real-launch crash fix: gdk_x11_display_get_xdisplay can
+         * return NULL here even though the xid lookup above already
+         * succeeded (see this file's own investigation notes for the
+         * Task 7 crash report -- best-effort root cause points at a
+         * stale/UAF'd surface rather than a legitimate GDK_IS_X11_DISPLAY
+         * backend mismatch, since a real X11 GdkSurface's display can't
+         * validly be a non-X11 backend). Passing a NULL Display* straight
+         * into XMoveResizeWindow segfaults inside libX11 (_XGetRequest
+         * dereferencing display->request) -- confirmed via
+         * systemd-coredump across every real launch this session. Guard
+         * it the same degrade-gracefully way as the !surface/!xid checks
+         * above: never fatal to the controller. */
+        display = p_gdk_x11_display_get_xdisplay(gdisplay);
+        if (!display)
+        {
+            GTK_THREAD_LOG("no Display* for native window %p -- skipping position sync\n", nv->window);
+            params->success = TRUE;
+            p_g_object_unref(gdisplay);
+            p_g_object_unref(surface);
+            return;
+        }
+
         /* Task 7 UAF/Xlib-locking fix round 3 -- see XInitThreads' own
          * extern comment above for the full crash evidence. This raw Xlib
          * call bypasses GDK's own request serialization entirely, so it
@@ -2221,21 +2634,197 @@ static void sync_window_geometry_on_gtk_thread(void *data)
          * itself be evidence of corruption between calls, no struct
          * knowledge required to observe that much. */
         ++xmove_call_count;
-        GTK_THREAD_LOG("before XMoveResizeWindow: call #%lu xid=%lu display=%p bytes=%016lx %016lx %016lx %016lx\n",
-                        xmove_call_count, xid, (void *)display,
-                        display ? *(unsigned long *)display : 0,
-                        display ? *(unsigned long *)((char *)display + 8) : 0,
-                        display ? *(unsigned long *)((char *)display + 16) : 0,
-                        display ? *(unsigned long *)((char *)display + 24) : 0);
+        if (geometry_debug_on())
+        {
+            /* Code review fix (cleanup): `display` is unconditionally
+             * non-NULL by this point -- the `!display` check just above
+             * already returned early otherwise -- so the previous
+             * `display ? ... : 0` ternaries here were dead; direct reads. */
+            /* params->parent_xid is a UINT64 (unixlib.h, deliberately
+             * wire-size-fixed since it crosses the PE/unix boundary --
+             * see that field's own comment); on the i386 build `long` is
+             * 32-bit while UINT64 stays 64-bit, so %lu against the raw
+             * field is a real, build-breaking format-string mismatch
+             * there even though it happens to compile clean on x86_64
+             * (where `long` is also 64-bit) -- caught the hard way via a
+             * real -Werror=format= i386 build failure, not by inspection.
+             * Cast to unsigned long at every use below, matching this
+             * file's own existing xid handling (also always truncated to
+             * unsigned long for the same %lu logging, never for the
+             * actual Xlib calls, which keep the real params->parent_xid). */
+            GTK_THREAD_LOG("before position sync: call #%lu xid=%lu display=%p parent_xid=%lu "
+                            "reparented_into=%lu bytes=%016lx %016lx %016lx %016lx\n",
+                            xmove_call_count, xid, (void *)display, (unsigned long)params->parent_xid,
+                            nv->reparented_into,
+                            *(unsigned long *)display,
+                            *(unsigned long *)((char *)display + 8),
+                            *(unsigned long *)((char *)display + 16),
+                            *(unsigned long *)((char *)display + 24));
+        }
         p_XLockDisplay(display);
-        GTK_THREAD_LOG("after XLockDisplay: call #%lu (locked ok)\n", xmove_call_count);
-        p_XMoveResizeWindow(display, xid, params->screen_bounds.left, params->screen_bounds.top,
-                             (unsigned int)width, (unsigned int)height);
-        GTK_THREAD_LOG("after XMoveResizeWindow: call #%lu returned successfully\n", xmove_call_count);
+        if (geometry_debug_on()) GTK_THREAD_LOG("after XLockDisplay: call #%lu (locked ok)\n", xmove_call_count);
+
+        /* Task 7 crash fix, round 15: real embedding via X11-level
+         * reparenting, not an independently-positioned floating window --
+         * see controller.c's controller_push_geometry_to_native and this
+         * struct field's own comment (params->parent_xid) for the full
+         * rationale. Reparented once per distinct parent_xid value (not
+         * every call) -- XReparentWindow itself is a real, visible
+         * operation on the X server (briefly unmaps/remaps in some WM
+         * implementations), so only doing it when the target actually
+         * changes avoids redundant server round-trips on every single
+         * put_Bounds call. Comparing against nv->reparented_into (not
+         * just "have we ever reparented") also means a genuinely changed
+         * parent_xid -- including recovering from Wine recreating the
+         * parent's whole_window, see that field's own comment -- gets a
+         * fresh reparent on the very next call. */
+        /* Task 7 crash fix, round 18: unconditional (not geometry_debug_on()
+         * -gated) logging around the reparent decision and the
+         * XReparentWindow call itself. Added after a real relaunch showed
+         * ZERO evidence either way (no reparent log line fired, because
+         * geometry_debug_on() was gated behind an env var nobody set for
+         * that run, AND a real XQueryTree probe against the live windows
+         * afterward proved reparenting had never happened) -- there was no
+         * way to tell from that run's own logs whether params->parent_xid
+         * was ever non-zero, whether the reparent condition was ever
+         * entered, or whether XReparentWindow itself silently failed once
+         * round 17's own error handler made X protocol errors non-fatal
+         * instead of crashing. This makes all of that directly observable
+         * on every run, not just debug-flagged ones -- cheap enough (once
+         * per put_Bounds call, not per frame) to always pay for. */
+        GTK_THREAD_LOG("reparent check: call #%lu parent_xid=0x%lx reparented_into=0x%lx "
+                        "(will reparent: %s)\n",
+                        xmove_call_count, (unsigned long)params->parent_xid, nv->reparented_into,
+                        (params->parent_xid && nv->reparented_into != params->parent_xid) ? "YES" : "no");
+        if (params->parent_xid && nv->reparented_into != params->parent_xid)
+        {
+            int reparent_status;
+            x11_error_seen_during_call = FALSE;
+            GTK_THREAD_LOG("XReparentWindow: call #%lu ABOUT TO CALL xid=0x%lx into parent_xid=0x%lx\n",
+                            xmove_call_count, xid, (unsigned long)params->parent_xid);
+            reparent_status = p_XReparentWindow(display, xid, params->parent_xid, 0, 0);
+            /* XReparentWindow is asynchronous (like almost all core X11
+             * requests) -- a real protocol-level failure (e.g. BadWindow if
+             * parent_xid is stale/invalid) is delivered later, out-of-band,
+             * to the error handler round 17 installed, not via this call's
+             * own return value. XSync forces the request (and any error
+             * reply for it) to round-trip to completion before we check the
+             * flag below, so "did the error handler fire during this
+             * specific call" is actually meaningful instead of racing
+             * ahead of the server's real response. */
+            p_XSync(display, 0);
+            GTK_THREAD_LOG("XReparentWindow: call #%lu RETURNED status=%d x11_error_during_call=%s\n",
+                            xmove_call_count, reparent_status,
+                            x11_error_seen_during_call ? "YES -- see x11_error_handler's own log line above for details" : "no");
+            nv->reparented_into = params->parent_xid;
+        }
+
+        if (params->parent_xid)
+        {
+            /* Once reparented, XMoveResizeWindow's x/y become relative to
+             * the NEW parent's own origin, not the root window's --
+             * params->screen_bounds is still an absolute (root-relative)
+             * rect (controller.c's own ClientToScreen-based computation,
+             * unchanged), so translate it into parent_xid's own
+             * coordinate space via real X11 coordinate translation rather
+             * than guessing/hardcoding whatever offset the parent's own
+             * window-manager decorations or Wine-drawn chrome introduce
+             * between its top-left corner and the root window's origin.
+             * Falls back to the untranslated absolute position (the old
+             * floating-window-era behavior) if the translation call
+             * itself fails -- degrade gracefully, never fatal, matching
+             * this function's own established pattern throughout. */
+            int dest_x = params->screen_bounds.left, dest_y = params->screen_bounds.top;
+            unsigned long child_return;
+
+            if (!p_XTranslateCoordinates(display, p_XDefaultRootWindow(display), params->parent_xid,
+                                          params->screen_bounds.left, params->screen_bounds.top,
+                                          &dest_x, &dest_y, &child_return))
+            {
+                GTK_THREAD_LOG("XTranslateCoordinates failed for parent_xid=%lu -- falling back to "
+                               "untranslated absolute position\n", (unsigned long)params->parent_xid);
+                dest_x = params->screen_bounds.left;
+                dest_y = params->screen_bounds.top;
+            }
+            p_XMoveResizeWindow(display, xid, dest_x, dest_y, (unsigned int)width, (unsigned int)height);
+
+            /* Task 7 crash fix, round 19: the real fix for a genuine,
+             * evidence-confirmed bug -- put_Bounds after reparenting visibly
+             * changed the real X11 window size (confirmed via a direct
+             * XGetGeometry readback during this round's own investigation:
+             * immediately after this exact XMoveResizeWindow call, the real
+             * server-side geometry was already correct), but GDK's own
+             * cached notion of the surface's size
+             * (gdk_surface_get_width/height, which is what both the test's
+             * readback AND -- critically -- GTK's own internal widget
+             * size-allocate/layout cycle for the embedded WebKitWebView are
+             * driven from) never updated, staying at GTK4's original
+             * default-window size from realize time no matter how many
+             * further resizes were issued. Root cause: ICCCM. Per the
+             * ICCCM (the decades-old convention every real X11 window
+             * manager and toolkit follows), a client's toplevel only trusts
+             * a *synthetic* (XSendEvent-delivered, send_event=True)
+             * ConfigureNotify as authoritative for its own on-screen
+             * geometry -- a *real*, server-generated one is defined by the
+             * ICCCM to report coordinates relative to whatever the window's
+             * CURRENT immediate parent happens to be (meaningless for
+             * absolute placement once reparented), so well-behaved
+             * toolkits, GDK's X11 backend included, are SUPPOSED to ignore
+             * real ConfigureNotify for a toplevel and wait for the
+             * WM's synthetic one instead. A real window manager (confirmed:
+             * this environment's real relaunch/test runs both use a genuine
+             * WM) sends that synthetic event whenever it moves/resizes a
+             * window it manages -- which is exactly why the OTHER branch
+             * below (no parent_xid, still a WM-managed independent
+             * top-level, this function's pre-round-15 behavior) has always
+             * worked correctly. Once round 15 reparented nv->window into an
+             * arbitrary application HWND instead of leaving it WM-managed,
+             * nothing plays the WM's role of sending that synthetic
+             * event -- so GDK's cache silently never updates again, even
+             * though the real window keeps moving/resizing correctly at
+             * the X11 protocol level the whole time. Fix: send it
+             * ourselves, exactly like a real window manager would, with
+             * ROOT-relative x/y (screen_bounds is already in that space --
+             * an ICCCM synthetic ConfigureNotify's x/y are defined as
+             * root-relative regardless of what the window's real immediate
+             * parent is) and the real width/height we just set. */
+            {
+                XConfigureEvent synthetic_configure = { 0 };
+                synthetic_configure.type = TUXBLOX_ConfigureNotify;
+                synthetic_configure.send_event = 1;
+                synthetic_configure.display = display;
+                synthetic_configure.event = xid;
+                synthetic_configure.window = xid;
+                synthetic_configure.x = params->screen_bounds.left;
+                synthetic_configure.y = params->screen_bounds.top;
+                synthetic_configure.width = width;
+                synthetic_configure.height = height;
+                synthetic_configure.border_width = 0;
+                synthetic_configure.above = 0;
+                synthetic_configure.override_redirect = 0;
+                p_XSendEvent(display, xid, 0, TUXBLOX_StructureNotifyMask, &synthetic_configure);
+                if (geometry_debug_on())
+                    GTK_THREAD_LOG("sent synthetic ConfigureNotify: call #%lu x=%d y=%d w=%d h=%d\n",
+                                    xmove_call_count, synthetic_configure.x, synthetic_configure.y,
+                                    width, height);
+            }
+        }
+        else
+        {
+            /* No valid parent_xid this call (message-only controller, no
+             * parent_window, or __wine_x11_whole_window not found/set
+             * yet) -- degrade to the original floating-window behavior:
+             * absolute screen position, no reparenting. Matches this
+             * function's own pre-round-15 behavior exactly. */
+            p_XMoveResizeWindow(display, xid, params->screen_bounds.left, params->screen_bounds.top,
+                                 (unsigned int)width, (unsigned int)height);
+        }
+
+        if (geometry_debug_on()) GTK_THREAD_LOG("after XMoveResizeWindow: call #%lu returned successfully\n", xmove_call_count);
         p_XUnlockDisplay(display);
-        GTK_THREAD_LOG("after XUnlockDisplay: call #%lu (unlocked ok)\n", xmove_call_count);
+        if (geometry_debug_on()) GTK_THREAD_LOG("after XUnlockDisplay: call #%lu (unlocked ok)\n", xmove_call_count);
+        p_g_object_unref(gdisplay);
     }
-    p_g_object_unref(gdisplay);
     p_g_object_unref(surface);
     params->success = TRUE;
 }

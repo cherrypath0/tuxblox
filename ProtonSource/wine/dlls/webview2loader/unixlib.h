@@ -159,6 +159,18 @@ struct sync_window_geometry_params
                           * Bounds (see controller.c's
                           * controller_push_geometry_to_native) */
     BOOL visible;
+    /* Task 7 crash fix, round 15: real X11 window ID of the parent HWND's
+     * own "whole window" (winex11.drv's own __wine_x11_whole_window
+     * property, read by controller.c via GetPropA -- see that call site's
+     * own comment), or 0 if unavailable (message-only controller, no
+     * parent_window, prop not set/found). When non-zero, the unix side
+     * reparents the native webview as a genuine X11 child of this window
+     * instead of leaving it an independent floating top-level manually
+     * repositioned to overlay the parent -- see sync_window_geometry_
+     * on_gtk_thread's own comment for the full rationale (repo owner's
+     * explicit, direct ask: "webview will be in the SAME window as the
+     * one roblox launches, not separate"). */
+    UINT64 parent_xid;
 
     /* out */
     BOOL success;
