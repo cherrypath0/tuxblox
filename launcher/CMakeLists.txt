@@ -78,6 +78,8 @@ add_library(launcher_core STATIC
     src/crash_report.cpp
     src/container_env.cpp
     src/single_instance.cpp
+    src/system_info.cpp
+    src/roblox_log_capture.cpp
 )
 target_include_directories(launcher_core PUBLIC
     src third_party ${CMAKE_BINARY_DIR}/generated

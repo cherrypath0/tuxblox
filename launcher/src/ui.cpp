@@ -602,8 +602,8 @@ void renderSettingsTab(App& app, const AppSnapshot& snap, float contentX, float 
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.55f, 0.55f, 0.58f, 1.0f));
     ImGui::PushTextWrapPos(pad24 + fieldWidth);
     ImGui::TextUnformatted(
-        "Crash reports include only the exit code, Roblox/Proton version, and basic system info, "
-        "see our privacy policy at tuxblox.net/privacy");
+        "Crash reports include the exit code, Roblox/Proton version, basic system info, and a copy "
+        "of the session log -- see our privacy policy at tuxblox.net/privacy");
     ImGui::PopTextWrapPos();
     ImGui::PopStyleColor();
     y += 60.0f * g_uiScale; // clears the two-line note above; not measured exactly, same approximation as everywhere else in this tab

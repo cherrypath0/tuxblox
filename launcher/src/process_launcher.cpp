@@ -304,7 +304,7 @@ LaunchOutcome ProcessLauncher::launch(LaunchTarget target, const std::string& ur
     std::error_code ec;
     fs::create_directories(logsDir, ec);
     const std::string targetName = target == LaunchTarget::Player ? "Player" : "Studio";
-    const std::string logPath = logsDir + "/Roblox" + targetName + "-CrashLog-" + logTimestamp() + ".log";
+    const std::string logPath = logsDir + "/Roblox" + targetName + "-" + logTimestamp() + ".log";
 
     if (!p.start(argv, env, logPath)) {
         return {false, "failed to start Proton process", ""};

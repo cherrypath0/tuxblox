@@ -18,9 +18,12 @@
 #include "crash_report.h"
 #include "install_paths.h"
 #include "process_launcher.h"
+#include "roblox_log_capture.h"
 #include "settings.h"
+#include "system_info.h"
 #include <SDL.h>
 #include <chrono>
+#include <ctime>
 #include <thread>
 
 namespace tuxblox {
@@ -31,6 +34,7 @@ int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const 
     auto extraEnv = parseEnvPairs(settings.protonEnvVars);
 
     ProcessLauncher launcher(installDir);
+    std::time_t launchStart = std::time(nullptr);
     auto outcome = launcher.launch(target, uri, extraEnv);
     if (!outcome.ok) {
         std::string message = "A TuxBlox process has exited with a non-zero exit code.\n" +
@@ -46,14 +50,22 @@ int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const 
         std::this_thread::sleep_for(std::chrono::milliseconds(300));
     }
     auto ev = launcher.takeExitEvent(target);
+
+    // Item 10 (plan/todo.md): fold Roblox's own session log(s) into this
+    // launch's log file, unconditionally -- a clean exit still gets its
+    // Roblox log recorded, this isn't gated on crash detection below.
+    appendRobloxSessionLogs(installDir, launchStart, outcome.logPath);
+
     if (!ev || ev->stopRequested || ev->exitCode == 0) {
         return 0; // clean exit (or nothing to report) -- no UI at all
     }
 
-    int displayCode = ev->exitCode;
+    int protonExitCode = ev->exitCode;
+    std::optional<int> robloxExitCode;
     if (ev->exitCode == 2) {
-        if (auto real = findRealExitCodeInLog(outcome.logPath)) displayCode = *real;
+        robloxExitCode = findRealExitCodeInLog(outcome.logPath);
     }
+    int displayCode = robloxExitCode.value_or(protonExitCode);
 
     const char* title = exitCodeTitle(displayCode);
     std::string exitCodeLine = "Exit Code: " + std::to_string(displayCode);
@@ -78,8 +90,10 @@ int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const 
         report.launcherVersion = currentVersion;
         report.protonVersion = readInstalledProtonVersion(installDir).value_or("");
         report.target = target;
-        report.exitCode = displayCode;
+        report.protonExitCode = protonExitCode;
+        report.robloxExitCode = robloxExitCode;
         report.logPath = outcome.logPath;
+        report.systemInfo = collectSystemInfo();
         // This whole process exits right after showing the popup below, so
         // there's no point detaching this the way the old in-GUI version
         // did (nothing else is running here for it to avoid blocking) --

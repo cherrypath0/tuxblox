@@ -72,3 +72,15 @@ add_test(NAME single_instance COMMAND test_single_instance)
 add_executable(test_license_file test_license_file.cpp)
 target_link_libraries(test_license_file PRIVATE launcher_core)
 add_test(NAME license_file COMMAND test_license_file)
+
+add_executable(test_system_info test_system_info.cpp)
+target_link_libraries(test_system_info PRIVATE launcher_core)
+add_test(NAME system_info COMMAND test_system_info)
+
+add_executable(test_roblox_log_capture test_roblox_log_capture.cpp)
+target_link_libraries(test_roblox_log_capture PRIVATE launcher_core)
+add_test(NAME roblox_log_capture COMMAND test_roblox_log_capture)
+
+add_executable(test_crash_report test_crash_report.cpp)
+target_link_libraries(test_crash_report PRIVATE launcher_core)
+add_test(NAME crash_report COMMAND test_crash_report)
