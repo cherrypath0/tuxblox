@@ -883,7 +883,7 @@ fi
 
 echo ":: Building webview2loader-host"
 gcc -O2 -Wall -Werror -o "$PREFIX/bin/webview2loader-host" \
-    /src/host/main.c /src/host/ipc.c \
+    /src/host/main.c /src/host/ipc.c /src/host/webview.c \
     -I/src/host \
-    $(pkg-config --cflags gtk4) \
-    $(pkg-config --libs gtk4)
+    $(pkg-config --cflags gtk4 webkitgtk-6.0) \
+    $(pkg-config --libs gtk4 webkitgtk-6.0)
