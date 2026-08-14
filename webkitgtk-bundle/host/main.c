@@ -56,6 +56,7 @@
 #include "webview.h"
 #include "geometry.h"
 #include "navigate.h"
+#include "watchdog.h"
 
 static int g_ipc_fd = -1;
 static GMainLoop *g_loop = NULL;
@@ -473,6 +474,20 @@ int main(int argc, char **argv)
     }
 
     log_gl_dispatch_info();
+
+    /* Crash fix (see watchdog.h's own top-of-file comment for the full
+     * mechanism this defends against): opens the dedicated second Xlib
+     * connection used to detect a reparented-into parent window being
+     * destroyed out from under a webview, and react before GDK's own
+     * async event processing on its own connection can hit a fatal
+     * internal-consistency assertion over it. Called after
+     * XSetErrorHandler() above (same ordering rationale that call's own
+     * comment documents -- this connection's own XSelectInput/XNextEvent
+     * calls can raise real X11 protocol errors too, and need that same
+     * already-installed non-fatal handler in place first) and after
+     * gtk_ok is confirmed (no point opening a second X11 connection if
+     * GDK's own X11 backend init already failed above). */
+    watchdog_init();
 
     g_loop = g_main_loop_new(NULL, FALSE);
     g_unix_fd_add(g_ipc_fd, G_IO_IN, on_ipc_readable, NULL);

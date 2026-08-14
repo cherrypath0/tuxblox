@@ -89,6 +89,7 @@
  * synthetic-ConfigureNotify fix), not a place to "clean up" or restructure.
  */
 #include "geometry.h"
+#include "watchdog.h"
 #include <gdk/x11/gdkx.h>
 #include <stdio.h>
 #include <string.h>
@@ -443,6 +444,21 @@ gboolean geometry_sync(struct native_webview *nv, struct wv2l_rect bounds, gbool
                             x11_error_seen_during_call ? "YES -- see x11_error_handler's own log line above "
                             "for details" : "no");
             nv->reparented_into = parent_xid;
+
+            /* Crash fix (see watchdog.h's own top-of-file comment for the
+             * full mechanism this defends against): now that nv->window is
+             * a real X11 child of parent_xid, arm the watchdog's own
+             * dedicated connection to notice if parent_xid is ever
+             * destroyed out from under it (Wine recreating the parent's
+             * own whole_window, e.g.) BEFORE GDK's own async event
+             * processing on ITS OWN connection discovers the same fait
+             * accompli and hits a fatal internal-consistency assertion.
+             * Only armed on a REAL reparent (this branch, not every
+             * geometry_sync call) -- the watch itself persists at the X
+             * server for as long as this process's watchdog connection
+             * stays open, it does not need re-arming on every call for the
+             * same still-current parent_xid. */
+            watchdog_track_parent(nv, parent_xid);
         }
 
         if (parent_xid)
@@ -557,6 +573,131 @@ gboolean geometry_sync(struct native_webview *nv, struct wv2l_rect bounds, gbool
                             xmove_call_count);
         g_object_unref(gdisplay);
     }
+    g_object_unref(surface);
+    return TRUE;
+}
+
+/* Crash fix -- a SECOND, distinct trigger for the same fatal GDK assertion
+ * watchdog.h/.c defend against (see that file's own top-of-file comment for
+ * the full mechanism), found via a real, reproduced coredump during this
+ * task's own verification pass, entirely independent of anything the
+ * watchdog watches for: test_controller_parent_window's own normal
+ * ICoreWebView2Controller_Release(ctrl) at the end of a real reparent ->
+ * destroy sequence produced this real backtrace --
+ *
+ *   #3  abort (libc.so.6)
+ *   #4  g_assertion_message_expr (libglib-2.0.so.0)
+ *   #5-#9 (libgtk-4.so.1, GtkWindow's own dispose/destroy chain)
+ *   #10-#13 g_signal_emit_by_name (libgobject-2.0.so.0)
+ *   #14-#16 (libgtk-4.so.1)
+ *
+ * -- with the real X11 parent (real_parent in the test, Studio's own
+ * top-level HWND's whole_window in production) still fully alive and
+ * untouched at the moment of the crash. No external destroy, no second
+ * controller, no racing geometry_sync call -- this fires purely from THIS
+ * process's own, entirely normal WV2L_OP_DESTROY_WEBVIEW -> webview_destroy()
+ * -> gtk_window_destroy() call, whenever nv->window is still a real X11
+ * child of some other window at that moment (i.e. nv->reparented_into != 0
+ * and never reset). Root cause: geometry_sync's own round-15 XReparentWindow
+ * (see that function's own comment) is a raw Xlib call, entirely out-of-band
+ * from GDK's own object model -- GDK's own internal bookkeeping for this
+ * surface's parent/hierarchy relationship is never told about it. GTK4's own
+ * gtk_window_destroy() teardown sequence (accelerated-compositing/EGL
+ * resource teardown included) still believes and relies on this surface
+ * having whatever parent relationship GDK itself last set up (effectively
+ * "real top-level, GDK-managed"); once that's silently no longer true, the
+ * same internal-consistency assertion watchdog.c defends against for an
+ * externally-triggered destroy can just as easily fire from OUR OWN
+ * self-triggered one.
+ *
+ * Fix: restore the X11 hierarchy to what GDK's own bookkeeping still
+ * believes it is -- an ordinary top-level, effectively parented to the real
+ * X11 root window -- via a plain XReparentWindow back to root BEFORE
+ * gtk_window_destroy() runs, so GDK's own teardown sequence operates on a
+ * surface whose real, current X11 parent genuinely matches its own internal
+ * assumptions again. Called from webview_destroy() (webview.c), immediately
+ * before its own gtk_window_destroy() call. Degrades gracefully (never
+ * fatal to the controller) through every guard below, matching
+ * geometry_sync's own established pattern throughout this file -- a no-op
+ * return here just means webview_destroy() proceeds straight to
+ * gtk_window_destroy() exactly as it did before this fix existed, not a new
+ * failure mode. */
+gboolean geometry_unreparent(struct native_webview *nv)
+{
+    GtkNative *native;
+    GdkSurface *surface;
+    GdkDisplay *gdisplay;
+    Display *display;
+    unsigned long xid;
+    Window root;
+
+    if (!nv || !nv->reparented_into) return TRUE; /* never reparented -- nothing to undo */
+
+    native = gtk_widget_get_native(nv->window);
+    surface = native ? gtk_native_get_surface(native) : NULL;
+    if (!surface) return TRUE;
+
+    /* Same TOCTOU-closing ref pattern geometry_sync's own comment documents
+     * in detail above -- held for this function's entire span, released at
+     * every exit. */
+    g_object_ref(surface);
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+    xid = gdk_x11_surface_get_xid(surface);
+#pragma GCC diagnostic pop
+    if (!xid || xid > 0xffffffffUL)
+    {
+        /* Not a real X11 surface, or a structurally-impossible xid -- see
+         * geometry_sync's own comments on both checks above for the full
+         * rationale, identical reasoning applies here. */
+        g_object_unref(surface);
+        return TRUE;
+    }
+
+    gdisplay = gdk_surface_get_display(surface);
+    if (!gdisplay || gdk_display_is_closed(gdisplay))
+    {
+        g_object_unref(surface);
+        return TRUE;
+    }
+    g_object_ref(gdisplay);
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+    display = gdk_x11_display_get_xdisplay(gdisplay);
+#pragma GCC diagnostic pop
+    if (!display)
+    {
+        g_object_unref(gdisplay);
+        g_object_unref(surface);
+        return TRUE;
+    }
+
+    XLockDisplay(display); /* same shared-connection locking rationale as geometry_sync's own XLockDisplay */
+    root = XDefaultRootWindow(display);
+    fprintf(stderr, "webview2loader-host: un-reparenting nv=%p (xid=0x%lx) back to root=0x%lx before "
+                    "destroy -- was reparented into 0x%lx\n", (void *)nv, xid, (unsigned long)root,
+                    nv->reparented_into);
+    x11_error_seen_during_call = FALSE;
+    XReparentWindow(display, xid, root, 0, 0);
+    /* Same "force the request to complete before trusting the error flag"
+     * rationale as geometry_sync's own round-15 XReparentWindow call --
+     * see that call site's own comment. A real protocol error here (e.g. if
+     * the parent already went away between the last successful geometry_sync
+     * call and this destroy, the exact watchdog.c scenario) is caught by the
+     * same already-installed, process-wide, non-fatal x11_error_handler --
+     * never fatal to the controller, this is purely best-effort. */
+    XSync(display, 0);
+    if (x11_error_seen_during_call)
+        fprintf(stderr, "webview2loader-host: un-reparent-to-root for nv=%p hit a non-fatal X11 protocol "
+                        "error (see x11_error_handler's own log line above) -- proceeding to "
+                        "gtk_window_destroy() regardless, matching this function's own never-fatal "
+                        "pattern\n", (void *)nv);
+    XUnlockDisplay(display);
+
+    nv->reparented_into = 0;
+    g_object_unref(gdisplay);
     g_object_unref(surface);
     return TRUE;
 }

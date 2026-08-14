@@ -75,6 +75,24 @@
  * not narrowed or tightened. */
 gboolean geometry_sync(struct native_webview *nv, struct wv2l_rect bounds, gboolean visible, uint64_t parent_xid);
 
+/* Crash fix -- a second, distinct trigger for the same fatal GDK assertion
+ * watchdog.h documents (real, reproduced coredump found during this task's
+ * own verification: a normal, single-webview Close()/Release() teardown
+ * while still X11-reparented into a perfectly alive parent, no external
+ * destroy or second controller involved at all). Un-reparents nv->window
+ * back to the real X11 root window if (and only if) it is currently
+ * reparented into something else (nv->reparented_into != 0), so GDK's own
+ * gtk_window_destroy() teardown sequence -- called from webview_destroy()
+ * immediately after this -- operates on a surface whose real X11 parent
+ * once again matches what GDK's own internal bookkeeping (never updated by
+ * geometry_sync's own raw XReparentWindow call in the first place) still
+ * believes it to be. See geometry.c's own implementation comment for the
+ * full real backtrace and root-cause reasoning. Always returns TRUE
+ * (never fatal to the controller) -- a no-op return here just means the
+ * caller proceeds straight to its own destroy call exactly as it would
+ * without this fix, not a new failure mode. */
+gboolean geometry_unreparent(struct native_webview *nv);
+
 /* Test-support only (matches the original's own comment): real GdkSurface
  * width/height readback so a test can confirm geometry_sync actually
  * changed the on-screen window, not just that the call returned success.

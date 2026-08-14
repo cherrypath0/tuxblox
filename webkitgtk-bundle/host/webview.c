@@ -59,6 +59,8 @@
  */
 #include "webview.h"
 #include "navigate.h"
+#include "watchdog.h"
+#include "geometry.h"
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -212,6 +214,28 @@ void webview_destroy(struct native_webview *nv)
      * has executed, any such handler still queued behind this one for the
      * same (now-dying) handle will see it as no-longer-live. */
     live_webview_unregister(nv);
+    /* Crash fix -- see watchdog.h's own top-of-file comment: drop any live
+     * watch this nv has on a reparented-into parent_xid before nv is freed
+     * below, so a later DestroyNotify/ReparentNotify for that (by-then-
+     * recycled) parent_xid value can never dereference a dangling nv
+     * pointer. Also reached when watchdog.c itself is the one calling this
+     * function (its own crash-mitigation teardown path) -- a harmless,
+     * idempotent no-op there, since that path already cleared its own
+     * watched[] entry for nv immediately before calling here. */
+    watchdog_untrack(nv);
+    /* Crash fix -- see geometry.h's own comment on geometry_unreparent for
+     * the full real-coredump evidence and root-cause reasoning: a still-
+     * X11-reparented nv->window can make GTK4's own gtk_window_destroy()
+     * below hit the same fatal GDK internal-consistency assertion
+     * watchdog.c defends against for an externally-triggered destroy --
+     * except this trigger is entirely self-inflicted (a completely normal
+     * Close()/Release() while still reparented, no external actor, no
+     * second controller, no watchdog event involved at all). Restoring the
+     * X11 hierarchy to what GDK's own bookkeeping still believes it is
+     * (an ordinary top-level, effectively parented to the real root
+     * window) before the real destroy call closes that gap. No-op (and
+     * never fatal) if nv was never reparented in the first place. */
+    geometry_unreparent(nv);
     /* Destroying nv->window tears down nv->view along with it (still its
      * child at this point), so this is the one native GTK/WebKit call
      * needed per webview. */

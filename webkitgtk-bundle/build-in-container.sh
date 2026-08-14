@@ -933,9 +933,19 @@ fi
 # line already lists libsoup-3.0, so `pkg-config --cflags/--libs gtk4 webkitgtk-6.0`
 # below already pulls in everything navigate.c needs, no separate `pkg-config
 # libsoup-3.0` invocation required.
+#
+# Crash-fix addition (2026-08-15, gdk-assertion-crash-fix): watchdog.c opens a
+# second, dedicated Xlib connection (raw <X11/Xlib.h> calls, same situation
+# geometry.c's own Task 5 comment above already documents for -lX11) used to
+# detect a reparented-into parent X11 window being destroyed out from under a
+# webview and react before GDK's own async event processing on its own,
+# separate connection can hit a fatal internal-consistency assertion over it
+# -- see webkitgtk-bundle/host/watchdog.h's own top-of-file comment for the
+# full crash mechanism and rationale.
 echo ":: Building webview2loader-host"
 gcc -O2 -Wall -Werror -o "$PREFIX/bin/webview2loader-host" \
     /src/host/main.c /src/host/ipc.c /src/host/webview.c /src/host/geometry.c /src/host/navigate.c \
+    /src/host/watchdog.c \
     -I/src/host \
     $(pkg-config --cflags gtk4 webkitgtk-6.0) \
     $(pkg-config --libs gtk4 webkitgtk-6.0) \
