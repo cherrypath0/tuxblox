@@ -25,8 +25,10 @@ echo ":: Building builder container image"
 podman build -t tuxblox-webkitgtk-builder -f Containerfile .
 
 echo ":: Running dependency + webkitgtk build (this takes a long time -- hours on a
-::    from-scratch run; much faster on a re-run with a warm webkitgtk-ccache volume,
-::    since only the WebKitGTK step itself is cached, see build-in-container.sh)"
+::    from-scratch run; much faster on a re-run since WebKitGTK's own source+build
+::    tree persists in the webkitgtk-src-build volume -- ninja does a true
+::    incremental build and finishes in seconds if nothing in webkitgtk itself
+::    changed, see build-in-container.sh's webkitgtk section)"
 # Task 8 post-review correction (2026-08-10), I-1: -e JOBS=1 is not a conservative
 # default here, it's the only setting build-in-container.sh's own WebKitGTK cmake
 # step comment documents as actually validated end-to-end -- JOBS=2 was confirmed to
@@ -42,7 +44,8 @@ echo ":: Running dependency + webkitgtk build (this takes a long time -- hours o
 # the caller's shell would silently be ignored by `-e JOBS=1` -- if that ever needs
 # to be caller-overridable, change this to `-e JOBS="${JOBS:-1}"` instead).
 podman run --rm -v "$(pwd):/src:ro" -v webkitgtk-prefix:/opt/tuxblox-webview \
-    -v webkitgtk-ccache:/ccache -e JOBS=1 \
+    -v "$(pwd)/../ProtonSource/wine/dlls/webview2loader/webview2loader_ipc_protocol.h:/src/host/webview2loader_ipc_protocol.h:ro" \
+    -v webkitgtk-ccache:/ccache -v webkitgtk-src-build:/build/webkitgtk -e JOBS=1 \
     tuxblox-webkitgtk-builder bash -c \
     "mkdir -p /build-scripts && cp /src/*.sh /src/versions.env /build-scripts/ && \
      bash /build-scripts/build-in-container.sh"
