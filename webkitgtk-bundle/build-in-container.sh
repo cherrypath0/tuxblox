@@ -687,7 +687,19 @@ if [ -f "$WEBKITGTK_MARKER" ] && [ "$(cat "$WEBKITGTK_MARKER")" = "$WEBKITGTK_UR
     echo "   (persisted source+build tree already at $WEBKITGTK_VERSION -- skipping download+extract)"
 else
     echo "   (no matching persisted source -- fetching fresh, wiping any stale persisted state)"
-    rm -rf /build/webkitgtk
+    # Task 8 (2026-08-14-webview2loader-host-process, real end-to-end verification)
+    # bug fix: `rm -rf /build/webkitgtk` alone fails with "Device or resource busy"
+    # -- /build/webkitgtk is not a plain directory, it's the mount point for the
+    # dedicated webkitgtk-src-build volume (see this section's own comment above on
+    # why that volume exists). `rm -rf` can delete everything INSIDE a mount point,
+    # but the final implicit rmdir of the mount point directory itself always fails
+    # while something is mounted there -- a real, reproducible bug, not a hypothetical
+    # one: hit for real when this branch ran against a volume with no prior matching
+    # marker (e.g. a freshly created/emptied webkitgtk-src-build volume), since every
+    # previous real build.sh run happened to already have a matching marker and never
+    # exercised this exact line. Fixed by only removing this mount point's direct
+    # children (files, dirs, dotfiles), never the mount point directory itself.
+    find /build/webkitgtk -mindepth 1 -maxdepth 1 -exec rm -rf {} +
     fetch_and_extract "$WEBKITGTK_URL" /build/webkitgtk
     echo "$WEBKITGTK_URL" > "$WEBKITGTK_MARKER"
 fi
@@ -851,7 +863,24 @@ cmake --install /build/webkitgtk/_build
 # patch above no longer actually applies to (the python patch step already fails loudly
 # if its exact expected source text isn't found, but this double-checks the *compiled
 # result* too, catching e.g. a differently-shaped fix upstream ends up applying itself).
-if ! strings "$PREFIX"/lib/libwebkitgtk-6.0.so.* 2>/dev/null | grep -q '^WEBKIT_EXEC_PATH$'; then
+#
+# Task 8 (2026-08-14-webview2loader-host-process, real end-to-end verification) bug fix:
+# this used to be `strings ... | grep -q '^WEBKIT_EXEC_PATH$'` piped directly, which is
+# the classic `producer | grep -q` SIGPIPE-under-pipefail trap (this script sets
+# `set -euo pipefail` up top) -- `grep -q` exits the instant it finds its first match,
+# without draining the rest of its stdin, which SIGPIPEs `strings` while it's still
+# mid-write on a ~130MB shared library (well over a million lines of extracted-string
+# output). Under pipefail, that SIGPIPE'd `strings` process's non-zero exit status wins
+# out over grep's own successful (0, match-found) exit status, so the pipeline as a
+# whole spuriously reports failure -- confirmed for real: this check failed on two
+# separate from-scratch container builds even though a standalone, non-piped re-check
+# against the exact same just-installed .so immediately afterward found the string fine
+# both times. Fixed by capturing `strings`' full output into a variable first (a real
+# command substitution runs to completion before anything reads it, so there's no live
+# reader to SIGPIPE it), then grepping that already-complete text -- no pipe between a
+# still-writing producer and an early-exiting consumer, so no SIGPIPE race left to hit.
+webkitgtk_so_strings="$(strings "$PREFIX"/lib/libwebkitgtk-6.0.so.* 2>/dev/null || true)"
+if ! grep -q '^WEBKIT_EXEC_PATH$' <<<"$webkitgtk_so_strings"; then
     echo "ERROR: WEBKIT_EXEC_PATH string not found in installed libwebkitgtk-6.0.so -- the Task 8 patch did not take effect" >&2
     exit 1
 fi

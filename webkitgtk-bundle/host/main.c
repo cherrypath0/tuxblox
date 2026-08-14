@@ -47,6 +47,8 @@
 #include <gtk/gtk.h>
 #include <glib-unix.h>
 #include <X11/Xlib.h>
+#include <dlfcn.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include "ipc.h"
@@ -57,6 +59,134 @@
 
 static int g_ipc_fd = -1;
 static GMainLoop *g_loop = NULL;
+
+/* Task 8 (2026-08-14-webview2loader-host-process plan, real end-to-end
+ * verification): the whole point of this plan was to move GTK/WebKit
+ * hosting out-of-process so real GPU-accelerated (glvnd/NVIDIA) rendering
+ * becomes possible -- unixlib.c's host_has_usable_egl()/spawn_helper()
+ * already decide host-vs-bundled EGL and print a WARN() on the FAILURE
+ * paths (Task 7), but nothing anywhere prints a positive confirmation of
+ * which EGL actually got resolved once this process is alive. Without
+ * that, "is the fix actually working" could only be inferred negatively
+ * (absence of "nouveau: driver missing" -- style warnings), not confirmed
+ * directly. This queries the real, live EGL_VENDOR/EGL_VERSION strings
+ * from whichever libEGL.so.1 this process's own dynamic linker actually
+ * resolved (governed by spawn_helper()'s LD_LIBRARY_PATH decision, made
+ * before this process's execl()) and prints them ONCE, at startup --
+ * mirroring geometry.c's geometry_debug_on() precedent of never letting a
+ * diagnostic print on every call/frame, just scoped here to "once per
+ * process" rather than behind an opt-in env var, since a once-per-process
+ * print is inherently not the repeated-per-call spam that precedent
+ * guards against.
+ *
+ * Plain dlopen()+dlsym() against libEGL.so.1, not a real
+ * `#include <EGL/egl.h>` + `-lEGL` link dependency: this process already
+ * pulls in libEGL indirectly at runtime (WebKitGTK's own real GL/EGL use
+ * once a webview is created), so a probe here observes the same resolved
+ * library WebKit itself will use -- but adding a *build-time* link
+ * dependency on EGL would require touching build-in-container.sh's
+ * pkg-config invocation for a value only ever read as a one-line startup
+ * log, which isn't worth a new build dependency. The EGL_VENDOR/
+ * EGL_VERSION integer constants below are stable, public values from the
+ * Khronos EGL registry (egl.h's own #defines never renumber), same
+ * "well-known constant instead of a header" tradeoff unixlib.c's own
+ * host_has_usable_egl() already makes for eglGetDisplay/dlsym. */
+#define WV2L_EGL_VENDOR  0x3053
+#define WV2L_EGL_VERSION 0x3054
+
+static void log_gl_dispatch_info(void)
+{
+    void *h;
+    void *(*p_eglGetDisplay)(void *);
+    unsigned int (*p_eglInitialize)(void *, int *, int *);
+    const char *(*p_eglQueryString)(void *, int);
+    void *dpy = NULL;
+    int major = 0, minor = 0;
+    Display *x11_dpy;
+
+    h = dlopen("libEGL.so.1", RTLD_LAZY);
+    if (!h)
+    {
+        fprintf(stderr, "webview2loader-host: GL dispatch: dlopen(\"libEGL.so.1\") failed (%s) -- "
+                        "no EGL available at all in this process\n", dlerror());
+        return;
+    }
+
+    p_eglGetDisplay = dlsym(h, "eglGetDisplay");
+    p_eglInitialize = dlsym(h, "eglInitialize");
+    p_eglQueryString = dlsym(h, "eglQueryString");
+    if (!p_eglGetDisplay || !p_eglInitialize || !p_eglQueryString)
+    {
+        fprintf(stderr, "webview2loader-host: GL dispatch: libEGL.so.1 loaded but missing expected symbols\n");
+        dlclose(h);
+        return;
+    }
+
+    /* Task 8 real-launch verification finding, round 2 -- this is now
+     * confirmed against a real standalone repro (a tiny dlopen/dlsym test
+     * program run directly against this dev machine's real glvnd+NVIDIA
+     * EGL, DISPLAY=:0), not just theorized: eglGetDisplay(NULL) i.e.
+     * EGL_DEFAULT_DISPLAY fails outright on this glvnd setup -- it has no
+     * way to guess which of several installed EGL platform backends (X11,
+     * GBM, surfaceless) to hand back a display for with no hint at all.
+     * unixlib.c's own host_has_usable_egl() never hits this because it
+     * only presence-checks dlopen+dlsym, never actually calls
+     * eglGetDisplay/eglInitialize -- so it silently chose host EGL (no
+     * WARN() logged) even while THIS probe's original EGL_DEFAULT_DISPLAY
+     * call failed, which is exactly why the repo owner's own "lag is
+     * fixed" hands-on confirmation of real hardware compositing and this
+     * probe's startup log used to disagree.
+     *
+     * The repro also ruled out the fancier fix tried first here
+     * (eglGetPlatformDisplayEXT() with EGL_PLATFORM_X11_KHR): that
+     * function is part of the EGL_EXT_platform_base *extension*, which on
+     * this system's libEGL.so.1 is genuinely not resolvable via plain
+     * dlsym() at all (confirmed: dlsym() returned NULL) -- EGL extension
+     * entry points are only guaranteed reachable through
+     * eglGetProcAddress(), the same rule OpenGL extensions follow, not
+     * through the dynamic symbol table the way core EGL 1.x entry points
+     * (eglGetDisplay itself included) are.
+     *
+     * The actual, repro-confirmed fix needs neither of those: plain,
+     * always-present eglGetDisplay() works fine and returns a real,
+     * initializable NVIDIA display -- it just needs a genuine X11
+     * Display*, not NULL, as its argument. Opened via this file's own
+     * XOpenDisplay() (already linked via -lX11 for x11_error_handler
+     * above); NULL is kept as a last-resort fallback only for the case
+     * XOpenDisplay() itself fails, not because it's expected to help once
+     * eglGetDisplay(x11_dpy) has already failed. */
+    x11_dpy = XOpenDisplay(NULL);
+    if (x11_dpy)
+        dpy = p_eglGetDisplay(x11_dpy);
+    if (!dpy)
+        dpy = p_eglGetDisplay(NULL /* EGL_DEFAULT_DISPLAY */);
+    if (!dpy || !p_eglInitialize(dpy, &major, &minor))
+    {
+        fprintf(stderr, "webview2loader-host: GL dispatch: eglGetDisplay/eglInitialize failed -- "
+                        "EGL present but no usable display\n");
+        dlclose(h);
+        return;
+    }
+
+    fprintf(stderr, "webview2loader-host: GL dispatch: EGL_VENDOR=\"%s\" EGL_VERSION=\"%s\" (eglInitialize %d.%d)\n",
+            p_eglQueryString(dpy, WV2L_EGL_VENDOR), p_eglQueryString(dpy, WV2L_EGL_VERSION), major, minor);
+
+    /* Deliberately no eglTerminate()/dlclose() on this success path: this
+     * display handle is process-global per EGL's own spec (repeated
+     * eglGetDisplay(EGL_DEFAULT_DISPLAY) calls return the same handle),
+     * and WebKitGTK's own later real EGL use in this same process will
+     * re-initialize/use it. Unlike the plain presence-check dlopen()/
+     * dlsym()/dlclose() pattern unixlib.c's host_has_usable_egl() uses
+     * (which never calls eglInitialize, so has no driver state to worry
+     * about), eglInitialize() here really does create live driver state
+     * (device fds, mmaps) tied to this specific dlopen handle -- calling
+     * dlclose() afterward risks unmapping libEGL.so.1 out from under that
+     * state if this was the only holder of the refcount, corrupting
+     * WebKitGTK's later real EGL use for the sake of a value that only
+     * exists to be logged once. A one-time intentional "leak" of this
+     * dlopen handle for the lifetime of the process is the safe choice
+     * here, not an oversight. */
+}
 
 /* Reads one opcode + its struct, dispatches, writes the struct back.
  * Returns FALSE (stopping the GSource / ending the process) once the
@@ -341,6 +471,8 @@ int main(int argc, char **argv)
         fprintf(stderr, "webview2loader-host: gtk_init_check failed\n");
         return 1;
     }
+
+    log_gl_dispatch_info();
 
     g_loop = g_main_loop_new(NULL, FALSE);
     g_unix_fd_add(g_ipc_fd, G_IO_IN, on_ipc_readable, NULL);
