@@ -87,6 +87,45 @@ cp -a bin/gdk-pixbuf-query-loaders libexec/gdk-pixbuf-tools/
 # bin/-derived file.
 cp -a bin/webview2loader-host libexec/
 
+# Task 7 (2026-08-14 webview2loader-host plan): relocate this bundle's own
+# libEGL.so*/libGL.so*/libGLESv1_CM.so*/libGLESv2.so* out of
+# lib/x86_64-linux-gnu/ into a lib/x86_64-linux-gnu/gl-fallback/ subdirectory,
+# BEFORE the RPATH-rewrite loop below runs -- so that loop's own depth-based
+# $ORIGIN computation picks these files up "for free" (they get an extra
+# "../" to walk back up to the shared lib/ dirs, same as any other file one
+# level deeper than lib/x86_64-linux-gnu/ itself) and, just as importantly, so
+# no OTHER file's RPATH is ever computed relative to this new subdirectory --
+# confirmed by the earlier, since-reverted attempt at this exact packaging
+# change (see .superpowers/sdd/2026-08-13-webview2-window-docking-messaging/
+# lag-glvnd-report.md) via a full `readelf -d` sweep of the whole repackaged
+# tree.
+#
+# Why: unixlib.c's spawn_helper() decides, per-launch, whether
+# webview2loader-host should resolve libEGL.so.1/libGL.so.1 against the
+# HOST's own real glvnd install (letting a real GPU driver, e.g. NVIDIA, do
+# hardware-accelerated rendering) or fall back to this bundle's own Mesa
+# softpipe build (a portable, always-works, pure-CPU rasterizer) -- but only
+# if this bundle's own copies are moved somewhere the normal RPATH search
+# never reaches on its own, so the host's copies win by default and the
+# bundle's own copies only get found when spawn_helper() explicitly adds
+# gl-fallback/ to LD_LIBRARY_PATH. Left in place, unmoved: libwayland-egl.so.1
+# (confirmed via readelf -d to need only libc.so.6 -- not part of the
+# EGL/glvnd dispatch decision at all) and libgallium-25.1.8.so/gbm/dri_gbm.so
+# (needed unconditionally via GBM_BACKENDS_PATH, regardless of which EGL
+# vendor ends up loaded).
+#
+# Idempotent against re-runs on the persisted webkitgtk-prefix podman volume
+# (a second run finds these files already moved and mkdir -p / mv -f/-n
+# handle that without erroring or double-nesting).
+echo ":: Relocating bundle's own libEGL/libGL/libGLESv1_CM/libGLESv2 into gl-fallback/"
+mkdir -p lib/x86_64-linux-gnu/gl-fallback
+for pattern in 'libEGL.so*' 'libGL.so*' 'libGLESv1_CM.so*' 'libGLESv2.so*'; do
+    for f in lib/x86_64-linux-gnu/$pattern; do
+        [ -e "$f" ] || continue
+        mv -f "$f" lib/x86_64-linux-gnu/gl-fallback/
+    done
+done
+
 echo ":: Rewriting RPATH/RUNPATH on every ELF file in the packaged tree"
 find include lib libexec etc share -type f \
     -not -path 'libexec/installed-tests/*' -not -path 'share/installed-tests/*' \

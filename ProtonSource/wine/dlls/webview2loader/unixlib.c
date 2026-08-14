@@ -25,6 +25,7 @@
  * safe to use directly.
  */
 
+#include <dlfcn.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
@@ -55,28 +56,165 @@ static int g_helper_fd = -1;
 static pid_t g_helper_pid = -1;
 static pthread_mutex_t g_ipc_mutex = PTHREAD_MUTEX_INITIALIZER;
 
-/* host_has_usable_egl()/bundle_gl_fallback_dir(): Task 7 stubs. Task 7's
- * real job is deciding whether webview2loader-host should get a
- * bundle-relative LD_LIBRARY_PATH override (a Mesa/GL fallback for
- * environments where the host's own EGL isn't usable -- see spawn_helper's
- * own call site below and the salvaged investigation this is based on,
- * .superpowers/sdd/2026-08-13-webview2-window-docking-messaging/
- * lag-glvnd-report.md). Defined here (not left as bare prototypes) so this
- * translation unit links and runs standalone during Task 3, before Task 7
- * exists: host_has_usable_egl() always returning TRUE is a safe
- * placeholder -- it means "assume EGL is usable," so spawn_helper never
- * takes the LD_LIBRARY_PATH fallback branch until Task 7 replaces this with
- * a real dlopen("libEGL.so.1")+dlsym presence probe.
- * bundle_gl_fallback_dir() is unreachable while the above always returns
- * TRUE; its real bundle-relative path logic also lands in Task 7. */
+/* Task 7: real host-vs-bundled GL/EGL dispatch, salvaged from the blocked
+ * attempt documented in .superpowers/sdd/2026-08-13-webview2-window-docking-
+ * messaging/lag-glvnd-report.md. That attempt hit two real blockers, but
+ * both were specific to the OLD architecture this file no longer has:
+ *
+ * - Blocker 1 (NVIDIA's proprietary EGL driver SIGSEGVs on its own internal
+ *   dlopen() when loaded into an isolated dlmopen(LM_ID_NEWLM) namespace):
+ *   moot now -- webview2loader-host is a genuinely separate process with its
+ *   own default namespace, not a dlmopen namespace inside Wine's process.
+ * - Blocker 2 (setenv("LD_LIBRARY_PATH", ...) from inside an already-running
+ *   process doesn't retroactively affect glibc's already-cached dynamic-
+ *   linker search path): moot now too -- spawn_helper() below sets
+ *   LD_LIBRARY_PATH in the CHILD after fork() but BEFORE execl(), so it's
+ *   read fresh at the new process's own startup, exactly the case the
+ *   report's own "most promising remaining lead" identified as the fix
+ *   (deciding host-vs-bundled before the process starts).
+ *
+ * host_has_usable_egl() runs here, in unixlib.c's own default namespace,
+ * inside the PARENT (Wine's) process, strictly before fork() -- a plain
+ * dlopen()+dlsym()+dlclose() probe, immediately closed, never loaded into
+ * any isolated namespace and never left resident. This is explicitly NOT
+ * the part the report's Blocker 1 crash was in (the report confirmed this
+ * directly: one repro run had this exact probe present, one had it
+ * hardcoded out entirely, and both crashed identically -- the crash was in
+ * later real GTK/WebKit GL use inside the dlmopen namespace, not the probe
+ * itself). */
 static BOOL host_has_usable_egl(void)
 {
-    return TRUE;
+    void *h = dlopen("libEGL.so.1", RTLD_LAZY);
+    BOOL ok;
+    if (!h) return FALSE;
+    ok = dlsym(h, "eglGetDisplay") != NULL;
+    dlclose(h);
+    return ok;
 }
 
-static const char *bundle_gl_fallback_dir(void)
+/* Absolute path to this bundle's own relocated GL/EGL fallback libraries
+ * (webkitgtk-bundle/package.sh moves libEGL/libGL/libGLESv1_CM/libGLESv2
+ * (each with its full .so/.so.N/.so.N.N.N symlink chain) out of
+ * lib/x86_64-linux-gnu/ into a gl-fallback/ subdirectory, specifically so
+ * nothing else's RPATH ever resolves into it -- see that script's own
+ * comment -- meaning these libraries are normally unreachable unless
+ * LD_LIBRARY_PATH explicitly adds this directory, which is exactly what
+ * spawn_helper()'s child branch below does when host_has_usable_egl()
+ * returns FALSE). bundle_dir is the same TUXBLOX_WEBVIEW_DIR value
+ * spawn_helper() already has -- not re-resolved here. */
+static const char *bundle_gl_fallback_dir(const char *bundle_dir)
 {
-    return "";
+    static char path[PATH_MAX];
+    snprintf(path, sizeof(path), "%s/lib/x86_64-linux-gnu/gl-fallback", bundle_dir);
+    return path;
+}
+
+/* Part B (Task 7, controller-assigned gap found during Task 4's review):
+ * ported verbatim from the pre-Task-3 unixlib.c's prepend_env(), deleted by
+ * Task 3's rewrite as apparently dlmopen-specific. It isn't -- see
+ * set_webkit_relocation_env() below. Prepends `value` onto whatever is
+ * already in env var `name` (":"-joined, PATH-style) rather than
+ * overwriting it outright, for vars a DIFFERENT in-process consumer might
+ * already rely on. If `name` isn't set yet, this is equivalent to a plain
+ * setenv(name, value, 1) (no leading ":" is emitted). */
+static void prepend_env(const char *name, const char *value)
+{
+    const char *existing = getenv(name);
+    char *joined;
+    size_t len;
+
+    if (!existing || !existing[0])
+    {
+        setenv(name, value, 1);
+        return;
+    }
+
+    len = strlen(value) + 1 + strlen(existing) + 1;
+    if (!(joined = malloc(len)))
+    {
+        WARN("out of memory prepending %s to %s -- leaving existing value in place\n", value, name);
+        return;
+    }
+    snprintf(joined, len, "%s:%s", value, existing);
+    setenv(name, joined, 1);
+    free(joined);
+}
+
+/* Part B (Task 7): ported from the pre-Task-3 unixlib.c's
+ * set_webkit_relocation_env(), deleted by Task 3's rewrite along with the
+ * dlmopen/pthread machinery it used to run alongside. That deletion was
+ * wrong -- this function isn't dlmopen-specific machinery, it sets
+ * environment variables real WebKitGTK itself needs at runtime regardless
+ * of how/where it's loaded (locating its own WebKitNetworkProcess/
+ * WebKitWebProcess/WebKitGPUProcess helper binaries, GStreamer plugin/
+ * scanner paths, GIO modules, GBM backends, GSettings schemas). Now called
+ * from spawn_helper()'s CHILD branch, after fork() and before execl(): even
+ * though the helper is a genuinely separate process now (not sharing Wine's
+ * process environment directly), fork() duplicates the PARENT's (Wine's)
+ * environment into the child before these setenv() calls run and execl()
+ * inherits the result -- so the original "prepend, don't clobber the
+ * inherited host/Wine value" reasoning for GST_PLUGIN_SYSTEM_PATH_1_0 and
+ * XDG_DATA_DIRS still applies exactly as before and is preserved here, not
+ * simplified to a plain setenv(). */
+static void set_webkit_relocation_env(const char *dir)
+{
+    char path[PATH_MAX];
+
+    snprintf(path, sizeof(path), "%s/libexec/webkitgtk-6.0", dir);
+    setenv("WEBKIT_EXEC_PATH", path, 1);
+
+    snprintf(path, sizeof(path), "%s/lib/webkitgtk-6.0/injected-bundle", dir);
+    setenv("WEBKIT_INJECTED_BUNDLE_PATH", path, 1);
+
+    snprintf(path, sizeof(path), "%s/lib/x86_64-linux-gnu/gio/modules", dir);
+    setenv("GIO_EXTRA_MODULES", path, 1);
+
+    snprintf(path, sizeof(path), "%s/lib/x86_64-linux-gnu/gbm", dir);
+    setenv("GBM_BACKENDS_PATH", path, 1);
+
+    snprintf(path, sizeof(path), "%s/libexec/gstreamer-1.0/gst-plugin-scanner", dir);
+    setenv("GST_PLUGIN_SCANNER", path, 1);
+
+    snprintf(path, sizeof(path), "%s/lib/x86_64-linux-gnu/gstreamer-1.0", dir);
+    /* GStreamer 1.x reads GST_PLUGIN_SYSTEM_PATH_1_0 first and only falls
+     * back to the unsuffixed GST_PLUGIN_SYSTEM_PATH when the _1_0-suffixed
+     * one is unset. ProtonSource/proton sets GST_PLUGIN_SYSTEM_PATH_1_0
+     * unconditionally for its own bundled GStreamer, so under this repo's
+     * Proton the unsuffixed var alone is inert -- the bundle's own
+     * gstreamer-1.0 plugins (built specifically for this bundle) would
+     * never be found and WebKit's media pipeline would silently fall back
+     * to Proton's differently-versioned GStreamer plugins instead. Set
+     * both: the suffixed one to actually take effect here, the unsuffixed
+     * one kept for any other GStreamer-based consumer that only checks the
+     * unsuffixed name.
+     *
+     * This DLL's spawn_helper() forks a genuinely separate CHILD process
+     * (unlike the pre-Task-3 version, which ran WebKit inside Wine's own
+     * process) -- but fork() still duplicates Wine's own already-set
+     * environment (including whatever Proton's own launcher set for its OWN
+     * bundled GStreamer) into that child before these setenv()/prepend_env()
+     * calls run, so the same collision this comment originally described
+     * still applies: a plain setenv(..., 1) here would overwrite Proton's
+     * own GST_PLUGIN_SYSTEM_PATH_1_0 outright in the child's environment.
+     * Prepending instead of replacing keeps this bundle's plugins found
+     * first by the helper's own WebKit while leaving Proton's own path
+     * reachable afterward for anything else in the child's environment that
+     * might consult it. GST_PLUGIN_SYSTEM_PATH (unsuffixed) has no such
+     * known collision -- left as a plain setenv, out of scope for this
+     * fix. */
+    setenv("GST_PLUGIN_SYSTEM_PATH", path, 1);
+    prepend_env("GST_PLUGIN_SYSTEM_PATH_1_0", path);
+
+    snprintf(path, sizeof(path), "%s/share", dir);
+    /* Same reasoning as GST_PLUGIN_SYSTEM_PATH_1_0 above -- a plain
+     * setenv(..., 1) would replace XDG_DATA_DIRS outright in the child's
+     * environment, dropping whatever the host/Wine's own inherited
+     * environment already had there. Prepending keeps this bundle's share/
+     * directory found first without discarding the rest. */
+    prepend_env("XDG_DATA_DIRS", path);
+
+    snprintf(path, sizeof(path), "%s/share/glib-2.0/schemas", dir);
+    setenv("GSETTINGS_SCHEMA_DIR", path, 1);
 }
 
 /* Forks and execs webkitgtk-bundle/host's webview2loader-host binary,
@@ -118,13 +256,30 @@ static BOOL spawn_helper(const char *bundle_dir)
 
         snprintf(fd_env, sizeof(fd_env), "3");
         setenv("WEBVIEW2LOADER_IPC_FD", fd_env, 1);
-        if (!host_has_usable_egl())
+
+        /* Part B (Task 7): WebKitGTK's own runtime env vars (helper process
+         * paths, GStreamer/GIO/GBM/GSettings lookup dirs) -- see
+         * set_webkit_relocation_env()'s own comment for why this belongs
+         * here and not in the deleted dlmopen-era init path. Must run
+         * before execl() below, same as the LD_LIBRARY_PATH decision that
+         * follows. */
+        set_webkit_relocation_env(bundle_dir);
+
+        /* WEBVIEW2LOADER_FORCE_GL_FALLBACK: test-only hook, checked before
+         * the real host_has_usable_egl() probe, so the bundle's own
+         * relocated gl-fallback/ softpipe copy can be exercised on a
+         * machine (like this dev machine) whose host EGL is genuinely
+         * usable, without having to uninstall glvnd to prove the fallback
+         * branch works. Kept permanently (not stripped after Task 7's own
+         * verification) -- useful for future debugging of this same
+         * dispatch decision on other machines. */
+        if (getenv("WEBVIEW2LOADER_FORCE_GL_FALLBACK") || !host_has_usable_egl())
         {
             /* execve's own envp is read at true process startup -- this is
              * exactly the case LD_LIBRARY_PATH works for, unlike setenv()
              * from inside an already-running process. See Task 7. */
             char ld_path[PATH_MAX];
-            snprintf(ld_path, sizeof(ld_path), "%s", bundle_gl_fallback_dir());
+            snprintf(ld_path, sizeof(ld_path), "%s", bundle_gl_fallback_dir(bundle_dir));
             setenv("LD_LIBRARY_PATH", ld_path, 1);
         }
 
