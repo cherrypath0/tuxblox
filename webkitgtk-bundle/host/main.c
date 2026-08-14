@@ -46,11 +46,13 @@
  */
 #include <gtk/gtk.h>
 #include <glib-unix.h>
+#include <X11/Xlib.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include "ipc.h"
 #include "webview2loader_ipc_protocol.h"
 #include "webview.h"
+#include "geometry.h"
 
 static int g_ipc_fd = -1;
 static GMainLoop *g_loop = NULL;
@@ -163,20 +165,27 @@ static gboolean on_ipc_readable(gint fd, GIOCondition condition, gpointer user_d
     case WV2L_OP_SYNC_WINDOW_GEOMETRY:
     {
         struct wv2l_sync_window_geometry_params p;
+        struct native_webview *nv;
         if (ipc_read_full(fd, &p, sizeof(p)) < 0) { g_main_loop_quit(g_loop); return G_SOURCE_REMOVE; }
-        p.success = 0;
+        nv = webview_lookup(p.handle);
+        p.success = geometry_sync(nv, p.screen_bounds, p.visible, p.parent_xid) ? 1 : 0;
         if (ipc_write_full(fd, &p, sizeof(p)) < 0) { g_main_loop_quit(g_loop); return G_SOURCE_REMOVE; }
         return G_SOURCE_CONTINUE;
     }
     case WV2L_OP_GET_WINDOW_GEOMETRY:
     {
         struct wv2l_get_window_geometry_params p;
+        struct native_webview *nv;
         if (ipc_read_full(fd, &p, sizeof(p)) < 0) { g_main_loop_quit(g_loop); return G_SOURCE_REMOVE; }
-        p.success = 0;
-        p.screen_bounds.left = 0;
-        p.screen_bounds.top = 0;
-        p.screen_bounds.right = 0;
-        p.screen_bounds.bottom = 0;
+        nv = webview_lookup(p.handle);
+        p.success = geometry_get(nv, &p.screen_bounds) ? 1 : 0;
+        if (!p.success)
+        {
+            p.screen_bounds.left = 0;
+            p.screen_bounds.top = 0;
+            p.screen_bounds.right = 0;
+            p.screen_bounds.bottom = 0;
+        }
         if (ipc_write_full(fd, &p, sizeof(p)) < 0) { g_main_loop_quit(g_loop); return G_SOURCE_REMOVE; }
         return G_SOURCE_CONTINUE;
     }
@@ -194,10 +203,66 @@ static gboolean on_ipc_readable(gint fd, GIOCondition condition, gpointer user_d
 
 int main(int argc, char **argv)
 {
+    gboolean gtk_ok;
+    const char *fd_env;
+
     (void)argc;
     (void)argv;
 
-    const char *fd_env = getenv("WEBVIEW2LOADER_IPC_FD");
+    /* Task 7 UAF/Xlib-locking fix round 3 (original unixlib.c comment on
+     * XInitThreads' own extern declaration) -- see geometry.c's own
+     * XLockDisplay/XUnlockDisplay bracketing in geometry_sync for the full
+     * crash evidence this addresses. Must be the very first Xlib call made
+     * anywhere in this process (Xlib's own documented requirement);
+     * gtk_init_check() below is what actually opens the X11 display
+     * connection geometry_sync later issues raw XMoveResizeWindow/
+     * XReparentWindow/XSendEvent calls against, so this has to run
+     * strictly before it. GDK likely also calls this internally as part of
+     * opening its own X11 backend -- calling it again there is a
+     * documented no-op/safe, so there's no harm doing it twice; what
+     * matters is that it happens before ANY Xlib activity, which this
+     * guarantees regardless of GDK's own internal ordering. WebKitGTK is
+     * known to touch the shared X11 connection from auxiliary threads of
+     * its own (compositing/GL) outside this process's own main-loop
+     * thread, so without this, geometry_sync's later raw Xlib calls would
+     * be exactly the kind of unguarded access that corrupts Xlib's
+     * per-Display request buffers and segfaults deep inside _XGetRequest.
+     *
+     * Real return value (a real Xlib Status, non-zero on success) is
+     * checked -- if this ever legitimately fails (rare, but real -- e.g. a
+     * libX11 build without thread support), Xlib's own documented behavior
+     * is for XLockDisplay/XUnlockDisplay to silently become no-ops, which
+     * would quietly reopen the exact TOCTOU race geometry.c's own locking
+     * exists to close, with nothing anywhere indicating the locking had
+     * become inert. Loud diagnostic rather than a hard init failure: this
+     * process can still do useful work (visibility/size sync, cookies,
+     * navigation) even if X11 position sync specifically degrades. */
+    if (!XInitThreads())
+        fprintf(stderr, "webview2loader-host: XInitThreads() failed -- XLockDisplay/XUnlockDisplay will "
+                        "silently no-op per Xlib's own documented behavior, reopening the exact TOCTOU race "
+                        "geometry.c's own locking exists to close\n");
+
+    /* Task 7 crash fix, round 12 (original unixlib.c comment, ported here
+     * since this process's own main() -- specifically the gtk_init_check()
+     * call below -- is now the ordering anchor; there is no separate
+     * gtk_thread_proc anymore, this whole process's main() *is* that
+     * thread): force GTK4's own backend selection to X11, not Wayland.
+     * This environment is a genuine Wayland compositor session
+     * (WAYLAND_DISPLAY set) and GDK_BACKEND is never set anywhere else in
+     * this codebase (confirmed: unixlib.c's own spawn_helper does not set
+     * it on this helper's environment either) -- GTK4's own documented
+     * behavior is to auto-detect and PREFER native Wayland over X11
+     * whenever both are available, unless an app explicitly forces
+     * otherwise. Without this, every gdk_x11_surface_get_xid(surface) call
+     * geometry_sync/geometry_get make is a real type mismatch (surface
+     * would be a GdkWaylandSurface*, not a GdkX11Surface*) -- the exact
+     * round-9-through-11 bug this fix resolved in the original
+     * implementation. Must be set via setenv() here, before
+     * gtk_init_check() below -- that's the one call that actually opens
+     * GDK's display connection and locks in its backend choice. */
+    setenv("GDK_BACKEND", "x11", 1);
+
+    fd_env = getenv("WEBVIEW2LOADER_IPC_FD");
     if (!fd_env) { fprintf(stderr, "webview2loader-host: WEBVIEW2LOADER_IPC_FD not set\n"); return 1; }
     g_ipc_fd = atoi(fd_env);
 
@@ -234,7 +299,24 @@ int main(int argc, char **argv)
      * does not depend on which OS thread happened to call fork() on the
      * Wine side, so it has none of PDEATHSIG's race window. */
 
-    if (!gtk_init_check())
+    gtk_ok = gtk_init_check();
+
+    /* Task 7 crash fix, round 17 (see geometry.h's own x11_error_handler
+     * comment for the full rationale): install AFTER gtk_init_check() (not
+     * before), specifically so this overrides whatever error handler GDK's
+     * own X11 backend init installed for itself while opening the display
+     * connection above, rather than being silently clobbered BY it -- same
+     * "must come after the call that locks in GDK's own X11 setup"
+     * ordering GDK_BACKEND above already has, just on the other side of
+     * that call instead of before it. Installed unconditionally (not
+     * gated on gtk_ok): even a failed gtk_init_check() may have partially
+     * opened an X11 display connection this process could still receive a
+     * real protocol error against before the `return 1` below runs, and a
+     * missing handler here is exactly the fatal-abort gap this round
+     * fixes, so there's no safe case to skip it in. */
+    XSetErrorHandler(x11_error_handler);
+
+    if (!gtk_ok)
     {
         fprintf(stderr, "webview2loader-host: gtk_init_check failed\n");
         return 1;
