@@ -81,13 +81,34 @@ static pthread_mutex_t g_ipc_mutex = PTHREAD_MUTEX_INITIALIZER;
  * directly: one repro run had this exact probe present, one had it
  * hardcoded out entirely, and both crashed identically -- the crash was in
  * later real GTK/WebKit GL use inside the dlmopen namespace, not the probe
- * itself). */
+ * itself).
+ *
+ * Review fix (post-commit 61613652a): the "strictly before fork()" claim
+ * above used to be aspirational, not actual -- spawn_helper() originally
+ * called this function from inside the CHILD branch, after fork() had
+ * already run. dlopen()/dlsym()/dlclose() are NOT fork-safe: they can hold
+ * internal ld.so/malloc locks. Wine's own process is genuinely
+ * multi-threaded, so if some other thread held that lock at the exact
+ * instant fork() ran, the single-threaded child would inherit it
+ * permanently locked, and the child's own post-fork dlopen() call would
+ * deadlock forever -- hanging webview creation indefinitely, not just
+ * picking the wrong GL path. Fixed: spawn_helper() now calls this function
+ * in the PARENT, before fork(), and passes the result into the child via a
+ * plain local BOOL (fork() copies the parent's already-computed stack
+ * value, no further dlopen() involved) -- see spawn_helper()'s own call
+ * site below. */
 static BOOL host_has_usable_egl(void)
 {
     void *h = dlopen("libEGL.so.1", RTLD_LAZY);
     BOOL ok;
-    if (!h) return FALSE;
+    if (!h)
+    {
+        WARN("dlopen(\"libEGL.so.1\") failed -- assuming no usable host EGL, falling back to bundle's own\n");
+        return FALSE;
+    }
     ok = dlsym(h, "eglGetDisplay") != NULL;
+    if (!ok)
+        WARN("dlopen(\"libEGL.so.1\") succeeded but dlsym(\"eglGetDisplay\") found nothing -- treating host EGL as unusable\n");
     dlclose(h);
     return ok;
 }
@@ -101,7 +122,15 @@ static BOOL host_has_usable_egl(void)
  * LD_LIBRARY_PATH explicitly adds this directory, which is exactly what
  * spawn_helper()'s child branch below does when host_has_usable_egl()
  * returns FALSE). bundle_dir is the same TUXBLOX_WEBVIEW_DIR value
- * spawn_helper() already has -- not re-resolved here. */
+ * spawn_helper() already has -- not re-resolved here.
+ *
+ * The returned pointer is a `static char[PATH_MAX]` -- NOT reentrant/
+ * thread-safe, and overwritten by the next call. Safe today because every
+ * call site copies the result out (snprintf) immediately, on a single
+ * thread (spawn_helper()'s child branch, right after fork(), before any
+ * other thread exists in that process) -- but this contract doesn't
+ * survive being called from more than one place/thread without copying
+ * first. */
 static const char *bundle_gl_fallback_dir(const char *bundle_dir)
 {
     static char path[PATH_MAX];
@@ -238,8 +267,21 @@ static BOOL spawn_helper(const char *bundle_dir)
     int sv[2];
     char helper_path[PATH_MAX];
     char fd_env[32];
+    BOOL host_egl_ok;
 
     if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv) != 0) return FALSE;
+
+    /* Review fix (post-commit 61613652a): must run here, in the PARENT,
+     * strictly before fork() -- see host_has_usable_egl()'s own comment for
+     * why calling it AFTER fork(), from inside the child, was a real bug
+     * (dlopen()/dlsym()/dlclose() aren't fork-safe; a lock held by some
+     * other thread of this genuinely multi-threaded Wine process at the
+     * instant fork() runs would deadlock the child's own post-fork dlopen()
+     * forever). The result is a plain BOOL on this function's own stack --
+     * fork() copies it into the child along with everything else on the
+     * stack, so the child below just reads the already-computed answer,
+     * no further dlopen() call needed on that side at all. */
+    host_egl_ok = host_has_usable_egl();
 
     g_helper_pid = fork();
     if (g_helper_pid < 0) { close(sv[0]); close(sv[1]); return FALSE; }
@@ -265,15 +307,15 @@ static BOOL spawn_helper(const char *bundle_dir)
          * follows. */
         set_webkit_relocation_env(bundle_dir);
 
-        /* WEBVIEW2LOADER_FORCE_GL_FALLBACK: test-only hook, checked before
-         * the real host_has_usable_egl() probe, so the bundle's own
-         * relocated gl-fallback/ softpipe copy can be exercised on a
+        /* WEBVIEW2LOADER_FORCE_GL_FALLBACK: test-only hook, consulted
+         * alongside the PARENT-computed host_egl_ok above, so the bundle's
+         * own relocated gl-fallback/ softpipe copy can be exercised on a
          * machine (like this dev machine) whose host EGL is genuinely
          * usable, without having to uninstall glvnd to prove the fallback
          * branch works. Kept permanently (not stripped after Task 7's own
          * verification) -- useful for future debugging of this same
          * dispatch decision on other machines. */
-        if (getenv("WEBVIEW2LOADER_FORCE_GL_FALLBACK") || !host_has_usable_egl())
+        if (getenv("WEBVIEW2LOADER_FORCE_GL_FALLBACK") || !host_egl_ok)
         {
             /* execve's own envp is read at true process startup -- this is
              * exactly the case LD_LIBRARY_PATH works for, unlike setenv()
