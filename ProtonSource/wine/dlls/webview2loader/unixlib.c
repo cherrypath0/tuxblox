@@ -19,6 +19,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+/* Login-redirect fix: fork()+execvp()+waitpid() for the xdg-open handoff --
+ * see xdg_open_handoff's own comment below for why this shape (matching
+ * dlls/ntdll/unix/process.c's own established double-fork pattern) rather
+ * than system()/posix_spawn(). */
+#include <sys/wait.h>
+#include <unistd.h>
 
 #include <ntstatus.h>
 #define WIN32_NO_STATUS
@@ -421,6 +427,44 @@ extern void XUnlockDisplay(Display *display);
 extern GtkWidget *webkit_web_view_new(void);
 extern void webkit_web_view_load_uri(WebKitWebView *web_view, const char *uri);
 extern const char *webkit_web_view_get_uri(WebKitWebView *web_view);
+
+/* Login-redirect fix (roblox-studio-auth:/... OAuth handoff): real,
+ * hand-declared subset of WebKitPolicyDecision/WebKitNavigationAction/
+ * WebKitURIRequest, confirmed against the real committed bundle headers
+ * (ProtonBuild/dist/files/lib/tuxblox-webview/include/webkitgtk-6.0/webkit/
+ * WebKit{PolicyDecision,NavigationPolicyDecision,NavigationAction,
+ * URIRequest,WebView}.h) -- not guessed, and re-derived fresh here since
+ * round 16's own version of these declarations was fully reverted (see
+ * progress.md); nothing of round 16's actually survived to build on.
+ * WebKitNavigationPolicyDecision is WebKitPolicyDecision's own concrete
+ * subtype for WEBKIT_POLICY_DECISION_TYPE_NAVIGATION_ACTION/
+ * _NEW_WINDOW_ACTION (per WebKitWebView.h's own WebKitPolicyDecisionType
+ * doc comment) -- a plain opaque pointer, same convention as every other
+ * GObject-derived type already in this file (WebKitWebView,
+ * WebKitCookieManager, ...), so no extra cast machinery is needed. */
+typedef void WebKitPolicyDecision;
+typedef void WebKitNavigationPolicyDecision;
+typedef void WebKitNavigationAction;
+typedef void WebKitURIRequest;
+/* Real values, confirmed from the bundle's own WebKitWebView.h enum
+ * (NAVIGATION_ACTION first, so numerically 0) -- NAVIGATION_ACTION is
+ * requested for main-frame/subframe navigations, which is what WebKit's
+ * own internal redirect to a custom roblox-studio-auth: URI triggers;
+ * NEW_WINDOW_ACTION is for window.open()-style navigations, RESPONSE for
+ * a network response about to be loaded. Only NAVIGATION_ACTION is
+ * handled below -- see on_decide_policy's own comment for why. */
+typedef enum {
+    WEBKIT_POLICY_DECISION_TYPE_NAVIGATION_ACTION,
+    WEBKIT_POLICY_DECISION_TYPE_NEW_WINDOW_ACTION,
+    WEBKIT_POLICY_DECISION_TYPE_RESPONSE,
+} WebKitPolicyDecisionType;
+
+extern WebKitNavigationAction *webkit_navigation_policy_decision_get_navigation_action(
+    WebKitNavigationPolicyDecision *decision);
+extern WebKitURIRequest *webkit_navigation_action_get_request(WebKitNavigationAction *navigation);
+extern const char *webkit_uri_request_get_uri(WebKitURIRequest *request);
+extern void webkit_policy_decision_ignore(WebKitPolicyDecision *decision);
+
 extern WebKitNetworkSession *webkit_web_view_get_network_session(WebKitWebView *web_view);
 extern WebKitCookieManager *webkit_network_session_get_cookie_manager(WebKitNetworkSession *session);
 /* Task 8: real "delete all cookies" implementation -- see the WEBKIT_FUNCS
@@ -617,6 +661,10 @@ extern _Bool JSConfigureSignalForGC(int signalNumber);
     DO_FUNC(webkit_web_view_new); \
     DO_FUNC(webkit_web_view_load_uri); \
     DO_FUNC(webkit_web_view_get_uri); \
+    DO_FUNC(webkit_navigation_policy_decision_get_navigation_action); \
+    DO_FUNC(webkit_navigation_action_get_request); \
+    DO_FUNC(webkit_uri_request_get_uri); \
+    DO_FUNC(webkit_policy_decision_ignore); \
     DO_FUNC(webkit_web_view_get_network_session); \
     DO_FUNC(webkit_network_session_get_cookie_manager); \
     DO_FUNC(webkit_cookie_manager_get_all_cookies); \
@@ -1487,6 +1535,139 @@ static gboolean on_close_request(GtkWindow *window, void *user_data)
                   * which would otherwise destroy the window itself. */
 }
 
+/* Login-redirect fix: hands a matched custom-scheme URI off to the OS via
+ * xdg-open, exactly like a real browser/WebView2 does by default for an
+ * external URI scheme it doesn't itself recognize -- letting this
+ * codebase's own already-installed xdg-mime registrations
+ * (install-handler.sh / launcher/src/desktop_integration.cpp --
+ * x-scheme-handler/roblox-studio-auth, -studio, -player) complete the
+ * hand-off to a fresh RobloxStudioBeta.exe, exactly reproducing the
+ * OS-level custom-URI-protocol activation real, unmodified Roblox Studio
+ * relies on (confirmed via a real Vinegar session log -- see this task's
+ * own brief). fork()+execvp() with an explicit argv array -- never
+ * system()/a shell string -- so the URI's own &/=/? characters survive
+ * completely intact rather than being shell-word-split/glob-expanded.
+ *
+ * Uses this codebase's own established double-fork pattern (see
+ * dlls/ntdll/unix/process.c's __wine_unix_spawnvp, "in child"/
+ * "in grandchild" comments): the outer child forks a grandchild that
+ * execvp()s xdg-open and immediately _exit()s itself, so the grandchild
+ * (the real, possibly long-lived xdg-open process) gets reparented to
+ * init/systemd rather than staying a child of this Wine process -- avoids
+ * needing a persistent SIGCHLD handler or an indefinite wait to prevent a
+ * zombie across what could be many logins over a long Studio session. The
+ * outer child's own exit is waited on synchronously below, but since it
+ * exits immediately after its own inner fork() call, this is a bounded,
+ * near-instant wait, not a real block on xdg-open itself finishing.
+ *
+ * GTK_THREAD_LOG only -- this runs on gtk_thread (called directly from
+ * on_decide_policy, a WebKit signal callback), which has no valid Wine TEB
+ * -- see that macro's own comment for why WARN/TRACE/ERR are a real crash
+ * hazard here. */
+static void xdg_open_handoff(const char *uri)
+{
+    pid_t pid = fork();
+
+    if (pid == 0)
+    {
+        /* in child */
+        pid_t pid2 = fork();
+        if (pid2 == 0)
+        {
+            /* in grandchild -- becomes the real, long-lived xdg-open
+             * process once reparented away from this Wine process. */
+            char *argv[] = { (char *)"xdg-open", (char *)uri, NULL };
+            execvp("xdg-open", argv);
+            _exit(127); /* only reached if execvp() itself failed */
+        }
+        _exit(0); /* child's only job was forking the grandchild -- exits
+                   * immediately regardless of whether that inner fork
+                   * itself succeeded, so the parent's waitpid below never
+                   * blocks on xdg-open's own real runtime. */
+    }
+    if (pid > 0)
+    {
+        int status;
+        if (waitpid(pid, &status, 0) < 0)
+            GTK_THREAD_LOG("waitpid on xdg-open handoff child failed for %s: %s\n", uri, strerror(errno));
+    }
+    else
+        GTK_THREAD_LOG("fork() failed for xdg-open handoff of %s: %s\n", uri, strerror(errno));
+}
+
+/* Deliberately narrow, prefix-only allowlist -- NOT requiring a "://"
+ * authority form. The real, observed Roblox OAuth redirect is single-slash
+ * (roblox-studio-auth:/?code=...&state=..., confirmed via two independent
+ * real captures -- see this task's own brief); a strict "://" match would
+ * silently miss the one URI this fix exists to handle. Matches exactly
+ * this codebase's own existing xdg-mime scheme registrations, nothing
+ * broader. */
+static const char *const known_roblox_schemes[] = {
+    "roblox-studio-auth:", "roblox-studio:", "roblox-player:",
+};
+
+/* WebKitWebView::decide-policy -- connected once per webview at creation
+ * time (create_webview_on_gtk_thread below), not scoped to a single
+ * Navigate() call the way "load-changed" is. This has to be persistent
+ * for the whole webview's lifetime: the roblox-studio-auth: redirect this
+ * exists to handle is entirely browser-internal (WebKit's own OAuth flow
+ * navigating there after the user submits credentials on the real Roblox
+ * login page), never itself the direct target of a PE-side Navigate()
+ * call, so a connection scoped to one Navigate() would never even still
+ * be alive when the redirect actually fires.
+ *
+ * Only WEBKIT_POLICY_DECISION_TYPE_NAVIGATION_ACTION is inspected, and
+ * only the three known Roblox custom schemes within it are intercepted --
+ * matches the brief's own scoped recommendation and this file's own
+ * round-16 cautionary history (see progress.md: an earlier, reverted
+ * attempt denylisted too broadly and broke WebKit's own internal
+ * about:blank init). Every other decision type (NEW_WINDOW_ACTION,
+ * RESPONSE) and every non-matching scheme under NAVIGATION_ACTION falls
+ * through to returning FALSE -- WebKit's own documented default of
+ * proceeding with webkit_policy_decision_use(), i.e. completely
+ * unmodified behavior for real http/https page loads and everything else
+ * WebKit needs to load normally. This is a deliberately narrow allowlist
+ * of exactly the schemes this codebase itself registers via xdg-mime, not
+ * a broad denylist of "unknown" schemes -- narrower than real WebView2's
+ * own default (which hands off ANY scheme it doesn't itself recognize),
+ * but sufficient to fix this specific bug without repeating round 16's
+ * over-broad-filtering mistake; nothing else in this codebase currently
+ * needs a broader net, and a broader net is strictly easier to widen later
+ * than to debug after the fact. */
+static gboolean on_decide_policy(WebKitWebView *view, WebKitPolicyDecision *decision,
+                                  WebKitPolicyDecisionType decision_type, void *user_data)
+{
+    WebKitNavigationAction *action;
+    WebKitURIRequest *request;
+    const char *uri;
+    size_t i;
+
+    if (decision_type != WEBKIT_POLICY_DECISION_TYPE_NAVIGATION_ACTION)
+        return FALSE;
+
+    action = p_webkit_navigation_policy_decision_get_navigation_action((WebKitNavigationPolicyDecision *)decision);
+    if (!action) return FALSE;
+    request = p_webkit_navigation_action_get_request(action);
+    if (!request) return FALSE;
+    uri = p_webkit_uri_request_get_uri(request);
+    if (!uri) return FALSE;
+
+    for (i = 0; i < ARRAY_SIZE(known_roblox_schemes); i++)
+    {
+        if (!strncmp(uri, known_roblox_schemes[i], strlen(known_roblox_schemes[i])))
+        {
+            GTK_THREAD_LOG("intercepting navigation to %s -- ignoring the in-WebKit load (would otherwise "
+                            "show WebKit's own generic \"URL can't be shown\" error) and handing off to "
+                            "xdg-open, matching real WebView2's own default behavior for an external scheme "
+                            "it doesn't itself recognize\n", uri);
+            p_webkit_policy_decision_ignore(decision);
+            xdg_open_handoff(uri);
+            return TRUE; /* GDK_EVENT_STOP -- we handled this decision ourselves */
+        }
+    }
+    return FALSE; /* not one of ours -- let WebKit's own default (use()) handle it */
+}
+
 static void create_webview_on_gtk_thread(void *data)
 {
     struct create_webview_ctx *ctx = data;
@@ -1528,6 +1709,19 @@ static void create_webview_on_gtk_thread(void *data)
     p_g_signal_connect_data(nv->window, "close-request", (GCallback)on_close_request,
                              NULL, NULL, 0);
     nv->view = p_webkit_web_view_new();
+    /* Login-redirect fix -- see on_decide_policy's own comment above for
+     * why this must be connected here (persistent for the webview's whole
+     * lifetime) rather than scoped to a single Navigate() call. Connected
+     * unconditionally, same reasoning as the close-request connection just
+     * above -- even a message-only (HWND_MESSAGE/CookieManager) controller
+     * has a real, live WebKitWebView that could in principle navigate
+     * through this same OAuth flow. No disconnect/cleanup needed -- the
+     * connection's lifetime is exactly nv->view's own lifetime, torn down
+     * together by destroy_webview_on_gtk_thread's own gtk_window_destroy
+     * call (which destroys nv->view along with nv->window, still its
+     * child at that point). */
+    p_g_signal_connect_data(nv->view, "decide-policy", (GCallback)on_decide_policy,
+                             NULL, NULL, 0);
     p_gtk_window_set_child(nv->window, nv->view);
     /* Plan 3 Task 2: HWND_MESSAGE-parented controllers (the CookieManager
      * flow) still need a real, live WebKitWebView -- Navigate/GetCookies/
