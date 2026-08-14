@@ -894,9 +894,19 @@ fi
 # in-process unixlib.c never needed this: it resolved libX11 via the same dlmopen
 # namespace as libgtk-4.so.1's own already-loaded dependency at runtime instead of
 # linking against it at build time (see that file's own X11_FUNCS-adjacent comments).
+#
+# Task 6 addition: navigate.c (navigation/cookies/the real roblox-studio-auth:
+# OAuth redirect handoff, ported from unixlib.c's on_load_changed/
+# start_get_all_cookies_on_gtk_thread/start_count_cookies_on_gtk_thread/
+# start_get_cookies_on_gtk_thread/on_decide_policy) calls into libsoup's own
+# SoupCookie API (soup_cookie_get_name/_value/_domain/_path/_expires/etc.)
+# directly -- already available for free here: webkitgtk-6.0.pc's own `Requires:`
+# line already lists libsoup-3.0, so `pkg-config --cflags/--libs gtk4 webkitgtk-6.0`
+# below already pulls in everything navigate.c needs, no separate `pkg-config
+# libsoup-3.0` invocation required.
 echo ":: Building webview2loader-host"
 gcc -O2 -Wall -Werror -o "$PREFIX/bin/webview2loader-host" \
-    /src/host/main.c /src/host/ipc.c /src/host/webview.c /src/host/geometry.c \
+    /src/host/main.c /src/host/ipc.c /src/host/webview.c /src/host/geometry.c /src/host/navigate.c \
     -I/src/host \
     $(pkg-config --cflags gtk4 webkitgtk-6.0) \
     $(pkg-config --libs gtk4 webkitgtk-6.0) \

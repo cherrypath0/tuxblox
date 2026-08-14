@@ -53,6 +53,7 @@
 #include "webview2loader_ipc_protocol.h"
 #include "webview.h"
 #include "geometry.h"
+#include "navigate.h"
 
 static int g_ipc_fd = -1;
 static GMainLoop *g_loop = NULL;
@@ -108,9 +109,17 @@ static gboolean on_ipc_readable(gint fd, GIOCondition condition, gpointer user_d
     case WV2L_OP_NAVIGATE_AND_WAIT:
     {
         struct wv2l_navigate_params p;
+        struct native_webview *nv;
+        char *uri_utf8;
+        gboolean success = FALSE;
+        uint64_t nav_id = 0;
         if (ipc_read_full(fd, &p, sizeof(p)) < 0) { g_main_loop_quit(g_loop); return G_SOURCE_REMOVE; }
-        p.is_success = 0;
-        p.navigation_id = 0;
+        nv = webview_lookup(p.handle);
+        uri_utf8 = wire_uri_to_utf8(p.uri);
+        navigate_and_wait(nv, uri_utf8 ? uri_utf8 : "", &success, &nav_id);
+        g_free(uri_utf8);
+        p.is_success = success ? 1 : 0;
+        p.navigation_id = nav_id;
         if (ipc_write_full(fd, &p, sizeof(p)) < 0) { g_main_loop_quit(g_loop); return G_SOURCE_REMOVE; }
         return G_SOURCE_CONTINUE;
     }
@@ -118,24 +127,35 @@ static gboolean on_ipc_readable(gint fd, GIOCondition condition, gpointer user_d
     {
         struct wv2l_delete_all_cookies_params p;
         if (ipc_read_full(fd, &p, sizeof(p)) < 0) { g_main_loop_quit(g_loop); return G_SOURCE_REMOVE; }
-        /* No `out` fields defined for this opcode either -- see above. */
+        /* No `out` fields defined for this opcode -- cookies_delete_all's
+         * own gboolean return is only useful for this file's own stderr
+         * diagnostics (a stale handle or an allocation failure), see that
+         * function's own comment; nothing in the wire struct to carry it
+         * back in even if a caller wanted it. */
+        cookies_delete_all(webview_lookup(p.handle));
         if (ipc_write_full(fd, &p, sizeof(p)) < 0) { g_main_loop_quit(g_loop); return G_SOURCE_REMOVE; }
         return G_SOURCE_CONTINUE;
     }
     case WV2L_OP_COUNT_COOKIES:
     {
         struct wv2l_count_cookies_params p;
+        uint32_t count = 0;
         if (ipc_read_full(fd, &p, sizeof(p)) < 0) { g_main_loop_quit(g_loop); return G_SOURCE_REMOVE; }
-        p.count = 0;
+        cookies_count(webview_lookup(p.handle), &count);
+        p.count = count;
         if (ipc_write_full(fd, &p, sizeof(p)) < 0) { g_main_loop_quit(g_loop); return G_SOURCE_REMOVE; }
         return G_SOURCE_CONTINUE;
     }
     case WV2L_OP_GET_COOKIES:
     {
         struct wv2l_get_cookies_params p;
+        struct native_webview *nv;
+        char *uri_utf8;
         if (ipc_read_full(fd, &p, sizeof(p)) < 0) { g_main_loop_quit(g_loop); return G_SOURCE_REMOVE; }
-        p.success = 0;
-        p.count = 0;
+        nv = webview_lookup(p.handle);
+        uri_utf8 = wire_uri_to_utf8(p.uri);
+        cookies_get(nv, uri_utf8, &p); /* writes p.success/p.count/p.cookies directly */
+        g_free(uri_utf8);
         if (ipc_write_full(fd, &p, sizeof(p)) < 0) { g_main_loop_quit(g_loop); return G_SOURCE_REMOVE; }
         return G_SOURCE_CONTINUE;
     }

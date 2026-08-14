@@ -47,13 +47,18 @@
  * existed because that code was dlopen()'d at runtime with no real headers
  * available; that constraint doesn't apply here.
  *
- * The WebKitWebView::decide-policy connection (OAuth/xdg-open redirect
- * handoff) is deliberately NOT wired up yet -- it's Task 6's job (navigate.c
- * + this file), even though it lived at webview-creation time in the
- * original source too. Task 4's brief scopes this file to window creation/
- * destruction/registry only.
+ * Task 6 addition (additive only -- this file's Task 4 window creation/
+ * destruction/registry logic is otherwise unchanged): the
+ * WebKitWebView::decide-policy connection (real OAuth/xdg-open redirect
+ * handoff, on_decide_policy -- implemented in navigate.c, Task 6's file)
+ * is wired up in webview_create below, alongside the existing
+ * "close-request" connection, exactly where it lived at webview-creation
+ * time in the original source (see navigate.c's own comment on
+ * on_decide_policy for why it must be connected here, not scoped to a
+ * single Navigate() call).
  */
 #include "webview.h"
+#include "navigate.h"
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -159,6 +164,18 @@ struct native_webview *webview_create(int is_message_only)
     g_signal_connect_data(nv->window, "close-request", (GCallback)on_close_request,
                            NULL, NULL, 0);
     nv->view = WEBKIT_WEB_VIEW(webkit_web_view_new());
+    /* Task 6 addition -- see this file's own top-of-file comment and
+     * navigate.c's own comment on on_decide_policy for the full rationale.
+     * Connected unconditionally, same reasoning as the close-request
+     * connection just above -- even a message-only (HWND_MESSAGE/
+     * CookieManager) controller has a real, live WebKitWebView that could
+     * in principle navigate through this same OAuth flow. No disconnect/
+     * cleanup needed -- the connection's lifetime is exactly nv->view's own
+     * lifetime, torn down together by webview_destroy's own
+     * gtk_window_destroy call (which destroys nv->view along with
+     * nv->window, still its child at that point). */
+    g_signal_connect_data(nv->view, "decide-policy", (GCallback)on_decide_policy,
+                           NULL, NULL, 0);
     gtk_window_set_child(GTK_WINDOW(nv->window), GTK_WIDGET(nv->view));
     /* Plan 3 Task 2 (original unixlib.c comment): HWND_MESSAGE-parented
      * controllers (the CookieManager flow) still need a real, live
