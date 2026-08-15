@@ -15,21 +15,35 @@ engineering, not part of the normal `./build.sh` a user or contributor runs.
     ./build.sh
 
 Takes a long time (building the full GTK4/WebKitGTK stack from source) on a genuinely
-clean run -- expect multiple hours. A re-run against a warm `webkitgtk-ccache` volume
-(e.g. after only touching the WebKitGTK step itself, not any of its dependencies) is
-much faster since `ccache` is wired into the WebKitGTK cmake invocation specifically
-(see the comment in `build-in-container.sh`). Produces
+clean run -- expect multiple hours, most of it a single-threaded (`JOBS=1`, see the
+memory-history comment in `build-in-container.sh`) WebKitGTK compile. A re-run where
+webkitgtk itself is unchanged (no patch/version bump) finishes in well under a minute:
+its own source+build tree persists in the `webkitgtk-src-build` volume, so `ninja`
+does a true incremental build and correctly does nothing. Every *other* dependency
+(glib, gtk4, libsoup, icu, ...) still re-fetches and rebuilds from scratch on every
+run regardless -- that's fine, since all of them combined take well under an hour, and
+none of them get the same persistent-source treatment webkitgtk does. Produces
 `out/webkitgtk-<version>-x86_64.tar.xz`. Copy it into `../ProtonSource/contrib/`,
 update the `WEBKITGTK_VER`/tarball filename in `../ProtonSource/Makefile.in` to match,
 and commit both together.
 
-`build.sh` uses two persistent podman named volumes so a failed/interrupted run
+`build.sh` uses three persistent podman named volumes so a failed/interrupted run
 doesn't force starting over from nothing:
 - `webkitgtk-prefix` -- the actual `/opt/tuxblox-webview` install prefix. This is what
   `package.sh` packages. Safe to delete and let `build-in-container.sh` recreate it if
   you want a genuinely clean build.
-- `webkitgtk-ccache` -- compiler cache for the WebKitGTK step only. Not part of the
-  shippable artifact; safe to delete any time, just makes the next build slower.
+- `webkitgtk-src-build` -- webkitgtk's own extracted source tree AND its cmake
+  `_build` directory (mounted at `/build/webkitgtk`, the one dependency whose /build
+  subdirectory isn't ephemeral -- see the comment at its `fetch_and_extract` call site
+  in `build-in-container.sh`). This is what makes an unchanged re-run fast. Delete it
+  to force a genuinely clean webkitgtk rebuild (e.g. if you suspect the persisted tree
+  itself is corrupted) -- a version bump in `versions.env` does NOT require deleting
+  this manually, the script detects the version change itself via a marker file and
+  re-fetches automatically.
+- `webkitgtk-ccache` -- compiler cache for the WebKitGTK step only, a second line of
+  defense for cases the persisted `_build` tree doesn't cover on its own (e.g. after
+  deleting `webkitgtk-src-build` but not this). Not part of the shippable artifact;
+  safe to delete any time, just makes the next from-scratch build slower.
 
 ## Why a container instead of building on your own machine
 
@@ -344,6 +358,34 @@ WebKitGTK's process sandbox (`ENABLE_BUBBLEWRAP_SANDBOX`) is built with
 `build-in-container.sh` and Task 7/8's reports for the full reasoning. This trades
 away WebKit's process-level sandboxing for genuine host independence (no runtime
 dependency on `/usr/bin/bwrap`/`/usr/bin/xdg-dbus-proxy`).
+
+## GPU-accelerated rendering via glvnd dispatch (attempted, BLOCKED -- see report)
+
+An attempt was made to let the host's own glvnd dispatch pick a real GPU vendor
+(e.g. NVIDIA proprietary) instead of always using this bundle's own
+`-Dgallium-drivers=softpipe` Mesa, for hosts that have one. **Reverted -- two real,
+independently-confirmed blockers, not a "didn't get to it":**
+
+1. NVIDIA's proprietary `libEGL_nvidia.so` genuinely SEGFAULTs (confirmed via
+   `coredumpctl`, real backtrace, reproduced twice) inside its own internal
+   `dlopen()` call the first time it's loaded -- even transitively, via libepoxy's
+   own lazy `dlopen("libEGL.so.1")` -- inside `unixlib.c`'s isolated
+   `dlmopen(LM_ID_NEWLM)` namespace. Closed-source driver code; not fixable from
+   this bundle or from `unixlib.c`.
+2. Independently of (1): `setenv("LD_LIBRARY_PATH", ...)` called at DLL-init time
+   from inside webview2loader.so (already running deep inside an already-started
+   Wine process) does NOT affect glibc's `dlopen()` search path for that process --
+   glibc parses `LD_LIBRARY_PATH` into its internal search list once, at the
+   process's own startup, before this DLL's init code ever runs. An
+   env-var-at-DLL-init-time fallback mechanism cannot work for this specific
+   injection point, regardless of (1).
+
+Full evidence, what was tried, and the most promising remaining lead (deciding the
+fallback before Wine's own process starts, e.g. in `launch.sh`, rather than from
+inside `unixlib.c`) are in
+`.superpowers/sdd/2026-08-13-webview2-window-docking-messaging/lag-glvnd-report.md`.
+No source changes from this attempt are committed -- this bundle's own Mesa softpipe
+build is unchanged, and `unixlib.c` is unchanged.
 
 ---
 
