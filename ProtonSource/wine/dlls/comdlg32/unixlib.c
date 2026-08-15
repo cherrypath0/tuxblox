@@ -8,6 +8,10 @@
 #include <stdio.h>
 #include <string.h>
 #include <dlfcn.h>
+#include <errno.h>
+#include <limits.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 #ifdef SONAME_LIBDBUS_1
 #include <dbus/dbus.h>
@@ -131,8 +135,8 @@ static void append_path_option(DBusMessageIter *options, const char *key, const 
 }
 
 /* filters option type is "a(sa(us))": array of (display-name, array of (type, glob-pattern)) */
-static void append_filters_option(DBusMessageIter *options, const struct portal_filter *filters,
-                                   UINT count, const char **names_utf8, const char **patterns_utf8)
+static void append_filters_option(DBusMessageIter *options, UINT count,
+                                   const char **names_utf8, const char **patterns_utf8)
 {
     DBusMessageIter entry, variant, arr, filter_struct, pattern_arr, pattern_struct;
     const char *key = "filters";
@@ -145,13 +149,31 @@ static void append_filters_option(DBusMessageIter *options, const struct portal_
     p_dbus_message_iter_open_container(&variant, DBUS_TYPE_ARRAY, "(sa(us))", &arr);
     for (i = 0; i < count; i++)
     {
+        /* Windows filter patterns pack multiple globs into one string
+         * joined with ';' (e.g. "*.png;*.jpg;*.jpeg"), but the portal wants
+         * each glob as its own (type, pattern) entry. Passing the whole
+         * ';'-joined string through as a single glob matches nothing (a
+         * filename never literally contains ';'), which is why the portal
+         * picker showed folders (filters don't apply to them) but no files
+         * at all whenever a filter listed more than one extension. */
+        char *patterns_copy = strdup(patterns_utf8[i] ? patterns_utf8[i] : "");
+        char *saveptr, *pattern;
+
         p_dbus_message_iter_open_container(&arr, DBUS_TYPE_STRUCT, NULL, &filter_struct);
         p_dbus_message_iter_append_basic(&filter_struct, DBUS_TYPE_STRING, &names_utf8[i]);
         p_dbus_message_iter_open_container(&filter_struct, DBUS_TYPE_ARRAY, "(us)", &pattern_arr);
-        p_dbus_message_iter_open_container(&pattern_arr, DBUS_TYPE_STRUCT, NULL, &pattern_struct);
-        p_dbus_message_iter_append_basic(&pattern_struct, DBUS_TYPE_UINT32, &glob_type);
-        p_dbus_message_iter_append_basic(&pattern_struct, DBUS_TYPE_STRING, &patterns_utf8[i]);
-        p_dbus_message_iter_close_container(&pattern_arr, &pattern_struct);
+        if (patterns_copy)
+        {
+            for (pattern = strtok_r(patterns_copy, ";", &saveptr); pattern;
+                 pattern = strtok_r(NULL, ";", &saveptr))
+            {
+                p_dbus_message_iter_open_container(&pattern_arr, DBUS_TYPE_STRUCT, NULL, &pattern_struct);
+                p_dbus_message_iter_append_basic(&pattern_struct, DBUS_TYPE_UINT32, &glob_type);
+                p_dbus_message_iter_append_basic(&pattern_struct, DBUS_TYPE_STRING, &pattern);
+                p_dbus_message_iter_close_container(&pattern_arr, &pattern_struct);
+            }
+            free(patterns_copy);
+        }
         p_dbus_message_iter_close_container(&filter_struct, &pattern_arr);
         p_dbus_message_iter_close_container(&arr, &filter_struct);
     }
@@ -258,7 +280,7 @@ static BOOL portal_open_or_save(const char *method, const char *title, const cha
     if (initial_name && initial_name[0])
         append_string_option(&options, "current_name", initial_name);
     if (filter_count)
-        append_filters_option(&options, NULL, filter_count, names_utf8, patterns_utf8);
+        append_filters_option(&options, filter_count, names_utf8, patterns_utf8);
     p_dbus_message_iter_close_container(&args, &options);
 
     reply = p_dbus_connection_send_with_reply_and_block(conn, msg, -1, &error);
@@ -454,6 +476,127 @@ static BOOL write_open_result(WCHAR * const *paths, UINT count, WCHAR *out_buf, 
     return TRUE;
 }
 
+/* ntdll_get_dos_file_name() falls back to this "\\?\unix\<path>" device-path
+ * form for any file outside every drive this prefix maps - exactly what
+ * happens once the portal above lets the user pick a file from outside
+ * WINEPREFIX via the native (non-Wine) file chooser. Apps like Roblox don't
+ * understand that form and just report the file can't be opened, so
+ * localize_external_path() below papers over it. */
+static BOOL is_unix_fallback_path(const WCHAR *dos_path)
+{
+    /* Wide string literals are 32-bit wchar_t on this (unix-side) build, not
+     * the 16-bit WCHAR the rest of Wine uses, so this has to be spelled out
+     * as a char array like unix_prefixW in ntdll/unix/file.c is. */
+    static const WCHAR prefix[] = {'\\','\\','?','\\','u','n','i','x','\\'};
+    return dos_path && !wcsncmp(dos_path, prefix, ARRAY_SIZE(prefix));
+}
+
+/* Resolves "C:\users\user\files" (creating the "files" leaf if needed) to
+ * its unix path. The username is hardcoded rather than derived from ntdll
+ * (which would give the real *host* username, e.g. "cherry") because
+ * GetUserNameA/W (dlls/advapi32/advapi.c) always return the literal string
+ * "user" regardless of the host, and wineboot names the actual on-disk
+ * profile directory to match that, not the host account - using the real
+ * host username here would build a path that doesn't exist and can't be
+ * resolved, silently disabling this whole mechanism. Returns NULL if the
+ * directory can't be created. */
+static char *get_external_files_dir_unix(void)
+{
+    /* See the comment on is_unix_fallback_path's prefix: no L"" here either. */
+    static const WCHAR pathW[] =
+        {'C',':','\\','u','s','e','r','s','\\','u','s','e','r','\\','f','i','l','e','s',0};
+    char *unix_dir = NULL;
+
+    /* FILE_OPEN_IF: only the leaf "files" component may not exist yet. */
+    ntdll_get_unix_file_name(pathW, &unix_dir, FILE_OPEN_IF);
+
+    if (unix_dir && mkdir(unix_dir, 0755) && errno != EEXIST)
+    {
+        free(unix_dir);
+        unix_dir = NULL;
+    }
+    return unix_dir;
+}
+
+/* Picks "<base> (n)<ext>" inside dir_unix the way Windows/most file managers
+ * do, skipping an existing entry unless it's already a symlink to
+ * source_path - in which case that existing entry is reused rather than a
+ * duplicate being created (so re-picking the same outside file repeatedly,
+ * e.g. re-uploading the same image, doesn't pile up "name (1)", "name (2)",
+ * ... forever). *out_reuse is set to TRUE when the returned path is such an
+ * existing symlink already pointing at source_path. Returns NULL if no free
+ * or matching name could be found. */
+static char *pick_symlink_path(const char *dir_unix, const char *source_path, BOOL *out_reuse)
+{
+    const char *slash = strrchr(source_path, '/');
+    const char *leaf = slash ? slash + 1 : source_path;
+    const char *dot = strrchr(leaf, '.');
+    SIZE_T base_len = (dot && dot != leaf) ? (SIZE_T)(dot - leaf) : strlen(leaf);
+    const char *ext = (dot && dot != leaf) ? dot : "";
+    UINT n;
+
+    *out_reuse = FALSE;
+
+    for (n = 0; n < 1000; n++)
+    {
+        char suffix[32] = "";
+        char *candidate;
+        struct stat st;
+        char link_target[PATH_MAX];
+        ssize_t link_len;
+
+        if (n) snprintf(suffix, sizeof(suffix), " (%u)", n);
+        if (!(candidate = malloc(strlen(dir_unix) + 1 + base_len + strlen(suffix) + strlen(ext) + 1)))
+            return NULL;
+        sprintf(candidate, "%s/%.*s%s%s", dir_unix, (int)base_len, leaf, suffix, ext);
+
+        if (lstat(candidate, &st))
+        {
+            if (errno == ENOENT) return candidate; /* free slot */
+            free(candidate);
+            return NULL;
+        }
+
+        if ((link_len = readlink(candidate, link_target, sizeof(link_target) - 1)) > 0)
+        {
+            link_target[link_len] = 0;
+            if (!strcmp(link_target, source_path))
+            {
+                *out_reuse = TRUE;
+                return candidate; /* existing symlink to the same source */
+            }
+        }
+        free(candidate);
+    }
+    return NULL;
+}
+
+/* If dos_path is the unix-fallback form above, symlinks source_unix_path
+ * into this prefix's "C:\users\<user>\files" and returns the resulting,
+ * properly-resolved dos path (caller frees); returns NULL - leaving
+ * dos_path as the caller's problem, same as before this existed - if
+ * dos_path already resolved to a normal in-prefix path, or if remapping
+ * failed for any reason (unknown username, directory not creatable, all
+ * 1000 name slots taken, symlink() itself failing). */
+static WCHAR *localize_external_path(const char *source_unix_path, WCHAR *dos_path)
+{
+    char *dir_unix, *symlink_path;
+    WCHAR *new_dos_path = NULL;
+    BOOL reuse;
+
+    if (!is_unix_fallback_path(dos_path)) return NULL;
+    if (!(dir_unix = get_external_files_dir_unix())) return NULL;
+
+    if ((symlink_path = pick_symlink_path(dir_unix, source_unix_path, &reuse)))
+    {
+        if (reuse || !symlink(source_unix_path, symlink_path))
+            ntdll_get_dos_file_name(symlink_path, &new_dos_path, 0);
+        free(symlink_path);
+    }
+    free(dir_unix);
+    return new_dos_path;
+}
+
 NTSTATUS portal_open_file(void *args)
 {
     struct portal_open_save_params *params = args;
@@ -481,7 +624,7 @@ NTSTATUS portal_open_file(void *args)
         for (i = 0; i < uri_count; i++)
         {
             const char *path = uris[i];
-            WCHAR *dos_path = NULL;
+            WCHAR *dos_path = NULL, *localized;
 
             if (!strncmp(path, "file://", 7)) path += 7;
             /* ntdll_get_dos_file_name returns STATUS_NO_SUCH_FILE (nonzero)
@@ -491,6 +634,11 @@ NTSTATUS portal_open_file(void *args)
              * target (the common case for a save, and possible here too)
              * isn't mistaken for a hard failure. */
             ntdll_get_dos_file_name(path, &dos_path, 0);
+            if (dos_path && (localized = localize_external_path(path, dos_path)))
+            {
+                free(dos_path);
+                dos_path = localized;
+            }
             if (dos_path)
                 dos_paths[valid_count++] = dos_path;
         }
@@ -535,13 +683,18 @@ NTSTATUS portal_save_file(void *args)
     if (uri_count)
     {
         const char *path = uris[0];
-        WCHAR *dos_path = NULL;
+        WCHAR *dos_path = NULL, *localized;
 
         if (!strncmp(path, "file://", 7)) path += 7;
         /* See the comment in portal_open_file: check the output pointer,
          * not the NTSTATUS - a save target normally doesn't exist yet, and
          * that alone must not be treated as a hard failure here. */
         ntdll_get_dos_file_name(path, &dos_path, 0);
+        if (dos_path && (localized = localize_external_path(path, dos_path)))
+        {
+            free(dos_path);
+            dos_path = localized;
+        }
         if (dos_path)
         {
             SIZE_T len = wcslen(dos_path) + 1;
