@@ -73,6 +73,44 @@ ensureWebView2() {
     timeout 180 env "${protonEnv[@]}" "$(pwd)/ProtonBuild/dist/proton" run "$stagedWv2Installer" /silent /install
 }
 
+# plan/todo.md item 17: Wine defaults every fresh prefix to light mode --
+# uxtheme.dll's ShouldAppsUseDarkMode()/ShouldSystemUseDarkMode() (see
+# ProtonSource/wine/dlls/uxtheme/system.c) read real Windows-shaped registry
+# values (HKCU\...\Themes\Personalize, AppsUseLightTheme/SystemUsesLightTheme,
+# defaulting to TRUE/light when unset), which Roblox Studio's own Qt UI reads
+# to decide its color scheme. Queries the desktop-portal appearance setting
+# (org.freedesktop.appearance color-scheme: 0=no preference, 1=prefer dark,
+# 2=prefer light -- the same cross-desktop standard GNOME/KDE/etc. all
+# implement, not a KDE-specific query) and writes the matching value into the
+# prefix on every launch, so it tracks the host's current theme rather than
+# being set once. Best-effort: no gdbus, no portal, or "no preference" all
+# just leave Wine's existing (light) default alone rather than erroring.
+ensureThemeSync() {
+    # Real gdbus output is "(<<uint32 1>>,)" -- a naive [0-9]+ match would hit
+    # the "32" inside "uint32" itself before ever reaching the actual value,
+    # silently producing a two-line "32\n1" instead of "1" and matching
+    # nothing in the case below. Anchored on "uint32 " specifically instead.
+    local colorScheme
+    colorScheme=$(gdbus call --session --dest org.freedesktop.portal.Desktop \
+        --object-path /org/freedesktop/portal/desktop \
+        --method org.freedesktop.portal.Settings.Read \
+        org.freedesktop.appearance color-scheme 2>/dev/null | sed -n 's/.*uint32 \([0-9]*\).*/\1/p')
+
+    local lightTheme
+    case "$colorScheme" in
+        1) lightTheme=0 ;; # prefer dark
+        2) lightTheme=1 ;; # prefer light
+        *) return 0 ;;     # no preference, or portal/gdbus unavailable
+    esac
+
+    local regExe="$(pwd)/runtime/pfx/drive_c/windows/system32/reg.exe"
+    for valueName in AppsUseLightTheme SystemUsesLightTheme; do
+        timeout 15 env "${protonEnv[@]}" "$(pwd)/ProtonBuild/dist/proton" run "$regExe" add \
+            "HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" \
+            /v "$valueName" /t REG_DWORD /d "$lightTheme" /f >/dev/null 2>&1
+    done
+}
+
 findExe() {
     local targetExe="$1"
     
@@ -163,6 +201,7 @@ if [ -n "$TUXBLOX_TRACE" ]; then
 fi
 
 [ -n "$needsWebView2" ] && ensureWebView2
+ensureThemeSync
 
 if [ -z "$exePath" ]; then
     echo "$label not found. Running installer..."
