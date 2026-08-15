@@ -25,4 +25,18 @@ namespace tuxblox {
 // failure here must not fail an otherwise-successful install.
 void createDesktopShortcut(const std::string& installDir);
 
+// Removes any existing non-development TuxBlox URL-scheme handlers (the
+// installed "TuxBlox"/"TuxBlox Player"/"TuxBlox Studio" .desktop entries,
+// plus the pre-rename shared handler name from older installs) and writes
+// them fresh, forcing xdg-mime's default back to them for roblox:,
+// roblox-player:, roblox-studio:, and roblox-studio-auth:. Unlike the
+// launcher's own ensureDesktopIntegration(), this does NOT skip schemes
+// currently pointed at a repo-local dev handler (install-handler.sh) --
+// running the installer is a deliberate top-level action and should always
+// leave the installed launcher as the real default. launcherExePath should
+// be the just-installed TuxBloxLauncher binary's full path. Best-effort:
+// never throws -- failure here must not fail an otherwise-successful
+// install/update.
+void refreshUrlHandlers(const std::string& launcherExePath);
+
 } // namespace tuxblox

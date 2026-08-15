@@ -173,7 +173,8 @@ void App::run() {
         }
 
         launcherPath_ = outcome.launcherPath;
-        createDesktopShortcut(dir); // best-effort -- see desktop_shortcut.h
+        createDesktopShortcut(dir);              // best-effort -- see desktop_shortcut.h
+        refreshUrlHandlers(outcome.launcherPath); // best-effort -- see desktop_shortcut.h
         writeCopyrightFile(dir);    // best-effort -- see copyright_file.h
         readyToLaunch_.store(true);
         setPhase(AppPhase::Done);

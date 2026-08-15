@@ -65,6 +65,28 @@ void runCommandBestEffort(const std::vector<std::string>& argv) {
     }
 }
 
+struct SchemeHandler {
+    const char* desktopId;
+    const char* name;
+    const char* mimeTypeLine;          // full MimeType= value written to the .desktop file
+    std::vector<const char*> schemes;  // same schemes, split out for the xdg-mime default loop
+};
+
+// Mirrors launcher/src/desktop_integration.cpp's installedHandlers() --
+// keep the two in sync if either the handler set or naming changes.
+const std::vector<SchemeHandler>& installedHandlers() {
+    static const std::vector<SchemeHandler> handlers = {
+        {"tuxblox-roblox-handler.desktop", "TuxBlox",
+         "x-scheme-handler/roblox;", {"x-scheme-handler/roblox"}},
+        {"tuxblox-player-handler.desktop", "TuxBlox Player",
+         "x-scheme-handler/roblox-player;", {"x-scheme-handler/roblox-player"}},
+        {"tuxblox-studio-handler.desktop", "TuxBlox Studio",
+         "x-scheme-handler/roblox-studio;x-scheme-handler/roblox-studio-auth;",
+         {"x-scheme-handler/roblox-studio", "x-scheme-handler/roblox-studio-auth"}},
+    };
+    return handlers;
+}
+
 } // namespace
 
 void createDesktopShortcut(const std::string& installDir) {
@@ -137,6 +159,57 @@ void createDesktopShortcut(const std::string& installDir) {
     } catch (...) {
         // Best-effort -- a missing shortcut must not fail an otherwise
         // successful install.
+    }
+}
+
+void refreshUrlHandlers(const std::string& launcherExePath) {
+    try {
+        const char* home = std::getenv("HOME");
+        if (!home || home[0] == '\0') return;
+        const std::string appsDir = std::string(home) + "/.local/share/applications";
+        std::error_code ec;
+        fs::create_directories(appsDir, ec);
+        if (ec) return;
+
+        // Remove first, then set again: an install/update is a deliberate
+        // top-level action, so it should force TuxBlox back as the default
+        // even over an active repo-local dev handler, and it should never
+        // leave a stale file from a previous version's naming scheme
+        // behind (e.g. the pre-rename shared "tuxblox-url-handler.desktop").
+        for (const auto& h : installedHandlers()) fs::remove(appsDir + "/" + h.desktopId, ec);
+        fs::remove(appsDir + "/tuxblox-url-handler.desktop", ec);
+
+        for (const auto& h : installedHandlers()) {
+            std::ofstream f(appsDir + "/" + h.desktopId);
+            if (!f) continue;
+            f <<
+                "[Desktop Entry]\n"
+                "Type=Application\n"
+                "Name=" << h.name << "\n"
+                "Exec=\"" << launcherExePath << "\" %u\n"
+                "NoDisplay=true\n"
+                "Terminal=false\n"
+                "MimeType=" << h.mimeTypeLine << "\n";
+        }
+
+        if (!std::getenv("TUXBLOX_SKIP_XDG_MIME")) { // escape hatch for sandboxed test/CI runs
+            for (const auto& h : installedHandlers()) {
+                for (const char* scheme : h.schemes) {
+                    runCommandBestEffort({"xdg-mime", "default", h.desktopId, scheme});
+                }
+            }
+            runCommandBestEffort({"update-desktop-database", appsDir});
+        }
+
+        if (isInsideDistrobox()) {
+            for (const auto& h : installedHandlers()) {
+                std::string exportId = h.desktopId;
+                exportId.erase(exportId.size() - std::string(".desktop").size());
+                runCommandBestEffort({"distrobox-export", "--app", exportId});
+            }
+        }
+    } catch (...) {
+        // Best-effort -- must never fail an otherwise-successful install/update.
     }
 }
 
