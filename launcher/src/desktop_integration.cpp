@@ -33,6 +33,61 @@ namespace tuxblox {
 
 namespace {
 
+// Runs "xdg-mime query default <scheme>" and returns its stdout (trimmed),
+// or "" if the scheme has no default / the query failed. Same no-shell
+// fork+exec style as runCommandBestEffort, but this one needs the child's
+// stdout back, so it pipes it through instead of firing-and-forgetting.
+std::string queryXdgMimeDefault(const std::string& scheme) {
+    int pipefd[2];
+    if (pipe(pipefd) != 0) return "";
+
+    std::vector<std::string> argv = {"xdg-mime", "query", "default", scheme};
+    std::vector<char*> cargv;
+    cargv.reserve(argv.size() + 1);
+    for (const auto& a : argv) cargv.push_back(const_cast<char*>(a.c_str()));
+    cargv.push_back(nullptr);
+
+    pid_t pid = fork();
+    if (pid < 0) {
+        close(pipefd[0]);
+        close(pipefd[1]);
+        return "";
+    }
+    if (pid == 0) {
+        dup2(pipefd[1], STDOUT_FILENO);
+        close(pipefd[0]);
+        close(pipefd[1]);
+        execvp(cargv[0], cargv.data());
+        _exit(127);
+    }
+    close(pipefd[1]);
+
+    std::string result;
+    char buf[256];
+    ssize_t n;
+    while ((n = read(pipefd[0], buf, sizeof(buf))) > 0) result.append(buf, static_cast<size_t>(n));
+    close(pipefd[0]);
+
+    int status = 0;
+    for (int i = 0; i < 30; ++i) {
+        pid_t r = waitpid(pid, &status, WNOHANG);
+        if (r == pid || r < 0) break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+
+    while (!result.empty() && (result.back() == '\n' || result.back() == '\r')) result.pop_back();
+    return result;
+}
+
+// The repo-local dev workflow (./install-handler.sh, launch.sh %u) writes
+// these two IDs. When one of them is the current default for a scheme, that
+// was a deliberate choice by whoever's doing dev/testing work against the
+// repo prefix -- ensureDesktopIntegration() below must not silently revert
+// it back to the installed handler every time the GUI happens to start.
+bool isKnownTuxBloxDevHandler(const std::string& desktopId) {
+    return desktopId == "tuxblox-player.desktop" || desktopId == "tuxblox-studio.desktop";
+}
+
 void runCommandBestEffort(const std::vector<std::string>& argv) {
     // Build the argv array *before* fork() -- allocating (std::vector's
     // reserve/push_back) in the child of a multithreaded process is a known
@@ -146,9 +201,16 @@ void ensureDesktopIntegration(const std::string& launcherExePath) {
         }
 
         if (!std::getenv("TUXBLOX_SKIP_XDG_MIME")) { // escape hatch for sandboxed test/CI runs
-            runCommandBestEffort({"xdg-mime", "default", "tuxblox-url-handler.desktop", "x-scheme-handler/roblox-player"});
-            runCommandBestEffort({"xdg-mime", "default", "tuxblox-url-handler.desktop", "x-scheme-handler/roblox-studio"});
-            runCommandBestEffort({"xdg-mime", "default", "tuxblox-url-handler.desktop", "x-scheme-handler/roblox-studio-auth"});
+            for (const char* scheme : {"x-scheme-handler/roblox-player",
+                                        "x-scheme-handler/roblox-studio",
+                                        "x-scheme-handler/roblox-studio-auth"}) {
+                // Don't stomp a deliberate switch to the repo-local dev
+                // handler (see isKnownTuxBloxDevHandler above) -- only
+                // (re)claim the scheme if it's unset or held by something
+                // else (a stale/foreign association is still self-healed).
+                if (isKnownTuxBloxDevHandler(queryXdgMimeDefault(scheme))) continue;
+                runCommandBestEffort({"xdg-mime", "default", "tuxblox-url-handler.desktop", scheme});
+            }
             runCommandBestEffort({"update-desktop-database", appsDir});
             // Best-effort, same reasoning as update-desktop-database above --
             // not every desktop environment needs this to pick up a newly

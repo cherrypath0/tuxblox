@@ -40,7 +40,7 @@ mkdir -p "$appsDir"
 cat > "$playerDesktop" <<EOF
 [Desktop Entry]
 Type=Application
-Name=TuxBlox Player Handler
+Name=TuxBlox Player Handler (Development)
 Exec=$repoDir/launch.sh player %u
 NoDisplay=true
 Terminal=false
@@ -50,7 +50,7 @@ EOF
 cat > "$studioDesktop" <<EOF
 [Desktop Entry]
 Type=Application
-Name=TuxBlox Studio Handler
+Name=TuxBlox Studio Handler (Development)
 Exec=$repoDir/launch.sh studio %u
 NoDisplay=true
 Terminal=false
@@ -63,5 +63,8 @@ xdg-mime default tuxblox-player.desktop x-scheme-handler/roblox-player
 xdg-mime default tuxblox-studio.desktop x-scheme-handler/roblox-studio
 xdg-mime default tuxblox-studio.desktop x-scheme-handler/roblox-studio-auth
 
-echo "Registered TuxBlox as the handler for roblox-player:, roblox-studio:, and roblox-studio-auth: links."
+echo "Registered this repo checkout (via launch.sh, prefix: $repoDir/runtime) as the"
+echo "handler for roblox-player:, roblox-studio:, and roblox-studio-auth: links."
+echo "An installed TuxBloxLauncher will no longer revert this on its own -- it only"
+echo "reclaims a scheme if the default isn't one of these two dev handlers."
 echo "Run '$0 --uninstall' to remove."
