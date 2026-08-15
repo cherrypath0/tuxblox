@@ -26,7 +26,7 @@ FROM debian:12
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential cmake ninja-build meson pkg-config git curl ca-certificates \
-    ruby gperf unifdef python3 python3-pip patchelf ccache nasm \
+    ruby gperf unifdef python3 python3-pip patchelf ccache nasm rsync \
     libz-dev libpng-dev libfreetype6-dev libfontconfig1-dev libexpat1-dev \
     libpixman-1-dev bison flex gettext shared-mime-info \
     libudev-dev libgcrypt20-dev libnghttp2-dev \

@@ -1,2 +1,9 @@
 ProtonSource/*.sc linguist-detectable=false
 ProtonSource/*.SC linguist-detectable=false
+
+# ProtonSource/wine gets this for free from GitHub's own submodule handling
+# (it used to be one); ProtonSource/webkitgtk is a plain checked-in tree
+# (see ProtonSource/webkitgtk/README-TUXBLOX-PATCHES.md for why), so it
+# needs the same "don't count this vendored third-party code toward the
+# repo's language stats" treatment spelled out explicitly.
+ProtonSource/webkitgtk/* linguist-vendored
