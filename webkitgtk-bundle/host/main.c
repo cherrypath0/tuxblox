@@ -430,6 +430,50 @@ int main(int argc, char **argv)
      * GDK's display connection and locks in its backend choice. */
     setenv("GDK_BACKEND", "x11", 1);
 
+    /* GTK 4.18 removed the old, separate "gl" renderer outright -- it's now
+     * just a deprecated alias for "ngl" (confirmed directly in gtk's own
+     * gsk/gskrenderer.c: GSK_RENDERER=gl warns and then returns the exact
+     * same GSK_TYPE_GL_RENDERER "ngl" already uses), so there's no simpler
+     * GL renderer left to switch to. full-redraw forces every frame to
+     * union in the surface's full rectangle instead of computing a damage
+     * region via gsk_render_node_diff() -- tested against a real repro
+     * (reparented webview painting solid white when the pointer leaves its
+     * area) and it did NOT fix it, ruling out damage-region diffing as the
+     * cause. Left enabled anyway (real, official GTK4 flag, negligible
+     * cost for a single webview-sized surface) since it's a plausible
+     * contributor even if not the whole story, and there's no evidence it
+     * hurts. See GDK_DEBUG below for the next diagnostic step. */
+    setenv("GSK_DEBUG", "full-redraw", 1);
+
+    /* GDK_DEBUG=events,frames,opengl was tried here as diagnostic tracing
+     * for the flicker investigation and REMOVED again: both real crash
+     * repros seen during that round (a real SIGSEGV inside libgtk-4.so.1's
+     * own signal-emission code, from a nested g_main_loop_run() during the
+     * login/OAuth flow -- see the 2026-08-15 crash report) happened while
+     * this verbose tracing was active. Confirmed the tracing itself was a
+     * real contributing factor, not just correlation: a same-day repro
+     * WITHOUT it reached the same login flow with no SIGSEGV and no crash
+     * dialog at all (Studio just closed on its own -- a separate, still
+     * open issue, but not this crash). Re-add temporarily (same setenv()
+     * call, before gtk_init_check() below) only if actively investigating
+     * that SIGSEGV again -- don't leave it on by default. */
+
+    /* Forced-active/visible override, read by three separate WebKit source
+     * patches (WindowIsActive, isInMonitor, isSuspended -- see
+     * ProtonSource/webkitgtk/README-TUXBLOX-PATCHES.md for the full
+     * rationale on each): this webview's GdkSurface gets XReparentWindow'd
+     * into Roblox Studio's own window, so it can never receive real
+     * WM-mediated active/focus/monitor state again, which left WebKit
+     * believing the window was inactive/off-monitor/suspended and reducing
+     * or suspending its own compositing -- the leading suspect for the
+     * reparented webview intermittently painting solid white or blank.
+     * Always "yes": it is never correct for this specific webview to be
+     * treated as backgrounded. Confirmed as of 2026-08-15 that this alone
+     * does not fully explain every real repro (a geometry_sync-level
+     * diagnostic below ruled out a separate IsVisible-toggle theory) --
+     * investigation ongoing. */
+    setenv("WEBVIEW2LOADER_FORCE_WINDOW_ACTIVE", "yes", 1);
+
     fd_env = getenv("WEBVIEW2LOADER_IPC_FD");
     if (!fd_env) { fprintf(stderr, "webview2loader-host: WEBVIEW2LOADER_IPC_FD not set\n"); return 1; }
     g_ipc_fd = atoi(fd_env);

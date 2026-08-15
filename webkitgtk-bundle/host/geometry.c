@@ -205,6 +205,31 @@ gboolean geometry_sync(struct native_webview *nv, struct wv2l_rect bounds, gbool
                        * function's existing degrade-gracefully pattern */
     }
 
+    /* 2026-08-15 flicker investigation diagnostic: log every real transition
+     * of the `visible` flag this function receives from put_Bounds/
+     * put_IsVisible (i.e. what Roblox Studio itself is asking for), not
+     * every call -- put_Bounds fires very frequently and most calls repeat
+     * the same visible value. A real repro (video evidence: the reparented
+     * webview goes completely blank for a fraction of a second, correlated
+     * with the pointer being outside Roblox Studio's own window, recovering
+     * once it's back inside) is consistent with Studio itself toggling
+     * IsVisible around hover/focus state, and gtk_widget_set_visible(FALSE)
+     * then TRUE again causing a real GTK4 unmap/remap repaint gap. This
+     * confirms or refutes that without guessing further. Remove once
+     * answered either way. */
+    {
+        static gboolean last_visible = TRUE;
+        static gboolean have_last = FALSE;
+        if (!have_last || last_visible != visible)
+        {
+            fprintf(stderr, "webview2loader-host: geometry_sync: visible transition %s -> %s\n",
+                            have_last ? (last_visible ? "TRUE" : "FALSE") : "(none)",
+                            visible ? "TRUE" : "FALSE");
+            have_last = TRUE;
+            last_visible = visible;
+        }
+    }
+
     /* Visibility is applied unconditionally, before the `visible` guard
      * below, so a transition to hidden actually hides the window on this
      * same call rather than requiring a separate one -- the guard right
