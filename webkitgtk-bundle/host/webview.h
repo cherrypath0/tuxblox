@@ -47,6 +47,33 @@ struct native_webview
     GtkWidget *window;
     WebKitWebView *view;
     unsigned long reparented_into;
+
+    /* Cosmetic WebKitWebView::web-process-terminated mitigation (see
+     * navigate.c's own comment on on_web_process_terminated for the full
+     * real-signal/enum verification and rationale) -- both fields are
+     * zero-initialized by webview_create's calloc, no explicit init needed.
+     *
+     * process_terminated: diagnostic-only record of "has this webview's
+     * WebProcess ever terminated abnormally at least once" -- NOT a
+     * permanent failure gate. A real WebKitWebView lazily relaunches its
+     * own WebProcess on the next navigation that needs one (confirmed
+     * against WebPageProxy::loadRequest -> launchProcess when
+     * !hasRunningProcess(), the same real WebKit source this mitigation was
+     * verified against), exactly like real WebView2 recovers into a fresh
+     * content process -- so nothing here should ever refuse a later
+     * Navigate()/cookie call just because this flag is set.
+     *
+     * active_wait_loop: a borrowed (non-owning) pointer to whichever bounded
+     * GMainLoop wait (navigate_and_wait/cookies_delete_all/cookies_count/
+     * cookies_get in navigate.c) is currently blocked on THIS webview's
+     * WebProcess, or NULL if none is in flight. on_web_process_terminated
+     * uses this to wake that wait immediately when the WebProcess it's
+     * waiting on dies mid-wait, rather than leaving it to spin out its full
+     * 10s/30s timeout for something that can now never arrive -- same
+     * "return a real, honest failure" outcome those timeouts already
+     * produce, just prompt instead of delayed. */
+    gboolean process_terminated;
+    GMainLoop *active_wait_loop;
 };
 
 /* Creates a new native window + WebKitWebView pair, undecorated, with the

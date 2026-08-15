@@ -178,6 +178,24 @@ struct native_webview *webview_create(int is_message_only)
      * nv->window, still its child at that point). */
     g_signal_connect_data(nv->view, "decide-policy", (GCallback)on_decide_policy,
                            NULL, NULL, 0);
+    /* 2026-08-15 cosmetic mitigation for a real, understood WebKitGTK/NVIDIA
+     * Skia GPU-teardown race in WebKitWebProcess's own shutdown path (a
+     * genuine upstream WebKitGTK/NVIDIA bug -- not anything in this file or
+     * this process -- see navigate.c's own comment on
+     * on_web_process_terminated for the full real-signal/enum verification
+     * against this bundle's actual built WebKitGTK 2.52.5 headers/source,
+     * and .superpowers/sdd/2026-08-14-webview2loader-host-process/
+     * webprocess-terminated-mitigation-report.md for the full writeup).
+     * Connected unconditionally, same reasoning and same lifetime as the
+     * decide-policy connection just above (torn down together by
+     * webview_destroy's own gtk_window_destroy call, no separate
+     * disconnect/cleanup needed) -- user_data is nv itself (unlike
+     * decide-policy, which doesn't need it), so the handler can mark this
+     * specific webview's state and wake any in-flight wait on it; see
+     * webview.h's own comment on struct native_webview's process_terminated/
+     * active_wait_loop fields. */
+    g_signal_connect_data(nv->view, "web-process-terminated", (GCallback)on_web_process_terminated,
+                           nv, NULL, 0);
     gtk_window_set_child(GTK_WINDOW(nv->window), GTK_WIDGET(nv->view));
     /* Plan 3 Task 2 (original unixlib.c comment): HWND_MESSAGE-parented
      * controllers (the CookieManager flow) still need a real, live

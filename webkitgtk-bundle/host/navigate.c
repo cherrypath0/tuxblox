@@ -194,8 +194,17 @@ void navigate_and_wait(struct native_webview *nv, const char *uri_utf8, gboolean
      * comment for why a nested GMainLoop, not pthread_cond_timedwait, is
      * the correct primitive here. */
     ctx.loop = g_main_loop_new(NULL, FALSE);
+    /* Cosmetic web-process-terminated mitigation -- see webview.h's own
+     * comment on active_wait_loop: lets on_web_process_terminated wake this
+     * wait immediately (via g_main_loop_quit) if nv's WebProcess dies mid-
+     * navigation, rather than leaving it to spin out the full 30s timeout
+     * below for a load-changed emission that can now never arrive. Cleared
+     * again right after the wait exits, before ctx becomes invalid, exactly
+     * mirroring the "ctx.loop = NULL" defensive clear a few lines down. */
+    nv->active_wait_loop = ctx.loop;
     ctx.timeout_id = g_timeout_add_seconds(30, on_navigate_timeout, &ctx);
     g_main_loop_run(ctx.loop);
+    nv->active_wait_loop = NULL;
 
     if (ctx.timeout_id) g_source_remove(ctx.timeout_id);
     g_main_loop_unref(ctx.loop);
@@ -335,8 +344,13 @@ gboolean cookies_delete_all(struct native_webview *nv)
      * network round-trip, so it's expected to complete almost immediately
      * in the normal case. */
     ctx->loop = g_main_loop_new(NULL, FALSE);
+    /* Cosmetic web-process-terminated mitigation -- see navigate_and_wait's
+     * identical comment above and webview.h's own comment on
+     * active_wait_loop. */
+    nv->active_wait_loop = ctx->loop;
     ctx->timeout_id = g_timeout_add_seconds(10, on_delete_cookies_timeout, ctx);
     g_main_loop_run(ctx->loop);
+    nv->active_wait_loop = NULL;
 
     if (ctx->timeout_id) g_source_remove(ctx->timeout_id);
     g_main_loop_unref(ctx->loop);
@@ -418,8 +432,13 @@ gboolean cookies_count(struct native_webview *nv, uint32_t *out_count)
     webkit_cookie_manager_get_all_cookies(mgr, NULL, on_count_cookies_done, ctx);
 
     ctx->loop = g_main_loop_new(NULL, FALSE);
+    /* Cosmetic web-process-terminated mitigation -- see navigate_and_wait's
+     * identical comment above and webview.h's own comment on
+     * active_wait_loop. */
+    nv->active_wait_loop = ctx->loop;
     ctx->timeout_id = g_timeout_add_seconds(10, on_count_cookies_timeout, ctx);
     g_main_loop_run(ctx->loop);
+    nv->active_wait_loop = NULL;
 
     if (ctx->timeout_id) g_source_remove(ctx->timeout_id);
     g_main_loop_unref(ctx->loop);
@@ -674,8 +693,13 @@ gboolean cookies_get(struct native_webview *nv, const char *uri_utf8, struct wv2
      * (verbatim) as cookies_delete_all/cookies_count above (local
      * cookie-store enumeration, not a real network round-trip). */
     ctx->loop = g_main_loop_new(NULL, FALSE);
+    /* Cosmetic web-process-terminated mitigation -- see navigate_and_wait's
+     * identical comment above and webview.h's own comment on
+     * active_wait_loop. */
+    nv->active_wait_loop = ctx->loop;
     ctx->timeout_id = g_timeout_add_seconds(10, on_get_cookies_timeout, ctx);
     g_main_loop_run(ctx->loop);
+    nv->active_wait_loop = NULL;
 
     if (ctx->timeout_id) g_source_remove(ctx->timeout_id);
     g_main_loop_unref(ctx->loop);
@@ -834,4 +858,128 @@ gboolean on_decide_policy(WebKitWebView *view, WebKitPolicyDecision *decision,
         }
     }
     return FALSE; /* not one of ours -- let WebKit's own default (use()) handle it */
+}
+
+/* --- WebKitWebView::web-process-terminated (cosmetic mitigation) ---
+ *
+ * 2026-08-15: a real, fully investigated (root-caused via coredumpctl,
+ * reproduced 4 times) crash exists where WebKitGTK's own WebKitWebProcess
+ * child -- spawned internally by libwebkitgtk-6.0.so.4 itself, never
+ * directly forked/exec'd by this file -- can SIGSEGV during its OWN
+ * shutdown, from a genuine race inside WebKitGTK's Skia GPU backend
+ * colliding with NVIDIA's proprietary driver during GPU-context teardown
+ * (two threads independently tearing down the same driver-global GL/EGL
+ * state at once). Every frame in both racing stacks sits inside WebKitGTK,
+ * glibc, or the NVIDIA driver -- confirmed NOT a bug in this file, this
+ * process, or any other TuxBlox code. This is upstream WebKitGTK/NVIDIA's
+ * own bug to fix; this handler does not attempt that (explicitly out of
+ * scope -- see this task's own report at
+ * .superpowers/sdd/2026-08-14-webview2loader-host-process/
+ * webprocess-terminated-mitigation-report.md for the full writeup,
+ * including why blanket coredump suppression was deliberately NOT added
+ * here). What follows is a purely cosmetic mitigation: react to the real
+ * WebKitWebView::web-process-terminated signal so this helper's own state
+ * degrades honestly instead of assuming a dead content process is still
+ * alive, without touching the actual upstream race.
+ *
+ * Real signal verified directly against this bundle's own built WebKitGTK
+ * 2.52.5 (WEBKITGTK_VERSION in versions.env), not guessed: the installed
+ * $webkitgtk-prefix/include/webkitgtk-6.0/webkit/WebKitWebView.h vtable
+ * entry (`void (*web_process_terminated)(WebKitWebView*,
+ * WebKitWebProcessTerminationReason)`) and the g_signal_new() call in this
+ * exact version's own Source/WebKit/UIProcess/API/glib/WebKitWebView.cpp
+ * (RUN_LAST, no accumulator, g_cclosure_marshal_VOID__ENUM, one
+ * WEBKIT_TYPE_WEB_PROCESS_TERMINATION_REASON arg -- void return, unlike
+ * decide-policy's gboolean) together fix this function's exact signature.
+ * WebKitWebProcessTerminationReason's 3 real values (same header):
+ * WEBKIT_WEB_PROCESS_CRASHED, WEBKIT_WEB_PROCESS_EXCEEDED_MEMORY_LIMIT,
+ * WEBKIT_WEB_PROCESS_TERMINATED_BY_API. This project's own crash (a real
+ * SIGSEGV) maps to WEBKIT_WEB_PROCESS_CRASHED.
+ *
+ * Deliberately does NOT call webkit_web_view_reload() to force a fresh
+ * WebProcess -- weighed, not just skipped. Real evidence found both ways:
+ * WebKitWebView.cpp's own WebKitNavigationClient::processDidTerminate
+ * (Source/WebKit/UIProcess/API/glib/WebKitNavigationClient.cpp) returns
+ * `true` (== WebCore's "handledByClient") unconditionally for Crash/
+ * ExceededMemoryLimit/RequestedByClient, which permanently suppresses
+ * WebPageProxy::dispatchProcessDidTerminate's own internal auto-reload
+ * path for the whole GTK port -- confirming the GTK API's own design
+ * deliberately hands this decision to the application, and that
+ * webkit_web_view_reload() (or any later webkit_web_view_load_uri(), which
+ * WebPageProxy::loadRequest already lazily relaunches a fresh WebProcess
+ * for via launchProcess() when !hasRunningProcess() -- also verified
+ * directly against this build's own WebPageProxy.cpp) IS a real, supported
+ * way to recover. But WebKitGTK's own reference embedder (Tools/MiniBrowser)
+ * does NOT call it from its webProcessTerminatedCallback either -- grepped
+ * the whole MiniBrowser source; every real webkit_web_view_reload() call
+ * there is wired to an explicit user-facing reload action/button, never
+ * fired automatically on termination. Auto-reloading a Roblox Studio OAuth/
+ * embedded webview out from under an in-progress flow the instant its
+ * process dies carries real risk (reloading to a stale/blank state right
+ * when the user least expects it) that this task's own brief doesn't ask
+ * this fix to take on, and the reference embedder's own restraint here is
+ * a real, on-point precedent for not forcing it. Today's real, understood
+ * fallback -- a full Studio session restart -- stays exactly as it was;
+ * this handler only makes the crash itself land more gracefully, not
+ * silently invisible.
+ *
+ * Registry note: unlike webview_destroy, this handler must NEVER call
+ * live_webview_unregister/free nv -- nv->window and nv->view (the
+ * WebKitWebView GObject this very signal fired on) are both still alive;
+ * only their underlying OS-level content *process* died. Removing nv from
+ * the registry here would make every future webview_lookup(handle) for this
+ * still-perfectly-valid handle spuriously fail, confusing every other
+ * dispatch case in main.c for no real reason. */
+void on_web_process_terminated(WebKitWebView *view, WebKitWebProcessTerminationReason reason, void *user_data)
+{
+    struct native_webview *nv = user_data;
+    const char *reason_str;
+
+    switch (reason)
+    {
+    case WEBKIT_WEB_PROCESS_CRASHED:               reason_str = "CRASHED"; break;
+    case WEBKIT_WEB_PROCESS_EXCEEDED_MEMORY_LIMIT:  reason_str = "EXCEEDED_MEMORY_LIMIT"; break;
+    case WEBKIT_WEB_PROCESS_TERMINATED_BY_API:      reason_str = "TERMINATED_BY_API"; break;
+    default:                                        reason_str = "UNKNOWN"; break;
+    }
+
+    fprintf(stderr, "webview2loader-host: WebKitWebView %p (native_webview %p) content process "
+                    "terminated -- reason=%s. This is WebKitGTK's own internal WebKitWebProcess child, "
+                    "not something this helper directly forked/exec'd; if reason=CRASHED, this is most "
+                    "likely the known, understood WebKitGTK/NVIDIA Skia GPU-teardown race (see this "
+                    "file's own top-of-section comment) -- degrading this webview's state gracefully "
+                    "rather than assuming its content process is still alive.\n",
+                    (void *)view, (void *)nv, reason_str);
+
+    /* user_data is always nv, wired at connect time in webview.c's
+     * webview_create -- but this is a real GObject signal callback that
+     * could in principle be invoked with a NULL/garbage user_data by some
+     * future connection this file doesn't control; never dereference on
+     * faith. */
+    if (!nv)
+    {
+        fprintf(stderr, "webview2loader-host: web-process-terminated fired with no native_webview "
+                        "attached -- nothing to update, ignoring\n");
+        return;
+    }
+
+    nv->process_terminated = TRUE; /* diagnostic only -- see webview.h's own
+                                     * comment on this field for why this is
+                                     * never treated as a permanent failure
+                                     * gate anywhere in this codebase. */
+
+    /* See webview.h's own comment on active_wait_loop: wake any bounded
+     * navigate_and_wait/cookies_* wait blocked on THIS webview's WebProcess
+     * immediately, rather than leaving it to spin out its full 10s/30s
+     * timeout for a load-changed/async cookie completion that can now never
+     * arrive. Safe unconditionally -- every one of those wait functions
+     * already treats an early g_main_loop_quit() (their own timeout path)
+     * as "the wait ended without success", exactly the honest failure this
+     * mitigation exists to produce, no extra special-casing needed here. */
+    if (nv->active_wait_loop)
+    {
+        fprintf(stderr, "webview2loader-host: waking an in-flight wait on native_webview %p immediately "
+                        "-- the WebProcess it was waiting on just terminated\n", (void *)nv);
+        g_main_loop_quit(nv->active_wait_loop);
+    }
 }

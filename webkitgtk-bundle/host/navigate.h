@@ -120,4 +120,24 @@ gboolean cookies_get(struct native_webview *nv, const char *uri_utf8, struct wv2
 gboolean on_decide_policy(WebKitWebView *view, WebKitPolicyDecision *decision,
                            WebKitPolicyDecisionType decision_type, void *user_data);
 
+/* WebKitWebView::web-process-terminated handler -- cosmetic mitigation for a
+ * real, understood WebKitGTK/NVIDIA Skia GPU-teardown race in
+ * WebKitWebProcess's own shutdown path (see navigate.c's own comment on this
+ * function for the full real-signal/enum verification against this bundle's
+ * actual built WebKitGTK 2.52.5 headers/source, and
+ * .superpowers/sdd/2026-08-14-webview2loader-host-process/
+ * webprocess-terminated-mitigation-report.md for the full writeup). Exposed
+ * here (not static), same reasoning as on_decide_policy above -- connected
+ * once per webview at CREATION time, in webview.c's webview_create,
+ * alongside close-request/decide-policy. Matches the real
+ * WebKitWebView::web-process-terminated signal signature exactly (verified
+ * against this build's own WebKitWebView.cpp g_signal_new call: RUN_LAST,
+ * no accumulator, void return, one WebKitWebProcessTerminationReason arg --
+ * g_cclosure_marshal_VOID__ENUM), so it can be passed straight to
+ * g_signal_connect_data without a cast-through-GCallback wrapper beyond the
+ * usual (GCallback) cast every signal connection already needs. user_data is
+ * always the owning struct native_webview* (wired at connect time in
+ * webview.c), unlike on_decide_policy which doesn't need it. */
+void on_web_process_terminated(WebKitWebView *view, WebKitWebProcessTerminationReason reason, void *user_data);
+
 #endif /* WV2L_HOST_NAVIGATE_H */
