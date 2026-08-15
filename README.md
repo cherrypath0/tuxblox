@@ -20,6 +20,7 @@ Full documentation is currently a work in progress. You can find documentation a
 ### Hardware Requirements:
 * **Processor:** 64-bit x86 (x86_64) Architecture with SSE3 Support
 * **Storage Space:** 2 GB or higher
+* **Memory:** 4 GB required, 8 GB recommended
 ### Software Requirements:
 * **Operating System:** Any major 64-bit Linux distribution
 * **Kernel Version:** 5.0 or higher
