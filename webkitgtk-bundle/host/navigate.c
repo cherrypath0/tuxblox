@@ -929,7 +929,67 @@ gboolean on_decide_policy(WebKitWebView *view, WebKitPolicyDecision *decision,
  * only their underlying OS-level content *process* died. Removing nv from
  * the registry here would make every future webview_lookup(handle) for this
  * still-perfectly-valid handle spuriously fail, confusing every other
- * dispatch case in main.c for no real reason. */
+ * dispatch case in main.c for no real reason.
+ *
+ * UAF hardening (code review round 2, 2026-08-15): a normal Close()/
+ * Release() on a webview calls webview_destroy() -> gtk_window_destroy(
+ * nv->window) -> ... -> free(nv) -- and that same gtk_window_destroy() call
+ * is itself what tears down that webview's own WebProcess (real teardown,
+ * not a hypothetical). If THIS signal could fire asynchronously as a
+ * consequence of that same teardown, AFTER webview_destroy() has already
+ * run free(nv), user_data (nv) here would be a dangling pointer -- reading
+ * nv->process_terminated/nv->active_wait_loop below would be a real
+ * use-after-free, strictly worse than the bug this mitigation exists to
+ * soften (a UAF here crashes this whole helper process, not just the
+ * isolated WebKitWebProcess child).
+ *
+ * Checked against the real vendored WebKitGTK 2.52.5 source (not assumed):
+ * this specific race is NOT reachable through the normal Close()/Release()
+ * path, because the routing this signal depends on is severed
+ * SYNCHRONOUSLY, strictly before gtk_window_destroy() returns (i.e. before
+ * webview_destroy() ever reaches free(nv)) --
+ *   1. Source/WebKit/UIProcess/API/gtk/WebKitWebViewBase.cpp,
+ *      webkitWebViewBaseDispose() (webkit_web_view_base's own GObject
+ *      dispose handler -- WebKitWebView's direct GTK parent type, per this
+ *      build's own WEBKIT_DEFINE_TYPE(WebKitWebView, webkit_web_view,
+ *      WEBKIT_TYPE_WEB_VIEW_BASE)): calls `webView->priv->pageProxy->
+ *      close()` directly, synchronously, as part of dispose -- and GObject
+ *      dispose/finalize for nv->view runs synchronously inside
+ *      gtk_window_destroy()'s own widget-teardown call (nv->view's only ref
+ *      is the one gtk_window_set_child sank into nv->window at creation
+ *      time in webview.c -- nothing in this file takes a second ref -- so
+ *      that ref hitting zero during gtk_window_destroy() drops it to zero
+ *      and disposes/finalizes it then and there, not on some later main-loop
+ *      iteration).
+ *   2. Source/WebKit/UIProcess/WebPageProxy.cpp, WebPageProxy::close()
+ *      (called by #1 above): line 1889, `m_navigationClient =
+ *      makeUniqueRef<API::NavigationClient>()` -- replaces the real
+ *      WebKitNavigationClient (whose processDidTerminate override is what
+ *      calls webkitWebViewWebProcessTerminated() -> g_signal_emit(webView,
+ *      signals[WEB_PROCESS_TERMINATED], ...), per WebKitNavigationClient.cpp)
+ *      with a fresh, default API::NavigationClient, EARLY in close() --
+ *      strictly before close()'s own later per-process teardown work runs.
+ * Once that swap has happened, ANY later WebPageProxy::
+ * dispatchProcessDidTerminate() for this page -- whether the crash already
+ * happened, is happening concurrently, or hasn't happened yet -- calls
+ * m_navigationClient->processDidTerminate() against the now-default
+ * NavigationClient, never reaching webkitWebViewWebProcessTerminated()/
+ * g_signal_emit() again for this WebKitWebView. So a real, on-point WebKit
+ * source trace shows this signal cannot fire for THIS reason (this
+ * webview's own destroy-triggered WebProcess teardown) after
+ * webview_destroy() has moved past its own gtk_window_destroy() call --
+ * i.e. never after free(nv).
+ *
+ * The registry check just below is added anyway, as cheap defense-in-depth
+ * (not because the trace above found a real hole) -- it costs one
+ * webview_lookup() call, matches this file's/webview.c's own established
+ * Task 7 UAF-guard idiom exactly, and remains correct/harmless even if a
+ * future WebKit version or a future change to this codebase's own object
+ * lifetimes ever altered the synchronous ordering traced above. Safe by
+ * construction even against a genuinely dangling nv: webview_lookup()
+ * never dereferences its handle argument, only compares the raw pointer
+ * VALUE against the live_webviews[] array (same reasoning that already
+ * makes webview_lookup's own UAF guard safe elsewhere in this codebase). */
 void on_web_process_terminated(WebKitWebView *view, WebKitWebProcessTerminationReason reason, void *user_data)
 {
     struct native_webview *nv = user_data;
@@ -960,6 +1020,23 @@ void on_web_process_terminated(WebKitWebView *view, WebKitWebProcessTerminationR
     {
         fprintf(stderr, "webview2loader-host: web-process-terminated fired with no native_webview "
                         "attached -- nothing to update, ignoring\n");
+        return;
+    }
+
+    /* UAF guard (code review round 2) -- see this function's own top comment
+     * for the full real-source trace showing this specific race is not
+     * reachable today; kept as cheap defense-in-depth regardless, same
+     * pattern webview_lookup()'s own doc comment already establishes
+     * elsewhere in this codebase. webview_lookup() only compares nv's raw
+     * pointer VALUE against the live_webviews[] array -- it never
+     * dereferences nv itself, so this check is safe to run even if nv were
+     * genuinely dangling, before anything below touches nv's fields for
+     * real. */
+    if (!webview_lookup((uint64_t)(uintptr_t)nv))
+    {
+        fprintf(stderr, "webview2loader-host: web-process-terminated fired for native_webview %p, which "
+                        "is no longer in the live registry (already destroyed) -- ignoring rather than "
+                        "touching it\n", (void *)nv);
         return;
     }
 

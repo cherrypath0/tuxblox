@@ -61,7 +61,12 @@ struct native_webview
      * !hasRunningProcess(), the same real WebKit source this mitigation was
      * verified against), exactly like real WebView2 recovers into a fresh
      * content process -- so nothing here should ever refuse a later
-     * Navigate()/cookie call just because this flag is set.
+     * Navigate()/cookie call just because this flag is set. Presently
+     * write-only outside of its own set site (on_web_process_terminated) --
+     * nothing else in this codebase reads it yet, it exists purely so a
+     * future reader/debugger (or a future feature) has a real, honest
+     * record of this rather than having to infer it; not a sign it's dead
+     * code to remove.
      *
      * active_wait_loop: a borrowed (non-owning) pointer to whichever bounded
      * GMainLoop wait (navigate_and_wait/cookies_delete_all/cookies_count/
