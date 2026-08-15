@@ -2115,6 +2115,36 @@ class Session:
         except OSError:
             pass
 
+    def _wait_for_prefix_drain(self, timeout):
+        # TuxBlox: bounded counterpart to run_proc() for "wait until this
+        # prefix session is truly finished" -- see the call site in run()
+        # for why this exists. Deliberately not built on run_proc() itself:
+        # that installs SIGINT/SIGTERM handlers tuned for "kill the thing
+        # we're actively waiting on", which is the wrong shape here (a
+        # timeout expiring is the *expected*, common case, not a signal).
+        proc = subprocess.Popen([g_proton.wineserver_bin, "-w"], env=self.env,
+                                 stderr=self.log_file, stdout=self.log_file,
+                                 cwd=g_compatdata.prefix_dir + "drive_c", start_new_session=True)
+        try:
+            proc.wait(timeout=timeout)
+            return
+        except (subprocess.TimeoutExpired, KeyboardInterrupt):
+            pass
+
+        # Still-connected clients past the timeout: force wineserver to tear
+        # the whole prefix down (same "-k" used by the Ctrl+C path above),
+        # then give the "-w" watcher a short moment to notice and exit on its
+        # own before killing it directly.
+        try:
+            subprocess.run([g_proton.wineserver_bin, "-k"], env=self.env, timeout=5)
+        except (subprocess.TimeoutExpired, OSError):
+            pass
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+
     def run(self):
         if shutil.which('steam-runtime-launcher-interface-0') is not None:
             adverb = ['steam-runtime-launcher-interface-0', 'proton']
@@ -2144,6 +2174,46 @@ class Session:
             argv = [g_proton.wine_bin]
 
         rc = self.run_proc(adverb + argv + sys.argv[2:] + self.cmdlineappend)
+
+        # TuxBlox: the process we just waited on above is only the ORIGINAL
+        # unix process subprocess.Popen spawned. If the wrapped app
+        # relaunches itself -- e.g. Roblox's own launcher/bootstrapper
+        # spawning the real RobloxPlayerBeta.exe/RobloxStudioBeta.exe via
+        # CreateProcess+ExitProcess, a normal Windows self-update pattern,
+        # not a unix-style exec() that would keep the same pid -- that
+        # original process exiting does NOT mean the session is over: a
+        # replacement process (forked by wine's own NtCreateUserProcess,
+        # see dlls/ntdll/unix/process.c) is still running, unix-orphaned
+        # from the Popen handle above. Returning here regardless made
+        # run()/__main__ treat the whole run as finished and exit -- while
+        # that replacement, and any of its own helper processes (e.g.
+        # WebView2's gpu-process/crashpad-handler), kept running in the same
+        # process group and kept writing to the terminal this process had
+        # already handed back to the user, corrupting it.
+        #
+        # wineserver, unlike the Popen handle above, tracks every Windows
+        # process in the prefix regardless of which unix process spawned it,
+        # and only exits once the last one disconnects -- so block on that
+        # instead of trusting the original process's own exit as "done".
+        # Same primitive already used by the "waitforexitandrun" verb above;
+        # a no-op wait when there really is nothing left, since wineserver
+        # would already be exiting on its own in that case.
+        #
+        # Bounded, though -- confirmed live (2026-08-09) that WebView2's own
+        # crashpad-handler/gpu-process helpers routinely outlive the app that
+        # spawned them by minutes and sometimes never disconnect on their own
+        # at all: on real Windows a Job Object tears them down automatically
+        # when their parent exits, and this prefix doesn't implement that, so
+        # an unbounded wait here traded "orphans occasionally leak" for "the
+        # terminal never comes back at all", strictly worse for the same
+        # complaint this is meant to fix. self-relaunch (the case this exists
+        # for) hands off to the replacement process within a couple seconds,
+        # so a real relaunch is long since visible to wineserver well within
+        # this timeout; anything still connected after it is exactly the
+        # lingering-helper case, not a relaunch still in flight, so force the
+        # issue the same way a user-initiated Ctrl+C already does elsewhere
+        # in this file rather than hang the caller indefinitely.
+        self._wait_for_prefix_drain(timeout=15)
 
         if remote_debug_proc:
             remote_debug_proc.kill()
