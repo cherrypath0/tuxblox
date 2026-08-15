@@ -14,19 +14,20 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-# Downloads the TuxBlox logo svg, rasterizes it to PNG via rsvg-convert,
-# then generates a C header embedding the PNG bytes. Runs at build time so
-# the compiled installer bundles the logo without needing network access
-# itself -- only the build machine needs it.
+# Downloads the pre-rendered TuxBlox icon PNG and generates a C header
+# embedding its bytes. Runs at build time so the compiled installer bundles
+# the logo without needing network access itself -- only the build machine
+# needs it.
+#
+# This is the same dedicated icon-sized export the launcher's window icon
+# uses (see launcher/cmake/FetchWindowIcon.cmake), not the older
+# rsvg-convert rasterization of images/svg/tuxblox.svg -- so the installer
+# window, the .desktop icon it writes, and the launcher all show the same
+# artwork. Because the asset ships as a PNG there is no rasterization step,
+# which is also why the installer build no longer needs rsvg-convert.
 
-find_program(RSVG_CONVERT rsvg-convert)
-if(NOT RSVG_CONVERT)
-    message(FATAL_ERROR "rsvg-convert not found. Install librsvg (e.g. 'librsvg2-bin' on Debian/Ubuntu, 'librsvg2-tools' on Fedora, 'librsvg' on Arch/Homebrew) and re-run cmake.")
-endif()
-
-set(LOGO_SVG_URL "https://assetdelivery.tuxblox.net/images/svg/tuxblox.svg")
+set(LOGO_PNG_URL "https://static.tuxblox.net/images/png/icon/tuxblox-medium.png")
 set(GENERATED_DIR "${CMAKE_BINARY_DIR}/generated")
-set(LOGO_SVG_PATH "${GENERATED_DIR}/tuxblox_logo.svg")
 set(LOGO_PNG_PATH "${GENERATED_DIR}/tuxblox_logo.png")
 set(LOGO_HEADER_PATH "${GENERATED_DIR}/tuxblox_logo_png.h")
 
@@ -34,10 +35,9 @@ file(MAKE_DIRECTORY ${GENERATED_DIR})
 
 add_custom_command(
     OUTPUT ${LOGO_HEADER_PATH}
-    COMMAND ${CMAKE_COMMAND} -DURL=${LOGO_SVG_URL} -DDEST=${LOGO_SVG_PATH}
+    COMMAND ${CMAKE_COMMAND} -DURL=${LOGO_PNG_URL} -DDEST=${LOGO_PNG_PATH}
             -DUSERAGENT=TuxBlox-Client/1.0
             -P ${CMAKE_SOURCE_DIR}/cmake/DownloadFile.cmake
-    COMMAND ${RSVG_CONVERT} -w 256 -h 256 -o ${LOGO_PNG_PATH} ${LOGO_SVG_PATH}
     COMMAND ${CMAKE_COMMAND} -DINPUT=${LOGO_PNG_PATH} -DOUTPUT=${LOGO_HEADER_PATH}
             -DSYMBOL=kTuxbloxLogoPng
             -P ${CMAKE_SOURCE_DIR}/cmake/BinToHeader.cmake

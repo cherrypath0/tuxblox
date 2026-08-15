@@ -96,14 +96,17 @@ void createDesktopShortcut(const std::string& installDir) {
         const std::string appsDir = std::string(home) + "/.local/share/applications";
 
         // kTuxbloxLogoPng is already a complete, valid .png file's raw bytes
-        // (FetchLogo.cmake rasterizes the logo svg to an actual PNG file,
-        // then BinToHeader.cmake embeds that file's bytes verbatim) -- so
-        // this is a direct byte-for-byte write, no re-encoding needed.
+        // (FetchLogo.cmake downloads the icon PNG, then BinToHeader.cmake
+        // embeds that file's bytes verbatim) -- so this is a direct
+        // byte-for-byte write, no re-encoding needed.
         // Written under the standard per-user icon theme location/size
         // bucket (not installDir) so the .desktop entry below can name it
         // ("tuxblox") instead of hardcoding an absolute path -- proper
         // icon-theme lookup/scaling, and it's no longer tied to installDir
-        // existing at all.
+        // existing at all. The asset is 440x440 rather than an exact 256
+        // match for this bucket; icon-theme lookup scales it down, and
+        // staying in 256x256/apps keeps the path uninstall.cpp removes (and
+        // the one prior installs already wrote) unchanged.
         const std::string iconThemeDir = std::string(home) + "/.local/share/icons/hicolor/256x256/apps";
         std::error_code ec;
         fs::create_directories(iconThemeDir, ec);

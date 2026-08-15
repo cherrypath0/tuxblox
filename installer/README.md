@@ -10,7 +10,7 @@ Built with [Dear ImGui](https://github.com/ocornut/imgui) + SDL2 + OpenGL3, in C
 ./build.sh
 ```
 
-This detects your package manager (apt/dnf/pacman/brew/apk) and installs only the host-side tools needed to drive the containerized build (`podman`, `curl`, `git`), vendors the third-party dependencies below via `./vendor.sh`, then configures and builds inside a pinned old-glibc-baseline container (`podman build`/`podman run` against `build-container/Containerfile`, shared with `launcher/build.sh` and the root `build.sh`'s Proton-compile step) so the resulting binary stays compatible with older-glibc distros regardless of what's on the host. The actual C++ toolchain (`cmake`, a C++ compiler, `SDL2`, `libcurl`, `libarchive`, `openssl`, `rsvg-convert`) lives inside that container image, not on the host. The resulting binary is at `build/TuxBloxInstaller`.
+This detects your package manager (apt/dnf/pacman/brew/apk) and installs only the host-side tools needed to drive the containerized build (`podman`, `curl`, `git`), vendors the third-party dependencies below via `./vendor.sh`, then configures and builds inside a pinned old-glibc-baseline container (`podman build`/`podman run` against `build-container/Containerfile`, shared with `launcher/build.sh` and the root `build.sh`'s Proton-compile step) so the resulting binary stays compatible with older-glibc distros regardless of what's on the host. The actual C++ toolchain (`cmake`, a C++ compiler, `SDL2`, `libcurl`, `libarchive`, `openssl`) lives inside that container image, not on the host. The resulting binary is at `build/TuxBloxInstaller`.
 
 ## Testing
 
