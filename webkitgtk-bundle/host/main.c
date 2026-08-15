@@ -95,6 +95,23 @@ static GMainLoop *g_loop = NULL;
 #define WV2L_EGL_VENDOR  0x3053
 #define WV2L_EGL_VERSION 0x3054
 
+/* 2026-08-15 (software-only-llvmpipe plan) update: unixlib.c's spawn_helper()
+ * no longer conditionally chooses host-vs-bundled EGL at all -- it now
+ * ALWAYS sets LD_LIBRARY_PATH to this bundle's own gl-fallback/ directory
+ * before exec'ing this process (see spawn_helper()'s WV2L_ALWAYS_USE_BUNDLE_GL,
+ * a permanent workaround for a confirmed upstream WebKitGTK/NVIDIA driver
+ * crash, not the host-preference logic this comment originally described).
+ * That means this function's output is no longer just an informational log
+ * of "which EGL got picked" -- it is now the real, positive verification that
+ * the fix actually took effect on a given launch: EGL_VENDOR should always
+ * read as Mesa's own vendor string ("Mesa Project" for llvmpipe -- there is
+ * no other Mesa gallium software driver left in this bundle as of the
+ * softpipe->llvmpipe switch, see build-in-container.sh's Mesa comment) and
+ * should NEVER show an NVIDIA-identifying vendor string on any launch, on any
+ * host, regardless of what GPU driver that host has installed. A real relaunch
+ * showing an NVIDIA vendor string here would mean WV2L_ALWAYS_USE_BUNDLE_GL
+ * somehow isn't taking effect -- a regression, not an expected outcome on any
+ * machine. */
 static void log_gl_dispatch_info(void)
 {
     void *h;

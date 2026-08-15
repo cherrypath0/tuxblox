@@ -473,10 +473,62 @@ fetch_and_extract "https://archive.mesa3d.org/mesa-${MESA_VERSION}.tar.xz" /buil
 #     dependency here, only GL/EGL, and this avoids pulling in
 #     glslang/spirv-tools as further build dependencies for an unused driver
 #     class.
+#
+# --- 2026-08-15 correction (software-only-llvmpipe plan): softpipe -> llvmpipe ---
+# The 'softpipe over llvmpipe' choice above turned out to be the wrong tradeoff in
+# practice: real hands-on testing (before this bundle's separate out-of-process
+# webview2loader-host GPU work) traced this bundle's own laggy/unresponsive webview
+# feel directly to softpipe's naive pure-C rasterizer being the active GL backend.
+# The concern that motivated picking softpipe originally -- coupling this
+# relocatable bundle's software GL path to a build-machine-specific LLVM, or
+# needing a huge new from-source LLVM vendor chain -- is real but was addressable,
+# not a reason to accept the slow path permanently:
+#   - LLVM itself is now a pinned, reproducible apt package (`llvm-dev`) inside
+#     THIS Containerfile's own `FROM debian:12` build container -- see that file's
+#     own comment on the exact version this resolves to. This is the same
+#     "ordinary apt package inside the pinned old-glibc-baseline container" class
+#     of build-time-only tool as ruby/gperf/unifdef/python3-mako above, not a
+#     from-source LLVM build and not a dependency on whatever LLVM the operator's
+#     own host machine happens to have.
+#   - '-Dshared-llvm=disabled' below avoids the OTHER half of the original
+#     concern -- a runtime dependency on the build container's own libLLVM-14.so.1,
+#     which is the exact "build container has it, real target desktop doesn't"
+#     trap the Task 8 post-review correction already found and fixed for
+#     libjpeg/libxml2/libxslt (see this script's own libjpeg-turbo/libxml2/libxslt
+#     comments above). Passing `static: not shared-llvm` down into meson's
+#     `dependency('llvm', ...)` call (mesa's own meson.build) links LLVM's IR/
+#     codegen/JIT machinery statically into llvmpipe's own driver .so instead --
+#     no new .so, no new vendoring, no new runtime dependency at all beyond what
+#     softpipe already shipped.
+# 'llvmpipe' (not 'swrast', still not a real -Dgallium-drivers value -- see above)
+# is a real, correctly-spelled choice verified directly against this exact Mesa
+# version's own meson.options `choices:` list (softpipe and llvmpipe both listed).
+# softpipe is dropped from the build entirely rather than building
+# `softpipe,llvmpipe` side by side: Mesa's swrast DRI/EGL target
+# (`with_gallium_swrast = with_gallium_softpipe or with_gallium_llvmpipe`,
+# mesa/meson.build) compiles into a single shared driver artifact either way, and
+# building only llvmpipe removes any runtime ambiguity about which of the two a
+# given GALLIUM_DRIVER-unset process would resolve to -- there is exactly one
+# software rasterizer in this bundle now, and it is llvmpipe.
+#
+# This is also the fix for a real, separate, confirmed-reproducible upstream
+# WebKitGTK/NVIDIA driver bug (WebKitWebProcess SIGSEGV in a SkiaGPUWorker thread
+# inside libnvidia-eglcore.so, 5 real coredumps -- see
+# .superpowers/sdd/2026-08-14-webview2loader-host-process/) that Task 7's real
+# glvnd/host-EGL GPU-acceleration work exposed: the repo owner's explicit decision
+# was to force software rendering unconditionally (see
+# ProtonSource/wine/dlls/webview2loader/unixlib.c's spawn_helper(), which no
+# longer conditionally prefers the host's own NVIDIA driver at all) rather than
+# chase the upstream WebKitGTK/NVIDIA race tonight -- which makes the software
+# path's own speed newly load-bearing for the ENTIRE webview experience, not just
+# a fallback for hosts with no usable EGL. llvmpipe is the only realistic way to
+# force-software-render without reintroducing the original softpipe-era lag.
 # Needs python3-mako + python3-yaml (see Containerfile) -- mesa's own configure-time
-# python check hard-requires both regardless of driver selection.
+# python check hard-requires both regardless of driver selection. Needs llvm-dev
+# (see Containerfile's own comment) for llvmpipe specifically.
 meson setup /build/mesa/_build /build/mesa --prefix="$PREFIX" \
-    -Dplatforms=x11,wayland -Dgallium-drivers=softpipe -Dvulkan-drivers=[]
+    -Dplatforms=x11,wayland -Dgallium-drivers=llvmpipe -Dvulkan-drivers=[] \
+    -Dllvm=enabled -Dshared-llvm=disabled
 ninja -C /build/mesa/_build -j"$JOBS" install
 
 echo ":: Building libwpe $LIBWPE_VERSION"

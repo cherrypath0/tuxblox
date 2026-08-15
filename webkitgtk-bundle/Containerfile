@@ -135,6 +135,56 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-mako python3-yaml \
     && rm -rf /var/lib/apt/lists/*
 
+# 2026-08-15 addition (software-only-llvmpipe plan): Mesa's gallium-drivers
+# selection below switched from 'softpipe' (a naive pure-C rasterizer) to
+# 'llvmpipe' (LLVM-JIT-compiled, much faster for the 2D-compositing-heavy
+# workload this bundle exists to serve) -- see build-in-container.sh's own
+# Mesa comment block for the full softpipe-vs-llvmpipe history and why this
+# was deferred back when softpipe was originally chosen. llvmpipe hard-
+# requires a real LLVM to build against (mesa/meson.build:
+# `elif with_any_llvmpipe: error('llvmpipe requires LLVM and is enabled, but
+# LLVM is disabled.')`) -- this package satisfies that.
+#   - llvm-dev: Debian 12 bookworm's unversioned metapackage, pinned to
+#     whatever LLVM major version bookworm's own fixed apt snapshot ships
+#     (14.0, confirmed via `apt-cache policy llvm-dev` against this exact
+#     `FROM debian:12` base -- not "whatever happens to be on the build
+#     machine," the same reproducibility this whole Containerfile already
+#     relies on for every other apt package). Provides both llvm-config
+#     (at /usr/bin/llvm-config, an unversioned symlink to llvm-config-14 --
+#     meson's `dependency('llvm', method: 'config-tool')` finds this
+#     directly, no LLVM_CONFIG env var needed) and the static archive
+#     libraries (libLLVM*.a under /usr/lib/llvm-14/lib, confirmed present:
+#     176 .a files) that build-in-container.sh's `-Dshared-llvm=disabled`
+#     flag needs to link LLVM statically into llvmpipe's own driver .so
+#     rather than depending on a separate runtime libLLVM-14.so.1 --
+#     deliberately avoiding the same class of "build container has it,
+#     target machine doesn't" runtime-dependency trap the Task 8 post-
+#     review correction found and fixed for libjpeg/libxml2/libxslt (most
+#     real-world Linux desktops have no LLVM shared library installed at
+#     all, unlike the universally-present X11/systemd/etc. libraries this
+#     Containerfile's "assumed present on the target" boundary otherwise
+#     covers) -- see build-in-container.sh's Mesa section for the matching
+#     meson flags.
+#   - libpolly-14-dev: a REAL BUG FIX found via an actual from-scratch build attempt
+#     of this exact change, not anticipated up front -- `llvm-dev`'s own
+#     `llvm-config --link-static --libs` output includes `-lPolly -lPollyISL`
+#     (LLVM's polyhedral loop optimizer, transitively pulled in by the LTO/
+#     transform-utils modules Mesa's meson.build requests), but Debian splits
+#     Polly's static archives (libPolly.a, libPollyISL.a) into this separate
+#     package rather than bundling them into llvm-14-dev itself -- confirmed via
+#     `dpkg -L llvm-14-dev | grep -i polly` (empty) vs
+#     `dpkg -L libpolly-14-dev | grep -E '\.a$'` (both files, right there).
+#     Without it, `ninja install`'s final link of libgallium-25.1.8.so fails
+#     outright with `/usr/bin/ld: cannot find -lPolly: No such file or
+#     directory`. Mesa itself never uses Polly's actual optimizations -- this is
+#     purely a static-link completeness requirement of `-Dshared-llvm=disabled`
+#     pulling in llvm-config's full static component closure, the same kind of
+#     "the linker demands the whole declared dependency graph even for pieces
+#     nothing actually calls" gap as any other missing static archive.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    llvm-dev libpolly-14-dev \
+    && rm -rf /var/lib/apt/lists/*
+
 # Mesa's X11-platform EGL/GLX path (meson.build ~line 2087 onward) needs the XCB
 # protocol bindings directly -- discovered via a real build failure ("Dependency
 # xcb-randr not found"), not anticipated in Task 4's X11 package list, which only

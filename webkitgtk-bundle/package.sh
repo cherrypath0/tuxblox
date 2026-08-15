@@ -104,11 +104,22 @@ cp -a bin/webview2loader-host libexec/
 # webview2loader-host should resolve libEGL.so.1/libGL.so.1 against the
 # HOST's own real glvnd install (letting a real GPU driver, e.g. NVIDIA, do
 # hardware-accelerated rendering) or fall back to this bundle's own Mesa
-# softpipe build (a portable, always-works, pure-CPU rasterizer) -- but only
-# if this bundle's own copies are moved somewhere the normal RPATH search
-# never reaches on its own, so the host's copies win by default and the
-# bundle's own copies only get found when spawn_helper() explicitly adds
-# gl-fallback/ to LD_LIBRARY_PATH. Left in place, unmoved: libwayland-egl.so.1
+# llvmpipe build (an LLVM-JIT-compiled software rasterizer -- see
+# build-in-container.sh's Mesa comment for the softpipe-vs-llvmpipe history) --
+# but only if this bundle's own copies are moved somewhere the normal RPATH
+# search never reaches on its own, so the relocation mechanism itself works
+# the same way regardless of which of those two branches spawn_helper()
+# actually takes.
+#
+# 2026-08-15 update: as of the software-only-llvmpipe plan, spawn_helper()
+# ALWAYS takes the bundle-fallback branch (see its own WV2L_ALWAYS_USE_BUNDLE_GL
+# comment in unixlib.c for why -- a confirmed upstream WebKitGTK/NVIDIA driver
+# crash, not a portability concern) -- the "host's copies win by default"
+# framing above describes the mechanism's ORIGINAL design, not current
+# behavior. This relocation step itself is unchanged either way: gl-fallback/
+# still needs to exist and be reachable only via LD_LIBRARY_PATH, now simply
+# because it's unconditionally selected rather than conditionally selected.
+# Left in place, unmoved: libwayland-egl.so.1
 # (confirmed via readelf -d to need only libc.so.6 -- not part of the
 # EGL/glvnd dispatch decision at all) and libgallium-25.1.8.so/gbm/dri_gbm.so
 # (needed unconditionally via GBM_BACKENDS_PATH, regardless of which EGL

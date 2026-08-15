@@ -97,6 +97,19 @@ static pthread_mutex_t g_ipc_mutex = PTHREAD_MUTEX_INITIALIZER;
  * plain local BOOL (fork() copies the parent's already-computed stack
  * value, no further dlopen() involved) -- see spawn_helper()'s own call
  * site below. */
+/* 2026-08-15 (software-only-llvmpipe plan): host_has_usable_egl()'s result is
+ * no longer used to GATE the LD_LIBRARY_PATH decision in spawn_helper() below
+ * -- see WV2L_ALWAYS_USE_BUNDLE_GL's own comment just above that call site for
+ * the full reasoning (a confirmed, reproducible upstream WebKitGTK/NVIDIA
+ * driver crash in the host-EGL path, not a change of opinion about this
+ * function's own correctness). This function itself is left intact rather
+ * than deleted: it's still a real, working probe of whether the host has a
+ * usable libEGL.so.1, useful as a diagnostic and for a future person
+ * revisiting hardware acceleration once the upstream WebKitGTK bug is fixed
+ * (at which point this function is exactly what such a fix would want to
+ * gate on again). Its return value is still computed in spawn_helper() below
+ * (kept in a local, unused in the gating decision) purely so a future
+ * WARN()-on-failure diagnostic path isn't silently lost either. */
 static BOOL host_has_usable_egl(void)
 {
     void *h = dlopen("libEGL.so.1", RTLD_LAZY);
@@ -120,9 +133,11 @@ static BOOL host_has_usable_egl(void)
  * nothing else's RPATH ever resolves into it -- see that script's own
  * comment -- meaning these libraries are normally unreachable unless
  * LD_LIBRARY_PATH explicitly adds this directory, which is exactly what
- * spawn_helper()'s child branch below does when host_has_usable_egl()
- * returns FALSE). bundle_dir is the same TUXBLOX_WEBVIEW_DIR value
- * spawn_helper() already has -- not re-resolved here.
+ * spawn_helper()'s child branch below now always does -- see
+ * WV2L_ALWAYS_USE_BUNDLE_GL's own comment for why this is no longer
+ * conditional on host_has_usable_egl()). bundle_dir is the same
+ * TUXBLOX_WEBVIEW_DIR value spawn_helper() already has -- not re-resolved
+ * here.
  *
  * The returned pointer is a `static char[PATH_MAX]` -- NOT reentrant/
  * thread-safe, and overwritten by the next call. Safe today because every
@@ -262,6 +277,37 @@ static void set_webkit_relocation_env(const char *dir)
  * only libexec/ is. bundle_dir/bin/webview2loader-host would therefore
  * never exist in a real deployed bundle; bundle_dir/libexec/
  * webview2loader-host is the real, present-on-disk path. */
+/* 2026-08-15 (software-only-llvmpipe plan, repo owner's explicit live
+ * decision): ALWAYS take the bundle's own software (llvmpipe) GL/EGL path in
+ * spawn_helper() below, never the host's real driver, regardless of what
+ * host_has_usable_egl() reports. This is not a portability fallback decision
+ * any more -- it's a permanent crash workaround.
+ *
+ * Real, confirmed, reproducible evidence: WebKitWebProcess SIGSEGVs in a
+ * SkiaGPUWorker thread deep inside libnvidia-eglcore.so during GPU-context
+ * teardown, across 5 real coredumps in one session, all identical offsets.
+ * Fully symbolized against an unstripped libwebkitgtk-6.0.so.4 matching the
+ * deployed build's BuildID: two threads (SkiaGPUWorker's own TLS-destructor-
+ * driven GrDirectContext teardown, and the main thread's own independent
+ * exit()-driven EGL teardown) both tear down the same NVIDIA driver-global
+ * GL/EGL state at once. This is a genuine upstream WebKitGTK Skia-backend/
+ * NVIDIA-driver race -- zero TuxBlox frames in either racing stack -- only
+ * reachable once the host's real EGL/GPU driver is actually in play, which is
+ * exactly the branch this flag now permanently forecloses. See
+ * .superpowers/sdd/2026-08-14-webview2loader-host-process/ for the full
+ * crash investigation (progress.md's tail + the crash-investigation report
+ * files there).
+ *
+ * Deliberately a named constant, not an inlined `if (1 || host_egl_ok)` or a
+ * deleted conditional -- a future person revisiting hardware acceleration
+ * (once the upstream WebKitGTK/NVIDIA bug is actually fixed upstream) should
+ * be able to find this exact decision and flip it back to
+ * `!host_egl_ok`-gated by reverting this one constant, not have to
+ * reconstruct the whole host_has_usable_egl()-gating mechanism from git
+ * history. host_has_usable_egl() itself is intentionally left in place (not
+ * deleted) for exactly that future flip -- see its own comment. */
+#define WV2L_ALWAYS_USE_BUNDLE_GL TRUE
+
 static BOOL spawn_helper(const char *bundle_dir)
 {
     int sv[2];
@@ -280,7 +326,14 @@ static BOOL spawn_helper(const char *bundle_dir)
      * forever). The result is a plain BOOL on this function's own stack --
      * fork() copies it into the child along with everything else on the
      * stack, so the child below just reads the already-computed answer,
-     * no further dlopen() call needed on that side at all. */
+     * no further dlopen() call needed on that side at all.
+     *
+     * Still called unconditionally even though WV2L_ALWAYS_USE_BUNDLE_GL
+     * means its result no longer gates anything below: this keeps its own
+     * internal WARN()-on-failure diagnostics alive (useful signal about the
+     * host's EGL state regardless of which GL path actually gets used), and
+     * keeps the probe itself exercised/not bit-rotting for whenever a future
+     * person flips WV2L_ALWAYS_USE_BUNDLE_GL back off. */
     host_egl_ok = host_has_usable_egl();
 
     g_helper_pid = fork();
@@ -288,6 +341,13 @@ static BOOL spawn_helper(const char *bundle_dir)
 
     if (g_helper_pid == 0)
     {
+        /* Declared here, at the very top of this block before any statement,
+         * not next to its own comment/use further down -- this whole file
+         * (and Wine's own build, -Werror=declaration-after-statement) is C90,
+         * which forbids mixed declarations and code. See this variable's own
+         * assignment below for why it exists. */
+        BOOL use_bundle_gl;
+
         /* Child: keep sv[1], drop sv[0]. dup2 onto a fixed fd (3) so the
          * env var passed to the child is a constant, not something that
          * depends on fd-table state -- simpler to reason about than
@@ -307,15 +367,27 @@ static BOOL spawn_helper(const char *bundle_dir)
          * follows. */
         set_webkit_relocation_env(bundle_dir);
 
-        /* WEBVIEW2LOADER_FORCE_GL_FALLBACK: test-only hook, consulted
-         * alongside the PARENT-computed host_egl_ok above, so the bundle's
-         * own relocated gl-fallback/ softpipe copy can be exercised on a
-         * machine (like this dev machine) whose host EGL is genuinely
-         * usable, without having to uninstall glvnd to prove the fallback
-         * branch works. Kept permanently (not stripped after Task 7's own
-         * verification) -- useful for future debugging of this same
-         * dispatch decision on other machines. */
-        if (getenv("WEBVIEW2LOADER_FORCE_GL_FALLBACK") || !host_egl_ok)
+        /* WEBVIEW2LOADER_FORCE_GL_FALLBACK: test-only hook, originally added
+         * alongside the PARENT-computed host_egl_ok above so the bundle's
+         * own relocated gl-fallback/ llvmpipe copy could be exercised on a
+         * machine whose host EGL was genuinely usable, without having to
+         * uninstall glvnd to prove the fallback branch works. Now redundant
+         * with WV2L_ALWAYS_USE_BUNDLE_GL (which already forces this branch
+         * unconditionally) but left in the condition rather than removed --
+         * still harmless, still a no-op when WV2L_ALWAYS_USE_BUNDLE_GL is
+         * TRUE, and immediately useful again the moment a future person flips
+         * that constant back to host-EGL-gated.
+         *
+         * use_bundle_gl assigned to a plain local first (rather than writing
+         * the `#define` directly into the `if`) so this reads as an ordinary
+         * runtime decision, not a `if (1 || ...)`-shaped dead-code puzzle for
+         * whoever next edits this function -- declared at the top of this
+         * block (see above) rather than here, to satisfy this file's C90
+         * declaration-after-statement discipline. */
+        use_bundle_gl = WV2L_ALWAYS_USE_BUNDLE_GL ||
+                        getenv("WEBVIEW2LOADER_FORCE_GL_FALLBACK") != NULL ||
+                        !host_egl_ok;
+        if (use_bundle_gl)
         {
             /* execve's own envp is read at true process startup -- this is
              * exactly the case LD_LIBRARY_PATH works for, unlike setenv()
