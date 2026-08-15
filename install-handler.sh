@@ -19,11 +19,12 @@ set -e
 
 repoDir="$(cd "$(dirname "$0")" && pwd)"
 appsDir="$HOME/.local/share/applications"
-playerDesktop="$appsDir/tuxblox-player.desktop"
-studioDesktop="$appsDir/tuxblox-studio.desktop"
+robloxDesktop="$appsDir/tuxblox-roblox-dev.desktop"
+playerDesktop="$appsDir/tuxblox-player-dev.desktop"
+studioDesktop="$appsDir/tuxblox-studio-dev.desktop"
 
 if [ "$1" = "--uninstall" ]; then
-    rm -f "$playerDesktop" "$studioDesktop"
+    rm -f "$robloxDesktop" "$playerDesktop" "$studioDesktop"
     command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$appsDir" >/dev/null 2>&1
     echo "Removed TuxBlox protocol handlers."
     exit 0
@@ -37,10 +38,25 @@ fi
 
 mkdir -p "$appsDir"
 
+# The desktop-id/Name pairing here (roblox -> "TuxBlox", roblox-player ->
+# "TuxBlox Player", roblox-studio[-auth] -> "TuxBlox Studio", each with a
+# "(Development)" suffix) mirrors the installed handler set that
+# ensureDesktopIntegration() writes in launcher/src/desktop_integration.cpp
+# -- keep the two in sync if either changes.
+cat > "$robloxDesktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=TuxBlox (Development)
+Exec=$repoDir/launch.sh player %u
+NoDisplay=true
+Terminal=false
+MimeType=x-scheme-handler/roblox;
+EOF
+
 cat > "$playerDesktop" <<EOF
 [Desktop Entry]
 Type=Application
-Name=TuxBlox Player Handler (Development)
+Name=TuxBlox Player (Development)
 Exec=$repoDir/launch.sh player %u
 NoDisplay=true
 Terminal=false
@@ -50,7 +66,7 @@ EOF
 cat > "$studioDesktop" <<EOF
 [Desktop Entry]
 Type=Application
-Name=TuxBlox Studio Handler (Development)
+Name=TuxBlox Studio (Development)
 Exec=$repoDir/launch.sh studio %u
 NoDisplay=true
 Terminal=false
@@ -59,12 +75,13 @@ EOF
 
 command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$appsDir" >/dev/null 2>&1
 
-xdg-mime default tuxblox-player.desktop x-scheme-handler/roblox-player
-xdg-mime default tuxblox-studio.desktop x-scheme-handler/roblox-studio
-xdg-mime default tuxblox-studio.desktop x-scheme-handler/roblox-studio-auth
+xdg-mime default tuxblox-roblox-dev.desktop x-scheme-handler/roblox
+xdg-mime default tuxblox-player-dev.desktop x-scheme-handler/roblox-player
+xdg-mime default tuxblox-studio-dev.desktop x-scheme-handler/roblox-studio
+xdg-mime default tuxblox-studio-dev.desktop x-scheme-handler/roblox-studio-auth
 
 echo "Registered this repo checkout (via launch.sh, prefix: $repoDir/runtime) as the"
-echo "handler for roblox-player:, roblox-studio:, and roblox-studio-auth: links."
+echo "handler for roblox:, roblox-player:, roblox-studio:, and roblox-studio-auth: links."
 echo "An installed TuxBloxLauncher will no longer revert this on its own -- it only"
-echo "reclaims a scheme if the default isn't one of these two dev handlers."
+echo "reclaims a scheme if the default isn't one of these three dev handlers."
 echo "Run '$0 --uninstall' to remove."

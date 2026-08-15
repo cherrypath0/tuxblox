@@ -63,7 +63,7 @@ int main(int argc, char** argv) {
         std::string uri;
         bool headless = false;
 
-        if (startsWith(arg1, "roblox-player:")) {
+        if (startsWith(arg1, "roblox-player:") || startsWith(arg1, "roblox:")) {
             headless = true; target = LaunchTarget::Player; uri = arg1;
         } else if (startsWith(arg1, "roblox-studio-auth:") || startsWith(arg1, "roblox-studio:")) {
             headless = true; target = LaunchTarget::Studio; uri = arg1;

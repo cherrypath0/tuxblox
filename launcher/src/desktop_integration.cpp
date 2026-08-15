@@ -80,12 +80,37 @@ std::string queryXdgMimeDefault(const std::string& scheme) {
 }
 
 // The repo-local dev workflow (./install-handler.sh, launch.sh %u) writes
-// these two IDs. When one of them is the current default for a scheme, that
+// these IDs. When one of them is the current default for a scheme, that
 // was a deliberate choice by whoever's doing dev/testing work against the
 // repo prefix -- ensureDesktopIntegration() below must not silently revert
 // it back to the installed handler every time the GUI happens to start.
 bool isKnownTuxBloxDevHandler(const std::string& desktopId) {
-    return desktopId == "tuxblox-player.desktop" || desktopId == "tuxblox-studio.desktop";
+    return desktopId == "tuxblox-roblox-dev.desktop" ||
+           desktopId == "tuxblox-player-dev.desktop" ||
+           desktopId == "tuxblox-studio-dev.desktop";
+}
+
+struct SchemeHandler {
+    const char* desktopId;
+    const char* name;
+    const char* mimeTypeLine;              // full MimeType= value written to the .desktop file
+    std::vector<const char*> schemes;      // same schemes, split out for the xdg-mime default loop
+};
+
+// One file per Name -- a .desktop entry only has a single Name=, and each
+// of these should read distinctly in "Open With" pickers / xdg-mime query
+// output rather than one generic "URL Handler" covering all three.
+const std::vector<SchemeHandler>& installedHandlers() {
+    static const std::vector<SchemeHandler> handlers = {
+        {"tuxblox-roblox-handler.desktop", "TuxBlox",
+         "x-scheme-handler/roblox;", {"x-scheme-handler/roblox"}},
+        {"tuxblox-player-handler.desktop", "TuxBlox Player",
+         "x-scheme-handler/roblox-player;", {"x-scheme-handler/roblox-player"}},
+        {"tuxblox-studio-handler.desktop", "TuxBlox Studio",
+         "x-scheme-handler/roblox-studio;x-scheme-handler/roblox-studio-auth;",
+         {"x-scheme-handler/roblox-studio", "x-scheme-handler/roblox-studio-auth"}},
+    };
+    return handlers;
 }
 
 void runCommandBestEffort(const std::vector<std::string>& argv) {
@@ -186,30 +211,38 @@ void ensureDesktopIntegration(const std::string& launcherExePath) {
                 "Exec=xdg-open https://tuxblox.net/docs\n";
         }
 
-        // URL-scheme handler entry (not shown in app grids).
-        {
-            std::ofstream f(appsDir + "/tuxblox-url-handler.desktop");
+        // URL-scheme handler entries (not shown in app grids).
+        for (const auto& h : installedHandlers()) {
+            std::ofstream f(appsDir + "/" + h.desktopId);
             if (!f) return;
             f <<
                 "[Desktop Entry]\n"
                 "Type=Application\n"
-                "Name=TuxBlox URL Handler\n"
+                "Name=" << h.name << "\n"
                 "Exec=\"" << launcherExePath << "\" %u\n"
                 "NoDisplay=true\n"
                 "Terminal=false\n"
-                "MimeType=x-scheme-handler/roblox-player;x-scheme-handler/roblox-studio;x-scheme-handler/roblox-studio-auth;\n";
+                "MimeType=" << h.mimeTypeLine << "\n";
+        }
+
+        // Superseded by the per-scheme files above -- remove so it doesn't
+        // linger as a dead duplicate entry claiming the same MimeTypes.
+        {
+            std::error_code rmEc;
+            fs::remove(appsDir + "/tuxblox-url-handler.desktop", rmEc);
         }
 
         if (!std::getenv("TUXBLOX_SKIP_XDG_MIME")) { // escape hatch for sandboxed test/CI runs
-            for (const char* scheme : {"x-scheme-handler/roblox-player",
-                                        "x-scheme-handler/roblox-studio",
-                                        "x-scheme-handler/roblox-studio-auth"}) {
-                // Don't stomp a deliberate switch to the repo-local dev
-                // handler (see isKnownTuxBloxDevHandler above) -- only
-                // (re)claim the scheme if it's unset or held by something
-                // else (a stale/foreign association is still self-healed).
-                if (isKnownTuxBloxDevHandler(queryXdgMimeDefault(scheme))) continue;
-                runCommandBestEffort({"xdg-mime", "default", "tuxblox-url-handler.desktop", scheme});
+            for (const auto& h : installedHandlers()) {
+                for (const char* scheme : h.schemes) {
+                    // Don't stomp a deliberate switch to the repo-local dev
+                    // handler (see isKnownTuxBloxDevHandler above) -- only
+                    // (re)claim the scheme if it's unset or held by
+                    // something else (a stale/foreign association is still
+                    // self-healed).
+                    if (isKnownTuxBloxDevHandler(queryXdgMimeDefault(scheme))) continue;
+                    runCommandBestEffort({"xdg-mime", "default", h.desktopId, scheme});
+                }
             }
             runCommandBestEffort({"update-desktop-database", appsDir});
             // Best-effort, same reasoning as update-desktop-database above --
@@ -235,7 +268,11 @@ void ensureDesktopIntegration(const std::string& launcherExePath) {
         // handling exits 127 harmlessly.
         if (isInsideDistrobox()) {
             runCommandBestEffort({"distrobox-export", "--app", "tuxblox-launcher"});
-            runCommandBestEffort({"distrobox-export", "--app", "tuxblox-url-handler"});
+            for (const auto& h : installedHandlers()) {
+                std::string exportId = h.desktopId;
+                exportId.erase(exportId.size() - std::string(".desktop").size());
+                runCommandBestEffort({"distrobox-export", "--app", exportId});
+            }
         }
     } catch (...) {
         // Best-effort -- must never fail an otherwise-working launch.
