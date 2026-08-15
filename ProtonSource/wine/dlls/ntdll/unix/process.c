@@ -701,7 +701,7 @@ NTSTATUS WINAPI NtCreateUserProcess( HANDLE *process_handle_ptr, HANDLE *thread_
     ULONG startup_info_size, env_size;
     int unixdir, socketfd[2] = { -1, -1 };
     struct pe_image_info pe_info;
-    CLIENT_ID id;
+    CLIENT_ID id = { 0 };
     USHORT machine = 0;
     HANDLE parent = 0, debug = 0, token = 0;
     UNICODE_STRING nt_name, path = {0};
@@ -759,6 +759,16 @@ NTSTATUS WINAPI NtCreateUserProcess( HANDLE *process_handle_ptr, HANDLE *thread_
     TRACE( "%s image %s cmdline %s parent %p machine %x\n", debugstr_us( &path ),
            debugstr_us( &params->ImagePathName ), debugstr_us( &params->CommandLine ), parent, machine );
 
+    /* item 6 WebView2 hang investigation: this call was localized to somewhere
+     * inside NtCreateUserProcess's own body (see plan.txt), but the existing
+     * tracer's curated allowlist doesn't cover process creation itself, so
+     * the exact sub-step was still invisible. These markers bracket each
+     * blocking sub-call below (path resolution, the new_process/new_thread
+     * server round-trips, the actual fork/exec, and the final wait for the
+     * child to signal ready) so the next hang capture shows which one eats
+     * the ~300s instead of just "somewhere in here". */
+    tuxblox_trace_record_us( "createprocess.enter", &path );
+
     unixdir = get_unix_curdir( params );
 
     InitializeObjectAttributes( &attr, &path, OBJ_CASE_INSENSITIVE, 0, 0 );
@@ -774,6 +784,7 @@ NTSTATUS WINAPI NtCreateUserProcess( HANDLE *process_handle_ptr, HANDLE *thread_
         }
         goto done;
     }
+    tuxblox_trace_record( "createprocess.resolved", unix_name ? unix_name : "" );
     if (!machine)
     {
         machine = pe_info.machine;
@@ -821,6 +832,7 @@ NTSTATUS WINAPI NtCreateUserProcess( HANDLE *process_handle_ptr, HANDLE *thread_
 
     /* create the process on the server side */
 
+    tuxblox_trace_record( "createprocess.new_process.start", unix_name ? unix_name : "" );
     SERVER_START_REQ( new_process )
     {
         req->token          = wine_server_obj_handle( token );
@@ -846,6 +858,11 @@ NTSTATUS WINAPI NtCreateUserProcess( HANDLE *process_handle_ptr, HANDLE *thread_
         process_info = wine_server_ptr_handle( reply->info );
     }
     SERVER_END_REQ;
+    {
+        char detail[64];
+        snprintf( detail, sizeof(detail), "status=0x%x pid=%d", status, HandleToULong( id.UniqueProcess ) );
+        tuxblox_trace_record( "createprocess.new_process.done", detail );
+    }
     close( socketfd[1] );
     free( objattr );
     free( handles );
@@ -887,13 +904,21 @@ NTSTATUS WINAPI NtCreateUserProcess( HANDLE *process_handle_ptr, HANDLE *thread_
 
     /* create the child process */
 
-    if ((status = spawn_process( params, socketfd[0], unixdir, winedebug, &pe_info ))) goto done;
+    tuxblox_trace_record( "createprocess.spawn.start", unix_name ? unix_name : "" );
+    status = spawn_process( params, socketfd[0], unixdir, winedebug, &pe_info );
+    {
+        char detail[32];
+        snprintf( detail, sizeof(detail), "status=0x%x", status );
+        tuxblox_trace_record( "createprocess.spawn.done", detail );
+    }
+    if (status) goto done;
 
     close( socketfd[0] );
     socketfd[0] = -1;
 
     /* wait for the new process info to be ready */
 
+    tuxblox_trace_record( "createprocess.wait_ready.start", "" );
     NtWaitForSingleObject( process_info, FALSE, NULL );
     SERVER_START_REQ( get_new_process_info )
     {
@@ -903,6 +928,11 @@ NTSTATUS WINAPI NtCreateUserProcess( HANDLE *process_handle_ptr, HANDLE *thread_
         status = reply->exit_code;
     }
     SERVER_END_REQ;
+    {
+        char detail[48];
+        snprintf( detail, sizeof(detail), "success=%d status=0x%x", success, status );
+        tuxblox_trace_record( "createprocess.wait_ready.done", detail );
+    }
 
     if (!success)
     {
