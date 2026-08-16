@@ -32,6 +32,11 @@ struct Settings {
     // that's the correct long-term default for a public installer, not a
     // reflection of what's actually shipped today.
     std::string channel = "stable";
+    // Off by default: an available update only shows the Qt UI's side
+    // notification popup instead of being applied automatically. See
+    // app.h's AppSnapshot::updateAvailableVersion and
+    // App::requestUpdateNow() for the rest of that flow.
+    bool autoUpdate = false;
 };
 
 // installDir + "/settings.json". Never throws: a missing file,

@@ -21,7 +21,8 @@
 #include "roblox_log_capture.h"
 #include "settings.h"
 #include "system_info.h"
-#include <SDL.h>
+#include "ui_qt/message_box.h"
+#include "versions_manifest.h"
 #include <chrono>
 #include <ctime>
 #include <thread>
@@ -39,10 +40,7 @@ int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const 
     if (!outcome.ok) {
         std::string message = "A TuxBlox process has exited with a non-zero exit code.\n" +
             outcome.errorMessage;
-        if (SDL_Init(SDL_INIT_VIDEO) == 0) {
-            SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "TuxBlox Error", message.c_str(), nullptr);
-            SDL_Quit();
-        }
+        showErrorMessageBox("TuxBlox Error", message);
         return 1;
     }
 
@@ -55,6 +53,15 @@ int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const 
     // launch's log file, unconditionally -- a clean exit still gets its
     // Roblox log recorded, this isn't gated on crash detection below.
     appendRobloxSessionLogs(installDir, launchStart, outcome.logPath);
+
+    if (outcome.wasBootstrapInstall && ev && !ev->stopRequested && ev->exitCode == 0) {
+        // The official RobloxPlayerInstaller.exe/RobloxStudioInstaller.exe
+        // just ran (via resolveOrBootstrapExePath's existing fallback) and
+        // exited cleanly -- record whatever version it installed so future
+        // launches use the pinned-version path (Task 5) instead of
+        // re-invoking the installer every time.
+        registerBootstrappedVersion(installDir, target);
+    }
 
     if (!ev || ev->stopRequested || ev->exitCode == 0) {
         return 0; // clean exit (or nothing to report) -- no UI at all
@@ -102,10 +109,7 @@ int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const 
         uploadCrashReport(report);
     }
 
-    if (SDL_Init(SDL_INIT_VIDEO) == 0) {
-        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, popupTitle.c_str(), message.c_str(), nullptr);
-        SDL_Quit();
-    }
+    showErrorMessageBox(popupTitle, message);
 
     return 1;
 }

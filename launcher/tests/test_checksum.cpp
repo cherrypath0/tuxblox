@@ -63,6 +63,36 @@ int main() {
         assert(threw);
     }
 
+    // MD5 NIST-style test vectors (RFC 1321).
+    {
+        std::string h = tuxblox::md5Bytes(reinterpret_cast<const unsigned char*>(""), 0);
+        assert(h == "d41d8cd98f00b204e9800998ecf8427e");
+    }
+    {
+        const char* abc = "abc";
+        std::string h = tuxblox::md5Bytes(reinterpret_cast<const unsigned char*>(abc), 3);
+        assert(h == "900150983cd24fb0d6963f7d28e17f72");
+    }
+    {
+        fs::path path = fs::temp_directory_path() / "tuxblox_test_checksum_md5_abc.txt";
+        {
+            std::ofstream out(path, std::ios::binary);
+            out << "abc";
+        }
+        std::string h = tuxblox::md5File(path.string());
+        assert(h == "900150983cd24fb0d6963f7d28e17f72");
+        fs::remove(path);
+    }
+    {
+        bool threw = false;
+        try {
+            tuxblox::md5File("/nonexistent/tuxblox_test_missing_file.bin");
+        } catch (const std::runtime_error&) {
+            threw = true;
+        }
+        assert(threw);
+    }
+
     printf("checksum: all tests passed\n");
     return 0;
 }

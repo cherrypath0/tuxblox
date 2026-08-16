@@ -50,6 +50,11 @@ bool versionNeedsUpdate(const std::string& installed, const std::string& require
 struct UpdateResult {
     bool needsHandoff = false;  // true if the installer should be exec'd to apply the update
     std::string installerPath;  // valid iff needsHandoff -- the binary to exec
+    // True iff needsHandoff and there is no recorded Proton install at all
+    // (as opposed to an outdated one) -- nothing can be launched yet, so
+    // the Auto-Update opt-out doesn't apply: App::updateCheckThreadMain()
+    // hands off to the installer immediately regardless of that setting.
+    bool protonMissing = false;
 };
 
 struct EnsureInstallerResult {

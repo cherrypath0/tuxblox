@@ -15,17 +15,39 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "app.h"
+#include "checksum.h"
 #include "container_env.h"
+#include "downloader.h"
 #include "manifest.h"
+#include "roblox_deploy.h"
+#include "tar_extract.h"
+#include <algorithm>
+#include <ctime>
 #include <filesystem>
+#include <fstream>
 #include <optional>
 #include <sys/wait.h>
 #include <unistd.h>
 
 namespace tuxblox {
 
+namespace fs = std::filesystem;
+
 namespace {
 constexpr const char* kSetupBaseUrl = "https://setup.tuxblox.net";
+
+// "%Y-%m-%dT%H:%M:%SZ" -- same strftime/gmtime_r pattern as
+// process_launcher.cpp's logTimestamp(), but UTC and ISO-8601 for
+// versions.json's InstalledVersion::installedAt.
+std::string isoNowUtc() {
+    std::time_t t = std::time(nullptr);
+    std::tm tmBuf{};
+    gmtime_r(&t, &tmBuf);
+    char buf[32];
+    std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", &tmBuf);
+    return buf;
+}
+
 } // namespace
 
 App::App(std::string installDir, std::string currentVersion, std::string launcherExePath)
@@ -39,6 +61,7 @@ App::App(std::string installDir, std::string currentVersion, std::string launche
     // window exists before that potential stall. See Finding 5, 2026-07-28
     // final review.
     snapshot_.settings = loadSettings(installDir_);
+    snapshot_.versions = loadVersionsManifest(installDir_);
     // Safe to call unlocked here: the constructor runs before
     // startUpdateCheck() spawns any other thread, so nothing else can be
     // concurrently calling getenv() yet. See applyGlobalEnvVars()'s own
@@ -68,9 +91,11 @@ App::~App() {
     // 2, 2026-07-28 final review.
     updateCancel_.store(true);
     uninstallCancel_.store(true);
+    versionInstallCancel_.store(true);
     if (updateThread_.joinable()) updateThread_.join();
     if (uninstallThread_.joinable()) uninstallThread_.join();
     if (wipePrefixThread_.joinable()) wipePrefixThread_.join();
+    if (versionInstallThread_.joinable()) versionInstallThread_.join();
 }
 
 void App::startUpdateCheck() {
@@ -196,6 +221,17 @@ void App::requestWipePrefix() {
     if (wipePrefixThread_.joinable()) return; // already in progress -- ignore repeat clicks
     {
         std::lock_guard<std::mutex> lock(mutex_);
+        // Mutual exclusion with an in-progress version install (Finding 4b,
+        // 2026-08-16 final review): both touch files under runtime/
+        // concurrently otherwise -- wiping the prefix out from under an
+        // in-flight extractZip(), or reviving a directory the install just
+        // finished deleting-and-recreating. Same "phase" check
+        // requestInstallVersion() already uses for its own re-entrancy guard.
+        VersionInstallPhase installPhase = snapshot_.versionInstall.phase;
+        bool installRunning = installPhase != VersionInstallPhase::Idle &&
+                               installPhase != VersionInstallPhase::Done &&
+                               installPhase != VersionInstallPhase::Error;
+        if (installRunning) return;
         snapshot_.wipePrefix.inProgress = true;
         snapshot_.wipePrefix.errorMessage.clear();
     }
@@ -228,9 +264,19 @@ void App::wipePrefixThreadMain() {
         error = "Failed to read " + runtimeDir + ": " + ec.message();
     }
 
+    // Wiping runtime/ deletes every Roblox version directory it contained --
+    // reset versions.json (and the in-memory snapshot below) to match,
+    // otherwise the Versions tab / Start tab keep showing entries for
+    // versions that no longer exist on disk (Finding 4a, 2026-08-16 final
+    // review). Disk I/O outside the lock -- same convention as
+    // updateSettings().
+    VersionsManifest emptyVersions{};
+    saveVersionsManifest(installDir_, emptyVersions);
+
     std::lock_guard<std::mutex> lock(mutex_);
     snapshot_.wipePrefix.inProgress = false;
     snapshot_.wipePrefix.errorMessage = error;
+    snapshot_.versions = emptyVersions;
 }
 
 AppSnapshot App::snapshot() const {
@@ -249,6 +295,17 @@ void App::updateSettings(Settings settings) {
     if (globalEnvChanged) {
         applyGlobalEnvVars(settings.globalEnvVars);
     }
+}
+
+void App::requestUpdateNow() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!snapshot_.updateAvailableVersion.has_value()) return;
+    needsInstallerHandoff_.store(true);
+}
+
+void App::dismissUpdateNotification() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    snapshot_.updateAvailableVersion.reset();
 }
 
 void App::applyGlobalEnvVars(const std::string& globalEnvVars) {
@@ -271,9 +328,11 @@ void App::applyGlobalEnvVars(const std::string& globalEnvVars) {
 
 void App::updateCheckThreadMain() {
     std::string channel;
+    bool autoUpdate;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         channel = snapshot_.settings.channel;
+        autoUpdate = snapshot_.settings.autoUpdate;
     }
 
     auto report = [&](UpdateProgress p) {
@@ -301,9 +360,304 @@ void App::updateCheckThreadMain() {
         [&](UpdateProgress p) { report(p); },
         &updateCancel_, installDir_);
     if (result.needsHandoff) {
-        installerHandoffPath_ = result.installerPath; // see installerHandoffPath()'s comment
-        needsInstallerHandoff_.store(true);
+        // Deliberately gated on autoUpdate alone, even when
+        // result.protonMissing is true (no Proton install at all, e.g. a
+        // first run) -- an earlier version of this code always bypassed the
+        // toggle for that case ("nothing to opt out of if nothing's
+        // installed"), but that meant the launcher silently closed and
+        // handed off to the installer on every single startup, with no
+        // window ever shown, for anyone with autoUpdate off and no Proton
+        // yet -- surprising and impossible to interrupt if the user actually
+        // wanted to look at the app first. StartTab's "Install & Launch"
+        // button (see start_tab.cpp) already covers this case on demand: it
+        // calls requestLaunch(), whose existing bootstrap fallback chain
+        // (process_launcher.cpp's resolveOrBootstrapExePath) installs Proton
+        // the moment the user actually tries to launch something, so this
+        // startup-time path installing it unprompted is redundant, not just
+        // surprising.
+        if (autoUpdate) {
+            // Unchanged existing behavior/pattern: installerHandoffPath_
+            // written unlocked, made safe by the atomic release-store
+            // below (see installerHandoffPath()'s own comment for the
+            // happens-before reasoning) -- callers only ever read it after
+            // observing needsInstallerHandoff_ true.
+            installerHandoffPath_ = result.installerPath;
+            needsInstallerHandoff_.store(true);
+        } else {
+            // Different synchronization on purpose: needsInstallerHandoff_
+            // does NOT get set here, so the atomic-release trick above
+            // doesn't apply. Instead installerHandoffPath_ is written
+            // under mutex_, in the same critical section as
+            // updateAvailableVersion -- so a UI-thread caller that has
+            // observed updateAvailableVersion via any prior snapshot()
+            // call (itself mutex_-guarded) is guaranteed to also see this
+            // write, letting requestUpdateNow() safely promote it later
+            // purely by taking mutex_ again -- no atomic needed on this
+            // path.
+            std::lock_guard<std::mutex> lock(mutex_);
+            installerHandoffPath_ = result.installerPath;
+            snapshot_.updateAvailableVersion = *latestVersion;
+            // Without this, snapshot_.update.phase is left exactly where
+            // runUpdateCheck()'s last report() call inside
+            // ensureInstallerBinary() left it -- UpdatePhase::PreparingUpdater
+            // -- forever, since nothing else in this function calls report()
+            // again on this branch. StartTab::updateFromSnapshot() treats
+            // CheckingManifest/PreparingUpdater as "updating" and hides the
+            // Launch Player/Launch Studio buttons in favor of the progress
+            // bar the whole time that's true -- so the Home tab was stuck
+            // showing "Preparing updater" with no way to ever launch
+            // anything. The autoUpdate==true branch above doesn't need this:
+            // it sets needsInstallerHandoff_, which MainWindow::poll() acts
+            // on by closing the window within one tick, so the stuck phase
+            // is never visible. This branch has no such handoff -- the
+            // window stays open indefinitely -- so the phase must be
+            // explicitly resolved back to something StartTab doesn't treat
+            // as "updating", independent of the update-available
+            // notification itself (a separate AppSnapshot field, unaffected
+            // by this).
+            snapshot_.update = {UpdatePhase::UpToDate, 1.0};
+        }
     }
+}
+
+void App::requestInstallVersion(LaunchTarget target, VersionSelectMode mode, const std::string& channel,
+                                 const std::string& manualHash) {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        // joinable() only means "not yet joined/detached" -- NOT "still
+        // running" (the std::thread object stays joinable after its
+        // function returns, until something joins it). So the real
+        // "already in progress" signal is the tracked phase, not the
+        // thread handle -- otherwise every install after the first one
+        // ever run would silently no-op forever.
+        VersionInstallPhase phase = snapshot_.versionInstall.phase;
+        bool stillRunning = phase != VersionInstallPhase::Idle && phase != VersionInstallPhase::Done &&
+                             phase != VersionInstallPhase::Error;
+        if (stillRunning) return; // genuinely in progress -- ignore repeat clicks
+        // Mutual exclusion with an in-progress Wipe Prefix (Finding 4b,
+        // 2026-08-16 final review) -- see requestWipePrefix()'s matching guard.
+        if (snapshot_.wipePrefix.inProgress) return;
+        snapshot_.versionInstall = VersionInstallProgress{VersionInstallPhase::ResolvingVersion, 0.0, "", target};
+    }
+    // The previous run (if any) has already finished per the phase check
+    // above, so this join is a formality -- it just reaps the finished
+    // std::thread object back to a non-joinable state before reassigning.
+    if (versionInstallThread_.joinable()) versionInstallThread_.join();
+    versionInstallCancel_.store(false);
+    versionInstallThread_ = std::thread(&App::versionInstallThreadMain, this, target, mode, channel, manualHash);
+}
+
+void App::versionInstallThreadMain(LaunchTarget target, VersionSelectMode mode, std::string channel,
+                                    std::string manualHash) {
+    auto report = [&](VersionInstallProgress p) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        snapshot_.versionInstall = p;
+    };
+    auto fail = [&](const std::string& message) {
+        report({VersionInstallPhase::Error, 0.0, message, target});
+    };
+
+    const char* binaryType = robloxBinaryType(target);
+
+    std::string hash;
+    try {
+        if (mode == VersionSelectMode::ManualHash) {
+            hash = manualHash;
+        } else if (mode == VersionSelectMode::Latest) {
+            hash = parseClientVersionHash(fetchClientVersionJson(binaryType, channel, &versionInstallCancel_));
+        } else { // Previous
+            std::string latestHash =
+                parseClientVersionHash(fetchClientVersionJson(binaryType, channel, &versionInstallCancel_));
+            std::string history = fetchDeployHistory(&versionInstallCancel_);
+            auto prev = previousVersionFromDeployHistory(history, binaryType, latestHash);
+            if (!prev.has_value()) {
+                fail("No earlier version found in Roblox's deploy history for this channel.");
+                return;
+            }
+            hash = *prev;
+        }
+    } catch (const std::exception& e) {
+        fail(std::string("Couldn't resolve a version: ") + e.what());
+        return;
+    }
+    if (hash.empty()) {
+        fail("No version hash to install.");
+        return;
+    }
+
+    report({VersionInstallPhase::DownloadingManifest, 0.05, "", target});
+
+    std::vector<PackageEntry> packages;
+    try {
+        static const char* kMirrors[] = {"setup.rbxcdn.com", "setup-aws.rbxcdn.com"};
+        std::string manifestText;
+        std::string lastError;
+        bool ok = false;
+        for (const char* mirror : kMirrors) {
+            try {
+                manifestText = fetchText(setupCdnUrl(mirror, hash, "rbxPkgManifest.txt"),
+                                          &versionInstallCancel_);
+                ok = true;
+                break;
+            } catch (const std::exception& e) {
+                lastError = e.what();
+            }
+        }
+        if (!ok) throw std::runtime_error(lastError);
+        packages = parsePackageManifest(manifestText);
+    } catch (const std::exception& e) {
+        fail(std::string("Couldn't fetch the package manifest (this version may have been purged from "
+                          "Roblox's CDN): ") + e.what());
+        return;
+    }
+
+    // NOTE: hardcodes "users/user/..." -- see resolveActiveVersionExePath's
+    // matching note (process_launcher.cpp, Task 5) about the separate
+    // Wine-per-user-paths plan.
+    const std::string versionDir =
+        installDir_ + "/runtime/pfx/drive_c/users/user/AppData/Local/Roblox/Versions/" + hash;
+    const std::string stagingDir = installDir_ + "/RobloxPackageStaging/" + hash;
+    std::error_code ec;
+    fs::create_directories(stagingDir, ec);
+
+    report({VersionInstallPhase::DownloadingPackages, 0.1, "", target});
+
+    for (size_t i = 0; i < packages.size(); ++i) {
+        const auto& pkg = packages[i];
+        auto subdir = packageInstallSubdir(pkg.name, target);
+        if (!subdir.has_value()) continue; // unknown package -- skip (see packageInstallSubdir's doc)
+
+        const std::string destZip = stagingDir + "/" + pkg.name;
+        static const char* kMirrors[] = {"setup.rbxcdn.com", "setup-aws.rbxcdn.com"};
+        DownloadOutcome outcome{DownloadResult::Failed, "no mirror attempted"};
+        for (const char* mirror : kMirrors) {
+            outcome = downloadFile(setupCdnUrl(mirror, hash, pkg.name), destZip,
+                [&](uint64_t now, uint64_t total) {
+                    double pkgFraction = total > 0 ? static_cast<double>(now) / total : 0.0;
+                    double overall = 0.1 + 0.6 * ((i + pkgFraction) / std::max<size_t>(1, packages.size()));
+                    report({VersionInstallPhase::DownloadingPackages, overall, "", target});
+                },
+                &versionInstallCancel_);
+            if (outcome.result == DownloadResult::Ok) break;
+        }
+        if (outcome.result != DownloadResult::Ok) {
+            // Also remove versionDir, not just stagingDir (Finding 6,
+            // 2026-08-16 final review): an earlier package in this same loop
+            // may have already extracted into it before this one failed,
+            // which would otherwise leave a partial, unregistered version
+            // directory on disk. fs::remove_all is a no-op if it was never
+            // created yet.
+            fs::remove_all(versionDir, ec);
+            fs::remove_all(stagingDir, ec);
+            fail("Failed to download " + pkg.name + ": " + outcome.errorMessage);
+            return;
+        }
+        if (md5File(destZip) != pkg.md5) {
+            fs::remove_all(versionDir, ec); // see the matching comment above
+            fs::remove_all(stagingDir, ec);
+            fail("Checksum mismatch for " + pkg.name + " -- refusing to install a corrupted package.");
+            return;
+        }
+
+        report({VersionInstallPhase::Extracting, 0.7 + 0.25 * (static_cast<double>(i) / packages.size()),
+                "", target});
+        const std::string destDir = versionDir + (subdir->empty() ? "" : ("/" + *subdir));
+        try {
+            extractZip(destZip, destDir);
+        } catch (const std::exception& e) {
+            fs::remove_all(versionDir, ec);
+            fs::remove_all(stagingDir, ec);
+            fail(std::string("Failed to extract ") + pkg.name + ": " + e.what());
+            return;
+        }
+    }
+    fs::remove_all(stagingDir, ec);
+
+    // The official Roblox installer's bootstrap path writes this file into
+    // every version directory -- without it, Roblox's client can't find its
+    // content folder and fails at startup (Finding 2, 2026-08-16 final
+    // review). Confirmed byte-for-byte against a real installed version on
+    // this machine. Written with the same std::ofstream idiom as
+    // settings.cpp/versions_manifest.cpp's own file writes, but treated as a
+    // hard failure (not best-effort) since a version installed without it is
+    // unusable.
+    {
+        std::ofstream appSettings(versionDir + "/AppSettings.xml", std::ios::binary);
+        if (!appSettings) {
+            fs::remove_all(versionDir, ec);
+            fail("Failed to write AppSettings.xml into " + versionDir);
+            return;
+        }
+        appSettings << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+                       "<Settings>\n"
+                       "\t<ContentFolder>content</ContentFolder>\n"
+                       "\t<BaseUrl>http://www.roblox.com</BaseUrl>\n"
+                       "</Settings>";
+        if (!appSettings) {
+            fs::remove_all(versionDir, ec);
+            fail("Failed to write AppSettings.xml into " + versionDir);
+            return;
+        }
+    }
+
+    // Re-loaded from disk immediately before mutating/saving, rather than
+    // mutating the in-memory snapshot_.versions copy directly (Finding 5,
+    // 2026-08-16 final review): a detached --watch-launch process can run
+    // registerBootstrappedVersion() concurrently and write versions.json
+    // independently (it deliberately doesn't take this process's lock --
+    // see main.cpp), so saving a possibly-stale in-memory copy can silently
+    // clobber what that process just wrote. This narrows the race window to
+    // "load-then-save" instead of "constructor-load-then-save-anytime-later".
+    VersionsManifest fresh = loadVersionsManifest(installDir_);
+    {
+        AppVersions& av = appVersionsFor(fresh, target);
+        av.installed.push_back({hash, channel, isoNowUtc()});
+        if (av.activeHash.empty()) av.activeHash = hash; // first version for this app type -- pin it
+    }
+    saveVersionsManifest(installDir_, fresh);
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        snapshot_.versions = fresh; // so the UI reflects the merged-on-disk result
+    }
+    report({VersionInstallPhase::Done, 1.0, "", target});
+}
+
+void App::requestSetActiveVersion(LaunchTarget target, const std::string& hash) {
+    // Re-loaded from disk rather than mutated from the in-memory snapshot_
+    // copy -- see versionInstallThreadMain's matching comment (Finding 5,
+    // 2026-08-16 final review).
+    VersionsManifest fresh = loadVersionsManifest(installDir_);
+    AppVersions& av = appVersionsFor(fresh, target);
+    bool installed = std::any_of(av.installed.begin(), av.installed.end(),
+                                  [&](const InstalledVersion& v) { return v.hash == hash; });
+    if (!installed) return;
+    av.activeHash = hash;
+    saveVersionsManifest(installDir_, fresh);
+    std::lock_guard<std::mutex> lock(mutex_);
+    snapshot_.versions = fresh;
+}
+
+void App::requestDeleteVersion(LaunchTarget target, const std::string& hash) {
+    // Re-loaded from disk rather than mutated from the in-memory snapshot_
+    // copy -- see versionInstallThreadMain's matching comment (Finding 5,
+    // 2026-08-16 final review).
+    VersionsManifest fresh = loadVersionsManifest(installDir_);
+    AppVersions& av = appVersionsFor(fresh, target);
+    if (hash == av.activeHash) return; // must pin a different version first
+    auto it = std::find_if(av.installed.begin(), av.installed.end(),
+                            [&](const InstalledVersion& v) { return v.hash == hash; });
+    if (it == av.installed.end()) return;
+    av.installed.erase(it);
+
+    // NOTE: hardcodes "users/user/..." -- see the matching note above.
+    const std::string versionDir =
+        installDir_ + "/runtime/pfx/drive_c/users/user/AppData/Local/Roblox/Versions/" + hash;
+    std::error_code ec;
+    fs::remove_all(versionDir, ec); // best-effort
+
+    saveVersionsManifest(installDir_, fresh);
+    std::lock_guard<std::mutex> lock(mutex_);
+    snapshot_.versions = fresh;
 }
 
 } // namespace tuxblox

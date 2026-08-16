@@ -155,7 +155,7 @@ UpdateResult runUpdateCheck(const std::string& currentLauncherVersion,
     EnsureInstallerResult ensured = ensureInstallerBinary(manifest, dir, cancel, onProgress);
     if (!ensured.ok) return {};
 
-    return {true, ensured.installerPath};
+    return {true, ensured.installerPath, !installedProtonVersion.has_value()};
 }
 
 } // namespace tuxblox

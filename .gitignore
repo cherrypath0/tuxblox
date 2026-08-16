@@ -1,20 +1,21 @@
 RobloxPlayer/
 RobloxStudio/
-ProtonBuild/
 runtime/
-production/
-builds/
 logs/
 otherapps/
 build/
+build-test/
+build-*/
 
 launcher/build/
+launcher/build-test/
+launcher/build-*/
 launcher/third_party/
 
 .env
 
 push.sh
-production.sh
+package.sh
 
 __pycache__/
 
@@ -34,9 +35,13 @@ ProtonSource/obj-*
 ProtonSource/syn-*
 protonbuild-*.tar.gz
 protonbuild-*.tar.zst
+# The launcher's Qt6 bundle release artifact, produced alongside the Proton
+# one by package.sh -- same reason, it's a build output, not source.
+libtuxblox-*.tar.zst
 
 .claude/
 .superpowers/
+.nuitka-venv/
 docs/
 plan/
 CLAUDE.md

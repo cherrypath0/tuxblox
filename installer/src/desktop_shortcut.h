@@ -20,10 +20,17 @@
 namespace tuxblox {
 
 // Writes a desktop icon file and an XDG .desktop entry ("TuxBlox Launcher")
-// pointing at installDir + "/TuxBloxLauncher", so the launcher is findable
-// via the desktop environment's app search. Best-effort: never throws --
-// failure here must not fail an otherwise-successful install.
-void createDesktopShortcut(const std::string& installDir);
+// pointing at launcherExePath, so the launcher is findable via the desktop
+// environment's app search. launcherExePath is the just-installed
+// TuxBloxLauncher binary's full path -- the same value refreshUrlHandlers()
+// takes, i.e. InstallOutcome::launcherPath. It is deliberately NOT derived
+// from the install directory: the launcher now ships as an archive artifact
+// (a Qt6 bundle directory), so its executable no longer sits directly at
+// installDir. Nothing else here is relative to the install directory -- the
+// icon goes to the per-user icon theme -- so this is the function's only
+// path input. Best-effort: never throws -- failure here must not fail an
+// otherwise-successful install.
+void createDesktopShortcut(const std::string& launcherExePath);
 
 // Removes any existing non-development TuxBlox URL-scheme handlers (the
 // installed "TuxBlox"/"TuxBlox Player"/"TuxBlox Studio" .desktop entries,

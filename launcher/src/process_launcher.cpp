@@ -16,6 +16,7 @@
 
 #include "process_launcher.h"
 #include "downloader.h"
+#include "versions_manifest.h"
 #include <atomic>
 #include <chrono>
 #include <cstdlib>
@@ -188,13 +189,12 @@ void TrackedProcess::stop() {
 }
 
 std::string protonBinaryPath(const std::string& installDir) {
-    return installDir + "/ProtonBuild/dist/proton";
+    return installDir + "/proton/main";
 }
 
 std::vector<std::string> launchEnvVars(const std::string& installDir, LaunchTarget target) {
     std::vector<std::string> env = {
-        "STEAM_COMPAT_DATA_PATH=" + installDir + "/runtime",
-        "STEAM_COMPAT_CLIENT_INSTALL_PATH=" + installDir,
+        "TUXBLOX_PREFIX=" + installDir + "/runtime",
         "PROTON_LOG_DIR=" + installDir + "/logs",
         "DXVK_ASYNC=1",
     };
@@ -231,6 +231,24 @@ std::string stageInPrefix(const std::string& installDir, const std::string& srcP
 }
 
 } // namespace
+
+std::string resolveActiveVersionExePath(LaunchTarget target, const std::string& installDir) {
+    VersionsManifest manifest = loadVersionsManifest(installDir);
+    const AppVersions& av = appVersionsFor(manifest, target);
+    if (av.activeHash.empty()) return "";
+
+    // NOTE: hardcodes "users/user/..." matching this codebase's current
+    // convention as of this plan's writing (see roblox_log_capture.cpp:37)
+    // -- if the separate Wine-per-user-paths plan lands, this needs the
+    // resolved username instead of the literal "user".
+    const std::string versionDir =
+        installDir + "/runtime/pfx/drive_c/users/user/AppData/Local/Roblox/Versions/" + av.activeHash;
+    const std::string exePath = versionDir + "/" + targetExeName(target);
+
+    std::error_code ec;
+    if (!fs::exists(exePath, ec) || ec) return "";
+    return exePath;
+}
 
 std::string resolveOrBootstrapExePath(LaunchTarget target, const std::string& installDir) {
     const std::string driveC = installDir + "/runtime/pfx/drive_c";
@@ -282,12 +300,23 @@ LaunchOutcome ProcessLauncher::launch(LaunchTarget target, const std::string& ur
                                        const std::vector<std::string>& extraEnv) {
     TrackedProcess& p = processFor(target);
     if (p.isRunning()) {
-        return {false, "already running", ""};
+        return {false, "already running", "", false};
     }
 
-    std::string exePath = resolveOrBootstrapExePath(target, installDir_);
+    std::string exePath = resolveActiveVersionExePath(target, installDir_);
+    bool wasBootstrapInstall = false;
     if (exePath.empty()) {
-        return {false, "could not resolve or download the Roblox executable", ""};
+        exePath = resolveOrBootstrapExePath(target, installDir_);
+        // resolveOrBootstrapExePath falls back to the official installer
+        // whenever resolveExePath's lnk lookup finds nothing -- detect that
+        // case the same way it does internally (no exe found via lnk), so
+        // watch_launch.cpp (Task 7) knows to register whatever version this
+        // run produces.
+        const std::string driveC = installDir_ + "/runtime/pfx/drive_c";
+        wasBootstrapInstall = !exePath.empty() && resolveExePath(target, driveC).empty();
+    }
+    if (exePath.empty()) {
+        return {false, "could not resolve or download the Roblox executable", "", false};
     }
 
     // Applied in the child (via TrackedProcess::start's env overlay) rather
@@ -307,9 +336,9 @@ LaunchOutcome ProcessLauncher::launch(LaunchTarget target, const std::string& ur
     const std::string logPath = logsDir + "/Roblox" + targetName + "-" + logTimestamp() + ".log";
 
     if (!p.start(argv, env, logPath)) {
-        return {false, "failed to start Proton process", ""};
+        return {false, "failed to start Proton process", "", false};
     }
-    return {true, "", logPath};
+    return {true, "", logPath, wasBootstrapInstall};
 }
 
 void ProcessLauncher::stop(LaunchTarget target) {

@@ -84,3 +84,31 @@ add_test(NAME roblox_log_capture COMMAND test_roblox_log_capture)
 add_executable(test_crash_report test_crash_report.cpp)
 target_link_libraries(test_crash_report PRIVATE launcher_core)
 add_test(NAME crash_report COMMAND test_crash_report)
+
+add_executable(test_versions_manifest test_versions_manifest.cpp)
+target_link_libraries(test_versions_manifest PRIVATE launcher_core)
+add_test(NAME versions_manifest COMMAND test_versions_manifest)
+
+add_executable(test_roblox_deploy test_roblox_deploy.cpp)
+target_link_libraries(test_roblox_deploy PRIVATE launcher_core)
+add_test(NAME roblox_deploy COMMAND test_roblox_deploy)
+
+add_executable(test_toggle_switch test_toggle_switch.cpp)
+target_link_libraries(test_toggle_switch PRIVATE launcher_ui_qt Qt6::Test)
+add_test(NAME toggle_switch COMMAND test_toggle_switch)
+set_tests_properties(toggle_switch PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+find_package(Qt6 REQUIRED COMPONENTS Test)
+add_executable(test_danger_button test_danger_button.cpp)
+target_link_libraries(test_danger_button PRIVATE launcher_ui_qt Qt6::Test)
+add_test(NAME danger_button COMMAND test_danger_button)
+set_tests_properties(danger_button PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+add_executable(test_versions_tab_state test_versions_tab_state.cpp ../src/ui_qt/versions_tab_state.cpp)
+target_link_libraries(test_versions_tab_state PRIVATE launcher_core)
+add_test(NAME versions_tab_state COMMAND test_versions_tab_state)
+
+add_executable(test_update_popup test_update_popup.cpp)
+target_link_libraries(test_update_popup PRIVATE launcher_ui_qt Qt6::Test)
+add_test(NAME update_popup COMMAND test_update_popup)
+set_tests_properties(update_popup PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")

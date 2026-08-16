@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "process_launcher.h"
+#include "versions_manifest.h"
 #include <algorithm>
 #include <cassert>
 #include <chrono>
@@ -32,13 +33,12 @@ int main() {
     using namespace tuxblox;
     using namespace std::chrono_literals;
 
-    assert(protonBinaryPath("/x/tuxblox") == "/x/tuxblox/ProtonBuild/dist/proton");
+    assert(protonBinaryPath("/x/tuxblox") == "/x/tuxblox/proton/main");
 
     // launchEnvVars(): Player gets the shared Proton vars, no DXVK_CONFIG override.
     {
         auto env = launchEnvVars("/x/tuxblox", LaunchTarget::Player);
-        assert(contains(env, "STEAM_COMPAT_DATA_PATH=/x/tuxblox/runtime"));
-        assert(contains(env, "STEAM_COMPAT_CLIENT_INSTALL_PATH=/x/tuxblox"));
+        assert(contains(env, "TUXBLOX_PREFIX=/x/tuxblox/runtime"));
         assert(contains(env, "PROTON_LOG_DIR=/x/tuxblox/logs"));
         assert(contains(env, "DXVK_ASYNC=1"));
         assert(!contains(env, "DXVK_CONFIG=dxgi.enableDummyCompositionSwapchain=True"));
@@ -56,9 +56,9 @@ int main() {
     // launcher process itself, which may go on to spawn other, non-Proton
     // children. See item 33 in plan/plan.txt.
     {
-        assert(getenv("STEAM_COMPAT_DATA_PATH") == nullptr);
+        assert(getenv("TUXBLOX_PREFIX") == nullptr);
         (void)launchEnvVars("/x/tuxblox", LaunchTarget::Player);
-        assert(getenv("STEAM_COMPAT_DATA_PATH") == nullptr);
+        assert(getenv("TUXBLOX_PREFIX") == nullptr);
     }
 
     // Short-lived process: exits on its own, poll() must detect that.
@@ -246,6 +246,53 @@ int main() {
         assert(!findRealExitCodeInLog(logPath.string()).has_value());
         assert(!findRealExitCodeInLog("/nonexistent/tuxblox_test_no_such_log.txt").has_value());
         fs::remove(logPath);
+    }
+
+    // resolveActiveVersionExePath(): no versions.json -> empty (nothing pinned).
+    {
+        namespace fs = std::filesystem;
+        fs::path dir = fs::temp_directory_path() / "tuxblox_test_process_launcher_activepin";
+        fs::remove_all(dir);
+        fs::create_directories(dir);
+        assert(resolveActiveVersionExePath(LaunchTarget::Player, dir.string()).empty());
+        fs::remove_all(dir);
+    }
+
+    // resolveActiveVersionExePath(): active hash set but the exe file
+    // doesn't actually exist on disk -> empty (never point at a
+    // nonexistent path; the caller falls back to the existing
+    // lnk/bootstrap path instead of failing outright).
+    {
+        namespace fs = std::filesystem;
+        fs::path dir = fs::temp_directory_path() / "tuxblox_test_process_launcher_activepin2";
+        fs::remove_all(dir);
+        fs::create_directories(dir);
+        VersionsManifest m;
+        m.player.activeHash = "version-doesnotexist";
+        saveVersionsManifest(dir.string(), m);
+        assert(resolveActiveVersionExePath(LaunchTarget::Player, dir.string()).empty());
+        fs::remove_all(dir);
+    }
+
+    // resolveActiveVersionExePath(): active hash set AND the exe exists ->
+    // returns that exact path.
+    {
+        namespace fs = std::filesystem;
+        fs::path dir = fs::temp_directory_path() / "tuxblox_test_process_launcher_activepin3";
+        fs::remove_all(dir);
+        fs::path versionDir = dir / "runtime/pfx/drive_c/users/user/AppData/Local/Roblox/Versions/version-abc123";
+        fs::create_directories(versionDir);
+        std::ofstream exeStub(versionDir / "RobloxPlayerBeta.exe");
+        exeStub << "stub";
+        exeStub.close();
+
+        VersionsManifest m;
+        m.player.activeHash = "version-abc123";
+        saveVersionsManifest(dir.string(), m);
+
+        std::string resolved = resolveActiveVersionExePath(LaunchTarget::Player, dir.string());
+        assert(resolved == (versionDir / "RobloxPlayerBeta.exe").string());
+        fs::remove_all(dir);
     }
 
     printf("process_launcher: all tests passed\n");

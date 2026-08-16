@@ -1,0 +1,6 @@
+# Fetched/staged at build time by FetchLogo.cmake/FetchWindowIcon.cmake and
+# CMakeLists.txt's stage_branding_assets target -- see resources/launcher.qrc's
+# /branding entries. Never checked in, same as everything else those cmake
+# scripts produce into build/generated/.
+resources/tuxblox_logo.png
+resources/tuxblox_window_icon.png

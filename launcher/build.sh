@@ -60,13 +60,19 @@ install_deps() {
 }
 
 echo ":: Checking build dependencies"
-install_deps
+# TUXBLOX_SKIP_DEPS is set by the root build.sh, which installs dependencies
+# once for all three builds -- avoids repeated package-manager round trips.
+if [[ -n "$TUXBLOX_SKIP_DEPS" ]]; then
+    echo ":: TUXBLOX_SKIP_DEPS set, skipping dependency install"
+else
+    install_deps
+fi
 
 echo ":: Vendoring third-party sources"
 ./vendor.sh
 
 echo ":: Building builder container image (old-glibc baseline)"
-podman build -t tuxblox-old-glibc-builder -f ../build-container/Containerfile ../build-container
+podman build -t tuxblox-old-glibc-builder -f ../Containerfile ..
 
 # A build/ configured outside the container records host paths in CMakeCache.txt;
 # cmake hard-errors if that cache is reused from /src/build inside the container.
@@ -77,7 +83,33 @@ if [[ -f build/CMakeCache.txt ]] && \
 fi
 
 echo ":: Configuring + Building (in podman, rootless, old-glibc baseline)"
-podman run --rm --userns=keep-id -e JOBS="$JOBS" -v "$(pwd):/src:Z" -w /src tuxblox-old-glibc-builder \
-    bash -c 'cmake -B build -S . -DCMAKE_BUILD_TYPE=Release && cmake --build build -j"$JOBS"'
+# EmbedLicense.cmake embeds the repo-root LICENSE via /src/../LICENSE, which
+# resolves to /LICENSE inside the container -- mount it there read-only, since
+# only launcher/ itself is mounted at /src.
+#
+# bundle-qt.sh is chained into the SAME container invocation, not run afterwards
+# on the host: it copies Qt6 out of /opt/qt6/6.6.3/gcc_64, a path that only
+# exists inside this image (see Containerfile -- Ubuntu 20.04 has no Qt6 apt
+# packages, so aqtinstall puts it there). Without it the produced binary keeps a
+# RUNPATH into that container-only path and cannot start on any machine without
+# a coincidentally-present system Qt6.
+podman run --rm --userns=keep-id -e JOBS="$JOBS" -v "$(pwd):/src:Z" \
+    -v "$(pwd)/../LICENSE:/LICENSE:ro,z" -w /src tuxblox-old-glibc-builder \
+    bash -c 'cmake -B build -S . -DCMAKE_BUILD_TYPE=Release && cmake --build build -j"$JOBS" && ./bundle-qt.sh'
 
-echo ":: Done. Binary at build/TuxBloxLauncher"
+# Also stage the finished binary + its Qt6 bundle at the repo-root build/
+# directory -- the same place the root build.sh (which stages this whole
+# build/ tree there via `mv` after calling this script) leaves it, so a
+# standalone run of this script produces a runnable artifact in the same
+# place either way. Plain `cp`, not `mv`: this script's own build/ must stay
+# intact for incremental rebuilds. libtuxblox/ has to be re-copied wholesale
+# (not merged) since the binary's RPATH ($ORIGIN/libtuxblox/lib) requires the
+# two to stay exact siblings -- a stale bundle left over from a previous copy
+# could silently mismatch a freshly rebuilt binary.
+mkdir -p ../build
+cp -f build/TuxBloxLauncher ../build/TuxBloxLauncher
+rm -rf ../build/libtuxblox
+cp -a build/libtuxblox ../build/libtuxblox
+
+echo ":: Done. Binary at build/TuxBloxLauncher (Qt6 bundled beside it in build/libtuxblox/)"
+echo ":: Also staged to $(cd .. && pwd)/build/TuxBloxLauncher (+ libtuxblox/)"

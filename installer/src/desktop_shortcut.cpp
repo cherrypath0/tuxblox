@@ -89,7 +89,7 @@ const std::vector<SchemeHandler>& installedHandlers() {
 
 } // namespace
 
-void createDesktopShortcut(const std::string& installDir) {
+void createDesktopShortcut(const std::string& launcherExePath) {
     try {
         const char* home = std::getenv("HOME");
         if (!home || home[0] == '\0') return;
@@ -130,7 +130,11 @@ void createDesktopShortcut(const std::string& installDir) {
             "Type=Application\n"
             "Name=TuxBlox Launcher\n"
             "Comment=Launch TuxBlox (Roblox on Linux via Proton)\n"
-            "Exec=\"" << installDir << "/TuxBloxLauncher\"\n"
+            // The full executable path as resolved by the install pipeline,
+            // not installDir + "/TuxBloxLauncher": an archive-shaped launcher
+            // artifact extracts into its own directory, so the binary lives a
+            // level below installDir. Same value refreshUrlHandlers() writes.
+            "Exec=\"" << launcherExePath << "\"\n"
             "Icon=tuxblox\n"
             "Terminal=false\n"
             "Categories=Game;\n";

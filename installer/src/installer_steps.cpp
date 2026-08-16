@@ -33,6 +33,20 @@ std::string resolveInstallDir(const std::string& override) {
     return override.empty() ? installDir() : override;
 }
 
+// The launcher executable's filename *inside* an archive-shaped "launcher"
+// artifact, i.e. the name to append when that artifact's own "filename" names
+// the directory an archive extracts into rather than the executable itself. A
+// flat-file launcher artifact IS the executable and never touches this.
+//
+// As shipped today the launcher is a flat file: its Qt6 dependencies travel as
+// a SEPARATE "libtuxblox" archive artifact extracted to installDir/libtuxblox/
+// (see launcher/bundle-qt.sh and production.sh), which the launcher finds
+// through its own $ORIGIN/libtuxblox/lib RPATH and which needs no support here
+// -- it is installed by the generic archive path below like any other artifact.
+// This constant stays because the archive shape is still fully supported and
+// chosen per-artifact from the URL, not from the component name.
+constexpr const char* kLauncherExeName = "TuxBloxLauncher";
+
 bool endsWith(const std::string& s, const std::string& suffix) {
     return s.size() >= suffix.size() && s.compare(s.size() - suffix.size(), suffix.size(), suffix) == 0;
 }
@@ -44,12 +58,12 @@ bool endsWith(const std::string& s, const std::string& suffix) {
 //
 // PACKING CONVENTION for any archive artifact: it must be packed WITHOUT a
 // top-level directory matching its own filename -- entries should extract
-// directly to e.g. dist/proton, runtime/, etc. (`tar --zstd -cf
+// directly to e.g. main, files/, etc. (`tar --zstd -cf
 // whatever.tar.zst -C <build-output-dir> .`, not one level above it). A
 // tarball packed the wrong way silently produces
 // <filename>/<filename>/... and breaks anything that expects the
 // extracted contents directly under the target directory (e.g. Proton's
-// ProtonBuild/dist/proton).
+// proton/main).
 bool isArchiveUrl(const std::string& url) {
     static const std::vector<std::string> kArchiveExtensions = {".tar.zst", ".tar.gz", ".tar.xz", ".tar.bz2"};
     for (const auto& ext : kArchiveExtensions) {
@@ -161,7 +175,6 @@ InstallOutcome runInstall(const Manifest& manifest,
     try {
         report(0, 0.0);
         if (isCancelled()) return {false, true, "", ""};
-        fs::create_directories(dir + "/steamapps");
         fs::create_directories(dir + "/runtime");
         report(0, 1.0);
 
@@ -202,7 +215,7 @@ InstallOutcome runInstall(const Manifest& manifest,
                 // Only wipe the extraction target now that the replacement
                 // has been downloaded *and* checksum-verified -- and only
                 // that artifact's own directory, never anything else under
-                // installDir (runtime/, steamapps/, other artifacts, etc.).
+                // installDir (runtime/, other artifacts, etc.).
                 if (isUpgrade) {
                     fs::remove_all(plan.targetPath);
                 }
@@ -226,7 +239,73 @@ InstallOutcome runInstall(const Manifest& manifest,
             if (isCancelled()) return {false, true, "", ""};
 
             if (plan.name == "launcher") {
-                launcherFinalPath = plan.targetPath;
+                // InstallOutcome::launcherPath is contractually the thing the
+                // caller execs (and the thing the .desktop entries' Exec= line
+                // names), so it has to be the executable itself either way.
+                // For a flat-file artifact the resolved target path already is
+                // that executable; for an archive it is the directory the
+                // bundle extracted into, and the executable sits one level
+                // inside it. Resolved here rather than at each consumer so the
+                // launcher/proton-style archive shape stays invisible to
+                // app.cpp, main.cpp and desktop_shortcut.cpp alike.
+                launcherFinalPath = plan.isArchive
+                    ? plan.targetPath + "/" + kLauncherExeName
+                    : plan.targetPath;
+                if (plan.isArchive) {
+                    // The one place the packing convention documented above
+                    // is actually enforced. A launcher bundle packed WITH a
+                    // top-level wrapper directory extracts to
+                    // <dir>/<wrapper>/TuxBloxLauncher, so nothing lands at
+                    // the path just computed -- and every downstream
+                    // consumer (execl, both .desktop Exec= lines) would then
+                    // silently point at a file that does not exist, leaving
+                    // an install that reports success and launches nothing.
+                    // Fail here instead, while there is still a message to
+                    // show. Deliberately scoped to the archive case: a
+                    // flat-file artifact was renamed into place above and
+                    // already errored out if that failed.
+                    if (!fs::is_regular_file(launcherFinalPath)) {
+                        cleanupTmpPaths();
+                        return {false, false,
+                                plan.artifact.displayname + " archive does not contain " +
+                                kLauncherExeName + " at its root -- it was packed with a "
+                                "wrapper directory, which breaks the install layout", ""};
+                    }
+                    // The tarball carries 0755 and extractTarZst honours it
+                    // (ARCHIVE_EXTRACT_PERM), but the non-archive branch above
+                    // chmods unconditionally rather than trusting the source --
+                    // keep the same guarantee here, so a bundle packed by a
+                    // tool that dropped the mode bit still yields an
+                    // executable launcher instead of a silent EACCES at exec.
+                    chmod(launcherFinalPath.c_str(), 0755);
+
+                    // Migration from the pre-bundle flat-file launcher: an
+                    // install made before this artifact became an archive
+                    // left a plain executable directly at dir/TuxBloxLauncher
+                    // (this same name, one level up from where the archive
+                    // branch now extracts to). That file is never touched by
+                    // fs::remove_all(plan.targetPath) above, since
+                    // plan.targetPath is now the "launcher" *directory*, not
+                    // that path -- so without this, every upgrading install
+                    // is left with a stale, un-bundled binary sitting at
+                    // exactly the path old pinned taskbar entries / shell
+                    // aliases still point at. That binary is the one thing
+                    // this whole Qt6-bundling effort exists to stop shipping
+                    // (it dies with "cannot open libQt6Widgets.so.6" on a
+                    // host with no system Qt6) -- so leaving it in place
+                    // silently recreates the exact failure mode being fixed.
+                    // Best-effort and narrowly scoped: only ever removes a
+                    // REGULAR FILE (never a directory -- e.g. this same
+                    // logic running twice, or a future artifact reusing this
+                    // name for something else) whose path is not the
+                    // directory we just extracted into.
+                    std::error_code staleEc;
+                    const std::string staleFlatLauncher = dir + "/" + kLauncherExeName;
+                    if (staleFlatLauncher != plan.targetPath &&
+                        fs::is_regular_file(staleFlatLauncher, staleEc)) {
+                        fs::remove(staleFlatLauncher, staleEc);
+                    }
+                }
             }
         }
 

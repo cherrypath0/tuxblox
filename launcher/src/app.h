@@ -17,15 +17,28 @@
 #pragma once
 #include <atomic>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 #include "lnk_resolver.h"
 #include "settings.h"
 #include "updater.h"
+#include "versions_manifest.h"
 
 namespace tuxblox {
 
-enum class Tab { Start, About, Settings };
+enum class Tab { Start, About, Settings, Versions };
+
+enum class VersionSelectMode { Latest, Previous, ManualHash };
+
+enum class VersionInstallPhase { Idle, ResolvingVersion, DownloadingManifest, DownloadingPackages, Extracting, Done, Error };
+
+struct VersionInstallProgress {
+    VersionInstallPhase phase = VersionInstallPhase::Idle;
+    double fraction = 0.0;
+    std::string errorMessage;
+    LaunchTarget target = LaunchTarget::Player; // which app this progress belongs to
+};
 
 struct UninstallProgress {
     // True from the moment requestUninstall() is called until either the
@@ -54,6 +67,16 @@ struct AppSnapshot {
     // UI -- only whether it has already been *shown* is tracked, in Ui's
     // own state (see ui.h).
     std::string containerWarning;
+    // Set by updateCheckThreadMain() when a newer version exists AND
+    // Settings::autoUpdate is false -- the Qt UI's UpdatePopup shows
+    // whenever this is non-empty. std::nullopt otherwise, including
+    // whenever autoUpdate is true (that path re-execs into the installer
+    // directly instead -- see updateCheckThreadMain()'s comment). Cleared
+    // by dismissUpdateNotification().
+    std::optional<std::string> updateAvailableVersion;
+
+    VersionsManifest versions;
+    VersionInstallProgress versionInstall;
 };
 
 class App {
@@ -116,10 +139,41 @@ public:
     // Variables to the launcher's own process, and updates the snapshot.
     void updateSettings(Settings settings);
 
+    // Called when the user clicks the UpdatePopup -- promotes the
+    // already-staged installer handoff (installerHandoffPath_, already
+    // fetched and verified by updateCheckThreadMain() regardless of
+    // autoUpdate -- see its comment) to an actual handoff, exactly as if
+    // Settings::autoUpdate had been true from the start. A no-op if
+    // there's no update currently staged (snapshot_.updateAvailableVersion
+    // is empty) -- guards a stale click racing a dismiss.
+    void requestUpdateNow();
+
+    // Hides the current UpdatePopup notification for this run. Only
+    // clears the snapshot field -- doesn't persist anywhere and doesn't
+    // suppress a future update check, since there's only ever one per
+    // launch (started once from main() via startUpdateCheck()).
+    void dismissUpdateNotification();
+
+    // Resolves (per `mode`/`channel`/`manualHash`), downloads, verifies, and
+    // extracts a Roblox version in the background. snapshot().versionInstall
+    // reflects progress/errors. A no-op while an install for either app type
+    // is already in progress (mirrors requestUninstall()'s repeat-click guard).
+    void requestInstallVersion(LaunchTarget target, VersionSelectMode mode, const std::string& channel,
+                                const std::string& manualHash = "");
+    // Switches which installed version is "active" for `target` -- a no-op
+    // if `hash` isn't in that app's installed list.
+    void requestSetActiveVersion(LaunchTarget target, const std::string& hash);
+    // Deletes an installed, non-active version's directory and its
+    // versions.json entry. A no-op if `hash` is the currently active
+    // version (must pin a different one first) or isn't installed.
+    void requestDeleteVersion(LaunchTarget target, const std::string& hash);
+
 private:
     void updateCheckThreadMain();
     void uninstallThreadMain();
     void wipePrefixThreadMain();
+    void versionInstallThreadMain(LaunchTarget target, VersionSelectMode mode, std::string channel,
+                                   std::string manualHash);
     void applyGlobalEnvVars(const std::string& globalEnvVars);
 
     std::string installDir_;
@@ -140,9 +194,11 @@ private:
     std::string installerHandoffPath_;
     std::atomic<bool> updateCancel_{false};
     std::atomic<bool> uninstallCancel_{false};
+    std::atomic<bool> versionInstallCancel_{false};
 
     std::thread updateThread_;
     std::thread uninstallThread_;
+    std::thread versionInstallThread_;
     // No cancel flag: unlike the two threads above (both network-bound,
     // hence cancellable so shutdown isn't held hostage by a slow download),
     // this is a local fs::remove_all with no cancellation point of its own

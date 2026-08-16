@@ -28,8 +28,14 @@ struct InstallOutcome {
     bool ok = false;
     bool cancelled = false;
     std::string errorMessage; // populated when !ok && !cancelled
-    // The "launcher" artifact's final installed path, populated iff ok --
-    // the caller should exec this. Artifact placement is otherwise fully
+    // The installed launcher *executable's* path, populated iff ok -- the
+    // caller should exec this, and it is what the .desktop entries' Exec=
+    // lines name. When the "launcher" artifact is a flat file this is simply
+    // its installed path (the shape shipped today -- the launcher's Qt6
+    // dependencies ride along in their own separate "libtuxblox" archive
+    // artifact, which needs no handling here); when it is an archive the
+    // artifact's own filename names the extraction *directory*, so this points
+    // one level inside it at "TuxBloxLauncher". Artifact placement is otherwise fully
     // generic (see runInstall's comment), so this is the one thing the
     // pipeline still has to hand back by name.
     std::string launcherPath;
@@ -57,9 +63,12 @@ double downloadProgressFraction(uint64_t now, uint64_t total, uint64_t manifestS
 // under a different path, needs no code change here to be picked up.
 //
 // The one artifact this treats specially is "launcher" (if present): its
-// installed path becomes the thing the caller should exec once the
-// pipeline succeeds. This is the sole remaining hardcoded assumption --
-// unavoidable, since something has to be the app's actual entry point.
+// installed executable becomes the thing the caller should exec once the
+// pipeline succeeds -- the artifact's own path if it is a flat file, or
+// "<extraction dir>/TuxBloxLauncher" if it is an archive (see
+// InstallOutcome::launcherPath). This is the sole remaining hardcoded
+// assumption -- unavoidable, since something has to be the app's actual
+// entry point.
 //
 // Reports progress via `onProgress`. Aborts early if `*cancel` becomes
 // true, returning InstallOutcome::cancelled = true.
@@ -69,8 +78,8 @@ double downloadProgressFraction(uint64_t now, uint64_t total, uint64_t manifestS
 // (but only after the replacement tarball is downloaded and
 // checksum-verified) before extracting the new one; a plain-file artifact
 // simply overwrites the old file at the same path either way. Never
-// touches anything outside artifacts' own declared paths (runtime/,
-// steamapps/, etc. are left alone). Progress labels read "Upgrading
+// touches anything outside artifacts' own declared paths (runtime/
+// etc. are left alone). Progress labels read "Upgrading
 // <displayname>" instead of "Downloading <displayname>" in this mode.
 //
 // Also pre-warms the Roblox Player/Studio installer cache (same cache

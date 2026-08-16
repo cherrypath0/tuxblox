@@ -16,7 +16,6 @@
 
 #include "copyright_file.h"
 #include "inter_ofl_license_txt.h"  // generated at build time
-#include "imgui_license_txt.h"      // generated at build time
 #include "json_license_txt.h"       // generated at build time
 #include <fstream>
 
@@ -37,7 +36,6 @@ constexpr const char* kDivider =
     "================================================================================\n";
 
 constexpr const char* kInterHeading = "Inter (font)\nhttps://github.com/rsms/inter\n\n";
-constexpr const char* kImguiHeading = "Dear ImGui\nhttps://github.com/ocornut/imgui\n\n";
 constexpr const char* kJsonHeading = "JSON for Modern C++ (nlohmann/json)\nhttps://github.com/nlohmann/json\n\n";
 constexpr const char* kStbHeading = "stb_image.h (stb single-file libraries)\nhttps://github.com/nothings/stb\n\n";
 
@@ -118,7 +116,6 @@ void writeCopyrightFile(const std::string& installDir) {
 
         file << kCopyrightIntro;
         writeEntry(file, kInterHeading, kInterOflLicenseTxt, kInterOflLicenseTxtLen);
-        writeEntry(file, kImguiHeading, kImguiLicenseTxt, kImguiLicenseTxtLen);
         writeEntry(file, kJsonHeading, kJsonLicenseTxt, kJsonLicenseTxtLen);
         writeEntry(file, kStbHeading, kStbLicenseTxt);
         writeEntry(file, kSimpleIconsHeading, kSimpleIconsLicenseTxt);

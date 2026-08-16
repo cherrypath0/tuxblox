@@ -1,0 +1,37 @@
+<!--
+TuxBlox - Linux Compatibility Layer for the Roblox Engine
+Copyright (C) 2026 TuxBlox Developers
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+-->
+<RCC>
+    <qresource prefix="/icons">
+        <file alias="roblox-player.png">../assets/roblox-player.png</file>
+        <file alias="roblox-studio.png">../assets/roblox-studio.png</file>
+        <file alias="home.png">../assets/home.png</file>
+        <file alias="info.png">../assets/info.png</file>
+        <file alias="globe.png">../assets/globe.png</file>
+        <file alias="docs.png">../assets/docs.png</file>
+        <file alias="github.png">../assets/github.png</file>
+        <file alias="discord.png">../assets/discord.png</file>
+        <file alias="settings.png">../assets/settings.png</file>
+        <file alias="privacy.png">../assets/privacy.png</file>
+        <file alias="download.png">../assets/download.png</file>
+        <file alias="roblox-rdd.png">../assets/roblox-rdd.png</file>
+    </qresource>
+    <qresource prefix="/branding">
+        <file alias="tuxblox_logo.png">tuxblox_logo.png</file>
+        <file alias="tuxblox_window_icon.png">tuxblox_window_icon.png</file>
+    </qresource>
+</RCC>

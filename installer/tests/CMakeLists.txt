@@ -57,6 +57,16 @@ add_executable(test_container_env test_container_env.cpp)
 target_link_libraries(test_container_env PRIVATE installer_core)
 add_test(NAME container_env COMMAND test_container_env)
 
+# desktop_shortcut.cpp is not part of installer_core (it's compiled straight
+# into the TuxBloxInstaller executable), so this target compiles it in
+# directly and picks up the generated logo header the same way the executable
+# does -- the file embeds kTuxbloxLogoPng at build time.
+add_executable(test_desktop_shortcut test_desktop_shortcut.cpp ../src/desktop_shortcut.cpp)
+target_include_directories(test_desktop_shortcut PRIVATE ${CMAKE_BINARY_DIR}/generated)
+target_link_libraries(test_desktop_shortcut PRIVATE installer_core)
+add_dependencies(test_desktop_shortcut generate_logo_header)
+add_test(NAME desktop_shortcut COMMAND test_desktop_shortcut)
+
 add_executable(test_uninstall test_uninstall.cpp)
 target_link_libraries(test_uninstall PRIVATE installer_core)
 add_test(NAME uninstall COMMAND test_uninstall)

@@ -18,6 +18,7 @@
 #include <archive.h>
 #include <archive_entry.h>
 #include <filesystem>
+#include <functional>
 #include <stdexcept>
 #include <system_error>
 
@@ -37,10 +38,11 @@ bool isUnsafeEntryPath(const char* name) {
     return false;
 }
 
-} // namespace
+using ConfigureReaderFn = std::function<void(struct archive*)>;
 
-void extractTarZst(const std::string& archivePath, const std::string& destDir,
-                    const TarExtractProgressFn& onProgress) {
+void extractArchive(const std::string& archivePath, const std::string& destDir,
+                     const TarExtractProgressFn& onProgress, const ConfigureReaderFn& configureReader,
+                     const char* fnName) {
     fs::create_directories(destDir);
 
     std::error_code canonEc;
@@ -57,8 +59,7 @@ void extractTarZst(const std::string& archivePath, const std::string& destDir,
     }
 
     struct archive* a = archive_read_new();
-    archive_read_support_filter_zstd(a);
-    archive_read_support_format_tar(a);
+    configureReader(a);
 
     struct archive* ext = archive_write_disk_new();
     archive_write_disk_set_options(ext,
@@ -70,7 +71,7 @@ void extractTarZst(const std::string& archivePath, const std::string& destDir,
         std::string err = archive_error_string(a);
         archive_read_free(a);
         archive_write_free(ext);
-        throw std::runtime_error("extractTarZst: cannot open " + archivePath + ": " + err);
+        throw std::runtime_error(std::string(fnName) + ": cannot open " + archivePath + ": " + err);
     }
 
     struct archive_entry* entry;
@@ -81,7 +82,7 @@ void extractTarZst(const std::string& archivePath, const std::string& destDir,
             std::string err = archive_error_string(a);
             archive_read_free(a);
             archive_write_free(ext);
-            throw std::runtime_error("extractTarZst: header error: " + err);
+            throw std::runtime_error(std::string(fnName) + ": header error: " + err);
         }
 
         const char* entryName = archive_entry_pathname(entry);
@@ -89,7 +90,7 @@ void extractTarZst(const std::string& archivePath, const std::string& destDir,
             std::string bad = entryName ? entryName : "(null)";
             archive_read_free(a);
             archive_write_free(ext);
-            throw std::runtime_error("extractTarZst: refusing unsafe archive entry path: " + bad);
+            throw std::runtime_error(std::string(fnName) + ": refusing unsafe archive entry path: " + bad);
         }
 
         fs::path entryDest = realDest / entryName;
@@ -100,7 +101,7 @@ void extractTarZst(const std::string& archivePath, const std::string& destDir,
             std::string err = archive_error_string(ext);
             archive_read_free(a);
             archive_write_free(ext);
-            throw std::runtime_error("extractTarZst: write header error: " + err);
+            throw std::runtime_error(std::string(fnName) + ": write header error: " + err);
         }
 
         const void* buff;
@@ -113,13 +114,13 @@ void extractTarZst(const std::string& archivePath, const std::string& destDir,
                 std::string err = archive_error_string(a);
                 archive_read_free(a);
                 archive_write_free(ext);
-                throw std::runtime_error("extractTarZst: read data error: " + err);
+                throw std::runtime_error(std::string(fnName) + ": read data error: " + err);
             }
             if (archive_write_data_block(ext, buff, size, offset) != ARCHIVE_OK) {
                 std::string err = archive_error_string(ext);
                 archive_read_free(a);
                 archive_write_free(ext);
-                throw std::runtime_error("extractTarZst: write data error: " + err);
+                throw std::runtime_error(std::string(fnName) + ": write data error: " + err);
             }
         }
 
@@ -134,6 +135,25 @@ void extractTarZst(const std::string& archivePath, const std::string& destDir,
     archive_read_free(a);
     archive_write_close(ext);
     archive_write_free(ext);
+}
+
+} // namespace
+
+void extractTarZst(const std::string& archivePath, const std::string& destDir,
+                    const TarExtractProgressFn& onProgress) {
+    extractArchive(archivePath, destDir, onProgress,
+        [](struct archive* a) {
+            archive_read_support_filter_zstd(a);
+            archive_read_support_format_tar(a);
+        },
+        "extractTarZst");
+}
+
+void extractZip(const std::string& archivePath, const std::string& destDir,
+                 const TarExtractProgressFn& onProgress) {
+    extractArchive(archivePath, destDir, onProgress,
+        [](struct archive* a) { archive_read_support_format_zip(a); },
+        "extractZip");
 }
 
 } // namespace tuxblox

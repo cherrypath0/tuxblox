@@ -34,4 +34,13 @@ using TarExtractProgressFn = std::function<void(uint64_t, uint64_t)>;
 void extractTarZst(const std::string& archivePath, const std::string& destDir,
                     const TarExtractProgressFn& onProgress = TarExtractProgressFn());
 
+// Extracts a .zip archive at `archivePath` into `destDir` (created if
+// missing), calling `onProgress` after each entry is written. Same
+// hostile-archive-entry protection as extractTarZst (rejects absolute
+// paths and ".." components) -- these packages come from a remote CDN
+// (Roblox's setup.rbxcdn.com), not a locally-trusted source. Throws
+// std::runtime_error on any libarchive error.
+void extractZip(const std::string& archivePath, const std::string& destDir,
+                 const TarExtractProgressFn& onProgress = TarExtractProgressFn());
+
 } // namespace tuxblox

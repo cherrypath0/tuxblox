@@ -109,7 +109,7 @@ void App::run() {
         const std::string dir = installDir();
         // An existing install directory means this run is an upgrade in
         // place, not a fresh install -- runs the exact same pipeline, just
-        // never wipes anything outside ProtonBuild/ (and only after the
+        // never wipes anything outside proton/ (and only after the
         // replacement is verified), and shows "Upgrading ..." wording
         // instead of refusing outright.
         const bool isUpgrade = fs::exists(dir);
@@ -173,8 +173,11 @@ void App::run() {
         }
 
         launcherPath_ = outcome.launcherPath;
-        createDesktopShortcut(dir);              // best-effort -- see desktop_shortcut.h
-        refreshUrlHandlers(outcome.launcherPath); // best-effort -- see desktop_shortcut.h
+        // Both take the resolved launcher *executable* path, never `dir` --
+        // the launcher artifact is an archive (a Qt6 bundle directory), so
+        // its binary is not directly at the install root.
+        createDesktopShortcut(outcome.launcherPath); // best-effort -- see desktop_shortcut.h
+        refreshUrlHandlers(outcome.launcherPath);    // best-effort -- see desktop_shortcut.h
         writeCopyrightFile(dir);    // best-effort -- see copyright_file.h
         readyToLaunch_.store(true);
         setPhase(AppPhase::Done);

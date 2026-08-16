@@ -36,6 +36,7 @@ int main() {
         assert(s.globalEnvVars.empty());
         assert(s.sendCrashReports == true);
         assert(s.channel == "stable");
+        assert(s.autoUpdate == false);
     }
 
     // Round-trip, including sendCrashReports = false and a non-default channel.
@@ -107,6 +108,32 @@ int main() {
 
         Settings s = loadSettings(dir);
         assert(s.channel == "stable");
+    }
+
+    // autoUpdate defaults to false, and (like channel) loads leniently --
+    // a settings.json written before this field existed must not
+    // wholesale-reset just because "auto_update" is missing.
+    {
+        std::ofstream out(dir + "/settings.json", std::ios::binary);
+        out << R"({"proton_env_vars": "FOO=bar", "global_env_vars": "BAZ=qux", "send_crash_reports": false, "channel": "canary"})";
+        out.close();
+
+        Settings s = loadSettings(dir);
+        assert(s.protonEnvVars == "FOO=bar");
+        assert(s.globalEnvVars == "BAZ=qux");
+        assert(s.sendCrashReports == false);
+        assert(s.channel == "canary");
+        assert(s.autoUpdate == false);
+    }
+
+    // autoUpdate round-trips through save/load.
+    {
+        Settings s;
+        s.autoUpdate = true;
+        saveSettings(dir, s);
+
+        Settings loaded = loadSettings(dir);
+        assert(loaded.autoUpdate == true);
     }
 
     // parseEnvPairs: empty string.

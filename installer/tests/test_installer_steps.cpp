@@ -23,6 +23,8 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <string>
+#include <utility>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -34,13 +36,43 @@ static void makeFixtureTarZst(const std::string& path, const char* fileContent) 
     archive_write_open_filename(a, path.c_str());
 
     struct archive_entry* entry = archive_entry_new();
-    archive_entry_set_pathname(entry, "dist/proton");
+    // Contents at the archive root, per the packing convention in
+    // installer_steps.cpp -- the target dir comes from the manifest filename.
+    archive_entry_set_pathname(entry, "main");
     archive_entry_set_size(entry, static_cast<int64_t>(strlen(fileContent)));
     archive_entry_set_filetype(entry, AE_IFREG);
     archive_entry_set_perm(entry, 0755);
     archive_write_header(a, entry);
     archive_write_data(a, fileContent, strlen(fileContent));
     archive_entry_free(entry);
+
+    archive_write_close(a);
+    archive_write_free(a);
+}
+
+// Same as above but writes several entries, including one inside a
+// subdirectory -- used to fake a multi-file, archive-shaped artifact
+// (TuxBloxLauncher + lib/ + plugins/ + qt.conf, all at the archive root, per
+// the same packing convention). `execEntry` gets 0755, the rest 0644, so the
+// extracted executable's mode can be asserted.
+static void makeFixtureBundleTarZst(const std::string& path,
+                                     const std::vector<std::pair<std::string, std::string>>& entries,
+                                     const std::string& execEntry) {
+    struct archive* a = archive_write_new();
+    archive_write_add_filter_zstd(a);
+    archive_write_set_format_pax_restricted(a);
+    archive_write_open_filename(a, path.c_str());
+
+    for (const auto& [name, content] : entries) {
+        struct archive_entry* entry = archive_entry_new();
+        archive_entry_set_pathname(entry, name.c_str());
+        archive_entry_set_size(entry, static_cast<int64_t>(content.size()));
+        archive_entry_set_filetype(entry, AE_IFREG);
+        archive_entry_set_perm(entry, name == execEntry ? 0755 : 0644);
+        archive_write_header(a, entry);
+        archive_write_data(a, content.data(), content.size());
+        archive_entry_free(entry);
+    }
 
     archive_write_close(a);
     archive_write_free(a);
@@ -109,7 +141,7 @@ int main() {
         proton.sha256 = sha256File(tarballSrc.string());
         proton.sizeBytes = fs::file_size(tarballSrc);
         proton.displayname = "Proton";
-        proton.filename = "ProtonBuild";
+        proton.filename = "proton";
         proton.path = "/";
         m.artifacts["proton"] = proton;
 
@@ -159,9 +191,8 @@ int main() {
         assert(!outcome.cancelled);
         assert(lastLabel == "Downloading Roblox Studio"); // chronologically the final phase
         assert(lastPercent > 99.9);
-        assert(fs::exists(installDirPath / "steamapps"));
         assert(fs::exists(installDirPath / "runtime"));
-        assert(fs::exists(installDirPath / "ProtonBuild" / "dist" / "proton"));
+        assert(fs::exists(installDirPath / "proton" / "main"));
         assert(fs::exists(installDirPath / "TuxBloxLauncher"));
         assert(fs::exists(installDirPath / "TuxBloxInstaller"));
         // The 4th, non-hardcoded artifact: proves the pipeline installs
@@ -188,6 +219,86 @@ int main() {
         }
     }
 
+    // Archive-shaped launcher artifact: a "launcher" artifact whose URL ends
+    // in .tar.zst, whose manifest "filename" therefore names the DIRECTORY it
+    // extracts into rather than the executable. Not the shape currently
+    // shipped (the launcher is a flat file again, with its Qt6 dependencies in
+    // a separate "libtuxblox" archive -- see launcher/bundle-qt.sh and
+    // production.sh), but the shape is still fully supported and chosen from
+    // the URL, so it stays covered: this is what the flat-file case above
+    // cannot reach, and it's what InstallOutcome::launcherPath has to keep
+    // resolving to a runnable binary for -- main.cpp execs it and both
+    // .desktop Exec= lines name it.
+    {
+        fs::path launcherBundleSrc = work / "launcher.tar.zst";
+        makeFixtureBundleTarZst(launcherBundleSrc.string(), {
+            {"TuxBloxLauncher", "fake bundled launcher binary"},
+            {"qt.conf", "[Paths]\nPrefix = .\nPlugins = plugins\n"},
+            {"lib/libQt6Core.so.6", "fake bundled qt library"},
+            {"plugins/platforms/libqxcb.so", "fake bundled xcb plugin"},
+        }, "TuxBloxLauncher");
+
+        fs::path installDir8 = work / "install_launcher_bundle";
+        Manifest bundleManifest = manifest;
+        bundleManifest.artifacts["launcher"].url = "file://" + launcherBundleSrc.string();
+        bundleManifest.artifacts["launcher"].sha256 = sha256File(launcherBundleSrc.string());
+        bundleManifest.artifacts["launcher"].sizeBytes = fs::file_size(launcherBundleSrc);
+        bundleManifest.artifacts["launcher"].filename = "launcher"; // a directory now
+
+        auto outcome = runInstall(bundleManifest, [](const std::string&, double) {}, nullptr, false,
+            installDir8.string(), robloxPlayerUrl, robloxStudioUrl);
+
+        assert(outcome.ok);
+        assert(!outcome.cancelled);
+
+        // The whole bundle lands under installDir/launcher/, with the archive
+        // root's entries directly there -- NOT nested one extra level. A
+        // tarball packed with a top-level wrapper directory would instead
+        // produce installDir/launcher/launcher/TuxBloxLauncher, which is
+        // exactly what the packing convention exists to prevent.
+        assert(fs::exists(installDir8 / "launcher" / "TuxBloxLauncher"));
+        assert(fs::exists(installDir8 / "launcher" / "qt.conf"));
+        assert(fs::exists(installDir8 / "launcher" / "lib" / "libQt6Core.so.6"));
+        assert(fs::exists(installDir8 / "launcher" / "plugins" / "platforms" / "libqxcb.so"));
+        assert(!fs::exists(installDir8 / "launcher" / "launcher"));
+
+        // The regression this guards: launcherPath must be the executable,
+        // not the extraction directory. A directory here would give main.cpp
+        // an EACCES on execl() and write an unlaunchable Exec= into every
+        // .desktop entry createDesktopShortcut/refreshUrlHandlers produce.
+        assert(outcome.launcherPath == (installDir8 / "launcher" / "TuxBloxLauncher").string());
+        assert(fs::is_regular_file(outcome.launcherPath));
+        assert((fs::status(outcome.launcherPath).permissions() & fs::perms::owner_exec) != fs::perms::none);
+    }
+
+    // The packing convention, enforced: a launcher bundle packed WITH a
+    // top-level wrapper directory (the exact mistake installer_steps.cpp's
+    // PACKING CONVENTION comment warns about) must fail the install loudly
+    // rather than "succeed" with a launcherPath pointing at nothing.
+    {
+        fs::path badBundleSrc = work / "launcher_wrapped.tar.zst";
+        makeFixtureBundleTarZst(badBundleSrc.string(), {
+            {"launcher/TuxBloxLauncher", "wrongly nested launcher binary"},
+            {"launcher/qt.conf", "[Paths]\n"},
+        }, "launcher/TuxBloxLauncher");
+
+        fs::path installDirWrapped = work / "install_launcher_wrapped";
+        Manifest wrappedManifest = manifest;
+        wrappedManifest.artifacts["launcher"].url = "file://" + badBundleSrc.string();
+        wrappedManifest.artifacts["launcher"].sha256 = sha256File(badBundleSrc.string());
+        wrappedManifest.artifacts["launcher"].sizeBytes = fs::file_size(badBundleSrc);
+        wrappedManifest.artifacts["launcher"].filename = "launcher";
+
+        auto outcome = runInstall(wrappedManifest, [](const std::string&, double) {}, nullptr, false,
+            installDirWrapped.string(), robloxPlayerUrl, robloxStudioUrl);
+
+        assert(!outcome.ok);
+        assert(!outcome.cancelled);
+        assert(outcome.errorMessage.find("wrapper directory") != std::string::npos);
+        // The double nesting the convention exists to prevent, for the record.
+        assert(fs::exists(installDirWrapped / "launcher" / "launcher" / "TuxBloxLauncher"));
+    }
+
     // A manifest with no "launcher" artifact fails fast, before any
     // downloading -- there'd be nothing to hand back for the caller to
     // exec, so this is the one case installer_steps.cpp still hardcodes a
@@ -201,7 +312,7 @@ int main() {
         assert(!outcome.ok);
         assert(!outcome.cancelled);
         assert(outcome.errorMessage.find("launcher") != std::string::npos);
-        assert(!fs::exists(installDirNoLauncher / "steamapps")); // failed before doing anything
+        assert(!fs::exists(installDirNoLauncher / "runtime")); // failed before doing anything
     }
 
     // Extraction progress: the Proton phase must report intermediate
@@ -301,20 +412,19 @@ int main() {
 
     // Upgrade path: an existing install (simulated: pre-populate the same
     // directory structure a prior install would have left) gets its
-    // ProtonBuild/ replaced and its launcher/installer/widget files
+    // proton/ replaced and its launcher/installer/widget files
     // replaced, while runtime/ and other pre-existing content survive
     // untouched.
     {
         fs::path installDir6 = work / "install_upgrade";
-        fs::create_directories(installDir6 / "steamapps");
         fs::create_directories(installDir6 / "runtime");
-        fs::create_directories(installDir6 / "ProtonBuild" / "dist");
+        fs::create_directories(installDir6 / "proton");
         {
-            std::ofstream out(installDir6 / "ProtonBuild" / "dist" / "proton");
+            std::ofstream out(installDir6 / "proton" / "main");
             out << "old proton binary";
         }
         {
-            std::ofstream out(installDir6 / "ProtonBuild" / "stale_file_removed_in_new_build.txt");
+            std::ofstream out(installDir6 / "proton" / "stale_file_removed_in_new_build.txt");
             out << "should be gone after upgrade";
         }
         fs::path runtimeMarker = installDir6 / "runtime" / "session_cookie.txt";
@@ -325,21 +435,21 @@ int main() {
 
         assert(upgradeOutcome.ok);
         assert(!upgradeOutcome.cancelled);
-        assert(fs::exists(runtimeMarker));                                    // runtime/ untouched
-        assert(fs::exists(installDir6 / "ProtonBuild" / "dist" / "proton"));  // new ProtonBuild present
-        assert(!fs::exists(installDir6 / "ProtonBuild" / "stale_file_removed_in_new_build.txt")); // old ProtonBuild wiped
+        assert(fs::exists(runtimeMarker));                          // runtime/ untouched
+        assert(fs::exists(installDir6 / "proton" / "main"));        // new proton/ present
+        assert(!fs::exists(installDir6 / "proton" / "stale_file_removed_in_new_build.txt")); // old proton/ wiped
         assert(fs::exists(installDir6 / "TuxBloxLauncher"));
         assert(fs::exists(installDir6 / "TuxBloxInstaller"));
         assert(fs::exists(installDir6 / "extras" / "widget.txt"));
     }
 
     // Upgrade + checksum-mismatch path: a failed upgrade must not touch
-    // the pre-existing ProtonBuild/ (never deleted until the replacement is
+    // the pre-existing proton/ (never deleted until the replacement is
     // verified) or anything else in the directory.
     {
         fs::path installDir7 = work / "install_upgrade_bad_checksum";
-        fs::create_directories(installDir7 / "ProtonBuild" / "dist");
-        fs::path survivorMarker = installDir7 / "ProtonBuild" / "dist" / "proton";
+        fs::create_directories(installDir7 / "proton");
+        fs::path survivorMarker = installDir7 / "proton" / "main";
         { std::ofstream out(survivorMarker); out << "must survive a failed upgrade"; }
 
         Manifest badUpgradeManifest = manifest;

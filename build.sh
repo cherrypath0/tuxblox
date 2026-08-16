@@ -15,17 +15,40 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
+# Builds everything, in order: installer, launcher, proton. All output lands
+# in build/:
+#   build/.artifacts/{installer,launcher,proton}  build scratch per component
+#   build/proton/                                 the usable Proton dist
+#   build/TuxBloxInstaller, build/TuxBloxLauncher self-contained binaries
+# plus everything from include/ copied in on top.
+
 set -eo pipefail
 cd "$(dirname "$0")"
 
+# Exported so single-quoted bash -c step bodies can reference them safely.
+export ROOT="$(pwd)"
+export BUILD_LOG="$ROOT/build.log"
+
 debug=1
 force_deps=0
+log_enabled=0
 for arg in "$@"; do
     case "$arg" in
         --nodebug) debug=0 ;;
         --reinstall-deps) force_deps=1 ;;
+        --log) log_enabled=1 ;;
     esac
 done
+
+# Asked up front so the hours-long build never stalls on a prompt at the end.
+# Baked into the compiled proton launcher; query it with `build/proton/main --version`.
+if [[ -z "$TUXBLOX_BUILD_VERSION" ]]; then
+    read -rp "Enter version for this build: " TUXBLOX_BUILD_VERSION
+    while [[ -z "$TUXBLOX_BUILD_VERSION" ]]; do
+        read -rp "Version cannot be empty. Enter version for this build: " TUXBLOX_BUILD_VERSION
+    done
+fi
+export TUXBLOX_BUILD_VERSION
 
 packages=(
     python3
@@ -33,6 +56,7 @@ packages=(
     curl
     gcc
     uidmap
+    git
 )
 
 JOBS="${TUXBLOX_MAKE_JOBS:-$(nproc 2>/dev/null || echo 1)}"
@@ -83,20 +107,20 @@ run_step() {
 }
 
 report_failure_cause() {
-    if [[ ! -f ../build.log ]]; then
-        echo "!! No build.log found to inspect." >&2
+    if [[ ! -f "$BUILD_LOG" ]]; then
+        echo "!! No build.log to inspect (re-run with --log to capture one)." >&2
         return
     fi
 
     local pattern='error:|undefined reference|fatal error|No such file|cannot find|ld returned|segmentation fault|core dumped|killed|signal 1[0-9]|Error [0-9]+$'
     local total_lines last_match_from_end last_match_line
 
-    total_lines=$(wc -l < ../build.log)
-    last_match_from_end=$(tac ../build.log | grep -n -E -i -m1 "$pattern" | cut -d: -f1)
+    total_lines=$(wc -l < "$BUILD_LOG")
+    last_match_from_end=$(tac "$BUILD_LOG" | grep -n -E -i -m1 "$pattern" | cut -d: -f1)
 
     if [[ -z "$last_match_from_end" ]]; then
         echo "!! Could not isolate a specific error pattern. Last 60 lines of build.log:" >&2
-        tail -n 60 ../build.log >&2
+        tail -n 60 "$BUILD_LOG" >&2
         return
     fi
 
@@ -104,25 +128,77 @@ report_failure_cause() {
 
     echo "!! Likely root cause (build.log line $last_match_line), with context:" >&2
     echo "----------------------------------------------------------------------" >&2
-    sed -n "$((last_match_line > 5 ? last_match_line - 5 : 1)),$((last_match_line + 15))p" ../build.log >&2
+    sed -n "$((last_match_line > 5 ? last_match_line - 5 : 1)),$((last_match_line + 15))p" "$BUILD_LOG" >&2
     echo "----------------------------------------------------------------------" >&2
     echo "!! Full log at build.log if you need more context." >&2
 }
 
+# Runs a command; with --log, all output is also mirrored into build.log so
+# report_failure_cause can inspect any failed step, not just proton's.
+logged() {
+    if [[ $log_enabled -eq 1 ]]; then
+        "$@" 2>&1 | tee -a "$BUILD_LOG"
+    else
+        "$@"
+    fi
+}
+
+# Resets every ProtonSource submodule to the commit recorded in the index
+# (discarding any leftover local edits, e.g. a patch applied by a previous
+# build), then overlays patches/<submodule>/<relpath> onto
+# ProtonSource/<submodule>/<relpath> for whichever submodules have patches
+# staged. Wine is excluded on purpose: it's a separately maintained fork
+# checked in directly rather than a submodule (see .gitmodules), so it's
+# patched by editing ProtonSource/wine in place, not through this mechanism.
+apply_patches() {
+    echo ":: Reloading submodules to their recorded commit"
+    git submodule update --init --force
+
+    local patches_dir="patches"
+    local proton_source="ProtonSource"
+
+    if [[ ! -d "$patches_dir" ]]; then
+        return 0
+    fi
+
+    echo ":: Applying patches from $patches_dir/"
+    shopt -s nullglob
+    local applied=0
+    local submodule_dir submodule_name target_dir file rel_path dest
+    for submodule_dir in "$patches_dir"/*/; do
+        submodule_name="$(basename "$submodule_dir")"
+
+        if [[ "$submodule_name" == "wine" ]]; then
+            echo "!! patches/wine is not supported -- wine is patched directly in ProtonSource/wine, not through patches/" >&2
+            continue
+        fi
+
+        target_dir="$proton_source/$submodule_name"
+        if [[ ! -d "$target_dir" ]]; then
+            echo "!! patches/$submodule_name has no matching ProtonSource/$submodule_name -- skipping" >&2
+            continue
+        fi
+
+        while IFS= read -r -d '' file; do
+            rel_path="${file#"$submodule_dir"}"
+            dest="$target_dir/$rel_path"
+            mkdir -p "$(dirname "$dest")"
+            cp -f "$file" "$dest"
+            echo ":: Applied patch: $file -> $dest"
+            applied=$((applied + 1))
+        done < <(find "$submodule_dir" -type f -print0)
+    done
+    shopt -u nullglob
+
+    echo ":: Applied $applied patch file(s)"
+}
+
 step "Cleaning up previous build logs"
-rm -f build.log
+rm -f "$BUILD_LOG"
 
-step "Cleaning up old prefix directory"
-rm -rf runtime
-mkdir -p runtime
-
-step "Reloading submodules and applying patches"
-run_step "apply_patches" strict ./apply_patches.sh
-
-step "Cleaning up old proton build"
-rm -rf ProtonBuild
-mkdir ProtonBuild
-cd ProtonBuild
+step "Cleaning up old build output (incl. Wine prefix)"
+rm -rf build
+mkdir -p build/.artifacts build/runtime
 
 step "Updating dependencies"
 
@@ -222,56 +298,93 @@ else
 fi
 
 step "Checking rootless podman and warming the old-glibc builder image"
-run_step "check_podman" strict bash -c 'podman info >/dev/null && podman build -t tuxblox-old-glibc-builder -f ../build-container/Containerfile ../build-container'
+run_step "check_podman" strict bash -c 'podman info >/dev/null && podman build -t tuxblox-old-glibc-builder -f Containerfile .'
+
+step "Reloading submodules and applying patches"
+run_step "apply_patches" strict apply_patches
+
+# TUXBLOX_SKIP_DEPS: dependencies were already installed above, once for all
+# three builds -- skip each sub-build's own package-manager round trip.
+step "Building TuxBlox Installer (podman, old-glibc baseline)"
+run_step "build_installer" strict logged env TUXBLOX_SKIP_DEPS=1 ./installer/build.sh
+
+step "Staging installer output into build/"
+# installer/build.sh now also stages its own copy of TuxBloxInstaller
+# directly to build/ (so it's independently runnable and still produces a
+# runnable artifact there) -- rm -f first so this mv can't fail trying to
+# rename onto an existing destination file.
+rm -f build/TuxBloxInstaller
+mv installer/build build/.artifacts/installer
+mv build/.artifacts/installer/TuxBloxInstaller build/TuxBloxInstaller
+
+step "Building TuxBlox Launcher (podman, old-glibc baseline)"
+run_step "build_launcher" strict logged env TUXBLOX_SKIP_DEPS=1 ./launcher/build.sh
+
+step "Staging launcher output into build/"
+# launcher/build.sh now also stages its own copies of TuxBloxLauncher and
+# libtuxblox/ directly to build/ (so it's independently runnable and still
+# produces a runnable artifact there) -- clear both first so these mv's can't
+# fail/misbehave trying to land on an existing destination (a directory `mv`
+# onto an existing directory nests inside it instead of replacing it).
+rm -f build/TuxBloxLauncher
+rm -rf build/libtuxblox
+mv launcher/build build/.artifacts/launcher
+mv build/.artifacts/launcher/TuxBloxLauncher build/TuxBloxLauncher
+# libtuxblox/ (lib/, plugins/ and qt.conf) is the Qt6 bundle
+# launcher/bundle-qt.sh produced beside the binary. The binary's RPATH is
+# $ORIGIN/libtuxblox/lib, so the two have to stay siblings -- leaving the bundle
+# behind in build/.artifacts/launcher/ would leave build/TuxBloxLauncher unable
+# to start on any host without a system Qt6. They ship as two separate release
+# artifacts ("launcher", a flat file, and "libtuxblox", a tarball), which is why
+# the bundle is nested rather than spread across build/ as siblings.
+mv build/.artifacts/launcher/libtuxblox build/libtuxblox
+
+PROTON_BUILD_DIR="$ROOT/build/.artifacts/proton"
+mkdir -p "$PROTON_BUILD_DIR"
+cd "$PROTON_BUILD_DIR"
 
 step "Configuring Proton (ccache enabled for faster rebuilds)"
-run_step "configure_proton" strict bash -c './../ProtonSource/configure.sh --enable-ccache'
+run_step "configure_proton" strict logged "$ROOT/ProtonSource/configure.sh" --enable-ccache
 
 step "First-pass build (1/4) (using $JOBS parallel jobs)"
-run_step "first_pass_build" allow-fail bash -c "set -o pipefail; make -j$JOBS 2>&1 | tee ../build.log"
+run_step "first_pass_build" allow-fail logged make -j"$JOBS"
 
 step "Fetching external sources (2/4)"
 run_step "fetch_external_sources" strict bash -c 'cd src-glslang && rm -rf External/spirv-tools External/googletest && python3 update_glslang_sources.py'
 
 step "Initializing nested submodules (3/4)"
-run_step "init_submodules" strict bash -c 'cd ../ProtonSource/dxvk-nvapi && git submodule update --init --recursive'
+run_step "init_submodules" strict bash -c 'cd "$ROOT/ProtonSource/dxvk-nvapi" && git submodule update --init --recursive'
 
 step "Ensuring wine x86_64 is configured"
-run_step "configure_wine_x86_64" strict bash -c 'make wine-x86_64-configure'
+run_step "configure_wine_x86_64" strict logged make wine-x86_64-configure
 
 step "Ensuring x86_64 NLS data is built"
 run_step "build_x86_64_nls" strict bash -c 'cd obj-wine-x86_64 && make nls/locale.nls'
 
 step "Resuming build (4/4) (using $JOBS parallel jobs)"
-run_step "resume_build" strict bash -c "set -o pipefail; make -j$JOBS 2>&1 | tee -a ../build.log"
+run_step "resume_build" strict logged make -j"$JOBS"
 
 step "Compiling proton launcher to a native binary (podman, old-glibc baseline)"
 run_step "compile_proton_native" strict bash -c '
     set -e
-    podman build -t tuxblox-old-glibc-builder -f ../build-container/Containerfile ../build-container
+    podman build -t tuxblox-old-glibc-builder -f "$ROOT/Containerfile" "$ROOT"
 
     workdir="$(mktemp -d)"
-    cp dist/proton "$workdir/proton.py"
+    cp dist/main "$workdir/proton.py"
     cp dist/filelock.py "$workdir/filelock.py"
     mkdir -p "$workdir/out"
 
+    # Bake the build version into the binary (reported via `main --version`).
+    sed -i "s@^TUXBLOX_VERSION = .*@TUXBLOX_VERSION = \"${TUXBLOX_BUILD_VERSION}\"@" "$workdir/proton.py"
+
     podman run --rm --userns=keep-id -v "$workdir:/work:Z" -w /work tuxblox-old-glibc-builder \
         nuitka --standalone --no-progressbar \
-        --output-filename=proton --output-dir=/work/out /work/proton.py
+        --output-filename=main --output-dir=/work/out /work/proton.py
 
-    rm -f dist/proton dist/filelock.py
+    rm -f dist/main dist/filelock.py
     cp -a "$workdir/out/proton.dist/." dist/
     rm -rf "$workdir"
 '
-
-step "Recording build version"
-if [[ -z "$TUXBLOX_BUILD_VERSION" ]]; then
-    read -rp "Enter version for this build: " TUXBLOX_BUILD_VERSION
-    while [[ -z "$TUXBLOX_BUILD_VERSION" ]]; do
-        read -rp "Version cannot be empty. Enter version for this build: " TUXBLOX_BUILD_VERSION
-    done
-fi
-echo "$(date '+%s') ${TUXBLOX_BUILD_VERSION}" > dist/version
 
 step "Clearing up unnecessary junk"
 shopt -s nullglob
@@ -280,4 +393,14 @@ if [ -z "$TUXBLOX_KEEP_OBJ" ]; then
 fi
 shopt -u nullglob
 
-echo -e "Successfully compiled TuxBlox-Proton!"
+cd "$ROOT"
+
+step "Staging Proton"
+mv "$PROTON_BUILD_DIR/dist" build/proton
+
+step "Copying include/ into build/"
+if [[ -d include ]]; then
+    cp -a include/. build/
+fi
+
+echo -e "Successfully built TuxBlox!"

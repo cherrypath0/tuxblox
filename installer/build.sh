@@ -60,13 +60,19 @@ install_deps() {
 }
 
 echo ":: Checking build dependencies"
-install_deps
+# TUXBLOX_SKIP_DEPS is set by the root build.sh, which installs dependencies
+# once for all three builds -- avoids repeated package-manager round trips.
+if [[ -n "$TUXBLOX_SKIP_DEPS" ]]; then
+    echo ":: TUXBLOX_SKIP_DEPS set, skipping dependency install"
+else
+    install_deps
+fi
 
 echo ":: Vendoring third-party sources"
 ./vendor.sh
 
 echo ":: Building builder container image (old-glibc baseline)"
-podman build -t tuxblox-old-glibc-builder -f ../build-container/Containerfile ../build-container
+podman build -t tuxblox-old-glibc-builder -f ../Containerfile ..
 
 # A build/ configured outside the container records host paths in CMakeCache.txt;
 # cmake hard-errors if that cache is reused from /src/build inside the container.
@@ -80,4 +86,12 @@ echo ":: Configuring + Building (in podman, rootless, old-glibc baseline)"
 podman run --rm --userns=keep-id -e JOBS="$JOBS" -v "$(pwd):/src:Z" -w /src tuxblox-old-glibc-builder \
     bash -c 'cmake -B build -S . -DCMAKE_BUILD_TYPE=Release && cmake --build build -j"$JOBS"'
 
-echo ":: Done."
+# Also stage the finished binary at the repo-root build/ directory -- the same
+# place the root build.sh (which stages this whole build/ tree there via `mv`
+# after calling this script) leaves it, so a standalone run of this script
+# produces a runnable artifact in the same place either way. A plain `cp`,
+# not `mv`: this script's own build/ must stay intact for incremental rebuilds.
+mkdir -p ../build
+cp -f build/TuxBloxInstaller ../build/TuxBloxInstaller
+
+echo ":: Done. Also staged to $(cd .. && pwd)/build/TuxBloxInstaller"

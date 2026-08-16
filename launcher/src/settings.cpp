@@ -55,6 +55,8 @@ Settings loadSettings(const std::string& installDir) {
         // else was already there.
         std::string channel = j.value("channel", std::string("stable"));
         settings.channel = isKnownChannel(channel) ? channel : "stable";
+        // Read leniently, same reasoning as "channel" above.
+        settings.autoUpdate = j.value("auto_update", false);
         return settings;
     } catch (...) {
         // Missing file, unreadable file, parse error, or a missing/wrong-typed
@@ -75,6 +77,7 @@ void saveSettings(const std::string& installDir, const Settings& settings) {
         j["global_env_vars"] = settings.globalEnvVars;
         j["send_crash_reports"] = settings.sendCrashReports;
         j["channel"] = settings.channel;
+        j["auto_update"] = settings.autoUpdate;
 
         std::ofstream file(settingsFilePath(installDir), std::ios::binary);
         if (!file) return;

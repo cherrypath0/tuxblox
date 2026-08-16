@@ -23,4 +23,7 @@ namespace tuxblox {
 std::string sha256File(const std::string& path);
 std::string sha256Bytes(const unsigned char* data, size_t len);
 
+std::string md5File(const std::string& path);
+std::string md5Bytes(const unsigned char* data, size_t len);
+
 } // namespace tuxblox

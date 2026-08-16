@@ -103,6 +103,33 @@ static bool extractThrows(const std::string& archivePath, const std::string& des
     }
 }
 
+static void makeFixtureZip(const std::string& path, const char* entryName, const char* content) {
+    struct archive* a = archive_write_new();
+    archive_write_set_format_zip(a);
+    archive_write_open_filename(a, path.c_str());
+
+    struct archive_entry* entry = archive_entry_new();
+    archive_entry_set_pathname(entry, entryName);
+    archive_entry_set_size(entry, static_cast<int64_t>(strlen(content)));
+    archive_entry_set_filetype(entry, AE_IFREG);
+    archive_entry_set_perm(entry, 0644);
+    archive_write_header(a, entry);
+    archive_write_data(a, content, strlen(content));
+    archive_entry_free(entry);
+
+    archive_write_close(a);
+    archive_write_free(a);
+}
+
+static bool extractZipThrows(const std::string& archivePath, const std::string& destDir) {
+    try {
+        tuxblox::extractZip(archivePath, destDir);
+        return false;
+    } catch (const std::exception&) {
+        return true;
+    }
+}
+
 int main() {
     using tuxblox::extractTarZst;
 
@@ -176,6 +203,35 @@ int main() {
 
         fs::remove(progArchive);
         fs::remove_all(progDest);
+    }
+
+    // extractZip(): basic round-trip.
+    {
+        fs::path zipPath = tmp / "tuxblox_test_archive.zip";
+        fs::path zipDest = tmp / "tuxblox_test_zip_extracted";
+        fs::remove_all(zipDest);
+        makeFixtureZip(zipPath.string(), "RobloxApp.exe", "fake roblox binary contents");
+
+        tuxblox::extractZip(zipPath.string(), zipDest.string());
+
+        std::ifstream in(zipDest / "RobloxApp.exe");
+        std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        assert(content == "fake roblox binary contents");
+
+        fs::remove(zipPath);
+        fs::remove_all(zipDest);
+    }
+
+    // extractZip(): same path-traversal protection as extractTarZst.
+    {
+        fs::path zipPath = tmp / "tuxblox_test_dotdot.zip";
+        fs::path zipDest = tmp / "tuxblox_test_zip_dotdot_dest";
+        fs::remove_all(zipDest);
+        makeFixtureZip(zipPath.string(), "../tuxblox_test_escaped_marker.txt", "pwned");
+        assert(extractZipThrows(zipPath.string(), zipDest.string()));
+        assert(!fs::exists(escapeMarker));
+        fs::remove(zipPath);
+        fs::remove_all(zipDest);
     }
 
     printf("tar_extract: all tests passed\n");

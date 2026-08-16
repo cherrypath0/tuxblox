@@ -36,47 +36,39 @@ std::string toHex(const unsigned char* digest, unsigned int len) {
     return out;
 }
 
-} // namespace
-
-std::string sha256Bytes(const unsigned char* data, size_t len) {
+std::string digestBytes(const EVP_MD* md, const char* fnName, const unsigned char* data, size_t len) {
     unsigned char digest[EVP_MAX_MD_SIZE];
     unsigned int digestLen = 0;
 
     EVP_MD_CTX* ctx = EVP_MD_CTX_new();
-    if (!ctx) {
-        throw std::runtime_error("sha256Bytes: EVP_MD_CTX_new failed");
-    }
-    if (EVP_DigestInit_ex(ctx, EVP_sha256(), nullptr) != 1 ||
+    if (!ctx) throw std::runtime_error(std::string(fnName) + ": EVP_MD_CTX_new failed");
+    if (EVP_DigestInit_ex(ctx, md, nullptr) != 1 ||
         EVP_DigestUpdate(ctx, data, len) != 1 ||
         EVP_DigestFinal_ex(ctx, digest, &digestLen) != 1) {
         EVP_MD_CTX_free(ctx);
-        throw std::runtime_error("sha256Bytes: digest computation failed");
+        throw std::runtime_error(std::string(fnName) + ": digest computation failed");
     }
     EVP_MD_CTX_free(ctx);
     return toHex(digest, digestLen);
 }
 
-std::string sha256File(const std::string& path) {
+std::string digestFile(const EVP_MD* md, const char* fnName, const std::string& path) {
     std::ifstream in(path, std::ios::binary);
-    if (!in) {
-        throw std::runtime_error("sha256File: cannot open " + path);
-    }
+    if (!in) throw std::runtime_error(std::string(fnName) + ": cannot open " + path);
 
     EVP_MD_CTX* ctx = EVP_MD_CTX_new();
-    if (!ctx || EVP_DigestInit_ex(ctx, EVP_sha256(), nullptr) != 1) {
+    if (!ctx || EVP_DigestInit_ex(ctx, md, nullptr) != 1) {
         if (ctx) EVP_MD_CTX_free(ctx);
-        throw std::runtime_error("sha256File: EVP init failed");
+        throw std::runtime_error(std::string(fnName) + ": EVP init failed");
     }
 
     std::vector<char> buf(1 << 16);
     while (in) {
         in.read(buf.data(), static_cast<std::streamsize>(buf.size()));
         std::streamsize got = in.gcount();
-        if (got > 0) {
-            if (EVP_DigestUpdate(ctx, buf.data(), static_cast<size_t>(got)) != 1) {
-                EVP_MD_CTX_free(ctx);
-                throw std::runtime_error("sha256File: digest update failed");
-            }
+        if (got > 0 && EVP_DigestUpdate(ctx, buf.data(), static_cast<size_t>(got)) != 1) {
+            EVP_MD_CTX_free(ctx);
+            throw std::runtime_error(std::string(fnName) + ": digest update failed");
         }
     }
 
@@ -84,10 +76,28 @@ std::string sha256File(const std::string& path) {
     unsigned int digestLen = 0;
     if (EVP_DigestFinal_ex(ctx, digest, &digestLen) != 1) {
         EVP_MD_CTX_free(ctx);
-        throw std::runtime_error("sha256File: digest finalize failed");
+        throw std::runtime_error(std::string(fnName) + ": digest finalize failed");
     }
     EVP_MD_CTX_free(ctx);
     return toHex(digest, digestLen);
+}
+
+} // namespace
+
+std::string sha256Bytes(const unsigned char* data, size_t len) {
+    return digestBytes(EVP_sha256(), "sha256Bytes", data, len);
+}
+
+std::string sha256File(const std::string& path) {
+    return digestFile(EVP_sha256(), "sha256File", path);
+}
+
+std::string md5Bytes(const unsigned char* data, size_t len) {
+    return digestBytes(EVP_md5(), "md5Bytes", data, len);
+}
+
+std::string md5File(const std::string& path) {
+    return digestFile(EVP_md5(), "md5File", path);
 }
 
 } // namespace tuxblox

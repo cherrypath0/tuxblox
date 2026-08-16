@@ -24,12 +24,6 @@ cd "$(dirname "$0")"
 
 mkdir -p third_party
 
-if [ ! -f third_party/imgui/imgui.h ]; then
-    echo ":: Vendoring Dear ImGui (pinned v1.91.0)"
-    rm -rf third_party/imgui
-    git clone --branch v1.91.0 --depth 1 https://github.com/ocornut/imgui.git third_party/imgui
-fi
-
 if [ ! -f third_party/json.hpp ]; then
     echo ":: Vendoring nlohmann/json (pinned v3.11.3)"
     curl -fsSL -o third_party/json.hpp \

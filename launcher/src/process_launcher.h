@@ -88,7 +88,14 @@ struct LaunchOutcome {
     bool ok = false;
     std::string errorMessage;
     std::string logPath; // where this launch's stdout/stderr were captured, valid only if ok
+    bool wasBootstrapInstall = false;
 };
+
+// If versions.json has an active pin for `target` AND that version's exe
+// still exists on disk, returns its full path. Otherwise returns an empty
+// string -- callers fall back to resolveOrBootstrapExePath's existing
+// lnk-resolution/official-installer-bootstrap path.
+std::string resolveActiveVersionExePath(LaunchTarget target, const std::string& installDir);
 
 std::string resolveOrBootstrapExePath(LaunchTarget target, const std::string& installDir);
 std::string protonBinaryPath(const std::string& installDir);

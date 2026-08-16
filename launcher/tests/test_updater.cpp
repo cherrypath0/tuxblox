@@ -76,12 +76,19 @@ int main() {
     };
     const std::string installerFileUrl = "file://" + installerSrc.string();
 
+    // Fakes an installed proton: an executable proton/main whose --version
+    // output is `version` (readInstalledProtonVersion execs it).
+    auto writeProtonMain = [](const fs::path& installDirPath, const std::string& version) {
+        fs::create_directories(installDirPath / "proton");
+        { std::ofstream out(installDirPath / "proton" / "main"); out << "#!/bin/sh\necho " << version << "\n"; }
+        fs::permissions(installDirPath / "proton" / "main", fs::perms::owner_all);
+    };
+
     // --- Up-to-date path: both launcher and Proton versions match
     // requiredVersion, no installer fetch happens, needsHandoff stays false. ---
     {
         fs::path installDirPath = work / "install_uptodate";
-        fs::create_directories(installDirPath / "ProtonBuild" / "dist");
-        { std::ofstream out(installDirPath / "ProtonBuild" / "dist" / "version"); out << "1700000000 0.1.0"; }
+        writeProtonMain(installDirPath, "0.1.0");
 
         writeManifest("ch-uptodate", "0.1.0", installerFileUrl, installerSha);
 
@@ -100,8 +107,7 @@ int main() {
     // Proton downloading/extracting. ---
     {
         fs::path installDirPath = work / "install_proton_stale";
-        fs::create_directories(installDirPath / "ProtonBuild" / "dist");
-        { std::ofstream out(installDirPath / "ProtonBuild" / "dist" / "version"); out << "1700000000 0.1.0"; }
+        writeProtonMain(installDirPath, "0.1.0");
 
         writeManifest("ch-protonstale", "0.2.0", installerFileUrl, installerSha);
 
@@ -119,15 +125,43 @@ int main() {
         assert(phases.back() != UpdatePhase::Error);
         // The launcher must never touch Proton itself -- that's the
         // installer's job once handed off to.
-        assert(fs::exists(installDirPath / "ProtonBuild" / "dist" / "version"));
+        assert(fs::exists(installDirPath / "proton" / "main"));
+        // An outdated-but-present Proton install is not the same as no
+        // install at all -- App::updateCheckThreadMain() only bypasses the
+        // Auto-Update opt-out for the latter.
+        assert(!result.protonMissing);
+    }
+
+    // --- No Proton install recorded at all (first run, or a launcher
+    // binary run standalone without ever going through the installer):
+    // needsHandoff is true same as an outdated install, but protonMissing
+    // distinguishes it so App::updateCheckThreadMain() can hand off
+    // immediately regardless of the Auto-Update setting -- nothing can be
+    // launched yet, so there's nothing to opt out of. ---
+    {
+        fs::path installDirPath = work / "install_proton_missing";
+        // Deliberately no writeProtonMain() call -- installDirPath/proton
+        // never gets created. The real launcher always creates installDir()
+        // itself before App/runUpdateCheck ever runs (see main.cpp), so
+        // this directory-creation call stands in for that, not for
+        // anything Proton-related.
+        fs::create_directories(installDirPath);
+
+        writeManifest("ch-protonmissing", "0.1.0", installerFileUrl, installerSha);
+
+        auto result = runUpdateCheck("0.1.0", fileBaseUrl, "ch-protonmissing", "0.1.0",
+            [](UpdateProgress) {}, nullptr, installDirPath.string());
+
+        assert(result.needsHandoff);
+        assert(result.protonMissing);
+        assert(fs::exists(result.installerPath));
     }
 
     // --- Launcher itself out of date (Proton already current): same
     // handoff path. ---
     {
         fs::path installDirPath = work / "install_launcher_stale";
-        fs::create_directories(installDirPath / "ProtonBuild" / "dist");
-        { std::ofstream out(installDirPath / "ProtonBuild" / "dist" / "version"); out << "1700000000 0.2.0"; }
+        writeProtonMain(installDirPath, "0.2.0");
 
         writeManifest("ch-launcherstale", "0.2.0", installerFileUrl, installerSha);
 
@@ -136,14 +170,14 @@ int main() {
 
         assert(result.needsHandoff);
         assert(fs::exists(result.installerPath));
+        assert(!result.protonMissing);
     }
 
     // --- Installer already present and matching the manifest checksum:
     // must not be re-downloaded (its mtime/content stays exactly as-is). ---
     {
         fs::path installDirPath = work / "install_installer_cached";
-        fs::create_directories(installDirPath / "ProtonBuild" / "dist");
-        { std::ofstream out(installDirPath / "ProtonBuild" / "dist" / "version"); out << "1700000000 0.1.0"; }
+        writeProtonMain(installDirPath, "0.1.0");
         fs::path cachedInstaller = installDirPath / "TuxBloxInstaller";
         { std::ofstream out(cachedInstaller, std::ios::binary); out << "new installer binary"; }
         // Sanity: the pre-placed file's checksum already matches the
@@ -167,8 +201,7 @@ int main() {
     // phase, no handoff, no leftover .new temp file. ---
     {
         fs::path installDirPath = work / "install_bad_checksum";
-        fs::create_directories(installDirPath / "ProtonBuild" / "dist");
-        { std::ofstream out(installDirPath / "ProtonBuild" / "dist" / "version"); out << "1700000000 0.1.0"; }
+        writeProtonMain(installDirPath, "0.1.0");
 
         writeManifest("ch-badchecksum", "0.2.0", installerFileUrl,
             "0000000000000000000000000000000000000000000000000000000000000");
