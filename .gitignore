@@ -6,6 +6,7 @@ otherapps/
 build/
 build-test/
 build-*/
+ProtonBuild/
 
 launcher/build/
 launcher/build-test/
@@ -35,8 +36,6 @@ ProtonSource/obj-*
 ProtonSource/syn-*
 protonbuild-*.tar.gz
 protonbuild-*.tar.zst
-# The launcher's Qt6 bundle release artifact, produced alongside the Proton
-# one by package.sh -- same reason, it's a build output, not source.
 libtuxblox-*.tar.zst
 
 .claude/
@@ -47,5 +46,6 @@ plan/
 CLAUDE.md
 
 /*.tar.gz
+/*.tar.zst
 
 webkitgtk-bundle/out/
