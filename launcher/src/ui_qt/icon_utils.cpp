@@ -34,4 +34,14 @@ QSize iconSizeWithGap(int size, int gapPx) {
     return QSize(size + gapPx, size);
 }
 
+QIcon multiSizeWindowIcon(const QString& resourcePath) {
+    QPixmap source(resourcePath);
+    QIcon icon;
+    static const int kSizes[] = {16, 24, 32, 48, 64, 128, 256};
+    for (int size : kSizes) {
+        icon.addPixmap(source.scaled(size, size, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+    }
+    return icon;
+}
+
 } // namespace tuxblox

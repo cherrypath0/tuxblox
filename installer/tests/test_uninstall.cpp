@@ -109,7 +109,7 @@ int main() {
     {
         fs::path dir = fs::temp_directory_path() / "tuxblox_test_uninstall_install_dir";
         fs::remove_all(dir);
-        fs::create_directories(dir / "ProtonBuild" / "dist");
+        fs::create_directories(dir / "proton" / "files");
         std::ofstream(dir / "runtime_marker") << "x";
 
         assert(removeInstallDir(dir.string()) == true);

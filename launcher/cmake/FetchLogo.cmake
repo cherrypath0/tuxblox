@@ -14,43 +14,25 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-# Downloads the TuxBlox logo svg and rasterizes it to PNG via rsvg-convert.
+# The TuxBlox logo: launcher/assets/tuxblox.png, checked into the repo
+# directly. This used to fetch a remote SVG at build time and rasterize it
+# via rsvg-convert -- that pipeline was silently producing a broken,
+# near-blank 352-byte PNG (observed for real: the Home/About tabs' logo
+# rendered as invisible), and depended on both network access and an
+# rsvg-convert install for every build. Using the local, known-good asset
+# fixes that and drops rsvg-convert as a required build dependency entirely.
 # The PNG is consumed two ways:
 #   - generate_logo_asset: the plain PNG itself, embedded into the launcher
 #     via Qt's resource system (resources/launcher.qrc) for launcher_ui_qt.
 #   - generate_logo_header: a generated C header (via BinToHeader.cmake)
 #     still needed by launcher_core/src/desktop_integration.cpp, which
-#     writes a .desktop icon file from the embedded bytes directly -- this
-#     is permanent code, not part of the Qt UI migration, so the header
-#     path stays.
-# Both targets depend on the same fetched/rasterized PNG rather than each
-# re-fetching it, to avoid a duplicate network round trip and a build
-# race between two custom commands writing the same intermediate file.
-# Runs at build time so the compiled launcher bundles the logo without
-# needing network access itself -- only the build machine needs it.
+#     writes a .desktop icon file from the embedded bytes directly.
 
-find_program(RSVG_CONVERT rsvg-convert)
-if(NOT RSVG_CONVERT)
-    message(FATAL_ERROR "rsvg-convert not found. Install librsvg (e.g. 'librsvg2-bin' on Debian/Ubuntu, 'librsvg2-tools' on Fedora, 'librsvg' on Arch/Homebrew) and re-run cmake.")
-endif()
-
-set(LOGO_SVG_URL "https://assetdelivery.tuxblox.net/images/svg/tuxblox.svg")
+set(LOGO_PNG_PATH "${CMAKE_SOURCE_DIR}/assets/tuxblox.png")
 set(GENERATED_DIR "${CMAKE_BINARY_DIR}/generated")
-set(LOGO_SVG_PATH "${GENERATED_DIR}/tuxblox_logo.svg")
-set(LOGO_PNG_PATH "${GENERATED_DIR}/tuxblox_logo.png")
 set(LOGO_HEADER_PATH "${GENERATED_DIR}/tuxblox_logo_png.h")
 
 file(MAKE_DIRECTORY ${GENERATED_DIR})
-
-add_custom_command(
-    OUTPUT ${LOGO_PNG_PATH}
-    COMMAND ${CMAKE_COMMAND} -DURL=${LOGO_SVG_URL} -DDEST=${LOGO_SVG_PATH}
-            -DUSERAGENT=TuxBlox-Client/1.0
-            -P ${CMAKE_SOURCE_DIR}/cmake/DownloadFile.cmake
-    COMMAND ${RSVG_CONVERT} -w 256 -h 256 -o ${LOGO_PNG_PATH} ${LOGO_SVG_PATH}
-    COMMENT "Fetching and rasterizing TuxBlox logo"
-    VERBATIM
-)
 
 add_custom_target(generate_logo_asset DEPENDS ${LOGO_PNG_PATH})
 

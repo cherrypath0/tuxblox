@@ -31,7 +31,10 @@ int main() {
 
     assert(versionNeedsUpdate("0.1.0", "0.1.0") == false);
     assert(versionNeedsUpdate("0.1.0", "0.2.0") == true);
-    assert(versionNeedsUpdate("0.2.0", "0.1.0") == true); // no downgrade protection
+    assert(versionNeedsUpdate("0.2.0", "0.1.0") == false); // never "update" to an older/equal version
+    assert(versionNeedsUpdate("1.0.0", "0.2.0") == false); // e.g. installed 1.0.0, manifest still serving 0.2.0
+    assert(versionNeedsUpdate("1.0", "1.0.0") == false);   // differing component counts, same value
+    assert(versionNeedsUpdate("1.9.0", "1.10.0") == true); // numeric, not lexicographic, comparison
 
     // downloadProgressFraction: the manifest-size fallback this task adds.
     // Deterministic and independent of any real download/curl timing --

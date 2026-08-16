@@ -457,10 +457,10 @@ Proton build's `$(DST_DIR)/lib/tuxblox-webview`.
 
 **There is a second relocation the fix does not account for.**
 `installer/src/installer_steps.cpp` packs the finished Proton build as
-`protonbuild-*.tar.zst` and extracts it to `~/.tuxblox/ProtonBuild` on the end
+`protonbuild-*.tar.zst` and extracts it to `~/.tuxblox/proton` on the end
 user's machine. The `loaders.cache` regenerated at Proton-build time therefore
 contains the *build machine's* absolute paths (e.g.
-`/home/<maintainer>/.../ProtonBuild/dist/files/lib/tuxblox-webview/...`), which do
+`/home/<maintainer>/.../build/proton/files/lib/tuxblox-webview/...`), which do
 not exist on any user's system -- reintroducing precisely the stale-absolute-path
 bug the Makefile step was written to solve, one hop later.
 

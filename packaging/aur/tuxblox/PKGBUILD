@@ -1,0 +1,70 @@
+# Maintainer: cherrypath0 <cherrypathy00@gmail.com>
+#
+# TuxBlox - Linux Compatibility Layer for the Roblox Engine
+# Copyright (C) 2026 TuxBlox Developers
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+# This packages the official prebuilt TuxBloxInstaller release binary rather
+# than building from source: the tree needed to build anything here is the
+# whole TuxBlox monorepo (multi-GB, with a vendored Wine fork), and the real
+# product -- the patched Proton build -- cannot be compiled inside makepkg
+# anyway (it needs a pinned old-glibc container via podman). The binary is
+# byte-identical to what the official website serves, fetched from the same
+# immutable versioned URL and pinned to the sha256 published in the release
+# manifest (https://setup.tuxblox.net/v1/stable/<version>/manifest.json).
+#
+# Like that official download, everything lands per-user in ~/.tuxblox on
+# first run: this package only ships the bootstrap installer, a launcher
+# wrapper, a desktop entry, and the icon. The per-user install then keeps
+# itself up to date (the launcher re-runs its own persisted copy of the
+# installer), so pkgver bumps here only matter for fresh bootstraps.
+
+pkgname=tuxblox
+pkgver=0.2.0
+pkgrel=1
+pkgdesc="Roblox Player and Studio on Linux via a custom-patched Proton (per-user install into ~/.tuxblox)"
+arch=('x86_64')
+url="https://tuxblox.net"
+license=('GPL-3.0-or-later')
+# glibc/gcc-libs/sdl2/curl/libarchive/openssl/libglvnd are what the installer
+# and the launcher it fetches actually link against; xdg-utils and
+# desktop-file-utils provide xdg-mime / update-desktop-database, which the
+# installed apps shell out to when registering roblox:// URL handlers.
+depends=('glibc' 'gcc-libs' 'sdl2' 'curl' 'libarchive' 'openssl' 'libglvnd'
+         'xdg-utils' 'desktop-file-utils')
+optdepends=('vulkan-icd-loader: Vulkan runtime used by DXVK to run Roblox'
+            'vulkan-radeon: Vulkan driver for AMD GPUs'
+            'vulkan-intel: Vulkan driver for Intel GPUs'
+            'nvidia-utils: Vulkan driver for NVIDIA GPUs')
+install=tuxblox.install
+source=("TuxBloxInstaller-${pkgver}::https://setup.tuxblox.net/v1/stable/${pkgver}/installer"
+        'tuxblox.sh'
+        'tuxblox.desktop'
+        'tuxblox.png')
+# The first checksum is the release manifest's published sha256 for the
+# installer artifact -- update.sh refreshes pkgver and that entry together.
+sha256sums=('677e89328f5ee3f2ce49b3764d2f7fa76dac03b27d51d8170be46f1efed7586a'
+            'd1a41c8734431263ffec02c34eab3f95f1de7548e568ca4e7a5e9edb8ce4b05f'
+            'a63bb16d853d6f73c94ecf4cf481d29c1aaaa0bad5cd1372181b9bb33febfdeb'
+            'f3a37ba1021a36f4f402abcfa69741d86a09431e706973302285694a3fe35812')
+# Ship the released binary byte-identical -- no stripping, no debug split.
+options=('!strip' '!debug')
+
+package() {
+    install -Dm755 "TuxBloxInstaller-${pkgver}" "${pkgdir}/usr/bin/tuxblox-installer"
+    install -Dm755 tuxblox.sh "${pkgdir}/usr/bin/tuxblox"
+    install -Dm644 tuxblox.desktop "${pkgdir}/usr/share/applications/tuxblox.desktop"
+    install -Dm644 tuxblox.png "${pkgdir}/usr/share/pixmaps/tuxblox.png"
+}

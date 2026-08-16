@@ -19,8 +19,12 @@
 #include "downloader.h"
 #include "install_paths.h"
 #include "manifest.h"
+#include <algorithm>
+#include <cstdlib>
 #include <filesystem>
+#include <sstream>
 #include <sys/stat.h>
+#include <vector>
 
 namespace fs = std::filesystem;
 
@@ -32,10 +36,32 @@ std::string resolveInstallDir(const std::string& override) {
     return override.empty() ? installDir() : override;
 }
 
+// Splits a dot-separated numeric version ("1.0.0") into its components for
+// ordered comparison. atoi(), not stoi(), so a non-numeric component reads
+// as 0 instead of throwing -- this is fed by a remote-controlled manifest
+// field, not one this codebase's own build produces malformed.
+std::vector<int> parseVersionParts(const std::string& version) {
+    std::vector<int> parts;
+    std::stringstream ss(version);
+    std::string part;
+    while (std::getline(ss, part, '.')) {
+        parts.push_back(std::atoi(part.c_str()));
+    }
+    return parts;
+}
+
 } // namespace
 
 bool versionNeedsUpdate(const std::string& installed, const std::string& required) {
-    return installed != required;
+    std::vector<int> installedParts = parseVersionParts(installed);
+    std::vector<int> requiredParts = parseVersionParts(required);
+    size_t count = std::max(installedParts.size(), requiredParts.size());
+    for (size_t i = 0; i < count; i++) {
+        int requiredPart = i < requiredParts.size() ? requiredParts[i] : 0;
+        int installedPart = i < installedParts.size() ? installedParts[i] : 0;
+        if (requiredPart != installedPart) return requiredPart > installedPart;
+    }
+    return false;
 }
 
 double downloadProgressFraction(uint64_t now, uint64_t total, uint64_t manifestSize) {

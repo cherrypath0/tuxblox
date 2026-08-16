@@ -16,9 +16,10 @@
 
 #include "install_paths.h"
 #include <cstdlib>
-#include <fstream>
 #include <stdexcept>
 #include <sys/statvfs.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 namespace tuxblox {
 
@@ -39,20 +40,47 @@ bool hasEnoughDiskSpace(const std::string& path, uint64_t minBytes) {
     return freeBytes >= minBytes;
 }
 
-std::string protonBuildDirUnder(const std::string& installDir) {
-    return installDir + "/ProtonBuild";
-}
-
-std::string protonVersionFilePathUnder(const std::string& installDir) {
-    return protonBuildDirUnder(installDir) + "/dist/version";
+std::string protonDirUnder(const std::string& installDir) {
+    return installDir + "/proton";
 }
 
 std::optional<std::string> readInstalledProtonVersion(const std::string& installDir) {
-    std::ifstream in(protonVersionFilePathUnder(installDir));
-    if (!in) return std::nullopt;
-    std::string epoch, version;
-    if (!(in >> epoch >> version)) return std::nullopt;
-    return version;
+    const std::string bin = protonDirUnder(installDir) + "/main";
+    if (access(bin.c_str(), X_OK) != 0) return std::nullopt;
+
+    // fork/exec instead of popen: no shell involved, so installDir needs no
+    // quoting/escaping.
+    int fds[2];
+    if (pipe(fds) != 0) return std::nullopt;
+    const pid_t pid = fork();
+    if (pid < 0) {
+        close(fds[0]);
+        close(fds[1]);
+        return std::nullopt;
+    }
+    if (pid == 0) {
+        dup2(fds[1], STDOUT_FILENO);
+        close(fds[0]);
+        close(fds[1]);
+        execl(bin.c_str(), bin.c_str(), "--version", static_cast<char*>(nullptr));
+        _exit(127);
+    }
+    close(fds[1]);
+
+    std::string out;
+    char buf[256];
+    ssize_t n;
+    while ((n = read(fds[0], buf, sizeof buf)) > 0) out.append(buf, static_cast<size_t>(n));
+    close(fds[0]);
+
+    int status = 0;
+    if (waitpid(pid, &status, 0) < 0) return std::nullopt;
+    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) return std::nullopt;
+
+    out = out.substr(0, out.find('\n'));
+    while (!out.empty() && (out.back() == '\r' || out.back() == ' ' || out.back() == '\t')) out.pop_back();
+    if (out.empty()) return std::nullopt;
+    return out;
 }
 
 } // namespace tuxblox

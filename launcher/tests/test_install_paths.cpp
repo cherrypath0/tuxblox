@@ -44,10 +44,9 @@ int main() {
     assert(hasEnoughDiskSpace("/tmp", 1) == true);
     assert(hasEnoughDiskSpace("/tmp", (uint64_t)1 << 60) == false);
 
-    assert(protonBuildDirUnder("/x/tuxblox") == "/x/tuxblox/ProtonBuild");
-    assert(protonVersionFilePathUnder("/x/tuxblox") == "/x/tuxblox/ProtonBuild/dist/version");
+    assert(protonDirUnder("/x/tuxblox") == "/x/tuxblox/proton");
 
-    // Missing version file -> nullopt.
+    // Missing proton binary -> nullopt.
     {
         fs::path dir = fs::temp_directory_path() / "tuxblox_test_install_paths_missing";
         fs::remove_all(dir);
@@ -55,29 +54,31 @@ int main() {
         assert(!v.has_value());
     }
 
-    // Well-formed "<epoch> <version>" file.
+    // Working main (faked with a script) -> first line of its --version output.
     {
         fs::path dir = fs::temp_directory_path() / "tuxblox_test_install_paths_ok";
         fs::remove_all(dir);
-        fs::create_directories(dir / "ProtonBuild" / "dist");
+        fs::create_directories(dir / "proton");
         {
-            std::ofstream out(dir / "ProtonBuild" / "dist" / "version");
-            out << "1753700000 0.1.0";
+            std::ofstream out(dir / "proton" / "main");
+            out << "#!/bin/sh\necho 0.1.0\n";
         }
+        fs::permissions(dir / "proton" / "main", fs::perms::owner_all);
         auto v = readInstalledProtonVersion(dir.string());
         assert(v.has_value() && *v == "0.1.0");
         fs::remove_all(dir);
     }
 
-    // Malformed file (single token, no version) -> nullopt.
+    // Binary that exits nonzero -> nullopt.
     {
-        fs::path dir = fs::temp_directory_path() / "tuxblox_test_install_paths_malformed";
+        fs::path dir = fs::temp_directory_path() / "tuxblox_test_install_paths_failing";
         fs::remove_all(dir);
-        fs::create_directories(dir / "ProtonBuild" / "dist");
+        fs::create_directories(dir / "proton");
         {
-            std::ofstream out(dir / "ProtonBuild" / "dist" / "version");
-            out << "justonetoken";
+            std::ofstream out(dir / "proton" / "main");
+            out << "#!/bin/sh\nexit 1\n";
         }
+        fs::permissions(dir / "proton" / "main", fs::perms::owner_all);
         auto v = readInstalledProtonVersion(dir.string());
         assert(!v.has_value());
         fs::remove_all(dir);

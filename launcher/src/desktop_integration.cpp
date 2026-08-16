@@ -147,7 +147,7 @@ void runCommandBestEffort(const std::vector<std::string>& argv) {
 
 } // namespace
 
-void ensureDesktopIntegration(const std::string& launcherExePath) {
+void writeDesktopEntries(const std::string& launcherExePath) {
     try {
         const char* home = std::getenv("HOME");
         if (!home || home[0] == '\0') return;
@@ -159,15 +159,30 @@ void ensureDesktopIntegration(const std::string& launcherExePath) {
         // one real file .desktop Icon= entries are required to point at
         // (the XDG desktop-entry spec has no way to reference bytes inside
         // a binary directly). Installed under the standard per-user icon
-        // theme location/size bucket rather than next to the install
-        // directory, so Icon= can name it ("tuxblox") instead of hardcoding
-        // an absolute path -- proper icon-theme lookup/scaling, and it
-        // stops being something that has to live under installDir at all.
-        const std::string iconThemeDir = std::string(home) + "/.local/share/icons/hicolor/256x256/apps";
-        std::error_code ec;
-        fs::create_directories(iconThemeDir, ec);
-        if (ec) return;
-        {
+        // theme location, so Icon= can name it ("tuxblox") instead of
+        // hardcoding an absolute path -- proper icon-theme lookup/scaling,
+        // and it stops being something that has to live under installDir at
+        // all.
+        //
+        // Written into EVERY standard hicolor size bucket, not just 256x256:
+        // the actual embedded image is a fixed 440x440 raster (no scalable
+        // SVG available, see FetchLogo.cmake's own history), and some icon
+        // loaders resolve a specific requested size (e.g. 16/24/32/48, the
+        // sizes a titlebar/taskbar typically ask for) strictly against
+        // whatever bucket exists rather than falling back across sizes --
+        // leaving only 256x256 populated meant every one of those smaller,
+        // more commonly-requested lookups came up empty. All buckets get
+        // the exact same bytes (oversized for the smaller ones); loaders
+        // scale down a too-large icon far more reliably than they
+        // synthesize a missing one.
+        static const char* kIconSizes[] = {"16x16", "24x24", "32x32", "48x48",
+                                            "64x64", "96x96", "128x128", "256x256"};
+        for (const char* size : kIconSizes) {
+            const std::string iconThemeDir =
+                std::string(home) + "/.local/share/icons/hicolor/" + size + "/apps";
+            std::error_code ec;
+            fs::create_directories(iconThemeDir, ec);
+            if (ec) return;
             std::ofstream iconFile(iconThemeDir + "/tuxblox.png", std::ios::binary);
             if (!iconFile) return;
             iconFile.write(reinterpret_cast<const char*>(kTuxbloxLogoPng),
@@ -175,6 +190,7 @@ void ensureDesktopIntegration(const std::string& launcherExePath) {
             if (!iconFile) return;
         }
 
+        std::error_code ec;
         fs::create_directories(appsDir, ec);
         if (ec) return;
 
@@ -234,6 +250,18 @@ void ensureDesktopIntegration(const std::string& launcherExePath) {
             std::error_code rmEc;
             fs::remove(appsDir + "/tuxblox-url-handler.desktop", rmEc);
         }
+    } catch (...) {
+        // Best-effort -- must never fail an otherwise-working launch.
+    }
+}
+
+void ensureDesktopIntegration(const std::string& launcherExePath) {
+    writeDesktopEntries(launcherExePath);
+
+    try {
+        const char* home = std::getenv("HOME");
+        if (!home || home[0] == '\0') return;
+        const std::string appsDir = std::string(home) + "/.local/share/applications";
 
         if (!std::getenv("TUXBLOX_SKIP_XDG_MIME")) { // escape hatch for sandboxed test/CI runs
             for (const auto& h : installedHandlers()) {

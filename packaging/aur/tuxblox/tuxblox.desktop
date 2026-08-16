@@ -1,0 +1,29 @@
+# TuxBlox - Linux Compatibility Layer for the Roblox Engine
+# Copyright (C) 2026 TuxBlox Developers
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+# Bootstrap entry: installs/updates the per-user ~/.tuxblox tree and hands
+# off to the launcher. After the first run the launcher registers its own
+# per-user "TuxBlox Launcher" entry, which is the everyday way in.
+[Desktop Entry]
+Type=Application
+Name=TuxBlox Installer
+GenericName=Roblox Compatibility Layer
+Comment=Install or update TuxBlox in ~/.tuxblox, then launch it
+Exec=tuxblox-installer
+Icon=tuxblox
+Terminal=false
+Categories=Game;
+Keywords=roblox;studio;wine;proton;

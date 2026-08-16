@@ -31,4 +31,20 @@ namespace tuxblox {
 QIcon paddedIcon(const QString& resourcePath, int size, int gapPx);
 QSize iconSizeWithGap(int size, int gapPx);
 
+// Loads `resourcePath` and explicitly rasterizes it into a QIcon at every
+// size in {16,24,32,48,64,128,256} via addPixmap(), rather than relying on
+// the single-size QIcon(path) constructor. Window-manager/compositor icon
+// lookups (X11 _NET_WM_ICON, and by extension XWayland-hosted windows under
+// a Wayland session) commonly enumerate an icon's available (size, mode,
+// state) combinations looking for ones they recognize; a QIcon backed by
+// just one embedded resource size was observed to make Qt's xcb backend
+// publish an empty _NET_WM_ICON property (present but with zero pixel
+// data) instead of the actual image, even though the QIcon itself loads
+// successfully in-process. Explicitly populating several concrete raster
+// sizes up front sidesteps whatever's making the single-size case
+// invisible to the window manager. Use for window/taskbar icons
+// specifically (setWindowIcon calls); paddedIcon() above remains the right
+// choice for button icons, which don't go through this WM-facing path.
+QIcon multiSizeWindowIcon(const QString& resourcePath);
+
 } // namespace tuxblox

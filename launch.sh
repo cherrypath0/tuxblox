@@ -16,12 +16,11 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 cd "$(dirname "$0")" || exit 1
-mkdir -p ~/.tuxblox/steamapps
-mkdir -p runtime
+mkdir -p ~/.tuxblox
+mkdir -p build/runtime
 mkdir -p logs
 
-PREFIX_PATH="$(pwd)/runtime"
-CLIENT_PATH="$HOME/.tuxblox"
+PREFIX_PATH="$(pwd)/build/runtime"
 protonLogDir="$(pwd)/logs"
 
 choice="$1"
@@ -46,7 +45,7 @@ userAgent="TuxBlox-Client/1.0"
 stageInPrefix() {
     local srcPath="$1"
     local stageDir
-    stageDir="$(pwd)/runtime/pfx/drive_c/TuxBloxStaging"
+    stageDir="$(pwd)/build/runtime/pfx/drive_c/TuxBloxStaging"
     mkdir -p "$stageDir"
     local dest="$stageDir/$(basename "$srcPath")"
     cp -f "$srcPath" "$dest"
@@ -54,7 +53,7 @@ stageInPrefix() {
 }
 
 ensureWebView2() {
-    local wv2AppDir="runtime/pfx/drive_c/Program Files (x86)/Microsoft/EdgeWebView/Application"
+    local wv2AppDir="build/runtime/pfx/drive_c/Program Files (x86)/Microsoft/EdgeWebView/Application"
     if [ -d "$wv2AppDir" ] && [ -n "$(find "$wv2AppDir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | head -n1)" ]; then
         return 0
     fi
@@ -70,7 +69,7 @@ ensureWebView2() {
     fi
     local stagedWv2Installer
     stagedWv2Installer=$(stageInPrefix "$wv2Installer")
-    timeout 180 env "${protonEnv[@]}" "$(pwd)/ProtonBuild/dist/proton" run "$stagedWv2Installer" /silent /install
+    timeout 180 env "${protonEnv[@]}" "$(pwd)/build/proton/main" run "$stagedWv2Installer" /silent /install
 }
 
 # plan/todo.md item 17: Wine defaults every fresh prefix to light mode --
@@ -103,9 +102,9 @@ ensureThemeSync() {
         *) return 0 ;;     # no preference, or portal/gdbus unavailable
     esac
 
-    local regExe="$(pwd)/runtime/pfx/drive_c/windows/system32/reg.exe"
+    local regExe="$(pwd)/build/runtime/pfx/drive_c/windows/system32/reg.exe"
     for valueName in AppsUseLightTheme SystemUsesLightTheme; do
-        timeout 15 env "${protonEnv[@]}" "$(pwd)/ProtonBuild/dist/proton" run "$regExe" add \
+        timeout 15 env "${protonEnv[@]}" "$(pwd)/build/proton/main" run "$regExe" add \
             "HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" \
             /v "$valueName" /t REG_DWORD /d "$lightTheme" /f >/dev/null 2>&1
     done
@@ -123,23 +122,23 @@ findExe() {
         if [ -n "$targetWin" ]; then
             local relPath
             relPath=$(printf '%s' "$targetWin" | sed -e 's/\\/\//g' -e 's/^[A-Za-z]://')
-            find "runtime/pfx/drive_c" -ipath "*${relPath}" -type f 2>/dev/null | head -n1 && return 0
+            find "build/runtime/pfx/drive_c" -ipath "*${relPath}" -type f 2>/dev/null | head -n1 && return 0
         fi
     fi
 
-    find "runtime/pfx/drive_c" -name "$targetExe" -type f | grep -v "Installer" | head -n1
+    find "build/runtime/pfx/drive_c" -name "$targetExe" -type f | grep -v "Installer" | head -n1
 }
 
 case "$choice" in
     ""|0|p|P|player|Player|PLAYER)
-        exePath=$(findExe "RobloxPlayerBeta.exe" "runtime/pfx/drive_c/users/user/Desktop/Roblox Player.lnk")
+        exePath=$(findExe "RobloxPlayerBeta.exe" "build/runtime/pfx/drive_c/users/user/Desktop/Roblox Player.lnk")
         label="Roblox Client"
         installer="RobloxPlayer/RobloxPlayerInstaller.exe"
         url="https://setup.rbxcdn.com/RobloxPlayerInstaller.exe"
         needsWebView2=1
         ;;
     1|s|S|studio|Studio|STUDIO)
-        exePath=$(findExe "RobloxStudioBeta.exe" "runtime/pfx/drive_c/users/user/Desktop/Roblox Studio.lnk")
+        exePath=$(findExe "RobloxStudioBeta.exe" "build/runtime/pfx/drive_c/users/user/Desktop/Roblox Studio.lnk")
         label="Roblox Studio"
         installer="RobloxStudio/RobloxStudioInstaller.exe"
         url="https://setup.rbxcdn.com/RobloxStudioInstaller.exe"
@@ -158,8 +157,7 @@ case "$choice" in
 esac
 
 protonEnv=(
-    "STEAM_COMPAT_DATA_PATH=$PREFIX_PATH"
-    "STEAM_COMPAT_CLIENT_INSTALL_PATH=$CLIENT_PATH"
+    "TUXBLOX_PREFIX=$PREFIX_PATH"
     "PROTON_LOG_DIR=$protonLogDir"
     "DXVK_ASYNC=1"
 )
@@ -212,7 +210,7 @@ fi
 
 echo "Launching $label from: $exePath"
 
-if [[ "$exePath" == runtime/pfx/drive_c/* ]]; then
+if [[ "$exePath" == build/runtime/pfx/drive_c/* ]]; then
     # Already inside the prefix's C: (an installed game found by findExe) --
     # just make it absolute, since proton's own subprocess cwd is pinned
     # inside the prefix now (see ProtonSource/proton's run_proc) and this
@@ -230,17 +228,17 @@ if [ -n "$traceLogFile" ]; then
     # Tracing enabled (TUXBLOX_TRACE=1) -- tee stderr into the trace log as
     # well as passing it through normally.
     if [ -n "$protocolUri" ]; then
-        env "${protonEnv[@]}" "$(pwd)/ProtonBuild/dist/proton" run "$exePath" "$protocolUri" 2> >(tee -a "$traceLogFile" >&2)
+        env "${protonEnv[@]}" "$(pwd)/build/proton/main" run "$exePath" "$protocolUri" 2> >(tee -a "$traceLogFile" >&2)
     else
-        env "${protonEnv[@]}" "$(pwd)/ProtonBuild/dist/proton" run "$exePath" 2> >(tee -a "$traceLogFile" >&2)
+        env "${protonEnv[@]}" "$(pwd)/build/proton/main" run "$exePath" 2> >(tee -a "$traceLogFile" >&2)
     fi
 else
     # Common path: run directly with no process substitution, so Ctrl+C
     # signals this foreground job the normal, simple way.
     if [ -n "$protocolUri" ]; then
-        env "${protonEnv[@]}" "$(pwd)/ProtonBuild/dist/proton" run "$exePath" "$protocolUri"
+        env "${protonEnv[@]}" "$(pwd)/build/proton/main" run "$exePath" "$protocolUri"
     else
-        env "${protonEnv[@]}" "$(pwd)/ProtonBuild/dist/proton" run "$exePath"
+        env "${protonEnv[@]}" "$(pwd)/build/proton/main" run "$exePath"
     fi
 fi
 exitCode=$?

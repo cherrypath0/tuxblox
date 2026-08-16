@@ -24,7 +24,7 @@ QString stylesheet() {
 
         QWidget#sidebar {
             background: %2;
-            border-right: 1px solid %3;
+            border-right: 1px solid rgba(255, 255, 255, 0.14);
         }
         QPushButton#sidebarItem {
             text-align: left;
@@ -60,6 +60,18 @@ QString stylesheet() {
         }
         QPushButton#launchButton:hover { background: #4aa3ff; }
         QPushButton#launchButton:disabled { background: rgba(47, 143, 239, 0.4); }
+
+        QPushButton#toolbarButton {
+            background: %4;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            padding: 6px 12px;
+            font-size: 13px;
+            font-weight: 600;
+        }
+        QPushButton#toolbarButton:hover { background: #4aa3ff; }
+        QPushButton#toolbarButton:disabled { background: rgba(47, 143, 239, 0.4); }
 
         QPushButton#linkRow {
             text-align: left;
@@ -106,18 +118,18 @@ QString stylesheet() {
         }
 
         QWidget#updatePopup {
-            background: %6;
-            border: 1px solid %3;
+            background: %4;
+            border: 1px solid %4;
             border-radius: 10px;
         }
-        QLabel#updatePopupText { color: %7; font-size: 13px; }
+        QLabel#updatePopupText { color: white; font-size: 13px; font-weight: 600; }
         QPushButton#updatePopupDismiss {
             background: transparent;
             border: none;
-            color: %8;
+            color: rgba(255, 255, 255, 0.85);
             font-size: 14px;
         }
-        QPushButton#updatePopupDismiss:hover { color: %7; }
+        QPushButton#updatePopupDismiss:hover { color: white; }
     )")
         .arg(kBg, kSidebarBg, kBorder, kAccentBlue, kDanger, kPanelBg,
              kTextPrimary, kTextMuted, kErrorBannerBg, kErrorBannerText)

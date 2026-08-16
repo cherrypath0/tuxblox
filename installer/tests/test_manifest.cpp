@@ -42,7 +42,7 @@ int main() {
           "sha256": "deadbeef",
           "url": "/v1/canary/0.2.0/proton.tar.zst",
           "displayname": "Proton",
-          "filename": "ProtonBuild",
+          "filename": "proton",
           "path": "/"
         },
         "launcher": {
@@ -87,7 +87,7 @@ int main() {
     assert(proton.sha256 == "deadbeef");
     assert(proton.sizeBytes == 123456789ULL);
     assert(proton.displayname == "Proton");
-    assert(proton.filename == "ProtonBuild");
+    assert(proton.filename == "proton");
     assert(proton.path == "/");
 
     const auto& launcher = m.artifacts.at("launcher");
@@ -118,7 +118,7 @@ int main() {
           "manifest_version": 2,
           "artifacts": {
             "proton": {"size": 1, "sha256": "a", "url": "https://example.com/proton.tar.zst",
-                       "displayname": "Proton", "filename": "ProtonBuild", "path": "/"}
+                       "displayname": "Proton", "filename": "proton", "path": "/"}
           }
         })";
         auto m2 = parseManifest(absoluteUrlManifest, baseUrl);
@@ -175,7 +175,7 @@ int main() {
           "manifest_version": 2,
           "artifacts": {
             "proton": {"size": 1, "sha256": "deadbeef", "url": "/proton",
-                       "displayname": "Proton", "filename": "ProtonBuild", "path": "/"}
+                       "displayname": "Proton", "filename": "proton", "path": "/"}
           }
         })", baseUrl);
     } catch (const std::runtime_error&) {
@@ -192,7 +192,7 @@ int main() {
           "manifest_version": 2,
           "artifacts": {
             "proton": {"size": 1, "sha256": "deadbeef", "url": "/proton",
-                       "filename": "ProtonBuild", "path": "/"}
+                       "filename": "proton", "path": "/"}
           }
         })", baseUrl);
     } catch (const std::runtime_error&) {
@@ -208,7 +208,7 @@ int main() {
           "manifest_version": "2",
           "artifacts": {
             "proton": {"size": 1, "sha256": "deadbeef", "url": "/proton",
-                       "displayname": "Proton", "filename": "ProtonBuild", "path": "/"}
+                       "displayname": "Proton", "filename": "proton", "path": "/"}
           }
         })", baseUrl);
     } catch (const std::runtime_error&) {
@@ -223,7 +223,7 @@ int main() {
           "channel": "canary",
           "artifacts": {
             "proton": {"size": 1, "sha256": "deadbeef", "url": "/proton",
-                       "displayname": "Proton", "filename": "ProtonBuild", "path": "/"}
+                       "displayname": "Proton", "filename": "proton", "path": "/"}
           }
         })", baseUrl);
     } catch (const std::runtime_error&) {
@@ -239,7 +239,7 @@ int main() {
           "manifest_version": 1,
           "artifacts": {
             "proton": {"size": 1, "sha256": "deadbeef", "url": "/proton",
-                       "displayname": "Proton", "filename": "ProtonBuild", "path": "/"}
+                       "displayname": "Proton", "filename": "proton", "path": "/"}
           }
         })", baseUrl);
     } catch (const std::runtime_error&) {
@@ -255,7 +255,7 @@ int main() {
           "manifest_version": 0,
           "artifacts": {
             "proton": {"size": 1, "sha256": "deadbeef", "url": "/proton",
-                       "displayname": "Proton", "filename": "ProtonBuild", "path": "/"}
+                       "displayname": "Proton", "filename": "proton", "path": "/"}
           }
         })", baseUrl);
     } catch (const std::runtime_error&) {

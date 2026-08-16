@@ -16,6 +16,7 @@
 
 #include "main_window.h"
 #include "about_tab.h"
+#include "icon_utils.h"
 #include "message_box.h"
 #include "settings_tab.h"
 #include "sidebar.h"
@@ -33,7 +34,9 @@ namespace tuxblox {
 
 MainWindow::MainWindow(App& app, QWidget* parent) : QMainWindow(parent), app_(app) {
     setWindowTitle("TuxBlox");
-    setWindowIcon(QIcon(":/branding/tuxblox_window_icon.png"));
+    // multiSizeWindowIcon(), not a plain QIcon(path) -- see its own doc
+    // comment in icon_utils.h.
+    setWindowIcon(multiSizeWindowIcon(":/branding/tuxblox_window_icon.png"));
     resize(760, 480);
     setMinimumSize(640, 420);
 

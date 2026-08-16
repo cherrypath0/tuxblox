@@ -1,0 +1,7 @@
+# makepkg work dirs and outputs -- never commit these to this repo or to
+# the AUR remote.
+src/
+pkg/
+*.pkg.tar.*
+*.log
+TuxBloxInstaller-*

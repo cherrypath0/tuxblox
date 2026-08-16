@@ -45,6 +45,10 @@ from random import randrange
 VARIABLE999="hello binary inspecting people" # dont delete because i want whoever sees the binary code to see this
 CURRENT_PREFIX_VERSION="11.0-100"
 
+# Replaced with the real build version by the root build.sh right before the
+# nuitka compile; reported via `main --version`.
+TUXBLOX_VERSION = "unknown"
+
 PFX="Proton: "
 ld_path_var = "LD_LIBRARY_PATH"
 
@@ -279,108 +283,6 @@ def getmtimestr(*path_fragments):
     except IOError:
         return "0"
 
-def try_get_game_library_dir():
-    if "STEAM_COMPAT_INSTALL_PATH" not in g_session.env or \
-            "STEAM_COMPAT_LIBRARY_PATHS" not in g_session.env:
-        return None
-
-    #find library path which is a subset of the game path
-    library_paths = g_session.env["STEAM_COMPAT_LIBRARY_PATHS"].split(":")
-    for path in library_paths:
-        if path in g_session.env["STEAM_COMPAT_INSTALL_PATH"]:
-            return path
-
-    return None
-
-def try_get_steam_dir():
-    if "STEAM_COMPAT_CLIENT_INSTALL_PATH" not in g_session.env:
-        return None
-
-    return g_session.env["STEAM_COMPAT_CLIENT_INSTALL_PATH"]
-
-def setup_dir_drive(compat_option, drive_name, dest_dir):
-        drive_path = g_compatdata.prefix_dir + "dosdevices/" + drive_name
-        if compat_option in g_session.compat_config:
-            if not dest_dir:
-                if file_exists(drive_path, follow_symlinks=False):
-                    os.remove(drive_path)
-            else:
-                if file_exists(drive_path, follow_symlinks=False):
-                    cur_tgt = os.readlink(drive_path)
-                    if cur_tgt != dest_dir:
-                        os.remove(drive_path)
-                        os.symlink(dest_dir, drive_path)
-                else:
-                    os.symlink(dest_dir, drive_path)
-        elif file_exists(drive_path, follow_symlinks=False):
-            os.remove(drive_path)
-
-def setup_game_dir_drive():
-        setup_dir_drive("gamedrive", "s:", try_get_game_library_dir())
-
-def setup_steam_dir_drive():
-        setup_dir_drive("steamdrive", "t:", try_get_steam_dir())
-
-
-def unix_to_nt_file_name(path):
-    return '\\??\\unix' + path
-
-def setup_openvr_paths():
-    if 'VR_PATHREG_OVERRIDE' in g_session.env:
-        openvr_paths = g_session.env['VR_PATHREG_OVERRIDE']
-        del g_session.env['VR_PATHREG_OVERRIDE']
-    elif 'XDG_CONFIG_HOME' in g_session.env:
-        openvr_paths = os.path.join(g_session.env['XDG_CONFIG_HOME'], 'openvr/openvrpaths.vrpath')
-    elif 'HOME' in g_session.env:
-        openvr_paths = os.path.join(g_session.env['HOME'], '.config/openvr/openvrpaths.vrpath')
-    else:
-        openvr_paths = None
-
-    if not openvr_paths or not file_exists(openvr_paths, follow_symlinks=True):
-        return
-
-    with open(openvr_paths, 'r') as file:
-        contents = json.load(file)
-
-    if 'runtime' not in contents or type(contents['runtime']) != list:
-        contents['runtime'] = []
-    if 'config' in contents and type(contents['config']) != list:
-        del contents['config']
-    if 'log' in contents and type(contents['log']) != list:
-        del contents['log']
-
-    if 'VR_OVERRIDE' in g_session.env:
-        g_session.env['PROTON_VR_RUNTIME'] = g_session.env['VR_OVERRIDE']
-        del g_session.env['VR_OVERRIDE']
-    elif len(contents['runtime']) > 0:
-        g_session.env['PROTON_VR_RUNTIME'] = contents['runtime'][0]
-
-    contents['runtime'] = ["C:\\vrclient\\", "C:\\vrclient"]
-
-    for i, path in enumerate(contents.get('config', [])):
-        contents['config'][i] = unix_to_nt_file_name(path)
-    for i, path in enumerate(contents.get('log', [])):
-        contents['log'][i] = unix_to_nt_file_name(path)
-
-    openvr_paths = os.path.join(g_compatdata.prefix_dir, "drive_c/users/user/AppData/Local/openvr")
-    makedirs(openvr_paths)
-
-    openvr_paths = os.path.join(openvr_paths, "openvrpaths.vrpath")
-    with open(openvr_paths, 'w') as file:
-        json.dump(contents, file, indent=3)
-
-
-
-# Function to find the installed location of DLL files for use by Wine/Proton
-# from the NVIDIA Linux driver
-#
-# See https://gitlab.steamos.cloud/steamrt/steam-runtime-tools/-/issues/71 for
-# background on the chosen method of DLL discovery.
-#
-# On success, returns a str() of the absolute-path to the directory at which DLL
-# files are stored
-#
-# On failure, returns None
 def find_nvidia_wine_dll_dir():
     try:
         libdl = CDLL("libdl.so.2")
@@ -532,7 +434,6 @@ class Proton:
         self.media_dir = self.path("files/share/media/")
         self.wine_fonts_dir = self.path("files/share/wine/fonts/")
         self.wine_inf = self.path("files/share/wine/wine.inf")
-        self.version_file = self.path("version")
         self.default_pfx_dir = self.path("files/share/default_pfx/")
         self.user_settings_file = self.path("user_settings.py")
         self.wine_bin = self.bin_dir + "wine"
@@ -562,28 +463,6 @@ class Proton:
             with self.dist_lock:
                 if file_exists(old_dist_dir, follow_symlinks=True):
                     shutil.rmtree(old_dist_dir)
-
-    def do_steampipe_fixups(self):
-        fixups_json = self.path("steampipe_fixups.json")
-        fixups_mtime = self.path("files/steampipe_fixups_mtime")
-
-        if file_exists(fixups_json, follow_symlinks=True):
-            with self.dist_lock:
-                import steampipe_fixups
-
-                current_fixup_mtime = None
-                if file_exists(fixups_mtime, follow_symlinks=True):
-                    with open(fixups_mtime, "r") as f:
-                        current_fixup_mtime = f.readline().strip()
-
-                new_fixup_mtime = getmtimestr(fixups_json)
-
-                if current_fixup_mtime != new_fixup_mtime:
-                    result_code = steampipe_fixups.do_restore(self.base_dir, fixups_json)
-
-                    if result_code == 0:
-                        with open(fixups_mtime, "w") as f:
-                            f.write(new_fixup_mtime + "\n")
 
     def missing_default_prefix(self):
         '''Check if the default prefix dir is missing. Returns true if missing, false if present'''
@@ -664,9 +543,6 @@ class CompatData:
                      int(new_proton_min) < int(old_proton_min)):
                 log("Removing newer prefix")
                 self.old_machine_guid = get_replace_reg_value(self.prefix_dir + "system.reg", "Software\\\\Microsoft\\\\Cryptography", "MachineGuid")
-                if old_proton_ver == "3.7" and not file_exists(self.tracked_files_file, follow_symlinks=True):
-                    #proton 3.7 did not generate tracked_files, so copy it into place first
-                    try_copy(g_proton.path("proton_3.7_tracked_files"), self.tracked_files_file)
                 self.remove_tracked_files()
                 path = self.prefix_dir + "/drive_c/Program Files (x86)/Ubisoft/Ubisoft Game Launcher/version.txt"
                 if file_exists(path, follow_symlinks=False) and os.path.isfile(path):
@@ -904,26 +780,19 @@ class CompatData:
             os.symlink(fname, lname)
 
     def create_fonts_symlinks(self):
-        ALTERNATIVES = {
-            ('1313860', 'arial.ttf'),    # FIFA 21
-            ('1506830', 'arial.ttf'),    # FIFA 22
-        }
         windowsfonts = self.prefix_dir + "/drive_c/windows/Fonts"
         makedirs(windowsfonts)
-        sgi = os.environ.get('SteamGameId', '')
         for fonts_dir in [g_proton.fonts_dir, g_proton.wine_fonts_dir]:
             for font in os.listdir(fonts_dir):
                 if not font.endswith('.ttf') and not font.endswith('.ttc'):
                     continue
                 lname = os.path.join(windowsfonts, font)
                 fname = os.path.join(fonts_dir, font)
-                if (sgi, font) in ALTERNATIVES:
-                    fname = os.path.join(fonts_dir, 'alt', font)
                 self.create_symlink(lname, fname)
 
     def migrate_user_paths(self):
         #move winxp-style paths to vista+ paths. we can't do this in
-        #upgrade_pfx because Steam may drop cloud files here at any time.
+        #upgrade_pfx because the running app may drop files here at any time.
         for (old, new, link) in \
                 [
                     ("drive_c/users/user/Local Settings/Application Data",
@@ -993,8 +862,6 @@ class CompatData:
             # launching anything through wine.
 
             # collect configuration info
-            steamdir = os.environ["STEAM_COMPAT_CLIENT_INSTALL_PATH"]
-
             use_wined3d = "wined3d" in g_session.compat_config
             use_dxvk_dxgi = not use_wined3d and \
                     not ("WINEDLLOVERRIDES" in g_session.env and "dxgi=b" in g_session.env["WINEDLLOVERRIDES"])
@@ -1051,10 +918,6 @@ class CompatData:
                 CURRENT_PREFIX_VERSION,
                 g_proton.fonts_dir,
                 g_proton.lib_dir,
-                steamdir,
-                getmtimestr(steamdir, 'legacycompat', 'steamclient.dll'),
-                getmtimestr(steamdir, 'legacycompat', 'steamclient64.dll'),
-                getmtimestr(steamdir, 'legacycompat', 'Steam.dll'),
                 g_proton.default_pfx_dir,
                 getmtimestr(g_proton.default_pfx_dir, 'system.reg'),
                 str(use_wined3d),
@@ -1085,40 +948,6 @@ class CompatData:
             self.create_fonts_symlinks()
 
             with open(self.tracked_files_file, "a") as tracked_files:
-                #copy steam files into place
-                steam_dir = "drive_c/Program Files (x86)/Steam/"
-                makedirs(self.prefix_dir + steam_dir)
-                filestocopy = [("steamclient.dll", "steamclient.dll"),
-                               ("steamclient64.dll", "steamclient64.dll"),
-                               ("GameOverlayRenderer64.dll", "GameOverlayRenderer64.dll"),
-                               ("SteamService.exe", "steam.exe"),
-                               ("Steam.dll", "Steam.dll")]
-                for (src,tgt) in filestocopy:
-                    srcfile = steamdir + '/legacycompat/' + src
-                    if os.path.isfile(srcfile):
-                        try_copy(srcfile, steam_dir + tgt, prefix=self.prefix_dir, track_file=tracked_files, link_debug=True)
-
-                filestocopy = [("steamclient64.dll", "steamclient64.dll"),
-                               ("GameOverlayRenderer.dll", "GameOverlayRenderer.dll"),
-                               ("GameOverlayRenderer64.dll", "GameOverlayRenderer64.dll")]
-                for (src,tgt) in filestocopy:
-                    srcfile = g_proton.path(src)
-                    if os.path.isfile(srcfile):
-                        try_copy(srcfile, steam_dir + tgt, prefix=self.prefix_dir, track_file=tracked_files, link_debug=True)
-
-                # CW Bug 19152. IL-2 Sturmovik: Cliffs of Dover Blitz Edition needs user's localconfig.vdf
-                if os.environ.get("SteamGameId", 0) == "754530":
-                    srcdir = os.path.join(steamdir, 'userdata')
-                    dstdir = os.path.join(self.prefix_dir, steam_dir, 'userdata')
-                    # figuring out the current user is hard, so copy the config for all users
-                    for userid in os.listdir(srcdir):
-                        srcvdf = os.path.join(srcdir, userid, 'config', 'localconfig.vdf')
-                        dstvdf = os.path.join(dstdir, userid, 'config', 'localconfig.vdf')
-                        if not os.path.exists(srcvdf):
-                            continue
-                        os.makedirs(os.path.dirname(dstvdf), exist_ok=True)
-                        shutil.copyfile(srcvdf, dstvdf)
-
                 #copy openvr files into place
                 # !!!REMOVED
 
@@ -1213,237 +1042,12 @@ class CompatData:
                                  track_file=tracked_files,
                                  link_debug=True)
 
-            setup_game_dir_drive()
-            setup_steam_dir_drive()
-            setup_openvr_paths()
-
-            # add Steam ffmpeg libraries to path
-            prepend_to_env_str(g_session.env, ld_path_var, steamdir + "/ubuntu12_64/video/:" + steamdir + "/ubuntu12_32/video/:" + steamdir + "/steamrtarm64/video/", ":")
-
-def comma_escaped(s):
-    escaped = False
-    idx = -1
-    while s[idx] == '\\':
-        escaped = not escaped
-        idx = idx - 1
-    return escaped
-
-#hopefully short-lived, app-specific workarounds for Proton bugs
-def default_compat_config():
-    ret = set()
-    if "SteamAppId" in os.environ:
-        appid = os.environ["SteamAppId"]
-        if appid in [
-                #affected by CW bug 19741
-                "1017900", #Age of Empires: Definitive Edition
-
-                #affected by CW bug 20240
-                "1331440", #FUSER
-
-                #affected by Unity race
-                "2620730", #DEVIATOR - CW bug 24913
-                "2882920", #SSR Wives: The Murder Of My Winter Crush Demo - CW bug 25730
-                "2712910", #Spark & Kling - CW bug 25778
-                ]:
-            ret.add("nomfdxgiman")
-
-        if appid in [
-                # OPWR may be causing text input delays in login windows in these games on Wayland due to
-                # blit happening before presentation
-                "1172620", #Sea of Thieves
-                "962130", #Grounded
-                "495420", #State of Decay 2: Juggernaut Edition
-                "976730", #Halo: The Master Chief Collection
-                "1017900", #Age of Empires: Definitive Edition
-                "1056090", #Ori and the Will of the Wisps
-                "1293830", #Forza Horizon 4
-                "1551360", #Forza Horizon 5
-                "813780", #Age of Empires II: Definitive Edition
-                "933110", #Age of Empires III: Definitive Edition
-                "1466860", #Age of Empires IV
-                "1097840", #Gears 5
-                "1244950", #Battletoads
-                "1189800", #Bleeding Edge
-                "1184050", #Gears Tactics
-                "1240440", #Halo Infinite
-                "1250410", #Microsoft Flight Simulator
-                "1672970", #Minecraft Dungeons
-                "1180660", #Tell Me Why
-                "1238430", #Tell Me Why Chapter 2
-                "1266670", #Tell Me Why Chapter 3
-                # Other issues arising from OWPR code path in apps, e. g., hitting unimplemented bits in
-                # d3dcompiler.
-                "230410", #Warframe
-                "3513350", #Wuthering Waves
-                "3728370",
-                ]:
-            ret.add("noopwr")
-
-        if appid in [
-                "2710",     #Act of War: Direct Action
-                "1621680",  #Sword and Fairy 4
-                "888040",   #Metal Fatigue
-                ]:
-            ret.add("noforcelgadd")
-
-        if appid in [
-                "257420", #Serious Sam 4
-                "2021880", #Ara: History Untold
-                ]:
-            ret.add("hidevggpu")
-
-        if appid in [
-                "1977170", #Jusant
-                ]:
-            ret.add("hideintelgpu")
-
-        if appid in [
-                "202990", #Call of Duty: Black Ops II - Multiplayer
-                "212910", #Call of Duty: Black Ops II - Zombies
-                "499100", #Dark Parables: The Exiled Prince Collector's Edition (499100)
-                "1404090", #Trivia Tricks
-                "2052410", #WITCH ON THE HOLY NIGHT
-                "789910", #Planet of the Apes: Last Frontier
-                "1183470", #Imperiums: Greek Wars
-                "876340", #VR Slots 3D
-                ]:
-            ret.add("heapdelayfree")
-
-        if appid in [
-                "21980", #Call of Juarez: Bound in Blood
-                "553850", #Helldivers 2
-                "2055290", #Sonic Colors: Ultimate
-                ]:
-            ret.add("heapzeromemory")
-
-        if appid in [
-                "71230", #Crazy Taxi
-                "3328910", #MySims Kingdom
-                ]:
-            ret.add("heaptopdown")
-
-        if appid in [
-                "2630", #Call of Duty 2
-                "1060210", #Disaster Report 4: Summer Memories
-                "414740", #RAID: World War II
-                "201510", #Flatout 3
-                "1233880", #Disgaea 4 Complete+
-                ]:
-            ret.add("nofsync")
-            ret.add("noesync")
-
-        if appid in [
-                # disable dxvknvapi for titles which dislike it
-                "1088850", #Marvel's Guardians of the Galaxy
-                "1418100", #Swords of Legends Online
-                "2080180", #Go Home Annie Demo
-                "1939100", #Go Home Annie
-                "435150", #Divinity: Original Sin 2 - Definitive Edition
-                "2176900", #Fablecraft
-                "2853730", #Skull and Bones
-                ]:
-            ret.add("disablenvapi")
-
-        if appid in [
-                "1808500", #ARC Raiders
-                "2073850", #The Finals
-                "108710", #Alan Wake
-                "202750", #Alan Wake's American Nightmare
-                "505170", #Carmageddon: Max Damage
-                "255220", #GRID Autosport
-                "44350", #GRID 2
-                "407810", #Hard Reset Redux
-                "233130", #Shadow Warrior
-                "2067160", #Simulakros
-                "2621010", #Simulakros Demo
-                "368500", #Assassin's Creed Syndicate
-                ]:
-            try:
-                with open('/proc/modules') as f:
-                    drivers = set([line.partition(' ')[0] for line in f.read().splitlines()])
-                    if not drivers.intersection({'nvidia', 'nouveau', 'nova'}):
-                        ret.add("disablenvapi")
-            except OSError:
-                ret.add("disablenvapi")
-
-
-        if appid in [
-                "2698940", #The Crew Motorfest
-                ]:
-            ret.add("hidenvgpu")
-
-        if appid in [
-                "2395210", #Tony Hawk's Pro Skater 1 + 2
-                "1577120", #The Quarry
-                ]:
-            ret.add("forcenvapi")
-
-        if appid in [
-                "1252330" #Deathloop
-                ]:
-            ret.add("hideapu")
-
-        if appid in [
-                "249610", # Galactic Arms Race
-                "287240", # Eterium Demo
-                "280200", # Eterium
-                "312530", # Duck Game
-                "1072860", # Real Scary
-                ]:
-            ret.add("fnad3d11")
-
-    #options to also be enabled for prerequisite setup steps
-    ret.add("gamedrive")
-
-    if "STEAM_COMPAT_APP_ID" in os.environ:
-        appid = os.environ["STEAM_COMPAT_APP_ID"]
-
-        if appid in [
-                "247660", #Deadly Premonition: The Director's Cut
-                "1026680", #FINAL FANTASY VIII - REMASTERED
-                "3280350", #DEATH STRANDING 2: ON THE BEACH
-                "3513350", #Wuthering Waves
-                "3837340", #FINAL FANTASY VII
-                "337000", #Deus Ex: Mankind Divided
-                ]:
-            ret.add("noxalia")
-
-        if appid in [
-                "275850", #No Man's Sky
-                "2012840", #Portal with RTX
-                ]:
-            ret.add("nohardwarescheduling")
-
-    return ret
-
-default_cpu_limit = {
-    "19900"     :  16,  # Far Cry 2
-    "298110"    :  16,  # Far Cry 4
-    "20920"     :  16,  # The Witcher 2: Assassins of Kings Enchanced Edition
-    "35130"     :  16,  # Lara Croft and the Guardian of Light
-    "55150"     :  16,  # Warhammer 40,000: Space Marine
-    "204450"    :  16,  # Call of Juarez: Gunslinger
-    "15620"     :  8,   # Warhammer 40,000: Dawn of War II
-    "20570"     :  8,   # Warhammer 40,000: Dawn of War II - Chaos Rising
-    "56400"     :  8,   # Warhammer 40,000: Dawn of War II - Retribution
-    "618970"    :  4,   # Outcast - Second Contact
-    "10150"     :  8,   # Prototype
-    "2229830"   :  1,   # Command & Conquer and The Covert Operations
-    "259170"    :  8,   # Alone in the Dark (2008)
-    "11440"     :  4,   # DiRT
-    "316260"    :  16,  # Disney Universe
-    "286810"    :  30,  # Hard Truck Apocalypse: Rise of Clans / Ex Machina: Meridian 113
-    "70000"     :  28,  # Dino D-Day
-    "115320"    :  8,   # Prototype 2
-    "65540"     :  16,  # Gothic 1 Classic
-}
 
 class Session:
     def __init__(self):
         self.log_file = None
         self.env = dict(os.environ)
         self.dlloverrides = {
-                "steam.exe": "b", #always use our special built-in steam.exe
                 "dotnetfx35.exe": "b", #replace the broken installer, as does Windows
                 "dotnetfx35setup.exe": "b",
                 "beclient.dll": "b,n",
@@ -1451,39 +1055,16 @@ class Session:
                 "winebth.sys": "d", #disable winebth.sys as it crashes winedevice.exe
         }
 
-        # CW Bug 21737. Locoland executable happens to be steam.exe.
-        if os.environ.get("SteamGameId", 0) == "352130":
-            del self.dlloverrides["steam.exe"]
+        self.dlloverrides["opencl"] = "n,d"
 
-        if os.environ.get("SteamGameId", 0) not in ["2767030", "2274200"]:
-            self.dlloverrides["opencl"] = "n,d"
-
-        self.compat_config = default_compat_config()
+        self.compat_config = set()
         self.cmdlineappend = []
 
-        if "STEAM_COMPAT_CONFIG" in os.environ:
-            config = os.environ["STEAM_COMPAT_CONFIG"]
+        #large address aware on by default
+        self.compat_config.add("forcelgadd")
 
-            while config:
-                (cur, _, config) = config.partition(',')
-                if cur.startswith("cmdlineappend:"):
-                    while comma_escaped(cur):
-                        (a, _, c) = config.partition(',')
-                        cur = cur[:-1] + ',' + a
-                        config = c
-                    self.cmdlineappend.append(cur[14:].replace('\\\\','\\'))
-                else:
-                    self.compat_config.add(cur)
-
-        #turn forcelgadd on by default unless it is disabled in compat config
-        if "noforcelgadd" not in self.compat_config:
-            self.compat_config.add("forcelgadd")
-
-        appid = os.environ.get("SteamGameId", 0)
         if "PROTON_CPU_TOPOLOGY" in self.env:
             self.env["WINE_CPU_TOPOLOGY"] = self.env["PROTON_CPU_TOPOLOGY"]
-        elif appid in default_cpu_limit:
-            self.env["WINE_CPU_TOPOLOGY"] = str(default_cpu_limit[appid])
 
         if "WINE_HIDE_AMD_GPU" not in self.env and appid in [
                     "1282690",
@@ -1496,17 +1077,7 @@ class Session:
             self.env["WINE_DISABLE_GAMESCOPE_MAX_SIZE_HACK"] = "1"
 
     def init_wine(self):
-        if "HOST_LC_ALL" in self.env and len(self.env["HOST_LC_ALL"]) > 0:
-            #steam sets LC_ALL=C to help some games, but Wine requires the real value
-            #in order to do path conversion between win32 and host. steam sets
-            #HOST_LC_ALL to allow us to use the real value.
-            self.env["LC_ALL"] = self.env["HOST_LC_ALL"]
-        else:
-            self.env.pop("LC_ALL", "")
-
-        # CW-Bug-Id: #23185 Enable the new SDL 2.30 Steam Input integration.
-        if "SteamVirtualGamepadInfo_Proton" in self.env and "SteamVirtualGamepadInfo" not in self.env:
-            self.env["SteamVirtualGamepadInfo"] = self.env["SteamVirtualGamepadInfo_Proton"]
+        self.env.pop("LC_ALL", "")
 
         self.env.pop("WINEARCH", "")
         if os.environ.get("PROTON_USE_WOW64", None) == "1" and platform.machine() == "x86_64":
@@ -1534,27 +1105,7 @@ class Session:
         # single value at first use, rather than each being set here too.
         self.env["TUXBLOX_WEBVIEW_DIR"] = g_proton.lib_dir + "tuxblox-webview/"
 
-        if "STEAM_COMPAT_MEDIA_PATH" in os.environ:
-            old_audiofoz_path = os.environ["STEAM_COMPAT_MEDIA_PATH"] + "/audio.foz"
-            if file_exists(old_audiofoz_path, follow_symlinks=False):
-                os.remove(old_audiofoz_path)
-            self.env["MEDIACONV_AUDIO_DUMP_FILE"] = os.environ["STEAM_COMPAT_MEDIA_PATH"] + "/audiov2.foz"
-            self.env["MEDIACONV_VIDEO_DUMP_FILE"] = os.environ["STEAM_COMPAT_MEDIA_PATH"] + "/video.foz"
-
-        if "STEAM_COMPAT_TRANSCODED_MEDIA_PATH" in os.environ:
-            self.env["MEDIACONV_AUDIO_TRANSCODED_FILE"] = os.environ["STEAM_COMPAT_TRANSCODED_MEDIA_PATH"] + "/transcoded_audio.foz"
-            self.env["MEDIACONV_VIDEO_TRANSCODED_FILE"] = os.environ["STEAM_COMPAT_TRANSCODED_MEDIA_PATH"] + "/transcoded_video.foz"
-
-        if os.environ.get("PROTON_MEDIACONV_NO_VIDEO",
-            "1" if os.environ.get("SteamGameId", 0) in (
-                "283640", # Salt and Sanctuary
-                "455490", # Don't Die Dateless, Dummy!
-                "787810", # Rogue Heroes: Ruins of Tasos
-                "1199570", # Rogue Heroes: Ruins of Tasos Demo
-                "1491460", # Tor Eternum
-                "1588990", # Tor Eternum Demo
-                "1895130", # Darza's Dominion
-            ) else "0") != "0":
+        if os.environ.get("PROTON_MEDIACONV_NO_VIDEO", "0") != "0":
             self.env["MEDIACONV_BLANK_VIDEO_FILE"] = g_proton.media_dir + "blank.mka"
         else:
             self.env["MEDIACONV_BLANK_VIDEO_FILE"] = g_proton.media_dir + "blank.mkv"
@@ -1588,16 +1139,9 @@ class Session:
 
     def setup_logging(self, *, append_forever):
         basedir = self.env.get("PROTON_LOG_DIR", os.environ["HOME"])
+        lfile_path = basedir + "/proton.log"
 
-        if append_forever:
-            #SteamGameId is not always available
-            lfile_path = basedir + "/steam-proton.log"
-        else:
-            if "SteamGameId" not in os.environ:
-                return False
-
-            lfile_path = basedir + "/steam-" + os.environ["SteamGameId"] + ".log"
-
+        if not append_forever:
             if file_exists(lfile_path, follow_symlinks=False):
                 os.remove(lfile_path)
 
@@ -1626,25 +1170,6 @@ class Session:
             "Config": {},
             "ThunksDB": {}
         }
-
-        # appinfo based environment variable as default
-        try:
-            app_config["Config"]["TSOEnabled"] = self.env['STEAM_FEX_TSOENABLED']
-        except (KeyError, ValueError):
-            pass
-        try:
-            app_config["Config"]["Multiblock"] = self.env['STEAM_FEX_MULTIBLOCK']
-        except (KeyError, ValueError):
-            pass
-
-        # if user has specified an override, take those values
-        try:
-            config_env = self.env['STEAM_COMPAT_FEX_CONFIG']
-            if config_env:
-                app_config["Config"]["TSOEnabled"] = "1" if ("TSOEnabled:1" in config_env) else "0"
-                app_config["Config"]["Multiblock"] = "1" if ("Multiblock:1" in config_env) else "0"
-        except KeyError:
-            pass
 
         if "PROTON_LOG" in self.env:
             app_config["Config"]["SilentLog"] = "0" if self.log_enabled_for("fex", True) else "1"
@@ -1700,8 +1225,6 @@ class Session:
         self.check_environment("PROTON_HIDE_NVIDIA_GPU", "hidenvgpu")
         self.check_environment("PROTON_HIDE_VANGOGH_GPU", "hidevggpu")
         self.check_environment("PROTON_HIDE_INTEL_GPU", "hideintelgpu")
-        self.check_environment("PROTON_SET_GAME_DRIVE", "gamedrive")
-        self.check_environment("PROTON_SET_STEAM_DRIVE", "steamdrive")
         self.check_environment("PROTON_NO_XIM", "noxim")
         self.check_environment("PROTON_HEAP_DELAY_FREE", "heapdelayfree")
         self.check_environment("PROTON_HEAP_ZERO_MEMORY", "heapzeromemory")
@@ -1719,100 +1242,6 @@ class Session:
             self.env["MESA_EXTENSION_MAX_YEAR"] = "2003"
             #nvidia override
             self.env["__GL_ExtensionStringVersion"] = "17700"
-
-        if os.environ.get("SteamGameId", 0) in [
-                "661920", #Claybook
-                "558260", #Gravel
-                "386360", #SMITE
-                "487720", #Agony
-                "879420", #Agony UNRATED
-                "649950", #Ashen
-                "1150080", #Azur Lane: Crosswave
-                "463150", #BARRIER X
-                "420290", #Blackwake
-                "1092660", #Blair Witch
-                "1052070", #Burning Daylight
-                "399810", #Call of Cthulhu
-                "967390", #Chronos: Before the Ashes
-                "968870", #Close to the Sun
-                "544920", #Darwin Project
-                "1055610", #Deep Space Battle Simulator
-                "682990", #Drug Dealer Simulator
-                "551770", #ECHO
-                "392110", #ENDLESS Space 2
-                "447020", #Farming Simulator 17
-                "834280", #Fishing Sim World: Pro Tour
-                "890880", #FROSTBITE: Deadly Climate
-                "433530", #Heliborne - Enhanced Edition
-                "521890", #Hello Neighbor
-                "783170", #INSOMNIA: The Ark
-                "1195460", #Last Year
-                "1029890", #Layers of Fear 2 (2019)
-                "535850", #Micro Machines World Series
-                "711750", #Monster Energy Supercross - The Official Videogame
-                "882020", #Monster Energy Supercross - The Official Videogame 2
-                "824280", #Monster Jam Steel Titans
-                "775900", #MotoGP18
-                "415200", #Motorsport Manager
-                "748360", #MY HERO ONE'S JUSTICE
-                "1058450", #MY HERO ONE'S JUSTICE 2
-                "556180", #Mysterium: A Psychic Clue Game
-                "561600", #MXGP3 - The Official Motocross Videogame
-                "798290", #MXGP PRO
-                "366870", #Narcosis
-                "485030", #PLANET ALPHA
-                "469610", #Rick and Morty: Virtual Rick-ality
-                "759740", #RIDE 3
-                "1342260", #SAMURAI SHODOWN
-                "425670", #Seraph
-                "1096570", #SONG OF HORROR COMPLETE EDITION
-                "492230", #Space Hulk: Tactics
-                "996580", #Spyro Reignited Trilogy
-                "437630", #State of Mind
-                "442780", #STRAFE: Gold Edition
-                "433100", #The Town of Light
-                "406970", #The Uncertain: Last Quiet Day
-                "451520", #theBlu: Season 1
-                "1237970", #Titanfall® 2
-                "1051200", #Trover Saves the Universe
-                "285190", #Warhammer 40,000: Dawn of War III
-                "1133320", #Westworld Awakening
-                ]:
-            self.env["OPENSSL_ia32cap"] = "~0x20000000"
-
-        if os.environ.get("SteamGameId", 0) in [
-                "500810", #Arcanum
-                "4249100", #Resident Evil (1996)
-                "4249110", #Resident Evil 2 (1998)
-                "4249130", #Dino Crisis
-                "4249150", #Breath of Fire IV
-                ]:
-            self.dlloverrides["ddraw"] = "n,b"
-
-        # CW Bug 26050
-        if os.environ.get("SteamGameId", 0) == "3780660":
-            self.dlloverrides["dinput"] = "n,b"
-
-        # CW Bug 26133
-        if os.environ.get("SteamGameId", 0) == "2471120":
-            self.dlloverrides["winmm"] = "n,b"
-
-        # CW Bug 26376
-        if os.environ.get("SteamGameId", 0) == "1928420":
-            self.dlloverrides["gameinput"] = "d"
-
-        if "PROTON_LIMIT_RESOLUTIONS" not in self.env:
-            if os.environ.get("SteamGameId", 0) in [
-                    "39540", #SpellForce: Platinum Edition
-                    ]:
-                self.env["PROTON_LIMIT_RESOLUTIONS"] = "16"
-            elif os.environ.get("SteamGameId", 0) in [
-                    "524220", #NieR: Automata
-                    "814380", #Sekiro: Shadows Die Twice
-                    "374320", #DARK SOULS III
-                    "357190", #Ultimate Marvel vs Capcom 3
-                    ]:
-                self.env["PROTON_LIMIT_RESOLUTIONS"] = "32"
 
         if "forcelgadd" in self.compat_config:
             self.env["WINE_LARGE_ADDRESS_AWARE"] = "1"
@@ -1860,13 +1289,10 @@ class Session:
         if "noopwr" in self.compat_config:
             self.env["WINE_DISABLE_VULKAN_OPWR"] = "1"
 
+        # xalia (gamepad-UI helper) is not shipped; keep it off unless the
+        # user forces it via env.
         if "PROTON_USE_XALIA" not in self.env:
-            if "noxalia" in self.compat_config:
-                self.env["PROTON_USE_XALIA"] = "0"
-            else:
-                self.env["PROTON_USE_XALIA"] = "1"
-                if "xalia" not in self.compat_config:
-                    self.env["XALIA_SUPPORTED_ONLY"] = "1"
+            self.env["PROTON_USE_XALIA"] = "0"
 
         if "nohardwarescheduling" in self.compat_config and "WINE_DISABLE_HARDWARE_SCHEDULING" not in self.env:
             self.env["WINE_DISABLE_HARDWARE_SCHEDULING"] = "1"
@@ -1877,17 +1303,9 @@ class Session:
         if "fnad3d11" in self.compat_config and "FNA3D_FORCE_DRIVER" not in self.env:
             self.env["FNA3D_FORCE_DRIVER"] = "D3D11"
 
-        if (os.environ.get("SteamGameId", 0) == "2322010" and    # God of War: Ragnarok
-            os.environ.get("SteamDeck", 0) == "1"):
-            # Disable hidraw for Sony DualShock and DualSense controllers.
-            self.env["PROTON_DISABLE_HIDRAW"] = "0x054C/0x05C4,0x054C/0x09CC,0x054C/0x0BA0,0x054C/0x0CE6,0x054C/0x0DF2"
-
-
         if "__GLVND_DISALLOW_PATCHING" not in self.env:
             self.env["__GLVND_DISALLOW_PATCHING"] = "1"
 
-        if (os.environ.get("SteamGameId", 0) == "1183470"): # Imperiums: Greek Wars
-            self.env.setdefault("WINE_MONO_HIDETYPES", "1")
         self.env.setdefault("WINE_MONO_HIDETYPES", "0")
 
         # NVIDIA software may check for the "DriverStore" by querying the
@@ -1904,10 +1322,7 @@ class Session:
         if "PROTON_LOG" in self.env and nonzero(self.env["PROTON_LOG"]):
             if self.setup_logging(append_forever=False):
                 self.log_file.write("======================\n")
-                with open(g_proton.version_file, "r") as f:
-                    self.log_file.write("Proton: " + f.readline().strip() + "\n")
-                if "SteamGameId" in self.env:
-                    self.log_file.write("SteamGameId: " + self.env["SteamGameId"] + "\n")
+                self.log_file.write("Proton: " + TUXBLOX_VERSION + "\n")
                 self.log_file.write("Command: " + str(sys.argv[2:] + self.cmdlineappend) + "\n")
                 self.log_file.write("Options: " + str(self.compat_config) + "\n")
 
@@ -1979,19 +1394,6 @@ class Session:
             self.env["DXVK_NVAPI_DRIVER_VERSION"] = "99999"
             self.env["WINE_HIDE_AMD_GPU"] = "1"
 
-        if not ("WINEDLLOVERRIDES" in g_session.env and "atiadlxx" in g_session.env["WINEDLLOVERRIDES"]) and "SteamAppId" in os.environ:
-            if os.environ["SteamAppId"] in [
-                    "2767030",
-                ]:
-                g_session.dlloverrides["atiadlxx"] = "b"
-
-        if not ("PROTON_LIMIT_ADDRESS_SPACE" in g_session.env) and "SteamAppId" in os.environ:
-            if os.environ["SteamAppId"] in [
-                    "1282270",
-                    "2963870",
-                ]:
-                self.env["PROTON_LIMIT_ADDRESS_SPACE"] = "1"
-
         s = ""
         for dll in self.dlloverrides:
             setting = self.dlloverrides[dll]
@@ -2002,12 +1404,8 @@ class Session:
         append_to_env_str(self.env, "WINEDLLOVERRIDES", s, ";")
 
         if platform.machine() == 'aarch64':
-            if os.environ.get("SteamGameId", 0) == "1167630": # Teardown
-                # https://github.com/microsoft/mimalloc/issues/958
-                self.env["MIMALLOC_DISABLE_REDIRECT"] = "1"
-
             if not 'FEX_APP_CONFIG' in self.env:
-                # custom per-app config driven by Steam env vars
+                # custom per-app FEX config
                 app_config = self.generate_fex_app_config()
                 with open(g_compatdata.fex_config_file, 'w') as f:
                     f.write(json.dumps(app_config, indent=2))
@@ -2146,10 +1544,7 @@ class Session:
             proc.wait()
 
     def run(self):
-        if shutil.which('steam-runtime-launcher-interface-0') is not None:
-            adverb = ['steam-runtime-launcher-interface-0', 'proton']
-        else:
-            adverb = []
+        adverb = []
 
         if self.remote_debug_cmd:
             remote_debug_cmd = self.remote_debug_cmd
@@ -2161,7 +1556,7 @@ class Session:
             remote_debug_proc = None
 
         # TuxBlox: run the target directly instead of through Proton's built-in
-        # "c:\windows\system32\steam.exe" helper (steam_helper/steam.c). That helper
+        # "c:\windows\system32\steam.exe" helper (steam_helper, since removed). That helper
         # exists to emulate a live Steamworks client for real Steam games (achievements,
         # overlay, cloud saves, per-title workarounds like the CoD branch this replaces)
         # and, on some code paths, actively forwards to the host's native Steam client.
@@ -2227,16 +1622,20 @@ class Session:
         return rc
 
 if __name__ == "__main__":
-    if "STEAM_COMPAT_DATA_PATH" not in os.environ:
-        log("No compat data path?")
+    # Handled before anything else: needs no env vars, no prefix, no session.
+    if "--version" in sys.argv:
+        print(TUXBLOX_VERSION)
+        sys.exit(0)
+
+    if "TUXBLOX_PREFIX" not in os.environ:
+        log("TUXBLOX_PREFIX is not set?")
         sys.exit(1)
 
     g_proton = Proton(os.path.dirname(sys.argv[0]))
 
     g_proton.cleanup_legacy_dist()
-    g_proton.do_steampipe_fixups()
 
-    g_compatdata = CompatData(os.environ["STEAM_COMPAT_DATA_PATH"])
+    g_compatdata = CompatData(os.environ["TUXBLOX_PREFIX"])
 
     g_session = Session()
 
@@ -2251,8 +1650,6 @@ if __name__ == "__main__":
     rc = 0
     if sys.argv[1] == "run":
         #start target app
-        setup_game_dir_drive()
-        setup_steam_dir_drive()
         rc = g_session.run()
     elif sys.argv[1] == "waitforexitandrun":
         #wait for wineserver to shut down

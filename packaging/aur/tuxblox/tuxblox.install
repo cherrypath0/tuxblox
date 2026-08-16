@@ -1,0 +1,37 @@
+# TuxBlox - Linux Compatibility Layer for the Roblox Engine
+# Copyright (C) 2026 TuxBlox Developers
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+post_install() {
+    cat <<'EOF'
+:: TuxBlox installs per-user, exactly like the official installer download:
+   run 'tuxblox' (or the "TuxBlox Installer" menu entry). The first run
+   downloads ~500 MB into ~/.tuxblox, registers the launcher's own menu
+   entry and roblox:// URL handlers, then starts the launcher. From then
+   on the per-user install updates itself; this package is only the
+   bootstrap.
+:: Running Roblox itself needs a working Vulkan driver for your GPU
+   (vulkan-radeon / vulkan-intel / nvidia-utils).
+EOF
+}
+
+post_remove() {
+    cat <<'EOF'
+:: Per-user data in ~/.tuxblox (including the Wine prefix and any Roblox
+   login) was NOT removed, nor were per-user menu entries or roblox:// URL
+   handlers. Each user can fully remove theirs with:
+       ~/.tuxblox/TuxBloxInstaller --uninstall
+EOF
+}

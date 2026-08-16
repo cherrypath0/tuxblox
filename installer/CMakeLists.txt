@@ -71,8 +71,38 @@ add_library(installer_core STATIC
 target_include_directories(installer_core PUBLIC
     src third_party
     ${CURL_INCLUDE_DIRS} ${ARCHIVE_INCLUDE_DIRS} ${OPENSSL_INCLUDE_DIRS})
+# Statically link OpenSSL rather than ${OPENSSL_LIBRARIES} (dynamic) -- this
+# binary is built inside the pinned Ubuntu 20.04 container, which ships
+# OpenSSL 1.1 (libcrypto.so.1.1). Distros that have since moved to OpenSSL 3
+# (e.g. Arch) don't carry a libcrypto.so.1.1 compat package by default, so a
+# dynamically-linked binary built here fails to even start elsewhere with
+# "error while loading shared libraries: libcrypto.so.1.1: cannot open
+# shared object file". Static linking bakes the exact OpenSSL 1.1 code this
+# binary was built and tested against directly into it, removing the host
+# OpenSSL version as a runtime dependency entirely. CURL_LIBRARIES/
+# ARCHIVE_LIBRARIES stay dynamic -- their SONAMEs (libcurl.so.4,
+# libarchive.so.13) are far more stable across distros and don't hit this.
+find_library(OPENSSL_SSL_STATIC_LIB NAMES libssl.a REQUIRED)
+find_library(OPENSSL_CRYPTO_STATIC_LIB NAMES libcrypto.a REQUIRED)
 target_link_libraries(installer_core PUBLIC
-    ${CURL_LIBRARIES} ${ARCHIVE_LIBRARIES} ${OPENSSL_LIBRARIES} Threads::Threads)
+    ${CURL_LIBRARIES} ${ARCHIVE_LIBRARIES}
+    ${OPENSSL_SSL_STATIC_LIB} ${OPENSSL_CRYPTO_STATIC_LIB} ${CMAKE_DL_LIBS}
+    Threads::Threads)
+# --exclude-libs keeps libssl.a/libcrypto.a's symbols out of the final
+# binary's DYNAMIC symbol table (still linked in and callable from our own
+# code -- this only controls export visibility, not linkage). Without this,
+# our statically-linked OpenSSL 1.1 exports symbols like
+# EC_GROUP_order_bits/ENGINE_init globally, which the dynamic linker can
+# then hand to libcurl.so.4's own dynamically-loaded libssl.so.3/
+# libcrypto.so.3 (OpenSSL 3, on any host where that's what's installed)
+# instead of its own -- two different, ABI-incompatible OpenSSL major
+# versions calling into each other's functions with each other's struct
+# layouts. Confirmed (identical symptom, same fix, in launcher/CMakeLists.txt)
+# via gdb backtrace: SIGSEGV in EC_GROUP_order_bits reached via libcurl's
+# own TLS setup, on the first network call after switching OpenSSL to
+# static linking.
+target_link_options(installer_core PUBLIC
+    -Wl,--exclude-libs=libssl.a -Wl,--exclude-libs=libcrypto.a)
 target_compile_options(installer_core PUBLIC
     ${CURL_CFLAGS_OTHER} ${ARCHIVE_CFLAGS_OTHER} ${OPENSSL_CFLAGS_OTHER})
 

@@ -55,39 +55,57 @@ VersionsTab::VersionsTab(App& app, QWidget* parent) : QWidget(parent), app_(app)
     layout->setContentsMargins(24, 20, 24, 16);
     layout->setSpacing(12);
 
-    auto* toolbar = new QHBoxLayout();
-    toolbar->setSpacing(8);
+    // Two rows, not one -- six controls (combo, channel field, two quick-
+    // download buttons, hash field, manual-download button) crammed into a
+    // single QHBoxLayout don't fit this window's minimum width (640px):
+    // Qt's layout engine has no wrapping/eliding fallback, so once the row's
+    // total minimum-size-hint width exceeds what's available it just
+    // compresses everything below its natural size, visibly overlapping and
+    // truncating button text. Splitting into a "quick actions" row and a
+    // "manual hash" row gives every control room to render at its natural
+    // size at both the minimum and default window width.
+    auto* quickRow = new QHBoxLayout();
+    quickRow->setSpacing(8);
 
     targetSelect_ = new QComboBox(this);
     targetSelect_->addItem("Player");
     targetSelect_->addItem("Studio");
-    toolbar->addWidget(targetSelect_);
+    quickRow->addWidget(targetSelect_);
 
     channelField_ = new QLineEdit("live", this);
     channelField_->setPlaceholderText("channel (default: live)");
     channelField_->setMaximumWidth(140);
-    toolbar->addWidget(channelField_);
+    quickRow->addWidget(channelField_);
 
-    latestButton_ = new QPushButton(paddedIcon(":/icons/download.png", 18, 6), "Download Latest", this);
+    latestButton_ = new QPushButton(paddedIcon(":/icons/download.png", 18, 6), "Latest", this);
+    latestButton_->setObjectName("toolbarButton");
     latestButton_->setIconSize(iconSizeWithGap(18, 6));
     connect(latestButton_, &QPushButton::clicked, this, &VersionsTab::onDownloadLatest);
-    toolbar->addWidget(latestButton_);
+    quickRow->addWidget(latestButton_);
 
-    previousButton_ = new QPushButton(paddedIcon(":/icons/download.png", 18, 6), "Download Previous", this);
+    previousButton_ = new QPushButton(paddedIcon(":/icons/download.png", 18, 6), "Previous", this);
+    previousButton_->setObjectName("toolbarButton");
     previousButton_->setIconSize(iconSizeWithGap(18, 6));
     connect(previousButton_, &QPushButton::clicked, this, &VersionsTab::onDownloadPrevious);
-    toolbar->addWidget(previousButton_);
+    quickRow->addWidget(previousButton_);
+
+    quickRow->addStretch(1);
+    layout->addLayout(quickRow);
+
+    auto* manualRow = new QHBoxLayout();
+    manualRow->setSpacing(8);
 
     hashField_ = new QLineEdit(this);
     hashField_->setPlaceholderText("version-... (manual hash)");
-    toolbar->addWidget(hashField_, 1);
+    manualRow->addWidget(hashField_, 1);
 
     manualButton_ = new QPushButton(paddedIcon(":/icons/download.png", 18, 6), "Download", this);
+    manualButton_->setObjectName("toolbarButton");
     manualButton_->setIconSize(iconSizeWithGap(18, 6));
     connect(manualButton_, &QPushButton::clicked, this, &VersionsTab::onDownloadManualHash);
-    toolbar->addWidget(manualButton_);
+    manualRow->addWidget(manualButton_);
 
-    layout->addLayout(toolbar);
+    layout->addLayout(manualRow);
 
     progressLabel_ = new QLabel(this);
     progressLabel_->hide();
@@ -199,6 +217,7 @@ void VersionsTab::rebuildCardList(const VersionsManifest& versions) {
                 row->addWidget(activeLabel);
             } else {
                 auto* pinButton = new QPushButton("Set Active", card);
+                pinButton->setObjectName("toolbarButton");
                 connect(pinButton, &QPushButton::clicked, this,
                         [this, target, hash = v.hash] { app_.requestSetActiveVersion(target, hash); });
                 row->addWidget(pinButton);

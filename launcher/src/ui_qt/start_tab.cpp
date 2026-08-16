@@ -104,8 +104,13 @@ StartTab::StartTab(App& app, QWidget* parent) : QWidget(parent), app_(app) {
 void StartTab::updateFromSnapshot(const AppSnapshot& snap) {
     const bool playerNeedsInstall = snap.versions.player.activeHash.empty();
     const bool studioNeedsInstall = snap.versions.studio.activeHash.empty();
-    playerButton_->setText(playerNeedsInstall ? "Install & Launch Player" : "Launch Player");
-    studioButton_->setText(studioNeedsInstall ? "Install & Launch Studio" : "Launch Studio");
+    // "&&" not "&" -- QPushButton::setText() treats a single '&' as a
+    // keyboard-mnemonic marker (the following character gets underlined and
+    // the '&' itself is dropped from display), not literal text. A plain
+    // "Install & Launch" rendered as "Install _aunch" with the L consumed as
+    // the mnemonic character instead of showing an ampersand at all.
+    playerButton_->setText(playerNeedsInstall ? "Install && Launch Player" : "Launch Player");
+    studioButton_->setText(studioNeedsInstall ? "Install && Launch Studio" : "Launch Studio");
 
     const bool updating = snap.update.phase == UpdatePhase::CheckingManifest ||
                            snap.update.phase == UpdatePhase::PreparingUpdater;

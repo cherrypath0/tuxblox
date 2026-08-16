@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "app.h"
+#include "ui_qt/icon_utils.h"
 #include "ui_qt/main_window.h"
 #include "ui_qt/message_box.h"
 #include "ui_qt/theme.h"
@@ -220,8 +221,12 @@ int main(int argc, char** argv) {
     // Application-wide default so every top-level window (not just
     // MainWindow, which also sets its own below) gets the TuxBlox icon
     // instead of Qt's generic fallback -- this is also what X11/xcb
-    // publishes as _NET_WM_ICON for the taskbar/dock entry.
-    qapp.setWindowIcon(QIcon(":/branding/tuxblox_window_icon.png"));
+    // publishes as _NET_WM_ICON for the taskbar/dock entry. Uses
+    // multiSizeWindowIcon(), not a plain QIcon(path) -- see its own doc
+    // comment: a single-size icon was observed to make Qt's xcb backend
+    // publish an empty (zero-data) _NET_WM_ICON property instead of the
+    // actual image.
+    qapp.setWindowIcon(tuxblox::multiSizeWindowIcon(":/branding/tuxblox_window_icon.png"));
 
     // Must happen before setStyleSheet() below: QSS "font-weight: 600"
     // rules only resolve to the embedded SemiBold weight if that weight is
@@ -231,6 +236,18 @@ int main(int argc, char** argv) {
     qapp.setFont(appFont);
 
     qapp.setStyleSheet(tuxblox::theme::stylesheet());
+
+    // Before the window is shown, not after: some window managers/
+    // compositors (observed on KDE Plasma/KWin) resolve a new window's
+    // taskbar/titlebar icon by matching its app_id/WM_CLASS against an
+    // installed .desktop file exactly once, at window-creation time, and
+    // never retry -- if that file doesn't exist yet, the icon stays blank
+    // for the window's whole lifetime even once ensureDesktopIntegration()
+    // (below) writes it moments later. writeDesktopEntries() is the fast,
+    // synchronous subset of that work (just the icon PNG + .desktop file
+    // writes); the slower xdg-mime/database-refresh calls stay in
+    // ensureDesktopIntegration() below, after show(), exactly as before.
+    writeDesktopEntries(exePath);
 
     MainWindow window(app);
     window.show();

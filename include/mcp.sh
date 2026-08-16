@@ -18,7 +18,6 @@
 cd "$(dirname "$0")" || exit 1
 
 PREFIX_PATH="$(pwd)/runtime"
-CLIENT_PATH="$HOME/.tuxblox"
 protonLogDir="$(pwd)/logs"
 
 findExe() {
@@ -83,10 +82,11 @@ fi
 mcpExe="$(pwd)/$mcpExe"
 
 protonEnv=(
-    "STEAM_COMPAT_DATA_PATH=$PREFIX_PATH"
-    "STEAM_COMPAT_CLIENT_INSTALL_PATH=$CLIENT_PATH"
+    "TUXBLOX_PREFIX=$PREFIX_PATH"
     "PROTON_LOG_DIR=$protonLogDir"
     "DXVK_ASYNC=1"
 )
 
-env "${protonEnv[@]}" "$(pwd)/ProtonBuild/dist/proton" run "$mcpExe" "$@"
+# Lives next to proton/ in both homes this script ships to (build/ in the
+# repo, ~/.tuxblox when installed), so the path is relative to this script.
+env "${protonEnv[@]}" "$(pwd)/proton/main" run "$mcpExe" "$@"

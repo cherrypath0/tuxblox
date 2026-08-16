@@ -80,7 +80,7 @@ xdg-mime default tuxblox-player-dev.desktop x-scheme-handler/roblox-player
 xdg-mime default tuxblox-studio-dev.desktop x-scheme-handler/roblox-studio
 xdg-mime default tuxblox-studio-dev.desktop x-scheme-handler/roblox-studio-auth
 
-echo "Registered this repo checkout (via launch.sh, prefix: $repoDir/runtime) as the"
+echo "Registered this repo checkout (via launch.sh, prefix: $repoDir/build/runtime) as the"
 echo "handler for roblox:, roblox-player:, roblox-studio:, and roblox-studio-auth: links."
 echo "An installed TuxBloxLauncher will no longer revert this on its own -- it only"
 echo "reclaims a scheme if the default isn't one of these three dev handlers."

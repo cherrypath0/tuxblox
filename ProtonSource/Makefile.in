@@ -47,9 +47,6 @@ DST_DIR := $(DST_BASE)/files
 DST_LIBDIR := $(DST_DIR)/lib
 DIST_PREFIX := $(DST_DIR)/share/default_pfx/
 DIST_PREFIX_ARM64 := $(DST_DIR)/share/default_pfx_arm64/
-DIST_VERSION := $(DST_BASE)/version
-DEPLOY_DIR := ./deploy
-REDIST_DIR := ./redist
 
 i386_CFLAGS    := -mstackrealign -march=nocona -mtune=core-avx2 -mfpmath=sse
 x86_64_CFLAGS  := -mcmodel=small -march=nocona -mtune=core-avx2 -mfpmath=sse
@@ -406,64 +403,6 @@ $(eval $(call rules-source,glslang,$(SRCDIR)/glslang))
 $(eval $(call rules-cmake,glslang,i386,unix))
 $(eval $(call rules-cmake,glslang,x86_64,unix))
 $(eval $(call rules-cmake,glslang,aarch64,unix))
-
-
-##
-## lsteamclient
-##
-
-# LSTEAMCLIENT_DEPENDS = wine
-
-# $(eval $(call rules-source,lsteamclient,$(SRCDIR)/lsteamclient))
-# $(eval $(call rules-makedep,lsteamclient,i386))
-# $(eval $(call rules-makedep,lsteamclient,x86_64))
-# $(eval $(call rules-makedep,lsteamclient,aarch64))
-
-
-##
-## openxr
-## Note 32-bit is not supported by SteamVR, so we don't build it.
-##
-
-# OPENXR_CMAKE_ARGS = -DHAVE_FILESYSTEM_WITHOUT_LIB=0
-
-# $(eval $(call rules-source,openxr,$(SRCDIR)/OpenXR-SDK))
-# # $(eval $(call rules-cmake,openxr,i386,unix))
-# $(eval $(call rules-cmake,openxr,x86_64,unix))
-# $(eval $(call rules-cmake,openxr,aarch64,unix))
-
-
-##
-## wineopenxr
-## Note 32-bit is not supported by SteamVR, so we don't build it.
-##
-
-# WINEOPENXR_LDFLAGS = -lopenxr_loader
-# WINEOPENXR_DEPENDS = wine openxr
-
-# WINEOPENXR_aarch64_PE_ARCHS = arm64ec x86_64
-
-# $(eval $(call rules-source,wineopenxr,$(SRCDIR)/wineopenxr))
-# $(eval $(call rules-makedep,wineopenxr,x86_64))
-# $(eval $(call rules-makedep,wineopenxr,aarch64))
-
-WINEOPENXR64_JSON := $(DST_DIR)/share/openxr/wineopenxr64.json
-$(WINEOPENXR_SRC)/wineopenxr64.json: wineopenxr
-$(WINEOPENXR64_JSON): $(WINEOPENXR_SRC)/wineopenxr64.json
-	mkdir -p $(dir $@)
-	cp -a $< $@
-
-
-##
-## steam.exe
-##
-
-STEAMEXE_DEPENDS = wine
-
-$(eval $(call rules-source,steamexe,$(SRCDIR)/steam_helper))
-$(eval $(call rules-makedep,steamexe,i386))
-$(eval $(call rules-makedep,steamexe,x86_64))
-$(eval $(call rules-makedep,steamexe,aarch64))
 
 
 ##
@@ -867,12 +806,7 @@ $(OBJ)/.fex-post-source:
 	git -C $(SRCDIR)/FEX rev-parse --short=7 HEAD > $(FEX_SRC)/.git_rev
 	touch $@
 
-FEX_CONFIG_JSON := $(DST_DIR)/share/fex-emu/Config.json
-$(FEX_CONFIG_JSON): $(SRCDIR)/FEX_Config.json
-	mkdir -p $(dir $@)
-	cp -a $< $@
-
-default_pfx: fex $(FEX_CONFIG_JSON)
+default_pfx: fex
 endif
 
 
@@ -1233,32 +1167,6 @@ all-dist: $(DIST_WINEMONO)
 
 
 ##
-## xalia
-##
-
-XALIA_VER := 0.4.9
-XALIA_ZIP := xalia-$(XALIA_VER)-net48-mono.zip
-DIST_XALIA_DIR := $(DST_DIR)/share/xalia
-DIST_XALIA := $(OBJ)/.xalia-dist
-XALIA_ZIP_URL := https://github.com/madewokherd/xalia/releases/download/xalia-$(XALIA_VER)/$(XALIA_ZIP)
-
-$(SRC)/contrib/$(XALIA_ZIP):
-	mkdir -p $(dir $@)
-	wget --no-use-server-timestamps -O $@ $(XALIA_ZIP_URL) || (rm $@; false)
-
-$(DIST_XALIA): $(SRC)/contrib/$(XALIA_ZIP) $(SRC)/xalia-fixups.gudl
-	rm -rf $(DIST_XALIA_DIR)
-	mkdir -p $(DIST_XALIA_DIR)
-	unzip $< -d $(DIST_XALIA_DIR)
-	mv $(DIST_XALIA_DIR)/main.gudl $(DIST_XALIA_DIR)/main.gudl.orig
-	cat $(SRC)/xalia-fixups.gudl $(DIST_XALIA_DIR)/main.gudl.orig|sed 's/\xef\xbb\xbf//' > $(DIST_XALIA_DIR)/main.gudl
-	rm $(DIST_XALIA_DIR)/main.gudl.orig
-	touch $@
-
-all-dist: $(DIST_XALIA)
-
-
-##
 ## webkitgtk (bundled WebView2 replacement backend)
 ##
 ## Vendored as a prebuilt, relocatable tarball -- see ../webkitgtk-bundle/README.md for
@@ -1363,7 +1271,7 @@ endif
 ## default_pfx
 ##
 
-default_pfx: wine gst_good gst_bad gst_libav steamexe dxvk dxvk-nvapi vkd3d-proton
+default_pfx: wine gst_good gst_bad gst_libav dxvk dxvk-nvapi vkd3d-proton
 	find $(DST_LIBDIR)/wine -type f -execdir chmod a-w '{}' '+'
 	rm -rf $(abspath $(DIST_PREFIX))
 	rm -rf $(abspath $(DIST_PREFIX_ARM64))
@@ -1375,31 +1283,6 @@ ifneq ($(findstring aarch64,$(unix_ARCHS)),)
 endif
 
 all-dist: default_pfx
-
-
-##
-## toolmanifest.vdf
-##
-
-TOOLMANIFEST_VDF_SRC := toolmanifest_$(TARGET_ARCH).vdf
-DIST_TOOLMANIFEST := $(addprefix $(DST_BASE)/,toolmanifest.vdf)
-$(DIST_TOOLMANIFEST): $(addprefix $(SRCDIR)/,$(TOOLMANIFEST_VDF_SRC))
-	cp -a $< $@
-
-all-dist: $(DIST_TOOLMANIFEST)
-
-
-##
-## compatibilitytool.vdf
-##
-
-COMPAT_MANIFEST_TEMPLATE := $(SRCDIR)/compatibilitytool.vdf.template
-DIST_COMPAT_MANIFEST := $(DST_BASE)/compatibilitytool.vdf
-INTERNAL_TOOL_NAME ?= $(BUILD_NAME)-proton
-$(DIST_COMPAT_MANIFEST): $(COMPAT_MANIFEST_TEMPLATE) | $(DST_DIR)
-	sed -r -e 's|##BUILD_NAME##|$(BUILD_NAME)|' -e 's|##INTERNAL_TOOL_NAME##|$(INTERNAL_TOOL_NAME)|' $< > $@
-
-all-dist: $(DIST_COMPAT_MANIFEST)
 
 
 ##
@@ -1431,48 +1314,21 @@ all-dist: $(DIST_COMPAT_MANIFEST)
 FILELOCK_TARGET := $(addprefix $(DST_BASE)/,filelock.py)
 $(FILELOCK_TARGET): $(addprefix $(SRCDIR)/,filelock.py)
 
-PROTON_PY_TARGET := $(addprefix $(DST_BASE)/,proton)
-$(PROTON_PY_TARGET): $(addprefix $(SRCDIR)/,proton)
-
-PROTON37_TRACKED_FILES_TARGET := $(addprefix $(DST_BASE)/,proton_3.7_tracked_files)
-$(PROTON37_TRACKED_FILES_TARGET): $(addprefix $(SRCDIR)/,proton_3.7_tracked_files)
-
-USER_SETTINGS_PY_TARGET := $(addprefix $(DST_BASE)/,user_settings.sample.py)
-$(USER_SETTINGS_PY_TARGET): $(addprefix $(SRCDIR)/,user_settings.sample.py)
-
-DIST_COPY_TARGETS := $(FILELOCK_TARGET) $(PROTON_PY_TARGET) \
-                     $(PROTON37_TRACKED_FILES_TARGET) $(USER_SETTINGS_PY_TARGET)
+DIST_COPY_TARGETS := $(FILELOCK_TARGET)
 
 $(DIST_COPY_TARGETS): | $(DST_DIR)
 	cp -a $(SRCDIR)/$(notdir $@) $@
 
-all-dist: $(DIST_COPY_TARGETS)
+# The proton launcher script ships as "main" (source lives at proton.py, so
+# the notdir copy rule above can't cover it). build.sh later replaces it
+# in-place with the nuitka-compiled binary of the same name.
+PROTON_MAIN_TARGET := $(addprefix $(DST_BASE)/,main)
+$(PROTON_MAIN_TARGET): $(addprefix $(SRCDIR)/,proton.py) | $(DST_DIR)
+	cp -a $(SRCDIR)/proton.py $@
+
+all-dist: $(DIST_COPY_TARGETS) $(PROTON_MAIN_TARGET)
 
 all-dist:
-
-
-##
-## make deploy
-##
-
-STEAMPIPE_FIXUPS_PY := $(SRCDIR)/steampipe_fixups.py
-
-.PHONY: deploy
-deploy: all
-	mkdir -p $(DEPLOY_DIR) && \
-	rsync --delete --exclude compatibilitytool.vdf -arx $(DST_BASE)/ $(DEPLOY_DIR)
-	cp -a $(STEAMPIPE_FIXUPS_PY) $(DEPLOY_DIR)
-	python3 $(STEAMPIPE_FIXUPS_PY) process $(DEPLOY_DIR)
-
-
-##
-## make redist
-##
-
-.PHONY: redist
-redist: all
-	mkdir -p $(REDIST_DIR)
-	rsync --delete -arx $(DST_BASE)/ $(REDIST_DIR)
 
 
 ##
@@ -1521,8 +1377,8 @@ DOCKER_BASE = $(CONTAINER_ENGINE) run --rm -v $(SRC):$(SRC)$(CONTAINER_MOUNT_OPT
                 -w $(OBJ) -e MAKEFLAGS \
                 $(DOCKER_OPTS) $(STEAMRT_IMAGE)
 
-.PHONY: dist deploy redist symstore-tarball
-.DEFAULT dist deploy redist symstore-tarball:
+.PHONY: dist symstore-tarball
+.DEFAULT dist symstore-tarball:
 	if [ "$(ENABLE_CCACHE)" -eq "1" ]; then mkdir -p $(CCACHE_DIR); fi
 	mkdir -p $(CARGO_HOME)
 	$(DOCKER_BASE) sh -c '\
@@ -1543,23 +1399,10 @@ test-container:
 get-steamrt-image:
 	echo $(STEAMRT_IMAGE)
 
-STEAM_DIR := $(HOME)/.steam/root
-.PHONY: install
-install: all
-	if [ ! -d $(STEAM_DIR) ]; then echo >&2 "!! "$(STEAM_DIR)" does not exist, cannot install"; return 1; fi
-	mkdir -p $(STEAM_DIR)/compatibilitytools.d/$(BUILD_NAME)
-	rsync --delete -arx $(DST_BASE)/* $(STEAM_DIR)/compatibilitytools.d/$(BUILD_NAME)
-	@echo "Installed Proton to "$(STEAM_DIR)/compatibilitytools.d/$(BUILD_NAME)
-	@echo "You may need to restart Steam to select this tool"
-
-
 .PHONY: help targets
 help: targets
 targets:
 	$(info make                   - create a normal proton build in dist/)
-	$(info make install           - install the proton build locally in $(STEAM_DIR))
-	$(info make deploy            - create a build ready to be uploaded to steamworks in deploy/)
-	$(info make redist            - create an easily sharable proton redistributable in redist/)
 	$(info make module=xyz module - build the selected wine dll)
 
 
