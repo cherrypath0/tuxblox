@@ -1502,38 +1502,11 @@ HKLM,Software\Wow6432Node\Valve\Steam\Apps\CommonRedist\.NET\4.0 Client Profile,
 HKLM,Software\Wow6432Node\Valve\Steam\Apps\CommonRedist\.NET\3.5,"3.5",0x10001,1
 HKLM,Software\Wow6432Node\Valve\Steam\Apps\CommonRedist\.NET\3.5 Client Profile,"3.5 Client Profile",0x10001,1
 HKLM,Software\Wow6432Node\Valve\Steam\Apps\CommonRedist\XNA\4.0,"4.0",0x10001,1
-HKCU,Software\TuxBlox\AppDefaults\ShadowOfWar.exe\DllOverrides,"amd_ags_x64",,"disabled"
-HKCU,Software\TuxBlox\AppDefaults\TDUSC.exe\DllOverrides,"xinput1_3",,"native,builtin"
-HKCU,Software\TuxBlox\AppDefaults\WRCG.exe\DllOverrides,"xinput1_3",,"native,builtin"
-;;App-specific overrides for atiadlxx.dll.
-HKCU,Software\TuxBlox\AppDefaults\s2_sp64_ship.exe\DllOverrides,"atiadlxx",,"builtin"
-HKCU,Software\TuxBlox\AppDefaults\s2_mp64_ship.exe\DllOverrides,"atiadlxx",,"builtin"
-HKCU,Software\TuxBlox\AppDefaults\h1_sp64_ship.exe\DllOverrides,"atiadlxx",,"builtin"
-HKCU,Software\TuxBlox\AppDefaults\h1_mp64_ship.exe\DllOverrides,"atiadlxx",,"builtin"
-HKCU,Software\TuxBlox\AppDefaults\iw7_ship.exe\DllOverrides,"atiadlxx",,"builtin"
-HKCU,Software\TuxBlox\AppDefaults\BlackOps3.exe\DllOverrides,"atiadlxx",,"builtin"
-HKCU,Software\TuxBlox\AppDefaults\NFS16.exe\DllOverrides,"atiadlxx",,"builtin"
-HKCU,Software\TuxBlox\AppDefaults\ShadowOfWar.exe\DllOverrides,"atiadlxx",,"builtin"
-HKCU,Software\TuxBlox\AppDefaults\DIRT5.exe\DllOverrides,"atiadlxx",,"builtin"
-HKCU,Software\TuxBlox\AppDefaults\Paradox Launcher.exe\DllOverrides,,4,
-HKCU,Software\TuxBlox\AppDefaults\gotg.exe\DllOverrides,"atiadlxx",,"builtin"
-HKCU,Software\TuxBlox\AppDefaults\RelicCardinal.exe\DllOverrides,"atiadlxx",,"builtin"
+;;Proton's per-game AppDefaults entries are gone -- TuxBlox only ever runs the
+;;Roblox client, Studio and their WebView2 runtime, so overrides keyed on game
+;;executables could never match anything, and every one of them showed up as a
+;;bogus entry in winecfg's application list. Only the WebView2 one is kept. The
+;;per-game HKLM settings that sat alongside them (Star Wars: Episode I Racer's
+;;display size) are gone for the same reason.
 HKCU,Software\TuxBlox\AppDefaults\msedgewebview2.exe,"Version",,"win7"
-HKCU,Software\TuxBlox\AppDefaults\Imperiums.exe,"Version",,"win11"
-HKCU,Software\TuxBlox\AppDefaults\Avengers.exe\DllOverrides,"atiadlxx",,"builtin"
-HKCU,Software\TuxBlox\AppDefaults\starwarssquadrons.exe\DllOverrides,"atiadlxx",,"builtin"
-HKCU,Software\TuxBlox\AppDefaults\GW2.Main_Win64_Retail.exe\DllOverrides,"atiadlxx",,"builtin"
-HKCU,Software\TuxBlox\AppDefaults\Spider-Man.exe\DllOverrides,"atiadlxx",,"builtin"
-HKCU,Software\TuxBlox\AppDefaults\RiftApart.exe\DllOverrides,"atiadlxx",,"builtin"
-HKCU,Software\TuxBlox\AppDefaults\ffxvi.exe\DllOverrides,"atiadlxx",,"builtin"
-HKCU,Software\TuxBlox\AppDefaults\ffxvi_demo.exe\DllOverrides,"atiadlxx",,"builtin"
-HKCU,Software\TuxBlox\AppDefaults\rayne1.exe\DllOverrides,"d3d8",,"native"
-HKCU,Software\TuxBlox\AppDefaults\rayne2.exe\DllOverrides,"d3d8",,"native"
-HKLM,Software\Wow6432Node\lucasarts entertainment company llc\Star Wars: Episode I Racer\v1.0,"Display Height",0x10001,480
-HKLM,Software\Wow6432Node\lucasarts entertainment company llc\Star Wars: Episode I Racer\v1.0,"Display Width",0x10001,640
-HKCU,Software\TuxBlox\AppDefaults\RDR2.exe\DllOverrides,"vulkan-1",,"native"
-HKCU,Software\TuxBlox\AppDefaults\ActOfWar.exe,"Version",,"winxp"
 HKLM,Software\Khronos\OpenXR\1,"ActiveRuntime",,"C:\openxr\wineopenxr64.json"
-;;Other app-specific overrides
-HKCU,Software\TuxBlox\AppDefaults\Pentiment.exe\DllOverrides,"SpeechSynthesisWrapper",4,
-HKCU,Software\TuxBlox\AppDefaults\Maine-Win64-Shipping.exe\DllOverrides,"SpeechSynthWrapper",4,
