@@ -1472,11 +1472,5 @@ HKCU,Software\TuxBlox\DllOverrides,"vccorlib140",0x2,"native,builtin"
 HKCU,Software\TuxBlox\DllOverrides,"atiadlxx",,"disabled"
 HKCU,Software\TuxBlox\DllOverrides,"nvcuda",0x2,"disabled"
 HKCU,Software\TuxBlox\DllOverrides,"vcruntime140_1",0x2,"native,builtin"
-;;Proton's per-game AppDefaults entries are gone -- TuxBlox only ever runs the
-;;Roblox client, Studio and their WebView2 runtime, so overrides keyed on game
-;;executables could never match anything, and every one of them showed up as a
-;;bogus entry in winecfg's application list. Only the WebView2 one is kept. The
-;;per-game HKLM settings that sat alongside them (Star Wars: Episode I Racer's
-;;display size) are gone for the same reason.
 HKCU,Software\TuxBlox\AppDefaults\msedgewebview2.exe,"Version",,"win7"
 HKLM,Software\Khronos\OpenXR\1,"ActiveRuntime",,"C:\openxr\wineopenxr64.json"
