@@ -3599,15 +3599,26 @@ NTSTATUS WINAPI NtQuerySystemInformation( SYSTEM_INFORMATION_CLASS class,
 {
     unsigned int ret = STATUS_SUCCESS;
     ULONG len = 0;
-    char class_buf[32];
 
     TRACE( "(0x%08x,%p,0x%08x,%p)\n", class, info, size, ret_size );
 
     /* Diagnostic-only: log every info class queried, not just the ones the
      * cases below already call tuxblox_trace_record for, so a class this
-     * tracer doesn't otherwise know about still shows up in the trace. */
-    snprintf( class_buf, sizeof(class_buf), "class=%u", class );
-    tuxblox_trace_record( "NtQuerySystemInformation", class_buf );
+     * tracer doesn't otherwise know about still shows up in the trace.
+     *
+     * Guarded on tuxblox_trace_enabled() rather than left to
+     * tuxblox_trace_record()'s own early-out: the snprintf is an *argument*,
+     * so it runs before that early-out ever gets a chance to, making every
+     * caller pay a full varargs format even with tracing off -- on the one
+     * choke point tuxblox_trace.c's own cached-state comment calls out by
+     * name as the reason that caching exists. */
+    if (tuxblox_trace_enabled())
+    {
+        char class_buf[32];
+
+        snprintf( class_buf, sizeof(class_buf), "class=%u", class );
+        tuxblox_trace_record( "NtQuerySystemInformation", class_buf );
+    }
 
     switch (class)
     {

@@ -1233,16 +1233,28 @@ NTSTATUS WINAPI NtQueryInformationProcess( HANDLE handle, PROCESSINFOCLASS class
 {
     unsigned int ret = STATUS_SUCCESS;
     ULONG len = 0;
-    char class_buf[32];
 
     TRACE( "(%p,0x%08x,%p,0x%08x,%p)\n", handle, class, info, size, ret_len );
 
     /* Diagnostic-only: log every info class queried, regardless of which
      * case below (if any) actually handles it, so debugger/anti-tamper
      * checks (ProcessDebugPort, ProcessDebugFlags, ...) show up in the trace
-     * even if this tracer wasn't already instrumenting that specific class. */
-    snprintf( class_buf, sizeof(class_buf), "class=%u", class );
-    tuxblox_trace_record( "NtQueryInformationProcess", class_buf );
+     * even if this tracer wasn't already instrumenting that specific class.
+     *
+     * Guarded on tuxblox_trace_enabled() rather than left to
+     * tuxblox_trace_record()'s own early-out: the snprintf is an *argument*,
+     * so it runs before that early-out ever gets a chance to, making every
+     * caller pay a full varargs format even with tracing off. That defeats
+     * the cached-state design tuxblox_trace.c documents for exactly this
+     * reason, and this is a hot path -- Hyperion polls ProcessDebugPort/
+     * ProcessDebugObjectHandle continuously. */
+    if (tuxblox_trace_enabled())
+    {
+        char class_buf[32];
+
+        snprintf( class_buf, sizeof(class_buf), "class=%u", class );
+        tuxblox_trace_record( "NtQueryInformationProcess", class_buf );
+    }
 
     switch (class)
     {

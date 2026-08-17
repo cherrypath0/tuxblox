@@ -5137,30 +5137,53 @@ static BOOL current_process_probes_for_wine_files(void)
         {'w','i','n','e','s','c','o','r','e','.','e','x','e',0};
     static const WCHAR *const target_exes[] =
         { player_betaW, studio_betaW, player_installerW, studio_installerW, winedetectorW, winescoreW };
-    const WCHAR *name = NtCurrentTeb()->Peb->ProcessParameters->ImagePathName.Buffer;
-    const WCHAR *p = wcsrchr( name, '\\' );
+    /* -1 = not yet determined, 0 = no, 1 = yes. The answer is a constant for
+     * the lifetime of the process -- the image path never changes -- but the
+     * two callers below sit on NtQueryAttributesFile/NtQueryFullAttributesFile,
+     * which back every GetFileAttributes/PathFileExists and so run constantly
+     * during Roblox's asset probing. Recomputing it per call (PEB deref +
+     * wcsrchr over the full path + up to six wcsicmp) is pure waste; resolve
+     * once and cache, matching tuxblox_trace.c's trace_state for the same
+     * reason. */
+    static int cached = -1;
+    const RTL_USER_PROCESS_PARAMETERS *params;
+    const WCHAR *name, *p;
     unsigned int i;
 
+    if (cached >= 0) return cached == 1;
+
+    /* Called before the PEB/image path exists -- answer no, but do not cache
+     * it, or every later call inherits this early answer. */
+    if (!NtCurrentTeb()->Peb || !(params = NtCurrentTeb()->Peb->ProcessParameters)) return FALSE;
+    if (!(name = params->ImagePathName.Buffer)) return FALSE;
+
+    p = wcsrchr( name, '\\' );
     p = p ? p + 1 : name;
+
+    cached = 0;
     for (i = 0; i < ARRAY_SIZE(target_exes); i++)
-        if (!wcsicmp( p, target_exes[i] )) return TRUE;
-    return FALSE;
+        if (!wcsicmp( p, target_exes[i] )) { cached = 1; break; }
+    return cached == 1;
 }
 
 static BOOL is_hidden_wine_support_file( const char *unix_name )
 {
-    static const char *const hidden_names[] = { "/wineboot.exe", "/winedevice.exe", "/winecfg.exe" };
-    size_t name_len = strlen( unix_name );
+    static const char *const hidden_names[] = { "wineboot.exe", "winedevice.exe", "winecfg.exe" };
+    const char *base;
     unsigned int i;
 
     if (!current_process_probes_for_wine_files()) return FALSE;
 
+    /* Only the last path component can match (the old form compared against
+     * "/wineboot.exe"-style tails, i.e. the same thing), and every hidden name
+     * starts with 'w' -- reject on that before paying for any strcasecmp,
+     * which is what the overwhelming majority of probed paths hit. */
+    if (!(base = strrchr( unix_name, '/' ))) return FALSE;
+    base++;
+    if (*base != 'w' && *base != 'W') return FALSE;
+
     for (i = 0; i < ARRAY_SIZE(hidden_names); i++)
-    {
-        size_t tail_len = strlen( hidden_names[i] );
-        if (name_len >= tail_len && !strcasecmp( unix_name + name_len - tail_len, hidden_names[i] ))
-            return TRUE;
-    }
+        if (!strcasecmp( base, hidden_names[i] )) return TRUE;
     return FALSE;
 }
 
