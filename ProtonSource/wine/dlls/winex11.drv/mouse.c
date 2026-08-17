@@ -1571,6 +1571,10 @@ void move_resize_window( HWND hwnd, int dir, POINT pos )
 
         while (NtUserPeekMessage( &msg, 0, 0, 0, PM_REMOVE ))
         {
+            /* a size/move loop owns the mouse until it ends, so swallow the
+             * moves the way sys_command_size_move() does. Apps that run their
+             * own tracking during the drag get confused by seeing them. */
+            if (msg.message == WM_MOUSEMOVE) continue;
             if (!NtUserCallMsgFilter( &msg, MSGF_SIZE ))
             {
                 NtUserTranslateMessage( &msg, 0 );
