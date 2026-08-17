@@ -71,6 +71,7 @@ add_library(launcher_core STATIC
     src/crash_report.cpp
     src/container_env.cpp
     src/single_instance.cpp
+    src/app_scope.cpp
     src/system_info.cpp
     src/roblox_log_capture.cpp
     src/roblox_deploy.cpp

@@ -26,6 +26,7 @@
 #include "license_file.h"
 #include "desktop_integration.h"
 #include "single_instance.h"
+#include "app_scope.h"
 #include "version.h"
 #include "inter_regular_ttf.h"  // generated at build time: kInterRegularTtf[]/Len
 #include "inter_semibold_ttf.h" // generated at build time: kInterSemiBoldTtf[]/Len
@@ -100,6 +101,14 @@ int main(int argc, char** argv) {
     Q_INIT_RESOURCE(launcher);
 
     using namespace tuxblox;
+
+    // Before any mode branches below: every one of them either becomes the
+    // long-lived process the desktop will display (GUI, --watch-launch) or
+    // exec()s into Proton while staying in this cgroup (the headless
+    // quick-launch paths), and children inherit whatever scope we join here.
+    // Doing it once, first, covers all of them. See app_scope.h for why the
+    // launch method otherwise decides whether TuxBlox is identifiable at all.
+    ensureAppScope();
 
     if (argc > 1) {
         std::string arg1 = argv[1];

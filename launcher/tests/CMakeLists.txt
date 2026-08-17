@@ -69,6 +69,10 @@ add_executable(test_single_instance test_single_instance.cpp)
 target_link_libraries(test_single_instance PRIVATE launcher_core)
 add_test(NAME single_instance COMMAND test_single_instance)
 
+add_executable(test_app_scope test_app_scope.cpp)
+target_link_libraries(test_app_scope PRIVATE launcher_core)
+add_test(NAME app_scope COMMAND test_app_scope)
+
 add_executable(test_license_file test_license_file.cpp)
 target_link_libraries(test_license_file PRIVATE launcher_core)
 add_test(NAME license_file COMMAND test_license_file)
