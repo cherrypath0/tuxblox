@@ -61,9 +61,15 @@ static void test_module_loads(void)
 
 /* Plan 3 Task 5 standalone hook-mechanism test (design spec Testing
  * Strategy item 2) -- two plain win32 windows, no GTK/display-driving
- * webview involved. Confirms window_hook_track correctly filters
- * WM_WINDOWPOSCHANGED by HWND: moving the TRACKED window must fire the
- * callback; moving the UNTRACKED decoy window must not. */
+ * webview involved. Confirms window_hook_track filters by HWND: moving the
+ * TRACKED window must fire the callback; moving the UNTRACKED decoy window
+ * must not.
+ *
+ * Deliberately driven through real SetWindowPos() calls rather than a
+ * synthetic WM_WINDOWPOSCHANGED send, so it stays valid for either tracking
+ * mechanism window_sync.c can be built to use (see TUXBLOX_WV2_WINDOW_SYNC
+ * there): set_window_pos is the single point that both sends
+ * WM_WINDOWPOSCHANGED and emits EVENT_OBJECT_LOCATIONCHANGE. */
 static LONG g_hook_test_fire_count;
 static void CALLBACK hook_test_callback(void *user_data)
 {
