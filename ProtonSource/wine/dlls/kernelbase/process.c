@@ -1361,20 +1361,12 @@ HANDLE WINAPI DECLSPEC_HOTPATCH OpenProcess( DWORD access, BOOL inherit, DWORD i
 
     InitializeObjectAttributes( &attr, NULL, inherit ? OBJ_INHERIT : 0, 0, NULL );
 
-    /* PROTON HACK:
-     * On Windows, the Steam client puts its process ID into the registry
-     * at:
-     *
-     *   [HKCU\Software\Valve\Steam\ActiveProcess]
-     *   PID=dword:00000008
-     *
-     * Games get that pid from the registry and then query it with
-     * OpenProcess to ensure Steam is running. Since we aren't running the
-     * Windows Steam in Wine, instead we hack this magic number into the
-     * registry and then substitute the game's process itself in its place
-     * so it can query a valid process.
-     */
-    if (id == 0xfffe) id = GetCurrentProcessId();
+    /* Proton mapped pid 0xfffe onto the calling process here, to pair with the
+     * fake [HKCU\Software\Valve\Steam\ActiveProcess] PID it wrote into every
+     * prefix, so Steam games checking that Steam was running found a live
+     * process. TuxBlox writes no such key and runs no Steam games, which left
+     * the mapping as nothing but a tell -- OpenProcess(0xfffe) succeeding out
+     * of nowhere is not something real Windows does. */
 
     cid.UniqueProcess = ULongToHandle(id);
     cid.UniqueThread  = 0;
