@@ -1228,18 +1228,26 @@ static void set_initial_wm_hints( Display *display, Window window )
     /* class hints */
     if ((class_hints = XAllocClassHint()))
     {
-        static char steam_proton[] = "steam_proton";
-        const char *app_id = getenv("SteamAppId");
-        char proton_app_class[128];
+        /* Upstream Wine sets WM_CLASS from the process name. Proton replaced
+         * that with a fixed "steam_proton" (or "steam_app_<SteamAppId>") so
+         * Steam could recognise its own windows. Nothing sets SteamAppId
+         * here, so every TuxBlox window was announcing itself to the desktop
+         * as "steam_proton" -- a Steam fingerprint of exactly the kind the
+         * prefix's fake Steam client identity was already dropped for, and
+         * one that left the windows unidentifiable: desktop shells key off
+         * WM_CLASS (KWin turns it into the XWayland appId), so KDE's System
+         * Monitor could not group Roblox as an application and simply never
+         * listed it.
+         *
+         * Back to upstream's behaviour: the real, lowercased image basename,
+         * e.g. "robloxstudiobeta.exe". process_name is set once at driver
+         * init from the PEB image path (x11drv_main.c) and is only NULL if
+         * that lookup failed outright, so keep a constant fallback rather
+         * than handing XSetClassHint a NULL. */
+        static char fallback_class[] = "tuxblox";
 
-        if(app_id && *app_id){
-            snprintf(proton_app_class, sizeof(proton_app_class), "steam_app_%s", app_id);
-            class_hints->res_name = proton_app_class;
-            class_hints->res_class = proton_app_class;
-        }else{
-            class_hints->res_name = steam_proton;
-            class_hints->res_class = steam_proton;
-        }
+        class_hints->res_name = process_name ? process_name : fallback_class;
+        class_hints->res_class = process_name ? process_name : fallback_class;
 
         XSetClassHint( display, window, class_hints );
         XFree( class_hints );
