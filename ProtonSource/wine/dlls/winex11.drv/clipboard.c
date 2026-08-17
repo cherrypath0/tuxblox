@@ -1914,10 +1914,12 @@ static BOOL read_property( Display *display, Window w, Atom prop,
  */
 static void acquire_selection( Display *display )
 {
-    if (selection_window) XDestroyWindow( display, selection_window );
-
-    selection_window = XCreateWindow( display, root_window, 0, 0, 1, 1, 0, CopyFromParent,
-                                      InputOutput, CopyFromParent, 0, NULL );
+    /* keep the same window across clipboard changes. Destroying it drops the
+     * selection until the new one takes over, and requests still addressed to
+     * the old window get refused, which loses the paste on the other end. */
+    if (!selection_window)
+        selection_window = XCreateWindow( display, root_window, 0, 0, 1, 1, 0, CopyFromParent,
+                                          InputOutput, CopyFromParent, 0, NULL );
     if (!selection_window) return;
 
     XSetSelectionOwner( display, x11drv_atom(CLIPBOARD), selection_window, CurrentTime );
