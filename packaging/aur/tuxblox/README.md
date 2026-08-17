@@ -46,7 +46,7 @@ AUR). If a source-built variant ever becomes viable, that one can take a
 3. Copy the package files in and push:
    ```
    cp PKGBUILD .SRCINFO tuxblox.sh tuxblox.desktop tuxblox.png tuxblox.install .gitignore ~/aur-tuxblox/
-   cd ~/aur-tuxblox && git add -A && git commit -m "Initial import: tuxblox 0.2.0" && git push
+   cd ~/aur-tuxblox && git add -A && git commit -m "Initial import: tuxblox 1.0.0" && git push
    ```
    (`update.sh` and this README are maintainer tooling — they stay in this
    repo and are not part of the AUR upload, though including them would be
