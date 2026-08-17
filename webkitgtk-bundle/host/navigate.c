@@ -102,6 +102,7 @@
  * geometry.c's xmove_call_count/geometry_debug_enabled already establish).
  */
 #include "navigate.h"
+#include "ipc.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -121,6 +122,44 @@ char *wire_uri_to_utf8(const uint16_t *wire_uri)
      * GLib's gunichar2 are both plain 16-bit code units -- same
      * representation, no re-encoding needed for the cast itself. */
     return g_utf16_to_utf8((const gunichar2 *)wire_uri, -1, NULL, NULL, NULL);
+}
+
+/* --- Nested-wait survival guard ---
+ *
+ * Every bounded wait below recurses into a nested GMainLoop, and nv can be
+ * destroyed and freed WHILE that loop runs. "Every handler runs serialized on
+ * one thread, so no locking is needed" (webview.c's live_webviews comment, and
+ * this file's own top comment) is true of concurrency but NOT of re-entrancy:
+ * g_main_loop_run keeps dispatching every other source on the default context,
+ * and watchdog.c's source calls webview_destroy() -> free(nv) directly from one
+ * of them when the reparented-into parent window is destroyed. That is not a
+ * hypothetical ordering -- the parent dying during a long login navigation is
+ * exactly the sequence watchdog.c exists for, and a 30s navigate is the widest
+ * window in this file.
+ *
+ * The IPC socket cannot deliver a second request mid-wait (unixlib.c holds one
+ * global mutex across the whole round trip), so the watchdog is the only source
+ * that can free nv here -- one is enough.
+ *
+ * webview_lookup() only compares nv's raw pointer VALUE against live_webviews[]
+ * and never dereferences it, so it is safe to call with an already-freed nv --
+ * the same property on_web_process_terminated's own guard relies on. A fresh
+ * webview cannot have reused this address either: that needs a CREATE_WEBVIEW
+ * request, which the same global mutex is holding off.
+ *
+ * Returns TRUE (and clears nv->active_wait_loop) if nv is still live; FALSE
+ * means the caller must not touch nv, nv->view or nv->window again at all. */
+static gboolean wait_ended_with_nv_alive(struct native_webview *nv, const char *what)
+{
+    if (webview_lookup((uint64_t)(uintptr_t)nv))
+    {
+        nv->active_wait_loop = NULL;
+        return TRUE;
+    }
+    fprintf(stderr, "webview2loader-host: native_webview %p was destroyed while %s was waiting on "
+                    "it -- leaving it alone and failing this call rather than writing through a "
+                    "freed pointer\n", (void *)nv, what);
+    return FALSE;
 }
 
 /* --- Navigate --- */
@@ -204,7 +243,20 @@ void navigate_and_wait(struct native_webview *nv, const char *uri_utf8, gboolean
     nv->active_wait_loop = ctx.loop;
     ctx.timeout_id = g_timeout_add_seconds(30, on_navigate_timeout, &ctx);
     g_main_loop_run(ctx.loop);
-    nv->active_wait_loop = NULL;
+
+    /* See wait_ended_with_nv_alive's own comment for the re-entrancy mechanism
+     * this guards against. Deliberately skips the g_signal_handler_disconnect
+     * below on the destroyed path: nv->view was torn down along with
+     * nv->window, so the connection died with it and there is no live GObject
+     * left to disconnect from. */
+    if (!wait_ended_with_nv_alive(nv, "Navigate"))
+    {
+        if (ctx.timeout_id) g_source_remove(ctx.timeout_id);
+        g_main_loop_unref(ctx.loop);
+        *out_success = FALSE;
+        *out_nav_id = 0;
+        return;
+    }
 
     if (ctx.timeout_id) g_source_remove(ctx.timeout_id);
     g_main_loop_unref(ctx.loop);
@@ -350,7 +402,7 @@ gboolean cookies_delete_all(struct native_webview *nv)
     nv->active_wait_loop = ctx->loop;
     ctx->timeout_id = g_timeout_add_seconds(10, on_delete_cookies_timeout, ctx);
     g_main_loop_run(ctx->loop);
-    nv->active_wait_loop = NULL;
+    wait_ended_with_nv_alive(nv, "DeleteAllCookies");
 
     if (ctx->timeout_id) g_source_remove(ctx->timeout_id);
     g_main_loop_unref(ctx->loop);
@@ -438,7 +490,7 @@ gboolean cookies_count(struct native_webview *nv, uint32_t *out_count)
     nv->active_wait_loop = ctx->loop;
     ctx->timeout_id = g_timeout_add_seconds(10, on_count_cookies_timeout, ctx);
     g_main_loop_run(ctx->loop);
-    nv->active_wait_loop = NULL;
+    wait_ended_with_nv_alive(nv, "count_cookies");
 
     if (ctx->timeout_id) g_source_remove(ctx->timeout_id);
     g_main_loop_unref(ctx->loop);
@@ -572,6 +624,9 @@ struct get_cookies_ctx
                * struct delete_cookies_ctx above -- see this file's own top
                * comment for why this is still required unchanged. */
 
+    uint32_t offset; /* in; first cookie of the requested page -- see
+                       * on_get_cookies_done's own paging comment */
+
     /* out -- written only by on_get_cookies_done, read only by
      * cookies_get itself after ctx->done is observed true (see this
      * struct's own leading comment; no lock needed, both sides run on this
@@ -579,6 +634,7 @@ struct get_cookies_ctx
      * time). */
     gboolean success;
     uint32_t count;
+    uint32_t total;
     struct wv2l_cookie cookies[WV2L_MAX_COOKIES];
 };
 
@@ -592,7 +648,7 @@ static void on_get_cookies_done(GObject *source, GAsyncResult *res, void *user_d
 {
     struct get_cookies_ctx *ctx = user_data;
     GList *cookies, *l;
-    uint32_t total = 0, n = 0;
+    uint32_t total = 0, n = 0, skip;
     gboolean success;
 
     if (ctx->filtered)
@@ -601,39 +657,51 @@ static void on_get_cookies_done(GObject *source, GAsyncResult *res, void *user_d
         cookies = webkit_cookie_manager_get_all_cookies_finish((WebKitCookieManager *)source, res, NULL);
 
     /* Count the real list length FIRST (a second pass, but a cheap one --
-     * just pointer-chasing, no allocation) so exceeding the cap is a real,
-     * distinguishable failure (success==FALSE) instead of a silently
-     * incomplete list -- ported verbatim from the original's own Important-2
-     * code review fix. */
+     * just pointer-chasing, no allocation) so the caller learns the true size
+     * of the store, not just how much of it fits in one wire buffer. */
     for (l = cookies; l; l = l->next) total++;
 
+    /* Paging, rather than the old "more than WV2L_MAX_COOKIES cookies => fail
+     * the whole call". That cap was reachable in ordinary use: Roblox Studio's
+     * own clearAllCookiesAndRunCallbackHelper calls GetCookies UNFILTERED,
+     * which enumerates every cookie in the profile across every domain, and a
+     * long-lived profile passes 128 easily -- at which point cookie clearing
+     * failed before it could delete anything. The wire struct still carries at
+     * most WV2L_MAX_COOKIES entries; the caller asks for the next window by
+     * offset and reassembles the whole list on its side.
+     *
+     * Honest limitation: the store is enumerated fresh per page, so a cookie
+     * added or removed between pages can be seen twice or missed. Bounded and
+     * benign for the flow this exists to serve (deleting everything: a missed
+     * cookie survives one round, a repeated one deletes once and then no-ops),
+     * and the alternative -- holding a snapshot across calls -- would put real
+     * cross-call state in this process for no proportionate gain. */
+    success = TRUE;
+    skip = ctx->offset;
+    for (l = cookies; l; l = l->next)
+    {
+        if (skip) { skip--; continue; }
+        if (n >= WV2L_MAX_COOKIES) break; /* rest of the store comes on the next page */
+        /* fill_wire_cookie itself can still reject an individual
+         * cookie whose field(s) don't fit -- that cookie is dropped
+         * (loudly) rather than failing the whole call, same asymmetry
+         * as the original: a single oversized field isn't something
+         * clearAllCookiesAndRunCallbackHelper's enumerate-then-act
+         * semantics can be silently wrong about the same way the
+         * total-count cap used to be. */
+        if (fill_wire_cookie(&ctx->cookies[n], l->data)) n++;
+    }
+
     if (total > WV2L_MAX_COOKIES)
-    {
-        fprintf(stderr, "webview2loader-host: cookie store holds %u cookies, exceeding this build's "
-                        "%u-cookie cap -- failing this GetCookies call rather than returning a silently "
-                        "incomplete list\n", (unsigned)total, (unsigned)WV2L_MAX_COOKIES);
-        success = FALSE;
-    }
-    else
-    {
-        success = TRUE;
-        for (l = cookies; l; l = l->next)
-        {
-            /* fill_wire_cookie itself can still reject an individual
-             * cookie whose field(s) don't fit -- that cookie is dropped
-             * (loudly) rather than failing the whole call, same asymmetry
-             * as the original: a single oversized field isn't something
-             * clearAllCookiesAndRunCallbackHelper's enumerate-then-act
-             * semantics can be silently wrong about the same way the
-             * total-count cap above is. */
-            if (fill_wire_cookie(&ctx->cookies[n], l->data)) n++;
-        }
-    }
+        fprintf(stderr, "webview2loader-host: cookie store holds %u cookies -- returning %u from "
+                        "offset %u; caller pages for the rest\n",
+                        (unsigned)total, (unsigned)n, (unsigned)ctx->offset);
 
     if (cookies) g_list_free_full(cookies, (GDestroyNotify)soup_cookie_free);
 
     ctx->success = success;
     ctx->count = n;
+    ctx->total = total;
     ctx->done = TRUE;
     if (ctx->loop) g_main_loop_quit(ctx->loop);
 
@@ -658,6 +726,7 @@ gboolean cookies_get(struct native_webview *nv, const char *uri_utf8, struct wv2
 
     out->success = FALSE;
     out->count = 0;
+    out->total = 0;
     if (!nv)
     {
         fprintf(stderr, "webview2loader-host: stale/destroyed native window handle -- skipping "
@@ -676,6 +745,7 @@ gboolean cookies_get(struct native_webview *nv, const char *uri_utf8, struct wv2
         return FALSE;
     }
     ctx->refs = 2;
+    ctx->offset = out->offset; /* caller-driven paging -- see on_get_cookies_done */
 
     /* NULL/empty uri => unfiltered, matching real GetCookies semantics --
      * see this section's own leading comment. */
@@ -699,7 +769,7 @@ gboolean cookies_get(struct native_webview *nv, const char *uri_utf8, struct wv2
     nv->active_wait_loop = ctx->loop;
     ctx->timeout_id = g_timeout_add_seconds(10, on_get_cookies_timeout, ctx);
     g_main_loop_run(ctx->loop);
-    nv->active_wait_loop = NULL;
+    wait_ended_with_nv_alive(nv, "GetCookies");
 
     if (ctx->timeout_id) g_source_remove(ctx->timeout_id);
     g_main_loop_unref(ctx->loop);
@@ -717,6 +787,7 @@ gboolean cookies_get(struct native_webview *nv, const char *uri_utf8, struct wv2
     {
         out->success = ctx->success;
         out->count = ctx->count;
+        out->total = ctx->total;
         if (ctx->success) memcpy(out->cookies, ctx->cookies, ctx->count * sizeof(*ctx->cookies));
     }
 
@@ -725,6 +796,135 @@ gboolean cookies_get(struct native_webview *nv, const char *uri_utf8, struct wv2
                                     * cookies_delete_all's own identical
                                     * release call. */
     return out->success;
+}
+
+/* --- Cookies: delete one specific cookie ---
+ *
+ * Real ICoreWebView2CookieManager::DeleteCookie, which Roblox Studio's own
+ * clearAllCookiesAndRunCallbackHelper calls once per cookie after enumerating
+ * them with GetCookies. It was an E_NOTIMPL stub, so every one of those calls
+ * failed -- visible in a real Studio log as
+ * "Failed DeleteCookie with error code '-2147467263'" (0x80004001 == E_NOTIMPL).
+ * DeleteAllCookies was implemented all along, but Studio never calls it.
+ *
+ * Reconstructs a SoupCookie from the four fields the wire carries and hands it
+ * to webkit_cookie_manager_delete_cookie. That is enough to match, and all four
+ * are genuinely needed -- verified against real source rather than assumed:
+ * WebKitCookieManager.cpp turns the SoupCookie into a WebCore::Cookie and calls
+ * NetworkStorageSession::deleteCookie, which is a straight
+ * soup_cookie_jar_delete_cookie; libsoup 3.6.5 looks the DOMAIN up in its hash,
+ * then matches within it using soup_cookie_equal, which compares NAME, VALUE
+ * and PATH. A name/domain/path-only delete would match nothing at all.
+ *
+ * Two consequences worth knowing, neither of which affects Studio's flow:
+ *  - real WebView2 matches on name/domain/path and ignores value, so a caller
+ *    that mutated the cookie's value (via put_Value) before deleting it would
+ *    get a no-op here where Windows would delete. Studio's clear-cookies path
+ *    passes back exactly the objects GetCookies handed it, unmodified.
+ *  - a cookie whose fields exceeded the wire caps was already dropped by
+ *    fill_wire_cookie during enumeration, so it is never offered for deletion
+ *    in the first place -- consistent, if incomplete, in both directions.
+ *
+ * Fire-and-forget, like cookies_delete_all's own per-cookie deletes: the wire
+ * struct has no out field, and webkit_cookie_manager_delete_cookie's completion
+ * carries no information this side could act on. */
+gboolean cookies_delete_one(struct native_webview *nv, const struct wv2l_cookie *wire)
+{
+    WebKitNetworkSession *session;
+    WebKitCookieManager *mgr;
+    SoupCookie *cookie;
+    char *name, *value, *domain, *path;
+    gboolean ok = FALSE;
+
+    if (!nv)
+    {
+        fprintf(stderr, "webview2loader-host: stale/destroyed native window handle -- skipping "
+                        "DeleteCookie\n");
+        return FALSE;
+    }
+
+    name   = wire_uri_to_utf8(wire->name);
+    value  = wire_uri_to_utf8(wire->value);
+    domain = wire_uri_to_utf8(wire->domain);
+    path   = wire_uri_to_utf8(wire->path);
+
+    /* soup_cookie_new g_return_val_if_fail's on a NULL name or value (and warns
+     * on a NULL domain), so a conversion failure has to stop here rather than
+     * be passed through. */
+    if (!name || !value || !domain || !path)
+    {
+        fprintf(stderr, "webview2loader-host: DeleteCookie: UTF-16 -> UTF-8 conversion failed for one "
+                        "or more cookie fields -- not attempting the delete\n");
+        goto out;
+    }
+
+    /* max_age -1 == a session cookie. Irrelevant to the match (soup_cookie_equal
+     * never looks at expiry) but it has to be something, and -1 is the one value
+     * that invents no expiry date. */
+    if (!(cookie = soup_cookie_new(name, value, domain, path, -1)))
+    {
+        fprintf(stderr, "webview2loader-host: DeleteCookie: soup_cookie_new failed\n");
+        goto out;
+    }
+
+    session = webkit_web_view_get_network_session(nv->view);
+    mgr = webkit_network_session_get_cookie_manager(session);
+    webkit_cookie_manager_delete_cookie(mgr, cookie, NULL, NULL, NULL);
+    /* delete_cookie's cookie argument is caller-owned (webkitgtk.org: "the data
+     * is owned by the caller of the method"), same ownership rule
+     * cookies_delete_all's own per-cookie deletes rely on -- so this side frees
+     * it, and only after the call has taken what it needs from it. */
+    soup_cookie_free(cookie);
+    ok = TRUE;
+
+out:
+    g_free(name);
+    g_free(value);
+    g_free(domain);
+    g_free(path);
+    return ok;
+}
+
+/* Packs and sends a WV2L_EV_NAVIGATION_STARTING event. Returns 0 if the Wine
+ * side received the whole frame, -1 otherwise (no event channel, peer gone,
+ * short write) -- callers must treat -1 as "Studio was not told".
+ *
+ * A URI too long for the wire buffer is a failure, not a truncation: half an
+ * OAuth URI silently delivered would strip the auth code and leave Studio
+ * looking like it simply ignored the login, which is exactly the failure mode
+ * this whole change exists to remove. Failing sends it down the xdg-open
+ * fallback instead, which handles arbitrary lengths via the command line. */
+static int event_send_navigation_starting(struct native_webview *nv, const char *uri_utf8)
+{
+    struct wv2l_ev_navigation_starting_params ev;
+    glong written = 0;
+    gunichar2 *utf16;
+    int rc = -1;
+
+    memset(&ev, 0, sizeof(ev));
+    ev.handle = (uint64_t)(uintptr_t)nv;
+    ev.is_redirect = 0; /* this fires from decide-policy on a real navigation
+                          * action; WebKit's own redirect flag is not plumbed
+                          * through yet and real WebView2 hosts tolerate FALSE */
+
+    if (!(utf16 = g_utf8_to_utf16(uri_utf8, -1, NULL, &written, NULL)))
+    {
+        fprintf(stderr, "webview2loader-host: NavigationStarting: UTF-8 -> UTF-16 conversion failed\n");
+        return -1;
+    }
+    if (written >= 0 && (size_t)written < WV2L_URI_MAX)
+    {
+        memcpy(ev.uri, utf16, (size_t)(written + 1) * sizeof(uint16_t));
+        rc = ipc_send_event(WV2L_EV_NAVIGATION_STARTING, &ev, sizeof(ev));
+    }
+    else
+    {
+        fprintf(stderr, "webview2loader-host: NavigationStarting: URI is %ld UTF-16 units, over this "
+                        "build's %d cap -- not truncating it into a useless auth code\n",
+                written, (int)WV2L_URI_MAX);
+    }
+    g_free(utf16);
+    return rc;
 }
 
 /* --- OAuth redirect handoff ---
@@ -848,13 +1048,43 @@ gboolean on_decide_policy(WebKitWebView *view, WebKitPolicyDecision *decision,
     {
         if (!strncmp(uri, known_roblox_schemes[i], strlen(known_roblox_schemes[i])))
         {
-            fprintf(stderr, "webview2loader-host: intercepting navigation to %s -- ignoring the "
-                            "in-WebKit load (would otherwise show WebKit's own generic \"URL can't be "
-                            "shown\" error) and handing off to xdg-open, matching real WebView2's own "
-                            "default behavior for an external scheme it doesn't itself recognize\n", uri);
+            struct native_webview *nv = user_data;
+
+            /* The load is suppressed either way -- WebKit cannot render these
+             * schemes and would show its own generic "URL can't be shown"
+             * error. What changed is where the URI goes afterwards. */
             webkit_policy_decision_ignore(decision);
+
+            /* Preferred path: hand the URI to Studio's own NavigationStarting
+             * handler, which is what happens on Windows. Studio registers that
+             * handler before it ever navigates, and its login flow completes
+             * from the code in this exact URI -- in-process, with no second
+             * Studio and no OS round trip.
+             *
+             * Established by measurement: a probe build injected a real
+             * window.chrome.webview shim and logged every postMessage the page
+             * made. It made none across a full login, ruling out the
+             * web-message channel and leaving NavigationStarting as the only
+             * in-process route by which Studio can learn this URI. */
+            if (nv && event_send_navigation_starting(nv, uri) == 0)
+            {
+                fprintf(stderr, "webview2loader-host: intercepting navigation to %.64s... -- delivered "
+                                "to Studio's own NavigationStarting handler\n", uri);
+                return TRUE; /* GDK_EVENT_STOP -- we handled this decision ourselves */
+            }
+
+            /* Fallback, unchanged from before the event channel existed: shell
+             * out so the OS re-launches Studio with the URI on its command
+             * line. Strictly worse (it starts a second Studio, and the
+             * original has historically ignored the forwarded token), but it
+             * is what shipped, so it stays as the path taken whenever the
+             * event could not be delivered -- no event channel, a Wine side
+             * that has gone away, a broken frame. Never both: reaching here
+             * means Studio was NOT told, so there is nothing to double up. */
+            fprintf(stderr, "webview2loader-host: intercepting navigation to %.64s... -- could not "
+                            "reach Studio's NavigationStarting handler, falling back to xdg-open\n", uri);
             xdg_open_handoff(uri);
-            return TRUE; /* GDK_EVENT_STOP -- we handled this decision ourselves */
+            return TRUE;
         }
     }
     return FALSE; /* not one of ours -- let WebKit's own default (use()) handle it */

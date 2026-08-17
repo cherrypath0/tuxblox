@@ -74,6 +74,18 @@ struct generic_listener
     UINT64 token;
 };
 
+/* NavigationStarting gets its own list rather than sharing generic_listeners.
+ * It is the one formerly-generic event this DLL actually fires, so it needs to
+ * be walked selectively -- invoking every generic handler (ContentLoading,
+ * SourceChanged, HistoryChanged, ...) with NavigationStarting args would call
+ * each of them through the wrong interface. */
+struct nav_starting_listener
+{
+    struct nav_starting_listener *next;
+    ICoreWebView2NavigationStartingEventHandler *handler;
+    UINT64 token;
+};
+
 struct webview_impl
 {
     ICoreWebView2 ICoreWebView2_iface;
@@ -81,6 +93,7 @@ struct webview_impl
     UINT64 native_handle;
     LPWSTR source;
     struct nav_listener *listeners;
+    struct nav_starting_listener *nav_starting_listeners;
     struct wm_listener *wm_listeners;
     struct generic_listener *generic_listeners;
     UINT64 next_token;
@@ -99,6 +112,79 @@ struct nav_args_impl
 static inline struct webview_impl *impl_from_ICoreWebView2(ICoreWebView2 *iface)
 {
     return CONTAINING_RECORD(iface, struct webview_impl, ICoreWebView2_iface);
+}
+
+/* --- handle -> webview registry ---
+ *
+ * Events arriving on the event channel name a webview by its native handle;
+ * this is how the pump thread turns that back into the COM object to fire on.
+ * Needed only because events flow the "wrong" way: every other path already
+ * has the ICoreWebView2* in hand.
+ *
+ * Keyed on the handle the webview was CREATED with, deliberately not on
+ * wv->native_handle, which Close() zeroes -- an event that races a Close would
+ * otherwise fail to match anything and be silently dropped. Liveness is
+ * handled by the ref taken below instead.
+ *
+ * Same statically-initialised CRITICAL_SECTION pattern window_sync.c already
+ * uses for its own cross-thread registry. */
+#define MAX_TRACKED_WEBVIEWS 64
+
+struct tracked_webview { UINT64 handle; ICoreWebView2 *webview; };
+static struct tracked_webview g_tracked[MAX_TRACKED_WEBVIEWS];
+
+static CRITICAL_SECTION tracked_cs;
+static CRITICAL_SECTION_DEBUG tracked_cs_debug =
+{
+    0, 0, &tracked_cs,
+    { &tracked_cs_debug.ProcessLocksList, &tracked_cs_debug.ProcessLocksList },
+      0, 0, { (DWORD_PTR)(__FILE__ ": tracked_cs") }
+};
+static CRITICAL_SECTION tracked_cs = { &tracked_cs_debug, -1, 0, 0, 0, 0 };
+
+static void webview_track(UINT64 handle, ICoreWebView2 *webview)
+{
+    int i;
+    if (!handle) return;
+    EnterCriticalSection(&tracked_cs);
+    for (i = 0; i < MAX_TRACKED_WEBVIEWS; i++)
+        if (!g_tracked[i].webview) { g_tracked[i].handle = handle; g_tracked[i].webview = webview; break; }
+    LeaveCriticalSection(&tracked_cs);
+    if (i == MAX_TRACKED_WEBVIEWS)
+        WARN("webview registry full (%d) -- events for handle %s will not be delivered\n",
+             MAX_TRACKED_WEBVIEWS, wine_dbgstr_longlong(handle));
+}
+
+static void webview_untrack(ICoreWebView2 *webview)
+{
+    int i;
+    EnterCriticalSection(&tracked_cs);
+    for (i = 0; i < MAX_TRACKED_WEBVIEWS; i++)
+        if (g_tracked[i].webview == webview) { g_tracked[i].webview = NULL; g_tracked[i].handle = 0; }
+    LeaveCriticalSection(&tracked_cs);
+}
+
+/* Returns an AddRef'd webview for `handle`, or NULL. The ref is taken under the
+ * same lock that guards the table, so the object cannot reach refcount zero
+ * between being found here and being used by the caller -- which matters
+ * because the caller is the pump thread and the owner is Studio's UI thread.
+ * Caller releases. */
+ICoreWebView2 *webview_find_by_handle(UINT64 handle)
+{
+    ICoreWebView2 *found = NULL;
+    int i;
+
+    if (!handle) return NULL;
+    EnterCriticalSection(&tracked_cs);
+    for (i = 0; i < MAX_TRACKED_WEBVIEWS; i++)
+        if (g_tracked[i].webview && g_tracked[i].handle == handle)
+        {
+            found = g_tracked[i].webview;
+            ICoreWebView2_AddRef(found);
+            break;
+        }
+    LeaveCriticalSection(&tracked_cs);
+    return found;
 }
 
 /* Final-review fix (Important 1, native_handle use-after-free): see these
@@ -155,6 +241,166 @@ static HRESULT WINAPI args_get_NavigationId(ICoreWebView2NavigationCompletedEven
 static const ICoreWebView2NavigationCompletedEventArgsVtbl args_vtbl =
 { args_QueryInterface, args_AddRef, args_Release, args_get_IsSuccess, args_get_WebErrorStatus, args_get_NavigationId };
 
+/* --- NavigationStartingEventArgs: same throwaway-object shape as
+ * NavigationCompletedEventArgs above, built fresh per event. --- */
+struct nav_starting_args_impl
+{
+    ICoreWebView2NavigationStartingEventArgs iface;
+    LONG ref;
+    LPWSTR uri;      /* owned; freed on release */
+    BOOL is_redirect;
+    BOOL cancel;
+    UINT64 navigation_id;
+};
+
+static HRESULT WINAPI nsargs_QueryInterface(ICoreWebView2NavigationStartingEventArgs *iface, REFIID riid, void **ppv)
+{
+    if (IsEqualGUID(riid, &IID_IUnknown))
+    { *ppv = iface; ICoreWebView2NavigationStartingEventArgs_AddRef(iface); return S_OK; }
+    *ppv = NULL;
+    return E_NOINTERFACE;
+}
+static ULONG WINAPI nsargs_AddRef(ICoreWebView2NavigationStartingEventArgs *iface)
+{ return InterlockedIncrement(&((struct nav_starting_args_impl *)iface)->ref); }
+static ULONG WINAPI nsargs_Release(ICoreWebView2NavigationStartingEventArgs *iface)
+{
+    struct nav_starting_args_impl *a = (struct nav_starting_args_impl *)iface;
+    LONG ref = InterlockedDecrement(&a->ref);
+    if (!ref) { CoTaskMemFree(a->uri); free(a); }
+    return ref;
+}
+static HRESULT WINAPI nsargs_get_Uri(ICoreWebView2NavigationStartingEventArgs *iface, LPWSTR *uri)
+{
+    struct nav_starting_args_impl *a = (struct nav_starting_args_impl *)iface;
+    SIZE_T len;
+
+    if (!uri) return E_POINTER;
+    /* Real WebView2 hands back a fresh CoTaskMemAlloc'd copy the caller frees
+     * (learn.microsoft.com: "The caller must free the returned string with
+     * CoTaskMemFree") -- same copy-out convention webview_get_Source already
+     * follows, not a pointer to our own storage. */
+    len = a->uri ? wcslen(a->uri) + 1 : 1;
+    if (!(*uri = CoTaskMemAlloc(len * sizeof(WCHAR)))) return E_OUTOFMEMORY;
+    memcpy(*uri, a->uri ? a->uri : L"", len * sizeof(WCHAR));
+    return S_OK;
+}
+static HRESULT WINAPI nsargs_get_IsUserInitiated(ICoreWebView2NavigationStartingEventArgs *iface, BOOL *value)
+{
+    /* The navigations this fires for are page-driven redirects out of the OAuth
+     * flow, not user gestures. Reporting FALSE is the honest answer for that
+     * case; WebKit's own decide-policy does expose a gesture flag, which is
+     * worth plumbing through if anything ever depends on it. */
+    if (!value) return E_POINTER;
+    *value = FALSE;
+    return S_OK;
+}
+static HRESULT WINAPI nsargs_get_IsRedirected(ICoreWebView2NavigationStartingEventArgs *iface, BOOL *value)
+{
+    if (!value) return E_POINTER;
+    *value = ((struct nav_starting_args_impl *)iface)->is_redirect;
+    return S_OK;
+}
+static HRESULT WINAPI nsargs_get_RequestHeaders(ICoreWebView2NavigationStartingEventArgs *iface, void **headers)
+{
+    /* Real slot, deliberately unimplemented: it returns an
+     * ICoreWebView2HttpRequestHeaders this DLL has no implementation of, and
+     * real WebView2 documents the headers as unmodifiable during this event
+     * anyway. The slot must exist so every later slot keeps its index. */
+    if (headers) *headers = NULL;
+    return E_NOTIMPL;
+}
+static HRESULT WINAPI nsargs_get_Cancel(ICoreWebView2NavigationStartingEventArgs *iface, BOOL *cancel)
+{
+    if (!cancel) return E_POINTER;
+    *cancel = ((struct nav_starting_args_impl *)iface)->cancel;
+    return S_OK;
+}
+static HRESULT WINAPI nsargs_put_Cancel(ICoreWebView2NavigationStartingEventArgs *iface, BOOL cancel)
+{
+    /* Recorded and readable back, but nothing acts on it: the helper already
+     * suppressed this navigation before sending the event (see
+     * on_decide_policy's webkit_policy_decision_ignore), which is what lets the
+     * event be one-way instead of a synchronous round trip. A handler setting
+     * Cancel=TRUE therefore gets exactly the outcome it asked for; one setting
+     * FALSE does not get the navigation resumed, which is the one real
+     * divergence from Windows here. Studio's login handler cancels, so this
+     * matters for correctness of the flow we're fixing, not for it. */
+    ((struct nav_starting_args_impl *)iface)->cancel = cancel;
+    return S_OK;
+}
+static HRESULT WINAPI nsargs_get_NavigationId(ICoreWebView2NavigationStartingEventArgs *iface, UINT64 *id)
+{
+    if (!id) return E_POINTER;
+    *id = ((struct nav_starting_args_impl *)iface)->navigation_id;
+    return S_OK;
+}
+
+/* Slot order verified against Microsoft.Web.WebView2 1.0.4129.50's own
+ * WebView2.h -- see the vtable's declaration comment in
+ * webview2loader_private.h for why the docs page must not be used for this. */
+static const ICoreWebView2NavigationStartingEventArgsVtbl nsargs_vtbl =
+{
+    nsargs_QueryInterface,
+    nsargs_AddRef,
+    nsargs_Release,
+    nsargs_get_Uri,
+    nsargs_get_IsUserInitiated,
+    nsargs_get_IsRedirected,
+    nsargs_get_RequestHeaders,
+    nsargs_get_Cancel,
+    nsargs_put_Cancel,
+    nsargs_get_NavigationId,
+};
+
+/* Fires NavigationStarting on every registered handler. Called from the event
+ * pump thread (see main.c's event_pump_proc).
+ *
+ * Snapshot-then-invoke, exactly like navigate_worker's own NavigationCompleted
+ * dispatch and for the same reason: a handler must not be invoked with wv->cs
+ * held (it can call back into this object), but walking the live list without
+ * the lock races remove_NavigationStarting freeing a node. AddRef'ing each
+ * handler under the lock keeps it alive even if its node is unlinked the
+ * instant the lock drops. */
+void webview_fire_navigation_starting(ICoreWebView2 *iface, const WCHAR *uri, BOOL is_redirect)
+{
+    struct webview_impl *wv = impl_from_ICoreWebView2(iface);
+    ICoreWebView2NavigationStartingEventHandler **snapshot = NULL;
+    struct nav_starting_listener *l;
+    SIZE_T count = 0, i;
+
+    EnterCriticalSection(&wv->cs);
+    for (l = wv->nav_starting_listeners; l; l = l->next) count++;
+    if (count && (snapshot = malloc(count * sizeof(*snapshot))))
+    {
+        for (l = wv->nav_starting_listeners, i = 0; l; l = l->next, i++)
+        {
+            ICoreWebView2NavigationStartingEventHandler_AddRef(l->handler);
+            snapshot[i] = l->handler;
+        }
+    }
+    else count = 0;
+    LeaveCriticalSection(&wv->cs);
+
+    for (i = 0; i < count; i++)
+    {
+        struct nav_starting_args_impl *args = calloc(1, sizeof(*args));
+        if (args)
+        {
+            SIZE_T len = uri ? wcslen(uri) + 1 : 1;
+            args->iface.lpVtbl = &nsargs_vtbl;
+            args->ref = 1;
+            args->is_redirect = is_redirect;
+            args->navigation_id = 0;
+            if ((args->uri = CoTaskMemAlloc(len * sizeof(WCHAR))))
+                memcpy(args->uri, uri ? uri : L"", len * sizeof(WCHAR));
+            ICoreWebView2NavigationStartingEventHandler_Invoke(snapshot[i], &wv->ICoreWebView2_iface, &args->iface);
+            ICoreWebView2NavigationStartingEventArgs_Release(&args->iface);
+        }
+        ICoreWebView2NavigationStartingEventHandler_Release(snapshot[i]);
+    }
+    free(snapshot);
+}
+
 /* --- ICoreWebView2 --- */
 static HRESULT WINAPI webview_QueryInterface(ICoreWebView2 *iface, REFIID riid, void **ppv);
 
@@ -168,9 +414,19 @@ static ULONG WINAPI webview_Release(ICoreWebView2 *iface)
     if (!ref)
     {
         struct nav_listener *l = wv->listeners;
+        struct nav_starting_listener *nsl = wv->nav_starting_listeners;
         struct wm_listener *wml = wv->wm_listeners;
         struct generic_listener *gl = wv->generic_listeners;
+
+        /* Out of the registry before any teardown: the pump thread only ever
+         * touches this object through webview_find_by_handle, which AddRefs
+         * under the registry lock, so removing it here means no new reference
+         * can be handed out while it is being destroyed. (Placed after the
+         * declarations above, not among them -- Wine builds C90 with
+         * -Werror=declaration-after-statement.) */
+        webview_untrack(iface);
         while (l) { struct nav_listener *next = l->next; ICoreWebView2NavigationCompletedEventHandler_Release(l->handler); free(l); l = next; }
+        while (nsl) { struct nav_starting_listener *next = nsl->next; ICoreWebView2NavigationStartingEventHandler_Release(nsl->handler); free(nsl); nsl = next; }
         while (wml) { struct wm_listener *next = wml->next; wml->handler->lpVtbl->Release(wml->handler); free(wml); wml = next; }
         while (gl) { struct generic_listener *next = gl->next; gl->handler->lpVtbl->Release(gl->handler); free(gl); gl = next; }
         if (wv->settings) ICoreWebView2Settings_Release(wv->settings);
@@ -364,6 +620,58 @@ static HRESULT WINAPI webview_remove_NavigationCompleted(ICoreWebView2 *iface, v
 
 /* --- Task 11: WebMessageReceived registration -- see struct wm_listener's
  * own comment above for what this does and doesn't implement. --- */
+
+/* --- NavigationStarting registration (real, and really fired) ---
+ *
+ * Was webview_generic_add_event/remove: registration succeeded and returned a
+ * token, but nothing ever invoked the handler. Same shape as
+ * add_NavigationCompleted, just against its own list. */
+
+static HRESULT WINAPI webview_add_NavigationStarting(ICoreWebView2 *iface, void *eventHandler_raw, void *token_raw)
+{
+    struct webview_impl *wv = impl_from_ICoreWebView2(iface);
+    ICoreWebView2NavigationStartingEventHandler *handler = eventHandler_raw;
+    UINT64 *token = token_raw;
+    struct nav_starting_listener *l;
+
+    if (!handler || !token) return E_POINTER;
+    if (!(l = malloc(sizeof(*l)))) return E_OUTOFMEMORY;
+
+    ICoreWebView2NavigationStartingEventHandler_AddRef(handler);
+    l->handler = handler;
+
+    EnterCriticalSection(&wv->cs);
+    l->token = ++wv->next_token;
+    l->next = wv->nav_starting_listeners;
+    wv->nav_starting_listeners = l;
+    LeaveCriticalSection(&wv->cs);
+
+    *token = l->token;
+    return S_OK;
+}
+
+static HRESULT WINAPI webview_remove_NavigationStarting(ICoreWebView2 *iface, void *token_raw)
+{
+    struct webview_impl *wv = impl_from_ICoreWebView2(iface);
+    UINT64 token = (UINT64)(ULONG_PTR)token_raw; /* see webview_remove_NavigationCompleted's comment on this cast */
+    struct nav_starting_listener **cur;
+
+    EnterCriticalSection(&wv->cs);
+    for (cur = &wv->nav_starting_listeners; *cur; cur = &(*cur)->next)
+    {
+        if ((*cur)->token == token)
+        {
+            struct nav_starting_listener *dead = *cur;
+            *cur = dead->next;
+            LeaveCriticalSection(&wv->cs);
+            ICoreWebView2NavigationStartingEventHandler_Release(dead->handler);
+            free(dead);
+            return S_OK;
+        }
+    }
+    LeaveCriticalSection(&wv->cs);
+    return S_OK; /* real WebView2 tolerates removing an already-gone/unknown token */
+}
 
 static HRESULT WINAPI webview_add_WebMessageReceived(ICoreWebView2 *iface, void *eventHandler_raw, void *token_raw)
 {
@@ -668,8 +976,8 @@ static const ICoreWebView2Vtbl webview_vtbl =
     webview_get_Source,
     webview_Navigate,
     webview_NavigateToString,
-    webview_generic_add_event, /* add_NavigationStarting */
-    webview_generic_remove_event, /* remove_NavigationStarting */
+    webview_add_NavigationStarting,
+    webview_remove_NavigationStarting,
     webview_generic_add_event, /* add_ContentLoading */
     webview_generic_remove_event, /* remove_ContentLoading */
     webview_generic_add_event, /* add_SourceChanged */
@@ -733,6 +1041,9 @@ HRESULT webview_create(UINT64 native_handle, ICoreWebView2 **out)
     wv->ref = 1;
     wv->native_handle = native_handle;
     InitializeCriticalSection(&wv->cs);
+    /* So the event pump can find this object again when the helper reports a
+     * NavigationStarting for it -- see webview_find_by_handle. */
+    webview_track(native_handle, &wv->ICoreWebView2_iface);
     *out = &wv->ICoreWebView2_iface;
     return S_OK;
 }
@@ -783,8 +1094,8 @@ static const struct webview2_2_vtbl_combined webview2_2_vtbl =
         webview_QueryInterface, webview_AddRef, webview_Release,
         webview_get_Settings,
         webview_get_Source, webview_Navigate, webview_NavigateToString,
-        webview_generic_add_event, /* add_NavigationStarting */
-        webview_generic_remove_event, /* remove_NavigationStarting */
+        webview_add_NavigationStarting,
+        webview_remove_NavigationStarting,
         webview_generic_add_event, /* add_ContentLoading */
         webview_generic_remove_event, /* remove_ContentLoading */
         webview_generic_add_event, /* add_SourceChanged */

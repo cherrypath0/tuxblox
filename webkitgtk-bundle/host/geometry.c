@@ -175,6 +175,40 @@ int x11_error_handler(Display *display, XErrorEvent *event)
     return 0;
 }
 
+/* Decodes a GdkToplevelState into the flag names that matter for WebKit's own
+ * IsVisible computation -- see watch_toplevel_state's call site for why. */
+static void log_toplevel_state(struct native_webview *nv, GdkToplevelState state, const char *when)
+{
+    fprintf(stderr, "webview2loader-host: toplevel state %s for nv=%p: 0x%x%s%s%s%s%s (mapped=%d)\n",
+            when, (void *)nv, (unsigned)state,
+            (state & GDK_TOPLEVEL_STATE_MINIMIZED)  ? " MINIMIZED<-- kills WebKit IsVisible" : "",
+            (state & GDK_TOPLEVEL_STATE_SUSPENDED)  ? " SUSPENDED(overridden by patch 4)" : "",
+            (state & GDK_TOPLEVEL_STATE_FOCUSED)    ? " FOCUSED" : "",
+            (state & GDK_TOPLEVEL_STATE_MAXIMIZED)  ? " MAXIMIZED" : "",
+            (state & GDK_TOPLEVEL_STATE_FULLSCREEN) ? " FULLSCREEN" : "",
+            gtk_widget_get_mapped(nv->window));
+}
+
+static void on_toplevel_state_changed(GObject *object, GParamSpec *pspec, gpointer user_data)
+{
+    (void)pspec;
+    log_toplevel_state(user_data, gdk_toplevel_get_state(GDK_TOPLEVEL(object)), "changed");
+}
+
+/* Connects a one-per-webview watch on the reparented surface's toplevel state.
+ * Idempotent: geometry_sync only calls this on a REAL reparent, but a genuine
+ * re-reparent (Wine recreating the parent's whole_window) would otherwise
+ * stack a second handler on the same surface. */
+static void watch_toplevel_state(struct native_webview *nv, GdkSurface *surface)
+{
+    if (!GDK_IS_TOPLEVEL(surface)) return;
+    if (g_object_get_data(G_OBJECT(surface), "tuxblox-state-watch")) return;
+    g_object_set_data(G_OBJECT(surface), "tuxblox-state-watch", GINT_TO_POINTER(1));
+
+    log_toplevel_state(nv, gdk_toplevel_get_state(GDK_TOPLEVEL(surface)), "at reparent");
+    g_signal_connect_data(surface, "notify::state", (GCallback)on_toplevel_state_changed, nv, NULL, 0);
+}
+
 /* Plan 3 Task 3: real position/size/visibility sync, called (via
  * unixlib.c's IPC client) from put_Bounds/put_IsVisible. See geometry.h's
  * own doc comment for the full calling-convention description. */
@@ -469,6 +503,74 @@ gboolean geometry_sync(struct native_webview *nv, struct wv2l_rect bounds, gbool
                             x11_error_seen_during_call ? "YES -- see x11_error_handler's own log line above "
                             "for details" : "no");
             nv->reparented_into = parent_xid;
+
+            /* Flicker fix: stop GDK waiting on a compositor handshake this
+             * surface can no longer take part in.
+             *
+             * GTK4 toplevels under a compositor use the _NET_WM_FRAME_DRAWN
+             * protocol. After each frame, gdksurface-x11.c's end_frame does:
+             *
+             *     if (_gdk_x11_surface_syncs_frames (surface)) {
+             *         impl->toplevel->frame_pending = TRUE;
+             *         gdk_surface_freeze_updates (surface);
+             *     }
+             *
+             * -- rendering is FROZEN until the window manager answers with
+             * _NET_WM_FRAME_DRAWN. GDK enables that whenever the compositor
+             * advertises the hint (KWin does), because it assumes any toplevel
+             * of its own is WM-managed.
+             *
+             * The XReparentWindow above breaks that assumption: this surface is
+             * now a child inside Roblox Studio's own window, so the WM does not
+             * manage it and will never send the frame-drawn reply. Every frame
+             * therefore freezes updates and only recovers when something else
+             * happens to thaw them, which is exactly the symptom -- intermittent
+             * stalls that get worse the more the page redraws, i.e. the more the
+             * user interacts with it.
+             *
+             * _gdk_x11_surface_syncs_frames has a client-side gate
+             * (impl->frame_sync_enabled) precisely for surfaces that should opt
+             * out; this is that case. Turning it off costs nothing here: frame
+             * sync exists to pace a WM-composited toplevel, and this surface is
+             * not one any more.
+             *
+             * Set on every real reparent rather than once at creation, because
+             * the surface only stops being WM-managed at this point.
+             *
+             * Same GDK_DEPRECATED_IN_4_18 situation as gdk_x11_surface_get_xid
+             * above -- no non-deprecated replacement exists, so the same
+             * tightly-scoped pragma applies. */
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+            gdk_x11_surface_set_frame_sync_enabled(surface, FALSE);
+#pragma GCC diagnostic pop
+            fprintf(stderr, "webview2loader-host: frame sync disabled for nv=%p -- reparented "
+                            "surfaces never receive _NET_WM_FRAME_DRAWN, so leaving it on freezes "
+                            "updates after every frame\n", (void *)nv);
+
+            /* Diagnostic for the "content disappears unless the pointer is
+             * inside the webview" symptom.
+             *
+             * WebKitWebViewBase's IsVisible is computed as:
+             *
+             *   gtk_widget_get_mapped(view)
+             *     && toplevel->isInMonitor()
+             *     && !toplevel->isMinimized()
+             *     && !toplevel->isSuspended()
+             *
+             * and when it goes false WebKit stops painting the page -- which
+             * is the symptom. TuxBlox already force-overrides isInMonitor()
+             * and isSuspended() for exactly this reason (see
+             * ProtonSource/webkitgtk/README-TUXBLOX-PATCHES.md patches 3 and
+             * 4), but the other two inputs, gtk_widget_get_mapped() and
+             * isMinimized(), are NOT overridden.
+             *
+             * isMinimized() reads GDK_TOPLEVEL_STATE_MINIMIZED off the same
+             * GdkToplevel state this logs, so watching it here answers whether
+             * a fourth override is warranted WITHOUT a multi-hour WebKitGTK
+             * rebuild to find out. Logged on every change rather than once:
+             * the symptom is intermittent, so the transitions are the data. */
+            watch_toplevel_state(nv, surface);
 
             /* Crash fix (see watchdog.h's own top-of-file comment for the
              * full mechanism this defends against): now that nv->window is

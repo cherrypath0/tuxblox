@@ -49,3 +49,9 @@ CLAUDE.md
 /*.tar.zst
 
 webkitgtk-bundle/out/
+# Created empty by podman on every webkitgtk-bundle build: build.sh bind-mounts the
+# real header from ProtonSource over this path, and podman needs the mount target to
+# exist. Harmless inside the container, but a 0-byte copy here shadows the real header
+# for any host-side compile (quoted includes resolve relative to the including file
+# first), so it must never be committed.
+webkitgtk-bundle/host/webview2loader_ipc_protocol.h

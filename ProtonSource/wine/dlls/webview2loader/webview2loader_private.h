@@ -277,6 +277,65 @@ DEFINE_GUID(IID_ICoreWebView2NavigationCompletedEventArgs,
 typedef struct ICoreWebView2NavigationCompletedEventHandler ICoreWebView2NavigationCompletedEventHandler;
 typedef struct ICoreWebView2NavigationCompletedEventArgs ICoreWebView2NavigationCompletedEventArgs;
 
+/* --- ICoreWebView2NavigationStarting{EventArgs,EventHandler} ---
+ *
+ * Studio registers add_NavigationStarting before it ever calls Navigate, and
+ * its login flow depends on the event actually firing: the OAuth page finishes
+ * by navigating to roblox-studio-auth:/?code=..., and Studio's handler reads
+ * that URI and completes the login in-process. Until now add_NavigationStarting
+ * only recorded the handler in the shared generic_listeners list and nothing
+ * ever invoked it, so the login had no way to complete.
+ *
+ * SLOT ORDER IS LOAD-BEARING and was taken from the real
+ * Microsoft.Web.WebView2 1.0.4129.50 WebView2.h
+ * (ICoreWebView2NavigationStartingEventArgsVtbl), NOT from learn.microsoft.com
+ * -- that page lists members ALPHABETICALLY (get_Cancel first), which is not
+ * declaration order. Getting this wrong would send Studio's
+ * get_Uri(LPWSTR*) call into get_Cancel(BOOL*) and write a pointer through a
+ * BOOL* -- the same class of failure as the 56-vs-61 vtable miscount already
+ * documented in webview.c's own webview2_2_vtbl comment.
+ *
+ * get_RequestHeaders keeps its real slot but returns E_NOTIMPL: it hands back
+ * an ICoreWebView2HttpRequestHeaders this DLL does not implement, and real
+ * WebView2 documents the headers as unmodifiable during this event anyway. The
+ * slot must exist regardless so every later slot lands at the right index. */
+typedef struct ICoreWebView2NavigationStartingEventArgs ICoreWebView2NavigationStartingEventArgs;
+typedef struct ICoreWebView2NavigationStartingEventHandler ICoreWebView2NavigationStartingEventHandler;
+
+typedef struct ICoreWebView2NavigationStartingEventArgsVtbl
+{
+    HRESULT (WINAPI *QueryInterface)(ICoreWebView2NavigationStartingEventArgs *This, REFIID riid, void **ppv);
+    ULONG   (WINAPI *AddRef)(ICoreWebView2NavigationStartingEventArgs *This);
+    ULONG   (WINAPI *Release)(ICoreWebView2NavigationStartingEventArgs *This);
+    HRESULT (WINAPI *get_Uri)(ICoreWebView2NavigationStartingEventArgs *This, LPWSTR *uri);
+    HRESULT (WINAPI *get_IsUserInitiated)(ICoreWebView2NavigationStartingEventArgs *This, BOOL *isUserInitiated);
+    HRESULT (WINAPI *get_IsRedirected)(ICoreWebView2NavigationStartingEventArgs *This, BOOL *isRedirected);
+    HRESULT (WINAPI *get_RequestHeaders)(ICoreWebView2NavigationStartingEventArgs *This, void **requestHeaders);
+    HRESULT (WINAPI *get_Cancel)(ICoreWebView2NavigationStartingEventArgs *This, BOOL *cancel);
+    HRESULT (WINAPI *put_Cancel)(ICoreWebView2NavigationStartingEventArgs *This, BOOL cancel);
+    HRESULT (WINAPI *get_NavigationId)(ICoreWebView2NavigationStartingEventArgs *This, UINT64 *navigationId);
+} ICoreWebView2NavigationStartingEventArgsVtbl;
+struct ICoreWebView2NavigationStartingEventArgs { const ICoreWebView2NavigationStartingEventArgsVtbl *lpVtbl; };
+
+typedef struct ICoreWebView2NavigationStartingEventHandlerVtbl
+{
+    HRESULT (WINAPI *QueryInterface)(ICoreWebView2NavigationStartingEventHandler *This, REFIID riid, void **ppv);
+    ULONG   (WINAPI *AddRef)(ICoreWebView2NavigationStartingEventHandler *This);
+    ULONG   (WINAPI *Release)(ICoreWebView2NavigationStartingEventHandler *This);
+    HRESULT (WINAPI *Invoke)(ICoreWebView2NavigationStartingEventHandler *This, ICoreWebView2 *sender,
+                              ICoreWebView2NavigationStartingEventArgs *args);
+} ICoreWebView2NavigationStartingEventHandlerVtbl;
+struct ICoreWebView2NavigationStartingEventHandler { const ICoreWebView2NavigationStartingEventHandlerVtbl *lpVtbl; };
+
+#ifdef COBJMACROS
+#define ICoreWebView2NavigationStartingEventArgs_AddRef(This) (This)->lpVtbl->AddRef(This)
+#define ICoreWebView2NavigationStartingEventArgs_Release(This) (This)->lpVtbl->Release(This)
+#define ICoreWebView2NavigationStartingEventHandler_AddRef(This) (This)->lpVtbl->AddRef(This)
+#define ICoreWebView2NavigationStartingEventHandler_Release(This) (This)->lpVtbl->Release(This)
+#define ICoreWebView2NavigationStartingEventHandler_Invoke(This,sender,args) \
+    (This)->lpVtbl->Invoke(This,sender,args)
+#endif
+
 typedef struct ICoreWebView2NavigationCompletedEventHandlerVtbl
 {
     HRESULT (WINAPI *QueryInterface)(ICoreWebView2NavigationCompletedEventHandler *This, REFIID riid, void **ppv);
@@ -965,5 +1024,16 @@ struct webview2_environment8_vtbl_combined
     ICoreWebView2EnvironmentVtbl base;
     webview2_environment8_extension_vtbl ext;
 };
+
+/* --- Event pump (see main.c's event_pump_proc) ---
+ *
+ * webview_find_by_handle turns an event's native handle back into the COM
+ * object it belongs to, AddRef'd; webview_fire_navigation_starting invokes
+ * that object's registered NavigationStarting handlers. Both live in
+ * webview.c and are called from the pump thread, which is the only place in
+ * this DLL where work flows helper -> Studio rather than the other way. */
+ICoreWebView2 *webview_find_by_handle(UINT64 handle);
+void webview_fire_navigation_starting(ICoreWebView2 *iface, const WCHAR *uri, BOOL is_redirect);
+void webview_start_event_pump(void);
 
 #endif /* __WINE_WEBVIEW2LOADER_PRIVATE_H */

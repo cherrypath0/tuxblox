@@ -1066,16 +1066,6 @@ class Session:
         if "PROTON_CPU_TOPOLOGY" in self.env:
             self.env["WINE_CPU_TOPOLOGY"] = self.env["PROTON_CPU_TOPOLOGY"]
 
-        if "WINE_HIDE_AMD_GPU" not in self.env and appid in [
-                    "1282690",
-                ]:
-            self.env["WINE_HIDE_AMD_GPU"] = "1"
-
-        if "WINE_DISABLE_GAMESCOPE_MAX_SIZE_HACK" not in self.env and appid in [
-                    "3754990",
-                ]:
-            self.env["WINE_DISABLE_GAMESCOPE_MAX_SIZE_HACK"] = "1"
-
     def init_wine(self):
         self.env.pop("LC_ALL", "")
 

@@ -357,6 +357,29 @@ static gboolean on_ipc_readable(gint fd, GIOCondition condition, gpointer user_d
         if (ipc_write_full(fd, &p, sizeof(p)) < 0) { g_main_loop_quit(g_loop); return G_SOURCE_REMOVE; }
         return G_SOURCE_CONTINUE;
     }
+    case WV2L_OP_DELETE_COOKIE:
+    {
+        /* Heap, not a stack local: this struct embeds a full struct wv2l_cookie
+         * (~9.6KB of fixed UTF-16 buffers), which is more than belongs on this
+         * process's single main-loop stack -- same reasoning cookies_get's own
+         * ctx already uses for the much larger array case. */
+        struct wv2l_delete_cookie_params *p = calloc(1, sizeof(*p));
+        if (!p)
+        {
+            fprintf(stderr, "webview2loader-host: calloc failed for DeleteCookie params -- cannot even "
+                            "consume this request's bytes without desyncing the stream, closing\n");
+            g_main_loop_quit(g_loop);
+            return G_SOURCE_REMOVE;
+        }
+        if (ipc_read_full(fd, p, sizeof(*p)) < 0) { free(p); g_main_loop_quit(g_loop); return G_SOURCE_REMOVE; }
+        /* No `out` fields for this opcode -- cookies_delete_one's own gboolean
+         * is only useful for this file's stderr diagnostics (a stale handle or
+         * a conversion failure), exactly like WV2L_OP_DELETE_ALL_COOKIES above. */
+        cookies_delete_one(webview_lookup(p->handle), &p->cookie);
+        if (ipc_write_full(fd, p, sizeof(*p)) < 0) { free(p); g_main_loop_quit(g_loop); return G_SOURCE_REMOVE; }
+        free(p);
+        return G_SOURCE_CONTINUE;
+    }
     /* Reserved for a truly out-of-range/garbage opcode value that doesn't
      * match any of the 10 real opcodes above -- genuine protocol corruption,
      * so terminating the helper here (rather than trying to guess a framing)
@@ -430,20 +453,37 @@ int main(int argc, char **argv)
      * GDK's display connection and locks in its backend choice. */
     setenv("GDK_BACKEND", "x11", 1);
 
-    /* GTK 4.18 removed the old, separate "gl" renderer outright -- it's now
-     * just a deprecated alias for "ngl" (confirmed directly in gtk's own
-     * gsk/gskrenderer.c: GSK_RENDERER=gl warns and then returns the exact
-     * same GSK_TYPE_GL_RENDERER "ngl" already uses), so there's no simpler
-     * GL renderer left to switch to. full-redraw forces every frame to
-     * union in the surface's full rectangle instead of computing a damage
-     * region via gsk_render_node_diff() -- tested against a real repro
-     * (reparented webview painting solid white when the pointer leaves its
-     * area) and it did NOT fix it, ruling out damage-region diffing as the
-     * cause. Left enabled anyway (real, official GTK4 flag, negligible
-     * cost for a single webview-sized surface) since it's a plausible
-     * contributor even if not the whole story, and there's no evidence it
-     * hurts. See GDK_DEBUG below for the next diagnostic step. */
-    setenv("GSK_DEBUG", "full-redraw", 1);
+    /* Renderer selection. Both of the settings below are now set with
+     * overwrite=0, NOT 1: whatever is already in the environment wins, so a
+     * hypothesis can be A/B tested on a real Studio launch by exporting one
+     * variable, with no rebuild. The flicker investigation had gone several
+     * rounds where every candidate cost a full rebuild to try, which is a bad
+     * way to test a symptom that is intermittent and only reproduces by hand.
+     *
+     * GSK_DEBUG=full-redraw is no longer forced on. The reasoning for keeping
+     * it was "negligible cost for a single webview-sized surface ... no
+     * evidence it hurts", and the earlier round that tested it correctly found
+     * it did not FIX the flicker -- but "does not fix" was read as "harmless",
+     * and that does not survive the constraint the rest of this stack now
+     * imposes. unixlib.c forces WV2L_ALWAYS_USE_BUNDLE_GL, so every launch
+     * runs on llvmpipe -- software GL, confirmed live by log_gl_dispatch_info
+     * printing EGL_VENDOR="Mesa Project". full-redraw makes GSK re-render the
+     * entire surface every single frame instead of the damage region, and on a
+     * software rasteriser that cost is the opposite of negligible.
+     *
+     * GSK_RENDERER=cairo is the option the previous round did not consider. It
+     * reasoned about "gl" vs "ngl" and concluded "there's no simpler GL
+     * renderer left to switch to" -- true, but cairo is not a GL renderer at
+     * all. It is GSK's CPU rasteriser, and it skips the whole GL path rather
+     * than emulating it: no EGL surface, no swap, no llvmpipe shader
+     * compilation. For a webview-sized surface with no 3D content, running
+     * GTK's GL renderer ON TOP of a software GL implementation is strictly
+     * more work than rasterising directly.
+     *
+     * Stated honestly: this is the leading hypothesis for the flicker, not a
+     * confirmed fix. Export GSK_RENDERER=ngl (or GSK_DEBUG=full-redraw) to get
+     * the old behaviour back and compare. */
+    setenv("GSK_RENDERER", "cairo", 0);
 
     /* GDK_DEBUG=events,frames,opengl was tried here as diagnostic tracing
      * for the flicker investigation and REMOVED again: both real crash
@@ -477,6 +517,26 @@ int main(int argc, char **argv)
     fd_env = getenv("WEBVIEW2LOADER_IPC_FD");
     if (!fd_env) { fprintf(stderr, "webview2loader-host: WEBVIEW2LOADER_IPC_FD not set\n"); return 1; }
     g_ipc_fd = atoi(fd_env);
+
+    /* Optional second socket for host->Wine events (see the "Event channel"
+     * comment in webview2loader_ipc_protocol.h). Deliberately NOT fatal when
+     * absent: a Wine side built before the event channel existed spawns this
+     * helper with only the request fd, and everything except event delivery
+     * still works exactly as it did. ipc_send_event reports failure to its
+     * callers in that case so they can fall back rather than silently drop. */
+    {
+        const char *ev_env = getenv("WEBVIEW2LOADER_EVENT_FD");
+        if (ev_env)
+        {
+            ipc_set_event_fd(atoi(ev_env));
+            fprintf(stderr, "webview2loader-host: event channel active on fd %s\n", ev_env);
+        }
+        else
+        {
+            fprintf(stderr, "webview2loader-host: no WEBVIEW2LOADER_EVENT_FD -- host->Wine events "
+                            "are unavailable this run\n");
+        }
+    }
 
     /* Task 4 finding: this used to be prctl(PR_SET_PDEATHSIG, SIGTERM) here,
      * matching the design spec's Lifecycle section ("if Wine dies without

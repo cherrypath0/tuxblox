@@ -35,4 +35,22 @@
 ssize_t ipc_read_full(int fd, void *buf, size_t len);
 ssize_t ipc_write_full(int fd, const void *buf, size_t len);
 
+/* --- Event channel (host -> Wine) ---
+ *
+ * The second, independent socket described in webview2loader_ipc_protocol.h's
+ * own "Event channel" comment. main() installs the fd once at startup from
+ * WEBVIEW2LOADER_EVENT_FD; everything else just calls ipc_send_event.
+ *
+ * ipc_send_event writes one framed event (uint32_t type, then that type's
+ * struct) and returns 0 on success, -1 if the event could not be delivered --
+ * including the case where no event channel exists at all, which is normal
+ * when running against an older Wine side that never created one. Callers MUST
+ * treat -1 as "Wine did not get this" and fall back accordingly rather than
+ * assuming delivery.
+ *
+ * Never blocks the caller on a reply: events are one-way by construction, so
+ * this cannot stall the GTK main loop the way a synchronous round trip could. */
+void ipc_set_event_fd(int fd);
+int ipc_send_event(unsigned int type, const void *payload, size_t len);
+
 #endif

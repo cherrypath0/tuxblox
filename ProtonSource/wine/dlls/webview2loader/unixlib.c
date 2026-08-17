@@ -30,12 +30,14 @@
 #include <fcntl.h>
 #include <limits.h>
 #include <pthread.h>
+#include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/wait.h>
+#include <time.h>
 #include <unistd.h>
 
 #include <ntstatus.h>
@@ -55,6 +57,47 @@ WINE_DEFAULT_DEBUG_CHANNEL(webview2loader);
 static int g_helper_fd = -1;
 static pid_t g_helper_pid = -1;
 static pthread_mutex_t g_ipc_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+/* Event channel (host -> here), the second socket described in
+ * webview2loader_ipc_protocol.h's own "Event channel" comment. Separate from
+ * g_helper_fd on purpose: a PE-side pump thread parks in a blocking read on
+ * this fd for the whole session, and it must never hold g_ipc_mutex while
+ * doing so or every ordinary request would block behind it. */
+static int g_event_fd = -1;
+
+/* Helper-restart state, all guarded by g_ipc_mutex.
+ *
+ * The helper used to be spawned exactly once, from a pthread_once. That made
+ * a single helper crash permanent for the rest of the Wine process: the dead
+ * socket stayed in g_helper_fd, the once-guard could never run the init body
+ * again, and every later ipc_call failed forever -- so one abort in the host
+ * (a real, observed WebKitGTK/GDK crash) took the whole WebView2 surface down
+ * with it instead of costing one dialog. Real WebView2 recovers into a fresh
+ * browser process; these three fields are what let this one do the same.
+ *
+ * g_helper_generation: bumped on every successful spawn, and folded into the
+ *   top bits of every handle handed back to the PE side (see
+ *   handle_tag_locked).
+ *   Without it, a handle issued by a DEAD helper could be forwarded to a
+ *   FRESH one and happen to match a genuinely-live native_webview there --
+ *   the new helper allocates from the same allocator in the same binary, so
+ *   an early allocation landing on a recycled address is plausible, not
+ *   theoretical. The generation check rejects those before they are ever sent.
+ * g_helper_unavailable: set only for failures that cannot improve by retrying
+ *   (TUXBLOX_WEBVIEW_DIR unset -- not running under this repo's proton), so
+ *   those don't fork a doomed child on every call.
+ * g_last_spawn_secs: monotonic timestamp of the last spawn ATTEMPT, used for
+ *   the cooldown below -- an unconditional respawn-on-demand would fork once
+ *   per WebView2 call against a helper that dies instantly. */
+static unsigned int g_helper_generation;
+static BOOL g_helper_unavailable;
+static time_t g_last_spawn_secs;
+
+/* Minimum seconds between spawn attempts. Bounds the fork rate if the helper
+ * dies immediately every time, while still allowing unlimited recovery across
+ * a long Studio session (unlike a fixed attempt count, which would stop
+ * recovering after N crashes on a session that legitimately runs for hours). */
+#define WV2L_RESPAWN_COOLDOWN_SECS 2
 
 /* Task 7: real host-vs-bundled GL/EGL dispatch, salvaged from the blocked
  * attempt documented in .superpowers/sdd/2026-08-13-webview2-window-docking-
@@ -311,11 +354,18 @@ static void set_webkit_relocation_env(const char *dir)
 static BOOL spawn_helper(const char *bundle_dir)
 {
     int sv[2];
+    int ev[2];
     char helper_path[PATH_MAX];
     char fd_env[32];
     BOOL host_egl_ok;
 
     if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv) != 0) return FALSE;
+    /* Second socketpair for host->here events. Failing to create it is NOT
+     * fatal: everything except event delivery works without one, and the
+     * helper explicitly tolerates its absence (see main.c's own handling of a
+     * missing WEBVIEW2LOADER_EVENT_FD), so degrade rather than refuse to
+     * start the webview at all. */
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, ev) != 0) { ev[0] = -1; ev[1] = -1; }
 
     /* Review fix (post-commit 61613652a): must run here, in the PARENT,
      * strictly before fork() -- see host_has_usable_egl()'s own comment for
@@ -358,6 +408,21 @@ static BOOL spawn_helper(const char *bundle_dir)
 
         snprintf(fd_env, sizeof(fd_env), "3");
         setenv("WEBVIEW2LOADER_IPC_FD", fd_env, 1);
+
+        /* Same fixed-fd contract as the request socket above, one number up:
+         * a constant the helper can rely on rather than whatever socketpair
+         * happened to return. Only set when the pair was actually created --
+         * an unset WEBVIEW2LOADER_EVENT_FD is the helper's documented signal
+         * that no event channel exists this run. */
+        if (ev[1] >= 0)
+        {
+            close(ev[0]);
+            dup2(ev[1], 4);
+            if (ev[1] != 4) close(ev[1]);
+            snprintf(fd_env, sizeof(fd_env), "4");
+            setenv("WEBVIEW2LOADER_EVENT_FD", fd_env, 1);
+        }
+        else unsetenv("WEBVIEW2LOADER_EVENT_FD");
 
         /* Part B (Task 7): WebKitGTK's own runtime env vars (helper process
          * paths, GStreamer/GIO/GBM/GSettings lookup dirs) -- see
@@ -404,8 +469,58 @@ static BOOL spawn_helper(const char *bundle_dir)
 
     /* Parent: keep sv[0], drop sv[1]. */
     close(sv[1]);
+    if (ev[1] >= 0) close(ev[1]);
+    if (ev[0] >= 0)
+    {
+        fcntl(ev[0], F_SETFD, FD_CLOEXEC); /* same rationale as sv[0] below */
+        g_event_fd = ev[0];
+    }
+    /* CLOEXEC on our own end: nothing Wine exec's later (including a future
+     * respawn's own child, or any process Studio itself launches) has any use
+     * for this socket, and an inherited copy would keep the peer's read from
+     * ever seeing EOF -- which is exactly the "Wine died" detection the helper
+     * relies on in place of PR_SET_PDEATHSIG (see the removed-PDEATHSIG
+     * comment in webkitgtk-bundle/host/main.c). */
+    fcntl(sv[0], F_SETFD, FD_CLOEXEC);
     g_helper_fd = sv[0];
     return TRUE;
+}
+
+/* Closes this side of the socket and reaps the helper. Caller holds
+ * g_ipc_mutex. Safe to call when nothing is running (both fields already
+ * cleared) -- every failure path funnels through here rather than clearing
+ * the fields itself, so there is one place that can leave a zombie and one
+ * place to get it right.
+ *
+ * SIGKILL rather than SIGTERM, then a blocking waitpid: by the time this runs
+ * the helper has already failed a request, so it is either dead (waitpid
+ * returns immediately) or wedged badly enough that a polite shutdown is not
+ * worth waiting on. It is our own direct child, so the wait is bounded. */
+static void helper_teardown_locked(void)
+{
+    if (g_helper_fd >= 0)
+    {
+        close(g_helper_fd);
+        g_helper_fd = -1;
+    }
+    if (g_event_fd >= 0)
+    {
+        /* shutdown() before close() so a pump thread currently parked in
+         * read() on this fd wakes immediately with EOF instead of waiting for
+         * the helper's own end to close. It would wake anyway once the child
+         * dies below, but not until then, and the respawn should not have to
+         * wait on that. */
+        shutdown(g_event_fd, SHUT_RDWR);
+        close(g_event_fd);
+        g_event_fd = -1;
+    }
+    if (g_helper_pid > 0)
+    {
+        int status;
+        kill(g_helper_pid, SIGKILL);
+        while (waitpid(g_helper_pid, &status, 0) < 0 && errno == EINTR) { /* retry */ }
+        g_helper_pid = -1;
+    }
 }
 
 /* Duplicated from webkitgtk-bundle/host/ipc.c's ipc_read_full/ipc_write_full
@@ -438,7 +553,16 @@ static ssize_t ipc_write_full(int fd, const void *buf, size_t len)
     size_t done = 0;
     while (done < len)
     {
-        ssize_t n = write(fd, (const char *)buf + done, len - done);
+        /* send(MSG_NOSIGNAL) rather than write(): writing to a socket whose
+         * peer has exited raises SIGPIPE, and a dead helper is now an expected,
+         * recoverable state rather than an impossible one. Wine does set
+         * SIGPIPE to SIG_IGN process-wide (dlls/ntdll/unix/server.c), so this
+         * is belt-and-braces -- but it makes the helper-death path depend on
+         * this file rather than on a global signal disposition set elsewhere,
+         * and a harness that drives this code outside Wine proved the
+         * difference is real: the same write races between ECONNRESET and
+         * EPIPE depending on how far the peer's teardown has progressed. */
+        ssize_t n = send(fd, (const char *)buf + done, len - done, MSG_NOSIGNAL);
         if (n < 0)
         {
             if (errno == EINTR) continue;
@@ -458,16 +582,176 @@ static ssize_t ipc_write_full(int fd, const void *buf, size_t len)
  * whatever failure convention their specific unix_*_impl already used
  * before this change (never a new crash/hang, matching this whole file's
  * established degrade-gracefully pattern). */
-static BOOL ipc_call(enum wv2l_opcode op, void *req_resp, size_t size)
+static BOOL ipc_call_locked(enum wv2l_opcode op, void *req_resp, size_t size);
+
+/* Makes sure a live helper is on the other end of g_helper_fd, spawning (or
+ * respawning) one if not. Caller holds g_ipc_mutex. Returns FALSE without
+ * having spawned anything if the helper is permanently unavailable, or if the
+ * cooldown since the last attempt hasn't elapsed.
+ *
+ * The WV2L_OP_INIT round-trip is part of "spawned successfully": a child that
+ * exec'd but can't answer its very first request is not a working helper, and
+ * treating it as one would just move the failure to the next real call. */
+static BOOL ensure_helper_locked(void)
+{
+    struct wv2l_init_params wire;
+    struct timespec now;
+    const char *dir;
+
+    if (g_helper_fd >= 0) return TRUE;
+    if (g_helper_unavailable) return FALSE;
+
+    if (!(dir = getenv("TUXBLOX_WEBVIEW_DIR")) || !dir[0])
+    {
+        WARN("TUXBLOX_WEBVIEW_DIR not set -- not running under this repo's proton\n");
+        g_helper_unavailable = TRUE; /* cannot improve by retrying */
+        return FALSE;
+    }
+
+    /* Cooldown. CLOCK_MONOTONIC so a wall-clock jump (NTP, suspend/resume)
+     * can't make this wait for hours or fire continuously. */
+    if (clock_gettime(CLOCK_MONOTONIC, &now) == 0)
+    {
+        if (g_last_spawn_secs && now.tv_sec - g_last_spawn_secs < WV2L_RESPAWN_COOLDOWN_SECS)
+            return FALSE;
+        g_last_spawn_secs = now.tv_sec;
+    }
+
+    /* Clears a previous generation's dead fd/zombie before forking a new
+     * child -- also what keeps the new child from inheriting the old socket. */
+    helper_teardown_locked();
+
+    if (!spawn_helper(dir))
+    {
+        WARN("spawn_helper failed -- could not start webview2loader-host\n");
+        return FALSE;
+    }
+
+    memset(&wire, 0, sizeof(wire));
+    if (!ipc_call_locked(WV2L_OP_INIT, &wire, sizeof(wire)) || !wire.success)
+    {
+        WARN("WV2L_OP_INIT round-trip failed -- webview2loader-host not responding correctly\n");
+        helper_teardown_locked();
+        return FALSE;
+    }
+
+    /* Only now is this a helper whose handles are worth honouring. Bumping
+     * AFTER a confirmed-working INIT means a failed spawn never burns a
+     * generation, so handles from the last GOOD helper stay distinguishable
+     * from handles the next good one will issue. */
+    g_helper_generation++;
+    if (g_helper_pid > 0)
+        WARN("webview2loader-host running as pid %d (generation %u)\n",
+             (int)g_helper_pid, g_helper_generation);
+    return TRUE;
+}
+
+/* The raw round-trip: caller holds g_ipc_mutex and has already ensured a live
+ * helper. Tears the helper down on any transport failure so the NEXT call
+ * respawns rather than writing into a socket whose peer is gone. */
+static BOOL ipc_call_locked(enum wv2l_opcode op, void *req_resp, size_t size)
 {
     uint32_t wire_op = (uint32_t)op;
     BOOL ok;
 
-    pthread_mutex_lock(&g_ipc_mutex);
     ok = g_helper_fd >= 0
         && ipc_write_full(g_helper_fd, &wire_op, sizeof(wire_op)) == (ssize_t)sizeof(wire_op)
         && ipc_write_full(g_helper_fd, req_resp, size) == (ssize_t)size
         && ipc_read_full(g_helper_fd, req_resp, size) == (ssize_t)size;
+
+    if (!ok && g_helper_fd >= 0)
+    {
+        /* A partial write or a short read also lands here: once framing is
+         * broken there is no way to resynchronise a stream protocol with no
+         * request IDs, so the connection is finished either way. */
+        WARN("IPC round-trip for opcode %u failed (%s) -- tearing down the helper; "
+             "the next call will respawn it\n", (unsigned)op, strerror(errno));
+        helper_teardown_locked();
+    }
+    return ok;
+}
+
+/* --- Handle generation tagging ---
+ *
+ * x86_64 user-space pointers occupy the low 47 bits, so the top 16 are free to
+ * carry the generation the handle was issued in. See g_helper_generation's own
+ * comment for why a bare pointer must not be forwarded across a respawn.
+ *
+ * Both directions run with g_ipc_mutex held, in the same critical section as
+ * the send/receive they belong to. That matters: validating a handle and then
+ * writing it in a later critical section would leave a window for another
+ * thread's failure to respawn the helper in between, which is exactly the
+ * stale-handle-into-a-fresh-helper case this exists to prevent. */
+#define WV2L_HANDLE_PTR_MASK 0x0000ffffffffffffULL
+#define WV2L_HANDLE_GEN_SHIFT 48
+
+static UINT64 handle_tag_locked(uint64_t raw)
+{
+    if (!raw) return 0; /* 0 is the wire's own "failed" value -- never tag it */
+    return (UINT64)((raw & WV2L_HANDLE_PTR_MASK)
+                    | ((uint64_t)(g_helper_generation & 0xffff) << WV2L_HANDLE_GEN_SHIFT));
+}
+
+/* Returns the raw helper-side handle, or 0 if it was issued by a helper that
+ * is no longer running -- callers already treat 0 as the invalid handle. */
+static uint64_t handle_untag_locked(UINT64 tagged)
+{
+    unsigned int gen;
+
+    if (!tagged) return 0;
+    gen = (unsigned int)(tagged >> WV2L_HANDLE_GEN_SHIFT);
+    if (gen != (g_helper_generation & 0xffff))
+    {
+        WARN("handle %s came from an earlier webview2loader-host (generation %u, now %u) -- "
+             "rejecting rather than forwarding it to the current one\n",
+             wine_dbgstr_longlong(tagged), gen, g_helper_generation & 0xffff);
+        return 0;
+    }
+    return (uint64_t)(tagged & WV2L_HANDLE_PTR_MASK);
+}
+
+/* The two public entry points below both take g_ipc_mutex, ensure a live
+ * helper, and send. Neither RETRIES the request after a respawn, deliberately:
+ * these opcodes are not all idempotent, and every handle the caller is holding
+ * belongs to the dead helper's generation anyway. The failing call fails; the
+ * caller creates a fresh controller and that one works.
+ *
+ * There is no handle-less variant besides ipc_call_create -- WV2L_OP_INIT is
+ * issued from inside ensure_helper_locked (which already holds the lock, so it
+ * calls ipc_call_locked directly), and every other opcode carries a handle.
+ *
+ * ipc_call_handle: handle_field points at the `handle` member of the caller's
+ * own wire struct, holding the PE-side TAGGED value on entry; this swaps in the
+ * raw helper-side value before sending. Passing the field by pointer rather
+ * than assuming it sits at offset 0 keeps this honest even though, today,
+ * every handle-bearing wire struct does start with it. */
+static BOOL ipc_call_handle(enum wv2l_opcode op, void *req_resp, size_t size, uint64_t *handle_field)
+{
+    BOOL ok = FALSE;
+    uint64_t raw;
+
+    pthread_mutex_lock(&g_ipc_mutex);
+    if (ensure_helper_locked() && (raw = handle_untag_locked((UINT64)*handle_field)) != 0)
+    {
+        *handle_field = raw;
+        ok = ipc_call_locked(op, req_resp, size);
+    }
+    pthread_mutex_unlock(&g_ipc_mutex);
+    return ok;
+}
+
+/* CREATE_WEBVIEW's response handle has to be tagged with the generation of the
+ * helper that actually answered, read in the same critical section as the call
+ * -- reading g_helper_generation afterwards could pick up a newer one if
+ * another thread's failure respawned in between, mislabelling the handle as
+ * belonging to a helper that has never seen it. */
+static BOOL ipc_call_create(struct wv2l_create_webview_params *wire, UINT64 *tagged_out)
+{
+    BOOL ok;
+
+    pthread_mutex_lock(&g_ipc_mutex);
+    ok = ensure_helper_locked() && ipc_call_locked(WV2L_OP_CREATE_WEBVIEW, wire, sizeof(*wire));
+    *tagged_out = ok ? handle_tag_locked(wire->handle) : 0;
     pthread_mutex_unlock(&g_ipc_mutex);
     return ok;
 }
@@ -506,73 +790,41 @@ static void wire_cookie_to_unix(struct unix_cookie *dst, const struct wv2l_cooki
     dst->is_secure = src->is_secure ? TRUE : FALSE;
 }
 
-/* unix_init_impl must run its real init work (resolve TUXBLOX_WEBVIEW_DIR,
- * spawn_helper, a WV2L_OP_INIT round-trip) exactly once, even when called
- * concurrently from multiple PE threads (webview2loader_unix_init() is
- * called on every environment creation -- see main.c). The pre-rewrite
- * version of this function needed a hand-rolled three-state guard
- * (INIT_IDLE/INIT_RUNNING/INIT_DONE) specifically because its init body
- * contained a pthread_cond_wait that RELEASED its own guarding mutex for
- * the duration of the wait, opening a window where a second thread could
- * race through the same init work. Nothing in this rewrite's init path
- * (spawn_helper's fork(), or ipc_call's own blocking socket I/O under a
- * *different* mutex, g_ipc_mutex) ever releases a lock mid-init like that,
- * so a plain pthread_once suffices: its own contract (run the init
- * function exactly once; concurrent callers block until it completes) is
- * exactly the semantics that used to require three states to hand-roll. */
-static pthread_once_t g_init_once = PTHREAD_ONCE_INIT;
-static BOOL g_init_ok;
-
-static void do_init_once(void)
-{
-    const char *dir;
-    struct wv2l_init_params wire = { 0 };
-
-    g_init_ok = FALSE;
-
-    if (!(dir = getenv("TUXBLOX_WEBVIEW_DIR")) || !dir[0])
-    {
-        WARN("TUXBLOX_WEBVIEW_DIR not set -- not running under this repo's proton\n");
-        return;
-    }
-
-    if (!spawn_helper(dir))
-    {
-        WARN("spawn_helper failed -- could not start webview2loader-host\n");
-        return;
-    }
-
-    if (!ipc_call(WV2L_OP_INIT, &wire, sizeof(wire)) || !wire.success)
-    {
-        WARN("WV2L_OP_INIT round-trip failed -- webview2loader-host not responding correctly\n");
-        return;
-    }
-
-    g_init_ok = TRUE;
-}
-
+/* webview2loader_unix_init() runs on every environment creation (see main.c),
+ * possibly from several PE threads at once. This used to be a pthread_once
+ * around the whole spawn -- correct for "exactly once", wrong for a helper
+ * that can die and need replacing (see g_helper_generation's own comment).
+ * g_ipc_mutex now serves both purposes: it already serialises every request,
+ * and holding it across the spawn gives concurrent callers the same
+ * block-until-the-first-one-finishes behaviour pthread_once provided, while
+ * still allowing a later call to spawn a replacement. */
 static NTSTATUS unix_init_impl(void *args)
 {
     struct init_params *params = args;
+    BOOL ok;
 
-    pthread_once(&g_init_once, do_init_once);
-    params->success = g_init_ok;
-    return g_init_ok ? STATUS_SUCCESS : STATUS_NOT_SUPPORTED;
+    pthread_mutex_lock(&g_ipc_mutex);
+    ok = ensure_helper_locked();
+    pthread_mutex_unlock(&g_ipc_mutex);
+
+    params->success = ok;
+    return ok ? STATUS_SUCCESS : STATUS_NOT_SUPPORTED;
 }
 
 static NTSTATUS unix_create_webview_impl(void *args)
 {
     struct create_webview_params *params = args;
     struct wv2l_create_webview_params wire = { .is_message_only = params->is_message_only };
+    UINT64 tagged = 0;
 
-    if (!ipc_call(WV2L_OP_CREATE_WEBVIEW, &wire, sizeof(wire)))
+    if (!ipc_call_create(&wire, &tagged))
     {
         WARN("ipc_call failed -- helper not running, failing CreateWebview\n");
         params->handle = 0;
         return STATUS_NOT_SUPPORTED;
     }
-    params->handle = wire.handle;
-    return wire.handle ? STATUS_SUCCESS : STATUS_NOT_SUPPORTED;
+    params->handle = tagged;
+    return tagged ? STATUS_SUCCESS : STATUS_NOT_SUPPORTED;
 }
 
 static NTSTATUS unix_destroy_webview_impl(void *args)
@@ -581,8 +833,11 @@ static NTSTATUS unix_destroy_webview_impl(void *args)
     struct wv2l_destroy_webview_params wire = { .handle = params->handle };
 
     if (!params->handle) return STATUS_SUCCESS;
-    if (!ipc_call(WV2L_OP_DESTROY_WEBVIEW, &wire, sizeof(wire)))
-        WARN("ipc_call failed -- helper not running, native webview leaked\n");
+    /* A handle from a dead helper is also rejected here, and that is the
+     * right answer: the helper that owned that native_webview is gone, so
+     * there is nothing left to destroy. Not a leak. */
+    if (!ipc_call_handle(WV2L_OP_DESTROY_WEBVIEW, &wire, sizeof(wire), &wire.handle))
+        WARN("destroy_webview did not reach a live helper -- nothing to release on that side\n");
     return STATUS_SUCCESS;
 }
 
@@ -596,7 +851,7 @@ static NTSTATUS unix_navigate_and_wait_impl(void *args)
 
     copy_wcs_to_wire_uri(wire.uri, WV2L_URI_MAX, params->uri);
 
-    if (!ipc_call(WV2L_OP_NAVIGATE_AND_WAIT, &wire, sizeof(wire)))
+    if (!ipc_call_handle(WV2L_OP_NAVIGATE_AND_WAIT, &wire, sizeof(wire), &wire.handle))
     {
         WARN("ipc_call failed -- helper not running, failing Navigate without waiting\n");
         return STATUS_NOT_SUPPORTED;
@@ -613,7 +868,7 @@ static NTSTATUS unix_delete_all_cookies_impl(void *args)
     struct wv2l_delete_all_cookies_params wire = { .handle = params->handle };
 
     if (!params->handle) return STATUS_INVALID_HANDLE;
-    if (!ipc_call(WV2L_OP_DELETE_ALL_COOKIES, &wire, sizeof(wire)))
+    if (!ipc_call_handle(WV2L_OP_DELETE_ALL_COOKIES, &wire, sizeof(wire), &wire.handle))
     {
         WARN("ipc_call failed -- helper not running, failing DeleteAllCookies without waiting\n");
         return STATUS_NOT_SUPPORTED;
@@ -628,7 +883,7 @@ static NTSTATUS unix_count_cookies_impl(void *args)
 
     params->count = 0;
     if (!params->handle) return STATUS_INVALID_HANDLE;
-    if (!ipc_call(WV2L_OP_COUNT_COOKIES, &wire, sizeof(wire)))
+    if (!ipc_call_handle(WV2L_OP_COUNT_COOKIES, &wire, sizeof(wire), &wire.handle))
     {
         WARN("ipc_call failed -- helper not running, failing count_cookies without waiting\n");
         return STATUS_NOT_SUPPORTED;
@@ -655,9 +910,10 @@ static NTSTATUS unix_get_cookies_impl(void *args)
      * struct. */
     if (!(wire = calloc(1, sizeof(*wire)))) return STATUS_NO_MEMORY;
     wire->handle = params->handle;
+    wire->offset = params->offset;
     copy_wcs_to_wire_uri(wire->uri, WV2L_URI_MAX, params->uri);
 
-    if (!ipc_call(WV2L_OP_GET_COOKIES, wire, sizeof(*wire)))
+    if (!ipc_call_handle(WV2L_OP_GET_COOKIES, wire, sizeof(*wire), &wire->handle))
     {
         WARN("ipc_call failed -- helper not running, failing GetCookies without waiting\n");
         status = STATUS_NOT_SUPPORTED;
@@ -666,6 +922,7 @@ static NTSTATUS unix_get_cookies_impl(void *args)
 
     params->success = wire->success;
     params->count = wire->count;
+    params->total = wire->total;
     if (wire->success)
     {
         n = wire->count < WEBVIEW2LOADER_MAX_COOKIES ? wire->count : WEBVIEW2LOADER_MAX_COOKIES;
@@ -678,12 +935,110 @@ done:
     return status;
 }
 
+/* Mirror of wire_cookie_to_unix for the outbound direction -- only the four
+ * fields libsoup actually matches on are sent; see struct delete_cookie_params's
+ * own comment in unixlib.h. Both sides' caps are identical by construction
+ * (WV2L_COOKIE_*_MAX mirror WEBVIEW2LOADER_COOKIE_*_MAX 1:1), so this is a plain
+ * per-field memcpy, not a re-encoding. */
+static void unix_cookie_to_wire(struct wv2l_cookie *dst, const struct unix_cookie *src)
+{
+    memcpy(dst->name, src->name, sizeof(dst->name));
+    memcpy(dst->value, src->value, sizeof(dst->value));
+    memcpy(dst->domain, src->domain, sizeof(dst->domain));
+    memcpy(dst->path, src->path, sizeof(dst->path));
+}
+
+static NTSTATUS unix_delete_cookie_impl(void *args)
+{
+    struct delete_cookie_params *params = args;
+    struct wv2l_delete_cookie_params *wire;
+    NTSTATUS status = STATUS_SUCCESS;
+
+    if (!params->handle) return STATUS_INVALID_HANDLE;
+
+    /* Heap, not a stack local: struct wv2l_delete_cookie_params embeds a whole
+     * struct wv2l_cookie (~9.6KB of fixed UTF-16 buffers) -- same "too big for
+     * a thread stack" reasoning unix_get_cookies_impl already applies to its own
+     * much larger wire struct. */
+    if (!(wire = calloc(1, sizeof(*wire)))) return STATUS_NO_MEMORY;
+    wire->handle = params->handle;
+    unix_cookie_to_wire(&wire->cookie, &params->cookie);
+
+    if (!ipc_call_handle(WV2L_OP_DELETE_COOKIE, wire, sizeof(*wire), &wire->handle))
+    {
+        WARN("ipc_call failed -- helper not running, failing DeleteCookie\n");
+        status = STATUS_NOT_SUPPORTED;
+    }
+
+    free(wire);
+    return status;
+}
+
+/* Blocks until the helper sends an event, then hands exactly one back to the
+ * PE-side pump thread. Returns STATUS_NOT_SUPPORTED when there is no event
+ * channel or it has gone away, which the pump treats as "stop pumping".
+ *
+ * Deliberately does NOT take g_ipc_mutex. It spends nearly all of its time
+ * blocked in read(), and holding the request mutex for that would deadlock
+ * every ordinary WebView2 call in the process. The fd is snapshotted once up
+ * front instead: helper_teardown_locked shutdown()s the socket before closing
+ * it, so a pump parked here wakes with EOF rather than hanging until the child
+ * happens to die.
+ *
+ * Residual race, stated rather than hidden: between the snapshot and the
+ * read(), a teardown could close this fd and something else could open a new
+ * one that reuses the number, in which case this read would target the wrong
+ * fd. Closing it properly needs refcounting the fd across an unbounded
+ * blocking read; the exposure here is one syscall wide, only reachable during
+ * a helper respawn, and the worst case is one bogus/failed event read that
+ * ends the pump -- which the PE side already has to handle. */
+static NTSTATUS unix_wait_event_impl(void *args)
+{
+    struct wait_event_params *params = args;
+    struct wv2l_ev_navigation_starting_params wire;
+    uint32_t wire_type;
+    int fd;
+
+    pthread_mutex_lock(&g_ipc_mutex);
+    fd = g_event_fd;
+    pthread_mutex_unlock(&g_ipc_mutex);
+    if (fd < 0) return STATUS_NOT_SUPPORTED;
+
+    if (ipc_read_full(fd, &wire_type, sizeof(wire_type)) != (ssize_t)sizeof(wire_type))
+        return STATUS_NOT_SUPPORTED;
+
+    switch (wire_type)
+    {
+    case WV2L_EV_NAVIGATION_STARTING:
+        if (ipc_read_full(fd, &wire, sizeof(wire)) != (ssize_t)sizeof(wire))
+            return STATUS_NOT_SUPPORTED;
+        params->type = WEBVIEW2LOADER_EVENT_NAVIGATION_STARTING;
+        /* Tagged on the way out for the same reason create_webview tags its
+         * result: the PE side only ever holds tagged handles, so an event
+         * naming a raw pointer would never match the controller it belongs to. */
+        pthread_mutex_lock(&g_ipc_mutex);
+        params->handle = handle_tag_locked(wire.handle);
+        pthread_mutex_unlock(&g_ipc_mutex);
+        params->is_redirect = wire.is_redirect ? TRUE : FALSE;
+        memcpy(params->uri, wire.uri, sizeof(params->uri));
+        params->uri[WEBVIEW2LOADER_URI_MAX - 1] = 0; /* never trust the peer's terminator */
+        return STATUS_SUCCESS;
+
+    default:
+        /* An event type this build does not know cannot be skipped, because
+         * its length is unknown -- the stream is unframed from here on. Ending
+         * the pump is the only honest response. */
+        WARN("unknown event type %u on the event channel -- stopping the pump\n", wire_type);
+        return STATUS_NOT_SUPPORTED;
+    }
+}
+
 static NTSTATUS unix_get_window_visible_impl(void *args)
 {
     struct get_window_visible_params *params = args;
     struct wv2l_get_window_visible_params wire = { .handle = params->handle };
 
-    if (!ipc_call(WV2L_OP_GET_WINDOW_VISIBLE, &wire, sizeof(wire)))
+    if (!ipc_call_handle(WV2L_OP_GET_WINDOW_VISIBLE, &wire, sizeof(wire), &wire.handle))
     {
         params->visible = FALSE;
         return STATUS_SUCCESS; /* matches this function's own existing
@@ -713,7 +1068,7 @@ static NTSTATUS unix_sync_window_geometry_impl(void *args)
 
     params->success = FALSE;
     if (!params->handle) return STATUS_INVALID_HANDLE;
-    if (!ipc_call(WV2L_OP_SYNC_WINDOW_GEOMETRY, &wire, sizeof(wire)))
+    if (!ipc_call_handle(WV2L_OP_SYNC_WINDOW_GEOMETRY, &wire, sizeof(wire), &wire.handle))
         WARN("ipc_call failed -- helper not running, geometry sync skipped\n");
     else
         params->success = wire.success;
@@ -727,7 +1082,7 @@ static NTSTATUS unix_get_window_geometry_impl(void *args)
 
     params->success = FALSE;
     if (!params->handle) return STATUS_INVALID_HANDLE;
-    if (!ipc_call(WV2L_OP_GET_WINDOW_GEOMETRY, &wire, sizeof(wire)))
+    if (!ipc_call_handle(WV2L_OP_GET_WINDOW_GEOMETRY, &wire, sizeof(wire), &wire.handle))
     {
         WARN("ipc_call failed -- helper not running\n");
         return STATUS_SUCCESS;
@@ -753,4 +1108,6 @@ const unixlib_entry_t __wine_unix_call_funcs[] =
     unix_get_window_visible_impl,
     unix_sync_window_geometry_impl,
     unix_get_window_geometry_impl,
+    unix_delete_cookie_impl,
+    unix_wait_event_impl,
 };

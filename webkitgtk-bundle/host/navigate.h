@@ -104,7 +104,16 @@ gboolean cookies_count(struct native_webview *nv, uint32_t *out_count);
  * failure, or a real GetCookies failure (oversized store/timeout -- same
  * value as the resulting out->success); out->success/out->count are always
  * set either way. */
+/* out->offset selects which page of the store to return; out->count is that
+ * page's size and out->total is the whole store's, so the caller can page until
+ * it has everything. See on_get_cookies_done's own paging comment for why a
+ * store larger than WV2L_MAX_COOKIES no longer fails the call outright. */
 gboolean cookies_get(struct native_webview *nv, const char *uri_utf8, struct wv2l_get_cookies_params *out);
+
+/* Deletes the single cookie identified by wire's name/value/domain/path -- all
+ * four are load-bearing, see this function's own comment in navigate.c for the
+ * libsoup matching rule that makes value part of the key. */
+gboolean cookies_delete_one(struct native_webview *nv, const struct wv2l_cookie *wire);
 
 /* WebKitWebView::decide-policy handler -- the real roblox-studio-auth:/
  * roblox-studio:/roblox-player: OAuth redirect handoff (ported verbatim

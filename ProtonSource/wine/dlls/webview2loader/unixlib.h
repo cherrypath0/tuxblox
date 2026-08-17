@@ -130,6 +130,13 @@ struct get_cookies_params
                         * empty string or null, all cookies under the same
                         * profile are returned."). Unix side converts to
                         * UTF-8 and doesn't retain it past the call. */
+    UINT32 offset; /* in; index of the first cookie to return. A store bigger
+                     * than WEBVIEW2LOADER_MAX_COOKIES used to fail this call
+                     * outright, which broke Studio's own cookie clearing on any
+                     * profile with more than 128 cookies (it enumerates
+                     * UNFILTERED, i.e. every cookie under the profile). The
+                     * caller now walks the store one page at a time -- see
+                     * cookie_manager.c's get_cookies_worker. */
 
     /* out */
     BOOL success; /* FALSE only on a real failure (invalid handle, or the
@@ -137,10 +144,22 @@ struct get_cookies_params
                     * wait) -- mirrors struct count_cookies_params's own
                     * "only trust the result if the callback actually ran"
                     * convention. */
-    UINT32 count; /* number of `cookies` entries actually filled; capped at
-                    * WEBVIEW2LOADER_MAX_COOKIES -- see that constant's own
-                    * comment above for why a hard cap exists at all. */
+    UINT32 count; /* number of `cookies` entries actually filled by THIS call,
+                    * i.e. this page; at most WEBVIEW2LOADER_MAX_COOKIES. */
+    UINT32 total; /* cookies in the whole store/filter, independent of offset --
+                    * what the caller pages against. */
     struct unix_cookie cookies[WEBVIEW2LOADER_MAX_COOKIES];
+};
+
+/* Deleting one specific cookie. All four string fields of `cookie` are
+ * load-bearing: libsoup matches a delete on domain (hash lookup) plus
+ * name/value/path (soup_cookie_equal) -- see webkitgtk-bundle/host/navigate.c's
+ * own cookies_delete_one comment for the verified source trail. Everything else
+ * in struct unix_cookie is ignored and left unset. */
+struct delete_cookie_params
+{
+    UINT64 handle;
+    struct unix_cookie cookie;
 };
 
 struct get_window_visible_params
@@ -187,6 +206,34 @@ struct get_window_geometry_params
                           * own field name */
 };
 
+/* --- Event delivery (host -> PE) ---
+ *
+ * Mirrors enum wv2l_event / struct wv2l_ev_* on the wire (see
+ * webview2loader_ipc_protocol.h's own "Event channel" comment for why events
+ * need a channel of their own rather than riding the request socket).
+ *
+ * The PE side consumes these by parking a dedicated thread in
+ * unix_wait_event, which blocks until an event arrives -- Wine's unixlib
+ * boundary is one-way (PE calls unix, never the reverse), so a blocking call
+ * the PE side chooses to make is how the unix half "pushes" anything upward.
+ * That thread must be dedicated: the call blocks for as long as nothing
+ * happens, which is most of a session. */
+#define WEBVIEW2LOADER_URI_MAX 2048
+
+enum webview2loader_event_type
+{
+    WEBVIEW2LOADER_EVENT_NAVIGATION_STARTING,
+};
+
+struct wait_event_params
+{
+    /* out -- only meaningful when the call returns STATUS_SUCCESS */
+    UINT32 type;   /* enum webview2loader_event_type */
+    UINT64 handle; /* which webview, already generation-tagged for the PE side */
+    WCHAR uri[WEBVIEW2LOADER_URI_MAX];
+    BOOL is_redirect;
+};
+
 enum webview2loader_unix_funcs
 {
     unix_init,
@@ -199,6 +246,8 @@ enum webview2loader_unix_funcs
     unix_get_window_visible, /* Plan 3 Task 2: test-support only */
     unix_sync_window_geometry,
     unix_get_window_geometry, /* test-support only */
+    unix_delete_cookie,
+    unix_wait_event,
     /* Further tasks append further entries below this line -- always
      * appending, never reordering, since the enum's integer values are
      * the unix-call dispatch table's indices (see __wine_unix_call_funcs

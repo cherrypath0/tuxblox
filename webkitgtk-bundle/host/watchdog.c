@@ -159,7 +159,20 @@ void watchdog_init(void)
     }
 
     fd = ConnectionNumber(watchdog_display);
-    g_unix_fd_add(fd, G_IO_IN, on_watchdog_readable, NULL);
+    /* G_PRIORITY_HIGH, not g_unix_fd_add's default G_PRIORITY_DEFAULT: GDK's own
+     * X11 event source runs at GDK_PRIORITY_EVENTS, which gdkevents.h defines as
+     * exactly G_PRIORITY_DEFAULT. At equal priority the two sources are a coin
+     * flip, and losing the flip is what this watchdog exists to prevent -- a real
+     * crash log shows GDK winning it, with no watchdog line logged at all.
+     * Dispatching first whenever both are ready in the same main-loop iteration
+     * turns that coin flip into the intended ordering.
+     *
+     * This narrows the race, it does not close it: if GDK already dispatched the
+     * DestroyNotify in an EARLIER iteration, no priority helps. The actual crash
+     * is fixed in the gtk4 build itself (see build-in-container.sh's own
+     * gdk_x11_surface_destroy EGL-teardown patch) -- this ordering just means the
+     * clean, cooperative teardown path is the one normally taken. */
+    g_unix_fd_add_full(G_PRIORITY_HIGH, fd, G_IO_IN, on_watchdog_readable, NULL, NULL);
     fprintf(stderr, "webview2loader-host: watchdog: dedicated X11 connection opened for reparented-"
                     "parent-destroyed crash mitigation (fd=%d)\n", fd);
 }

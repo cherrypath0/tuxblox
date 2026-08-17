@@ -294,22 +294,55 @@ static DWORD WINAPI get_cookies_worker(void *arg)
     ICoreWebView2Cookie **cookies = NULL;
     ICoreWebView2CookieList *list = NULL;
     HRESULT hr;
-    UINT32 i, built = 0;
+    UINT32 i, built = 0, total = 0;
 
     if (!params) { hr = E_OUTOFMEMORY; goto invoke; }
 
     params->handle = ctx->native_handle;
     params->uri = ctx->uri;
-    WEBVIEW2LOADER_UNIX_CALL(get_cookies, params);
 
-    if (!params->success) { hr = E_FAIL; goto invoke; }
-
-    if (params->count && !(cookies = calloc(params->count, sizeof(*cookies)))) { hr = E_OUTOFMEMORY; goto invoke; }
-
-    for (i = 0; i < params->count; i++)
+    /* Paged, because one unix call carries at most WEBVIEW2LOADER_MAX_COOKIES
+     * entries and this call is routinely made UNFILTERED -- Studio's own
+     * clearAllCookiesAndRunCallbackHelper asks for every cookie under the
+     * profile, which passes 128 on any long-lived profile. That used to fail
+     * the whole call (and so the whole cookie-clearing flow); now the store is
+     * walked a page at a time and reassembled here.
+     *
+     * `total` is fixed from the first page and the array is sized once, so a
+     * store that grows mid-walk just yields the rest next time rather than
+     * reallocating under a half-built COM array; a store that shrinks ends the
+     * loop early on a short page and the list is built from `built`, not
+     * `total`. See on_get_cookies_done in the host for the matching note on
+     * why per-page enumeration is acceptable for this flow. */
+    for (;;)
     {
-        if (FAILED(hr = cookie_create_from_unix(&params->cookies[i], &cookies[i]))) goto fail_partial;
-        built = i + 1; /* tracks how many entries fail_partial must release on a later iteration's failure */
+        UINT32 page;
+
+        params->offset = built;
+        params->success = FALSE;
+        params->count = 0;
+        params->total = 0;
+        WEBVIEW2LOADER_UNIX_CALL(get_cookies, params);
+
+        if (!params->success) { hr = E_FAIL; goto fail_partial; }
+
+        if (!cookies)
+        {
+            if (!params->total) break; /* empty store -- hand back an empty list, not a failure */
+            if (!(cookies = calloc(params->total, sizeof(*cookies)))) { hr = E_OUTOFMEMORY; goto fail_partial; }
+            total = params->total;
+        }
+
+        if (!params->count) break; /* no further pages */
+
+        for (page = 0; page < params->count && built < total; page++)
+        {
+            if (FAILED(hr = cookie_create_from_unix(&params->cookies[page], &cookies[built])))
+                goto fail_partial;
+            built++; /* tracks how many entries fail_partial must release */
+        }
+
+        if (built >= total) break;
     }
 
     if (FAILED(hr = cookie_list_create(cookies, built, &list)))
@@ -333,6 +366,85 @@ invoke:
     free(params);
     free(ctx);
     return 0;
+}
+
+/* Copies one CoTaskMemAlloc'd COM string into a fixed WCHAR[cap] wire field,
+ * failing rather than truncating -- a truncated name/value/domain/path would
+ * simply not match anything in the cookie jar, so a silent truncation here
+ * would read as "delete succeeded" while deleting nothing. Mirrors the host
+ * side's own copy_field_or_fail in navigate.c. */
+static BOOL copy_cookie_field(LPCWSTR src, WCHAR *dst, SIZE_T cap, const char *field)
+{
+    SIZE_T len = src ? wcslen(src) + 1 : 1;
+
+    if (len > cap)
+    {
+        WARN("cookie %s is %Iu chars, exceeding this build's %Iu cap -- cannot address this cookie "
+             "for deletion\n", field, len - 1, cap - 1);
+        return FALSE;
+    }
+    memcpy(dst, src ? src : L"", len * sizeof(WCHAR));
+    return TRUE;
+}
+
+/* Real ICoreWebView2CookieManager::DeleteCookie. Roblox Studio's own
+ * clearAllCookiesAndRunCallbackHelper enumerates with GetCookies and then calls
+ * this once per cookie; while it was an E_NOTIMPL stub every one of those failed
+ * with 0x80004001, visible verbatim in a real Studio log, so sign-out and
+ * account switching could never actually clear anything. (DeleteAllCookies was
+ * implemented the whole time -- Studio simply doesn't call it.)
+ *
+ * Synchronous, unlike GetCookies' worker-thread shape, and deliberately so: the
+ * real interface takes no completion handler, so a caller is entitled to assume
+ * the delete is done when this returns. Spawning a thread per call would also
+ * mean 300 threads for a 300-cookie profile, for a round trip the helper answers
+ * without waiting on anything (it hands the cookie to WebKit fire-and-forget).
+ *
+ * All four string fields go over the wire because all four are part of the
+ * match -- see struct delete_cookie_params in unixlib.h. Reads them through the
+ * public getters rather than casting to struct cookie_impl: any
+ * ICoreWebView2Cookie* is a valid argument here, and only this DLL's own objects
+ * would survive the cast. */
+static HRESULT WINAPI cm_DeleteCookie(ICoreWebView2CookieManager *iface, void *cookie_raw)
+{
+    struct cookie_manager_impl *cm = impl_from_iface(iface);
+    ICoreWebView2Cookie *cookie = cookie_raw;
+    struct delete_cookie_params *params;
+    LPWSTR name = NULL, value = NULL, domain = NULL, path = NULL;
+    HRESULT hr = E_FAIL;
+
+    TRACE("(%p, %p)\n", iface, cookie);
+    if (!cookie) return E_POINTER;
+
+    /* Heap: struct delete_cookie_params embeds a whole struct unix_cookie
+     * (~9.6KB of fixed WCHAR buffers), too much for a caller's stack. */
+    if (!(params = calloc(1, sizeof(*params)))) return E_OUTOFMEMORY;
+
+    if (FAILED(ICoreWebView2Cookie_get_Name(cookie, &name)) ||
+        FAILED(ICoreWebView2Cookie_get_Value(cookie, &value)) ||
+        FAILED(ICoreWebView2Cookie_get_Domain(cookie, &domain)) ||
+        FAILED(ICoreWebView2Cookie_get_Path(cookie, &path)))
+        goto done;
+
+    if (!copy_cookie_field(name, params->cookie.name, WEBVIEW2LOADER_COOKIE_NAME_MAX, "name") ||
+        !copy_cookie_field(value, params->cookie.value, WEBVIEW2LOADER_COOKIE_VALUE_MAX, "value") ||
+        !copy_cookie_field(domain, params->cookie.domain, WEBVIEW2LOADER_COOKIE_DOMAIN_MAX, "domain") ||
+        !copy_cookie_field(path, params->cookie.path, WEBVIEW2LOADER_COOKIE_PATH_MAX, "path"))
+        goto done;
+
+    /* Read live, not cached -- see struct cookie_manager_impl's own comment;
+     * 0 here means the owning controller was already Close()'d, which the unix
+     * side turns into a clean STATUS_INVALID_HANDLE rather than a stale call. */
+    params->handle = webview_get_native_handle(cm->webview);
+    hr = WEBVIEW2LOADER_UNIX_CALL(delete_cookie, params) ? E_FAIL : S_OK;
+
+done:
+    CoTaskMemFree(name);
+    CoTaskMemFree(value);
+    CoTaskMemFree(domain);
+    CoTaskMemFree(path);
+    free(params);
+    return hr;
 }
 
 static HRESULT WINAPI cm_GetCookies(ICoreWebView2CookieManager *iface, LPCWSTR uri,
@@ -385,7 +497,7 @@ static const ICoreWebView2CookieManagerVtbl cm_vtbl =
     (void *)webview2_stub_e_notimpl, /* CopyCookie */
     cm_GetCookies,
     (void *)webview2_stub_e_notimpl, /* AddOrUpdateCookie */
-    (void *)webview2_stub_e_notimpl, /* DeleteCookie */
+    cm_DeleteCookie,
     (void *)webview2_stub_e_notimpl, /* DeleteCookies */
     (void *)webview2_stub_e_notimpl, /* DeleteCookiesWithDomainAndPath */
     cm_DeleteAllCookies,

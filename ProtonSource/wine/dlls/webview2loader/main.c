@@ -1,5 +1,6 @@
 #include <stdarg.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include <windef.h>
 #include <winbase.h>
@@ -59,6 +60,87 @@ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID reserved)
         break;
     }
     return TRUE;
+}
+
+/* --- Event pump ---
+ *
+ * Wine's unixlib boundary only runs one way: PE code calls into the unix half,
+ * never the reverse. So the way the helper "pushes" an event up is for this
+ * side to park a thread inside a unix call that blocks until one arrives --
+ * which is what unix_wait_event does. That thread must be dedicated, because
+ * the call spends nearly all of a session blocked.
+ *
+ * Started lazily on the first controller creation rather than at DllMain time:
+ * a process that never creates a webview (and there are several -- the
+ * CookieManager flow, GetAvailableCoreWebView2BrowserVersionString probes)
+ * should not carry a permanently blocked thread and a spawned helper for
+ * nothing. One pump serves every webview in the process; events name their
+ * target by handle.
+ *
+ * Handlers are invoked on THIS thread, not marshaled to Studio's UI thread.
+ * That matches what this DLL already does for NavigationCompleted (see
+ * navigate_worker, which Invokes from its own worker thread) rather than
+ * introducing a second, inconsistent convention -- worth revisiting together
+ * if either turns out to matter, since real WebView2 delivers events on the
+ * thread that created the environment. */
+static DWORD WINAPI event_pump_proc(void *arg)
+{
+    struct wait_event_params params;
+
+    for (;;)
+    {
+        NTSTATUS status;
+
+        memset(&params, 0, sizeof(params));
+        status = WEBVIEW2LOADER_UNIX_CALL(wait_event, &params);
+        /* Plain truth test rather than a STATUS_SUCCESS comparison: this file
+         * does not include <ntstatus.h> (only unixlib.c does, with the
+         * WIN32_NO_STATUS dance), and every NTSTATUS success code is zero. */
+        if (status)
+        {
+            /* No event channel, the helper died, or a frame we cannot parse.
+             * All three mean this pump has nothing left to do; a respawned
+             * helper gets a fresh pump from the next controller creation. */
+            TRACE("event pump stopping (status %#lx)\n", (unsigned long)status);
+            return 0;
+        }
+
+        switch (params.type)
+        {
+        case WEBVIEW2LOADER_EVENT_NAVIGATION_STARTING:
+        {
+            ICoreWebView2 *webview = webview_find_by_handle(params.handle);
+            if (!webview)
+            {
+                /* Normal, not an error: the controller can be closed between
+                 * the helper sending and this thread waking. */
+                TRACE("NavigationStarting for an unknown/closed handle -- dropping\n");
+                break;
+            }
+            webview_fire_navigation_starting(webview, params.uri, params.is_redirect);
+            ICoreWebView2_Release(webview);
+            break;
+        }
+        default:
+            FIXME("unhandled event type %u\n", params.type);
+            break;
+        }
+    }
+}
+
+void webview_start_event_pump(void)
+{
+    static LONG started;
+
+    /* Exactly one pump per process, however many controllers get created and
+     * from however many threads. */
+    if (InterlockedCompareExchange(&started, 1, 0) != 0) return;
+    if (!start_async_work(event_pump_proc, NULL))
+    {
+        WARN("could not start the event pump -- NavigationStarting will not fire, and the helper "
+             "falls back to handing redirects to xdg-open\n");
+        InterlockedExchange(&started, 0); /* let a later attempt retry */
+    }
 }
 
 BOOL start_async_work(LPTHREAD_START_ROUTINE proc, void *ctx)

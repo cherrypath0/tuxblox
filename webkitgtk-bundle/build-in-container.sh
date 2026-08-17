@@ -331,6 +331,64 @@ echo ":: Building gtk4 $GTK4_VERSION"
 fetch_and_extract \
     "https://download.gnome.org/sources/gtk/${GTK4_VERSION%.*}/gtk-${GTK4_VERSION}.tar.xz" \
     /build/gtk4
+# TuxBlox patch: fix an upstream GTK crash that aborts this whole helper process
+# whenever a reparented, EGL-backed surface's X window is destroyed by someone else.
+#
+# gdk/gdksurface.c's _gdk_surface_destroy_hierarchy calls the backend's own destroy
+# and then asserts, unconditionally:
+#
+#     GDK_SURFACE_GET_CLASS (surface)->destroy (surface, foreign_destroy);
+#     /* backend must have unset this */
+#     g_assert (priv->egl_native_window == NULL);
+#
+# ...but gdk/x11/gdksurface-x11.c's gdk_x11_surface_destroy only unsets it inside
+# `if (!foreign_destroy)`. So any EGL-backed X11 surface destroyed by anyone other
+# than GDK itself trips a fatal assertion. That is not an exotic case for TuxBlox:
+# webkitgtk-bundle/host/geometry.c XReparentWindow's the webview's surface into
+# Roblox Studio's own top-level window, so when Studio destroys that window the X
+# server destroys this child along with it, and GDK arrives at exactly that path via
+# gdk_x11_surface_destroy_notify -> _gdk_surface_destroy (surface, TRUE). Confirmed
+# against a real coredump (SIGABRT in g_assertion_message_expr under gtk_window_destroy)
+# whose log line -- "GdkSurface 0x... unexpectedly destroyed" -- is the g_warning
+# immediately above that same _gdk_surface_destroy call.
+#
+# host/watchdog.c already races to tear the webview down cooperatively before GDK
+# notices, but that is a race it can lose (both its GSource and GDK's event source sit
+# at G_PRIORITY_DEFAULT). This patch removes the crash itself rather than improving the
+# odds of avoiding it, so losing that race is merely suboptimal instead of fatal.
+python3 - <<'GTKPATCH_EOF'
+import sys
+path = "/build/gtk4/gdk/x11/gdksurface-x11.c"
+src = open(path).read()
+
+old = """  if (!foreign_destroy)
+    {
+      gdk_surface_set_egl_native_window (surface, NULL);
+      gdk_x11_surface_destroy_glx_drawable (impl);
+"""
+
+new = """  /* TuxBlox: release the EGL native window on BOTH destroy paths, not just the
+   * one where GDK itself calls XDestroyWindow -- gdksurface.c's own
+   * _gdk_surface_destroy_hierarchy asserts it is NULL right after this function
+   * returns, with no foreign_destroy exemption. Also stops the EGLSurface from
+   * being leaked on the foreign path. */
+  gdk_surface_set_egl_native_window (surface, NULL);
+
+  if (!foreign_destroy)
+    {
+      gdk_x11_surface_destroy_glx_drawable (impl);
+"""
+
+if src.count(old) != 1:
+    sys.exit("ERROR: gdk_x11_surface_destroy EGL-teardown patch did not match (%d hits) -- "
+             "gtk4 source layout changed, update this patch in build-in-container.sh" % src.count(old))
+
+open(path, "w").write(src.replace(old, new))
+GTKPATCH_EOF
+grep -q 'TuxBlox: release the EGL native window on BOTH destroy paths' /build/gtk4/gdk/x11/gdksurface-x11.c || {
+    echo "ERROR: gtk4 EGL-teardown patch did not apply -- see the comment above this check" >&2
+    exit 1
+}
 # Brief's original flag was "-Ddemos=false" -- gtk4's meson.options actually names
 # this option "build-demos" (there is no bare "demos" option; "-Ddemos=false" fails
 # meson setup immediately with "Unknown option: demos"). Confirmed against the real

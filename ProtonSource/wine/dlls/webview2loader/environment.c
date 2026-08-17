@@ -89,6 +89,9 @@ static DWORD WINAPI create_controller_worker(void *arg)
 
     params.is_message_only = (ctx->parent_window == HWND_MESSAGE); /* Task 2 wires this field in */
     WEBVIEW2LOADER_UNIX_CALL(create_webview, &params);
+    /* First controller in the process starts the event pump -- see
+     * webview_start_event_pump. Cheap and idempotent after that. */
+    if (params.handle) webview_start_event_pump();
     if (params.handle)
         hr = controller_create(params.handle, ctx->parent_window, &controller);
 

@@ -127,6 +127,89 @@ static gboolean on_close_request(GtkWindow *window, void *user_data)
                   * which would otherwise destroy the window itself. */
 }
 
+/* --- F-08 spike: does the page actually use window.chrome.webview? ---
+ *
+ * See webview_create's own call-site comment for why this exists. Diagnostic
+ * only: nothing is forwarded to the Wine side, so no PE-side event plumbing,
+ * no protocol change, and no behaviour change for anything that already works.
+ *
+ * The JS deliberately mirrors real WebView2's shape rather than inventing one,
+ * so that if the answer is "yes, the page posts messages", this same script is
+ * the starting point for the real bridge instead of throwaway code:
+ * postMessage(string) and postMessage(object) are distinguished, because real
+ * WebView2 surfaces those differently (TryGetWebMessageAsString returns the
+ * string only for the former, while get_WebMessageAsJson always returns JSON).
+ * addEventListener is accepted and recorded so a page that registers for
+ * host->page messages doesn't throw; nothing dispatches to it yet. */
+static const char *const WV2_MESSAGE_SHIM_JS =
+    "(function(){\n"
+    "  if (window.chrome && window.chrome.webview) return;\n"
+    "  var listeners = [];\n"
+    "  function send(kind, payload) {\n"
+    "    try {\n"
+    "      window.webkit.messageHandlers.tuxblox.postMessage(\n"
+    "        JSON.stringify({kind: kind, payload: payload}));\n"
+    "    } catch (e) { /* handler not registered -- nothing to do */ }\n"
+    "  }\n"
+    "  window.chrome = window.chrome || {};\n"
+    "  window.chrome.webview = {\n"
+    "    postMessage: function(msg) {\n"
+    "      send(typeof msg === 'string' ? 'string' : 'json',\n"
+    "           typeof msg === 'string' ? msg : JSON.stringify(msg));\n"
+    "    },\n"
+    "    addEventListener: function(t, f) { if (t === 'message') listeners.push(f); },\n"
+    "    removeEventListener: function(t, f) {\n"
+    "      var i = listeners.indexOf(f); if (i >= 0) listeners.splice(i, 1);\n"
+    "    }\n"
+    "  };\n"
+    "})();\n";
+
+static void on_script_message(WebKitUserContentManager *manager, JSCValue *value, void *user_data)
+{
+    char *json = jsc_value_to_string(value);
+
+    (void)manager;
+    fprintf(stderr, "webview2loader-host: F-08 PROBE: page called window.chrome.webview.postMessage "
+                    "on nv=%p -- payload: %s\n", user_data, json ? json : "(unconvertible)");
+    g_free(json);
+}
+
+static void webview_install_message_probe(struct native_webview *nv)
+{
+    WebKitUserContentManager *manager = webkit_web_view_get_user_content_manager(nv->view);
+    WebKitUserScript *script;
+
+    if (!manager)
+    {
+        fprintf(stderr, "webview2loader-host: F-08 PROBE: no WebKitUserContentManager for nv=%p -- "
+                        "probe not installed\n", (void *)nv);
+        return;
+    }
+
+    /* NULL world_name == the page's own main script world, which is where
+     * window.chrome has to exist for the page to see it. */
+    if (!webkit_user_content_manager_register_script_message_handler(manager, "tuxblox", NULL))
+    {
+        fprintf(stderr, "webview2loader-host: F-08 PROBE: could not register the 'tuxblox' script "
+                        "message handler for nv=%p -- probe not installed\n", (void *)nv);
+        return;
+    }
+    g_signal_connect_data(manager, "script-message-received::tuxblox",
+                           (GCallback)on_script_message, nv, NULL, 0);
+
+    /* DOCUMENT_START so window.chrome.webview exists before any page script
+     * runs -- a page that feature-detects it at load time must see it. ALL
+     * FRAMES because an OAuth flow can run in an iframe. */
+    script = webkit_user_script_new(WV2_MESSAGE_SHIM_JS,
+                                     WEBKIT_USER_CONTENT_INJECT_ALL_FRAMES,
+                                     WEBKIT_USER_SCRIPT_INJECT_AT_DOCUMENT_START,
+                                     NULL, NULL);
+    webkit_user_content_manager_add_script(manager, script);
+    webkit_user_script_unref(script);
+    fprintf(stderr, "webview2loader-host: F-08 PROBE: window.chrome.webview shim installed for nv=%p\n",
+            (void *)nv);
+}
+
 struct native_webview *webview_create(int is_message_only)
 {
     struct native_webview *nv = calloc(1, sizeof(*nv));
@@ -166,6 +249,22 @@ struct native_webview *webview_create(int is_message_only)
     g_signal_connect_data(nv->window, "close-request", (GCallback)on_close_request,
                            NULL, NULL, 0);
     nv->view = WEBKIT_WEB_VIEW(webkit_web_view_new());
+    /* F-08 spike (diagnostic only -- no message is delivered to the Wine side
+     * yet). Roblox Studio registers BOTH add_WebMessageReceived and
+     * add_NavigationStarting before it navigates, and this shim implements
+     * neither, so we do not know which one its login flow actually depends on.
+     * Real WebView2 exposes window.chrome.webview.postMessage to the page; if
+     * Studio's login page uses it to hand back the auth result, that is the
+     * mechanism to build, and if the page never calls it then the redirect to
+     * roblox-studio-auth: (i.e. NavigationStarting) is, and the whole message
+     * bridge would be the wrong thing to build.
+     *
+     * This installs just enough to answer that: a document-start user script
+     * defining window.chrome.webview.postMessage on top of WebKitGTK's own
+     * webkit.messageHandlers channel, plus a handler that logs whatever
+     * arrives. Cheap, reversible, and it makes the next login attempt decide
+     * the design instead of a guess. */
+    webview_install_message_probe(nv);
     /* Task 6 addition -- see this file's own top-of-file comment and
      * navigate.c's own comment on on_decide_policy for the full rationale.
      * Connected unconditionally, same reasoning as the close-request
@@ -176,8 +275,11 @@ struct native_webview *webview_create(int is_message_only)
      * lifetime, torn down together by webview_destroy's own
      * gtk_window_destroy call (which destroys nv->view along with
      * nv->window, still its child at that point). */
+    /* user_data is nv (was NULL): on_decide_policy now needs to know WHICH
+     * webview a navigation belongs to, so it can name it in the
+     * NavigationStarting event it sends to Studio. */
     g_signal_connect_data(nv->view, "decide-policy", (GCallback)on_decide_policy,
-                           NULL, NULL, 0);
+                           nv, NULL, 0);
     /* 2026-08-15 cosmetic mitigation for a real, understood WebKitGTK/NVIDIA
      * Skia GPU-teardown race in WebKitWebProcess's own shutdown path (a
      * genuine upstream WebKitGTK/NVIDIA bug -- not anything in this file or
@@ -232,6 +334,21 @@ void webview_destroy(struct native_webview *nv)
      * has executed, any such handler still queued behind this one for the
      * same (now-dying) handle will see it as no-longer-live. */
     live_webview_unregister(nv);
+    /* If a bounded wait in navigate.c is currently blocked on this webview
+     * (nested GMainLoop -- see wait_ended_with_nv_alive there), wake it now.
+     * Its own guard already keeps it from touching nv after this point, so
+     * this is purely about not making it sit out the rest of its 10s/30s
+     * timeout waiting for a completion that can no longer arrive. Read before
+     * the free below, obviously; g_main_loop_quit only sets a flag, so the
+     * waiter unwinds when the current dispatch returns, not re-entrantly from
+     * inside this call. */
+    if (nv->active_wait_loop)
+    {
+        fprintf(stderr, "webview2loader-host: destroying native_webview %p with a wait in flight -- "
+                        "waking it so it fails now instead of at its timeout\n", (void *)nv);
+        g_main_loop_quit(nv->active_wait_loop);
+        nv->active_wait_loop = NULL;
+    }
     /* Crash fix -- see watchdog.h's own top-of-file comment: drop any live
      * watch this nv has on a reparented-into parent_xid before nv is freed
      * below, so a later DestroyNotify/ReparentNotify for that (by-then-

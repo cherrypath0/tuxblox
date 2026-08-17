@@ -32,8 +32,59 @@ enum wv2l_opcode
     WV2L_OP_GET_WINDOW_VISIBLE,
     WV2L_OP_SYNC_WINDOW_GEOMETRY,
     WV2L_OP_GET_WINDOW_GEOMETRY,
+    WV2L_OP_DELETE_COOKIE,
     /* Always append; never reorder or reuse a value -- these are the wire
      * opcode numbers both already-built binaries agree on. */
+};
+
+/* --- Event channel (host -> Wine) ---
+ *
+ * The opcode channel above is strictly request/response, always initiated by
+ * Wine, one in flight, serialised by unixlib.c's own g_ipc_mutex. That shape
+ * cannot express "the helper has something to tell you", which real WebView2
+ * events require -- so events get their OWN socketpair, created alongside the
+ * request one in spawn_helper and handed to the child as fd 4 via
+ * WEBVIEW2LOADER_EVENT_FD.
+ *
+ * A separate fd rather than multiplexing onto the existing one: the request
+ * socket has no request IDs, so interleaving unsolicited frames on it would
+ * mean redesigning the framing every working opcode depends on. A second fd
+ * leaves all ten of them untouched, and lets the Wine side block on events
+ * from a dedicated thread without ever holding the request mutex.
+ *
+ * Framing matches the request channel: uint32_t event type, then that type's
+ * struct. Events are fire-and-forget -- the host never waits for a reply, so a
+ * Wine side that is slow, busy, or gone can never stall the helper's main loop.
+ */
+enum wv2l_event
+{
+    WV2L_EV_NAVIGATION_STARTING,
+    /* Always append; never reorder or reuse a value -- same wire-compatibility
+     * rule as enum wv2l_opcode. */
+};
+
+/* Real ICoreWebView2::NavigationStarting. Roblox Studio registers a handler for
+ * this before it ever calls Navigate(), and its login flow depends on it: the
+ * OAuth page finishes by navigating to roblox-studio-auth:/?code=..., and on
+ * Windows Studio's handler intercepts exactly that, cancels it, and completes
+ * the login in-process from the code in the URI.
+ *
+ * Established by measurement, not assumption: a probe build injected a real
+ * window.chrome.webview shim and logged every postMessage the page made. It
+ * made none, which rules out the web-message channel (the other candidate) and
+ * leaves this one.
+ *
+ * No `cancel` field comes back, deliberately. The host has already suppressed
+ * the navigation by the time it sends this (on_decide_policy calls
+ * webkit_policy_decision_ignore for these schemes), so there is nothing left to
+ * cancel and nothing to wait for -- which is what lets this be a one-way event
+ * instead of a synchronous round trip the helper's main loop would have to
+ * block on. */
+struct wv2l_ev_navigation_starting_params
+{
+    uint64_t handle;            /* which webview this navigation belongs to */
+    uint16_t uri[WV2L_URI_MAX]; /* NUL-terminated */
+    int32_t is_redirect;        /* real WebView2 surfaces this on the args object */
 };
 
 struct wv2l_rect { int32_t left, top, right, bottom; };
@@ -90,9 +141,31 @@ struct wv2l_get_cookies_params
     uint64_t handle;
     uint16_t uri[WV2L_URI_MAX]; /* in; empty = all cookies, see unixlib.h's
                                   * own get_cookies_params.uri comment */
+    uint32_t offset; /* in; index of the first cookie to return, so a store
+                       * larger than WV2L_MAX_COOKIES can be read across
+                       * several calls instead of failing outright. The PE
+                       * side drives the paging -- see cookie_manager.c's
+                       * get_cookies_worker. */
     int32_t success; /* out */
-    uint32_t count;  /* out */
-    struct wv2l_cookie cookies[WV2L_MAX_COOKIES]; /* out */
+    uint32_t count;  /* out; entries actually returned in this page, i.e.
+                       * min(total - offset, WV2L_MAX_COOKIES) */
+    uint32_t total;  /* out; cookies in the whole store/filter, independent of
+                       * offset -- what the caller pages against */
+    struct wv2l_cookie cookies[WV2L_MAX_COOKIES]; /* out; this page only */
+};
+
+/* Deleting one specific cookie. Carries name/value/domain/path because that is
+ * exactly what libsoup matches on, verified against libsoup 3.6.5's own source
+ * rather than assumed: soup_cookie_jar_delete_cookie looks the domain up in its
+ * hash of domains, then walks that domain's list comparing with
+ * soup_cookie_equal, which is `name && value && path` -- the VALUE is part of
+ * the match. Sending only name/domain/path would silently delete nothing.
+ * Everything else in struct wv2l_cookie (expires, same_site, flags) is ignored
+ * by that comparison and left unset by the sender. */
+struct wv2l_delete_cookie_params
+{
+    uint64_t handle;
+    struct wv2l_cookie cookie; /* in; only name/value/domain/path are read */
 };
 
 struct wv2l_get_window_visible_params
