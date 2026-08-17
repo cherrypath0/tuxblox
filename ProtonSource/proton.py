@@ -510,6 +510,60 @@ DARK_SYS_COLORS = {
     "WindowText": "230 230 230",
 }
 
+#Windows images that keep a prefix session alive on their own -- see
+#Session._wait_for_prefix_drain(). Deliberately an allowlist of the apps this
+#launcher exists to run, not a denylist of helpers: forgetting a helper only
+#costs the drain timeout, forgetting an app kills it out from under the user.
+SESSION_HOLDER_IMAGES = frozenset((
+    "robloxplayerbeta.exe",
+    "robloxstudiobeta.exe",
+    "robloxplayerinstaller.exe",
+    "robloxstudioinstaller.exe",
+))
+
+def pid_wine_image(pid):
+    #A wine process's /proc/<pid>/cmdline is the *Windows* command line
+    #("C:\\...\\RobloxStudioBeta.exe -foo", space-padded). comm is no use here:
+    #it holds whatever the app named its main thread, which for Studio is
+    #literally "Main".
+    try:
+        with open("/proc/%s/cmdline" % pid, "rb") as f:
+            first = f.read().split(b"\0", 1)[0].decode("utf-8", "replace")
+    except OSError:
+        return None
+    #Cut at the first ".exe", not the first space: the image path itself can
+    #contain spaces, and the arguments after it can contain further ".exe"
+    #paths (RobloxCrashHandler's --attachment= list, for one).
+    cut = first.lower().find(".exe")
+    if cut < 0:
+        return None
+    return first[:cut + 4].replace("/", "\\").rsplit("\\", 1)[-1].lower()
+
+def pid_wineprefix(pid):
+    try:
+        with open("/proc/%s/environ" % pid, "rb") as f:
+            environ = f.read()
+    except OSError:
+        #Not ours to read (another user, a kernel thread) -- so not ours.
+        return None
+    for var in environ.split(b"\0"):
+        if var.startswith(b"WINEPREFIX="):
+            return os.path.normpath(var[len(b"WINEPREFIX="):].decode("utf-8", "replace"))
+    return None
+
+def prefix_has_session_holder(prefix_dir):
+    #Image name first: cmdline is world-readable and cheap, and it narrows a
+    #few hundred processes down to the handful worth reading environ for.
+    want = os.path.normpath(prefix_dir)
+    for entry in os.listdir("/proc"):
+        if not entry.isdigit():
+            continue
+        if pid_wine_image(entry) not in SESSION_HOLDER_IMAGES:
+            continue
+        if pid_wineprefix(entry) == want:
+            return True
+    return False
+
 def run_host_cmd(argv, timeout=2):
     #Host helpers must not inherit the loader environment we run under -- an
     #LD_LIBRARY_PATH pointing at bundled/runtime libraries makes host binaries
@@ -1797,11 +1851,34 @@ class Session:
         proc = subprocess.Popen([g_proton.wineserver_bin, "-w"], env=self.env,
                                  stderr=self.log_file, stdout=self.log_file,
                                  cwd=g_compatdata.prefix_dir + "drive_c", start_new_session=True)
-        try:
-            proc.wait(timeout=timeout)
-            return
-        except (subprocess.TimeoutExpired, KeyboardInterrupt):
-            pass
+
+        # The timeout applies only to a prefix with nothing but helper
+        # processes left in it. For as long as a real app is still running the
+        # deadline is held off, because "still connected after 15s" is what a
+        # working launch looks like, not a hang -- and the self-relaunch case
+        # this whole wait exists for IS an app outliving the process run_proc()
+        # waited on. Timing it out regardless killed a live Roblox mid-session
+        # (bootstrap launch: run_proc() only ever saw the installer, which
+        # exits seconds after handing off to the app it spawned) and, because
+        # rc still came from that cleanly-exited installer, Proton reported 0
+        # and the launcher correctly showed nothing -- the app just vanished.
+        deadline = None
+        while True:
+            try:
+                proc.wait(timeout=1)
+                return
+            except subprocess.TimeoutExpired:
+                pass
+            except KeyboardInterrupt:
+                break
+
+            if prefix_has_session_holder(g_compatdata.prefix_dir):
+                deadline = None
+            elif deadline is None:
+                deadline = time.time() + timeout
+            elif time.time() >= deadline:
+                log("Prefix still busy %ds after the last app exited, tearing it down" % timeout)
+                break
 
         # Still-connected clients past the timeout: force wineserver to tear
         # the whole prefix down (same "-k" used by the Ctrl+C path above),
