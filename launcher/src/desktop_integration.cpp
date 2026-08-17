@@ -239,6 +239,15 @@ void writeDesktopEntries(const std::string& launcherExePath) {
                 "Type=Application\n"
                 "Name=" << h.name << "\n"
                 "Exec=\"" << launcherExePath << "\" %u\n"
+                // Same icon as the main entry. These are NoDisplay (they
+                // exist only to claim the roblox:// schemes), but the desktop
+                // still resolves them for *identity*, not just for menus:
+                // launching through a URL handler names the process's systemd
+                // scope after this entry (app-tuxblox\x2dstudio\x2dhandler@...),
+                // and KDE's System Monitor turns that unit name back into a
+                // desktop entry to label the running process. Without an
+                // Icon= line that row got the right name and no icon at all.
+                "Icon=tuxblox\n"
                 "NoDisplay=true\n"
                 "Terminal=false\n"
                 "MimeType=" << h.mimeTypeLine << "\n";
