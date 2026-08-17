@@ -334,7 +334,14 @@ static void PROGRESS_DrawBackground (const PROGRESS_INFO *infoPtr, HDC hdc, Prog
 #endif
 
     FrameRect (hdc, &pdi->rect, pdi->hbrBk);
-    InflateRect (&pdi->rect, -1, -1);
+    /* Only inset while that leaves something behind to draw in. A bar just a
+     * few pixels thick (Roblox's installer uses 4, i.e. a 358x2 client rect)
+     * loses its whole interior to this inset, and every FillRect afterwards
+     * then covers no pixels at all: the control renders as an empty frame
+     * showing no progress at any position. The themed path above does not hit
+     * this -- GetThemeBackgroundContentRect leaves a usable content rect. */
+    if (pdi->rect.right - pdi->rect.left > 2 && pdi->rect.bottom - pdi->rect.top > 2)
+        InflateRect (&pdi->rect, -1, -1);
 }
 
 static BOOL PROGRESS_IsSmooth(HWND hwnd)
@@ -396,11 +403,19 @@ static LRESULT PROGRESS_Draw (PROGRESS_INFO *infoPtr, HDC hdc)
 
     /* compute some drawing parameters */
     barSmooth = PROGRESS_IsSmooth(infoPtr->Self);
-    drawProcs = PROGRESS_GetDrawProcs(infoPtr->Self, barSmooth, dwStyle);
-    barSize = get_bar_size( dwStyle, &pdi.rect );
 
     if (!barSmooth)
+    {
         pdi.ledW = get_led_size( infoPtr, dwStyle, &pdi.rect);
+        /* Chunks are two thirds of the bar's thickness, so a bar only a couple
+         * of pixels thick chunks into single pixels separated by a two pixel
+         * gap -- a dotted line rather than a readable progress bar. Draw those
+         * solid instead, which is what the themed path renders anyway. */
+        if (pdi.ledW < 3)
+            barSmooth = TRUE;
+    }
+    drawProcs = PROGRESS_GetDrawProcs(infoPtr->Self, barSmooth, dwStyle);
+    barSize = get_bar_size( dwStyle, &pdi.rect );
     pdi.ledGap = get_led_gap( infoPtr );
 
     if (dwStyle & PBS_MARQUEE)
