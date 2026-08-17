@@ -23,7 +23,17 @@ namespace tuxblox {
 
 bool acquireSingleInstanceLock(const std::string& installDir) {
     std::string path = installDir + "/launcher.lock";
-    int fd = open(path.c_str(), O_CREAT | O_RDWR, 0644);
+    // O_CLOEXEC matters: the GUI hands off to a detached --watch-launch
+    // helper via fork+fork+execl (App::requestLaunch) and then exits. An fd
+    // without it survives execl, and since flock() locks belong to the open
+    // file description -- not the process -- the helper would inherit the
+    // very description holding this lock and keep it held for the whole
+    // Roblox session, long after the launcher itself is gone. Every launcher
+    // start during a session then wrongly reported "already running".
+    // O_CLOEXEC still survives fork(), so the lock covers the GUI process
+    // itself for its whole life; it is dropped only at exec, which is
+    // precisely the point where this process stops being a GUI launcher.
+    int fd = open(path.c_str(), O_CREAT | O_RDWR | O_CLOEXEC, 0644);
     // Can't even manage the lock file itself (e.g. installDir doesn't exist
     // yet) -- fail open rather than blocking every launch on that.
     if (fd < 0) return true;
