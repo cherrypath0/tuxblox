@@ -424,6 +424,242 @@ def get_replace_reg_value(file, key, name, new_value=None):
 
     return old_value
 
+#Wine brings every prefix up in a light color scheme and nothing ever changes
+#it: uxtheme's ShouldAppsUseDarkMode()/ShouldSystemUseDarkMode() read
+#HKCU\...\Themes\Personalize (unset means light), and Wine's own controls --
+#dialogs, menus, message boxes, the Roblox installer UI -- paint from
+#GetSysColor(), i.e. HKCU\Control Panel\Colors, which the default prefix ships
+#as the white palette below. Both are synced from the host's desktop
+#preference on every launch so the prefix follows the host theme instead of
+#always coming up white.
+
+#Exactly the palette default_pfx ships, so switching back to light restores
+#Wine's own defaults rather than an approximation of them.
+LIGHT_SYS_COLORS = {
+    "ActiveBorder": "255 255 255",
+    "ActiveTitle": "50 150 250",
+    "AppWorkSpace": "128 128 128",
+    "Background": "37 111 149",
+    "ButtonAlternateFace": "255 255 255",
+    "ButtonDkShadow": "106 106 106",
+    "ButtonFace": "245 245 245",
+    "ButtonHilight": "255 255 255",
+    "ButtonLight": "227 227 227",
+    "ButtonShadow": "166 166 166",
+    "ButtonText": "0 0 0",
+    "GradientActiveTitle": "50 150 250",
+    "GradientInactiveTitle": "128 128 128",
+    "GrayText": "106 106 106",
+    "Hilight": "48 150 250",
+    "HilightText": "255 255 255",
+    "HotTrackingColor": "48 150 250",
+    "InactiveBorder": "255 255 255",
+    "InactiveTitle": "128 128 128",
+    "InactiveTitleText": "200 200 200",
+    "InfoText": "0 0 0",
+    "InfoWindow": "255 255 255",
+    "Menu": "255 255 255",
+    "MenuBar": "255 255 255",
+    "MenuHilight": "48 150 250",
+    "MenuText": "0 0 0",
+    "Scrollbar": "255 255 255",
+    "TitleText": "0 0 0",
+    "Window": "255 255 255",
+    "WindowFrame": "158 158 158",
+    "WindowText": "0 0 0",
+}
+
+#Same value names, dark. Wine only ships a light msstyles theme, so dark mode
+#has to fall back to wine's classic control rendering (see sync_host_theme()),
+#which draws every bevel from ButtonHilight/Light/Shadow/DkShadow. Those four
+#are kept close together deliberately: widely spaced values give a hard 3D
+#Windows 95 look, near ones read as flat. Text is off-white rather than pure
+#white for the same reason. The accents (Hilight/HotTracking/MenuHilight) stay
+#at the light palette's blue so selection looks the same in both modes.
+DARK_SYS_COLORS = {
+    "ActiveBorder": "45 45 45",
+    "ActiveTitle": "45 45 45",
+    "AppWorkSpace": "28 28 28",
+    "Background": "24 24 24",
+    "ButtonAlternateFace": "50 50 50",
+    "ButtonDkShadow": "28 28 28",
+    "ButtonFace": "45 45 45",
+    "ButtonHilight": "66 66 66",
+    "ButtonLight": "58 58 58",
+    "ButtonShadow": "38 38 38",
+    "ButtonText": "230 230 230",
+    "GradientActiveTitle": "45 45 45",
+    "GradientInactiveTitle": "38 38 38",
+    "GrayText": "130 130 130",
+    "Hilight": "48 150 250",
+    "HilightText": "255 255 255",
+    "HotTrackingColor": "48 150 250",
+    "InactiveBorder": "38 38 38",
+    "InactiveTitle": "38 38 38",
+    "InactiveTitleText": "150 150 150",
+    "InfoText": "230 230 230",
+    "InfoWindow": "55 55 55",
+    "Menu": "45 45 45",
+    "MenuBar": "45 45 45",
+    "MenuHilight": "48 150 250",
+    "MenuText": "230 230 230",
+    "Scrollbar": "40 40 40",
+    "TitleText": "235 235 235",
+    "Window": "32 32 32",
+    "WindowFrame": "24 24 24",
+    "WindowText": "230 230 230",
+}
+
+def run_host_cmd(argv, timeout=2):
+    #Host helpers must not inherit the loader environment we run under -- an
+    #LD_LIBRARY_PATH pointing at bundled/runtime libraries makes host binaries
+    #die on a version mismatch instead of answering.
+    env = dict(os.environ)
+    for var in ("LD_LIBRARY_PATH", "LD_PRELOAD"):
+        env.pop(var, None)
+
+    try:
+        proc = subprocess.run(argv, env=env, timeout=timeout,
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                universal_newlines=True)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+
+    if proc.returncode != 0:
+        return None
+    return proc.stdout
+
+def detect_host_color_scheme():
+    """Returns "dark", "light", or None when the host states no preference."""
+
+    #xdg-desktop-portal's org.freedesktop.appearance color-scheme is the
+    #cross-desktop standard (0 no preference, 1 prefer dark, 2 prefer light)
+    #that GNOME, KDE and the rest all implement, so it comes first.
+    out = run_host_cmd(["gdbus", "call", "--session",
+            "--dest", "org.freedesktop.portal.Desktop",
+            "--object-path", "/org/freedesktop/portal/desktop",
+            "--method", "org.freedesktop.portal.Settings.Read",
+            "org.freedesktop.appearance", "color-scheme"])
+    if out is not None and "uint32 " in out:
+        #Real output is "(<<uint32 1>>,)". Anchored on "uint32 " rather than
+        #the first run of digits, which would match the "32" in "uint32".
+        value = out.split("uint32 ", 1)[1].split(">", 1)[0].strip()
+        if value == "1":
+            return "dark"
+        if value == "2":
+            return "light"
+        #0 falls through: some setups answer "no preference" from the portal
+        #while the desktop's own setting below is explicit.
+
+    out = run_host_cmd(["gsettings", "get", "org.gnome.desktop.interface", "color-scheme"])
+    if out is not None:
+        value = out.strip().strip("'")
+        if value == "prefer-dark":
+            return "dark"
+        if value == "prefer-light":
+            return "light"
+
+    #Last resort for desktops running neither: GTK's own setting file.
+    config_home = os.environ.get("XDG_CONFIG_HOME",
+            os.environ.get("HOME", "") + "/.config")
+    for gtk_dir in ("gtk-4.0", "gtk-3.0"):
+        try:
+            with open(config_home + "/" + gtk_dir + "/settings.ini", "r") as f:
+                for line in f:
+                    if not line.strip().startswith("gtk-application-prefer-dark-theme"):
+                        continue
+                    value = line.split("=", 1)[-1].strip().lower()
+                    if value in ("1", "true"):
+                        return "dark"
+                    if value in ("0", "false"):
+                        return "light"
+        except (IOError, OSError):
+            pass
+
+    return None
+
+def set_reg_key_values(file, key, values):
+    """Makes a wine .reg key hold the given values, creating what's missing.
+
+    'key' is the key path as it appears in the file (backslashes doubled) and
+    'values' maps value names to raw registry text, e.g. "\"255 255 255\"" or
+    "dword:00000000". Existing values are replaced in place, missing ones are
+    appended, and the key itself is added when the file doesn't have it.
+    Returns True if the file was rewritten.
+    """
+    try:
+        with open(file, "r") as reg_in:
+            lines = reg_in.readlines()
+    except (IOError, OSError):
+        return False
+
+    header = "[" + key + "]"
+    start = None
+    for idx, line in enumerate(lines):
+        #A subkey's header is "[key\\sub]", so it can't match "[key]" here.
+        if line.startswith(header):
+            start = idx
+            break
+
+    if start is None:
+        #New key. Wine wants "[key] <unix seconds>" plus the 100ns-since-1601
+        ##time line it writes itself; it rewrites both on the next flush.
+        now = int(time.time())
+        new_lines = ["\n", header + " " + str(now) + "\n",
+                #the second stamp is 100ns intervals since 1601, the form wine
+                #writes; wine rewrites both on its next registry flush.
+                "#time=%x\n" % ((now + 11644473600) * 10000000)]
+        for name in sorted(values):
+            new_lines.append("\"" + name + "\"=" + values[name] + "\n")
+        lines = lines + new_lines
+    else:
+        #The key's block runs to the next key header or end of file.
+        end = len(lines)
+        for idx in range(start + 1, len(lines)):
+            if lines[idx].startswith("["):
+                end = idx
+                break
+
+        block = lines[start:end]
+        #Appends go before the blank line that separates blocks, if any.
+        insert_at = len(block)
+        while insert_at > 0 and not block[insert_at - 1].strip():
+            insert_at -= 1
+
+        changed = False
+        for name in sorted(values):
+            namestr = "\"" + name + "\"="
+            line = namestr + values[name] + "\n"
+            for idx in range(len(block)):
+                if block[idx].startswith(namestr):
+                    if block[idx] != line:
+                        block[idx] = line
+                        changed = True
+                    break
+            else:
+                block.insert(insert_at, line)
+                insert_at += 1
+                changed = True
+
+        if not changed:
+            return False
+        lines = lines[:start] + block + lines[end:]
+
+    try:
+        with open(file + ".new", "w") as reg_out:
+            reg_out.writelines(lines)
+        shutil.copymode(file, file + ".new")
+        os.rename(file + ".new", file)
+    except (IOError, OSError):
+        log("Unable to write new registry file to " + file)
+        try:
+            os.remove(file + ".new")
+        except OSError:
+            pass
+        return False
+
+    return True
+
 class Proton:
     def __init__(self, base_dir):
         self.base_dir = base_dir + "/"
@@ -823,6 +1059,52 @@ class CompatData:
                 os.remove(old)
                 os.symlink(src=link, dst=old)
 
+    def sync_host_theme(self):
+        #Re-run on every launch rather than once at prefix creation, so the
+        #prefix tracks the host after the user flips their desktop theme. Both
+        #writes are no-ops when the values already match, so the usual launch
+        #doesn't touch user.reg at all.
+        scheme = detect_host_color_scheme()
+        if scheme is None:
+            return
+
+        user_reg = self.prefix_dir + "user.reg"
+        light_theme = "dword:%08x" % (1 if scheme == "light" else 0)
+        colors = LIGHT_SYS_COLORS if scheme == "light" else DARK_SYS_COLORS
+
+        #Read by uxtheme's ShouldAppsUseDarkMode()/ShouldSystemUseDarkMode()
+        #and by windows.ui's UISettings, which is how Studio's own Qt UI and
+        #WebView2 pick a color scheme.
+        changed = set_reg_key_values(user_reg,
+                "Software\\\\Microsoft\\\\Windows\\\\CurrentVersion\\\\Themes\\\\Personalize",
+                {"AppsUseLightTheme": light_theme,
+                 "SystemUsesLightTheme": light_theme})
+
+        #GetSysColor(), i.e. everything wine draws itself.
+        color_values = dict((name, "\"" + value + "\"") for name, value in colors.items())
+        changed |= set_reg_key_values(user_reg, "Control Panel\\\\Colors", color_values)
+        #uxtheme keeps a second copy under ThemeManager as the "colors from
+        #before a theme was applied" backup, and restores it over the live
+        #colors whenever theming is switched off at runtime (an app calling
+        #EnableTheming(FALSE) is enough). Keeping the backup in sync stops that
+        #restore from repainting the prefix in wine's old classic beige.
+        changed |= set_reg_key_values(user_reg,
+                "Software\\\\Microsoft\\\\Windows\\\\CurrentVersion\\\\ThemeManager\\\\Control Panel\\\\Colors",
+                color_values)
+
+        #The colors above only reach controls wine draws classically: the
+        #msstyles theme the default prefix ships (light.msstyles) paints
+        #scrollbars, buttons and tabs from baked-in light bitmaps, and wine has
+        #no dark theme to switch to. So dark mode turns theming off entirely
+        #and light mode turns it back on -- DllName and friends are left in
+        #place, so this is just the on/off switch.
+        changed |= set_reg_key_values(user_reg,
+                "Software\\\\Microsoft\\\\Windows\\\\CurrentVersion\\\\ThemeManager",
+                {"ThemeActive": "\"1\"" if scheme == "light" else "\"0\""})
+
+        if changed:
+            log("Synced prefix to host " + scheme + " theme")
+
     def setup_prefix(self):
         with self.prefix_lock:
             if file_exists(self.version_file, follow_symlinks=True):
@@ -849,6 +1131,8 @@ class CompatData:
                 os.sync()
 
             self.migrate_user_paths()
+
+            self.sync_host_theme()
 
             if not file_exists(self.prefix_dir + "/dosdevices/c:", follow_symlinks=False):
                 os.symlink("../drive_c", self.prefix_dir + "/dosdevices/c:")
