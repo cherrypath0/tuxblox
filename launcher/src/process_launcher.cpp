@@ -193,10 +193,15 @@ std::string protonBinaryPath(const std::string& installDir) {
 }
 
 std::vector<std::string> launchEnvVars(const std::string& installDir, LaunchTarget target) {
+    // No DXVK_ASYNC here: the bundled DXVK is 3.0.1, which dropped async
+    // pipeline compilation entirely (nothing in ProtonSource/dxvk reads that
+    // variable any more), so setting it did nothing. Its replacement -- the
+    // graphics pipeline library path -- is already on by default
+    // (dxvk.enableGraphicsPipelineLibrary defaults to Auto). Kept in sync
+    // with launch.sh, which carried the same dead variable.
     std::vector<std::string> env = {
         "TUXBLOX_PREFIX=" + installDir + "/runtime",
         "PROTON_LOG_DIR=" + installDir + "/logs",
-        "DXVK_ASYNC=1",
     };
     if (target == LaunchTarget::Studio) {
         // Studio's embedded WebView2 (login/create.roblox.com UI) appears to rely

@@ -40,7 +40,10 @@ int main() {
         auto env = launchEnvVars("/x/tuxblox", LaunchTarget::Player);
         assert(contains(env, "TUXBLOX_PREFIX=/x/tuxblox/runtime"));
         assert(contains(env, "PROTON_LOG_DIR=/x/tuxblox/logs"));
-        assert(contains(env, "DXVK_ASYNC=1"));
+        // DXVK_ASYNC is deliberately absent: the bundled DXVK is 3.0.1, which
+        // dropped async pipeline compilation, so setting it did nothing. Assert
+        // it stays gone rather than silently creeping back in.
+        assert(!contains(env, "DXVK_ASYNC=1"));
         assert(!contains(env, "DXVK_CONFIG=dxgi.enableDummyCompositionSwapchain=True"));
     }
 

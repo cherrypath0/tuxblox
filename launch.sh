@@ -123,10 +123,14 @@ case "$choice" in
     *) exit 1 ;;
 esac
 
+# No DXVK_ASYNC here: the bundled DXVK is 3.0.1, which dropped async pipeline
+# compilation entirely (nothing in ProtonSource/dxvk reads that variable any
+# more), so setting it did nothing. Its replacement -- the graphics pipeline
+# library path -- is already on by default (dxvk.enableGraphicsPipelineLibrary
+# defaults to Auto).
 protonEnv=(
     "TUXBLOX_PREFIX=$PREFIX_PATH"
     "PROTON_LOG_DIR=$protonLogDir"
-    "DXVK_ASYNC=1"
 )
 [ -n "$dxvkConfig" ] && protonEnv+=("DXVK_CONFIG=$dxvkConfig")
 
