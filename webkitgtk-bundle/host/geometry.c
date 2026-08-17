@@ -616,6 +616,26 @@ gboolean geometry_sync(struct native_webview *nv, struct wv2l_rect bounds, gbool
             }
             XMoveResizeWindow(display, xid, dest_x, dest_y, (unsigned int)width, (unsigned int)height);
 
+            /* Re-map after the reparent above. XReparentWindow is defined to
+             * perform an UnmapWindow first if the window was mapped, and it
+             * does NOT map it again -- that is the caller's job. GTK never
+             * does it for us either: as far as GTK is concerned the toplevel
+             * is still mapped (gtk_widget_get_mapped stays 1, which is what
+             * this file's own "toplevel state at reparent ... (mapped=1)" log
+             * line reports), so the gtk_widget_set_visible(TRUE) at the top of
+             * this function is a no-op and nothing ever re-maps the real X
+             * window. Symptom: the webview renders correctly into a window
+             * that is never on screen -- Studio's login dialog comes up
+             * completely blank. Intermittent only because an unrelated GTK
+             * re-map occasionally raced in and covered it up.
+             *
+             * Mapped after the move, not right after the reparent, so it
+             * never appears for a frame at the parent's origin first. Issued
+             * on every sync rather than once: XMapWindow on an already-mapped
+             * window is a no-op at the server, and repeating it self-heals if
+             * anything unmaps the window behind our back again. */
+            XMapWindow(display, xid);
+
             /* Task 7 crash fix, round 19: the real fix for a genuine,
              * evidence-confirmed bug -- put_Bounds after reparenting
              * visibly changed the real X11 window size (confirmed via a

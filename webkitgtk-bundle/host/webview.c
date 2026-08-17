@@ -61,6 +61,7 @@
 #include "navigate.h"
 #include "watchdog.h"
 #include "geometry.h"
+#include <gdk/x11/gdkx.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -210,6 +211,66 @@ static void webview_install_message_probe(struct native_webview *nv)
             (void *)nv);
 }
 
+/* Take this window out of the window manager's hands entirely, before it is
+ * ever mapped.
+ *
+ * It is a toplevel for only a moment: geometry_sync XReparentWindow's it into
+ * Roblox Studio's own window as soon as the first put_Bounds arrives. But a WM
+ * manages every toplevel it sees mapped, so in that moment KWin adds it to
+ * _NET_CLIENT_LIST and gives it a task button -- an undecorated, contentless
+ * entry next to Studio's real one. The reparent then pulls the window out from
+ * under KWin without KWin dropping it from that list, so the entry is never
+ * cleaned up when the window is destroyed either: the blank task button
+ * outlives the whole session and only goes away when KWin restarts.
+ *
+ * override-redirect rather than _NET_WM_STATE_SKIP_TASKBAR: the state property
+ * has to be set before the map (afterwards a WM only honors a client message,
+ * and by then it has already stopped managing this window), but GDK writes its
+ * own _NET_WM_STATE while mapping and wipes ours -- measured, the property
+ * reads back absent. override-redirect is a window attribute, not a property;
+ * GDK never touches it, and a WM ignores such windows completely.
+ *
+ * Costs nothing here: this window is only ever a child inside Studio's own
+ * window, and X input focus sits on that Wine parent (also measured), not on
+ * this surface, so there is no WM-assigned focus to lose.
+ *
+ * gtk_widget_realize creates the real X window without mapping it, which is
+ * exactly the window this needs to run against. */
+static void webview_unmanage_window(GtkWidget *window)
+{
+    GtkNative *native;
+    GdkSurface *surface;
+    GdkDisplay *gdisplay;
+    Display *display;
+    XSetWindowAttributes attrs;
+
+    gtk_widget_realize(window);
+    native = gtk_widget_get_native(window);
+    surface = native ? gtk_native_get_surface(native) : NULL;
+    if (!surface || !GDK_IS_X11_SURFACE(surface))
+        return; /* no X window to mark (Wayland backend) -- nothing to do */
+
+    gdisplay = gdk_surface_get_display(surface);
+    if (!gdisplay || !GDK_IS_X11_DISPLAY(gdisplay))
+        return;
+/* Same GDK_DEPRECATED_IN_4_18 situation geometry.c documents at length for
+ * gdk_x11_surface_get_xid/gdk_x11_display_get_xdisplay: no non-deprecated way
+ * to reach a real X display or XID exists. */
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+    display = gdk_x11_display_get_xdisplay(gdisplay);
+    if (display)
+    {
+        Window xid = gdk_x11_surface_get_xid(GDK_X11_SURFACE(surface));
+
+        attrs.override_redirect = True;
+        XChangeWindowAttributes(display, xid, CWOverrideRedirect, &attrs);
+        fprintf(stderr, "webview2loader-host: xid=0x%lx set override-redirect before first map "
+                        "-- window manager will not manage or list it\n", xid);
+    }
+#pragma GCC diagnostic pop
+}
+
 struct native_webview *webview_create(int is_message_only)
 {
     struct native_webview *nv = calloc(1, sizeof(*nv));
@@ -317,7 +378,10 @@ struct native_webview *webview_create(int is_message_only)
      * implicit focus-grab/present side effect), not just the first
      * deprecation-fix suggestion in the compiler note. */
     if (!is_message_only)
+    {
+        webview_unmanage_window(nv->window);
         gtk_widget_set_visible(nv->window, TRUE);
+    }
 
     live_webview_register(nv); /* Task 7 UAF guard -- see webview_lookup's own comment above */
     return nv;
