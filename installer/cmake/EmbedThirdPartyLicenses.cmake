@@ -25,17 +25,27 @@
 # accompanying LICENSE file, so its license is fetched separately, pinned
 # to the exact same v3.11.3 tag vendor.sh already pins json.hpp to.
 #
+# The LGPLv3 text covers the Qt6 libraries the *launcher* bundles. It's
+# embedded here too, not just in launcher/, because both binaries write the
+# same ~/.tuxblox/COPYRIGHT.txt and so must be able to emit the same content
+# -- see the comment at the top of copyright_file.cpp.
+#
 # stb_image.h's dual-license text lives inline in that (large, mostly-code)
 # header rather than in a separate file, so it isn't handled here -- it's
 # hardcoded directly in copyright_file.cpp instead, with a comment noting
-# which pinned commit it was copied from.
+# which pinned commit it was copied from. ICU 56's license and the
+# libxcb/xkbcommon notices are hardcoded there for the same reason (ICU 56
+# publishes its license only as HTML at that tag).
 
 set(IMGUI_LICENSE_PATH "${CMAKE_SOURCE_DIR}/third_party/imgui/LICENSE.txt")
 set(JSON_LICENSE_URL "https://raw.githubusercontent.com/nlohmann/json/v3.11.3/LICENSE.MIT")
+set(LGPL3_LICENSE_URL "https://www.gnu.org/licenses/lgpl-3.0.txt")
 set(GENERATED_DIR "${CMAKE_BINARY_DIR}/generated")
 set(JSON_LICENSE_TXT_PATH "${GENERATED_DIR}/json-LICENSE.MIT")
+set(LGPL3_LICENSE_TXT_PATH "${GENERATED_DIR}/lgpl-3.0.txt")
 set(IMGUI_LICENSE_HEADER_PATH "${GENERATED_DIR}/imgui_license_txt.h")
 set(JSON_LICENSE_HEADER_PATH "${GENERATED_DIR}/json_license_txt.h")
+set(LGPL3_LICENSE_HEADER_PATH "${GENERATED_DIR}/lgpl3_license_txt.h")
 
 file(MAKE_DIRECTORY ${GENERATED_DIR})
 
@@ -64,5 +74,16 @@ add_custom_command(
     VERBATIM
 )
 
+add_custom_command(
+    OUTPUT ${LGPL3_LICENSE_HEADER_PATH}
+    COMMAND ${CMAKE_COMMAND} -DURL=${LGPL3_LICENSE_URL} -DDEST=${LGPL3_LICENSE_TXT_PATH}
+            -P ${CMAKE_SOURCE_DIR}/cmake/DownloadFile.cmake
+    COMMAND ${CMAKE_COMMAND} -DINPUT=${LGPL3_LICENSE_TXT_PATH} -DOUTPUT=${LGPL3_LICENSE_HEADER_PATH}
+            -DSYMBOL=kLgpl3LicenseTxt
+            -P ${CMAKE_SOURCE_DIR}/cmake/BinToHeader.cmake
+    COMMENT "Fetching and embedding LGPLv3 license text (bundled Qt6)"
+    VERBATIM
+)
+
 add_custom_target(generate_thirdparty_license_headers DEPENDS
-    ${IMGUI_LICENSE_HEADER_PATH} ${JSON_LICENSE_HEADER_PATH})
+    ${IMGUI_LICENSE_HEADER_PATH} ${JSON_LICENSE_HEADER_PATH} ${LGPL3_LICENSE_HEADER_PATH})

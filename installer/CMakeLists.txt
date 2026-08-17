@@ -58,6 +58,7 @@ target_include_directories(imgui PUBLIC ${IMGUI_DIR} ${IMGUI_DIR}/backends ${SDL
 target_compile_options(imgui PRIVATE ${SDL2_CFLAGS_OTHER})
 
 add_library(installer_core STATIC
+    src/cli.cpp
     src/manifest.cpp
     src/downloader.cpp
     src/tar_extract.cpp
@@ -114,6 +115,7 @@ add_executable(TuxBloxInstaller
     src/main.cpp
     src/app.cpp
     src/ui.cpp
+    src/console_ui.cpp
     src/desktop_shortcut.cpp
     src/copyright_file.cpp
 )

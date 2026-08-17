@@ -25,6 +25,10 @@
 # outside this directory's scope).
 add_compile_options(-UNDEBUG)
 
+add_executable(test_cli test_cli.cpp)
+target_link_libraries(test_cli PRIVATE installer_core)
+add_test(NAME cli COMMAND test_cli)
+
 add_executable(test_install_paths test_install_paths.cpp)
 target_link_libraries(test_install_paths PRIVATE installer_core)
 add_test(NAME install_paths COMMAND test_install_paths)

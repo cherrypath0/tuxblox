@@ -19,6 +19,7 @@
 #include "container_env.h"
 #include <chrono>
 #include <cstdlib>
+#include <fcntl.h>
 #include <filesystem>
 #include <fstream>
 #include <sys/wait.h>
@@ -45,12 +46,29 @@ void runCommandBestEffort(const std::vector<std::string>& argv) {
     for (const auto& a : argv) cargv.push_back(const_cast<char*>(a.c_str()));
     cargv.push_back(nullptr);
 
+    // Silence these helpers. Their exit status is already ignored, but their
+    // chatter (gtk-update-icon-cache's "No theme index file.", xdg-mime's
+    // "qtpaths: command not found") is inherited straight onto our stdout/
+    // stderr, where under --headless it lands in the middle of the progress
+    // output. Opened before fork() so the child does no allocation of its
+    // own; O_CLOEXEC drops this fd across the exec while the dup2'd 1 and 2
+    // survive it (dup2 clears CLOEXEC on the new descriptor).
+    int devnull = open("/dev/null", O_WRONLY | O_CLOEXEC);
+
     pid_t pid = fork();
-    if (pid < 0) return;
+    if (pid < 0) {
+        if (devnull >= 0) close(devnull);
+        return;
+    }
     if (pid == 0) {
+        if (devnull >= 0) {
+            dup2(devnull, STDOUT_FILENO);
+            dup2(devnull, STDERR_FILENO);
+        }
         execvp(cargv[0], cargv.data());
         _exit(127);
     }
+    if (devnull >= 0) close(devnull);
     // Bounded, non-blocking wait -- xdg-mime/update-desktop-database talk to
     // a D-Bus session that can hang (this repo hit exactly this failure mode
     // once before, see 09b369a13). Give it up to ~3s, then give up rather

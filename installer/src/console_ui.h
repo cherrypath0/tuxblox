@@ -15,15 +15,20 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #pragma once
-#include <string>
+#include "app.h"
 
 namespace tuxblox {
 
-// Writes installDir + "/COPYRIGHT.txt", the attribution file covering every
-// third-party component bundled into the installed product -- the launcher's
-// and the installer's alike, since both binaries write this same file and
-// whichever ran last wins. Best-effort: never throws, because failure here
-// must not fail an otherwise-successful install or launch.
-void writeCopyrightFile(const std::string& installDir);
+// The --headless counterpart to Ui::renderFrame's loop: polls `app` until it
+// finishes and reports progress on the terminal. On a TTY that's a single
+// bar redrawn in place; when stdout is redirected it's one plain line per
+// step, so piping into a log stays readable.
+//
+// Installs a SIGINT handler for the duration of the call so Ctrl-C cancels
+// through App::cancel() -- the same path the GUI's window-close uses, which
+// is what cleans up a partial install tree. Errors go to stderr.
+//
+// Returns true if the install completed and the launcher is ready to exec.
+bool runConsoleInstall(App& app);
 
 } // namespace tuxblox

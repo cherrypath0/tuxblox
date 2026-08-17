@@ -15,86 +15,120 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "app.h"
+#include "cli.h"
+#include "console_ui.h"
 #include "ui.h"
 #include "uninstall.h"
 #include <SDL.h>
+#include <cstdio>
 #include <string>
 #include <unistd.h>
 
 namespace {
-// This is a windowed, double-clickable app -- there is no terminal to read
-// stderr from, so failures have to surface as a native message box.
+// Without --headless this is a windowed, double-clickable app -- there is no
+// terminal to read stderr from, so failures have to surface as a native
+// message box.
 constexpr const char* kErrorTitle =
     "TuxBlox Installer has encountered an error and has to quit!";
+
+// Reports a fatal error the way the current mode can actually be seen in:
+// stderr under --headless (where SDL is never initialized at all, so the
+// installer runs with no display), a message box otherwise.
+void reportError(bool headless, const std::string& details) {
+    if (headless) {
+        fprintf(stderr, "Error: %s\n", details.c_str());
+    } else {
+        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, kErrorTitle,
+            ("Details: " + details).c_str(), nullptr);
+    }
+}
 } // namespace
 
 int main(int argc, char** argv) {
     using namespace tuxblox;
 
-    // --uninstall -- passed by the launcher's Settings tab. Headless, same
-    // as this binary already is for none of its other modes (it's always
-    // windowed) -- but this one specifically must not show the install UI
-    // at all, just do the removal and report the result.
-    if (argc > 1 && std::string(argv[1]) == "--uninstall") {
-        bool ok = performUninstall();
-        if (SDL_Init(SDL_INIT_VIDEO) == 0) {
+    const CliOptions options = parseArgs(argc, argv);
+    if (!options.error.empty()) {
+        fprintf(stderr, "%s\n\n%s", options.error.c_str(), usageText());
+        return 2;
+    }
+    if (options.help) {
+        printf("%s", usageText());
+        return 0;
+    }
+
+    // --uninstall -- passed by the launcher's Settings tab. Never shows the
+    // install UI, just does the removal and reports the result.
+    if (options.uninstall) {
+        const bool ok = performUninstall();
+        const char* failureText =
+            "Desktop shortcuts and URL handlers were removed, but ~/.tuxblox could not be "
+            "fully deleted. You may need to remove it manually.";
+        if (options.headless) {
+            if (ok) {
+                printf("TuxBlox has been completely removed from this system.\n");
+            } else {
+                fprintf(stderr, "Error: %s\n", failureText);
+            }
+        } else if (SDL_Init(SDL_INIT_VIDEO) == 0) {
             if (ok) {
                 SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, "TuxBlox Uninstalled",
                     "TuxBlox has been completely removed from this system.", nullptr);
             } else {
-                SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "TuxBlox Error",
-                    "Desktop shortcuts and URL handlers were removed, but ~/.tuxblox could not be "
-                    "fully deleted. You may need to remove it manually.", nullptr);
+                SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "TuxBlox Error", failureText,
+                    nullptr);
             }
             SDL_Quit();
         }
         return ok ? 0 : 1;
     }
 
-    // --channel <name> -- passed by the launcher during an upgrade handoff
-    // so the install stays on whatever channel the user picked in
-    // Settings. Defaults to "stable" when run standalone (a fresh,
-    // directly-downloaded install with no channel info available).
-    std::string channel = "stable";
-    for (int i = 1; i + 1 < argc; ++i) {
-        if (std::string(argv[i]) == "--channel") {
-            channel = argv[i + 1];
-            break;
-        }
-    }
-
-    App app(channel);
+    App app(options.channel);
     app.start();
 
-    Ui ui;
-    if (!ui.init()) {
-        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, kErrorTitle,
-            "Details: Failed to initialize installer UI (SDL2/OpenGL)", nullptr);
-        app.cancel();
-        return 1;
-    }
+    if (options.headless) {
+        if (!runConsoleInstall(app)) {
+            app.cancel(); // no-op if it already finished; unblocks a cancelled run
+            return 1;
+        }
+    } else {
+        Ui ui;
+        if (!ui.init()) {
+            reportError(false, "Failed to initialize installer UI (SDL2/OpenGL)");
+            app.cancel();
+            return 1;
+        }
 
-    bool running = true;
-    while (running) {
-        running = ui.renderFrame(app);
-        if (app.readyToLaunch()) {
-            break;
+        bool running = true;
+        while (running) {
+            running = ui.renderFrame(app);
+            if (app.readyToLaunch()) {
+                break;
+            }
+        }
+
+        ui.shutdown();
+
+        if (!app.readyToLaunch()) {
+            app.cancel(); // ensure the background thread unblocks if the window was closed early
+            return 0;
         }
     }
 
-    ui.shutdown();
+    const std::string launcher = app.launcherPath();
 
-    if (app.readyToLaunch()) {
-        std::string launcher = app.launcherPath();
-        execl(launcher.c_str(), launcher.c_str(), (char*)nullptr);
-        // Only reached if execl() failed -- the install itself already
-        // succeeded, so say so rather than letting the window just vanish.
-        std::string msg = "Details: TuxBlox was installed successfully, but failed to launch " +
-                          launcher + ". You can try running it manually.";
-        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, kErrorTitle, msg.c_str(), nullptr);
-        return 1;
+    // --nolaunch -- the install is complete either way; the only difference
+    // is that we stop here instead of handing off to the launcher.
+    if (options.noLaunch) {
+        // printf("Launcher not started (--nolaunch). Run it manually: %s\n", launcher.c_str());
+        return 0;
     }
 
-    app.cancel(); // ensure the background thread unblocks if the window was closed early
-    return 0;
+    execl(launcher.c_str(), launcher.c_str(), (char*)nullptr);
+    // Only reached if execl() failed -- the install itself already succeeded,
+    // so say so rather than letting the window just vanish.
+    reportError(options.headless,
+        "TuxBlox was installed successfully, but failed to launch " + launcher +
+        ". You can try running it manually.");
+    return 1;
 }

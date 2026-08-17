@@ -19,6 +19,11 @@
 
 namespace tuxblox {
 
+// Writes installDir + "/COPYRIGHT.txt", the attribution file covering every
+// third-party component bundled into the installed product -- the launcher's
+// and the installer's alike, since both binaries write this same file and
+// whichever ran last wins. Best-effort: never throws, because failure here
+// must not fail an otherwise-successful install or launch.
 void writeCopyrightFile(const std::string& installDir);
 
 } // namespace tuxblox
