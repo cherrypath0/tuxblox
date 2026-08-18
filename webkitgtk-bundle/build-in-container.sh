@@ -75,18 +75,40 @@ JOBS="${JOBS:-$(nproc)}"
 export CCACHE_DIR="${CCACHE_DIR:-/ccache}"
 mkdir -p "$CCACHE_DIR"
 
+# fetch_and_extract <url> <dest_dir> [fallback_url...]
+#
+# Retries and fallback URLs added 2026-08-18 after a real failure: Savannah's
+# download URL is a redirector to a rotating pool of volunteer mirrors, and the one
+# it happened to pick for freetype (ftp.cc.uoc.gr) was down. A single unlucky
+# redirect killed a build that was already 40 minutes in, because one bare
+# `curl -fL` failing trips this script's `set -e`. --connect-timeout bounds the dead
+# mirror at 30s instead of the ~135s it actually burned; --retry-all-errors makes
+# curl retry a connection failure (plain --retry only covers transient HTTP codes),
+# which alone usually re-rolls onto a working mirror. Fallback URLs cover the case
+# where the whole primary host is down, not just one mirror behind it.
 fetch_and_extract() {
     local url="$1" dest_dir="$2"
-    local tmp_archive
+    shift 2
+    local fallbacks=("$@")
+    local tmp_archive u
     tmp_archive="$(mktemp)"
     mkdir -p "$dest_dir"
     # Download to a regular file rather than piping curl straight into tar: GNU tar
     # only auto-detects gzip vs. xz vs. bzip2 from the archive's magic bytes when
     # reading a seekable file, not a stdin pipe -- and these URLs mix compression
     # formats (glib ships .tar.xz, everything else here ships .tar.gz/.tgz).
-    curl -fL "$url" -o "$tmp_archive"
-    tar -xf "$tmp_archive" -C "$dest_dir" --strip-components=1
+    for u in "$url" "${fallbacks[@]}"; do
+        if curl -fL --connect-timeout 30 --retry 3 --retry-all-errors \
+                "$u" -o "$tmp_archive"; then
+            tar -xf "$tmp_archive" -C "$dest_dir" --strip-components=1
+            rm -f "$tmp_archive"
+            return 0
+        fi
+        echo ":: download failed: $u -- trying next source" >&2
+    done
     rm -f "$tmp_archive"
+    echo "ERROR: every download source failed for $url" >&2
+    return 1
 }
 
 echo ":: Building glib $GLIB_VERSION"
@@ -202,6 +224,34 @@ make -j"$JOBS"
 make install
 cd /build
 
+echo ":: Building freetype $FREETYPE_VERSION (pass 1, no harfbuzz)"
+# Vendored as of 2026-08-18 -- see versions.env's FREETYPE_VERSION comment for the
+# COLRv1 ABI crash this fixes. Must come before cairo: cairo needs cairo-ft, and
+# cairo's meson also builds the fontconfig subproject that lands in this prefix.
+#
+# Two passes, because freetype and harfbuzz depend on each other: harfbuzz's hb-ft
+# needs freetype, and freetype's autohinter uses harfbuzz to reach glyphs a font's
+# cmap doesn't address directly. Every distro resolves this the same way -- build
+# freetype without harfbuzz, build harfbuzz against it, rebuild freetype. Pass 2 is
+# below, right after harfbuzz. Not optional polish: Debian's own libfreetype6 (what
+# this bundle used to pick up from the host) is built with harfbuzz, so shipping
+# without it would be a hinting-quality regression against the previous release.
+#
+# brotli stays enabled: WebKit's OptionsGTK.cmake probes for FreeType's builtin WOFF2
+# support and, if it isn't there, hard-requires libwoff2dec instead -- which this
+# container doesn't have, so the cmake configure would FATAL_ERROR. libbrotli-dev is
+# already present in the image as a transitive dependency, and libbrotlidec.so.1 was
+# already a host runtime dependency by way of the system freetype this replaces.
+# png is needed for CBDT/CBLC color bitmap fonts (the non-COLRv1 emoji format most
+# non-Fedora distros still ship).
+fetch_and_extract \
+    "https://download.savannah.gnu.org/releases/freetype/freetype-${FREETYPE_VERSION}.tar.xz" \
+    /build/freetype \
+    "https://downloads.sourceforge.net/project/freetype/freetype2/${FREETYPE_VERSION}/freetype-${FREETYPE_VERSION}.tar.xz"
+meson setup /build/freetype/_build /build/freetype --prefix="$PREFIX" \
+    -Dharfbuzz=disabled -Dbrotli=enabled -Dpng=enabled -Dzlib=system -Dbzip2=disabled
+ninja -C /build/freetype/_build -j"$JOBS" install
+
 echo ":: Building cairo $CAIRO_VERSION"
 fetch_and_extract "https://cairographics.org/releases/cairo-${CAIRO_VERSION}.tar.xz" /build/cairo
 meson setup /build/cairo/_build /build/cairo --prefix="$PREFIX"
@@ -213,6 +263,15 @@ fetch_and_extract \
     /build/harfbuzz
 meson setup /build/harfbuzz/_build /build/harfbuzz --prefix="$PREFIX"
 ninja -C /build/harfbuzz/_build -j"$JOBS" install
+
+echo ":: Rebuilding freetype $FREETYPE_VERSION (pass 2, with harfbuzz)"
+# Second half of the dependency cycle described in pass 1 above. Same version, same
+# soname, same public ABI -- the harfbuzz option only changes the autofitter's
+# internals -- so overwriting the pass-1 library in place is safe for the fontconfig
+# subproject and cairo, which already linked against it.
+meson setup --wipe /build/freetype/_build /build/freetype --prefix="$PREFIX" \
+    -Dharfbuzz=enabled -Dbrotli=enabled -Dpng=enabled -Dzlib=system -Dbzip2=disabled
+ninja -C /build/freetype/_build -j"$JOBS" install
 
 echo ":: Building pango $PANGO_VERSION"
 fetch_and_extract \
@@ -416,7 +475,10 @@ ninja -C /build/gtk4/_build -j"$JOBS" install
 # GIO module that makes GnuTLS visible to GIO/libsoup at runtime).
 
 echo ":: Building gmp $GMP_VERSION"
-fetch_and_extract "https://gmplib.org/download/gmp/gmp-${GMP_VERSION}.tar.xz" /build/gmp
+# gmplib.org went unreachable mid-build on 2026-08-18 (recovered on curl's retry).
+# ftp.gnu.org is GMP's other official distribution point, not a volunteer mirror.
+fetch_and_extract "https://gmplib.org/download/gmp/gmp-${GMP_VERSION}.tar.xz" /build/gmp \
+    "https://ftp.gnu.org/gnu/gmp/gmp-${GMP_VERSION}.tar.xz"
 cd /build/gmp && ./configure --prefix="$PREFIX" && make -j"$JOBS" && make install && cd /build
 
 echo ":: Building nettle $NETTLE_VERSION"
@@ -744,9 +806,11 @@ ninja -C /build/gst-plugins-bad/_build -j"$JOBS" install
 # ICU_ROOT is FindICU.cmake's own documented, more specific hint variable, added
 # redundantly since it's the officially-sanctioned mechanism for exactly this
 # scenario. Neither flag affects resolution of the genuinely-system-only libraries
-# this bundle deliberately does NOT vendor (freetype, fontconfig, X11, zlib, libpng,
-# libjpeg, libxml2, etc.) -- $PREFIX simply contains no alternate copies of those, so
-# find_package still falls through to the system paths for them exactly as before.
+# this bundle deliberately does NOT vendor (X11, zlib, libpng, brotli, expat, etc.)
+# -- $PREFIX simply contains no alternate copies of those, so find_package still
+# falls through to the system paths for them exactly as before. (freetype, fontconfig,
+# libjpeg and libxml2 were all on that list when it was written; all four are vendored
+# now -- freetype as of 2026-08-18, see versions.env's FREETYPE_VERSION comment.)
 #
 # -DENABLE_BUBBLEWRAP_SANDBOX=OFF: a deliberate capability tradeoff, not a build
 # workaround (added after this task's initial review round -- the Containerfile's
@@ -858,6 +922,25 @@ rsync -a -c --delete --exclude=_build /src-webkitgtk/ /build/webkitgtk/
 # hyphenation) this embedded-WebView use case doesn't need, all three are simply
 # disabled -- same tier of accepted, documented capability loss as the
 # AVIF/JPEG-XL/Speech-Synthesis trims already accepted above.
+# /build/webkitgtk is a persistent volume, so CMakeCache.txt survives between runs --
+# and a cached dependency path is never re-searched. Discard the cache so every
+# dependency is re-resolved against the CURRENT $PREFIX.
+#
+# This is deliberately the whole cache, not a targeted -U of a few variables. The
+# first attempt at this fix used `-U 'FREETYPE_*'`, which does force
+# find_package(Freetype) to re-run -- but pkg_check_modules caches its results
+# separately, so a stale `GTK_CFLAGS` left over from the pre-vendoring configure kept
+# feeding `-I/usr/include/freetype2` to every GTK-dependent translation unit while
+# FREETYPE_INCLUDE_DIRS correctly pointed into $PREFIX. That mixes two incompatible
+# FT_COLR_Paint layouts inside one library -- the exact bug being fixed here, just
+# moved. Verified for real: the cache from that run held
+# `GTK_CFLAGS:INTERNAL=...;-I/usr/include/freetype2;...` while `pkg-config --cflags
+# gtk4` in the same prefix returned `-I/opt/tuxblox-webview/include/freetype2`.
+# Enumerating which cache variables might embed a dependency path is exactly the kind
+# of guess that failure punished, so don't -- drop the cache. Object files and the
+# ccache are untouched, so the cost is one reconfigure plus whatever genuinely
+# changed flags force a recompile.
+rm -f /build/webkitgtk/_build/CMakeCache.txt
 cmake -B /build/webkitgtk/_build -S /build/webkitgtk -GNinja \
     -DPORT=GTK -DUSE_GTK4=ON -DCMAKE_INSTALL_PREFIX="$PREFIX" \
     -DCMAKE_BUILD_TYPE=Release -DENABLE_INTROSPECTION=OFF -DENABLE_DOCUMENTATION=OFF \
@@ -870,6 +953,34 @@ cmake -B /build/webkitgtk/_build -S /build/webkitgtk -GNinja \
     -DENABLE_BUBBLEWRAP_SANDBOX=OFF
 cmake --build /build/webkitgtk/_build -j"$JOBS"
 cmake --install /build/webkitgtk/_build
+
+# Fail loudly if WebKit resolved freetype anywhere but this prefix -- the whole point
+# of vendoring it is that build-time headers and runtime library are the same copy.
+#
+# Two checks, because the first one alone gave a false pass: find_package(Freetype)
+# pointed cleanly into $PREFIX while a stale cached GTK_CFLAGS was still handing
+# `-I/usr/include/freetype2` to every GTK-dependent translation unit. So check the
+# resolved path AND check that no host freetype path survives anywhere in the cache.
+webkit_freetype_inc="$(sed -n 's/^FREETYPE_INCLUDE_DIR_freetype2:PATH=//p' \
+    /build/webkitgtk/_build/CMakeCache.txt)"
+case "$webkit_freetype_inc" in
+    "$PREFIX"/*) ;;
+    *)
+        echo "ERROR: WebKitGTK configured against freetype headers at" \
+             "'${webkit_freetype_inc:-<unset>}', not inside $PREFIX -- the bundled" \
+             "freetype is not the one being compiled against" >&2
+        exit 1
+        ;;
+esac
+host_freetype_refs="$(grep -n '/usr/include/freetype2\|/usr/lib/[^ ;]*/libfreetype' \
+    /build/webkitgtk/_build/CMakeCache.txt || true)"
+if [ -n "$host_freetype_refs" ]; then
+    echo "ERROR: WebKitGTK's CMake cache still references the HOST freetype -- some" \
+         "translation units would compile against 2.12-era headers while linking the" \
+         "bundled 2.14 library. Offending entries:" >&2
+    echo "$host_freetype_refs" >&2
+    exit 1
+fi
 
 # Guard against a future upstream version silently changing shape in a way the Task 8
 # patch above no longer actually applies to (the python patch step already fails loudly
