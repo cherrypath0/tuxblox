@@ -93,7 +93,12 @@ echo ":: Configuring + Building (in podman, rootless, old-glibc baseline)"
 # packages, so aqtinstall puts it there). Without it the produced binary keeps a
 # RUNPATH into that container-only path and cannot start on any machine without
 # a coincidentally-present system Qt6.
-podman run --rm --userns=keep-id -e JOBS="$JOBS" -v "$(pwd):/src:Z" \
+# TUXBLOX_BUILD_VERSION has to be forwarded explicitly: cmake runs INSIDE this
+# container, so an env var exported by the root build.sh on the host is invisible
+# to it otherwise, and CMakeLists.txt would silently fall back to the VERSION file.
+# Empty when this script is run standalone, which is exactly the fallback case.
+podman run --rm --userns=keep-id -e JOBS="$JOBS" \
+    -e TUXBLOX_BUILD_VERSION="${TUXBLOX_BUILD_VERSION:-}" -v "$(pwd):/src:Z" \
     -v "$(pwd)/../LICENSE:/LICENSE:ro,z" -w /src tuxblox-old-glibc-builder \
     bash -c 'cmake -B build -S . -DCMAKE_BUILD_TYPE=Release && cmake --build build -j"$JOBS" && ./bundle-qt.sh'
 

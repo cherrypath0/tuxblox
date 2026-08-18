@@ -33,6 +33,8 @@ CliOptions parseArgs(int argc, const char* const* argv) {
             options.noLaunch = true;
         } else if (arg == "--help" || arg == "-h") {
             options.help = true;
+        } else if (arg == "--version") {
+            options.version = true;
         } else if (arg == "--channel") {
             // Falling back to "stable" on a missing value would silently
             // install the wrong channel during a launcher upgrade handoff,
@@ -66,6 +68,7 @@ const char* usageText() {
            "                     installing it.\n"
            "  --channel <name>   Release channel to install from (default:\n"
            "                     stable).\n"
+           "  --version          Show the build version and exit.\n"
            "  -h, --help         Show this help and exit.\n";
 }
 

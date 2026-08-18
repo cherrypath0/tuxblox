@@ -107,6 +107,21 @@ target_link_options(installer_core PUBLIC
 target_compile_options(installer_core PUBLIC
     ${CURL_CFLAGS_OTHER} ${ARCHIVE_CFLAGS_OTHER} ${OPENSSL_CFLAGS_OTHER})
 
+# Same version resolution as launcher/CMakeLists.txt: TUXBLOX_BUILD_VERSION (set
+# by the root build.sh and forwarded into this build container by build.sh) wins,
+# so one release build stamps the launcher, the installer and proton with the same
+# number; the checked-in VERSION file is the fallback for a standalone run of
+# installer/build.sh. ${CMAKE_BINARY_DIR}/generated is already on
+# TuxBloxInstaller's include path below, alongside the logo/font/license headers.
+file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/generated)
+if(NOT "$ENV{TUXBLOX_BUILD_VERSION}" STREQUAL "")
+    set(TUXBLOX_INSTALLER_VERSION "$ENV{TUXBLOX_BUILD_VERSION}")
+else()
+    file(STRINGS "${CMAKE_SOURCE_DIR}/VERSION" TUXBLOX_INSTALLER_VERSION LIMIT_COUNT 1)
+endif()
+message(STATUS "TuxBlox installer version: ${TUXBLOX_INSTALLER_VERSION}")
+configure_file(${CMAKE_SOURCE_DIR}/cmake/version.h.in ${CMAKE_BINARY_DIR}/generated/version.h @ONLY)
+
 include(cmake/FetchLogo.cmake)
 include(cmake/FetchFont.cmake)
 include(cmake/EmbedThirdPartyLicenses.cmake)

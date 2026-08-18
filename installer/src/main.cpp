@@ -19,6 +19,7 @@
 #include "console_ui.h"
 #include "ui.h"
 #include "uninstall.h"
+#include "version.h"
 #include <SDL.h>
 #include <cstdio>
 #include <string>
@@ -54,6 +55,10 @@ int main(int argc, char** argv) {
     }
     if (options.help) {
         printf("%s", usageText());
+        return 0;
+    }
+    if (options.version) {
+        printf("%s\n", kTuxBloxVersion);
         return 0;
     }
 

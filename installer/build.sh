@@ -83,7 +83,12 @@ if [[ -f build/CMakeCache.txt ]] && \
 fi
 
 echo ":: Configuring + Building (in podman, rootless, old-glibc baseline)"
-podman run --rm --userns=keep-id -e JOBS="$JOBS" -v "$(pwd):/src:Z" -w /src tuxblox-old-glibc-builder \
+# TUXBLOX_BUILD_VERSION has to be forwarded explicitly: cmake runs INSIDE this
+# container, so an env var exported by the root build.sh on the host is invisible
+# to it otherwise, and CMakeLists.txt would silently fall back to the VERSION file.
+# Empty when this script is run standalone, which is exactly the fallback case.
+podman run --rm --userns=keep-id -e JOBS="$JOBS" \
+    -e TUXBLOX_BUILD_VERSION="${TUXBLOX_BUILD_VERSION:-}" -v "$(pwd):/src:Z" -w /src tuxblox-old-glibc-builder \
     bash -c 'cmake -B build -S . -DCMAKE_BUILD_TYPE=Release && cmake --build build -j"$JOBS"'
 
 # Also stage the finished binary at the repo-root build/ directory -- the same

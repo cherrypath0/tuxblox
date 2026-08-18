@@ -49,7 +49,17 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
 file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/generated)
-file(STRINGS "${CMAKE_SOURCE_DIR}/VERSION" TUXBLOX_LAUNCHER_VERSION LIMIT_COUNT 1)
+# TUXBLOX_BUILD_VERSION is the version the root build.sh prompted for; it wins so
+# that one release build stamps the same number into the launcher, the installer
+# and proton. The checked-in VERSION file is the fallback, which keeps a
+# standalone `launcher/build.sh` run (no root build.sh, so no env var) producing a
+# sensibly versioned binary rather than an empty string.
+if(NOT "$ENV{TUXBLOX_BUILD_VERSION}" STREQUAL "")
+    set(TUXBLOX_LAUNCHER_VERSION "$ENV{TUXBLOX_BUILD_VERSION}")
+else()
+    file(STRINGS "${CMAKE_SOURCE_DIR}/VERSION" TUXBLOX_LAUNCHER_VERSION LIMIT_COUNT 1)
+endif()
+message(STATUS "TuxBlox launcher version: ${TUXBLOX_LAUNCHER_VERSION}")
 configure_file(${CMAKE_SOURCE_DIR}/cmake/version.h.in ${CMAKE_BINARY_DIR}/generated/version.h @ONLY)
 
 add_library(launcher_core STATIC

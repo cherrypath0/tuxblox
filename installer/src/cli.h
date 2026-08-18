@@ -30,6 +30,9 @@ struct CliOptions {
     // --headless; both modes honor it.
     bool noLaunch = false;
     bool help = false;
+    // Print the build version and exit. Matches `proton/main --version` and the
+    // launcher's footer -- all three come from the same TUXBLOX_BUILD_VERSION.
+    bool version = false;
     // Which /v1/<channel>/... release to install. "stable" unless the
     // launcher passed --channel during an upgrade handoff.
     std::string channel = "stable";
