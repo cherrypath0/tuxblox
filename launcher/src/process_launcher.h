@@ -100,6 +100,12 @@ std::string resolveActiveVersionExePath(LaunchTarget target, const std::string& 
 std::string resolveOrBootstrapExePath(LaunchTarget target, const std::string& installDir);
 std::string protonBinaryPath(const std::string& installDir);
 
+// Path of the crash/stdout log for one launch. Carries the launcher's pid
+// because several instances can run at once (a second Studio goes through
+// Proton's "runinprefix" verb, see ProcessLauncher::launch) and two launches
+// in the same second would otherwise dup2() into the same file.
+std::string launchLogPath(const std::string& installDir, LaunchTarget target);
+
 // Env vars ("KEY=VALUE" strings) Proton itself needs to locate the prefix
 // and render correctly. Callers must apply these only to the environment of
 // the "proton run" child (setenv() in a soon-to-exec()'d child, or an envp

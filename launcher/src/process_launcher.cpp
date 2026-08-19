@@ -16,6 +16,7 @@
 
 #include "process_launcher.h"
 #include "downloader.h"
+#include "prefix_session.h"
 #include "versions_manifest.h"
 #include <atomic>
 #include <chrono>
@@ -301,6 +302,12 @@ std::string logTimestamp() {
 
 } // namespace
 
+std::string launchLogPath(const std::string& installDir, LaunchTarget target) {
+    const std::string targetName = target == LaunchTarget::Player ? "Player" : "Studio";
+    return installDir + "/logs/Roblox" + targetName + "-" + logTimestamp() + "-" +
+           std::to_string(getpid()) + ".log";
+}
+
 LaunchOutcome ProcessLauncher::launch(LaunchTarget target, const std::string& uri,
                                        const std::vector<std::string>& extraEnv) {
     TrackedProcess& p = processFor(target);
@@ -331,14 +338,36 @@ LaunchOutcome ProcessLauncher::launch(LaunchTarget target, const std::string& ur
     std::vector<std::string> env = launchEnvVars(installDir_, target);
     env.insert(env.end(), extraEnv.begin(), extraEnv.end());
 
-    std::vector<std::string> argv = {protonBinaryPath(installDir_), "run", exePath};
+    // Multi-instance. A launch into a prefix that already has a live Roblox
+    // process must NOT use Proton's "run" verb:
+    //
+    //  - "run" goes through init_session(update_prefix_files=True), which calls
+    //    setup_prefix() (proton.py:1701). That rewrites prefix state --
+    //    upgrade_pfx(), migrate_user_paths(), and sync_host_theme()'s direct
+    //    user.reg text writes -- underneath a live wineserver, which owns the
+    //    registry and flushes over such writes.
+    //  - "run" ends in _wait_for_prefix_drain() (proton.py:1962), whose deadline
+    //    is held off for as long as ANY Roblox process holds the prefix
+    //    (proton.py:1875) -- including one belonging to a different instance.
+    //    This launch's exit would not be reported until every instance exited,
+    //    delaying its crash popup and Roblox-log capture indefinitely.
+    //
+    // "runinprefix" skips both: it is excluded from the setup_prefix() gate and
+    // waits on its own process only. Same finding include/mcp.sh rests on.
+    //
+    // Two launches racing from a cold prefix can both observe no holder and both
+    // use "run". prefix_lock still serialises setup_prefix(), so nothing
+    // corrupts; the only effect is that each drain-waits for the other, i.e.
+    // today's single-instance behaviour. Rare and benign.
+    const bool secondary = prefixHasSessionHolder(installDir_ + "/runtime/pfx");
+    std::vector<std::string> argv = {protonBinaryPath(installDir_),
+                                     secondary ? "runinprefix" : "run", exePath};
     if (!uri.empty()) argv.push_back(uri);
 
     const std::string logsDir = installDir_ + "/logs";
     std::error_code ec;
     fs::create_directories(logsDir, ec);
-    const std::string targetName = target == LaunchTarget::Player ? "Player" : "Studio";
-    const std::string logPath = logsDir + "/Roblox" + targetName + "-" + logTimestamp() + ".log";
+    const std::string logPath = launchLogPath(installDir_, target);
 
     if (!p.start(argv, env, logPath)) {
         return {false, "failed to start Proton process", "", false};

@@ -24,6 +24,9 @@
 #include <filesystem>
 #include <fstream>
 #include <thread>
+#include <unistd.h>
+
+namespace fs = std::filesystem;
 
 static bool contains(const std::vector<std::string>& env, const std::string& kv) {
     return std::find(env.begin(), env.end(), kv) != env.end();
@@ -296,6 +299,27 @@ int main() {
         std::string resolved = resolveActiveVersionExePath(LaunchTarget::Player, dir.string());
         assert(resolved == (versionDir / "RobloxPlayerBeta.exe").string());
         fs::remove_all(dir);
+    }
+
+    // Multi-instance: two launches from the same second must not share a log
+    // file. Both would dup2() into it and interleave their output.
+    {
+        const fs::path tmp = fs::temp_directory_path() / "tuxblox_launch_logname_test";
+        fs::remove_all(tmp);
+        fs::create_directories(tmp / "logs");
+
+        // launchLogPath() is the seam under test -- it must vary per process.
+        const std::string a = launchLogPath(tmp.string(), LaunchTarget::Studio);
+        assert(a.find("/logs/RobloxStudio-") != std::string::npos);
+        assert(a.rfind(".log") == a.size() - 4);
+        // The pid is the uniquifier, so the same process gets the same name and
+        // a different process would not. Assert the pid is actually present.
+        assert(a.find("-" + std::to_string(getpid()) + ".log") != std::string::npos);
+
+        const std::string p = launchLogPath(tmp.string(), LaunchTarget::Player);
+        assert(p.find("/logs/RobloxPlayer-") != std::string::npos);
+
+        fs::remove_all(tmp);
     }
 
     printf("process_launcher: all tests passed\n");
