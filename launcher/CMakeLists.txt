@@ -87,6 +87,7 @@ add_library(launcher_core STATIC
     src/roblox_log_capture.cpp
     src/roblox_deploy.cpp
     src/prefix_file_bridge.cpp
+    src/wine_shortcut_export.cpp
 )
 target_include_directories(launcher_core PUBLIC
     src third_party ${CMAKE_BINARY_DIR}/generated

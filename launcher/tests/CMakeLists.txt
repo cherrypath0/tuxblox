@@ -124,3 +124,7 @@ add_test(NAME prefix_session COMMAND test_prefix_session)
 add_executable(test_prefix_file_bridge test_prefix_file_bridge.cpp)
 target_link_libraries(test_prefix_file_bridge PRIVATE launcher_core)
 add_test(NAME prefix_file_bridge COMMAND test_prefix_file_bridge)
+
+add_executable(test_wine_shortcut_export test_wine_shortcut_export.cpp)
+target_link_libraries(test_wine_shortcut_export PRIVATE launcher_core)
+add_test(NAME wine_shortcut_export COMMAND test_wine_shortcut_export)
