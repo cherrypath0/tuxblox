@@ -158,4 +158,21 @@ int event_send_web_message(struct native_webview *nv, const char *payload_utf8, 
  * AddOrUpdateCookie). See the definition in navigate.c. */
 gboolean cookies_add_or_update(struct native_webview *nv, const struct wv2l_cookie *wire);
 
+/* Real ICoreWebView2::ExecuteScript -- evaluates script_utf8 in the page's own
+ * main world and hands back the result as JSON, which is the form real
+ * WebView2's completion handler receives (resultObjectAsJson).
+ *
+ * Bounded nested-GMainLoop wait, same mechanism and same reasoning as
+ * navigate_and_wait above; 10s rather than 30s, like the cookie calls, because
+ * evaluating a script is local work in an already-loaded page, not a network
+ * round trip.
+ *
+ * On success writes a newly allocated UTF-8 JSON string to *out_json (caller
+ * frees with g_free) and returns TRUE. A script that THROWS is still a success
+ * with "null" -- that is real WebView2's behavior, and the exception text is
+ * printed here instead, where it is visible in the launch log. FALSE means the
+ * evaluation itself never completed (stale handle, timeout, dead WebProcess),
+ * and *out_json is left NULL. */
+gboolean execute_script_and_wait(struct native_webview *nv, const char *script_utf8, char **out_json);
+
 #endif /* WV2L_HOST_NAVIGATE_H */

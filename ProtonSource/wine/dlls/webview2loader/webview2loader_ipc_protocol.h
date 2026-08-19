@@ -38,6 +38,7 @@ enum wv2l_opcode
     WV2L_OP_ADD_OR_UPDATE_COOKIE,
     WV2L_OP_SET_USER_AGENT,
     WV2L_OP_APPLY_SETTINGS,
+    WV2L_OP_EXECUTE_SCRIPT,
     /* Always append; never reorder or reuse a value -- these are the wire
      * opcode numbers both already-built binaries agree on. */
 };
@@ -176,6 +177,39 @@ struct wv2l_add_user_script_params
     uint64_t handle;
     uint16_t script[WV2L_USER_SCRIPT_MAX]; /* in; NUL-terminated UTF-16 */
     int32_t success;                       /* out */
+};
+
+/* Real ICoreWebView2::ExecuteScript.
+ *
+ * Named by Studio's own log, not guessed at. Once the document-start script
+ * above actually reached the page, the Toolbox got as far as a clean 200 and
+ * then produced, on every retry:
+ *
+ *   Warning [FLog::StudioEmbeddedBrowserWebView2] executeJavaScript failed
+ *   with error code '-2147467263'
+ *
+ * 0x80004001 is E_NOTIMPL: ICoreWebView2::ExecuteScript was still a stub.
+ * Studio drives the Toolbox through ExecuteScript rather than
+ * PostWebMessageAsJson -- the page sends messageBusEvent / internal:init with a
+ * uuid and waits for Studio to answer with injected JavaScript, so a stubbed
+ * ExecuteScript leaves the page spinning forever and retrying with fresh uuids.
+ *
+ * Request and response share this one struct like every other opcode, so it
+ * carries both buffers -- see this header's own top comment on framing. The
+ * result is JSON because that is what real WebView2's completion handler
+ * receives (resultObjectAsJson); the helper produces it with jsc_value_to_json.
+ *
+ * result_len is the UTF-16 unit count excluding the NUL, so the PE side never
+ * has to trust an embedded terminator it did not write. */
+#define WV2L_SCRIPT_RESULT_MAX 65536
+
+struct wv2l_execute_script_params
+{
+    uint64_t handle;
+    uint16_t script[WV2L_USER_SCRIPT_MAX]; /* in; NUL-terminated UTF-16 */
+    int32_t success;                       /* out */
+    uint32_t result_len;                   /* out; units in `result`, excl. NUL */
+    uint16_t result[WV2L_SCRIPT_RESULT_MAX]; /* out; JSON, NUL-terminated */
 };
 
 struct wv2l_rect { int32_t left, top, right, bottom; };

@@ -41,7 +41,7 @@ echo ":: Running dependency + webkitgtk build (this takes a long time -- hours o
 podman run --rm -v "$(pwd):/src:ro" -v webkitgtk-prefix:/opt/tuxblox-webview \
     -v "$(pwd)/../ProtonSource/wine/dlls/webview2loader/webview2loader_ipc_protocol.h:/src/host/webview2loader_ipc_protocol.h:ro" \
     -v "$(pwd)/../ProtonSource/webkitgtk:/src-webkitgtk:ro" \
-    -v webkitgtk-ccache:/ccache -v webkitgtk-src-build:/build/webkitgtk -e JOBS=4 \
+    -v webkitgtk-ccache:/ccache -v webkitgtk-src-build:/build/webkitgtk -e JOBS="${JOBS:-4}" \
     tuxblox-webkitgtk-builder bash -c \
     "mkdir -p /build-scripts && cp /src/*.sh /src/versions.env /build-scripts/ && \
      bash /build-scripts/build-in-container.sh"

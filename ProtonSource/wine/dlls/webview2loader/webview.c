@@ -1059,6 +1059,189 @@ static HRESULT WINAPI webview_AddScriptToExecuteOnDocumentCreated(ICoreWebView2 
     return S_OK;
 }
 
+/* --- ExecuteScript ---
+ *
+ * The blocker Studio named itself, in its own log, once the document-start
+ * script above actually started reaching the page:
+ *
+ *   Warning [FLog::StudioEmbeddedBrowserWebView2] executeJavaScript failed
+ *   with error code '-2147467263'   (0x80004001 == E_NOTIMPL)
+ *
+ * Studio drives the Toolbox through ExecuteScript, not PostWebMessageAsJson.
+ * The page sends messageBusEvent / internal:init with a uuid and waits for
+ * Studio to answer with injected JavaScript; while this was a stub the answer
+ * never came and the page spun forever, retrying with fresh uuids.
+ *
+ * SERIALIZED THROUGH ONE WORKER, not a thread per call like Navigate.
+ *
+ * Real WebView2 executes scripts in the order they were requested, and a
+ * message bridge is exactly the kind of caller that depends on it -- a reply
+ * that overtakes the handshake that set up its own state is a corrupt protocol,
+ * not a slow one. start_async_work spawns a fresh thread per call, and those
+ * threads then race for g_ipc_mutex in whatever order the scheduler picks, so
+ * using it here would give up that ordering for nothing.
+ *
+ * A queue rather than doing the round trip on the caller's own thread (the way
+ * AddScriptToExecuteOnDocumentCreated does): ExecuteScript is called
+ * repeatedly, from Studio's own threads, for as long as the Toolbox is open,
+ * and each call waits on the helper's bounded evaluation. Blocking Studio there
+ * would hand it a UI stall whenever the page or another in-flight opcode is
+ * slow -- and this module has already paid once for making a Studio thread wait
+ * on the helper (see the WebMessageReceived deadlock). Returning immediately
+ * and completing through the handler is also what the real API promises.
+ *
+ * The worker exits when the queue drains and is restarted by the next enqueue,
+ * so a process that opens the Toolbox once does not keep a thread parked for
+ * the rest of the session. */
+struct execute_script_request
+{
+    struct execute_script_request *next;
+    ICoreWebView2 *webview;                             /* AddRef'd by the enqueuer */
+    ICoreWebView2ExecuteScriptCompletedHandler *handler; /* AddRef'd by the enqueuer */
+    WCHAR *script;                                       /* owned; freed by the worker */
+};
+
+static struct execute_script_request *script_queue_head, *script_queue_tail;
+static BOOL script_worker_running;
+
+static CRITICAL_SECTION script_queue_cs;
+static CRITICAL_SECTION_DEBUG script_queue_cs_debug =
+{
+    0, 0, &script_queue_cs,
+    { &script_queue_cs_debug.ProcessLocksList, &script_queue_cs_debug.ProcessLocksList },
+    0, 0, { (DWORD_PTR)(__FILE__ ": script_queue_cs") }
+};
+static CRITICAL_SECTION script_queue_cs = { &script_queue_cs_debug, -1, 0, 0, 0, 0 };
+
+static void execute_script_request_free(struct execute_script_request *req)
+{
+    ICoreWebView2ExecuteScriptCompletedHandler_Release(req->handler);
+    ICoreWebView2_Release(req->webview);
+    free(req->script);
+    free(req);
+}
+
+static DWORD WINAPI execute_script_worker(void *arg)
+{
+    struct execute_script_params *params;
+
+    /* One buffer for the whole drain: struct execute_script_params embeds a
+     * 128 KB result buffer, so it is heap-allocated (see its own comment in
+     * unixlib.h) -- reusing it across queued requests keeps that to one
+     * allocation per worker rather than one per script. */
+    if (!(params = calloc(1, sizeof(*params))))
+    {
+        /* Still has to drain, or every queued handler is silently abandoned and
+         * Studio waits on completions that can never arrive. */
+        ERR("out of memory for the ExecuteScript buffer -- failing every queued script\n");
+    }
+
+    for (;;)
+    {
+        struct execute_script_request *req;
+        HRESULT hr = E_FAIL;
+        LPCWSTR result = L"null";
+
+        EnterCriticalSection(&script_queue_cs);
+        if (!(req = script_queue_head))
+        {
+            /* Cleared under the lock, so an enqueuer that sees FALSE and starts
+             * a new worker cannot be racing this one's last dequeue. */
+            script_worker_running = FALSE;
+            LeaveCriticalSection(&script_queue_cs);
+            free(params);
+            return 0;
+        }
+        if (!(script_queue_head = req->next)) script_queue_tail = NULL;
+        LeaveCriticalSection(&script_queue_cs);
+
+        if (params)
+        {
+            /* Read live rather than captured at enqueue time, same reason
+             * navigate_worker does: a Close() between the call and here makes
+             * this 0, and the unix call fails cleanly instead of naming a
+             * webview the helper has already torn down. */
+            params->handle = webview_get_native_handle(req->webview);
+            params->script = req->script;
+            params->is_success = FALSE;
+            if (!WEBVIEW2LOADER_UNIX_CALL(execute_script, params) && params->is_success)
+            {
+                hr = S_OK;
+                result = params->result;
+            }
+            else
+                WARN("the helper could not evaluate a script on webview %s\n",
+                     wine_dbgstr_longlong(params->handle));
+        }
+
+        /* Invoked even on failure, always with a readable string: real
+         * WebView2 always completes an ExecuteScript it accepted, and a caller
+         * left waiting forever is precisely the failure mode this method exists
+         * to fix. */
+        ICoreWebView2ExecuteScriptCompletedHandler_Invoke(req->handler, hr, result);
+        execute_script_request_free(req);
+    }
+}
+
+static HRESULT WINAPI webview_ExecuteScript(ICoreWebView2 *iface, LPCWSTR javaScript, void *handler_raw)
+{
+    ICoreWebView2ExecuteScriptCompletedHandler *handler = handler_raw;
+    struct execute_script_request *req;
+    BOOL need_worker;
+    SIZE_T len;
+
+    TRACE("(%p, %s, %p)\n", iface, debugstr_w(javaScript), handler_raw);
+
+    if (!javaScript) return E_POINTER;
+    /* A NULL handler is legal on real WebView2 -- "run this and don't tell me"
+     * -- but every caller here is answering a page that is waiting, so a
+     * completion is always wanted and a missing one is a caller bug worth
+     * reporting rather than a fire-and-forget shortcut to support. */
+    if (!handler) return E_POINTER;
+
+    if (!(req = calloc(1, sizeof(*req)))) return E_OUTOFMEMORY;
+    len = wcslen(javaScript) + 1;
+    if (!(req->script = malloc(len * sizeof(WCHAR)))) { free(req); return E_OUTOFMEMORY; }
+    memcpy(req->script, javaScript, len * sizeof(WCHAR));
+
+    ICoreWebView2_AddRef(iface);
+    ICoreWebView2ExecuteScriptCompletedHandler_AddRef(handler);
+    req->webview = iface;
+    req->handler = handler;
+
+    EnterCriticalSection(&script_queue_cs);
+    if (script_queue_tail) script_queue_tail->next = req;
+    else script_queue_head = req;
+    script_queue_tail = req;
+    need_worker = !script_worker_running;
+    /* Set before the thread exists, under the same lock the worker clears it
+     * under, so two concurrent enqueues can never both start a worker. */
+    if (need_worker) script_worker_running = TRUE;
+    LeaveCriticalSection(&script_queue_cs);
+
+    if (need_worker && !start_async_work(execute_script_worker, NULL))
+    {
+        /* Unlink this request again rather than leaving it queued behind a
+         * worker that does not exist -- anything already queued is a different
+         * worker's problem and is left alone. */
+        struct execute_script_request *cur, *prev = NULL;
+
+        EnterCriticalSection(&script_queue_cs);
+        script_worker_running = FALSE;
+        for (cur = script_queue_head; cur && cur != req; cur = cur->next) prev = cur;
+        if (cur)
+        {
+            if (prev) prev->next = cur->next;
+            else script_queue_head = cur->next;
+            if (script_queue_tail == cur) script_queue_tail = prev;
+        }
+        LeaveCriticalSection(&script_queue_cs);
+        execute_script_request_free(req);
+        return E_FAIL;
+    }
+    return S_OK; /* real WebView2 semantics: completion arrives through the handler */
+}
+
 static HRESULT WINAPI webview_RemoveScriptToExecuteOnDocumentCreated(ICoreWebView2 *iface, LPCWSTR id)
 {
     /* Nothing tracks injected scripts to actually remove (see this
@@ -1325,7 +1508,6 @@ static HRESULT WINAPI webview_get_Settings(ICoreWebView2 *iface, void **settings
         return E_NOTIMPL;                                                     \
     }
 
-WV2L_DEFINE_NOTIMPL_STUB(ExecuteScript)
 WV2L_DEFINE_NOTIMPL_STUB(CapturePreview)
 WV2L_DEFINE_NOTIMPL_STUB(Reload)
 WV2L_DEFINE_NOTIMPL_STUB(CallDevToolsProtocolMethod)
@@ -1376,7 +1558,7 @@ static const ICoreWebView2Vtbl webview_vtbl =
     webview_generic_remove_event, /* remove_ProcessFailed */
     webview_AddScriptToExecuteOnDocumentCreated,
     webview_RemoveScriptToExecuteOnDocumentCreated,
-    (void *)webview_notimpl_ExecuteScript, /* ExecuteScript */
+    webview_ExecuteScript,
     (void *)webview_notimpl_CapturePreview, /* CapturePreview */
     (void *)webview_notimpl_Reload, /* Reload */
     webview_PostWebMessageAsJson,
@@ -1493,7 +1675,7 @@ static const struct webview2_2_vtbl_combined webview2_2_vtbl =
         webview_generic_remove_event, /* remove_ProcessFailed */
         webview_AddScriptToExecuteOnDocumentCreated,
         webview_RemoveScriptToExecuteOnDocumentCreated,
-        (void *)webview_notimpl_ExecuteScript, /* ExecuteScript */
+        webview_ExecuteScript,
         (void *)webview_notimpl_CapturePreview, /* CapturePreview */
         (void *)webview_notimpl_Reload, /* Reload */
         webview_PostWebMessageAsJson,

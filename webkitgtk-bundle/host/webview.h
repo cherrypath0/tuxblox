@@ -82,6 +82,12 @@ struct native_webview
      * produce, just prompt instead of delayed. */
     gboolean process_terminated;
     GMainLoop *active_wait_loop;
+
+    /* One-shot latch for execute_script_and_wait's "first ExecuteScript" log
+     * line -- see that function's own comment for why a per-call line would be
+     * unusable and why no line at all was worse. Zero-initialized by
+     * webview_create's calloc, like every other field here. */
+    gboolean logged_first_script;
 };
 
 /* Creates a new native window + WebKitWebView pair, undecorated, with the

@@ -575,6 +575,52 @@ struct ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler
     (This)->lpVtbl->Invoke(This,errorCode,result)
 #endif
 
+/* ICoreWebView2::ExecuteScript's completion handler.
+ *
+ * This is the interface Studio hands to ExecuteScript, and until that method
+ * stopped being a stub nothing here ever called it. Studio drives the Toolbox
+ * through ExecuteScript rather than PostWebMessageAsJson: the page sends
+ * messageBusEvent / internal:init with a uuid and waits, Studio answers with
+ * injected JavaScript, and its own log named the failure outright --
+ * "executeJavaScript failed with error code '-2147467263'", i.e. E_NOTIMPL --
+ * on every retry, with the page spinning on fresh uuids in between.
+ *
+ * `resultObjectAsJson` is the evaluated value serialised as JSON (real
+ * WebView2's own contract, and the reason the helper hands back
+ * jsc_value_to_json output rather than a plain string): "null" for undefined,
+ * which is what most of Studio's bridge calls evaluate to, and also what a
+ * script that THREW reports -- an exception inside the page is a successful
+ * ExecuteScript on real WebView2, not a failed one. Only errorCode reports a
+ * real failure of the call itself, and the string is never NULL even then, so
+ * a handler that reads it unconditionally cannot fault.
+ *
+ * IID transcribed from the official WebView2 NuGet package's WebView2.h,
+ * same source as ICoreWebView2Settings2's above. */
+DEFINE_GUID(IID_ICoreWebView2ExecuteScriptCompletedHandler,
+            0x49511172, 0xcc67, 0x4bca, 0x99, 0x23, 0x13, 0x71, 0x12, 0xf4, 0xc4, 0xcc);
+
+typedef struct ICoreWebView2ExecuteScriptCompletedHandler ICoreWebView2ExecuteScriptCompletedHandler;
+typedef struct ICoreWebView2ExecuteScriptCompletedHandlerVtbl
+{
+    HRESULT (WINAPI *QueryInterface)(ICoreWebView2ExecuteScriptCompletedHandler *This,
+                                      REFIID riid, void **ppv);
+    ULONG   (WINAPI *AddRef)(ICoreWebView2ExecuteScriptCompletedHandler *This);
+    ULONG   (WINAPI *Release)(ICoreWebView2ExecuteScriptCompletedHandler *This);
+    HRESULT (WINAPI *Invoke)(ICoreWebView2ExecuteScriptCompletedHandler *This,
+                              HRESULT errorCode, LPCWSTR resultObjectAsJson);
+} ICoreWebView2ExecuteScriptCompletedHandlerVtbl;
+struct ICoreWebView2ExecuteScriptCompletedHandler
+{ const ICoreWebView2ExecuteScriptCompletedHandlerVtbl *lpVtbl; };
+
+#ifdef COBJMACROS
+#define ICoreWebView2ExecuteScriptCompletedHandler_QueryInterface(This,riid,ppv) \
+    (This)->lpVtbl->QueryInterface(This,riid,ppv)
+#define ICoreWebView2ExecuteScriptCompletedHandler_AddRef(This) (This)->lpVtbl->AddRef(This)
+#define ICoreWebView2ExecuteScriptCompletedHandler_Release(This) (This)->lpVtbl->Release(This)
+#define ICoreWebView2ExecuteScriptCompletedHandler_Invoke(This,errorCode,resultObjectAsJson) \
+    (This)->lpVtbl->Invoke(This,errorCode,resultObjectAsJson)
+#endif
+
 typedef struct ICoreWebView2Controller ICoreWebView2Controller;
 typedef struct ICoreWebView2ControllerVtbl
 {
@@ -696,6 +742,13 @@ void controller_push_geometry_to_native(ICoreWebView2Controller *iface);
  * ProcessId returns 0 for a dead HWND, which used to make untrack a
  * silent, entry-leaking no-op -- see window_sync.c's own comment on
  * window_hook_track for the full use-after-free consequence this caused). */
+/* This module's own HINSTANCE, recorded by DllMain and pinned there for the
+ * process lifetime (LdrAddRefDll). window_sync.c needs it because
+ * NtUserSetWinEventHook rejects WINEVENT_INCONTEXT outright when the HMODULE is
+ * NULL (ERROR_HOOK_NEEDS_HMOD, dlls/win32u/hook.c) -- see that file's own
+ * SetWinEventHook call for why in-context is required rather than preferred. */
+extern HINSTANCE webview2loader_instance;
+
 typedef void (CALLBACK *window_sync_callback)(void *user_data);
 BOOL window_hook_track(HWND hwnd, window_sync_callback callback, void *user_data, DWORD *tid_out);
 void window_hook_untrack(DWORD tid, HWND hwnd, window_sync_callback callback, void *user_data);

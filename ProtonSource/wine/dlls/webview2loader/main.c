@@ -38,6 +38,8 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(webview2loader);
 
+HINSTANCE webview2loader_instance;
+
 BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID reserved)
 {
     switch (reason)
@@ -57,6 +59,10 @@ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID reserved)
          * dlls/msvcrt/main.c does for the same "can't safely unload while
          * our own code might still be running" reason. */
         LdrAddRefDll(LDR_ADDREF_DLL_PIN, inst);
+        /* Recorded for window_sync.c's WINEVENT_INCONTEXT hook, which cannot be
+         * installed without a module handle. Safe to keep for the process
+         * lifetime precisely because of the pin just above. */
+        webview2loader_instance = inst;
         break;
     }
     return TRUE;

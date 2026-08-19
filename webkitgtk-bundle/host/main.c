@@ -51,6 +51,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include "ipc.h"
 #include "webview2loader_ipc_protocol.h"
 #include "webview.h"
@@ -206,6 +207,43 @@ static void log_gl_dispatch_info(void)
      * here, not an oversight. */
 }
 
+/* Copies ExecuteScript's UTF-8 JSON result into the response struct's fixed
+ * UTF-16 buffer.
+ *
+ * Rejects rather than truncates, the same rule unix_add_user_script_impl
+ * applies on the Wine side and for the same reason: half a JSON document is not
+ * JSON, and a caller that parsed it would fail somewhere far from here. The
+ * byte-length check is conservative on purpose -- a UTF-8 string is never
+ * shorter in bytes than its UTF-16 form is in units -- which is what makes the
+ * memcpy below safe without re-measuring.
+ *
+ * result_len excludes the NUL so the Wine side never has to trust a terminator
+ * it did not write. */
+static gboolean fill_wire_script_result(struct wv2l_execute_script_params *p, const char *json)
+{
+    gunichar2 *conv;
+    glong written = 0;
+
+    if (!json) json = "null";
+    if (strlen(json) >= WV2L_SCRIPT_RESULT_MAX)
+    {
+        fprintf(stderr, "webview2loader-host: ExecuteScript result is %zu bytes, over this build's "
+                        "%u-uint16 cap -- failing the call rather than returning truncated JSON\n",
+                strlen(json), (unsigned)WV2L_SCRIPT_RESULT_MAX);
+        return FALSE;
+    }
+    if (!(conv = g_utf8_to_utf16(json, -1, NULL, &written, NULL)))
+    {
+        fprintf(stderr, "webview2loader-host: ExecuteScript result failed UTF-8 -> UTF-16 "
+                        "conversion -- failing the call\n");
+        return FALSE;
+    }
+    memcpy(p->result, conv, (size_t)(written + 1) * sizeof(uint16_t));
+    p->result_len = (uint32_t)written;
+    g_free(conv);
+    return TRUE;
+}
+
 /* Reads one opcode + its struct, dispatches, writes the struct back.
  * Returns FALSE (stopping the GSource / ending the process) once the
  * socket is gone -- matches unixlib.c's own "helper died" detection on
@@ -328,6 +366,34 @@ static gboolean on_ipc_readable(gint fd, GIOCondition condition, gpointer user_d
         script_utf8 = wire_uri_to_utf8(p->script); /* plain UTF-16 -> UTF-8, not uri-specific */
         p->success = webview_add_user_script(nv, script_utf8) ? 1 : 0;
         g_free(script_utf8);
+        ok = ipc_write_full(fd, p, sizeof(*p)) >= 0;
+        free(p);
+        if (!ok) { g_main_loop_quit(g_loop); return G_SOURCE_REMOVE; }
+        return G_SOURCE_CONTINUE;
+    }
+    case WV2L_OP_EXECUTE_SCRIPT:
+    {
+        /* Heap for the same reason as ADD_USER_SCRIPT, only more so: this
+         * struct carries a 128 KB script buffer AND a 128 KB result buffer. */
+        struct wv2l_execute_script_params *p = calloc(1, sizeof(*p));
+        struct native_webview *nv;
+        char *script_utf8;
+        char *json = NULL;
+        int ok;
+
+        if (!p) { g_main_loop_quit(g_loop); return G_SOURCE_REMOVE; }
+        if (ipc_read_full(fd, p, sizeof(*p)) < 0)
+        {
+            free(p);
+            g_main_loop_quit(g_loop);
+            return G_SOURCE_REMOVE;
+        }
+        nv = webview_lookup(p->handle);
+        script_utf8 = wire_uri_to_utf8(p->script); /* plain UTF-16 -> UTF-8 */
+        if (script_utf8 && execute_script_and_wait(nv, script_utf8, &json))
+            p->success = fill_wire_script_result(p, json) ? 1 : 0;
+        g_free(script_utf8);
+        g_free(json);
         ok = ipc_write_full(fd, p, sizeof(*p)) >= 0;
         free(p);
         if (!ok) { g_main_loop_quit(g_loop); return G_SOURCE_REMOVE; }

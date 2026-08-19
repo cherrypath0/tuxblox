@@ -1513,3 +1513,148 @@ void on_web_process_terminated(WebKitWebView *view, WebKitWebProcessTerminationR
         g_main_loop_quit(nv->active_wait_loop);
     }
 }
+
+/* --- ExecuteScript ---
+ *
+ * The blocker Studio named itself once the document-start script started
+ * reaching the page: every Toolbox retry logged
+ *
+ *   Warning [FLog::StudioEmbeddedBrowserWebView2] executeJavaScript failed
+ *   with error code '-2147467263'   (0x80004001 == E_NOTIMPL)
+ *
+ * Studio answers the page's messageBusEvent / internal:init handshake with
+ * injected JavaScript, not with PostWebMessageAsJson, so with this stubbed the
+ * page never got its reply and spun forever on fresh uuids.
+ *
+ * Same heap-ctx + refcount + bounded-nested-loop shape as the cookie calls
+ * above, and for the same reason: GAsyncReadyCallback has no synchronous
+ * cancel, so a completion that arrives after this function has already timed
+ * out can still touch ctx at any later point. */
+struct execute_script_ctx
+{
+    GMainLoop *loop; /* NULL once the wait exits -- see struct navigate_ctx's
+                       * identical field */
+    guint timeout_id;
+    gboolean done;
+    gboolean success;
+    char *json; /* g_malloc'd; ownership passes to the caller on success */
+    int refs;   /* see struct delete_cookies_ctx's own comment */
+};
+
+static void execute_script_ctx_release(struct execute_script_ctx *ctx)
+{
+    if (--ctx->refs) return;
+    g_free(ctx->json);
+    free(ctx);
+}
+
+static void on_execute_script_done(GObject *source, GAsyncResult *res, void *user_data)
+{
+    struct execute_script_ctx *ctx = user_data;
+    GError *error = NULL;
+    JSCValue *value = webkit_web_view_evaluate_javascript_finish((WebKitWebView *)source, res, &error);
+
+    if (!value)
+    {
+        /* A script that throws lands here, and real WebView2 reports that as a
+         * SUCCESSFUL ExecuteScript whose result is "null" -- the exception is
+         * the page's business, not a failure of the call. Report it the same
+         * way, and print the message here, where the launch log can see it:
+         * "Studio's injected script threw" and "the bridge never answered" look
+         * identical to Studio otherwise. */
+        fprintf(stderr, "webview2loader-host: ExecuteScript: the page's evaluation failed -- %s\n",
+                error && error->message ? error->message : "no detail");
+        g_clear_error(&error);
+        ctx->json = g_strdup("null");
+    }
+    else
+    {
+        /* jsc_value_to_json returns NULL for undefined, which most of Studio's
+         * bridge calls evaluate to (they are statements, not expressions).
+         * "null" is what real WebView2 hands the handler in that case. */
+        ctx->json = jsc_value_to_json(value, 0);
+        if (!ctx->json) ctx->json = g_strdup("null");
+        g_object_unref(value);
+    }
+
+    ctx->success = TRUE;
+    ctx->done = TRUE;
+    if (ctx->loop) g_main_loop_quit(ctx->loop);
+
+    execute_script_ctx_release(ctx); /* this callback's own ref */
+}
+
+static gboolean on_execute_script_timeout(gpointer data)
+{
+    struct execute_script_ctx *ctx = data;
+
+    ctx->timeout_id = 0;
+    if (ctx->loop) g_main_loop_quit(ctx->loop);
+    return G_SOURCE_REMOVE;
+}
+
+gboolean execute_script_and_wait(struct native_webview *nv, const char *script_utf8, char **out_json)
+{
+    struct execute_script_ctx *ctx;
+    gboolean ok;
+
+    *out_json = NULL;
+    if (!nv || !script_utf8)
+    {
+        fprintf(stderr, "webview2loader-host: stale/destroyed native window handle -- failing "
+                        "ExecuteScript\n");
+        return FALSE;
+    }
+    if (!(ctx = calloc(1, sizeof(*ctx))))
+    {
+        fprintf(stderr, "webview2loader-host: calloc failed for ExecuteScript context -- out of "
+                        "memory, failing without waiting\n");
+        return FALSE;
+    }
+    ctx->refs = 2;
+
+    /* NULL world_name is the page's own main world, deliberately: Studio's
+     * script talks to the page's bridge objects, which an isolated world could
+     * not see -- the same reason webview_add_user_script installs Studio's
+     * document-start script there. */
+    webkit_web_view_evaluate_javascript(nv->view, script_utf8, -1, NULL, NULL, NULL,
+                                         on_execute_script_done, ctx);
+
+    /* 10s, matching the cookie calls rather than navigate_and_wait's 30s:
+     * evaluating a script in an already-loaded page is local work, not a
+     * network round trip. See this file's own top comment for why the wait is a
+     * nested GMainLoop and not a blocking condvar. */
+    ctx->loop = g_main_loop_new(NULL, FALSE);
+    nv->active_wait_loop = ctx->loop;
+    ctx->timeout_id = g_timeout_add_seconds(10, on_execute_script_timeout, ctx);
+    g_main_loop_run(ctx->loop);
+    wait_ended_with_nv_alive(nv, "ExecuteScript");
+
+    if (ctx->timeout_id) g_source_remove(ctx->timeout_id);
+    g_main_loop_unref(ctx->loop);
+    ctx->loop = NULL;
+
+    if ((ok = ctx->success))
+    {
+        /* Logged ONCE per webview, not per call: the Toolbox drives this
+         * continuously, so a line per script would drown the log -- but with no
+         * line at all, "Studio never called ExecuteScript" and "it called and it
+         * worked" are indistinguishable, which is the exact ambiguity that made
+         * this blocker take a session to find. One line settles that; failures
+         * above still log every time. */
+        if (!nv->logged_first_script)
+        {
+            nv->logged_first_script = TRUE;
+            fprintf(stderr, "webview2loader-host: first ExecuteScript on nv=%p returned %s -- "
+                            "script was: %.120s\n", (void *)nv, ctx->json, script_utf8);
+        }
+        *out_json = ctx->json;
+        ctx->json = NULL; /* ownership handed to the caller */
+    }
+    else
+        fprintf(stderr, "webview2loader-host: ExecuteScript did not complete within 10s on nv=%p\n",
+                (void *)nv);
+
+    execute_script_ctx_release(ctx); /* this function's own ref */
+    return ok;
+}

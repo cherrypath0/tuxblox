@@ -299,6 +299,29 @@ struct add_user_script_params
     BOOL is_success; /* out */
 };
 
+/* ICoreWebView2::ExecuteScript. `script` is the PE caller's own NUL-terminated
+ * buffer (rejected, not truncated, if it exceeds the wire limit -- same rule as
+ * add_user_script above). The result comes back as JSON in a fixed embedded
+ * buffer rather than an allocation, for the reason struct get_cookies_params
+ * spells out: this unixlib.so's malloc and the PE side's allocator are
+ * different heaps, so only fixed-size POD crosses this boundary.
+ *
+ * That makes this struct ~256 KB, so PE-side callers must heap-allocate it --
+ * webview.c's execute_script_worker calloc()s one per call, never a stack
+ * local. */
+#define WEBVIEW2LOADER_SCRIPT_RESULT_MAX 65536
+
+struct execute_script_params
+{
+    UINT64 handle;
+    const WCHAR *script; /* in; PE-side owns this, not retained past the call */
+
+    /* out */
+    BOOL is_success;
+    UINT32 result_len; /* units in `result`, excluding the NUL */
+    WCHAR result[WEBVIEW2LOADER_SCRIPT_RESULT_MAX];
+};
+
 enum webview2loader_unix_funcs
 {
     unix_init,
@@ -318,6 +341,7 @@ enum webview2loader_unix_funcs
     unix_add_or_update_cookie,
     unix_set_user_agent,
     unix_apply_settings,
+    unix_execute_script,
     /* Further tasks append further entries below this line -- always
      * appending, never reordering, since the enum's integer values are
      * the unix-call dispatch table's indices (see __wine_unix_call_funcs

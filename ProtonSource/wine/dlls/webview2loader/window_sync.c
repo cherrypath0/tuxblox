@@ -45,12 +45,12 @@ WINE_DEFAULT_DEBUG_CHANNEL(webview2loader);
  * pure Z-order/activation changes, which this never needed to act on;
  * controller_push_geometry_to_native is idempotent either way).
  *
- * This does depend on Wine calling the WinEvent proc synchronously on the
- * thread that generated the event (call_win_event_hook -> KeUserModeCallback,
+ * This depends on Wine calling the WinEvent proc synchronously on the thread
+ * that generated the event (call_win_event_hook -> KeUserModeCallback,
  * dlls/win32u/hook.c), which keeps the callback on the same thread and at the
- * same point in the sequence as the old WH_CALLWNDPROC callback did. Real
- * Windows delivers WINEVENT_OUTOFCONTEXT asynchronously to the installing
- * thread instead -- this DLL is a Wine builtin and never runs there. */
+ * same point in the sequence as the old WH_CALLWNDPROC callback did. That is
+ * true only for WINEVENT_INCONTEXT -- see the SetWinEventHook call below, where
+ * assuming it held for WINEVENT_OUTOFCONTEXT too cost a real, observed bug. */
 
 enum sync_mode
 {
@@ -240,10 +240,39 @@ BOOL window_hook_track(HWND hwnd, window_sync_callback callback, void *user_data
             /* Scoped to this process and this one thread, matching the old
              * hook's scope exactly -- a thread-specific registration only
              * bumps that thread's own queue hook count server-side. */
-            th->we_hooks[0] = SetWinEventHook(EVENT_OBJECT_SHOW, EVENT_OBJECT_HIDE, NULL, win_event_proc,
-                                              GetCurrentProcessId(), tid, WINEVENT_OUTOFCONTEXT);
-            th->we_hooks[1] = SetWinEventHook(EVENT_OBJECT_LOCATIONCHANGE, EVENT_OBJECT_LOCATIONCHANGE, NULL,
-                                              win_event_proc, GetCurrentProcessId(), tid, WINEVENT_OUTOFCONTEXT);
+            /* WINEVENT_INCONTEXT, not WINEVENT_OUTOFCONTEXT -- a real bug fix,
+             * verified against this fork's own wineserver source rather than
+             * assumed.
+             *
+             * This file used to claim Wine "calls the WinEvent proc
+             * synchronously on the thread that generated the event", which is
+             * only true of the in-context path: server/hook.c's get_first_hook/
+             * get_next_hook `return hook` (so win32u calls call_win_event_hook
+             * inline) ONLY for WINEVENT_INCONTEXT, and otherwise falls through
+             * to post_win_event(), which queues the event to the installing
+             * thread's message queue instead. Out of context, the callback is
+             * therefore neither synchronous nor ordered against the
+             * set_window_pos that produced it.
+             *
+             * Measured cost of that: during a real playtest the webview was
+             * never told to hide even once. Studio's own toolbox panel goes
+             * invisible, but no sync ran to observe it, so a foreign X window
+             * that Wine cannot hide on its own kept painting over the 3D
+             * viewport. Forcing the WH_CALLWNDPROC mode below made the same
+             * playtest emit the HIDDEN transition immediately -- same
+             * visibility logic, only the delivery of the notification differed.
+             *
+             * The module handle is required, not optional: NtUserSetWinEventHook
+             * fails with ERROR_HOOK_NEEDS_HMOD for an in-context hook with a
+             * NULL HMODULE. It is then discarded again a few lines later for a
+             * thread-local hook (`if (tid) inst = 0;`), so this costs nothing
+             * and injects nothing -- the hook proc is already in this process. */
+            th->we_hooks[0] = SetWinEventHook(EVENT_OBJECT_SHOW, EVENT_OBJECT_HIDE,
+                                              webview2loader_instance, win_event_proc,
+                                              GetCurrentProcessId(), tid, WINEVENT_INCONTEXT);
+            th->we_hooks[1] = SetWinEventHook(EVENT_OBJECT_LOCATIONCHANGE, EVENT_OBJECT_LOCATIONCHANGE,
+                                              webview2loader_instance, win_event_proc,
+                                              GetCurrentProcessId(), tid, WINEVENT_INCONTEXT);
             if (!th->we_hooks[0] || !th->we_hooks[1])
             {
                 /* All-or-nothing: a half-installed pair would silently miss

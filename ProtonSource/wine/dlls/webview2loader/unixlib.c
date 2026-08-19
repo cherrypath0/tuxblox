@@ -1336,6 +1336,68 @@ static NTSTATUS unix_apply_settings_impl(void *args)
     return STATUS_SUCCESS;
 }
 
+/* ICoreWebView2::ExecuteScript. Studio drives the Toolbox through this, not
+ * through PostWebMessageAsJson -- see wv2l_execute_script_params' own comment
+ * in webview2loader_ipc_protocol.h for the log line that named it.
+ *
+ * Oversized scripts are rejected rather than truncated, same rule and same
+ * reasoning as unix_add_user_script_impl above. The result is bounds-checked
+ * coming back too: the helper already refuses to send a truncated JSON
+ * document, and this side re-checks rather than trusting the length it was
+ * handed. */
+static NTSTATUS unix_execute_script_impl(void *args)
+{
+    struct execute_script_params *params = args;
+    struct wv2l_execute_script_params *wire;
+    size_t len = 0;
+    NTSTATUS status = STATUS_SUCCESS;
+
+    params->is_success = FALSE;
+    params->result_len = 0;
+    params->result[0] = 0;
+    if (!params->handle) return STATUS_INVALID_HANDLE;
+    if (!params->script) return STATUS_INVALID_PARAMETER;
+
+    while (params->script[len]) len++;
+    if (len >= WV2L_USER_SCRIPT_MAX)
+    {
+        ERR("script is %zu UTF-16 units, over the %u wire limit -- refusing to evaluate a "
+            "truncated script\n", len, (unsigned)WV2L_USER_SCRIPT_MAX);
+        return STATUS_BUFFER_TOO_SMALL;
+    }
+
+    /* Heap, not stack: ~256 KB of script and result buffers. */
+    if (!(wire = calloc(1, sizeof(*wire)))) return STATUS_NO_MEMORY;
+    wire->handle = params->handle;
+    memcpy(wire->script, params->script, len * sizeof(uint16_t));
+    wire->script[len] = 0;
+
+    if (!ipc_call_handle(WV2L_OP_EXECUTE_SCRIPT, wire, sizeof(*wire), &wire->handle))
+    {
+        WARN("ipc_call failed -- helper not running, cannot evaluate the script\n");
+        status = STATUS_NOT_SUPPORTED;
+    }
+    else if (wire->success)
+    {
+        if (wire->result_len >= WEBVIEW2LOADER_SCRIPT_RESULT_MAX)
+        {
+            ERR("helper reported a %u-unit result, past the %u buffer it was sent in -- "
+                "discarding it\n", wire->result_len, (unsigned)WEBVIEW2LOADER_SCRIPT_RESULT_MAX);
+            status = STATUS_BUFFER_TOO_SMALL;
+        }
+        else
+        {
+            memcpy(params->result, wire->result, wire->result_len * sizeof(WCHAR));
+            params->result[wire->result_len] = 0;
+            params->result_len = wire->result_len;
+            params->is_success = TRUE;
+        }
+    }
+
+    free(wire);
+    return status;
+}
+
 const unixlib_entry_t __wine_unix_call_funcs[] =
 {
     unix_init_impl,
@@ -1355,4 +1417,5 @@ const unixlib_entry_t __wine_unix_call_funcs[] =
     unix_add_or_update_cookie_impl,
     unix_set_user_agent_impl,
     unix_apply_settings_impl,
+    unix_execute_script_impl,
 };
