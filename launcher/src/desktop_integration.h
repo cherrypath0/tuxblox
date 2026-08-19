@@ -46,6 +46,9 @@ void writeDesktopEntries(const std::string& launcherExePath);
 // writeDesktopEntries() above exists to win the race for -- safe to run
 // after the window is already shown, per the ~12s-worst-case timing this
 // ordering was already built around.
-void ensureDesktopIntegration(const std::string& launcherExePath);
+//
+// `installDir` is needed for exportPrefixShortcuts(), which reads the prefix's
+// own c:\proton_shortcuts -- see wine_shortcut_export.h.
+void ensureDesktopIntegration(const std::string& launcherExePath, const std::string& installDir);
 
 } // namespace tuxblox

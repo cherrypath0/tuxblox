@@ -303,7 +303,7 @@ int main(int argc, char** argv) {
     MainWindow window(app);
     window.show();
 
-    ensureDesktopIntegration(exePath);
+    ensureDesktopIntegration(exePath, dir);
 
     app.startUpdateCheck();
 

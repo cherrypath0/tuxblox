@@ -17,6 +17,7 @@
 #include "desktop_integration.h"
 #include "tuxblox_logo_png.h" // generated at build time: kTuxbloxLogoPng[], kTuxbloxLogoPngLen
 #include "container_env.h"
+#include "wine_shortcut_export.h"
 #include <chrono>
 #include <cstdlib>
 #include <fcntl.h>
@@ -233,15 +234,11 @@ void writeDesktopEntries(const std::string& launcherExePath) {
                 // a blank/generic icon instead of tuxblox.png.
                 "StartupWMClass=TuxBloxLauncher\n"
                 "Categories=Game;\n"
-                "Actions=LaunchPlayer;LaunchStudio;Documentation;\n"
-                "\n"
-                "[Desktop Action LaunchPlayer]\n"
-                "Name=Launch Roblox Player\n"
-                "Exec=\"" << launcherExePath << "\" --launch-player\n"
-                "\n"
-                "[Desktop Action LaunchStudio]\n"
-                "Name=Launch Roblox Studio\n"
-                "Exec=\"" << launcherExePath << "\" --launch-studio\n"
+                // No LaunchPlayer/LaunchStudio actions: wine_shortcut_export.cpp
+                // publishes real "Roblox Studio | via TuxBlox" entries once
+                // Roblox has been installed and run, and keeping these too put
+                // duplicate launch points in the app grid -- plan/todo.md item 2.
+                "Actions=Documentation;\n"
                 "\n"
                 "[Desktop Action Documentation]\n"
                 "Name=Documentation\n"
@@ -271,6 +268,55 @@ void writeDesktopEntries(const std::string& launcherExePath) {
                 "MimeType=" << h.mimeTypeLine << "\n";
         }
 
+        // .rbxl/.rbxlx handling -- plan/todo.md item 18. Nothing in
+        // shared-mime-info knows these extensions, so TuxBlox has to define the
+        // types before anything can claim them.
+        {
+            const std::string mimePackagesDir = std::string(home) + "/.local/share/mime/packages";
+            std::error_code mimeEc;
+            fs::create_directories(mimePackagesDir, mimeEc);
+            if (!mimeEc) {
+                std::ofstream f(mimePackagesDir + "/tuxblox-roblox-place.xml");
+                if (f) {
+                    f <<
+                        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+                        "<mime-info xmlns=\"http://www.freedesktop.org/standards/shared-mime-info\">\n"
+                        "  <mime-type type=\"application/x-roblox-place\">\n"
+                        "    <comment>Roblox Place</comment>\n"
+                        "    <glob pattern=\"*.rbxl\"/>\n"
+                        "  </mime-type>\n"
+                        // .rbxlx is the XML serialisation of the same thing, so
+                        // it sub-classes text/xml -- that keeps a text editor
+                        // available in "Open With" instead of making Studio the
+                        // only application that will touch it.
+                        "  <mime-type type=\"application/x-roblox-place+xml\">\n"
+                        "    <comment>Roblox Place (XML)</comment>\n"
+                        "    <sub-class-of type=\"text/xml\"/>\n"
+                        "    <glob pattern=\"*.rbxlx\"/>\n"
+                        "  </mime-type>\n"
+                        "</mime-info>\n";
+                }
+            }
+        }
+
+        // NoDisplay, same as the URL-scheme handlers above: this entry exists to
+        // own the place-file types, not to appear in the app grid -- the entry
+        // wine_shortcut_export.cpp publishes is the visible "Roblox Studio".
+        {
+            std::ofstream f(appsDir + "/tuxblox-studio-place.desktop");
+            if (!f) return;
+            f <<
+                "[Desktop Entry]\n"
+                "Type=Application\n"
+                "Name=Roblox Studio\n"
+                "Comment=via TuxBlox\n"
+                "Exec=\"" << launcherExePath << "\" --open-file %f\n"
+                "Icon=tuxblox\n"
+                "NoDisplay=true\n"
+                "Terminal=false\n"
+                "MimeType=application/x-roblox-place;application/x-roblox-place+xml;\n";
+        }
+
         // Superseded by the per-scheme files above -- remove so it doesn't
         // linger as a dead duplicate entry claiming the same MimeTypes.
         {
@@ -282,7 +328,7 @@ void writeDesktopEntries(const std::string& launcherExePath) {
     }
 }
 
-void ensureDesktopIntegration(const std::string& launcherExePath) {
+void ensureDesktopIntegration(const std::string& launcherExePath, const std::string& installDir) {
     writeDesktopEntries(launcherExePath);
 
     try {
@@ -302,6 +348,14 @@ void ensureDesktopIntegration(const std::string& launcherExePath) {
                     runCommandBestEffort({"xdg-mime", "default", h.desktopId, scheme});
                 }
             }
+            // Place-file types (item 18). update-mime-database must run before
+            // xdg-mime default: the association is rejected for a MIME type the
+            // database doesn't know yet.
+            runCommandBestEffort({"update-mime-database", std::string(home) + "/.local/share/mime"});
+            runCommandBestEffort({"xdg-mime", "default", "tuxblox-studio-place.desktop",
+                                   "application/x-roblox-place"});
+            runCommandBestEffort({"xdg-mime", "default", "tuxblox-studio-place.desktop",
+                                   "application/x-roblox-place+xml"});
             runCommandBestEffort({"update-desktop-database", appsDir});
             // Best-effort, same reasoning as update-desktop-database above --
             // not every desktop environment needs this to pick up a newly
@@ -332,6 +386,13 @@ void ensureDesktopIntegration(const std::string& launcherExePath) {
                 runCommandBestEffort({"distrobox-export", "--app", exportId});
             }
         }
+
+        // Publish Roblox itself to the app menu, routed back through this
+        // launcher -- plan/todo.md item 2. A no-op until Roblox has actually
+        // been installed and run at least once, since winemenubuilder only
+        // writes c:\proton_shortcuts entries in response to the installer's own
+        // .lnk files.
+        exportPrefixShortcuts(installDir, launcherExePath);
     } catch (...) {
         // Best-effort -- must never fail an otherwise-working launch.
     }
