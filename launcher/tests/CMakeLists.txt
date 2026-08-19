@@ -116,3 +116,7 @@ add_executable(test_update_popup test_update_popup.cpp)
 target_link_libraries(test_update_popup PRIVATE launcher_ui_qt Qt6::Test)
 add_test(NAME update_popup COMMAND test_update_popup)
 set_tests_properties(update_popup PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+add_executable(test_prefix_session test_prefix_session.cpp)
+target_link_libraries(test_prefix_session PRIVATE launcher_core)
+add_test(NAME prefix_session COMMAND test_prefix_session)
