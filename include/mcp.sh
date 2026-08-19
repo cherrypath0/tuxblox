@@ -87,7 +87,11 @@ esac
 protonEnv=(
     "TUXBLOX_PREFIX=$PREFIX_PATH"
     "PROTON_LOG_DIR=$protonLogDir"
+    # Keep Proton logging off: with it on, Proton redirects this process's
+    # output into its log file, and that output is the MCP channel itself.
     "PROTON_LOG=0"
 )
 
+# "runinprefix", not "run": "run" waits for the whole prefix to empty, and
+# Studio stays open, so it would never return and would hang the MCP client.
 exec env "${protonEnv[@]}" "$(pwd)/proton/main" runinprefix "$mcpExe" "$@"
