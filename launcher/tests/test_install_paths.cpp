@@ -84,6 +84,15 @@ int main() {
         fs::remove_all(dir);
     }
 
+    // selfExePath() moved here from main.cpp so watch_launch.cpp can reuse it
+    // (it needs the launcher's own path to write shortcut Exec= lines).
+    {
+        const std::string self = selfExePath();
+        assert(!self.empty());
+        assert(self[0] == '/');
+        assert(self.find("test_install_paths") != std::string::npos);
+    }
+
     printf("install_paths: all tests passed\n");
     return 0;
 }

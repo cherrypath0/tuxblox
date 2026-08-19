@@ -83,4 +83,12 @@ std::optional<std::string> readInstalledProtonVersion(const std::string& install
     return out;
 }
 
+std::string selfExePath() {
+    char buf[4096];
+    const ssize_t n = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
+    if (n <= 0) return "";
+    buf[n] = '\0';
+    return std::string(buf);
+}
+
 } // namespace tuxblox

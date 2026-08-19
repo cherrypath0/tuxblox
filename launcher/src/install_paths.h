@@ -37,4 +37,12 @@ std::string protonDirUnder(const std::string& installDir);
 // nothing.
 std::optional<std::string> readInstalledProtonVersion(const std::string& installDir);
 
+// The currently-running binary's real on-disk path, via /proc/self/exe -- not
+// argv[0], which can be relative, a bare basename, or missing entirely
+// depending on how a .desktop Exec= line or a shell invoked it. This is what a
+// self-update rename()s over, what execv() re-launches, and what the exported
+// .desktop entries name in their Exec= lines. Returns "" only if /proc is
+// unavailable, which cannot happen for the calling process on Linux.
+std::string selfExePath();
+
 } // namespace tuxblox

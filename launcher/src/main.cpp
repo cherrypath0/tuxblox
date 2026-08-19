@@ -22,6 +22,8 @@
 #include "install_paths.h"
 #include "headless_launch.h"
 #include "watch_launch.h"
+#include "prefix_file_bridge.h"
+#include "wine_shortcut_export.h"
 #include "copyright_file.h"
 #include "license_file.h"
 #include "desktop_integration.h"
@@ -34,6 +36,7 @@
 #include <QFont>
 #include <QFontDatabase>
 #include <QIcon>
+#include <cctype>
 #include <cstdio>
 #include <filesystem>
 #include <string>
@@ -43,19 +46,6 @@
 namespace {
 
 constexpr const char* kErrorTitle = "TuxBlox has encountered an error and has to quit!";
-
-// Resolves the path of the currently-running binary via /proc/self/exe --
-// this is what a self-update rename()s over and what execv() re-launches,
-// so it must be the binary's real on-disk path, not argv[0] (which can be
-// a relative path, "TuxBloxLauncher", or missing entirely depending on how
-// the .desktop Exec= line or a shell invoked it).
-std::string selfExePath() {
-    char buf[4096];
-    ssize_t n = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
-    if (n <= 0) return "";
-    buf[n] = '\0';
-    return std::string(buf);
-}
 
 bool startsWith(const std::string& s, const char* prefix) {
     return s.rfind(prefix, 0) == 0;
@@ -158,6 +148,58 @@ int main(int argc, char** argv) {
                 return 1;
             }
             return runWatchAndLaunch(dir, watchTarget, "", kTuxBloxVersion);
+        }
+
+        // Launched from an exported Wine shortcut (see wine_shortcut_export.h).
+        // The recorded path only picks the target -- the actual exe is
+        // re-resolved through resolveActiveVersionExePath()/
+        // resolveOrBootstrapExePath(), so a shortcut written against an old
+        // version-<hash> keeps working after Roblox updates.
+        if (arg1 == "--run-exe" && argc > 2) {
+            const std::string exeArg = argv[2];
+            const size_t slash = exeArg.find_last_of("\\/");
+            std::string leaf = slash == std::string::npos ? exeArg : exeArg.substr(slash + 1);
+            for (char& c : leaf) c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
+
+            LaunchTarget runTarget;
+            if (leaf == "robloxstudiobeta.exe") runTarget = LaunchTarget::Studio;
+            else if (leaf == "robloxplayerbeta.exe") runTarget = LaunchTarget::Player;
+            else {
+                fprintf(stderr, "TuxBlox: --run-exe only accepts RobloxStudioBeta.exe "
+                                "or RobloxPlayerBeta.exe, got '%s'\n", leaf.c_str());
+                return 1;
+            }
+
+            std::string dir;
+            try {
+                dir = installDir();
+            } catch (const std::exception& e) {
+                fprintf(stderr, "TuxBlox: %s\n", e.what());
+                return 1;
+            }
+            return runWatchAndLaunch(dir, runTarget, "", kTuxBloxVersion);
+        }
+
+        // Launched by the desktop's MIME handler for .rbxl/.rbxlx -- item 18.
+        // The file lives outside the prefix, which has no Z: drive (plan.txt
+        // item 20), so it has to be bridged in before Studio can open it.
+        if (arg1 == "--open-file" && argc > 2) {
+            std::string dir;
+            try {
+                dir = installDir();
+            } catch (const std::exception& e) {
+                fprintf(stderr, "TuxBlox: %s\n", e.what());
+                return 1;
+            }
+
+            const std::string winPath = bridgeHostPathIntoPrefix(dir, argv[2]);
+            if (winPath.empty()) {
+                showErrorMessageBox("TuxBlox Error",
+                                    std::string("Could not open this file in Roblox Studio:\n") +
+                                        argv[2]);
+                return 1;
+            }
+            return runWatchAndLaunch(dir, LaunchTarget::Studio, winPath, kTuxBloxVersion);
         }
     }
 
