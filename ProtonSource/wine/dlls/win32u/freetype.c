@@ -1545,6 +1545,46 @@ static BOOL init_freetype(void)
         pFT_Property_Set( library, "truetype", "interpreter-version", &interpreter_version );
     }
 
+    /* TuxBlox: opt-in font-rendering tuning, set here rather than through the
+     * FREETYPE_PROPERTIES environment variable. That variable is only honoured
+     * by a FreeType built with FT_CONFIG_OPTION_ENVIRONMENT_PROPERTIES, which
+     * is not guaranteed on an arbitrary host distro, and it would also reach
+     * every other FreeType consumer in the process (Qt's Windows platform
+     * plugin statically links its own copy). Calling FT_Property_Set on our own
+     * library handle is unconditional and scoped to wine's rasterizer alone.
+     *
+     * Stem darkening thickens glyph stems to compensate for the optical
+     * thinning of linear-alpha AA, i.e. the "macOS-like" heavier text. FreeType
+     * disables it by default because it is only correct under gamma-corrected
+     * blending. It applies ONLY in the CFF/Type1 drivers and the autofitter --
+     * which is more relevant here than it first appears: Roblox Studio's own UI
+     * font (StudioFonts/BuilderSans-*.otf) is CFF-outlined, so the cff driver
+     * is the one doing the work for Studio's chrome. */
+    if (getenv( "TUXBLOX_FONT_STEM_DARKENING" ))
+    {
+        FT_Bool no_darkening = FALSE;
+        pFT_Property_Set( library, "cff", "no-stem-darkening", &no_darkening );
+        pFT_Property_Set( library, "type1", "no-stem-darkening", &no_darkening );
+        pFT_Property_Set( library, "t1cid", "no-stem-darkening", &no_darkening );
+        pFT_Property_Set( library, "autofitter", "no-stem-darkening", &no_darkening );
+        TRACE( "stem darkening enabled\n" );
+    }
+
+    /* TuxBlox: v40 is FreeType's "minimal" TrueType interpreter -- it honours
+     * vertical hints but ignores horizontal ones, so glyph widths follow the
+     * outline rather than being snapped to the pixel grid. Distro-default on
+     * most Linux desktops, and the closest approximation to unhinted rendering
+     * that does not disable the bytecode interpreter outright (for that, see
+     * TUXBLOX_FONT_NO_HINTING in get_load_flags). Guarded on the version check
+     * above: below 2.8.1, v40's FT_LOAD_TARGET_MONO advance widths are broken,
+     * so the older engine deliberately stays selected there. */
+    if (getenv( "TUXBLOX_FONT_INTERPRETER_V40" ) && FT_SimpleVersion >= FT_VERSION_VALUE(2, 8, 1))
+    {
+        FT_UInt interpreter_version = 40;
+        pFT_Property_Set( library, "truetype", "interpreter-version", &interpreter_version );
+        TRACE( "truetype interpreter-version forced to 40\n" );
+    }
+
     pFT_Library_SetLcdFilter( library, FT_LCD_FILTER_DEFAULT );
 
     return TRUE;
@@ -3084,6 +3124,25 @@ static unsigned int get_bezier_glyph_outline(FT_Outline *outline, unsigned int b
     return needed;
 }
 
+/* TuxBlox: opt-in, set once from the environment. GGO_UNHINTED is the only
+ * thing that ever disables hinting in this file, and nothing inside win32u
+ * sets it -- it can only arrive from an application calling GetGlyphOutline()
+ * with that flag, which Roblox does not. So hinting is otherwise always on.
+ *
+ * Note this is NOT what is_hinting_enabled() above controls: that one only
+ * gates whether a font's GASP table may switch antialiasing off, and never
+ * touches FT_LOAD_NO_HINTING. */
+static BOOL tuxblox_no_hinting(void)
+{
+    static int disabled = -1;
+    if (disabled == -1)
+    {
+        disabled = getenv( "TUXBLOX_FONT_NO_HINTING" ) != NULL;
+        if (disabled) TRACE( "hinting disabled by TUXBLOX_FONT_NO_HINTING\n" );
+    }
+    return disabled;
+}
+
 static FT_Int get_load_flags( UINT format, BOOL vertical_metrics, BOOL force_no_bitmap )
 {
     FT_Int load_flags = FT_LOAD_IGNORE_GLOBAL_ADVANCE_WIDTH;
@@ -3093,6 +3152,16 @@ static FT_Int get_load_flags( UINT format, BOOL vertical_metrics, BOOL force_no_
 
     if (format & GGO_UNHINTED)
         return load_flags | FT_LOAD_NO_HINTING;
+
+    /* Deliberately NOT an early return like the GGO_UNHINTED case above: the
+     * FT_LOAD_TARGET_* selection below still has to run. The target picks the
+     * rasterizer's output mode (mono / grayscale / horizontal or vertical LCD),
+     * which matters just as much unhinted -- returning here would silently
+     * collapse every subpixel-AA request to the default grayscale target.
+     * Mono is excluded because unhinted 1-bit rendering is close to unreadable
+     * at UI sizes, which is not a trade anyone opting into this wants. */
+    if (tuxblox_no_hinting() && (format & ~GGO_GLYPH_INDEX) != GGO_BITMAP)
+        load_flags |= FT_LOAD_NO_HINTING;
 
     switch (format & ~GGO_GLYPH_INDEX)
     {
