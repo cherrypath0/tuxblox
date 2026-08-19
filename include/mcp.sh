@@ -75,18 +75,19 @@ findStudioMCP() {
 mcpExe=$(findStudioMCP)
 
 if [ -z "$mcpExe" ]; then
-    echo "StudioMCP.exe not found"
+    echo "StudioMCP.exe not found" >&2
     exit 1
 fi
 
-mcpExe="$(pwd)/$mcpExe"
+case "$mcpExe" in
+    /*) ;;
+    *) mcpExe="$(pwd)/$mcpExe" ;;
+esac
 
 protonEnv=(
     "TUXBLOX_PREFIX=$PREFIX_PATH"
     "PROTON_LOG_DIR=$protonLogDir"
-    "DXVK_ASYNC=1"
+    "PROTON_LOG=0"
 )
 
-# Lives next to proton/ in both homes this script ships to (build/ in the
-# repo, ~/.tuxblox when installed), so the path is relative to this script.
-env "${protonEnv[@]}" "$(pwd)/proton/main" run "$mcpExe" "$@"
+exec env "${protonEnv[@]}" "$(pwd)/proton/main" runinprefix "$mcpExe" "$@"
