@@ -86,6 +86,7 @@ add_library(launcher_core STATIC
     src/system_info.cpp
     src/roblox_log_capture.cpp
     src/roblox_deploy.cpp
+    src/prefix_file_bridge.cpp
 )
 target_include_directories(launcher_core PUBLIC
     src third_party ${CMAKE_BINARY_DIR}/generated

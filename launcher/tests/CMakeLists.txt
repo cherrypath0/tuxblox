@@ -120,3 +120,7 @@ set_tests_properties(update_popup PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscr
 add_executable(test_prefix_session test_prefix_session.cpp)
 target_link_libraries(test_prefix_session PRIVATE launcher_core)
 add_test(NAME prefix_session COMMAND test_prefix_session)
+
+add_executable(test_prefix_file_bridge test_prefix_file_bridge.cpp)
+target_link_libraries(test_prefix_file_bridge PRIVATE launcher_core)
+add_test(NAME prefix_file_bridge COMMAND test_prefix_file_bridge)
