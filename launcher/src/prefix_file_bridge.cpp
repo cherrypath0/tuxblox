@@ -58,7 +58,9 @@ void pruneDanglingLinks(const fs::path& root) {
         std::error_code linkEc;
         if (!fs::is_symlink(entry.symlink_status(linkEc)) || linkEc) continue;
         std::error_code existsEc;
-        if (!fs::exists(entry.path(), existsEc) || existsEc) {
+        const bool present = fs::exists(entry.path(), existsEc);
+        if (existsEc) continue; // stat failed (EACCES/ELOOP/...) -- unknown, not dangling
+        if (!present) {
             std::error_code rmEc;
             fs::remove(entry.path(), rmEc);
         }

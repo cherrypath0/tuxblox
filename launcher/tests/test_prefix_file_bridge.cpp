@@ -103,6 +103,19 @@ int main() {
     assert(!fs::exists(fs::symlink_status(bridgeRoot / "doomed")));
     assert(fs::is_symlink(bridgeRoot / "places"));
 
+    // A live-but-UNRESOLVABLE symlink (fs::exists() fails with an error, e.g.
+    // ELOOP) must NOT be treated as dangling and pruned -- only a symlink whose
+    // target genuinely does not exist (fs::exists() cleanly returns false)
+    // qualifies. A self-referential pair reproduces the "stat fails" case
+    // without needing root/chmod.
+    fs::create_directory_symlink(bridgeRoot / "loop_b", bridgeRoot / "loop_a");
+    fs::create_directory_symlink(bridgeRoot / "loop_a", bridgeRoot / "loop_b");
+    bridgeHostPathIntoPrefix(installDir.string(), (places / "map.rbxl").string()); // triggers a sweep
+    assert(fs::is_symlink(bridgeRoot / "loop_a"));
+    assert(fs::is_symlink(bridgeRoot / "loop_b"));
+    fs::remove(bridgeRoot / "loop_a");
+    fs::remove(bridgeRoot / "loop_b");
+
     // A nonexistent host path fails cleanly rather than inventing a path.
     assert(bridgeHostPathIntoPrefix(installDir.string(), (tmp / "nope.rbxl").string()).empty());
 
