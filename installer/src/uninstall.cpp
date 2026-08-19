@@ -97,7 +97,13 @@ void stripMimeappsAssociations(const std::string& mimeappsPath) {
     std::string line;
     bool changed = false;
     while (std::getline(in, line)) {
-        if (line.find("tuxblox-url-handler.desktop") != std::string::npos) {
+        // Substring match on the "tuxblox-" id prefix, not just the retired
+        // single-entry url handler: ensureDesktopIntegration() now also
+        // writes per-scheme handler associations (tuxblox-roblox-handler.desktop,
+        // tuxblox-player-handler.desktop, tuxblox-studio-handler.desktop) and
+        // the place-file handler (tuxblox-studio-place.desktop) into this same
+        // file, and uninstall must not leave any of them behind.
+        if (line.find("tuxblox-") != std::string::npos) {
             changed = true;
             continue;
         }

@@ -336,6 +336,18 @@ void ensureDesktopIntegration(const std::string& launcherExePath, const std::str
         if (!home || home[0] == '\0') return;
         const std::string appsDir = std::string(home) + "/.local/share/applications";
 
+        // Publish Roblox itself to the app menu, routed back through this
+        // launcher -- plan/todo.md item 2. A no-op until Roblox has actually
+        // been installed and run at least once, since winemenubuilder only
+        // writes c:\proton_shortcuts entries in response to the installer's own
+        // .lnk files.
+        //
+        // Must run before update-desktop-database below (so a first GUI start
+        // right after install picks these up in the same refresh) and before
+        // the Distrobox export block (so tuxblox-roblox-{studio,player}.desktop
+        // exist on disk in time to be exported to the host).
+        exportPrefixShortcuts(installDir, launcherExePath);
+
         if (!std::getenv("TUXBLOX_SKIP_XDG_MIME")) { // escape hatch for sandboxed test/CI runs
             for (const auto& h : installedHandlers()) {
                 for (const char* scheme : h.schemes) {
@@ -385,14 +397,19 @@ void ensureDesktopIntegration(const std::string& launcherExePath, const std::str
                 exportId.erase(exportId.size() - std::string(".desktop").size());
                 runCommandBestEffort({"distrobox-export", "--app", exportId});
             }
+            // The Roblox entries wine_shortcut_export.cpp publishes and the
+            // place-file handler above -- exported here too, or the host menu
+            // is left with no way to launch Roblox / open a place file at all
+            // (the old tuxblox-launcher LaunchPlayer/LaunchStudio actions this
+            // replaced no longer exist). A missing id (Roblox not installed
+            // yet, or the .rbxl handler not written) is a harmless no-op --
+            // distrobox-export simply fails, same as any other best-effort
+            // call here.
+            for (const char* exportId :
+                 {"tuxblox-roblox-studio", "tuxblox-roblox-player", "tuxblox-studio-place"}) {
+                runCommandBestEffort({"distrobox-export", "--app", exportId});
+            }
         }
-
-        // Publish Roblox itself to the app menu, routed back through this
-        // launcher -- plan/todo.md item 2. A no-op until Roblox has actually
-        // been installed and run at least once, since winemenubuilder only
-        // writes c:\proton_shortcuts entries in response to the installer's own
-        // .lnk files.
-        exportPrefixShortcuts(installDir, launcherExePath);
     } catch (...) {
         // Best-effort -- must never fail an otherwise-working launch.
     }

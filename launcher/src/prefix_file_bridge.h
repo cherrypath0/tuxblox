@@ -47,4 +47,11 @@ std::string bridgeHostPathIntoPrefix(const std::string& installDir, const std::s
 // directory name. Never returns "".
 std::string sanitizeBridgeLinkName(const std::string& name);
 
+// Testable seam: true when `parent` IS the filesystem root (not merely
+// somewhere under it). bridgeHostPathIntoPrefix() refuses to bridge a file
+// whose parent is the root -- see its own comment for why. Exposed as a
+// pure check (no filesystem access) so that refusal can be unit tested
+// without needing write access to the real "/".
+bool isFilesystemRoot(const std::string& parent);
+
 } // namespace tuxblox

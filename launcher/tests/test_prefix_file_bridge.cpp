@@ -17,6 +17,7 @@
 #include "prefix_file_bridge.h"
 #include <cassert>
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -118,6 +119,37 @@ int main() {
 
     // A nonexistent host path fails cleanly rather than inventing a path.
     assert(bridgeHostPathIntoPrefix(installDir.string(), (tmp / "nope.rbxl").string()).empty());
+
+    // isFilesystemRoot() is the pure check bridgeHostPathIntoPrefix() uses to
+    // refuse a file living directly at "/" -- tested directly (no filesystem
+    // access needed) since the sandbox this test runs in has no write access
+    // to the real root to exercise it end-to-end.
+    assert(isFilesystemRoot("/"));
+    // An empty parent is what canonical("/").parent_path() itself yields (root
+    // has no parent) -- also refused, same as "/".
+    assert(isFilesystemRoot(""));
+    assert(!isFilesystemRoot("/home"));
+    assert(!isFilesystemRoot("/home/cherry"));
+    // $HOME itself must NOT be treated as the root -- see the ruling in
+    // bridgeHostPathIntoPrefix(): a place file saved straight in $HOME is
+    // deliberately still bridged (it symlinks the whole home directory in,
+    // which is an accepted tradeoff), only "/" is refused outright.
+    if (const char* home = std::getenv("HOME")) {
+        if (home[0] != '\0') assert(!isFilesystemRoot(home));
+    }
+
+    // End-to-end: a place file whose parent IS $HOME (simulated here, since
+    // the real $HOME can't be safely mutated by a test) still gets bridged --
+    // the documented tradeoff, not silently dropped by an overzealous guard.
+    {
+        const fs::path fakeHome = tmp / "fake-home";
+        fs::create_directories(fakeHome);
+        writeAll(fakeHome / "place.rbxl", "home-place");
+        const std::string winHome =
+            bridgeHostPathIntoPrefix(installDir.string(), (fakeHome / "place.rbxl").string());
+        assert(winHome == std::string(kBridgeWindowsRoot) + "\\fake-home\\place.rbxl");
+        assert(fs::is_symlink(bridgeRoot / "fake-home"));
+    }
 
     // INVARIANT: never a host path. Every success above starts with "C:\".
     for (const std::string& s : {win, win2, winInside, again}) {

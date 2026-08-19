@@ -69,6 +69,11 @@ void pruneDanglingLinks(const fs::path& root) {
 
 } // namespace
 
+bool isFilesystemRoot(const std::string& parent) {
+    const fs::path p(parent);
+    return p.empty() || p == p.root_path();
+}
+
 std::string sanitizeBridgeLinkName(const std::string& name) {
     static const std::string illegal = "<>:\"/\\|?*";
     std::string out;
@@ -94,6 +99,25 @@ std::string bridgeHostPathIntoPrefix(const std::string& installDir, const std::s
         }
 
         const fs::path parent = canonical.parent_path();
+
+        // Refuse a file sitting directly at the filesystem root outright: an
+        // empty parent-basename maps to "root" below, which would symlink "/"
+        // itself into the prefix -- exactly the Z: drive plan/plan.txt item 20
+        // deliberately removed (mapping the host root as a drive letter is one
+        // of the most common Wine-detection heuristics). No legitimate place
+        // file lives at /place.rbxl, so there's no workflow this breaks.
+        if (isFilesystemRoot(parent.string())) return "";
+
+        // $HOME itself is deliberately NOT refused the same way, even though a
+        // place file saved directly in the home directory (parent == $HOME)
+        // symlinks the WHOLE home directory into the prefix, permanently.
+        // Refusing it would break an everyday action -- saving a place file
+        // straight into ~ -- with no workaround the user could reasonably
+        // discover. The alternative designs (copying the file in, or
+        // symlinking the file itself rather than its parent) reintroduce the
+        // write-through bug this directory-symlink bridge exists to avoid
+        // (see the class comment in prefix_file_bridge.h). Documented
+        // tradeoff, not an oversight.
         const fs::path root = bridgeRootDir(installDir);
         fs::create_directories(root, ec);
         if (ec) return "";

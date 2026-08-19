@@ -19,8 +19,10 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <sstream>
 #include <string>
 #include <system_error>
+#include <unistd.h>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -85,9 +87,38 @@ std::string readWholeFile(const fs::path& p) {
     return std::string((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
 }
 
+// Suffix for a same-directory temp path, unique enough that two concurrently
+// running launcher processes (allowed by design -- multiple Studio instances)
+// never collide on it.
+std::string tempSuffix() {
+    return ".tmp-" + std::to_string(static_cast<long>(getpid()));
+}
+
+// Writes `dest` via a same-directory temp file + rename(), so a reader (e.g.
+// a desktop environment's inotify watcher on ~/.local/share/applications)
+// never observes a half-written file. rename() is atomic only within one
+// filesystem, hence "same directory".
+bool writeFileAtomic(const fs::path& dest, const std::string& contents) {
+    const fs::path tmpPath = fs::path(dest.string() + tempSuffix());
+    {
+        std::ofstream f(tmpPath, std::ios::binary | std::ios::trunc);
+        if (!f) return false;
+        f << contents;
+        if (!f) return false;
+    }
+    std::error_code ec;
+    fs::rename(tmpPath, dest, ec);
+    if (ec) {
+        fs::remove(tmpPath, ec);
+        return false;
+    }
+    return true;
+}
+
 // Copies the icon named by the source entry into every size bucket that has
 // one, under a deterministic TuxBlox-owned name. Returns the Icon= value to
-// write, or "" if nothing was copied.
+// write, or "" if nothing was copied. Each copy lands via a temp file +
+// rename() for the same reason writeFileAtomic() does.
 std::string copyIcons(const fs::path& srcIconsRoot, const std::string& sourceIconName,
                        const fs::path& iconsDir, const std::string& slug) {
     if (sourceIconName.empty()) return "";
@@ -100,8 +131,16 @@ std::string copyIcons(const fs::path& srcIconsRoot, const std::string& sourceIco
         const fs::path destDir = iconsDir / size / "apps";
         fs::create_directories(destDir, ec);
         if (ec) continue;
-        fs::copy_file(src, destDir / (destName + ".png"), fs::copy_options::overwrite_existing, ec);
-        if (!ec) copiedAny = true;
+        const fs::path dest = destDir / (destName + ".png");
+        const fs::path tmp = fs::path(dest.string() + tempSuffix());
+        fs::copy_file(src, tmp, fs::copy_options::overwrite_existing, ec);
+        if (ec) continue;
+        fs::rename(tmp, dest, ec);
+        if (ec) {
+            fs::remove(tmp, ec);
+            continue;
+        }
+        copiedAny = true;
     }
     return copiedAny ? destName : "";
 }
@@ -123,14 +162,18 @@ std::string unescapeWinemenubuilderPath(const std::string& escaped) {
     return out;
 }
 
-std::string exeFromDesktopExecLine(const std::string& execValue) {
+std::string quotedExecValue(const std::string& execValue) {
     // The value is `"<escaped windows path>" ""`. Backslashes are escaped but
     // quotes are not, so the next '"' really is the closing delimiter.
     const size_t open = execValue.find('"');
     if (open == std::string::npos) return "";
     const size_t close = execValue.find('"', open + 1);
     if (close == std::string::npos) return "";
-    return unescapeWinemenubuilderPath(execValue.substr(open + 1, close - open - 1));
+    return execValue.substr(open + 1, close - open - 1);
+}
+
+std::string exeFromDesktopExecLine(const std::string& execValue) {
+    return unescapeWinemenubuilderPath(quotedExecValue(execValue));
 }
 
 void exportPrefixShortcutsTo(const std::string& installDir, const std::string& launcherExePath,
@@ -154,7 +197,15 @@ void exportPrefixShortcutsTo(const std::string& installDir, const std::string& l
                 if (entry.path().extension() != ".desktop") continue;
 
                 const std::string contents = readWholeFile(entry.path());
-                const std::string exe = exeFromDesktopExecLine(desktopValue(contents, "Exec"));
+                // Keep the escaped substring as-is for the Exec= line we write
+                // below (a desktop-entry value needs backslashes re-escaped,
+                // and winemenubuilder's own four-backslash form already
+                // round-trips through GIO correctly -- see
+                // unescapeWinemenubuilderPath()'s comment for where that form
+                // comes from). Only the basename match needs the unescaped
+                // path.
+                const std::string escapedExe = quotedExecValue(desktopValue(contents, "Exec"));
+                const std::string exe = unescapeWinemenubuilderPath(escapedExe);
                 if (exe.empty()) continue;
 
                 const std::string leaf = toLower(windowsBasename(exe));
@@ -172,23 +223,24 @@ void exportPrefixShortcutsTo(const std::string& installDir, const std::string& l
                 if (icon.empty()) icon = "tuxblox";
 
                 const std::string id = std::string("tuxblox-roblox-") + slug + ".desktop";
-                std::ofstream f(fs::path(appsDir) / id);
-                if (!f) continue;
-                f << "[Desktop Entry]\n"
-                     "Type=Application\n"
-                     "Name=" << name << "\n"
-                     "Comment=via TuxBlox\n"
-                     // --run-exe re-resolves the current version rather than
-                     // launching this recorded path, so the entry keeps working
-                     // after Roblox updates -- see main.cpp.
-                     "Exec=\"" << launcherExePath << "\" --run-exe \"" << exe << "\"\n"
-                     "Icon=" << icon << "\n"
-                     "Terminal=false\n"
-                     "StartupNotify=true\n";
-                if (!wmClass.empty()) f << "StartupWMClass=" << wmClass << "\n";
-                f << "Categories=Game;\n";
-                f.close();
-                if (f) produced.push_back(id);
+                std::ostringstream out;
+                out << "[Desktop Entry]\n"
+                       "Type=Application\n"
+                       "Name=" << name << "\n"
+                       "Comment=via TuxBlox\n"
+                       // --run-exe re-resolves the current version rather than
+                       // launching this recorded path, so the entry keeps
+                       // working after Roblox updates -- see main.cpp. The
+                       // path is written back in its still-escaped form
+                       // (escapedExe), not the human-readable `exe` -- see
+                       // the comment above where escapedExe is computed.
+                       "Exec=\"" << launcherExePath << "\" --run-exe \"" << escapedExe << "\"\n"
+                       "Icon=" << icon << "\n"
+                       "Terminal=false\n"
+                       "StartupNotify=true\n";
+                if (!wmClass.empty()) out << "StartupWMClass=" << wmClass << "\n";
+                out << "Categories=Game;\n";
+                if (writeFileAtomic(fs::path(appsDir) / id, out.str())) produced.push_back(id);
             }
         }
 

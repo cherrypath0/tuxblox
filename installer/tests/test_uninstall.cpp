@@ -69,8 +69,10 @@ int main() {
         assert(!fs::exists(dir));
     }
 
-    // stripMimeappsAssociations: drops lines referencing the url handler,
-    // keeps everything else, preserves line order.
+    // stripMimeappsAssociations: drops lines referencing any tuxblox- id --
+    // the retired single-entry url handler AND the current per-scheme
+    // handlers and the place-file handler -- keeps everything else,
+    // preserves line order.
     {
         fs::path dir = fs::temp_directory_path() / "tuxblox_test_uninstall_mimeapps";
         fs::remove_all(dir);
@@ -81,13 +83,17 @@ int main() {
             "x-scheme-handler/roblox-player=tuxblox-url-handler.desktop\n"
             "x-scheme-handler/http=firefox.desktop\n"
             "x-scheme-handler/roblox-studio=tuxblox-url-handler.desktop;\n"
+            "x-scheme-handler/roblox=tuxblox-roblox-handler.desktop;\n"
+            "x-scheme-handler/roblox-studio-auth=tuxblox-studio-handler.desktop;\n"
+            "application/x-roblox-place=tuxblox-studio-place.desktop;\n"
+            "application/x-roblox-place+xml=tuxblox-studio-place.desktop;\n"
             "[Added Associations]\n"
             "text/plain=gedit.desktop;\n";
 
         stripMimeappsAssociations(mimeapps.string());
 
         std::string result = readFile(mimeapps);
-        assert(result.find("tuxblox-url-handler.desktop") == std::string::npos);
+        assert(result.find("tuxblox-") == std::string::npos);
         assert(result.find("x-scheme-handler/http=firefox.desktop") != std::string::npos);
         assert(result.find("text/plain=gedit.desktop") != std::string::npos);
         assert(result.find("[Default Applications]") != std::string::npos);

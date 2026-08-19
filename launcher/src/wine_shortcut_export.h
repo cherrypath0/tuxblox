@@ -48,4 +48,9 @@ std::string unescapeWinemenubuilderPath(const std::string& escaped);
 // unescapes it. Returns "" if the value isn't the expected shape.
 std::string exeFromDesktopExecLine(const std::string& execValue);
 
+// Pulls the same quoted substring but leaves it exactly as written (still in
+// winemenubuilder's four-backslash form). This is what must be written back
+// into a new Exec= line -- see exportPrefixShortcutsTo()'s use of it for why.
+std::string quotedExecValue(const std::string& execValue);
+
 } // namespace tuxblox

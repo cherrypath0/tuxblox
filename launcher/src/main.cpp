@@ -23,7 +23,6 @@
 #include "headless_launch.h"
 #include "watch_launch.h"
 #include "prefix_file_bridge.h"
-#include "wine_shortcut_export.h"
 #include "copyright_file.h"
 #include "license_file.h"
 #include "desktop_integration.h"
