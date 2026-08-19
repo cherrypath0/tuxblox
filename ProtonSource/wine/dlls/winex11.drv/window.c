@@ -4007,7 +4007,17 @@ LRESULT X11DRV_SysCommand( HWND hwnd, WPARAM wparam, LPARAM lparam, const POINT 
     {
     case SC_MOVE:
         if (!hittest) dir = _NET_WM_MOVERESIZE_MOVE_KEYBOARD;
-        else dir = _NET_WM_MOVERESIZE_MOVE;
+        /* An SC_MOVE with a hit-test can only come from the application itself:
+         * the window manager owns the frame of a managed window and never asks
+         * us to move it. Hand those back to win32u's own size/move loop rather
+         * than to the WM. The WM takes the pointer for the whole drag, and
+         * while it holds it neither X events nor XQueryPointer report any
+         * motion, so GetCursorPos() is frozen at the point the drag started.
+         * Studio polls it to resolve the drop target, so its dock guides stay
+         * wherever they first appeared. The internal loop keeps the cursor
+         * position live, which is also what happens on Windows -- a size/move
+         * loop stops the app's mouse messages, not its cursor queries. */
+        else goto failed;
         break;
     case SC_SIZE:
         /* windows without WS_THICKFRAME are not resizable through the window manager */
