@@ -69,9 +69,24 @@ void removeDesktopFiles(const std::string& appsDir) {
     }
 }
 
-void removeIconFile(const std::string& iconPath) {
+void removeTuxBloxIcons(const std::string& hicolorDir) {
+    // Same buckets desktop_integration.cpp's writeDesktopEntries() and
+    // wine_shortcut_export.cpp's copyIcons() populate.
+    static const char* const kIconSizes[] = {"16x16", "24x24", "32x32", "48x48",
+                                              "64x64", "96x96", "128x128", "256x256"};
+    static const char* const kIconNames[] = {"tuxblox", "tuxblox-roblox-studio",
+                                              "tuxblox-roblox-player"};
+    for (const char* size : kIconSizes) {
+        for (const char* name : kIconNames) {
+            std::error_code ec;
+            fs::remove(fs::path(hicolorDir) / size / "apps" / (std::string(name) + ".png"), ec);
+        }
+    }
+}
+
+void removeMimePackage(const std::string& xmlPath) {
     std::error_code ec;
-    fs::remove(iconPath, ec); // best-effort -- fine if it never existed
+    fs::remove(xmlPath, ec); // best-effort -- fine if it never existed
 }
 
 void stripMimeappsAssociations(const std::string& mimeappsPath) {
@@ -111,11 +126,15 @@ bool performUninstall() {
     removeDesktopFiles(appsDir);
     stripMimeappsAssociations(std::string(home) + "/.config/mimeapps.list");
     stripMimeappsAssociations(appsDir + "/mimeapps.list"); // legacy xdg location
-    removeIconFile(std::string(home) + "/.local/share/icons/hicolor/256x256/apps/tuxblox.png");
+    // Was a single 256x256 removal, which left the other seven size buckets
+    // writeDesktopEntries() populates behind on every uninstall.
+    removeTuxBloxIcons(std::string(home) + "/.local/share/icons/hicolor");
+    removeMimePackage(std::string(home) + "/.local/share/mime/packages/tuxblox-roblox-place.xml");
 
     if (!std::getenv("TUXBLOX_SKIP_XDG_MIME")) { // escape hatch for sandboxed test/CI runs
         runCommandBestEffort({"update-desktop-database", appsDir});
         runCommandBestEffort({"gtk-update-icon-cache", std::string(home) + "/.local/share/icons/hicolor"});
+        runCommandBestEffort({"update-mime-database", std::string(home) + "/.local/share/mime"});
     }
 
     return removeInstallDir(std::string(home) + "/.tuxblox");

@@ -26,12 +26,15 @@ namespace tuxblox {
 // error on one entry doesn't stop the rest from being removed.
 void removeDesktopFiles(const std::string& appsDir);
 
-// Removes the single file at `iconPath` (e.g.
-// ~/.local/share/icons/hicolor/256x256/apps/tuxblox.png -- see
-// desktop_integration.cpp/desktop_shortcut.cpp for why it lives under the
-// icon theme directory rather than under installDir). Best-effort: fine if
-// it never existed.
-void removeIconFile(const std::string& iconPath);
+// Removes every icon TuxBlox installed into the per-user hicolor theme, by
+// exact name across all size buckets. Deliberately name-exact rather than a
+// "*RobloxStudioBeta*" glob: icons with Wine-generated names like
+// "19E1_RobloxStudioBeta.0.png" can belong to an unrelated Wine prefix on the
+// same machine, and deleting those would be destroying someone else's data.
+void removeTuxBloxIcons(const std::string& hicolorDir);
+
+// Removes the shared-mime-info package TuxBlox wrote for .rbxl/.rbxlx.
+void removeMimePackage(const std::string& xmlPath);
 
 // Rewrites the mimeapps.list at `mimeappsPath`, dropping every line that
 // references tuxblox-url-handler.desktop (both `[Default Applications]` and

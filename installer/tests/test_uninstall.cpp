@@ -118,22 +118,35 @@ int main() {
         assert(removeInstallDir(dir.string()) == true); // already gone -- still success
     }
 
-    // removeIconFile: removes an existing file; no-op (no throw) for a
-    // missing one.
+    // The exported Roblox icons and the place-file MIME package are ours and
+    // must go on uninstall. Deterministic names, so this never touches icons
+    // belonging to another Wine prefix.
     {
-        fs::path dir = fs::temp_directory_path() / "tuxblox_test_uninstall_icon";
-        fs::remove_all(dir);
-        fs::create_directories(dir);
-        fs::path icon = dir / "tuxblox.png";
-        std::ofstream(icon) << "x";
-        assert(fs::exists(icon));
+        const fs::path tmp = fs::temp_directory_path() / "tuxblox_uninstall_extra_test";
+        fs::remove_all(tmp);
+        const fs::path icons = tmp / "icons" / "hicolor";
+        const fs::path mimePkgs = tmp / "mime" / "packages";
+        fs::create_directories(icons / "48x48" / "apps");
+        fs::create_directories(icons / "256x256" / "apps");
+        fs::create_directories(mimePkgs);
 
-        removeIconFile(icon.string());
-        assert(!fs::exists(icon));
+        std::ofstream(icons / "48x48" / "apps" / "tuxblox-roblox-studio.png") << "x";
+        std::ofstream(icons / "256x256" / "apps" / "tuxblox-roblox-player.png") << "x";
+        std::ofstream(icons / "48x48" / "apps" / "tuxblox.png") << "x";
+        // Belongs to a different prefix -- must survive.
+        std::ofstream(icons / "48x48" / "apps" / "19E1_RobloxStudioBeta.0.png") << "x";
+        std::ofstream(mimePkgs / "tuxblox-roblox-place.xml") << "<mime-info/>";
 
-        removeIconFile(icon.string()); // already gone -- still no-op, no throw
+        removeTuxBloxIcons(icons.string());
+        removeMimePackage((mimePkgs / "tuxblox-roblox-place.xml").string());
 
-        fs::remove_all(dir);
+        assert(!fs::exists(icons / "48x48" / "apps" / "tuxblox-roblox-studio.png"));
+        assert(!fs::exists(icons / "256x256" / "apps" / "tuxblox-roblox-player.png"));
+        assert(!fs::exists(icons / "48x48" / "apps" / "tuxblox.png"));
+        assert(fs::exists(icons / "48x48" / "apps" / "19E1_RobloxStudioBeta.0.png"));
+        assert(!fs::exists(mimePkgs / "tuxblox-roblox-place.xml"));
+
+        fs::remove_all(tmp);
     }
 
     printf("uninstall: all tests passed\n");
