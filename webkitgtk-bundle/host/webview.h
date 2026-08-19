@@ -44,6 +44,9 @@
  * itself touches it. */
 struct native_webview
 {
+    /* ICoreWebView2Settings::AreDefaultContextMenusEnabled; consulted by
+     * on_context_menu. TRUE (WebView2's default) until Studio says otherwise. */
+    gboolean default_context_menus_enabled;
     GtkWidget *window;
     WebKitWebView *view;
     unsigned long reparented_into;
@@ -106,5 +109,38 @@ void webview_destroy(struct native_webview *nv);
  * handler (Tasks 5-6) needs the pointer itself, not just a boolean.
  * Returns NULL for handle == 0 or any handle not currently registered. */
 struct native_webview *webview_lookup(uint64_t handle);
+
+/* Installs `script_utf8` as a real WebKitUserScript on `nv`, injected at
+ * document start in all frames -- the same mechanism the F-08 probe shim
+ * already uses, pointed at Studio's own script instead of ours.
+ *
+ * This is the host half of ICoreWebView2::AddScriptToExecuteOnDocumentCreated,
+ * which the Wine side used to accept and then discard. See
+ * wv2l_add_user_script_params in webview2loader_ipc_protocol.h for the Toolbox
+ * hang that produced.
+ *
+ * Returns FALSE (and logs) if nv is NULL/stale or the webview has no user
+ * content manager; never fatal, matching every other entry point here. */
+gboolean webview_add_user_script(struct native_webview *nv, const char *script_utf8);
+
+/* ICoreWebView2Settings2::put_UserAgent. See the definition in webview.c for
+ * why the agent decides whether the Toolbox page renders embedded or as the
+ * ordinary website. */
+gboolean webview_set_user_agent(struct native_webview *nv, const char *user_agent_utf8);
+
+/* Applies the ICoreWebView2Settings properties that map onto real WebKitSettings. */
+gboolean webview_apply_settings(struct native_webview *nv, gboolean script_enabled,
+                                 gboolean dev_tools_enabled, gboolean context_menus_enabled);
+
+/* Studio -> page half of the web-message channel: delivers `message_utf8` to
+ * the page's own window.chrome.webview 'message' listeners. `is_string` picks
+ * which postMessage overload it arrives as (a parsed value vs a plain string),
+ * mirroring PostWebMessageAsJson / PostWebMessageAsString. */
+gboolean webview_post_web_message(struct native_webview *nv, const char *message_utf8, gboolean is_string);
+
+/* Page -> Studio: thin wrapper that stamps the posting page's current URI as
+ * the event's source before handing off to navigate.c's event sender. Lives
+ * here because only this file knows the WebKitWebView. */
+void webview_send_web_message_event(struct native_webview *nv, const char *payload_utf8, gboolean is_string);
 
 #endif /* WV2L_HOST_WEBVIEW_H */

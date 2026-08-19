@@ -302,6 +302,45 @@ static void set_webkit_relocation_env(const char *dir)
 
     snprintf(path, sizeof(path), "%s/share/glib-2.0/schemas", dir);
     setenv("GSETTINGS_SCHEMA_DIR", path, 1);
+
+    /* The bundle's own fontconfig was configured with --sysconfdir inside the
+     * container prefix (/opt/tuxblox-webview/etc), which never exists on a real
+     * install -- every launch logged "Fontconfig error: Cannot load default
+     * config file: No such file: (null)". fontconfig then falls back to a
+     * built-in default that finds fonts but loads none of the alias rules, so
+     * generic families resolve to whatever happens to sort first: measured on a
+     * real install, CSS `sans-serif` came out as FreeMono (a MONOSPACE face)
+     * instead of Noto Sans. FONTCONFIG_PATH is the documented override for the
+     * config directory and is what makes the shipped etc/fonts/fonts.conf --
+     * and, via its relative <include>, the shipped conf.d -- actually load.
+     *
+     * Not prepended: FONTCONFIG_PATH is a single directory, not a search list. */
+    snprintf(path, sizeof(path), "%s/etc/fonts", dir);
+    setenv("FONTCONFIG_PATH", path, 1);
+
+    /* gdk-pixbuf finds its loaders through a cache file whose location is also
+     * baked in at build time (/opt/tuxblox-webview/...), so without this it
+     * reads nothing and the bundle's GIF/TIFF loaders are simply absent.
+     * GDK_PIXBUF_MODULEDIR is what makes the *relative* module paths in the
+     * cache resolve -- ProtonSource/Makefile.in writes the cache with bare
+     * filenames now, precisely so the file stops depending on the build
+     * machine's own directory layout. Both vars are needed: the file says which
+     * loaders exist, the dir says where they live. */
+    snprintf(path, sizeof(path), "%s/lib/x86_64-linux-gnu/gdk-pixbuf-2.0/2.10.0/loaders.cache", dir);
+    setenv("GDK_PIXBUF_MODULE_FILE", path, 1);
+    snprintf(path, sizeof(path), "%s/lib/x86_64-linux-gnu/gdk-pixbuf-2.0/2.10.0/loaders", dir);
+    setenv("GDK_PIXBUF_MODULEDIR", path, 1);
+
+    /* WV2L_ALWAYS_USE_BUNDLE_GL forces the bundled llvmpipe copy, and the bundle
+     * only ships swrast/kms_swrast DRI drivers. Without this, Mesa still probes
+     * the real GPU first and tries to load a hardware driver by the kernel
+     * module's name -- "radeonsi: driver missing" / "nouveau: driver missing"
+     * followed by several "failed to create dri2 screen" warnings on every
+     * launch, before it gives up and lands on swrast anyway. Telling it up front
+     * skips the probe and the noise; the end result was already software. */
+    snprintf(path, sizeof(path), "%s/lib/x86_64-linux-gnu/dri", dir);
+    setenv("LIBGL_DRIVERS_PATH", path, 1);
+    setenv("LIBGL_ALWAYS_SOFTWARE", "1", 1);
 }
 
 /* Forks and execs webkitgtk-bundle/host's webview2loader-host binary,
@@ -459,7 +498,13 @@ static BOOL spawn_helper(const char *bundle_dir)
              * from inside an already-running process. See Task 7. */
             char ld_path[PATH_MAX];
             snprintf(ld_path, sizeof(ld_path), "%s", bundle_gl_fallback_dir(bundle_dir));
-            setenv("LD_LIBRARY_PATH", ld_path, 1);
+            /* Prepend, don't replace -- same reasoning as XDG_DATA_DIRS and
+             * GST_PLUGIN_SYSTEM_PATH_1_0 in set_webkit_relocation_env() above.
+             * Proton sets LD_LIBRARY_PATH for its own bundled libraries before
+             * this DLL ever runs, and fork() hands that value to the child; a
+             * plain setenv(..., 1) dropped it outright. This only ever needs the
+             * gl-fallback directory searched FIRST, not exclusively. */
+            prepend_env("LD_LIBRARY_PATH", ld_path);
         }
 
         snprintf(helper_path, sizeof(helper_path), "%s/libexec/webview2loader-host", bundle_dir);
@@ -1009,6 +1054,39 @@ static NTSTATUS unix_wait_event_impl(void *args)
 
     switch (wire_type)
     {
+    case WV2L_EV_WEB_MESSAGE:
+    {
+        /* Header then exactly message_len UTF-16 units -- see
+         * wv2l_ev_web_message_header for why this is not one fixed-size read. */
+        struct wv2l_ev_web_message_header hdr;
+        size_t bytes;
+
+        if (ipc_read_full(fd, &hdr, sizeof(hdr)) != (ssize_t)sizeof(hdr))
+            return STATUS_NOT_SUPPORTED;
+        if (hdr.message_len >= WEBVIEW2LOADER_WEB_MESSAGE_MAX)
+        {
+            /* Cannot skip a payload this side cannot hold without leaving the
+             * stream unframed, so end the pump rather than desync it. */
+            ERR("web message claims %u UTF-16 units, over this build's %u cap\n",
+                (unsigned)hdr.message_len, (unsigned)WEBVIEW2LOADER_WEB_MESSAGE_MAX);
+            return STATUS_NOT_SUPPORTED;
+        }
+
+        bytes = (size_t)hdr.message_len * sizeof(uint16_t);
+        if (bytes && ipc_read_full(fd, params->message, bytes) != (ssize_t)bytes)
+            return STATUS_NOT_SUPPORTED;
+        params->message[hdr.message_len] = 0;
+
+        params->type = WEBVIEW2LOADER_EVENT_WEB_MESSAGE;
+        pthread_mutex_lock(&g_ipc_mutex);
+        params->handle = handle_tag_locked(hdr.handle);
+        pthread_mutex_unlock(&g_ipc_mutex);
+        params->is_string = hdr.is_string ? TRUE : FALSE;
+        memcpy(params->uri, hdr.source, sizeof(params->uri));
+        params->uri[WEBVIEW2LOADER_URI_MAX - 1] = 0;
+        return STATUS_SUCCESS;
+    }
+
     case WV2L_EV_NAVIGATION_STARTING:
         if (ipc_read_full(fd, &wire, sizeof(wire)) != (ssize_t)sizeof(wire))
             return STATUS_NOT_SUPPORTED;
@@ -1068,6 +1146,10 @@ static NTSTATUS unix_sync_window_geometry_impl(void *args)
 
     params->success = FALSE;
     if (!params->handle) return STATUS_INVALID_HANDLE;
+    wire.dbg_put_is_visible = params->dbg_put_is_visible ? 1 : 0;
+    wire.dbg_parent_visible = params->dbg_parent_visible ? 1 : 0;
+    wire.dbg_parent_seen_visible = params->dbg_parent_seen_visible ? 1 : 0;
+
     if (!ipc_call_handle(WV2L_OP_SYNC_WINDOW_GEOMETRY, &wire, sizeof(wire), &wire.handle))
         WARN("ipc_call failed -- helper not running, geometry sync skipped\n");
     else
@@ -1096,6 +1178,164 @@ static NTSTATUS unix_get_window_geometry_impl(void *args)
     return STATUS_SUCCESS;
 }
 
+/* Sends Studio's document-start script to the helper, which installs it as a
+ * real WebKitUserScript. See wv2l_add_user_script_params' own comment in
+ * webview2loader_ipc_protocol.h for why this exists (the Toolbox hang) and why
+ * the PE side previously discarded the script entirely.
+ *
+ * Rejects an oversized script instead of truncating it. Every other wire string
+ * in this file truncates (copy_wcs_to_wire_uri), which is right for a URI --
+ * a shortened URI fails visibly at the navigation. A shortened *script* is
+ * arbitrary JavaScript cut mid-token: it would throw a SyntaxError inside the
+ * page, where nothing here can see it, and leave the bridge half-installed
+ * rather than not installed. Loud failure beats that. */
+static NTSTATUS unix_add_user_script_impl(void *args)
+{
+    struct add_user_script_params *params = args;
+    struct wv2l_add_user_script_params *wire;
+    size_t len = 0;
+    NTSTATUS status = STATUS_SUCCESS;
+
+    params->is_success = FALSE;
+    if (!params->handle) return STATUS_INVALID_HANDLE;
+    if (!params->script) return STATUS_INVALID_PARAMETER;
+
+    while (params->script[len]) len++;
+    if (len >= WV2L_USER_SCRIPT_MAX)
+    {
+        ERR("document-start script is %zu UTF-16 units, over the %u wire limit -- refusing to "
+            "inject a truncated script\n", len, (unsigned)WV2L_USER_SCRIPT_MAX);
+        return STATUS_BUFFER_TOO_SMALL;
+    }
+
+    /* Heap, not stack: this struct is 128 KB of script buffer, well past what
+     * belongs on a thread stack. */
+    if (!(wire = calloc(1, sizeof(*wire)))) return STATUS_NO_MEMORY;
+    wire->handle = params->handle;
+    memcpy(wire->script, params->script, len * sizeof(uint16_t));
+    wire->script[len] = 0;
+
+    if (!ipc_call_handle(WV2L_OP_ADD_USER_SCRIPT, wire, sizeof(*wire), &wire->handle))
+    {
+        WARN("ipc_call failed -- helper not running, cannot install document-start script\n");
+        status = STATUS_NOT_SUPPORTED;
+    }
+    else params->is_success = wire->success ? TRUE : FALSE;
+
+    free(wire);
+    return status;
+}
+
+/* PostWebMessageAsJson / PostWebMessageAsString -- see
+ * unix_add_user_script_impl just above for why an oversized payload is
+ * rejected rather than truncated (a half JSON document is not JSON). */
+static NTSTATUS unix_post_web_message_impl(void *args)
+{
+    struct post_web_message_params *params = args;
+    struct wv2l_post_web_message_params *wire;
+    size_t len = 0;
+    NTSTATUS status = STATUS_SUCCESS;
+
+    params->is_success = FALSE;
+    if (!params->handle) return STATUS_INVALID_HANDLE;
+    if (!params->message) return STATUS_INVALID_PARAMETER;
+
+    while (params->message[len]) len++;
+    if (len >= WV2L_WEB_MESSAGE_MAX)
+    {
+        ERR("web message is %zu UTF-16 units, over the %u wire limit -- refusing to send a "
+            "truncated payload\n", len, (unsigned)WV2L_WEB_MESSAGE_MAX);
+        return STATUS_BUFFER_TOO_SMALL;
+    }
+
+    if (!(wire = calloc(1, sizeof(*wire)))) return STATUS_NO_MEMORY;
+    wire->handle = params->handle;
+    wire->is_string = params->is_string ? 1 : 0;
+    memcpy(wire->message, params->message, len * sizeof(uint16_t));
+    wire->message[len] = 0;
+
+    if (!ipc_call_handle(WV2L_OP_POST_WEB_MESSAGE, wire, sizeof(*wire), &wire->handle))
+    {
+        WARN("ipc_call failed -- helper not running, dropping the web message\n");
+        status = STATUS_NOT_SUPPORTED;
+    }
+    else params->is_success = wire->success ? TRUE : FALSE;
+
+    free(wire);
+    return status;
+}
+
+/* Mirror of unix_delete_cookie_impl, for the write direction. */
+static NTSTATUS unix_add_or_update_cookie_impl(void *args)
+{
+    struct add_cookie_params *params = args;
+    struct wv2l_add_cookie_params *wire;
+    NTSTATUS status = STATUS_SUCCESS;
+
+    params->is_success = FALSE;
+    if (!params->handle) return STATUS_INVALID_HANDLE;
+    if (!(wire = calloc(1, sizeof(*wire)))) return STATUS_NO_MEMORY;
+
+    wire->handle = params->handle;
+    unix_cookie_to_wire(&wire->cookie, &params->cookie);
+
+    if (!ipc_call_handle(WV2L_OP_ADD_OR_UPDATE_COOKIE, wire, sizeof(*wire), &wire->handle))
+    {
+        WARN("ipc_call failed -- helper not running, cannot write the cookie\n");
+        status = STATUS_NOT_SUPPORTED;
+    }
+    else params->is_success = wire->success ? TRUE : FALSE;
+
+    free(wire);
+    return status;
+}
+
+static NTSTATUS unix_set_user_agent_impl(void *args)
+{
+    struct set_user_agent_params *params = args;
+    struct wv2l_set_user_agent_params wire = { 0 };
+
+    params->is_success = FALSE;
+    if (!params->handle) return STATUS_INVALID_HANDLE;
+    if (!params->user_agent) return STATUS_INVALID_PARAMETER;
+
+    wire.handle = params->handle;
+    /* Truncation is acceptable here, unlike scripts and JSON: a shortened user
+     * agent is still a valid header, and the cap is 2048 units against real
+     * agents well under 200. */
+    copy_wcs_to_wire_uri(wire.user_agent, WV2L_URI_MAX, params->user_agent);
+
+    if (!ipc_call_handle(WV2L_OP_SET_USER_AGENT, &wire, sizeof(wire), &wire.handle))
+    {
+        WARN("ipc_call failed -- helper not running, user agent not applied\n");
+        return STATUS_NOT_SUPPORTED;
+    }
+    params->is_success = wire.success ? TRUE : FALSE;
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS unix_apply_settings_impl(void *args)
+{
+    struct apply_settings_params *params = args;
+    struct wv2l_apply_settings_params wire = { 0 };
+
+    params->is_success = FALSE;
+    if (!params->handle) return STATUS_INVALID_HANDLE;
+
+    wire.handle = params->handle;
+    wire.is_script_enabled = params->is_script_enabled ? 1 : 0;
+    wire.are_dev_tools_enabled = params->are_dev_tools_enabled ? 1 : 0;
+    wire.are_default_context_menus_enabled = params->are_default_context_menus_enabled ? 1 : 0;
+
+    if (!ipc_call_handle(WV2L_OP_APPLY_SETTINGS, &wire, sizeof(wire), &wire.handle))
+    {
+        WARN("ipc_call failed -- helper not running, settings not applied\n");
+        return STATUS_NOT_SUPPORTED;
+    }
+    params->is_success = wire.success ? TRUE : FALSE;
+    return STATUS_SUCCESS;
+}
+
 const unixlib_entry_t __wine_unix_call_funcs[] =
 {
     unix_init_impl,
@@ -1110,4 +1350,9 @@ const unixlib_entry_t __wine_unix_call_funcs[] =
     unix_get_window_geometry_impl,
     unix_delete_cookie_impl,
     unix_wait_event_impl,
+    unix_add_user_script_impl,
+    unix_post_web_message_impl,
+    unix_add_or_update_cookie_impl,
+    unix_set_user_agent_impl,
+    unix_apply_settings_impl,
 };

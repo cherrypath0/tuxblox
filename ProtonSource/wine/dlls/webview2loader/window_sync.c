@@ -139,7 +139,12 @@ static void fire_tracked_callbacks(HWND hwnd)
     {
         for (e = th->entries; e && count < MAX_SNAPSHOT; e = e->next)
         {
-            if (e->hwnd == hwnd)
+            /* IsChild as well as equality: Studio hides the Toolbox by hiding
+             * the dock panel ABOVE the controller's parent, so the message
+             * lands on an ancestor and an equality-only match would never fire
+             * the sync that unmaps the webview. IsChild covers the whole
+             * descendant chain, not just direct children. */
+            if (e->hwnd == hwnd || IsChild(hwnd, e->hwnd))
             {
                 cb_snapshot[count] = e->callback;
                 ud_snapshot[count] = e->user_data;
@@ -157,7 +162,11 @@ static LRESULT CALLBACK call_wnd_proc(int nCode, WPARAM wParam, LPARAM lParam)
     if (nCode == HC_ACTION)
     {
         CWPSTRUCT *cwp = (CWPSTRUCT *)lParam;
-        if (cwp->message == WM_WINDOWPOSCHANGED) fire_tracked_callbacks(cwp->hwnd);
+        /* WM_SHOWWINDOW as well: ShowWindow(SW_HIDE) on an ancestor does emit
+         * WM_WINDOWPOSCHANGED, but a window hidden as part of its parent being
+         * hidden gets only WM_SHOWWINDOW, and that is the playtest case. */
+        if (cwp->message == WM_WINDOWPOSCHANGED || cwp->message == WM_SHOWWINDOW)
+            fire_tracked_callbacks(cwp->hwnd);
     }
     return CallNextHookEx(NULL, nCode, wParam, lParam);
 }

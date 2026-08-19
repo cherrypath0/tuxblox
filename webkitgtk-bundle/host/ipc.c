@@ -70,6 +70,25 @@ void ipc_set_event_fd(int fd)
     g_event_fd = fd;
 }
 
+int ipc_event_fd(void) { return g_event_fd; }
+void ipc_close_event_fd(void) { g_event_fd = -1; }
+
+/* Same framing as ipc_send_event, with the body split in two so a
+ * variable-length event can avoid a fixed maximum-size buffer. */
+int ipc_send_event_payload(unsigned int type, const void *head, size_t head_len,
+                            const void *tail, size_t tail_len)
+{
+    if (ipc_send_event(type, head, head_len) != 0) return -1;
+    if (tail_len && ipc_write_full(ipc_event_fd(), tail, tail_len) != (ssize_t)tail_len)
+    {
+        fprintf(stderr, "webview2loader-host: event payload could not be delivered (%s) -- the "
+                        "stream is now unframed, closing the event channel\n", strerror(errno));
+        ipc_close_event_fd();
+        return -1;
+    }
+    return 0;
+}
+
 int ipc_send_event(unsigned int type, const void *payload, size_t len)
 {
     uint32_t wire_type = (uint32_t)type;

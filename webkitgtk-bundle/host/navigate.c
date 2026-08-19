@@ -828,6 +828,75 @@ gboolean cookies_get(struct native_webview *nv, const char *uri_utf8, struct wv2
  * Fire-and-forget, like cookies_delete_all's own per-cookie deletes: the wire
  * struct has no out field, and webkit_cookie_manager_delete_cookie's completion
  * carries no information this side could act on. */
+/* Mirror of cookies_delete_one below, for the write direction. See
+ * wv2l_add_cookie_params in the protocol header for why Studio needs this.
+ *
+ * Unlike the delete path, expiry matters here: an auth cookie written as a
+ * session cookie would be dropped the moment WebKit's session ends, and
+ * .ROBLOSECURITY is long-lived. `expires` is carried as a unix timestamp on the
+ * wire (0 == session cookie, which is what real WebView2 means by IsSession). */
+gboolean cookies_add_or_update(struct native_webview *nv, const struct wv2l_cookie *wire)
+{
+    WebKitNetworkSession *session;
+    WebKitCookieManager *mgr;
+    SoupCookie *cookie;
+    char *name, *value, *domain, *path;
+    gboolean ok = FALSE;
+
+    if (!nv)
+    {
+        fprintf(stderr, "webview2loader-host: stale/destroyed native window handle -- skipping "
+                        "AddOrUpdateCookie\n");
+        return FALSE;
+    }
+
+    name   = wire_uri_to_utf8(wire->name);
+    value  = wire_uri_to_utf8(wire->value);
+    domain = wire_uri_to_utf8(wire->domain);
+    path   = wire_uri_to_utf8(wire->path);
+
+    if (!name || !value || !domain || !path)
+    {
+        fprintf(stderr, "webview2loader-host: AddOrUpdateCookie: UTF-16 -> UTF-8 conversion failed for "
+                        "one or more cookie fields -- not attempting the write\n");
+        goto out;
+    }
+
+    if (!(cookie = soup_cookie_new(name, value, domain, path, -1)))
+    {
+        fprintf(stderr, "webview2loader-host: AddOrUpdateCookie: soup_cookie_new failed\n");
+        goto out;
+    }
+
+    if (!wire->is_session && wire->expires > 0)
+    {
+        GDateTime *when = g_date_time_new_from_unix_utc((gint64)wire->expires);
+        if (when)
+        {
+            soup_cookie_set_expires(cookie, when);
+            g_date_time_unref(when);
+        }
+    }
+    soup_cookie_set_secure(cookie, wire->is_secure ? TRUE : FALSE);
+    soup_cookie_set_http_only(cookie, wire->is_http_only ? TRUE : FALSE);
+
+    session = webkit_web_view_get_network_session(nv->view);
+    mgr = webkit_network_session_get_cookie_manager(session);
+    webkit_cookie_manager_add_cookie(mgr, cookie, NULL, NULL, NULL);
+    /* Caller-owned, same ownership rule as delete_cookie below. */
+    soup_cookie_free(cookie);
+    ok = TRUE;
+    fprintf(stderr, "webview2loader-host: AddOrUpdateCookie: set '%s' for domain '%s' on nv=%p\n",
+            name, domain, (void *)nv);
+
+out:
+    g_free(name);
+    g_free(value);
+    g_free(domain);
+    g_free(path);
+    return ok;
+}
+
 gboolean cookies_delete_one(struct native_webview *nv, const struct wv2l_cookie *wire)
 {
     WebKitNetworkSession *session;
@@ -927,11 +996,114 @@ static int event_send_navigation_starting(struct native_webview *nv, const char 
     return rc;
 }
 
+/* Page -> Studio web message, over the same one-way event channel
+ * NavigationStarting uses. Fire-and-forget for the same reason: the helper's
+ * main loop must never block waiting on the Wine side.
+ *
+ * Rejects an oversized payload rather than truncating it -- a cut-off JSON
+ * document is not JSON, and Studio would fail to parse it in a way that looks
+ * like a page bug rather than a transport limit. */
+int event_send_web_message(struct native_webview *nv, const char *payload_utf8, const char *source_utf8,
+                            int is_string)
+{
+    struct wv2l_ev_web_message_header hdr;
+    gunichar2 *msg16 = NULL, *src16 = NULL;
+    glong msg_len = 0, src_len = 0;
+    int rc = -1;
+
+    if (!nv || !payload_utf8) return -1;
+    memset(&hdr, 0, sizeof(hdr));
+    hdr.handle = (uint64_t)(uintptr_t)nv;
+    hdr.is_string = is_string ? 1 : 0;
+
+    if (!(msg16 = g_utf8_to_utf16(payload_utf8, -1, NULL, &msg_len, NULL)))
+    {
+        fprintf(stderr, "webview2loader-host: web message: UTF-8 -> UTF-16 conversion failed\n");
+        goto done;
+    }
+    if (msg_len < 0 || (size_t)msg_len >= WV2L_WEB_MESSAGE_MAX)
+    {
+        fprintf(stderr, "webview2loader-host: web message is %ld UTF-16 units, over this build's %d "
+                        "cap -- dropping rather than delivering a truncated payload\n",
+                msg_len, (int)WV2L_WEB_MESSAGE_MAX);
+        goto done;
+    }
+    hdr.message_len = (uint32_t)msg_len;
+
+    /* Source is best-effort: a missing or oversized URI is not worth dropping a
+     * message the Toolbox is waiting on -- it degrades to an empty string. */
+    if (source_utf8 && (src16 = g_utf8_to_utf16(source_utf8, -1, NULL, &src_len, NULL)))
+    {
+        if (src_len >= 0 && (size_t)src_len < WV2L_URI_MAX)
+            memcpy(hdr.source, src16, (size_t)(src_len + 1) * sizeof(uint16_t));
+    }
+
+    /* Header then payload, as two writes on the same stream -- safe for the
+     * same reason ipc_send_event's own two writes are: this process is the only
+     * writer and writes only from the main loop thread, so frames cannot
+     * interleave. Sending only message_len units instead of a fixed 128 KB
+     * buffer is what keeps the socket from filling; see the header's comment. */
+    rc = ipc_send_event_payload(WV2L_EV_WEB_MESSAGE, &hdr, sizeof(hdr),
+                                 msg16, (size_t)msg_len * sizeof(uint16_t));
+
+done:
+    g_free(msg16);
+    g_free(src16);
+    return rc;
+}
+
 /* --- OAuth redirect handoff ---
  *
  * Ported VERBATIM from the original (see this file's own top comment) --
  * real, committed, independently trace-verified logic (commit ac3634ea6),
  * not touched beyond the mechanical p_-prefix drop. */
+
+/* Strips this bundle's own runtime environment before exec'ing xdg-open.
+ *
+ * This process inherits Wine's environment and then has unixlib.c's
+ * set_webkit_relocation_env()/spawn_helper() point a dozen loader variables at
+ * the TuxBlox WebKit bundle -- LD_LIBRARY_PATH at the gl-fallback llvmpipe
+ * copy, GIO_EXTRA_MODULES, GSETTINGS_SCHEMA_DIR, XDG_DATA_DIRS, the GStreamer
+ * plugin paths and (as of this change) FONTCONFIG_PATH plus the GDK_PIXBUF and
+ * LIBGL variables, all pointed at the bundle's own
+ * copies. All of that is correct for WebKit in THIS process and actively
+ * hostile to whatever xdg-open launches: the user's real browser would be told
+ * to load our software-only libEGL/libGL ahead of the system's, resolve GIO
+ * modules and GSettings schemas out of our tree, and force
+ * LIBGL_ALWAYS_SOFTWARE. Chromium- and Firefox-family browsers routinely fail
+ * to start under exactly that -- which is what "Login via Browser does
+ * nothing" looks like from the outside.
+ *
+ * unsetenv() only, never a hardcoded replacement value: the correct value for
+ * the user's own session is whatever their session already had, and anything
+ * this process could substitute would be a guess. Variables the bundle only
+ * ever PREPENDS to (XDG_DATA_DIRS, GST_PLUGIN_SYSTEM_PATH_1_0,
+ * LD_LIBRARY_PATH) lose the session's own entries along with ours; that is
+ * still strictly better than handing the browser our loader paths, and the
+ * defaults every one of them falls back to are the session defaults.
+ *
+ * Runs in the grandchild, after the second fork() and immediately before
+ * execvp(), so nothing here can disturb this process's own environment. */
+static void xdg_open_sanitize_env(void)
+{
+    static const char *const bundle_vars[] = {
+        "LD_LIBRARY_PATH",
+        "WEBKIT_EXEC_PATH", "WEBKIT_INJECTED_BUNDLE_PATH",
+        "GIO_EXTRA_MODULES", "GBM_BACKENDS_PATH", "GSETTINGS_SCHEMA_DIR",
+        "GST_PLUGIN_SCANNER", "GST_PLUGIN_SYSTEM_PATH", "GST_PLUGIN_SYSTEM_PATH_1_0",
+        "XDG_DATA_DIRS",
+        "FONTCONFIG_PATH", "GDK_PIXBUF_MODULE_FILE", "GDK_PIXBUF_MODULEDIR",
+        "LIBGL_DRIVERS_PATH", "LIBGL_ALWAYS_SOFTWARE",
+        "GDK_BACKEND", "GSK_RENDERER",
+        /* Not loader paths, but they name THIS process's private IPC fds and
+         * would be a lie in any other process's environment. */
+        "WEBVIEW2LOADER_IPC_FD", "WEBVIEW2LOADER_EVENT_FD",
+    };
+    size_t i;
+
+    for (i = 0; i < sizeof(bundle_vars) / sizeof(bundle_vars[0]); i++)
+        unsetenv(bundle_vars[i]);
+}
 
 /* Handles a roblox-studio-auth:/roblox-studio:/roblox-player: navigation by
  * handing it off to the OS's own xdg-open, rather than letting WebKit try
@@ -971,6 +1143,7 @@ static void xdg_open_handoff(const char *uri)
             /* in grandchild -- becomes the real, long-lived xdg-open
              * process once reparented away from this process. */
             char *argv[] = { (char *)"xdg-open", (char *)uri, NULL };
+            xdg_open_sanitize_env();
             execvp("xdg-open", argv);
             _exit(127); /* only reached if execvp() itself failed */
         }
@@ -1034,7 +1207,8 @@ gboolean on_decide_policy(WebKitWebView *view, WebKitPolicyDecision *decision,
     (void)view;
     (void)user_data;
 
-    if (decision_type != WEBKIT_POLICY_DECISION_TYPE_NAVIGATION_ACTION)
+    if (decision_type != WEBKIT_POLICY_DECISION_TYPE_NAVIGATION_ACTION &&
+        decision_type != WEBKIT_POLICY_DECISION_TYPE_NEW_WINDOW_ACTION)
         return FALSE;
 
     action = webkit_navigation_policy_decision_get_navigation_action((WebKitNavigationPolicyDecision *)decision);
@@ -1043,6 +1217,55 @@ gboolean on_decide_policy(WebKitWebView *view, WebKitPolicyDecision *decision,
     if (!request) return FALSE;
     uri = webkit_uri_request_get_uri(request);
     if (!uri) return FALSE;
+
+    /* "Login via Browser" on the Roblox authorize page opens its target in a new
+     * window (target="_blank"/window.open), which WebKit reports as a SEPARATE
+     * decision type from an ordinary navigation. Before this branch existed,
+     * NEW_WINDOW_ACTION fell straight through to `return FALSE` -- WebKit's
+     * default use(), which then emits WebKitWebView::create, which nothing in
+     * this process connects, so the default handler returned NULL and the popup
+     * was silently dropped. The button was a dead click: no browser, no error,
+     * no log line.
+     *
+     * On Windows this is WebView2's NewWindowRequested event, and Studio's own
+     * handler shells out to the system browser. Our shim accepts
+     * add_NewWindowRequested (webview.c's webview_generic_add_event) but only
+     * ever records the handler -- the event channel carries NavigationStarting
+     * and nothing else -- so routing it to Studio is not available here.
+     * xdg-open reaches the same destination Studio's Windows handler would.
+     *
+     * Deliberate divergence from WebView2's documented default (open a new
+     * WebView2 window): this webview is XReparentWindow'd into one specific
+     * Studio dialog and has no concept of a second window to open. Sending the
+     * URI to the user's real browser is both what this particular button means
+     * and strictly better than the silent drop it replaces. A known Roblox
+     * scheme still falls through to the in-process NavigationStarting path
+     * below -- those must NOT go to the browser, they are Studio's own
+     * OAuth callback. */
+    if (decision_type == WEBKIT_POLICY_DECISION_TYPE_NEW_WINDOW_ACTION &&
+        strncmp(uri, "http://", 7) && strncmp(uri, "https://", 8))
+    {
+        /* Not http(s) and not handled below -- WebKit cannot open it in a new
+         * window either, so suppress rather than let it error out visibly. */
+        for (i = 0; i < G_N_ELEMENTS(known_roblox_schemes); i++)
+            if (!strncmp(uri, known_roblox_schemes[i], strlen(known_roblox_schemes[i])))
+                break;
+        if (i == G_N_ELEMENTS(known_roblox_schemes))
+        {
+            fprintf(stderr, "webview2loader-host: suppressing new-window request for unsupported "
+                            "scheme in %.64s...\n", uri);
+            webkit_policy_decision_ignore(decision);
+            return TRUE;
+        }
+    }
+    else if (decision_type == WEBKIT_POLICY_DECISION_TYPE_NEW_WINDOW_ACTION)
+    {
+        fprintf(stderr, "webview2loader-host: new-window request for %.64s... -- handing to the "
+                        "system browser via xdg-open\n", uri);
+        webkit_policy_decision_ignore(decision);
+        xdg_open_handoff(uri);
+        return TRUE;
+    }
 
     for (i = 0; i < G_N_ELEMENTS(known_roblox_schemes); i++)
     {

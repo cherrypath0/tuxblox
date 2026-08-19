@@ -193,6 +193,11 @@ struct sync_window_geometry_params
 
     /* out */
     BOOL success;
+    /* See wv2l_sync_window_geometry_params -- diagnostic inputs logged by the
+     * helper, because PE-side debug output is not visible in the launch log. */
+    BOOL dbg_put_is_visible;
+    BOOL dbg_parent_visible;
+    BOOL dbg_parent_seen_visible;
 };
 
 struct get_window_geometry_params
@@ -220,11 +225,17 @@ struct get_window_geometry_params
  * happens, which is most of a session. */
 #define WEBVIEW2LOADER_URI_MAX 2048
 
+#define WEBVIEW2LOADER_WEB_MESSAGE_MAX 65536
+
 enum webview2loader_event_type
 {
     WEBVIEW2LOADER_EVENT_NAVIGATION_STARTING,
+    WEBVIEW2LOADER_EVENT_WEB_MESSAGE,
 };
 
+/* Big enough that callers must heap-allocate it -- the web-message field alone
+ * is 128 KB, well past what belongs on the event pump thread's stack. main.c's
+ * event_pump_proc allocates one for the life of the thread. */
 struct wait_event_params
 {
     /* out -- only meaningful when the call returns STATUS_SUCCESS */
@@ -232,6 +243,60 @@ struct wait_event_params
     UINT64 handle; /* which webview, already generation-tagged for the PE side */
     WCHAR uri[WEBVIEW2LOADER_URI_MAX];
     BOOL is_redirect;
+    /* WEBVIEW2LOADER_EVENT_WEB_MESSAGE only; `uri` carries the source URI. */
+    WCHAR message[WEBVIEW2LOADER_WEB_MESSAGE_MAX];
+    BOOL is_string;
+};
+
+/* PostWebMessageAsJson / PostWebMessageAsString. `message` is the PE caller's
+ * own buffer; bounds-checked into the wire struct by the impl, and rejected
+ * rather than truncated for the same reason add_user_script rejects. */
+/* ICoreWebView2CookieManager::AddOrUpdateCookie -- same shape as
+ * delete_cookie_params, plus a success flag Studio actually acts on. */
+/* ICoreWebView2Settings2::put_UserAgent. `user_agent` is the caller's own
+ * NUL-terminated buffer, bounds-checked into the wire struct by the impl. */
+/* The subset of ICoreWebView2Settings that maps onto real WebKitSettings. */
+struct apply_settings_params
+{
+    UINT64 handle;
+    BOOL is_script_enabled;
+    BOOL are_dev_tools_enabled;
+    BOOL are_default_context_menus_enabled;
+    BOOL is_success; /* out */
+};
+
+struct set_user_agent_params
+{
+    UINT64 handle;
+    const WCHAR *user_agent;
+    BOOL is_success; /* out */
+};
+
+struct add_cookie_params
+{
+    UINT64 handle;
+    struct unix_cookie cookie;
+    BOOL is_success; /* out */
+};
+
+struct post_web_message_params
+{
+    UINT64 handle;
+    const WCHAR *message;
+    BOOL is_string;
+    BOOL is_success; /* out */
+};
+
+/* AddScriptToExecuteOnDocumentCreated. `script` is the PE-side caller's own
+ * NUL-terminated buffer, not copied here -- unix_add_user_script_impl bounds-
+ * checks it into the wire struct, and REJECTS rather than truncates: half a
+ * script is a syntax error, which would fail more confusingly than not
+ * injecting at all. */
+struct add_user_script_params
+{
+    UINT64 handle;
+    const WCHAR *script;
+    BOOL is_success; /* out */
 };
 
 enum webview2loader_unix_funcs
@@ -248,6 +313,11 @@ enum webview2loader_unix_funcs
     unix_get_window_geometry, /* test-support only */
     unix_delete_cookie,
     unix_wait_event,
+    unix_add_user_script,
+    unix_post_web_message,
+    unix_add_or_update_cookie,
+    unix_set_user_agent,
+    unix_apply_settings,
     /* Further tasks append further entries below this line -- always
      * appending, never reordering, since the enum's integer values are
      * the unix-call dispatch table's indices (see __wine_unix_call_funcs

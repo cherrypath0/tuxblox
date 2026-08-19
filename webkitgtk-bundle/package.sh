@@ -137,6 +137,25 @@ for pattern in 'libEGL.so*' 'libGL.so*' 'libGLESv1_CM.so*' 'libGLESv2.so*'; do
     done
 done
 
+# fontconfig's installed fonts.conf hardcodes the build prefix as its first
+# cache directory ($PREFIX/var/cache/fontconfig). That path exists only inside
+# the build container, so on a real install fontconfig tries it, fails, and
+# warns -- for nothing, since the very next entry is the xdg one
+# (~/.cache/fontconfig) which is where the cache actually belongs anyway.
+# Dropped here rather than patched at build time so it stays a packaging
+# concern; the relative <include>conf.d</include> next to it is already
+# relocatable and is deliberately left alone. unixlib.c's
+# set_webkit_relocation_env() is what points FONTCONFIG_PATH at this directory
+# in the first place -- without that, none of this file is read at all.
+echo ":: Dropping the build-prefix cachedir from etc/fonts/fonts.conf"
+if [ -f etc/fonts/fonts.conf ]; then
+    sed -i "\|<cachedir>$PREFIX/var/cache/fontconfig</cachedir>|d" etc/fonts/fonts.conf
+    if grep -q "$PREFIX" etc/fonts/fonts.conf; then
+        echo "ERROR: etc/fonts/fonts.conf still references the build prefix $PREFIX" >&2
+        exit 1
+    fi
+fi
+
 echo ":: Rewriting RPATH/RUNPATH on every ELF file in the packaged tree"
 find include lib libexec etc share -type f \
     -not -path 'libexec/installed-tests/*' -not -path 'share/installed-tests/*' \

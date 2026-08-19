@@ -488,15 +488,117 @@ static HRESULT WINAPI cm_DeleteAllCookies(ICoreWebView2CookieManager *iface)
     return S_OK;
 }
 
+/* ICoreWebView2CookieManager::CreateCookie -- purely local object construction,
+ * no IPC. Real WebView2 does the same: CreateCookie hands back a detached
+ * cookie object that only reaches the browser once AddOrUpdateCookie is called
+ * with it.
+ *
+ * Defaults match real WebView2's for a freshly created cookie: a session cookie
+ * (expires unset), not secure, not http-only, SameSite=Lax. Studio overrides
+ * what it needs through the put_* accessors before handing it back. */
+static HRESULT WINAPI cm_CreateCookie(ICoreWebView2CookieManager *iface, LPCWSTR name, LPCWSTR value,
+                                       LPCWSTR domain, LPCWSTR path, void **cookie_out)
+{
+    struct cookie_impl *c;
+    HRESULT hr;
+
+    TRACE("(%p, %s, %s)\n", iface, wine_dbgstr_w(name), wine_dbgstr_w(domain));
+    if (!cookie_out) return E_POINTER;
+    *cookie_out = NULL;
+    if (!name || !value) return E_INVALIDARG;
+
+    if (!(c = calloc(1, sizeof(*c)))) return E_OUTOFMEMORY;
+    c->ICoreWebView2Cookie_iface.lpVtbl = &cookie_vtbl;
+    c->ref = 1;
+    c->is_session = TRUE;
+    c->same_site = COREWEBVIEW2_COOKIE_SAME_SITE_KIND_LAX;
+
+    if (FAILED(hr = copy_out_wstr(name, &c->name)) ||
+        FAILED(hr = copy_out_wstr(value, &c->value)) ||
+        FAILED(hr = copy_out_wstr(domain, &c->domain)) ||
+        FAILED(hr = copy_out_wstr(path, &c->path)))
+    {
+        ICoreWebView2Cookie_Release(&c->ICoreWebView2Cookie_iface);
+        return hr;
+    }
+
+    *cookie_out = &c->ICoreWebView2Cookie_iface;
+    return S_OK;
+}
+
+/* ICoreWebView2CookieManager::AddOrUpdateCookie.
+ *
+ * This is the call that authenticates a webview Studio did not log in through
+ * -- see wv2l_add_cookie_params in the protocol header. While it was E_NOTIMPL
+ * the Toolbox loaded create.roblox.com/store/models unauthenticated and showed
+ * that site's logged-out page inside the panel. */
+static HRESULT WINAPI cm_AddOrUpdateCookie(ICoreWebView2CookieManager *iface, void *cookie_raw)
+{
+    struct cookie_manager_impl *cm = impl_from_iface(iface);
+    ICoreWebView2Cookie *cookie = cookie_raw;
+    struct add_cookie_params *params;
+    LPWSTR name = NULL, value = NULL, domain = NULL, path = NULL;
+    HRESULT hr = E_FAIL;
+
+    TRACE("(%p, %p)\n", iface, cookie);
+    if (!cookie) return E_POINTER;
+
+    /* Heap: embeds a whole struct unix_cookie (~9.6KB of fixed WCHAR buffers). */
+    if (!(params = calloc(1, sizeof(*params)))) return E_OUTOFMEMORY;
+
+    if (FAILED(ICoreWebView2Cookie_get_Name(cookie, &name)) ||
+        FAILED(ICoreWebView2Cookie_get_Value(cookie, &value)) ||
+        FAILED(ICoreWebView2Cookie_get_Domain(cookie, &domain)) ||
+        FAILED(ICoreWebView2Cookie_get_Path(cookie, &path)))
+        goto done;
+
+    if (!copy_cookie_field(name, params->cookie.name, WEBVIEW2LOADER_COOKIE_NAME_MAX, "name") ||
+        !copy_cookie_field(value, params->cookie.value, WEBVIEW2LOADER_COOKIE_VALUE_MAX, "value") ||
+        !copy_cookie_field(domain, params->cookie.domain, WEBVIEW2LOADER_COOKIE_DOMAIN_MAX, "domain") ||
+        !copy_cookie_field(path, params->cookie.path, WEBVIEW2LOADER_COOKIE_PATH_MAX, "path"))
+        goto done;
+
+    /* Expiry/flags carried too, unlike DeleteCookie which matches on
+     * name+value+path only: a long-lived auth cookie written as a session
+     * cookie would not survive, which is the whole point of writing it. */
+    ICoreWebView2Cookie_get_Expires(cookie, &params->cookie.expires);
+    ICoreWebView2Cookie_get_IsSession(cookie, &params->cookie.is_session);
+    ICoreWebView2Cookie_get_IsHttpOnly(cookie, &params->cookie.is_http_only);
+    ICoreWebView2Cookie_get_IsSecure(cookie, &params->cookie.is_secure);
+    {
+        /* struct unix_cookie stores same_site as a plain INT32 so the wire
+         * struct stays a fixed-layout POD; the accessor wants the real enum
+         * type, so it lands in one and is widened on the way in. */
+        COREWEBVIEW2_COOKIE_SAME_SITE_KIND same_site = COREWEBVIEW2_COOKIE_SAME_SITE_KIND_LAX;
+        ICoreWebView2Cookie_get_SameSite(cookie, &same_site);
+        params->cookie.same_site = (INT32)same_site;
+    }
+
+    params->handle = webview_get_native_handle(cm->webview);
+    if (!WEBVIEW2LOADER_UNIX_CALL(add_or_update_cookie, params) && params->is_success)
+        hr = S_OK;
+    else
+        WARN("could not write cookie %s into the webview -- it will load unauthenticated\n",
+             wine_dbgstr_w(name));
+
+done:
+    CoTaskMemFree(name);
+    CoTaskMemFree(value);
+    CoTaskMemFree(domain);
+    CoTaskMemFree(path);
+    free(params);
+    return hr;
+}
+
 static const ICoreWebView2CookieManagerVtbl cm_vtbl =
 {
     cm_QueryInterface,
     cm_AddRef,
     cm_Release,
-    (void *)webview2_stub_e_notimpl, /* CreateCookie */
+    cm_CreateCookie,
     (void *)webview2_stub_e_notimpl, /* CopyCookie */
     cm_GetCookies,
-    (void *)webview2_stub_e_notimpl, /* AddOrUpdateCookie */
+    cm_AddOrUpdateCookie,
     cm_DeleteCookie,
     (void *)webview2_stub_e_notimpl, /* DeleteCookies */
     (void *)webview2_stub_e_notimpl, /* DeleteCookiesWithDomainAndPath */

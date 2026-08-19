@@ -307,6 +307,57 @@ static gboolean on_ipc_readable(gint fd, GIOCondition condition, gpointer user_d
         if (ipc_write_full(fd, &p, sizeof(p)) < 0) { g_main_loop_quit(g_loop); return G_SOURCE_REMOVE; }
         return G_SOURCE_CONTINUE;
     }
+    case WV2L_OP_ADD_USER_SCRIPT:
+    {
+        /* Heap, not stack: this struct carries a 128 KB script buffer, and
+         * this function is the helper's single main-loop callback -- putting
+         * that on its stack for every request is not worth the risk. */
+        struct wv2l_add_user_script_params *p = calloc(1, sizeof(*p));
+        struct native_webview *nv;
+        char *script_utf8;
+        int ok;
+
+        if (!p) { g_main_loop_quit(g_loop); return G_SOURCE_REMOVE; }
+        if (ipc_read_full(fd, p, sizeof(*p)) < 0)
+        {
+            free(p);
+            g_main_loop_quit(g_loop);
+            return G_SOURCE_REMOVE;
+        }
+        nv = webview_lookup(p->handle);
+        script_utf8 = wire_uri_to_utf8(p->script); /* plain UTF-16 -> UTF-8, not uri-specific */
+        p->success = webview_add_user_script(nv, script_utf8) ? 1 : 0;
+        g_free(script_utf8);
+        ok = ipc_write_full(fd, p, sizeof(*p)) >= 0;
+        free(p);
+        if (!ok) { g_main_loop_quit(g_loop); return G_SOURCE_REMOVE; }
+        return G_SOURCE_CONTINUE;
+    }
+    case WV2L_OP_POST_WEB_MESSAGE:
+    {
+        /* Heap for the same reason as ADD_USER_SCRIPT: a 128 KB payload buffer
+         * has no business on this callback's stack. */
+        struct wv2l_post_web_message_params *p = calloc(1, sizeof(*p));
+        struct native_webview *nv;
+        char *msg_utf8;
+        int ok;
+
+        if (!p) { g_main_loop_quit(g_loop); return G_SOURCE_REMOVE; }
+        if (ipc_read_full(fd, p, sizeof(*p)) < 0)
+        {
+            free(p);
+            g_main_loop_quit(g_loop);
+            return G_SOURCE_REMOVE;
+        }
+        nv = webview_lookup(p->handle);
+        msg_utf8 = wire_uri_to_utf8(p->message); /* plain UTF-16 -> UTF-8 */
+        p->success = webview_post_web_message(nv, msg_utf8, p->is_string ? TRUE : FALSE) ? 1 : 0;
+        g_free(msg_utf8);
+        ok = ipc_write_full(fd, p, sizeof(*p)) >= 0;
+        free(p);
+        if (!ok) { g_main_loop_quit(g_loop); return G_SOURCE_REMOVE; }
+        return G_SOURCE_CONTINUE;
+    }
     case WV2L_OP_GET_WINDOW_VISIBLE:
     {
         /* Task 4 finding: no task in the plan (4, 5, or 6) explicitly lists
@@ -336,6 +387,27 @@ static gboolean on_ipc_readable(gint fd, GIOCondition condition, gpointer user_d
         struct native_webview *nv;
         if (ipc_read_full(fd, &p, sizeof(p)) < 0) { g_main_loop_quit(g_loop); return G_SOURCE_REMOVE; }
         nv = webview_lookup(p.handle);
+        /* Logged HERE, not on the Wine side: PE-side MESSAGE()/wine_dbg_printf
+         * output does not reach the captured launch log in this setup, so the
+         * decision inputs are shipped over and printed from the helper, whose
+         * stderr is the channel that demonstrably works.
+         *
+         * Change-only -- put_Bounds fires constantly. Prints the inputs, not
+         * just the result: "the webview still paints during a playtest" has
+         * three different causes (Studio never called put_IsVisible, the parent
+         * chain still reports visible, or this sync never ran at all) and only
+         * the inputs tell them apart. */
+        {
+            static int last_visible = -1;
+            if (last_visible != p.visible)
+            {
+                fprintf(stderr, "webview2loader-host: visibility -> %s (put_IsVisible=%d "
+                                "parent_visible=%d parent_seen_visible=%d) nv=%p\n",
+                        p.visible ? "SHOWN" : "HIDDEN", p.dbg_put_is_visible,
+                        p.dbg_parent_visible, p.dbg_parent_seen_visible, (void *)nv);
+                last_visible = p.visible;
+            }
+        }
         p.success = geometry_sync(nv, p.screen_bounds, p.visible, p.parent_xid) ? 1 : 0;
         if (ipc_write_full(fd, &p, sizeof(p)) < 0) { g_main_loop_quit(g_loop); return G_SOURCE_REMOVE; }
         return G_SOURCE_CONTINUE;
@@ -355,6 +427,56 @@ static gboolean on_ipc_readable(gint fd, GIOCondition condition, gpointer user_d
             p.screen_bounds.bottom = 0;
         }
         if (ipc_write_full(fd, &p, sizeof(p)) < 0) { g_main_loop_quit(g_loop); return G_SOURCE_REMOVE; }
+        return G_SOURCE_CONTINUE;
+    }
+    case WV2L_OP_APPLY_SETTINGS:
+    {
+        struct wv2l_apply_settings_params p;
+        struct native_webview *nv;
+
+        if (ipc_read_full(fd, &p, sizeof(p)) < 0) { g_main_loop_quit(g_loop); return G_SOURCE_REMOVE; }
+        nv = webview_lookup(p.handle);
+        p.success = webview_apply_settings(nv, p.is_script_enabled ? TRUE : FALSE,
+                                            p.are_dev_tools_enabled ? TRUE : FALSE,
+                                            p.are_default_context_menus_enabled ? TRUE : FALSE) ? 1 : 0;
+        if (ipc_write_full(fd, &p, sizeof(p)) < 0) { g_main_loop_quit(g_loop); return G_SOURCE_REMOVE; }
+        return G_SOURCE_CONTINUE;
+    }
+    case WV2L_OP_SET_USER_AGENT:
+    {
+        struct wv2l_set_user_agent_params p;
+        struct native_webview *nv;
+        char *ua_utf8;
+
+        if (ipc_read_full(fd, &p, sizeof(p)) < 0) { g_main_loop_quit(g_loop); return G_SOURCE_REMOVE; }
+        nv = webview_lookup(p.handle);
+        ua_utf8 = wire_uri_to_utf8(p.user_agent);
+        p.success = webview_set_user_agent(nv, ua_utf8) ? 1 : 0;
+        g_free(ua_utf8);
+        if (ipc_write_full(fd, &p, sizeof(p)) < 0) { g_main_loop_quit(g_loop); return G_SOURCE_REMOVE; }
+        return G_SOURCE_CONTINUE;
+    }
+    case WV2L_OP_ADD_OR_UPDATE_COOKIE:
+    {
+        /* Heap for the same reason as DeleteCookie below: this embeds a full
+         * struct wv2l_cookie (~9.6 KB of fixed UTF-16 buffers). */
+        struct wv2l_add_cookie_params *p = calloc(1, sizeof(*p));
+        int ok;
+
+        if (!p)
+        {
+            fprintf(stderr, "webview2loader-host: calloc failed for AddOrUpdateCookie params -- cannot "
+                            "consume this request without desyncing the stream, closing\n");
+            g_main_loop_quit(g_loop);
+            return G_SOURCE_REMOVE;
+        }
+        if (ipc_read_full(fd, p, sizeof(*p)) < 0) { free(p); g_main_loop_quit(g_loop); return G_SOURCE_REMOVE; }
+        /* Unlike DeleteCookie this DOES report success: Studio uses the HRESULT
+         * to decide whether the webview it is about to open is authenticated. */
+        p->success = cookies_add_or_update(webview_lookup(p->handle), &p->cookie) ? 1 : 0;
+        ok = ipc_write_full(fd, p, sizeof(*p)) >= 0;
+        free(p);
+        if (!ok) { g_main_loop_quit(g_loop); return G_SOURCE_REMOVE; }
         return G_SOURCE_CONTINUE;
     }
     case WV2L_OP_DELETE_COOKIE:

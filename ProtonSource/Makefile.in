@@ -1192,12 +1192,26 @@ $(OBJ)/.webkitgtk-x86_64-dist: $(SRC)/contrib/$(WEBKITGTK_x86_64_TARBALL)
 	@# loader .so's absolute path at the time it was generated (webkitgtk-bundle's own
 	@# build-time /opt/tuxblox-webview prefix) -- not fixable by RPATH or an env var,
 	@# since it's a data file gdk-pixbuf reads, not an ELF dynamic-section entry or a
-	@# getenv() call. Regenerate it now that the real final path ($(WEBKITGTK_DST)) is
-	@# known, using the gdk-pixbuf-query-loaders binary webkitgtk-bundle/package.sh
-	@# specifically ships (under libexec/gdk-pixbuf-tools/) just for this step.
+	@# getenv() call. Regenerate it here, using the gdk-pixbuf-query-loaders binary
+	@# webkitgtk-bundle/package.sh specifically ships (under libexec/gdk-pixbuf-tools/)
+	@# just for this step.
+	@#
+	@# The regenerated cache is then made path-INDEPENDENT by stripping the loaders
+	@# directory off each entry. Regenerating alone was not enough: $(WEBKITGTK_DST) is
+	@# a path inside *this build tree*, so the shipped cache pointed at the build
+	@# machine's own checkout (".../build/.artifacts/proton/dist/files/lib/...") and
+	@# resolved on nobody else's machine. gdk-pixbuf joins a relative entry against
+	@# GDK_PIXBUF_MODULEDIR, which unixlib.c's set_webkit_relocation_env() now sets to
+	@# the real install location at spawn time -- verified against this bundle's own
+	@# libgdk_pixbuf: with bare filenames plus that variable, all 4 formats (png, jpeg,
+	@# gif, tiff) load; without it, the gif and tiff loaders were simply absent.
 	loaders_cache="$$(find $(WEBKITGTK_DST)/lib -name loaders.cache)"; \
 	loaders_dir="$$(dirname "$$loaders_cache")/loaders"; \
-	"$(WEBKITGTK_DST)/libexec/gdk-pixbuf-tools/gdk-pixbuf-query-loaders" "$$loaders_dir"/*.so > "$$loaders_cache"
+	"$(WEBKITGTK_DST)/libexec/gdk-pixbuf-tools/gdk-pixbuf-query-loaders" "$$loaders_dir"/*.so \
+	    | sed "s|\"$$loaders_dir/|\"|" > "$$loaders_cache"; \
+	if grep -q '"/' "$$loaders_cache"; then \
+	    echo "ERROR: loaders.cache still contains absolute module paths" >&2; exit 1; \
+	fi
 	touch $@
 
 all-dist: $(OBJ)/.webkitgtk-x86_64-dist

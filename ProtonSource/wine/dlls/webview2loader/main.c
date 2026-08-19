@@ -83,16 +83,52 @@ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID reserved)
  * introducing a second, inconsistent convention -- worth revisiting together
  * if either turns out to matter, since real WebView2 delivers events on the
  * thread that created the environment. */
+/* One web message on its way to Studio's handler, off the pump thread. See the
+ * WEBVIEW2LOADER_EVENT_WEB_MESSAGE case for why it cannot be delivered inline. */
+struct web_message_dispatch
+{
+    UINT64 handle;
+    BOOL is_string;
+    WCHAR message[WEBVIEW2LOADER_WEB_MESSAGE_MAX];
+    WCHAR source[WEBVIEW2LOADER_URI_MAX];
+};
+
+static DWORD WINAPI web_message_dispatch_proc(void *arg)
+{
+    struct web_message_dispatch *d = arg;
+    ICoreWebView2 *webview = webview_find_by_handle(d->handle);
+
+    if (webview)
+    {
+        webview_fire_web_message(webview, d->message, d->source, d->is_string);
+        ICoreWebView2_Release(webview);
+    }
+    else TRACE("WebMessageReceived for an unknown/closed handle -- dropping\n");
+
+    free(d);
+    return 0;
+}
+
 static DWORD WINAPI event_pump_proc(void *arg)
 {
-    struct wait_event_params params;
+    /* Heap, allocated once for the life of this thread: struct
+     * wait_event_params grew a 128 KB web-message field, which is far too much
+     * to keep on a thread stack. */
+    struct wait_event_params *params = calloc(1, sizeof(*params));
+
+    if (!params)
+    {
+        ERR("out of memory starting the event pump -- WebMessageReceived and NavigationStarting "
+            "will not fire\n");
+        return 0;
+    }
 
     for (;;)
     {
         NTSTATUS status;
 
-        memset(&params, 0, sizeof(params));
-        status = WEBVIEW2LOADER_UNIX_CALL(wait_event, &params);
+        memset(params, 0, sizeof(*params));
+        status = WEBVIEW2LOADER_UNIX_CALL(wait_event, params);
         /* Plain truth test rather than a STATUS_SUCCESS comparison: this file
          * does not include <ntstatus.h> (only unixlib.c does, with the
          * WIN32_NO_STATUS dance), and every NTSTATUS success code is zero. */
@@ -102,14 +138,15 @@ static DWORD WINAPI event_pump_proc(void *arg)
              * All three mean this pump has nothing left to do; a respawned
              * helper gets a fresh pump from the next controller creation. */
             TRACE("event pump stopping (status %#lx)\n", (unsigned long)status);
+            free(params);
             return 0;
         }
 
-        switch (params.type)
+        switch (params->type)
         {
         case WEBVIEW2LOADER_EVENT_NAVIGATION_STARTING:
         {
-            ICoreWebView2 *webview = webview_find_by_handle(params.handle);
+            ICoreWebView2 *webview = webview_find_by_handle(params->handle);
             if (!webview)
             {
                 /* Normal, not an error: the controller can be closed between
@@ -117,12 +154,44 @@ static DWORD WINAPI event_pump_proc(void *arg)
                 TRACE("NavigationStarting for an unknown/closed handle -- dropping\n");
                 break;
             }
-            webview_fire_navigation_starting(webview, params.uri, params.is_redirect);
+            webview_fire_navigation_starting(webview, params->uri, params->is_redirect);
             ICoreWebView2_Release(webview);
             break;
         }
+        case WEBVIEW2LOADER_EVENT_WEB_MESSAGE:
+        {
+            /* Handed to a worker, NOT invoked here.
+             *
+             * This thread is the only thing draining the helper's event socket.
+             * Studio's WebMessageReceived handler is free to call straight back
+             * into WebView2 (PostWebMessageAsJson, and the Toolbox's own
+             * internal:init handshake does exactly that), which takes
+             * g_ipc_mutex and waits on the helper -- while the helper may be
+             * blocked writing the next event into a socket only this thread
+             * empties. That is a deadlock, and it hung Studio inside
+             * CreateCoreWebView2EnvironmentWithOptions until it gave up on the
+             * Toolbox entirely.
+             *
+             * Dispatching elsewhere keeps this loop free to drain no matter what
+             * a handler does. NavigationStarting stays inline: it fires at most
+             * once per navigation, and its handler completes the login rather
+             * than calling back. */
+            struct web_message_dispatch *d = malloc(sizeof(*d));
+
+            if (!d) break;
+            d->handle = params->handle;
+            d->is_string = params->is_string;
+            memcpy(d->message, params->message, sizeof(d->message));
+            memcpy(d->source, params->uri, sizeof(d->source));
+            if (!start_async_work(web_message_dispatch_proc, d))
+            {
+                WARN("could not dispatch a web message -- dropping it\n");
+                free(d);
+            }
+            break;
+        }
         default:
-            FIXME("unhandled event type %u\n", params.type);
+            FIXME("unhandled event type %u\n", params->type);
             break;
         }
     }

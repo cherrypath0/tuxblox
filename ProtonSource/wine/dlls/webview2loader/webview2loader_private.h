@@ -336,6 +336,48 @@ struct ICoreWebView2NavigationStartingEventHandler { const ICoreWebView2Navigati
     (This)->lpVtbl->Invoke(This,sender,args)
 #endif
 
+/* --- ICoreWebView2WebMessageReceivedEventArgs / its handler ---
+ *
+ * Member order transcribed from the official Microsoft.Web.WebView2 1.0.4129.50
+ * WebView2.h (IID 0f99a40c-e962-4207-9e92-e3d542eff849), NOT from
+ * learn.microsoft.com -- the docs list members alphabetically, and following
+ * them is what previously routed Studio's get_Uri(LPWSTR*) into
+ * get_Cancel(BOOL*). The header's C-style vtable block gives, after IUnknown:
+ * get_Source, get_WebMessageAsJson, TryGetWebMessageAsString. get_AdditionalObjects
+ * belongs to the separate ...EventArgs2 interface and is deliberately absent. */
+typedef struct ICoreWebView2WebMessageReceivedEventArgs ICoreWebView2WebMessageReceivedEventArgs;
+typedef struct ICoreWebView2WebMessageReceivedEventHandler ICoreWebView2WebMessageReceivedEventHandler;
+
+typedef struct ICoreWebView2WebMessageReceivedEventArgsVtbl
+{
+    HRESULT (WINAPI *QueryInterface)(ICoreWebView2WebMessageReceivedEventArgs *This, REFIID riid, void **ppv);
+    ULONG   (WINAPI *AddRef)(ICoreWebView2WebMessageReceivedEventArgs *This);
+    ULONG   (WINAPI *Release)(ICoreWebView2WebMessageReceivedEventArgs *This);
+    HRESULT (WINAPI *get_Source)(ICoreWebView2WebMessageReceivedEventArgs *This, LPWSTR *value);
+    HRESULT (WINAPI *get_WebMessageAsJson)(ICoreWebView2WebMessageReceivedEventArgs *This, LPWSTR *value);
+    HRESULT (WINAPI *TryGetWebMessageAsString)(ICoreWebView2WebMessageReceivedEventArgs *This, LPWSTR *value);
+} ICoreWebView2WebMessageReceivedEventArgsVtbl;
+struct ICoreWebView2WebMessageReceivedEventArgs { const ICoreWebView2WebMessageReceivedEventArgsVtbl *lpVtbl; };
+
+typedef struct ICoreWebView2WebMessageReceivedEventHandlerVtbl
+{
+    HRESULT (WINAPI *QueryInterface)(ICoreWebView2WebMessageReceivedEventHandler *This, REFIID riid, void **ppv);
+    ULONG   (WINAPI *AddRef)(ICoreWebView2WebMessageReceivedEventHandler *This);
+    ULONG   (WINAPI *Release)(ICoreWebView2WebMessageReceivedEventHandler *This);
+    HRESULT (WINAPI *Invoke)(ICoreWebView2WebMessageReceivedEventHandler *This, ICoreWebView2 *sender,
+                              ICoreWebView2WebMessageReceivedEventArgs *args);
+} ICoreWebView2WebMessageReceivedEventHandlerVtbl;
+struct ICoreWebView2WebMessageReceivedEventHandler { const ICoreWebView2WebMessageReceivedEventHandlerVtbl *lpVtbl; };
+
+#ifdef COBJMACROS
+#define ICoreWebView2WebMessageReceivedEventArgs_AddRef(This) (This)->lpVtbl->AddRef(This)
+#define ICoreWebView2WebMessageReceivedEventArgs_Release(This) (This)->lpVtbl->Release(This)
+#define ICoreWebView2WebMessageReceivedEventHandler_AddRef(This) (This)->lpVtbl->AddRef(This)
+#define ICoreWebView2WebMessageReceivedEventHandler_Release(This) (This)->lpVtbl->Release(This)
+#define ICoreWebView2WebMessageReceivedEventHandler_Invoke(This,sender,args) \
+    (This)->lpVtbl->Invoke(This,sender,args)
+#endif
+
 typedef struct ICoreWebView2NavigationCompletedEventHandlerVtbl
 {
     HRESULT (WINAPI *QueryInterface)(ICoreWebView2NavigationCompletedEventHandler *This, REFIID riid, void **ppv);
@@ -428,6 +470,8 @@ HRESULT webview_query_interface_v2(ICoreWebView2 *iface, REFIID riid, void **ppv
  * further, matching this task's "fix exactly what the evidence shows,
  * nothing more" approach throughout. */
 DEFINE_GUID(IID_ICoreWebView2Settings, 0xe562e4f0, 0xd7fa, 0x43ac, 0x8d, 0x71, 0xc0, 0x51, 0x50, 0x49, 0x9f, 0x00);
+/* ee9a0f68-f46c-4e32-ac23-ef8cac224d2a, from the official WebView2.h. */
+DEFINE_GUID(IID_ICoreWebView2Settings2, 0xee9a0f68, 0xf46c, 0x4e32, 0xac, 0x23, 0xef, 0x8c, 0xac, 0x22, 0x4d, 0x2a);
 
 typedef struct ICoreWebView2Settings ICoreWebView2Settings;
 typedef struct ICoreWebView2SettingsVtbl
@@ -488,7 +532,7 @@ struct ICoreWebView2Settings { const ICoreWebView2SettingsVtbl *lpVtbl; };
 
 /* Constructs an ICoreWebView2Settings (refcount 1) with real WebView2
  * default values (see this interface's own comment above). */
-HRESULT settings_create(ICoreWebView2Settings **out);
+HRESULT settings_create(ICoreWebView2 *webview, ICoreWebView2Settings **out);
 
 /* Task 11 real bug fix, continued a fifth time: once get_Settings stopped
  * being fatal, the same pattern recurred again -- Studio calls
@@ -695,6 +739,33 @@ DEFINE_GUID(IID_ICoreWebView2CookieManager, 0x177CD9E7, 0xB6F5, 0x451A, 0x94, 0x
  * nothing and catches a real type mismatch at compile time instead of
  * only at the call site's own cast. */
 typedef struct ICoreWebView2GetCookiesCompletedHandler ICoreWebView2GetCookiesCompletedHandler;
+
+/* --- ICoreWebView2Settings2: the base interface plus get/put_UserAgent ---
+ *
+ * Order and IID (ee9a0f68-f46c-4e32-ac23-ef8cac224d2a) transcribed from the
+ * official Microsoft.Web.WebView2 1.0.4129.50 WebView2.h, same rule as every
+ * other vtable here. Settings2 derives from ICoreWebView2Settings, so its
+ * vtable is the base table verbatim followed by the two new slots -- expressed
+ * as a combined struct for the same reason webview2_2_vtbl_combined is: one
+ * object can then answer QueryInterface for both IIDs with one pointer.
+ *
+ * This exists because Studio sets a WebView2-identifying User-Agent through it.
+ * Its own binary carries the template "Mozilla/5.0 (Windows) WebView2 Edg/",
+ * sitting directly among its StudioEmbeddedBrowserWebView2 log strings. The
+ * Toolbox page keys its embedded-vs-website rendering off that token, so while
+ * this interface was refused with E_NOINTERFACE the page had no way to tell it
+ * was inside Studio and served its ordinary consumer store instead. */
+typedef struct
+{
+    HRESULT (WINAPI *get_UserAgent)(ICoreWebView2Settings *This, LPWSTR *value);
+    HRESULT (WINAPI *put_UserAgent)(ICoreWebView2Settings *This, LPCWSTR value);
+} webview2_settings2_extension_vtbl;
+
+struct webview2_settings2_vtbl_combined
+{
+    ICoreWebView2SettingsVtbl base;
+    webview2_settings2_extension_vtbl ext;
+};
 
 typedef struct ICoreWebView2CookieManager ICoreWebView2CookieManager;
 typedef struct ICoreWebView2CookieManagerVtbl
@@ -1034,6 +1105,13 @@ struct webview2_environment8_vtbl_combined
  * this DLL where work flows helper -> Studio rather than the other way. */
 ICoreWebView2 *webview_find_by_handle(UINT64 handle);
 void webview_fire_navigation_starting(ICoreWebView2 *iface, const WCHAR *uri, BOOL is_redirect);
+
+/* Same contract as webview_fire_navigation_starting above, for the page ->
+ * Studio direction of the web-message channel. `source` is the page URI that
+ * posted, `is_string` records which postMessage overload it used (see
+ * wmargs_TryGetWebMessageAsString for why that distinction is load-bearing). */
+void webview_fire_web_message(ICoreWebView2 *iface, const WCHAR *message, const WCHAR *source,
+                               BOOL is_string);
 void webview_start_event_pump(void);
 
 #endif /* __WINE_WEBVIEW2LOADER_PRIVATE_H */

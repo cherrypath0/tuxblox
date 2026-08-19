@@ -146,10 +146,12 @@ static const char *const WV2_MESSAGE_SHIM_JS =
     "(function(){\n"
     "  if (window.chrome && window.chrome.webview) return;\n"
     "  var listeners = [];\n"
+    /* Posts a real object, not JSON text: WebKitGTK hands the handler a
+     * JSCValue, so an object lets the host read the two fields straight off it
+     * with jsc_value_object_get_property instead of pulling in a JSON parser. */
     "  function send(kind, payload) {\n"
     "    try {\n"
-    "      window.webkit.messageHandlers.tuxblox.postMessage(\n"
-    "        JSON.stringify({kind: kind, payload: payload}));\n"
+    "      window.webkit.messageHandlers.tuxblox.postMessage({kind: kind, payload: payload});\n"
     "    } catch (e) { /* handler not registered -- nothing to do */ }\n"
     "  }\n"
     "  window.chrome = window.chrome || {};\n"
@@ -163,52 +165,147 @@ static const char *const WV2_MESSAGE_SHIM_JS =
     "      var i = listeners.indexOf(f); if (i >= 0) listeners.splice(i, 1);\n"
     "    }\n"
     "  };\n"
+    /* Host -> page delivery, called by webview_post_web_message below.
+     * Non-enumerable and underscore-named because it is our transport, not
+     * part of the surface a page should discover. */
+    "  Object.defineProperty(window, '__tuxblox_wv2_deliver', {\n"
+    "    value: function(payload, isString) {\n"
+    "      var data;\n"
+    "      try { data = isString ? payload : JSON.parse(payload); }\n"
+    "      catch (e) { data = payload; }\n"
+    "      var ev = {data: data, source: window.chrome.webview};\n"
+    "      for (var i = 0; i < listeners.length; i++) {\n"
+    "        try { listeners[i](ev); } catch (e) {}\n"
+    "      }\n"
+    "      if (typeof window.chrome.webview.onmessage === 'function') {\n"
+    "        try { window.chrome.webview.onmessage(ev); } catch (e) {}\n"
+    "      }\n"
+    "    }, enumerable: false, writable: false, configurable: false\n"
+    "  });\n"
     "})();\n";
 
+/* Page -> Studio. The shim posts {kind, payload}; this reads those two fields
+ * off the JSCValue and forwards the payload over the event channel as a real
+ * WebMessageReceived.
+ *
+ * Used to be diagnostic only (the "F-08 PROBE" line), which is what made the
+ * Toolbox hang: the page reported loadprogress here and it went nowhere. The
+ * log line is kept -- it is how the payloads were finally observed, and it
+ * costs one fprintf per message. */
 static void on_script_message(WebKitUserContentManager *manager, JSCValue *value, void *user_data)
 {
-    char *json = jsc_value_to_string(value);
+    struct native_webview *nv = user_data;
+    JSCValue *kind_v, *payload_v;
+    char *kind = NULL, *payload = NULL;
+    gboolean is_string;
 
     (void)manager;
-    fprintf(stderr, "webview2loader-host: F-08 PROBE: page called window.chrome.webview.postMessage "
-                    "on nv=%p -- payload: %s\n", user_data, json ? json : "(unconvertible)");
-    g_free(json);
+    if (!value || !jsc_value_is_object(value))
+    {
+        fprintf(stderr, "webview2loader-host: postMessage did not carry the expected object -- "
+                        "dropping\n");
+        return;
+    }
+
+    kind_v = jsc_value_object_get_property(value, "kind");
+    payload_v = jsc_value_object_get_property(value, "payload");
+    if (kind_v) kind = jsc_value_to_string(kind_v);
+    if (payload_v) payload = jsc_value_to_string(payload_v);
+
+    if (payload)
+    {
+        is_string = (kind && !strcmp(kind, "string"));
+        fprintf(stderr, "webview2loader-host: page called window.chrome.webview.postMessage on "
+                        "nv=%p (%s) -- payload: %s\n",
+                (void *)nv, is_string ? "string" : "json", payload);
+        webview_send_web_message_event(nv, payload, is_string);
+    }
+    else fprintf(stderr, "webview2loader-host: postMessage had no payload field -- dropping\n");
+
+    g_free(kind);
+    g_free(payload);
+    if (kind_v) g_object_unref(kind_v);
+    if (payload_v) g_object_unref(payload_v);
 }
 
-static void webview_install_message_probe(struct native_webview *nv)
+void webview_send_web_message_event(struct native_webview *nv, const char *payload_utf8, gboolean is_string)
 {
-    WebKitUserContentManager *manager = webkit_web_view_get_user_content_manager(nv->view);
-    WebKitUserScript *script;
+    const char *source;
 
-    if (!manager)
+    if (!nv) return;
+    /* webkit_web_view_get_uri returns NULL before the first commit; the event
+     * sender treats a NULL source as an empty string rather than dropping the
+     * message, which matters because the page's earliest loadprogress messages
+     * are exactly the ones the Toolbox is waiting for. */
+    source = webkit_web_view_get_uri(nv->view);
+    event_send_web_message(nv, payload_utf8, source, is_string ? 1 : 0);
+}
+
+/* Escapes `src` into a JS double-quoted string literal, including the quotes.
+ * Hand-rolled rather than pulled from json-glib: this file already links only
+ * what WebKitGTK itself guarantees, and one escaper is cheaper than a new
+ * dependency in the bundle's build. Escapes the two structural characters plus
+ * every C0 control, which is exactly what can terminate or corrupt a JS string
+ * literal; everything else (including all non-ASCII UTF-8) passes through, since
+ * the script is handed to WebKit as UTF-8 already. */
+static char *js_string_literal(const char *src)
+{
+    GString *out = g_string_new("\"");
+    const unsigned char *p;
+
+    for (p = (const unsigned char *)src; *p; p++)
     {
-        fprintf(stderr, "webview2loader-host: F-08 PROBE: no WebKitUserContentManager for nv=%p -- "
-                        "probe not installed\n", (void *)nv);
-        return;
+        switch (*p)
+        {
+        case '"':  g_string_append(out, "\\\""); break;
+        case '\\': g_string_append(out, "\\\\"); break;
+        case '\n': g_string_append(out, "\\n"); break;
+        case '\r': g_string_append(out, "\\r"); break;
+        case '\t': g_string_append(out, "\\t"); break;
+        default:
+            if (*p < 0x20) g_string_append_printf(out, "\\u%04x", *p);
+            else g_string_append_c(out, (char)*p);
+            break;
+        }
+    }
+    g_string_append_c(out, '"');
+    return g_string_free(out, FALSE);
+}
+
+/* Studio -> page: hands `message_utf8` to the shim's own delivery entry point.
+ *
+ * The payload goes in as an escaped string literal, never concatenated raw --
+ * this is page-adjacent data being placed into evaluated JavaScript, so an
+ * unescaped quote would be an injection bug, not merely a parse error. */
+gboolean webview_post_web_message(struct native_webview *nv, const char *message_utf8, gboolean is_string)
+{
+    char *literal;
+    char *script;
+
+    if (!nv || !message_utf8)
+    {
+        fprintf(stderr, "webview2loader-host: post_web_message on a stale/NULL webview -- ignoring\n");
+        return FALSE;
     }
 
-    /* NULL world_name == the page's own main script world, which is where
-     * window.chrome has to exist for the page to see it. */
-    if (!webkit_user_content_manager_register_script_message_handler(manager, "tuxblox", NULL))
-    {
-        fprintf(stderr, "webview2loader-host: F-08 PROBE: could not register the 'tuxblox' script "
-                        "message handler for nv=%p -- probe not installed\n", (void *)nv);
-        return;
-    }
-    g_signal_connect_data(manager, "script-message-received::tuxblox",
-                           (GCallback)on_script_message, nv, NULL, 0);
+    literal = js_string_literal(message_utf8);
+    script = g_strdup_printf(
+        "if (window.__tuxblox_wv2_deliver) window.__tuxblox_wv2_deliver(%s, %s);",
+        literal, is_string ? "true" : "false");
+    g_free(literal);
 
-    /* DOCUMENT_START so window.chrome.webview exists before any page script
-     * runs -- a page that feature-detects it at load time must see it. ALL
-     * FRAMES because an OAuth flow can run in an iframe. */
-    script = webkit_user_script_new(WV2_MESSAGE_SHIM_JS,
-                                     WEBKIT_USER_CONTENT_INJECT_ALL_FRAMES,
-                                     WEBKIT_USER_SCRIPT_INJECT_AT_DOCUMENT_START,
-                                     NULL, NULL);
-    webkit_user_content_manager_add_script(manager, script);
-    webkit_user_script_unref(script);
-    fprintf(stderr, "webview2loader-host: F-08 PROBE: window.chrome.webview shim installed for nv=%p\n",
-            (void *)nv);
+    /* Logged on SUCCESS, not only on failure. Without this, "Studio replied and
+     * we delivered it" and "Studio never replied at all" produce identical
+     * logs -- which is exactly the ambiguity blocking the Toolbox, where the
+     * page sends internal:init and waits for an answer. */
+    fprintf(stderr, "webview2loader-host: Studio -> page message on nv=%p (%s): %.160s\n",
+            (void *)nv, is_string ? "string" : "json", message_utf8);
+
+    /* Fire-and-forget: real WebView2's PostWebMessage* has no completion, and a
+     * page that throws inside its own listener is not our failure to report. */
+    webkit_web_view_evaluate_javascript(nv->view, script, -1, NULL, NULL, NULL, NULL, NULL);
+    g_free(script);
+    return TRUE;
 }
 
 /* Take this window out of the window manager's hands entirely, before it is
@@ -236,6 +333,222 @@ static void webview_install_message_probe(struct native_webview *nv)
  *
  * gtk_widget_realize creates the real X window without mapping it, which is
  * exactly the window this needs to run against. */
+/* Default agent applied to every webview at creation.
+ *
+ * WebKitGTK otherwise reports its own Safari-shaped agent, which tells the
+ * Toolbox page it is an ordinary browser -- so the page renders create.roblox.com's
+ * consumer store (Sign Up button and all) inside the Studio panel instead of the
+ * embedded Toolbox UI. Studio itself sets a WebView2 agent through
+ * ICoreWebView2Settings2::put_UserAgent; this default exists so the page still
+ * behaves correctly on the first load, before or without that call, and is
+ * overwritten the moment Studio makes it.
+ *
+ * The "WebView2" token is the part that matters -- it is what the page keys on,
+ * and it is taken from Studio's own template string. This is presenting the same
+ * agent the official client presents on Windows so the unmodified client works
+ * on Linux; it is not concealing anything about the user. */
+#define WV2L_DEFAULT_USER_AGENT \
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) " \
+    "Chrome/138.0.0.0 Safari/537.36 Edg/138.0.0.0 WebView2"
+
+/* Returning TRUE from WebKitWebView::context-menu suppresses the menu entirely.
+ * WebKitGTK has no "disable context menu" setting, so this signal is the
+ * mechanism; it is connected once at creation and consults the flag each time
+ * rather than being connected/disconnected as the setting changes. */
+/* THREE arguments, not four. WebKitGTK 6.0's context-menu signal is
+ * (WebKitWebView*, WebKitContextMenu*, WebKitHitTestResult*) -- the GdkEvent*
+ * that the GTK3-era WebKit passed as a fourth argument is gone in GTK4, and
+ * declaring it anyway shifted every parameter: user_data landed one slot past
+ * the real arguments, so `nv` was read from uninitialised stack and the menu
+ * appeared regardless of the setting. Verified against this bundle's own
+ * installed WebKitWebView.h rather than assumed. */
+static gboolean on_context_menu(WebKitWebView *view, WebKitContextMenu *menu,
+                                 WebKitHitTestResult *hit, void *user_data)
+{
+    struct native_webview *nv = user_data;
+
+    (void)view; (void)menu; (void)hit;
+    return (nv && !nv->default_context_menus_enabled) ? TRUE : FALSE;
+}
+
+/* Applies the subset of ICoreWebView2Settings that WebKitGTK can actually
+ * honour. See wv2l_apply_settings_params for why the rest are not faked here.
+ *
+ * Studio sets AreDefaultContextMenusEnabled=FALSE; until this existed the shim
+ * stored that and did nothing, so right-clicking inside the Toolbox produced
+ * WebKit's own Back/Forward/Stop/Reload menu, which real WebView2 never shows. */
+gboolean webview_apply_settings(struct native_webview *nv, gboolean script_enabled,
+                                 gboolean dev_tools_enabled, gboolean context_menus_enabled)
+{
+    WebKitSettings *settings;
+
+    if (!nv)
+    {
+        fprintf(stderr, "webview2loader-host: apply_settings on a stale/NULL webview -- ignoring\n");
+        return FALSE;
+    }
+
+    nv->default_context_menus_enabled = context_menus_enabled;
+
+    settings = webkit_web_view_get_settings(nv->view);
+    if (!settings) return FALSE;
+    webkit_settings_set_enable_javascript(settings, script_enabled);
+    webkit_settings_set_enable_developer_extras(settings, dev_tools_enabled);
+
+    fprintf(stderr, "webview2loader-host: settings applied on nv=%p: script=%d devtools=%d "
+                    "context_menus=%d\n", (void *)nv, script_enabled, dev_tools_enabled,
+            context_menus_enabled);
+    return TRUE;
+}
+
+gboolean webview_set_user_agent(struct native_webview *nv, const char *user_agent_utf8)
+{
+    WebKitSettings *settings;
+    char *trimmed;
+    const char *start;
+    size_t len;
+
+    if (!nv || !user_agent_utf8)
+    {
+        fprintf(stderr, "webview2loader-host: set_user_agent on a stale/NULL webview -- ignoring\n");
+        return FALSE;
+    }
+
+    /* Studio hands this over with a LEADING SPACE (observed:
+     * " RobloxStudio/WinInet RobloxApp/0.735...."). WebKit validates the value
+     * as an HTTP header, where leading/trailing whitespace is not allowed, so
+     * webkit_settings_set_user_agent rejected it outright with
+     * "assertion 'isValidUserAgentHeaderValue' failed" and the agent silently
+     * stayed at whatever it was.
+     *
+     * Trimmed rather than passed through: the surrounding whitespace carries no
+     * meaning, and refusing an agent Studio deliberately set -- over a space --
+     * would be worse than normalising it. */
+    start = user_agent_utf8;
+    while (*start == ' ' || *start == '\t') start++;
+    len = strlen(start);
+    while (len && (start[len - 1] == ' ' || start[len - 1] == '\t')) len--;
+
+    if (!len)
+    {
+        fprintf(stderr, "webview2loader-host: refusing an empty user agent\n");
+        return FALSE;
+    }
+
+    /* A control character cannot be trimmed away and would fail the same
+     * validation, so reject rather than hand WebKit something it will refuse. */
+    {
+        size_t i;
+        for (i = 0; i < len; i++)
+        {
+            if ((unsigned char)start[i] < 0x20 || (unsigned char)start[i] == 0x7f)
+            {
+                fprintf(stderr, "webview2loader-host: user agent contains a control character at "
+                                "offset %zu -- refusing, WebKit would reject it anyway\n", i);
+                return FALSE;
+            }
+        }
+    }
+
+    settings = webkit_web_view_get_settings(nv->view);
+    if (!settings) return FALSE;
+
+    trimmed = g_strndup(start, len);
+    webkit_settings_set_user_agent(settings, trimmed);
+
+    /* Read back rather than assuming: the previous version logged "user agent
+     * set" unconditionally and said so even on the run where WebKit had
+     * rejected the value, which is exactly the kind of false success that costs
+     * an investigation round. */
+    {
+        const char *now = webkit_settings_get_user_agent(settings);
+        gboolean ok = (now && !strcmp(now, trimmed));
+
+        fprintf(stderr, "webview2loader-host: user agent %s on nv=%p: %s\n",
+                ok ? "set" : "REJECTED BY WEBKIT", (void *)nv, trimmed);
+        g_free(trimmed);
+        return ok;
+    }
+}
+
+gboolean webview_add_user_script(struct native_webview *nv, const char *script_utf8)
+{
+    WebKitUserContentManager *manager;
+    WebKitUserScript *script;
+
+    if (!nv || !script_utf8)
+    {
+        fprintf(stderr, "webview2loader-host: add_user_script on a stale/NULL webview -- ignoring\n");
+        return FALSE;
+    }
+
+    manager = webkit_web_view_get_user_content_manager(nv->view);
+    if (!manager)
+    {
+        fprintf(stderr, "webview2loader-host: no WebKitUserContentManager for nv=%p -- cannot install "
+                        "Studio's document-start script\n", (void *)nv);
+        return FALSE;
+    }
+
+    /* DOCUMENT_START and ALL_FRAMES for the same reasons as the bridge shim
+     * below: the script has to run before any page script feature-detects what
+     * it installs, and Roblox's pages use iframes. NULL world_name is the
+     * page's own main script world -- an isolated world would hide Studio's
+     * bridge from the very page that needs it. */
+    script = webkit_user_script_new(script_utf8,
+                                     WEBKIT_USER_CONTENT_INJECT_ALL_FRAMES,
+                                     WEBKIT_USER_SCRIPT_INJECT_AT_DOCUMENT_START,
+                                     NULL, NULL);
+    webkit_user_content_manager_add_script(manager, script);
+    webkit_user_script_unref(script);
+
+    fprintf(stderr, "webview2loader-host: installed Studio document-start script (%zu bytes) on nv=%p\n",
+            strlen(script_utf8), (void *)nv);
+    return TRUE;
+}
+
+/* Installs the window.chrome.webview bridge shim on `nv`.
+ *
+ * Started life as the F-08 diagnostic probe and is now the actual transport for
+ * both directions of the web-message channel -- page -> Studio through
+ * on_script_message above, Studio -> page through the shim's own
+ * __tuxblox_wv2_deliver entry point. */
+static void webview_install_message_probe(struct native_webview *nv)
+{
+    WebKitUserContentManager *manager = webkit_web_view_get_user_content_manager(nv->view);
+    WebKitUserScript *script;
+
+    if (!manager)
+    {
+        fprintf(stderr, "webview2loader-host: no WebKitUserContentManager for nv=%p -- web-message "
+                        "bridge not installed\n", (void *)nv);
+        return;
+    }
+
+    /* NULL world_name == the page's own main script world, which is where
+     * window.chrome has to exist for the page to see it. */
+    if (!webkit_user_content_manager_register_script_message_handler(manager, "tuxblox", NULL))
+    {
+        fprintf(stderr, "webview2loader-host: could not register the 'tuxblox' script message "
+                        "handler for nv=%p -- web-message bridge not installed\n", (void *)nv);
+        return;
+    }
+    g_signal_connect_data(manager, "script-message-received::tuxblox",
+                           (GCallback)on_script_message, nv, NULL, 0);
+
+    /* DOCUMENT_START so window.chrome.webview exists before any page script
+     * runs -- a page that feature-detects it at load time must see it. ALL
+     * FRAMES because an OAuth flow can run in an iframe. */
+    script = webkit_user_script_new(WV2_MESSAGE_SHIM_JS,
+                                     WEBKIT_USER_CONTENT_INJECT_ALL_FRAMES,
+                                     WEBKIT_USER_SCRIPT_INJECT_AT_DOCUMENT_START,
+                                     NULL, NULL);
+    webkit_user_content_manager_add_script(manager, script);
+    webkit_user_script_unref(script);
+    fprintf(stderr, "webview2loader-host: window.chrome.webview bridge installed for nv=%p\n",
+            (void *)nv);
+}
+
 static void webview_unmanage_window(GtkWidget *window)
 {
     GtkNative *native;
@@ -310,6 +623,15 @@ struct native_webview *webview_create(int is_message_only)
     g_signal_connect_data(nv->window, "close-request", (GCallback)on_close_request,
                            NULL, NULL, 0);
     nv->view = WEBKIT_WEB_VIEW(webkit_web_view_new());
+    {
+        /* Before anything navigates -- see WV2L_DEFAULT_USER_AGENT's comment. */
+        WebKitSettings *st = webkit_web_view_get_settings(nv->view);
+        if (st) webkit_settings_set_user_agent(st, WV2L_DEFAULT_USER_AGENT);
+    }
+    /* Real WebView2's default is TRUE; Studio turns it off explicitly, and that
+     * put_ now reaches webview_apply_settings above. */
+    nv->default_context_menus_enabled = TRUE;
+    g_signal_connect_data(nv->view, "context-menu", (GCallback)on_context_menu, nv, NULL, 0);
     /* F-08 spike (diagnostic only -- no message is delivered to the Wine side
      * yet). Roblox Studio registers BOTH add_WebMessageReceived and
      * add_NavigationStarting before it navigates, and this shim implements

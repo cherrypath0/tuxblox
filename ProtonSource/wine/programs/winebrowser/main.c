@@ -141,6 +141,7 @@ static int open_http_url( const WCHAR *url )
     WCHAR browsers[256];
     HKEY key;
     LONG r;
+    int ret;
 
     /* @@ Wine registry key: HKCU\Software\TuxBlox\WineBrowser */
     if  (!(r = RegOpenKeyW( HKEY_CURRENT_USER, L"Software\\TuxBlox\\WineBrowser", &key )))
@@ -151,7 +152,26 @@ static int open_http_url( const WCHAR *url )
     if (r != ERROR_SUCCESS)
         memcpy( browsers, defaultbrowsers, sizeof(defaultbrowsers) );
 
-    return launch_app( browsers, url );
+    /* TuxBlox: MESSAGE, not TRACE/ERR.
+     *
+     * proton.py defaults WINEDEBUG to "-all", which suppresses ERR as well as
+     * TRACE, so launch_app's own "could not find a suitable app to open"
+     * WINE_ERR below never reaches a real user's log. A failed browser hand-off
+     * was therefore indistinguishable from one that was never attempted -- which
+     * is exactly the ambiguity that made a "Login via Browser does nothing" bug
+     * report unanswerable from its log. MESSAGE prints regardless of WINEDEBUG.
+     *
+     * Logged on ENTRY, not only on failure, deliberately: the question a report
+     * like that has to answer first is whether Studio's own ShellExecute path
+     * ran at all (versus the click never leaving the embedded WebView2 control,
+     * where webview2loader's own host log is the place to look instead). One
+     * line per browser hand-off is negligible -- this runs on a user clicking a
+     * link, not in any hot path. */
+    MESSAGE( "winebrowser: opening %s in the system browser\n", debugstr_w( url ) );
+
+    ret = launch_app( browsers, url );
+    if (ret) MESSAGE( "winebrowser: FAILED to open %s -- no usable browser found\n", debugstr_w( url ) );
+    return ret;
 }
 
 static int open_mailto_url( const WCHAR *url )

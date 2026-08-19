@@ -1963,7 +1963,30 @@ static struct window_surface *create_surface( HWND hwnd, Window window, const XV
         surface->byteswap = byteswap;
         surface->window = window;
         surface->gc = XCreateGC( gdi_display, window, 0, NULL );
-        XSetSubwindowMode( gdi_display, surface->gc, IncludeInferiors );
+        /* TuxBlox: ClipByChildren, not Wine's usual IncludeInferiors.
+         *
+         * This GC is used only to blit the GDI window surface onto whole_window
+         * (x11drv_surface_flush / x11drv_surface_set_clip). With IncludeInferiors
+         * every flush paints straight over any child X window, which erases the
+         * WebView2 shim's webview -- webview2loader XReparentWindow's a real
+         * foreign X window into Studio's whole_window, so it is a child here even
+         * though it is not a Win32 child. Symptom: the login webview goes blank
+         * and only comes back when it repaints itself (i.e. on pointer motion
+         * over it), or never appears at all if nothing triggers that repaint.
+         *
+         * Safe to make unconditional rather than scoping it to windows that have
+         * acquired a foreign child: create_surface() is only reached when
+         * enable_direct_drawing() returned FALSE, and that returns TRUE (no
+         * surface at all) whenever data->client_window is set -- so a window that
+         * owns this GC has no Wine-created child X window for GL/D3D/Vulkan to
+         * begin with, and clipping to children can only affect foreign ones.
+         * The one exception is a layered window, which gets a surface regardless;
+         * Wine composites those itself and Studio's dialogs are not layered.
+         *
+         * Deliberately NOT changed at the other IncludeInferiors sites (init.c,
+         * event.c, opengl.c, window.c, xrender.c) -- those are DC/XRender
+         * drawables where Wine really does need to draw across children. */
+        XSetSubwindowMode( gdi_display, surface->gc, ClipByChildren );
     }
 
     return window_surface;

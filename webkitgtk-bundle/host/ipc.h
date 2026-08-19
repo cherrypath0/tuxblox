@@ -53,4 +53,12 @@ ssize_t ipc_write_full(int fd, const void *buf, size_t len);
 void ipc_set_event_fd(int fd);
 int ipc_send_event(unsigned int type, const void *payload, size_t len);
 
+/* Two-part event send, for an event whose payload is variable-length. See
+ * ipc.c; used by the web-message event so it need not ship a fixed 128 KB
+ * buffer per message. */
+int ipc_send_event_payload(unsigned int type, const void *head, size_t head_len,
+                            const void *tail, size_t tail_len);
+int ipc_event_fd(void);
+void ipc_close_event_fd(void);
+
 #endif

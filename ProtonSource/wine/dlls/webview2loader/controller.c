@@ -57,6 +57,8 @@ struct controller_impl
     COREWEBVIEW2_COLOR default_bg_color;   /* real default: opaque white */
     double rasterization_scale;            /* real default: 1.0 */
     BOOL should_detect_monitor_scale_changes; /* real default: TRUE */
+    /* Latch for the visibility gate above -- see its comment. */
+    BOOL parent_seen_visible;
     COREWEBVIEW2_BOUNDS_MODE bounds_mode;  /* matches this controller's
                                              * existing raw-pixel put_Bounds
                                              * behavior */
@@ -198,7 +200,40 @@ void controller_push_geometry_to_native(ICoreWebView2Controller *iface)
 
     params.handle = ctrl->native_handle;
     params.screen_bounds = controller_compute_screen_bounds(origin, ctrl->bounds);
-    params.visible = ctrl->visible;
+    /* NOT just ctrl->visible: that is only what Studio last passed to
+     * put_IsVisible, and Studio does not call it when it hides the Toolbox for
+     * a playtest -- it hides the dock panel's HWND instead. A normal WebView2
+     * would vanish with its parent automatically, being a real Win32 child;
+     * ours is a foreign X window reparented into the toplevel, so Wine hiding
+     * the panel leaves it mapped and it keeps painting over the 3D viewport.
+     *
+     * IsWindowVisible (not GetWindowLong/WS_VISIBLE) because it is FALSE when
+     * ANY ancestor is hidden, which is exactly the case here -- the hidden
+     * window is the dock panel above us, not parent_window itself. */
+    /* Latched, NOT a plain IsWindowVisible() test.
+     *
+     * The plain test was wrong and blanked the login dialog: Studio creates the
+     * controller and pushes geometry BEFORE it shows the dialog, so the parent
+     * is not visible yet, the webview was hidden immediately, and nothing ever
+     * un-hid it. "Not shown yet" is not the same state as "deliberately
+     * hidden", and only the second one should hide us.
+     *
+     * So the parent's visibility only starts gating once it has actually been
+     * seen visible at least once. Before that we defer to ctrl->visible alone,
+     * which is the pre-existing behaviour that worked. After that, a parent
+     * that goes invisible means the panel really was hidden -- the playtest
+     * case, where Studio hides the Toolbox dock without calling put_IsVisible
+     * and our foreign X window would otherwise keep painting over the
+     * viewport. */
+    if (IsWindowVisible(ctrl->parent_window)) ctrl->parent_seen_visible = TRUE;
+    params.visible = ctrl->visible &&
+                     (!ctrl->parent_seen_visible || IsWindowVisible(ctrl->parent_window));
+
+    /* Inputs travel to the helper, which logs them -- see
+     * wv2l_sync_window_geometry_params for why they are not logged here. */
+    params.dbg_put_is_visible = ctrl->visible ? 1 : 0;
+    params.dbg_parent_visible = IsWindowVisible(ctrl->parent_window) ? 1 : 0;
+    params.dbg_parent_seen_visible = ctrl->parent_seen_visible ? 1 : 0;
     /* Task 7 crash fix, round 15: real WebView2 embeds its browser control
      * as a genuine child of the app's own HWND -- the previous design here
      * (an independent top-level GTK window, manually repositioned via raw
