@@ -212,6 +212,106 @@ static void watch_toplevel_state(struct native_webview *nv, GdkSurface *surface)
 /* Plan 3 Task 3: real position/size/visibility sync, called (via
  * unixlib.c's IPC client) from put_Bounds/put_IsVisible. See geometry.h's
  * own doc comment for the full calling-convention description. */
+/* Reads the webview's own X window back and reports whether it actually holds
+ * pixels.
+ *
+ * "The webview is black" has only ever reached us as a user's eyeball report,
+ * which cannot separate the two causes that need completely different fixes:
+ * the window really is blank (we never painted), or the window has content and
+ * something on top of it is being shown instead (compositor/overpaint). The
+ * process can answer that itself, so it should.
+ *
+ * Samples a small corner rather than the whole surface -- enough to tell
+ * "uniform fill" from "real content" at a fraction of the transfer cost.
+ * Never fatal: XGetImage on an unmapped or fully obscured window legitimately
+ * fails, and that answer ("could not read") is itself worth logging. */
+struct wv2l_paint_probe
+{
+    Display *display;
+    Window   xid;
+    struct native_webview *nv;
+    int      seconds;
+};
+
+static gboolean wv2l_paint_probe_cb(gpointer data)
+{
+    struct wv2l_paint_probe *p = data;
+    const int w = 32, h = 32;
+    XImage *img;
+
+    /* The webview can be destroyed inside the probe's own delay -- a login that
+     * completes quickly does exactly that. webview_destroy frees nv and the X
+     * window with it, so both the widget reads below and the XGetImage would be
+     * use-after-free on a diagnostic nobody asked for.
+     *
+     * webview_lookup is the existing liveness check: the wire handle IS the
+     * pointer, so this is the same registry test every IPC dispatch already
+     * does before touching an nv. */
+    if (!webview_lookup((uint64_t)(uintptr_t)p->nv))
+    {
+        fprintf(stderr, "webview2loader-host: paint probe (%ds): webview already destroyed, skipping\n",
+                p->seconds);
+        free(p);
+        return G_SOURCE_REMOVE;
+    }
+
+    XLockDisplay(p->display);
+    img = XGetImage(p->display, p->xid, 0, 0, w, h, AllPlanes, ZPixmap);
+    XUnlockDisplay(p->display);
+
+    /* Widget geometry alongside the pixels: a correctly-painted webview
+     * allocated 0x0 inside a 500x712 window reads exactly like a failed paint,
+     * and the fixes for those two are nothing alike. */
+    {
+        GtkWidget *view = p->nv ? GTK_WIDGET(p->nv->view) : NULL;
+        GtkWidget *win = p->nv ? p->nv->window : NULL;
+
+        fprintf(stderr, "webview2loader-host: paint probe (%ds) nv=%p: window %dx%d mapped=%d, "
+                        "webview widget %dx%d mapped=%d visible=%d\n",
+                p->seconds, (void *)p->nv,
+                win ? gtk_widget_get_width(win) : -1, win ? gtk_widget_get_height(win) : -1,
+                win ? gtk_widget_get_mapped(win) : -1,
+                view ? gtk_widget_get_width(view) : -1, view ? gtk_widget_get_height(view) : -1,
+                view ? gtk_widget_get_mapped(view) : -1,
+                view ? gtk_widget_get_visible(view) : -1);
+    }
+
+    if (!img)
+    {
+        fprintf(stderr, "webview2loader-host: paint probe (%ds) nv=%p xid=0x%lx: XGetImage failed -- "
+                        "window unmapped or fully obscured\n", p->seconds, (void *)p->nv, p->xid);
+    }
+    else
+    {
+        unsigned long first = XGetPixel(img, 0, 0);
+        int x, y, uniform = 1;
+
+        for (y = 0; y < h && uniform; y++)
+            for (x = 0; x < w; x++)
+                if (XGetPixel(img, x, y) != first) { uniform = 0; break; }
+
+        fprintf(stderr, "webview2loader-host: paint probe (%ds) nv=%p xid=0x%lx: %s (corner pixel 0x%06lx)\n",
+                p->seconds, (void *)p->nv, p->xid,
+                uniform ? "UNIFORM -- no content in this region" : "has content",
+                first & 0xfffffful);
+        XDestroyImage(img);
+    }
+
+    free(p);
+    return G_SOURCE_REMOVE;
+}
+
+static void wv2l_schedule_paint_probe(Display *display, Window xid, void *nv, int seconds)
+{
+    struct wv2l_paint_probe *p = calloc(1, sizeof(*p));
+    if (!p) return;
+    p->display = display;
+    p->xid = xid;
+    p->nv = nv;
+    p->seconds = seconds;
+    g_timeout_add_seconds(seconds, wv2l_paint_probe_cb, p);
+}
+
 gboolean geometry_sync(struct native_webview *nv, struct wv2l_rect bounds, gboolean visible, uint64_t parent_xid)
 {
     GtkNative *native;
@@ -288,6 +388,24 @@ gboolean geometry_sync(struct native_webview *nv, struct wv2l_rect bounds, gbool
     {
         fprintf(stderr, "webview2loader-host: no GdkSurface yet for native window %p -- skipping position sync\n",
                 (void *)nv->window);
+        return TRUE;
+    }
+
+    /* Same already-destroyed case geometry_unreparent guards against, on the
+     * inbound path.
+     *
+     * A destroyed GdkSurface still answers gdk_x11_surface_get_xid with its
+     * old XID, so every X request below would target a window the server has
+     * already freed. Reachable without nv itself being gone: when the
+     * reparented-into parent dies, GDK destroys this surface as soon as it
+     * processes the event, while nv stays alive until the watchdog runs
+     * webview_destroy -- any geometry push Studio makes in that gap lands
+     * here. Skipped rather than attempted: there is no window left to move,
+     * map or raise. */
+    if (gdk_surface_is_destroyed(surface))
+    {
+        fprintf(stderr, "webview2loader-host: GdkSurface already destroyed for nv=%p -- skipping "
+                        "position sync (stale XID would target a freed window)\n", (void *)nv);
         return TRUE;
     }
 
@@ -548,6 +666,25 @@ gboolean geometry_sync(struct native_webview *nv, struct wv2l_rect bounds, gbool
                             "surfaces never receive _NET_WM_FRAME_DRAWN, so leaving it on freezes "
                             "updates after every frame\n", (void *)nv);
 
+            /* Which GSK renderer GTK actually chose.
+             *
+             * main.c asks for cairo with overwrite=0 so it can be A/B tested
+             * from the environment, which means the request is not the answer
+             * -- and nothing logged the answer. A black-webview report is
+             * unanswerable without it. */
+            {
+                GtkNative *native = nv->window ? gtk_widget_get_native(nv->window) : NULL;
+                GskRenderer *renderer = native ? gtk_native_get_renderer(native) : NULL;
+
+                fprintf(stderr, "webview2loader-host: GSK renderer in use for nv=%p: %s\n",
+                        (void *)nv, renderer ? G_OBJECT_TYPE_NAME(renderer) : "(none)");
+            }
+
+            /* Two probes, because the interesting failure is a window that
+             * paints once and then stops as much as one that never paints. */
+            wv2l_schedule_paint_probe(display, xid, nv, 3);
+            wv2l_schedule_paint_probe(display, xid, nv, 8);
+
             /* Diagnostic for the "content disappears unless the pointer is
              * inside the webview" symptom.
              *
@@ -635,6 +772,30 @@ gboolean geometry_sync(struct native_webview *nv, struct wv2l_rect bounds, gbool
              * window is a no-op at the server, and repeating it self-heals if
              * anything unmaps the window behind our back again. */
             XMapWindow(display, xid);
+
+            /* Mapped is only half of on-screen; stacking is the other half,
+             * and nothing was asserting it.
+             *
+             * XReparentWindow puts the window on top of its new siblings once,
+             * at reparent time, and that is the only thing that has ever
+             * ordered it. Anything that restacks afterwards -- Wine matching
+             * X11 stacking to Win32 Z-order on its own child windows, a GTK
+             * re-map, the WM -- can leave this window painted correctly and
+             * completely covered, which is indistinguishable from "never
+             * painted" to anyone looking at the screen. That is exactly the
+             * shape of the bug the XMapWindow above was added for ("renders
+             * correctly into a window that is never on screen"), so the same
+             * defence belongs on the ordering.
+             *
+             * Same every-sync/self-healing rationale as the map: raising an
+             * already-top window is a no-op at the server, so the cost is one
+             * request on a call that is already issuing several.
+             *
+             * NOT a confirmed fix for the black-webview reports -- those do not
+             * reproduce here, and this is defensive. It is safe regardless:
+             * this window is the dialog's content, so there is no sibling it
+             * would be wrong to sit above. */
+            XRaiseWindow(display, xid);
 
             /* Task 7 crash fix, round 19: the real fix for a genuine,
              * evidence-confirmed bug -- put_Bounds after reparenting
@@ -783,6 +944,29 @@ gboolean geometry_unreparent(struct native_webview *nv)
     native = gtk_widget_get_native(nv->window);
     surface = native ? gtk_native_get_surface(native) : NULL;
     if (!surface) return TRUE;
+
+    /* GDK may already have torn this surface down, and the un-reparent is
+     * meaningless (and harmful) once it has.
+     *
+     * watchdog.h is honest that its race against GDK's own async discovery of
+     * a destroyed parent is "not a guaranteed win of every possible timing".
+     * When it loses, GDK logs "GdkSurface ... unexpectedly destroyed" and
+     * drops the surface -- but gdk_x11_surface_get_xid still hands back the
+     * stale XID, so the XReparentWindow below is aimed at a window the server
+     * already freed. That is the BadWindow (request_code=7, error_code=3) seen
+     * in a real user log: swallowed by x11_error_handler, so merely noise, but
+     * it is a request we should never have sent.
+     *
+     * A destroyed surface has no X11 hierarchy left to restore, which is the
+     * entire job of this function, so there is nothing to skip past here --
+     * returning early is the correct outcome, not a degraded one. */
+    if (gdk_surface_is_destroyed(surface))
+    {
+        fprintf(stderr, "webview2loader-host: un-reparent skipped for nv=%p -- GdkSurface already "
+                        "destroyed (GDK won the teardown race), nothing left to un-reparent\n",
+                (void *)nv);
+        return TRUE;
+    }
 
     /* Same TOCTOU-closing ref pattern geometry_sync's own comment documents
      * in detail above -- held for this function's entire span, released at

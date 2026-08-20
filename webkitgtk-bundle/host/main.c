@@ -44,6 +44,12 @@
  * gtk_main()/gtk_main_quit() did, just GLib's own API instead of GTK's now
  * removed wrapper around it.
  */
+/* dladdr() is a GNU extension -- log_gl_provenance uses it to report which
+ * libEGL actually got resolved. Must precede every include below. */
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
+
 #include <gtk/gtk.h>
 #include <glib-unix.h>
 #include <X11/Xlib.h>
@@ -113,6 +119,67 @@ static GMainLoop *g_loop = NULL;
  * showing an NVIDIA vendor string here would mean WV2L_ALWAYS_USE_BUNDLE_GL
  * somehow isn't taking effect -- a regression, not an expected outcome on any
  * machine. */
+/* Logs WHICH GL implementation actually got loaded, not just what it calls
+ * itself.
+ *
+ * EGL_VENDOR is useless for this: Mesa reports "Mesa Project" for the bundle's
+ * llvmpipe and for a host radeonsi/iris driver alike, so a bundle-GL launch and
+ * a host-GL launch produce byte-identical log lines. That cost a real user
+ * investigation (2026-08-20, black webview on a machine we could not reproduce
+ * on) -- their log and a known-good log agreed on every line, which ruled
+ * nothing out. Bundle-vs-host library mixing has burned this project before
+ * (see the freetype COLRv1 WebProcess crash), so it needs to be visible.
+ *
+ * Two independent answers, because either alone can mislead: dladdr() gives the
+ * file the resolved eglGetDisplay actually came from, and the maps scan catches
+ * the DRI driver/gallium copy loaded later by the driver itself, which dladdr
+ * on libEGL cannot see. */
+static void log_gl_provenance(void *egl_sym)
+{
+    Dl_info info;
+    FILE *maps;
+    char line[512];
+    char seen[8][128];
+    int n_seen = 0, i;
+
+    if (egl_sym && dladdr(egl_sym, &info) && info.dli_fname)
+        fprintf(stderr, "webview2loader-host: GL provenance: libEGL resolved to %s\n", info.dli_fname);
+    else
+        fprintf(stderr, "webview2loader-host: GL provenance: could not resolve libEGL path via dladdr\n");
+
+    if (!(maps = fopen("/proc/self/maps", "r")))
+        return;
+
+    while (fgets(line, sizeof(line), maps) && n_seen < (int)(sizeof(seen) / sizeof(seen[0])))
+    {
+        const char *path = strchr(line, '/');
+        if (!path) continue;
+        if (!strstr(path, "libgallium") && !strstr(path, "_dri.so") &&
+            !strstr(path, "libGLX_") && !strstr(path, "libEGL_") &&
+            !strstr(path, "nvidia") && !strstr(path, "libvulkan"))
+            continue;
+
+        for (i = 0; i < n_seen; i++)
+            if (!strncmp(seen[i], path, strlen(seen[i]))) break;
+        if (i < n_seen) continue;
+
+        /* store the full path (trimmed) so a bundle copy and a host copy of the
+         * same soname are distinguishable -- the basename alone is not. */
+        {
+            size_t len = strcspn(path, "\n");
+            if (len >= sizeof(seen[0])) len = sizeof(seen[0]) - 1;
+            memcpy(seen[n_seen], path, len);
+            seen[n_seen][len] = '\0';
+            n_seen++;
+            fprintf(stderr, "webview2loader-host: GL provenance: loaded %s\n", seen[n_seen - 1]);
+        }
+    }
+    fclose(maps);
+
+    if (!n_seen)
+        fprintf(stderr, "webview2loader-host: GL provenance: no gallium/DRI/vendor GL module mapped yet\n");
+}
+
 static void log_gl_dispatch_info(void)
 {
     void *h;
@@ -205,6 +272,8 @@ static void log_gl_dispatch_info(void)
      * exists to be logged once. A one-time intentional "leak" of this
      * dlopen handle for the lifetime of the process is the safe choice
      * here, not an oversight. */
+
+    log_gl_provenance(p_eglGetDisplay);
 }
 
 /* Copies ExecuteScript's UTF-8 JSON result into the response struct's fixed
