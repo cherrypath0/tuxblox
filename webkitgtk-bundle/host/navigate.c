@@ -1094,7 +1094,7 @@ static void xdg_open_sanitize_env(void)
         "XDG_DATA_DIRS",
         "FONTCONFIG_PATH", "GDK_PIXBUF_MODULE_FILE", "GDK_PIXBUF_MODULEDIR",
         "LIBGL_DRIVERS_PATH", "LIBGL_ALWAYS_SOFTWARE",
-        "GDK_BACKEND", "GSK_RENDERER",
+        "GDK_BACKEND", "GSK_RENDERER", "EGL_PLATFORM",
         /* Not loader paths, but they name THIS process's private IPC fds and
          * would be a lie in any other process's environment. */
         "WEBVIEW2LOADER_IPC_FD", "WEBVIEW2LOADER_EVENT_FD",

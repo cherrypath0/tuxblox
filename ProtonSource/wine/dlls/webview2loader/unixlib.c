@@ -341,6 +341,35 @@ static void set_webkit_relocation_env(const char *dir)
     snprintf(path, sizeof(path), "%s/lib/x86_64-linux-gnu/dri", dir);
     setenv("LIBGL_DRIVERS_PATH", path, 1);
     setenv("LIBGL_ALWAYS_SOFTWARE", "1", 1);
+
+    /* Pin EGL's platform to X11, for the same reason main.c pins
+     * GDK_BACKEND=x11: this helper is X11-only by construction (it
+     * XReparentWindow's its GdkSurface into Studio's window and drives
+     * geometry through raw Xlib), so an inherited EGL_PLATFORM naming any
+     * other platform is always wrong here.
+     *
+     * Not a hardening guess -- a reproduced SIGSEGV, from a real user crash
+     * report (2026-08-19). Mesa's own platform selection gives $EGL_PLATFORM
+     * priority over autodetecting the native display pointer it was handed,
+     * so on a session that exports EGL_PLATFORM=wayland (common enough
+     * advice for Wayland/NVIDIA setups that users really do have it set),
+     * Mesa takes the Xlib Display* main.c's log_gl_dispatch_info() passes to
+     * eglGetDisplay(), casts it to a wl_display*, and dereferences it:
+     * eglInitialize -> wl_proxy_create_wrapper -> pthread_mutex_lock on
+     * garbage, killing the helper at startup before any webview exists.
+     * Reproduced byte-for-byte against this bundle's own libEGL, and fixed
+     * by this pin.
+     *
+     * Only "wayland" crashes; other wrong values (drm, surfaceless) instead
+     * make eglInitialize fail, which loses accelerated compositing for the
+     * whole process -- WebKit's own PlatformDisplayDefault reaches EGL
+     * through the same legacy eglGetDisplay() path, so it inherits whatever
+     * platform this variable names too. Pinning it fixes both the crash and
+     * that quieter no-rendering class.
+     *
+     * Overwrite (1), not 0: an inherited value is precisely what's being
+     * corrected, so honoring it would defeat the fix. */
+    setenv("EGL_PLATFORM", "x11", 1);
 }
 
 /* Forks and execs webkitgtk-bundle/host's webview2loader-host binary,

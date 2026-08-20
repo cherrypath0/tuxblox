@@ -641,6 +641,38 @@ int main(int argc, char **argv)
      * GDK's display connection and locks in its backend choice. */
     setenv("GDK_BACKEND", "x11", 1);
 
+    /* Same reasoning as GDK_BACKEND above, for the other half of the
+     * window-system choice: this process is X11-only, so EGL must be too.
+     *
+     * Mesa's own platform selection gives $EGL_PLATFORM priority over
+     * autodetecting the native display pointer it is handed. An inherited
+     * EGL_PLATFORM=wayland (a real thing on user sessions, and this process
+     * inherits the user's whole environment through Wine) therefore makes
+     * Mesa take the Xlib Display* log_gl_dispatch_info() passes to
+     * eglGetDisplay() below, cast it to a wl_display*, and dereference it:
+     * eglInitialize -> wl_proxy_create_wrapper -> pthread_mutex_lock on
+     * garbage, a startup SIGSEGV that kills this process before any webview
+     * exists (real user crash report, 2026-08-19; reproduced byte-for-byte
+     * against this bundle's own libEGL). Wrong-but-not-fatal values (drm,
+     * surfaceless) instead fail eglInitialize outright, which costs the whole
+     * process accelerated compositing -- WebKit's own PlatformDisplayDefault
+     * reaches EGL through the same legacy eglGetDisplay() path, so it obeys
+     * this variable too, and so do the WebProcess/GPUProcess children that
+     * inherit this environment.
+     *
+     * unixlib.c's spawn_helper() already pins this in the child it forks, so
+     * on a normal launch this call is a no-op re-assertion of a value that is
+     * already correct. Deliberately duplicated rather than left to that one
+     * site: this is the process the variable actually has to be right for,
+     * the pin costs one setenv(), and it keeps a directly-run helper (dev
+     * testing, or any future spawn path) from resurrecting the crash.
+     * Overwrite (1), not 0, for the same reason it is there: an inherited
+     * value is exactly what is being corrected.
+     *
+     * Must be set before gtk_init_check() below, same ordering GDK_BACKEND
+     * needs -- that is the call that first brings up GL/EGL in-process. */
+    setenv("EGL_PLATFORM", "x11", 1);
+
     /* Renderer selection. Both of the settings below are now set with
      * overwrite=0, NOT 1: whatever is already in the environment wins, so a
      * hypothesis can be A/B tested on a real Studio launch by exporting one
