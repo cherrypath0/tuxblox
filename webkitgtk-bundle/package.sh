@@ -229,6 +229,10 @@ find include lib libexec etc share -type f \
     # would otherwise win the soname race against this bundle's own,
     # different-versioned GStreamer/graphene builds. See
     # "LD_LIBRARY_PATH beats this bundle's RUNPATH" in README.md.
+    # STRIP FIRST, PATCHELF SECOND. This order is load-bearing -- see the block
+    # below for the corruption the old order caused.
+    strip --strip-unneeded "$f"
+
     patchelf --force-rpath --set-rpath "\$ORIGIN:\$ORIGIN/${up}lib:\$ORIGIN/${up}lib/x86_64-linux-gnu" "$f"
 
     # Task 8 post-review correction (2026-08-10), C-2: strip debug symbols. The
@@ -241,11 +245,25 @@ find include lib libexec etc share -type f \
     # dynamic symbol table every shared library needs to actually be loaded and
     # linked against -- safe to run unconditionally on every ELF file this loop
     # already confirmed has a dynamic section (the --print-rpath probe above), same
-    # class of file `strip` is meant for. Run after patchelf, not before: patchelf's
-    # RPATH/DT_NEEDED edits are dynamic-section changes, unaffected by stripping
-    # symbol/debug sections afterward, so the order only matters for not having to
-    # re-probe the ELF-magic/dynamic-section checks twice.
-    strip --strip-unneeded "$f"
+    # class of file `strip` is meant for.
+    #
+    # ORDER CORRECTION (2026-08-21): this used to run AFTER patchelf, on the
+    # reasoning that "patchelf's RPATH/DT_NEEDED edits are dynamic-section changes,
+    # unaffected by stripping symbol/debug sections afterward". That is wrong in the
+    # direction that matters. patchelf rewrites the dynamic section by relocating it,
+    # which can leave .dynstr outside any PT_LOAD segment; strip then rebuilds the
+    # file from those headers and silently produces a corrupt binary. GNU strip even
+    # says so -- "warning: allocated section `.dynstr' not in segment" -- but exits 0,
+    # so the packaging step looked clean.
+    #
+    # The result was a host binary that loaded every library successfully and then
+    # died with "symbol lookup error: undefined symbol: , version" -- an empty symbol
+    # name and empty version, because the version tables it was reading were garbage.
+    # Bisected step by step: original ran fine, +patchelf ran fine, +strip broke it.
+    #
+    # Stripping first and patchelfing second produces a binary that is both stripped
+    # and correctly RPATH'd, with no warning. Nothing downstream cares which order
+    # they happened in, only that both did.
 done
 
 mkdir -p /out

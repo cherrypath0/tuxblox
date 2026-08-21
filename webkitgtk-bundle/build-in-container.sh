@@ -111,11 +111,32 @@ fetch_and_extract() {
     return 1
 }
 
+echo ":: Building libffi $LIBFFI_VERSION"
+fetch_and_extract \
+    "https://github.com/libffi/libffi/releases/download/v${LIBFFI_VERSION}/libffi-${LIBFFI_VERSION}.tar.gz" \
+    /build/libffi
+# Vendored because libgobject links it and the SONAME moves between distros:
+# Debian 11 (this builder) ships libffi.so.7, while Ubuntu 22.04, Arch and Fedora
+# ship .so.8. Borrowing the builder's copy makes the bundle unloadable on exactly
+# the distros most users run -- the mirror image of the libtiff .so.6 failure.
+cd /build/libffi
+./configure --prefix="$PREFIX" --disable-static --disable-docs
+make -j"$JOBS"
+make install
+cd /build
+
 echo ":: Building glib $GLIB_VERSION"
 fetch_and_extract \
     "https://download.gnome.org/sources/glib/${GLIB_VERSION%.*}/glib-${GLIB_VERSION}.tar.xz" \
     /build/glib
-meson setup /build/glib/_build /build/glib --prefix="$PREFIX" -Dtests=false
+# -Dselinux=disabled is REQUIRED for portability, not a preference. Debian ships
+# libselinux and glib's gio links it when present; Arch does not ship it at all, so
+# a bundle built here without this flag dies on Arch with
+# "libselinux.so.1: cannot open shared object file" before reaching main().
+# Caught by running the freshly built bundle on the maintainer's own Arch box.
+# gio's selinux support only annotates file security contexts -- nothing in this
+# bundle reads them.
+meson setup /build/glib/_build /build/glib --prefix="$PREFIX" -Dtests=false -Dselinux=disabled
 ninja -C /build/glib/_build -j"$JOBS" install
 
 echo ":: Building icu $ICU_VERSION"
@@ -199,6 +220,31 @@ cmake -B /build/libjpeg-turbo/_build -S /build/libjpeg-turbo \
 cmake --build /build/libjpeg-turbo/_build -j"$JOBS"
 cmake --install /build/libjpeg-turbo/_build
 
+echo ":: Building libtiff $LIBTIFF_VERSION"
+fetch_and_extract \
+    "https://download.osgeo.org/libtiff/tiff-${LIBTIFF_VERSION}.tar.gz" \
+    /build/libtiff
+# Vendored for exactly the reason libjpeg-turbo above is: the distro SONAME is not
+# portable. Debian 11/Ubuntu 22.04 ship libtiff.so.5, Debian 12/Arch ship .so.6, so
+# linking whatever the builder happens to have breaks the other half of the users --
+# and it did. Building on debian:12 produced a bundle needing libtiff.so.6, and
+# webview2loader-host then failed to start on Ubuntu 22.04 with
+# "libtiff.so.6: cannot open shared object file", taking the whole webview with it.
+# Shipping our own copy makes the host's version irrelevant either way.
+# Pulled in by libgtk-4 and gdk-pixbuf's TIFF loader.
+# Every optional codec is OFF on purpose. Left on 'auto', libtiff picks up the
+# BUILD container's Debian 11 libjpeg62/libwebp6/libdeflate and drags their
+# SONAMEs into the bundle -- libjpeg.so.62 and libwebp.so.6 do not exist on Arch
+# or on newer Debians, so the bundle would then fail to load there. Exactly the
+# portability trap this vendoring exists to close, just pointed the other way.
+# GTK's TIFF loader only needs baseline TIFF; none of these codecs are used.
+cmake -B /build/libtiff/_build -S /build/libtiff \
+    -DCMAKE_INSTALL_PREFIX="$PREFIX" -DCMAKE_PREFIX_PATH="$PREFIX" -DCMAKE_BUILD_TYPE=Release \
+    -DBUILD_SHARED_LIBS=ON -Dtiff-tools=OFF -Dtiff-tests=OFF -Dtiff-docs=OFF \
+    -Djpeg=OFF -Dold-jpeg=OFF -Dwebp=OFF -Dzstd=OFF -Dlzma=OFF -Dlibdeflate=OFF -Djbig=OFF
+cmake --build /build/libtiff/_build -j"$JOBS"
+cmake --install /build/libtiff/_build
+
 echo ":: Building libxml2 $LIBXML2_VERSION"
 fetch_and_extract \
     "https://download.gnome.org/sources/libxml2/${LIBXML2_VERSION%.*}/libxml2-${LIBXML2_VERSION}.tar.xz" \
@@ -219,7 +265,18 @@ fetch_and_extract \
 # libwebp, libtasn1, ...). --without-python: same reasoning as libxml2's
 # -Dpython=disabled above -- no Python bindings needed here.
 cd /build/libxslt
-./configure --prefix="$PREFIX" --with-libxml-prefix="$PREFIX" --without-python
+# NO --with-libxml-prefix, deliberately: passing it makes configure locate libxml2
+# through $PREFIX/bin/xml2-config, and libxml2 2.15 dropped that script's --shared
+# option, so the probe dies with "Unknown option --shared" followed by the
+# misleading "Could not find libxml2 anywhere" -- while sitting right next to a
+# perfectly good 2.15.3. Without the flag it uses pkg-config, which PKG_CONFIG_PATH
+# already points at this same prefix.
+#
+# This only became visible when the prefix volume was wiped for the sniper rebuild:
+# libxslt had been built once, long ago, against a pre-2.15 libxml2 and then simply
+# persisted in the volume, so no later run ever re-ran this configure. A from-scratch
+# build had been broken for a while without anyone noticing.
+./configure --prefix="$PREFIX" --without-python
 make -j"$JOBS"
 make install
 cd /build
@@ -301,7 +358,17 @@ echo ":: Building libpsl $LIBPSL_VERSION"
 fetch_and_extract \
     "https://github.com/rockdaboot/libpsl/releases/download/${LIBPSL_VERSION}/libpsl-${LIBPSL_VERSION}.tar.gz" \
     /build/libpsl
-meson setup /build/libpsl/_build /build/libpsl --prefix="$PREFIX"
+# IDNA backend pinned to ICU instead of left on 'auto'. On debian:12 'auto' happened
+# to find libunistring and silently used it; sniper (Debian 11) has no
+# libunistring-dev, so the same 'auto' hard-errors with
+# "C shared or static library 'unistring' not found".
+#
+# Pinning to libicu rather than installing libunistring-dev: ICU is already built
+# into this prefix (see the icu step above), so this adds no new dependency at all,
+# whereas libunistring would become another host library the bundle links and must
+# then be vendored to stay portable -- the exact trap libtiff just cost us.
+meson setup /build/libpsl/_build /build/libpsl --prefix="$PREFIX" \
+    -Druntime=libicu -Dbuiltin=true
 ninja -C /build/libpsl/_build -j"$JOBS" install
 
 echo ":: Building libgudev $LIBGUDEV_VERSION"
@@ -331,6 +398,22 @@ fetch_and_extract \
 # which is out of scope for this C/C++ build chain.
 meson setup /build/libsecret/_build /build/libsecret --prefix="$PREFIX" -Dmanpage=false -Dgtk_doc=false -Dintrospection=false
 ninja -C /build/libsecret/_build -j"$JOBS" install
+
+echo ":: Building libnghttp2 $LIBNGHTTP2_VERSION"
+fetch_and_extract \
+    "https://github.com/nghttp2/nghttp2/releases/download/v${LIBNGHTTP2_VERSION}/nghttp2-${LIBNGHTTP2_VERSION}.tar.xz" \
+    /build/nghttp2
+# libsoup links this for HTTP/2, and it was being taken from the host. It is not
+# installed by default on minimal systems, and the host binary refuses to start
+# when it is absent -- "libnghttp2.so.14: cannot open shared object file" was the
+# actual failure in a clean Ubuntu 22.04 container. ENABLE_LIB_ONLY: only the
+# library is wanted, not nghttp2's tools/tests (which would pull libev, libcares,
+# openssl and more host dependencies with them).
+cmake -B /build/nghttp2/_build -S /build/nghttp2 \
+    -DCMAKE_INSTALL_PREFIX="$PREFIX" -DCMAKE_BUILD_TYPE=Release \
+    -DENABLE_LIB_ONLY=ON -DBUILD_SHARED_LIBS=ON -DBUILD_STATIC_LIBS=OFF
+cmake --build /build/nghttp2/_build -j"$JOBS"
+cmake --install /build/nghttp2/_build
 
 echo ":: Building libsoup $LIBSOUP_VERSION"
 fetch_and_extract \
@@ -561,6 +644,24 @@ meson setup /build/glib-networking/_build /build/glib-networking --prefix="$PREF
     -Dgnome_proxy=disabled -Dlibproxy=disabled
 ninja -C /build/glib-networking/_build -j"$JOBS" install
 
+echo ":: Building libdrm $LIBDRM_VERSION"
+fetch_and_extract \
+    "https://dri.freedesktop.org/libdrm/libdrm-${LIBDRM_VERSION}.tar.xz" \
+    /build/libdrm
+# Vendored for two reasons at once.
+#
+# Required: Mesa ${MESA_VERSION} wants libdrm >= 2.4.109 and sniper (Debian 11)
+# ships 2.4.104, so its configure fails outright without this.
+#
+# Wanted anyway: libdrm was already one of the host libraries this bundle linked
+# rather than shipped, and Mesa is tightly version-coupled to it. Borrowing the
+# host's copy meant a bundled Mesa talking to whatever libdrm the user's distro
+# happened to have -- fine on the machine it was built on, a coin flip elsewhere.
+# Shipping the matching pair removes that variable and one more host dependency.
+meson setup /build/libdrm/_build /build/libdrm --prefix="$PREFIX" \
+    -Dcairo-tests=disabled -Dvalgrind=disabled
+ninja -C /build/libdrm/_build -j"$JOBS" install
+
 echo ":: Building mesa $MESA_VERSION"
 fetch_and_extract "https://archive.mesa3d.org/mesa-${MESA_VERSION}.tar.xz" /build/mesa
 # The plan brief's original flags (-Dgallium-drivers=swrast, -Dosmesa=true) don't
@@ -682,22 +783,27 @@ ninja -C /build/wpebackend-fdo/_build -j"$JOBS" install
 # completed with exit code 0 and `pkg-config --modversion` printing real version
 # strings for all three modules before this was appended here.
 #
-# Known real gap, intentionally out of this task's scope (brief only covers
-# gstreamer + gst-plugins-base + gst-plugins-bad, matching the plan's Global
-# Constraints dependency list): the Containerfile has no codec libraries for ogg,
-# vorbis, theora, or alsa, so gst-plugins-base's corresponding 'auto' features
-# silently resolved to disabled rather than failing the build -- confirmed by
-# inspecting the installed plugin set afterward (no libgstogg/libgstvorbis/
-# libgsttheora/libgstalsa present in $PREFIX/lib/x86_64-linux-gnu/gstreamer-1.0/).
-# gst-plugins-bad's build produced GL-backed plugins (opengl, waylandsink,
-# ximagesink) using Mesa/Wayland/X11 from Task 5, and gstreamer-gl-*.pc modules are
-# present, so the accelerated video path has real plugin coverage -- but actual
-# audio/video *codec* decoding for common web formats (Vorbis/Theora audio-video,
-# ALSA output) has no plugin backing it yet. gst-plugins-good/gst-plugins-ugly/
-# gst-libav (none of which are in this plan's dependency list) are the usual source
-# of that codec coverage upstream; flagged here rather than silently building them,
-# since it's outside this task's brief the same way Task 4 flagged the TLS gap
-# before a later task filled it in.
+# The codec gap this block used to flag is now closed -- and it was not cosmetic.
+#
+# What it said: the Containerfile shipped no ogg/vorbis/theora/alsa dev libraries,
+# so gst-plugins-base's 'auto' features silently resolved to disabled, and
+# gst-plugins-good (the usual home of the audio sinks and common demuxers) was
+# never built at all.
+#
+# What that cost: playing any audio in Studio's Toolbox killed the WebProcess
+# outright. Confirmed from a real coredump -- SIGABRT, with abort() called from
+# inside libwebkitgtk on a main-loop dispatch, i.e. a WebKit assertion, not a
+# segfault. WebKit's GStreamer backend treats "required element missing" as
+# unrecoverable rather than degrading to silence, so no decoder + no audio sink =
+# abort. The bundle had GStreamer core and GL-backed video plugins but literally
+# no way to decode or output a sound.
+#
+# So the audio/codec -dev packages are now in the Containerfile (see its header)
+# and gst-plugins-good is built above. gst-plugins-ugly and gst-libav are still
+# deliberately absent: they are the patent/licensing-sensitive ones, and base +
+# good already covers what the Toolbox actually serves. If a format shows up that
+# still fails, check the plugin set before assuming a code bug -- a missing plugin
+# looks exactly like a crash here.
 echo ":: Building gstreamer $GSTREAMER_VERSION"
 fetch_and_extract \
     "https://gstreamer.freedesktop.org/src/gstreamer/gstreamer-${GSTREAMER_VERSION}.tar.xz" \
@@ -712,11 +818,30 @@ fetch_and_extract \
 meson setup /build/gst-plugins-base/_build /build/gst-plugins-base --prefix="$PREFIX"
 ninja -C /build/gst-plugins-base/_build -j"$JOBS" install
 
+echo ":: Building gst-plugins-good $GSTREAMER_VERSION"
+fetch_and_extract \
+    "https://gstreamer.freedesktop.org/src/gst-plugins-good/gst-plugins-good-${GSTREAMER_VERSION}.tar.xz" \
+    /build/gst-plugins-good
+# Plugins disabled because their host libraries are not portable across distros:
+# FLAC (libFLAC.so.8 on Debian, .so.12 elsewhere), vpx (libvpx.so.6 vs .so.7/.so.9),
+# soup (would pull a second HTTP stack). Shipping a plugin that cannot load anywhere
+# but the build distro is dead weight -- GStreamer skips it at registry scan, so the
+# only thing it adds is confusion when someone greps the plugin list.
+# Toolbox audio needs vorbis/opus/ogg/wav/mp4 + a sink; none of these are on that path.
+meson setup /build/gst-plugins-good/_build /build/gst-plugins-good --prefix="$PREFIX" \
+    -Dflac=disabled -Dvpx=disabled -Dsoup=disabled
+ninja -C /build/gst-plugins-good/_build -j"$JOBS" install
+
 echo ":: Building gst-plugins-bad $GSTREAMER_VERSION"
 fetch_and_extract \
     "https://gstreamer.freedesktop.org/src/gst-plugins-bad/gst-plugins-bad-${GSTREAMER_VERSION}.tar.xz" \
     /build/gst-plugins-bad
-meson setup /build/gst-plugins-bad/_build /build/gst-plugins-bad --prefix="$PREFIX"
+# Same portability rule as gst-plugins-good above: openal (libopenal.so.1),
+# curl (Debian's libcurl-gnutls.so.4 specifically), and dtls/aes (OpenSSL 1.1's
+# libcrypto.so.1.1, while Arch and every current distro are on OpenSSL 3) all pull
+# host libraries that do not exist outside the build distro.
+meson setup /build/gst-plugins-bad/_build /build/gst-plugins-bad --prefix="$PREFIX" \
+    -Dopenal=disabled -Dcurl=disabled -Ddtls=disabled -Daes=disabled
 ninja -C /build/gst-plugins-bad/_build -j"$JOBS" install
 
 # --- WebKitGTK itself -------------------------------------------------------------
@@ -1065,6 +1190,12 @@ fi
 # separate connection can hit a fatal internal-consistency assertion over it
 # -- see webkitgtk-bundle/host/watchdog.h's own top-of-file comment for the
 # full crash mechanism and rationale.
+# -ldl is required, not belt-and-braces: this host dlopen()s libEGL and uses
+# dladdr for the GL-provenance log. glibc >= 2.34 folded libdl into libc, so the
+# old debian:12 base linked fine without it; sniper is glibc 2.31 where libdl is
+# still a separate DSO, and omitting it fails with
+# "undefined reference to symbol 'dlclose@@GLIBC_2.2.5' ... DSO missing from
+# command line". Harmless on newer glibc, where -ldl resolves to a stub.
 echo ":: Building webview2loader-host"
 gcc -O2 -Wall -Werror -o "$PREFIX/bin/webview2loader-host" \
     /src/host/main.c /src/host/ipc.c /src/host/webview.c /src/host/geometry.c /src/host/navigate.c \
@@ -1072,4 +1203,4 @@ gcc -O2 -Wall -Werror -o "$PREFIX/bin/webview2loader-host" \
     -I/src/host \
     $(pkg-config --cflags gtk4 webkitgtk-6.0) \
     $(pkg-config --libs gtk4 webkitgtk-6.0) \
-    -lX11
+    -lX11 -ldl

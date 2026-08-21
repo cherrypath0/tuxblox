@@ -1,6 +1,32 @@
-FROM debian:12
+# Steam Runtime 3 (sniper), NOT debian:12.
+#
+# The bundle's glibc floor is whatever it is built against, and debian:12 made
+# that 2.36 -- five releases above the ubuntu:20.04 (2.31) floor the rest of
+# TuxBlox targets. That silently broke the webview on Ubuntu 22.04, Mint 21,
+# Pop!_OS 22.04, RHEL 9 and Debian 11 while working perfectly on the
+# maintainer's Arch box, which is why it looked like "everyone but me".
+#
+# sniper is Debian 11 (glibc 2.31) with a modern toolchain bolted on --
+# gcc-14 and llvm-19 -- which is exactly the combination this needs: an old
+# ABI floor without an ancient compiler. Proton is already built against a
+# steamrt SDK, so the pattern is established in this repo.
+#
+# Two rules for anything added below:
+#   - a library the bundle links must be BUILT here, not borrowed from the
+#     host, unless it is part of a baseline every desktop has. libtiff is the
+#     cautionary tale: Debian 11/Ubuntu 22.04 ship .so.5 and Arch ships .so.6,
+#     so linking the distro's copy breaks somebody either way.
+#   - codec/audio -dev packages are load-bearing. GStreamer silently omits
+#     plugins whose dependencies are absent at configure time, and a missing
+#     decoder or audio sink makes WebKit abort() rather than degrade -- that
+#     is the Toolbox audio crash.
+FROM registry.gitlab.steamos.cloud/steamrt/sniper/sdk:latest
+
+# gcc-10 is the sniper default; WebKitGTK 2.52 needs newer C++.
+ENV CC=gcc-14 CXX=g++-14
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc-14 g++-14 \
     build-essential cmake ninja-build meson pkg-config git curl ca-certificates \
     ruby gperf unifdef python3 python3-pip patchelf ccache nasm rsync \
     libz-dev libpng-dev libfreetype6-dev libfontconfig1-dev libexpat1-dev \
@@ -12,14 +38,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxcursor-dev libxdamage-dev libxfixes-dev libxinerama-dev \
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip3 install --break-system-packages --upgrade 'meson>=1.4.0'
+# Debian 11's pip predates PEP 668, so --break-system-packages does not exist here.
+RUN pip3 install --upgrade 'meson>=1.4.0'
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-mako python3-yaml \
     && rm -rf /var/lib/apt/lists/*
 
+# Mesa 25.1.8's llvmpipe needs LLVM >= 15; sniper carries 19.
+# libpolly-19-dev and libzstd-dev are NOT optional extras: with -Dshared-llvm=disabled
+# Mesa links LLVM statically, and llvm-config then emits -lPolly -lPollyISL -lzstd,
+# so omitting them fails at link with "cannot find -lPolly" after a successful
+# configure -- an hour into the build, not at setup time.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    llvm-dev libpolly-14-dev \
+    llvm-19-dev libclang-cpp19-dev libpolly-19-dev libzstd-dev \
     && rm -rf /var/lib/apt/lists/*
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -29,10 +61,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxshmfence-dev \
     && rm -rf /var/lib/apt/lists/*
 
+# Audio/codec dev packages. Without these, gst-plugins-base silently builds
+# WITHOUT alsa/vorbis/opus/ogg, leaving WebKit no way to decode or output
+# audio -- see this file's header.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libxxf86vm-dev libseccomp-dev \
-    bubblewrap xdg-dbus-proxy libsystemd-dev \
+    libasound2-dev libpulse-dev libvorbis-dev libopus-dev libogg-dev \
+    libmpg123-dev \
     && rm -rf /var/lib/apt/lists/*
-
-WORKDIR /build
-RUN mkdir -p /build-scripts

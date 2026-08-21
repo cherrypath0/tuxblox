@@ -627,6 +627,47 @@ struct native_webview *webview_create(int is_message_only)
         /* Before anything navigates -- see WV2L_DEFAULT_USER_AGENT's comment. */
         WebKitSettings *st = webkit_web_view_get_settings(nv->view);
         if (st) webkit_settings_set_user_agent(st, WV2L_DEFAULT_USER_AGENT);
+
+        /* Turn WebKit's accelerated compositing OFF, because the "acceleration"
+         * here is software.
+         *
+         * unixlib.c forces this process onto the bundle's llvmpipe
+         * (WV2L_ALWAYS_USE_BUNDLE_GL, a permanent workaround for a real NVIDIA
+         * driver crash), so there is no GPU anywhere in this pipeline. Left at
+         * WebKit's default, the page is composited through GL that is itself
+         * being emulated on the CPU -- texture uploads, shader emulation and
+         * context switches, all to reach a rasteriser that could have been
+         * called directly. The result is paid on every repaint, which is what
+         * input latency in a webview actually is: the delay before the frame
+         * that reflects your keystroke appears.
+         *
+         * POLICY_NEVER makes WebKit rasterise on the CPU itself and hand GTK a
+         * finished buffer, skipping the emulated-GL round trip entirely. For a
+         * login form or the Toolbox -- 2D content, no WebGL, no video -- that is
+         * strictly less work. It is not a free win for every page: heavy canvas
+         * or video content genuinely benefits from compositing even on llvmpipe,
+         * which is why the escape hatch below exists.
+         *
+         * TUXBLOX_WEBVIEW_GPU=1 restores the old behaviour for A/B testing
+         * without a rebuild, matching the overwrite=0 convention main.c uses for
+         * GSK_RENDERER. Revisit this whole decision if the bundle ever gets real
+         * hardware GL back. */
+        if (st)
+        {
+            const char *want_gpu = getenv("TUXBLOX_WEBVIEW_GPU");
+            WebKitHardwareAccelerationPolicy policy =
+                (want_gpu && *want_gpu && strcmp(want_gpu, "0"))
+                    ? WEBKIT_HARDWARE_ACCELERATION_POLICY_ALWAYS
+                    : WEBKIT_HARDWARE_ACCELERATION_POLICY_NEVER;
+
+            webkit_settings_set_hardware_acceleration_policy(st, policy);
+            fprintf(stderr, "webview2loader-host: hardware acceleration policy = %s for nv=%p%s\n",
+                    policy == WEBKIT_HARDWARE_ACCELERATION_POLICY_NEVER ? "NEVER (CPU raster)" : "ALWAYS",
+                    (void *)nv,
+                    policy == WEBKIT_HARDWARE_ACCELERATION_POLICY_NEVER
+                        ? " -- GL here is llvmpipe, so compositing through it costs more than it saves"
+                        : " -- forced by TUXBLOX_WEBVIEW_GPU");
+        }
     }
     /* Real WebView2's default is TRUE; Studio turns it off explicitly, and that
      * put_ now reaches webview_apply_settings above. */
