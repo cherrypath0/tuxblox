@@ -22,7 +22,7 @@ namespace tuxblox {
 // True if any Roblox process is currently live inside `prefixDir` -- the
 // WINEPREFIX, i.e. installDir + "/runtime/pfx", NOT installDir + "/runtime".
 //
-// Mirrors prefix_has_session_holder() in ProtonSource/proton.py (line 554) and
+// Mirrors prefixHasSessionHolder() in ProtonSource/session.cpp and
 // must stay in sync with it, including the image allowlist. The launcher needs
 // its own copy because it has to answer this BEFORE deciding which Proton verb
 // to invoke -- see ProcessLauncher::launch().

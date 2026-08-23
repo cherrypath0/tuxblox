@@ -87,7 +87,7 @@ int main() {
     makeProcEntry(procRoot, "103", "C:\\x\\RobloxStudioBeta.exe", wanted);
     assert(prefixHasSessionHolderIn(procRoot.string(), wanted));
 
-    // proton.py sets WINEPREFIX with a trailing slash and normpaths it away on
+    // session.cpp sets WINEPREFIX with a trailing slash and normalises it away on
     // comparison -- both spellings must match.
     assert(prefixHasSessionHolderIn(procRoot.string(), wanted + "/"));
     fs::remove_all(procRoot / "103");

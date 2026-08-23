@@ -27,9 +27,9 @@ namespace tuxblox {
 
 namespace {
 
-// Kept in sync with SESSION_HOLDER_IMAGES in ProtonSource/proton.py (line 517).
+// Kept in sync with SessionHolderImages in ProtonSource/session.cpp.
 // Deliberately an allowlist of the apps this launcher exists to run, not a
-// denylist of helpers -- same reasoning as proton.py's own comment: forgetting
+// denylist of helpers -- same reasoning as session.cpp's own comment: forgetting
 // a helper only costs a wrong verb choice, forgetting an app breaks a launch.
 const char* const kSessionHolderImages[] = {
     "robloxplayerbeta.exe",
@@ -50,7 +50,7 @@ std::string readWholeFile(const fs::path& path) {
 }
 
 // os.path.normpath's shape for our purposes: collapse the path and drop any
-// trailing separator, so ".../pfx/" and ".../pfx" compare equal. proton.py sets
+// trailing separator, so ".../pfx/" and ".../pfx" compare equal. session.cpp sets
 // WINEPREFIX with a trailing slash (prefix_dir = path("pfx/"), line 774) and
 // pid_wineprefix() normpaths it away before comparing -- do the same on both
 // sides or the comparison never matches.
@@ -90,7 +90,7 @@ std::string wineImageNameFromCmdline(const std::string& firstCmdlineToken) {
     // "Main". Cut at the first ".exe", not the first space -- the image path
     // itself can contain spaces, and the arguments after it can contain further
     // ".exe" paths (RobloxCrashHandler's --attachment= list, for one). Same rule
-    // as pid_wine_image() in ProtonSource/proton.py.
+    // as pidWineImage() in ProtonSource/session.cpp.
     const std::string lower = toLower(firstCmdlineToken);
     const size_t cut = lower.find(".exe");
     if (cut == std::string::npos) return "";
@@ -114,7 +114,7 @@ bool prefixHasSessionHolderIn(const std::string& procRoot, const std::string& pr
 
         // Image name first: cmdline is world-readable and cheap, and it narrows
         // a few hundred processes down to the handful worth reading environ for
-        // (environ is not world-readable). Same ordering as proton.py.
+        // (environ is not world-readable). Same ordering as session.cpp.
         const std::string cmdline = readWholeFile(entry.path() / "cmdline");
         const size_t nul = cmdline.find('\0');
         const std::string first = nul == std::string::npos ? cmdline : cmdline.substr(0, nul);

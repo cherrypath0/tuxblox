@@ -214,7 +214,7 @@ esac
 PREFIX="$(resolve_prefix)" || exit 1
 PROTON_BIN="$(resolve_proton)" || exit 1
 # TUXBLOX_PREFIX is the directory CONTAINING pfx/, not pfx/ itself --
-# proton.py builds prefix_dir as TUXBLOX_PREFIX + "/pfx/".
+# The launcher builds the prefix dir as TUXBLOX_PREFIX + "/pfx".
 PREFIX_ROOT_PARENT="$(dirname "$PREFIX")"
 BACKUP="$PREFIX/.tuxblox-font-experiment.bak"
 

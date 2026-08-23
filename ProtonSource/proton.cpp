@@ -57,7 +57,6 @@ Proton::Proton(const fs::path& base)
       wineFontsDir(base / "files" / "share" / "wine" / "fonts"),
       wineInf(base / "files" / "share" / "wine" / "wine.inf"),
       defaultPfxDir(base / "files" / "share" / "default_pfx"),
-      userSettingsFile(base / "user_settings.py"),
       wineBin(binDir / "wine"),
       wineserverBin(binDir / "wineserver"),
       distLock(base / "dist.lock") {

@@ -65,7 +65,6 @@ public:
     std::filesystem::path wineFontsDir;
     std::filesystem::path wineInf;
     std::filesystem::path defaultPfxDir;
-    std::filesystem::path userSettingsFile;
     std::filesystem::path wineBin;
     std::filesystem::path wineserverBin;
 
