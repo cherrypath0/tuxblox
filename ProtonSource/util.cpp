@@ -42,7 +42,7 @@ namespace tuxblox {
 
 namespace {
 
-const std::string LogPrefix = "Proton: ";
+const std::string LogPrefix = "TuxBlox: ";
 
 // Directories Wine has installed its builtin DLLs into, across the versions of
 // Proton this prefix may have been created by. A symlink pointing into any of
