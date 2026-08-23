@@ -37,7 +37,6 @@
 #include "session.h"
 #include "util.h"
 
-// Replaced by the root build.sh with the real build version.
 #ifndef TUXBLOX_VERSION
 #define TUXBLOX_VERSION "unknown"
 #endif
@@ -50,12 +49,8 @@ namespace {
 
 // Version variables
 const std::string TuxBloxVersion = TUXBLOX_VERSION;
-// One of "stable", "canary" or "dev". Baked in by the build.
 const std::string TuxBloxChannel = TUXBLOX_CHANNEL;
 
-// Identifies the prefix layout this build expects. A prefix carrying any other
-// value is rebuilt, so the channel is part of it: a canary or dev build may
-// ship a Wine that expects a different prefix than stable does.
 const std::string PrefixVersion = TuxBloxVersion + "-" + TuxBloxChannel;
 
 // All process names that belong to the Roblox Client
@@ -82,8 +77,6 @@ const std::array<std::string, 7> HelpOutput = {
     "run <executable>        Runs the specified executable"
 };
 
-// How long to wait for leftover helper processes once no Roblox process is
-// left in the prefix.
 const int PrefixDrainTimeoutSeconds = 15;
 
 enum class RunMode {
@@ -99,9 +92,6 @@ struct CommandLine {
     std::vector<std::string> target;
 };
 
-// The directory this binary sits in. Read from /proc/self/exe rather than
-// argv[0], which can be relative, a bare name found on PATH, or missing --
-// and every path in the install is derived from this one.
 std::filesystem::path installDir(const char *pArgv0) {
     std::error_code error;
     const std::filesystem::path self =
@@ -118,9 +108,6 @@ void printHelp() {
     }
 }
 
-// Options are read until the first argument that is not one. Everything after
-// that belongs to the program being launched, so a Windows executable can take
-// options of its own without them being mistaken for TuxBlox's.
 CommandLine parseCommandLine(int argc, char *argv[]) {
     CommandLine parsed;
 
@@ -218,9 +205,6 @@ int runMain(int argc, char *argv[]) {
 
     session.initSession();
 
-    // "run --immediate" skips the prefix setup as well as the drain, so a
-    // second launch into a prefix another one is already using does not fight
-    // it for the lock.
     if (!command.runImmediately) {
         prefix.setup(session);
     }
@@ -247,8 +231,6 @@ int main(int argc, char *argv[]) {
     try {
         return runMain(argc, argv);
     } catch (const std::exception& failure) {
-        // Almost always a broken or half-installed TuxBlox. Reported as
-        // TuxBlox's own failure, which is what exit code 1 means here.
         tuxblox::log(std::string("TuxBlox could not start: ") + failure.what());
         return 1;
     }
