@@ -655,7 +655,17 @@ HRESULT rpc_get_local_class_object(REFCLSID rclsid, REFIID riid, void **obj)
         start_ticks = GetTickCount();
         do
         {
-            if (SUCCEEDED(CoWaitForMultipleHandles(0, 1000, (process != 0), &process, &index)) && process && !index)
+            if (!process)
+            {
+                /* The class was started as a service, so there is no process
+                 * handle to wait on and CoWaitForMultipleHandles fails at once
+                 * for having no handles. Sleep instead, otherwise this stays
+                 * the one second it is meant to be only by spinning, which
+                 * burns a whole core for every one of the MAXTRIES seconds. */
+                Sleep(100);
+                continue;
+            }
+            if (SUCCEEDED(CoWaitForMultipleHandles(0, 1000, 1, &process, &index)) && !index)
             {
                 WARN("Server for %s failed to start.\n", debugstr_guid(rclsid));
                 CloseHandle(process);
