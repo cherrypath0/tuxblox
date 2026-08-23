@@ -1303,7 +1303,7 @@ all-dist: default_pfx
 ## licenses / patents
 ##
 
-# LICENSE := $(SRCDIR)/dist.LICENSE
+# LICENSE := $(SRCDIR)/../third_party_licenses/proton/dist.LICENSE
 # DIST_LICENSE := $(DST_BASE)/LICENSE
 # $(DIST_LICENSE): $(LICENSE)
 # 	cp -a $< $@
