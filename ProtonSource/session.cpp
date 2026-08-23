@@ -44,12 +44,58 @@ namespace {
 // Only these keep a prefix session alive. The crash handler, StudioMCP and
 // RCCService are helpers: if they are all that is left, the session is over
 // and the prefix should be torn down.
-const std::array<std::string_view, 4> SessionHolderImages = {
+const std::array<std::string_view, 2> ClientHolderImages = {
     "robloxplayerbeta.exe",
-    "robloxstudiobeta.exe",
+    "robloxstudiobeta.exe"
+};
+
+const std::array<std::string_view, 2> InstallerHolderImages = {
     "robloxplayerinstaller.exe",
     "robloxstudioinstaller.exe"
 };
+
+// How long an installer may keep running after the client it installed has
+// started. It normally exits within a couple of seconds, so anything past
+// this is worth telling the user about rather than waiting on in silence.
+const int StuckInstallerNoticeSeconds = 15;
+
+std::string toLower(const std::string& text) {
+    std::string lowered = text;
+    std::transform(lowered.begin(), lowered.end(), lowered.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return lowered;
+}
+
+bool imageIsClient(const std::string& image) {
+    const std::string lowered = toLower(image);
+    return std::find(ClientHolderImages.begin(), ClientHolderImages.end(), lowered) !=
+           ClientHolderImages.end();
+}
+
+bool imageIsInstaller(const std::string& image) {
+    const std::string lowered = toLower(image);
+    return std::find(InstallerHolderImages.begin(), InstallerHolderImages.end(), lowered) !=
+           InstallerHolderImages.end();
+}
+
+// The bare file name of a path, for matching against the image lists above.
+std::string imageNameOf(const std::string& path) {
+    std::string name = path;
+    std::replace(name.begin(), name.end(), '\\', '/');
+    const size_t slash = name.rfind('/');
+    return slash == std::string::npos ? name : name.substr(slash + 1);
+}
+
+std::string describeSessionHolders(const std::vector<SessionHolder>& holders) {
+    std::string description;
+    for (const SessionHolder& holder : holders) {
+        if (!description.empty()) {
+            description += ", ";
+        }
+        description += holder.image + " (pid " + holder.pid + ")";
+    }
+    return description;
+}
 
 std::string envOrEmpty(const char *pName) {
     const char *pValue = std::getenv(pName);
@@ -105,17 +151,11 @@ std::string pidWineImage(const std::string& pid) {
 
     // Cut at the first ".exe" rather than the first space: the image path can
     // contain spaces, and later arguments can contain further ".exe" paths.
-    std::string lowered = first;
-    std::transform(lowered.begin(), lowered.end(), lowered.begin(),
-                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-    const size_t cut = lowered.find(".exe");
+    const size_t cut = toLower(first).find(".exe");
     if (cut == std::string::npos) {
         return "";
     }
-    lowered = lowered.substr(0, cut + 4);
-    std::replace(lowered.begin(), lowered.end(), '/', '\\');
-    const size_t slash = lowered.rfind('\\');
-    return slash == std::string::npos ? lowered : lowered.substr(slash + 1);
+    return imageNameOf(first.substr(0, cut + 4));
 }
 
 std::string pidWinePrefix(const std::string& pid) {
@@ -162,13 +202,14 @@ int runSimple(const std::vector<std::string>& command, const Environment& localE
 
 } // namespace
 
-bool prefixHasSessionHolder(const fs::path& prefixDir) {
+std::vector<SessionHolder> prefixSessionHolders(const fs::path& prefixDir) {
+    std::vector<SessionHolder> holders;
     const std::string wanted = prefixDir.lexically_normal().string();
 
     std::error_code error;
     fs::directory_iterator procEntries("/proc", error);
     if (error) {
-        return false;
+        return holders;
     }
 
     for (const fs::directory_entry& entry : procEntries) {
@@ -181,15 +222,20 @@ bool prefixHasSessionHolder(const fs::path& prefixDir) {
         // narrows a few hundred processes down to the handful worth reading
         // environ for.
         const std::string image = pidWineImage(pid);
-        if (std::find(SessionHolderImages.begin(), SessionHolderImages.end(), image) ==
-            SessionHolderImages.end()) {
+        const bool client = imageIsClient(image);
+        if (!client && !imageIsInstaller(image)) {
             continue;
         }
-        if (pidWinePrefix(pid) == wanted) {
-            return true;
+        if (pidWinePrefix(pid) != wanted) {
+            continue;
         }
+        SessionHolder holder;
+        holder.pid = pid;
+        holder.image = image;
+        holder.client = client;
+        holders.push_back(holder);
     }
-    return false;
+    return holders;
 }
 
 Session::Session(Proton& protonDist, fs::path prefix)
@@ -428,8 +474,34 @@ int Session::runProc(const std::vector<std::string>& command, const Environment&
 
     int status = 0;
     const struct timespec pollInterval = {0, 100 * 1000 * 1000};
+    time_t clientStartedAt = 0;
+    time_t lastHolderCheck = 0;
+    bool reportedStuckTarget = false;
 
     while (true) {
+        // An installer hands over to the client it installed and exits within
+        // a couple of seconds. One that is still here well after the client
+        // started has stopped making progress, and this wait would otherwise
+        // sit on it in silence.
+        const time_t now = ::time(nullptr);
+        if (targetIsInstaller && !reportedStuckTarget && now != lastHolderCheck) {
+            lastHolderCheck = now;
+            if (clientStartedAt == 0) {
+                for (const SessionHolder& holder : prefixSessionHolders(prefixDir)) {
+                    if (holder.client) {
+                        clientStartedAt = now;
+                        break;
+                    }
+                }
+            } else if (now - clientStartedAt >= StuckInstallerNoticeSeconds) {
+                reportedStuckTarget = true;
+                log("The Roblox installer has not exited " +
+                    std::to_string(StuckInstallerNoticeSeconds) +
+                    "s after Roblox started, so it may be stuck. Press Ctrl+C to "
+                    "tear the prefix down.");
+            }
+        }
+
         const int signalNumber = ::sigtimedwait(&blocked, nullptr, &pollInterval);
         if (signalNumber == SIGINT || signalNumber == SIGTERM) {
             killProcessGroup(child, SIGTERM);
@@ -546,6 +618,7 @@ void Session::waitForPrefixDrain(int timeoutSeconds) {
     // process runProc waited on.
     bool haveDeadline = false;
     time_t deadline = 0;
+    std::string reported;
     const struct timespec pollInterval = {1, 0};
 
     while (true) {
@@ -561,7 +634,16 @@ void Session::waitForPrefixDrain(int timeoutSeconds) {
             break;
         }
 
-        if (prefixHasSessionHolder(prefixDir)) {
+        const std::vector<SessionHolder> holders = prefixSessionHolders(prefixDir);
+        if (!holders.empty()) {
+            // Naming what the wait is on, so an app that never exits reads as
+            // a stuck process rather than as a launcher that hung.
+            const std::string description = describeSessionHolders(holders);
+            if (description != reported) {
+                reported = description;
+                log("Waiting for " + description +
+                    " to close. Press Ctrl+C to close it and tear the prefix down.");
+            }
             haveDeadline = false;
         } else if (!haveDeadline) {
             haveDeadline = true;
@@ -592,6 +674,8 @@ void Session::waitForPrefixDrain(int timeoutSeconds) {
 
 int Session::run(const std::vector<std::string>& target) {
     writeLogHeader(target);
+
+    targetIsInstaller = !target.empty() && imageIsInstaller(imageNameOf(target.front()));
 
     // Run through the preloader directly rather than restarting through
     // start.exe.

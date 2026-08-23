@@ -99,12 +99,24 @@ private:
 
     Proton& proton;
     std::filesystem::path prefixDir;
+    // Set when the launch target is a Roblox installer, which is expected to
+    // exit as soon as it has started the client.
+    bool targetIsInstaller = false;
     int logFd = -1;
     std::filesystem::path logPath;
 };
 
-// True when the prefix still holds a running Roblox process, as opposed to
-// only leftover helpers.
-bool prefixHasSessionHolder(const std::filesystem::path& prefixDir);
+// A running Roblox process that keeps the prefix session alive, as opposed to
+// a leftover helper.
+struct SessionHolder {
+    std::string pid;
+    std::string image;
+    // The Player or Studio client itself, rather than one of the installers.
+    bool client = false;
+};
+
+// Every Roblox process still running in the prefix. Empty means only helpers
+// are left and the session is over.
+std::vector<SessionHolder> prefixSessionHolders(const std::filesystem::path& prefixDir);
 
 } // namespace tuxblox
