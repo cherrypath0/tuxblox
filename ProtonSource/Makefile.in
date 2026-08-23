@@ -145,7 +145,7 @@ DAV1D_MESON_ARGS = \
 	-Denable_tools=false \
 	-Denable_tests=false
 
-$(eval $(call rules-source,dav1d,$(SRCDIR)/dav1d))
+$(eval $(call rules-source,dav1d,$(SRCDIR)/submodules/dav1d))
 $(eval $(call rules-meson,dav1d,i386,unix))
 $(eval $(call rules-meson,dav1d,x86_64,unix))
 $(eval $(call rules-meson,dav1d,aarch64,unix))
@@ -160,7 +160,7 @@ LIBSOUP_MESON_ARGS = \
 	-Dautobahn=disabled \
 	-Dtls_check=false
 
-$(eval $(call rules-source,libsoup,$(SRCDIR)/libsoup))
+$(eval $(call rules-source,libsoup,$(SRCDIR)/submodules/libsoup))
 $(eval $(call rules-meson,libsoup,i386,unix))
 $(eval $(call rules-meson,libsoup,x86_64,unix))
 $(eval $(call rules-meson,libsoup,aarch64,unix))
@@ -173,7 +173,7 @@ $(eval $(call rules-meson,libsoup,aarch64,unix))
 GST_ORC_MESON_ARGS := \
 	-Dorc-test=disabled
 
-$(eval $(call rules-source,gst_orc,$(SRCDIR)/gst-orc))
+$(eval $(call rules-source,gst_orc,$(SRCDIR)/submodules/gst-orc))
 $(eval $(call rules-meson,gst_orc,i386,unix))
 $(eval $(call rules-meson,gst_orc,x86_64,unix))
 $(eval $(call rules-meson,gst_orc,aarch64,unix))
@@ -192,7 +192,7 @@ GSTREAMER_MESON_ARGS := \
 GSTREAMER_LDFLAGS = -lm
 GSTREAMER_DEPENDS = gst_orc
 
-$(eval $(call rules-source,gstreamer,$(SRCDIR)/gstreamer/subprojects/gstreamer))
+$(eval $(call rules-source,gstreamer,$(SRCDIR)/submodules/gstreamer/subprojects/gstreamer))
 $(eval $(call rules-meson,gstreamer,i386,unix))
 $(eval $(call rules-meson,gstreamer,x86_64,unix))
 $(eval $(call rules-meson,gstreamer,aarch64,unix))
@@ -202,7 +202,7 @@ $(eval $(call rules-meson,gstreamer,aarch64,unix))
 ## graphene
 ##
 
-$(eval $(call rules-source,graphene,$(SRCDIR)/graphene))
+$(eval $(call rules-source,graphene,$(SRCDIR)/submodules/graphene))
 $(eval $(call rules-meson,graphene,i386,unix))
 $(eval $(call rules-meson,graphene,x86_64,unix))
 $(eval $(call rules-meson,graphene,aarch64,unix))
@@ -237,7 +237,7 @@ GST_BASE_LDFLAGS = -lm
 GST_BASE_DEPENDS = gst_orc graphene gstreamer
 GST_BASE_HOST_DEPENDS = gst_orc
 
-$(eval $(call rules-source,gst_base,$(SRCDIR)/gstreamer/subprojects/gst-plugins-base))
+$(eval $(call rules-source,gst_base,$(SRCDIR)/submodules/gstreamer/subprojects/gst-plugins-base))
 $(eval $(call rules-meson,gst_base,i386,unix))
 $(eval $(call rules-meson,gst_base,x86_64,unix))
 $(eval $(call rules-meson,gst_base,aarch64,unix))
@@ -271,7 +271,7 @@ GST_GOOD_MESON_ARGS := \
 GST_GOOD_DEPENDS = gst_orc gstreamer gst_base libsoup
 GST_GOOD_HOST_DEPENDS = gst_orc
 
-$(eval $(call rules-source,gst_good,$(SRCDIR)/gstreamer/subprojects/gst-plugins-good/))
+$(eval $(call rules-source,gst_good,$(SRCDIR)/submodules/gstreamer/subprojects/gst-plugins-good/))
 $(eval $(call rules-meson,gst_good,i386,unix))
 $(eval $(call rules-meson,gst_good,x86_64,unix))
 $(eval $(call rules-meson,gst_good,aarch64,unix))
@@ -288,7 +288,7 @@ GST_BAD_MESON_ARGS := \
 
 GST_BAD_DEPENDS = gst_orc gstreamer gst_base
 
-$(eval $(call rules-source,gst_bad,$(SRCDIR)/gstreamer/subprojects/gst-plugins-bad/))
+$(eval $(call rules-source,gst_bad,$(SRCDIR)/submodules/gstreamer/subprojects/gst-plugins-bad/))
 $(eval $(call rules-meson,gst_bad,i386,unix))
 $(eval $(call rules-meson,gst_bad,x86_64,unix))
 $(eval $(call rules-meson,gst_bad,aarch64,unix))
@@ -322,7 +322,7 @@ FFMPEG_aarch64-unix_CONFIGURE_ARGS := \
 	--arch=aarch64 \
 	--target-os=linux
 
-$(eval $(call rules-source,ffmpeg,$(SRCDIR)/ffmpeg))
+$(eval $(call rules-source,ffmpeg,$(SRCDIR)/submodules/ffmpeg))
 $(eval $(call rules-configure,ffmpeg,i386,unix))
 $(eval $(call rules-configure,ffmpeg,x86_64,unix))
 $(eval $(call rules-configure,ffmpeg,aarch64,unix))
@@ -341,7 +341,7 @@ $(OBJ)/.ffmpeg-aarch64-dist:
 
 GST_LIBAV_DEPENDS = gst_orc gstreamer gst_base ffmpeg
 
-$(eval $(call rules-source,gst_libav,$(SRCDIR)/gstreamer/subprojects/gst-libav))
+$(eval $(call rules-source,gst_libav,$(SRCDIR)/submodules/gstreamer/subprojects/gst-libav))
 $(eval $(call rules-meson,gst_libav,i386,unix))
 $(eval $(call rules-meson,gst_libav,x86_64,unix))
 $(eval $(call rules-meson,gst_libav,aarch64,unix))
@@ -354,7 +354,7 @@ $(eval $(call rules-meson,gst_libav,aarch64,unix))
 #GST_PLUGINS_RS_CARGO_ARGS = \
 #	-p gst-plugin-dav1d
 #GST_PLUGINS_RS_DEPENDS = gst_orc gstreamer gst_base dav1d
-#$(eval $(call rules-source,gst_plugins_rs,$(SRCDIR)/gst-plugins-rs))
+#$(eval $(call rules-source,gst_plugins_rs,$(SRCDIR)/submodules/gst-plugins-rs))
 #$(eval $(call rules-cargo,gst_plugins_rs,i386,unix))
 #$(eval $(call rules-cargo,gst_plugins_rs,x86_64,unix))
 #$(eval $(call rules-cargo,gst_plugins_rs,aarch64,unix))
@@ -376,7 +376,7 @@ $(eval $(call rules-meson,gst_libav,aarch64,unix))
 ## Vulkan-Headers
 ##
 
-$(eval $(call rules-source,vulkan-headers,$(SRCDIR)/Vulkan-Headers))
+$(eval $(call rules-source,vulkan-headers,$(SRCDIR)/submodules/Vulkan-Headers))
 $(eval $(call rules-cmake,vulkan-headers,i386,windows))
 $(eval $(call rules-cmake,vulkan-headers,x86_64,windows))
 $(eval $(call rules-cmake,vulkan-headers,aarch64,windows))
@@ -387,7 +387,7 @@ $(eval $(call rules-cmake,vulkan-headers,arm64ec,windows))
 ## SPIRV-Headers
 ##
 
-$(eval $(call rules-source,spirv-headers,$(SRCDIR)/SPIRV-Headers))
+$(eval $(call rules-source,spirv-headers,$(SRCDIR)/submodules/SPIRV-Headers))
 $(eval $(call rules-cmake,spirv-headers,i386,windows))
 $(eval $(call rules-cmake,spirv-headers,x86_64,windows))
 $(eval $(call rules-cmake,spirv-headers,aarch64,windows))
@@ -399,7 +399,7 @@ $(eval $(call rules-cmake,spirv-headers,arm64ec,windows))
 ##
 
 GLSLANG_SOURCE_ARGS = --exclude External/spirv-tools --exclude External/googletest
-$(eval $(call rules-source,glslang,$(SRCDIR)/glslang))
+$(eval $(call rules-source,glslang,$(SRCDIR)/submodules/glslang))
 $(eval $(call rules-cmake,glslang,i386,unix))
 $(eval $(call rules-cmake,glslang,x86_64,unix))
 $(eval $(call rules-cmake,glslang,aarch64,unix))
@@ -409,7 +409,7 @@ $(eval $(call rules-cmake,glslang,aarch64,unix))
 ## piper
 ##
 
-$(eval $(call rules-source,piper,$(SRCDIR)/piper))
+$(eval $(call rules-source,piper,$(SRCDIR)/submodules/piper))
 $(eval $(call rules-cmake,piper,x86_64,unix))
 $(eval $(call rules-cmake,piper,aarch64,unix))
 
@@ -466,7 +466,7 @@ OPENFST_CONFIGURE_ARGS = \
   --with-pic \
   --disable-bin \
 
-$(eval $(call rules-source,openfst,$(SRCDIR)/openfst))
+$(eval $(call rules-source,openfst,$(SRCDIR)/submodules/openfst))
 $(eval $(call rules-configure,openfst,i386,unix))
 $(eval $(call rules-configure,openfst,x86_64,unix))
 $(eval $(call rules-configure,openfst,aarch64,unix))
@@ -490,7 +490,7 @@ KALDI_CMAKE_ARGS = \
 
 KALDI_DEPENDS = openfst
 
-$(eval $(call rules-source,kaldi,$(SRCDIR)/kaldi))
+$(eval $(call rules-source,kaldi,$(SRCDIR)/submodules/kaldi))
 $(eval $(call rules-cmake,kaldi,i386,unix))
 $(eval $(call rules-cmake,kaldi,x86_64,unix))
 $(eval $(call rules-cmake,kaldi,aarch64,unix))
@@ -514,7 +514,7 @@ VOSK_CMAKE_ARGS = \
 
 VOSK_DEPENDS = openfst kaldi
 
-$(eval $(call rules-source,vosk,$(SRCDIR)/vosk-api))
+$(eval $(call rules-source,vosk,$(SRCDIR)/submodules/vosk-api))
 $(eval $(call rules-cmake,vosk,i386,unix))
 $(eval $(call rules-cmake,vosk,x86_64,unix))
 $(eval $(call rules-cmake,vosk,aarch64,unix))
@@ -646,14 +646,14 @@ DXVK_x86_64_MESON_ARGS = --bindir=$(DXVK_x86_64_DST)/lib/wine/dxvk/x86_64-window
 DXVK_arm64ec_MESON_ARGS = --bindir=$(DXVK_arm64ec_DST)/lib/wine/dxvk/aarch64-windows
 DXVK_HOST_DEPENDS = glslang
 
-$(eval $(call rules-source,dxvk,$(SRCDIR)/dxvk))
+$(eval $(call rules-source,dxvk,$(SRCDIR)/submodules/dxvk))
 $(eval $(call rules-meson,dxvk,i386,windows))
 $(eval $(call rules-meson,dxvk,x86_64,windows))
 $(eval $(call rules-meson,dxvk,arm64ec,windows))
 
 $(OBJ)/.dxvk-post-source:
-	sed -re 's#@VCS_TAG@#$(shell git -C $(SRCDIR)/dxvk describe --always --abbrev=15 --dirty=0)#' \
-	    $(SRCDIR)/dxvk/version.h.in > $(DXVK_SRC)/version.h.in
+	sed -re 's#@VCS_TAG@#$(shell git -C $(SRCDIR)/submodules/dxvk describe --always --abbrev=15 --dirty=0)#' \
+	    $(SRCDIR)/submodules/dxvk/version.h.in > $(DXVK_SRC)/version.h.in
 	mkdir -p $(DST_LIBDIR)/wine/dxvk
 	rm -rf $(DST_LIBDIR)/wine/dxvk/version
 	echo "$(shell git -C $(SRCDIR) submodule status -- dxvk)" > $(DST_LIBDIR)/wine/dxvk/version
@@ -668,7 +668,7 @@ DXVK_NVAPI_i386_MESON_ARGS = --bindir=$(DXVK_NVAPI_i386_DST)/lib/wine/nvapi/i386
 DXVK_NVAPI_x86_64_MESON_ARGS = --bindir=$(DXVK_NVAPI_x86_64_DST)/lib/wine/nvapi/x86_64-windows
 DXVK_NVAPI_arm64ec_MESON_ARGS = --bindir=$(DXVK_NVAPI_arm64ec_DST)/lib/wine/nvapi/aarch64-windows
 
-$(eval $(call rules-source,dxvk-nvapi,$(SRCDIR)/dxvk-nvapi))
+$(eval $(call rules-source,dxvk-nvapi,$(SRCDIR)/submodules/dxvk-nvapi))
 $(eval $(call rules-meson,dxvk-nvapi,i386,windows))
 $(eval $(call rules-meson,dxvk-nvapi,x86_64,windows))
 
@@ -713,7 +713,7 @@ VKD3D_DEPENDS = vulkan-headers spirv-headers
 VKD3D_i386_LIBDIR = $(VKD3D_i386_DST)/lib
 VKD3D_x86_64_LIBDIR = $(VKD3D_x86_64_DST)/lib
 
-$(eval $(call rules-source,vkd3d,$(SRCDIR)/vkd3d))
+$(eval $(call rules-source,vkd3d,$(SRCDIR)/submodules/vkd3d))
 $(eval $(call rules-autoconf,vkd3d,i386,windows))
 $(eval $(call rules-autoconf,vkd3d,x86_64,windows))
 
@@ -766,16 +766,16 @@ ifneq ($(UNSTRIPPED_BUILD),)
 	VKD3D_PROTON_MESON_ARGS = -Denable_trace=true
 endif
 
-$(eval $(call rules-source,vkd3d-proton,$(SRCDIR)/vkd3d-proton))
+$(eval $(call rules-source,vkd3d-proton,$(SRCDIR)/submodules/vkd3d-proton))
 $(eval $(call rules-meson,vkd3d-proton,i386,windows))
 $(eval $(call rules-meson,vkd3d-proton,x86_64,windows))
 $(eval $(call rules-meson,vkd3d-proton,arm64ec,windows))
 
 $(OBJ)/.vkd3d-proton-post-source:
 	sed -re 's#@VCS_TAG@#0#' \
-	    $(SRCDIR)/vkd3d-proton/vkd3d_build.h.in > $(VKD3D_PROTON_SRC)/vkd3d_build.h.in
+	    $(SRCDIR)/submodules/vkd3d-proton/vkd3d_build.h.in > $(VKD3D_PROTON_SRC)/vkd3d_build.h.in
 	sed -re 's#@VCS_TAG@#tuxblox-local#' \
-	    $(SRCDIR)/vkd3d-proton/vkd3d_version.h.in > $(VKD3D_PROTON_SRC)/vkd3d_version.h.in
+	    $(SRCDIR)/submodules/vkd3d-proton/vkd3d_version.h.in > $(VKD3D_PROTON_SRC)/vkd3d_version.h.in
 	mkdir -p $(DST_LIBDIR)/wine/vkd3d-proton
 	rm -rf $(DST_LIBDIR)/wine/vkd3d-proton/version
 	echo "$(shell git -C $(SRCDIR) submodule status -- vkd3d-proton)" > $(DST_LIBDIR)/wine/vkd3d-proton/version
@@ -797,13 +797,13 @@ FEX_CMAKE_ARGS = \
 FEX_aarch64_CMAKE_ARGS = -DMINGW_TRIPLE=aarch64-w64-mingw32 -DCMAKE_INSTALL_LIBDIR=$(FEX_aarch64_DST)/lib/wine/aarch64-windows
 FEX_arm64ec_CMAKE_ARGS = -DMINGW_TRIPLE=arm64ec-w64-mingw32 -DCMAKE_INSTALL_LIBDIR=$(FEX_arm64ec_DST)/lib/wine/aarch64-windows
 
-$(eval $(call rules-source,fex,$(SRCDIR)/FEX))
+$(eval $(call rules-source,fex,$(SRCDIR)/submodules/FEX))
 $(eval $(call rules-cmake,fex,aarch64,windows))
 $(eval $(call rules-cmake,fex,arm64ec,windows))
 
 $(OBJ)/.fex-post-source:
-	git -C $(SRCDIR)/FEX describe --abbrev=7 > $(FEX_SRC)/.git_describe
-	git -C $(SRCDIR)/FEX rev-parse --short=7 HEAD > $(FEX_SRC)/.git_rev
+	git -C $(SRCDIR)/submodules/FEX describe --abbrev=7 > $(FEX_SRC)/.git_describe
+	git -C $(SRCDIR)/submodules/FEX rev-parse --short=7 HEAD > $(FEX_SRC)/.git_rev
 	touch $@
 
 default_pfx: fex
@@ -912,7 +912,7 @@ FONTFORGE = fontforge -quiet
 FONTSCRIPT = $(FONTS)/scripts/generatefont.pe
 MERGEFONTSSCRIPT = $(FONTS)/scripts/mergefonts.pe
 
-LIBERATION_SRCDIR = $(FONTS)/liberation-fonts/src
+LIBERATION_SRCDIR = $(SRCDIR)/submodules/liberation-fonts/src
 SOURCE_HAN_SANS_SRCDIR = $(FONTS)/source-han-sans
 UME_DIR = $(FONTS)/ume
 
@@ -1259,12 +1259,12 @@ endif
 ##
 
 OVR_i386_DIST := $(DST_LIBDIR)/wine/dxvk/i386-windows/openvr_api_dxvk.dll
-$(OVR_i386_DIST): $(SRCDIR)/openvr/bin/win32/openvr_api.dll | $(DST_DIR)
+$(OVR_i386_DIST): $(SRCDIR)/submodules/openvr/bin/win32/openvr_api.dll | $(DST_DIR)
 	mkdir -p $(DST_LIBDIR)/wine/dxvk/i386-windows
 	cp -af $< $@
 
 OVR_x86_64_DIST := $(DST_LIBDIR)/wine/dxvk/x86_64-windows/openvr_api_dxvk.dll
-$(OVR_x86_64_DIST): $(SRCDIR)/openvr/bin/win64/openvr_api.dll | $(DST_DIR)
+$(OVR_x86_64_DIST): $(SRCDIR)/submodules/openvr/bin/win64/openvr_api.dll | $(DST_DIR)
 	mkdir -p $(DST_LIBDIR)/wine/dxvk/x86_64-windows
 	cp -af $< $@
 
@@ -1273,7 +1273,7 @@ all-dist: $(OVR_i386_DIST) $(OVR_x86_64_DIST)
 ifneq ($(findstring aarch64,$(unix_ARCHS)),)
 OVR_aarch64_DIST := $(DST_LIBDIR)/wine/dxvk/aarch64-windows/openvr_api_dxvk.dll
 
-$(OVR_aarch64_DIST): $(SRCDIR)/openvr/bin/win64/openvr_api.dll | $(DST_DIR)
+$(OVR_aarch64_DIST): $(SRCDIR)/submodules/openvr/bin/win64/openvr_api.dll | $(DST_DIR)
 	mkdir -p $(DST_LIBDIR)/wine/dxvk/aarch64-windows
 	cp -af $< $@
 
@@ -1308,12 +1308,12 @@ all-dist: default_pfx
 # $(DIST_LICENSE): $(LICENSE)
 # 	cp -a $< $@
 
-# OFL_LICENSE := $(SRCDIR)/fonts/liberation-fonts/LICENSE
+# OFL_LICENSE := $(SRCDIR)/submodules/liberation-fonts/LICENSE
 # DIST_OFL_LICENSE := $(DST_BASE)/LICENSE.OFL
 # $(DIST_OFL_LICENSE): $(OFL_LICENSE)
 #	cp -a $< $@
 
-# AV1_PATENTS := $(SRCDIR)/dav1d/doc/PATENTS
+# AV1_PATENTS := $(SRCDIR)/submodules/dav1d/doc/PATENTS
 # DIST_AV1_PATENTS := $(DST_BASE)/PATENTS.AV1
 # $(DIST_AV1_PATENTS): $(AV1_PATENTS)
 #	cp -a $< $@
@@ -1322,25 +1322,20 @@ all-dist: default_pfx
 
 
 ##
-## proton(.py), filelock.py, etc.
+## Launcher data files
 ##
 
-FILELOCK_TARGET := $(addprefix $(DST_BASE)/,filelock.py)
-$(FILELOCK_TARGET): $(addprefix $(SRCDIR)/,filelock.py)
+# The launcher's own data files. syscolors.json holds the light and dark
+# palettes the prefix theme is synced from; the launcher binary itself is
+# compiled by build.sh's proton-compile step straight into $(DST_BASE)/main.
+CONFIG_TARGET := $(addprefix $(DST_BASE)/,config/syscolors.json)
+$(CONFIG_TARGET): $(addprefix $(SRCDIR)/,config/syscolors.json) | $(DST_DIR)
+	mkdir -p $(dir $@)
+	cp -a $< $@
 
-DIST_COPY_TARGETS := $(FILELOCK_TARGET)
+DIST_COPY_TARGETS := $(CONFIG_TARGET)
 
-$(DIST_COPY_TARGETS): | $(DST_DIR)
-	cp -a $(SRCDIR)/$(notdir $@) $@
-
-# The proton launcher script ships as "main" (source lives at proton.py, so
-# the notdir copy rule above can't cover it). build.sh later replaces it
-# in-place with the nuitka-compiled binary of the same name.
-PROTON_MAIN_TARGET := $(addprefix $(DST_BASE)/,main)
-$(PROTON_MAIN_TARGET): $(addprefix $(SRCDIR)/,proton.py) | $(DST_DIR)
-	cp -a $(SRCDIR)/proton.py $@
-
-all-dist: $(DIST_COPY_TARGETS) $(PROTON_MAIN_TARGET)
+all-dist: $(DIST_COPY_TARGETS)
 
 all-dist:
 

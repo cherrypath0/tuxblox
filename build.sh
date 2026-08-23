@@ -40,15 +40,36 @@ for arg in "$@"; do
     esac
 done
 
+# ProtonSource/VERSION holds the defaults: version on line 1, channel on line 2.
+# Both are baked into the compiled proton launcher; query the version with
+# `build/proton/main --version`.
+version_file="$ROOT/ProtonSource/VERSION"
+if [[ -z "$TUXBLOX_BUILD_VERSION" && -r "$version_file" ]]; then
+    TUXBLOX_BUILD_VERSION="$(sed -n '1p' "$version_file" | tr -d '[:space:]')"
+fi
+if [[ -z "$TUXBLOX_CHANNEL" && -r "$version_file" ]]; then
+    TUXBLOX_CHANNEL="$(sed -n '2p' "$version_file" | tr -d '[:space:]')"
+fi
+
 # Asked up front so the hours-long build never stalls on a prompt at the end.
-# Baked into the compiled proton launcher; query it with `build/proton/main --version`.
 if [[ -z "$TUXBLOX_BUILD_VERSION" ]]; then
     read -rp "Enter version for this build: " TUXBLOX_BUILD_VERSION
     while [[ -z "$TUXBLOX_BUILD_VERSION" ]]; do
         read -rp "Version cannot be empty. Enter version for this build: " TUXBLOX_BUILD_VERSION
     done
 fi
-export TUXBLOX_BUILD_VERSION
+
+TUXBLOX_CHANNEL="${TUXBLOX_CHANNEL:-stable}"
+case "$TUXBLOX_CHANNEL" in
+    stable|canary|dev) ;;
+    *)
+        echo "!! Unknown channel \"$TUXBLOX_CHANNEL\" -- expected stable, canary or dev" >&2
+        exit 1
+        ;;
+esac
+
+echo ":: Building TuxBlox $TUXBLOX_BUILD_VERSION ($TUXBLOX_CHANNEL)"
+export TUXBLOX_BUILD_VERSION TUXBLOX_CHANNEL
 
 packages=(
     python3
@@ -146,16 +167,16 @@ logged() {
 # Resets every ProtonSource submodule to the commit recorded in the index
 # (discarding any leftover local edits, e.g. a patch applied by a previous
 # build), then overlays patches/<submodule>/<relpath> onto
-# ProtonSource/<submodule>/<relpath> for whichever submodules have patches
-# staged. Wine is excluded on purpose: it's a separately maintained fork
-# checked in directly rather than a submodule (see .gitmodules), so it's
+# ProtonSource/submodules/<submodule>/<relpath> for whichever submodules have
+# patches staged. Wine is excluded on purpose: it's a separately maintained
+# fork checked in directly rather than a submodule (see .gitmodules), so it's
 # patched by editing ProtonSource/wine in place, not through this mechanism.
 apply_patches() {
     echo ":: Reloading submodules to their recorded commit"
     git submodule update --init --force
 
     local patches_dir="patches"
-    local proton_source="ProtonSource"
+    local proton_source="ProtonSource/submodules"
 
     if [[ ! -d "$patches_dir" ]]; then
         return 0
@@ -175,7 +196,7 @@ apply_patches() {
 
         target_dir="$proton_source/$submodule_name"
         if [[ ! -d "$target_dir" ]]; then
-            echo "!! patches/$submodule_name has no matching ProtonSource/$submodule_name -- skipping" >&2
+            echo "!! patches/$submodule_name has no matching $target_dir -- skipping" >&2
             continue
         fi
 
@@ -353,7 +374,7 @@ step "Fetching external sources (2/4)"
 run_step "fetch_external_sources" strict bash -c 'cd src-glslang && rm -rf External/spirv-tools External/googletest && python3 update_glslang_sources.py'
 
 step "Initializing nested submodules (3/4)"
-run_step "init_submodules" strict bash -c 'cd "$ROOT/ProtonSource/dxvk-nvapi" && git submodule update --init --recursive'
+run_step "init_submodules" strict bash -c 'cd "$ROOT/ProtonSource/submodules/dxvk-nvapi" && git submodule update --init --recursive'
 
 step "Ensuring wine x86_64 is configured"
 run_step "configure_wine_x86_64" strict logged make wine-x86_64-configure
@@ -364,25 +385,29 @@ run_step "build_x86_64_nls" strict bash -c 'cd obj-wine-x86_64 && make nls/local
 step "Resuming build (4/4) (using $JOBS parallel jobs)"
 run_step "resume_build" strict logged make -j"$JOBS"
 
+# Built in the old-glibc container so the binary runs on distros older than
+# this host. Version and channel are baked in; `main --version` reports the
+# version alone, which the launcher compares against the release manifest.
 step "Compiling proton launcher to a native binary (podman, old-glibc baseline)"
 run_step "compile_proton_native" strict bash -c '
     set -e
     podman build -t tuxblox-old-glibc-builder -f "$ROOT/Containerfile" "$ROOT"
 
     workdir="$(mktemp -d)"
-    cp dist/main "$workdir/proton.py"
-    cp dist/filelock.py "$workdir/filelock.py"
-    mkdir -p "$workdir/out"
+    mkdir -p "$workdir/src/third_party" "$workdir/out"
+    cp "$ROOT"/ProtonSource/*.cpp "$ROOT"/ProtonSource/*.h "$workdir/src/"
+    cp "$ROOT/ProtonSource/third_party/json.hpp" "$workdir/src/third_party/"
 
-    # Bake the build version into the binary (reported via `main --version`).
-    sed -i "s@^TUXBLOX_VERSION = .*@TUXBLOX_VERSION = \"${TUXBLOX_BUILD_VERSION}\"@" "$workdir/proton.py"
+    # Run through sh so the *.cpp glob is expanded inside the container.
+    podman run --rm --userns=keep-id -v "$workdir:/work:Z" -w /work/src \
+        -e TUXBLOX_BUILD_VERSION -e TUXBLOX_CHANNEL \
+        tuxblox-old-glibc-builder sh -c \
+        '"'"'g++ -std=c++17 -O2 -Wall -Wextra \
+            -DTUXBLOX_VERSION="\"$TUXBLOX_BUILD_VERSION\"" \
+            -DTUXBLOX_CHANNEL="\"$TUXBLOX_CHANNEL\"" \
+            -o /work/out/main ./*.cpp'"'"'
 
-    podman run --rm --userns=keep-id -v "$workdir:/work:Z" -w /work tuxblox-old-glibc-builder \
-        nuitka --standalone --no-progressbar \
-        --output-filename=main --output-dir=/work/out /work/proton.py
-
-    rm -f dist/main dist/filelock.py
-    cp -a "$workdir/out/proton.dist/." dist/
+    install -m 755 "$workdir/out/main" dist/main
     rm -rf "$workdir"
 '
 

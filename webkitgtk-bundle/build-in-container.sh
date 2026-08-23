@@ -773,7 +773,7 @@ ninja -C /build/wpebackend-fdo/_build -j"$JOBS" install
 
 # --- GStreamer (native Linux) -----------------------------------------------------
 # This is a *native Linux* GStreamer build for WebKitGTK's <video>/<audio> support --
-# unrelated to and independent from the existing ProtonSource/gstreamer submodule,
+# unrelated to and independent from the existing ProtonSource/submodules/gstreamer submodule,
 # which cross-compiles GStreamer for the Windows target for use *inside* the Wine
 # prefix by Windows apps. Same project, completely different build/purpose/toolchain.
 #
