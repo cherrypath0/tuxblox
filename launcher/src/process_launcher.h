@@ -102,7 +102,7 @@ std::string protonBinaryPath(const std::string& installDir);
 
 // Path of the crash/stdout log for one launch. Carries the launcher's pid
 // because several instances can run at once (a second Studio goes through
-// Proton's "runinprefix" verb, see ProcessLauncher::launch) and two launches
+// "run --immediate", see ProcessLauncher::launch) and two launches
 // in the same second would otherwise dup2() into the same file.
 std::string launchLogPath(const std::string& installDir, LaunchTarget target);
 

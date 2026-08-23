@@ -102,7 +102,7 @@ esac
 
 protonEnv=(
     "TUXBLOX_PREFIX=$PREFIX_PATH"
-    "PROTON_LOG_DIR=$protonLogDir"
+    "TUXBLOX_LOG_DIR=$protonLogDir"
 )
 [ -n "$dxvkConfig" ] && protonEnv+=("DXVK_CONFIG=$dxvkConfig")
 

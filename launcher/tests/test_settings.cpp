@@ -42,14 +42,14 @@ int main() {
     // Round-trip, including sendCrashReports = false and a non-default channel.
     {
         Settings s;
-        s.protonEnvVars = "PROTON_LOG=1 DXVK_HUD=fps";
+        s.protonEnvVars = "TUXBLOX_LOG=1 DXVK_HUD=fps";
         s.globalEnvVars = "MY_VAR=hello";
         s.sendCrashReports = false;
         s.channel = "canary";
         saveSettings(dir, s);
 
         Settings loaded = loadSettings(dir);
-        assert(loaded.protonEnvVars == "PROTON_LOG=1 DXVK_HUD=fps");
+        assert(loaded.protonEnvVars == "TUXBLOX_LOG=1 DXVK_HUD=fps");
         assert(loaded.globalEnvVars == "MY_VAR=hello");
         assert(loaded.sendCrashReports == false);
         assert(loaded.channel == "canary");

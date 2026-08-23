@@ -21,8 +21,7 @@
 namespace tuxblox {
 
 struct Settings {
-    // Space-separated "VAR=VALUE" pairs, in the same format launch.sh and
-    // user_settings.sample.py already use elsewhere in this repo.
+    // Space-separated "VAR=VALUE" pairs, the same format launch.sh uses.
     std::string protonEnvVars;  // applied only to the "proton run" child
     std::string globalEnvVars;  // applied to the launcher process itself (setenv), inherited by everything it spawns
     bool sendCrashReports = true;

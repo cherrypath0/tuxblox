@@ -202,7 +202,7 @@ std::vector<std::string> launchEnvVars(const std::string& installDir, LaunchTarg
     // with launch.sh, which carried the same dead variable.
     std::vector<std::string> env = {
         "TUXBLOX_PREFIX=" + installDir + "/runtime",
-        "PROTON_LOG_DIR=" + installDir + "/logs",
+        "TUXBLOX_LOG_DIR=" + installDir + "/logs",
     };
     if (target == LaunchTarget::Studio) {
         // Studio's embedded WebView2 (login/create.roblox.com UI) appears to rely
@@ -356,16 +356,19 @@ LaunchOutcome ProcessLauncher::launch(LaunchTarget target, const std::string& ur
     //    This launch's exit would not be reported until every instance exited,
     //    delaying its crash popup and Roblox-log capture indefinitely.
     //
-    // "runinprefix" skips both: it is excluded from the setup_prefix() gate and
-    // waits on its own process only. Same finding include/mcp.sh rests on.
+    // "run --immediate" skips both: it is excluded from the prefix-setup gate
+    // and waits on its own process only. Same finding include/mcp.sh rests on.
+    // (It replaces the old "runinprefix" verb, still accepted as a deprecated
+    // alias by the launcher but warned about on every use.)
     //
     // Two launches racing from a cold prefix can both observe no holder and both
     // use "run". prefix_lock still serialises setup_prefix(), so nothing
     // corrupts; the only effect is that each drain-waits for the other, i.e.
     // today's single-instance behaviour. Rare and benign.
     const bool secondary = prefixHasSessionHolder(installDir_ + "/runtime/pfx");
-    std::vector<std::string> argv = {protonBinaryPath(installDir_),
-                                     secondary ? "runinprefix" : "run", exePath};
+    std::vector<std::string> argv = {protonBinaryPath(installDir_), "run"};
+    if (secondary) argv.push_back("--immediate");
+    argv.push_back(exePath);
     if (!uri.empty()) argv.push_back(uri);
 
     const std::string logsDir = installDir_ + "/logs";

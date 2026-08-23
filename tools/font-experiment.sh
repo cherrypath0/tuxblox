@@ -102,12 +102,12 @@ resolve_proton() {
 # Registry writes go through the LIVE wineserver via reg.exe rather than by
 # editing system.reg as text. Editing the file underneath a running wineserver
 # loses the change: the server owns the registry in memory and flushes over
-# whatever the file says. runinprefix (not run) is deliberate -- see
-# include/mcp.sh: the "run" verb's _wait_for_prefix_drain() would block until
-# every Roblox process in the prefix exits, and can escalate to wineserver -k.
+# whatever the file says. --immediate is deliberate -- see include/mcp.sh: a
+# plain "run" waits for the prefix to drain, which blocks until every Roblox
+# process exits, and can escalate to wineserver -k.
 reg_exec() {
-    TUXBLOX_PREFIX="$PREFIX_ROOT_PARENT" PROTON_LOG=0 \
-        "$PROTON_BIN" runinprefix reg.exe "$@" 2>/dev/null
+    TUXBLOX_PREFIX="$PREFIX_ROOT_PARENT" TUXBLOX_LOG=0 \
+        "$PROTON_BIN" run --immediate reg.exe "$@" 2>/dev/null
 }
 
 # Prints the value's data, or the literal token @@ABSENT@@ if unset. Wine's
