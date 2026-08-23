@@ -752,6 +752,8 @@ struct native_webview *webview_create(int is_message_only)
 
 void webview_destroy(struct native_webview *nv)
 {
+    GdkDisplay *gdisplay;
+
     if (!nv) return;
 
     /* Task 7 UAF guard -- see webview_lookup's own comment above.
@@ -797,10 +799,42 @@ void webview_destroy(struct native_webview *nv)
      * (an ordinary top-level, effectively parented to the real root
      * window) before the real destroy call closes that gap. No-op (and
      * never fatal) if nv was never reparented in the first place. */
+    /* Crash fix -- real hang, reproduced end to end: closing Studio while
+     * this webview is reparented into its window destroys that parent, and
+     * X destroys its children with it, so this window is already gone by
+     * the time the calls below run. geometry_unreparent survives that on
+     * its own (non-fatal handler), but gtk_window_destroy's own unmap then
+     * takes a BadWindow that GDK's error handler treats as fatal, killing
+     * this process mid-IPC and leaving Studio waiting on a reply that can
+     * never arrive -- Studio never exits, and the launcher waits on it
+     * forever. Trapping the errors across the whole teardown keeps it
+     * best-effort, matching how geometry_unreparent already treats its own.
+     * The display is read before the destroy, since nv->window is gone
+     * afterwards. */
+    gdisplay = gtk_widget_get_display(nv->window);
+    /* Deprecated in this GTK, with no replacement for the X11 backend --
+     * same pragma treatment as geometry.c's own gdk_x11_display_get_xdisplay
+     * call. */
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+    if (gdisplay)
+        gdk_x11_display_error_trap_push(gdisplay);
+#pragma GCC diagnostic pop
     geometry_unreparent(nv);
     /* Destroying nv->window tears down nv->view along with it (still its
      * child at this point), so this is the one native GTK/WebKit call
      * needed per webview. */
     gtk_window_destroy(GTK_WINDOW(nv->window));
+    if (gdisplay)
+    {
+        /* Sync first: X errors are asynchronous, so without this the ones
+         * the destroy just caused would arrive after the trap is popped and
+         * be fatal again. */
+        gdk_display_sync(gdisplay);
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+        gdk_x11_display_error_trap_pop_ignored(gdisplay);
+#pragma GCC diagnostic pop
+    }
     free(nv);
 }
