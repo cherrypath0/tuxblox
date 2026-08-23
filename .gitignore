@@ -40,7 +40,6 @@ libtuxblox-*.tar.zst
 
 .claude/
 .superpowers/
-.nuitka-venv/
 docs/
 workspace/
 CLAUDE.md

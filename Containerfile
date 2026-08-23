@@ -16,13 +16,13 @@
 
 # build-container/Containerfile
 # Old-glibc-baseline builder image shared by installer/build.sh, launcher/build.sh,
-# and build.sh's Nuitka proton-compile step. Ubuntu 20.04 "focal" ships glibc 2.31,
+# and build.sh's g++ proton-compile step. Ubuntu 20.04 "focal" ships glibc 2.31,
 # old enough to cover Ubuntu 20.04+/Debian 11+/Mint 20+ and everything newer --
 # deliberately older than webkitgtk-bundle/Containerfile's debian:12 (glibc 2.36),
 # since 2.36 is actually newer than Ubuntu 22.04/Mint 21's glibc 2.35 and would repeat
 # the exact GLIBC-floor bug this image exists to fix (see project memory
 # glibc_floor_installer_bug.md). Bundles both the installer/launcher CMake toolchain
-# and the proton step's Python/Nuitka toolchain in one image since a from-scratch
+# and the Qt6 toolchain in one image since a from-scratch
 # `podman build` is shared/cached across all three build scripts anyway.
 #
 # Ubuntu 20.04 was chosen over Debian 11 "bullseye" (same glibc 2.31 floor) because
@@ -82,14 +82,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # SIGSEGVs inside xkb_x11_keymap_new_from_device during Qt's xcb connection
 # setup -- reproduced, not theoretical.
 
-# Nuitka baked into the image (not a per-run venv) so build.sh's proton-compile step
-# doesn't pay Python venv + pip install cost on every invocation.
-# python3-dev provides Python.h (Nuitka compiles generated C into CPython extension
-# modules and refuses to run without it); patchelf is required by Nuitka's
-# --standalone mode on Linux to rewrite RPATHs in the produced binaries.
-# Pinned to the version verified against this image's toolchain/glibc floor --
-# bump deliberately, not implicitly via an unpinned `pip3 install nuitka`.
-RUN pip3 install nuitka==4.1.3
+# python3/pip3 are here for aqtinstall below, which fetches Qt6, and
+# python3-dev with them: aqtinstall pulls pyzstd, a C extension that fails to
+# build its wheel without Python.h. patchelf is for launcher/bundle-qt.sh,
+# which rewrites the launcher's RPATH to $ORIGIN-relative. Nuitka is gone --
+# the proton launcher is a plain g++ build now.
 
 # Qt6 for the launcher's Qt Widgets UI. Ubuntu 20.04's own apt archive has no
 # Qt6 packages at all (Qt6 didn't reach Ubuntu's archives until 22.10), so

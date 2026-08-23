@@ -1109,6 +1109,9 @@ IDR_AVI_FILENUKE AVI resources/searching.avi
 IDR_AVI_FILEDELETE AVI resources/searching.avi
 
 /* @makedep: ../../AUTHORS */
+/* TuxBlox: ../../AUTHORS is a build input, not just metadata -- it is
+   compiled in here as RCDATA for the About dialog. Deleting it breaks
+   configure with "could not create Makefile". */
 AUTHORS RCDATA ../../AUTHORS
 
 /* @makedep: shell32.manifest */
