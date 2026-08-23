@@ -152,6 +152,17 @@ std::vector<std::string> splitCommas(const std::string& text) {
     return parts;
 }
 
+// Guards against a path bug writing outside the prefix. The template is full
+// of symlinks, and a mistake resolving one used to land whole directories of
+// DLLs beside the prefix instead of inside it.
+bool isInside(const fs::path& root, const fs::path& candidate) {
+    const fs::path relative = candidate.lexically_relative(root);
+    if (relative.empty() || relative == ".") {
+        return false;
+    }
+    return *relative.begin() != "..";
+}
+
 std::string makeUuid() {
     std::random_device source;
     std::uniform_int_distribution<int> hexDigit(0, 15);
@@ -409,6 +420,10 @@ void Prefix::copyTemplatePrefix() {
             continue;
         }
         const fs::path destination = prefixDir / relative;
+        if (!isInside(prefixDir, destination)) {
+            log("Refusing to write outside the prefix: \"" + destination.string() + "\"");
+            continue;
+        }
 
         if (entry.is_directory(error) && !entry.is_symlink(error)) {
             if (!fileExists(destination, true)) {
@@ -464,6 +479,10 @@ void Prefix::updateBuiltinLibs(const std::string& copyPatterns) {
             continue;
         }
         const fs::path destination = prefixDir / relative;
+        if (!isInside(prefixDir, destination)) {
+            log("Refusing to write outside the prefix: \"" + destination.string() + "\"");
+            continue;
+        }
 
         if (!fileIsWineBuiltinDll(entry.path())) {
             continue;
