@@ -30,8 +30,10 @@ struct InstalledVersion {
 struct AppVersions {
     std::vector<InstalledVersion> installed;
     std::string activeHash;   // empty if nothing pinned active yet
-    // True once the one-time RobloxPlayerInstaller.exe/RobloxStudioInstaller.exe
-    // bootstrap (see watch_launch.cpp) has run for this app type.
+    // True once at least one version for this app type exists in the prefix
+    // (i.e. the one-time RobloxPlayerInstaller.exe/RobloxStudioInstaller.exe
+    // bootstrap, see watch_launch.cpp, has produced something). Derived from
+    // the prefix by reconcileWithPrefix(), not trusted from versions.json.
     bool bootstrapped = false;
 };
 
@@ -39,6 +41,33 @@ struct VersionsManifest {
     AppVersions player;
     AppVersions studio;
 };
+
+// Absolute path of the prefix directory that holds one subdirectory per
+// installed Roblox version (the "version-<hash>" dirs the official
+// installer creates). This directory -- not versions.json -- is the source
+// of truth for what is actually installed.
+std::string prefixVersionsDir(const std::string& installDir);
+
+// Hashes of the version directories in the prefix that actually contain
+// `target`'s own exe. Player and Studio share one Versions/ directory, so
+// exe presence is what separates them. Empty (never throws) if the prefix
+// or the directory doesn't exist yet.
+std::vector<std::string> scanPrefixVersions(const std::string& installDir, LaunchTarget target);
+
+// Makes `manifest` agree with what's actually in the prefix: adds version
+// directories it didn't know about, drops entries whose directory is gone,
+// and re-pins `activeHash` (to the newest version directory) whenever the
+// pinned one no longer exists. Only the metadata that can't be recovered
+// from disk -- channel, installedAt -- is preserved from the manifest.
+// Never throws; leaves `manifest` untouched if the prefix can't be read.
+void reconcileWithPrefix(const std::string& installDir, VersionsManifest& manifest);
+
+// loadVersionsManifest() + reconcileWithPrefix(): what is really installed,
+// with versions.json contributing only the extra metadata. Use this rather
+// than loadVersionsManifest() anywhere the question is "is Roblox
+// installed / which exe do we launch", so a deleted or stale versions.json
+// can't make an installed Roblox look missing.
+VersionsManifest loadInstalledVersions(const std::string& installDir);
 
 // installDir + "/versions.json". Never throws -- same defensive contract as
 // settings.h's loadSettings: a missing file, unreadable file, parse error,
@@ -50,15 +79,11 @@ void saveVersionsManifest(const std::string& installDir, const VersionsManifest&
 AppVersions& appVersionsFor(VersionsManifest& manifest, LaunchTarget target);
 const AppVersions& appVersionsFor(const VersionsManifest& manifest, LaunchTarget target);
 
-// Scans <installDir>/runtime/pfx/drive_c/users/user/AppData/Local/Roblox/Versions
-// (see the per-user-path cross-plan note in the launcher-versions-tab plan)
-// for a version directory not already present in versions.json, and -- if
-// exactly one new one is found -- records it as installed, marks this app
-// type bootstrapped, and pins it active if nothing was active yet. A no-op
-// (never throws) if the versions directory is missing, empty, or has zero
-// new entries; if more than one new entry is found (unexpected -- a single
-// official-installer run should only ever produce one), registers all of
-// them as installed but does not guess which should be active.
+// Persists what the official RobloxPlayerInstaller.exe/RobloxStudioInstaller.exe
+// bootstrap just installed: reconciles versions.json against the prefix (see
+// reconcileWithPrefix) and marks this app type bootstrapped. A no-op (never
+// throws) if the installer run produced no version directory. This only
+// records metadata -- detection itself no longer depends on it running.
 void registerBootstrappedVersion(const std::string& installDir, LaunchTarget target);
 
 } // namespace tuxblox

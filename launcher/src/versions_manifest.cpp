@@ -59,7 +59,101 @@ AppVersions fromJson(const nlohmann::json& j) {
     return v;
 }
 
+// Iterates the prefix's Versions/ directory. Returns false only if the
+// directory exists but couldn't be read -- callers must not treat that as
+// "nothing installed". A missing directory is a successful empty scan
+// (the prefix simply has no Roblox in it yet).
+bool scanPrefixVersionsInto(const std::string& installDir, LaunchTarget target,
+                            std::vector<std::string>& out) {
+    const std::string versionsDir = prefixVersionsDir(installDir);
+    std::error_code ec;
+    if (!fs::exists(versionsDir, ec) || ec) return true;
+
+    for (const auto& entry : fs::directory_iterator(versionsDir, ec)) {
+        if (ec) return false;
+        std::error_code entryEc;
+        if (!entry.is_directory(entryEc) || entryEc) continue;
+        // Player and Studio versions live in the SAME shared Versions/
+        // directory, so a directory only belongs to `target` if it actually
+        // contains that target's own exe.
+        if (!fs::exists(entry.path() / targetExeName(target), entryEc) || entryEc) continue;
+        out.push_back(entry.path().filename().string());
+    }
+    return !ec;
+}
+
+// Most recently modified of `hashes`, used to pick a pin when the manifest
+// has none (or names a version that's gone). Falls back to the first entry
+// if the timestamps can't be read.
+std::string newestVersion(const std::string& installDir, const std::vector<std::string>& hashes) {
+    std::string best;
+    fs::file_time_type bestTime{};
+    for (const auto& hash : hashes) {
+        std::error_code ec;
+        auto t = fs::last_write_time(fs::path(prefixVersionsDir(installDir)) / hash, ec);
+        if (ec) continue;
+        if (best.empty() || t > bestTime) {
+            best = hash;
+            bestTime = t;
+        }
+    }
+    return best.empty() ? hashes.front() : best;
+}
+
+void reconcileTargetWithPrefix(const std::string& installDir, VersionsManifest& manifest,
+                               LaunchTarget target) {
+    std::vector<std::string> hashes;
+    if (!scanPrefixVersionsInto(installDir, target, hashes)) return; // unreadable -- keep what we had
+
+    AppVersions& av = appVersionsFor(manifest, target);
+    auto onDisk = [&](const std::string& hash) {
+        return std::find(hashes.begin(), hashes.end(), hash) != hashes.end();
+    };
+
+    // Drop what's no longer on disk (versions deleted outside the launcher,
+    // or a wiped prefix), keeping the surviving entries' channel/installedAt.
+    av.installed.erase(std::remove_if(av.installed.begin(), av.installed.end(),
+                                       [&](const InstalledVersion& v) { return !onDisk(v.hash); }),
+                       av.installed.end());
+
+    // Add what the manifest never knew about -- a deleted versions.json, or
+    // a version the official installer bootstrapped behind our back.
+    for (const auto& hash : hashes) {
+        bool known = std::any_of(av.installed.begin(), av.installed.end(),
+                                  [&](const InstalledVersion& v) { return v.hash == hash; });
+        if (!known) av.installed.push_back({hash, "live", ""}); // installedAt unknown -- installer-driven
+    }
+
+    if (!av.activeHash.empty() && !onDisk(av.activeHash)) av.activeHash.clear();
+    if (av.activeHash.empty() && !hashes.empty()) av.activeHash = newestVersion(installDir, hashes);
+    if (!hashes.empty()) av.bootstrapped = true;
+}
+
 } // namespace
+
+std::string prefixVersionsDir(const std::string& installDir) {
+    // NOTE: hardcodes "users/user/..." matching this codebase's current
+    // convention (see roblox_log_capture.cpp) -- if the separate
+    // Wine-per-user-paths plan lands, this needs the resolved username.
+    return installDir + "/runtime/pfx/drive_c/users/user/AppData/Local/Roblox/Versions";
+}
+
+std::vector<std::string> scanPrefixVersions(const std::string& installDir, LaunchTarget target) {
+    std::vector<std::string> hashes;
+    scanPrefixVersionsInto(installDir, target, hashes);
+    return hashes;
+}
+
+void reconcileWithPrefix(const std::string& installDir, VersionsManifest& manifest) {
+    reconcileTargetWithPrefix(installDir, manifest, LaunchTarget::Player);
+    reconcileTargetWithPrefix(installDir, manifest, LaunchTarget::Studio);
+}
+
+VersionsManifest loadInstalledVersions(const std::string& installDir) {
+    VersionsManifest m = loadVersionsManifest(installDir);
+    reconcileWithPrefix(installDir, m);
+    return m;
+}
 
 VersionsManifest loadVersionsManifest(const std::string& installDir) {
     VersionsManifest m;
@@ -106,40 +200,21 @@ const AppVersions& appVersionsFor(const VersionsManifest& manifest, LaunchTarget
 }
 
 void registerBootstrappedVersion(const std::string& installDir, LaunchTarget target) {
-    const std::string versionsDir =
-        installDir + "/runtime/pfx/drive_c/users/user/AppData/Local/Roblox/Versions";
-    std::error_code ec;
-    if (!fs::exists(versionsDir, ec) || ec) return;
-
     VersionsManifest manifest = loadVersionsManifest(installDir);
-    AppVersions& av = appVersionsFor(manifest, target);
+    const AppVersions before = appVersionsFor(manifest, target);
+    reconcileWithPrefix(installDir, manifest);
+    const AppVersions& after = appVersionsFor(manifest, target);
+    if (after.installed.empty()) return; // installer run produced nothing -- don't mark bootstrapped
 
-    std::vector<std::string> newHashes;
-    for (const auto& entry : fs::directory_iterator(versionsDir, ec)) {
-        if (ec) break;
-        if (!entry.is_directory()) continue;
-        std::string name = entry.path().filename().string();
-        bool alreadyKnown = std::any_of(av.installed.begin(), av.installed.end(),
-                                         [&](const InstalledVersion& v) { return v.hash == name; });
-        if (alreadyKnown) continue;
-        // Player and Studio versions live in the SAME shared Versions/
-        // directory, so a directory not yet known to THIS target's
-        // installed list isn't necessarily new -- it might just belong to
-        // the other target (e.g. Player already bootstrapped and Studio is
-        // bootstrapping now). Only count it as newly discovered for
-        // `target` if it actually contains that target's own exe.
-        std::error_code existsEc;
-        if (!fs::exists(entry.path() / targetExeName(target), existsEc) || existsEc) continue;
-        newHashes.push_back(name);
-    }
-    if (newHashes.empty()) return;
-
-    for (const auto& hash : newHashes) {
-        av.installed.push_back({hash, "live", ""}); // installedAt left empty -- exact time unknown, installer-driven
-    }
-    av.bootstrapped = true;
-    if (av.activeHash.empty() && newHashes.size() == 1) {
-        av.activeHash = newHashes[0];
+    // Only write when the reconcile actually changed this target, so a
+    // detached watcher process doesn't rewrite the file on every launch.
+    if (before.activeHash == after.activeHash && before.bootstrapped == after.bootstrapped &&
+        before.installed.size() == after.installed.size()) {
+        bool same = true;
+        for (size_t i = 0; i < after.installed.size(); ++i) {
+            if (before.installed[i].hash != after.installed[i].hash) { same = false; break; }
+        }
+        if (same) return;
     }
     saveVersionsManifest(installDir, manifest);
 }

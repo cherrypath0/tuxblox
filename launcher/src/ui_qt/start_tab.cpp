@@ -102,6 +102,10 @@ StartTab::StartTab(App& app, QWidget* parent) : QWidget(parent), app_(app) {
 }
 
 void StartTab::updateFromSnapshot(const AppSnapshot& snap) {
+    // activeHash comes from loadInstalledVersions(), which derives it from
+    // the version directories actually present in the prefix -- so a missing
+    // or stale versions.json can't make an installed Roblox render as
+    // "Install & Launch".
     const bool playerNeedsInstall = snap.versions.player.activeHash.empty();
     const bool studioNeedsInstall = snap.versions.studio.activeHash.empty();
     // "&&" not "&" -- QPushButton::setText() treats a single '&' as a

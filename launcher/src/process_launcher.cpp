@@ -195,9 +195,9 @@ std::string protonBinaryPath(const std::string& installDir) {
 
 std::vector<std::string> launchEnvVars(const std::string& installDir, LaunchTarget target) {
     // No DXVK_ASYNC here: the bundled DXVK is 3.0.1, which dropped async
-    // pipeline compilation entirely (nothing in ProtonSource/dxvk reads that
-    // variable any more), so setting it did nothing. Its replacement -- the
-    // graphics pipeline library path -- is already on by default
+    // pipeline compilation entirely (nothing in ProtonSource/submodules/dxvk
+    // reads that variable any more), so setting it did nothing. Its
+    // replacement -- the graphics pipeline library path -- is on by default
     // (dxvk.enableGraphicsPipelineLibrary defaults to Auto). Kept in sync
     // with launch.sh, which carried the same dead variable.
     std::vector<std::string> env = {
@@ -239,7 +239,10 @@ std::string stageInPrefix(const std::string& installDir, const std::string& srcP
 } // namespace
 
 std::string resolveActiveVersionExePath(LaunchTarget target, const std::string& installDir) {
-    VersionsManifest manifest = loadVersionsManifest(installDir);
+    // loadInstalledVersions, not loadVersionsManifest: with the manifest
+    // missing this still finds what's installed in the prefix instead of
+    // falling through to a pointless official-installer download.
+    VersionsManifest manifest = loadInstalledVersions(installDir);
     const AppVersions& av = appVersionsFor(manifest, target);
     if (av.activeHash.empty()) return "";
 

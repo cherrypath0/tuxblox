@@ -140,10 +140,13 @@ int main() {
         fs::path versionsDir = dir / "runtime/pfx/drive_c/users/user/AppData/Local/Roblox/Versions";
         fs::create_directories(versionsDir / "version-existing");   // already known -- must not duplicate
         fs::create_directories(versionsDir / "version-newfound");   // genuinely new -- must be appended
-        // "version-existing" is skipped via the alreadyKnown check before the
-        // exe-presence check even runs, so it doesn't need an exe file here --
-        // but "version-newfound" does (Finding 3 fix).
+        fs::create_directories(versionsDir / "version-studio-existing");
+        // Every fixture directory needs its target's exe: the prefix is the
+        // source of truth now, so a directory without the exe reads as "this
+        // version isn't installed" and its manifest entry gets dropped.
+        std::ofstream(versionsDir / "version-existing" / "RobloxPlayerBeta.exe") << "fake exe";
         std::ofstream(versionsDir / "version-newfound" / "RobloxPlayerBeta.exe") << "fake exe";
+        std::ofstream(versionsDir / "version-studio-existing" / "RobloxStudioBeta.exe") << "fake exe";
 
         registerBootstrappedVersion(dir.string(), LaunchTarget::Player);
 
@@ -167,13 +170,16 @@ int main() {
         assert(m.player.activeHash == "version-existing");
         assert(m.player.bootstrapped);
 
-        // Studio's data is completely untouched.
+        // Studio's entry and pin survive Player's bootstrap unchanged. Its
+        // `bootstrapped` flag does flip: it's now derived from the prefix
+        // ("a version for this app type is installed"), and Studio's version
+        // directory is right there on disk.
         assert(m.studio.installed.size() == 1);
         assert(m.studio.installed[0].hash == "version-studio-existing");
         assert(m.studio.installed[0].channel == "live");
         assert(m.studio.installed[0].installedAt == "2026-07-01T00:00:00Z");
         assert(m.studio.activeHash == "version-studio-existing");
-        assert(!m.studio.bootstrapped);
+        assert(m.studio.bootstrapped);
 
         fs::remove_all(dir);
     }
@@ -221,6 +227,96 @@ int main() {
         assert(m.player.installed[0].hash == "version-player-existing");
         assert(m.player.activeHash == "version-player-existing");
 
+        fs::remove_all(dir);
+    }
+
+    // loadInstalledVersions(): versions.json deleted (or never written) but
+    // Roblox IS installed in the prefix -- the reported bug. Detection must
+    // come from the prefix, so the Start tab keeps saying "Launch" rather
+    // than offering to install something that's already there.
+    {
+        fs::path dir = fs::temp_directory_path() / "tuxblox_test_versions_manifest_no_json";
+        fs::remove_all(dir);
+        fs::path versionsDir = dir / "runtime/pfx/drive_c/users/user/AppData/Local/Roblox/Versions";
+        fs::create_directories(versionsDir / "version-installedplayer");
+        std::ofstream(versionsDir / "version-installedplayer" / "RobloxPlayerBeta.exe") << "fake exe";
+        fs::create_directories(versionsDir / "version-installedstudio");
+        std::ofstream(versionsDir / "version-installedstudio" / "RobloxStudioBeta.exe") << "fake exe";
+        assert(!fs::exists(dir / "versions.json"));
+
+        VersionsManifest m = loadInstalledVersions(dir.string());
+        assert(m.player.installed.size() == 1);
+        assert(m.player.installed[0].hash == "version-installedplayer");
+        assert(m.player.activeHash == "version-installedplayer");
+        assert(m.player.bootstrapped);
+        assert(m.studio.installed.size() == 1);
+        assert(m.studio.activeHash == "version-installedstudio");
+        // Read-only: recovering state must not write the file back out.
+        assert(!fs::exists(dir / "versions.json"));
+
+        // scanPrefixVersions() separates the two targets by exe presence,
+        // even though they share one Versions/ directory.
+        assert(scanPrefixVersions(dir.string(), LaunchTarget::Player).size() == 1);
+        assert(scanPrefixVersions(dir.string(), LaunchTarget::Studio).size() == 1);
+        fs::remove_all(dir);
+    }
+
+    // loadInstalledVersions(): the opposite staleness -- versions.json lists
+    // versions whose directories are gone (prefix wiped by hand). Those
+    // entries must be dropped and the dangling active pin cleared, so the
+    // Start tab offers to install instead of pointing at a missing exe.
+    {
+        fs::path dir = fs::temp_directory_path() / "tuxblox_test_versions_manifest_stale_json";
+        fs::remove_all(dir);
+        fs::create_directories(dir);
+        VersionsManifest seed;
+        seed.player.installed.push_back({"version-gone", "live", "2026-08-01T00:00:00Z"});
+        seed.player.activeHash = "version-gone";
+        seed.player.bootstrapped = true;
+        saveVersionsManifest(dir.string(), seed);
+
+        VersionsManifest m = loadInstalledVersions(dir.string());
+        assert(m.player.installed.empty());
+        assert(m.player.activeHash.empty());
+        fs::remove_all(dir);
+    }
+
+    // loadInstalledVersions(): the pinned version is gone but another one is
+    // still installed -> re-pin the survivor rather than leaving the pin
+    // dangling. Metadata of surviving entries is preserved.
+    {
+        fs::path dir = fs::temp_directory_path() / "tuxblox_test_versions_manifest_repin";
+        fs::remove_all(dir);
+        fs::path versionsDir = dir / "runtime/pfx/drive_c/users/user/AppData/Local/Roblox/Versions";
+        fs::create_directories(versionsDir / "version-survivor");
+        std::ofstream(versionsDir / "version-survivor" / "RobloxPlayerBeta.exe") << "fake exe";
+
+        VersionsManifest seed;
+        seed.player.installed.push_back({"version-gone", "live", "2026-08-01T00:00:00Z"});
+        seed.player.installed.push_back({"version-survivor", "beta", "2026-08-02T00:00:00Z"});
+        seed.player.activeHash = "version-gone";
+        saveVersionsManifest(dir.string(), seed);
+
+        VersionsManifest m = loadInstalledVersions(dir.string());
+        assert(m.player.installed.size() == 1);
+        assert(m.player.installed[0].hash == "version-survivor");
+        assert(m.player.installed[0].channel == "beta");             // metadata kept
+        assert(m.player.installed[0].installedAt == "2026-08-02T00:00:00Z");
+        assert(m.player.activeHash == "version-survivor");
+        fs::remove_all(dir);
+    }
+
+    // A directory in Versions/ that holds neither exe (Roblox leaves other
+    // things in there) is not a version of anything.
+    {
+        fs::path dir = fs::temp_directory_path() / "tuxblox_test_versions_manifest_no_exe";
+        fs::remove_all(dir);
+        fs::path versionsDir = dir / "runtime/pfx/drive_c/users/user/AppData/Local/Roblox/Versions";
+        fs::create_directories(versionsDir / "some-other-dir");
+        VersionsManifest m = loadInstalledVersions(dir.string());
+        assert(m.player.installed.empty());
+        assert(m.studio.installed.empty());
+        assert(!m.player.bootstrapped);
         fs::remove_all(dir);
     }
 

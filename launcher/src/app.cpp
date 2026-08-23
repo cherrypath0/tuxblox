@@ -61,7 +61,11 @@ App::App(std::string installDir, std::string currentVersion, std::string launche
     // window exists before that potential stall. See Finding 5, 2026-07-28
     // final review.
     snapshot_.settings = loadSettings(installDir_);
-    snapshot_.versions = loadVersionsManifest(installDir_);
+    // Prefix-first, not versions.json-first: a deleted or stale manifest
+    // must not make an already-installed Roblox look uninstalled (the
+    // Start tab would offer "Install & Launch" for something that's
+    // sitting right there in the prefix).
+    snapshot_.versions = loadInstalledVersions(installDir_);
     // Safe to call unlocked here: the constructor runs before
     // startUpdateCheck() spawns any other thread, so nothing else can be
     // concurrently calling getenv() yet. See applyGlobalEnvVars()'s own
@@ -608,10 +612,20 @@ void App::versionInstallThreadMain(LaunchTarget target, VersionSelectMode mode, 
     // see main.cpp), so saving a possibly-stale in-memory copy can silently
     // clobber what that process just wrote. This narrows the race window to
     // "load-then-save" instead of "constructor-load-then-save-anytime-later".
-    VersionsManifest fresh = loadVersionsManifest(installDir_);
+    VersionsManifest fresh = loadInstalledVersions(installDir_);
     {
         AppVersions& av = appVersionsFor(fresh, target);
-        av.installed.push_back({hash, channel, isoNowUtc()});
+        // loadInstalledVersions() already picked this version up off the
+        // prefix (it was extracted above), so record the metadata on that
+        // entry instead of appending a duplicate.
+        auto it = std::find_if(av.installed.begin(), av.installed.end(),
+                                [&](const InstalledVersion& v) { return v.hash == hash; });
+        if (it == av.installed.end()) {
+            av.installed.push_back({hash, channel, isoNowUtc()});
+        } else {
+            it->channel = channel;
+            it->installedAt = isoNowUtc();
+        }
         if (av.activeHash.empty()) av.activeHash = hash; // first version for this app type -- pin it
     }
     saveVersionsManifest(installDir_, fresh);
@@ -626,7 +640,7 @@ void App::requestSetActiveVersion(LaunchTarget target, const std::string& hash) 
     // Re-loaded from disk rather than mutated from the in-memory snapshot_
     // copy -- see versionInstallThreadMain's matching comment (Finding 5,
     // 2026-08-16 final review).
-    VersionsManifest fresh = loadVersionsManifest(installDir_);
+    VersionsManifest fresh = loadInstalledVersions(installDir_);
     AppVersions& av = appVersionsFor(fresh, target);
     bool installed = std::any_of(av.installed.begin(), av.installed.end(),
                                   [&](const InstalledVersion& v) { return v.hash == hash; });
@@ -641,7 +655,7 @@ void App::requestDeleteVersion(LaunchTarget target, const std::string& hash) {
     // Re-loaded from disk rather than mutated from the in-memory snapshot_
     // copy -- see versionInstallThreadMain's matching comment (Finding 5,
     // 2026-08-16 final review).
-    VersionsManifest fresh = loadVersionsManifest(installDir_);
+    VersionsManifest fresh = loadInstalledVersions(installDir_);
     AppVersions& av = appVersionsFor(fresh, target);
     if (hash == av.activeHash) return; // must pin a different version first
     auto it = std::find_if(av.installed.begin(), av.installed.end(),
@@ -649,9 +663,7 @@ void App::requestDeleteVersion(LaunchTarget target, const std::string& hash) {
     if (it == av.installed.end()) return;
     av.installed.erase(it);
 
-    // NOTE: hardcodes "users/user/..." -- see the matching note above.
-    const std::string versionDir =
-        installDir_ + "/runtime/pfx/drive_c/users/user/AppData/Local/Roblox/Versions/" + hash;
+    const std::string versionDir = prefixVersionsDir(installDir_) + "/" + hash;
     std::error_code ec;
     fs::remove_all(versionDir, ec); // best-effort
 
