@@ -13,7 +13,7 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
-//
+
 // Portions derived from Proton's proton.py:
 // Copyright (c) 2018-2022, Valve Corporation. All rights reserved.
 // Licensed under the 3-clause BSD license; see
