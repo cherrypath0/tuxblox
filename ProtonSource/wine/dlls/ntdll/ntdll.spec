@@ -108,6 +108,7 @@
 @ stdcall LdrQueryProcessModuleInformation(ptr long ptr)
 @ stdcall LdrRegisterDllNotification(long ptr ptr ptr)
 @ stdcall LdrRemoveDllDirectory(ptr)
+@ stdcall LdrResSearchResource(ptr ptr long long ptr ptr ptr ptr)
 @ stdcall LdrResolveDelayLoadedAPI(ptr ptr ptr ptr ptr long)
 @ stub LdrSetAppCompatDllRedirectionCallback
 @ stdcall LdrSetDefaultDllDirectories(long)

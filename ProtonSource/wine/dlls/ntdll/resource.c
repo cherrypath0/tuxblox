@@ -377,6 +377,33 @@ NTSTATUS WINAPI LdrAccessResource( HMODULE hmod, const IMAGE_RESOURCE_DATA_ENTRY
 #endif
 
 /**********************************************************************
+ *	LdrResSearchResource  (NTDLL.@)
+ *
+ * Finds a resource and returns its address and size in one call.
+ */
+NTSTATUS WINAPI LdrResSearchResource( HMODULE hmod, const LDR_RESOURCE_INFO *info, ULONG level,
+                                      ULONG flags, void **resource, ULONG_PTR *size,
+                                      USHORT *lang, ULONG *lang_len )
+{
+    const IMAGE_RESOURCE_DATA_ENTRY *entry;
+    NTSTATUS status;
+    ULONG entry_size;
+
+    TRACE( "module %p level %lu flags %#lx\n", hmod, level, flags );
+
+    if (flags) FIXME( "unsupported flags %#lx\n", flags );
+
+    if ((status = LdrFindResource_U( hmod, info, level, &entry ))) return status;
+    if ((status = LdrAccessResource( hmod, entry, resource, &entry_size ))) return status;
+
+    if (size) *size = entry_size;
+    /* the language a resource was found under is not tracked by find_entry */
+    if (lang_len) *lang_len = 0;
+    return STATUS_SUCCESS;
+}
+
+
+/**********************************************************************
  *	RtlFindMessage  (NTDLL.@)
  */
 NTSTATUS WINAPI RtlFindMessage( HMODULE hmod, ULONG type, ULONG lang,

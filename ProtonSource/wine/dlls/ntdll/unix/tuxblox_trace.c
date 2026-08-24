@@ -185,7 +185,7 @@ void tuxblox_trace_record( const char *surface, const char *detail )
  * discriminating part. */
 void tuxblox_trace_record_us( const char *surface, const UNICODE_STRING *detail )
 {
-    char buf[256];
+    char buf[1024];
     SIZE_T i, len;
 
     if (!tuxblox_trace_enabled()) return;

@@ -5142,6 +5142,44 @@ NTSTATUS WINAPI NtRaiseHardError( NTSTATUS status, ULONG count,
 {
     tuxblox_trace_record( "NtRaiseHardError", "" );
 
+    /* A hard error carries the caller's own diagnostic text: the bits set in
+     * params_mask say which parameters are UNICODE_STRING pointers rather than
+     * plain values. Recording them is the only way to see what the process was
+     * trying to tell the user before Wine's stub swallowed the message. */
+    if (tuxblox_trace_enabled() && params)
+    {
+        ULONG i;
+
+        for (i = 0; i < count && i < 8 * sizeof(params_mask); i++)
+        {
+            if (params_mask & (1u << i))
+                tuxblox_trace_record_us( "NtRaiseHardError.param", params[i] );
+            else
+            {
+                char detail[32];
+
+                snprintf( detail, sizeof(detail), "%p", params[i] );
+                tuxblox_trace_record( "NtRaiseHardError.param", detail );
+            }
+        }
+    }
+
+    /* Wine never shows the message box, so a caller waiting on the user's answer
+     * gets nothing back. TUXBLOX_HARDERROR_RESPONSE supplies one, which is how a
+     * crash handler can be made to take its "user pressed OK" path under Wine. */
+    if (response)
+    {
+        const char *forced = getenv( "TUXBLOX_HARDERROR_RESPONSE" );
+
+        if (forced && *forced)
+        {
+            *response = atoi( forced );
+            FIXME( "%#08x %u %#x %p %u %p: answering %u\n",
+                   status, count, params_mask, params, option, response, *response );
+            return STATUS_SUCCESS;
+        }
+    }
+
     FIXME( "%#08x %u %#x %p %u %p: stub\n", status, count, params_mask, params, option, response );
     return STATUS_NOT_IMPLEMENTED;
 }

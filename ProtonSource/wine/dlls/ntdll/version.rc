@@ -16,8 +16,15 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#define WINE_FILEDESCRIPTION_STR "Wine ntdll"
+#pragma code_page(65001)
+
+#define WINE_FILEDESCRIPTION_STR "NT Layer DLL"
 #define WINE_FILENAME_STR "ntdll.dll"
-#define WINE_FILEVERSION 6,1,7601,24059
+#define WINE_FILEVERSION 10,0,19045,3636
+#define WINE_FILEVERSION_STR "10.0.19045.3636 (WinBuild.160101.0800)"
+#define WINE_PRODUCTVERSION 10,0,19045,3636
+#define WINE_PRODUCTVERSION_STR "10.0.19045.3636"
+#define WINE_PRODUCTNAME_STR "Microsoft\256 Windows\256 Operating System"
+#define WINE_LEGALCOPYRIGHT "\251 Microsoft Corporation. All rights reserved."
 
 #include "wine/wine_common_ver.rc"

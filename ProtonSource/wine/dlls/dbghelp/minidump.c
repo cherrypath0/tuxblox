@@ -25,6 +25,7 @@
 #define WIN32_NO_STATUS
 #include "dbghelp_private.h"
 #include "winternl.h"
+#include "rtlsupportapi.h"
 #include "psapi.h"
 #include "wine/asm.h"
 #include "wine/debug.h"
@@ -68,9 +69,6 @@ static BOOL fetch_process_info(struct dump_context* dc)
                 if (!dc->threads) break;
                 for (i = 0; i < spi->dwThreadCount; i++)
                 {
-                    /* don't include current thread */
-                    if (HandleToULong(spi->ti[i].ClientId.UniqueThread) == GetCurrentThreadId())
-                        continue;
                     dc->threads[dc->num_threads].tid        = HandleToULong(spi->ti[i].ClientId.UniqueThread);
                     dc->threads[dc->num_threads].prio_class = spi->ti[i].dwBasePriority; /* FIXME */
                     dc->threads[dc->num_threads].curr_prio  = spi->ti[i].dwCurrentPriority;
@@ -138,6 +136,17 @@ static BOOL fetch_thread_info(struct dump_context* dc, int thd_idx,
     mdThd->ThreadContext.Rva = 0;
     mdThd->PriorityClass = dc->threads[thd_idx].prio_class;
     mdThd->Priority = dc->threads[thd_idx].curr_prio;
+
+    if (tid == GetCurrentThreadId())
+    {
+        /* Suspending ourselves would never wake back up. Windows doesn't try
+         * either: the thread writing the dump records its own context. */
+        mdThd->Teb = (ULONG_PTR)NtCurrentTeb();
+        ctx->ContextFlags = CONTEXT_ALL;
+        RtlCaptureContext(ctx);
+        fetch_thread_stack(dc, NtCurrentTeb(), ctx, &mdThd->Stack);
+        return TRUE;
+    }
 
     if ((hThread = OpenThread(THREAD_ALL_ACCESS, FALSE, tid)) == NULL)
     {
@@ -1071,22 +1080,12 @@ BOOL WINAPI MiniDumpWriteDump(HANDLE hProcess, DWORD pid, HANDLE hFile,
     dc.except_param = (ExceptionParam && ExceptionParam->ExceptionPointers) ? ExceptionParam : NULL;
     dc.user_stream = UserStreamParam;
 
-    /* have a dedicated thread for fetching info on self */
-    if (dc.pid != GetCurrentProcessId())
-        ret = write_minidump(&dc);
-    else
-    {
-        DWORD  exit_code;
-        HANDLE h = CreateThread(NULL, 0, write_minidump, &dc, 0, NULL);
-        if (h)
-        {
-            if (WaitForSingleObject(h, INFINITE) == WAIT_OBJECT_0 && GetExitCodeThread(h, &exit_code))
-                ret = exit_code;
-            else
-                TerminateThread(h, 0);
-            CloseHandle(h);
-        }
-    }
+    /* Dumping ourselves used to run on a thread created here, so the crashing
+     * thread could be suspended and read like any other. That deadlocks when
+     * the caller holds the loader lock -- a crash handler called from a TLS
+     * callback does -- because the new thread cannot finish starting up and
+     * this one waits for it forever. Windows dumps in place, and so do we. */
+    ret = write_minidump(&dc);
 
     if (sym_initialized)
         SymCleanup(hProcess);
