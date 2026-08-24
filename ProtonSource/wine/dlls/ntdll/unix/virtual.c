@@ -5632,7 +5632,20 @@ NTSTATUS WINAPI NtAllocateVirtualMemory( HANDLE process, PVOID *ret, ULONG_PTR z
     else
         limit = 0;
 
-    return allocate_virtual_memory( ret, size_ptr, type, protect, 0, limit, 0, 0 );
+    {
+        NTSTATUS status = allocate_virtual_memory( ret, size_ptr, type, protect, 0, limit, 0, 0 );
+
+        if (tuxblox_trace_enabled())
+        {
+            char detail[96];
+
+            snprintf( detail, sizeof(detail), "addr=%p size=%#lx type=%#x prot=%#x status=%#x",
+                      *ret, (unsigned long)*size_ptr, (unsigned int)type, (unsigned int)protect,
+                      (unsigned int)status );
+            tuxblox_trace_record( "NtAllocateVirtualMemory", detail );
+        }
+        return status;
+    }
 }
 
 
@@ -5971,6 +5984,15 @@ NTSTATUS WINAPI NtProtectVirtualMemory( HANDLE process, PVOID *addr_ptr, SIZE_T 
         *old_prot = old;
     }
     else *old_prot = PAGE_NOACCESS;
+
+    if (tuxblox_trace_enabled())
+    {
+        char detail[96];
+
+        snprintf( detail, sizeof(detail), "addr=%p size=%#lx new=%#x status=%#x",
+                  addr, (unsigned long)size, (unsigned int)new_prot, (unsigned int)status );
+        tuxblox_trace_record( "NtProtectVirtualMemory", detail );
+    }
     return status;
 }
 
