@@ -4868,7 +4868,7 @@ void virtual_init_user_shared_data(void)
      * a system that does not exist and contradicts every other version we give. */
     data->NtMajorVersion        = 10;
     data->NtMinorVersion        = 0;
-    data->NtBuildNumber         = 19045;
+    data->NtBuildNumber         = 26200;
     data->NtProductType         = NtProductWinNt;
     data->ProductTypeIsValid    = TRUE;
     data->SuiteMask             = VER_SUITE_SINGLEUSERTS;

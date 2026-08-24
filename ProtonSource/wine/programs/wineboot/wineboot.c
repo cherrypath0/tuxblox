@@ -1608,8 +1608,13 @@ static void update_user_profile(void)
 
 static void update_win_version(void)
 {
-    static const WCHAR win10_buildW[] = L"19045";
+    /* Windows 11 24H2. Every answer this build gives that was measured rather
+     * than guessed came from that version, the system call numbers included,
+     * so the version reported has to be the same one. */
+    static const WCHAR win10_buildW[] = L"26200";
     static const WCHAR win10_ntW[] = L"6.3";
+    static const WCHAR win10_displayW[] = L"25H2";
+    static const DWORD win10_ubr = 9168;
 
     HKEY cv_h;
     DWORD type, sz;
@@ -1625,6 +1630,11 @@ static void update_win_version(void)
                 RegSetValueExW(cv_h, L"CurrentVersion", 0, REG_SZ, (const BYTE *)win10_ntW, sizeof(win10_ntW));
                 RegSetValueExW(cv_h, L"CurrentBuild", 0, REG_SZ, (const BYTE *)win10_buildW, sizeof(win10_buildW));
                 RegSetValueExW(cv_h, L"CurrentBuildNumber", 0, REG_SZ, (const BYTE *)win10_buildW, sizeof(win10_buildW));
+                /* these travel with the build; a prefix made by an older
+                 * version otherwise keeps describing the version it was made
+                 * under alongside the new build number */
+                RegSetValueExW(cv_h, L"DisplayVersion", 0, REG_SZ, (const BYTE *)win10_displayW, sizeof(win10_displayW));
+                RegSetValueExW(cv_h, L"UBR", 0, REG_DWORD, (const BYTE *)&win10_ubr, sizeof(win10_ubr));
             }
         }
         RegCloseKey(cv_h);
@@ -1640,6 +1650,11 @@ static void update_win_version(void)
                 RegSetValueExW(cv_h, L"CurrentVersion", 0, REG_SZ, (const BYTE *)win10_ntW, sizeof(win10_ntW));
                 RegSetValueExW(cv_h, L"CurrentBuild", 0, REG_SZ, (const BYTE *)win10_buildW, sizeof(win10_buildW));
                 RegSetValueExW(cv_h, L"CurrentBuildNumber", 0, REG_SZ, (const BYTE *)win10_buildW, sizeof(win10_buildW));
+                /* these travel with the build; a prefix made by an older
+                 * version otherwise keeps describing the version it was made
+                 * under alongside the new build number */
+                RegSetValueExW(cv_h, L"DisplayVersion", 0, REG_SZ, (const BYTE *)win10_displayW, sizeof(win10_displayW));
+                RegSetValueExW(cv_h, L"UBR", 0, REG_DWORD, (const BYTE *)&win10_ubr, sizeof(win10_ubr));
             }
         }
         RegCloseKey(cv_h);
