@@ -2443,13 +2443,88 @@ static const char *get_board_serial( char *str, size_t size, const GUID *uuid )
     return str;
 }
 
+#define DMI_TABLE_DIR "/sys/firmware/dmi/tables"
+
+/* Read a whole sysfs file, which hands back at most a page per read. */
+static void *read_sysfs_file( const char *path, size_t *ret_size, size_t head_room )
+{
+    off_t done = 0, got;
+    struct stat st;
+    char *buf;
+    int fd;
+
+    if ((fd = open( path, O_RDONLY )) == -1) return NULL;
+    if (fstat( fd, &st ) == -1 || st.st_size <= 0 || !(buf = malloc( head_room + st.st_size )))
+    {
+        close( fd );
+        return NULL;
+    }
+    for (; done < st.st_size; done += got)
+    {
+        got = read( fd, buf + head_room + done, st.st_size - done );
+        if (got <= 0) break;
+    }
+    close( fd );
+    if (done != st.st_size)
+    {
+        free( buf );
+        return NULL;
+    }
+    *ret_size = st.st_size;
+    return buf;
+}
+
+/* The firmware's own SMBIOS table.
+ *
+ * Otherwise this is built from the handful of fields sysfs decodes into
+ * /sys/class/dmi/id, which is a small part of what the firmware provides --
+ * 591 bytes against this machine's real 2655 -- and describes a machine
+ * whose SMBIOS version does not match its own entry point either. The real
+ * table is a file, under the same access as the ACPI tables, so prefer it. */
+static struct smbios_prologue *get_smbios_from_sysfs(void)
+{
+    struct smbios_prologue *prologue;
+    size_t table_size, eps_size;
+    BYTE *eps;
+
+    if (!(prologue = read_sysfs_file( DMI_TABLE_DIR "/DMI", &table_size, sizeof(*prologue) )))
+        return NULL;
+
+    prologue->calling_method = 0;
+    prologue->major_version  = SMBIOS_MAJOR_VERSION;
+    prologue->minor_version  = SMBIOS_MINOR_VERSION;
+    prologue->revision       = 0;
+    prologue->length         = table_size;
+
+    /* the version belongs to the entry point, not the table */
+    if ((eps = read_sysfs_file( DMI_TABLE_DIR "/smbios_entry_point", &eps_size, 0 )))
+    {
+        if (eps_size >= 9 && !memcmp( eps, "_SM3_", 5 ))
+        {
+            prologue->major_version = eps[7];
+            prologue->minor_version = eps[8];
+            prologue->revision      = eps[9 - 1];
+        }
+        else if (eps_size >= 8 && !memcmp( eps, "_SM_", 4 ))
+        {
+            prologue->major_version = eps[6];
+            prologue->minor_version = eps[7];
+        }
+        free( eps );
+    }
+    return prologue;
+}
+
 static struct smbios_prologue *create_smbios_data(void)
 {
     char vendor[128], version[128], date[128], product[128], serial[128];
     char sku[128], family[128], asset_tag[128], type[11];
+    struct smbios_prologue *real;
     GUID uuid;
     BYTE chassis;
     struct smbios_buffer buf = { 0 };
+
+    if ((real = get_smbios_from_sysfs())) return real;
 
 #define S(s) s, sizeof(s)
     append_smbios_bios( &buf,
@@ -2863,6 +2938,9 @@ static const struct known_class known_system_classes[] =
 
 
 #define ACPI_TABLE_DIR "/sys/firmware/acpi/tables"
+#define ACPI_SIG(a,b,c,d) ((ULONG)(a) | ((ULONG)(b) << 8) | ((ULONG)(c) << 16) | ((ULONG)(d) << 24))
+#define SIG_DSDT ACPI_SIG('D','S','D','T')
+#define SIG_FACS ACPI_SIG('F','A','C','S')
 
 /* The ACPI tables themselves are readable only by root, but the directory
  * holding them is not: listing it names every table the firmware provides.
@@ -2889,6 +2967,16 @@ static ULONG acpi_table_signature( const struct dirent *de )
     return sig;
 }
 
+/* DSDT and FACS are not entries in the root table -- they are reached through
+ * pointers inside the FADT -- so an enumerate does not list them, though a get
+ * still returns them. sysfs makes no such distinction and files them with the
+ * rest. Measured: Windows lists 21 tables on this machine where the directory
+ * holds 23 files. */
+static BOOL acpi_table_is_enumerated( ULONG sig )
+{
+    return sig != SIG_DSDT && sig != SIG_FACS;
+}
+
 static NTSTATUS enum_acpi_tables( SYSTEM_FIRMWARE_TABLE_INFORMATION *sfti, ULONG available_len,
                                   ULONG *required_len )
 {
@@ -2905,7 +2993,7 @@ static NTSTATUS enum_acpi_tables( SYSTEM_FIRMWARE_TABLE_INFORMATION *sfti, ULONG
     {
         ULONG sig = acpi_table_signature( de );
 
-        if (!sig) continue;
+        if (!sig || !acpi_table_is_enumerated( sig )) continue;
         if (count == capacity)
         {
             ULONG new_capacity = capacity ? capacity * 2 : 32;
@@ -2954,6 +3042,7 @@ static NTSTATUS get_acpi_table( SYSTEM_FIRMWARE_TABLE_INFORMATION *sfti, ULONG a
     char path[sizeof(ACPI_TABLE_DIR) + 1 + sizeof(((struct dirent *)0)->d_name)];
     NTSTATUS status = STATUS_NOT_FOUND;
     off_t done = 0, got;
+    int best = -1;
     struct dirent *de;
     struct stat st;
     DIR *dir;
@@ -2962,13 +3051,23 @@ static NTSTATUS get_acpi_table( SYSTEM_FIRMWARE_TABLE_INFORMATION *sfti, ULONG a
     if (!(dir = opendir( ACPI_TABLE_DIR ))) return STATUS_NOT_FOUND;
     while ((de = readdir( dir )))
     {
+        int instance;
+
         if (acpi_table_signature( de ) != sfti->TableID) continue;
+        instance = de->d_name[4] ? atoi( de->d_name + 4 ) : 0;
+        if (best != -1 && instance >= best) continue;
+        best = instance;
         snprintf( path, sizeof(path), ACPI_TABLE_DIR "/%s", de->d_name );
         status = STATUS_ACCESS_DENIED;
-        break;
     }
     closedir( dir );
-    if (status == STATUS_NOT_FOUND) return status;
+    if (status == STATUS_NOT_FOUND)
+    {
+        /* measured: a signature the machine does not have still reports a
+         * length back, it is only the table that is missing */
+        *required_len = offsetof( SYSTEM_FIRMWARE_TABLE_INFORMATION, TableBuffer[sizeof(ULONG)] );
+        return status;
+    }
 
     if ((fd = open( path, O_RDONLY )) == -1)
     {
