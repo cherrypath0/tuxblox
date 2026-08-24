@@ -4991,7 +4991,7 @@ NTSTATUS WINAPI NtQuerySystemInformation( SYSTEM_INFORMATION_CLASS class,
         ULONG count = ARRAY_SIZE(tags), i;
         struct pooltag *entry;
 
-        C_ASSERT( sizeof(struct pooltag) == 40 );
+        C_ASSERT( sizeof(struct pooltag) == (sizeof(SIZE_T) == 8 ? 40 : 28) );
 
         len = offsetof( struct { ULONG count; struct pooltag tags[1]; }, tags[count] );
         if (size < offsetof( struct { ULONG count; struct pooltag tags[1]; }, tags[1] ))
@@ -5041,7 +5041,7 @@ NTSTATUS WINAPI NtQuerySystemInformation( SYSTEM_INFORMATION_CLASS class,
             ULONG  pad;
         };
 
-        C_ASSERT( sizeof(struct bigpool_entry) == 24 );
+        C_ASSERT( sizeof(struct bigpool_entry) == (sizeof(void *) == 8 ? 24 : 16) );
 
         len = offsetof( struct { ULONG count; struct bigpool_entry e[1]; }, e[0] );
         if (size < len)

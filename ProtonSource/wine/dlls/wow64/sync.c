@@ -147,6 +147,42 @@ NTSTATUS WINAPI wow64_NtAcceptConnectPort( UINT *args )
 
 
 /**********************************************************************
+ *           wow64_NtCancelWaitCompletionPacket
+ */
+NTSTATUS WINAPI wow64_NtCancelWaitCompletionPacket( UINT *args )
+{
+    HANDLE handle = get_handle( &args );
+    BOOLEAN remove_signaled = get_ulong( &args );
+
+    return NtCancelWaitCompletionPacket( handle, remove_signaled );
+}
+
+
+/**********************************************************************
+ *           wow64_NtCreateJobSet
+ */
+NTSTATUS WINAPI wow64_NtCreateJobSet( UINT *args )
+{
+    ULONG count = get_ulong( &args );
+    void *set = get_ptr( &args );
+    ULONG flags = get_ulong( &args );
+
+    return NtCreateJobSet( count, set, flags );
+}
+
+
+/**********************************************************************
+ *           wow64_NtDeletePrivateNamespace
+ */
+NTSTATUS WINAPI wow64_NtDeletePrivateNamespace( UINT *args )
+{
+    HANDLE handle = get_handle( &args );
+
+    return NtDeletePrivateNamespace( handle );
+}
+
+
+/**********************************************************************
  *           wow64_NtCancelTimer
  */
 NTSTATUS WINAPI wow64_NtCancelTimer( UINT *args )

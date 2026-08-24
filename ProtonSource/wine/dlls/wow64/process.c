@@ -356,6 +356,22 @@ NTSTATUS WINAPI wow64_NtCreateThread( UINT *args )
 
 
 /**********************************************************************
+ *           wow64_NtChangeProcessState
+ */
+NTSTATUS WINAPI wow64_NtChangeProcessState( UINT *args )
+{
+    HANDLE state_change = get_handle( &args );
+    HANDLE process = get_handle( &args );
+    ULONG type = get_ulong( &args );
+    void *extended = get_ptr( &args );
+    ULONG extended_len = get_ulong( &args );
+    ULONG64 reserved = get_ulong64( &args );
+
+    return NtChangeProcessState( state_change, process, type, extended, extended_len, reserved );
+}
+
+
+/**********************************************************************
  *           wow64_NtCreateThreadEx
  */
 NTSTATUS WINAPI wow64_NtCreateThreadEx( UINT *args )
