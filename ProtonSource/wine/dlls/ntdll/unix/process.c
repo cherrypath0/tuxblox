@@ -1738,6 +1738,8 @@ NTSTATUS WINAPI NtQueryInformationProcess( HANDLE handle, PROCESSINFOCLASS class
                 str->MaximumLength = str->Length + sizeof(WCHAR);
                 str->Buffer = (PWSTR)(str + 1);
                 str->Buffer[str->Length / sizeof(WCHAR)] = 0;
+                if (tuxblox_trace_enabled())
+                    tuxblox_trace_record_us( "ProcessImageFileName", str );
             }
         }
         SERVER_END_REQ;
@@ -2256,6 +2258,16 @@ NTSTATUS WINAPI NtOpenProcess( HANDLE *handle, ACCESS_MASK access,
         if (!status) *handle = wine_server_ptr_handle( reply->handle );
     }
     SERVER_END_REQ;
+
+    if (tuxblox_trace_enabled())
+    {
+        char detail[64];
+
+        snprintf( detail, sizeof(detail), "pid=%u access=%#x status=%#x",
+                  (unsigned int)HandleToULong( id->UniqueProcess ), (unsigned int)access,
+                  (unsigned int)status );
+        tuxblox_trace_record( "NtOpenProcess", detail );
+    }
     return status;
 }
 
@@ -2315,6 +2327,15 @@ NTSTATUS WINAPI NtGetNextProcess( HANDLE process, ACCESS_MASK access, ULONG attr
         if (!(ret = wine_server_call( req ))) ret_handle = wine_server_ptr_handle( reply->handle );
     }
     SERVER_END_REQ;
+
+    if (tuxblox_trace_enabled())
+    {
+        char detail[64];
+
+        snprintf( detail, sizeof(detail), "last=%p -> handle=%p status=%#x",
+                  process, ret_handle, (unsigned int)ret );
+        tuxblox_trace_record( "NtGetNextProcess", detail );
+    }
 
     *handle = ret_handle;
     return ret;

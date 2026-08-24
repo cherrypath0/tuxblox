@@ -3603,26 +3603,6 @@ static void get_timezone_info( RTL_DYNAMIC_TIME_ZONE_INFORMATION *tzi )
  * of these fake PIDs fails the same way it would against any PID that has
  * already exited on a real system, which is an ordinary, expected race any
  * well-behaved enumerator already has to tolerate. */
-static const WCHAR fake_proc_idle[]      = {'S','y','s','t','e','m',' ','I','d','l','e',' ','P','r','o','c','e','s','s',0};
-static const WCHAR fake_proc_system[]    = {'S','y','s','t','e','m',0};
-static const WCHAR fake_proc_smss[]      = {'s','m','s','s','.','e','x','e',0};
-static const WCHAR fake_proc_csrss[]     = {'c','s','r','s','s','.','e','x','e',0};
-static const WCHAR fake_proc_wininit[]   = {'w','i','n','i','n','i','t','.','e','x','e',0};
-static const WCHAR fake_proc_lsass[]     = {'l','s','a','s','s','.','e','x','e',0};
-static const WCHAR fake_proc_winlogon[]  = {'w','i','n','l','o','g','o','n','.','e','x','e',0};
-static const WCHAR fake_proc_svchost[]   = {'s','v','c','h','o','s','t','.','e','x','e',0};
-static const WCHAR fake_proc_dwm[]       = {'d','w','m','.','e','x','e',0};
-static const WCHAR fake_proc_spoolsv[]   = {'s','p','o','o','l','s','v','.','e','x','e',0};
-static const WCHAR fake_proc_fontdrv[]   = {'f','o','n','t','d','r','v','h','o','s','t','.','e','x','e',0};
-static const WCHAR fake_proc_sihost[]    = {'s','i','h','o','s','t','.','e','x','e',0};
-static const WCHAR fake_proc_taskhostw[] = {'t','a','s','k','h','o','s','t','w','.','e','x','e',0};
-static const WCHAR fake_proc_ctfmon[]    = {'c','t','f','m','o','n','.','e','x','e',0};
-static const WCHAR fake_proc_rtbroker[]  = {'R','u','n','t','i','m','e','B','r','o','k','e','r','.','e','x','e',0};
-static const WCHAR fake_proc_dllhost[]   = {'d','l','l','h','o','s','t','.','e','x','e',0};
-static const WCHAR fake_proc_searchidx[] = {'S','e','a','r','c','h','I','n','d','e','x','e','r','.','e','x','e',0};
-static const WCHAR fake_proc_conhost[]   = {'c','o','n','h','o','s','t','.','e','x','e',0};
-
-#define FAKE_PROC(arr) { arr, ARRAY_SIZE(arr) - 1 }
 /* Processes that only exist because of how TuxBlox runs Windows programs.
  * Nothing on Windows is called any of these, so listing them says plainly what
  * the program is running under. They are left out of the list entirely rather
@@ -3650,17 +3630,8 @@ static BOOL is_our_own_process( const WCHAR *name, unsigned int len )
 }
 
 
-static const struct { const WCHAR *name; unsigned int len; } fake_processes[] =
-{
-    FAKE_PROC(fake_proc_idle),      FAKE_PROC(fake_proc_system),   FAKE_PROC(fake_proc_smss),
-    FAKE_PROC(fake_proc_csrss),     FAKE_PROC(fake_proc_csrss),    FAKE_PROC(fake_proc_wininit),
-    FAKE_PROC(fake_proc_lsass),     FAKE_PROC(fake_proc_winlogon), FAKE_PROC(fake_proc_svchost),
-    FAKE_PROC(fake_proc_svchost),   FAKE_PROC(fake_proc_svchost),  FAKE_PROC(fake_proc_svchost),
-    FAKE_PROC(fake_proc_svchost),   FAKE_PROC(fake_proc_dwm),      FAKE_PROC(fake_proc_spoolsv),
-    FAKE_PROC(fake_proc_fontdrv),   FAKE_PROC(fake_proc_sihost),   FAKE_PROC(fake_proc_taskhostw),
-    FAKE_PROC(fake_proc_ctfmon),    FAKE_PROC(fake_proc_rtbroker), FAKE_PROC(fake_proc_dllhost),
-    FAKE_PROC(fake_proc_searchidx), FAKE_PROC(fake_proc_conhost),
-};
+/* Padding the list out is worse than a short list: a caller that opens each
+ * entry finds these do not exist, which proves the list was made up. */
 #undef FAKE_PROC
 
 static unsigned int get_system_process_info( SYSTEM_INFORMATION_CLASS class, void *info, ULONG size, ULONG *len )
@@ -3697,14 +3668,9 @@ C_ASSERT( sizeof(struct process_info) <= sizeof(SYSTEM_PROCESS_INFORMATION) );
     {
         if (ret == STATUS_INFO_LENGTH_MISMATCH)
         {
-            ULONG fake_len = 0;
-            for (i = 0; i < ARRAY_SIZE(fake_processes); i++)
-                fake_len += (sizeof(SYSTEM_PROCESS_INFORMATION) + (fake_processes[i].len + 1) * sizeof(WCHAR) + 7)
-                            & ~(ULONG_PTR)7;
             *len = sizeof(SYSTEM_PROCESS_INFORMATION) * process_count
                   + (total_name_len + process_count) * sizeof(WCHAR)
-                  + total_thread_count * thread_info_size
-                  + fake_len;
+                  + total_thread_count * thread_info_size;
         }
 
         free( buffer );
@@ -3797,34 +3763,6 @@ C_ASSERT( sizeof(struct process_info) <= sizeof(SYSTEM_PROCESS_INFORMATION) );
         }
     }
 
-    for (i = 0; i < ARRAY_SIZE(fake_processes); i++)
-    {
-        SYSTEM_PROCESS_INFORMATION *nt_process = (SYSTEM_PROCESS_INFORMATION *)((char *)info + *len);
-        ULONG proc_len = (sizeof(*nt_process) + (fake_processes[i].len + 1) * sizeof(WCHAR) + 7) & ~(ULONG_PTR)7;
-
-        *len += proc_len;
-        if (*len <= size)
-        {
-            memset( nt_process, 0, proc_len );
-            nt_process->NextEntryOffset = proc_len;
-            nt_process->dwBasePriority = 8;
-            /* Process ids on Windows are small multiples of four, and the first
-             * two of these always have the same ones. Anything near four billion
-             * is a number no Windows machine hands out. The rest sit high enough
-             * that our own counter, which starts at 32 and climbs slowly, will
-             * not reach them. */
-            nt_process->UniqueProcessId = UlongToHandle( i == 0 ? 0 : i == 1 ? 4 : 8000 + (i - 2) * 44 );
-            nt_process->ParentProcessId = UlongToHandle( i < 2 ? 0 : i == 2 ? 4 : 8000 );
-            nt_process->SessionId = (i < 8) ? 0 : 1;
-            nt_process->HandleCount = 40 + i * 11;
-            nt_process->ProcessName.Buffer = (WCHAR *)((BYTE *)nt_process + sizeof(*nt_process));
-            nt_process->ProcessName.Length = fake_processes[i].len * sizeof(WCHAR);
-            nt_process->ProcessName.MaximumLength = (fake_processes[i].len + 1) * sizeof(WCHAR);
-            memcpy( nt_process->ProcessName.Buffer, fake_processes[i].name,
-                    (fake_processes[i].len + 1) * sizeof(WCHAR) );
-            last_entry = nt_process;
-        }
-    }
 
     if (last_entry) last_entry->NextEntryOffset = 0;
 
@@ -4716,15 +4654,12 @@ NTSTATUS WINAPI NtQuerySystemInformation( SYSTEM_INFORMATION_CLASS class,
 
     case SystemBigPoolInformation:  /* 66 */
     {
-        /* Large kernel pool allocations. As with the pool tags above there is
-         * no kernel pool here, so describe a plausible set. Layout confirmed
-         * against Windows 10 22H2: a count then 24 bytes per allocation. */
-        static const char tags[][4] =
-        {
-            "MmSt","CM  ","Ntfr","File","NtFs","Thre","Proc","ObHt","Io  ","Irp ",
-            "Vad ","Pool","Ntfn","Ndis","Tcpc","AfdB","Dxgk","VidM","Wdf ","Etwp",
-            "SmSt","Perf","Srv ","LSwi","Fatf","Udfs","Vol ","Key ","Toke","SeSd"
-        };
+        /* Large kernel pool allocations. There is no kernel pool here to
+         * describe, and describing invented ones is worse than describing none:
+         * every entry carries the address it was allocated at, and a caller that
+         * looks at those addresses can tell they were made up. Report an empty
+         * list. Layout confirmed against Windows 10 22H2: a count, then 24 bytes
+         * per allocation, so an empty list is the count on its own. */
         struct bigpool_entry
         {
             void  *address;
@@ -4732,37 +4667,17 @@ NTSTATUS WINAPI NtQuerySystemInformation( SYSTEM_INFORMATION_CLASS class,
             ULONG  tag;
             ULONG  pad;
         };
-        ULONG count = 2048, i;
-        struct bigpool_entry *entry;
 
         C_ASSERT( sizeof(struct bigpool_entry) == 24 );
 
-        len = offsetof( struct { ULONG count; struct bigpool_entry e[1]; }, e[count] );
-        if (size < offsetof( struct { ULONG count; struct bigpool_entry e[1]; }, e[1] ))
+        len = offsetof( struct { ULONG count; struct bigpool_entry e[1]; }, e[0] );
+        if (size < len)
         {
             len = offsetof( struct { ULONG count; struct bigpool_entry e[1]; }, e[1] );
             ret = STATUS_INFO_LENGTH_MISMATCH;
             break;
         }
-        if (size < len)
-        {
-            ret = STATUS_INFO_LENGTH_MISMATCH;
-            break;
-        }
-
         memset( info, 0, len );
-        *(ULONG *)info = count;
-        entry = (struct bigpool_entry *)((char *)info +
-                offsetof( struct { ULONG count; struct bigpool_entry e[1]; }, e[0] ));
-        for (i = 0; i < count; i++)
-        {
-            ULONG n = (i + 1) * 4093;
-
-            /* kernel-space addresses, with the low bit marking non-paged pool */
-            entry[i].address = (void *)(ULONG_PTR)(0xffffc00000000000ull + ((ULONG_PTR)n << 12) + (i & 1));
-            entry[i].size    = (SIZE_T)(0x1000 + (n % 48) * 0x1000);
-            memcpy( &entry[i].tag, tags[i % ARRAY_SIZE(tags)], 4 );
-        }
         break;
     }
 
