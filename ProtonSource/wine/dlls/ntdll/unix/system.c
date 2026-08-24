@@ -3126,6 +3126,97 @@ static NTSTATUS enum_firmware_info( SYSTEM_FIRMWARE_TABLE_INFORMATION *sfti, ULO
     }
 }
 
+/* The drivers a Windows kernel has loaded. Wine has none, and there is no true
+ * answer to give here -- but two things that made the old answer checkable can
+ * go. Measured on Windows 11 24H2 from an ordinary process, which is how
+ * Roblox runs (workspace/tests/modprobe.exe):
+ *
+ *  - every base address comes back zero. Kernel addresses are not disclosed to
+ *    a caller that has no privilege for them, so the addresses invented here
+ *    were not just wrong, they were information Windows never hands out at
+ *    all -- the same mistake as the invented big-pool addresses.
+ *  - both classes describe the same drivers. These two described different
+ *    machines: ntoskrnl.exe at 0x10000000 sized 0x200000 in one and at
+ *    0xffffffffff7fefff sized 0x800000 in the other, which anything that reads
+ *    both can see at a glance.
+ *
+ * What remains -- the names and sizes -- is still made up, and a short list is
+ * as much of a giveaway as a wrong one, which is why it is padded. That is a
+ * known weakness, not a solved problem. */
+static const struct { const char *name; ULONG size; } kernel_modules[] =
+{
+    { "\\SystemRoot\\system32\\ntoskrnl.exe", 0x800000 },
+    { "\\SystemRoot\\system32\\hal.dll", 0x40000 },
+    { "\\SystemRoot\\system32\\kdcom.dll", 0x10000 },
+    { "\\SystemRoot\\system32\\mcupdate_GenuineIntel.dll", 0x90000 },
+    { "\\SystemRoot\\system32\\CLFS.SYS", 0xa0000 },
+    { "\\SystemRoot\\system32\\tm.sys", 0x50000 },
+    { "\\SystemRoot\\system32\\PSHED.dll", 0x20000 },
+    { "\\SystemRoot\\system32\\BOOTVID.dll", 0x10000 },
+    { "\\SystemRoot\\system32\\CI.dll", 0x180000 },
+    { "\\SystemRoot\\system32\\cng.sys", 0x110000 },
+    { "\\SystemRoot\\system32\\Wdf01000.sys", 0xa0000 },
+    { "\\SystemRoot\\system32\\WDFLDR.SYS", 0x20000 },
+    { "\\SystemRoot\\system32\\ACPI.sys", 0xb0000 },
+    { "\\SystemRoot\\system32\\WMILIB.SYS", 0x10000 },
+    { "\\SystemRoot\\system32\\msisadrv.sys", 0x10000 },
+    { "\\SystemRoot\\system32\\pci.sys", 0x60000 },
+    { "\\SystemRoot\\system32\\vdrvroot.sys", 0x20000 },
+    { "\\SystemRoot\\system32\\pdc.sys", 0x30000 },
+    { "\\SystemRoot\\system32\\partmgr.sys", 0x30000 },
+    { "\\SystemRoot\\system32\\spaceport.sys", 0xa0000 },
+    { "\\SystemRoot\\system32\\volmgr.sys", 0x30000 },
+    { "\\SystemRoot\\system32\\volmgrx.sys", 0x100000 },
+    { "\\SystemRoot\\system32\\drivers\\mountmgr.sys", 0x50000 },
+    { "\\SystemRoot\\system32\\fvevol.sys", 0xa0000 },
+    { "\\SystemRoot\\system32\\volsnap.sys", 0x70000 },
+    { "\\SystemRoot\\system32\\rdyboost.sys", 0x50000 },
+    { "\\SystemRoot\\system32\\storahci.sys", 0x30000 },
+    { "\\SystemRoot\\system32\\CLASSPNP.SYS", 0x60000 },
+    { "\\SystemRoot\\system32\\fileinfo.sys", 0x30000 },
+    { "\\SystemRoot\\system32\\Wof.sys", 0x40000 },
+    { "\\SystemRoot\\system32\\Ntfs.sys", 0x2a0000 },
+    { "\\SystemRoot\\system32\\fltmgr.sys", 0xa0000 },
+    { "\\SystemRoot\\system32\\msrpc.sys", 0x70000 },
+    { "\\SystemRoot\\system32\\ksecdd.sys", 0x50000 },
+    { "\\SystemRoot\\system32\\ndis.sys", 0x140000 },
+    { "\\SystemRoot\\system32\\NETIO.SYS", 0x120000 },
+    { "\\SystemRoot\\system32\\ksecpkg.sys", 0x50000 },
+    { "\\SystemRoot\\system32\\tcpip.sys", 0x350000 },
+    { "\\SystemRoot\\system32\\fwpkclnt.sys", 0x90000 },
+    { "\\SystemRoot\\system32\\wfplwfs.sys", 0x40000 },
+    { "\\SystemRoot\\system32\\netbios.sys", 0x20000 },
+    { "\\SystemRoot\\system32\\tdx.sys", 0x30000 },
+    { "\\SystemRoot\\system32\\afd.sys", 0x1a0000 },
+    { "\\SystemRoot\\system32\\nsiproxy.sys", 0x20000 },
+    { "\\SystemRoot\\system32\\npsvctrig.sys", 0x10000 },
+    { "\\SystemRoot\\system32\\mssmbios.sys", 0x20000 },
+    { "\\SystemRoot\\system32\\ndistapi.sys", 0x10000 },
+    { "\\SystemRoot\\system32\\ndiswan.sys", 0x40000 },
+    { "\\SystemRoot\\system32\\NDProxy.sys", 0x30000 },
+    { "\\SystemRoot\\system32\\usbccgp.sys", 0x50000 },
+    { "\\SystemRoot\\system32\\usbhub.sys", 0x70000 },
+    { "\\SystemRoot\\system32\\USBXHCI.SYS", 0x60000 },
+    { "\\SystemRoot\\system32\\HIDCLASS.SYS", 0x30000 },
+    { "\\SystemRoot\\system32\\hidparse.sys", 0x10000 },
+    { "\\SystemRoot\\system32\\kbdclass.sys", 0x20000 },
+    { "\\SystemRoot\\system32\\mouclass.sys", 0x20000 },
+    { "\\SystemRoot\\system32\\kbdhid.sys", 0x10000 },
+    { "\\SystemRoot\\system32\\mouhid.sys", 0x10000 },
+    { "\\SystemRoot\\system32\\cdrom.sys", 0x40000 },
+    { "\\SystemRoot\\system32\\dxgkrnl.sys", 0x2c0000 },
+};
+
+static void fill_module_info( RTL_PROCESS_MODULE_INFORMATION *sm, ULONG i )
+{
+    sm->ImageBaseAddress = NULL;   /* not disclosed without the privilege for it */
+    sm->ImageSize        = kernel_modules[i].size;
+    sm->LoadOrderIndex   = i;
+    sm->LoadCount        = 1;
+    strcpy( (char *)sm->Name, kernel_modules[i].name );
+    sm->NameOffset = strrchr( kernel_modules[i].name, '\\' ) - kernel_modules[i].name + 1;
+}
+
 static NTSTATUS get_firmware_info( SYSTEM_FIRMWARE_TABLE_INFORMATION *sfti, ULONG available_len,
                                    ULONG *required_len )
 {
@@ -4256,33 +4347,17 @@ NTSTATUS WINAPI NtQuerySystemInformation( SYSTEM_INFORMATION_CLASS class,
 
     case SystemModuleInformation:  /* 11 */
     {
-        /* FIXME: return some fake info for now */
-        static const char *fake_modules[] =
-        {
-            "\\SystemRoot\\system32\\ntoskrnl.exe",
-            "\\SystemRoot\\system32\\hal.dll",
-            "\\SystemRoot\\system32\\drivers\\mountmgr.sys"
-        };
-
         ULONG i;
         RTL_PROCESS_MODULES *smi = info;
 
         tuxblox_trace_record( "SystemModuleInformation", "" );
 
-        len = offsetof( RTL_PROCESS_MODULES, Modules[ARRAY_SIZE(fake_modules)] );
+        len = offsetof( RTL_PROCESS_MODULES, Modules[ARRAY_SIZE(kernel_modules)] );
         if (len <= size)
         {
             memset( smi, 0, len );
-            for (i = 0; i < ARRAY_SIZE(fake_modules); i++)
-            {
-                RTL_PROCESS_MODULE_INFORMATION *sm = &smi->Modules[i];
-                sm->ImageBaseAddress = (char *)0x10000000 + 0x200000 * i;
-                sm->ImageSize = 0x200000;
-                sm->LoadOrderIndex = i;
-                sm->LoadCount = 1;
-                strcpy( (char *)sm->Name, fake_modules[i] );
-                sm->NameOffset = strrchr( fake_modules[i], '\\' ) - fake_modules[i] + 1;
-            }
+            for (i = 0; i < ARRAY_SIZE(kernel_modules); i++)
+                fill_module_info( &smi->Modules[i], i );
             smi->ModulesCount = i;
         }
         else ret = STATUS_INFO_LENGTH_MISMATCH;
@@ -4606,100 +4681,21 @@ NTSTATUS WINAPI NtQuerySystemInformation( SYSTEM_INFORMATION_CLASS class,
 
     case SystemModuleInformationEx:  /* 77 */
     {
-        /* FIXME: return fake but plausible-looking module info. A genuine Windows
-         * box has 100+ drivers loaded; returning only a handful (as this used to)
-         * is itself a Wine/sandbox fingerprint that anti-tamper checks (e.g.
-         * Roblox's client) key off of and abort on, so pad this out to a
-         * realistic-looking driver set instead of a minimal placeholder list. */
-        static const struct { const char *name; ULONG size; } fake_modules[] =
-        {
-            { "\\SystemRoot\\system32\\ntoskrnl.exe", 0x800000 },
-            { "\\SystemRoot\\system32\\hal.dll", 0x40000 },
-            { "\\SystemRoot\\system32\\kdcom.dll", 0x10000 },
-            { "\\SystemRoot\\system32\\mcupdate_GenuineIntel.dll", 0x90000 },
-            { "\\SystemRoot\\system32\\CLFS.SYS", 0xa0000 },
-            { "\\SystemRoot\\system32\\tm.sys", 0x50000 },
-            { "\\SystemRoot\\system32\\PSHED.dll", 0x20000 },
-            { "\\SystemRoot\\system32\\BOOTVID.dll", 0x10000 },
-            { "\\SystemRoot\\system32\\CI.dll", 0x180000 },
-            { "\\SystemRoot\\system32\\cng.sys", 0x110000 },
-            { "\\SystemRoot\\system32\\Wdf01000.sys", 0xa0000 },
-            { "\\SystemRoot\\system32\\WDFLDR.SYS", 0x20000 },
-            { "\\SystemRoot\\system32\\ACPI.sys", 0xb0000 },
-            { "\\SystemRoot\\system32\\WMILIB.SYS", 0x10000 },
-            { "\\SystemRoot\\system32\\msisadrv.sys", 0x10000 },
-            { "\\SystemRoot\\system32\\pci.sys", 0x60000 },
-            { "\\SystemRoot\\system32\\vdrvroot.sys", 0x20000 },
-            { "\\SystemRoot\\system32\\pdc.sys", 0x30000 },
-            { "\\SystemRoot\\system32\\partmgr.sys", 0x30000 },
-            { "\\SystemRoot\\system32\\spaceport.sys", 0xa0000 },
-            { "\\SystemRoot\\system32\\volmgr.sys", 0x30000 },
-            { "\\SystemRoot\\system32\\volmgrx.sys", 0x100000 },
-            { "\\SystemRoot\\system32\\drivers\\mountmgr.sys", 0x50000 },
-            { "\\SystemRoot\\system32\\fvevol.sys", 0xa0000 },
-            { "\\SystemRoot\\system32\\volsnap.sys", 0x70000 },
-            { "\\SystemRoot\\system32\\rdyboost.sys", 0x50000 },
-            { "\\SystemRoot\\system32\\storahci.sys", 0x30000 },
-            { "\\SystemRoot\\system32\\CLASSPNP.SYS", 0x60000 },
-            { "\\SystemRoot\\system32\\fileinfo.sys", 0x30000 },
-            { "\\SystemRoot\\system32\\Wof.sys", 0x40000 },
-            { "\\SystemRoot\\system32\\Ntfs.sys", 0x2a0000 },
-            { "\\SystemRoot\\system32\\fltmgr.sys", 0xa0000 },
-            { "\\SystemRoot\\system32\\msrpc.sys", 0x70000 },
-            { "\\SystemRoot\\system32\\ksecdd.sys", 0x50000 },
-            { "\\SystemRoot\\system32\\ndis.sys", 0x140000 },
-            { "\\SystemRoot\\system32\\NETIO.SYS", 0x120000 },
-            { "\\SystemRoot\\system32\\ksecpkg.sys", 0x50000 },
-            { "\\SystemRoot\\system32\\tcpip.sys", 0x350000 },
-            { "\\SystemRoot\\system32\\fwpkclnt.sys", 0x90000 },
-            { "\\SystemRoot\\system32\\wfplwfs.sys", 0x40000 },
-            { "\\SystemRoot\\system32\\netbios.sys", 0x20000 },
-            { "\\SystemRoot\\system32\\tdx.sys", 0x30000 },
-            { "\\SystemRoot\\system32\\afd.sys", 0x1a0000 },
-            { "\\SystemRoot\\system32\\nsiproxy.sys", 0x20000 },
-            { "\\SystemRoot\\system32\\npsvctrig.sys", 0x10000 },
-            { "\\SystemRoot\\system32\\mssmbios.sys", 0x20000 },
-            { "\\SystemRoot\\system32\\ndistapi.sys", 0x10000 },
-            { "\\SystemRoot\\system32\\ndiswan.sys", 0x40000 },
-            { "\\SystemRoot\\system32\\NDProxy.sys", 0x30000 },
-            { "\\SystemRoot\\system32\\usbccgp.sys", 0x50000 },
-            { "\\SystemRoot\\system32\\usbhub.sys", 0x70000 },
-            { "\\SystemRoot\\system32\\USBXHCI.SYS", 0x60000 },
-            { "\\SystemRoot\\system32\\HIDCLASS.SYS", 0x30000 },
-            { "\\SystemRoot\\system32\\hidparse.sys", 0x10000 },
-            { "\\SystemRoot\\system32\\kbdclass.sys", 0x20000 },
-            { "\\SystemRoot\\system32\\mouclass.sys", 0x20000 },
-            { "\\SystemRoot\\system32\\kbdhid.sys", 0x10000 },
-            { "\\SystemRoot\\system32\\mouhid.sys", 0x10000 },
-            { "\\SystemRoot\\system32\\cdrom.sys", 0x40000 },
-            { "\\SystemRoot\\system32\\dxgkrnl.sys", 0x2c0000 },
-        };
-
-        ULONG i;
-        /* start at the top of the address space and work down, so this lands in
-         * canonical kernel-space range on both 32- and 64-bit without an #ifdef */
-        ULONG_PTR base = (ULONG_PTR)-1;
         RTL_PROCESS_MODULE_INFORMATION_EX *module_info = info;
+        ULONG i;
 
         tuxblox_trace_record( "SystemModuleInformationEx", "" );
 
-        len = sizeof(*module_info) * ARRAY_SIZE(fake_modules) + sizeof(module_info->NextOffset);
+        len = sizeof(*module_info) * ARRAY_SIZE(kernel_modules) + sizeof(module_info->NextOffset);
         if (len <= size)
         {
             memset( info, 0, len );
-            for (i = 0; i < ARRAY_SIZE(fake_modules); i++)
+            for (i = 0; i < ARRAY_SIZE(kernel_modules); i++)
             {
-                RTL_PROCESS_MODULE_INFORMATION *sm = &module_info[i].BaseInfo;
-                base -= (fake_modules[i].size + 0x1000) & ~(ULONG_PTR)0xfff;
-                sm->ImageBaseAddress = (void *)base;
-                sm->ImageSize = fake_modules[i].size;
-                sm->LoadOrderIndex = i;
-                sm->LoadCount = 1;
-                strcpy( (char *)sm->Name, fake_modules[i].name );
-                sm->NameOffset = strrchr( fake_modules[i].name, '\\' ) - fake_modules[i].name + 1;
+                fill_module_info( &module_info[i].BaseInfo, i );
                 module_info[i].NextOffset = sizeof(*module_info);
             }
-            module_info[ARRAY_SIZE(fake_modules)].NextOffset = 0;
+            module_info[i].NextOffset = 0;
         }
         else ret = STATUS_INFO_LENGTH_MISMATCH;
 
