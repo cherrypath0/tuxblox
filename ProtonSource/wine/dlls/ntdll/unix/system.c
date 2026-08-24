@@ -3623,6 +3623,33 @@ static const WCHAR fake_proc_searchidx[] = {'S','e','a','r','c','h','I','n','d',
 static const WCHAR fake_proc_conhost[]   = {'c','o','n','h','o','s','t','.','e','x','e',0};
 
 #define FAKE_PROC(arr) { arr, ARRAY_SIZE(arr) - 1 }
+/* Processes that only exist because of how TuxBlox runs Windows programs.
+ * Nothing on Windows is called any of these, so listing them says plainly what
+ * the program is running under. They are left out of the list entirely rather
+ * than renamed, since a renamed entry still has its real name on disk for
+ * anything that opens it and asks. */
+static BOOL is_our_own_process( const WCHAR *name, unsigned int len )
+{
+    static const WCHAR winedeviceW[] = {'w','i','n','e','d','e','v','i','c','e','.','e','x','e',0};
+    static const WCHAR plugplayW[] = {'p','l','u','g','p','l','a','y','.','e','x','e',0};
+    static const WCHAR rpcssW[] = {'r','p','c','s','s','.','e','x','e',0};
+    static const WCHAR winebootW[] = {'w','i','n','e','b','o','o','t','.','e','x','e',0};
+    static const WCHAR winemenubuilderW[] =
+        {'w','i','n','e','m','e','n','u','b','u','i','l','d','e','r','.','e','x','e',0};
+    static const WCHAR *const names[] =
+        { winedeviceW, plugplayW, rpcssW, winebootW, winemenubuilderW };
+    unsigned int i;
+
+    for (i = 0; i < ARRAY_SIZE(names); i++)
+    {
+        unsigned int l = wcslen( names[i] );
+
+        if (len == l && !wcsnicmp( name, names[i], l )) return TRUE;
+    }
+    return FALSE;
+}
+
+
 static const struct { const WCHAR *name; unsigned int len; } fake_processes[] =
 {
     FAKE_PROC(fake_proc_idle),      FAKE_PROC(fake_proc_system),   FAKE_PROC(fake_proc_smss),
@@ -3691,6 +3718,7 @@ C_ASSERT( sizeof(struct process_info) <= sizeof(SYSTEM_PROCESS_INFORMATION) );
         const WCHAR *server_name, *file_part;
         ULONG proc_len;
         ULONG name_len = 0;
+        BOOL hidden;
 
         pos = (pos + 7) & ~7;
         server_process = (const struct process_info *)(buffer + pos);
@@ -3705,12 +3733,15 @@ C_ASSERT( sizeof(struct process_info) <= sizeof(SYSTEM_PROCESS_INFORMATION) );
             name_len++;
         }
 
+        hidden = is_our_own_process( file_part, name_len ) &&
+                 server_process->pid != HandleToULong( NtCurrentTeb()->ClientId.UniqueProcess );
+
         proc_len = sizeof(*nt_process) + server_process->thread_count * thread_info_size
                      + (name_len + 1) * sizeof(WCHAR);
         proc_len = (proc_len + 7) & ~(ULONG_PTR)7;
-        *len += proc_len;
+        if (!hidden) *len += proc_len;
 
-        if (*len <= size)
+        if (!hidden && *len <= size)
         {
             memset(nt_process, 0, proc_len);
             /* tentatively chain to whatever comes next (another real entry, then the
@@ -3735,7 +3766,7 @@ C_ASSERT( sizeof(struct process_info) <= sizeof(SYSTEM_PROCESS_INFORMATION) );
             const struct thread_info *server_thread = (const struct thread_info *)(buffer + pos);
             SYSTEM_EXTENDED_THREAD_INFORMATION *ti;
 
-            if (*len <= size)
+            if (!hidden && *len <= size)
             {
                 ti = (SYSTEM_EXTENDED_THREAD_INFORMATION *)((BYTE *)nt_process->ti + j * thread_info_size);
                 ti->ThreadInfo.CreateTime.QuadPart = server_thread->start_time;
@@ -3755,7 +3786,7 @@ C_ASSERT( sizeof(struct process_info) <= sizeof(SYSTEM_PROCESS_INFORMATION) );
             pos += sizeof(*server_thread);
         }
 
-        if (*len <= size)
+        if (!hidden && *len <= size)
         {
             nt_process->ProcessName.Buffer = (WCHAR *)((BYTE *)nt_process->ti
                                                        + server_process->thread_count * thread_info_size);
@@ -3777,10 +3808,13 @@ C_ASSERT( sizeof(struct process_info) <= sizeof(SYSTEM_PROCESS_INFORMATION) );
             memset( nt_process, 0, proc_len );
             nt_process->NextEntryOffset = proc_len;
             nt_process->dwBasePriority = 8;
-            /* well outside anything wineserver's own pid counter would ever allocate,
-             * so these can never collide with a real entry above */
-            nt_process->UniqueProcessId = UlongToHandle( 0xfff00000 + i * 4 );
-            nt_process->ParentProcessId = UlongToHandle( 4 );
+            /* Process ids on Windows are small multiples of four, and the first
+             * two of these always have the same ones. Anything near four billion
+             * is a number no Windows machine hands out. The rest sit high enough
+             * that our own counter, which starts at 32 and climbs slowly, will
+             * not reach them. */
+            nt_process->UniqueProcessId = UlongToHandle( i == 0 ? 0 : i == 1 ? 4 : 8000 + (i - 2) * 44 );
+            nt_process->ParentProcessId = UlongToHandle( i < 2 ? 0 : i == 2 ? 4 : 8000 );
             nt_process->SessionId = (i < 8) ? 0 : 1;
             nt_process->HandleCount = 40 + i * 11;
             nt_process->ProcessName.Buffer = (WCHAR *)((BYTE *)nt_process + sizeof(*nt_process));
