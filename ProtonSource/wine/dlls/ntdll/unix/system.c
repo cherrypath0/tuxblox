@@ -3127,84 +3127,202 @@ static NTSTATUS enum_firmware_info( SYSTEM_FIRMWARE_TABLE_INFORMATION *sfti, ULO
 }
 
 /* The drivers a Windows kernel has loaded. Wine has none, and there is no true
- * answer to give here -- but two things that made the old answer checkable can
- * go. Measured on Windows 11 24H2 from an ordinary process, which is how
- * Roblox runs (workspace/tests/modprobe.exe):
+ * answer to give here. What there is, is a real one: this list is what a real
+ * Windows 11 machine reports, read off it with workspace/tests/modprobe.exe --
+ * names, sizes and load counts, in the order it gave them. The invented list
+ * that used to be here had every size a round multiple of 64K, every load count
+ * 1, and ntoskrnl.exe at 8 MB against the real 21 MB, none of which survives
+ * comparison with a reference.
  *
- *  - every base address comes back zero. Kernel addresses are not disclosed to
- *    a caller that has no privilege for them, so the addresses invented here
- *    were not just wrong, they were information Windows never hands out at
- *    all -- the same mistake as the invented big-pool addresses.
- *  - both classes describe the same drivers. These two described different
- *    machines: ntoskrnl.exe at 0x10000000 sized 0x200000 in one and at
- *    0xffffffffff7fefff sized 0x800000 in the other, which anything that reads
- *    both can see at a glance.
+ * Every base address is zero. That is not a gap: Windows does not disclose
+ * kernel addresses to a caller without the privilege for them, and returns
+ * zeroes to an ordinary process, which is how Roblox runs.
  *
- * What remains -- the names and sizes -- is still made up, and a short list is
- * as much of a giveaway as a wrong one, which is why it is padded. That is a
- * known weakness, not a solved problem. */
-static const struct { const char *name; ULONG size; } kernel_modules[] =
+ * Twenty-five of the 194 entries are deliberately left out, because keeping
+ * them would say something untrue about THIS machine rather than merely
+ * incomplete:
+ *
+ *   - the ones belonging to that machine's own hardware (its GPU, its chipset,
+ *     its network adapter). Shipping them would have every install claim the
+ *     same hardware whatever it really has. Nothing is invented to replace
+ *     them, so there is no display miniport in this list -- an absence, which
+ *     is the smaller of the two errors available.
+ *   - the Hyper-V drivers. That machine runs a hypervisor; TuxBlox reports that
+ *     none is running, and a list that says otherwise contradicts its own
+ *     answer two questions earlier.
+ *   - drivers installed by third-party software rather than by Windows.
+ */
+static const struct { const char *name; ULONG size; USHORT load_count; } kernel_modules[] =
 {
-    { "\\SystemRoot\\system32\\ntoskrnl.exe", 0x800000 },
-    { "\\SystemRoot\\system32\\hal.dll", 0x40000 },
-    { "\\SystemRoot\\system32\\kdcom.dll", 0x10000 },
-    { "\\SystemRoot\\system32\\mcupdate_GenuineIntel.dll", 0x90000 },
-    { "\\SystemRoot\\system32\\CLFS.SYS", 0xa0000 },
-    { "\\SystemRoot\\system32\\tm.sys", 0x50000 },
-    { "\\SystemRoot\\system32\\PSHED.dll", 0x20000 },
-    { "\\SystemRoot\\system32\\BOOTVID.dll", 0x10000 },
-    { "\\SystemRoot\\system32\\CI.dll", 0x180000 },
-    { "\\SystemRoot\\system32\\cng.sys", 0x110000 },
-    { "\\SystemRoot\\system32\\Wdf01000.sys", 0xa0000 },
-    { "\\SystemRoot\\system32\\WDFLDR.SYS", 0x20000 },
-    { "\\SystemRoot\\system32\\ACPI.sys", 0xb0000 },
-    { "\\SystemRoot\\system32\\WMILIB.SYS", 0x10000 },
-    { "\\SystemRoot\\system32\\msisadrv.sys", 0x10000 },
-    { "\\SystemRoot\\system32\\pci.sys", 0x60000 },
-    { "\\SystemRoot\\system32\\vdrvroot.sys", 0x20000 },
-    { "\\SystemRoot\\system32\\pdc.sys", 0x30000 },
-    { "\\SystemRoot\\system32\\partmgr.sys", 0x30000 },
-    { "\\SystemRoot\\system32\\spaceport.sys", 0xa0000 },
-    { "\\SystemRoot\\system32\\volmgr.sys", 0x30000 },
-    { "\\SystemRoot\\system32\\volmgrx.sys", 0x100000 },
-    { "\\SystemRoot\\system32\\drivers\\mountmgr.sys", 0x50000 },
-    { "\\SystemRoot\\system32\\fvevol.sys", 0xa0000 },
-    { "\\SystemRoot\\system32\\volsnap.sys", 0x70000 },
-    { "\\SystemRoot\\system32\\rdyboost.sys", 0x50000 },
-    { "\\SystemRoot\\system32\\storahci.sys", 0x30000 },
-    { "\\SystemRoot\\system32\\CLASSPNP.SYS", 0x60000 },
-    { "\\SystemRoot\\system32\\fileinfo.sys", 0x30000 },
-    { "\\SystemRoot\\system32\\Wof.sys", 0x40000 },
-    { "\\SystemRoot\\system32\\Ntfs.sys", 0x2a0000 },
-    { "\\SystemRoot\\system32\\fltmgr.sys", 0xa0000 },
-    { "\\SystemRoot\\system32\\msrpc.sys", 0x70000 },
-    { "\\SystemRoot\\system32\\ksecdd.sys", 0x50000 },
-    { "\\SystemRoot\\system32\\ndis.sys", 0x140000 },
-    { "\\SystemRoot\\system32\\NETIO.SYS", 0x120000 },
-    { "\\SystemRoot\\system32\\ksecpkg.sys", 0x50000 },
-    { "\\SystemRoot\\system32\\tcpip.sys", 0x350000 },
-    { "\\SystemRoot\\system32\\fwpkclnt.sys", 0x90000 },
-    { "\\SystemRoot\\system32\\wfplwfs.sys", 0x40000 },
-    { "\\SystemRoot\\system32\\netbios.sys", 0x20000 },
-    { "\\SystemRoot\\system32\\tdx.sys", 0x30000 },
-    { "\\SystemRoot\\system32\\afd.sys", 0x1a0000 },
-    { "\\SystemRoot\\system32\\nsiproxy.sys", 0x20000 },
-    { "\\SystemRoot\\system32\\npsvctrig.sys", 0x10000 },
-    { "\\SystemRoot\\system32\\mssmbios.sys", 0x20000 },
-    { "\\SystemRoot\\system32\\ndistapi.sys", 0x10000 },
-    { "\\SystemRoot\\system32\\ndiswan.sys", 0x40000 },
-    { "\\SystemRoot\\system32\\NDProxy.sys", 0x30000 },
-    { "\\SystemRoot\\system32\\usbccgp.sys", 0x50000 },
-    { "\\SystemRoot\\system32\\usbhub.sys", 0x70000 },
-    { "\\SystemRoot\\system32\\USBXHCI.SYS", 0x60000 },
-    { "\\SystemRoot\\system32\\HIDCLASS.SYS", 0x30000 },
-    { "\\SystemRoot\\system32\\hidparse.sys", 0x10000 },
-    { "\\SystemRoot\\system32\\kbdclass.sys", 0x20000 },
-    { "\\SystemRoot\\system32\\mouclass.sys", 0x20000 },
-    { "\\SystemRoot\\system32\\kbdhid.sys", 0x10000 },
-    { "\\SystemRoot\\system32\\mouhid.sys", 0x10000 },
-    { "\\SystemRoot\\system32\\cdrom.sys", 0x40000 },
-    { "\\SystemRoot\\system32\\dxgkrnl.sys", 0x2c0000 },
+    { "\\SystemRoot\\system32\\ntoskrnl.exe", 0x1450000, 119 },
+    { "\\SystemRoot\\system32\\hal.dll", 0x6000, 39 },
+    { "\\SystemRoot\\system32\\kd.dll", 0xb000, 2 },
+    { "\\SystemRoot\\system32\\symcryptk.dll", 0xd000, 2 },
+    { "\\SystemRoot\\System32\\drivers\\cng.sys", 0xe9000, 19 },
+    { "\\SystemRoot\\System32\\drivers\\CLFS.SYS", 0x8c000, 4 },
+    { "\\SystemRoot\\System32\\drivers\\tm.sys", 0x2a000, 1 },
+    { "\\SystemRoot\\System32\\drivers\\winaccel.sys", 0x15000, 1 },
+    { "\\SystemRoot\\system32\\PSHED.dll", 0x1d000, 2 },
+    { "\\SystemRoot\\system32\\BOOTVID.dll", 0xd000, 1 },
+    { "\\SystemRoot\\System32\\drivers\\FLTMGR.SYS", 0x95000, 18 },
+    { "\\SystemRoot\\System32\\drivers\\msrpc.sys", 0x65000, 19 },
+    { "\\SystemRoot\\System32\\drivers\\ksecdd.sys", 0x36000, 28 },
+    { "\\SystemRoot\\System32\\drivers\\clipsp.sys", 0x117000, 3 },
+    { "\\SystemRoot\\System32\\drivers\\cmimcext.sys", 0x12000, 1 },
+    { "\\SystemRoot\\System32\\drivers\\werkernel.sys", 0x17000, 5 },
+    { "\\SystemRoot\\System32\\drivers\\ntosext.sys", 0xd000, 1 },
+    { "\\SystemRoot\\System32\\drivers\\watchdog.sys", 0x20000, 8 },
+    { "\\SystemRoot\\System32\\drivers\\WMILIB.SYS", 0xd000, 17 },
+    { "\\SystemRoot\\System32\\drivers\\dxgkrnl.sys", 0x4f8000, 6 },
+    { "\\SystemRoot\\System32\\win32k.sys", 0xc7000, 5 },
+    { "\\SystemRoot\\system32\\CI.dll", 0x11a000, 3 },
+    { "\\SystemRoot\\System32\\drivers\\globmerger.sys", 0x20000, 2 },
+    { "\\SystemRoot\\system32\\drivers\\Wdf01000.sys", 0xf0000, 1 },
+    { "\\SystemRoot\\system32\\drivers\\WppRecorder.sys", 0x13000, 40 },
+    { "\\SystemRoot\\system32\\drivers\\WDFLDR.SYS", 0x17000, 40 },
+    { "\\SystemRoot\\System32\\DriverStore\\FileRepository\\prm.inf_amd64_7c38475757a1f016\\PRM.sys", 0xf000, 1 },
+    { "\\SystemRoot\\System32\\Drivers\\acpiex.sys", 0x2a000, 1 },
+    { "\\SystemRoot\\system32\\drivers\\msseccore.sys", 0xf000, 1 },
+    { "\\SystemRoot\\System32\\drivers\\ACPI.sys", 0xd6000, 1 },
+    { "\\SystemRoot\\System32\\drivers\\msisadrv.sys", 0xc000, 1 },
+    { "\\SystemRoot\\System32\\drivers\\pci.sys", 0x92000, 1 },
+    { "\\SystemRoot\\System32\\drivers\\tpm.sys", 0x5a000, 1 },
+    { "\\SystemRoot\\system32\\drivers\\WindowsTrustedRT.sys", 0x18000, 1 },
+    { "\\SystemRoot\\System32\\drivers\\WindowsTrustedRTProxy.sys", 0xc000, 1 },
+    { "\\SystemRoot\\System32\\drivers\\pcw.sys", 0x17000, 1 },
+    { "\\SystemRoot\\System32\\drivers\\vdrvroot.sys", 0x1c000, 1 },
+    { "\\SystemRoot\\system32\\drivers\\pdc.sys", 0x35000, 1 },
+    { "\\SystemRoot\\system32\\drivers\\CEA.sys", 0x18000, 3 },
+    { "\\SystemRoot\\System32\\drivers\\partmgr.sys", 0x35000, 1 },
+    { "\\SystemRoot\\System32\\drivers\\spaceport.sys", 0xf7000, 1 },
+    { "\\SystemRoot\\System32\\drivers\\volmgr.sys", 0x1d000, 1 },
+    { "\\SystemRoot\\System32\\drivers\\volmgrx.sys", 0x66000, 1 },
+    { "\\SystemRoot\\System32\\drivers\\mountmgr.sys", 0x1f000, 1 },
+    { "\\SystemRoot\\System32\\drivers\\storahci.sys", 0x37000, 1 },
+    { "\\SystemRoot\\System32\\drivers\\storport.sys", 0x27a000, 2 },
+    { "\\SystemRoot\\System32\\drivers\\stornvme.sys", 0x4e000, 1 },
+    { "\\SystemRoot\\System32\\drivers\\EhStorClass.sys", 0x28000, 1 },
+    { "\\SystemRoot\\System32\\drivers\\fileinfo.sys", 0x1d000, 1 },
+    { "\\SystemRoot\\System32\\Drivers\\Wof.sys", 0x45000, 1 },
+    { "\\SystemRoot\\system32\\drivers\\wd\\WdFilter.sys", 0x9b000, 1 },
+    { "\\SystemRoot\\System32\\Drivers\\Ntfs.sys", 0x36a000, 1 },
+    { "\\SystemRoot\\System32\\Drivers\\Fs_Rec.sys", 0xf000, 1 },
+    { "\\SystemRoot\\system32\\drivers\\ndis.sys", 0x1be000, 29 },
+    { "\\SystemRoot\\system32\\drivers\\NETIO.SYS", 0xb6000, 29 },
+    { "\\SystemRoot\\system32\\drivers\\fse.sys", 0x36000, 1 },
+    { "\\SystemRoot\\system32\\drivers\\fwpkclnt.sys", 0x8b000, 12 },
+    { "\\SystemRoot\\System32\\Drivers\\ksecpkg.sys", 0x38000, 1 },
+    { "\\SystemRoot\\System32\\Drivers\\Kerb3961Kernel.sys", 0x24000, 1 },
+    { "\\SystemRoot\\System32\\drivers\\tcpip.sys", 0x358000, 1 },
+    { "\\SystemRoot\\System32\\drivers\\wfplwfs.sys", 0x3c000, 1 },
+    { "\\SystemRoot\\system32\\drivers\\VmsProxy.sys", 0xf000, 1 },
+    { "\\SystemRoot\\system32\\drivers\\VmsProxyHNic.sys", 0x10000, 1 },
+    { "\\SystemRoot\\System32\\DRIVERS\\fvevol.sys", 0xed000, 1 },
+    { "\\SystemRoot\\System32\\drivers\\volume.sys", 0xb000, 1 },
+    { "\\SystemRoot\\System32\\drivers\\volsnap.sys", 0x82000, 1 },
+    { "\\SystemRoot\\System32\\drivers\\rdyboost.sys", 0x4e000, 1 },
+    { "\\SystemRoot\\System32\\drivers\\nvmedisk.sys", 0x1d000, 1 },
+    { "\\SystemRoot\\System32\\Drivers\\mup.sys", 0x2b000, 4 },
+    { "\\SystemRoot\\system32\\drivers\\iorate.sys", 0x14000, 1 },
+    { "\\SystemRoot\\System32\\drivers\\disk.sys", 0x20000, 1 },
+    { "\\SystemRoot\\System32\\drivers\\CLASSPNP.SYS", 0x79000, 1 },
+    { "\\SystemRoot\\System32\\Drivers\\crashdmp.sys", 0x28000, 1 },
+    { "\\SystemRoot\\System32\\drivers\\cdrom.sys", 0x36000, 1 },
+    { "\\SystemRoot\\system32\\drivers\\filecrypt.sys", 0x17000, 1 },
+    { "\\SystemRoot\\system32\\drivers\\tbs.sys", 0xf000, 1 },
+    { "\\SystemRoot\\system32\\drivers\\UCPD.sys", 0x30000, 1 },
+    { "\\SystemRoot\\System32\\Drivers\\Null.SYS", 0xd000, 1 },
+    { "\\SystemRoot\\System32\\Drivers\\Beep.SYS", 0xa000, 1 },
+    { "\\SystemRoot\\System32\\DriverStore\\FileRepository\\uiomap.inf_amd64_e6e3e44178152d2b\\uiomap.sys", 0x11000, 1 },
+    { "\\SystemRoot\\System32\\DriverStore\\FileRepository\\basicdisplay.inf_amd64_9f34636ebdd89def\\BasicDisplay.sys", 0x1a000, 1 },
+    { "\\SystemRoot\\System32\\DriverStore\\FileRepository\\basicrender.inf_amd64_cf45ae7c2c82746d\\BasicRender.sys", 0x12000, 1 },
+    { "\\SystemRoot\\System32\\Drivers\\Npfs.SYS", 0x1c000, 1 },
+    { "\\SystemRoot\\System32\\Drivers\\Msfs.SYS", 0x13000, 1 },
+    { "\\SystemRoot\\System32\\Drivers\\CimFS.SYS", 0x43000, 1 },
+    { "\\SystemRoot\\system32\\DRIVERS\\tdx.sys", 0x2a000, 1 },
+    { "\\SystemRoot\\system32\\DRIVERS\\TDI.SYS", 0x11000, 7 },
+    { "\\SystemRoot\\System32\\DRIVERS\\netbt.sys", 0x59000, 1 },
+    { "\\SystemRoot\\system32\\drivers\\afunix.sys", 0x15000, 1 },
+    { "\\SystemRoot\\system32\\drivers\\afd.sys", 0xb6000, 1 },
+    { "\\SystemRoot\\System32\\drivers\\vwififlt.sys", 0x1e000, 1 },
+    { "\\SystemRoot\\system32\\drivers\\vfpext.sys", 0x1a1000, 1 },
+    { "\\SystemRoot\\System32\\drivers\\pacer.sys", 0x31000, 1 },
+    { "\\SystemRoot\\System32\\drivers\\ndiscap.sys", 0x15000, 1 },
+    { "\\SystemRoot\\system32\\drivers\\netbios.sys", 0x16000, 1 },
+    { "\\SystemRoot\\system32\\DRIVERS\\rdbss.sys", 0x8e000, 5 },
+    { "\\SystemRoot\\system32\\drivers\\csc.sys", 0x99000, 1 },
+    { "\\SystemRoot\\system32\\drivers\\nsiproxy.sys", 0x13000, 1 },
+    { "\\SystemRoot\\System32\\drivers\\npsvctrig.sys", 0xf000, 1 },
+    { "\\SystemRoot\\System32\\drivers\\mssmbios.sys", 0x11000, 1 },
+    { "\\SystemRoot\\System32\\Drivers\\dfsc.sys", 0x30000, 1 },
+    { "\\SystemRoot\\system32\\drivers\\bam.sys", 0x1c000, 1 },
+    { "\\SystemRoot\\system32\\DRIVERS\\ahcache.sys", 0x5b000, 1 },
+    { "\\SystemRoot\\System32\\DriverStore\\FileRepository\\compositebus.inf_amd64_8cf6fa9d3afdfa25\\CompositeBus.sys", 0x14000, 1 },
+    { "\\SystemRoot\\System32\\drivers\\kdnic.sys", 0x11000, 1 },
+    { "\\SystemRoot\\System32\\DriverStore\\FileRepository\\umbus.inf_amd64_914dd46b4b013b1b\\umbus.sys", 0x16000, 1 },
+    { "\\SystemRoot\\System32\\drivers\\USBXHCI.SYS", 0xc0000, 1 },
+    { "\\SystemRoot\\system32\\drivers\\ucx01000.sys", 0x48000, 1 },
+    { "\\SystemRoot\\system32\\drivers\\netadaptercx.sys", 0x5f000, 1 },
+    { "\\SystemRoot\\System32\\Drivers\\ExecutionContext.sys", 0x20000, 1 },
+    { "\\SystemRoot\\System32\\drivers\\HDAudBus.sys", 0x32000, 1 },
+    { "\\SystemRoot\\System32\\drivers\\portcls.sys", 0x75000, 4 },
+    { "\\SystemRoot\\System32\\drivers\\drmk.sys", 0x1e000, 1 },
+    { "\\SystemRoot\\System32\\drivers\\ks.sys", 0x86000, 5 },
+    { "\\SystemRoot\\System32\\drivers\\serial.sys", 0x1e000, 1 },
+    { "\\SystemRoot\\System32\\drivers\\serenum.sys", 0x10000, 1 },
+    { "\\SystemRoot\\System32\\Drivers\\msgpioclx.sys", 0x35000, 1 },
+    { "\\SystemRoot\\System32\\drivers\\wmiacpi.sys", 0xe000, 1 },
+    { "\\SystemRoot\\system32\\drivers\\ksthunk.sys", 0x12000, 1 },
+    { "\\SystemRoot\\System32\\drivers\\NdisVirtualBus.sys", 0xe000, 1 },
+    { "\\SystemRoot\\System32\\DriverStore\\FileRepository\\swenum.inf_amd64_8b9dd76f362e3ec6\\swenum.sys", 0xc000, 1 },
+    { "\\SystemRoot\\System32\\drivers\\rdpbus.sys", 0x10000, 1 },
+    { "\\SystemRoot\\System32\\Drivers\\fastfat.SYS", 0x6a000, 1 },
+    { "\\SystemRoot\\System32\\drivers\\UsbHub3.sys", 0xb3000, 1 },
+    { "\\SystemRoot\\System32\\drivers\\USBD.SYS", 0x10000, 4 },
+    { "\\SystemRoot\\System32\\drivers\\HdAudio.sys", 0x85000, 1 },
+    { "\\SystemRoot\\System32\\win32kbase.sys", 0x332000, 3 },
+    { "\\SystemRoot\\System32\\drivers\\HIDPARSE.SYS", 0x19000, 5 },
+    { "\\SystemRoot\\System32\\win32kfull.sys", 0x412000, 1 },
+    { "\\SystemRoot\\System32\\win32kbase_rs.sys", 0x26000, 1 },
+    { "\\SystemRoot\\System32\\drivers\\usbccgp.sys", 0x34000, 1 },
+    { "\\SystemRoot\\System32\\drivers\\hidusb.sys", 0x14000, 1 },
+    { "\\SystemRoot\\System32\\drivers\\HIDCLASS.SYS", 0x50000, 1 },
+    { "\\SystemRoot\\System32\\drivers\\mouhid.sys", 0x11000, 1 },
+    { "\\SystemRoot\\System32\\drivers\\mouclass.sys", 0x15000, 1 },
+    { "\\SystemRoot\\System32\\drivers\\kbdhid.sys", 0x14000, 1 },
+    { "\\SystemRoot\\System32\\drivers\\kbdclass.sys", 0x15000, 1 },
+    { "\\SystemRoot\\System32\\Drivers\\dump_dumpstorport.sys", 0x18000, 2 },
+    { "\\SystemRoot\\System32\\drivers\\dump_stornvme.sys", 0x4e000, 1 },
+    { "\\SystemRoot\\System32\\Drivers\\dump_dumpfve.sys", 0x24000, 1 },
+    { "\\SystemRoot\\system32\\drivers\\usbaudio.sys", 0x48000, 1 },
+    { "\\SystemRoot\\System32\\drivers\\dxgmms2.sys", 0x122000, 1 },
+    { "\\SystemRoot\\System32\\drivers\\monitor.sys", 0x1f000, 1 },
+    { "\\SystemRoot\\System32\\cdd.dll", 0x52000, 1 },
+    { "\\SystemRoot\\system32\\drivers\\bfs.sys", 0x27000, 1 },
+    { "\\SystemRoot\\system32\\drivers\\luafv.sys", 0x34000, 1 },
+    { "\\SystemRoot\\system32\\drivers\\wcifs.sys", 0x3d000, 1 },
+    { "\\SystemRoot\\system32\\drivers\\cldflt.sys", 0x94000, 1 },
+    { "\\SystemRoot\\system32\\drivers\\UnionFS.sys", 0x77000, 1 },
+    { "\\SystemRoot\\system32\\drivers\\storqosflt.sys", 0x1c000, 1 },
+    { "\\SystemRoot\\system32\\drivers\\bindflt.sys", 0x2e000, 1 },
+    { "\\SystemRoot\\system32\\drivers\\mslldp.sys", 0x1b000, 1 },
+    { "\\SystemRoot\\system32\\drivers\\lltdio.sys", 0x19000, 1 },
+    { "\\SystemRoot\\system32\\drivers\\rspndr.sys", 0x1c000, 1 },
+    { "\\SystemRoot\\System32\\DRIVERS\\wanarp.sys", 0x20000, 1 },
+    { "\\SystemRoot\\system32\\drivers\\HTTP.sys", 0x216000, 1 },
+    { "\\SystemRoot\\system32\\DRIVERS\\bowser.sys", 0x28000, 1 },
+    { "\\SystemRoot\\System32\\drivers\\mpsdrv.sys", 0x1c000, 1 },
+    { "\\SystemRoot\\system32\\DRIVERS\\mrxsmb.sys", 0xe5000, 2 },
+    { "\\SystemRoot\\system32\\DRIVERS\\mrxsmb20.sys", 0x5c000, 1 },
+    { "\\SystemRoot\\System32\\DRIVERS\\srvnet.sys", 0x64000, 2 },
+    { "\\SystemRoot\\system32\\drivers\\Ndu.sys", 0x2f000, 1 },
+    { "\\SystemRoot\\system32\\drivers\\mmcss.sys", 0x16000, 1 },
+    { "\\SystemRoot\\system32\\drivers\\peauth.sys", 0xd5000, 1 },
+    { "\\SystemRoot\\System32\\drivers\\tcpipreg.sys", 0x16000, 1 },
+    { "\\SystemRoot\\System32\\drivers\\wtd.sys", 0x1d000, 1 },
+    { "\\SystemRoot\\System32\\DRIVERS\\srv2.sys", 0xf8000, 1 },
+    { "\\SystemRoot\\System32\\drivers\\condrv.sys", 0x14000, 1 },
+    { "\\SystemRoot\\system32\\drivers\\wd\\WdNisDrv.sys", 0x1d000, 1 },
 };
 
 static void fill_module_info( RTL_PROCESS_MODULE_INFORMATION *sm, ULONG i )
@@ -3212,7 +3330,7 @@ static void fill_module_info( RTL_PROCESS_MODULE_INFORMATION *sm, ULONG i )
     sm->ImageBaseAddress = NULL;   /* not disclosed without the privilege for it */
     sm->ImageSize        = kernel_modules[i].size;
     sm->LoadOrderIndex   = i;
-    sm->LoadCount        = 1;
+    sm->LoadCount        = kernel_modules[i].load_count;
     strcpy( (char *)sm->Name, kernel_modules[i].name );
     sm->NameOffset = strrchr( kernel_modules[i].name, '\\' ) - kernel_modules[i].name + 1;
 }
