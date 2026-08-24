@@ -1228,6 +1228,116 @@ static BOOL set_unalign_atomic_mode( ULONG64 flags ) {
 /**********************************************************************
  *           NtQueryInformationProcess  (NTDLL.@)
  */
+static const struct known_class known_process_classes[] =
+{
+    {   5, 0xc0000003, NO_LENGTH },
+    {   6, 0xc0000003, NO_LENGTH },
+    {   8, 0xc0000003, NO_LENGTH },
+    {   9, 0xc0000003, NO_LENGTH },
+    {  10, 0xc0000002, NO_LENGTH },
+    {  11, 0xc0000003, NO_LENGTH },
+    {  13, 0xc0000003, NO_LENGTH },
+    {  14, 0xc0000004, NO_LENGTH },
+    {  15, 0xc0000001, NO_LENGTH },
+    {  16, 0xc0000003, NO_LENGTH },
+    {  17, 0xc0000003, NO_LENGTH },
+    {  19, 0xc0000004, NO_LENGTH },
+    {  23, 0xc0000004, NO_LENGTH },
+    {  25, 0xc0000003, NO_LENGTH },
+    {  28, 0xc0000004, NO_LENGTH },
+    {  29, 0xc0000004, NO_LENGTH },
+    {  32, 0xc0000004, NO_LENGTH },
+    {  33, 0xc0000004, NO_LENGTH },
+    {  35, 0xc0000003, NO_LENGTH },
+    {  39, 0xc0000004, NO_LENGTH },
+    {  40, 0xc0000003, NO_LENGTH },
+    {  41, 0xc0000003, NO_LENGTH },
+    {  42, 0xc0000001, NO_LENGTH },
+    {  44, 0xc0000004, NO_LENGTH },
+    {  45, 0xc0000004, NO_LENGTH },
+    {  46, 0xc0000004, NO_LENGTH },
+    {  47, 0xc0000023, 2 },
+    {  48, 0xc0000003, NO_LENGTH },
+    {  49, 0xc0000004, NO_LENGTH },
+    {  50, 0xc0000004, 62 },
+    {  51, 0xc0000004, 16 },
+    {  52, 0xc0000004, NO_LENGTH },
+    {  53, 0xc0000003, NO_LENGTH },
+    {  54, 0xc0000004, NO_LENGTH },
+    {  55, 0xc0000004, NO_LENGTH },
+    {  56, 0xc0000003, NO_LENGTH },
+    {  57, 0xc0000003, NO_LENGTH },
+    {  59, 0xc0000004, NO_LENGTH },
+    {  60, 0xc0000004, 80 },
+    {  61, 0xc0000004, NO_LENGTH },
+    {  62, 0xc0000003, NO_LENGTH },
+    {  63, 0xc0000003, NO_LENGTH },
+    {  64, 0xc0000004, 292 },
+    {  65, 0xc0000004, NO_LENGTH },
+    {  68, 0xc0000003, NO_LENGTH },
+    {  69, 0xc0000004, NO_LENGTH },
+    {  70, 0xc0000004, NO_LENGTH },
+    {  71, 0xc0000004, NO_LENGTH },
+    {  72, 0xc0000024, NO_LENGTH },
+    {  73, 0xc0000004, NO_LENGTH },
+    {  74, 0xc0000004, NO_LENGTH },
+    {  75, 0xc0000004, NO_LENGTH },
+    {  77, 0xc0000004, NO_LENGTH },
+    {  78, 0xc0000003, NO_LENGTH },
+    {  79, 0xc0000004, NO_LENGTH },
+    {  80, 0xc0000003, NO_LENGTH },
+    {  81, 0xc0000022, NO_LENGTH },
+    {  82, 0xc0000004, NO_LENGTH },
+    {  83, 0xc0000003, NO_LENGTH },
+    {  84, 0xc0000004, NO_LENGTH },
+    {  85, 0xc0000022, NO_LENGTH },
+    {  86, 0xc0000003, NO_LENGTH },
+    {  87, 0xc0000004, NO_LENGTH },
+    {  89, 0xc0000004, NO_LENGTH },
+    {  90, 0xc0000003, NO_LENGTH },
+    {  91, 0xc0000003, NO_LENGTH },
+    {  93, 0xc0000003, NO_LENGTH },
+    {  95, 0xc0000003, NO_LENGTH },
+    {  98, 0xc0000003, NO_LENGTH },
+    {  99, 0xc0000003, NO_LENGTH },
+    { 100, 0xc0000003, NO_LENGTH },
+    { 101, 0xc0000003, NO_LENGTH },
+    { 102, 0xc0000003, NO_LENGTH },
+    { 103, 0xc0000003, NO_LENGTH },
+    { 104, 0xc0000003, NO_LENGTH },
+    { 105, 0xc0000003, NO_LENGTH },
+    { 107, 0xc0000003, NO_LENGTH },
+    { 108, 0xc0000003, NO_LENGTH },
+    { 112, 0xc0000003, NO_LENGTH },
+    { 113, 0xc0000003, NO_LENGTH },
+    { 116, 0xc0000003, NO_LENGTH },
+    { 117, 0xc0000003, NO_LENGTH },
+    { 118, 0xc0000003, NO_LENGTH },
+    { 119, 0xc0000003, NO_LENGTH },
+    { 120, 0xc0000003, NO_LENGTH },
+    { 121, 0xc0000003, NO_LENGTH },
+    { 122, 0xc0000003, NO_LENGTH },
+    { 123, 0xc0000003, NO_LENGTH },
+    { 124, 0xc0000003, NO_LENGTH },
+    { 125, 0xc0000003, NO_LENGTH },
+    { 126, 0xc0000003, NO_LENGTH },
+    { 127, 0xc0000003, NO_LENGTH },
+    { 128, 0xc0000003, NO_LENGTH },
+    { 129, 0xc0000003, NO_LENGTH },
+    { 130, 0xc0000003, NO_LENGTH },
+    { 131, 0xc0000003, NO_LENGTH },
+    { 132, 0xc0000003, NO_LENGTH },
+    { 133, 0xc0000003, NO_LENGTH },
+    { 134, 0xc0000003, NO_LENGTH },
+    { 135, 0xc0000003, NO_LENGTH },
+    { 136, 0xc0000003, NO_LENGTH },
+    { 137, 0xc0000003, NO_LENGTH },
+    { 138, 0xc0000003, NO_LENGTH },
+    { 139, 0xc0000003, NO_LENGTH },
+    { 140, 0xc0000003, NO_LENGTH },
+};
+
+
 NTSTATUS WINAPI NtQueryInformationProcess( HANDLE handle, PROCESSINFOCLASS class, void *info,
                                            ULONG size, ULONG *ret_len )
 {
@@ -1789,10 +1899,27 @@ NTSTATUS WINAPI NtQueryInformationProcess( HANDLE handle, PROCESSINFOCLASS class
         return STATUS_INFO_LENGTH_MISMATCH;
 
     default:
+    {
+        unsigned int known_status, known_len;
+
+        if (lookup_known_class( known_process_classes, ARRAY_SIZE(known_process_classes),
+                                class, &known_status, &known_len ))
+        {
+            if (known_len == NO_LENGTH) return known_status;
+            /* Reporting the size a caller needs and then never accepting
+             * that size leaves it asking forever, so only answer the probe. */
+            if (known_status == STATUS_INFO_LENGTH_MISMATCH && size >= known_len)
+                return STATUS_NOT_IMPLEMENTED;
+            len = known_len;
+            ret = known_status;
+            break;
+        }
+
         FIXME("(%p,info_class=%d,%p,0x%08x,%p) Unknown information class\n",
               handle, class, info, size, ret_len );
         ret = STATUS_INVALID_INFO_CLASS;
         break;
+    }
     }
 
     if (ret_len) *ret_len = len;

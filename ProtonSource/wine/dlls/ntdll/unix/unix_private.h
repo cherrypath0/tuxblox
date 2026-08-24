@@ -336,6 +336,38 @@ extern BOOL virtual_is_valid_code_address( const void *addr, SIZE_T size );
 extern void *virtual_setup_exception( void *stack_ptr, size_t size, EXCEPTION_RECORD *rec );
 extern BOOL virtual_check_buffer_for_read( const void *ptr, SIZE_T size );
 extern BOOL virtual_check_buffer_for_write( void *ptr, SIZE_T size );
+
+/* What a real Windows machine answers for the information classes we do not
+ * implement. A program that walks the classes learns as much from how a query
+ * fails as from what one returns, and answering "no such class" to all of them
+ * describes a system that does not exist. These are failures only: a class
+ * Windows answers successfully is left to a real implementation rather than
+ * being made up. Captured from Windows 10 22H2 with workspace/tests/sysprobe.
+ * NO_LENGTH means Windows leaves the caller's returned-length alone. */
+#define NO_LENGTH 0xffffffff
+
+struct known_class
+{
+    unsigned short class;
+    unsigned int   status;
+    unsigned int   len;
+};
+
+static inline BOOL lookup_known_class( const struct known_class *table, unsigned int count,
+                                unsigned int class, unsigned int *status, unsigned int *len )
+{
+    unsigned int i;
+
+    for (i = 0; i < count; i++)
+    {
+        if (table[i].class != class) continue;
+        *status = table[i].status;
+        *len = table[i].len;
+        return TRUE;
+    }
+    return FALSE;
+}
+
 extern void set_alignment_fault_fixup( BOOLEAN enable );
 extern SIZE_T virtual_uninterrupted_read_memory( const void *addr, void *buffer, SIZE_T size );
 extern NTSTATUS virtual_uninterrupted_write_memory( void *addr, const void *buffer, SIZE_T size );

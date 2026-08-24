@@ -2653,6 +2653,213 @@ static struct smbios_prologue *create_smbios_data(void)
 
 #endif
 
+
+static const struct known_class known_system_classes[] =
+{
+    {   4, 0xc0000002, NO_LENGTH },
+    {   6, 0xc00000bb, NO_LENGTH },
+    {   7, 0xc0000004, 24 },
+    {   9, 0xc0000004, 4 },
+    {  10, 0xc0000002, NO_LENGTH },
+    {  12, 0xc0000004, 56 },
+    {  13, 0xc0000002, 0 },
+    {  14, 0xc0000002, 0 },
+    {  15, 0xc0000002, 0 },
+    {  17, 0xc0000004, 64 },
+    {  18, 0xc0000004, 32 },
+    {  19, 0xc0000002, 0 },
+    {  20, 0xc0000003, NO_LENGTH },
+    {  24, 0xc0000004, 20 },
+    {  25, 0xc0000002, NO_LENGTH },
+    {  26, 0xc0000003, NO_LENGTH },
+    {  27, 0xc0000003, NO_LENGTH },
+    {  29, 0xc0000002, NO_LENGTH },
+    {  30, 0xc0000003, NO_LENGTH },
+    {  31, 0xc000000d, 0 },
+    {  32, 0xc0000003, NO_LENGTH },
+    {  33, 0xc0000004, 16 },
+    {  34, 0xc0000003, NO_LENGTH },
+    {  36, 0xc0000004, 48 },
+    {  38, 0xc0000003, NO_LENGTH },
+    {  39, 0xc0000003, NO_LENGTH },
+    {  40, 0xc0000003, NO_LENGTH },
+    {  41, 0xc0000003, NO_LENGTH },
+    {  42, 0xc0000004, 576 },
+    {  43, 0xc0000004, 24 },
+    {  46, 0xc0000003, NO_LENGTH },
+    {  47, 0xc0000003, NO_LENGTH },
+    {  48, 0xc0000003, NO_LENGTH },
+    {  49, 0xc0000003, NO_LENGTH },
+    {  50, 0xc0000004, 8 },
+    {  51, 0xc0000004, 144 },
+    {  52, 0xc0000003, NO_LENGTH },
+    {  53, 0xc0000004, 16 },
+    {  54, 0xc0000003, NO_LENGTH },
+    {  55, 0xc0000004, 4 },
+    {  56, 0xc0000022, 0 },
+    {  59, 0xc0000004, 4 },
+    {  60, 0xc0000004, 4 },
+    {  61, 0xc0000004, 960 },
+    {  65, 0xc0000004, 4 },
+    {  66, 0xc0000004, 32 },
+    {  67, 0xc0000003, NO_LENGTH },
+    {  68, 0xc0000003, NO_LENGTH },
+    {  69, 0xc00000bb, 0 },
+    {  70, 0xc0000004, 4 },
+    {  71, 0xc0000003, NO_LENGTH },
+    {  72, 0xc000000d, NO_LENGTH },
+    {  74, 0xc0000003, NO_LENGTH },
+    {  75, 0xc0000003, NO_LENGTH },
+    {  78, 0xc0000003, NO_LENGTH },
+    {  79, 0xc0000004, 0 },
+    {  80, 0xc0000004, 176 },
+    {  81, 0xc0000004, 64 },
+    {  82, 0xc0000003, NO_LENGTH },
+    {  84, 0xc0000003, NO_LENGTH },
+    {  85, 0xc0000003, NO_LENGTH },
+    {  86, 0xc0000004, 40 },
+    {  87, 0xc0000004, 8 },
+    {  89, 0xc0000003, NO_LENGTH },
+    {  90, 0xc0000004, 32 },
+    {  91, 0xc00000f0, 0 },
+    {  92, 0xc0000004, 40 },
+    {  93, 0xc0000003, NO_LENGTH },
+    {  94, 0xc0000003, NO_LENGTH },
+    {  95, 0xc00000bb, NO_LENGTH },
+    {  96, 0xc0000002, NO_LENGTH },
+    {  97, 0xc0000003, NO_LENGTH },
+    {  98, 0xc0000023, 64 },
+    {  99, 0xc0000023, 60 },
+    { 100, 0xc0000004, 536 },
+    { 101, 0xc0000004, 8 },
+    { 104, 0xc0000003, NO_LENGTH },
+    { 107, 0xc0000003, NO_LENGTH },
+    { 108, 0xc0000023, 96 },
+    { 109, 0xc0000206, 0 },
+    { 110, 0xc0000003, NO_LENGTH },
+    { 111, 0xc0000003, NO_LENGTH },
+    { 112, 0xc0000023, 16 },
+    { 113, 0xc00001a9, 0 },
+    { 115, 0xc0000004, 8 },
+    { 116, 0xc0000023, 40 },
+    { 117, 0xc0000004, 1096 },
+    { 118, 0xc0000004, 272 },
+    { 119, 0xc0000004, 64 },
+    { 120, 0xc0000004, 64 },
+    { 121, 0xc0000003, NO_LENGTH },
+    { 122, 0xc0000004, 8 },
+    { 123, 0xc0000004, 32 },
+    { 124, 0xc0000004, 12 },
+    { 125, 0xc0000003, NO_LENGTH },
+    { 126, 0xc0000004, 32 },
+    { 127, 0xc0000003, NO_LENGTH },
+    { 129, 0xc0000003, NO_LENGTH },
+    { 130, 0xc0000003, NO_LENGTH },
+    { 131, 0xc0000003, NO_LENGTH },
+    { 132, 0xc0000003, NO_LENGTH },
+    { 133, 0xc0000061, NO_LENGTH },
+    { 134, 0xc0000004, 32 },
+    { 135, 0xc0000004, 8 },
+    { 136, 0xc0000004, 48 },
+    { 137, 0xc0000004, 48 },
+    { 138, 0xc0000023, 240 },
+    { 139, 0xc0000206, 0 },
+    { 140, 0xc0000023, 377672 },
+    { 141, 0xc0000004, 864 },
+    { 142, 0xc0000003, NO_LENGTH },
+    { 143, 0x80430006, 0 },
+    { 144, 0xc0000004, 40 },
+    { 145, 0xc0000004, 2 },
+    { 146, 0xc0000003, NO_LENGTH },
+    { 147, 0xc0000004, 1 },
+    { 148, 0xc0000022, 0 },
+    { 150, 0xc0000061, NO_LENGTH },
+    { 151, 0xc0000004, 4 },
+    { 152, 0xc0000003, NO_LENGTH },
+    { 153, 0xc0000004, 32 },
+    { 155, 0xc0000003, NO_LENGTH },
+    { 156, 0xc0000004, 128 },
+    { 157, 0xc0000004, 24 },
+    { 158, 0xc0000004, 1 },
+    { 159, 0xc00000f0, 0 },
+    { 160, 0xc000000d, NO_LENGTH },
+    { 161, 0xc0000003, NO_LENGTH },
+    { 166, 0xc0000004, 8 },
+    { 167, 0xc0000022, 0 },
+    { 168, 0xc0000003, NO_LENGTH },
+    { 169, 0xc00000f0, 0 },
+    { 170, 0xc0000003, NO_LENGTH },
+    { 171, 0x80430006, 0 },
+    { 172, 0xc0000004, 7312 },
+    { 173, 0xc0000022, NO_LENGTH },
+    { 174, 0xc0000023, 0 },
+    { 176, 0xc0000003, NO_LENGTH },
+    { 177, 0xc0000003, NO_LENGTH },
+    { 178, 0xc000000d, NO_LENGTH },
+    { 179, 0xc0eb0006, 0 },
+    { 180, 0xc0000003, NO_LENGTH },
+    { 181, 0xc000000d, NO_LENGTH },
+    { 182, 0xc0000004, 56 },
+    { 183, 0xc0000004, NO_LENGTH },
+    { 184, 0xc0000004, 24 },
+    { 185, 0xc000000d, 0 },
+    { 186, 0x80430006, NO_LENGTH },
+    { 187, 0xc0000003, NO_LENGTH },
+    { 188, 0xc0000004, NO_LENGTH },
+    { 189, 0xc0000004, 273216 },
+    { 190, 0xc0000004, 0 },
+    { 191, 0xc0000003, NO_LENGTH },
+    { 192, 0xc0000004, 32 },
+    { 193, 0xc0000023, 8 },
+    { 194, 0xc0000061, 0 },
+    { 195, 0xc0000004, 8 },
+    { 196, 0xc0000004, 4 },
+    { 197, 0xc0000004, 8 },
+    { 198, 0xc0000004, 56 },
+    { 199, 0xc0000004, 24 },
+    { 200, 0xc0000023, 64 },
+    { 201, 0xc0000004, 8 },
+    { 202, 0xc0000004, 1 },
+    { 203, 0xc0000003, NO_LENGTH },
+    { 204, 0xc0000003, NO_LENGTH },
+    { 205, 0xc0000003, NO_LENGTH },
+    { 207, 0xc0000004, 4 },
+    { 208, 0xc0000004, 0 },
+    { 209, 0xc0000022, 0 },
+    { 210, 0xc0000003, NO_LENGTH },
+    { 211, 0xc0000003, NO_LENGTH },
+    { 212, 0xc0000003, NO_LENGTH },
+    { 213, 0xc0000004, 8 },
+    { 214, 0xc0000061, NO_LENGTH },
+    { 215, 0xc0000061, 0 },
+    { 216, 0xc0000004, 32 },
+    { 217, 0xc0000003, NO_LENGTH },
+    { 218, 0xc0000003, NO_LENGTH },
+    { 219, 0xc0000003, NO_LENGTH },
+    { 220, 0xc0000003, NO_LENGTH },
+    { 221, 0xc0000004, 4 },
+    { 222, 0xc0000003, NO_LENGTH },
+    { 223, 0xc0000003, NO_LENGTH },
+    { 224, 0xc0000003, NO_LENGTH },
+    { 225, 0xc0000003, NO_LENGTH },
+    { 226, 0xc0000003, NO_LENGTH },
+    { 227, 0xc0000004, 1 },
+    { 228, 0xc0000004, 0 },
+    { 229, 0xc0000004, 0 },
+    { 230, 0xc000000d, NO_LENGTH },
+    { 231, 0xc0000003, NO_LENGTH },
+    { 232, 0xc00000bb, 0 },
+    { 233, 0xc0000003, NO_LENGTH },
+    { 234, 0xc0000004, 17048 },
+    { 235, 0xc0000022, 0 },
+    { 236, 0xc00000bb, 0 },
+    { 237, 0xc00000bb, 0 },
+    { 238, 0xc0000003, NO_LENGTH },
+    { 239, 0xc0000003, NO_LENGTH },
+    { 240, 0xc0000003, NO_LENGTH },
+};
+
+
 static NTSTATUS enum_firmware_info( SYSTEM_FIRMWARE_TABLE_INFORMATION *sfti, ULONG available_len,
                                     ULONG *required_len )
 {
@@ -4472,6 +4679,58 @@ NTSTATUS WINAPI NtQuerySystemInformation( SYSTEM_INFORMATION_CLASS class,
         break;
     }
 
+    case SystemBigPoolInformation:  /* 66 */
+    {
+        /* Large kernel pool allocations. As with the pool tags above there is
+         * no kernel pool here, so describe a plausible set. Layout confirmed
+         * against Windows 10 22H2: a count then 24 bytes per allocation. */
+        static const char tags[][4] =
+        {
+            "MmSt","CM  ","Ntfr","File","NtFs","Thre","Proc","ObHt","Io  ","Irp ",
+            "Vad ","Pool","Ntfn","Ndis","Tcpc","AfdB","Dxgk","VidM","Wdf ","Etwp",
+            "SmSt","Perf","Srv ","LSwi","Fatf","Udfs","Vol ","Key ","Toke","SeSd"
+        };
+        struct bigpool_entry
+        {
+            void  *address;
+            SIZE_T size;
+            ULONG  tag;
+            ULONG  pad;
+        };
+        ULONG count = 2048, i;
+        struct bigpool_entry *entry;
+
+        C_ASSERT( sizeof(struct bigpool_entry) == 24 );
+
+        len = offsetof( struct { ULONG count; struct bigpool_entry e[1]; }, e[count] );
+        if (size < offsetof( struct { ULONG count; struct bigpool_entry e[1]; }, e[1] ))
+        {
+            len = offsetof( struct { ULONG count; struct bigpool_entry e[1]; }, e[1] );
+            ret = STATUS_INFO_LENGTH_MISMATCH;
+            break;
+        }
+        if (size < len)
+        {
+            ret = STATUS_INFO_LENGTH_MISMATCH;
+            break;
+        }
+
+        memset( info, 0, len );
+        *(ULONG *)info = count;
+        entry = (struct bigpool_entry *)((char *)info +
+                offsetof( struct { ULONG count; struct bigpool_entry e[1]; }, e[0] ));
+        for (i = 0; i < count; i++)
+        {
+            ULONG n = (i + 1) * 4093;
+
+            /* kernel-space addresses, with the low bit marking non-paged pool */
+            entry[i].address = (void *)(ULONG_PTR)(0xffffc00000000000ull + ((ULONG_PTR)n << 12) + (i & 1));
+            entry[i].size    = (SIZE_T)(0x1000 + (n % 48) * 0x1000);
+            memcpy( &entry[i].tag, tags[i % ARRAY_SIZE(tags)], 4 );
+        }
+        break;
+    }
+
     case SystemTrustedPlatformModuleInformation:  /* 162 */
         /* Windows refuses this one outright rather than calling it unknown. */
         ret = STATUS_ACCESS_DENIED;
@@ -4537,6 +4796,21 @@ NTSTATUS WINAPI NtQuerySystemInformation( SYSTEM_INFORMATION_CLASS class,
     }
 
     default:
+        unsigned int known_status, known_len;
+
+        if (lookup_known_class( known_system_classes, ARRAY_SIZE(known_system_classes),
+                                class, &known_status, &known_len ))
+        {
+            if (known_len == NO_LENGTH) return known_status;
+            /* Reporting the size a caller needs and then never accepting
+             * that size leaves it asking forever, so only answer the probe. */
+            if (known_status == STATUS_INFO_LENGTH_MISMATCH && size >= known_len)
+                return STATUS_NOT_IMPLEMENTED;
+            len = known_len;
+            ret = known_status;
+            break;
+        }
+
 	FIXME( "(0x%08x,%p,0x%08x,%p) stub\n", class, info, size, ret_size );
 
         /* Several Information Classes are not implemented on Windows and return 2 different values
