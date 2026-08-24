@@ -3563,6 +3563,28 @@ static unsigned int get_mapping_info( HANDLE handle, ACCESS_MASK access, unsigne
  *
  * Map a view for a PE image at an appropriate address.
  */
+/***********************************************************************
+ *           pick_dynamic_image_base
+ *
+ * Where Windows puts an image that asks to be randomised: near the top of the
+ * address space, on a 64K boundary, with about 17 bits of choice. Returns 0
+ * when there is nowhere suitable, in which case the caller falls back.
+ */
+static void *pick_dynamic_image_base( SIZE_T size, ULONG_PTR limit_low, ULONG_PTR limit_high )
+{
+    UINT64 low = 0x00007ff600000000ull, high = 0x00007ff800000000ull, slots, rnd;
+
+    if (!is_win64 || is_wow64()) return NULL;
+    if (low < limit_low) low = limit_low;
+    if (high > limit_high) high = limit_high;
+    if (high > (UINT64)(ULONG_PTR)user_space_limit) high = (ULONG_PTR)user_space_limit;
+    if (high <= low || high - low <= size) return NULL;
+    if (!(slots = (high - low - size) >> 16)) return NULL;
+    get_random( &rnd, sizeof(rnd) );
+    return (void *)(ULONG_PTR)(low + ((rnd % slots) << 16));
+}
+
+
 static NTSTATUS map_image_view( struct file_view **view_ret, struct pe_image_info *image_info, SIZE_T size,
                                 ULONG_PTR limit_low, ULONG_PTR limit_high, ULONG alloc_type )
 {
@@ -3583,6 +3605,10 @@ static NTSTATUS map_image_view( struct file_view **view_ret, struct pe_image_inf
         base = wine_server_get_ptr( image_info->map_addr );
         if ((ULONG_PTR)base != image_info->map_addr) base = NULL;
     }
+    else if (image_info->image_flags & IMAGE_FLAGS_ImageDynamicallyRelocated)
+    {
+        base = NULL;   /* the base in the header is the one address to avoid */
+    }
     else
     {
         base = wine_server_get_ptr( image_info->base );
@@ -3592,6 +3618,32 @@ static NTSTATUS map_image_view( struct file_view **view_ret, struct pe_image_inf
     {
         status = map_view( view_ret, base, size, alloc_type, vprot, limit_low, limit_high, 0 );
         if (!status) return status;
+    }
+
+    /* An image marked as dynamically relocated is never loaded at the base in
+     * its own header on Windows. Comparing the two is a one-instruction test
+     * for whether the address space was randomised at all, and no real machine
+     * passes it -- yet this honoured the header, so the main image of every
+     * process started at exactly the address it was linked for. A DLL is
+     * placed by the server, since every process has to agree on where it is;
+     * an image that gets here without one is placed per process, as Windows
+     * places an executable.
+     *
+     * Record the address only once the view is really there, since that is
+     * what the relocation below is computed against. */
+    if (!image_info->map_addr && (image_info->image_flags & IMAGE_FLAGS_ImageDynamicallyRelocated))
+    {
+        unsigned int i;
+
+        for (i = 0; i < 16; i++)
+        {
+            void *want = pick_dynamic_image_base( size, limit_low, limit_high );
+
+            if (!want) break;
+            if (map_view( view_ret, want, size, alloc_type, vprot, limit_low, limit_high, 0 )) continue;
+            image_info->map_addr = (ULONG_PTR)want;
+            return STATUS_SUCCESS;
+        }
     }
 
     /* then some appropriate address range */
