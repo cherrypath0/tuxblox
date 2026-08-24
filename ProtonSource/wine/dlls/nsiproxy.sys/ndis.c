@@ -66,6 +66,11 @@
 #include <linux/wireless.h>
 #endif
 
+#ifdef __linux__
+#include <linux/sockios.h>
+#include <linux/ethtool.h>
+#endif
+
 #include <pthread.h>
 
 #include "ntstatus.h"
@@ -174,6 +179,36 @@ static NTSTATUS if_get_physical( const char *name, UINT *type, IF_PHYSICAL_ADDRE
             memcpy( phys_addr->Address, ifr.ifr_hwaddr.sa_data, phys_addr->Length );
             break;
         }
+
+#if defined(ETHTOOL_GPERMADDR) && defined(SIOCETHTOOL)
+    /* The address just read is the one in use, which anybody can change. Report
+     * the address the adapter was built with instead, so that changing the one
+     * in use does not change who a program thinks it is talking to. */
+    if (phys_addr->Length)
+    {
+        struct
+        {
+            struct ethtool_perm_addr hdr;
+            unsigned char space[sizeof(phys_addr->Address)];
+        } perm;
+        struct ifreq ereq;
+        unsigned int j;
+
+        memset( &perm, 0, sizeof(perm) );
+        perm.hdr.cmd = ETHTOOL_GPERMADDR;
+        perm.hdr.size = sizeof(perm.space);
+        memset( &ereq, 0, sizeof(ereq) );
+        memcpy( ereq.ifr_name, name, size );
+        ereq.ifr_data = (char *)&perm;
+
+        if (!ioctl( fd, SIOCETHTOOL, &ereq ) && perm.hdr.size == phys_addr->Length)
+        {
+            /* virtual adapters have no built-in address, and report zeroes */
+            for (j = 0; j < perm.hdr.size; j++) if (perm.hdr.data[j]) break;
+            if (j != perm.hdr.size) memcpy( phys_addr->Address, perm.hdr.data, perm.hdr.size );
+        }
+    }
+#endif
 
     if (*type == MIB_IF_TYPE_OTHER && !ioctl( fd, SIOCGIFFLAGS, &ifr ) && ifr.ifr_flags & IFF_POINTOPOINT)
         *type = MIB_IF_TYPE_PPP;
