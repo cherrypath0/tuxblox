@@ -122,7 +122,9 @@ if [ -n "$TUXBLOX_TRACE" ]; then
     traceLogFile="$traceLogDir/trace-$(date +%Y%m%dT%H%M%S).log"
 fi
 
-[ -n "$needsWebView2" ] && ensureWebView2
+# I don't think that WebView Runtime has to be installed, since that there is a custom WebView2 to WebKitGTK implementation.
+# I might be wrong, if I am, uncomment this line:
+# [ -n "$needsWebView2" ] && ensureWebView2
 
 if [ -z "$exePath" ]; then
     echo "$label not found. Running installer..."
