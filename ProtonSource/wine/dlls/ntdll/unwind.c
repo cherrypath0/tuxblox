@@ -2140,12 +2140,12 @@ static RUNTIME_FUNCTION *find_function_info( ULONG_PTR pc, ULONG_PTR base,
 /**********************************************************************
  *              RtlVirtualUnwind2   (NTDLL.@)
  */
-NTSTATUS WINAPI RtlVirtualUnwind2( ULONG type, ULONG_PTR base, ULONG_PTR pc,
-                                   RUNTIME_FUNCTION *function, CONTEXT *context,
-                                   BOOLEAN *mach_frame_unwound, void **data,
-                                   ULONG_PTR *frame_ret, KNONVOLATILE_CONTEXT_POINTERS *ctx_ptr,
-                                   ULONG_PTR *limit_low, ULONG_PTR *limit_high,
-                                   PEXCEPTION_ROUTINE *handler_ret, ULONG flags )
+static NTSTATUS virtual_unwind_amd64( ULONG type, ULONG_PTR base, ULONG_PTR pc,
+                                     RUNTIME_FUNCTION *function, CONTEXT *context,
+                                     BOOLEAN *mach_frame_unwound, void **data,
+                                     ULONG_PTR *frame_ret, KNONVOLATILE_CONTEXT_POINTERS *ctx_ptr,
+                                     ULONG_PTR *limit_low, ULONG_PTR *limit_high,
+                                     PEXCEPTION_ROUTINE *handler_ret, ULONG flags )
 {
     union handler_data *handler_data;
     ULONG64 frame, off;
@@ -2304,6 +2304,41 @@ NTSTATUS WINAPI RtlVirtualUnwind2( ULONG type, ULONG_PTR base, ULONG_PTR pc,
     if (handler_ret) *handler_ret = (PEXCEPTION_ROUTINE)((char *)base + handler_data->handler);
     *data = &handler_data->handler + 1;
     return STATUS_SUCCESS;
+}
+
+
+/**********************************************************************
+ *              RtlVirtualUnwind2   (NTDLL.@)
+ *
+ * The unwind data belongs to whichever module is being unwound through, and a
+ * program is free to hand us data that describes nothing. Reading it must not
+ * fault: this runs while an exception is already being delivered, so a fault
+ * here raises another exception, which unwinds, which faults again, until the
+ * thread runs out of stack with nothing reported. The ARM64 version already
+ * guards against this.
+ */
+NTSTATUS WINAPI RtlVirtualUnwind2( ULONG type, ULONG_PTR base, ULONG_PTR pc,
+                                   RUNTIME_FUNCTION *function, CONTEXT *context,
+                                   BOOLEAN *mach_frame_unwound, void **data,
+                                   ULONG_PTR *frame_ret, KNONVOLATILE_CONTEXT_POINTERS *ctx_ptr,
+                                   ULONG_PTR *limit_low, ULONG_PTR *limit_high,
+                                   PEXCEPTION_ROUTINE *handler_ret, ULONG flags )
+{
+    NTSTATUS status;
+
+    __TRY
+    {
+        status = virtual_unwind_amd64( type, base, pc, function, context, mach_frame_unwound, data,
+                                       frame_ret, ctx_ptr, limit_low, limit_high, handler_ret, flags );
+    }
+    __EXCEPT_PAGE_FAULT
+    {
+        WARN( "unwind data for %I64x cannot be read\n", pc );
+        status = STATUS_BAD_FUNCTION_TABLE;
+    }
+    __ENDTRY
+
+    return status;
 }
 
 
