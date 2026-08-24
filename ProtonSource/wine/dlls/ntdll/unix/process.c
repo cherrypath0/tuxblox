@@ -1766,6 +1766,28 @@ NTSTATUS WINAPI NtQueryInformationProcess( HANDLE handle, PROCESSINFOCLASS class
             break;
         }
 
+    case ProcessLeapSecondInformation:  /* 97 */
+        len = sizeof(ULONG64);
+        if (size >= len) memset( info, 0, len );
+        else ret = STATUS_INFO_LENGTH_MISMATCH;
+        break;
+
+    /* Classes Windows knows but that are not implemented here. Windows answers
+     * these with a length mismatch and leaves the returned length alone, where
+     * it answers a class it has never heard of with an invalid class. Anything
+     * probing the range can tell the two apart, so say the same thing.
+     * Measured on Windows 10 22H2 with workspace/tests/sysprobe.exe. */
+    case ProcessSequenceNumber:             /* 92 */
+    case ProcessSecurityDomainInformation:  /* 94 */
+    case ProcessEnableLogging:              /* 96 */
+    case ProcessAltPrefetchParam:           /* 106 */
+    case ProcessMembershipInformation:      /* 109 */
+    case ProcessEffectiveIoPriority:        /* 110 */
+    case ProcessEffectivePagePriority:      /* 111 */
+    case ProcessNetworkIoCounters:          /* 114 */
+    case ProcessFindFirstThreadByTebValue:  /* 115 */
+        return STATUS_INFO_LENGTH_MISMATCH;
+
     default:
         FIXME("(%p,info_class=%d,%p,0x%08x,%p) Unknown information class\n",
               handle, class, info, size, ret_len );

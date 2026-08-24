@@ -4404,6 +4404,91 @@ NTSTATUS WINAPI NtQuerySystemInformation( SYSTEM_INFORMATION_CLASS class,
         break;
     }
 
+    case SystemPoolTagInformation:  /* 22 */
+    {
+        /* Kernel pool usage per tag. There is no kernel pool here, so report a
+         * plausible set of the tags a Windows kernel and its inbox drivers use;
+         * the exact set varies with the drivers loaded on any real machine.
+         * Layout confirmed against Windows 10 22H2: a count and 40 bytes per
+         * tag, so a single-entry buffer is 48. */
+        static const char tags[][4] =
+        {
+            "Ntff","Ntfr","NtFs","NtFB","MmSt","MmCa","MmCm","MmDb","MmIn","Mm  ",
+            "CM  ","CMap","CMkb","CMnb","CMsb","CMvi","CMdc","File","Filt","Thre",
+            "Proc","Job ","Even","Sema","Muta","Time","Symb","Toke","Key ","SeSd",
+            "SeTa","Obtb","ObDi","ObSq","ObNm","ObHt","Io  ","Irp ","IoNm","IoSL",
+            "IoDa","Devi","Driv","Sect","Vad ","VadS","VadL","Pool","PsJb","PsTk",
+            "PsWs","Ntfn","NDpp","NDnb","NDsi","Tcpc","TcpD","TcpT","Udpa","AfdB",
+            "AfdC","AfdE","Wmip","WmiR","Ttfd","Gh05","Gla1","Uspc","UsQt","Usqm",
+            "Ustm","Dxgk","DxgC","VidM","PciB","PcIe","USBp","Uhcd","HidP","Kbdc",
+            "Moup","Ndis","NDpb","Srv ","SrvE","LSwi","LStr","Fatf","Udfs","Cdrm",
+            "Vol ","Ftdc","RxCa","MRxS","SmSt","SmSb","Perf","Ppmp","Etwp","EtwB",
+            "Wdf ","Wdfp","VfPd","Vrfy","Ipng","IpFw","Nsi ","Wfp ","Fwpm","Klbg"
+        };
+        struct pooltag
+        {
+            ULONG  tag;
+            ULONG  paged_allocs;
+            ULONG  paged_frees;
+            SIZE_T paged_used;
+            ULONG  nonpaged_allocs;
+            ULONG  nonpaged_frees;
+            SIZE_T nonpaged_used;
+        };
+        ULONG count = ARRAY_SIZE(tags), i;
+        struct pooltag *entry;
+
+        C_ASSERT( sizeof(struct pooltag) == 40 );
+
+        len = offsetof( struct { ULONG count; struct pooltag tags[1]; }, tags[count] );
+        if (size < offsetof( struct { ULONG count; struct pooltag tags[1]; }, tags[1] ))
+        {
+            len = offsetof( struct { ULONG count; struct pooltag tags[1]; }, tags[1] );
+            ret = STATUS_INFO_LENGTH_MISMATCH;
+            break;
+        }
+        if (size < len)
+        {
+            ret = STATUS_INFO_LENGTH_MISMATCH;
+            break;
+        }
+
+        memset( info, 0, len );
+        *(ULONG *)info = count;
+        entry = (struct pooltag *)((char *)info + offsetof( struct { ULONG count; struct pooltag tags[1]; }, tags[0] ));
+        for (i = 0; i < count; i++)
+        {
+            /* deterministic, and in the range these counters normally sit in */
+            ULONG n = (i + 1) * 977;
+
+            memcpy( &entry[i].tag, tags[i], 4 );
+            entry[i].paged_allocs    = n * 3;
+            entry[i].paged_frees     = n * 3 - (n % 64);
+            entry[i].paged_used      = (SIZE_T)(n % 64) * 176;
+            entry[i].nonpaged_allocs = n;
+            entry[i].nonpaged_frees  = n - (n % 32);
+            entry[i].nonpaged_used   = (SIZE_T)(n % 32) * 224;
+        }
+        break;
+    }
+
+    case SystemTrustedPlatformModuleInformation:  /* 162 */
+        /* Windows refuses this one outright rather than calling it unknown. */
+        ret = STATUS_ACCESS_DENIED;
+        break;
+
+    case SystemKernelDebuggerFlags:  /* 163 */
+        len = sizeof(BYTE);
+        if (size >= len) *(BYTE *)info = 0;  /* no kernel debugger */
+        else ret = STATUS_INFO_LENGTH_MISMATCH;
+        break;
+
+    case SystemCodeIntegrityPolicyInformation:  /* 164 */
+        len = 32;
+        if (size >= len) memset( info, 0, len );
+        else ret = STATUS_INFO_LENGTH_MISMATCH;
+        break;
+
     case SystemCpuSetInformation:  /* 175 */
         return NtQuerySystemInformationEx(class, NULL, 0, info, size, ret_size);
 
