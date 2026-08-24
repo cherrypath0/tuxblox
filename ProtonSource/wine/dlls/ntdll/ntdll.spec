@@ -203,7 +203,7 @@
 @ stdcall -syscall=0x0061 NtCancelTimer(long ptr)
 @ stub -syscall=0x0096 NtCancelTimer2
 @ stdcall -syscall=0x0097 NtCancelWaitCompletionPacket(long long)
-@ stub -syscall=0x0098 NtChangeProcessState
+@ stdcall -syscall=0x0098 NtChangeProcessState(long long long ptr long int64)
 @ stub -syscall=0x0099 NtChangeThreadState
 @ stdcall -syscall=0x003e NtClearEvent(long)
 @ stdcall -syscall=0x000f NtClose(long)

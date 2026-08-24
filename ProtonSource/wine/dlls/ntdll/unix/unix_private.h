@@ -199,6 +199,8 @@ extern WCHAR **main_wargv;
 /* TuxBlox fingerprint tracer (diagnostic; see
  * docs/superpowers/specs/2026-08-01-player-187-fingerprint-tracer-design.md) */
 extern ULONG64 get_syscall_caller_pc(void);
+extern NTSTATUS reject_foreign_object( HANDLE handle );
+
 extern BOOL tuxblox_trace_enabled(void);
 extern void tuxblox_trace_record( const char *surface, const char *detail );
 extern void tuxblox_trace_record_us( const char *surface, const UNICODE_STRING *detail );

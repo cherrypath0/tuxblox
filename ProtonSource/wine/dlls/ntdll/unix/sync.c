@@ -1465,7 +1465,7 @@ NTSTATUS WINAPI NtCreateJobObject( HANDLE *handle, ACCESS_MASK access, const OBJ
  * know is invalid, and one we do know is of the wrong type. Asking the
  * server which it is keeps those apart rather than collapsing both into one
  * answer. */
-static NTSTATUS reject_foreign_object( HANDLE handle )
+NTSTATUS reject_foreign_object( HANDLE handle )
 {
     unsigned int ret;
 
@@ -1504,12 +1504,14 @@ NTSTATUS WINAPI NtDeletePrivateNamespace( HANDLE handle )
  *		NtCreateJobSet (NTDLL.@)
  *
  * Job sets were removed from Windows after Windows 7; the call survives in
- * the service table and refuses everything.
+ * the service table and refuses everything. Measured on Windows: the answer
+ * is STATUS_NOT_SUPPORTED whatever it is handed, valid arguments included,
+ * so there is nothing to validate first.
  */
 NTSTATUS WINAPI NtCreateJobSet( ULONG count, void *set, ULONG flags )
 {
-    FIXME( "%u %p %#x: stub\n", (int)count, set, (int)flags );
-    return STATUS_NOT_IMPLEMENTED;
+    TRACE( "%u %p %#x\n", (int)count, set, (int)flags );
+    return STATUS_NOT_SUPPORTED;
 }
 
 

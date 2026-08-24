@@ -2240,6 +2240,23 @@ NTSTATUS WINAPI NtSetInformationProcess( HANDLE handle, PROCESSINFOCLASS class, 
 
 
 /**********************************************************************
+ *           NtChangeProcessState   (NTDLL.@)
+ *
+ * Suspends or resumes a process through a process-state-change object,
+ * which Wine has no notion of. Measured on Windows: the state-change handle
+ * is checked before anything else, so a handle that is not one fails there
+ * rather than on the process handle or the change type.
+ */
+NTSTATUS WINAPI NtChangeProcessState( HANDLE state_change, HANDLE process, ULONG type,
+                                      void *extended, SIZE_T extended_len, ULONG64 reserved )
+{
+    FIXME( "%p %p %u %p %#lx %#lx: stub\n", state_change, process, (int)type,
+           extended, (unsigned long)extended_len, (unsigned long)reserved );
+    return reject_foreign_object( state_change );
+}
+
+
+/**********************************************************************
  *           NtOpenProcess  (NTDLL.@)
  */
 NTSTATUS WINAPI NtOpenProcess( HANDLE *handle, ACCESS_MASK access,
