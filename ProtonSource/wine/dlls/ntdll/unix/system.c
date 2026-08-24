@@ -2953,6 +2953,7 @@ static NTSTATUS get_acpi_table( SYSTEM_FIRMWARE_TABLE_INFORMATION *sfti, ULONG a
 {
     char path[sizeof(ACPI_TABLE_DIR) + 1 + sizeof(((struct dirent *)0)->d_name)];
     NTSTATUS status = STATUS_NOT_FOUND;
+    off_t done = 0, got;
     struct dirent *de;
     struct stat st;
     DIR *dir;
@@ -2991,10 +2992,15 @@ static NTSTATUS get_acpi_table( SYSTEM_FIRMWARE_TABLE_INFORMATION *sfti, ULONG a
         close( fd );
         return STATUS_BUFFER_TOO_SMALL;
     }
-    status = read( fd, sfti->TableBuffer, st.st_size ) == st.st_size
-             ? STATUS_SUCCESS : STATUS_UNSUCCESSFUL;
+    /* sysfs hands back at most a page at a time, so anything past the first
+     * 4 KB -- which is most of DSDT and the SSDTs -- needs more than one read */
+    for (done = 0; done < st.st_size; done += got)
+    {
+        got = read( fd, sfti->TableBuffer + done, st.st_size - done );
+        if (got <= 0) break;
+    }
     close( fd );
-    return status;
+    return done == st.st_size ? STATUS_SUCCESS : STATUS_UNSUCCESSFUL;
 }
 
 
