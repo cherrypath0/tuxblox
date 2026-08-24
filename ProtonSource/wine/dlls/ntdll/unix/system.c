@@ -32,6 +32,7 @@
 #include <string.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <sys/wait.h>
 #include <errno.h>
 #include <assert.h>
 #include <sys/time.h>
@@ -5518,11 +5519,48 @@ NTSTATUS WINAPI NtDisplayString( UNICODE_STRING *string )
 /******************************************************************************
  *              NtRaiseHardError  (NTDLL.@)
  */
+/* Wine has nowhere to put a message box, so a program that reports a problem
+ * this way disappears without the user ever being told why. Hand the text to
+ * the desktop instead, which is the nearest thing we have to showing it. */
+static void notify_desktop( const UNICODE_STRING *text, const UNICODE_STRING *caption )
+{
+    char body[1024], title[256];
+    pid_t pid;
+
+    if (!text || !text->Buffer) return;
+    if (!ntdll_wcstoumbs( text->Buffer, text->Length / sizeof(WCHAR), body, sizeof(body) - 1, FALSE ))
+        return;
+    body[min( text->Length / sizeof(WCHAR), sizeof(body) - 1 )] = 0;
+
+    strcpy( title, "Roblox" );
+    if (caption && caption->Buffer &&
+        ntdll_wcstoumbs( caption->Buffer, caption->Length / sizeof(WCHAR), title, sizeof(title) - 1, FALSE ))
+        title[min( caption->Length / sizeof(WCHAR), sizeof(title) - 1 )] = 0;
+
+    if (!(pid = fork()))
+    {
+        /* fork once more so the notifier is not ours to wait for */
+        if (!fork())
+        {
+            execlp( "notify-send", "notify-send", "-a", "TuxBlox",
+                    "-i", "dialog-error", title, body, (char *)NULL );
+            _exit( 1 );
+        }
+        _exit( 0 );
+    }
+    if (pid > 0) waitpid( pid, NULL, 0 );
+}
+
+
 NTSTATUS WINAPI NtRaiseHardError( NTSTATUS status, ULONG count,
                                   ULONG params_mask, void **params,
                                   HARDERROR_RESPONSE_OPTION option, HARDERROR_RESPONSE *response )
 {
     tuxblox_trace_record( "NtRaiseHardError", "" );
+
+    /* the first two parameters of a message box are its text and its title */
+    if (params && count >= 2 && (params_mask & 3) == 3)
+        notify_desktop( params[0], params[1] );
 
     /* A hard error carries the caller's own diagnostic text: the bits set in
      * params_mask say which parameters are UNICODE_STRING pointers rather than
