@@ -31,6 +31,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #include <sys/wait.h>
 #include <errno.h>
@@ -2861,6 +2862,142 @@ static const struct known_class known_system_classes[] =
 };
 
 
+#define ACPI_TABLE_DIR "/sys/firmware/acpi/tables"
+
+/* The ACPI tables themselves are readable only by root, but the directory
+ * holding them is not: listing it names every table the firmware provides.
+ * That listing is the whole of what an enumerate asks for, so it needs no
+ * privilege and invents nothing -- these are this machine's own tables, and
+ * the same firmware would hand Windows the same set. Sysfs numbers repeated
+ * signatures (SSDT1, SSDT2, ...); the signature is the first four characters.
+ *
+ * A table ID is the signature as it sits in memory, so a little-endian DWORD,
+ * which is the opposite order from the provider signature next to it. */
+static ULONG acpi_table_signature( const struct dirent *de )
+{
+    ULONG sig = 0;
+    int i;
+
+    if (de->d_type != DT_REG) return 0;  /* "data" and "dynamic" are directories */
+    for (i = 0; i < 4; i++)
+    {
+        unsigned char c = de->d_name[i];
+        if (c < 0x20 || c > 0x7e) return 0;
+        sig |= (ULONG)c << (i * 8);
+    }
+    if (de->d_name[4] && (de->d_name[4] < '0' || de->d_name[4] > '9')) return 0;
+    return sig;
+}
+
+static NTSTATUS enum_acpi_tables( SYSTEM_FIRMWARE_TABLE_INFORMATION *sfti, ULONG available_len,
+                                  ULONG *required_len )
+{
+    ULONG *ids = NULL, count = 0, capacity = 0, len;
+    struct dirent *de;
+    DIR *dir;
+
+    if (!(dir = opendir( ACPI_TABLE_DIR )))
+    {
+        WARN( "cannot list %s\n", ACPI_TABLE_DIR );
+        return STATUS_NOT_FOUND;
+    }
+    while ((de = readdir( dir )))
+    {
+        ULONG sig = acpi_table_signature( de );
+
+        if (!sig) continue;
+        if (count == capacity)
+        {
+            ULONG new_capacity = capacity ? capacity * 2 : 32;
+            ULONG *new_ids = realloc( ids, new_capacity * sizeof(*ids) );
+
+            if (!new_ids)
+            {
+                free( ids );
+                closedir( dir );
+                return STATUS_NO_MEMORY;
+            }
+            ids = new_ids;
+            capacity = new_capacity;
+        }
+        ids[count++] = sig;
+    }
+    closedir( dir );
+
+    if (!count)
+    {
+        free( ids );
+        return STATUS_NOT_FOUND;
+    }
+
+    sfti->TableBufferLength = len = count * sizeof(*ids);
+    *required_len = offsetof( SYSTEM_FIRMWARE_TABLE_INFORMATION, TableBuffer[len] );
+    if (available_len < *required_len)
+    {
+        free( ids );
+        return STATUS_BUFFER_TOO_SMALL;
+    }
+    memcpy( sfti->TableBuffer, ids, len );
+    free( ids );
+    return STATUS_SUCCESS;
+}
+
+/* Serve the table itself where the file can be read -- root, or a machine
+ * whose owner has granted access. Where it cannot, say so rather than
+ * describing a table nobody has looked at: what these tables describe (the
+ * IOMMU, among other things) is exactly the sort of thing invented content
+ * would misrepresent. A signature the directory does not list is genuinely
+ * absent, and saying so costs nothing. */
+static NTSTATUS get_acpi_table( SYSTEM_FIRMWARE_TABLE_INFORMATION *sfti, ULONG available_len,
+                                ULONG *required_len )
+{
+    char path[sizeof(ACPI_TABLE_DIR) + 1 + sizeof(((struct dirent *)0)->d_name)];
+    NTSTATUS status = STATUS_NOT_FOUND;
+    struct dirent *de;
+    struct stat st;
+    DIR *dir;
+    int fd;
+
+    if (!(dir = opendir( ACPI_TABLE_DIR ))) return STATUS_NOT_FOUND;
+    while ((de = readdir( dir )))
+    {
+        if (acpi_table_signature( de ) != sfti->TableID) continue;
+        snprintf( path, sizeof(path), ACPI_TABLE_DIR "/%s", de->d_name );
+        status = STATUS_ACCESS_DENIED;
+        break;
+    }
+    closedir( dir );
+    if (status == STATUS_NOT_FOUND) return status;
+
+    if ((fd = open( path, O_RDONLY )) == -1)
+    {
+        static int once;
+
+        if (!once++)
+            FIXME( "cannot read %s (%s); firmware tables are readable by root only\n",
+                   path, strerror( errno ) );
+        return status;
+    }
+    if (fstat( fd, &st ) == -1 || st.st_size <= 0)
+    {
+        close( fd );
+        return STATUS_UNSUCCESSFUL;
+    }
+
+    sfti->TableBufferLength = st.st_size;
+    *required_len = offsetof( SYSTEM_FIRMWARE_TABLE_INFORMATION, TableBuffer[st.st_size] );
+    if (available_len < *required_len)
+    {
+        close( fd );
+        return STATUS_BUFFER_TOO_SMALL;
+    }
+    status = read( fd, sfti->TableBuffer, st.st_size ) == st.st_size
+             ? STATUS_SUCCESS : STATUS_UNSUCCESSFUL;
+    close( fd );
+    return status;
+}
+
+
 static NTSTATUS enum_firmware_info( SYSTEM_FIRMWARE_TABLE_INFORMATION *sfti, ULONG available_len,
                                     ULONG *required_len )
 {
@@ -2874,6 +3011,9 @@ static NTSTATUS enum_firmware_info( SYSTEM_FIRMWARE_TABLE_INFORMATION *sfti, ULO
         if (available_len < *required_len) return STATUS_BUFFER_TOO_SMALL;
         *(UINT *)sfti->TableBuffer = 0;
         return STATUS_SUCCESS;
+
+    case ACPI:
+        return enum_acpi_tables( sfti, available_len, required_len );
 
     default:
         FIXME("info_class SYSTEM_FIRMWARE_TABLE_INFORMATION provider %08x\n", (unsigned int)sfti->ProviderSignature);
@@ -2902,6 +3042,9 @@ static NTSTATUS get_firmware_info( SYSTEM_FIRMWARE_TABLE_INFORMATION *sfti, ULON
         if (available_len < *required_len) return STATUS_BUFFER_TOO_SMALL;
         memcpy( sfti->TableBuffer, smbios_data, len );
         return STATUS_SUCCESS;
+
+    case ACPI:
+        return get_acpi_table( sfti, available_len, required_len );
 
     default:
         FIXME("info_class SYSTEM_FIRMWARE_TABLE_INFORMATION provider %08x\n", (unsigned int)sfti->ProviderSignature);
@@ -4320,15 +4463,26 @@ NTSTATUS WINAPI NtQuerySystemInformation( SYSTEM_INFORMATION_CLASS class,
     {
         SYSTEM_FIRMWARE_TABLE_INFORMATION *sfti = info;
 
-        tuxblox_trace_record( "SystemFirmwareTableInformation", "" );
-
         len = FIELD_OFFSET(SYSTEM_FIRMWARE_TABLE_INFORMATION, TableBuffer);
         if (size < len)
         {
+            tuxblox_trace_record( "SystemFirmwareTableInformation", "short" );
             ret = STATUS_INFO_LENGTH_MISMATCH;
             break;
         }
         len = 0;
+
+        if (tuxblox_trace_enabled())
+        {
+            /* which firmware table is being asked for is the whole content of
+             * the question -- recording only that it was asked says nothing */
+            char detail[64];
+            snprintf( detail, sizeof(detail), "provider=%c%c%c%c table=%08x action=%d",
+                      (char)(sfti->ProviderSignature >> 24), (char)(sfti->ProviderSignature >> 16),
+                      (char)(sfti->ProviderSignature >> 8), (char)sfti->ProviderSignature,
+                      (unsigned int)sfti->TableID, (int)sfti->Action );
+            tuxblox_trace_record( "SystemFirmwareTableInformation", detail );
+        }
 
         switch (sfti->Action)
         {
