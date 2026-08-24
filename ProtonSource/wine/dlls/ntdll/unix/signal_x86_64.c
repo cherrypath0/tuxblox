@@ -535,7 +535,6 @@ struct amd64_thread_data
     DWORD                 fs;            /* 0338 WOW TEB selector */
     DWORD                 mxcsr;         /* 033c Unix-side mxcsr register */
     BOOL                  alignment_fixup; /* 0340 thread asked for alignment fault fixup */
-    void                 *alignment_scratch; /* 0348 buffer and stub used to fix one up */
 };
 
 C_ASSERT( sizeof(struct amd64_thread_data) <= sizeof(((struct ntdll_thread_data *)0)->cpu_data) );
@@ -1980,16 +1979,6 @@ NTSTATUS WINAPI NtCallbackReturn( void *ret_ptr, ULONG ret_len, NTSTATUS status 
 }
 
 
-/* One misaligned SSE access is fixed up by copying its memory operand into an
- * aligned buffer and re-running the very same instruction against that buffer,
- * so the processor still decides what the instruction means. */
-struct alignment_scratch
-{
-    M128A operand;      /* 16-byte aligned copy of the memory operand */
-    BYTE  code[64];     /* the rewritten instruction, then a jump back */
-};
-
-
 /***********************************************************************
  *           set_alignment_fault_fixup
  *
@@ -1999,17 +1988,80 @@ struct alignment_scratch
  */
 void set_alignment_fault_fixup( BOOLEAN enable )
 {
-    void *scratch;
+    if (enable) amd64_thread_data()->alignment_fixup = TRUE;
+}
 
-    if (!enable || amd64_thread_data()->alignment_fixup) return;
 
-    /* allocated here rather than in the handler, where allocating is not safe */
-    scratch = mmap( NULL, page_size, PROT_READ | PROT_WRITE | PROT_EXEC,
-                    MAP_PRIVATE | MAP_ANON, -1, 0 );
-    if (scratch == MAP_FAILED) return;
+/* Carry out one 128-bit SSE operation whose memory operand has been read into
+ * src. Doing this here rather than re-running the instruction keeps us from
+ * having to hold any executable memory of our own, which is exactly the kind of
+ * thing a program checking its own integrity objects to finding. */
+static BOOL emulate_sse_op( CONTEXT *context, BYTE opcode, BOOL opsize,
+                            unsigned int reg, const M128A *src )
+{
+    union reg128
+    {
+        M128A   m;
+        BYTE    b[16];
+        USHORT  w[8];
+        ULONG   d[4];
+        ULONG64 q[2];
+    } a, s;
+    unsigned int i;
 
-    amd64_thread_data()->alignment_scratch = scratch;
-    amd64_thread_data()->alignment_fixup = TRUE;
+    memcpy( &a, &context->FltSave.XmmRegisters[reg], sizeof(a) );
+    memcpy( &s, src, sizeof(s) );
+
+    switch (opcode)
+    {
+    case 0x6f:                                             /* movdqa */
+        if (!opsize) return FALSE;
+        /* fall through */
+    case 0x28: a = s; break;                               /* movaps, movapd */
+
+    case 0x54: for (i = 0; i < 2; i++) a.q[i] &= s.q[i]; break;              /* andps, andpd */
+    case 0x55: for (i = 0; i < 2; i++) a.q[i] = ~a.q[i] & s.q[i]; break;     /* andnps, andnpd */
+    case 0x56: for (i = 0; i < 2; i++) a.q[i] |= s.q[i]; break;              /* orps, orpd */
+    case 0x57: for (i = 0; i < 2; i++) a.q[i] ^= s.q[i]; break;              /* xorps, xorpd */
+
+    case 0xdb: if (!opsize) return FALSE; for (i = 0; i < 2; i++) a.q[i] &= s.q[i]; break;          /* pand */
+    case 0xdf: if (!opsize) return FALSE; for (i = 0; i < 2; i++) a.q[i] = ~a.q[i] & s.q[i]; break; /* pandn */
+    case 0xeb: if (!opsize) return FALSE; for (i = 0; i < 2; i++) a.q[i] |= s.q[i]; break;          /* por */
+    case 0xef: if (!opsize) return FALSE; for (i = 0; i < 2; i++) a.q[i] ^= s.q[i]; break;          /* pxor */
+
+    case 0xfc: if (!opsize) return FALSE; for (i = 0; i < 16; i++) a.b[i] += s.b[i]; break;  /* paddb */
+    case 0xfd: if (!opsize) return FALSE; for (i = 0; i < 8; i++)  a.w[i] += s.w[i]; break;  /* paddw */
+    case 0xfe: if (!opsize) return FALSE; for (i = 0; i < 4; i++)  a.d[i] += s.d[i]; break;  /* paddd */
+    case 0xd4: if (!opsize) return FALSE; for (i = 0; i < 2; i++)  a.q[i] += s.q[i]; break;  /* paddq */
+
+    case 0xf8: if (!opsize) return FALSE; for (i = 0; i < 16; i++) a.b[i] -= s.b[i]; break;  /* psubb */
+    case 0xf9: if (!opsize) return FALSE; for (i = 0; i < 8; i++)  a.w[i] -= s.w[i]; break;  /* psubw */
+    case 0xfa: if (!opsize) return FALSE; for (i = 0; i < 4; i++)  a.d[i] -= s.d[i]; break;  /* psubd */
+    case 0xfb: if (!opsize) return FALSE; for (i = 0; i < 2; i++)  a.q[i] -= s.q[i]; break;  /* psubq */
+
+    case 0xd5: if (!opsize) return FALSE;                                                    /* pmullw */
+        for (i = 0; i < 8; i++) a.w[i] = (USHORT)(a.w[i] * s.w[i]);
+        break;
+    case 0xf4: if (!opsize) return FALSE;                                                    /* pmuludq */
+        for (i = 0; i < 2; i++) a.q[i] = (ULONG64)a.d[i * 2] * s.d[i * 2];
+        break;
+
+    case 0x74: if (!opsize) return FALSE;                                                    /* pcmpeqb */
+        for (i = 0; i < 16; i++) a.b[i] = (a.b[i] == s.b[i]) ? 0xff : 0;
+        break;
+    case 0x75: if (!opsize) return FALSE;                                                    /* pcmpeqw */
+        for (i = 0; i < 8; i++) a.w[i] = (a.w[i] == s.w[i]) ? 0xffff : 0;
+        break;
+    case 0x76: if (!opsize) return FALSE;                                                    /* pcmpeqd */
+        for (i = 0; i < 4; i++) a.d[i] = (a.d[i] == s.d[i]) ? 0xffffffff : 0;
+        break;
+
+    default:
+        return FALSE;
+    }
+
+    memcpy( &context->FltSave.XmmRegisters[reg], &a, sizeof(a) );
+    return TRUE;
 }
 
 
@@ -2052,7 +2104,6 @@ static BOOL writes_memory( BYTE opcode, BOOL opsize )
  */
 static BOOL emulate_misaligned_sse( CONTEXT *context )
 {
-    struct alignment_scratch *scratch = amd64_thread_data()->alignment_scratch;
     BYTE instr[24], opcode;
     unsigned int i = 0, op, modrm_pos, imm_len = 0, len;
     BOOL opsize = FALSE;
@@ -2060,9 +2111,8 @@ static BOOL emulate_misaligned_sse( CONTEXT *context )
     unsigned int reg;
     LONG64 offset = 0;
     ULONG64 addr;
-    BYTE *out;
+    M128A operand;
 
-    if (!scratch) return FALSE;
     len = virtual_uninterrupted_read_memory( (BYTE *)context->Rip, instr, sizeof(instr) );
 
     while (i < len)  /* prefixes */
@@ -2147,27 +2197,14 @@ static BOOL emulate_misaligned_sse( CONTEXT *context )
         return TRUE;
     }
 
-    /* memory is only read, so re-run the instruction against an aligned copy */
-    if (virtual_uninterrupted_read_memory( (void *)addr, &scratch->operand,
-                                           sizeof(scratch->operand) ) != sizeof(scratch->operand))
+    /* memory is only read: fetch the operand and carry the operation out */
+    if (instr[op] == 0x38 || instr[op] == 0x3a) return FALSE;  /* three-byte opcodes */
+    if (virtual_uninterrupted_read_memory( (void *)addr, &operand, sizeof(operand) ) != sizeof(operand))
+        return FALSE;
+    if (!emulate_sse_op( context, opcode, opsize, reg | ((rex & 4) ? 8 : 0), &operand ))
         return FALSE;
 
-    out = scratch->code;
-    memcpy( out, instr, modrm_pos );                  /* prefixes and opcode */
-    out += modrm_pos;
-    *out++ = (modrm & 0x38) | 0x05;                   /* same register, rip-relative operand */
-    memcpy( out + 4, instr + len - imm_len, imm_len );
-    /* a rip-relative displacement counts from the end of the instruction */
-    *(int *)out = (int)((BYTE *)&scratch->operand - (out + 4 + imm_len));
-    out += 4 + imm_len;
-
-    *out++ = 0xff;                                    /* jmpq *(%rip) */
-    *out++ = 0x25;
-    *(int *)out = 0;
-    out += 4;
-    *(ULONG64 *)out = context->Rip + len;
-
-    context->Rip = (ULONG64)scratch->code;
+    context->Rip += len;
     return TRUE;
 }
 
