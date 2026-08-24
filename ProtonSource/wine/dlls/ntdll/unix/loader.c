@@ -113,31 +113,31 @@ void *pRtlUserThreadStart = NULL;
 void *p__wine_ctrl_routine = NULL;
 SYSTEM_DLL_INIT_BLOCK *pLdrSystemDllInitBlock = NULL;
 
-static void stub_syscall( const char *name )
+/* A system call Wine does not implement fails; it does not kill the caller.
+ * This used to raise a non-continuable EXCEPTION_WINE_STUB, which is fine for
+ * a missing Win32 entry point but wrong for a system call: the kernel has no
+ * way to abort a process for one, so every caller is written to read the
+ * status back and decide for itself. Aborting instead takes that decision
+ * away, and a caller that retries turns one missing call into a stack
+ * overflow. Report it once, then answer the way the caller expects. */
+static NTSTATUS stub_syscall( const char *name )
 {
-    CONTEXT context = { .ContextFlags = CONTEXT_FULL };
-    EXCEPTION_RECORD rec =
-    {
-        .ExceptionCode = EXCEPTION_WINE_STUB,
-        .ExceptionFlags = EXCEPTION_NONCONTINUABLE,
-        .NumberParameters = 2,
-        .ExceptionInformation[0] = (ULONG_PTR)"ntdll",
-        .ExceptionInformation[1] = (ULONG_PTR)name,
-    };
-    NtGetContextThread( GetCurrentThread(), &context );
-#ifdef __i386__
-    rec.ExceptionAddress = (void *)context.Eip;
-#elif defined __x86_64__
-    rec.ExceptionAddress = (void *)context.Rip;
-#elif defined __arm__ || defined __aarch64__
-    rec.ExceptionAddress = (void *)context.Pc;
-#endif
-    NtRaiseException( &rec, &context, TRUE );
+    FIXME( "unimplemented syscall ntdll.%s\n", name );
+    return STATUS_NOT_IMPLEMENTED;
 }
 
 
-#define SYSCALL_STUB(name) static void name(void) { stub_syscall( #name ); }
+/* An unimplemented call still owns its slot in the service table -- every
+ * other call's number depends on it -- so it needs a C symbol here. It cannot
+ * be the call's own name: winternl.h already declares most of these with
+ * their real prototype, which a "static void name(void)" body contradicts.
+ * The PE side keeps the plain name, so only this table is renamed. */
+#define SYSCALL_STUB(name) static NTSTATUS __wine_syscall_stub_##name(void) \
+    { static LONG once; if (!InterlockedExchange( &once, 1 )) return stub_syscall( #name ); \
+      return STATUS_NOT_IMPLEMENTED; }
 ALL_SYSCALL_STUBS
+#undef SYSCALL_ENTRY_STUB
+#define SYSCALL_ENTRY_STUB(id,name,args) SYSCALL_ENTRY( id, __wine_syscall_stub_##name, args )
 
 static void * const syscalls[] =
 {
@@ -161,7 +161,12 @@ SYSTEM_SERVICE_TABLE KeServiceDescriptorTable[4] =
 static const char *ntsyscall_names[] =
 {
 #define SYSCALL_ENTRY(id,name,args) #name,
+/* trace under the call's own name, not the renamed stub body */
+#undef SYSCALL_ENTRY_STUB
+#define SYSCALL_ENTRY_STUB(id,name,args) #name,
     ALL_SYSCALLS
+#undef SYSCALL_ENTRY_STUB
+#define SYSCALL_ENTRY_STUB(id,name,args) SYSCALL_ENTRY( id, __wine_syscall_stub_##name, args )
 #undef SYSCALL_ENTRY
 };
 

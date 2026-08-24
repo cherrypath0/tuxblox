@@ -1454,6 +1454,65 @@ NTSTATUS WINAPI NtCreateJobObject( HANDLE *handle, ACCESS_MASK access, const OBJ
 }
 
 
+/* Handles for object types Wine has no notion of at all.
+ *
+ * These calls used to have no service-table slot, which meant a program
+ * issuing them as a raw syscall reached whichever call had been packed into
+ * that slot instead -- see the note at the top of ntdll.spec. Now
+ * that the slot is theirs, it has to answer. Wine never hands out a handle
+ * to a wait-completion packet or a private namespace, so the two ways the
+ * kernel can refuse are the only two that can arise here: a handle we do not
+ * know is invalid, and one we do know is of the wrong type. Asking the
+ * server which it is keeps those apart rather than collapsing both into one
+ * answer. */
+static NTSTATUS reject_foreign_object( HANDLE handle )
+{
+    unsigned int ret;
+
+    SERVER_START_REQ( get_object_info )
+    {
+        req->handle = wine_server_obj_handle( handle );
+        ret = wine_server_call( req );
+    }
+    SERVER_END_REQ;
+    if (ret) return ret;
+    return STATUS_OBJECT_TYPE_MISMATCH;
+}
+
+
+/**************************************************************************
+ *		NtCancelWaitCompletionPacket (NTDLL.@)
+ */
+NTSTATUS WINAPI NtCancelWaitCompletionPacket( HANDLE handle, BOOLEAN remove_signaled )
+{
+    FIXME( "%p %u: stub\n", handle, remove_signaled );
+    return reject_foreign_object( handle );
+}
+
+
+/**************************************************************************
+ *		NtDeletePrivateNamespace (NTDLL.@)
+ */
+NTSTATUS WINAPI NtDeletePrivateNamespace( HANDLE handle )
+{
+    FIXME( "%p: stub\n", handle );
+    return reject_foreign_object( handle );
+}
+
+
+/**************************************************************************
+ *		NtCreateJobSet (NTDLL.@)
+ *
+ * Job sets were removed from Windows after Windows 7; the call survives in
+ * the service table and refuses everything.
+ */
+NTSTATUS WINAPI NtCreateJobSet( ULONG count, void *set, ULONG flags )
+{
+    FIXME( "%u %p %#x: stub\n", (int)count, set, (int)flags );
+    return STATUS_NOT_IMPLEMENTED;
+}
+
+
 /**************************************************************************
  *		NtOpenJobObject (NTDLL.@)
  */
