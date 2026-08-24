@@ -4381,6 +4381,29 @@ NTSTATUS WINAPI NtQuerySystemInformation( SYSTEM_INFORMATION_CLASS class,
         else ret = STATUS_INFO_LENGTH_MISMATCH;
         break;
 
+    case SystemIsolatedUserModeInformation:  /* 165 */
+    {
+        /* Reports virtualisation-based security. None of it is running here,
+         * which is also what an ordinary machine with it turned off reports. */
+        struct
+        {
+            BYTE     flags;
+            BYTE     flags2;
+            BYTE     spare0[6];
+            ULONGLONG spare1;
+        } isolated = { 0 };
+
+        C_ASSERT( sizeof(isolated) == 16 );
+        len = sizeof(isolated);
+        if (size >= len)
+        {
+            if (!info) ret = STATUS_ACCESS_VIOLATION;
+            else memcpy( info, &isolated, len );
+        }
+        else ret = STATUS_INFO_LENGTH_MISMATCH;
+        break;
+    }
+
     case SystemCpuSetInformation:  /* 175 */
         return NtQuerySystemInformationEx(class, NULL, 0, info, size, ret_size);
 
