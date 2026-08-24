@@ -4711,10 +4711,21 @@ NTSTATUS virtual_alloc_thread_stack( INITIAL_TEB *stack, ULONG_PTR limit_low, UL
     /* setup no access guard page */
     if (guard_page)
     {
+        /* Leave room below the guard page for a thread that runs out of stack
+         * to be told about it and do something about it. Windows enters such a
+         * handler with about 16 KB of the reservation still usable (measured on
+         * Windows 10 22H2 with workspace/tests/stackprobe.exe). Putting the
+         * guard immediately above the bottom, as this used to, leaves a handler
+         * nowhere to run: it faults again on the page below and the thread is
+         * killed with nothing reported. */
+        SIZE_T spare = max( page_size * (is_win64 ? 3 : 1), host_page_size );
+
         set_page_vprot( view->base, host_page_size, 0 );
-        set_page_vprot( (char *)view->base + host_page_size, host_page_size,
+        set_page_vprot( (char *)view->base + host_page_size, spare,
+                        VPROT_READ | VPROT_WRITE | VPROT_COMMITTED );
+        set_page_vprot( (char *)view->base + host_page_size + spare, host_page_size,
                         VPROT_READ | VPROT_WRITE | VPROT_COMMITTED | VPROT_GUARD );
-        mprotect_range( view->base, 2 * host_page_size , 0, 0 );
+        mprotect_range( view->base, 2 * host_page_size + spare, 0, 0 );
     }
     else
     {
@@ -4843,7 +4854,12 @@ static BOOL is_inside_thread_stack( void *ptr, struct thread_stack_info *stack )
 {
     TEB *teb = NtCurrentTeb();
     WOW_TEB *wow_teb = get_wow_teb( teb );
-    size_t min_guaranteed = max( page_size * (is_win64 ? 2 : 1), host_page_size );
+    /* How much stack is kept in reserve so that a thread which runs out still
+     * has room to be told about it. Measured on Windows 10 22H2 with
+     * workspace/tests/stackprobe.exe: a handler there is entered with 16 KB of
+     * the reservation left. Keeping less means the overflow is reported so late
+     * that the report itself does not fit, and the thread is killed instead. */
+    size_t min_guaranteed = max( page_size * (is_win64 ? 4 : 2), host_page_size );
 
     stack->start = teb->DeallocationStack;
     stack->limit = teb->Tib.StackLimit;
