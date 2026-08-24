@@ -2127,6 +2127,184 @@ static BOOL is_process_wow64( const CLIENT_ID *id )
     return ret;
 }
 
+/* How every thread information class answers, measured on Windows 11 24H2 with
+ * workspace/tests/thrprobe.exe. Roblox sweeps all of them in order while
+ * starting and reads how each one refuses; what a class refuses with tells it
+ * as much as what an answer contains, and answering 43 of them from one
+ * "not supported yet" branch is a single flat signature no real system has.
+ *
+ * Note Windows never answers a thread class with STATUS_NOT_IMPLEMENTED, and
+ * that its table ends at 59 -- everything above that is an invalid class.
+ * Only classes without their own case below are answered from here. */
+static const struct known_class known_thread_classes[] =
+{
+    {   0, 0xc0000004, NO_LENGTH },
+    {   1, 0xc0000004, NO_LENGTH },
+    {   2, 0xc0000003, NO_LENGTH },
+    {   3, 0xc0000003, NO_LENGTH },
+    {   4, 0xc0000003, NO_LENGTH },
+    {   5, 0xc0000003, NO_LENGTH },
+    {   6, 0xc0000002, NO_LENGTH },
+    {   7, 0xc0000003, NO_LENGTH },
+    {   8, 0xc0000003, NO_LENGTH },
+    {   9, 0xc0000004, NO_LENGTH },
+    {  10, 0xc0000003, NO_LENGTH },
+    {  11, 0xc0000004, NO_LENGTH },
+    {  12, 0xc0000004, NO_LENGTH },
+    {  13, 0xc0000003, NO_LENGTH },
+    {  14, 0xc0000004, NO_LENGTH },
+    {  15, 0xc0000003, NO_LENGTH },
+    {  16, 0xc0000004, NO_LENGTH },
+    {  17, 0xc0000004, NO_LENGTH },
+    {  18, 0xc0000004, NO_LENGTH },
+    {  19, 0xc0000003, NO_LENGTH },
+    {  20, 0xc0000004, NO_LENGTH },
+    {  21, 0xc0000004, NO_LENGTH },
+    {  22, 0xc0000004, NO_LENGTH },
+    {  23, 0xc0000004, NO_LENGTH },
+    {  24, 0xc0000004, NO_LENGTH },
+    {  25, 0xc0000004, NO_LENGTH },
+    {  26, 0xc0000004, NO_LENGTH },
+    {  27, 0xc0000003, NO_LENGTH },
+    {  28, 0xc0000003, NO_LENGTH },
+    {  29, 0xc0000004, NO_LENGTH },
+    {  30, 0xc0000004, NO_LENGTH },
+    {  31, 0xc0000003, NO_LENGTH },
+    {  32, 0xc0000004, NO_LENGTH },
+    {  33, 0xc0000004, NO_LENGTH },
+    {  34, 0xc0000004, NO_LENGTH },
+    {  35, 0xc0000004, NO_LENGTH },
+    {  36, 0xc0000004, NO_LENGTH },
+    {  37, 0xc0000004, NO_LENGTH },
+    {  38, 0xc0000023,       16  },
+    {  39, 0x00000000,        8  },
+    {  40, 0xc0000004, NO_LENGTH },
+    {  41, 0xc0000004, NO_LENGTH },
+    {  42, 0xc0000004, NO_LENGTH },
+    {  43, 0xc0000004, NO_LENGTH },
+    {  44, 0xc0000004, NO_LENGTH },
+    {  45, 0xc0000004, NO_LENGTH },
+    {  46, 0xc0000003, NO_LENGTH },
+    {  47, 0xc0000003, NO_LENGTH },
+    {  48, 0xc0000003, NO_LENGTH },
+    {  49, 0xc0000004,       12  },
+    {  50, 0xc0000003, NO_LENGTH },
+    {  51, 0xc0000003, NO_LENGTH },
+    {  52, 0xc0000003, NO_LENGTH },
+    {  53, 0xc0000003, NO_LENGTH },
+    {  54, 0xc0000004, NO_LENGTH },
+    {  55, 0xc0000004, NO_LENGTH },
+    {  56, 0xc0000003, NO_LENGTH },
+    {  57, 0xc0000004, NO_LENGTH },
+    {  58, 0xc0000004, NO_LENGTH },
+    {  59, 0xc0000004, NO_LENGTH },
+    {  60, 0xc0000003, NO_LENGTH },
+    {  61, 0xc0000003, NO_LENGTH },
+    {  62, 0xc0000003, NO_LENGTH },
+    {  63, 0xc0000003, NO_LENGTH },
+    {  64, 0xc0000003, NO_LENGTH },
+    {  65, 0xc0000003, NO_LENGTH },
+    {  66, 0xc0000003, NO_LENGTH },
+    {  67, 0xc0000003, NO_LENGTH },
+    {  68, 0xc0000003, NO_LENGTH },
+    {  69, 0xc0000003, NO_LENGTH },
+    {  70, 0xc0000003, NO_LENGTH },
+    {  71, 0xc0000003, NO_LENGTH },
+    {  72, 0xc0000003, NO_LENGTH },
+    {  73, 0xc0000003, NO_LENGTH },
+    {  74, 0xc0000003, NO_LENGTH },
+    {  75, 0xc0000003, NO_LENGTH },
+    {  76, 0xc0000003, NO_LENGTH },
+    {  77, 0xc0000003, NO_LENGTH },
+    {  78, 0xc0000003, NO_LENGTH },
+    {  79, 0xc0000003, NO_LENGTH },
+};
+
+/* The same measurement for a set rather than a query. */
+static const struct known_class known_thread_set_classes[] =
+{
+    {   0, 0xc0000003, NO_LENGTH },
+    {   1, 0xc0000003, NO_LENGTH },
+    {   2, 0xc0000004, NO_LENGTH },
+    {   3, 0xc0000004, NO_LENGTH },
+    {   4, 0xc0000004, NO_LENGTH },
+    {   5, 0xc0000004, NO_LENGTH },
+    {   6, 0xc0000003, NO_LENGTH },
+    {   7, 0xc0000004, NO_LENGTH },
+    {   8, 0xc0000003, NO_LENGTH },
+    {   9, 0xc000000d, NO_LENGTH },
+    {  10, 0xc0000004, NO_LENGTH },
+    {  11, 0xc0000003, NO_LENGTH },
+    {  12, 0xc0000003, NO_LENGTH },
+    {  13, 0xc0000004, NO_LENGTH },
+    {  14, 0xc0000004, NO_LENGTH },
+    {  15, 0xc0000002, NO_LENGTH },
+    {  16, 0xc0000003, NO_LENGTH },
+    {  17, 0x00000000, NO_LENGTH },
+    {  18, 0xc0000004, NO_LENGTH },
+    {  19, 0x00000000, NO_LENGTH },
+    {  20, 0xc0000003, NO_LENGTH },
+    {  21, 0xc0000003, NO_LENGTH },
+    {  22, 0xc0000004, NO_LENGTH },
+    {  23, 0xc0000003, NO_LENGTH },
+    {  24, 0xc0000004, NO_LENGTH },
+    {  25, 0xc0000004, NO_LENGTH },
+    {  26, 0xc0000003, NO_LENGTH },
+    {  27, 0xc0000003, NO_LENGTH },
+    {  28, 0xc0000003, NO_LENGTH },
+    {  29, 0xc0000004, NO_LENGTH },
+    {  30, 0xc0000004, NO_LENGTH },
+    {  31, 0xc0000003, NO_LENGTH },
+    {  32, 0xc0000004, NO_LENGTH },
+    {  33, 0xc0000004, NO_LENGTH },
+    {  34, 0xc0000004, NO_LENGTH },
+    {  35, 0xc0000003, NO_LENGTH },
+    {  36, 0xc00000bb, NO_LENGTH },
+    {  37, 0xc0000003, NO_LENGTH },
+    {  38, 0xc0000004, NO_LENGTH },
+    {  39, 0x00000000, NO_LENGTH },
+    {  40, 0xc0000003, NO_LENGTH },
+    {  41, 0xc0000003, NO_LENGTH },
+    {  42, 0xc0000004, NO_LENGTH },
+    {  43, 0xc0000004, NO_LENGTH },
+    {  44, 0xc0000004, NO_LENGTH },
+    {  45, 0xc0000003, NO_LENGTH },
+    {  46, 0xc0000004, NO_LENGTH },
+    {  47, 0xc0000004, NO_LENGTH },
+    {  48, 0xc00000bb, NO_LENGTH },
+    {  49, 0xc0000004, NO_LENGTH },
+    {  50, 0xc0000022, NO_LENGTH },
+    {  51, 0xc0000003, NO_LENGTH },
+    {  52, 0xc0000003, NO_LENGTH },
+    {  53, 0xc0000004, NO_LENGTH },
+    {  54, 0xc0000003, NO_LENGTH },
+    {  55, 0xc0000003, NO_LENGTH },
+    {  56, 0xc0000004, NO_LENGTH },
+    {  57, 0xc0000004, NO_LENGTH },
+    {  58, 0xc0000003, NO_LENGTH },
+    {  59, 0xc0000003, NO_LENGTH },
+    {  60, 0xc0000003, NO_LENGTH },
+    {  61, 0xc0000003, NO_LENGTH },
+    {  62, 0xc0000003, NO_LENGTH },
+    {  63, 0xc0000003, NO_LENGTH },
+    {  64, 0xc0000003, NO_LENGTH },
+    {  65, 0xc0000003, NO_LENGTH },
+    {  66, 0xc0000003, NO_LENGTH },
+    {  67, 0xc0000003, NO_LENGTH },
+    {  68, 0xc0000003, NO_LENGTH },
+    {  69, 0xc0000003, NO_LENGTH },
+    {  70, 0xc0000003, NO_LENGTH },
+    {  71, 0xc0000003, NO_LENGTH },
+    {  72, 0xc0000003, NO_LENGTH },
+    {  73, 0xc0000003, NO_LENGTH },
+    {  74, 0xc0000003, NO_LENGTH },
+    {  75, 0xc0000003, NO_LENGTH },
+    {  76, 0xc0000003, NO_LENGTH },
+    {  77, 0xc0000003, NO_LENGTH },
+    {  78, 0xc0000003, NO_LENGTH },
+    {  79, 0xc0000003, NO_LENGTH },
+};
+
 /******************************************************************************
  *              NtQueryInformationThread  (NTDLL.@)
  */
@@ -2143,6 +2321,8 @@ NTSTATUS WINAPI NtQueryInformationThread( HANDLE handle, THREADINFOCLASS class,
     {
         THREAD_BASIC_INFORMATION info;
         const ULONG_PTR affinity_mask = get_system_affinity_mask();
+
+        if (length < sizeof(info)) return STATUS_INFO_LENGTH_MISMATCH;
 
         SERVER_START_REQ( get_thread_info )
         {
@@ -2168,37 +2348,22 @@ NTSTATUS WINAPI NtQueryInformationThread( HANDLE handle, THREADINFOCLASS class,
                 else
                     info.TebBaseAddress = NULL;
             }
-            if (data) memcpy( data, &info, min( length, sizeof(info) ));
-            if (ret_len) *ret_len = min( length, sizeof(info) );
+            if (data) memcpy( data, &info, sizeof(info) );
+            if (ret_len) *ret_len = sizeof(info);
         }
         return status;
     }
 
     case ThreadAffinityMask:
-    {
-        const ULONG_PTR affinity_mask = get_system_affinity_mask();
-        ULONG_PTR affinity = 0;
-
-        SERVER_START_REQ( get_thread_info )
-        {
-            req->handle = wine_server_obj_handle( handle );
-            req->access = THREAD_QUERY_INFORMATION;
-            if (!(status = wine_server_call( req ))) affinity = reply->affinity & affinity_mask;
-        }
-        SERVER_END_REQ;
-        if (status == STATUS_SUCCESS)
-        {
-            if (data) memcpy( data, &affinity, min( length, sizeof(affinity) ));
-            if (ret_len) *ret_len = min( length, sizeof(affinity) );
-        }
-        return status;
-    }
+        /* measured: Windows has no query for this class, only a set */
+        return STATUS_INVALID_INFO_CLASS;
 
     case ThreadTimes:
     {
         KERNEL_USER_TIMES kusrt;
         int unix_pid, unix_tid;
 
+        if (length < sizeof(kusrt)) return STATUS_INFO_LENGTH_MISMATCH;
         SERVER_START_REQ( get_thread_times )
         {
             req->handle = wine_server_obj_handle( handle );
@@ -2229,13 +2394,15 @@ NTSTATUS WINAPI NtQueryInformationThread( HANDLE handle, THREADINFOCLASS class,
                 kusrt.KernelTime.QuadPart = (ULONGLONG)time_buf.tms_stime * 10000000 / clocks_per_sec;
                 kusrt.UserTime.QuadPart = (ULONGLONG)time_buf.tms_utime * 10000000 / clocks_per_sec;
             }
-            if (data) memcpy( data, &kusrt, min( length, sizeof(kusrt) ));
-            if (ret_len) *ret_len = min( length, sizeof(kusrt) );
+            if (data) memcpy( data, &kusrt, sizeof(kusrt) );
+            if (ret_len) *ret_len = sizeof(kusrt);
         }
         return status;
     }
 
     case ThreadDescriptorTableEntry:
+        /* measured: no LDT for a 64-bit process, so nothing to describe */
+        if (is_win64 && !is_wow64()) return STATUS_NOT_IMPLEMENTED;
         status = get_thread_ldt_entry( handle, data, length );
         if (status == STATUS_SUCCESS && ret_len) *ret_len = sizeof(LDT_ENTRY);
         return status;
@@ -2260,6 +2427,7 @@ NTSTATUS WINAPI NtQueryInformationThread( HANDLE handle, THREADINFOCLASS class,
 
     case ThreadQuerySetWin32StartAddress:
     {
+        if (length < sizeof(PRTL_THREAD_START_ROUTINE)) return STATUS_INFO_LENGTH_MISMATCH;
         SERVER_START_REQ( get_thread_info )
         {
             req->handle = wine_server_obj_handle( handle );
@@ -2268,8 +2436,8 @@ NTSTATUS WINAPI NtQueryInformationThread( HANDLE handle, THREADINFOCLASS class,
             if (status == STATUS_SUCCESS)
             {
                 PRTL_THREAD_START_ROUTINE entry = wine_server_get_ptr( reply->entry_point );
-                if (data) memcpy( data, &entry, min( length, sizeof(entry) ) );
-                if (ret_len) *ret_len = min( length, sizeof(entry) );
+                if (data) memcpy( data, &entry, sizeof(entry) );
+                if (ret_len) *ret_len = sizeof(entry);
             }
         }
         SERVER_END_REQ;
@@ -2281,6 +2449,7 @@ NTSTATUS WINAPI NtQueryInformationThread( HANDLE handle, THREADINFOCLASS class,
         const ULONG_PTR affinity_mask = get_system_affinity_mask();
         GROUP_AFFINITY affinity;
 
+        if (length < sizeof(affinity)) return STATUS_INFO_LENGTH_MISMATCH;
         memset( &affinity, 0, sizeof(affinity) );
         affinity.Group = 0; /* Wine only supports max 64 processors */
 
@@ -2292,8 +2461,8 @@ NTSTATUS WINAPI NtQueryInformationThread( HANDLE handle, THREADINFOCLASS class,
         SERVER_END_REQ;
         if (status == STATUS_SUCCESS)
         {
-            if (data) memcpy( data, &affinity, min( length, sizeof(affinity) ));
-            if (ret_len) *ret_len = min( length, sizeof(affinity) );
+            if (data) memcpy( data, &affinity, sizeof(affinity) );
+            if (ret_len) *ret_len = sizeof(affinity);
         }
         return status;
     }
@@ -2355,7 +2524,7 @@ NTSTATUS WINAPI NtQueryInformationThread( HANDLE handle, THREADINFOCLASS class,
         }
         SERVER_END_REQ;
 
-        if (!info) status = STATUS_BUFFER_TOO_SMALL;
+        if (!info || length < sizeof(*info)) status = STATUS_BUFFER_TOO_SMALL;
         else if (status == STATUS_SUCCESS)
         {
             info->ThreadName.Length = info->ThreadName.MaximumLength = desc_len;
@@ -2431,8 +2600,23 @@ NTSTATUS WINAPI NtQueryInformationThread( HANDLE handle, THREADINFOCLASS class,
     case ThreadPerformanceCount:
     case ThreadSetTlsArrayAddress:
     default:
+    {
+        unsigned int known_status, known_len;
+
+        if (lookup_known_class( known_thread_classes, ARRAY_SIZE(known_thread_classes),
+                                class, &known_status, &known_len ))
+        {
+            if (known_len == NO_LENGTH) return known_status;
+            /* Reporting the size a caller needs and then never accepting
+             * that size leaves it asking forever, so only answer the probe. */
+            if (known_status == STATUS_INFO_LENGTH_MISMATCH && length >= known_len)
+                return STATUS_INVALID_PARAMETER;
+            if (ret_len) *ret_len = known_len;
+            return known_status;
+        }
         FIXME( "info class %d not supported yet\n", class );
         return STATUS_NOT_IMPLEMENTED;
+    }
     }
 }
 
@@ -2452,7 +2636,7 @@ NTSTATUS WINAPI NtSetInformationThread( HANDLE handle, THREADINFOCLASS class,
     case ThreadZeroTlsCell:
         if (handle == GetCurrentThread())
         {
-            if (length != sizeof(DWORD)) return STATUS_INVALID_PARAMETER;
+            if (length != sizeof(DWORD)) return STATUS_INFO_LENGTH_MISMATCH;
             return virtual_clear_tls_index( *(const ULONG *)data );
         }
         FIXME( "ZeroTlsCell not supported on other threads\n" );
@@ -2462,7 +2646,7 @@ NTSTATUS WINAPI NtSetInformationThread( HANDLE handle, THREADINFOCLASS class,
     {
         const HANDLE *token = data;
 
-        if (length != sizeof(HANDLE)) return STATUS_INVALID_PARAMETER;
+        if (length != sizeof(HANDLE)) return STATUS_INFO_LENGTH_MISMATCH;
         TRACE("Setting ThreadImpersonationToken handle to %p\n", *token );
         SERVER_START_REQ( set_thread_info )
         {
@@ -2478,7 +2662,7 @@ NTSTATUS WINAPI NtSetInformationThread( HANDLE handle, THREADINFOCLASS class,
     case ThreadPriority:
     {
         const DWORD *priority = data;
-        if (length != sizeof(DWORD)) return STATUS_INVALID_PARAMETER;
+        if (length != sizeof(DWORD)) return STATUS_INFO_LENGTH_MISMATCH;
         SERVER_START_REQ( set_thread_info )
         {
             req->handle    = wine_server_obj_handle( handle );
@@ -2493,7 +2677,7 @@ NTSTATUS WINAPI NtSetInformationThread( HANDLE handle, THREADINFOCLASS class,
     case ThreadBasePriority:
     {
         const DWORD *base_priority = data;
-        if (length != sizeof(DWORD)) return STATUS_INVALID_PARAMETER;
+        if (length != sizeof(DWORD)) return STATUS_INFO_LENGTH_MISMATCH;
         SERVER_START_REQ( set_thread_info )
         {
             req->handle         = wine_server_obj_handle( handle );
@@ -2510,7 +2694,7 @@ NTSTATUS WINAPI NtSetInformationThread( HANDLE handle, THREADINFOCLASS class,
         const ULONG_PTR affinity_mask = get_system_affinity_mask();
         ULONG_PTR req_aff;
 
-        if (length != sizeof(ULONG_PTR)) return STATUS_INVALID_PARAMETER;
+        if (length != sizeof(ULONG_PTR)) return STATUS_INFO_LENGTH_MISMATCH;
         req_aff = *(const ULONG_PTR *)data & affinity_mask;
         if (!req_aff) return STATUS_INVALID_PARAMETER;
 
@@ -2556,7 +2740,7 @@ NTSTATUS WINAPI NtSetInformationThread( HANDLE handle, THREADINFOCLASS class,
         const ULONG_PTR affinity_mask = get_system_affinity_mask();
         const GROUP_AFFINITY *req_aff;
 
-        if (length != sizeof(*req_aff)) return STATUS_INVALID_PARAMETER;
+        if (length != sizeof(*req_aff)) return STATUS_INFO_LENGTH_MISMATCH;
         if (!data) return STATUS_ACCESS_VIOLATION;
         req_aff = data;
 
@@ -2654,7 +2838,7 @@ NTSTATUS WINAPI NtSetInformationThread( HANDLE handle, THREADINFOCLASS class,
     case ThreadPriorityBoost:
     {
         const DWORD *disable_boost = data;
-        if (length != sizeof(DWORD)) return STATUS_INVALID_PARAMETER;
+        if (length != sizeof(DWORD)) return STATUS_INFO_LENGTH_MISMATCH;
         SERVER_START_REQ( set_thread_info )
         {
             req->handle         = wine_server_obj_handle( handle );
@@ -2691,8 +2875,15 @@ NTSTATUS WINAPI NtSetInformationThread( HANDLE handle, THREADINFOCLASS class,
     case ThreadSetTlsArrayAddress:
     case ThreadIsIoPending:
     default:
+    {
+        unsigned int known_status, known_len;
+
+        if (lookup_known_class( known_thread_set_classes, ARRAY_SIZE(known_thread_set_classes),
+                                class, &known_status, &known_len ))
+            return known_status;
         FIXME( "info class %d not supported yet\n", class );
         return STATUS_NOT_IMPLEMENTED;
+    }
     }
 }
 
