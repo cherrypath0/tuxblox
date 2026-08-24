@@ -4800,6 +4800,15 @@ void virtual_init_user_shared_data(void)
     data->TickCountMultiplier   = 1 << 24;
     data->LargePageMinimum      = 2 * 1024 * 1024;
     data->SystemCall            = 1;
+    /* the version here has to agree with the PEB and RtlGetVersion: this page is
+     * readable at a fixed address by anything, so leaving it zeroed both reports
+     * a system that does not exist and contradicts every other version we give. */
+    data->NtMajorVersion        = 10;
+    data->NtMinorVersion        = 0;
+    data->NtBuildNumber         = 19045;
+    data->NtProductType         = NtProductWinNt;
+    data->ProductTypeIsValid    = TRUE;
+    data->SuiteMask             = VER_SUITE_SINGLEUSERTS;
     data->NumberOfPhysicalPages = info.MmNumberOfPhysicalPages;
     data->NXSupportPolicy       = NX_SUPPORT_POLICY_OPTIN;
     data->ActiveProcessorCount  = peb->NumberOfProcessors;
