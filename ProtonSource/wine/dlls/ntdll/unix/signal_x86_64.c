@@ -534,6 +534,8 @@ struct amd64_thread_data
     void                **instrumentation_callback; /* 0330 */
     DWORD                 fs;            /* 0338 WOW TEB selector */
     DWORD                 mxcsr;         /* 033c Unix-side mxcsr register */
+    BOOL                  alignment_fixup; /* 0340 thread asked for alignment fault fixup */
+    void                 *alignment_scratch; /* 0348 buffer and stub used to fix one up */
 };
 
 C_ASSERT( sizeof(struct amd64_thread_data) <= sizeof(((struct ntdll_thread_data *)0)->cpu_data) );
@@ -1978,6 +1980,198 @@ NTSTATUS WINAPI NtCallbackReturn( void *ret_ptr, ULONG ret_len, NTSTATUS status 
 }
 
 
+/* One misaligned SSE access is fixed up by copying its memory operand into an
+ * aligned buffer and re-running the very same instruction against that buffer,
+ * so the processor still decides what the instruction means. */
+struct alignment_scratch
+{
+    M128A operand;      /* 16-byte aligned copy of the memory operand */
+    BYTE  code[64];     /* the rewritten instruction, then a jump back */
+};
+
+
+/***********************************************************************
+ *           set_alignment_fault_fixup
+ *
+ * Windows fixes up a thread's misaligned SSE accesses once it asks for it, so
+ * the fault never reaches the program. Measured on Windows 10 22H2: turning it
+ * back off does not restore the fault, so once on it stays on.
+ */
+void set_alignment_fault_fixup( BOOLEAN enable )
+{
+    void *scratch;
+
+    if (!enable || amd64_thread_data()->alignment_fixup) return;
+
+    /* allocated here rather than in the handler, where allocating is not safe */
+    scratch = mmap( NULL, page_size, PROT_READ | PROT_WRITE | PROT_EXEC,
+                    MAP_PRIVATE | MAP_ANON, -1, 0 );
+    if (scratch == MAP_FAILED) return;
+
+    amd64_thread_data()->alignment_scratch = scratch;
+    amd64_thread_data()->alignment_fixup = TRUE;
+}
+
+
+/* value of an integer register, by its number in the instruction encoding */
+static ULONG64 get_int_reg( const CONTEXT *context, unsigned int idx )
+{
+    static const unsigned int offsets[16] =
+    {
+        offsetof(CONTEXT,Rax), offsetof(CONTEXT,Rcx), offsetof(CONTEXT,Rdx), offsetof(CONTEXT,Rbx),
+        offsetof(CONTEXT,Rsp), offsetof(CONTEXT,Rbp), offsetof(CONTEXT,Rsi), offsetof(CONTEXT,Rdi),
+        offsetof(CONTEXT,R8),  offsetof(CONTEXT,R9),  offsetof(CONTEXT,R10), offsetof(CONTEXT,R11),
+        offsetof(CONTEXT,R12), offsetof(CONTEXT,R13), offsetof(CONTEXT,R14), offsetof(CONTEXT,R15)
+    };
+    return *(const ULONG64 *)((const BYTE *)context + offsets[idx]);
+}
+
+
+/* the six SSE instructions that write a 128-bit memory operand */
+static BOOL writes_memory( BYTE opcode, BOOL opsize )
+{
+    switch (opcode)
+    {
+    case 0x29:  /* movaps/movapd m128,xmm */
+    case 0x2b:  /* movntps/movntpd m128,xmm */
+        return TRUE;
+    case 0x7f:  /* movdqa m128,xmm */
+    case 0xe7:  /* movntdq m128,xmm */
+        return opsize;
+    }
+    return FALSE;
+}
+
+
+/***********************************************************************
+ *           emulate_misaligned_sse
+ *
+ * Carry out a 128-bit SSE access that faulted only because its address was not
+ * 16-byte aligned. Returns FALSE for anything else, so a general protection
+ * fault with a different cause is still reported to the program.
+ */
+static BOOL emulate_misaligned_sse( CONTEXT *context )
+{
+    struct alignment_scratch *scratch = amd64_thread_data()->alignment_scratch;
+    BYTE instr[24], opcode;
+    unsigned int i = 0, op, modrm_pos, imm_len = 0, len;
+    BOOL opsize = FALSE;
+    BYTE rex = 0, modrm, mod, rm;
+    unsigned int reg;
+    LONG64 offset = 0;
+    ULONG64 addr;
+    BYTE *out;
+
+    if (!scratch) return FALSE;
+    len = virtual_uninterrupted_read_memory( (BYTE *)context->Rip, instr, sizeof(instr) );
+
+    while (i < len)  /* prefixes */
+    {
+        if (instr[i] == 0x66) opsize = TRUE;
+        else if (instr[i] == 0xf2 || instr[i] == 0xf3) return FALSE;  /* unaligned forms never fault */
+        else if ((instr[i] & 0xf0) == 0x40) rex = instr[i];
+        else if (instr[i] != 0x67 && instr[i] != 0xf0 && instr[i] != 0x2e && instr[i] != 0x36 &&
+                 instr[i] != 0x3e && instr[i] != 0x26 && instr[i] != 0x64 && instr[i] != 0x65) break;
+        i++;
+    }
+    if (i >= len || instr[i] != 0x0f) return FALSE;  /* only the SSE opcode space */
+    op = ++i;
+    if (op >= len) return FALSE;
+    opcode = instr[op];
+    if (opcode == 0x38) { if (++i >= len) return FALSE; }              /* three-byte opcode */
+    else if (opcode == 0x3a) { if (++i >= len) return FALSE; imm_len = 1; }
+    else switch (opcode)
+    {
+    case 0x70: case 0xc2: case 0xc4: case 0xc5: case 0xc6: imm_len = 1; break;
+    }
+    modrm_pos = ++i;
+    if (modrm_pos >= len) return FALSE;
+    modrm = instr[modrm_pos];
+    i++;
+
+    mod = modrm >> 6;
+    rm  = modrm & 7;
+    reg = (modrm >> 3) & 7;
+    if (mod == 3) return FALSE;  /* register operand, nothing to misalign */
+
+    if (rm == 4)  /* SIB */
+    {
+        BYTE sib, index, base;
+
+        if (i >= len) return FALSE;
+        sib = instr[i++];
+        index = ((sib >> 3) & 7) | ((rex & 2) ? 8 : 0);
+        base  = (sib & 7) | ((rex & 1) ? 8 : 0);
+        addr = (index == 4) ? 0 : get_int_reg( context, index ) << (sib >> 6);
+        if ((sib & 7) == 5 && !mod)
+        {
+            if (i + 4 > len) return FALSE;
+            offset = *(const int *)(instr + i);
+            i += 4;
+        }
+        else addr += get_int_reg( context, base );
+    }
+    else if (rm == 5 && !mod)  /* rip-relative, resolved once the length is known */
+    {
+        if (i + 4 > len) return FALSE;
+        offset = *(const int *)(instr + i);
+        i += 4;
+        addr = context->Rip + i + imm_len;
+    }
+    else addr = get_int_reg( context, rm | ((rex & 1) ? 8 : 0) );
+
+    if (mod == 1)
+    {
+        if (i >= len) return FALSE;
+        offset = (signed char)instr[i++];
+    }
+    else if (mod == 2)
+    {
+        if (i + 4 > len) return FALSE;
+        offset = *(const int *)(instr + i);
+        i += 4;
+    }
+    addr += offset;
+    if (i + imm_len > len) return FALSE;
+    len = i + imm_len;
+
+    if (!(addr & 15)) return FALSE;  /* aligned, so the fault had another cause */
+
+    if (writes_memory( opcode, opsize ))
+    {
+        /* the register is the whole source, so the store can just be performed */
+        M128A *xmm = &context->FltSave.XmmRegisters[reg | ((rex & 4) ? 8 : 0)];
+
+        if (virtual_uninterrupted_write_memory( (void *)addr, xmm, sizeof(*xmm) )) return FALSE;
+        context->Rip += len;
+        return TRUE;
+    }
+
+    /* memory is only read, so re-run the instruction against an aligned copy */
+    if (virtual_uninterrupted_read_memory( (void *)addr, &scratch->operand,
+                                           sizeof(scratch->operand) ) != sizeof(scratch->operand))
+        return FALSE;
+
+    out = scratch->code;
+    memcpy( out, instr, modrm_pos );                  /* prefixes and opcode */
+    out += modrm_pos;
+    *out++ = (modrm & 0x38) | 0x05;                   /* same register, rip-relative operand */
+    memcpy( out + 4, instr + len - imm_len, imm_len );
+    /* a rip-relative displacement counts from the end of the instruction */
+    *(int *)out = (int)((BYTE *)&scratch->operand - (out + 4 + imm_len));
+    out += 4 + imm_len;
+
+    *out++ = 0xff;                                    /* jmpq *(%rip) */
+    *out++ = 0x25;
+    *(int *)out = 0;
+    out += 4;
+    *(ULONG64 *)out = context->Rip + len;
+
+    context->Rip = (ULONG64)scratch->code;
+    return TRUE;
+}
+
+
 /***********************************************************************
  *           is_privileged_instr
  *
@@ -2733,6 +2927,11 @@ static void segv_handler( int signal, siginfo_t *siginfo, void *sigcontext )
     case TRAP_x86_PROTFLT:   /* General protection fault */
         {
             WORD err = ERROR_sig(ucontext);
+            if (amd64_thread_data()->alignment_fixup && emulate_misaligned_sse( &context.c ))
+            {
+                restore_context( &context, ucontext );
+                return;
+            }
             if (!err && (rec.ExceptionCode = is_privileged_instr( &context.c ))) break;
             if ((err & 7) == 2 && handle_interrupt( ucontext, &rec, &context )) return;
             rec.ExceptionCode = EXCEPTION_ACCESS_VIOLATION;

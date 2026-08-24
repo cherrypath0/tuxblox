@@ -2628,7 +2628,11 @@ NTSTATUS WINAPI NtSetInformationThread( HANDLE handle, THREADINFOCLASS class,
         if (!data) return STATUS_ACCESS_VIOLATION;
         tuxblox_trace_record( "ThreadEnableAlignmentFaultFixup",
                               *(const BOOLEAN *)data ? "value=1" : "value=0" );
+#ifdef __x86_64__
+        set_alignment_fault_fixup( *(const BOOLEAN *)data );
+#else
         FIXME( "ThreadEnableAlignmentFaultFixup stub! value=%u\n", (unsigned)*(const BOOLEAN *)data );
+#endif
         return STATUS_SUCCESS;
 
     case ThreadPowerThrottlingState:
