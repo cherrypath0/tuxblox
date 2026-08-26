@@ -9,7 +9,7 @@ body:
 
         TuxBlox developers do not maintain or triage bug reports for forks or modified
         builds of TuxBlox. This includes builds with custom patches, third-party
-        packaging, or changes to `ProtonSource/`.
+        packaging, or changes to the compatibility layer.
 
         If you believe this is actually a bug in the **unmodified, official** TuxBlox
         build, please close this and open a report using the standard "Bug Report"
