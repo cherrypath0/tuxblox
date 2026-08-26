@@ -156,7 +156,7 @@ apply_patches() {
     echo ":: Reloading submodules to their recorded commit"
     git submodule update --init --force
 
-    local patches_dir="patches"
+    local patches_dir="ProtonSource/patches"
     local proton_source="ProtonSource/submodules"
 
     if [[ ! -d "$patches_dir" ]]; then
@@ -171,7 +171,7 @@ apply_patches() {
         submodule_name="$(basename "$submodule_dir")"
 
         if [[ "$submodule_name" == "wine" ]]; then
-            echo "!! patches/wine is not supported -- wine is patched directly in ProtonSource/wine, not through patches/" >&2
+            echo "!! patches/wine is not supported, wine is patched directly in ProtonSource/wine, not through patches/" >&2
             continue
         fi
 
