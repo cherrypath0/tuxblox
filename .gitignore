@@ -12,6 +12,8 @@ launcher/third_party/
 
 push.sh
 package.sh
+install-handler.sh
+launch.sh
 
 __pycache__/
 
