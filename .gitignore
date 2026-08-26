@@ -35,7 +35,6 @@ libtuxblox-*.tar.zst
 
 .claude/
 .superpowers/
-docs/
 workspace/
 CLAUDE.md
 
