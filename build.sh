@@ -15,17 +15,11 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-# Builds everything, in order: installer, launcher, proton. All output lands
-# in build/:
-#   build/.artifacts/{installer,launcher,proton}  build scratch per component
-#   build/proton/                                 the usable Proton dist
-#   build/TuxBloxInstaller, build/TuxBloxLauncher self-contained binaries
-# plus everything from include/ copied in on top.
+# Builds everything, in order: installer, launcher, proton. All output lands in build/
 
 set -eo pipefail
 cd "$(dirname "$0")"
 
-# Exported so single-quoted bash -c step bodies can reference them safely.
 export ROOT="$(pwd)"
 export BUILD_LOG="$ROOT/build.log"
 
@@ -40,9 +34,6 @@ for arg in "$@"; do
     esac
 done
 
-# ProtonSource/VERSION holds the defaults: version on line 1, channel on line 2.
-# Both are baked into the compiled proton launcher; query the version with
-# `build/proton/main --version`.
 version_file="$ROOT/ProtonSource/VERSION"
 if [[ -z "$TUXBLOX_BUILD_VERSION" && -r "$version_file" ]]; then
     TUXBLOX_BUILD_VERSION="$(sed -n '1p' "$version_file" | tr -d '[:space:]')"
@@ -51,7 +42,6 @@ if [[ -z "$TUXBLOX_CHANNEL" && -r "$version_file" ]]; then
     TUXBLOX_CHANNEL="$(sed -n '2p' "$version_file" | tr -d '[:space:]')"
 fi
 
-# Asked up front so the hours-long build never stalls on a prompt at the end.
 if [[ -z "$TUXBLOX_BUILD_VERSION" ]]; then
     read -rp "Enter version for this build: " TUXBLOX_BUILD_VERSION
     while [[ -z "$TUXBLOX_BUILD_VERSION" ]]; do
@@ -154,8 +144,6 @@ report_failure_cause() {
     echo "!! Full log at build.log if you need more context." >&2
 }
 
-# Runs a command; with --log, all output is also mirrored into build.log so
-# report_failure_cause can inspect any failed step, not just proton's.
 logged() {
     if [[ $log_enabled -eq 1 ]]; then
         "$@" 2>&1 | tee -a "$BUILD_LOG"
@@ -164,13 +152,6 @@ logged() {
     fi
 }
 
-# Resets every ProtonSource submodule to the commit recorded in the index
-# (discarding any leftover local edits, e.g. a patch applied by a previous
-# build), then overlays patches/<submodule>/<relpath> onto
-# ProtonSource/submodules/<submodule>/<relpath> for whichever submodules have
-# patches staged. Wine is excluded on purpose: it's a separately maintained
-# fork checked in directly rather than a submodule (see .gitmodules), so it's
-# patched by editing ProtonSource/wine in place, not through this mechanism.
 apply_patches() {
     echo ":: Reloading submodules to their recorded commit"
     git submodule update --init --force
@@ -217,17 +198,14 @@ apply_patches() {
 step "Cleaning up previous build logs"
 rm -f "$BUILD_LOG"
 
-step "Cleaning up old build output (incl. Wine prefix)"
+step "Cleaning up old build output"
 rm -rf build
 mkdir -p build/.artifacts build/runtime
 
 step "Updating dependencies"
 
 declare -A override_apt=()
-# uidmap provides newuidmap/newgidmap (needed for podman's --userns=keep-id); on
-# dnf/pacman hosts those ship as part of shadow-utils/shadow, which are normally
-# already installed by default, so map to those instead of a nonexistent "uidmap"
-# package name.
+
 declare -A override_dnf=(
     [uidmap]="shadow-utils"
 )
@@ -236,10 +214,6 @@ declare -A override_pacman=(
 )
 declare -A override_brew=(
     [python3]="python@3"
-    # macOS podman runs rootless containers inside a Linux VM ("podman machine"),
-    # which already has newuidmap/newgidmap set up internally -- there's no separate
-    # host formula for this. Alias to the already-required "podman" formula so the
-    # check is a harmless no-op instead of failing on a formula that doesn't exist.
     [uidmap]="podman"
 )
 declare -A override_apk=()
@@ -324,16 +298,11 @@ run_step "check_podman" strict bash -c 'podman info >/dev/null && podman build -
 step "Reloading submodules and applying patches"
 run_step "apply_patches" strict apply_patches
 
-# TUXBLOX_SKIP_DEPS: dependencies were already installed above, once for all
-# three builds -- skip each sub-build's own package-manager round trip.
 step "Building TuxBlox Installer (podman, old-glibc baseline)"
 run_step "build_installer" strict logged env TUXBLOX_SKIP_DEPS=1 ./installer/build.sh
 
 step "Staging installer output into build/"
-# installer/build.sh now also stages its own copy of TuxBloxInstaller
-# directly to build/ (so it's independently runnable and still produces a
-# runnable artifact there) -- rm -f first so this mv can't fail trying to
-# rename onto an existing destination file.
+
 rm -f build/TuxBloxInstaller
 mv installer/build build/.artifacts/installer
 mv build/.artifacts/installer/TuxBloxInstaller build/TuxBloxInstaller
@@ -342,22 +311,12 @@ step "Building TuxBlox Launcher (podman, old-glibc baseline)"
 run_step "build_launcher" strict logged env TUXBLOX_SKIP_DEPS=1 ./launcher/build.sh
 
 step "Staging launcher output into build/"
-# launcher/build.sh now also stages its own copies of TuxBloxLauncher and
-# libtuxblox/ directly to build/ (so it's independently runnable and still
-# produces a runnable artifact there) -- clear both first so these mv's can't
-# fail/misbehave trying to land on an existing destination (a directory `mv`
-# onto an existing directory nests inside it instead of replacing it).
+
 rm -f build/TuxBloxLauncher
 rm -rf build/libtuxblox
 mv launcher/build build/.artifacts/launcher
 mv build/.artifacts/launcher/TuxBloxLauncher build/TuxBloxLauncher
-# libtuxblox/ (lib/, plugins/ and qt.conf) is the Qt6 bundle
-# launcher/bundle-qt.sh produced beside the binary. The binary's RPATH is
-# $ORIGIN/libtuxblox/lib, so the two have to stay siblings -- leaving the bundle
-# behind in build/.artifacts/launcher/ would leave build/TuxBloxLauncher unable
-# to start on any host without a system Qt6. They ship as two separate release
-# artifacts ("launcher", a flat file, and "libtuxblox", a tarball), which is why
-# the bundle is nested rather than spread across build/ as siblings.
+
 mv build/.artifacts/launcher/libtuxblox build/libtuxblox
 
 PROTON_BUILD_DIR="$ROOT/build/.artifacts/proton"
@@ -385,10 +344,7 @@ run_step "build_x86_64_nls" strict bash -c 'cd obj-wine-x86_64 && make nls/local
 step "Resuming build (4/4) (using $JOBS parallel jobs)"
 run_step "resume_build" strict logged make -j"$JOBS"
 
-# Built in the old-glibc container so the binary runs on distros older than
-# this host. Version and channel are baked in; `main --version` reports the
-# version alone, which the launcher compares against the release manifest.
-step "Compiling proton launcher to a native binary (podman, old-glibc baseline)"
+step "Compiling proton launcher"
 run_step "compile_proton_native" strict bash -c '
     set -e
     podman build -t tuxblox-old-glibc-builder -f "$ROOT/Containerfile" "$ROOT"
@@ -423,10 +379,7 @@ cd "$ROOT"
 step "Staging Proton"
 mv "$PROTON_BUILD_DIR/dist" build/proton
 
-# Staged here rather than by ProtonSource/Makefile.in: the proton build runs
-# inside the steamrt container, which mounts only ProtonSource/ and the build
-# directory, so the repo root these live at is not reachable from in there.
-step "Copying licenses into the Proton dist"
+step "Copying licenses into Proton"
 cp -a LICENSE build/proton/LICENSE
 rm -rf build/proton/third_party_licenses
 cp -a third_party_licenses build/proton/third_party_licenses
