@@ -1,12 +1,7 @@
 RobloxPlayer/
 RobloxStudio/
-runtime/
 logs/
-otherapps/
 build/
-build-test/
-build-*/
-ProtonBuild/
 
 launcher/build/
 launcher/build-test/
