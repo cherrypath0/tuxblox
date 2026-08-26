@@ -12,6 +12,8 @@ body:
         fork's maintainers. We can only support bugs reproducible on unmodified, official
         TuxBlox builds.
 
+        **NOTE:** Roblox Player not launching is NOT a bug, it is a current limitation, and we will close bug reports that have anything related to Roblox Player.
+
   - type: checkboxes
     id: prerequisites
     attributes:
@@ -28,7 +30,7 @@ body:
     id: tuxbloxVersion
     attributes:
       label: TuxBlox version
-      description: Output of `tuxblox --version` (or the release/commit you built from)
+      description: Output of `~/.tuxblox/proton/main --version` (or the release/commit you built from)
       placeholder: e.g. v0.4.2 or commit abc1234
     validations:
       required: true
