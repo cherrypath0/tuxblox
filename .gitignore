@@ -1,4 +1,5 @@
 build/
+packaging/
 
 launcher/build/
 launcher/build-test/
