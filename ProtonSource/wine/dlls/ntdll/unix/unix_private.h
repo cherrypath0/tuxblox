@@ -25,6 +25,7 @@
 #include <signal.h>
 #include "unixlib.h"
 #include "wine/unixlib.h"
+#include "wine/ntdllordinals.h"
 #include "wine/server.h"
 #include "wine/list.h"
 #include "wine/debug.h"
@@ -199,15 +200,21 @@ extern WCHAR **main_wargv;
 /* TuxBlox fingerprint tracer (diagnostic; see
  * docs/superpowers/specs/2026-08-01-player-187-fingerprint-tracer-design.md) */
 extern ULONG64 get_syscall_caller_pc(void);
+extern ULONG64 get_syscall_caller_sp(void);
 extern void get_random( void *buf, ULONG len );
 extern NTSTATUS reject_foreign_object( HANDLE handle );
 
 extern BOOL tuxblox_trace_enabled(void);
 extern void tuxblox_trace_record( const char *surface, const char *detail );
 extern void tuxblox_trace_record_us( const char *surface, const UNICODE_STRING *detail );
+extern void tuxblox_trace_code( const char *tag, ULONG_PTR addr, unsigned int len );
+extern BOOL tuxblox_trace_resume_dumps(void);
 extern void tuxblox_trace_exit( LONG exit_code, const char *how );
 extern void tuxblox_report_real_exit_code( LONG exit_code );
 extern void tuxblox_trace_tally( unsigned int syscall_id );
+extern void tuxblox_trace_sysret( unsigned int id, ULONG_PTR retval );
+extern void tuxblox_trace_instrumentation( void *old, void *callback );
+extern void tuxblox_trace_syscall_args( unsigned int id, const ULONG_PTR *args, ULONG len );
 extern void tuxblox_trace_tally_dump(void);
 extern const char *ntdll_syscall_name( UINT id );
 extern const WCHAR system_dir[];
@@ -345,30 +352,51 @@ extern BOOL virtual_check_buffer_for_write( void *ptr, SIZE_T size );
  * fails as from what one returns, and answering "no such class" to all of them
  * describes a system that does not exist. These are failures only: a class
  * Windows answers successfully is left to a real implementation rather than
- * being made up. Captured from Windows 10 22H2 with workspace/tests/sysprobe.
- * NO_LENGTH means Windows leaves the caller's returned-length alone. */
+ * being made up. Captured from Windows 10 22H2 with workspace/tests/sysprobe,
+ * and extended with the payloads measured on Windows 11 25H2 with
+ * workspace/tests/infoprobe.
+ * NO_LENGTH means Windows leaves the caller's returned-length alone.
+ *
+ * An entry with a payload answers the query as well as the probe. Only classes
+ * whose answer says nothing about the particular machine carry one: Windows
+ * writing zeros, writing a fixed constant, or reporting success and writing
+ * nothing at all. A class whose answer describes this machine -- its memory,
+ * its disks, its monitor, a boot identifier -- is left refusing rather than
+ * given somebody else's data. data_len may be smaller than len, because
+ * Windows does not always fill the buffer it asked for. */
 #define NO_LENGTH 0xffffffff
 
 struct known_class
 {
-    unsigned short class;
-    unsigned int   status;
-    unsigned int   len;
+    unsigned short       class;
+    unsigned int         status;
+    unsigned int         len;
+    const unsigned char *data;
+    unsigned int         data_len;
+    /* the status a query with a big enough buffer returns, for a class that
+     * reports the size it wants and then refuses anyway */
+    unsigned int         full_status;
 };
 
-static inline BOOL lookup_known_class( const struct known_class *table, unsigned int count,
-                                unsigned int class, unsigned int *status, unsigned int *len )
+static inline const struct known_class *find_known_class( const struct known_class *table,
+                                                          unsigned int count, unsigned int class )
 {
     unsigned int i;
 
     for (i = 0; i < count; i++)
-    {
-        if (table[i].class != class) continue;
-        *status = table[i].status;
-        *len = table[i].len;
-        return TRUE;
-    }
-    return FALSE;
+        if (table[i].class == class) return &table[i];
+    return NULL;
+}
+
+static inline BOOL lookup_known_class( const struct known_class *table, unsigned int count,
+                                unsigned int class, unsigned int *status, unsigned int *len )
+{
+    const struct known_class *entry = find_known_class( table, count, class );
+
+    if (!entry) return FALSE;
+    *status = entry->status;
+    *len = entry->len;
+    return TRUE;
 }
 
 extern void set_alignment_fault_fixup( BOOLEAN enable );
@@ -386,7 +414,7 @@ extern NTSTATUS get_thread_ldt_entry( HANDLE handle, THREAD_DESCRIPTOR_INFORMATI
 extern void *get_native_context( CONTEXT *context );
 extern void *get_wow_context( CONTEXT *context );
 extern BOOL get_thread_times( int unix_pid, int unix_tid, LARGE_INTEGER *kernel_time,
-                              LARGE_INTEGER *user_time );
+                              LARGE_INTEGER *user_time, ULONG *state );
 extern void signal_init_threading(void);
 extern NTSTATUS signal_alloc_thread( TEB *teb );
 extern void set_thread_teb( TEB *teb );

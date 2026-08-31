@@ -1565,6 +1565,37 @@ DECL_HANDLER(get_process_info)
     }
 }
 
+/* retrieve the number of handles a process has open */
+DECL_HANDLER(get_process_handle_count)
+{
+    struct process *process;
+
+    if ((process = get_process_from_handle( req->handle, PROCESS_QUERY_LIMITED_INFORMATION )))
+    {
+        reply->count = get_handle_count( process );
+        release_object( process );
+    }
+}
+
+/* retrieve the handle values a process has open */
+DECL_HANDLER(get_process_handle_table)
+{
+    struct process *process;
+
+    if ((process = get_process_from_handle( req->handle, PROCESS_QUERY_LIMITED_INFORMATION )))
+    {
+        unsigned int max = get_reply_max_size() / sizeof(unsigned int);
+        unsigned int *handles = max ? mem_alloc( max * sizeof(*handles) ) : NULL;
+
+        if (!max || handles)
+        {
+            reply->count = list_handles( process, handles, max );
+            if (handles) set_reply_data_ptr( handles, min( reply->count, max ) * sizeof(*handles) );
+        }
+        release_object( process );
+    }
+}
+
 /* retrieve debug information about a process */
 DECL_HANDLER(get_process_debug_info)
 {
@@ -2106,7 +2137,7 @@ DECL_HANDLER(list_processes)
         process_info->pid = process->id;
         process_info->parent_pid = process->parent_id;
         process_info->session_id = process->session_id;
-        process_info->handle_count = get_handle_table_count(process);
+        process_info->handle_count = get_handle_count(process);
         process_info->unix_pid = process->unix_pid;
         pos += sizeof(*process_info);
         memcpy( buffer + pos, process->image, process->imagelen );
@@ -2118,7 +2149,11 @@ DECL_HANDLER(list_processes)
 
             thread_info->start_time = thread->creation_time;
             thread_info->tid = thread->id;
-            thread_info->base_priority = thread->base_priority;
+            /* the absolute base priority, which is what Windows reports here --
+             * thread->base_priority is the offset from the process's class, and
+             * THREAD_PRIORITY_NORMAL is 0, so reporting it gave every ordinary
+             * thread a base priority of zero. Nothing on Windows has one. */
+            thread_info->base_priority = thread->priority;
             thread_info->current_priority = get_effective_thread_priority( thread );
             thread_info->unix_tid = thread->unix_tid;
             thread_info->entry_point = thread->entry_point;

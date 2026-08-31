@@ -517,6 +517,12 @@ ULONG64 get_syscall_caller_pc(void)
     return frame ? frame->rip : 0;
 }
 
+ULONG64 get_syscall_caller_sp(void)
+{
+    struct syscall_frame *frame = get_syscall_frame();
+    return frame ? frame->rsp : 0;
+}
+
 C_ASSERT( offsetof( struct syscall_frame, xsave ) == 0xc0 );
 C_ASSERT( offsetof( struct syscall_frame, xstate ) == 0x2c0 );
 C_ASSERT( sizeof( struct syscall_frame ) == 0x300);
@@ -577,6 +583,7 @@ void set_process_instrumentation_callback( void *callback )
     if (!old && callback)      InterlockedExchangePointer( ptr, __wine_syscall_dispatcher_instrumentation );
     else if (old && !callback) InterlockedExchangePointer( ptr, __wine_syscall_dispatcher );
     server_leave_uninterrupted_section( &instrumentation_callback_mutex, &sigset );
+    tuxblox_trace_instrumentation( old, callback );
 }
 
 struct xcontext
@@ -1149,6 +1156,41 @@ NTSTATUS WINAPI NtSetContextThread( HANDLE handle, const CONTEXT *context )
     DWORD flags = context->ContextFlags & ~CONTEXT_AMD64;
     BOOL self = (handle == GetCurrentThread());
     struct syscall_frame *frame = get_syscall_frame();
+
+    /* Roblox's anti-tamper layer hands control to its next stage by setting a
+     * context on its own thread rather than by jumping, so the Rip it installs
+     * is the branch it decided to take and the Rax it installs is whatever it
+     * is passing along. Neither shows up anywhere else -- to a syscall trace
+     * this looks like an ordinary call that returns a strange value, because
+     * what comes back in Rax is simply the Rax being restored. */
+    if (tuxblox_trace_enabled() && self)
+    {
+        char detail[256];
+
+        snprintf( detail, sizeof(detail),
+                  "flags=%#x cs=%#x rip=%#llx rsp=%#llx rsi=%#llx rbx=%#llx rbp=%#llx r12=%#llx r8=%#llx r9=%#llx",
+                  (unsigned)flags, context->SegCs,
+                  (unsigned long long)context->Rip, (unsigned long long)context->Rsp,
+                  (unsigned long long)context->Rsi, (unsigned long long)context->Rbx,
+                  (unsigned long long)context->Rbp, (unsigned long long)context->R12,
+                  (unsigned long long)context->R8, (unsigned long long)context->R9 );
+        tuxblox_trace_record( "NtSetContextThread.self", detail );
+
+        /* The first few of these are where the layer resumes itself after a
+         * fault it caused on purpose, and the only way to read that code is
+         * from memory -- its own section is decrypted nowhere else. Dump what
+         * it is about to run and what its stack holds. */
+        if (tuxblox_trace_resume_dumps())
+        {
+            tuxblox_trace_code( "before", (ULONG_PTR)context->Rip - 16, 16 );
+            tuxblox_trace_code( "resume", (ULONG_PTR)context->Rip, 32 );
+            tuxblox_trace_code( "stack",  (ULONG_PTR)context->Rsp - 16, 32 );
+            /* the epilogue switches to the stack in rsi, pops five registers
+             * and returns, so its return address is at rsi+40 */
+            tuxblox_trace_code( "rsi",    (ULONG_PTR)context->Rsi, 32 );
+            tuxblox_trace_code( "rsi+32", (ULONG_PTR)context->Rsi + 32, 32 );
+        }
+    }
 
     if ((flags & CONTEXT_XSTATE) && xstate_extended_features)
     {

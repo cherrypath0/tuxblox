@@ -38,6 +38,8 @@ WINE_DEFAULT_DEBUG_CHANNEL(win);
 BOOL WINAPI ImmSetActiveContext(HWND, HIMC, BOOL);
 
 #define IMM_INIT_MAGIC 0x19650412
+/* keep in sync with dlls/imm32/imm32.spec */
+#define IMM32_ORDINAL_IME_WND_PROC 1
 static LRESULT (WINAPI *imm_ime_wnd_proc)( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, BOOL ansi);
 
 /* USER signal proc flags and codes */
@@ -325,7 +327,8 @@ BOOL WINAPI User32InitializeImmEntryTable(DWORD magic)
         return TRUE;
 
     /* this part is not compatible with native imm32.dll */
-    imm_ime_wnd_proc = (void*)GetProcAddress(imm32, "__wine_ime_wnd_proc");
+    /* by ordinal, not by name: imm32 exports it nameless, see imm32.spec */
+    imm_ime_wnd_proc = (void*)GetProcAddress(imm32, (const char *)IMM32_ORDINAL_IME_WND_PROC);
     if (!imm_ime_wnd_proc)
         FIXME("native imm32.dll not supported\n");
     return TRUE;

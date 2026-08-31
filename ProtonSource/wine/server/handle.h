@@ -55,6 +55,8 @@ extern struct handle_table *copy_handle_table( struct process *process, struct p
                                                const obj_handle_t *handles, unsigned int handle_count,
                                                const obj_handle_t *std_handles );
 extern unsigned int get_handle_table_count( struct process *process);
+extern unsigned int get_handle_count( struct process *process );
+extern unsigned int list_handles( struct process *process, unsigned int *handles, unsigned int max );
 void enum_handles_of_type( const struct object_ops *ops,
                            int (*cb)(struct process*, struct object*, void*), void *user );
 

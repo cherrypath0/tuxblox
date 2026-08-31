@@ -28,6 +28,7 @@
 #include "ntuser.h"
 #include "rtlsupportapi.h"
 #include "wine/unixlib.h"
+#include "wine/ntdllordinals.h"
 #include "wine/asm.h"
 #include "win32syscalls.h"
 
@@ -2581,7 +2582,9 @@ BOOL WINAPI DllMain( HINSTANCE inst, DWORD reason, void *reserved )
         LdrDisableThreadCalloutsForDll( inst );
         if (__wine_syscall_dispatcher) break;  /* already set through Wow64Transition */
         LdrGetDllHandle( NULL, 0, &ntdll_name, &ntdll );
-        dispatcher_ptr = RtlFindExportedRoutineByName( ntdll, "__wine_syscall_dispatcher" );
+        /* by ordinal, not by name: ntdll exports the dispatcher nameless, see ntdll.spec */
+        if (LdrGetProcedureAddress( ntdll, NULL, NTDLL_ORDINAL_SYSCALL_DISPATCHER, (void **)&dispatcher_ptr ))
+            break;
         __wine_syscall_dispatcher = *dispatcher_ptr;
         if (!__wine_init_unix_call()) WINE_UNIX_CALL( 0, NULL );
         break;

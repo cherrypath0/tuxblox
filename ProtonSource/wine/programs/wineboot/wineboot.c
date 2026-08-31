@@ -364,7 +364,7 @@ static void create_user_shared_data(void)
     data->NtMajorVersion              = version.dwMajorVersion;
     data->NtMinorVersion              = version.dwMinorVersion;
     data->SuiteMask                   = version.wSuiteMask;
-    wcscpy( data->NtSystemRoot, L"C:\\windows" );
+    wcscpy( data->NtSystemRoot, L"C:\\WINDOWS" );
 
     UnmapViewOfFile( data );
 }

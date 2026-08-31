@@ -252,6 +252,25 @@ void CDECL wine_get_host_version( const char **sysname, const char **release )
 }
 
 
+/* the names Windows uses in ProductOptions\ProductSuite, and the bit each one
+ * stands for in the suite mask */
+static const struct { const WCHAR *name; WORD mask; } suite_names[] =
+{
+    { L"SmallBusiness",             VER_SUITE_SMALLBUSINESS },
+    { L"Enterprise",                VER_SUITE_ENTERPRISE },
+    { L"BackOffice",                VER_SUITE_BACKOFFICE },
+    { L"Communications",            VER_SUITE_COMMUNICATIONS },
+    { L"Terminal Server",           VER_SUITE_TERMINAL },
+    { L"SmallBusiness(Restricted)", VER_SUITE_SMALLBUSINESS_RESTRICTED },
+    { L"EmbeddedNT",                VER_SUITE_EMBEDDEDNT },
+    { L"Datacenter",                VER_SUITE_DATACENTER },
+    { L"Personal",                  VER_SUITE_PERSONAL },
+    { L"Blade",                     VER_SUITE_BLADE },
+    { L"Security Appliance",        VER_SUITE_SECURITY_APPLIANCE },
+    { L"Storage Server",            VER_SUITE_STORAGE_SERVER },
+    { L"Compute Server",            VER_SUITE_COMPUTE_SERVER },
+};
+
 /**********************************************************************
  *         get_nt_registry_version
  *
@@ -363,10 +382,38 @@ static BOOL get_nt_registry_version( RTL_OSVERSIONINFOEXW *version )
                 else if (!wcsicmp( str, L"LanmanNT" )) version->wProductType = VER_NT_DOMAIN_CONTROLLER;
                 else if (!wcsicmp( str, L"ServerNT" )) version->wProductType = VER_NT_SERVER;
             }
+
+            /* the suite mask, which Windows keeps as a list of suite names in
+             * the same key. Leaving it at zero made every caller of
+             * GetVersionEx see a machine belonging to no suite at all, and
+             * wineboot then wrote that zero over the shared page. */
+            RtlInitUnicodeString( &valueW, L"ProductSuite" );
+            if (!NtQueryValueKey( hkey2, &valueW, KeyValuePartialInformation, tmp, sizeof(tmp) - sizeof(WCHAR), &count ))
+            {
+                WCHAR *str = (WCHAR *)info->Data;
+                DWORD pos = 0;
+
+                str[info->DataLength / sizeof(WCHAR)] = 0;
+                while (str[pos])
+                {
+                    unsigned int i;
+
+                    for (i = 0; i < ARRAY_SIZE(suite_names); i++)
+                    {
+                        if (wcsicmp( str + pos, suite_names[i].name )) continue;
+                        version->wSuiteMask |= suite_names[i].mask;
+                        break;
+                    }
+                    pos += wcslen( str + pos ) + 1;
+                }
+            }
             NtClose( hkey2 );
         }
 
-        /* FIXME: get wSuiteMask */
+        /* a client install always reports the single-user terminal services
+         * suite on top of whatever the registry lists */
+        if (version->wProductType == VER_NT_WORKSTATION)
+            version->wSuiteMask |= VER_SUITE_SINGLEUSERTS;
     }
 
     NtClose( hkey );

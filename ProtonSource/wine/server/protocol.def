@@ -4352,3 +4352,23 @@ enum fsync_type
     unsigned int shm_idx;
 @REPLY
 @END
+
+
+/* Retrieve the number of handles a process has open. Kept at the end of the
+ * protocol: a request added anywhere else shifts the number of every request
+ * below it, and the numbers are compiled into each unix library separately. */
+@REQ(get_process_handle_count)
+    obj_handle_t handle;           /* process handle */
+@REPLY
+    unsigned int count;            /* number of open handles */
+@END
+
+
+/* Retrieve the handle values a process has open, in ascending order. Kept at
+ * the end of the protocol for the same reason as the request above. */
+@REQ(get_process_handle_table)
+    obj_handle_t handle;           /* process handle */
+@REPLY
+    unsigned int count;            /* number of open handles, whether or not they fit */
+    VARARG(handles,uints);         /* the handle values themselves */
+@END

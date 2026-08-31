@@ -34,6 +34,8 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <sys/wait.h>
+#include <poll.h>
+#include <signal.h>
 #include <errno.h>
 #include <assert.h>
 #include <sys/time.h>
@@ -493,6 +495,15 @@ static void init_xstate_features( XSTATE_CONFIGURATION *xstate )
 
     xstate->Size = xstate->CompactionEnabled ? off :
            offsetof( XSAVE_FORMAT, XmmRegisters ) + xstate->Features[i - 1].Offset + xstate->Features[i - 1].Size;
+    /* The size of every feature described here, which is the size just computed
+     * plus the supervisor features, and there are none of those. It was taken
+     * straight from CPUID above, so it covered whatever the host has enabled in
+     * XCR0 rather than the features actually listed here -- 0x988 against the
+     * 0x340 they add up to, and against 0x350 on Windows, whose extra 0x10 is
+     * the one supervisor feature it enables. This field sits in the shared page
+     * at a fixed address and is readable with no system call, so a value that
+     * contradicts the features beside it is visible to anything that looks. */
+    xstate->AllFeatureSize = xstate->Size;
     TRACE( "xstate size %x, compacted %d, optimized %d.\n",
            xstate->Size, xstate->CompactionEnabled, xstate->OptimizedSave );
 }
@@ -520,7 +531,10 @@ void init_shared_data_cpuinfo( KUSER_SHARED_DATA *data )
     features[PF_XSAVE_ENABLED]                 = !!(regs[2] & (1 << 27));
     features[PF_AVX_INSTRUCTIONS_AVAILABLE]    = !!(regs[2] & (1 << 28));
     features[PF_RDRAND_INSTRUCTION_AVAILABLE]  = !!(regs[2] & (1 << 30));
-    features[PF_SSE_DAZ_MODE_AVAILABLE] = (features[PF_XMMI64_INSTRUCTIONS_AVAILABLE] && have_sse_daz_mode());
+    /* Windows reports this as absent on hardware that plainly supports it, so
+     * detecting it correctly is itself the difference. Measured zero on
+     * Windows 11 25H2 with workspace/tests/infoprobe.exe. */
+    features[PF_SSE_DAZ_MODE_AVAILABLE] = FALSE;
 
     do_cpuid( 0x00000000, 0, regs );
     if (regs[0] >= 0x00000007)
@@ -2731,12 +2745,165 @@ static struct smbios_prologue *create_smbios_data(void)
 #endif
 
 
+/* Windows reports success for these and writes nothing at all, so the caller's
+ * buffer is left exactly as it was. */
+static const unsigned char writes_nothing[1];
+
+static const unsigned char sys_7_data[] =
+{
+    0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+};
+
+static const unsigned char sys_9_data[] =
+{
+    0x00, 0x00, 0x00, 0x00,
+};
+
+static const unsigned char sys_55_data[] =
+{
+    0x00, 0x00, 0x00, 0x00,
+};
+
+static const unsigned char sys_59_data[] =
+{
+    0x01, 0x00, 0x00, 0x00,
+};
+
+static const unsigned char sys_60_data[] =
+{
+    0x00, 0x00, 0x00, 0x00,
+};
+
+static const unsigned char sys_65_data[] =
+{
+    0x00, 0x00, 0x00, 0x00,
+};
+
+static const unsigned char sys_70_data[] =
+{
+    0x01, 0x00, 0x00, 0x00,
+};
+
+static const unsigned char sys_86_data[] =
+{
+    0x00,
+};
+
+static const unsigned char sys_87_data[] =
+{
+    0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
+};
+
+static const unsigned char sys_92_data[] =
+{
+    0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00,
+};
+
+static const unsigned char sys_145_data[] =
+{
+    0x00, 0x01,
+};
+
+static const unsigned char sys_147_data[] =
+{
+    0x00,
+};
+
+static const unsigned char sys_151_data[] =
+{
+    0x00, 0x00, 0x00, 0x00,
+};
+
+static const unsigned char sys_157_data[] =
+{
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+};
+
+static const unsigned char sys_158_data[] =
+{
+    0x01,
+};
+
+static const unsigned char sys_166_data[] =
+{
+    0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+};
+
+static const unsigned char sys_174_data[] =
+{
+    0x05, 0x00, 0x00, 0x00, 0x18, 0x00, 0x00, 0x00, 0x30, 0x00, 0x00, 0x00,
+    0x4c, 0x00, 0x00, 0x00, 0x60, 0x00, 0x00, 0x00, 0xdc, 0x00, 0x00, 0x00,
+};
+
+static const unsigned char sys_192_data[] =
+{
+    0x07, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+};
+
+static const unsigned char sys_195_data[] =
+{
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+};
+
+static const unsigned char sys_196_data[] =
+{
+    0x20, 0x20, 0x00, 0x00,
+};
+
+static const unsigned char sys_202_data[] =
+{
+    0x00,
+};
+
+static const unsigned char sys_207_data[] =
+{
+    0x00, 0x00, 0x00, 0x00,
+};
+
+static const unsigned char sys_221_data[] =
+{
+    0x03, 0x00, 0x00, 0x00,
+};
+
+static const unsigned char sys_227_data[] =
+{
+    0x01,
+};
+
+static const unsigned char sys_243_data[] =
+{
+    0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00,
+};
+
 static const struct known_class known_system_classes[] =
 {
+    /* Classes this build used to deny outright. A real Windows 11 25H2 has all
+     * of them, and answering "no such class" to a class the system has is a
+     * difference in the one direction that cannot be innocent: measured
+     * against the reference machine there was not a single class we had and it
+     * did not. Statuses from workspace/tests/infoprobe.
+     *
+     * The three that report success for a zero-length query are recorded as
+     * exactly that. What Windows writes into a larger buffer for them was not
+     * measured, so nothing is written here. */
+    {  45, 0x00000000,      0 },
+    { 128, 0x00000000,      0 },
+    { 241, 0xc0000004, 283380 },
+    { 244, 0x00000000,      0 },
+    { 247, 0xc0000061,      0 },
+
     {   4, 0xc0000002, NO_LENGTH },
     {   6, 0xc00000bb, NO_LENGTH },
-    {   7, 0xc0000004, 24 },
-    {   9, 0xc0000004, 4 },
+{   7, 0xc0000004,     24, sys_7_data, 24 },
+    {   9, 0xc0000004,      4, sys_9_data, 4 },
     {  10, 0xc0000002, NO_LENGTH },
     {  12, 0xc0000004, 56 },
     {  13, 0xc0000002, 0 },
@@ -2768,21 +2935,21 @@ static const struct known_class known_system_classes[] =
     {  48, 0xc0000003, NO_LENGTH },
     {  49, 0xc0000003, NO_LENGTH },
     {  50, 0xc0000004, 8 },
-    {  51, 0xc0000004, 144 },
+    {  51, 0xc0000004,    144, writes_nothing, 0 },
     {  52, 0xc0000003, NO_LENGTH },
     {  53, 0xc0000004, 16 },
     {  54, 0xc0000003, NO_LENGTH },
-    {  55, 0xc0000004, 4 },
+    {  55, 0xc0000004,      4, sys_55_data, 4 },
     {  56, 0xc0000022, 0 },
-    {  59, 0xc0000004, 4 },
-    {  60, 0xc0000004, 4 },
+    {  59, 0xc0000004,      4, sys_59_data, 4 },
+    {  60, 0xc0000004,      4, sys_60_data, 4 },
     {  61, 0xc0000004, 960 },
-    {  65, 0xc0000004, 4 },
+    {  65, 0xc0000004,      4, sys_65_data, 4 },
     {  66, 0xc0000004, 32 },
     {  67, 0xc0000003, NO_LENGTH },
     {  68, 0xc0000003, NO_LENGTH },
     {  69, 0xc00000bb, 0 },
-    {  70, 0xc0000004, 4 },
+    {  70, 0xc0000004,      4, sys_70_data, 4 },
     {  71, 0xc0000003, NO_LENGTH },
     {  72, 0xc000000d, NO_LENGTH },
     {  74, 0xc0000003, NO_LENGTH },
@@ -2794,12 +2961,12 @@ static const struct known_class known_system_classes[] =
     {  82, 0xc0000003, NO_LENGTH },
     {  84, 0xc0000003, NO_LENGTH },
     {  85, 0xc0000003, NO_LENGTH },
-    {  86, 0xc0000004, 40 },
-    {  87, 0xc0000004, 8 },
+    {  86, 0xc0000004,     40, sys_86_data, 1 },
+    {  87, 0xc0000004,      8, sys_87_data, 8 },
     {  89, 0xc0000003, NO_LENGTH },
     {  90, 0xc0000004, 32 },
     {  91, 0xc00000f0, 0 },
-    {  92, 0xc0000004, 40 },
+    {  92, 0xc0000004,     40, sys_92_data, 40 },
     {  93, 0xc0000003, NO_LENGTH },
     {  94, 0xc0000003, NO_LENGTH },
     {  95, 0xc00000bb, NO_LENGTH },
@@ -2811,6 +2978,7 @@ static const struct known_class known_system_classes[] =
     { 101, 0xc0000004, 8 },
     { 104, 0xc0000003, NO_LENGTH },
     { 107, 0xc0000003, NO_LENGTH },
+    { 106, 0xc0000003,      0 },  /* refused as an invalid class, but with a zero length reported */
     { 108, 0xc0000023, 96 },
     { 109, 0xc0000206, 0 },
     { 110, 0xc0000003, NO_LENGTH },
@@ -2819,8 +2987,11 @@ static const struct known_class known_system_classes[] =
     { 113, 0xc00001a9, 0 },
     { 115, 0xc0000004, 8 },
     { 116, 0xc0000023, 40 },
-    { 117, 0xc0000004, 1096 },
-    { 118, 0xc0000004, 272 },
+    /* SystemTpmBootEntropyInformation. The kernel hands the boot entropy to
+     * its first caller and denies everyone else, so an ordinary process is
+     * told the size it would need and then refused. */
+    { 117, 0xc0000004, 1096, NULL, 0, 0xc0000022 },
+    { 118, 0xc0000004,    272, writes_nothing, 0 },
     { 119, 0xc0000004, 64 },
     { 120, 0xc0000004, 64 },
     { 121, 0xc0000003, NO_LENGTH },
@@ -2846,22 +3017,22 @@ static const struct known_class known_system_classes[] =
     { 142, 0xc0000003, NO_LENGTH },
     { 143, 0x80430006, 0 },
     { 144, 0xc0000004, 40 },
-    { 145, 0xc0000004, 2 },
+    { 145, 0xc0000004,      2, sys_145_data, 2 },
     { 146, 0xc0000003, NO_LENGTH },
-    { 147, 0xc0000004, 1 },
+    { 147, 0xc0000004,      1, sys_147_data, 1 },
     { 148, 0xc0000022, 0 },
     { 150, 0xc0000061, NO_LENGTH },
-    { 151, 0xc0000004, 4 },
+    { 151, 0xc0000004,      4, sys_151_data, 4 },
     { 152, 0xc0000003, NO_LENGTH },
     { 153, 0xc0000004, 32 },
     { 155, 0xc0000003, NO_LENGTH },
     { 156, 0xc0000004, 128 },
-    { 157, 0xc0000004, 24 },
-    { 158, 0xc0000004, 1 },
+    { 157, 0xc0000004,     24, sys_157_data, 24 },
+    { 158, 0xc0000004,      1, sys_158_data, 1 },
     { 159, 0xc00000f0, 0 },
     { 160, 0xc000000d, NO_LENGTH },
     { 161, 0xc0000003, NO_LENGTH },
-    { 166, 0xc0000004, 8 },
+    { 166, 0xc0000004,      8, sys_166_data, 8 },
     { 167, 0xc0000022, 0 },
     { 168, 0xc0000003, NO_LENGTH },
     { 169, 0xc00000f0, 0 },
@@ -2869,7 +3040,6 @@ static const struct known_class known_system_classes[] =
     { 171, 0x80430006, 0 },
     { 172, 0xc0000004, 7312 },
     { 173, 0xc0000022, NO_LENGTH },
-    { 174, 0xc0000023, 0 },
     { 176, 0xc0000003, NO_LENGTH },
     { 177, 0xc0000003, NO_LENGTH },
     { 178, 0xc000000d, NO_LENGTH },
@@ -2886,21 +3056,21 @@ static const struct known_class known_system_classes[] =
     { 189, 0xc0000004, 273216 },
     { 190, 0xc0000004, 0 },
     { 191, 0xc0000003, NO_LENGTH },
-    { 192, 0xc0000004, 32 },
+    { 192, 0xc0000004,     32, sys_192_data, 32 },
     { 193, 0xc0000023, 8 },
     { 194, 0xc0000061, 0 },
-    { 195, 0xc0000004, 8 },
-    { 196, 0xc0000004, 4 },
+    { 195, 0xc0000004,      8, sys_195_data, 8 },
+    { 196, 0xc0000004,      4, sys_196_data, 4 },
     { 197, 0xc0000004, 8 },
     { 198, 0xc0000004, 56 },
     { 199, 0xc0000004, 24 },
     { 200, 0xc0000023, 64 },
     { 201, 0xc0000004, 8 },
-    { 202, 0xc0000004, 1 },
+    { 202, 0xc0000004,      1, sys_202_data, 1 },
     { 203, 0xc0000003, NO_LENGTH },
     { 204, 0xc0000003, NO_LENGTH },
     { 205, 0xc0000003, NO_LENGTH },
-    { 207, 0xc0000004, 4 },
+    { 207, 0xc0000004,      4, sys_207_data, 4 },
     { 208, 0xc0000004, 0 },
     { 209, 0xc0000022, 0 },
     { 210, 0xc0000003, NO_LENGTH },
@@ -2914,13 +3084,13 @@ static const struct known_class known_system_classes[] =
     { 218, 0xc0000003, NO_LENGTH },
     { 219, 0xc0000003, NO_LENGTH },
     { 220, 0xc0000003, NO_LENGTH },
-    { 221, 0xc0000004, 4 },
+    { 221, 0xc0000004,      4, sys_221_data, 4 },
     { 222, 0xc0000003, NO_LENGTH },
     { 223, 0xc0000003, NO_LENGTH },
     { 224, 0xc0000003, NO_LENGTH },
     { 225, 0xc0000003, NO_LENGTH },
     { 226, 0xc0000003, NO_LENGTH },
-    { 227, 0xc0000004, 1 },
+    { 227, 0xc0000004,      1, sys_227_data, 1 },
     { 228, 0xc0000004, 0 },
     { 229, 0xc0000004, 0 },
     { 230, 0xc000000d, NO_LENGTH },
@@ -2934,6 +3104,7 @@ static const struct known_class known_system_classes[] =
     { 238, 0xc0000003, NO_LENGTH },
     { 239, 0xc0000003, NO_LENGTH },
     { 240, 0xc0000003, NO_LENGTH },
+    { 243, 0xc0000004,     16, sys_243_data, 16 },
 };
 
 
@@ -4178,7 +4349,7 @@ C_ASSERT( sizeof(struct process_info) <= sizeof(SYSTEM_PROCESS_INFORMATION) );
             nt_process->ParentProcessId = UlongToHandle(server_process->parent_pid);
             nt_process->SessionId = server_process->session_id;
             nt_process->HandleCount = server_process->handle_count;
-            get_thread_times( server_process->unix_pid, -1, &nt_process->KernelTime, &nt_process->UserTime );
+            get_thread_times( server_process->unix_pid, -1, &nt_process->KernelTime, &nt_process->UserTime, NULL );
             fill_vm_counters( &nt_process->vmCounters, server_process->unix_pid );
             last_entry = nt_process;
         }
@@ -4197,8 +4368,14 @@ C_ASSERT( sizeof(struct process_info) <= sizeof(SYSTEM_PROCESS_INFORMATION) );
                 ti->ThreadInfo.ClientId.UniqueThread = UlongToHandle(server_thread->tid);
                 ti->ThreadInfo.dwCurrentPriority = server_thread->current_priority;
                 ti->ThreadInfo.dwBasePriority = server_thread->base_priority;
+                /* the state comes off /proc; the wait reason is the one a user
+                 * thread waits for, and Windows leaves the last one in place
+                 * while a thread runs rather than clearing it. Both used to be
+                 * left at zero, which reads as a thread that never started. */
                 get_thread_times( server_process->unix_pid, server_thread->unix_tid,
-                                  &ti->ThreadInfo.KernelTime, &ti->ThreadInfo.UserTime );
+                                  &ti->ThreadInfo.KernelTime, &ti->ThreadInfo.UserTime,
+                                  &ti->ThreadInfo.dwThreadState );
+                ti->ThreadInfo.dwWaitReason = 15;   /* WrUserRequest */
                 if (class == SystemExtendedProcessInformation)
                 {
                     ti->Win32StartAddress = wine_server_get_ptr( server_thread->entry_point );
@@ -5118,19 +5295,52 @@ NTSTATUS WINAPI NtQuerySystemInformation( SYSTEM_INFORMATION_CLASS class,
         break;
     }
 
-    default:
-        unsigned int known_status, known_len;
-
-        if (lookup_known_class( known_system_classes, ARRAY_SIZE(known_system_classes),
-                                class, &known_status, &known_len ))
+    case SystemRootSiloInformation:  /* 174 */
+        /* The only system class measured to refuse a short buffer with
+         * STATUS_BUFFER_TOO_SMALL and report a length of zero rather than the
+         * size it wants -- which is why it cannot be described by the table
+         * below, whose one length field is both. Twenty-four bytes as read
+         * from the reference machine with workspace/tests/infoprobe.exe. */
+        if (size < sizeof(sys_174_data))
         {
-            if (known_len == NO_LENGTH) return known_status;
-            /* Reporting the size a caller needs and then never accepting
-             * that size leaves it asking forever, so only answer the probe. */
-            if (known_status == STATUS_INFO_LENGTH_MISMATCH && size >= known_len)
-                return STATUS_NOT_IMPLEMENTED;
-            len = known_len;
-            ret = known_status;
+            if (ret_size) *ret_size = 0;
+            return STATUS_BUFFER_TOO_SMALL;
+        }
+        memcpy( info, sys_174_data, sizeof(sys_174_data) );
+        len = sizeof(sys_174_data);
+        break;
+
+    default:
+        const struct known_class *entry;
+
+        entry = find_known_class( known_system_classes, ARRAY_SIZE(known_system_classes), class );
+        if (entry)
+        {
+            if (entry->len == NO_LENGTH) return entry->status;
+            /* A class recorded with a length of zero reports a zero length and
+             * still refuses -- it is not asking for a zero-byte buffer, so the
+             * branch below must not treat every size as big enough for it.
+             * Without this guard five classes the reference machine answers
+             * with a length mismatch came back "not implemented" instead. */
+            if (entry->len && entry->status == STATUS_INFO_LENGTH_MISMATCH && size >= entry->len)
+            {
+                /* Reporting the size a caller needs and then refusing that
+                 * exact size is an answer no real system gives, so a class we
+                 * measured is answered rather than only sized. */
+                if (entry->full_status)
+                {
+                    len = entry->len;
+                    ret = entry->full_status;
+                    break;
+                }
+                if (!entry->data) return STATUS_NOT_IMPLEMENTED;
+                if (entry->data_len) memcpy( info, entry->data, entry->data_len );
+                len = entry->len;
+                ret = STATUS_SUCCESS;
+                break;
+            }
+            len = entry->len;
+            ret = entry->status;
             break;
         }
 
@@ -5139,8 +5349,12 @@ NTSTATUS WINAPI NtQuerySystemInformation( SYSTEM_INFORMATION_CLASS class,
         /* Several Information Classes are not implemented on Windows and return 2 different values
          * STATUS_NOT_IMPLEMENTED or STATUS_INVALID_INFO_CLASS
          * in 95% of the cases it's STATUS_INVALID_INFO_CLASS, so use this as the default
+         *
+         * Returned rather than broken out of: a class the system does not have
+         * leaves the caller's returned length alone on the reference machine,
+         * where falling through to the assignment below wrote a zero into it.
          */
-        ret = STATUS_INVALID_INFO_CLASS;
+        return STATUS_INVALID_INFO_CLASS;
     }
 
     if (ret_size) *ret_size = len;
@@ -5844,14 +6058,63 @@ NTSTATUS WINAPI NtDisplayString( UNICODE_STRING *string )
 /* Wine has nowhere to put a message box, so a program that reports a problem
  * this way disappears without the user ever being told why. Hand the text to
  * the desktop instead, which is the nearest thing we have to showing it. */
-static void notify_desktop( const UNICODE_STRING *text, const UNICODE_STRING *caption )
+/* Whether the notifier can put buttons on a notification. notify-send grew
+ * -A/--action in libnotify 0.8; an older one treats it as a bad option and
+ * shows nothing at all, so ask before using it rather than losing the message
+ * entirely on those systems. Both KDE and GNOME render the button. */
+static BOOL notifier_has_actions(void)
+{
+    static int cached = -1;
+    int fds[2], st;
+    pid_t pid;
+    char buf[4096];
+    ssize_t n, total = 0;
+
+    if (cached != -1) return cached;
+    cached = 0;
+    if (pipe( fds ) == -1) return cached;
+
+    if (!(pid = fork()))
+    {
+        close( fds[0] );
+        dup2( fds[1], 1 );
+        dup2( fds[1], 2 );
+        close( fds[1] );
+        execlp( "notify-send", "notify-send", "--help", (char *)NULL );
+        _exit( 127 );
+    }
+    close( fds[1] );
+    if (pid < 0) { close( fds[0] ); return cached; }
+
+    while (total < (ssize_t)sizeof(buf) - 1 && (n = read( fds[0], buf + total, sizeof(buf) - 1 - total )) > 0)
+        total += n;
+    buf[total > 0 ? total : 0] = 0;
+    close( fds[0] );
+    waitpid( pid, &st, 0 );
+
+    if (strstr( buf, "--action" )) cached = 1;
+    return cached;
+}
+
+
+/* Show the message. With a button when the caller is waiting for an answer:
+ * Roblox's crash notice says to press OK to collect its support files, and
+ * without a button there was no way to say yes -- the message named an action
+ * the desktop could not offer. Returns TRUE if the button was pressed.
+ *
+ * The wait is bounded. notify-send with an action stays up until the user
+ * answers or the notification expires, and this runs on the thread that is
+ * reporting a crash, so it must not be able to hang the process for good. */
+static BOOL notify_desktop( const UNICODE_STRING *text, const UNICODE_STRING *caption, BOOL want_answer )
 {
     char body[1024], title[256];
+    BOOL pressed = FALSE;
+    int fds[2] = { -1, -1 };
     pid_t pid;
 
-    if (!text || !text->Buffer) return;
+    if (!text || !text->Buffer) return FALSE;
     if (!ntdll_wcstoumbs( text->Buffer, text->Length / sizeof(WCHAR), body, sizeof(body) - 1, FALSE ))
-        return;
+        return FALSE;
     body[min( text->Length / sizeof(WCHAR), sizeof(body) - 1 )] = 0;
 
     strcpy( title, "Roblox" );
@@ -5859,8 +6122,23 @@ static void notify_desktop( const UNICODE_STRING *text, const UNICODE_STRING *ca
         ntdll_wcstoumbs( caption->Buffer, caption->Length / sizeof(WCHAR), title, sizeof(title) - 1, FALSE ))
         title[min( caption->Length / sizeof(WCHAR), sizeof(title) - 1 )] = 0;
 
+    if (want_answer && !notifier_has_actions()) want_answer = FALSE;
+    if (want_answer && pipe( fds ) == -1) want_answer = FALSE;
+
     if (!(pid = fork()))
     {
+        if (want_answer)
+        {
+            close( fds[0] );
+            dup2( fds[1], 1 );
+            close( fds[1] );
+            /* -A prints the action's name on stdout when it is pressed, and
+             * implies --wait. -t bounds how long the notification lives. */
+            execlp( "notify-send", "notify-send", "-a", "TuxBlox",
+                    "-i", "dialog-error", "-t", "30000", "-A", "ok=OK",
+                    title, body, (char *)NULL );
+            _exit( 1 );
+        }
         /* fork once more so the notifier is not ours to wait for */
         if (!fork())
         {
@@ -5870,7 +6148,34 @@ static void notify_desktop( const UNICODE_STRING *text, const UNICODE_STRING *ca
         }
         _exit( 0 );
     }
-    if (pid > 0) waitpid( pid, NULL, 0 );
+
+    if (pid < 0)
+    {
+        if (fds[0] != -1) { close( fds[0] ); close( fds[1] ); }
+        return FALSE;
+    }
+
+    if (want_answer)
+    {
+        struct pollfd pfd = { fds[0], POLLIN, 0 };
+        char answer[64];
+        ssize_t n;
+
+        close( fds[1] );
+        /* A little beyond the notification's own lifetime, then give up and
+         * take the notifier down with us rather than wait on a desktop that
+         * is never going to answer. */
+        if (poll( &pfd, 1, 35000 ) > 0 && (n = read( fds[0], answer, sizeof(answer) - 1 )) > 0)
+        {
+            answer[n] = 0;
+            if (!strncmp( answer, "ok", 2 )) pressed = TRUE;
+        }
+        else kill( pid, SIGTERM );
+        close( fds[0] );
+    }
+
+    waitpid( pid, NULL, 0 );
+    return pressed;
 }
 
 
@@ -5878,11 +6183,13 @@ NTSTATUS WINAPI NtRaiseHardError( NTSTATUS status, ULONG count,
                                   ULONG params_mask, void **params,
                                   HARDERROR_RESPONSE_OPTION option, HARDERROR_RESPONSE *response )
 {
+    BOOL answered = FALSE;
+
     tuxblox_trace_record( "NtRaiseHardError", "" );
 
     /* the first two parameters of a message box are its text and its title */
     if (params && count >= 2 && (params_mask & 3) == 3)
-        notify_desktop( params[0], params[1] );
+        answered = notify_desktop( params[0], params[1], response && !getenv( "TUXBLOX_HARDERROR_RESPONSE" ) );
 
     /* A hard error carries the caller's own diagnostic text: the bits set in
      * params_mask say which parameters are UNICODE_STRING pointers rather than
@@ -5918,6 +6225,16 @@ NTSTATUS WINAPI NtRaiseHardError( NTSTATUS status, ULONG count,
             *response = atoi( forced );
             FIXME( "%#08x %u %#x %p %u %p: answering %u\n",
                    status, count, params_mask, params, option, response, *response );
+            return STATUS_SUCCESS;
+        }
+
+        /* The button on the notification is the user's answer. Anything else --
+         * dismissed, expired, or a desktop that cannot show buttons -- is not
+         * an answer, and the caller is told so rather than being handed a
+         * "no" it never heard. */
+        if (answered)
+        {
+            *response = ResponseOk;
             return STATUS_SUCCESS;
         }
     }

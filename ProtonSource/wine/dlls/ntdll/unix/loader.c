@@ -749,6 +749,7 @@ void trace_syscall( UINT id, ULONG_PTR *args, ULONG len )
      * here is kept behind the separate, much more expensive TRACE_ON(syscall)
      * check below instead of being unconditional. */
     tuxblox_trace_tally( id );
+    tuxblox_trace_syscall_args( id, args, len );
 
     if (!TRACE_ON(syscall)) return;
 
@@ -770,6 +771,8 @@ void trace_sysret( UINT id, ULONG_PTR retval )
 {
     UINT idx = (id >> 12) & 3, num = id & 0xfff;
     const char **names = syscall_names[idx];
+
+    tuxblox_trace_sysret( id, retval );
 
     if (names && names[num])
         TRACE_(syscall)( "\1SysRet   %s() retval=%08lx\n", names[num], retval );
@@ -1959,6 +1962,15 @@ static ULONG_PTR find_ordinal_export( HMODULE module, const IMAGE_EXPORT_DIRECTO
     return (ULONG_PTR)module + functions[ordinal];
 }
 
+/* find_ordinal_export takes an index into the function table; this takes the
+ * exported ordinal, which is what a .spec file and its consumers talk about. */
+static ULONG_PTR find_export_by_ordinal( HMODULE module, const IMAGE_EXPORT_DIRECTORY *exports,
+                                         DWORD ordinal )
+{
+    if (ordinal < exports->Base) return 0;
+    return find_ordinal_export( module, exports, ordinal - exports->Base );
+}
+
 static ULONG_PTR find_named_export( HMODULE module, const IMAGE_EXPORT_DIRECTORY *exports,
                                     const char *name )
 {
@@ -2016,6 +2028,11 @@ static void load_ntdll_functions( HMODULE module )
     if (!(p##name = (void *)find_named_export( module, exports, #name ))) \
         ERR( "%s not found\n", #name )
 
+/* the unix interface is exported by ordinal only, see ntdll.spec */
+#define GET_ORD_FUNC(name,ord) \
+    if (!(p##name = (void *)find_export_by_ordinal( module, exports, (ord) ))) \
+        ERR( "%s not found\n", #name )
+
     GET_FUNC( DbgUiRemoteBreakin );
     GET_FUNC( KiRaiseUserExceptionDispatcher );
     GET_FUNC( KiUserExceptionDispatcher );
@@ -2024,13 +2041,13 @@ static void load_ntdll_functions( HMODULE module )
     GET_FUNC( LdrInitializeThunk );
     GET_FUNC( LdrSystemDllInitBlock );
     GET_FUNC( RtlUserThreadStart );
-    GET_FUNC( __wine_ctrl_routine );
-    GET_FUNC( __wine_syscall_dispatcher );
-    GET_FUNC( __wine_unix_call_dispatcher );
-    GET_FUNC( __wine_unixlib_handle );
+    GET_ORD_FUNC( __wine_ctrl_routine, NTDLL_ORDINAL_CTRL_ROUTINE );
+    GET_ORD_FUNC( __wine_syscall_dispatcher, NTDLL_ORDINAL_SYSCALL_DISPATCHER );
+    GET_ORD_FUNC( __wine_unix_call_dispatcher, NTDLL_ORDINAL_UNIX_CALL_DISPATCHER );
+    GET_ORD_FUNC( __wine_unixlib_handle, NTDLL_ORDINAL_UNIXLIB_HANDLE );
     if (is_arm64ec())
     {
-        GET_FUNC( __wine_unix_call_dispatcher_arm64ec );
+        GET_ORD_FUNC( __wine_unix_call_dispatcher_arm64ec, NTDLL_ORDINAL_UNIX_CALL_DISPATCHER_ARM64EC );
         GET_FUNC( KiUserEmulationDispatcher );
     }
     *p__wine_syscall_dispatcher = __wine_syscall_dispatcher;
@@ -2042,6 +2059,7 @@ static void load_ntdll_functions( HMODULE module )
         *p__wine_unix_call_dispatcher_arm64ec = __wine_unix_call_dispatcher;
     }
     else *p__wine_unix_call_dispatcher = __wine_unix_call_dispatcher;
+#undef GET_ORD_FUNC
 #undef GET_FUNC
 }
 
@@ -2069,12 +2087,13 @@ static void load_ntdll_wow64_functions( HMODULE module )
     GET_FUNC( RtlpQueryProcessDebugInformationRemote );
 #undef GET_FUNC
 
-    p__wine_ctrl_routine = (void *)find_named_export( module, exports, "__wine_ctrl_routine" );
+    /* by ordinal, not by name: ntdll exports these nameless, see ntdll.spec */
+    p__wine_ctrl_routine = (void *)find_export_by_ordinal( module, exports, NTDLL_ORDINAL_CTRL_ROUTINE );
 
 #ifdef _WIN64
     {
-        unixlib_handle_t *p__wine_unixlib_handle = (void *)find_named_export( module, exports,
-                                                                              "__wine_unixlib_handle" );
+        unixlib_handle_t *p__wine_unixlib_handle = (void *)find_export_by_ordinal( module, exports,
+                                                                                   NTDLL_ORDINAL_UNIXLIB_HANDLE );
         *p__wine_unixlib_handle = (UINT_PTR)unix_call_wow64_funcs;
     }
 #endif

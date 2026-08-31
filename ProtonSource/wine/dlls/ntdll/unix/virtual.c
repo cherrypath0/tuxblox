@@ -4357,6 +4357,12 @@ TEB *virtual_alloc_first_teb(void)
         exit(1);
     }
 
+    /* Windows randomises the PEB and TEB above the 4 GB line and Wine pins
+     * them just under 2 GB, because a WoW64 process needs them where a 32-bit
+     * pointer reaches and this runs before the main image's machine is known.
+     * Measured 2026-08-25: moving them into Windows' band changes nothing about
+     * Roblox Player's verdict, so the address is not what it objects to and
+     * this is not worth a live TEB relocation during start-up. */
     NtAllocateVirtualMemory( NtCurrentProcess(), &teb_block, is_win64 ? limit_2g - 1 : 0, &total,
                              MEM_RESERVE | MEM_TOP_DOWN, PAGE_READWRITE );
     teb_block_pos = 30;
@@ -4860,9 +4866,22 @@ void virtual_init_user_shared_data(void)
 
     virtual_get_system_info( &info, FALSE );
 
+    /* This page sits at a fixed address and needs no system call to read, so
+     * anything in the process can compare it against a real machine at any
+     * moment. Every constant below was read off Windows 11 25H2 with
+     * workspace/tests/infoprobe.exe; a field left at zero that Windows always
+     * fills is as much of a difference as a field with the wrong value in it. */
+    /* Windows keeps 0x0fa00000 here and counts TickCount in 15.625 ms units,
+     * so that (TickCount * TickCountMultiplier) >> 24 is milliseconds. Wine
+     * stores milliseconds in TickCount directly and every reader in the tree
+     * ignores the multiplier, so claiming Windows' value while storing Wine's
+     * units makes anything that does that multiplication itself -- an inlined
+     * GetTickCount, which is common -- read a clock running 15.6 times fast.
+     * Matching Windows here means changing the stored units too; until then
+     * the multiplier has to agree with what is actually stored. */
     data->TickCountMultiplier   = 1 << 24;
     data->LargePageMinimum      = 2 * 1024 * 1024;
-    data->SystemCall            = 1;
+    data->SystemCall            = 0;
     /* the version here has to agree with the PEB and RtlGetVersion: this page is
      * readable at a fixed address by anything, so leaving it zeroed both reports
      * a system that does not exist and contradicts every other version we give. */
@@ -4871,11 +4890,46 @@ void virtual_init_user_shared_data(void)
     data->NtBuildNumber         = 26200;
     data->NtProductType         = NtProductWinNt;
     data->ProductTypeIsValid    = TRUE;
-    data->SuiteMask             = VER_SUITE_SINGLEUSERTS;
+    data->SuiteMask             = VER_SUITE_TERMINAL | VER_SUITE_SINGLEUSERTS;
     data->NumberOfPhysicalPages = info.MmNumberOfPhysicalPages;
-    data->NXSupportPolicy       = NX_SUPPORT_POLICY_OPTIN;
+    data->NXSupportPolicy       = NX_SUPPORT_POLICY_OPTIN | (NX_SUPPORT_POLICY_OPTIN << 2);
     data->ActiveProcessorCount  = peb->NumberOfProcessors;
     data->ActiveGroupCount      = 1;
+
+    /* fixed values that Windows never varies */
+    data->Reserved1                      = 0x7ffeffff;
+    data->Reserved3                      = 0x80000000;
+    data->ComPlusPackage                 = ~0u;
+    data->TestRetInstruction             = 0xc3;
+    data->QpcFrequency                   = 10000000;
+    data->QpcSystemTimeIncrement         = (ULONGLONG)1 << 63;
+    data->QpcInterruptTimeIncrement      = (ULONGLONG)1 << 63;
+    data->QpcSystemTimeIncrementShift    = 1;
+    data->QpcInterruptTimeIncrementShift = 1;
+    data->TelemetryCoverageRound         = 1;
+    data->LangGenerationCount            = 1;
+    data->CyclesPerYield                 = 0x34;
+    data->UnparkedProcessorCount         = peb->NumberOfProcessors;
+    /* the interactive session, which is 1 on any machine somebody has logged
+     * into; zero is the session services run in and no user process sees it */
+    data->ActiveConsoleId                = 1;
+    /* elevation, virtualisation and installer detection are on for every
+     * ordinary install. The secure boot and multi-session bits Windows also
+     * reports here describe that machine's firmware and SKU, so they are left
+     * alone rather than claimed. */
+    data->SharedDataFlags                = 0x0e;
+    /* a second copy of the page count, as a 64-bit field */
+    data->SystemCallPad[0]               = info.MmNumberOfPhysicalPages;
+
+    /* The system-wide pointer-encoding cookie. Windows draws it once per boot
+     * and every machine has one; leaving it zero makes RtlEncodeSystemPointer
+     * the identity function, which is both a difference anything can see here
+     * and a real weakness. This page is created once per prefix session, so one
+     * draw here gives it exactly the lifetime it has on Windows. */
+    get_random( &data->Cookie, sizeof(data->Cookie) );
+    data->Cookie |= 1;
+    /* how many times the kernel has reseeded its random pool: once, just now */
+    data->RNGSeedVersion = 1;
 
     switch (native_machine)
     {
@@ -4884,6 +4938,8 @@ void virtual_init_user_shared_data(void)
     case IMAGE_FILE_MACHINE_ARMNT: data->NativeProcessorArchitecture = PROCESSOR_ARCHITECTURE_ARM; break;
     case IMAGE_FILE_MACHINE_ARM64: data->NativeProcessorArchitecture = PROCESSOR_ARCHITECTURE_ARM64; break;
     }
+    data->ImageNumberLow  = native_machine;
+    data->ImageNumberHigh = native_machine;
 
     init_shared_data_cpuinfo( data );
     munmap( data, sizeof(*data) );
@@ -5037,6 +5093,10 @@ void *virtual_setup_exception( void *stack_ptr, size_t size, EXCEPTION_RECORD *r
         if (is_inside_signal_stack( stack ))
         {
             ERR( "nested exception on signal stack addr %p stack %p\n", rec->ExceptionAddress, stack );
+            /* Killed here, so nothing reaches NtTerminateProcess and nothing
+             * would otherwise say how the program died -- the launcher would
+             * report Proton's own status instead. */
+            tuxblox_report_real_exit_code( STATUS_STACK_OVERFLOW );
             abort_thread(1);
         }
         WARN( "exception outside of stack limits addr %p stack %p (%p-%p-%p)\n",
@@ -5053,6 +5113,10 @@ void *virtual_setup_exception( void *stack_ptr, size_t size, EXCEPTION_RECORD *r
         UINT diff = stack_info.start + host_page_size - stack;
         ERR( "stack overflow %u bytes addr %p stack %p (%p-%p-%p)\n",
              diff, rec->ExceptionAddress, stack, stack_info.start, stack_info.limit, stack_info.end );
+        /* Same here: the thread is killed rather than returned from, so the
+         * exit code has to be reported before it goes. Windows reports a
+         * process that dies this way as STATUS_STACK_OVERFLOW. */
+        tuxblox_report_real_exit_code( STATUS_STACK_OVERFLOW );
         abort_thread(1);
     }
     else if (stack < stack_info.limit)
@@ -6003,6 +6067,18 @@ NTSTATUS WINAPI NtProtectVirtualMemory( HANDLE process, PVOID *addr_ptr, SIZE_T 
                 vprot |= VPROT_COPIED;
                 old = get_win32_prot( vprot, view->protect );
             }
+            else if (status == STATUS_SUCCESS && (view->protect & SEC_IMAGE)
+                     && ((new_prot & 0xff) == PAGE_READWRITE
+                         || (new_prot & 0xff) == PAGE_EXECUTE_READWRITE))
+            {
+                /* An explicit read-write protect on an image page makes a private
+                 * copy on Windows and reads back as the protection that was set,
+                 * not WRITECOPY. Wine stores image RW as VPROT_WRITECOPY, so mark
+                 * the pages copied to report them the way Windows does. Explicit
+                 * WRITECOPY is left alone -- it must still read back as WRITECOPY
+                 * until it is actually written. */
+                set_page_vprot_bits( base, size, VPROT_COPIED, 0 );
+            }
             else if (status == STATUS_SUCCESS && (view->protect & SEC_IMAGE) &&
                     base == (void*)NtCurrentTeb()->Peb->ImageBaseAddress)
             {
@@ -6039,10 +6115,11 @@ NTSTATUS WINAPI NtProtectVirtualMemory( HANDLE process, PVOID *addr_ptr, SIZE_T 
 
     if (tuxblox_trace_enabled())
     {
-        char detail[96];
+        char detail[128];
 
-        snprintf( detail, sizeof(detail), "addr=%p size=%#lx new=%#x status=%#x",
-                  addr, (unsigned long)size, (unsigned int)new_prot, (unsigned int)status );
+        snprintf( detail, sizeof(detail), "addr=%p base=%p size=%#lx new=%#x old=%#x status=%#x",
+                  addr, (status ? NULL : base), (unsigned long)size, (unsigned int)new_prot,
+                  (unsigned int)*old_prot, (unsigned int)status );
         tuxblox_trace_record( "NtProtectVirtualMemory", detail );
     }
     return status;

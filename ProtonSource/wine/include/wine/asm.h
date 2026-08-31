@@ -279,11 +279,18 @@
                        ".byte 0xcd,0x2e\n\t"      /* 15: int $0x2e */ \
                        ".byte 0xc3" )             /* 17: ret */
 #elif defined __x86_64__
-/* Chromium depends on syscall thunks having the same form as on
- * Windows. For 64-bit systems the only viable form we can emulate is
- * having an int $0x2e fallback. Since actually using an interrupt is
- * expensive, and since for some reason Chromium doesn't actually
- * validate that instruction, we can just put a jmp there instead. */
+/* Byte-for-byte what a 64-bit Windows ntdll syscall thunk is, padding included,
+ * because it is read as data and not only executed. Anti-tamper code checks
+ * these bytes to decide whether ntdll has been hooked, and Roblox's protection
+ * layer reads a thunk's `movl $i,%eax` to learn which system call it is, so the
+ * whole 32 bytes are a fingerprint surface.
+ *
+ * Upstream Wine puts `jmp` + `callq *(0x7ffe1000)` where Windows has `int $0x2e`,
+ * on the reasoning that an interrupt is expensive and Chromium -- the validator
+ * it had in mind -- does not check that instruction. That path only runs when
+ * SystemCall at 0x7ffe0308 is set, and this build always leaves it 0, the value
+ * Windows reports, so those bytes were unreachable and only ever visible to
+ * something reading them. */
 # define __ASM_SYSCALL_FUNC(id,name) \
     __ASM_GLOBAL_FUNC( name, \
                        __ASM_SEH(".seh_endprologue\n\t") \
@@ -294,11 +301,9 @@
                        ".byte 0x75,0x03\n\t"      /* 10: jne 15 */ \
                        ".byte 0x0f,0x05\n\t"      /* 12: syscall */ \
                        ".byte 0xc3\n\t"           /* 14: ret */ \
-                       ".byte 0xeb,0x01\n\t"      /* 15: jmp 18 */ \
+                       ".byte 0xcd,0x2e\n\t"      /* 15: int $0x2e */ \
                        ".byte 0xc3\n\t"           /* 17: ret */ \
-                       ".byte 0xff,0x14,0x25\n\t" /* 18: callq *(0x7ffe1000) */ \
-                       ".long 0x7ffe1000\n\t" \
-                       ".byte 0xc3" )             /* 1f: ret */
+                       ".byte 0x0f,0x1f,0x84,0x00,0x00,0x00,0x00,0x00" ) /* 18: nopl 0x0(%rax,%rax,1) */
 #elif defined __arm__
 # define __ASM_SYSCALL_FUNC(id,name,args) \
     __ASM_GLOBAL_FUNC( name, \

@@ -1928,7 +1928,8 @@ void ntdll_set_exception_jmp_buf( jmp_buf jmp )
 }
 
 
-BOOL get_thread_times(int unix_pid, int unix_tid, LARGE_INTEGER *kernel_time, LARGE_INTEGER *user_time)
+BOOL get_thread_times(int unix_pid, int unix_tid, LARGE_INTEGER *kernel_time, LARGE_INTEGER *user_time,
+                      ULONG *state)
 {
 #ifdef linux
     unsigned long clocks_per_sec = sysconf( _SC_CLK_TCK );
@@ -1937,6 +1938,12 @@ BOOL get_thread_times(int unix_pid, int unix_tid, LARGE_INTEGER *kernel_time, LA
     char buf[512];
     FILE *f;
     int i;
+#endif
+
+    /* Waiting, which is what a user thread that is not on a core is doing.
+     * Every path below overrides this when it can tell. */
+    if (state) *state = 5;
+#ifdef linux
 
     if (unix_tid == -1)
         snprintf( buf, sizeof(buf), "/proc/%u/stat", unix_pid );
@@ -1956,6 +1963,19 @@ BOOL get_thread_times(int unix_pid, int unix_tid, LARGE_INTEGER *kernel_time, LA
     if (pos) pos = strrchr( pos, ')' );
     if (pos) pos = strchr( pos + 1, ' ' );
     if (pos) pos++;
+
+    /* pos is now on the run state, which Windows reports as a thread state and
+     * Wine used to leave at zero -- Initialized, which is what a thread that has
+     * not started yet is, not one that is plainly running. */
+    if (pos && state)
+    {
+        switch (*pos)
+        {
+        case 'R': *state = 2; break;   /* Running */
+        case 'Z': case 'X': case 'x': *state = 4; break;   /* Terminated */
+        default:  *state = 5; break;   /* Waiting */
+        }
+    }
 
     /* skip over the following fields: state, ppid, pgid, sid, tty_nr, tty_pgrp,
      * task->flags, min_flt, cmin_flt, maj_flt, cmaj_flt */
@@ -2136,8 +2156,22 @@ static BOOL is_process_wow64( const CLIENT_ID *id )
  * Note Windows never answers a thread class with STATUS_NOT_IMPLEMENTED, and
  * that its table ends at 59 -- everything above that is an invalid class.
  * Only classes without their own case below are answered from here. */
+static const unsigned char thr_11_data[8];
+static const unsigned char thr_34_data[1];
+static const unsigned char thr_37_data[16];
+static const unsigned char thr_59_data[] = { 0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00 };
+
 static const struct known_class known_thread_classes[] =
 {
+    /* Measured on Windows 11 25H2 with workspace/tests/infoprobe. Only the
+     * classes whose answer says nothing about the particular machine are
+     * filled in; the ones carrying an affinity mask, an address or a cookie
+     * are left refusing rather than given this machine's. */
+    {  11, 0xc0000004,  8, thr_11_data, 8 },
+    {  34, 0xc0000004,  8, thr_34_data, 1 },
+    {  37, 0xc0000004, 16, thr_37_data, 16 },
+    {  59, 0xc0000004,  8, thr_59_data, 8 },
+
     {   0, 0xc0000004, NO_LENGTH },
     {   1, 0xc0000004, NO_LENGTH },
     {   2, 0xc0000003, NO_LENGTH },
@@ -2383,7 +2417,7 @@ NTSTATUS WINAPI NtQueryInformationThread( HANDLE handle, THREADINFOCLASS class,
 
             kusrt.KernelTime.QuadPart = kusrt.UserTime.QuadPart = 0;
             if (unix_pid != -1 && unix_tid != -1)
-                ret = get_thread_times( unix_pid, unix_tid, &kusrt.KernelTime, &kusrt.UserTime );
+                ret = get_thread_times( unix_pid, unix_tid, &kusrt.KernelTime, &kusrt.UserTime, NULL );
             if (!ret && handle == GetCurrentThread())
             {
                 /* fall back to process times */
@@ -2401,7 +2435,10 @@ NTSTATUS WINAPI NtQueryInformationThread( HANDLE handle, THREADINFOCLASS class,
     }
 
     case ThreadDescriptorTableEntry:
-        /* measured: no LDT for a 64-bit process, so nothing to describe */
+        /* measured: no LDT for a 64-bit process, so nothing to describe. Windows
+         * returns STATUS_NOT_IMPLEMENTED here (confirmed against the reference
+         * machine's saved thrprobe capture, thr 6 probe=C0000002) -- one of the
+         * genuine thread-class NOT_IMPLEMENTED cases, so do NOT "correct" it. */
         if (is_win64 && !is_wow64()) return STATUS_NOT_IMPLEMENTED;
         status = get_thread_ldt_entry( handle, data, length );
         if (status == STATUS_SUCCESS && ret_len) *ret_len = sizeof(LDT_ENTRY);
@@ -2601,21 +2638,43 @@ NTSTATUS WINAPI NtQueryInformationThread( HANDLE handle, THREADINFOCLASS class,
     case ThreadSetTlsArrayAddress:
     default:
     {
-        unsigned int known_status, known_len;
+        const struct known_class *entry;
+        /* Of the 91 thread classes the reference machine has, only these
+         * report the length they want when the buffer is the wrong size --
+         * every other class leaves the caller's variable alone. This build
+         * reported it for seven. Measured with workspace/tests/infoprobe.exe.
+         * ThreadNameInformation answers for itself further up. */
+        BOOL reports_length = (class == ThreadNameInformation ||
+                               class == ThreadSelectedCpuSets ||
+                               class == ThreadPowerThrottlingState);
 
-        if (lookup_known_class( known_thread_classes, ARRAY_SIZE(known_thread_classes),
-                                class, &known_status, &known_len ))
+        entry = find_known_class( known_thread_classes, ARRAY_SIZE(known_thread_classes), class );
+        if (entry)
         {
-            if (known_len == NO_LENGTH) return known_status;
-            /* Reporting the size a caller needs and then never accepting
-             * that size leaves it asking forever, so only answer the probe. */
-            if (known_status == STATUS_INFO_LENGTH_MISMATCH && length >= known_len)
+            if (entry->len == NO_LENGTH) return entry->status;
+            if (entry->status == STATUS_INFO_LENGTH_MISMATCH && length >= entry->len)
+            {
+                /* Reporting the size a caller needs and then refusing that
+                 * exact size is an answer no real system gives, so a class we
+                 * measured is answered rather than only sized. */
+                if (entry->data)
+                {
+                    if (entry->data_len) memcpy( data, entry->data, entry->data_len );
+                    if (ret_len) *ret_len = entry->len;
+                    return STATUS_SUCCESS;
+                }
                 return STATUS_INVALID_PARAMETER;
-            if (ret_len) *ret_len = known_len;
-            return known_status;
+            }
+            if (ret_len && (!entry->status || reports_length)) *ret_len = entry->len;
+            return entry->status;
         }
+        /* Windows' thread class table ends well before this, and a class it
+         * does not have is refused as an invalid class -- it never answers a
+         * thread class with "not implemented". Measured on Windows 11 25H2:
+         * classes 80-90 all come back STATUS_INVALID_INFO_CLASS. Session 18
+         * fixed the same thing for 0-79 but its probe stopped there. */
         FIXME( "info class %d not supported yet\n", class );
-        return STATUS_NOT_IMPLEMENTED;
+        return STATUS_INVALID_INFO_CLASS;
     }
     }
 }

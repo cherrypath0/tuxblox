@@ -181,7 +181,35 @@ __ASM_GLOBAL_FUNC( RtlCaptureContext,
                    "movq %r15,0xf0(%rcx)\n\t"       /* context->R15 */
                    "movq (%rsp),%rax\n\t"
                    "movq %rax,0xf8(%rcx)\n\t"       /* context->Rip */
+                   /* fxsave needs its destination 16-byte aligned and raises a
+                    * general protection fault otherwise -- which surfaces as an
+                    * access violation at address -1, with no address to point
+                    * at. A CONTEXT is declared 16-byte aligned, so this is
+                    * normally safe, but Roblox's anti-tamper layer runs on a
+                    * deliberately misaligned stack (see the alignment fixup in
+                    * unix/signal_x86_64.c) and passes a CONTEXT eight bytes
+                    * out. Capture through an aligned buffer when that happens
+                    * rather than faulting inside the crash handler that was
+                    * trying to record why. */
+                   "testb $0xf,%cl\n\t"
+                   "jnz 1f\n\t"
                    "fxsave 0x100(%rcx)\n\t"         /* context->FltSave */
+                   "ret\n"
+                   "1:\tsubq $0x210,%rsp\n\t"
+                   __ASM_CFI(".cfi_adjust_cfa_offset 0x210\n\t")
+                   "leaq 15(%rsp),%rax\n\t"
+                   "andq $-16,%rax\n\t"
+                   "fxsave (%rax)\n\t"
+                   "leaq 0x100(%rcx),%r8\n\t"
+                   "movl $32,%edx\n\t"             /* 512 bytes, sixteen at a time */
+                   "2:\tmovups (%rax),%xmm0\n\t"
+                   "movups %xmm0,(%r8)\n\t"
+                   "addq $16,%rax\n\t"
+                   "addq $16,%r8\n\t"
+                   "decl %edx\n\t"
+                   "jnz 2b\n\t"
+                   "addq $0x210,%rsp\n\t"
+                   __ASM_CFI(".cfi_adjust_cfa_offset -0x210\n\t")
                    "ret" );
 
 
@@ -268,6 +296,20 @@ NTSTATUS call_seh_handlers( EXCEPTION_RECORD *rec, CONTEXT *orig_context )
     for (;;)
     {
         status = virtual_unwind( UNW_FLAG_EHANDLER, &dispatch, &context, need_backtrace( rec->ExceptionCode ) );
+        if (status == STATUS_BAD_FUNCTION_TABLE)
+        {
+            /* The walk cannot go any further. That means no handler was found
+             * -- not that a second thing has gone wrong. Reporting a new status
+             * here has the caller raise it, and dispatching *that* has to walk
+             * these same frames again and fail again, so one frame the unwinder
+             * cannot read becomes an unbounded regress that ends in a stack
+             * overflow, with the original exception never reported at all.
+             * Measured against Roblox's anti-tamper layer, which fabricates
+             * frames deliberately: 1982 faults and 1978 raised statuses from a
+             * single first fault. Windows reports the original exception once. */
+            WARN( "frame walk stopped at %I64x, treating the exception as unhandled\n", dispatch.ControlPc );
+            return STATUS_UNHANDLED_EXCEPTION;
+        }
         if (status != STATUS_SUCCESS) return status;
 
     unwind_done:

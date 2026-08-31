@@ -48,8 +48,13 @@ never complain.
 #define WINE_FILEDESCRIPTION_STR "Wine core dll"
 #endif
 
+/* InternalName below is built from this, and every module in the tree defines
+ * WINE_FILENAME_STR rather than WINE_FILENAME -- only one test defines the
+ * latter -- so InternalName came out empty everywhere. Windows always fills it
+ * in, normally with the same name as OriginalFilename. Roblox's anti-tamper
+ * layer reads ntdll's version resource and parses it. */
 #ifndef WINE_FILENAME
-#define WINE_FILENAME ""
+#define WINE_FILENAME WINE_FILENAME_STR
 #endif
 
 #ifndef WINE_FILENAME_STR

@@ -514,6 +514,12 @@ ULONG64 get_syscall_caller_pc(void)
     return frame ? frame->eip : 0;
 }
 
+ULONG64 get_syscall_caller_sp(void)
+{
+    struct syscall_frame *frame = get_syscall_frame();
+    return frame ? frame->esp : 0;
+}
+
 C_ASSERT( sizeof(struct syscall_frame) == 0x280 );
 
 #define RESTORE_FLAGS_INCOMPLETE_FRAME_CONTEXT 0x00008000

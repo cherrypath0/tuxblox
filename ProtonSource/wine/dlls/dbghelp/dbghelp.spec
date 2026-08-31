@@ -239,4 +239,7 @@
 #@ stub vc7fpo
 
 # wine extensions
-@ stdcall wine_get_module_information(long int64 ptr long)
+# Exported by ordinal only, for the reason given in ntdll.spec: the name
+# identifies Wine on its own. 1101 is where Windows' dbghelp starts its
+# ordinals, so pinning it here also brings this table's base into line.
+1101 stdcall -noname wine_get_module_information(long int64 ptr long)

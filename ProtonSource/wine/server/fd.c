@@ -410,6 +410,11 @@ static void set_user_shared_data_time(void)
         atomic_store_long(&user_shared_data->TimeZoneBias.High2Time, timezone_bias >> 32);
         atomic_store_ulong(&user_shared_data->TimeZoneBias.LowPart, timezone_bias);
         atomic_store_long(&user_shared_data->TimeZoneBias.High1Time, timezone_bias >> 32);
+        /* Windows counts the changes to the bias alongside it, and this is the
+         * one place that knows a change happened. A reader that watches the
+         * stamp instead of the bias itself sees nothing move without it. */
+        atomic_store_ulong(&user_shared_data->TimeZoneBiasStamp,
+                           user_shared_data->TimeZoneBiasStamp + 1);
 
         last_timezone_update = monotonic_time;
     }
@@ -425,7 +430,6 @@ static void set_user_shared_data_time(void)
     atomic_store_long(&user_shared_data->TickCount.High2Time, tick_count >> 32);
     atomic_store_ulong(&user_shared_data->TickCount.LowPart, tick_count);
     atomic_store_long(&user_shared_data->TickCount.High1Time, tick_count >> 32);
-    atomic_store_ulong(&user_shared_data->TickCountLowDeprecated, tick_count);
 }
 
 void set_current_time(void)

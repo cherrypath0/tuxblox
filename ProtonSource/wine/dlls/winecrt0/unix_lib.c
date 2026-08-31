@@ -26,6 +26,7 @@
 #include "winbase.h"
 #include "winternl.h"
 #include "wine/unixlib.h"
+#include "wine/ntdllordinals.h"
 
 static inline void *image_base(void)
 {
@@ -43,21 +44,22 @@ static NTSTATUS WINAPI unix_call_fallback( unixlib_handle_t handle, unsigned int
     return STATUS_DLL_NOT_FOUND;
 }
 
-static inline void *get_dispatcher( const char *name )
+/* by ordinal, not by name: ntdll exports the dispatcher nameless, see ntdll.spec */
+static inline void *get_dispatcher( ULONG ordinal )
 {
     UNICODE_STRING ntdll_name = RTL_CONSTANT_STRING( L"ntdll.dll" );
     HMODULE module;
     void **dispatcher;
 
     LdrGetDllHandle( NULL, 0, &ntdll_name, &module );
-    dispatcher = RtlFindExportedRoutineByName( module, "__wine_unix_call_dispatcher" );
+    if (LdrGetProcedureAddress( module, NULL, ordinal, (void **)&dispatcher )) return (void *)unix_call_fallback;
     return dispatcher ? *dispatcher : (void *)unix_call_fallback;
 }
 
 static NTSTATUS WINAPI unix_call_init( unixlib_handle_t handle, unsigned int code, void *args )
 {
     InterlockedExchangePointer( (void **)&__wine_unix_call_dispatcher,
-                                get_dispatcher( "__wine_unix_call_dispatcher" ));
+                                get_dispatcher( NTDLL_ORDINAL_UNIX_CALL_DISPATCHER ));
     return __wine_unix_call_dispatcher( handle, code, args );
 }
 
@@ -73,7 +75,7 @@ static __attribute__((used)) NTSTATUS (WINAPI *__wine_unix_call_dispatcher_arm64
 static NTSTATUS WINAPI unix_call_init_arm64ec( unixlib_handle_t handle, unsigned int code, void *args )
 {
     InterlockedExchangePointer( (void **)&__wine_unix_call_dispatcher_arm64ec,
-                                get_dispatcher( "__wine_unix_call_dispatcher_arm64ec" ));
+                                get_dispatcher( NTDLL_ORDINAL_UNIX_CALL_DISPATCHER_ARM64EC ));
     return __wine_unix_call_arm64ec( handle, code, args );
 }
 

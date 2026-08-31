@@ -137,4 +137,7 @@
 
 ################################################################
 # Wine internal extensions
-@ stdcall __wine_ime_wnd_proc(long long long long long)
+# Exported by ordinal only, for the reason given in ntdll.spec: the name
+# identifies Wine on its own. Ordinal 1 keeps this table's base at 1, which is
+# what Windows' imm32 has. user32 resolves it by that ordinal.
+1 stdcall -noname __wine_ime_wnd_proc(long long long long long)

@@ -667,6 +667,40 @@ unsigned int get_handle_table_count( struct process *process )
     return process->handles->count;
 }
 
+/* number of handles actually open, which is what Windows reports as a process's
+ * handle count. The table's own count is how many entries have been allocated
+ * for it, and that only ever doubles -- 32, 64, 128 -- so reporting it says
+ * nothing about the process and never lands on an ordinary-looking number. */
+unsigned int get_handle_count( struct process *process )
+{
+    struct handle_table *table = process->handles;
+    unsigned int i, count = 0;
+
+    if (!table) return 0;
+    for (i = 0; i <= (unsigned int)table->last && i < (unsigned int)table->count; i++)
+        if (table->entries[i].ptr) count++;
+    return count;
+}
+
+/* the handle values a process has open, in ascending order, up to max entries.
+ * Windows reports these as a plain array of handle values; the count returned
+ * is the number the process has, so a caller that supplied too small a buffer
+ * learns how many there are. */
+unsigned int list_handles( struct process *process, unsigned int *handles, unsigned int max )
+{
+    struct handle_table *table = process->handles;
+    unsigned int i, count = 0;
+
+    if (!table) return 0;
+    for (i = 0; i <= (unsigned int)table->last && i < (unsigned int)table->count; i++)
+    {
+        if (!table->entries[i].ptr) continue;
+        if (count < max) handles[count] = index_to_handle( i );
+        count++;
+    }
+    return count;
+}
+
 /* close a handle */
 DECL_HANDLER(close_handle)
 {

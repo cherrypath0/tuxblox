@@ -324,50 +324,91 @@ static const char *debugstr_TokenInformationClass( TOKEN_INFORMATION_CLASS class
 NTSTATUS WINAPI NtQueryInformationToken( HANDLE token, TOKEN_INFORMATION_CLASS class,
                                          void *info, ULONG length, ULONG *retlen )
 {
-    static const ULONG info_len [] =
+    /* What Windows answers for every token class, measured on Windows 11 25H2
+     * with workspace/tests/tokenprobe.exe. Two rules come straight out of that
+     * capture and this build broke both:
+     *
+     *   - It never answers a token class with STATUS_NOT_IMPLEMENTED. Not once
+     *     in 61 classes. A class it does not have is refused as an invalid
+     *     class; a class it has reports the size it wants.
+     *   - It leaves the caller's returned length untouched when it refuses a
+     *     class outright, and writes it only when it is telling the caller how
+     *     much room to bring.
+     *
+     * This build got 44 of the 61 statuses wrong and wrote a length for 22 the
+     * reference machine leaves alone. `len` is the fixed size the class wants,
+     * or zero where the case below works it out; `refuse` is non-zero for a
+     * class refused before any of that. */
+    static const struct
     {
-        0,
-        0,    /* TokenUser */
-        0,    /* TokenGroups */
-        0,    /* TokenPrivileges */
-        0,    /* TokenOwner */
-        0,    /* TokenPrimaryGroup */
-        0,    /* TokenDefaultDacl */
-        sizeof(TOKEN_SOURCE), /* TokenSource */
-        sizeof(TOKEN_TYPE),  /* TokenType */
-        sizeof(SECURITY_IMPERSONATION_LEVEL), /* TokenImpersonationLevel */
-        sizeof(TOKEN_STATISTICS), /* TokenStatistics */
-        0,    /* TokenRestrictedSids */
-        sizeof(DWORD), /* TokenSessionId */
-        0,    /* TokenGroupsAndPrivileges */
-        0,    /* TokenSessionReference */
-        0,    /* TokenSandBoxInert */
-        0,    /* TokenAuditPolicy */
-        0,    /* TokenOrigin */
-        sizeof(TOKEN_ELEVATION_TYPE), /* TokenElevationType */
-        sizeof(TOKEN_LINKED_TOKEN), /* TokenLinkedToken */
-        sizeof(TOKEN_ELEVATION), /* TokenElevation */
-        0,    /* TokenHasRestrictions */
-        0,    /* TokenAccessInformation */
-        0,    /* TokenVirtualizationAllowed */
-        sizeof(DWORD), /* TokenVirtualizationEnabled */
-        sizeof(TOKEN_MANDATORY_LABEL) + sizeof(SID), /* TokenIntegrityLevel [sizeof(SID) includes one SubAuthority] */
-        sizeof(DWORD), /* TokenUIAccess */
-        0,    /* TokenMandatoryPolicy */
-        0,    /* TokenLogonSid */
-        sizeof(DWORD), /* TokenIsAppContainer */
-        0,    /* TokenCapabilities */
-        sizeof(TOKEN_APPCONTAINER_INFORMATION) + sizeof(SID), /* TokenAppContainerSid */
-        0,    /* TokenAppContainerNumber */
-        0,    /* TokenUserClaimAttributes*/
-        0,    /* TokenDeviceClaimAttributes */
-        0,    /* TokenRestrictedUserClaimAttributes */
-        0,    /* TokenRestrictedDeviceClaimAttributes */
-        0,    /* TokenDeviceGroups */
-        0,    /* TokenRestrictedDeviceGroups */
-        0,    /* TokenSecurityAttributes */
-        0,    /* TokenIsRestricted */
-        0     /* TokenProcessTrustLevel */
+        unsigned char  known;
+        unsigned int   len;
+        unsigned int   status;
+        unsigned int   refuse;
+    }
+    info_len [] =
+    {
+#define TOK_VAR       { 1, 0, STATUS_BUFFER_TOO_SMALL, 0 }          /* size worked out below */
+#define TOK_FIXED(n)  { 1, (n), STATUS_BUFFER_TOO_SMALL, 0 }
+#define TOK_LEN(n)    { 1, (n), STATUS_INFO_LENGTH_MISMATCH, 0 }    /* refused as a length mismatch, not as too small */
+#define TOK_NONE      { 0, 0, 0, 0 }                                /* Windows has no such class */
+#define TOK_REFUSE(s) { 1, 0, 0, (s) }
+        TOK_NONE,                                  /*  0 */
+        TOK_VAR,                                   /*  1 TokenUser */
+        TOK_VAR,                                   /*  2 TokenGroups */
+        TOK_VAR,                                   /*  3 TokenPrivileges */
+        TOK_VAR,                                   /*  4 TokenOwner */
+        TOK_VAR,                                   /*  5 TokenPrimaryGroup */
+        TOK_VAR,                                   /*  6 TokenDefaultDacl */
+        TOK_FIXED(sizeof(TOKEN_SOURCE)),           /*  7 TokenSource */
+        TOK_FIXED(sizeof(TOKEN_TYPE)),             /*  8 TokenType */
+        TOK_FIXED(sizeof(SECURITY_IMPERSONATION_LEVEL)), /* 9 TokenImpersonationLevel */
+        TOK_FIXED(sizeof(TOKEN_STATISTICS)),       /* 10 TokenStatistics */
+        TOK_FIXED(8),                              /* 11 TokenRestrictedSids */
+        TOK_FIXED(sizeof(DWORD)),                  /* 12 TokenSessionId */
+        TOK_VAR,                                   /* 13 TokenGroupsAndPrivileges */
+        TOK_NONE,                                  /* 14 TokenSessionReference */
+        TOK_FIXED(sizeof(DWORD)),                  /* 15 TokenSandBoxInert */
+        TOK_REFUSE(STATUS_PRIVILEGE_NOT_HELD),     /* 16 TokenAuditPolicy */
+        TOK_FIXED(sizeof(TOKEN_ORIGIN)),           /* 17 TokenOrigin */
+        TOK_FIXED(sizeof(TOKEN_ELEVATION_TYPE)),   /* 18 TokenElevationType */
+        TOK_LEN(sizeof(TOKEN_LINKED_TOKEN)),       /* 19 TokenLinkedToken */
+        TOK_LEN(sizeof(TOKEN_ELEVATION)),          /* 20 TokenElevation */
+        TOK_FIXED(sizeof(BOOLEAN)),                /* 21 TokenHasRestrictions */
+        TOK_VAR,                                   /* 22 TokenAccessInformation */
+        TOK_FIXED(sizeof(DWORD)),                  /* 23 TokenVirtualizationAllowed */
+        TOK_FIXED(sizeof(DWORD)),                  /* 24 TokenVirtualizationEnabled */
+        TOK_FIXED(sizeof(TOKEN_MANDATORY_LABEL) + sizeof(SID)), /* 25 TokenIntegrityLevel */
+        TOK_FIXED(sizeof(DWORD)),                  /* 26 TokenUIAccess */
+        TOK_FIXED(sizeof(DWORD)),                  /* 27 TokenMandatoryPolicy */
+        TOK_VAR,                                   /* 28 TokenLogonSid */
+        TOK_FIXED(sizeof(DWORD)),                  /* 29 TokenIsAppContainer */
+        TOK_FIXED(8),                              /* 30 TokenCapabilities */
+        TOK_FIXED(sizeof(TOKEN_APPCONTAINER_INFORMATION)), /* 31 TokenAppContainerSid */
+        TOK_FIXED(sizeof(DWORD)),                  /* 32 TokenAppContainerNumber */
+        TOK_FIXED(16),                             /* 33 TokenUserClaimAttributes */
+        TOK_FIXED(16),                             /* 34 TokenDeviceClaimAttributes */
+        TOK_NONE,                                  /* 35 TokenRestrictedUserClaimAttributes */
+        TOK_NONE,                                  /* 36 TokenRestrictedDeviceClaimAttributes */
+        TOK_FIXED(24),                             /* 37 TokenDeviceGroups */
+        TOK_NONE,                                  /* 38 TokenRestrictedDeviceGroups */
+        TOK_FIXED(16),                             /* 39 TokenSecurityAttributes */
+        TOK_FIXED(sizeof(DWORD)),                  /* 40 TokenIsRestricted */
+        TOK_FIXED(8),                              /* 41 TokenProcessTrustLevel */
+        TOK_FIXED(sizeof(DWORD)),                  /* 42 TokenPrivateNameSpace */
+        TOK_FIXED(16),                             /* 43 TokenSingletonAttributes */
+        TOK_FIXED(16),                             /* 44 TokenBnoIsolation */
+        TOK_NONE,                                  /* 45 TokenChildProcessFlags */
+        TOK_NONE,                                  /* 46 TokenIsLessPrivilegedAppContainer */
+        TOK_FIXED(sizeof(DWORD)),                  /* 47 TokenIsSandboxed */
+        TOK_FIXED(sizeof(DWORD)),                  /* 48 TokenIsAppSilo */
+        TOK_NONE,                                  /* 49 TokenLoggingInformation */
+        TOK_NONE                                   /* 50 TokenLearningMode */
+#undef TOK_VAR
+#undef TOK_FIXED
+#undef TOK_LEN
+#undef TOK_NONE
+#undef TOK_REFUSE
     };
 
     ULONG len = 0;
@@ -375,9 +416,41 @@ NTSTATUS WINAPI NtQueryInformationToken( HANDLE token, TOKEN_INFORMATION_CLASS c
 
     TRACE( "(%p,%s,%p,%d,%p)\n", token, debugstr_TokenInformationClass(class), info, length, retlen );
 
-    if (class < MaxTokenInfoClass) len = info_len[class];
+    if (class >= ARRAY_SIZE(info_len) || !info_len[class].known) return STATUS_INVALID_INFO_CLASS;
+    if (info_len[class].refuse) return info_len[class].refuse;
+
+    /* A primary token has no impersonation level. Windows refuses the question
+     * as an invalid class rather than an invalid parameter, and leaves the
+     * caller's returned length alone -- so it has to be decided before the
+     * length is written below, which is why the whole class is answered here
+     * rather than in the switch. One server round trip, not two: the same
+     * reply carries both whether the token is primary and its level. */
+    if (class == TokenImpersonationLevel)
+    {
+        SECURITY_IMPERSONATION_LEVEL level = SecurityAnonymous;
+        BOOL primary = TRUE;
+
+        SERVER_START_REQ( get_token_info )
+        {
+            req->handle = wine_server_obj_handle( token );
+            if (!(status = wine_server_call( req )))
+            {
+                primary = reply->primary;
+                level = reply->impersonation_level;
+            }
+        }
+        SERVER_END_REQ;
+        if (status) return status;
+        if (primary) return STATUS_INVALID_INFO_CLASS;
+        if (retlen) *retlen = sizeof(level);
+        if (length < sizeof(level)) return STATUS_BUFFER_TOO_SMALL;
+        *(SECURITY_IMPERSONATION_LEVEL *)info = level;
+        return STATUS_SUCCESS;
+    }
+
+    len = info_len[class].len;
     if (retlen) *retlen = len;
-    if (length < len) return STATUS_BUFFER_TOO_SMALL;
+    if (length < len) return info_len[class].status;
 
     switch (class)
     {
@@ -509,20 +582,6 @@ NTSTATUS WINAPI NtQueryInformationToken( HANDLE token, TOKEN_INFORMATION_CLASS c
             status = wine_server_call( req );
             if (retlen) *retlen = reply->sid_len + sizeof(TOKEN_OWNER);
             if (status == STATUS_SUCCESS) towner->Owner = sid;
-        }
-        SERVER_END_REQ;
-        break;
-
-    case TokenImpersonationLevel:
-        SERVER_START_REQ( get_token_info )
-        {
-            SECURITY_IMPERSONATION_LEVEL *level = info;
-            req->handle = wine_server_obj_handle( token );
-            if (!(status = wine_server_call( req )))
-            {
-                if (!reply->primary) *level = reply->impersonation_level;
-                else status = STATUS_INVALID_PARAMETER;
-            }
         }
         SERVER_END_REQ;
         break;
@@ -665,6 +724,82 @@ NTSTATUS WINAPI NtQueryInformationToken( HANDLE token, TOKEN_INFORMATION_CLASS c
             *(DWORD *)info = 0;
             break;
         }
+
+    case TokenIsSandboxed:
+        /* Nothing here runs in a sandbox, so this is the honest answer rather
+         * than a stub -- and a process that asks gets an answer instead of the
+         * length error the missing table entry used to produce. */
+        *(DWORD *)info = 0;
+        break;
+
+    /* Classes the reference machine answers and this build used to call not
+     * implemented. Each is answered from what is actually true here rather than
+     * from the reference machine's own security data: nothing under Wine is
+     * restricted, sandbox-inert, virtualised, in an app container or in a silo,
+     * and no capabilities, device groups or claim attributes are granted. The
+     * sizes are the ones Windows reports for the same classes.
+     * Measured with workspace/tests/tokenprobe.exe. */
+    case TokenIsRestricted:            /* 40 */
+    case TokenSandBoxInert:            /* 15 */
+    case TokenAppContainerNumber:      /* 32 */
+    case TokenPrivateNameSpace:        /* 42 */
+    case TokenIsAppSilo:               /* 48 */
+        *(DWORD *)info = 0;
+        break;
+
+    case TokenVirtualizationAllowed:   /* 23 */
+        /* A policy bit rather than anything about this machine; Windows reports
+         * it set for an ordinary token. */
+        *(DWORD *)info = 1;
+        break;
+
+    case TokenMandatoryPolicy:         /* 27 */
+        /* NO_WRITE_UP | NEW_PROCESS_MIN, the default policy Windows reports. */
+        *(DWORD *)info = 3;
+        break;
+
+    case TokenHasRestrictions:         /* 21 */
+        *(BOOLEAN *)info = FALSE;
+        break;
+
+    case TokenRestrictedSids:          /* 11 */
+    case TokenCapabilities:            /* 30 */
+        /* A TOKEN_GROUPS with no entries. Windows reports eight bytes and
+         * writes only the count, leaving the rest of them alone. */
+        ((TOKEN_GROUPS *)info)->GroupCount = 0;
+        break;
+
+    case TokenDeviceGroups:            /* 37 */
+        memset( info, 0, len );
+        break;
+
+    case TokenProcessTrustLevel:       /* 41 */
+        memset( info, 0, len );
+        break;
+
+    case TokenBnoIsolation:            /* 44 */
+        /* TOKEN_BNO_ISOLATION_INFORMATION: no prefix, isolation off. */
+        memset( info, 0, len );
+        break;
+
+    case TokenUserClaimAttributes:     /* 33 */
+    case TokenDeviceClaimAttributes:   /* 34 */
+    case TokenSingletonAttributes:     /* 43 */
+    case TokenSecurityAttributes:      /* 39 */
+        /* CLAIM_SECURITY_ATTRIBUTES_INFORMATION with no attributes: version 1,
+         * reserved zero, a count of none and a null array. */
+        memset( info, 0, len );
+        *(USHORT *)info = 1;
+        break;
+
+    case TokenOrigin:                  /* 17 */
+        /* The logon session the token came from. There is no real one here --
+         * TokenStatistics reports the same thing as AuthenticationId and has
+         * carried a FIXME for it for years -- so this stays zero rather than
+         * inventing a session id, which is a different number entirely. Both
+         * should be filled in together if a real one ever exists. */
+        memset( info, 0, len );
+        break;
 
     case TokenLinkedToken:
         SERVER_START_REQ( create_linked_token )

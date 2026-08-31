@@ -1228,8 +1228,55 @@ static BOOL set_unalign_atomic_mode( ULONG64 flags ) {
 /**********************************************************************
  *           NtQueryInformationProcess  (NTDLL.@)
  */
+static const unsigned char prc_47_data[] =
+{
+    0x00, 0x00,
+};
+
+static const unsigned char prc_55_data[] =
+{
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+};
+
+static const unsigned char prc_61_data[] =
+{
+    0x00,
+};
+
+static const unsigned char prc_79_data[] =
+{
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+};
+
+static const unsigned char prc_82_data[] =
+{
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+};
+
+static const unsigned char prc_114_data[] =
+{
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00,
+};
+
 static const struct known_class known_process_classes[] =
 {
+    /* Classes this build used to deny outright -- see the note on the system
+     * table. NO_LENGTH is for the ones Windows refuses without ever saying how
+     * much room it wants. */
+    {  10, 0xc0000002, NO_LENGTH },
+    {  14, 0xc0000004, NO_LENGTH },
+    {  15, 0xc0000001, NO_LENGTH },
+    {  19, 0xc0000004, NO_LENGTH },
+    {  23, 0xc0000004, NO_LENGTH },
+    {  28, 0xc0000004, NO_LENGTH },
+    {  29, 0xc0000004, NO_LENGTH },
+    {  32, 0xc0000004, NO_LENGTH },
+    {  66, 0x00000000,         8 },
+    {  67, 0x00000000,         8 },
+    {  76, 0x00000000,       432 },
+    {  88, 0x00000000,         0 },
+
     {   5, 0xc0000003, NO_LENGTH },
     {   6, 0xc0000003, NO_LENGTH },
     {   8, 0xc0000003, NO_LENGTH },
@@ -1256,7 +1303,7 @@ static const struct known_class known_process_classes[] =
     {  44, 0xc0000004, NO_LENGTH },
     {  45, 0xc0000004, NO_LENGTH },
     {  46, 0xc0000004, NO_LENGTH },
-    {  47, 0xc0000023, 2 },
+{  47, 0xc0000023,      2, prc_47_data, 2 },  /* refused as too small, not as a length mismatch */
     {  48, 0xc0000003, NO_LENGTH },
     {  49, 0xc0000004, NO_LENGTH },
     {  50, 0xc0000004, 62 },
@@ -1264,12 +1311,12 @@ static const struct known_class known_process_classes[] =
     {  52, 0xc0000004, NO_LENGTH },
     {  53, 0xc0000003, NO_LENGTH },
     {  54, 0xc0000004, NO_LENGTH },
-    {  55, 0xc0000004, NO_LENGTH },
+    {  55, 0xc0000004,      8, prc_55_data, 8 },
     {  56, 0xc0000003, NO_LENGTH },
     {  57, 0xc0000003, NO_LENGTH },
     {  59, 0xc0000004, NO_LENGTH },
     {  60, 0xc0000004, 80 },
-    {  61, 0xc0000004, NO_LENGTH },
+    {  61, 0xc0000004,      8, prc_61_data, 1 },
     {  62, 0xc0000003, NO_LENGTH },
     {  63, 0xc0000003, NO_LENGTH },
     {  64, 0xc0000004, 292 },
@@ -1284,10 +1331,10 @@ static const struct known_class known_process_classes[] =
     {  75, 0xc0000004, NO_LENGTH },
     {  77, 0xc0000004, NO_LENGTH },
     {  78, 0xc0000003, NO_LENGTH },
-    {  79, 0xc0000004, NO_LENGTH },
+    {  79, 0xc0000004,      8, prc_79_data, 8 },
     {  80, 0xc0000003, NO_LENGTH },
     {  81, 0xc0000022, NO_LENGTH },
-    {  82, 0xc0000004, NO_LENGTH },
+    {  82, 0xc0000004,      8, prc_82_data, 8 },
     {  83, 0xc0000003, NO_LENGTH },
     {  84, 0xc0000004, NO_LENGTH },
     {  85, 0xc0000022, NO_LENGTH },
@@ -1310,6 +1357,7 @@ static const struct known_class known_process_classes[] =
     { 108, 0xc0000003, NO_LENGTH },
     { 112, 0xc0000003, NO_LENGTH },
     { 113, 0xc0000003, NO_LENGTH },
+    { 114, 0xc0000004,     16, prc_114_data, 16 },
     { 116, 0xc0000003, NO_LENGTH },
     { 117, 0xc0000003, NO_LENGTH },
     { 118, 0xc0000003, NO_LENGTH },
@@ -1336,6 +1384,36 @@ static const struct known_class known_process_classes[] =
     { 139, 0xc0000003, NO_LENGTH },
     { 140, 0xc0000003, NO_LENGTH },
 };
+
+/* Whether Windows writes the caller's returned-length when a query fails.
+ *
+ * Measured on Windows 11 25H2 with workspace/tests/infoprobe.exe: of the 141
+ * process classes that machine has, only these twelve report the length they
+ * want when the buffer is the wrong size. Every other class leaves the
+ * caller's variable exactly as the caller left it, so a caller that reads it
+ * back after a failed query sees its own value. This build wrote it for 39,
+ * which any process can read with no privilege and no second call. */
+static BOOL process_class_reports_length( PROCESSINFOCLASS class )
+{
+    switch (class)
+    {
+    case ProcessImageFileName:              /* 27 */
+    case ProcessImageFileNameWin32:         /* 43 */
+    case ProcessGroupInformation:           /* 47 */
+    case ProcessWindowInformation:          /* 50 */
+    case ProcessHandleInformation:          /* 51 */
+    case ProcessCommandLineInformation:     /* 60 */
+    case ProcessTelemetryIdInformation:     /* 64 */
+    case ProcessDefaultCpuSetsInformation:  /* 66 */
+    case ProcessAllowedCpuSetsInformation:  /* 67 */
+    case ProcessEnergyValues:               /* 76 */
+    case ProcessUptimeInformation:          /* 88 */
+    case ProcessLeapSecondInformation:      /* 97 */
+        return TRUE;
+    default:
+        return FALSE;
+    }
+}
 
 
 NTSTATUS WINAPI NtQueryInformationProcess( HANDLE handle, PROCESSINFOCLASS class, void *info,
@@ -1368,23 +1446,19 @@ NTSTATUS WINAPI NtQueryInformationProcess( HANDLE handle, PROCESSINFOCLASS class
 
     switch (class)
     {
+    /* Only classes a real Windows also rejects as "no such class" belong here.
+     * Eight that used to be on this list do exist there -- it answers them
+     * with a length error, or a privilege or not-implemented status -- so they
+     * now fall through to the measured table instead of being denied. */
     UNIMPLEMENTED_INFO_CLASS(ProcessBasePriority);
     UNIMPLEMENTED_INFO_CLASS(ProcessRaisePriority);
     UNIMPLEMENTED_INFO_CLASS(ProcessExceptionPort);
     UNIMPLEMENTED_INFO_CLASS(ProcessAccessToken);
-    UNIMPLEMENTED_INFO_CLASS(ProcessLdtInformation);
     UNIMPLEMENTED_INFO_CLASS(ProcessLdtSize);
     UNIMPLEMENTED_INFO_CLASS(ProcessIoPortHandlers);
-    UNIMPLEMENTED_INFO_CLASS(ProcessPooledUsageAndLimits);
-    UNIMPLEMENTED_INFO_CLASS(ProcessWorkingSetWatch);
     UNIMPLEMENTED_INFO_CLASS(ProcessUserModeIOPL);
     UNIMPLEMENTED_INFO_CLASS(ProcessEnableAlignmentFaultFixup);
-    UNIMPLEMENTED_INFO_CLASS(ProcessWx86Information);
-    UNIMPLEMENTED_INFO_CLASS(ProcessDeviceMap);
     UNIMPLEMENTED_INFO_CLASS(ProcessForegroundInformation);
-    UNIMPLEMENTED_INFO_CLASS(ProcessLUIDDeviceMapsEnabled);
-    UNIMPLEMENTED_INFO_CLASS(ProcessBreakOnTermination);
-    UNIMPLEMENTED_INFO_CLASS(ProcessHandleTracing);
 
     case ProcessBasicInformation:
         {
@@ -1640,29 +1714,49 @@ NTSTATUS WINAPI NtQueryInformationProcess( HANDLE handle, PROCESSINFOCLASS class
         break;
 
     case ProcessHandleCount:
-        if (size >= 4)
+        /* Measured on Windows: any buffer of at least a ULONG is accepted, the
+         * count goes in the first four bytes and four is the length reported
+         * back. A buffer smaller than that is refused without the required
+         * length ever being written, so this returns rather than falling
+         * through to the assignment at the end. */
+        if (size < sizeof(ULONG)) return STATUS_INFO_LENGTH_MISMATCH;
+        if (!info) return STATUS_ACCESS_VIOLATION;
+        SERVER_START_REQ(get_process_handle_count)
         {
-            if (!info) ret = STATUS_ACCESS_VIOLATION;
-            else if (!handle) ret = STATUS_INVALID_HANDLE;
-            else
+            req->handle = wine_server_obj_handle( handle );
+            if (!(ret = wine_server_call( req )))
             {
-                FIXME( "ProcessHandleCount (%p,%p,0x%08x,%p) stub\n", handle, info, size, ret_len );
-                memset(info, 0, 4);
-                len = 4;
+                *(ULONG *)info = reply->count;
+                len = sizeof(ULONG);
             }
-            if (size > 4) ret = STATUS_INFO_LENGTH_MISMATCH;
         }
-        else
-        {
-            len = 4;
-            ret = STATUS_INFO_LENGTH_MISMATCH;
-        }
+        SERVER_END_REQ;
         break;
 
     case ProcessHandleTable:
-        FIXME( "ProcessHandleTable (%p,%p,0x%08x,%p) stub\n", handle, info, size, ret_len );
-        len = 0;
+    {
+        /* The handle values the process has open, as a plain array of ULONGs.
+         * This used to report success with nothing written, which says the
+         * process holds no handles -- the same falsehood ProcessHandleCount
+         * told until it was answered from the server, and no process on
+         * Windows has an empty handle table. Windows refuses a buffer that
+         * cannot hold the whole array without saying how much room it wants;
+         * measured with workspace/tests/infoprobe.exe. */
+        ULONG count = 0;
+
+        if (size && !info) return STATUS_ACCESS_VIOLATION;
+        SERVER_START_REQ(get_process_handle_table)
+        {
+            req->handle = wine_server_obj_handle( handle );
+            wine_server_set_reply( req, info, size );
+            if (!(ret = wine_server_call( req ))) count = reply->count;
+        }
+        SERVER_END_REQ;
+        if (ret) break;
+        len = count * sizeof(ULONG);
+        if (size < len) return STATUS_INFO_LENGTH_MISMATCH;
         break;
+    }
 
     case ProcessAffinityMask:
         len = sizeof(ULONG_PTR);
@@ -1902,18 +1996,26 @@ NTSTATUS WINAPI NtQueryInformationProcess( HANDLE handle, PROCESSINFOCLASS class
 
     default:
     {
-        unsigned int known_status, known_len;
+        const struct known_class *entry;
 
-        if (lookup_known_class( known_process_classes, ARRAY_SIZE(known_process_classes),
-                                class, &known_status, &known_len ))
+        entry = find_known_class( known_process_classes, ARRAY_SIZE(known_process_classes), class );
+        if (entry)
         {
-            if (known_len == NO_LENGTH) return known_status;
-            /* Reporting the size a caller needs and then never accepting
-             * that size leaves it asking forever, so only answer the probe. */
-            if (known_status == STATUS_INFO_LENGTH_MISMATCH && size >= known_len)
-                return STATUS_NOT_IMPLEMENTED;
-            len = known_len;
-            ret = known_status;
+            if (entry->len == NO_LENGTH) return entry->status;
+            if ((entry->status == STATUS_INFO_LENGTH_MISMATCH ||
+                 entry->status == STATUS_BUFFER_TOO_SMALL) && size >= entry->len)
+            {
+                /* Reporting the size a caller needs and then refusing that
+                 * exact size is an answer no real system gives, so a class we
+                 * measured is answered rather than only sized. */
+                if (!entry->data) return STATUS_NOT_IMPLEMENTED;
+                if (entry->data_len) memcpy( info, entry->data, entry->data_len );
+                len = entry->len;
+                ret = STATUS_SUCCESS;
+                break;
+            }
+            len = entry->len;
+            ret = entry->status;
             break;
         }
 
@@ -1924,7 +2026,7 @@ NTSTATUS WINAPI NtQueryInformationProcess( HANDLE handle, PROCESSINFOCLASS class
     }
     }
 
-    if (ret_len) *ret_len = len;
+    if (ret_len && (!ret || process_class_reports_length( class ))) *ret_len = len;
     return ret;
 }
 
@@ -2150,6 +2252,16 @@ NTSTATUS WINAPI NtSetInformationProcess( HANDLE handle, PROCESSINFOCLASS class, 
         if (size < sizeof(callback)) return STATUS_INFO_LENGTH_MISMATCH;
         if (size >= sizeof(PROCESS_INSTRUMENTATION_CALLBACK_INFORMATION)) callback = instr->Callback;
         else                                                              callback = *(void **)info;
+        if (tuxblox_trace_enabled())
+        {
+            char detail[128];
+            const ULONG64 *raw = info;
+
+            snprintf( detail, sizeof(detail), "size=%u raw0=0x%llx raw1=0x%llx picked=%p",
+                      (unsigned)size, (unsigned long long)raw[0],
+                      (unsigned long long)(size >= 16 ? raw[1] : 0), callback );
+            tuxblox_trace_record( "ProcessInstrumentationCallback", detail );
+        }
         ret = STATUS_SUCCESS;
         if (handle != GetCurrentProcess())
         {
