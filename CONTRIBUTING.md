@@ -1,4 +1,4 @@
-![TuxBlox Banner](https://static.tuxblox.net/images/png/banner/tuxblox-banner-medium.png)
+![TuxBlox Banner](https://static.tuxblox.net/images/banner/tuxblox-banner.png)
 
 # Contributing to TuxBlox
 

@@ -26,9 +26,19 @@ int main() {
     av.installed = {{"version-a", "live", "t1"}, {"version-b", "live", "t2"}};
     av.activeHash = "version-a";
 
-    assert(!canDeleteVersion(av, "version-a"));  // active -- blocked
+    assert(canDeleteVersion(av, "version-a"));   // active -- allowed, another version remains
     assert(canDeleteVersion(av, "version-b"));   // installed, not active -- allowed
     assert(!canDeleteVersion(av, "version-c"));  // not installed at all -- nothing to delete
+
+    // The last remaining version stays deletable: the prefix simply ends up
+    // with no Roblox in it, and the next launch installs one again.
+    AppVersions only;
+    only.installed = {{"version-a", "live", "t1"}};
+    only.activeHash = "version-a";
+    assert(canDeleteVersion(only, "version-a"));
+
+    AppVersions none;
+    assert(!canDeleteVersion(none, "version-a"));
 
     printf("versions_tab_state: all tests passed\n");
     return 0;

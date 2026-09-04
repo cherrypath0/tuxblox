@@ -29,6 +29,7 @@ class StartTab;
 class SettingsTab;
 class AboutTab;
 class VersionsTab;
+class FastFlagsTab;
 class UpdatePopup;
 
 // Replaces Ui/ui.cpp entirely. Owns the QTimer that polls App::snapshot()
@@ -58,6 +59,7 @@ private:
     SettingsTab* settingsTab_ = nullptr;
     AboutTab* aboutTab_ = nullptr;
     VersionsTab* versionsTab_ = nullptr;
+    FastFlagsTab* fastFlagsTab_ = nullptr;
     UpdatePopup* updatePopup_ = nullptr;
     QTimer* pollTimer_ = nullptr;
     bool containerWarningShown_ = false;

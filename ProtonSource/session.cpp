@@ -200,6 +200,16 @@ int runSimple(const std::vector<std::string>& command, const Environment& localE
     return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
 }
 
+// A waitpid() status turned into the single number the launcher shows. A
+// process killed by a signal reports as 128 + the signal, matching what a
+// shell would report for the same death.
+int exitCodeFromStatus(int status) {
+    if (WIFEXITED(status)) {
+        return WEXITSTATUS(status);
+    }
+    return WIFSIGNALED(status) ? 128 + WTERMSIG(status) : -1;
+}
+
 } // namespace
 
 std::vector<SessionHolder> prefixSessionHolders(const fs::path& prefixDir) {
@@ -525,7 +535,7 @@ int Session::runProc(const std::vector<std::string>& command, const Environment&
             runSimple({proton.wineserverBin.string(), "-k"}, localEnv, logFd);
 
             sigprocmask(SIG_SETMASK, &previous, nullptr);
-            relayRealExitCode();
+            reportExitCodes(exitCodeFromStatus(status));
             // A user-initiated Ctrl+C is not a TuxBlox failure, so this
             // reports as "the wrapped process ended abnormally".
             std::exit(2);
@@ -541,40 +551,55 @@ int Session::runProc(const std::vector<std::string>& command, const Environment&
     }
 
     sigprocmask(SIG_SETMASK, &previous, nullptr);
-    relayRealExitCode();
 
-    if (WIFEXITED(status)) {
-        return WEXITSTATUS(status);
-    }
-    return WIFSIGNALED(status) ? 128 + WTERMSIG(status) : -1;
+    const int exitCode = exitCodeFromStatus(status);
+    reportExitCodes(exitCode);
+    return exitCode;
 }
 
-void Session::relayRealExitCode() {
-    // The wrapped process writes its real, non-truncated exit code to its own
-    // stderr, which runProc redirects into the log file. The launcher only
-    // reads this process's stderr, so carry the marker across that boundary.
-    if (logPath.empty()) {
-        return;
-    }
-    std::ifstream logIn(logPath);
-    if (!logIn) {
-        return;
-    }
-    std::string line;
-    std::string found;
-    while (std::getline(logIn, line)) {
-        if (line.compare(0, 23, "TUXBLOX_REAL_EXIT_CODE=") == 0) {
-            found = line;
+void Session::reportExitCodes(int exitCode) {
+    // This process's own exit code is a fixed 0/1/2 (see main.cpp), so both
+    // real numbers have to reach the launcher some other way: as marker lines
+    // on this process's stderr, which the launcher captures.
+    //
+    // TUXBLOX_REAL_EXIT_CODE is the wrapped process's own, non-truncated
+    // Windows exit code, written by ntdll to the wrapped process's stderr --
+    // which is the log file, not this process's stderr, whenever logging is
+    // on. Carry it across that boundary here.
+    if (!logPath.empty()) {
+        std::ifstream logIn(logPath);
+        if (logIn) {
+            std::string line;
+            std::string found;
+            while (std::getline(logIn, line)) {
+                if (line.compare(0, 23, "TUXBLOX_REAL_EXIT_CODE=") == 0) {
+                    found = line;
+                }
+            }
+            if (!found.empty()) {
+                while (!found.empty() && (found.back() == '\r' || found.back() == '\n')) {
+                    found.pop_back();
+                }
+                writeLine(found);
+            }
         }
     }
-    if (!found.empty()) {
-        while (!found.empty() && (found.back() == '\r' || found.back() == '\n')) {
-            found.pop_back();
-        }
-        const std::string out = found + "\n";
-        ssize_t written = ::write(STDERR_FILENO, out.data(), out.size());
-        static_cast<void>(written);
+
+    // TUXBLOX_WRAPPER_EXIT_CODE is what waitpid() reported for the process we
+    // started. It is always available, unlike the line above -- ntdll only
+    // reports for the three target images, and only when the process gets far
+    // enough to terminate itself rather than being killed outright. The
+    // launcher prefers the real code and falls back to this one, so a crash
+    // popup always has an actual number to show rather than a bare "2".
+    if (exitCode != 0) {
+        writeLine("TUXBLOX_WRAPPER_EXIT_CODE=" + std::to_string(exitCode));
     }
+}
+
+void Session::writeLine(const std::string& line) {
+    const std::string out = line + "\n";
+    ssize_t written = ::write(STDERR_FILENO, out.data(), out.size());
+    static_cast<void>(written);
 }
 
 void Session::waitForPrefixDrain(int timeoutSeconds) {

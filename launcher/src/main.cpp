@@ -29,13 +29,18 @@
 #include "single_instance.h"
 #include "app_scope.h"
 #include "version.h"
-#include "inter_regular_ttf.h"  // generated at build time: kInterRegularTtf[]/Len
-#include "inter_semibold_ttf.h" // generated at build time: kInterSemiBoldTtf[]/Len
+#include "inter_regular_ttf.h"       // generated at build time: kInterRegularTtf[]/Len
+#include "inter_medium_ttf.h"        // generated at build time: kInterMediumTtf[]/Len
+#include "inter_semibold_ttf.h"      // generated at build time: kInterSemiBoldTtf[]/Len
+#include "montserrat_semibold_ttf.h" // generated at build time: kMontserratSemiBoldTtf[]/Len
+#include "montserrat_bold_ttf.h"     // generated at build time: kMontserratBoldTtf[]/Len
 #include <QApplication>
 #include <QFont>
 #include <QFontDatabase>
 #include <QIcon>
+#include <QStringList>
 #include <cctype>
+#include <cstddef>
 #include <cstdio>
 #include <filesystem>
 #include <string>
@@ -50,21 +55,37 @@ bool startsWith(const std::string& s, const char* prefix) {
     return s.rfind(prefix, 0) == 0;
 }
 
-// Registers the embedded Inter TTFs with Qt's font database and returns the
-// family name Qt assigned them (fontsource's internal name metadata, not
-// necessarily the literal string "Inter") -- must be called after a
-// QApplication/QGuiApplication instance exists, since the font database
-// isn't available before then. Falls back to "Inter" (a reasonable guess,
-// and harmless even if wrong -- Qt just falls back to its default font) if
-// registration fails, e.g. corrupt/truncated embedded bytes.
-QString registerInterFont() {
-    QFontDatabase::addApplicationFontFromData(QByteArray(reinterpret_cast<const char*>(kInterSemiBoldTtf),
-                                                           static_cast<int>(kInterSemiBoldTtfLen)));
+// Adds one embedded TTF to Qt's font database and reports the family name
+// Qt assigned it. Returns an empty string if the bytes were rejected.
+QString addEmbeddedFont(const unsigned char* data, std::size_t length) {
     int id = QFontDatabase::addApplicationFontFromData(
-        QByteArray(reinterpret_cast<const char*>(kInterRegularTtf), static_cast<int>(kInterRegularTtfLen)));
-    if (id < 0) return "Inter";
+        QByteArray(reinterpret_cast<const char*>(data), static_cast<int>(length)));
+    if (id < 0) return QString();
     QStringList families = QFontDatabase::applicationFontFamilies(id);
-    return families.isEmpty() ? "Inter" : families.first();
+    return families.isEmpty() ? QString() : families.first();
+}
+
+// Registers every embedded weight of both UI typefaces and hands the family
+// names Qt assigned them to the theme. Must be called after a
+// QApplication/QGuiApplication instance exists, since the font database
+// isn't available before then.
+//
+// The family name is read back rather than assumed: fontsource's internal
+// name metadata is not guaranteed to be the literal "Inter"/"Montserrat".
+// If a weight fails to register -- corrupt or truncated embedded bytes --
+// the literal name is used as a fallback, which is harmless: Qt just falls
+// back to its default font.
+void registerFonts() {
+    addEmbeddedFont(kInterMediumTtf, kInterMediumTtfLen);
+    addEmbeddedFont(kInterSemiBoldTtf, kInterSemiBoldTtfLen);
+    QString sans = addEmbeddedFont(kInterRegularTtf, kInterRegularTtfLen);
+
+    addEmbeddedFont(kMontserratBoldTtf, kMontserratBoldTtfLen);
+    QString display = addEmbeddedFont(kMontserratSemiBoldTtf, kMontserratSemiBoldTtfLen);
+
+    if (sans.isEmpty()) sans = "Inter";
+    if (display.isEmpty()) display = "Montserrat";
+    tuxblox::theme::setFontFamilies(sans, display);
 }
 
 } // namespace
@@ -280,9 +301,11 @@ int main(int argc, char** argv) {
 
     // Must happen before setStyleSheet() below: QSS "font-weight: 600"
     // rules only resolve to the embedded SemiBold weight if that weight is
-    // already registered by the time the stylesheet is applied.
-    QString interFamily = registerInterFont();
-    QFont appFont(interFamily);
+    // already registered by the time the stylesheet is applied, and the
+    // stylesheet names the display family it just recorded.
+    registerFonts();
+    QFont appFont(tuxblox::theme::sansFamily());
+    appFont.setPixelSize(13);
     qapp.setFont(appFont);
 
     qapp.setStyleSheet(tuxblox::theme::stylesheet());

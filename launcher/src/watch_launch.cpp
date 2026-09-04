@@ -22,9 +22,11 @@
 #include "settings.h"
 #include "system_info.h"
 #include "ui_qt/message_box.h"
+#include "fastflag_file.h"
 #include "versions_manifest.h"
 #include "wine_shortcut_export.h"
 #include <chrono>
+#include <filesystem>
 #include <ctime>
 #include <thread>
 
@@ -33,7 +35,22 @@ namespace tuxblox {
 int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const std::string& uri,
                        const std::string& currentVersion) {
     Settings settings = loadSettings(installDir);
-    auto extraEnv = parseEnvPairs(settings.protonEnvVars);
+    auto extraEnv = parseEnvPairs(settings.envVars);
+
+    // Roblox reads FastFlags from a folder inside the version directory, and
+    // every install produces a new one, so the file is rewritten here on each
+    // launch rather than when the user edits a flag. Nothing is written on
+    // the very first launch of a fresh prefix -- there is no version
+    // directory until the official installer has produced one -- so flags
+    // start applying from the launch after that.
+    const std::string activeExe = resolveActiveVersionExePath(target, installDir);
+    if (!activeExe.empty()) {
+        const auto& flags = target == LaunchTarget::Player ? settings.fastFlags.player
+                                                            : settings.fastFlags.studio;
+        // A failure here is not worth refusing to start Roblox over: launching
+        // without the overrides beats not launching at all.
+        writeClientAppSettings(std::filesystem::path(activeExe).parent_path().string(), flags);
+    }
 
     ProcessLauncher launcher(installDir);
     std::time_t launchStart = std::time(nullptr);
@@ -90,9 +107,11 @@ int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const 
     if (ev->exitCode == 1) {
         // Proton itself failed before/while supervising the process -- not
         // Roblox's fault. See plan/plan.txt item 1's "if not roblox" template.
+        // No exit-code line here: 1 is Proton's fixed "TuxBlox itself broke"
+        // code, so printing it tells the reader nothing the wording doesn't.
         popupTitle = "TuxBlox Error";
-        message = "A TuxBlox process has exited with a non-zero exit code.\n" +
-            exitCodeLine + "Full log has been written to " + outcome.logPath;
+        message = "TuxBlox has encountered an error and has quit!\n"
+            "Full log has been written to " + outcome.logPath;
     } else {
         popupTitle = "Roblox Error";
         message = "Roblox has exited with a non-zero exit code.\n" +

@@ -24,7 +24,8 @@
 // flip back and forth depending on what ran last.
 
 #include "copyright_file.h"
-#include "inter_ofl_license_txt.h"  // generated at build time
+#include "inter_ofl_license_txt.h"       // generated at build time
+#include "montserrat_ofl_license_txt.h" // generated at build time
 #include "imgui_license_txt.h"      // generated at build time
 #include "json_license_txt.h"       // generated at build time
 #include "lgpl3_license_txt.h"      // generated at build time
@@ -50,6 +51,8 @@ constexpr const char* kDivider =
     "================================================================================\n";
 
 constexpr const char* kInterHeading = "Inter (font)\nhttps://github.com/rsms/inter\n\n";
+constexpr const char* kMontserratHeading =
+    "Montserrat (font)\nhttps://github.com/JulietaUla/Montserrat\n\n";
 constexpr const char* kImguiHeading =
     "Dear ImGui (used by the TuxBlox Installer's UI)\nhttps://github.com/ocornut/imgui\n\n";
 constexpr const char* kJsonHeading = "JSON for Modern C++ (nlohmann/json)\nhttps://github.com/nlohmann/json\n\n";
@@ -275,6 +278,7 @@ void writeCopyrightFile(const std::string& installDir) {
 
         file << kCopyrightIntro;
         writeEntry(file, kInterHeading, kInterOflLicenseTxt, kInterOflLicenseTxtLen);
+        writeEntry(file, kMontserratHeading, kMontserratOflLicenseTxt, kMontserratOflLicenseTxtLen);
         writeEntry(file, kImguiHeading, kImguiLicenseTxt, kImguiLicenseTxtLen);
         writeEntry(file, kJsonHeading, kJsonLicenseTxt, kJsonLicenseTxtLen);
         writeEntry(file, kStbHeading, kStbLicenseTxt);

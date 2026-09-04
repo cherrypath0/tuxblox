@@ -241,6 +241,39 @@ int main() {
         fs::remove(logPath);
     }
 
+    // findRealExitCodeInLog(): the real code wins over the wrapper code Proton
+    // writes alongside it, whichever order the two lines land in.
+    {
+        namespace fs = std::filesystem;
+        fs::path logPath = fs::temp_directory_path() / "tuxblox_test_real_beats_wrapper_log.txt";
+        {
+            std::ofstream out(logPath);
+            out << "TUXBLOX_REAL_EXIT_CODE=-2147467260\n";
+            out << "TUXBLOX_WRAPPER_EXIT_CODE=134\n";
+        }
+        auto real = findRealExitCodeInLog(logPath.string());
+        assert(real.has_value());
+        assert(*real == -2147467260);
+        fs::remove(logPath);
+    }
+
+    // findRealExitCodeInLog(): only the wrapper code -- the process never got
+    // far enough for ntdll to report its own (killed by a signal, say). That
+    // code is what the popup shows instead of Proton's fixed 2.
+    {
+        namespace fs = std::filesystem;
+        fs::path logPath = fs::temp_directory_path() / "tuxblox_test_wrapper_only_log.txt";
+        {
+            std::ofstream out(logPath);
+            out << "some proton startup noise\n";
+            out << "TUXBLOX_WRAPPER_EXIT_CODE=139\n";
+        }
+        auto real = findRealExitCodeInLog(logPath.string());
+        assert(real.has_value());
+        assert(*real == 139);
+        fs::remove(logPath);
+    }
+
     // findRealExitCodeInLog(): no marker present, or no log at all -> nullopt.
     {
         namespace fs = std::filesystem;

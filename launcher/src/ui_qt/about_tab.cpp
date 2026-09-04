@@ -15,9 +15,13 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "about_tab.h"
+#include "boxed_list.h"
 #include "icon_utils.h"
 #include "open_url.h"
+#include "theme.h"
 #include "version.h"
+#include <QFont>
+#include <QHBoxLayout>
 #include <QIcon>
 #include <QLabel>
 #include <QPushButton>
@@ -27,7 +31,9 @@
 namespace tuxblox {
 
 namespace {
+
 struct LinkRow { const char* label; const char* url; const char* icon; };
+
 constexpr std::array<LinkRow, 5> kLinks = {{
     {"Website",        "https://tuxblox.net",         ":/icons/globe.png"},
     {"Documentation",  "https://tuxblox.net/docs",     ":/icons/docs.png"},
@@ -35,29 +41,35 @@ constexpr std::array<LinkRow, 5> kLinks = {{
     {"Discord",        "https://tuxblox.net/discord",  ":/icons/discord.png"},
     {"Privacy Policy", "https://tuxblox.net/privacy",  ":/icons/privacy.png"},
 }};
+
 } // namespace
 
 AboutTab::AboutTab(QWidget* parent) : QWidget(parent) {
     auto* layout = new QVBoxLayout(this);
-    layout->setContentsMargins(24, 20, 24, 16);
-    layout->setSpacing(12);
-
-    auto* logo = new QLabel(this);
-    logo->setPixmap(QIcon(":/branding/tuxblox_logo.png").pixmap(72, 72));
-    logo->setAlignment(Qt::AlignHCenter);
-    layout->addWidget(logo);
+    layout->setContentsMargins(24, 22, 24, 16);
+    layout->setSpacing(0);
 
     auto* title = new QLabel("About TuxBlox", this);
-    title->setObjectName("sectionTitle");
-    title->setAlignment(Qt::AlignHCenter);
+    title->setObjectName("pageTitle");
+    title->setFont(theme::displayFont(21, QFont::Bold));
     layout->addWidget(title);
 
-    layout->addSpacing(8);
+    auto* subtitle = new QLabel(
+        "A free, open source launcher and compatibility layer for running Roblox on Linux.", this);
+    subtitle->setObjectName("pageSubtitle");
+    subtitle->setWordWrap(true);
+    layout->addSpacing(4);
+    layout->addWidget(subtitle);
+
+    layout->addSpacing(18);
+    layout->addWidget(makeSectionLabel("Links", this));
+    layout->addSpacing(6);
 
     for (const auto& link : kLinks) {
-        auto* button = new QPushButton(paddedIcon(link.icon, 22, 6), link.label, this);
+        auto* button = new QPushButton(paddedIcon(link.icon, 16, 8), link.label, this);
         button->setObjectName("linkRow");
-        button->setIconSize(iconSizeWithGap(22, 6));
+        button->setIconSize(iconSizeWithGap(16, 8));
+        button->setCursor(Qt::PointingHandCursor);
         button->setFlat(true);
         connect(button, &QPushButton::clicked, this, [url = link.url] { openUrl(url); });
         layout->addWidget(button);
@@ -65,13 +77,23 @@ AboutTab::AboutTab(QWidget* parent) : QWidget(parent) {
 
     layout->addStretch(1);
 
-    auto* versionFooter = new QLabel(QString("TuxBlox v%1").arg(kTuxBloxVersion), this);
-    versionFooter->setObjectName("footer");
-    layout->addWidget(versionFooter);
+    auto* strip = new QWidget(this);
+    strip->setObjectName("statusStrip");
+    strip->setAttribute(Qt::WA_StyledBackground, true);
+    auto* stripRow = new QHBoxLayout(strip);
+    stripRow->setContentsMargins(0, 11, 0, 0);
+    stripRow->setSpacing(6);
 
-    auto* copyrightFooter = new QLabel(QString::fromUtf8("\xC2\xA9 2026 TuxBlox Project"), this);
-    copyrightFooter->setObjectName("footer");
-    layout->addWidget(copyrightFooter);
+    auto* version = new QLabel(QString("TuxBlox %1").arg(kTuxBloxVersion), strip);
+    version->setObjectName("statusText");
+    stripRow->addWidget(version);
+    stripRow->addStretch(1);
+
+    auto* copyright = new QLabel(QString::fromUtf8("\xC2\xA9 2026 TuxBlox Project"), strip);
+    copyright->setObjectName("statusMuted");
+    stripRow->addWidget(copyright);
+
+    layout->addWidget(strip);
 }
 
 } // namespace tuxblox

@@ -26,7 +26,7 @@
 # artwork. Because the asset ships as a PNG there is no rasterization step,
 # which is also why the installer build no longer needs rsvg-convert.
 
-set(LOGO_PNG_URL "https://static.tuxblox.net/images/png/icon/tuxblox-medium.png")
+set(LOGO_PNG_URL "https://static.tuxblox.net/images/icon/tuxblox-icon.png")
 set(GENERATED_DIR "${CMAKE_BINARY_DIR}/generated")
 set(LOGO_PNG_PATH "${GENERATED_DIR}/tuxblox_logo.png")
 set(LOGO_HEADER_PATH "${GENERATED_DIR}/tuxblox_logo_png.h")

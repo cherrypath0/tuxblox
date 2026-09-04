@@ -32,8 +32,7 @@ int main() {
     // Missing file -> defaults.
     {
         Settings s = loadSettings(dir);
-        assert(s.protonEnvVars.empty());
-        assert(s.globalEnvVars.empty());
+        assert(s.envVars.empty());
         assert(s.sendCrashReports == true);
         assert(s.channel == "stable");
         assert(s.autoUpdate == false);
@@ -42,15 +41,13 @@ int main() {
     // Round-trip, including sendCrashReports = false and a non-default channel.
     {
         Settings s;
-        s.protonEnvVars = "TUXBLOX_LOG=1 DXVK_HUD=fps";
-        s.globalEnvVars = "MY_VAR=hello";
+        s.envVars = "TUXBLOX_LOG=1 DXVK_HUD=fps MY_VAR=hello";
         s.sendCrashReports = false;
         s.channel = "canary";
         saveSettings(dir, s);
 
         Settings loaded = loadSettings(dir);
-        assert(loaded.protonEnvVars == "TUXBLOX_LOG=1 DXVK_HUD=fps");
-        assert(loaded.globalEnvVars == "MY_VAR=hello");
+        assert(loaded.envVars == "TUXBLOX_LOG=1 DXVK_HUD=fps MY_VAR=hello");
         assert(loaded.sendCrashReports == false);
         assert(loaded.channel == "canary");
     }
@@ -62,8 +59,7 @@ int main() {
         out.close();
 
         Settings s = loadSettings(dir);
-        assert(s.protonEnvVars.empty());
-        assert(s.globalEnvVars.empty());
+        assert(s.envVars.empty());
         assert(s.sendCrashReports == true);
         assert(s.channel == "stable");
     }
@@ -76,8 +72,7 @@ int main() {
         out.close();
 
         Settings s = loadSettings(dir);
-        assert(s.protonEnvVars.empty());
-        assert(s.globalEnvVars.empty());
+        assert(s.envVars.empty());
         assert(s.sendCrashReports == true);
         assert(s.channel == "stable");
     }
@@ -93,8 +88,7 @@ int main() {
         out.close();
 
         Settings s = loadSettings(dir);
-        assert(s.protonEnvVars == "FOO=bar");
-        assert(s.globalEnvVars == "BAZ=qux");
+        assert(s.envVars == "FOO=bar BAZ=qux");
         assert(s.sendCrashReports == false);
         assert(s.channel == "stable");
     }
@@ -119,8 +113,7 @@ int main() {
         out.close();
 
         Settings s = loadSettings(dir);
-        assert(s.protonEnvVars == "FOO=bar");
-        assert(s.globalEnvVars == "BAZ=qux");
+        assert(s.envVars == "FOO=bar BAZ=qux");
         assert(s.sendCrashReports == false);
         assert(s.channel == "canary");
         assert(s.autoUpdate == false);
@@ -156,6 +149,93 @@ int main() {
         assert(pairs.size() == 2);
         assert(pairs[0] == "FOO=bar");
         assert(pairs[1] == "BAZ=qux");
+    }
+
+    fs::create_directories(dir);
+    // FastFlags round-trip, keeping their order and their per-target split.
+    {
+        Settings s;
+        s.fastFlags.player = {{"DFIntTaskSchedulerTargetFps", "60"}, {"FFlagA", "True"}};
+        s.fastFlags.studio = {{"FFlagStudioOnly", "False"}};
+        saveSettings(dir, s);
+
+        Settings loaded = loadSettings(dir);
+        assert(loaded.fastFlags.player.size() == 2);
+        assert(loaded.fastFlags.player[0].name == "DFIntTaskSchedulerTargetFps");
+        assert(loaded.fastFlags.player[0].value == "60");
+        assert(loaded.fastFlags.player[1].name == "FFlagA");
+        assert(loaded.fastFlags.studio.size() == 1);
+        assert(loaded.fastFlags.studio[0].name == "FFlagStudioOnly");
+    }
+
+    // A settings.json written before FastFlags existed keeps everything else
+    // rather than resetting, same lenient rule as channel and auto_update.
+    {
+        std::ofstream out(dir + "/settings.json", std::ios::binary);
+        out << R"({"env_vars": "FOO=bar", "send_crash_reports": false, "channel": "canary"})";
+        out.close();
+
+        Settings s = loadSettings(dir);
+        assert(s.envVars == "FOO=bar");
+        assert(s.channel == "canary");
+        assert(s.sendCrashReports == false);
+        assert(s.fastFlags.player.empty());
+        assert(s.fastFlags.studio.empty());
+    }
+
+    // A malformed fast_flags block costs the flags, never the other settings:
+    // wrong type for the block, wrong type for an entry, and a nameless entry.
+    {
+        std::ofstream out(dir + "/settings.json", std::ios::binary);
+        out << R"({"env_vars": "FOO=bar", "send_crash_reports": true, "fast_flags": "nonsense"})";
+        out.close();
+        Settings s = loadSettings(dir);
+        assert(s.envVars == "FOO=bar");
+        assert(s.fastFlags.player.empty());
+
+        std::ofstream out2(dir + "/settings.json", std::ios::binary);
+        out2 << R"({"send_crash_reports": true, "fast_flags": {"player": [3, {"value": "novalue"},
+                    {"name": "Good", "value": "1"}]}})";
+        out2.close();
+        Settings s2 = loadSettings(dir);
+        assert(s2.fastFlags.player.size() == 1);
+        assert(s2.fastFlags.player[0].name == "Good");
+    }
+
+    // settings.json from before the two env fields were merged: the old
+    // Proton and Global values are joined into the single field rather than
+    // one of them being dropped.
+    {
+        std::ofstream out(dir + "/settings.json", std::ios::binary);
+        out << R"({"proton_env_vars": "DXVK_HUD=fps", "global_env_vars": "MY_VAR=hello", "send_crash_reports": true})";
+        out.close();
+
+        Settings s = loadSettings(dir);
+        assert(s.envVars == "DXVK_HUD=fps MY_VAR=hello");
+    }
+
+    // Only one of the two legacy fields set -- no stray separator either side.
+    {
+        std::ofstream out(dir + "/settings.json", std::ios::binary);
+        out << R"({"proton_env_vars": "", "global_env_vars": "ONLY=global", "send_crash_reports": true})";
+        out.close();
+        assert(loadSettings(dir).envVars == "ONLY=global");
+
+        std::ofstream out2(dir + "/settings.json", std::ios::binary);
+        out2 << R"({"proton_env_vars": "ONLY=proton", "global_env_vars": "", "send_crash_reports": true})";
+        out2.close();
+        assert(loadSettings(dir).envVars == "ONLY=proton");
+    }
+
+    // The new field wins outright when present -- a file already migrated
+    // must not have the stale legacy keys appended a second time.
+    {
+        std::ofstream out(dir + "/settings.json", std::ios::binary);
+        out << R"({"env_vars": "NEW=1", "proton_env_vars": "OLD=2", "global_env_vars": "OLD=3", "send_crash_reports": true})";
+        out.close();
+
+        Settings s = loadSettings(dir);
+        assert(s.envVars == "NEW=1");
     }
 
     fs::remove_all(dir);

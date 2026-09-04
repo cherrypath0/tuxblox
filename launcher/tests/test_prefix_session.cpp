@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "prefix_session.h"
+#include <algorithm>
 #include <cassert>
 #include <cstdio>
 #include <filesystem>
@@ -101,6 +102,28 @@ int main() {
 
     // A missing /proc root is "nothing running", not an error.
     assert(!prefixHasSessionHolderIn((tmp / "nope").string(), wanted));
+
+    // collectPrefixPidsIn(): everything in the prefix, not just the four
+    // session-holder images -- Terminate has to take wineserver and the Wine
+    // services down too, or the prefix is left half-alive.
+    {
+        const fs::path killRoot = tmp / "proc_kill";
+        fs::create_directories(killRoot);
+        makeProcEntry(killRoot, "10", "C:\\x\\RobloxPlayerBeta.exe", wanted);
+        makeProcEntry(killRoot, "11", "C:\\windows\\system32\\services.exe", wanted);
+        makeProcEntry(killRoot, "12", "/usr/bin/wineserver", wanted);
+        makeProcEntry(killRoot, "13", "C:\\x\\RobloxPlayerBeta.exe", other);
+        makeProcEntry(killRoot, "14", "/usr/bin/firefox", "");
+
+        std::vector<int> pids = collectPrefixPidsIn(killRoot.string(), wanted);
+        std::sort(pids.begin(), pids.end());
+        assert((pids == std::vector<int>{10, 11, 12}));
+
+        // A prefix nothing is running in yields nothing rather than everything.
+        assert(collectPrefixPidsIn(killRoot.string(), (tmp / "nope").string()).empty());
+        // An empty prefix must never match every process on the machine.
+        assert(collectPrefixPidsIn(killRoot.string(), "").empty());
+    }
 
     fs::remove_all(tmp);
     std::printf("prefix_session: all tests passed\n");

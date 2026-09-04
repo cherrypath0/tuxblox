@@ -16,6 +16,11 @@
 
 #include "prefix_session.h"
 #include <cctype>
+#include <chrono>
+#include <cstdlib>
+#include <csignal>
+#include <thread>
+#include <unistd.h>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -82,6 +87,51 @@ bool isSessionHolderImage(const std::string& image) {
 }
 
 } // namespace
+
+std::vector<int> collectPrefixPidsIn(const std::string& procRoot, const std::string& prefixDir) {
+    std::vector<int> pids;
+    const std::string want = normalizePath(prefixDir);
+    if (want.empty()) return pids; // never match every process on the machine
+
+    std::error_code ec;
+    fs::directory_iterator it(procRoot, ec);
+    if (ec) return pids;
+
+    const int self = static_cast<int>(getpid());
+    for (const auto& entry : it) {
+        const std::string name = entry.path().filename().string();
+        if (name.empty() || name.find_first_not_of("0123456789") != std::string::npos) continue;
+
+        const int pid = std::atoi(name.c_str());
+        if (pid <= 0 || pid == self) continue;
+
+        // No cmdline pre-filter here: this has to catch wineserver and the
+        // Wine services, which are not in the session-holder allowlist. An
+        // unreadable environ (another user's process) simply doesn't match.
+        if (wineprefixFromEnviron(readWholeFile(entry.path() / "environ")) != want) continue;
+        pids.push_back(pid);
+    }
+    return pids;
+}
+
+int terminatePrefixProcesses(const std::string& prefixDir) {
+    std::vector<int> pids = collectPrefixPidsIn("/proc", prefixDir);
+    for (int pid : pids) ::kill(pid, SIGTERM);
+    if (pids.empty()) return 0;
+
+    // Give them a moment to exit on their own, then insist. Polling rather
+    // than one long sleep so a clean shutdown isn't made to wait.
+    for (int waited = 0; waited < 3000; waited += 100) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        bool anyAlive = false;
+        for (int pid : pids) {
+            if (::kill(pid, 0) == 0) { anyAlive = true; break; }
+        }
+        if (!anyAlive) return static_cast<int>(pids.size());
+    }
+    for (int pid : pids) ::kill(pid, SIGKILL);
+    return static_cast<int>(pids.size());
+}
 
 std::string wineImageNameFromCmdline(const std::string& firstCmdlineToken) {
     // A wine process's /proc/<pid>/cmdline holds the *Windows* command line

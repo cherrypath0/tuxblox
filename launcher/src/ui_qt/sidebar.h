@@ -25,12 +25,12 @@ class QVBoxLayout;
 
 namespace tuxblox {
 
-// Persistent left navigation -- Start and Settings pinned to the top,
-// About pinned to the bottom via a stretch, matching ui.cpp's
-// renderSidebar() layout. A future plan adding the Versions tab inserts
-// one more addEntry() call between Start and Settings in the .cpp's
-// constructor body -- entries_ already generalizes over any Tab value, so
-// no other change is needed here.
+// Persistent left navigation: the TuxBlox brand lockup, then Home,
+// Versions and Settings, with About below a hairline at the bottom.
+//
+// The styling mirrors the docs sidebar on tuxblox.net -- muted labels that
+// brighten on hover, and a brand-tinted background with brand-coloured
+// text for the current page.
 class Sidebar : public QWidget {
     Q_OBJECT
 public:
@@ -42,7 +42,9 @@ signals:
     void tabSelected(Tab tab);
 
 private:
-    QPushButton* addEntry(const QString& label, const QString& iconResourcePath, Tab tab);
+    QWidget* buildBrandLockup();
+    QPushButton* addEntry(const QString& label, const QString& iconResourcePath, Tab tab,
+                           QVBoxLayout* target);
 
     QVBoxLayout* layout_ = nullptr;
     QButtonGroup* group_ = nullptr;

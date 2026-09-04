@@ -19,6 +19,7 @@
 #include "container_env.h"
 #include "downloader.h"
 #include "manifest.h"
+#include "prefix_session.h"
 #include "roblox_deploy.h"
 #include "tar_extract.h"
 #include <algorithm>
@@ -70,7 +71,7 @@ App::App(std::string installDir, std::string currentVersion, std::string launche
     // startUpdateCheck() spawns any other thread, so nothing else can be
     // concurrently calling getenv() yet. See applyGlobalEnvVars()'s own
     // comment for why that ordering matters everywhere else it's called.
-    applyGlobalEnvVars(snapshot_.settings.globalEnvVars);
+    applyEnvVars(snapshot_.settings.envVars);
 
     // A missing /dev/dri inside a Distrobox container almost always means
     // the container was created without GPU passthrough -- Roblox will
@@ -157,6 +158,10 @@ void App::requestLaunch(LaunchTarget target) {
     waitpid(pid, &status, 0); // reap the immediate child; it exits almost instantly
 
     shouldQuit_.store(true);
+}
+
+int App::requestTerminateProcesses() {
+    return terminatePrefixProcesses(installDir_ + "/runtime/pfx");
 }
 
 void App::requestUninstall() {
@@ -290,14 +295,14 @@ AppSnapshot App::snapshot() const {
 
 void App::updateSettings(Settings settings) {
     saveSettings(installDir_, settings);
-    bool globalEnvChanged;
+    bool envChanged;
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        globalEnvChanged = snapshot_.settings.globalEnvVars != settings.globalEnvVars;
+        envChanged = snapshot_.settings.envVars != settings.envVars;
         snapshot_.settings = settings;
     }
-    if (globalEnvChanged) {
-        applyGlobalEnvVars(settings.globalEnvVars);
+    if (envChanged) {
+        applyEnvVars(settings.envVars);
     }
 }
 
@@ -312,19 +317,18 @@ void App::dismissUpdateNotification() {
     snapshot_.updateAvailableVersion.reset();
 }
 
-void App::applyGlobalEnvVars(const std::string& globalEnvVars) {
+void App::applyEnvVars(const std::string& envVars) {
     // setenv()/getenv() are not thread-safe in glibc (Finding 6,
     // 2026-07-28 final review) -- this process does have other threads
     // that may call getenv() (the update-check thread, inside curl).
-    // Unlike the Proton-child env vars, Global Environment Variables are
-    // deliberately applied to the launcher's own process (real "export"
-    // semantics -- see the settings design doc), so that hazard can't be
-    // avoided by scoping to a forked child the way launchEnvVars() is. The
+    // Environment Variables are deliberately applied to the launcher's own
+    // process too (real "export" semantics -- see the settings design doc),
+    // so that hazard can't be avoided by scoping to a forked child. The
     // constructor call site is race-free (nothing else is running yet);
     // later calls from updateSettings() (user edits, on the render thread)
     // accept the same small, already-documented race rather than adding
     // cross-thread coordination for a rare, user-initiated edit.
-    for (const auto& kv : parseEnvPairs(globalEnvVars)) {
+    for (const auto& kv : parseEnvPairs(envVars)) {
         auto pos = kv.find('=');
         setenv(kv.substr(0, pos).c_str(), kv.substr(pos + 1).c_str(), 1);
     }
@@ -657,16 +661,21 @@ void App::requestDeleteVersion(LaunchTarget target, const std::string& hash) {
     // 2026-08-16 final review).
     VersionsManifest fresh = loadInstalledVersions(installDir_);
     AppVersions& av = appVersionsFor(fresh, target);
-    if (hash == av.activeHash) return; // must pin a different version first
     auto it = std::find_if(av.installed.begin(), av.installed.end(),
                             [&](const InstalledVersion& v) { return v.hash == hash; });
     if (it == av.installed.end()) return;
     av.installed.erase(it);
+    // The version in use can be deleted like any other. Dropping the pin
+    // lets the reconcile below choose the newest of whatever is left, or
+    // leave nothing pinned when this was the last one -- in which case the
+    // next launch installs Roblox again.
+    if (hash == av.activeHash) av.activeHash.clear();
 
     const std::string versionDir = prefixVersionsDir(installDir_) + "/" + hash;
     std::error_code ec;
     fs::remove_all(versionDir, ec); // best-effort
 
+    reconcileWithPrefix(installDir_, fresh);
     saveVersionsManifest(installDir_, fresh);
     std::lock_guard<std::mutex> lock(mutex_);
     snapshot_.versions = fresh;

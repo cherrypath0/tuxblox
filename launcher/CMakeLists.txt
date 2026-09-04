@@ -77,6 +77,7 @@ add_library(launcher_core STATIC
     src/copyright_file.cpp
     src/license_file.cpp
     src/settings.cpp
+    src/fastflag_file.cpp
     src/versions_manifest.cpp
     src/crash_report.cpp
     src/container_env.cpp
@@ -169,6 +170,8 @@ add_dependencies(launcher_core generate_logo_header generate_font_header generat
 
 add_library(launcher_ui_qt STATIC
     src/ui_qt/theme.cpp
+    src/ui_qt/boxed_list.cpp
+    src/ui_qt/app_card.cpp
     src/ui_qt/toggle_switch.cpp
     src/ui_qt/danger_button.cpp
     src/ui_qt/update_popup.cpp
@@ -178,6 +181,7 @@ add_library(launcher_ui_qt STATIC
     src/ui_qt/start_tab.cpp
     src/ui_qt/settings_tab.cpp
     src/ui_qt/versions_tab.cpp
+    src/ui_qt/fastflags_tab.cpp
     src/ui_qt/versions_tab_state.cpp
     src/ui_qt/about_tab.cpp
     src/ui_qt/message_box.cpp

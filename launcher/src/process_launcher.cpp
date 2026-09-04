@@ -64,20 +64,36 @@ std::optional<int> findRealExitCodeInLog(const std::string& logPath) {
     std::ifstream in(logPath);
     if (!in) return std::nullopt;
 
-    constexpr const char* kMarker = "TUXBLOX_REAL_EXIT_CODE=";
-    const size_t markerLen = std::strlen(kMarker);
+    constexpr const char* kRealMarker = "TUXBLOX_REAL_EXIT_CODE=";
+    constexpr const char* kWrapperMarker = "TUXBLOX_WRAPPER_EXIT_CODE=";
+    const size_t realLen = std::strlen(kRealMarker);
+    const size_t wrapperLen = std::strlen(kWrapperMarker);
 
-    std::optional<int> found;
+    // Read both markers, take the last of each: Roblox's own Windows exit code
+    // if it got far enough to report one, and otherwise the code Proton's
+    // waitpid() saw. Proton emits the second on every non-zero exit, so this
+    // only comes back empty when Proton is what failed.
+    std::optional<int> real, wrapper;
     std::string line;
     while (std::getline(in, line)) {
-        if (line.compare(0, markerLen, kMarker) != 0) continue;
+        std::optional<int>* slot = nullptr;
+        size_t markerLen = 0;
+        if (line.compare(0, realLen, kRealMarker) == 0) {
+            slot = &real;
+            markerLen = realLen;
+        } else if (line.compare(0, wrapperLen, kWrapperMarker) == 0) {
+            slot = &wrapper;
+            markerLen = wrapperLen;
+        } else {
+            continue;
+        }
         try {
-            found = std::stoi(line.substr(markerLen));
+            *slot = std::stoi(line.substr(markerLen));
         } catch (const std::exception&) {
             // Malformed line -- ignore and keep whatever was found earlier.
         }
     }
-    return found;
+    return real ? real : wrapper;
 }
 
 bool TrackedProcess::start(const std::vector<std::string>& argv, const std::vector<std::string>& env,

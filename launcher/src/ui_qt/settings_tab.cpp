@@ -15,14 +15,17 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "settings_tab.h"
+#include "boxed_list.h"
 #include "danger_button.h"
+#include "theme.h"
 #include "toggle_switch.h"
 #include <QComboBox>
-#include <QFormLayout>
-#include <QHBoxLayout>
+#include <QFont>
 #include <QLabel>
 #include <QLineEdit>
+#include <QPushButton>
 #include <QScrollArea>
+#include <QTimer>
 #include <QVBoxLayout>
 #include <QWidget>
 
@@ -35,129 +38,179 @@ SettingsTab::SettingsTab(App& app, QWidget* parent) : QWidget(parent), app_(app)
     auto* scrollArea = new QScrollArea(this);
     scrollArea->setWidgetResizable(true);
     scrollArea->setFrameShape(QFrame::NoFrame);
+    scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     outer->addWidget(scrollArea);
 
     auto* content = new QWidget(scrollArea);
     scrollArea->setWidget(content);
 
     auto* layout = new QVBoxLayout(content);
-    layout->setContentsMargins(24, 20, 24, 20);
-    layout->setSpacing(20);
+    layout->setContentsMargins(24, 22, 24, 22);
+    layout->setSpacing(0);
 
     auto* title = new QLabel("Settings", content);
-    title->setObjectName("sectionTitle");
+    title->setObjectName("pageTitle");
+    title->setFont(theme::displayFont(21, QFont::Bold));
     layout->addWidget(title);
 
-    auto* channelLabel = new QLabel("Update Channel", content);
-    channelLabel->setObjectName("fieldLabel");
-    layout->addWidget(channelLabel);
-    channelCombo_ = new QComboBox(content);
+    layout->addSpacing(18);
+    layout->addWidget(makeSectionLabel("Updates", content));
+    layout->addSpacing(8);
+    layout->addWidget(buildUpdatesGroup(content));
+
+    layout->addSpacing(18);
+    layout->addWidget(makeSectionLabel("Environment", content));
+    layout->addSpacing(8);
+    layout->addWidget(buildEnvironmentGroup(content));
+
+    layout->addSpacing(18);
+    layout->addWidget(makeSectionLabel("Privacy", content));
+    layout->addSpacing(8);
+    layout->addWidget(buildPrivacyGroup(content));
+
+    layout->addSpacing(18);
+    layout->addWidget(makeSectionLabel("Danger zone", content));
+    layout->addSpacing(8);
+    layout->addWidget(buildDangerGroup(content));
+
+    layout->addStretch(1);
+}
+
+QWidget* SettingsTab::buildUpdatesGroup(QWidget* parent) {
+    auto* group = new BoxedGroup(parent);
+
+    auto* channelRow = new BoxedRow("Update channel", "Which release stream TuxBlox follows.");
+    channelCombo_ = new QComboBox();
     channelCombo_->addItems({"stable", "canary", "dev"});
-    channelCombo_->setFixedWidth(200);
-    layout->addWidget(channelCombo_);
+    channelCombo_->setFixedWidth(110);
     connect(channelCombo_, &QComboBox::currentTextChanged, this, [this](const QString& text) {
-        Settings s = app_.snapshot().settings;
-        s.channel = text.toStdString();
-        commitSettings(s);
+        Settings updated = app_.snapshot().settings;
+        updated.channel = text.toStdString();
+        commitSettings(updated);
     });
+    channelRow->addControl(channelCombo_);
+    group->addRow(channelRow);
 
-    auto* autoUpdateRow = new QHBoxLayout();
-    autoUpdateToggle_ = new ToggleSwitch(content);
+    auto* autoUpdateRow = new BoxedRow(
+        "Automatic updates",
+        "Install updates without asking. When off, you get a notification instead.");
+    autoUpdateToggle_ = new ToggleSwitch();
     connect(autoUpdateToggle_, &ToggleSwitch::toggled, this, [this](bool checked) {
-        Settings s = app_.snapshot().settings;
-        s.autoUpdate = checked;
-        commitSettings(s);
+        Settings updated = app_.snapshot().settings;
+        updated.autoUpdate = checked;
+        commitSettings(updated);
     });
-    autoUpdateRow->addWidget(autoUpdateToggle_);
-    auto* autoUpdateLabel = new QLabel("Auto-Update", content);
-    autoUpdateLabel->setObjectName("fieldLabel");
-    autoUpdateRow->addWidget(autoUpdateLabel);
-    autoUpdateRow->addStretch(1);
-    layout->addLayout(autoUpdateRow);
+    autoUpdateRow->addControl(autoUpdateToggle_);
+    group->addRow(autoUpdateRow);
 
-    auto* autoUpdateHint = new QLabel(
-        "Automatically install updates without asking. When off, you'll get a notification instead.",
-        content);
-    autoUpdateHint->setObjectName("fieldHint");
-    autoUpdateHint->setWordWrap(true);
-    layout->addWidget(autoUpdateHint);
+    return group;
+}
 
-    auto* protonLabel = new QLabel("Proton Environment Variables", content);
-    protonLabel->setObjectName("fieldLabel");
-    layout->addWidget(protonLabel);
-    protonEnvEdit_ = new QLineEdit(content);
-    layout->addWidget(protonEnvEdit_);
-    connect(protonEnvEdit_, &QLineEdit::editingFinished, this, [this] {
-        Settings s = app_.snapshot().settings;
-        s.protonEnvVars = protonEnvEdit_->text().toStdString();
-        commitSettings(s);
+QWidget* SettingsTab::buildEnvironmentGroup(QWidget* parent) {
+    auto* group = new BoxedGroup(parent);
+
+    auto* envRow = new BoxedRow("Environment variables",
+                                 "Space-separated VAR=VALUE pairs, passed to every process "
+                                 "TuxBlox starts.");
+    envEdit_ = new QLineEdit();
+    envEdit_->setPlaceholderText("DXVK_HUD=fps");
+    envEdit_->setMinimumWidth(210);
+    connect(envEdit_, &QLineEdit::editingFinished, this, [this] {
+        Settings updated = app_.snapshot().settings;
+        updated.envVars = envEdit_->text().toStdString();
+        commitSettings(updated);
     });
+    envRow->addControl(envEdit_);
+    group->addRow(envRow);
 
-    auto* globalLabel = new QLabel("Global Environment Variables", content);
-    globalLabel->setObjectName("fieldLabel");
-    layout->addWidget(globalLabel);
-    globalEnvEdit_ = new QLineEdit(content);
-    layout->addWidget(globalEnvEdit_);
-    connect(globalEnvEdit_, &QLineEdit::editingFinished, this, [this] {
-        Settings s = app_.snapshot().settings;
-        s.globalEnvVars = globalEnvEdit_->text().toStdString();
-        commitSettings(s);
-    });
+    return group;
+}
 
-    auto* crashRow = new QHBoxLayout();
-    crashReportsToggle_ = new ToggleSwitch(content);
+QWidget* SettingsTab::buildPrivacyGroup(QWidget* parent) {
+    auto* group = new BoxedGroup(parent);
+
+    auto* crashRow = new BoxedRow(
+        "Send crash reports",
+        "Exit code, Roblox and Proton versions, basic system info, and a copy of the session "
+        "log. See tuxblox.net/privacy");
+    crashReportsToggle_ = new ToggleSwitch();
     connect(crashReportsToggle_, &ToggleSwitch::toggled, this, [this](bool checked) {
-        Settings s = app_.snapshot().settings;
-        s.sendCrashReports = checked;
-        commitSettings(s);
+        Settings updated = app_.snapshot().settings;
+        updated.sendCrashReports = checked;
+        commitSettings(updated);
     });
-    crashRow->addWidget(crashReportsToggle_);
-    auto* crashLabel = new QLabel("Send Crash Report Data", content);
-    crashLabel->setObjectName("fieldLabel");
-    crashRow->addWidget(crashLabel);
-    crashRow->addStretch(1);
-    layout->addLayout(crashRow);
+    crashRow->addControl(crashReportsToggle_);
+    group->addRow(crashRow);
 
-    auto* crashHint = new QLabel(
-        "Crash reports include the exit code, Roblox/Proton version, basic system info, and a "
-        "copy of the session log -- see our privacy policy at tuxblox.net/privacy",
-        content);
-    crashHint->setObjectName("fieldHint");
-    crashHint->setWordWrap(true);
-    layout->addWidget(crashHint);
+    return group;
+}
 
-    auto* dangerZone = new QWidget(content);
-    dangerZone->setObjectName("dangerZone");
-    auto* dangerLayout = new QVBoxLayout(dangerZone);
-    dangerLayout->setContentsMargins(16, 16, 16, 16);
-    dangerLayout->setSpacing(8);
+QWidget* SettingsTab::buildDangerGroup(QWidget* parent) {
+    // A container, not just the group: the two error banners sit outside
+    // the bordered box so a failure message doesn't render as a nested
+    // panel inside it.
+    auto* container = new QWidget(parent);
+    auto* layout = new QVBoxLayout(container);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(8);
 
-    auto* dangerTitle = new QLabel("Danger Zone", dangerZone);
-    dangerTitle->setObjectName("fieldLabel");
-    dangerLayout->addWidget(dangerTitle);
+    auto* group = new BoxedGroup(container);
+    // Replaces "boxedGroup" -- the danger zone carries its own red-tinted
+    // background and border instead of the neutral one.
+    group->setObjectName("dangerZone");
 
-    wipePrefixButton_ = new DangerButton("Wipe Prefix", "Click again to wipe prefix", "Wiping...", dangerZone);
-    dangerLayout->addWidget(wipePrefixButton_);
+    auto* terminateRow = new BoxedRow(
+        "Terminate TuxBlox",
+        "Stops Roblox and everything else running in the prefix. The launcher stays open.");
+    terminateButton_ = new QPushButton("Terminate", this);
+    terminateButton_->setObjectName("dangerButton");
+    terminateButton_->setCursor(Qt::PointingHandCursor);
+    connect(terminateButton_, &QPushButton::clicked, this, &SettingsTab::onTerminate);
+    terminateRow->addControl(terminateButton_);
+    group->addRow(terminateRow);
+
+    auto* wipeRow = new BoxedRow("Wipe prefix",
+                                  "Deletes the Windows prefix. Roblox is reinstalled on next launch.");
+    wipePrefixButton_ = new DangerButton("Wipe prefix", "Click again to wipe", "Wiping...");
+    wipeRow->addControl(wipePrefixButton_);
     connect(wipePrefixButton_, &DangerButton::confirmed, this, [this] { app_.requestWipePrefix(); });
+    group->addRow(wipeRow);
 
-    wipePrefixError_ = new QLabel(dangerZone);
+    auto* uninstallRow = new BoxedRow("Uninstall TuxBlox",
+                                       "Removes TuxBlox and everything it installed.");
+    uninstallButton_ = new DangerButton("Uninstall", "Click again to uninstall", "Uninstalling...");
+    uninstallRow->addControl(uninstallButton_);
+    connect(uninstallButton_, &DangerButton::confirmed, this, [this] { app_.requestUninstall(); });
+    group->addRow(uninstallRow);
+
+    layout->addWidget(group);
+
+    wipePrefixError_ = new QLabel(container);
     wipePrefixError_->setObjectName("errorBanner");
     wipePrefixError_->setWordWrap(true);
     wipePrefixError_->hide();
-    dangerLayout->addWidget(wipePrefixError_);
+    layout->addWidget(wipePrefixError_);
 
-    uninstallButton_ = new DangerButton("Uninstall TuxBlox", "Click again to uninstall", "Uninstalling...", dangerZone);
-    dangerLayout->addWidget(uninstallButton_);
-    connect(uninstallButton_, &DangerButton::confirmed, this, [this] { app_.requestUninstall(); });
-
-    uninstallError_ = new QLabel(dangerZone);
+    uninstallError_ = new QLabel(container);
     uninstallError_->setObjectName("errorBanner");
     uninstallError_->setWordWrap(true);
     uninstallError_->hide();
-    dangerLayout->addWidget(uninstallError_);
+    layout->addWidget(uninstallError_);
 
-    layout->addWidget(dangerZone);
-    layout->addStretch(1);
+    return container;
+}
+
+void SettingsTab::onTerminate() {
+    const int signalled = app_.requestTerminateProcesses();
+    terminateButton_->setText(signalled == 0 ? "Nothing running"
+                                              : QString("Stopped %1").arg(signalled));
+    terminateButton_->setEnabled(false);
+    // Back to a normal button after a moment -- the label is a result, not a
+    // new state to stay in.
+    QTimer::singleShot(2500, this, [this] {
+        terminateButton_->setText("Terminate");
+        terminateButton_->setEnabled(true);
+    });
 }
 
 void SettingsTab::commitSettings(const Settings& updated) {
@@ -167,8 +220,7 @@ void SettingsTab::commitSettings(const Settings& updated) {
 void SettingsTab::updateFromSnapshot(const AppSnapshot& snap) {
     if (!fieldsSeeded_) {
         channelCombo_->setCurrentText(QString::fromStdString(snap.settings.channel));
-        protonEnvEdit_->setText(QString::fromStdString(snap.settings.protonEnvVars));
-        globalEnvEdit_->setText(QString::fromStdString(snap.settings.globalEnvVars));
+        envEdit_->setText(QString::fromStdString(snap.settings.envVars));
         crashReportsToggle_->setChecked(snap.settings.sendCrashReports);
         autoUpdateToggle_->setChecked(snap.settings.autoUpdate);
         fieldsSeeded_ = true;

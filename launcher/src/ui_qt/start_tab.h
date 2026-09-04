@@ -16,20 +16,23 @@
 
 #pragma once
 #include "app.h"
+#include <QString>
 #include <QWidget>
 
 class QLabel;
 class QProgressBar;
-class QPushButton;
 
 namespace tuxblox {
 
-// Logo, version footer, and either an update-progress indicator or the two
-// launch buttons -- port of ui.cpp's renderStartTab(). Holds a reference to
-// App (not a copy) since it calls App::requestLaunch() directly from the
-// launch buttons' clicked() handlers, same division of responsibility the
-// ImGui version used (render functions took App& and called into it
-// directly on click).
+class AppCard;
+
+// The Home tab: a heading, one card per Roblox app showing what is
+// installed and offering to start it, and a status strip along the bottom.
+//
+// While an update is downloading the cards are hidden and a progress bar
+// takes their place, so the window never offers a launch that is about to
+// be interrupted. Holds a reference to App (not a copy) since the cards
+// call App::requestLaunch() directly.
 class StartTab : public QWidget {
     Q_OBJECT
 public:
@@ -38,14 +41,21 @@ public:
     void updateFromSnapshot(const AppSnapshot& snap);
 
 private:
+    QWidget* buildStatusStrip();
+    void setUpdateState(const QString& state, const QString& text);
+
     App& app_;
-    QLabel* logo_ = nullptr;
+    QLabel* title_ = nullptr;
+    QLabel* subtitle_ = nullptr;
+    QWidget* cardRow_ = nullptr;
+    AppCard* playerCard_ = nullptr;
+    AppCard* studioCard_ = nullptr;
     QLabel* updateStatusLabel_ = nullptr;
     QProgressBar* updateProgress_ = nullptr;
     QLabel* errorBanner_ = nullptr;
-    QPushButton* playerButton_ = nullptr;
-    QPushButton* studioButton_ = nullptr;
-    QLabel* footer_ = nullptr;
+    QLabel* channelLabel_ = nullptr;
+    QLabel* updateStateDot_ = nullptr;
+    QLabel* updateStateLabel_ = nullptr;
 };
 
 } // namespace tuxblox

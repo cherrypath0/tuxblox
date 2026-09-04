@@ -21,18 +21,19 @@
 class QComboBox;
 class QLineEdit;
 class QLabel;
+class QPushButton;
 
 namespace tuxblox {
 
 class ToggleSwitch;
 class DangerButton;
 
-// Bloxstrap-style grouped settings -- port of ui.cpp's renderSettingsTab().
-// A future plan (Auto-Update) adds one more ToggleSwitch row near the
-// Update Channel combo; this class's constructor lays out each row as an
-// independent block specifically so that insertion doesn't require
-// reflowing anything below it (QVBoxLayout, not manual y-cursor math like
-// the ImGui original).
+// Settings, grouped into bordered boxes of rows under small uppercase
+// headings -- Updates, Environment, Privacy, and the danger zone.
+//
+// Each option carries its own one-line explanation inside its row, so
+// adding a setting means adding one BoxedRow to the right group and
+// nothing else has to move.
 class SettingsTab : public QWidget {
     Q_OBJECT
 public:
@@ -41,20 +42,25 @@ public:
     void updateFromSnapshot(const AppSnapshot& snap);
 
 private:
+    QWidget* buildUpdatesGroup(QWidget* parent);
+    QWidget* buildEnvironmentGroup(QWidget* parent);
+    QWidget* buildPrivacyGroup(QWidget* parent);
+    QWidget* buildDangerGroup(QWidget* parent);
+    void onTerminate();
     void commitSettings(const Settings& updated);
 
     App& app_;
     QComboBox* channelCombo_ = nullptr;
     ToggleSwitch* autoUpdateToggle_ = nullptr;
-    QLineEdit* protonEnvEdit_ = nullptr;
-    QLineEdit* globalEnvEdit_ = nullptr;
+    QLineEdit* envEdit_ = nullptr;
     ToggleSwitch* crashReportsToggle_ = nullptr;
+    QPushButton* terminateButton_ = nullptr;
     DangerButton* wipePrefixButton_ = nullptr;
     QLabel* wipePrefixError_ = nullptr;
     DangerButton* uninstallButton_ = nullptr;
     QLabel* uninstallError_ = nullptr;
 
-    // Guards against re-seeding protonEnvEdit_/globalEnvEdit_ from
+    // Guards against re-seeding envEdit_ from
     // App::snapshot() on every poll tick while the user is mid-edit --
     // same problem ui.cpp's settingsBuffersInitialized_ solved, but scoped
     // per-field here since Qt's QLineEdit (unlike ImGui's InputText) is

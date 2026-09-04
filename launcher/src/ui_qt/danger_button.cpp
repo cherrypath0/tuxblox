@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "danger_button.h"
+#include <QStyle>
 
 namespace tuxblox {
 
@@ -32,27 +33,35 @@ DangerButton::DangerButton(const QString& restLabel, const QString& confirmLabel
 
 void DangerButton::handleClicked() {
     if (pending_) {
-        pending_ = false;
+        setArmed(false);
         revertTimer_.stop();
-        setText(restLabel_);
         emit confirmed();
     } else {
-        pending_ = true;
-        setText(confirmLabel_);
+        setArmed(true);
         revertTimer_.start(confirmWindowMs_);
     }
 }
 
 void DangerButton::revertArm() {
-    pending_ = false;
-    setText(restLabel_);
+    setArmed(false);
+}
+
+// Armed is a filled red button rather than an outlined one, so the second
+// click is visibly the destructive one. The stylesheet selects on the
+// property, which Qt only re-evaluates when the widget is repolished.
+void DangerButton::setArmed(bool armed) {
+    pending_ = armed;
+    setText(armed ? confirmLabel_ : restLabel_);
+    setProperty("armed", armed);
+    style()->unpolish(this);
+    style()->polish(this);
 }
 
 void DangerButton::setBusy(bool busy) {
     setEnabled(!busy);
     if (busy) {
         revertTimer_.stop();
-        pending_ = false;
+        setArmed(false);
         setText(busyLabel_);
     } else if (!pending_) {
         setText(restLabel_);

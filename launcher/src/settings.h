@@ -20,10 +20,29 @@
 
 namespace tuxblox {
 
+// One FastFlag row as the editor holds it. The value is a string whatever the
+// flag's type is -- Roblox accepts a string for all of them, so nothing here
+// has to know that DFInt takes a number and FFlag takes a boolean.
+struct FastFlag {
+    std::string name;
+    std::string value;
+};
+
+// A vector rather than a map, on both counts: the editor renders rows in the
+// order they were added, and a half-typed duplicate name has to survive in
+// the list while the user is still editing it.
+struct FastFlagSet {
+    std::vector<FastFlag> player;
+    std::vector<FastFlag> studio;
+};
+
 struct Settings {
     // Space-separated "VAR=VALUE" pairs, the same format launch.sh uses.
-    std::string protonEnvVars;  // applied only to the "proton run" child
-    std::string globalEnvVars;  // applied to the launcher process itself (setenv), inherited by everything it spawns
+    // Applied two ways, which together cover every process TuxBlox starts:
+    // setenv() on the launcher itself, so anything it spawns inherits them,
+    // and explicitly on the Proton child, so a launch started directly with
+    // --watch-launch (a desktop shortcut) gets them too.
+    std::string envVars;
     bool sendCrashReports = true;
     // One of "stable"/"canary"/"dev" -- which /v1/<channel>/... the update
     // checker resolves against. Defaults to "stable" even though it may
@@ -36,6 +55,9 @@ struct Settings {
     // app.h's AppSnapshot::updateAvailableVersion and
     // App::requestUpdateNow() for the rest of that flow.
     bool autoUpdate = false;
+    // Written into the active Roblox version's ClientSettings folder at every
+    // launch -- see fastflag_file.h for why it can't just be written once.
+    FastFlagSet fastFlags;
 };
 
 // installDir + "/settings.json". Never throws: a missing file,

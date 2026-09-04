@@ -93,9 +93,14 @@ private:
     void openLogFile();
     void writeLogHeader(const std::vector<std::string>& target);
 
-    // Re-emits the wrapped process's real exit code, which it writes to the
-    // log rather than to this process's own stderr.
-    void relayRealExitCode();
+    // Writes the marker lines the launcher reads the wrapped process's exit
+    // code back out of, since this process's own code is a fixed 0/1/2.
+    // `exitCode` is what waitpid() reported for it.
+    void reportExitCodes(int exitCode);
+
+    // One line to this process's stderr, unbuffered -- this runs on the way
+    // out, with no chance to flush anything.
+    static void writeLine(const std::string& line);
 
     Proton& proton;
     std::filesystem::path prefixDir;

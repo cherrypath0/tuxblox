@@ -16,6 +16,7 @@
 
 #pragma once
 #include <string>
+#include <vector>
 
 namespace tuxblox {
 
@@ -28,7 +29,21 @@ namespace tuxblox {
 // to invoke -- see ProcessLauncher::launch().
 bool prefixHasSessionHolder(const std::string& prefixDir);
 
+// Sends SIGTERM to every process running inside `prefixDir`, waits briefly,
+// then SIGKILLs whatever ignored it -- Wine apps under Proton routinely
+// ignore SIGTERM, the same reason ProcessLauncher::stop() escalates.
+// Returns how many processes were signalled. The calling process is never
+// included, so the launcher cannot terminate itself.
+int terminatePrefixProcesses(const std::string& prefixDir);
+
 // Testable seams, exposed for tests rather than for callers.
+
+// Every pid under `procRoot` whose WINEPREFIX is `prefixDir`, excluding the
+// caller. Unlike prefixHasSessionHolderIn() this ignores the image
+// allowlist: terminating a prefix has to take wineserver and the Wine
+// services with it, not just the Roblox processes. An empty `prefixDir`
+// matches nothing rather than everything.
+std::vector<int> collectPrefixPidsIn(const std::string& procRoot, const std::string& prefixDir);
 
 // Extracts the lowercased image basename from a wine process's
 // /proc/<pid>/cmdline first token, or "" if it isn't a wine process.

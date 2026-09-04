@@ -53,6 +53,10 @@ private slots:
     void revertArm();
 
 private:
+    // Sets both the label and the "armed" style property the stylesheet
+    // selects on, so the two can never disagree.
+    void setArmed(bool armed);
+
     QString restLabel_;
     QString confirmLabel_;
     QString busyLabel_;

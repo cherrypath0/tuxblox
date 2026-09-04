@@ -20,7 +20,6 @@
 namespace tuxblox {
 
 bool canDeleteVersion(const AppVersions& av, const std::string& hash) {
-    if (hash == av.activeHash) return false;
     return std::any_of(av.installed.begin(), av.installed.end(),
                         [&](const InstalledVersion& v) { return v.hash == hash; });
 }

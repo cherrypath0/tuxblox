@@ -27,9 +27,14 @@ class QVBoxLayout;
 
 namespace tuxblox {
 
-// Toolbar (target/channel/hash + Download Latest/Previous) plus a
-// per-app-type card list of installed versions. Port of the spec's
-// "Versions Tab — Downloader Mechanics" UI section.
+class BoxedGroup;
+
+// An install bar (target, channel, hash, Install/Previous) above one group
+// of rows per app type listing what is already installed.
+//
+// The hash field doubles as the version selector: leave it blank to take
+// the latest build on the chosen channel, or paste an exact
+// "version-..." hash to install that one.
 class VersionsTab : public QWidget {
     Q_OBJECT
 public:
@@ -38,29 +43,30 @@ public:
     void updateFromSnapshot(const AppSnapshot& snap);
 
 private:
-    void onDownloadLatest();
+    QWidget* buildInstallBar(QWidget* parent);
+    void onInstall();
     void onDownloadPrevious();
-    void onDownloadManualHash();
-    void rebuildCardList(const VersionsManifest& versions);
+    void refreshProgressVisibility();
+    void rebuildVersionList(LaunchTarget target, const AppVersions& versions, BoxedGroup* group);
 
     App& app_;
     QComboBox* targetSelect_ = nullptr;   // Player / Studio
     QLineEdit* channelField_ = nullptr;   // defaults to "live"
-    QLineEdit* hashField_ = nullptr;      // manual hash entry
+    QLineEdit* hashField_ = nullptr;      // blank means "latest"
     QPushButton* latestButton_ = nullptr;
     QPushButton* previousButton_ = nullptr;
-    QPushButton* manualButton_ = nullptr;
     QLabel* progressLabel_ = nullptr;
     QProgressBar* progressBar_ = nullptr;
     QLabel* errorBanner_ = nullptr;
-    QVBoxLayout* cardListLayout_ = nullptr;
+    BoxedGroup* playerGroup_ = nullptr;
+    BoxedGroup* studioGroup_ = nullptr;
 
-    // What rebuildCardList() last rendered from, so updateFromSnapshot() can
-    // skip the rebuild (and the live widget state loss that comes with it --
-    // e.g. an armed DangerButton mid-confirm) when nothing about the
+    // What rebuildVersionList() last rendered from, so updateFromSnapshot()
+    // can skip the rebuild (and the live widget state loss that comes with
+    // it -- e.g. an armed DangerButton mid-confirm) when nothing about the
     // installed-versions data actually changed since the last poll tick.
     VersionsManifest lastRenderedVersions_;
-    bool cardListRendered_ = false;
+    bool listRendered_ = false;
 };
 
 } // namespace tuxblox

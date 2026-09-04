@@ -61,6 +61,10 @@ add_executable(test_settings test_settings.cpp)
 target_link_libraries(test_settings PRIVATE launcher_core)
 add_test(NAME settings COMMAND test_settings)
 
+add_executable(test_fastflag_file test_fastflag_file.cpp)
+target_link_libraries(test_fastflag_file PRIVATE launcher_core)
+add_test(NAME fastflag_file COMMAND test_fastflag_file)
+
 add_executable(test_container_env test_container_env.cpp)
 target_link_libraries(test_container_env PRIVATE launcher_core)
 add_test(NAME container_env COMMAND test_container_env)

@@ -27,7 +27,7 @@
 
 namespace tuxblox {
 
-enum class Tab { Start, About, Settings, Versions };
+enum class Tab { Start, About, Settings, Versions, FastFlags };
 
 enum class VersionSelectMode { Latest, Previous, ManualHash };
 
@@ -133,6 +133,11 @@ public:
     // while already in progress.
     void requestWipePrefix();
 
+    // Stops everything running inside the prefix -- Roblox, wineserver and
+    // the Wine services -- without touching the launcher itself. Returns
+    // how many processes were signalled.
+    int requestTerminateProcesses();
+
     AppSnapshot snapshot() const;
 
     // Persists `settings` (settings.json), re-applies Global Environment
@@ -174,7 +179,7 @@ private:
     void wipePrefixThreadMain();
     void versionInstallThreadMain(LaunchTarget target, VersionSelectMode mode, std::string channel,
                                    std::string manualHash);
-    void applyGlobalEnvVars(const std::string& globalEnvVars);
+    void applyEnvVars(const std::string& envVars);
 
     std::string installDir_;
     std::string currentVersion_;

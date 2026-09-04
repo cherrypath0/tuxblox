@@ -48,9 +48,13 @@ const char* exitCodeTitle(int exitCode);
 // non-truncated exit code (e.g. Hyperion's -2147467260). That value is
 // relayed separately as a "TUXBLOX_REAL_EXIT_CODE=<n>" marker line on
 // Proton's own stderr, which ends up in the crash log at `logPath` (same
-// file TrackedProcess::start() captures). Scans the log for the last such
-// marker; returns nullopt if none is present (e.g. the failure never
-// reached ntdll at all, or Proton itself is what failed -- exitCode == 1).
+// file TrackedProcess::start() captures). ntdll only reports that for the
+// Player/Studio/WebView2 images, and only when the process terminates
+// itself, so Proton also writes "TUXBLOX_WRAPPER_EXIT_CODE=<n>" -- the code
+// its own waitpid() saw -- on every non-zero exit. Returns the last real
+// code if the log has one, otherwise the last wrapper code; nullopt only
+// when the log has neither (e.g. Proton itself is what failed --
+// exitCode == 1).
 std::optional<int> findRealExitCodeInLog(const std::string& logPath);
 
 class TrackedProcess {

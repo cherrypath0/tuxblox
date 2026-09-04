@@ -29,6 +29,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
         <file alias="privacy.png">../assets/privacy.png</file>
         <file alias="download.png">../assets/download.png</file>
         <file alias="roblox-rdd.png">../assets/roblox-rdd.png</file>
+        <file alias="chevron-down.png">../assets/chevron-down.png</file>
+        <file alias="fastflags.png">../assets/fastflags.png</file>
     </qresource>
     <qresource prefix="/branding">
         <file alias="tuxblox_logo.png">tuxblox_logo.png</file>

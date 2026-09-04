@@ -20,8 +20,12 @@
 
 namespace tuxblox {
 
-// True if `hash` is in `av.installed` AND is not `av.activeHash` -- the
-// exact rule VersionsTab's per-card delete button enables/disables against.
+// True if `hash` is actually installed -- the rule VersionsTab's per-row
+// delete button enables against. The version in use is deletable too: with
+// one version installed it is always the active one, so guarding it left
+// Delete permanently greyed out with nothing explaining why. Deleting it
+// simply leaves the prefix without that version, and the next launch
+// installs Roblox again.
 // Pulled out of VersionsTab itself so it's testable without a QApplication.
 bool canDeleteVersion(const AppVersions& av, const std::string& hash);
 

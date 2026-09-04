@@ -18,6 +18,7 @@
 #include "about_tab.h"
 #include "icon_utils.h"
 #include "message_box.h"
+#include "fastflags_tab.h"
 #include "settings_tab.h"
 #include "sidebar.h"
 #include "start_tab.h"
@@ -56,10 +57,12 @@ MainWindow::MainWindow(App& app, QWidget* parent) : QMainWindow(parent), app_(ap
     settingsTab_ = new SettingsTab(app_, stack_);
     aboutTab_ = new AboutTab(stack_);
     versionsTab_ = new VersionsTab(app_, stack_);
+    fastFlagsTab_ = new FastFlagsTab(app_, stack_);
     stack_->addWidget(startTab_);   // index 0
     stack_->addWidget(settingsTab_); // index 1
     stack_->addWidget(aboutTab_);   // index 2
     stack_->addWidget(versionsTab_); // index 3
+    stack_->addWidget(fastFlagsTab_); // index 4
     layout->addWidget(stack_, 1);
 
     connect(sidebar_, &Sidebar::tabSelected, this, [this](Tab tab) {
@@ -84,11 +87,13 @@ void MainWindow::poll() {
         case Tab::Settings: stack_->setCurrentWidget(settingsTab_); break;
         case Tab::About:    stack_->setCurrentWidget(aboutTab_); break;
         case Tab::Versions: stack_->setCurrentWidget(versionsTab_); break;
+        case Tab::FastFlags: stack_->setCurrentWidget(fastFlagsTab_); break;
     }
 
     startTab_->updateFromSnapshot(snap);
     settingsTab_->updateFromSnapshot(snap);
     versionsTab_->updateFromSnapshot(snap);
+    fastFlagsTab_->updateFromSnapshot(snap);
     updatePopup_->setAvailableVersion(snap.updateAvailableVersion);
     repositionUpdatePopup();
 
@@ -117,8 +122,12 @@ void MainWindow::resizeEvent(QResizeEvent* event) {
 void MainWindow::repositionUpdatePopup() {
     if (!updatePopup_ || !updatePopup_->isVisible()) return;
     const int margin = 16;
+    // Clears the status strip along the bottom of the Home and About tabs,
+    // which the toast would otherwise cover -- the strip's right-hand side
+    // is where the update state is reported.
+    const int bottomMargin = 52;
     updatePopup_->move(width() - updatePopup_->width() - margin,
-                        height() - updatePopup_->height() - margin);
+                        height() - updatePopup_->height() - bottomMargin);
 }
 
 } // namespace tuxblox
