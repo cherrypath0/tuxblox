@@ -1994,6 +1994,56 @@ static NTSTATUS query_information_process( HANDLE handle, PROCESSINFOCLASS class
     case ProcessFindFirstThreadByTebValue:  /* 115 */
         return STATUS_INFO_LENGTH_MISMATCH;
 
+    case ProcessCommandLineInformation:      /* 60 */
+    case ProcessWindowInformation:          /* 50 */
+    {
+        /* Both describe this process, so a recorded answer from another
+         * machine would be the wrong one. Windows returns the string inline,
+         * immediately after the header, and points into the caller's own
+         * buffer. */
+        const UNICODE_STRING *str;
+        ULONG hdr;
+
+        if (handle != GetCurrentProcess() || !peb->ProcessParameters)
+        {
+            ret = STATUS_INVALID_PARAMETER;
+            break;
+        }
+        str = (class == ProcessCommandLineInformation) ? &peb->ProcessParameters->CommandLine
+                                                       : &peb->ProcessParameters->WindowTitle;
+        hdr = (class == ProcessCommandLineInformation) ? sizeof(UNICODE_STRING)
+                                                       : sizeof(ULONG) + sizeof(USHORT);
+        len = hdr + str->Length + sizeof(WCHAR);
+        if (size < len)
+        {
+            ret = STATUS_INFO_LENGTH_MISMATCH;
+            break;
+        }
+        if (info)
+        {
+            WCHAR *text = (WCHAR *)((char *)info + hdr);
+
+            if (class == ProcessCommandLineInformation)
+            {
+                UNICODE_STRING *out = info;
+
+                out->Length = str->Length;
+                out->MaximumLength = str->Length + sizeof(WCHAR);
+                out->Buffer = text;
+            }
+            else
+            {
+                /* PROCESS_WINDOW_INFORMATION: flags, then the title length in
+                 * bytes, then the title itself. */
+                ((ULONG *)info)[0] = peb->ProcessParameters->dwFlags;
+                ((USHORT *)info)[2] = str->Length;
+            }
+            if (str->Length) memcpy( text, str->Buffer, str->Length );
+            text[str->Length / sizeof(WCHAR)] = 0;
+        }
+        break;
+    }
+
     default:
     {
         const struct known_class *entry;
