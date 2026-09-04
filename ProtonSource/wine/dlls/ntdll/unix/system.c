@@ -2909,7 +2909,16 @@ static const struct known_class known_system_classes[] =
     {  13, 0xc0000002, 0 },
     {  14, 0xc0000002, 0 },
     {  15, 0xc0000002, 0 },
-    {  17, 0xc0000004, 64 },
+    /* Ten classes that report the size they want and then refuse the read.
+     * This build described the size and then failed the read as not
+     * implemented, which is a status the reference machine never returns for
+     * any class; what it returns is its own refusal, and the refusal differs
+     * per class. Roblox Player sweeps every system class in turn and reads
+     * exactly this pair, so the second half has to be the measured one.
+     * Recorded here rather than implemented: these all take an input structure
+     * in the same buffer, and the reference machine is refusing the input it
+     * was given, not the class. */
+    {  17, 0xc0000004, 64, NULL, 0, 0xc0000001 },
     {  18, 0xc0000004, 32 },
     {  19, 0xc0000002, 0 },
     {  20, 0xc0000003, NO_LENGTH },
@@ -2937,7 +2946,7 @@ static const struct known_class known_system_classes[] =
     {  50, 0xc0000004, 8 },
     {  51, 0xc0000004,    144, writes_nothing, 0 },
     {  52, 0xc0000003, NO_LENGTH },
-    {  53, 0xc0000004, 16 },
+    {  53, 0xc0000004, 16, NULL, 0, 0xc0000005 },
     {  54, 0xc0000003, NO_LENGTH },
     {  55, 0xc0000004,      4, sys_55_data, 4 },
     {  56, 0xc0000022, 0 },
@@ -2975,7 +2984,7 @@ static const struct known_class known_system_classes[] =
     {  98, 0xc0000023, 64 },
     {  99, 0xc0000023, 60 },
     { 100, 0xc0000004, 536 },
-    { 101, 0xc0000004, 8 },
+    { 101, 0xc0000004, 8, NULL, 0, 0xc0000225 },
     { 104, 0xc0000003, NO_LENGTH },
     { 107, 0xc0000003, NO_LENGTH },
     { 106, 0xc0000003,      0 },  /* refused as an invalid class, but with a zero length reported */
@@ -2995,9 +3004,9 @@ static const struct known_class known_system_classes[] =
     { 119, 0xc0000004, 64 },
     { 120, 0xc0000004, 64 },
     { 121, 0xc0000003, NO_LENGTH },
-    { 122, 0xc0000004, 8 },
+    { 122, 0xc0000004, 8, NULL, 0, 0xc00000bb },
     { 123, 0xc0000004, 32 },
-    { 124, 0xc0000004, 12 },
+    { 124, 0xc0000004, 12, NULL, 0, 0xc00000bb },
     { 125, 0xc0000003, NO_LENGTH },
     { 126, 0xc0000004, 32 },
     { 127, 0xc0000003, NO_LENGTH },
@@ -3006,10 +3015,10 @@ static const struct known_class known_system_classes[] =
     { 131, 0xc0000003, NO_LENGTH },
     { 132, 0xc0000003, NO_LENGTH },
     { 133, 0xc0000061, NO_LENGTH },
-    { 134, 0xc0000004, 32 },
+    { 134, 0xc0000004, 32, NULL, 0, 0xc0000005 },
     { 135, 0xc0000004, 8 },
-    { 136, 0xc0000004, 48 },
-    { 137, 0xc0000004, 48 },
+    { 136, 0xc0000004, 48, NULL, 0, 0xc0000005 },
+    { 137, 0xc0000004, 48, NULL, 0, 0xc0000005 },
     { 138, 0xc0000023, 240 },
     { 139, 0xc0000206, 0 },
     { 140, 0xc0000023, 377672 },
@@ -3063,7 +3072,7 @@ static const struct known_class known_system_classes[] =
     { 196, 0xc0000004,      4, sys_196_data, 4 },
     { 197, 0xc0000004, 8 },
     { 198, 0xc0000004, 56 },
-    { 199, 0xc0000004, 24 },
+    { 199, 0xc0000004, 24, NULL, 0, 0xc0000005 },
     { 200, 0xc0000023, 64 },
     { 201, 0xc0000004, 8 },
     { 202, 0xc0000004,      1, sys_202_data, 1 },
@@ -3079,7 +3088,7 @@ static const struct known_class known_system_classes[] =
     { 213, 0xc0000004, 8 },
     { 214, 0xc0000061, NO_LENGTH },
     { 215, 0xc0000061, 0 },
-    { 216, 0xc0000004, 32 },
+    { 216, 0xc0000004, 32, NULL, 0, 0xc0000001 },
     { 217, 0xc0000003, NO_LENGTH },
     { 218, 0xc0000003, NO_LENGTH },
     { 219, 0xc0000003, NO_LENGTH },
@@ -3712,6 +3721,12 @@ static void get_performance_info( SYSTEM_PERFORMANCE_INFORMATION *info )
     info->AvailablePages      = freeram / page_size;
     info->TotalCommittedPages = (totalram + totalswap - freeram - freeswap) / page_size;
     info->TotalCommitLimit    = (totalram + totalswap) / page_size;
+    /* The eight counters after this describe kernel bookkeeping that has no
+     * counterpart here, and the class as a whole is the size a caller checks
+     * rather than the numbers: measured on the reference machine it is 376
+     * bytes and this build reported 312, which is what the struct grew for.
+     * The one that can be answered honestly is answered. */
+    info->ResidentAvailablePages = freeram / page_size;
 }
 
 #ifdef linux
@@ -4408,7 +4423,7 @@ C_ASSERT( sizeof(struct process_info) <= sizeof(SYSTEM_PROCESS_INFORMATION) );
 /******************************************************************************
  *              NtQuerySystemInformation  (NTDLL.@)
  */
-NTSTATUS WINAPI NtQuerySystemInformation( SYSTEM_INFORMATION_CLASS class,
+static NTSTATUS query_system_information( SYSTEM_INFORMATION_CLASS class,
                                           void *info, ULONG size, ULONG *ret_size )
 {
     unsigned int ret = STATUS_SUCCESS;
@@ -4514,7 +4529,12 @@ NTSTATUS WINAPI NtQuerySystemInformation( SYSTEM_INFORMATION_CLASS class,
 
         if (out_cpus == 0)
         {
-            len = 0;
+            /* Windows says how much room to bring even when it is refusing the
+             * call for not having enough: one entry per processor. Reporting
+             * nothing needed for a buffer just refused as too small is not an
+             * answer any kernel gives, and it is one of the three places this
+             * build did it. */
+            len = peb->NumberOfProcessors * sizeof(SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION);
             ret = STATUS_INFO_LENGTH_MISMATCH;
             break;
         }
@@ -4667,6 +4687,7 @@ NTSTATUS WINAPI NtQuerySystemInformation( SYSTEM_INFORMATION_CLASS class,
 
         if (size < sizeof(SYSTEM_HANDLE_INFORMATION))
         {
+            len = sizeof(SYSTEM_HANDLE_INFORMATION);
             ret = STATUS_INFO_LENGTH_MISMATCH;
             break;
         }
@@ -4873,6 +4894,7 @@ NTSTATUS WINAPI NtQuerySystemInformation( SYSTEM_INFORMATION_CLASS class,
 
         if (size < sizeof(SYSTEM_HANDLE_INFORMATION_EX))
         {
+            len = sizeof(SYSTEM_HANDLE_INFORMATION_EX);
             ret = STATUS_INFO_LENGTH_MISMATCH;
             break;
         }
@@ -5359,6 +5381,17 @@ NTSTATUS WINAPI NtQuerySystemInformation( SYSTEM_INFORMATION_CLASS class,
 
     if (ret_size) *ret_size = len;
     return ret;
+}
+
+NTSTATUS WINAPI NtQuerySystemInformation( SYSTEM_INFORMATION_CLASS class,
+                                          void *info, ULONG size, ULONG *ret_size )
+{
+    ULONG reported = 0;
+    NTSTATUS status = query_system_information( class, info, size, ret_size ? ret_size : &reported );
+
+    if (ret_size) reported = *ret_size;
+    tuxblox_diag_class( "sys", class, size, reported, status );
+    return status;
 }
 
 

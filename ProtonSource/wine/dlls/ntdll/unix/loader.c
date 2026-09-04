@@ -773,6 +773,7 @@ void trace_sysret( UINT id, ULONG_PTR retval )
     const char **names = syscall_names[idx];
 
     tuxblox_trace_sysret( id, retval );
+    tuxblox_diag_watch_sysret( id );
 
     if (names && names[num])
         TRACE_(syscall)( "\1SysRet   %s() retval=%08lx\n", names[num], retval );

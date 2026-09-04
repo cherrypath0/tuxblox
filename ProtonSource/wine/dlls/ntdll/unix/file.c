@@ -8290,7 +8290,7 @@ static void *put_object_type_info( OBJECT_TYPE_INFORMATION *p, struct object_typ
 /**************************************************************************
  *           NtQueryObject   (NTDLL.@)
  */
-NTSTATUS WINAPI NtQueryObject( HANDLE handle, OBJECT_INFORMATION_CLASS info_class,
+static NTSTATUS query_object( HANDLE handle, OBJECT_INFORMATION_CLASS info_class,
                                void *ptr, ULONG len, ULONG *used_len )
 {
     unsigned int status;
@@ -8457,6 +8457,17 @@ NTSTATUS WINAPI NtQueryObject( HANDLE handle, OBJECT_INFORMATION_CLASS info_clas
         status = STATUS_NOT_IMPLEMENTED;
         break;
     }
+    return status;
+}
+
+NTSTATUS WINAPI NtQueryObject( HANDLE handle, OBJECT_INFORMATION_CLASS info_class,
+                               void *ptr, ULONG len, ULONG *used_len )
+{
+    ULONG reported = 0;
+    NTSTATUS status = query_object( handle, info_class, ptr, len, used_len ? used_len : &reported );
+
+    if (used_len) reported = *used_len;
+    tuxblox_diag_class( "obj", info_class, len, reported, status );
     return status;
 }
 

@@ -872,6 +872,7 @@ NTSTATUS WINAPI NtContinueEx( CONTEXT *context, KCONTINUE_ARGUMENT *args )
         status = server_select( NULL, 0, SELECT_INTERRUPTIBLE | SELECT_ALERTABLE, 0, NULL, &apc );
         if (status == STATUS_USER_APC) return invoke_user_apc( context, &apc, status );
     }
+    tuxblox_diag_continue( context );
     return signal_set_full_context( context );
 }
 
@@ -1779,7 +1780,7 @@ void server_init_process_done(void)
     signal_init_process();
     thread_data->syscall_table = KeServiceDescriptorTable;
     /* see the matching comment in thread.c's start_thread() */
-    thread_data->syscall_trace = TRACE_ON(syscall) || tuxblox_trace_enabled();
+    thread_data->syscall_trace = TRACE_ON(syscall) || tuxblox_trace_enabled() || tuxblox_diag_watch_enabled();
 
     /* always send the native TEB */
     if (!(teb = NtCurrentTeb64())) teb = NtCurrentTeb();

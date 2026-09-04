@@ -4320,6 +4320,9 @@ static TEB *init_teb( void *ptr, BOOL is_wow )
     teb->Peb = peb;
     teb->Tib.Self = &teb->Tib;
     teb->Tib.StackBase = (void *)~0ul;
+    /* Windows leaves this constant in the union until the thread becomes a
+     * fiber; zero here is visible to anything reading %gs:0x20 directly. */
+    teb->Tib.FiberData = (void *)0x1e00;
     teb->ActivationContextStackPointer = &teb->ActivationContextStack;
     InitializeListHead( &teb->ActivationContextStack.FrameListCache );
     teb->StaticUnicodeString.Buffer = teb->StaticUnicodeBuffer;
@@ -6787,7 +6790,7 @@ err:
  *             NtQueryVirtualMemory   (NTDLL.@)
  *             ZwQueryVirtualMemory   (NTDLL.@)
  */
-NTSTATUS WINAPI NtQueryVirtualMemory( HANDLE process, LPCVOID addr,
+static NTSTATUS query_virtual_memory( HANDLE process, LPCVOID addr,
                                       MEMORY_INFORMATION_CLASS info_class,
                                       PVOID buffer, SIZE_T len, SIZE_T *res_len )
 {
@@ -6838,6 +6841,18 @@ NTSTATUS WINAPI NtQueryVirtualMemory( HANDLE process, LPCVOID addr,
                   process, addr, info_class, buffer, len, res_len);
             return STATUS_INVALID_INFO_CLASS;
     }
+}
+
+NTSTATUS WINAPI NtQueryVirtualMemory( HANDLE process, LPCVOID addr,
+                                      MEMORY_INFORMATION_CLASS info_class,
+                                      PVOID buffer, SIZE_T len, SIZE_T *res_len )
+{
+    SIZE_T reported = 0;
+    NTSTATUS status = query_virtual_memory( process, addr, info_class, buffer, len, res_len ? res_len : &reported );
+
+    if (res_len) reported = *res_len;
+    tuxblox_diag_class( "vm", info_class, len, reported, status );
+    return status;
 }
 
 

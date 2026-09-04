@@ -51,6 +51,7 @@
 #include "wine/debug.h"
 
 WINE_DECLARE_DEBUG_CHANNEL(tuxblox);
+WINE_DECLARE_DEBUG_CHANNEL(seh);
 
 /* -1 = not yet determined, 0 = off, 1 = on. Resolved once and cached: the
  * choke points sit on hot paths (NtQuerySystemInformation especially) and
@@ -247,6 +248,543 @@ void tuxblox_trace_code( const char *tag, ULONG_PTR addr, unsigned int len )
     }
     for (i = n = 0; i < got; i++) n += snprintf( line + n, sizeof(line) - n, "%02x ", buf[i] );
     TRACE_(tuxblox)( "CODE %s 0x%llx %s\n", tag, (unsigned long long)addr, line );
+}
+
+
+/* A control transfer into the thread's own stack, reported once.
+ *
+ * The anti-tamper layer reaches such an address twice per run: once on purpose
+ * (a far jump into 32-bit mode, which lands at zero) and once at 0x51c080,
+ * where it is not yet known whether the layer went there deliberately or was
+ * sent there by something this build got wrong. The two look identical from
+ * the fault alone, and the difference is in the instruction that transferred
+ * control -- which lives in the layer's own section, decrypted only in memory.
+ *
+ * So print the three things that separate them: what is about to run at the
+ * faulting address, the top of the stack (whose first slot is the return
+ * address if a call put us here), and the bytes ending at that return address,
+ * which are the calling instruction itself.
+ *
+ * Gated on TUXBLOX_DIAG rather than the trace channel: the tracer changes what
+ * the layer does, and this has to be readable from an otherwise ordinary run.
+ */
+static void diag_hex( const char *tag, ULONG_PTR addr, unsigned int len )
+{
+    unsigned char buf[160];
+    char line[3 * sizeof(buf) + 1];
+    unsigned int i, n;
+    SIZE_T got;
+
+    if (!addr) return;
+    if (len > sizeof(buf)) len = sizeof(buf);
+    if (!(got = virtual_uninterrupted_read_memory( (const void *)addr, buf, len )))
+    {
+        ERR_(seh)( "DIAG %s 0x%llx unreadable\n", tag, (unsigned long long)addr );
+        return;
+    }
+    for (i = n = 0; i < got; i++) n += snprintf( line + n, sizeof(line) - n, "%02x ", buf[i] );
+    ERR_(seh)( "DIAG %s 0x%llx %s\n", tag, (unsigned long long)addr, line );
+}
+
+/* The last raw system calls the layer issued, with the stack pointer each was
+ * made on.
+ *
+ * Its inner loop repeats the same three call sites, so the stack pointer at a
+ * given site is the same on every pass -- until it is not. A pass where it
+ * moves by eight is the imbalance that later sends a `ret` through a slot that
+ * holds data, and this is the cheapest way to see which pass that is. Written
+ * from a signal handler, so it is an array store and nothing else.
+ */
+#define DIAG_RING 4096
+static __thread struct { ULONG64 rip, rsp, rax; } diag_ring[DIAG_RING];
+static __thread unsigned int diag_ring_pos;
+static int diag_enabled_state = -1;
+/* One counter across every diagnostic below, so a fixup, a resume and an
+ * exception can be put in order against each other. The system-call count
+ * cannot do that: several of these happen between two system calls. */
+static LONG diag_seq;
+
+static BOOL diag_enabled(void)
+{
+    if (diag_enabled_state == -1)
+    {
+        const char *v = getenv( "TUXBLOX_DIAG" );
+        diag_enabled_state = (v && *v && *v != '0') ? 1 : 0;
+    }
+    return diag_enabled_state == 1;
+}
+
+void tuxblox_diag_note_syscall( ULONG64 rip, ULONG64 rsp, ULONG64 rax )
+{
+    static unsigned int shown;
+    unsigned int i;
+
+    if (!diag_enabled()) return;
+    /* The SIGSYS path resumes the caller at rip + 0xb, which is the shape of
+     * ntdll's own stub. The layer issues its system calls from code it
+     * generates itself, so what its stubs look like decides whether that
+     * resume address is an instruction boundary at all. */
+    if (shown < 6 && rip < 0x6fffffc00000ull)
+    {
+        shown++;
+        diag_hex( "stub", (ULONG_PTR)rip - 16, 32 );
+    }
+    i = diag_ring_pos++ % DIAG_RING;
+    diag_ring[i].rip = rip;
+    diag_ring[i].rsp = rsp;
+    diag_ring[i].rax = rax;
+}
+
+/* Single-step the last stretch of the run.
+ *
+ * The failure is a `ret` to a slot that holds data, and nothing short of the
+ * instruction stream says which return it was. The stretch is short and
+ * identical on every run, so it can be stepped: arm the trap flag on the way
+ * back from a chosen system call, record (rip, rsp) per instruction without
+ * ever telling the program a single-step happened, and print the tail when the
+ * fault lands.
+ *
+ * TUXBLOX_DIAG_STEP=<n> arms it after the n-th raw system call; take n from the
+ * "total=" figure an unstepped TUXBLOX_DIAG run prints. Stepping is visible to
+ * a program that reads its own EFLAGS, so this is a diagnostic of last resort,
+ * not something to leave on.
+ */
+#define DIAG_STEPS (1 << 19)
+static struct { ULONG64 rip, rsp; } diag_steps[DIAG_STEPS];
+static unsigned int diag_step_pos, diag_step_start;
+static ULONG diag_step_tid = (ULONG)-1, diag_step_owner;
+static BOOL diag_stepping;
+
+BOOL tuxblox_diag_step_arm(void)
+{
+    static int start = -1;
+
+    if (!diag_enabled()) return FALSE;
+    if (start == -1)
+    {
+        const char *v = getenv( "TUXBLOX_DIAG_STEP" );
+
+        start = v ? atoi( v ) : 0;
+        diag_step_start = start;
+    }
+    /* Armed once only. Re-arming after each system call was tried and is not
+     * usable: the layer clears the trap flag itself -- `pushfq; and qword
+     * [rsp],~0x100; popfq`, right after its hypervisor probe -- and putting it
+     * back changes what the layer does (the run ends 0x80004004 instead). So a
+     * trace covers from the arming point to the layer's next such clear. */
+    if (!diag_step_start || diag_stepping || diag_ring_pos < diag_step_start) return FALSE;
+
+    /* The raw-syscall ring and this whole diagnostic are process-wide, but the
+     * trap flag is not: arming on whichever thread happens to reach the count
+     * first single-steps a thread nobody is looking at, and -- at the wrong
+     * moment -- one the layer is watching, which changes the run. Pin the
+     * thread. TUXBLOX_DIAG_STEP_TID=<hex>, the id as it appears in the log. */
+    if (diag_step_tid == (ULONG)-1)
+    {
+        const char *v = getenv( "TUXBLOX_DIAG_STEP_TID" );
+        diag_step_tid = v ? strtoul( v, NULL, 16 ) : 0;
+    }
+    if (diag_step_tid && GetCurrentThreadId() != diag_step_tid) return FALSE;
+
+    diag_stepping = TRUE;
+    diag_step_owner = GetCurrentThreadId();
+    ERR_(seh)( "DIAG step armed at raw syscall %u on thread %04x\n",
+               diag_ring_pos, (unsigned int)diag_step_owner );
+    return TRUE;
+}
+
+/* Every SIGTRAP the stepping thread sees, for the first few after arming.
+ * A trace that records nothing needs to say whether no trap arrived or whether
+ * something consumed it before the recorder ran. */
+void tuxblox_diag_note_trap( unsigned int trapno, int si_code, ULONG64 rip, ULONG64 rsp )
+{
+    static unsigned int shown;
+
+    if (!diag_stepping || GetCurrentThreadId() != diag_step_owner) return;
+    if (shown >= 8) return;
+    shown++;
+    ERR_(seh)( "DIAG trap #%u trapno=%u si_code=%d rip=0x%llx rsp=0x%llx\n",
+               shown, trapno, si_code, (unsigned long long)rip, (unsigned long long)rsp );
+}
+
+BOOL tuxblox_diag_step_record( ULONG64 rip, ULONG64 rsp )
+{
+    if (!diag_stepping) return FALSE;
+    /* Only the thread that armed it. Another thread reaching here is stepping
+     * for no reason and its steps would be interleaved into the same ring. */
+    if (GetCurrentThreadId() != diag_step_owner) return FALSE;
+    if (!diag_step_pos) ERR_(seh)( "DIAG first step rip=0x%llx rsp=0x%llx\n",
+                                   (unsigned long long)rip, (unsigned long long)rsp );
+    /* A run that never reaches the fault must not step forever. */
+    if (diag_step_pos >= 4 * 1024 * 1024)
+    {
+        diag_stepping = FALSE;
+        return FALSE;
+    }
+    diag_steps[diag_step_pos++ % DIAG_STEPS].rip = rip;
+    diag_steps[(diag_step_pos - 1) % DIAG_STEPS].rsp = rsp;
+    return TRUE;
+}
+
+/* Everything from here to the end of the block reads an x86-64 CONTEXT by
+ * name or dumps 64-bit addresses. What this file diagnoses is 64-bit -- the
+ * Player is a 64-bit process and the fault being chased is in its 64-bit
+ * unwinder -- so the 32-bit build gets stubs rather than a second copy
+ * written against the i386 register names.
+ */
+#ifdef __x86_64__
+
+static void diag_dump_steps(void)
+{
+    unsigned int n = diag_step_pos < DIAG_STEPS ? diag_step_pos : DIAG_STEPS, i;
+
+    if (!diag_step_pos) return;
+    ERR_(seh)( "DIAG steps total=%u, last %u:\n", diag_step_pos, n );
+    if (getenv( "TUXBLOX_DIAG_QUIETSTEPS" )) return;
+    for (i = 0; i < n; i++)
+    {
+        unsigned int at = (diag_step_pos - n + i) % DIAG_STEPS;
+
+        ERR_(seh)( "DIAG step[-%u] rip=0x%llx rsp=0x%llx\n", n - i,
+                   (unsigned long long)diag_steps[at].rip, (unsigned long long)diag_steps[at].rsp );
+    }
+}
+
+static void diag_dump_ring(void)
+{
+    unsigned int n = diag_ring_pos < DIAG_RING ? diag_ring_pos : DIAG_RING, i;
+
+    ERR_(seh)( "DIAG syscall total=%u\n", diag_ring_pos );
+    for (i = 0; i < n; i++)
+    {
+        unsigned int at = (diag_ring_pos - n + i) % DIAG_RING;
+
+        ERR_(seh)( "DIAG syscall[-%u] rip=0x%llx rsp=0x%llx rax=0x%llx\n", n - i,
+                   (unsigned long long)diag_ring[at].rip, (unsigned long long)diag_ring[at].rsp,
+                   (unsigned long long)diag_ring[at].rax );
+    }
+}
+
+
+/* Every exception the target raises, with the code at the faulting address and
+ * at whatever return addresses are on top of its stack.
+ *
+ * Windows' x86-64 unwinder checks whether a frame's pc sits in a function's
+ * epilogue and, if it does, simulates the rest of the epilogue instead of
+ * applying the unwind codes -- which would otherwise undo stack adjustments the
+ * epilogue has already made. Wine's has no such check. Reading the code around
+ * each frame's pc is the only way to tell whether that is what is happening
+ * here, since the layer's section is decrypted nowhere but in memory.
+ */
+/* Where each NtContinue resumes.
+ *
+ * A handler-driven unwind ends here, and this is the stack pointer the program
+ * gets back. Comparing it with the stack pointer the program had before the
+ * exception is what says whether the frame came back whole.
+ */
+void tuxblox_diag_continue( const CONTEXT *context )
+{
+    static unsigned int seen;
+
+    if (!diag_enabled() || !context || seen >= 24) return;
+    seen++;
+    ERR_(seh)( "DIAG continue s=%d n=%u rip=0x%llx rsp=0x%llx rbp=0x%llx rax=0x%llx flags=%#x\n",
+               (int)InterlockedIncrement( &diag_seq ), diag_ring_pos,
+               (unsigned long long)context->Rip, (unsigned long long)context->Rsp,
+               (unsigned long long)context->Rbp, (unsigned long long)context->Rax,
+               (unsigned int)context->ContextFlags );
+    /* Only for a resume into the target itself: what it is about to run, and
+     * what is on top of the stack it is being given back. */
+    if (context->Rip > 0x6ffffc000000ull && context->Rip < 0x6fffffc00000ull)
+    {
+        ULONG64 slot = 0;
+        unsigned int i;
+
+        diag_hex( "resume-at", (ULONG_PTR)context->Rip, 48 );
+        for (i = 0; i < 4; i++)
+        {
+            if (!virtual_uninterrupted_read_memory( (const char *)context->Rsp + i * 8, &slot, sizeof(slot) ))
+                continue;
+            ERR_(seh)( "DIAG resume stack+%#x 0x%llx = 0x%llx\n", i * 8,
+                       (unsigned long long)(context->Rsp + i * 8), (unsigned long long)slot );
+        }
+    }
+}
+
+
+void tuxblox_diag_exception( const EXCEPTION_RECORD *rec, const CONTEXT *context )
+{
+    static unsigned int seen;
+    unsigned int i;
+
+    if (!diag_enabled() || seen >= 12) return;
+    seen++;
+
+    ERR_(seh)( "DIAG exception s=%d %#x at 0x%llx rsp=0x%llx rbp=0x%llx\n",
+               (int)InterlockedIncrement( &diag_seq ), (unsigned int)rec->ExceptionCode,
+               (unsigned long long)context->Rip, (unsigned long long)context->Rsp,
+               (unsigned long long)context->Rbp );
+    diag_hex( "at-rip", (ULONG_PTR)context->Rip, 48 );
+    for (i = 0; i < 24; i++)
+    {
+        ULONG64 slot = 0;
+
+        if (!virtual_uninterrupted_read_memory( (const char *)context->Rsp + i * 8, &slot, sizeof(slot) ))
+            continue;
+        ERR_(seh)( "DIAG exc stack+%#x 0x%llx = 0x%llx\n", i * 8,
+                   (unsigned long long)(context->Rsp + i * 8), (unsigned long long)slot );
+        /* a return address on the stack: show the call that pushed it and what
+         * follows, which is what an epilogue check would be looking at */
+        if (slot > 0x6ffff0000000ull && slot < 0x700000000000ull)
+        {
+            diag_hex( "ret-144", (ULONG_PTR)slot - 144, 144 );
+            diag_hex( "ret+0", (ULONG_PTR)slot, 144 );
+        }
+    }
+}
+
+
+/* Write the main module's mapped image out, decrypted, as it stands right now.
+ *
+ * Every byte of the Player's 100 MB .text is encrypted on disk -- entropy 7.2
+ * from the entry point to the last section -- so the protection layer's own
+ * code cannot be read from the file at all. It is readable in memory once the
+ * layer has unpacked itself, and until now this file has only ever looked at
+ * it 144 bytes at a time around an address already known to be interesting.
+ * A whole-image dump turns "which answer did it dislike" from a guess into
+ * something that can be read.
+ *
+ * Reads go through /proc/self/mem rather than straight through the pointer:
+ * pages the layer left unmapped or no-access come back as a short read instead
+ * of killing the process, and nothing about the mapping is disturbed.
+ *
+ * TUXBLOX_DIAG_DUMP=<path>. The dump is the program's own code -- keep it out
+ * of the repository.
+ */
+void tuxblox_diag_dump_image( const char *why )
+{
+    static int done;
+    const char *path = getenv( "TUXBLOX_DIAG_DUMP" );
+    char maps_path[512], line[512], page[0x1000];
+    FILE *maps;
+    int mem, out, idx;
+    unsigned long long total = 0;
+
+    if (!path || !*path || done) return;
+    done = 1;
+
+    snprintf( maps_path, sizeof(maps_path), "%s.maps", path );
+    if (!(maps = fopen( "/proc/self/maps", "r" ))) return;
+    if ((mem = open( "/proc/self/mem", O_RDONLY )) == -1) { fclose( maps ); return; }
+    if ((out = open( path, O_WRONLY | O_CREAT | O_TRUNC, 0600 )) == -1) { close( mem ); fclose( maps ); return; }
+    if ((idx = open( maps_path, O_WRONLY | O_CREAT | O_TRUNC, 0600 )) == -1)
+    { close( out ); close( mem ); fclose( maps ); return; }
+
+    while (fgets( line, sizeof(line), maps ))
+    {
+        unsigned long long start, end, off;
+        char perms[8];
+        char note[600];
+        int n;
+
+        if (sscanf( line, "%llx-%llx %7s", &start, &end, perms ) != 3) continue;
+        if (perms[0] != 'r' || perms[2] != 'x') continue;
+
+        /* Every executable region, written back to back, with an index giving
+         * each one's address. The offset in the dump is what turns a runtime
+         * address from a log into a byte in the file. */
+        n = snprintf( note, sizeof(note), "%016llx-%016llx %s dumpoff=%016llx %s",
+                      start, end, perms, total, strchr( line, '/' ) ? strchr( line, '/' ) : "\n" );
+        if (n > 0) { ssize_t w = write( idx, note, n ); (void)w; }
+
+        for (off = start; off < end; off += sizeof(page))
+        {
+            if (pread( mem, page, sizeof(page), off ) != (ssize_t)sizeof(page))
+                memset( page, 0, sizeof(page) );
+            if (write( out, page, sizeof(page) ) != (ssize_t)sizeof(page)) goto done_dump;
+            total += sizeof(page);
+        }
+    }
+done_dump:
+    close( idx );
+    close( out );
+    close( mem );
+    fclose( maps );
+    ERR_(seh)( "DIAG exec dump (%s): %llu bytes -> %s, index -> %s\n",
+               why, total, path, maps_path );
+}
+
+
+void tuxblox_diag_stack_exec( const EXCEPTION_RECORD *rec, const CONTEXT *context )
+{
+    static int enabled = -1;
+    static int done;
+    const char *base = NtCurrentTeb()->Tib.StackBase;
+    const char *limit = NtCurrentTeb()->DeallocationStack;
+    ULONG_PTR addr, ret = 0;
+    unsigned int i;
+
+    if (enabled == -1)
+    {
+        const char *v = getenv( "TUXBLOX_DIAG" );
+        enabled = (v && *v && *v != '0') ? 1 : 0;
+    }
+    if (!enabled || done >= 4) return;
+    if (rec->ExceptionCode != EXCEPTION_ACCESS_VIOLATION || rec->NumberParameters < 2) return;
+
+    addr = rec->ExceptionInformation[1];
+    if (addr != (ULONG_PTR)rec->ExceptionAddress) return;      /* not an execute fault */
+    if ((const char *)addr < limit || (const char *)addr >= base) return;  /* not our stack */
+    done++;
+
+    tuxblox_diag_dump_image( "execute on own stack" );
+    ERR_(seh)( "DIAG execute on own stack: rip=0x%llx rsp=0x%llx rbp=0x%llx stack=%p-%p\n",
+         (unsigned long long)context->Rip, (unsigned long long)context->Rsp,
+         (unsigned long long)context->Rbp, limit, base );
+    diag_dump_ring();
+    diag_dump_steps();
+    diag_hex( "target", addr, 64 );
+    diag_hex( "target-64", addr - 64, 64 );
+    virtual_uninterrupted_read_memory( (const void *)context->Rsp, &ret, sizeof(ret) );
+    /* Slots below the stack pointer as well as above: a ret leaves the address
+     * it popped one slot below, which is what separates "called here" from
+     * "returned here" -- and the two have very different causes. */
+    for (i = 0; i < 48; i++)
+    {
+        ULONG_PTR at = context->Rsp - 0x100 + i * 8;
+        ULONG64 slot = 0;
+
+        if (!virtual_uninterrupted_read_memory( (const void *)at, &slot, sizeof(slot) )) continue;
+        ERR_(seh)( "DIAG stack%+d 0x%llx = 0x%llx\n", (int)(i * 8) - 0x100,
+             (unsigned long long)at, (unsigned long long)slot );
+    }
+    /* If a call brought us here, the instruction that made it ends where the
+     * pushed return address points, and the code after it is what runs on the
+     * way back. */
+    if (ret > 64)
+    {
+        diag_hex( "caller", ret - 64, 64 );
+        diag_hex( "return", ret, 32 );
+    }
+}
+
+
+#else  /* __x86_64__ */
+
+void tuxblox_diag_continue( const CONTEXT *context ) { }
+void tuxblox_diag_exception( const EXCEPTION_RECORD *rec, const CONTEXT *context ) { }
+void tuxblox_diag_stack_exec( const EXCEPTION_RECORD *rec, const CONTEXT *context ) { }
+void tuxblox_diag_dump_image( const char *why ) { }
+
+#endif  /* __x86_64__ */
+
+/* Watch one stack slot across system calls.
+ *
+ * The layer's crash is a `ret` to an address that was written over a saved
+ * return address. The addresses are the same on every run, so the cheapest way
+ * to name the write is to read the slot after every system call and report the
+ * first call it changes across -- which brackets the write between two calls
+ * even when the write itself is not a system call's doing.
+ *
+ * Armed with TUXBLOX_DIAG_WATCH=<hex address>. Arming it turns on the syscall
+ * trace hook, which is otherwise off; nothing is printed per call, so the cost
+ * is the hook itself rather than the tracer's stderr writes.
+ */
+#define DIAG_WATCH_MAX 4
+static ULONG_PTR diag_watch[DIAG_WATCH_MAX];
+static unsigned int diag_watch_count;
+
+static void diag_watch_init(void)
+{
+    static int done;
+    const char *v;
+
+    if (done) return;
+    done = 1;
+    if (!(v = getenv( "TUXBLOX_DIAG_WATCH" ))) return;
+    while (*v && diag_watch_count < DIAG_WATCH_MAX)
+    {
+        char *end;
+        ULONG_PTR addr = (ULONG_PTR)strtoull( v, &end, 16 );
+
+        if (end == v) break;
+        if (addr) diag_watch[diag_watch_count++] = addr;
+        v = (*end == ',') ? end + 1 : end;
+    }
+}
+
+BOOL tuxblox_diag_watch_enabled(void)
+{
+    diag_watch_init();
+    return diag_watch_count != 0;
+}
+
+void tuxblox_diag_watch_sysret( unsigned int id )
+{
+    static __thread ULONG64 last[DIAG_WATCH_MAX];
+    static __thread unsigned int seen;
+    const char *name = NULL;
+    unsigned int i;
+
+    diag_watch_init();
+    for (i = 0; i < diag_watch_count; i++)
+    {
+        ULONG_PTR addr = diag_watch[i];
+        ULONG64 now;
+
+        /* Only the thread whose stack holds the slot can read it, and only
+         * inside the committed part of that stack. */
+        if ((const char *)addr < (const char *)NtCurrentTeb()->Tib.StackLimit ||
+            (const char *)addr + 8 > (const char *)NtCurrentTeb()->Tib.StackBase) continue;
+
+        now = *(volatile ULONG64 *)addr;
+        if ((seen & (1u << i)) && now == last[i]) continue;
+        if (!name) name = ntdll_syscall_name( id );
+        /* n= is the raw-system-call count, so a change here can be ordered
+         * against the syscall ring and against the other watched slots. */
+        ERR_(seh)( "DIAG watch n=%u 0x%llx = 0x%llx (was 0x%llx) after %s from 0x%llx\n",
+                   diag_ring_pos, (unsigned long long)addr, (unsigned long long)now,
+                   (unsigned long long)last[i], name ? name : "?",
+                   (unsigned long long)get_syscall_caller_pc() );
+        last[i] = now;
+        seen |= 1u << i;
+    }
+}
+
+/* Every misaligned-SSE fixup, and every misaligned fault the fixup declined.
+ *
+ * The fixup is this build's own code -- it decodes the instruction, performs it
+ * and steps Rip past it -- so a mis-decode does not report an error, it silently
+ * resumes the program somewhere it should not be. Counting what it sees is the
+ * first thing to know before trusting it. Gated on TUXBLOX_DIAG.
+ */
+void tuxblox_diag_align( ULONG64 rip, ULONG64 rsp, BOOL handled )
+{
+    static int enabled = -1;
+    static unsigned int seen, declined;
+
+    unsigned char buf[16];
+    char line[3 * sizeof(buf) + 1];
+    unsigned int i, n;
+    SIZE_T got;
+
+    if (enabled == -1)
+    {
+        const char *v = getenv( "TUXBLOX_DIAG" );
+        enabled = (v && *v && *v != '0') ? 1 : 0;
+    }
+    if (!enabled) return;
+    seen++;
+    if (!handled) declined++;
+    if (!getenv( "TUXBLOX_DIAG_ALIGN_ALL" ) && seen > 64 && handled) return;
+
+    got = virtual_uninterrupted_read_memory( (const void *)(ULONG_PTR)rip, buf, sizeof(buf) );
+    for (i = n = 0; i < got; i++) n += snprintf( line + n, sizeof(line) - n, "%02x ", buf[i] );
+    ERR_(seh)( "DIAG align s=%d %s #%u n=%u rip=0x%llx rsp=0x%llx %s\n",
+               (int)InterlockedIncrement( &diag_seq ), handled ? "fixed" : "DECLINED",
+               seen, diag_ring_pos, (unsigned long long)rip, (unsigned long long)rsp,
+               got ? line : "unreadable" );
+    (void)declined;
 }
 
 
@@ -853,4 +1391,49 @@ void tuxblox_trace_tally_dump(void)
         else
             TRACE_(tuxblox)( "TALLY syscall=%u count=%d\n", i, (int)syscall_tally[i] );
     }
+}
+
+/* Which information classes the program actually asks for.
+ *
+ * The measured divergences in the token and process surfaces are many, and
+ * answering them all is expensive -- TokenAccessInformation alone is 1808
+ * bytes of nested structure, and infoprobe's capture differs on 6304 lines.
+ * This says which of them are worth answering: it records every class asked,
+ * the size asked for and the answer given, so the classes the program never
+ * touches can be left alone. TUXBLOX_DIAG_TOKEN=1.
+ */
+static int diag_class_state = -1;
+
+static BOOL diag_class_enabled(void)
+{
+    if (diag_class_state == -1)
+    {
+        const char *v = getenv( "TUXBLOX_DIAG_TOKEN" );
+        diag_class_state = (v && *v && *v != '0') ? 1 : 0;
+    }
+    return diag_class_state == 1;
+}
+
+void tuxblox_diag_class( const char *surface, unsigned int class, ULONG length,
+                         ULONG len, unsigned int status )
+{
+    /* One line per class per size, not one per call: a class read twice --
+     * once for the length, once for the data -- is the normal shape and would
+     * otherwise bury the classes asked only once. */
+    static struct { const char *surface; unsigned int class; ULONG length; } seen[4096];
+    static unsigned int seen_count;
+    unsigned int i;
+
+    if (!diag_class_enabled()) return;
+    for (i = 0; i < seen_count; i++)
+        if (seen[i].surface == surface && seen[i].class == class && seen[i].length == length) return;
+    if (seen_count == ARRAY_SIZE(seen)) return;
+    seen[seen_count].surface = surface;
+    seen[seen_count].class = class;
+    seen[seen_count].length = length;
+    seen_count++;
+
+    ERR_(seh)( "tuxblox: ask s=%d %s class=%u length=%u len=%u status=%08x\n",
+               (int)InterlockedIncrement( &diag_seq ), surface, class,
+               (unsigned int)length, (unsigned int)len, status );
 }

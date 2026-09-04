@@ -557,7 +557,6 @@ static inline WORD get_gs(void) { WORD res; __asm__( "movw %%gs,%0" : "=r" (res)
 static inline void set_fs( WORD val ) { __asm__( "mov %0,%%fs" :: "r" (val)); }
 static inline void set_gs( WORD val ) { __asm__( "mov %0,%%gs" :: "r" (val)); }
 
-
 /***********************************************************************
  *           unwind_builtin_dll
  */
@@ -566,7 +565,6 @@ NTSTATUS unwind_builtin_dll( void *args )
     return STATUS_UNSUCCESSFUL;
 }
 
-
 /***********************************************************************
  *           ldt_is_system
  */
@@ -574,7 +572,6 @@ static inline int ldt_is_system( WORD sel )
 {
     return is_gdt_sel( sel ) || ((sel >> 3) < 32);
 }
-
 
 /***********************************************************************
  *           get_current_teb
@@ -694,7 +691,6 @@ __ASM_GLOBAL_FUNC( clear_alignment_flag,
                    __ASM_CFI(".cfi_adjust_cfa_offset -4\n\t")
                    "ret" )
 
-
 /***********************************************************************
  *           init_handler
  *
@@ -729,7 +725,6 @@ static inline void *init_handler( const ucontext_t *sigcontext )
     return (void *)(ESP_sig(sigcontext) & ~3);
 }
 
-
 /***********************************************************************
  *           save_fpu
  *
@@ -758,7 +753,6 @@ static inline void save_fpu( I386_FLOATING_SAVE_AREA *fsave )
     __asm__ __volatile__( "fldenv %0" : : "m" (float_status) );
 }
 
-
 /***********************************************************************
  *           restore_fpu
  *
@@ -771,7 +765,6 @@ static inline void restore_fpu( const CONTEXT *context )
     float_status.StatusWord &= float_status.ControlWord | 0xffffff80;
     __asm__ __volatile__( "frstor %0; fwait" : : "m" (float_status) );
 }
-
 
 /***********************************************************************
  *           save_context
@@ -830,7 +823,6 @@ static inline void save_context( struct xcontext *xcontext, const ucontext_t *si
     }
 }
 
-
 /***********************************************************************
  *           fixup_frame_fpu_state
  *
@@ -879,7 +871,6 @@ static void fixup_frame_fpu_state( struct syscall_frame *frame, const ucontext_t
     }
 }
 
-
 /***********************************************************************
  *           restore_context
  *
@@ -919,7 +910,6 @@ static inline void restore_context( const struct xcontext *xcontext, ucontext_t 
     if (!fpu && !fpux) restore_fpu( context );
 }
 
-
 /***********************************************************************
  *           signal_set_full_context
  */
@@ -932,7 +922,6 @@ NTSTATUS signal_set_full_context( CONTEXT *context )
     return status;
 }
 
-
 /***********************************************************************
  *              get_native_context
  */
@@ -941,7 +930,6 @@ void *get_native_context( CONTEXT *context )
     return is_old_wow64() ? NULL : context;
 }
 
-
 /***********************************************************************
  *              get_wow_context
  */
@@ -949,7 +937,6 @@ void *get_wow_context( CONTEXT *context )
 {
     return is_old_wow64() ? context : NULL;
 }
-
 
 /***********************************************************************
  *              NtSetContextThread  (NTDLL.@)
@@ -1059,7 +1046,6 @@ NTSTATUS WINAPI NtSetContextThread( HANDLE handle, const CONTEXT *context )
     frame->restore_flags |= flags & ~CONTEXT_INTEGER;
     return STATUS_SUCCESS;
 }
-
 
 /***********************************************************************
  *              NtGetContextThread  (NTDLL.@)
@@ -1245,7 +1231,6 @@ NTSTATUS WINAPI NtGetContextThread( HANDLE handle, CONTEXT *context )
     return STATUS_SUCCESS;
 }
 
-
 /***********************************************************************
  *              set_thread_wow64_context
  */
@@ -1254,7 +1239,6 @@ NTSTATUS set_thread_wow64_context( HANDLE handle, const void *ctx, ULONG size )
     return STATUS_INVALID_INFO_CLASS;
 }
 
-
 /***********************************************************************
  *              get_thread_wow64_context
  */
@@ -1262,7 +1246,6 @@ NTSTATUS get_thread_wow64_context( HANDLE handle, void *ctx, ULONG size )
 {
     return STATUS_INVALID_INFO_CLASS;
 }
-
 
 /***********************************************************************
  *           is_privileged_instr
@@ -1328,7 +1311,6 @@ static inline DWORD is_privileged_instr( CONTEXT *context )
     }
     return 0;
 }
-
 
 /***********************************************************************
  *           check_invalid_gs
@@ -1495,7 +1477,6 @@ static BOOL check_atl_thunk( ucontext_t *sigcontext, EXCEPTION_RECORD *rec, CONT
     return FALSE;
 }
 
-
 /***********************************************************************
  *           setup_exception_record
  *
@@ -1567,7 +1548,6 @@ static void setup_raise_exception( ucontext_t *sigcontext, void *stack_ptr,
     SS_sig(sigcontext)  = get_ds();
 }
 
-
 /***********************************************************************
  *           setup_exception
  *
@@ -1580,7 +1560,6 @@ static void setup_exception( ucontext_t *sigcontext, EXCEPTION_RECORD *rec )
 
     setup_raise_exception( sigcontext, stack, rec, &xcontext );
 }
-
 
 /***********************************************************************
  *           call_user_apc_dispatcher
@@ -1614,7 +1593,6 @@ NTSTATUS call_user_apc_dispatcher( CONTEXT *context, unsigned int flags, ULONG_P
     return status;
 }
 
-
 /***********************************************************************
  *           call_raise_user_exception_dispatcher
  */
@@ -1622,7 +1600,6 @@ void call_raise_user_exception_dispatcher(void)
 {
     get_syscall_frame()->eip = (DWORD)pKiRaiseUserExceptionDispatcher;
 }
-
 
 /***********************************************************************
  *           call_user_exception_dispatcher
@@ -1661,7 +1638,6 @@ NTSTATUS call_user_exception_dispatcher( EXCEPTION_RECORD *rec, CONTEXT *context
     frame->eip = (ULONG)pKiUserExceptionDispatcher;
     return STATUS_SUCCESS;
 }
-
 
 /***********************************************************************
  *           call_user_mode_callback
@@ -1703,7 +1679,6 @@ __ASM_GLOBAL_FUNC( call_user_mode_callback,
                    "movl %ebx,%esp\n\t"
                    "xorl %ebp,%ebp\n\t"
                    "jmpl *%ecx" )
-
 
 /***********************************************************************
  *           user_mode_callback_return
@@ -1755,7 +1730,6 @@ __ASM_GLOBAL_FUNC( user_mode_callback_return,
                    __ASM_CFI(".cfi_same_value %ebp\n\t")
                    "ret" )
 
-
 /***********************************************************************
  *           user_mode_abort_thread
  */
@@ -1775,7 +1749,6 @@ __ASM_GLOBAL_FUNC( user_mode_abort_thread,
                    __ASM_CFI(".cfi_offset %edi,-20\n\t")
                    "movl %eax,(%esp)\n\t"      /* status */
                    "call " __ASM_NAME("abort_thread") )
-
 
 /***********************************************************************
  *           KeUserModeCallback
@@ -1798,7 +1771,6 @@ NTSTATUS KeUserModeCallback( ULONG id, const void *args, ULONG len, void **ret_p
     return call_user_mode_callback( esp, ret_ptr, ret_len, pKiUserCallbackDispatcher, NtCurrentTeb() );
 }
 
-
 /***********************************************************************
  *           NtCallbackReturn  (NTDLL.@)
  */
@@ -1807,7 +1779,6 @@ NTSTATUS WINAPI NtCallbackReturn( void *ret_ptr, ULONG ret_len, NTSTATUS status 
     if (!get_syscall_frame()->prev_frame) return STATUS_NO_CALLBACK_ACTIVE;
     user_mode_callback_return( ret_ptr, ret_len, status, NtCurrentTeb() );
 }
-
 
 /**********************************************************************
  *		get_fpu_code
@@ -1832,7 +1803,6 @@ static inline DWORD get_fpu_code( const CONTEXT *context )
     if (status & 0x20) return EXCEPTION_FLT_INEXACT_RESULT;    /* PE flag */
     return EXCEPTION_FLT_INVALID_OPERATION;  /* generic error */
 }
-
 
 /***********************************************************************
  *           handle_interrupt
@@ -1882,7 +1852,6 @@ static BOOL handle_interrupt( unsigned int interrupt, ucontext_t *sigcontext, vo
         return FALSE;
     }
 }
-
 
 /***********************************************************************
  *           handle_syscall_fault
@@ -1937,7 +1906,6 @@ static BOOL handle_syscall_fault( ucontext_t *sigcontext, void *stack_ptr,
     return TRUE;
 }
 
-
 /***********************************************************************
  *           handle_syscall_trap
  *
@@ -1980,7 +1948,6 @@ static BOOL handle_syscall_trap( ucontext_t *sigcontext, siginfo_t *siginfo )
     EFL_sig( sigcontext ) &= ~0x100;  /* clear single-step flag */
     return TRUE;
 }
-
 
 /**********************************************************************
  *		segv_handler
@@ -2077,7 +2044,6 @@ static void segv_handler( int signal, siginfo_t *siginfo, void *sigcontext )
     setup_raise_exception( ucontext, stack, &rec, &xcontext );
 }
 
-
 /**********************************************************************
  *		trap_handler
  *
@@ -2123,7 +2089,6 @@ static void trap_handler( int signal, siginfo_t *siginfo, void *sigcontext )
     setup_raise_exception( sigcontext, stack, &rec, &xcontext );
 }
 
-
 /**********************************************************************
  *		fpe_handler
  *
@@ -2168,7 +2133,6 @@ static void fpe_handler( int signal, siginfo_t *siginfo, void *sigcontext )
     setup_raise_exception( sigcontext, stack, &rec, &xcontext );
 }
 
-
 /**********************************************************************
  *		int_handler
  *
@@ -2198,7 +2162,6 @@ static void abrt_handler( int signal, siginfo_t *siginfo, void *sigcontext )
     setup_exception( sigcontext, &rec );
 }
 
-
 /**********************************************************************
  *		quit_handler
  *
@@ -2212,7 +2175,6 @@ static void quit_handler( int signal, siginfo_t *siginfo, void *sigcontext )
     if (!is_inside_syscall( ESP_sig(ucontext) )) user_mode_abort_thread( 0, get_syscall_frame() );
     abort_thread( 0 );
 }
-
 
 /**********************************************************************
  *		usr1_handler
@@ -2272,7 +2234,6 @@ static void usr1_handler( int signal, siginfo_t *siginfo, void *sigcontext )
         restore_context( &context, ucontext );
     }
 }
-
 
 /***********************************************************************
  *           LDT support
@@ -2338,7 +2299,6 @@ static void ldt_set_fs( WORD sel, TEB *teb )
     set_fs( sel );
 }
 
-
 /**********************************************************************
  *           get_thread_ldt_entry
  */
@@ -2374,7 +2334,6 @@ NTSTATUS get_thread_ldt_entry( HANDLE handle, THREAD_DESCRIPTOR_INFORMATION *inf
 
     return status;
 }
-
 
 /**********************************************************************
  *             signal_init_threading
@@ -2424,7 +2383,6 @@ NTSTATUS signal_alloc_thread( TEB *teb )
     return STATUS_SUCCESS;
 }
 
-
 /**********************************************************************
  *		signal_free_thread
  */
@@ -2434,7 +2392,6 @@ void signal_free_thread( TEB *teb )
 
     if (!gdt_fs_sel) ldt_free_entry( thread_data->fs );
 }
-
 
 /**********************************************************************
  *		signal_init_process
@@ -2485,7 +2442,6 @@ void signal_init_process(void)
     perror("sigaction");
     exit(1);
 }
-
 
 /***********************************************************************
  *           init_syscall_frame
@@ -2552,7 +2508,6 @@ void init_syscall_frame( LPTHREAD_START_ROUTINE entry, void *arg, BOOL suspend, 
     pthread_sigmask( SIG_UNBLOCK, &server_block_set, NULL );
 }
 
-
 /***********************************************************************
  *           signal_start_thread
  */
@@ -2590,7 +2545,6 @@ __ASM_GLOBAL_FUNC( signal_start_thread,
                    "call " __ASM_NAME("init_syscall_frame") "\n\t"
                    "addl $16,%esp\n\t"
                    "jmp " __ASM_LOCAL_LABEL("__wine_syscall_dispatcher_return") )
-
 
 /***********************************************************************
  *           __wine_syscall_dispatcher
@@ -2814,7 +2768,6 @@ __ASM_GLOBAL_FUNC( __wine_syscall_dispatcher_return,
                    "testl $1,%fs:0x21c\n\t"        /* thread_data->syscall_trace */
                    "jnz " __ASM_LOCAL_LABEL("trace_syscall_ret") "\n\t"
                    "jmp " __ASM_LOCAL_LABEL("__wine_syscall_dispatcher_return") )
-
 
 /***********************************************************************
  *           __wine_unix_call_dispatcher

@@ -1779,7 +1779,7 @@ static void load_global_options( const UNICODE_STRING *image )
         peb->NtGlobalFlag = get_dword_option( key, globalflagW, 0 );
         peb->CriticalSectionTimeout.QuadPart = get_dword_option( key, critsectionW, 30 * 24 * 60 * 60 ) * (ULONGLONG)-10000000;
         peb->HeapSegmentReserve = get_dword_option( key, heapreserveW, 0x100000 );
-        peb->HeapSegmentCommit = get_dword_option( key, heapcommitW, 0x10000 );
+        peb->HeapSegmentCommit = get_dword_option( key, heapcommitW, 0x2000 );
         peb->HeapDeCommitTotalFreeThreshold = get_dword_option( key, heapdecommittotalW, 0x10000 );
         peb->HeapDeCommitFreeBlockThreshold = get_dword_option( key, heapdecommitblockW, 0x1000 );
         NtClose( key );
@@ -1879,6 +1879,11 @@ static void init_peb( RTL_USER_PROCESS_PARAMETERS *params, void *module )
     peb->ImageSubSystem             = main_image_info.SubSystemType;
     peb->ImageSubSystemMajorVersion = main_image_info.MajorSubsystemVersion;
     peb->ImageSubSystemMinorVersion = main_image_info.MinorSubsystemVersion;
+    /* Fields the kernel fills in on Windows and nothing here ever wrote, which
+     * left them reading zero to any code that looks straight at the PEB. */
+    peb->Mutant                     = (HANDLE)~(ULONG_PTR)0;
+    peb->ActiveProcessAffinityMask  = get_system_affinity_mask();
+    peb->IsImageDynamicallyRelocated = main_image_info.ImageDynamicallyRelocated;
 
 #ifdef _WIN64
     if (!is_machine_64bit( main_image_info.Machine ))
@@ -1914,6 +1919,9 @@ static void init_peb( RTL_USER_PROCESS_PARAMETERS *params, void *module )
         wow_peb->ImageSubSystemMajorVersion      = peb->ImageSubSystemMajorVersion;
         wow_peb->ImageSubSystemMinorVersion      = peb->ImageSubSystemMinorVersion;
         wow_peb->SessionId                       = peb->SessionId;
+        wow_peb->Mutant                          = PtrToUlong( peb->Mutant );
+        wow_peb->ActiveProcessAffinityMask       = peb->ActiveProcessAffinityMask;
+        wow_peb->IsImageDynamicallyRelocated     = peb->IsImageDynamicallyRelocated;
     }
 }
 

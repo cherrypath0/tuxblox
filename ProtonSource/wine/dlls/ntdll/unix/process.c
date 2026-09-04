@@ -1416,7 +1416,7 @@ static BOOL process_class_reports_length( PROCESSINFOCLASS class )
 }
 
 
-NTSTATUS WINAPI NtQueryInformationProcess( HANDLE handle, PROCESSINFOCLASS class, void *info,
+static NTSTATUS query_information_process( HANDLE handle, PROCESSINFOCLASS class, void *info,
                                            ULONG size, ULONG *ret_len )
 {
     unsigned int ret = STATUS_SUCCESS;
@@ -2028,6 +2028,17 @@ NTSTATUS WINAPI NtQueryInformationProcess( HANDLE handle, PROCESSINFOCLASS class
 
     if (ret_len && (!ret || process_class_reports_length( class ))) *ret_len = len;
     return ret;
+}
+
+NTSTATUS WINAPI NtQueryInformationProcess( HANDLE handle, PROCESSINFOCLASS class, void *info,
+                                           ULONG size, ULONG *ret_len )
+{
+    ULONG reported = 0;
+    NTSTATUS status = query_information_process( handle, class, info, size, ret_len ? ret_len : &reported );
+
+    if (ret_len) reported = *ret_len;
+    tuxblox_diag_class( "proc", class, size, reported, status );
+    return status;
 }
 
 #ifndef _WIN64

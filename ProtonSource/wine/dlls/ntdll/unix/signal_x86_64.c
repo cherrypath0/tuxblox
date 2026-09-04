@@ -102,6 +102,14 @@ WINE_DECLARE_DEBUG_CHANNEL(seh);
 static USHORT cs32_sel;  /* selector for %cs in 32-bit mode */
 static USHORT cs64_sel;  /* selector for %cs in 64-bit mode */
 static USHORT ds64_sel;  /* selector for %ds/%es/%ss in 64-bit mode */
+
+/* Measured on Windows 11 25H2 with workspace/tests/dispprobe: every CONTEXT a
+ * native 64-bit thread is handed carries %fs = 0x53. Linux reaches fs through
+ * the MSR and loads no selector at all, so this came back as zero -- a value no
+ * Windows machine reports, in a structure every exception handler reads. A
+ * thread that really has a WoW64 selector keeps it; only the empty case is
+ * filled in. */
+#define FS64_SEL 0x53
 static USHORT fs32_sel;  /* selector for %fs in 32-bit mode */
 
 /***********************************************************************
@@ -627,7 +635,6 @@ static inline void context_init_xstate( CONTEXT *context, void *xstate_buffer )
     xctx->All.Offset = -(LONG)sizeof(CONTEXT);
 }
 
-
 /***********************************************************************
  *           dwarf_virtual_unwind
  *
@@ -874,7 +881,6 @@ static NTSTATUS libunwind_virtual_unwind( ULONG64 ip, ULONG64 *frame, CONTEXT *c
 }
 #endif
 
-
 /***********************************************************************
  *           unwind_builtin_dll
  */
@@ -917,7 +923,7 @@ static inline void set_sigcontext( const CONTEXT *context, ucontext_t *sigcontex
     R15_sig(sigcontext) = context->R15;
     RIP_sig(sigcontext) = context->Rip;
     CS_sig(sigcontext)  = context->SegCs;
-    FS_sig(sigcontext)  = context->SegFs;
+    FS_sig(sigcontext)  = context->SegFs == FS64_SEL ? amd64_thread_data()->fs : context->SegFs;
     EFL_sig(sigcontext) = context->EFlags;
 }
 
@@ -936,7 +942,6 @@ __ASM_GLOBAL_FUNC( clear_alignment_flag,
                    "popfq\n\t"
                    __ASM_CFI(".cfi_adjust_cfa_offset -8\n\t")
                    "ret" )
-
 
 /***********************************************************************
  *           init_handler
@@ -969,7 +974,6 @@ static inline ucontext_t *init_handler( void *sigcontext )
     return sigcontext;
 }
 
-
 /***********************************************************************
  *           leave_handler
  */
@@ -998,6 +1002,22 @@ static inline void leave_handler( ucontext_t *sigcontext )
 #endif
 }
 
+/* DR7 as the program reads it back.
+ *
+ * Bit 10 of the real register always reads as one, so a thread that has armed a
+ * hardware breakpoint sees it set. Wine hands back exactly what was written,
+ * which is a difference a program can see: measured on the reference machine
+ * with workspace/tests/dbgprobe, arming one watchpoint and reading DR7 out of
+ * the fault it causes gives 0xd0401 there and gave 0xd0001 here. With nothing
+ * armed both report a plain zero -- the saved value rather than the register --
+ * so the bit is only added once something is enabled.
+ */
+static inline DWORD64 get_dr7(void)
+{
+    DWORD64 dr7 = amd64_thread_data()->dr7;
+
+    return (dr7 & 0xff) ? (dr7 | 0x400) : dr7;
+}
 
 /***********************************************************************
  *           save_context
@@ -1027,7 +1047,7 @@ static void save_context( struct xcontext *xcontext, const ucontext_t *sigcontex
     context->R15    = R15_sig(sigcontext);
     context->Rip    = RIP_sig(sigcontext);
     context->SegCs  = CS_sig(sigcontext);
-    context->SegFs  = FS_sig(sigcontext);
+    context->SegFs  = FS_sig(sigcontext) ? FS_sig(sigcontext) : FS64_SEL;
     context->EFlags = EFL_sig(sigcontext);
     context->SegDs  = ds64_sel;
     context->SegEs  = ds64_sel;
@@ -1038,7 +1058,7 @@ static void save_context( struct xcontext *xcontext, const ucontext_t *sigcontex
     context->Dr2    = amd64_thread_data()->dr2;
     context->Dr3    = amd64_thread_data()->dr3;
     context->Dr6    = amd64_thread_data()->dr6;
-    context->Dr7    = amd64_thread_data()->dr7;
+    context->Dr7    = get_dr7();
     if (FPU_sig(sigcontext))
     {
         XSAVE_AREA_HEADER *xs;
@@ -1070,7 +1090,6 @@ static void save_context( struct xcontext *xcontext, const ucontext_t *sigcontex
     }
 }
 
-
 /***********************************************************************
  *           fixup_frame_fpu_state
  *
@@ -1092,7 +1111,6 @@ static void fixup_frame_fpu_state( struct syscall_frame *frame, const ucontext_t
     frame->xstate.Mask = XSTATE_MASK_LEGACY;
 }
 
-
 /***********************************************************************
  *           restore_context
  *
@@ -1113,7 +1131,6 @@ static void restore_context( const struct xcontext *xcontext, ucontext_t *sigcon
     leave_handler( sigcontext );
 }
 
-
 /***********************************************************************
  *           signal_set_full_context
  */
@@ -1126,7 +1143,6 @@ NTSTATUS signal_set_full_context( CONTEXT *context )
     return status;
 }
 
-
 /***********************************************************************
  *              get_native_context
  */
@@ -1134,7 +1150,6 @@ void *get_native_context( CONTEXT *context )
 {
     return context;
 }
-
 
 /***********************************************************************
  *              get_wow_context
@@ -1144,7 +1159,6 @@ void *get_wow_context( CONTEXT *context )
     if (context->SegCs != cs64_sel) return NULL;
     return get_cpu_area( IMAGE_FILE_MACHINE_I386 );
 }
-
 
 /***********************************************************************
  *              NtSetContextThread  (NTDLL.@)
@@ -1280,7 +1294,6 @@ NTSTATUS WINAPI NtSetContextThread( HANDLE handle, const CONTEXT *context )
     return STATUS_SUCCESS;
 }
 
-
 /***********************************************************************
  *              NtGetContextThread  (NTDLL.@)
  *              ZwGetContextThread  (NTDLL.@)
@@ -1303,6 +1316,9 @@ NTSTATUS WINAPI NtGetContextThread( HANDLE handle, CONTEXT *context )
     {
         NTSTATUS ret = get_thread_context( handle, context, &self, IMAGE_FILE_MACHINE_AMD64 );
         if (ret || !self) return ret;
+        /* The value the server reads back is the one ptrace was given, not the
+         * register, so it is missing the bit that always reads as one. */
+        if ((needed_flags & CONTEXT_DEBUG_REGISTERS) && (context->Dr7 & 0xff)) context->Dr7 |= 0x400;
     }
 
     if (needed_flags & CONTEXT_INTEGER)
@@ -1337,7 +1353,7 @@ NTSTATUS WINAPI NtGetContextThread( HANDLE handle, CONTEXT *context )
     {
         context->SegDs  = ds64_sel;
         context->SegEs  = ds64_sel;
-        context->SegFs  = amd64_thread_data()->fs;
+        context->SegFs  = amd64_thread_data()->fs ? amd64_thread_data()->fs : FS64_SEL;
         context->SegGs  = ds64_sel;
         context->ContextFlags |= CONTEXT_SEGMENTS;
     }
@@ -1418,7 +1434,7 @@ NTSTATUS WINAPI NtGetContextThread( HANDLE handle, CONTEXT *context )
             context->Dr2 = amd64_thread_data()->dr2;
             context->Dr3 = amd64_thread_data()->dr3;
             context->Dr6 = amd64_thread_data()->dr6;
-            context->Dr7 = amd64_thread_data()->dr7;
+            context->Dr7 = get_dr7();
         }
         else
         {
@@ -1434,7 +1450,6 @@ NTSTATUS WINAPI NtGetContextThread( HANDLE handle, CONTEXT *context )
     set_context_exception_reporting_flags( &context->ContextFlags, CONTEXT_SERVICE_ACTIVE );
     return STATUS_SUCCESS;
 }
-
 
 /***********************************************************************
  *              set_thread_wow64_context
@@ -1538,7 +1553,6 @@ NTSTATUS set_thread_wow64_context( HANDLE handle, const void *ctx, ULONG size )
     return STATUS_SUCCESS;
 }
 
-
 /***********************************************************************
  *              get_thread_wow64_context
  */
@@ -1599,7 +1613,7 @@ NTSTATUS get_thread_wow64_context( HANDLE handle, void *ctx, ULONG size )
     {
         context->SegDs = ds64_sel;
         context->SegEs = ds64_sel;
-        context->SegFs = amd64_thread_data()->fs;
+        context->SegFs = amd64_thread_data()->fs ? amd64_thread_data()->fs : FS64_SEL;
         context->SegGs = ds64_sel;
         context->ContextFlags |= CONTEXT_I386_SEGMENTS;
     }
@@ -1649,7 +1663,6 @@ NTSTATUS get_thread_wow64_context( HANDLE handle, void *ctx, ULONG size )
     set_context_exception_reporting_flags( &context->ContextFlags, CONTEXT_SERVICE_ACTIVE );
     return STATUS_SUCCESS;
 }
-
 
 /***********************************************************************
  *           setup_raise_exception
@@ -1727,7 +1740,6 @@ static void setup_raise_exception( ucontext_t *sigcontext, EXCEPTION_RECORD *rec
     leave_handler( sigcontext );
 }
 
-
 /***********************************************************************
  *           setup_exception
  *
@@ -1743,7 +1755,6 @@ static void setup_exception( ucontext_t *sigcontext, EXCEPTION_RECORD *rec )
     save_context( &context, sigcontext );
     setup_raise_exception( sigcontext, rec, &context );
 }
-
 
 /***********************************************************************
  *           call_user_apc_dispatcher
@@ -1794,7 +1805,6 @@ NTSTATUS call_user_apc_dispatcher( CONTEXT *context, unsigned int flags, ULONG_P
     return status;
 }
 
-
 /***********************************************************************
  *           call_raise_user_exception_dispatcher
  */
@@ -1802,7 +1812,6 @@ void call_raise_user_exception_dispatcher(void)
 {
     get_syscall_frame()->rip = (UINT64)pKiRaiseUserExceptionDispatcher;
 }
-
 
 /***********************************************************************
  *           call_user_exception_dispatcher
@@ -1837,7 +1846,6 @@ NTSTATUS call_user_exception_dispatcher( EXCEPTION_RECORD *rec, CONTEXT *context
     frame->restore_flags |= CONTEXT_CONTROL;
     return status;
 }
-
 
 /***********************************************************************
  *           call_user_mode_callback
@@ -1918,7 +1926,6 @@ __ASM_GLOBAL_FUNC( call_user_mode_callback,
                    "xor %r15,%r15\n\t"
                    "jmpq *%rcx" )          /* func */
 
-
 /***********************************************************************
  *           user_mode_callback_return
  */
@@ -1968,7 +1975,6 @@ __ASM_GLOBAL_FUNC( user_mode_callback_return,
                    "movq %rdx,%rax\n\t"
                    "retq" )
 
-
 /***********************************************************************
  *           user_mode_abort_thread
  */
@@ -1987,7 +1993,6 @@ __ASM_GLOBAL_FUNC( user_mode_abort_thread,
                    __ASM_CFI(".cfi_offset %r14,-0x30\n\t")
                    __ASM_CFI(".cfi_offset %r15,-0x38\n\t")
                    "call " __ASM_NAME("abort_thread") )
-
 
 /***********************************************************************
  *           KeUserModeCallback
@@ -2010,7 +2015,6 @@ NTSTATUS KeUserModeCallback( ULONG id, const void *args, ULONG len, void **ret_p
     return call_user_mode_callback( rsp, ret_ptr, ret_len, pKiUserCallbackDispatcher, NtCurrentTeb() );
 }
 
-
 /***********************************************************************
  *           NtCallbackReturn  (NTDLL.@)
  */
@@ -2019,7 +2023,6 @@ NTSTATUS WINAPI NtCallbackReturn( void *ret_ptr, ULONG ret_len, NTSTATUS status 
     if (!get_syscall_frame()->prev_frame) return STATUS_NO_CALLBACK_ACTIVE;
     user_mode_callback_return( ret_ptr, ret_len, status, NtCurrentTeb() );
 }
-
 
 /***********************************************************************
  *           set_alignment_fault_fixup
@@ -2032,7 +2035,6 @@ void set_alignment_fault_fixup( BOOLEAN enable )
 {
     if (enable) amd64_thread_data()->alignment_fixup = TRUE;
 }
-
 
 /* Carry out one 128-bit SSE operation whose memory operand has been read into
  * src. Doing this here rather than re-running the instruction keeps us from
@@ -2106,7 +2108,6 @@ static BOOL emulate_sse_op( CONTEXT *context, BYTE opcode, BOOL opsize,
     return TRUE;
 }
 
-
 /* value of an integer register, by its number in the instruction encoding */
 static ULONG64 get_int_reg( const CONTEXT *context, unsigned int idx )
 {
@@ -2119,7 +2120,6 @@ static ULONG64 get_int_reg( const CONTEXT *context, unsigned int idx )
     };
     return *(const ULONG64 *)((const BYTE *)context + offsets[idx]);
 }
-
 
 /* the six SSE instructions that write a 128-bit memory operand */
 static BOOL writes_memory( BYTE opcode, BOOL opsize )
@@ -2135,7 +2135,6 @@ static BOOL writes_memory( BYTE opcode, BOOL opsize )
     }
     return FALSE;
 }
-
 
 /***********************************************************************
  *           emulate_misaligned_sse
@@ -2250,7 +2249,6 @@ static BOOL emulate_misaligned_sse( CONTEXT *context )
     return TRUE;
 }
 
-
 /***********************************************************************
  *           is_privileged_instr
  *
@@ -2348,6 +2346,8 @@ static void sigsys_handler( int signal, siginfo_t *siginfo, void *sigcontext )
         return;
     }
 
+    tuxblox_diag_note_syscall( RIP_sig(ucontext), RSP_sig(ucontext), RAX_sig(ucontext) );
+
     frame->rip = RIP_sig(ucontext) + 0xb;
     frame->rcx = RIP_sig(ucontext);
     frame->eflags = EFL_sig(ucontext);
@@ -2359,6 +2359,16 @@ static void sigsys_handler( int signal, siginfo_t *siginfo, void *sigcontext )
     {
         EFL_sig(ucontext) &= ~0x100;  /* clear single-step flag */
         frame->restore_flags |= CONTEXT_CONTROL;
+    }
+    /* Diagnostic: start stepping on the way back out of this call. The flags
+     * the caller gets back come from r11, which was latched above, so setting
+     * the bit in the frame alone leaves the trap flag clear and nothing is
+     * ever traced. */
+    if (tuxblox_diag_step_arm())
+    {
+        frame->eflags |= 0x100;
+        frame->restore_flags |= CONTEXT_CONTROL;
+        R11_sig(ucontext) = frame->eflags;
     }
     RIP_sig(ucontext) = (ULONG64)__wine_syscall_dispatcher_prolog_end_ptr;
 }
@@ -2754,7 +2764,6 @@ static BOOL check_atl_thunk( ucontext_t *sigcontext, EXCEPTION_RECORD *rec, CONT
     return TRUE;
 }
 
-
 /***********************************************************************
  *           handle_syscall_fault
  *
@@ -2829,7 +2838,6 @@ static BOOL handle_syscall_fault( ucontext_t *sigcontext, EXCEPTION_RECORD *rec,
     return TRUE;
 }
 
-
 /***********************************************************************
  *           handle_syscall_trap
  *
@@ -2876,7 +2884,6 @@ static BOOL handle_syscall_trap( ucontext_t *sigcontext, siginfo_t *siginfo )
     EFL_sig( sigcontext ) &= ~0x100;  /* clear single-step flag */
     return TRUE;
 }
-
 
 /***********************************************************************
  *           check_invalid_gsbase
@@ -2972,7 +2979,6 @@ static inline BOOL check_invalid_gsbase( ucontext_t *ucontext )
     return TRUE;
 }
 
-
 /**********************************************************************
  *		segv_handler
  *
@@ -3006,10 +3012,17 @@ static void segv_handler( int signal, siginfo_t *siginfo, void *sigcontext )
     case TRAP_x86_PROTFLT:   /* General protection fault */
         {
             WORD err = ERROR_sig(ucontext);
-            if (amd64_thread_data()->alignment_fixup && emulate_misaligned_sse( &context.c ))
+            if (amd64_thread_data()->alignment_fixup)
             {
-                restore_context( &context, ucontext );
-                return;
+                ULONG64 rip = context.c.Rip;
+                BOOL handled = emulate_misaligned_sse( &context.c );
+
+                tuxblox_diag_align( rip, context.c.Rsp, handled );
+                if (handled)
+                {
+                    restore_context( &context, ucontext );
+                    return;
+                }
             }
             if (!err && (rec.ExceptionCode = is_privileged_instr( &context.c ))) break;
             if ((err & 7) == 2 && handle_interrupt( ucontext, &rec, &context )) return;
@@ -3071,9 +3084,10 @@ static void segv_handler( int signal, siginfo_t *siginfo, void *sigcontext )
         break;
     }
     if (handle_syscall_fault( ucontext, &rec, &context.c )) return;
+    tuxblox_diag_stack_exec( &rec, &context.c );
+    tuxblox_diag_exception( &rec, &context.c );
     setup_raise_exception( ucontext, &rec, &context );
 }
-
 
 /**********************************************************************
  *		trap_handler
@@ -3086,7 +3100,20 @@ static void trap_handler( int signal, siginfo_t *siginfo, void *sigcontext )
     EXCEPTION_RECORD rec = { 0 };
     struct xcontext context;
 
+    tuxblox_diag_note_trap( TRAP_sig(ucontext), siginfo->si_code,
+                            RIP_sig(ucontext), RSP_sig(ucontext) );
     if (handle_syscall_trap( ucontext, siginfo )) return;
+
+    /* Diagnostic stepping: record and keep going, without the program ever
+     * being told a single-step happened. Hardware breakpoints (si_code 4) are
+     * the program's own and are left alone. */
+    if (TRAP_sig(ucontext) == TRAP_x86_TRCTRAP && siginfo->si_code != 4 &&
+        tuxblox_diag_step_record( RIP_sig(ucontext), RSP_sig(ucontext) ))
+    {
+        EFL_sig(ucontext) |= 0x100;
+        leave_handler( ucontext );
+        return;
+    }
 
     rec.ExceptionAddress = (void *)RIP_sig(ucontext);
     save_context( &context, ucontext );
@@ -3094,6 +3121,11 @@ static void trap_handler( int signal, siginfo_t *siginfo, void *sigcontext )
     switch (TRAP_sig(ucontext))
     {
     case TRAP_x86_TRCTRAP:
+        /* No DR6 is filled in here, on purpose. The processor does record why
+         * it stopped, but Windows does not pass that on for a single step the
+         * program asked for itself: measured on the reference machine with
+         * workspace/tests/dbgprobe, both report an empty DR6, and only a
+         * hardware watchpoint hit reports a real one. */
         rec.ExceptionCode = EXCEPTION_SINGLE_STEP;
         break;
     case TRAP_x86_BPTFLT:
@@ -3105,9 +3137,9 @@ static void trap_handler( int signal, siginfo_t *siginfo, void *sigcontext )
         rec.ExceptionInformation[0] = 0;
         break;
     }
+    tuxblox_diag_exception( &rec, &context.c );
     setup_raise_exception( ucontext, &rec, &context );
 }
-
 
 /**********************************************************************
  *		fpe_handler
@@ -3164,7 +3196,6 @@ static void fpe_handler( int signal, siginfo_t *siginfo, void *sigcontext )
     setup_raise_exception( sigcontext, &rec, &context );
 }
 
-
 /**********************************************************************
  *		int_handler
  *
@@ -3184,7 +3215,6 @@ static void int_handler( int signal, siginfo_t *siginfo, void *sigcontext )
     leave_handler( ucontext );
 }
 
-
 /**********************************************************************
  *		abrt_handler
  *
@@ -3198,7 +3228,6 @@ static void abrt_handler( int signal, siginfo_t *siginfo, void *sigcontext )
     setup_exception( ucontext, &rec );
 }
 
-
 /**********************************************************************
  *		quit_handler
  *
@@ -3211,7 +3240,6 @@ static void quit_handler( int signal, siginfo_t *siginfo, void *sigcontext )
     if (!is_inside_syscall( RSP_sig(ucontext) )) user_mode_abort_thread( 0, get_syscall_frame() );
     abort_thread( 0 );
 }
-
 
 /**********************************************************************
  *		usr1_handler
@@ -3311,7 +3339,6 @@ static void sigsys_handler( int signal, siginfo_t *siginfo, void *sigcontext )
 }
 #endif
 
-
 /***********************************************************************
  *           ldt_set_entry
  */
@@ -3338,7 +3365,6 @@ void ldt_set_entry( WORD sel, LDT_ENTRY entry )
 #endif
 }
 
-
 /**********************************************************************
  *           get_thread_ldt_entry
  */
@@ -3362,7 +3388,6 @@ NTSTATUS get_thread_ldt_entry( HANDLE handle, THREAD_DESCRIPTOR_INFORMATION *inf
     return ldt_get_entry( info->Selector, tbi.ClientId, &info->Entry );
 }
 
-
 /**********************************************************************
  *             signal_init_threading
  */
@@ -3371,7 +3396,6 @@ void signal_init_threading(void)
     __asm__( "movw %%cs,%0" : "=m" (cs64_sel) );
     __asm__( "movw %%ss,%0" : "=m" (ds64_sel) );
 }
-
 
 /**********************************************************************
  *		signal_alloc_thread
@@ -3393,7 +3417,6 @@ NTSTATUS signal_alloc_thread( TEB *teb )
     thread_data->frame_size = frame_size;
     return STATUS_SUCCESS;
 }
-
 
 /**********************************************************************
  *		signal_free_thread
@@ -3422,7 +3445,6 @@ static void *mac_thread_gsbase(void)
     return NULL;
 }
 #endif
-
 
 /**********************************************************************
  *		signal_init_process
@@ -3533,7 +3555,7 @@ void init_syscall_frame( LPTHREAD_START_ROUTINE entry, void *arg, BOOL suspend, 
     context.SegCs  = cs64_sel;
     context.SegDs  = ds64_sel;
     context.SegEs  = ds64_sel;
-    context.SegFs  = thread_data->fs;
+    context.SegFs  = thread_data->fs ? thread_data->fs : FS64_SEL;
     context.SegGs  = ds64_sel;
     context.SegSs  = ds64_sel;
     context.EFlags = 0x200;
@@ -3594,7 +3616,6 @@ void init_syscall_frame( LPTHREAD_START_ROUTINE entry, void *arg, BOOL suspend, 
     pthread_sigmask( SIG_UNBLOCK, &server_block_set, NULL );
 }
 
-
 /***********************************************************************
  *           signal_start_thread
  */
@@ -3634,7 +3655,6 @@ __ASM_GLOBAL_FUNC( signal_start_thread,
                    "call " __ASM_NAME("init_syscall_frame") "\n\t"
                    "movq %rsp,%rcx\n\t"            /* frame */
                    "jmp " __ASM_LOCAL_LABEL("__wine_syscall_dispatcher_return") )
-
 
 /***********************************************************************
  *           __wine_syscall_dispatcher
@@ -3960,7 +3980,6 @@ __ASM_GLOBAL_FUNC( __wine_syscall_dispatcher_instrumentation,
                    __ASM_CFI(".cfi_adjust_cfa_offset -8\n\t")
                    "movl $0x10000,0xb4(%rcx)\n\t"    /* frame->restore_flags <- RESTORE_FLAGS_INSTRUMENTATION */
                    "jmp " __ASM_LOCAL_LABEL("__wine_syscall_dispatcher_prolog_end") )
-
 
 /***********************************************************************
  *           __wine_unix_call_dispatcher

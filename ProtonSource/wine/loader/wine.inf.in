@@ -462,10 +462,6 @@ HKLM,Software\Microsoft\DirectPlay\Service Providers\Serial Connection For Direc
 [SessionMgr]
 HKLM,%Control%\Session Manager,CriticalSectionTimeout,0x00040002,0x00278d00
 HKLM,%Control%\Session Manager,GlobalFlag,0x00040002,0
-HKLM,%Control%\Session Manager,HeapDeCommitFreeBlockThreshold,0x00040002,0
-HKLM,%Control%\Session Manager,HeapDeCommitTotalFreeThreshold,0x00040002,0
-HKLM,%Control%\Session Manager,HeapSegmentCommit,0x00040002,0
-HKLM,%Control%\Session Manager,HeapSegmentReserve,0x00040002,0
 HKLM,%Control%\Session Manager\Environment,"ComSpec",0x00020000,"%SystemRoot%\system32\cmd.exe"
 HKLM,%Control%\Session Manager\Environment,"PATH",0x00020002,"%SystemRoot%\system32;%SystemRoot%;%SystemRoot%\system32\wbem;%SystemRoot%\system32\WindowsPowershell\v1.0"
 HKLM,%Control%\Session Manager\Environment,"PATHEXT",,".com;.exe;.bat;.cmd;.vbs;.vbe;.js;.jse;.wsf;.wsh"

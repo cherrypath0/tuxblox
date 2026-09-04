@@ -321,7 +321,7 @@ static const char *debugstr_TokenInformationClass( TOKEN_INFORMATION_CLASS class
 /***********************************************************************
  *             NtQueryInformationToken  (NTDLL.@)
  */
-NTSTATUS WINAPI NtQueryInformationToken( HANDLE token, TOKEN_INFORMATION_CLASS class,
+static NTSTATUS query_information_token( HANDLE token, TOKEN_INFORMATION_CLASS class,
                                          void *info, ULONG length, ULONG *retlen )
 {
     /* What Windows answers for every token class, measured on Windows 11 25H2
@@ -392,7 +392,7 @@ NTSTATUS WINAPI NtQueryInformationToken( HANDLE token, TOKEN_INFORMATION_CLASS c
         TOK_NONE,                                  /* 36 TokenRestrictedDeviceClaimAttributes */
         TOK_FIXED(24),                             /* 37 TokenDeviceGroups */
         TOK_NONE,                                  /* 38 TokenRestrictedDeviceGroups */
-        TOK_FIXED(16),                             /* 39 TokenSecurityAttributes */
+        TOK_FIXED(104),                            /* 39 TokenSecurityAttributes */
         TOK_FIXED(sizeof(DWORD)),                  /* 40 TokenIsRestricted */
         TOK_FIXED(8),                              /* 41 TokenProcessTrustLevel */
         TOK_FIXED(sizeof(DWORD)),                  /* 42 TokenPrivateNameSpace */
@@ -418,6 +418,21 @@ NTSTATUS WINAPI NtQueryInformationToken( HANDLE token, TOKEN_INFORMATION_CLASS c
 
     if (class >= ARRAY_SIZE(info_len) || !info_len[class].known) return STATUS_INVALID_INFO_CLASS;
     if (info_len[class].refuse) return info_len[class].refuse;
+
+    /* Reading where a token came from needs TOKEN_QUERY_SOURCE, which
+     * TOKEN_QUERY alone does not grant. Windows refuses without it, and refuses
+     * before saying anything about length: measured on the reference machine,
+     * a handle opened with TOKEN_QUERY is told access denied and its returned
+     * length is left alone, where this build described the class and then
+     * failed the read as not implemented. */
+    if (class == TokenSource)
+    {
+        OBJECT_BASIC_INFORMATION obj;
+
+        if (!NtQueryObject( token, ObjectBasicInformation, &obj, sizeof(obj), NULL ) &&
+            !(obj.GrantedAccess & TOKEN_QUERY_SOURCE))
+            return STATUS_ACCESS_DENIED;
+    }
 
     /* A primary token has no impersonation level. Windows refuses the question
      * as an invalid class rather than an invalid parameter, and leaves the
@@ -556,17 +571,55 @@ NTSTATUS WINAPI NtQueryInformationToken( HANDLE token, TOKEN_INFORMATION_CLASS c
         break;
 
     case TokenPrivileges:
-        SERVER_START_REQ( get_token_privileges )
+        /* The five an ordinary Windows process token holds, in the order the
+         * reference machine reports them, measured with
+         * workspace/tests/tokenprobe.exe: 64 bytes, SeChangeNotifyPrivilege
+         * enabled and by default, the rest present but off.
+         *
+         * The server hands out twenty-one, including SeLoadDriverPrivilege and
+         * SeDebugPrivilege, which is not a set any process gets on Windows and
+         * is plainly readable by anything that asks. Only what is *reported*
+         * changes here: the server's list still decides what is allowed, so
+         * nothing that works today stops working. Where the server knows a
+         * privilege, its current enabled state is passed through, so enabling
+         * one still shows up. */
         {
+            static const struct { ULONG luid; ULONG attrs; } win_privs[] =
+            {
+                { SE_SHUTDOWN_PRIVILEGE,             0 },
+                { SE_CHANGE_NOTIFY_PRIVILEGE,        SE_PRIVILEGE_ENABLED | SE_PRIVILEGE_ENABLED_BY_DEFAULT },
+                { SE_UNDOCK_PRIVILEGE,               0 },
+                { 33 /* SeIncreaseWorkingSetPrivilege */, 0 },
+                { 34 /* SeTimeZonePrivilege */,          0 },
+            };
             TOKEN_PRIVILEGES *tpriv = info;
-            req->handle = wine_server_obj_handle( token );
-            if (tpriv && length > FIELD_OFFSET( TOKEN_PRIVILEGES, Privileges ))
-                wine_server_set_reply( req, tpriv->Privileges, length - FIELD_OFFSET( TOKEN_PRIVILEGES, Privileges ) );
-            status = wine_server_call( req );
-            if (retlen) *retlen = FIELD_OFFSET( TOKEN_PRIVILEGES, Privileges ) + reply->len;
-            if (tpriv) tpriv->PrivilegeCount = reply->len / sizeof(LUID_AND_ATTRIBUTES);
+            LUID_AND_ATTRIBUTES held[64];
+            ULONG i, j, count = 0;
+
+            SERVER_START_REQ( get_token_privileges )
+            {
+                req->handle = wine_server_obj_handle( token );
+                wine_server_set_reply( req, held, sizeof(held) );
+                if (!(status = wine_server_call( req ))) count = reply->len / sizeof(*held);
+            }
+            SERVER_END_REQ;
+            if (status) break;
+
+            len = FIELD_OFFSET( TOKEN_PRIVILEGES, Privileges[ARRAY_SIZE(win_privs)] );
+            if (retlen) *retlen = len;
+            if (length < len) { status = STATUS_BUFFER_TOO_SMALL; break; }
+
+            tpriv->PrivilegeCount = ARRAY_SIZE(win_privs);
+            for (i = 0; i < ARRAY_SIZE(win_privs); i++)
+            {
+                tpriv->Privileges[i].Luid.LowPart  = win_privs[i].luid;
+                tpriv->Privileges[i].Luid.HighPart = 0;
+                tpriv->Privileges[i].Attributes    = win_privs[i].attrs;
+                for (j = 0; j < count; j++)
+                    if (held[j].Luid.LowPart == win_privs[i].luid && !held[j].Luid.HighPart)
+                        tpriv->Privileges[i].Attributes = held[j].Attributes;
+            }
         }
-        SERVER_END_REQ;
         break;
 
     case TokenOwner:
@@ -785,11 +838,53 @@ NTSTATUS WINAPI NtQueryInformationToken( HANDLE token, TOKEN_INFORMATION_CLASS c
     case TokenUserClaimAttributes:     /* 33 */
     case TokenDeviceClaimAttributes:   /* 34 */
     case TokenSingletonAttributes:     /* 43 */
-    case TokenSecurityAttributes:      /* 39 */
         /* CLAIM_SECURITY_ATTRIBUTES_INFORMATION with no attributes: version 1,
          * reserved zero, a count of none and a null array. */
         memset( info, 0, len );
         *(USHORT *)info = 1;
+        break;
+
+    case TokenSecurityAttributes:      /* 39 */
+        /* Not empty on Windows: every process token carries one attribute,
+         * "TSA://ProcUnique", holding a pair of 64-bit values that identify the
+         * process. Measured on the reference machine with
+         * workspace/tests/tokenprobe.exe, which reads 104 bytes laid out as
+         * below; an empty list here was a difference any program could see.
+         *
+         * The pair is unique per process and constant within one, which is what
+         * it is for; the numbers themselves are ours, since Windows' are its
+         * own kernel's counters. */
+        {
+            static const WCHAR proc_unique_name[] =
+                { 'T','S','A',':','/','/','P','r','o','c','U','n','i','q','u','e' };
+            static ULONG64 proc_unique;
+            char *base = info;
+            UNICODE_STRING *name = (UNICODE_STRING *)(base + 0x10);
+            ULONG64 *values = (ULONG64 *)(base + 0x58);
+
+            memset( info, 0, len );
+            *(USHORT *)base = 1;                          /* Version */
+            *(ULONG *)(base + 4) = 1;                     /* AttributeCount */
+            *(void **)(base + 8) = base + 0x10;           /* the one attribute */
+
+            name->Length = name->MaximumLength = sizeof(proc_unique_name);
+            name->Buffer = (WCHAR *)(base + 0x38);
+            memcpy( base + 0x38, proc_unique_name, sizeof(proc_unique_name) );
+
+            *(USHORT *)(base + 0x20) = 0x02;              /* ValueType: UINT64 */
+            *(ULONG *)(base + 0x24) = 0x41;               /* non-inheritable, compare-ignore */
+            *(ULONG *)(base + 0x28) = 2;                  /* ValueCount */
+            *(void **)(base + 0x30) = values;
+
+            /* Drawn once and kept, so the pair is the same every time this
+             * process is asked and different in the next one. The reference
+             * machine reported 105 and 0x206280 for its own; the shape is what
+             * matters, not the numbers. */
+            if (!proc_unique) do get_random( &proc_unique, sizeof(proc_unique) );
+                              while (!(proc_unique = (proc_unique & 0xffffff) | 0x200000));
+            values[0] = HandleToULong( NtCurrentTeb()->ClientId.UniqueProcess ) / 4;
+            values[1] = proc_unique;
+        }
         break;
 
     case TokenOrigin:                  /* 17 */
@@ -817,6 +912,17 @@ NTSTATUS WINAPI NtQueryInformationToken( HANDLE token, TOKEN_INFORMATION_CLASS c
         ERR( "Unhandled token information class %s\n", debugstr_TokenInformationClass(class) );
         return STATUS_NOT_IMPLEMENTED;
     }
+    return status;
+}
+
+NTSTATUS WINAPI NtQueryInformationToken( HANDLE token, TOKEN_INFORMATION_CLASS class,
+                                         void *info, ULONG length, ULONG *retlen )
+{
+    ULONG len = 0;
+    NTSTATUS status = query_information_token( token, class, info, length, retlen ? retlen : &len );
+
+    if (retlen) len = *retlen;
+    tuxblox_diag_class( "token", class, length, len, status );
     return status;
 }
 

@@ -233,6 +233,34 @@ BOOLEAN CDECL RtlInstallFunctionTableCallback( ULONG_PTR table, ULONG_PTR base, 
 }
 
 
+/* Which addresses the unwinder cannot find unwind data for.
+ *
+ * The protection layer runs from an anonymous executable allocation that
+ * belongs to no module, so no image's .pdata describes it. A pc the unwinder
+ * cannot place is treated as a leaf function -- the return address comes from
+ * [rsp] and rsp moves by eight -- which is a plausible source of a stack that
+ * ends up exactly eight bytes out. Capped at 64 lines; diagnostic only.
+ */
+static void tuxblox_unwind_miss( ULONG_PTR pc, const char *why, ULONG_PTR modbase, ULONG len )
+{
+    static ULONG_PTR seen[512];
+    static unsigned int seen_count;
+    unsigned int i;
+
+    if (!WARN_ON(unwind)) return;
+
+    /* one line per distinct address, so a hot unwind cannot flood the log */
+    for (i = 0; i < seen_count; i++) if (seen[i] == pc) return;
+    if (seen_count < ARRAY_SIZE(seen)) seen[seen_count++] = pc;
+    {
+        LDR_DATA_TABLE_ENTRY *mod = NULL;
+        const WCHAR *name = L"?";
+        if (!LdrFindEntryForAddress( (void *)pc, &mod ) && mod) name = mod->BaseDllName.Buffer;
+        WARN( "tuxblox: no unwind info for pc=%p (%s) module=%s base=%p pdata_len=%u\n",
+             (void *)pc, why, debugstr_w(name), (void *)modbase, (unsigned int)len );
+    }
+}
+
 /*************************************************************************
  *              RtlAddGrowableFunctionTable   (NTDLL.@)
  */
@@ -240,6 +268,9 @@ NTSTATUS WINAPI RtlAddGrowableFunctionTable( void **table, RUNTIME_FUNCTION *fun
                                              DWORD max_count, ULONG_PTR base, ULONG_PTR end )
 {
     struct dynamic_unwind_entry *entry;
+
+    WARN( "tuxblox: unwind table registered base=%p end=%p count=%u max=%u\n",
+          (void *)base, (void *)end, (unsigned int)count, (unsigned int)max_count );
 
     TRACE( "%p, %p, %lu, %lu, %Ix, %Ix\n", table, functions, count, max_count, base, end );
 
@@ -2325,6 +2356,7 @@ NTSTATUS WINAPI RtlVirtualUnwind2( ULONG type, ULONG_PTR base, ULONG_PTR pc,
                                    PEXCEPTION_ROUTINE *handler_ret, ULONG flags )
 {
     NTSTATUS status;
+    ULONG64 rsp_in = context->Rsp, rip_in = context->Rip;
 
     __TRY
     {
@@ -2338,6 +2370,25 @@ NTSTATUS WINAPI RtlVirtualUnwind2( ULONG type, ULONG_PTR base, ULONG_PTR pc,
     }
     __ENDTRY
 
+    /* Every step of every unwind, with the entry it was driven by. A frame
+     * with no entry is a leaf: the return address comes from [rsp] and rsp
+     * moves by eight, which is worth being able to tell apart from a frame
+     * that was genuinely described. WINEDEBUG=warn+unwind. */
+    if (WARN_ON(unwind))
+    {
+        if (function)
+            WARN( "tuxblox: unwind pc=%p (%p+%08x) fn=%08x-%08x unwind=%08x "
+                  "rsp %p->%p rip %p->%p status=%08x\n",
+                  (void *)pc, (void *)base, (unsigned int)(pc - base),
+                  (unsigned int)function->BeginAddress, (unsigned int)function->EndAddress,
+                  (unsigned int)function->UnwindData,
+                  (void *)rsp_in, (void *)context->Rsp, (void *)rip_in, (void *)context->Rip,
+                  (unsigned int)status );
+        else
+            WARN( "tuxblox: unwind pc=%p LEAF (no entry) rsp %p->%p rip %p->%p status=%08x\n",
+                  (void *)pc, (void *)rsp_in, (void *)context->Rsp,
+                  (void *)rip_in, (void *)context->Rip, (unsigned int)status );
+    }
     return status;
 }
 
@@ -2454,15 +2505,21 @@ PRUNTIME_FUNCTION WINAPI RtlLookupFunctionEntry( ULONG_PTR pc, ULONG_PTR *base,
 #endif
 
     if ((func = RtlLookupFunctionTable( pc, base, &size )))
-        return find_function_info( pc, *base, func, size / sizeof(*func));
+    {
+        RUNTIME_FUNCTION *ret = find_function_info( pc, *base, func, size / sizeof(*func));
+        if (!ret) tuxblox_unwind_miss( pc, "module table has no entry", *base, size );
+        return ret;
+    }
 
     if ((func = lookup_dynamic_function_table( pc, &dynbase, &size )))
     {
         RUNTIME_FUNCTION *ret = find_function_info( pc, dynbase, func, size );
         if (ret) *base = dynbase;
+        else tuxblox_unwind_miss( pc, "dynamic table has no entry", dynbase, size );
         return ret;
     }
 
+    tuxblox_unwind_miss( pc, "no table covers this address", 0, 0 );
     *base = 0;
     return NULL;
 }

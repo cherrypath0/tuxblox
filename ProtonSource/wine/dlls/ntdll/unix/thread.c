@@ -1129,7 +1129,7 @@ static void start_thread( TEB *teb )
      * its (cheap, print-free in that case) tuxblox_trace_tally() call sees
      * every syscall this thread makes -- not just when WINEDEBUG=+syscall
      * is separately enabled. */
-    thread_data->syscall_trace = TRACE_ON(syscall) || tuxblox_trace_enabled();
+    thread_data->syscall_trace = TRACE_ON(syscall) || tuxblox_trace_enabled() || tuxblox_diag_watch_enabled();
     thread_data->pthread_id = pthread_self();
     pthread_setspecific( teb_key, teb );
     server_init_thread( thread_data->start, &suspend );
@@ -2193,7 +2193,6 @@ static const struct known_class known_thread_classes[] =
     {  18, 0xc0000004, NO_LENGTH },
     {  19, 0xc0000003, NO_LENGTH },
     {  20, 0xc0000004, NO_LENGTH },
-    {  21, 0xc0000004, NO_LENGTH },
     {  22, 0xc0000004, NO_LENGTH },
     {  23, 0xc0000004, NO_LENGTH },
     {  24, 0xc0000004, NO_LENGTH },
@@ -2342,7 +2341,7 @@ static const struct known_class known_thread_set_classes[] =
 /******************************************************************************
  *              NtQueryInformationThread  (NTDLL.@)
  */
-NTSTATUS WINAPI NtQueryInformationThread( HANDLE handle, THREADINFOCLASS class,
+static NTSTATUS query_information_thread( HANDLE handle, THREADINFOCLASS class,
                                           void *data, ULONG length, ULONG *ret_len )
 {
     unsigned int status;
@@ -2531,6 +2530,54 @@ NTSTATUS WINAPI NtQueryInformationThread( HANDLE handle, THREADINFOCLASS class,
         return status;
     }
 
+    case ThreadLastSystemCall:
+    {
+        OBJECT_BASIC_INFORMATION obj;
+
+        /* Measured on Windows 11 25H2 with workspace/tests/lastsysprobe, and
+         * every line of it contradicts the shape this class looks like it
+         * should have:
+         *
+         *  - the length must be exactly one of the two struct versions, 16 or
+         *    24; 25, 32 and 64 are refused like 0 and 8 are, with the returned
+         *    length left untouched;
+         *  - the handle must carry THREAD_GET_CONTEXT. THREAD_QUERY_INFORMATION
+         *    is refused, which is why a caller reading this opens threads with
+         *    0x8 and nothing else;
+         *  - a thread asking about **itself** is refused with
+         *    STATUS_INVALID_PARAMETER, through any handle including the pseudo
+         *    handle. The class describes a thread that is not currently running
+         *    in user mode, so the caller is never one of them;
+         *  - a target that is running in user mode is refused with
+         *    STATUS_UNSUCCESSFUL; one parked in a wait, or created suspended
+         *    and never run, is answered.
+         */
+        if (length != sizeof(THREAD_LAST_SYSCALL_INFORMATION) &&
+            length != sizeof(THREAD_LAST_SYSCALL_INFORMATION_V1))
+            return STATUS_INFO_LENGTH_MISMATCH;
+        if (!data) return STATUS_ACCESS_VIOLATION;
+
+        /* The access is checked before anything else, including before the
+         * caller is compared against itself: a thread holding itself open
+         * without THREAD_GET_CONTEXT is told the access is wrong, not that
+         * the thread is. The granted access has to be read rather than asked
+         * of the server, because get_thread_info accepts only the two query
+         * rights and the right this class wants is not one of them. */
+        if (NtQueryObject( handle, ObjectBasicInformation, &obj, sizeof(obj), NULL ) ||
+            !(obj.GrantedAccess & THREAD_GET_CONTEXT))
+            return STATUS_ACCESS_DENIED;
+
+        if (!NtCompareObjects( handle, GetCurrentThread() )) return STATUS_INVALID_PARAMETER;
+
+        /* What the target thread last asked the kernel for is recorded nowhere
+         * reachable from here: it lives in that thread's own syscall frame, and
+         * the frame's first argument is never stored at all. Until it is, say
+         * the thing Windows says about a thread whose last call it will not
+         * report, rather than refusing an access the caller does hold. */
+        FIXME( "ThreadLastSystemCall not recorded for another thread\n" );
+        return STATUS_UNSUCCESSFUL;
+    }
+
     case ThreadSuspendCount:
         if (length != sizeof(ULONG)) return STATUS_INFO_LENGTH_MISMATCH;
         if (!data) return STATUS_ACCESS_VIOLATION;
@@ -2677,6 +2724,17 @@ NTSTATUS WINAPI NtQueryInformationThread( HANDLE handle, THREADINFOCLASS class,
         return STATUS_INVALID_INFO_CLASS;
     }
     }
+}
+
+NTSTATUS WINAPI NtQueryInformationThread( HANDLE handle, THREADINFOCLASS class,
+                                          void *data, ULONG length, ULONG *ret_len )
+{
+    ULONG reported = 0;
+    NTSTATUS status = query_information_thread( handle, class, data, length, ret_len ? ret_len : &reported );
+
+    if (ret_len) reported = *ret_len;
+    tuxblox_diag_class( "thread", class, length, reported, status );
+    return status;
 }
 
 

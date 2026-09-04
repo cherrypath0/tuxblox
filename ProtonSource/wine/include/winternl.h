@@ -2426,6 +2426,31 @@ typedef struct _THREAD_NAME_INFORMATION
     UNICODE_STRING ThreadName;
 } THREAD_NAME_INFORMATION, *PTHREAD_NAME_INFORMATION;
 
+/* Both versions are live: NtQueryInformationThread accepts either size and
+ * refuses every other one. */
+typedef struct _THREAD_LAST_SYSCALL_INFORMATION_V1
+{
+    PVOID  FirstArgument;
+    USHORT SystemCallNumber;
+#ifdef _WIN64
+    USHORT Pad[3];
+#else
+    USHORT Pad[1];
+#endif
+} THREAD_LAST_SYSCALL_INFORMATION_V1, *PTHREAD_LAST_SYSCALL_INFORMATION_V1;
+
+typedef struct _THREAD_LAST_SYSCALL_INFORMATION
+{
+    PVOID  FirstArgument;
+    USHORT SystemCallNumber;
+#ifdef _WIN64
+    USHORT Pad[3];
+#else
+    USHORT Pad[1];
+#endif
+    ULONG64 WaitTime;
+} THREAD_LAST_SYSCALL_INFORMATION, *PTHREAD_LAST_SYSCALL_INFORMATION;
+
 typedef struct _MANAGE_WRITES_TO_EXECUTABLE_MEMORY
 {
     ULONG Version : 8;
@@ -3032,6 +3057,14 @@ typedef struct _SYSTEM_PERFORMANCE_INFORMATION {
     ULONG FirstLevelTbFills;
     ULONG SecondLevelTbFills;
     ULONG SystemCalls;
+    ULONGLONG CcTotalDirtyPages;
+    ULONGLONG CcDirtyPageThreshold;
+    LONGLONG ResidentAvailablePages;
+    ULONGLONG SharedCommittedPages;
+    ULONGLONG MdlPagesAllocated;
+    ULONGLONG PfnDatabaseCommittedPages;
+    ULONGLONG SystemPageTableCommittedPages;
+    ULONGLONG ContiguousPagesAllocated;
 } SYSTEM_PERFORMANCE_INFORMATION, *PSYSTEM_PERFORMANCE_INFORMATION;
 
 /* System Information Class 0x03 */

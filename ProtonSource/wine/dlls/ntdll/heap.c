@@ -1505,6 +1505,56 @@ static void heap_set_debug_flags( HANDLE handle )
 
 
 /***********************************************************************
+ *           update_process_heaps
+ *
+ * Mirror the per-process heap list into the PEB. Windows keeps
+ * ProcessHeaps/NumberOfHeaps there and code that fingerprints the process
+ * reads them directly instead of calling RtlGetProcessHeaps, so leaving them
+ * null and zero next to a valid ProcessHeap is a visible inconsistency.
+ *
+ * Called with process_heap->cs held. A grown array is never freed: a reader
+ * walking it holds no lock, so recycling the old one would be a use-after-free
+ * for them. The growth doubles, so the total is bounded by twice the final size.
+ */
+static void *initial_process_heaps[16];
+
+static void update_process_heaps(void)
+{
+    PEB *peb = NtCurrentTeb()->Peb;
+    void **array = peb->ProcessHeaps;
+    ULONG count = 1, i = 0;
+    struct list *ptr;
+
+    LIST_FOR_EACH( ptr, &process_heap->entry ) count++;
+
+    if (!array)
+    {
+        array = initial_process_heaps;
+        peb->MaximumNumberOfHeaps = ARRAY_SIZE(initial_process_heaps);
+    }
+    if (count > peb->MaximumNumberOfHeaps)
+    {
+        ULONG new_max = peb->MaximumNumberOfHeaps * 2;
+        void **grown;
+
+        while (count > new_max) new_max *= 2;
+        /* recursive on process_heap->cs, which a critical section allows */
+        if (!(grown = RtlAllocateHeap( process_heap, 0, new_max * sizeof(*grown) ))) return;
+        array = grown;
+        peb->MaximumNumberOfHeaps = new_max;
+    }
+
+    array[i++] = process_heap;
+    LIST_FOR_EACH( ptr, &process_heap->entry )
+        array[i++] = LIST_ENTRY( ptr, struct heap, entry );
+
+    /* publish the contents before the count that makes them readable */
+    peb->ProcessHeaps = array;
+    peb->NumberOfHeaps = count;
+}
+
+
+/***********************************************************************
  *           RtlCreateHeap   (NTDLL.@)
  */
 HANDLE WINAPI RtlCreateHeap( ULONG flags, void *addr, SIZE_T total_size, SIZE_T commit_size,
@@ -1602,12 +1652,14 @@ HANDLE WINAPI RtlCreateHeap( ULONG flags, void *addr, SIZE_T total_size, SIZE_T 
     {
         RtlEnterCriticalSection( &process_heap->cs );
         list_add_head( &process_heap->entry, &heap->entry );
+        update_process_heaps();
         RtlLeaveCriticalSection( &process_heap->cs );
     }
     else if (!addr)
     {
         process_heap = heap;  /* assume the first heap we create is the process main heap */
         list_init( &process_heap->entry );
+        update_process_heaps();
     }
 
     return heap;
@@ -1663,6 +1715,7 @@ HANDLE WINAPI RtlDestroyHeap( HANDLE handle )
     /* remove it from the per-process list */
     RtlEnterCriticalSection( &process_heap->cs );
     list_remove( &heap->entry );
+    update_process_heaps();
     RtlLeaveCriticalSection( &process_heap->cs );
 
     heap->cs.DebugInfo->Spare[0] = 0;
