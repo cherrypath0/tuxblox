@@ -270,7 +270,7 @@ void tuxblox_trace_code( const char *tag, ULONG_PTR addr, unsigned int len )
  */
 static void diag_hex( const char *tag, ULONG_PTR addr, unsigned int len )
 {
-    unsigned char buf[160];
+    unsigned char buf[256];
     char line[3 * sizeof(buf) + 1];
     unsigned int i, n;
     SIZE_T got;
@@ -284,6 +284,40 @@ static void diag_hex( const char *tag, ULONG_PTR addr, unsigned int len )
     }
     for (i = n = 0; i < got; i++) n += snprintf( line + n, sizeof(line) - n, "%02x ", buf[i] );
     ERR_(seh)( "DIAG %s 0x%llx %s\n", tag, (unsigned long long)addr, line );
+}
+
+/* The whole register file at a fault or a resume.
+ *
+ * The layer builds the offsets it reads the TEB at while it runs -- a constant,
+ * an xmm register and a rotate -- so the bytes at the faulting address do not
+ * say which field is being read. With the registers at that moment each offset
+ * can be worked out by hand, which is the only way to name those reads: none of
+ * them is a system call, so nothing else in this file can see them.
+ */
+static void diag_regs( const char *tag, const CONTEXT *context )
+{
+    ERR_(seh)( "DIAG %s rax=%016llx rbx=%016llx rcx=%016llx rdx=%016llx\n", tag,
+               (unsigned long long)context->Rax, (unsigned long long)context->Rbx,
+               (unsigned long long)context->Rcx, (unsigned long long)context->Rdx );
+    ERR_(seh)( "DIAG %s rsi=%016llx rdi=%016llx rbp=%016llx rsp=%016llx\n", tag,
+               (unsigned long long)context->Rsi, (unsigned long long)context->Rdi,
+               (unsigned long long)context->Rbp, (unsigned long long)context->Rsp );
+    ERR_(seh)( "DIAG %s r8 =%016llx r9 =%016llx r10=%016llx r11=%016llx\n", tag,
+               (unsigned long long)context->R8, (unsigned long long)context->R9,
+               (unsigned long long)context->R10, (unsigned long long)context->R11 );
+    ERR_(seh)( "DIAG %s r12=%016llx r13=%016llx r14=%016llx r15=%016llx\n", tag,
+               (unsigned long long)context->R12, (unsigned long long)context->R13,
+               (unsigned long long)context->R14, (unsigned long long)context->R15 );
+    ERR_(seh)( "DIAG %s rip=%016llx eflags=%08x cs=%04x ss=%04x ds=%04x es=%04x fs=%04x gs=%04x\n", tag,
+               (unsigned long long)context->Rip, (unsigned int)context->EFlags,
+               context->SegCs, context->SegSs, context->SegDs, context->SegEs,
+               context->SegFs, context->SegGs );
+    ERR_(seh)( "DIAG %s xmm0=%016llx%016llx xmm1=%016llx%016llx\n", tag,
+               (unsigned long long)context->Xmm0.High, (unsigned long long)context->Xmm0.Low,
+               (unsigned long long)context->Xmm1.High, (unsigned long long)context->Xmm1.Low );
+    ERR_(seh)( "DIAG %s xmm2=%016llx%016llx xmm3=%016llx%016llx\n", tag,
+               (unsigned long long)context->Xmm2.High, (unsigned long long)context->Xmm2.Low,
+               (unsigned long long)context->Xmm3.High, (unsigned long long)context->Xmm3.Low );
 }
 
 /* The last raw system calls the layer issued, with the stack pointer each was
@@ -350,14 +384,65 @@ void tuxblox_diag_note_syscall( ULONG64 rip, ULONG64 rsp, ULONG64 rax )
  * not something to leave on.
  */
 #define DIAG_STEPS (1 << 19)
-static struct { ULONG64 rip, rsp; } diag_steps[DIAG_STEPS];
+/* rcx and rax as well as the program counter: the branches that decide the
+ * failing path are `test ecx,ecx`, and the only way to know which way one went
+ * is to have the value it tested. */
+static struct { ULONG64 rip, rsp, rcx, rax; } diag_steps[DIAG_STEPS];
 static unsigned int diag_step_pos, diag_step_start;
 static ULONG diag_step_tid = (ULONG)-1, diag_step_owner;
-static BOOL diag_stepping;
+static ULONG64 diag_step_module_base;
+static ULONG diag_step_reject[16];
+static unsigned int diag_step_rejects;
+static ULONG64 module_base_of( ULONG64 addr, char *name, size_t namelen );
+
+/* Where the layer's image starts, asked of the loader rather than of
+ * /proc/self/maps: its code pages are anonymous, not file-backed, so the maps
+ * cannot name them. Watch offsets are relative to this. */
+static ULONG64 layer_image_base( ULONG64 rip )
+{
+    LIST_ENTRY *head, *cur;
+    unsigned int n = 0;
+
+    if (!peb || !peb->LdrData) return 0;
+    head = &peb->LdrData->InLoadOrderModuleList;
+    for (cur = head->Flink; cur && cur != head && n < 128; cur = cur->Flink, n++)
+    {
+        LDR_DATA_TABLE_ENTRY *m = (LDR_DATA_TABLE_ENTRY *)cur;  /* InLoadOrderLinks at off 0 */
+        ULONG64 base = (ULONG64)(ULONG_PTR)m->DllBase;
+        const WCHAR *name = m->BaseDllName.Buffer;
+        SIZE_T len = m->BaseDllName.Length / sizeof(WCHAR), i;
+        BOOL is_roblox = FALSE;
+
+        if (rip < base || rip >= base + m->SizeOfImage) continue;
+        /* ntdll and the rest are in this list too, and stepping one of them
+         * spends the whole trace on a thread nobody is looking at. */
+        for (i = 0; name && i + 6 <= len; i++)
+        {
+            static const WCHAR robloxW[] = {'r','o','b','l','o','x'};
+            SIZE_T j;
+
+            for (j = 0; j < 6; j++)
+            {
+                WCHAR c = name[i + j];
+
+                if (c >= 'A' && c <= 'Z') c += 'a' - 'A';
+                if (c != robloxW[j]) break;
+            }
+            if (j == 6) { is_roblox = TRUE; break; }
+        }
+        if (is_roblox) return base;
+        return 0;
+    }
+    return 0;
+}
+/* Read straight from the signal paths, so an ordinary run pays one load and a
+ * predictable branch rather than a call into this file. */
+BOOL tuxblox_diag_stepping;
 
 BOOL tuxblox_diag_step_arm(void)
 {
     static int start = -1;
+    unsigned int i;
 
     if (!diag_enabled()) return FALSE;
     if (start == -1)
@@ -372,7 +457,7 @@ BOOL tuxblox_diag_step_arm(void)
      * [rsp],~0x100; popfq`, right after its hypervisor probe -- and putting it
      * back changes what the layer does (the run ends 0x80004004 instead). So a
      * trace covers from the arming point to the layer's next such clear. */
-    if (!diag_step_start || diag_stepping || diag_ring_pos < diag_step_start) return FALSE;
+    if (!diag_step_start || tuxblox_diag_stepping || diag_ring_pos < diag_step_start) return FALSE;
 
     /* The raw-syscall ring and this whole diagnostic are process-wide, but the
      * trap flag is not: arming on whichever thread happens to reach the count
@@ -386,7 +471,17 @@ BOOL tuxblox_diag_step_arm(void)
     }
     if (diag_step_tid && GetCurrentThreadId() != diag_step_tid) return FALSE;
 
-    diag_stepping = TRUE;
+    /* Several threads reach the arming count, and stepping one nobody is
+     * looking at is what every earlier trace really measured. The layer issues
+     * its raw system calls from its own image, so the thread whose last one
+     * came from there is the only one worth arming -- and its base is what the
+     * watch offsets are relative to. */
+    /* Threads that turned out not to be the layer's are remembered, so the
+     * next raw system call does not arm the same one again. */
+    for (i = 0; i < diag_step_rejects; i++)
+        if (diag_step_reject[i] == GetCurrentThreadId()) return FALSE;
+
+    tuxblox_diag_stepping = TRUE;
     diag_step_owner = GetCurrentThreadId();
     ERR_(seh)( "DIAG step armed at raw syscall %u on thread %04x\n",
                diag_ring_pos, (unsigned int)diag_step_owner );
@@ -400,29 +495,200 @@ void tuxblox_diag_note_trap( unsigned int trapno, int si_code, ULONG64 rip, ULON
 {
     static unsigned int shown;
 
-    if (!diag_stepping || GetCurrentThreadId() != diag_step_owner) return;
+    if (!tuxblox_diag_stepping || GetCurrentThreadId() != diag_step_owner) return;
     if (shown >= 8) return;
     shown++;
     ERR_(seh)( "DIAG trap #%u trapno=%u si_code=%d rip=0x%llx rsp=0x%llx\n",
                shown, trapno, si_code, (unsigned long long)rip, (unsigned long long)rsp );
 }
 
-BOOL tuxblox_diag_step_record( ULONG64 rip, ULONG64 rsp )
+/* The thread the tracer is stepping, if it is running at all. */
+BOOL tuxblox_diag_step_this_thread(void)
 {
-    if (!diag_stepping) return FALSE;
+    return tuxblox_diag_stepping && GetCurrentThreadId() == diag_step_owner;
+}
+
+/* Keep the trap flag out of what the program can read, and put it back for
+ * the processor.
+ *
+ * The layer reads its own flags all through its code -- `pushfq; and qword
+ * [rsp],~0x100; popfq` appears at every probe site -- so a trace that leaves
+ * the bit visible is a trace of the layer noticing it. Hardware keeps
+ * stepping; every value handed to the program has the bit taken out.
+ */
+ULONG tuxblox_diag_step_hide_flags( ULONG eflags )
+{
+    return tuxblox_diag_step_this_thread() ? eflags & ~0x100 : eflags;
+}
+
+ULONG tuxblox_diag_step_show_flags( ULONG eflags )
+{
+    return tuxblox_diag_step_this_thread() ? eflags | 0x100 : eflags;
+}
+
+/* The whole register file at chosen addresses inside the traced window.
+ *
+ * The step ring holds only the last half million instructions and a run is
+ * longer than that, by an amount that varies between runs. The instructions
+ * worth reading are known by address, so watch for them instead of hoping they
+ * land inside the ring. TUXBLOX_DIAG_STEP_REGS=<hex rip>[,<hex rip>...].
+ */
+#define DIAG_STEP_WATCH_MAX 8
+static ULONG64 diag_step_watch[DIAG_STEP_WATCH_MAX];
+static unsigned int diag_step_watch_count;
+static int diag_step_watch_init;
+static ULONG64 diag_step_stop;
+static void diag_dump_steps(void);
+
+/* Where the module containing an address begins.
+ *
+ * Image bases move between runs, so a watch address given as an absolute
+ * number only works until something else changes the layout. Anything smaller
+ * than 4 GB is taken as an offset into the module the trace starts in, which
+ * is the layer's own, and resolved once. */
+static ULONG64 module_base_of( ULONG64 addr, char *name, size_t namelen )
+{
+    char line[512], want[256] = "", path[256];
+    unsigned long long start, end, best = 0;
+    FILE *maps;
+
+    if (!(maps = fopen( "/proc/self/maps", "r" ))) return 0;
+    while (fgets( line, sizeof(line), maps ))
+    {
+        path[0] = 0;
+        if (sscanf( line, "%llx-%llx %*s %*s %*s %*s %255s", &start, &end, path ) < 2) continue;
+        if (addr >= start && addr < end) { strcpy( want, path ); break; }
+    }
+    if (want[0])
+    {
+        if (name && namelen)
+        {
+            size_t n = strlen( want );
+
+            if (n > namelen - 1) n = namelen - 1;
+            memcpy( name, want, n );
+            name[n] = 0;
+        }
+        rewind( maps );
+        while (fgets( line, sizeof(line), maps ))
+        {
+            path[0] = 0;
+            if (sscanf( line, "%llx-%llx %*s %*s %*s %*s %255s", &start, &end, path ) < 2) continue;
+            if (!strcmp( path, want ) && (!best || start < best)) best = start;
+        }
+    }
+    fclose( maps );
+    return best;
+}
+
+BOOL tuxblox_diag_step_watch_hit( ULONG64 rip )
+{
+    unsigned int i;
+
+    if (!tuxblox_diag_stepping) return FALSE;
+    if (!diag_step_watch_init)
+    {
+        const char *v = getenv( "TUXBLOX_DIAG_STEP_REGS" );
+
+        const char *stop = getenv( "TUXBLOX_DIAG_STEP_STOP" );
+
+        diag_step_watch_init = 1;
+        while (v && *v && diag_step_watch_count < DIAG_STEP_WATCH_MAX)
+        {
+            char *end;
+
+            diag_step_watch[diag_step_watch_count++] = strtoull( v, &end, 16 );
+            v = (*end == ',') ? end + 1 : end;
+        }
+        if (stop && *stop) diag_step_stop = strtoull( stop, NULL, 16 );
+    }
+    /* A run is longer than the ring and its length varies, so the interesting
+     * stretch is not reliably in it. Stopping at a chosen address leaves the
+     * ring holding exactly the instructions that led up to it. */
+    if (diag_step_stop && rip == (diag_step_stop < 0x100000000ull ? diag_step_stop + diag_step_module_base : diag_step_stop))
+    {
+        ERR_(seh)( "DIAG step stop at 0x%llx\n", (unsigned long long)rip );
+        diag_dump_steps();
+        tuxblox_diag_stepping = FALSE;
+        return TRUE;
+    }
+    for (i = 0; i < diag_step_watch_count; i++)
+    {
+        ULONG64 want = diag_step_watch[i];
+
+        if (want < 0x100000000ull) want += diag_step_module_base;
+        if (want == rip) return TRUE;
+    }
+    return FALSE;
+}
+
+void tuxblox_diag_step_watch_regs( ULONG64 rip, const ULONG64 *regs )
+{
+    static const char * const names[16] = { "rax", "rbx", "rcx", "rdx", "rsi", "rdi", "rbp", "rsp",
+                                            "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15" };
+    char line[512];
+    unsigned int i, n = 0;
+
+    for (i = 0; i < 16; i++)
+        n += snprintf( line + n, sizeof(line) - n, "%s=%llx ", names[i], (unsigned long long)regs[i] );
+    ERR_(seh)( "DIAG watch rip=0x%llx %s\n", (unsigned long long)rip, line );
+}
+
+BOOL tuxblox_diag_step_record( ULONG64 rip, ULONG64 rsp, ULONG64 rcx, ULONG64 rax )
+{
+    if (!tuxblox_diag_stepping) return FALSE;
     /* Only the thread that armed it. Another thread reaching here is stepping
      * for no reason and its steps would be interleaved into the same ring. */
     if (GetCurrentThreadId() != diag_step_owner) return FALSE;
-    if (!diag_step_pos) ERR_(seh)( "DIAG first step rip=0x%llx rsp=0x%llx\n",
-                                   (unsigned long long)rip, (unsigned long long)rsp );
+    /* A `pushfq` puts the live flags on the program's own stack, where the
+     * next instruction reads them. Take the trap flag back off the value it
+     * has just pushed. */
+    if (diag_step_pos)
+    {
+        ULONG64 prev = diag_steps[(diag_step_pos - 1) % DIAG_STEPS].rip, flags;
+        unsigned char op;
+
+        if (virtual_uninterrupted_read_memory( (const char *)(ULONG_PTR)prev, &op, 1 ) && op == 0x9c &&
+            virtual_uninterrupted_read_memory( (const char *)(ULONG_PTR)rsp, &flags, sizeof(flags) ) &&
+            (flags & 0x100))
+        {
+            flags &= ~(ULONG64)0x100;
+            virtual_uninterrupted_write_memory( (char *)(ULONG_PTR)rsp, &flags, sizeof(flags) );
+        }
+    }
+    if (!diag_step_pos)
+    {
+        char name[256] = "";
+
+        diag_step_module_base = layer_image_base( rip );
+        if (!diag_step_module_base) module_base_of( rip, name, sizeof(name) );
+        if (!diag_step_module_base)
+        {
+            /* not the layer's thread: stop, remember it, and let the next raw
+             * system call arm a different one. The trap is still swallowed. */
+            ERR_(seh)( "DIAG step thread %04x is at %s, disarming\n",
+                       (unsigned int)diag_step_owner, name[0] ? name : "(anon)" );
+            if (diag_step_rejects < ARRAY_SIZE(diag_step_reject))
+                diag_step_reject[diag_step_rejects++] = diag_step_owner;
+            diag_step_module_base = 0;
+            tuxblox_diag_stepping = FALSE;
+            return TRUE;
+        }
+        ERR_(seh)( "DIAG first step rip=0x%llx rsp=0x%llx image base 0x%llx\n",
+                   (unsigned long long)rip, (unsigned long long)rsp,
+                   (unsigned long long)diag_step_module_base );
+    }
     /* A run that never reaches the fault must not step forever. */
     if (diag_step_pos >= 4 * 1024 * 1024)
     {
-        diag_stepping = FALSE;
+        tuxblox_diag_stepping = FALSE;
         return FALSE;
     }
-    diag_steps[diag_step_pos++ % DIAG_STEPS].rip = rip;
-    diag_steps[(diag_step_pos - 1) % DIAG_STEPS].rsp = rsp;
+    diag_steps[diag_step_pos % DIAG_STEPS].rip = rip;
+    diag_steps[diag_step_pos % DIAG_STEPS].rsp = rsp;
+    diag_steps[diag_step_pos % DIAG_STEPS].rcx = rcx;
+    diag_steps[diag_step_pos % DIAG_STEPS].rax = rax;
+    diag_step_pos++;
     return TRUE;
 }
 
@@ -445,8 +711,9 @@ static void diag_dump_steps(void)
     {
         unsigned int at = (diag_step_pos - n + i) % DIAG_STEPS;
 
-        ERR_(seh)( "DIAG step[-%u] rip=0x%llx rsp=0x%llx\n", n - i,
-                   (unsigned long long)diag_steps[at].rip, (unsigned long long)diag_steps[at].rsp );
+        ERR_(seh)( "DIAG step[-%u] rip=0x%llx rsp=0x%llx rcx=0x%llx rax=0x%llx\n", n - i,
+                   (unsigned long long)diag_steps[at].rip, (unsigned long long)diag_steps[at].rsp,
+                   (unsigned long long)diag_steps[at].rcx, (unsigned long long)diag_steps[at].rax );
     }
 }
 
@@ -486,7 +753,7 @@ void tuxblox_diag_continue( const CONTEXT *context )
 {
     static unsigned int seen;
 
-    if (!diag_enabled() || !context || seen >= 24) return;
+    if (!diag_enabled() || !context || seen >= 64) return;
     seen++;
     ERR_(seh)( "DIAG continue s=%d n=%u rip=0x%llx rsp=0x%llx rbp=0x%llx rax=0x%llx flags=%#x\n",
                (int)InterlockedIncrement( &diag_seq ), diag_ring_pos,
@@ -500,7 +767,8 @@ void tuxblox_diag_continue( const CONTEXT *context )
         ULONG64 slot = 0;
         unsigned int i;
 
-        diag_hex( "resume-at", (ULONG_PTR)context->Rip, 48 );
+        diag_regs( "continue", context );
+        diag_hex( "resume-at", (ULONG_PTR)context->Rip, 256 );
         for (i = 0; i < 4; i++)
         {
             if (!virtual_uninterrupted_read_memory( (const char *)context->Rsp + i * 8, &slot, sizeof(slot) ))
@@ -524,7 +792,9 @@ void tuxblox_diag_exception( const EXCEPTION_RECORD *rec, const CONTEXT *context
                (int)InterlockedIncrement( &diag_seq ), (unsigned int)rec->ExceptionCode,
                (unsigned long long)context->Rip, (unsigned long long)context->Rsp,
                (unsigned long long)context->Rbp );
-    diag_hex( "at-rip", (ULONG_PTR)context->Rip, 48 );
+    diag_regs( "exc", context );
+    diag_hex( "at-rip", (ULONG_PTR)context->Rip, 128 );
+    diag_hex( "before-rip", (ULONG_PTR)context->Rip - 64, 64 );
     for (i = 0; i < 24; i++)
     {
         ULONG64 slot = 0;
@@ -758,7 +1028,7 @@ void tuxblox_diag_watch_sysret( unsigned int id )
  * resumes the program somewhere it should not be. Counting what it sees is the
  * first thing to know before trusting it. Gated on TUXBLOX_DIAG.
  */
-void tuxblox_diag_align( ULONG64 rip, ULONG64 rsp, BOOL handled )
+void tuxblox_diag_align( ULONG64 rip, ULONG64 rsp, ULONG64 rbp, BOOL handled )
 {
     static int enabled = -1;
     static unsigned int seen, declined;
@@ -780,10 +1050,10 @@ void tuxblox_diag_align( ULONG64 rip, ULONG64 rsp, BOOL handled )
 
     got = virtual_uninterrupted_read_memory( (const void *)(ULONG_PTR)rip, buf, sizeof(buf) );
     for (i = n = 0; i < got; i++) n += snprintf( line + n, sizeof(line) - n, "%02x ", buf[i] );
-    ERR_(seh)( "DIAG align s=%d %s #%u n=%u rip=0x%llx rsp=0x%llx %s\n",
+    ERR_(seh)( "DIAG align s=%d %s #%u n=%u rip=0x%llx rsp=0x%llx rbp=0x%llx %s\n",
                (int)InterlockedIncrement( &diag_seq ), handled ? "fixed" : "DECLINED",
                seen, diag_ring_pos, (unsigned long long)rip, (unsigned long long)rsp,
-               got ? line : "unreadable" );
+               (unsigned long long)rbp, got ? line : "unreadable" );
     (void)declined;
 }
 

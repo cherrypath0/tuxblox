@@ -855,16 +855,60 @@ void init_environment(void)
 }
 
 
-/* check if a WINE_HOST_ prefixed variable already exists in the environment */
-static BOOL host_var_exists( const char *name )
+/***********************************************************************
+ *           keep_env_var_for_windows
+ *
+ * Decide whether a variable from the Unix environment belongs in the
+ * environment block a Windows process can read.
+ *
+ * Wine imported the host's entire environment into that block. Roblox Player
+ * walks it one character at a time -- caught in an instruction trace inside
+ * its own protection layer -- and reading it is a plain memory access, so no
+ * system-call trace could ever show it happening. What it found here was
+ * WINE_HOST_HOME, LD_LIBRARY_PATH, DISPLAY, WAYLAND_DISPLAY,
+ * DBUS_SESSION_BUS_ADDRESS, DESKTOP_SESSION, KDE_FULL_SESSION, the user's
+ * login name, shell and home directory, and ninety more of the same. None of
+ * it exists on Windows.
+ *
+ * This is an allow list on purpose. A deny list only removes the variables
+ * somebody thought to name, and every machine carries a different set: a
+ * terminal emulator, a session manager, whatever the user exports in a shell
+ * profile. Anything genuinely needed can be named in TUXBLOX_ENV_KEEP.
+ */
+static BOOL keep_env_var_for_windows( const char *var )
 {
-    char *end = strchr( name, '=' );
-
-    if (!end) return FALSE;
-    for (char **e = environ; *e; e++)
+    /* the variables a Windows process actually has */
+    static const char * const windows_vars[] =
     {
-        if (!STARTS_WITH( *e, "WINE_HOST_" )) continue;
-        if (!strncmp( *e + 10, name, end + 1 - name )) return TRUE;
+        "ALLUSERSPROFILE=", "APPDATA=", "CLIENTNAME=", "CommonProgramFiles=",
+        "CommonProgramFiles(x86)=", "CommonProgramW6432=", "COMPUTERNAME=", "ComSpec=",
+        "DriverData=", "HOMEDRIVE=", "HOMEPATH=", "LOCALAPPDATA=", "LOGONSERVER=",
+        "NUMBER_OF_PROCESSORS=", "OneDrive=", "OS=", "PATH=", "PATHEXT=",
+        "PROCESSOR_ARCHITECTURE=", "PROCESSOR_ARCHITEW6432=", "PROCESSOR_IDENTIFIER=",
+        "PROCESSOR_LEVEL=", "PROCESSOR_REVISION=", "ProgramData=", "ProgramFiles=",
+        "ProgramFiles(x86)=", "ProgramW6432=", "PROMPT=", "PUBLIC=", "SESSIONNAME=",
+        "SystemDrive=", "SystemRoot=", "TEMP=", "TMP=", "USERDOMAIN=",
+        "USERDOMAIN_ROAMINGPROFILE=", "USERNAME=", "USERPROFILE=", "windir=", "winsysdir=",
+    };
+    /* read by the PE half of the graphics layers, where the value is a plain
+     * word rather than a host path. Dropping these would quietly change how
+     * Studio renders; they still name the layer, and want a private channel. */
+    static const char * const kept_prefixes[] = { "DXVK_", "VKD3D_" };
+    const char *keep = getenv( "TUXBLOX_ENV_KEEP" );
+    unsigned int i;
+
+    for (i = 0; i < ARRAY_SIZE(windows_vars); i++)
+        if (!strncasecmp( var, windows_vars[i], strlen(windows_vars[i]) )) return TRUE;
+    for (i = 0; i < ARRAY_SIZE(kept_prefixes); i++)
+        if (!strncmp( var, kept_prefixes[i], strlen(kept_prefixes[i]) )) return TRUE;
+
+    while (keep && *keep)
+    {
+        const char *end = strchr( keep, ',' );
+        size_t len = end ? (size_t)(end - keep) : strlen( keep );
+
+        if (len && !strncmp( var, keep, len ) && var[len] == '=') return TRUE;
+        keep = end ? end + 1 : keep + len;
     }
     return FALSE;
 }
@@ -901,24 +945,27 @@ static WCHAR *get_initial_environment( SIZE_T *pos, SIZE_T *size )
     {
         char *str = *e;
 
+        BOOL from_wine_var = FALSE;
+
         /* skip Unix special variables and use the Wine variants instead */
         if (STARTS_WITH( str, "WINE" ))
         {
-            if (is_special_env_var( str + 4 ) || is_ignored_env_var( str + 4 )) str += 4;
+            if (is_special_env_var( str + 4 ) || is_ignored_env_var( str + 4 ))
+            {
+                str += 4;
+                from_wine_var = TRUE;
+            }
             else if (!strcmp( str, "WINEDLLOVERRIDES=help" ))
             {
                 MESSAGE( overrides_help_message );
                 exit(0);
             }
         }
-        else if (is_ignored_env_var( str )) continue;
-        else if (host_var_exists( str )) continue;
-        else if (is_special_env_var( str )) /* prefix it with WINE_HOST_ */
-        {
-            static const WCHAR hostW[] = {'W','I','N','E','_','H','O','S','T','_'};
-            memcpy( ptr, hostW, sizeof(hostW) );
-            ptr += ARRAY_SIZE(hostW);
-        }
+        /* PATH, HOME, PWD, TEMP and TMP exist under both names and mean
+         * different things. Only the ones asked for as WINEPATH and friends
+         * are meant for the Windows side; the host's own are its business. */
+        if (!from_wine_var && is_special_env_var( str )) continue;
+        if (!keep_env_var_for_windows( str )) continue;
 
         ptr += ntdll_umbstowcs( str, strlen(str) + 1, ptr, end - ptr );
     }
@@ -1048,33 +1095,29 @@ static void add_system_dll_path_var( WCHAR **env, SIZE_T *pos, SIZE_T *size )
 static void add_dynamic_environment( WCHAR **env, SIZE_T *pos, SIZE_T *size )
 {
     const char *var;
-    unsigned int i;
     char str[22];
 
     if (build_dir) unix_to_nt_file_name( build_dir, &nt_build_dir, FILE_OPEN );
     if (data_dir) unix_to_nt_file_name( data_dir, &nt_data_dir, FILE_OPEN );
 
-    append_envW( env, pos, size, "WINEBUILDDIR", nt_build_dir );
-    append_envW( env, pos, size, "WINEDATADIR", nt_data_dir );
-    add_path_var( env, pos, size, "WINEHOMEDIR", home_dir );
-    add_path_var( env, pos, size, "WINECONFIGDIR", config_dir );
-    add_path_var( env, pos, size, "WINELOADER", wineloader );
-    for (i = 0; dll_paths[i]; i++)
-    {
-        snprintf( str, sizeof(str), "WINEDLLDIR%u", i );
-        add_path_var( env, pos, size, str, dll_paths[i] );
-    }
-    snprintf( str, sizeof(str), "WINEDLLDIR%u", i );
-    append_envW( env, pos, size, str, NULL );
+    /* WINEBUILDDIR, WINEDATADIR, WINEHOMEDIR, WINECONFIGDIR, WINELOADER and
+     * WINEDLLDIR* used to go in here. Each names Wine and carries a Unix path,
+     * in a block the program can read without a system call, and the only
+     * things that read them back are the Gecko and Mono add-on installers, the
+     * recycle bin and symbol lookup -- none of which this build uses. */
     add_system_dll_path_var( env, pos, size );
-    append_envA( env, pos, size, "WINEUSERNAME", user_name );
+    /* WINEUSERNAME used to go here. Its only reader is the semi-stub
+     * GetNamedPipeHandleStateW, filling in a client name nothing checks, and
+     * its value is the host login name. */
     if (unix_cp.CodePage != CP_UTF8)
     {
         snprintf( str, sizeof(str), "%u", unix_cp.CodePage );
         append_envA( env, pos, size, "WINEUNIXCP", str );
     }
     else append_envW( env, pos, size, "WINEUNIXCP", NULL );
-    append_envA( env, pos, size, "WINEUSERLOCALE", user_locale );
+    /* WINEUSERLOCALE likewise. Both readers only consult it when the prefix
+     * has no locale of its own, and wineboot writes one when the prefix is
+     * created, so the registry answers instead. */
     append_envA( env, pos, size, "SystemDrive", "C:" );
     append_envA( env, pos, size, "SystemRoot", "C:\\windows" );
 

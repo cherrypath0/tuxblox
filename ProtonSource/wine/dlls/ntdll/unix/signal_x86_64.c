@@ -924,7 +924,7 @@ static inline void set_sigcontext( const CONTEXT *context, ucontext_t *sigcontex
     RIP_sig(sigcontext) = context->Rip;
     CS_sig(sigcontext)  = context->SegCs;
     FS_sig(sigcontext)  = context->SegFs == FS64_SEL ? amd64_thread_data()->fs : context->SegFs;
-    EFL_sig(sigcontext) = context->EFlags;
+    EFL_sig(sigcontext) = tuxblox_step_show_flags( context->EFlags );
 }
 
 
@@ -1048,7 +1048,7 @@ static void save_context( struct xcontext *xcontext, const ucontext_t *sigcontex
     context->Rip    = RIP_sig(sigcontext);
     context->SegCs  = CS_sig(sigcontext);
     context->SegFs  = FS_sig(sigcontext) ? FS_sig(sigcontext) : FS64_SEL;
-    context->EFlags = EFL_sig(sigcontext);
+    context->EFlags = tuxblox_step_hide_flags( EFL_sig(sigcontext) );
     context->SegDs  = ds64_sel;
     context->SegEs  = ds64_sel;
     context->SegGs  = ds64_sel;
@@ -1270,7 +1270,7 @@ NTSTATUS WINAPI NtSetContextThread( HANDLE handle, const CONTEXT *context )
     {
         frame->rsp    = context->Rsp;
         frame->rip    = context->Rip;
-        frame->eflags = context->EFlags;
+        frame->eflags = tuxblox_step_show_flags( context->EFlags );
     }
     if (flags & CONTEXT_FLOATING_POINT)
     {
@@ -1344,7 +1344,7 @@ NTSTATUS WINAPI NtGetContextThread( HANDLE handle, CONTEXT *context )
     {
         context->Rsp    = frame->rsp;
         context->Rip    = frame->rip;
-        context->EFlags = frame->eflags;
+        context->EFlags = tuxblox_step_hide_flags( frame->eflags );
         context->SegCs  = cs64_sel;
         context->SegSs  = ds64_sel;
         context->ContextFlags |= CONTEXT_CONTROL;
@@ -3017,7 +3017,7 @@ static void segv_handler( int signal, siginfo_t *siginfo, void *sigcontext )
                 ULONG64 rip = context.c.Rip;
                 BOOL handled = emulate_misaligned_sse( &context.c );
 
-                tuxblox_diag_align( rip, context.c.Rsp, handled );
+                tuxblox_diag_align( rip, context.c.Rsp, context.c.Rbp, handled );
                 if (handled)
                 {
                     restore_context( &context, ucontext );
@@ -3105,12 +3105,29 @@ static void trap_handler( int signal, siginfo_t *siginfo, void *sigcontext )
     if (handle_syscall_trap( ucontext, siginfo )) return;
 
     /* Diagnostic stepping: record and keep going, without the program ever
-     * being told a single-step happened. Hardware breakpoints (si_code 4) are
-     * the program's own and are left alone. */
-    if (TRAP_sig(ucontext) == TRAP_x86_TRCTRAP && siginfo->si_code != 4 &&
-        tuxblox_diag_step_record( RIP_sig(ucontext), RSP_sig(ucontext) ))
+     * being told a single-step happened.
+     *
+     * si_code says which kind of debug trap this is, and only TRAP_TRACE is
+     * the tracer's. The layer raises its own debug probes with `int1`, which
+     * arrives as TRAP_BRKPT, and its hardware breakpoints arrive as
+     * TRAP_HWBKPT; both have to reach the program or the run changes. */
+    if (tuxblox_diag_step_watch_hit( RIP_sig(ucontext) ))
     {
-        EFL_sig(ucontext) |= 0x100;
+        ULONG64 regs[16] = { RAX_sig(ucontext), RBX_sig(ucontext), RCX_sig(ucontext), RDX_sig(ucontext),
+                             RSI_sig(ucontext), RDI_sig(ucontext), RBP_sig(ucontext), RSP_sig(ucontext),
+                             R8_sig(ucontext), R9_sig(ucontext), R10_sig(ucontext), R11_sig(ucontext),
+                             R12_sig(ucontext), R13_sig(ucontext), R14_sig(ucontext), R15_sig(ucontext) };
+        tuxblox_diag_step_watch_regs( RIP_sig(ucontext), regs );
+    }
+    if (TRAP_sig(ucontext) == TRAP_x86_TRCTRAP && siginfo->si_code == TRAP_TRACE &&
+        tuxblox_diag_step_record( RIP_sig(ucontext), RSP_sig(ucontext),
+                                  RCX_sig(ucontext), RAX_sig(ucontext) ))
+    {
+        /* Always swallow the trap; only keep stepping while the tracer wants
+         * it. Handing the program a single-step exception it never asked for
+         * is what changes the run. */
+        if (tuxblox_diag_stepping) EFL_sig(ucontext) |= 0x100;
+        else EFL_sig(ucontext) &= ~0x100;
         leave_handler( ucontext );
         return;
     }

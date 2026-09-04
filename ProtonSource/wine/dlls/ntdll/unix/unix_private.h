@@ -221,10 +221,29 @@ extern void tuxblox_diag_dump_image( const char *why );
 extern void tuxblox_diag_exception( const EXCEPTION_RECORD *rec, const CONTEXT *context );
 extern void tuxblox_diag_continue( const CONTEXT *context );
 extern BOOL tuxblox_diag_watch_enabled(void);
-extern void tuxblox_diag_align( ULONG64 rip, ULONG64 rsp, BOOL handled );
+extern void tuxblox_diag_align( ULONG64 rip, ULONG64 rsp, ULONG64 rbp, BOOL handled );
 extern void tuxblox_diag_note_syscall( ULONG64 rip, ULONG64 rsp, ULONG64 rax );
 extern BOOL tuxblox_diag_step_arm(void);
-extern BOOL tuxblox_diag_step_record( ULONG64 rip, ULONG64 rsp );
+extern BOOL tuxblox_diag_step_record( ULONG64 rip, ULONG64 rsp, ULONG64 rcx, ULONG64 rax );
+extern BOOL tuxblox_diag_step_watch_hit( ULONG64 rip );
+extern void tuxblox_diag_step_watch_regs( ULONG64 rip, const ULONG64 *regs );
+extern BOOL tuxblox_diag_stepping;
+extern BOOL tuxblox_diag_step_this_thread(void);
+extern ULONG tuxblox_diag_step_hide_flags( ULONG eflags );
+extern ULONG tuxblox_diag_step_show_flags( ULONG eflags );
+
+/* The signal paths run on every fault, so the ordinary case must not pay for a
+ * diagnostic that is off: one load and a branch the processor predicts, and no
+ * call at all unless the step tracer is running. */
+static inline ULONG tuxblox_step_hide_flags( ULONG eflags )
+{
+    return tuxblox_diag_stepping ? tuxblox_diag_step_hide_flags( eflags ) : eflags;
+}
+
+static inline ULONG tuxblox_step_show_flags( ULONG eflags )
+{
+    return tuxblox_diag_stepping ? tuxblox_diag_step_show_flags( eflags ) : eflags;
+}
 extern void tuxblox_diag_note_trap( unsigned int trapno, int si_code, ULONG64 rip, ULONG64 rsp );
 extern void tuxblox_diag_watch_sysret( unsigned int id );
 extern void tuxblox_diag_class( const char *surface, unsigned int class, ULONG length, ULONG len, unsigned int status );
