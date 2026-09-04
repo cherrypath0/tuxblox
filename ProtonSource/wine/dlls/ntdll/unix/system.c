@@ -3060,7 +3060,6 @@ static const struct known_class known_system_classes[] =
      * in the same buffer, and the reference machine is refusing the input it
      * was given, not the class. */
     {  17, 0xc0000004, 64, NULL, 0, 0xc0000001 },
-    {  18, 0xc0000004, 32 },
     {  19, 0xc0000002, 0 },
     {  20, 0xc0000003, NO_LENGTH },
     {  24, 0xc0000004,   20, sys_24_data, 20 },
@@ -3114,7 +3113,6 @@ static const struct known_class known_system_classes[] =
     {  86, 0xc0000004,     40, sys_86_data, 1 },
     {  87, 0xc0000004,      8, sys_87_data, 8 },
     {  89, 0xc0000003, NO_LENGTH },
-    {  90, 0xc0000004, 32 },
     {  91, 0xc00000f0, 0 },
     {  92, 0xc0000004,     40, sys_92_data, 40 },
     {  93, 0xc0000003, NO_LENGTH },
@@ -3166,7 +3164,6 @@ static const struct known_class known_system_classes[] =
     { 141, 0xc0000004, 864 },
     { 142, 0xc0000003, NO_LENGTH },
     { 143, 0x80430006, 0 },
-    { 144, 0xc0000004, 40 },
     { 145, 0xc0000004,      2, sys_145_data, 2 },
     { 146, 0xc0000003, NO_LENGTH },
     { 147, 0xc0000004,      1, sys_147_data, 1 },
@@ -4595,6 +4592,111 @@ static NTSTATUS query_system_information( SYSTEM_INFORMATION_CLASS class,
     case SystemNativeBasicInformation:  /* 114 */
         if (!is_win64) return STATUS_INVALID_INFO_CLASS;
         /* fall through */
+    case SystemBootEnvironmentInformation:  /* 90 */
+    {
+        /* The boot identifier has to be the same for every process in a boot
+         * and different in the next one, so it cannot be a constant copied
+         * from the reference machine: that would give every install running
+         * this build the same one. Linux keeps exactly such a value. */
+        struct
+        {
+            GUID  BootIdentifier;
+            ULONG FirmwareType;
+            ULONG pad;
+            ULONGLONG BootFlags;
+        } out;
+
+        len = sizeof(out);
+        if (size < len) { ret = STATUS_INFO_LENGTH_MISMATCH; break; }
+        if (info)
+        {
+            char id[64];
+            int fd;
+
+            memset( &out, 0, sizeof(out) );
+            if ((fd = open( "/proc/sys/kernel/random/boot_id", O_RDONLY )) != -1)
+            {
+                int n = read( fd, id, sizeof(id) - 1 );
+
+                close( fd );
+                if (n > 0)
+                {
+                    unsigned char *b = (unsigned char *)&out.BootIdentifier;
+                    int i, k = 0;
+
+                    id[n] = 0;
+                    for (i = 0; id[i] && k < 16; i++)
+                    {
+                        if (id[i] == '-') continue;
+                        if (!id[i + 1]) break;
+                        b[k++] = (unsigned char)strtoul( (char[3]){ id[i], id[i + 1], 0 }, NULL, 16 );
+                        i++;
+                    }
+                }
+            }
+            /* 1 is BIOS, 2 is UEFI, which is what the boot actually was */
+            out.FirmwareType = access( "/sys/firmware/efi", F_OK ) ? 1 : 2;
+            /* the four bytes after FirmwareType are left alone, as on the
+             * reference machine, so this copies the two halves and not the
+             * padding between them */
+            memcpy( info, &out, FIELD_OFFSET( typeof(out), pad ) );
+            memcpy( (char *)info + FIELD_OFFSET( typeof(out), BootFlags ),
+                    &out.BootFlags, sizeof(out.BootFlags) );
+        }
+        break;
+    }
+
+    case SystemPageFileInformation:    /* 18 */
+    case SystemPageFileInformationEx:  /* 144 */
+    {
+        /* Windows always has one, and reports its name inline behind the
+         * record. There is no page file here, so the sizes are the ones a
+         * default install of this much memory would have. */
+        static const WCHAR nameW[] = {'\\','?','?','\\','C',':','\\','p','a','g','e',
+                                      'f','i','l','e','.','s','y','s',0};
+        const ULONG name_len = sizeof(nameW) - sizeof(WCHAR);
+        const BOOL ex = (class == SystemPageFileInformationEx);
+        const ULONG hdr = ex ? 40 : 32;
+        SYSTEM_BASIC_INFORMATION sbi;
+        ULONG total;
+
+        len = hdr + name_len + sizeof(WCHAR);
+        if (size < len)
+        {
+            /* The reference machine answers a first probe with the fixed
+             * record size and only reports the whole thing, name included,
+             * once the caller has come back with at least that much. */
+            if (size < hdr) len = hdr;
+            ret = STATUS_INFO_LENGTH_MISMATCH;
+            break;
+        }
+        if (info)
+        {
+            UNICODE_STRING *name;
+            WCHAR *text = (WCHAR *)((char *)info + hdr);
+            ULONG *fields = info;
+
+            virtual_get_system_info( &sbi, is_wow64() );
+            total = sbi.MmNumberOfPhysicalPages / 2;
+            memset( info, 0, hdr );
+            fields[0] = 0;        /* NextEntryOffset: the only one */
+            fields[1] = total;    /* TotalSize, in pages */
+            fields[2] = 0;        /* TotalInUse */
+            fields[3] = 0;        /* PeakUsage */
+            name = (UNICODE_STRING *)(fields + 4);
+            name->Length = name_len;
+            name->MaximumLength = name_len + sizeof(WCHAR);
+            name->Buffer = text;
+            if (ex)
+            {
+                fields[8] = total;      /* MinimumSize */
+                fields[9] = total * 3;  /* MaximumSize */
+            }
+            memcpy( text, nameW, sizeof(nameW) );
+        }
+        break;
+    }
+
     case SystemBasicInformation:  /* 0 */
     {
         SYSTEM_BASIC_INFORMATION sbi;
