@@ -897,6 +897,11 @@ static BOOL keep_env_var_for_windows( const char *var )
     const char *keep = getenv( "TUXBLOX_ENV_KEEP" );
     unsigned int i;
 
+    /* "*" restores the old pass-everything behaviour for one run. It puts the
+     * host's environment back in front of the program, so it is a diagnostic
+     * and not something to launch with. */
+    if (keep && keep[0] == '*' && !keep[1]) return TRUE;
+
     for (i = 0; i < ARRAY_SIZE(windows_vars); i++)
         if (!strncasecmp( var, windows_vars[i], strlen(windows_vars[i]) )) return TRUE;
     for (i = 0; i < ARRAY_SIZE(kept_prefixes); i++)
