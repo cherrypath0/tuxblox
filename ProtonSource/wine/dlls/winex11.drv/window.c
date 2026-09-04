@@ -3657,9 +3657,17 @@ void X11DRV_WindowPosChanged( HWND hwnd, HWND insert_after, HWND owner_hint, UIN
     TRACE( "win %p/%lx new_rects %s style %08x flags %08x\n", hwnd, data->whole_window,
            debugstr_window_rects(new_rects), new_style, swp_flags );
 
-    /* visible windows are only hidden after SWP_HIDEWINDOW is used */
-    if (data->pending_state.wm_state != WithdrawnState && !(new_style & WS_VISIBLE) &&
-        !(swp_flags & SWP_HIDEWINDOW))
+    /* visible windows are only hidden after SWP_HIDEWINDOW is used.
+     *
+     * Not once the window has already been asked to hide, though. A hide that
+     * arrives while the map is still in flight is only recorded as the desired
+     * state and sent when the window manager answers; forcing WS_VISIBLE back
+     * on before then overwrites that desired state with NormalState, and the
+     * hide is lost for good. Roblox Studio does exactly this with three of Qt's
+     * helper windows, which are then left mapped for the life of the process
+     * and paint an empty black square over the middle of the viewport. */
+    if (data->pending_state.wm_state != WithdrawnState && data->desired_state.wm_state != WithdrawnState &&
+        !(new_style & WS_VISIBLE) && !(swp_flags & SWP_HIDEWINDOW))
     {
         WARN( "win %p/%lx not yet hidden, delaying unmapping\n", hwnd, data->whole_window );
         new_style |= WS_VISIBLE;
