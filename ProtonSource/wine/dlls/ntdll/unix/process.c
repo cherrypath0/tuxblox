@@ -1307,7 +1307,6 @@ static const struct known_class known_process_classes[] =
     {  48, 0xc0000003, NO_LENGTH },
     {  49, 0xc0000004, NO_LENGTH },
     {  50, 0xc0000004, 62 },
-    {  51, 0xc0000004, 16 },
     {  52, 0xc0000004, NO_LENGTH },
     {  53, 0xc0000003, NO_LENGTH },
     {  54, 0xc0000004, NO_LENGTH },
@@ -1993,6 +1992,73 @@ static NTSTATUS query_information_process( HANDLE handle, PROCESSINFOCLASS class
     case ProcessNetworkIoCounters:          /* 114 */
     case ProcessFindFirstThreadByTebValue:  /* 115 */
         return STATUS_INFO_LENGTH_MISMATCH;
+
+    case ProcessHandleInformation:          /* 51 */
+    {
+        /* A snapshot of the handles this process holds. The handles are real
+         * ones, taken from the server's own table; only the two reference
+         * counts are not, because nothing here keeps them. */
+        struct handle_info *handles;
+        ULONG i, count = 0, max = 4096;
+
+        if (handle != GetCurrentProcess())
+        {
+            ret = STATUS_INVALID_PARAMETER;
+            break;
+        }
+        if (!(handles = malloc( sizeof(*handles) * max ))) return STATUS_NO_MEMORY;
+        SERVER_START_REQ( get_system_handles )
+        {
+            wine_server_set_reply( req, handles, sizeof(*handles) * max );
+            if (!(ret = wine_server_call( req ))) count = wine_server_reply_size( req ) / sizeof(*handles);
+        }
+        SERVER_END_REQ;
+        if (ret)
+        {
+            free( handles );
+            break;
+        }
+        {
+            ULONG mine = 0, pid = HandleToULong( NtCurrentTeb()->ClientId.UniqueProcess );
+
+            for (i = 0; i < count; i++) if (handles[i].owner == pid) mine++;
+            len = 16 + mine * 40;
+            if (size < len)
+            {
+                /* a first probe is answered with the header size, as there */
+                if (size < 16) len = 16;
+                free( handles );
+                ret = STATUS_INFO_LENGTH_MISMATCH;
+                break;
+            }
+            if (info)
+            {
+                ULONG_PTR *head = info;
+                char *entry = (char *)info + 16;
+
+                head[0] = mine;
+                /* the reserved half of the header is left untouched, as it is
+                 * on the reference machine */
+                for (i = 0; i < count; i++)
+                {
+                    ULONG *e32;
+
+                    if (handles[i].owner != pid) continue;
+                    *(ULONG_PTR *)(entry + 0)  = handles[i].handle;
+                    *(ULONG_PTR *)(entry + 8)  = 1;        /* HandleCount */
+                    *(ULONG_PTR *)(entry + 16) = 0x10000;  /* PointerCount */
+                    e32 = (ULONG *)(entry + 24);
+                    e32[0] = handles[i].access;
+                    e32[1] = handles[i].type;
+                    e32[2] = handles[i].attributes;
+                    e32[3] = 0;
+                    entry += 40;
+                }
+            }
+        }
+        free( handles );
+        break;
+    }
 
     case ProcessCommandLineInformation:      /* 60 */
     case ProcessWindowInformation:          /* 50 */
