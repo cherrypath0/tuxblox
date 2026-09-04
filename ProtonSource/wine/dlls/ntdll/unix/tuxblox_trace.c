@@ -286,40 +286,6 @@ static void diag_hex( const char *tag, ULONG_PTR addr, unsigned int len )
     ERR_(seh)( "DIAG %s 0x%llx %s\n", tag, (unsigned long long)addr, line );
 }
 
-/* The whole register file at a fault or a resume.
- *
- * The layer builds the offsets it reads the TEB at while it runs -- a constant,
- * an xmm register and a rotate -- so the bytes at the faulting address do not
- * say which field is being read. With the registers at that moment each offset
- * can be worked out by hand, which is the only way to name those reads: none of
- * them is a system call, so nothing else in this file can see them.
- */
-static void diag_regs( const char *tag, const CONTEXT *context )
-{
-    ERR_(seh)( "DIAG %s rax=%016llx rbx=%016llx rcx=%016llx rdx=%016llx\n", tag,
-               (unsigned long long)context->Rax, (unsigned long long)context->Rbx,
-               (unsigned long long)context->Rcx, (unsigned long long)context->Rdx );
-    ERR_(seh)( "DIAG %s rsi=%016llx rdi=%016llx rbp=%016llx rsp=%016llx\n", tag,
-               (unsigned long long)context->Rsi, (unsigned long long)context->Rdi,
-               (unsigned long long)context->Rbp, (unsigned long long)context->Rsp );
-    ERR_(seh)( "DIAG %s r8 =%016llx r9 =%016llx r10=%016llx r11=%016llx\n", tag,
-               (unsigned long long)context->R8, (unsigned long long)context->R9,
-               (unsigned long long)context->R10, (unsigned long long)context->R11 );
-    ERR_(seh)( "DIAG %s r12=%016llx r13=%016llx r14=%016llx r15=%016llx\n", tag,
-               (unsigned long long)context->R12, (unsigned long long)context->R13,
-               (unsigned long long)context->R14, (unsigned long long)context->R15 );
-    ERR_(seh)( "DIAG %s rip=%016llx eflags=%08x cs=%04x ss=%04x ds=%04x es=%04x fs=%04x gs=%04x\n", tag,
-               (unsigned long long)context->Rip, (unsigned int)context->EFlags,
-               context->SegCs, context->SegSs, context->SegDs, context->SegEs,
-               context->SegFs, context->SegGs );
-    ERR_(seh)( "DIAG %s xmm0=%016llx%016llx xmm1=%016llx%016llx\n", tag,
-               (unsigned long long)context->Xmm0.High, (unsigned long long)context->Xmm0.Low,
-               (unsigned long long)context->Xmm1.High, (unsigned long long)context->Xmm1.Low );
-    ERR_(seh)( "DIAG %s xmm2=%016llx%016llx xmm3=%016llx%016llx\n", tag,
-               (unsigned long long)context->Xmm2.High, (unsigned long long)context->Xmm2.Low,
-               (unsigned long long)context->Xmm3.High, (unsigned long long)context->Xmm3.Low );
-}
-
 /* The last raw system calls the layer issued, with the stack pointer each was
  * made on.
  *
@@ -700,6 +666,40 @@ BOOL tuxblox_diag_step_record( ULONG64 rip, ULONG64 rsp, ULONG64 rcx, ULONG64 ra
  */
 #ifdef __x86_64__
 
+/* The whole register file at a fault or a resume.
+ *
+ * The layer builds the offsets it reads the TEB at while it runs -- a constant,
+ * an xmm register and a rotate -- so the bytes at the faulting address do not
+ * say which field is being read. With the registers at that moment each offset
+ * can be worked out by hand, which is the only way to name those reads: none of
+ * them is a system call, so nothing else in this file can see them.
+ */
+static void diag_regs( const char *tag, const CONTEXT *context )
+{
+    ERR_(seh)( "DIAG %s rax=%016llx rbx=%016llx rcx=%016llx rdx=%016llx\n", tag,
+               (unsigned long long)context->Rax, (unsigned long long)context->Rbx,
+               (unsigned long long)context->Rcx, (unsigned long long)context->Rdx );
+    ERR_(seh)( "DIAG %s rsi=%016llx rdi=%016llx rbp=%016llx rsp=%016llx\n", tag,
+               (unsigned long long)context->Rsi, (unsigned long long)context->Rdi,
+               (unsigned long long)context->Rbp, (unsigned long long)context->Rsp );
+    ERR_(seh)( "DIAG %s r8 =%016llx r9 =%016llx r10=%016llx r11=%016llx\n", tag,
+               (unsigned long long)context->R8, (unsigned long long)context->R9,
+               (unsigned long long)context->R10, (unsigned long long)context->R11 );
+    ERR_(seh)( "DIAG %s r12=%016llx r13=%016llx r14=%016llx r15=%016llx\n", tag,
+               (unsigned long long)context->R12, (unsigned long long)context->R13,
+               (unsigned long long)context->R14, (unsigned long long)context->R15 );
+    ERR_(seh)( "DIAG %s rip=%016llx eflags=%08x cs=%04x ss=%04x ds=%04x es=%04x fs=%04x gs=%04x\n", tag,
+               (unsigned long long)context->Rip, (unsigned int)context->EFlags,
+               context->SegCs, context->SegSs, context->SegDs, context->SegEs,
+               context->SegFs, context->SegGs );
+    ERR_(seh)( "DIAG %s xmm0=%016llx%016llx xmm1=%016llx%016llx\n", tag,
+               (unsigned long long)context->Xmm0.High, (unsigned long long)context->Xmm0.Low,
+               (unsigned long long)context->Xmm1.High, (unsigned long long)context->Xmm1.Low );
+    ERR_(seh)( "DIAG %s xmm2=%016llx%016llx xmm3=%016llx%016llx\n", tag,
+               (unsigned long long)context->Xmm2.High, (unsigned long long)context->Xmm2.Low,
+               (unsigned long long)context->Xmm3.High, (unsigned long long)context->Xmm3.Low );
+}
+
 static void diag_dump_steps(void)
 {
     unsigned int n = diag_step_pos < DIAG_STEPS ? diag_step_pos : DIAG_STEPS, i;
@@ -941,6 +941,7 @@ void tuxblox_diag_stack_exec( const EXCEPTION_RECORD *rec, const CONTEXT *contex
 
 #else  /* __x86_64__ */
 
+static void diag_dump_steps(void) { }
 void tuxblox_diag_continue( const CONTEXT *context ) { }
 void tuxblox_diag_exception( const EXCEPTION_RECORD *rec, const CONTEXT *context ) { }
 void tuxblox_diag_stack_exec( const EXCEPTION_RECORD *rec, const CONTEXT *context ) { }

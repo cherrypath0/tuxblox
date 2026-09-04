@@ -1097,6 +1097,60 @@ static void add_system_dll_path_var( WCHAR **env, SIZE_T *pos, SIZE_T *size )
  *
  * Add the environment variables that can differ between processes.
  */
+/***********************************************************************
+ *           set_prefix_bootstrap_vars
+ *
+ * Add or remove the variables that are only meaningful while the prefix is
+ * being created.
+ *
+ * Creating a prefix is the one job that genuinely needs them, and several
+ * pieces of it read a different one:
+ *
+ *  - the PE loader's find_builtin_without_file() reads WINEBUILDDIR and
+ *    WINEDLLDIR0..N. Until wineboot has populated C:\windows\system32 those
+ *    paths are the only way it can find a builtin at all, so without them
+ *    kernel32 never loads and nothing starts.
+ *  - wineboot's get_wine_inf_path() reads WINEBUILDDIR and WINEDATADIR.
+ *    wine.inf is what creates the prefix, so without them wineboot runs,
+ *    finds nothing to apply and leaves an empty prefix behind.
+ *  - wineboot's update_timestamp() reads WINECONFIGDIR and calls wcslen on it
+ *    without checking, so without it wineboot dies on an access violation.
+ *
+ * The whole set is restored rather than the three named above, because the
+ * readers are spread across wineboot, winemenubuilder and the locale setup and
+ * missing one shows up as a crash or a half-built prefix rather than anything
+ * that names the variable.
+ *
+ * They name Wine and carry Unix paths, which is exactly what the rest of this
+ * file goes out of its way not to hand a Windows program, so they are set for
+ * that window only and taken back out as soon as wineboot has finished. No
+ * Roblox process exists while it is open -- the prefix is built once and
+ * copied -- so nothing that reads the block ever sees them.
+ */
+static void set_prefix_bootstrap_vars( WCHAR **env, SIZE_T *pos, SIZE_T *size, BOOL add )
+{
+    char str[22];
+    unsigned int i;
+
+    append_envW( env, pos, size, "WINEBUILDDIR", add ? nt_build_dir : NULL );
+    append_envW( env, pos, size, "WINEDATADIR", add ? nt_data_dir : NULL );
+    add_path_var( env, pos, size, "WINEHOMEDIR", add ? home_dir : NULL );
+    add_path_var( env, pos, size, "WINECONFIGDIR", add ? config_dir : NULL );
+    add_path_var( env, pos, size, "WINELOADER", add ? wineloader : NULL );
+    append_envA( env, pos, size, "WINEUSERNAME", add ? user_name : NULL );
+    append_envA( env, pos, size, "WINEUSERLOCALE", add ? user_locale : NULL );
+    for (i = 0; dll_paths[i]; i++)
+    {
+        snprintf( str, sizeof(str), "WINEDLLDIR%u", i );
+        if (add) add_path_var( env, pos, size, str, dll_paths[i] );
+        else append_envW( env, pos, size, str, NULL );
+    }
+    /* the loader stops at the first one that is not set */
+    snprintf( str, sizeof(str), "WINEDLLDIR%u", i );
+    append_envW( env, pos, size, str, NULL );
+}
+
+
 static void add_dynamic_environment( WCHAR **env, SIZE_T *pos, SIZE_T *size )
 {
     const char *var;
@@ -1105,24 +1159,18 @@ static void add_dynamic_environment( WCHAR **env, SIZE_T *pos, SIZE_T *size )
     if (build_dir) unix_to_nt_file_name( build_dir, &nt_build_dir, FILE_OPEN );
     if (data_dir) unix_to_nt_file_name( data_dir, &nt_data_dir, FILE_OPEN );
 
-    /* WINEBUILDDIR, WINEDATADIR, WINEHOMEDIR, WINECONFIGDIR, WINELOADER and
-     * WINEDLLDIR* used to go in here. Each names Wine and carries a Unix path,
-     * in a block the program can read without a system call, and the only
-     * things that read them back are the Gecko and Mono add-on installers, the
-     * recycle bin and symbol lookup -- none of which this build uses. */
+    /* Each of these names Wine and carries a Unix path or the host login
+     * name, in a block the program can read without a system call, so they go
+     * in only while the prefix is being created and come straight back out:
+     * see set_prefix_bootstrap_vars(). */
+    set_prefix_bootstrap_vars( env, pos, size, is_prefix_bootstrap );
     add_system_dll_path_var( env, pos, size );
-    /* WINEUSERNAME used to go here. Its only reader is the semi-stub
-     * GetNamedPipeHandleStateW, filling in a client name nothing checks, and
-     * its value is the host login name. */
     if (unix_cp.CodePage != CP_UTF8)
     {
         snprintf( str, sizeof(str), "%u", unix_cp.CodePage );
         append_envA( env, pos, size, "WINEUNIXCP", str );
     }
     else append_envW( env, pos, size, "WINEUNIXCP", NULL );
-    /* WINEUSERLOCALE likewise. Both readers only consult it when the prefix
-     * has no locale of its own, and wineboot writes one when the prefix is
-     * created, so the registry answers instead. */
     append_envA( env, pos, size, "SystemDrive", "C:" );
     append_envA( env, pos, size, "SystemRoot", "C:\\windows" );
 
@@ -1995,11 +2043,14 @@ static RTL_USER_PROCESS_PARAMETERS *build_initial_params( void **module )
 
     /* store the initial PATH value */
     path = get_env_var( env, env_pos, pathW, 4 );
+    /* Set before the environment is built, not after: wineboot is about to
+     * create the prefix, and it can only load a builtin through the paths
+     * add_dynamic_environment puts in for a bootstrap. */
+    is_prefix_bootstrap = TRUE;
     add_dynamic_environment( &env, &env_pos, &env_size );
     add_registry_environment( &env, &env_pos, &env_size );
     bootstrap = get_env_var( env, env_pos, bootstrapW, ARRAY_SIZE(bootstrapW) );
     set_env_var( &env, &env_pos, &env_size, bootstrapW, ARRAY_SIZE(bootstrapW), valueW );
-    is_prefix_bootstrap = TRUE;
     env[env_pos] = 0;
     run_wineboot( env, env_pos );
 
@@ -2009,6 +2060,9 @@ static RTL_USER_PROCESS_PARAMETERS *build_initial_params( void **module )
     set_env_var( &env, &env_pos, &env_size, bootstrapW, ARRAY_SIZE(bootstrapW), bootstrap );
     is_prefix_bootstrap = !!bootstrap;
     free( bootstrap );
+    /* The prefix exists now, so the program this process goes on to run finds
+     * its builtins in system32 like any other and must not be handed these. */
+    if (!is_prefix_bootstrap) set_prefix_bootstrap_vars( &env, &env_pos, &env_size, FALSE );
     add_registry_environment( &env, &env_pos, &env_size );
     env[env_pos++] = 0;
 
@@ -2132,8 +2186,8 @@ void init_startup_info(void)
     env = malloc( env_size * sizeof(WCHAR) );
     memcpy( env, (char *)info + info_size, env_size * sizeof(WCHAR) );
     env_pos = env_size - 1;
-    add_dynamic_environment( &env, &env_pos, &env_size );
     is_prefix_bootstrap = !!find_env_var( env, env_pos, bootstrapW, ARRAY_SIZE(bootstrapW) );
+    add_dynamic_environment( &env, &env_pos, &env_size );
     env[env_pos++] = 0;
 
     size = (sizeof(*params)
