@@ -1,0 +1,60 @@
+{
+    "getting-started": {
+        "Title": "Getting Started",
+        "Sort": 1,
+        "Content": {
+            "welcome": {
+                "Title": "Welcome",
+                "Sort": 1
+            },
+            "how-it-works": {
+                "Title": "How TuxBlox Works",
+                "Sort": 2
+            },
+            "system-requirements": {
+                "Title": "System Requirements",
+                "Sort": 3
+            },
+            "installing-tuxblox": {
+                "Title": "Installing TuxBlox",
+                "Sort": 4
+            },
+            "faq": {
+                "Title": "Frequently Asked Questions",
+                "Sort": 5
+            }
+        }
+    },
+    "development": {
+        "Title": "Development",
+        "Sort": 2,
+        "Content": {
+            "building-from-source": {
+                "Title": "Building From Source",
+                "Sort": 1
+            },
+            "repository-structure": {
+                "Title": "Repository Structure",
+                "Sort": 2
+            },
+            "contributing": {
+                "Title": "Contributing",
+                "Sort": 3
+            }
+        }
+    },
+    "troubleshooting": {
+        "Title": "Troubleshooting",
+        "Sort": 3,
+        "Content": {
+            "known-issues": {
+                "Title": "Known Issues",
+                "Sort": 1
+            },
+            "reporting-bugs": {
+                "Title": "Reporting Bugs",
+                "Sort": 2
+            }
+        }
+    }
+}
