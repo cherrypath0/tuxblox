@@ -103,6 +103,7 @@
  */
 #include "navigate.h"
 #include "ipc.h"
+#include "errorpage.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -1313,6 +1314,140 @@ gboolean on_decide_policy(WebKitWebView *view, WebKitPolicyDecision *decision,
     return FALSE; /* not one of ours -- let WebKit's own default (use()) handle it */
 }
 
+/* --- The TuxBlox error screen ---
+ *
+ * WebKitGTK's own failure page is a grey "Unable to load page" with a Chromium
+ * error name on it. Inside Studio's login window that reads as TuxBlox itself
+ * having broken, and it offers nothing to do about it. These two handlers put
+ * the page built in errorpage.c there instead: the site's colours, a sentence
+ * that says what actually happened, and a button back to the URL that failed.
+ *
+ * webkit_web_view_load_alternate_html() rather than load_html(): it displays a
+ * document *for* a URI without making that URI's history entry point at our
+ * markup, so the Try again link and the back/forward list both still refer to
+ * the real page.
+ */
+
+/* Puts one already-built error document on screen. Takes ownership of html.
+ *
+ * Message-only webviews are skipped. Those are the HWND_MESSAGE-parented
+ * controllers behind the CookieManager flow -- they own a real WebKitWebView
+ * but no window anyone can see, so an error screen there would be invisible,
+ * and replacing the document mid-flight would break the cookie operation that
+ * is actually in progress. */
+static gboolean show_error_page(struct native_webview *nv, WebKitWebView *view, char *html,
+                                 const char *uri)
+{
+    if (nv && nv->message_only)
+    {
+        fprintf(stderr, "webview2loader-host: not showing an error page on message-only "
+                        "native_webview %p -- nothing there is visible\n", (void *)nv);
+        g_free(html);
+        return FALSE;
+    }
+
+    webkit_web_view_load_alternate_html(view, html, uri ? uri : "about:blank", NULL);
+    g_free(html);
+    return TRUE;
+}
+
+gboolean on_load_failed(WebKitWebView *view, WebKitLoadEvent load_event, const char *failing_uri,
+                         GError *error, void *user_data)
+{
+    struct native_webview *nv = user_data;
+
+    (void)load_event;
+
+    /* A cancelled or policy-interrupted load is how a *successful* sign-in
+     * ends -- see errorpage_wants_load_error for the whole reasoning. Return
+     * FALSE so WebKit carries on exactly as it did before this handler
+     * existed. */
+    if (!errorpage_wants_load_error(error))
+        return FALSE;
+
+    fprintf(stderr, "webview2loader-host: load failed for native_webview %p -- %s %d: %s\n",
+            (void *)nv, g_quark_to_string(error->domain), error->code, error->message);
+
+    return show_error_page(nv, view, errorpage_for_load_error(failing_uri, error), failing_uri);
+}
+
+gboolean on_load_failed_with_tls_errors(WebKitWebView *view, const char *failing_uri,
+                                         GTlsCertificate *certificate, GTlsCertificateFlags errors,
+                                         void *user_data)
+{
+    struct native_webview *nv = user_data;
+
+    (void)certificate;
+
+    fprintf(stderr, "webview2loader-host: TLS verification failed for native_webview %p -- "
+                    "flags=0x%x on %s\n", (void *)nv, (unsigned)errors,
+            failing_uri ? failing_uri : "(no URI)");
+
+    return show_error_page(nv, view, errorpage_for_tls_error(failing_uri, errors), failing_uri);
+}
+
+/* A crash page waiting for the main loop to come back to rest. See
+ * queue_crash_page below for why it cannot be drawn immediately. */
+struct crash_page_request
+{
+    struct native_webview *nv;
+    WebKitWebProcessTerminationReason reason;
+    char *uri;
+};
+
+static gboolean show_crash_page_idle(void *data)
+{
+    struct crash_page_request *req = data;
+
+    /* Same UAF guard the rest of this file uses -- webview_lookup compares nv
+     * by pointer value against the live registry and never dereferences it, so
+     * it is safe even if the webview was destroyed while this was queued. */
+    if (!webview_lookup((uint64_t)(uintptr_t)req->nv))
+        fprintf(stderr, "webview2loader-host: native_webview %p was destroyed before its crash "
+                        "page could be shown -- dropping it\n", (void *)req->nv);
+    else if (req->nv->active_wait_loop)
+        fprintf(stderr, "webview2loader-host: a new wait started on native_webview %p before its "
+                        "crash page could be shown -- leaving that navigation alone\n",
+                (void *)req->nv);
+    else
+        show_error_page(req->nv, req->nv->view,
+                        errorpage_for_process_crash(req->uri, req->reason), req->uri);
+
+    g_free(req->uri);
+    g_free(req);
+    return G_SOURCE_REMOVE;
+}
+
+/* Queues the crash page instead of drawing it on the spot.
+ *
+ * A navigate_and_wait() blocked on this webview keeps its own load-changed
+ * handler connected until g_main_loop_run() returns, and it only returns one
+ * iteration after the g_main_loop_quit() just above. Loading the crash page
+ * synchronously here would therefore push our own document's load-changed
+ * emissions through that still-live handler, and the wait would report the
+ * crash page reaching LOAD_FINISHED as a successful Navigate() back to Studio.
+ * An idle runs after the loop has unwound and the handler is disconnected. */
+static void queue_crash_page(struct native_webview *nv, WebKitWebView *view,
+                             WebKitWebProcessTerminationReason reason)
+{
+    struct crash_page_request *req;
+
+    if (nv->message_only)
+    {
+        fprintf(stderr, "webview2loader-host: native_webview %p is message-only -- no crash page "
+                        "to show\n", (void *)nv);
+        return;
+    }
+
+    req = g_new0(struct crash_page_request, 1);
+    req->nv = nv;
+    req->reason = reason;
+    req->uri = g_strdup(webkit_web_view_get_uri(view));
+    fprintf(stderr, "webview2loader-host: queueing the crash page for native_webview %p (was on %s)\n",
+            (void *)nv, req->uri ? req->uri : "(no URL)");
+    g_idle_add(show_crash_page_idle, req);
+}
+
 /* --- WebKitWebView::web-process-terminated (cosmetic mitigation) ---
  *
  * 2026-08-15: a real, fully investigated (root-caused via coredumpctl,
@@ -1512,7 +1647,13 @@ void on_web_process_terminated(WebKitWebView *view, WebKitWebProcessTerminationR
                         "-- the WebProcess it was waiting on just terminated\n", (void *)nv);
         g_main_loop_quit(nv->active_wait_loop);
     }
+
+    /* Leaving the window blank was the old behaviour, and it looked exactly
+     * like Studio itself hanging. Put the TuxBlox crash page there instead --
+     * queued rather than drawn here, see queue_crash_page's own comment. */
+    queue_crash_page(nv, view, reason);
 }
+
 
 /* --- ExecuteScript ---
  *

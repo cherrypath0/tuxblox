@@ -1,0 +1,264 @@
+<!--
+TuxBlox - Linux Compatibility Layer for the Roblox Engine
+Copyright (C) 2026 TuxBlox Developers
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+-->
+<!--STRIP
+    Notes for whoever edits this file. The generator drops this comment, so none
+    of it reaches the page -- keep maintainer notes in here rather than in a
+    plain comment, which would ship.
+
+    The error screen Studio's embedded browser shows in place of WebKitGTK's own
+    "Unable to load page". Edit this file directly; it is compiled into the
+    webview2loader-host binary so nothing has to ship beside it.
+
+    After editing, regenerate the header (the real build does this for you):
+
+        python3 webkitgtk-bundle/host/generate-errorpage-template.py
+
+    Slots are double-braced names, filled in by errorpage.c. Everything between
+    the IF_URL and END_URL comment markers below is dropped when there is no URL
+    to go back to, which happens if a renderer dies before its first navigation.
+
+    Nothing here may reference an external file. The page appears when the
+    network is unreachable, so a stylesheet link, a webfont request or an
+    <img> would all render as nothing.
+-->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{HEADING}}</title>
+<style>
+@font-face {
+    font-family: 'Inter';
+    font-style: normal;
+    font-weight: 400;
+    src: url(data:font/woff2;base64,{{FONT_INTER_400}}) format('woff2');
+}
+@font-face {
+    font-family: 'Inter';
+    font-style: normal;
+    font-weight: 600;
+    src: url(data:font/woff2;base64,{{FONT_INTER_600}}) format('woff2');
+}
+@font-face {
+    font-family: 'Montserrat';
+    font-style: normal;
+    font-weight: 700;
+    src: url(data:font/woff2;base64,{{FONT_MONTSERRAT_700}}) format('woff2');
+}
+
+/* Colours, radii and button geometry are the ones in
+   static.tuxblox.net/styles/style.css, so this reads as part of the site
+   rather than as something Wine put on screen. */
+:root {
+    --bg: #0a0c11;
+    --bg-soft: #13171f;
+    --divider: #232833;
+    --brand: #38bdf8;
+    --brand-soft: rgba(56, 189, 248, .12);
+    --text-1: #e9ecf1;
+    --text-2: #98a1b0;
+    --text-3: #79828f;
+    --btn-bg: #0273ae;
+    --btn-hover: #01608f;
+    --sans: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --display: 'Montserrat', 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+
+body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text-1);
+    font-family: var(--sans);
+    line-height: 1.6;
+    letter-spacing: -.011em;
+    -webkit-font-smoothing: antialiased;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 24px;
+}
+
+main { width: 100%; max-width: 460px; }
+
+.mark { margin-bottom: 22px; }
+
+.kicker {
+    margin: 0 0 10px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--text-3);
+    font-variant-numeric: tabular-nums;
+}
+
+h1 {
+    margin: 0;
+    font-family: var(--display);
+    font-size: 27px;
+    font-weight: 700;
+    line-height: 1.25;
+    letter-spacing: -.02em;
+    text-wrap: balance;
+}
+
+p.body {
+    margin: 14px 0 0;
+    font-size: 15.5px;
+    line-height: 1.7;
+    color: var(--text-2);
+}
+p.body b { color: var(--text-1); font-weight: 600; }
+
+.url {
+    margin: 20px 0 0;
+    padding: 10px 12px;
+    background: var(--bg-soft);
+    border: 1px solid var(--divider);
+    border-radius: 4px;
+    font-size: 12.5px;
+    color: var(--text-3);
+    letter-spacing: 0;
+    font-variant-numeric: tabular-nums;
+    overflow-x: auto;
+    white-space: nowrap;
+}
+
+.actions { margin-top: 26px; }
+
+a.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    height: 40px;
+    padding: 0 20px;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    background: var(--btn-bg);
+    color: #fff;
+    font: 600 14px var(--sans);
+    text-decoration: none;
+    transition: background-color .25s ease;
+}
+a.btn:hover, a.btn:focus-visible { background: var(--btn-hover); }
+a.btn svg { width: 15px; height: 15px; }
+
+details {
+    margin-top: 24px;
+    border-top: 1px solid var(--divider);
+    padding-top: 16px;
+}
+
+summary {
+    cursor: pointer;
+    list-style: none;
+    font-size: 13px;
+    color: var(--text-3);
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+summary::-webkit-details-marker { display: none; }
+summary::before {
+    content: "";
+    width: 0;
+    height: 0;
+    border-left: 5px solid currentColor;
+    border-top: 4px solid transparent;
+    border-bottom: 4px solid transparent;
+}
+details[open] summary::before { transform: rotate(90deg); }
+summary:hover { color: var(--text-2); }
+
+dl {
+    margin: 14px 0 0;
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: 7px 16px;
+    font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
+}
+dt { color: var(--text-3); font-weight: 600; }
+dd { margin: 0; color: var(--text-2); overflow-wrap: anywhere; }
+
+:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 2px; }
+::selection { background: var(--brand-soft); color: var(--text-1); }
+
+@media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; }
+}
+</style>
+</head>
+<body>
+<main>
+    <!-- The TuxBlox mark from static.tuxblox.net/images/svg/tuxblox.svg. -->
+    <div class="mark">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="-10 -10 220 220" width="52" height="52" aria-hidden="true">
+            <defs>
+                <linearGradient id="tbBlue" x1="0%" y1="0%" x2="0%" y2="100%">
+                    <stop offset="0%" stop-color="#009fff"/>
+                    <stop offset="100%" stop-color="#0ca2f6"/>
+                </linearGradient>
+                <linearGradient id="tbAmber" x1="0%" y1="0%" x2="0%" y2="100%">
+                    <stop offset="0%" stop-color="#ffa01a"/>
+                    <stop offset="100%" stop-color="#fba31b"/>
+                </linearGradient>
+            </defs>
+            <g transform="rotate(14 100 100)">
+                <path d="M20 20 180 20 180 90 124 90 124 76 76 76 76 90 20 90Z"
+                      fill="url(#tbBlue)" stroke="url(#tbBlue)" stroke-width="8"
+                      stroke-linejoin="round" stroke-linecap="round"/>
+                <path d="M20 180 180 180 180 110 124 110 124 124 76 124 76 110 20 110Z"
+                      fill="url(#tbAmber)" stroke="url(#tbAmber)" stroke-width="8"
+                      stroke-linejoin="round" stroke-linecap="round"/>
+            </g>
+        </svg>
+    </div>
+
+    <p class="kicker">{{KICKER}}</p>
+    <h1>{{HEADING}}</h1>
+    <p class="body">{{BODY}}</p>
+
+<!--IF_URL-->
+    <p class="url">{{URL}}</p>
+    <div class="actions">
+        <a class="btn" href="{{URL}}">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none"
+                 stroke="currentColor" stroke-width="1.7" stroke-linecap="round"
+                 stroke-linejoin="round" aria-hidden="true">
+                <path d="M13.7 7.2A5.8 5.8 0 1 1 12 3.4"/>
+                <path d="M13.4 1.6v3.6H9.8"/>
+            </svg>
+            Try again
+        </a>
+    </div>
+<!--END_URL-->
+
+    <details>
+        <summary>Technical details</summary>
+        <dl>{{DETAILS}}</dl>
+    </details>
+</main>
+</body>
+</html>

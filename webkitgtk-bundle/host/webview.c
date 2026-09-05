@@ -603,6 +603,7 @@ struct native_webview *webview_create(int is_message_only)
         return NULL;
     }
 
+    nv->message_only = is_message_only ? TRUE : FALSE;
     nv->window = gtk_window_new();
     /* Task 7 crash fix, round 13 (original unixlib.c comment): set before
      * the window is ever shown (below) so the window manager never draws
@@ -722,6 +723,15 @@ struct native_webview *webview_create(int is_message_only)
      * active_wait_loop fields. */
     g_signal_connect_data(nv->view, "web-process-terminated", (GCallback)on_web_process_terminated,
                            nv, NULL, 0);
+    /* The TuxBlox error screen (errorpage.c) in place of WebKitGTK's own stock
+     * "Unable to load page" -- see navigate.c's own comments on these two
+     * handlers for which failures reach them and which are deliberately let
+     * through untouched. Same lifetime and same reasoning as the connections
+     * above: torn down with nv->view by webview_destroy's gtk_window_destroy,
+     * so no separate disconnect is needed. */
+    g_signal_connect_data(nv->view, "load-failed", (GCallback)on_load_failed, nv, NULL, 0);
+    g_signal_connect_data(nv->view, "load-failed-with-tls-errors",
+                           (GCallback)on_load_failed_with_tls_errors, nv, NULL, 0);
     gtk_window_set_child(GTK_WINDOW(nv->window), GTK_WIDGET(nv->view));
     /* Plan 3 Task 2 (original unixlib.c comment): HWND_MESSAGE-parented
      * controllers (the CookieManager flow) still need a real, live

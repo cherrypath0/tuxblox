@@ -149,6 +149,21 @@ gboolean on_decide_policy(WebKitWebView *view, WebKitPolicyDecision *decision,
  * webview.c), unlike on_decide_policy which doesn't need it. */
 void on_web_process_terminated(WebKitWebView *view, WebKitWebProcessTerminationReason reason, void *user_data);
 
+/* WebKitWebView::load-failed and ::load-failed-with-tls-errors handlers --
+ * they put the TuxBlox error screen (errorpage.c) on screen in place of
+ * WebKitGTK's own stock "Unable to load page". Exposed here for the same
+ * reason as the two handlers above: connected once per webview at creation
+ * time in webview.c's webview_create. Both match their real signal
+ * signatures, so they need no wrapper beyond the usual (GCallback) cast, and
+ * both return TRUE for a failure they have drawn a page for -- which is what
+ * tells WebKit to stop and not draw its own. user_data is always the owning
+ * struct native_webview*. */
+gboolean on_load_failed(WebKitWebView *view, WebKitLoadEvent load_event, const char *failing_uri,
+                         GError *error, void *user_data);
+gboolean on_load_failed_with_tls_errors(WebKitWebView *view, const char *failing_uri,
+                                         GTlsCertificate *certificate, GTlsCertificateFlags errors,
+                                         void *user_data);
+
 /* Page -> Studio web message; see the definition in navigate.c. Returns 0 on
  * success, -1 if the channel is absent or the payload does not fit. */
 int event_send_web_message(struct native_webview *nv, const char *payload_utf8, const char *source_utf8,

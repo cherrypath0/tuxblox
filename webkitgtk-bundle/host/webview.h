@@ -88,6 +88,15 @@ struct native_webview
      * unusable and why no line at all was worse. Zero-initialized by
      * webview_create's calloc, like every other field here. */
     gboolean logged_first_script;
+
+    /* Whether this webview was created HWND_MESSAGE-parented (the
+     * CookieManager flow), which means it has a real WebKitWebView but no
+     * visible window anywhere. Recorded so the load-failure handlers in
+     * navigate.c can leave those alone: an error screen nobody can see is
+     * pointless, and replacing the document underneath a cookie operation
+     * would break it. Set by webview_create from its own is_message_only
+     * argument. */
+    gboolean message_only;
 };
 
 /* Creates a new native window + WebKitWebView pair, undecorated, with the

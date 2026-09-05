@@ -1196,11 +1196,27 @@ fi
 # still a separate DSO, and omitting it fails with
 # "undefined reference to symbol 'dlclose@@GLIBC_2.2.5' ... DSO missing from
 # command line". Harmless on newer glibc, where -ldl resolves to a stub.
+# The error page (host/errorpage.html) and its two fonts (host/fonts/*.woff2) are
+# compiled into the binary, so nothing has to ship beside it -- the page appears
+# when the network is unreachable, which is exactly when a separate file or a
+# webfont request would fail. Both generated headers are committed as well, so a
+# plain gcc still works; regenerating here is what stops a real build from
+# quietly shipping a page that no longer matches the HTML.
+#
+# Generated into a writable directory rather than in place: /src is mounted
+# read-only. It comes first on the include path, so these win over the committed
+# copies in /src/host.
+echo ":: Generating webview2loader-host error page"
+WV2L_GENERATED=/tmp/webview2loader-host-generated
+mkdir -p "$WV2L_GENERATED"
+python3 /src/host/generate-errorpage-template.py "$WV2L_GENERATED"
+python3 /src/host/fonts/generate-fonts-header.py "$WV2L_GENERATED"
+
 echo ":: Building webview2loader-host"
 gcc -O2 -Wall -Werror -o "$PREFIX/bin/webview2loader-host" \
     /src/host/main.c /src/host/ipc.c /src/host/webview.c /src/host/geometry.c /src/host/navigate.c \
-    /src/host/watchdog.c \
-    -I/src/host \
+    /src/host/watchdog.c /src/host/errorpage.c \
+    -I"$WV2L_GENERATED" -I/src/host \
     $(pkg-config --cflags gtk4 webkitgtk-6.0) \
     $(pkg-config --libs gtk4 webkitgtk-6.0) \
     -lX11 -ldl

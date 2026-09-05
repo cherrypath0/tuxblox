@@ -696,9 +696,11 @@ int main(int argc, char **argv)
      * gtk_thread_proc anymore, this whole process's main() *is* that
      * thread): force GTK4's own backend selection to X11, not Wayland.
      * This environment is a genuine Wayland compositor session
-     * (WAYLAND_DISPLAY set) and GDK_BACKEND is never set anywhere else in
-     * this codebase (confirmed: unixlib.c's own spawn_helper does not set
-     * it on this helper's environment either) -- GTK4's own documented
+     * (WAYLAND_DISPLAY set), and while unixlib.c's spawn_helper() now pins
+     * this too, that pin is belt-and-braces -- this call is the one that
+     * matters, because it is the last one before the gtk_init_check() that
+     * locks the backend in, and it also covers a directly-run helper that
+     * spawn_helper() never touched -- GTK4's own documented
      * behavior is to auto-detect and PREFER native Wayland over X11
      * whenever both are available, unless an app explicitly forces
      * otherwise. Without this, every gdk_x11_surface_get_xid(surface) call

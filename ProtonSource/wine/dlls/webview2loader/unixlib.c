@@ -370,6 +370,16 @@ static void set_webkit_relocation_env(const char *dir)
      * Overwrite (1), not 0: an inherited value is precisely what's being
      * corrected, so honoring it would defeat the fix. */
     setenv("EGL_PLATFORM", "x11", 1);
+
+    /* The other half of the same decision. main.c already forces GDK's backend
+     * to X11 before its gtk_init_check(), and that is the call that actually
+     * locks the choice in, so this is a no-op re-assertion on a normal launch.
+     * It is pinned here as well for the same reason EGL_PLATFORM is: the
+     * helper is X11-only by construction, GTK4 otherwise prefers Wayland
+     * wherever both are offered, and leaving a requirement this load-bearing
+     * to a single call site is how it eventually gets moved and quietly lost.
+     * The WebProcess and GPUProcess children inherit it from here too. */
+    setenv("GDK_BACKEND", "x11", 1);
 }
 
 /* Forks and execs webkitgtk-bundle/host's webview2loader-host binary,
