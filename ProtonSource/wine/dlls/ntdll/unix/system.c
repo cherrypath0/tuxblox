@@ -2671,7 +2671,13 @@ static GUID *get_system_uuid( GUID *uuid )
                   (unsigned int)id[2] << 8 | id[3];
     uuid->Data2 = (unsigned short)(id[4] << 8 | id[5]);
     uuid->Data3 = (unsigned short)(id[6] << 8 | id[7]);
-    uuid->Data4[0] = id[8];
+
+    /* Top two bits of this byte are the variant field. Real firmware sets them
+     * to 10, and leaving the hash's own bits there would leave a UUID that no
+     * machine reports -- a tell in itself. The version nibble is deliberately
+     * left as the hash left it: firmware does not keep that one either (this
+     * board reports 13, which is not a version at all). */
+    uuid->Data4[0] = (unsigned char)((id[8] & 0x3f) | 0x80);
     uuid->Data4[1] = id[9];
     memcpy( uuid->Data4 + 2, mac, 6 );
     return uuid;
