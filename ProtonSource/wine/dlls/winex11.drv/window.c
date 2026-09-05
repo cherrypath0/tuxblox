@@ -462,6 +462,18 @@ static BOOL thickframe_managed( DWORD style )
  *
  * Check if a given window should be managed
  */
+/* A popup with no caption, no system menu and no resizable frame. Windows draws nothing at all
+ * around one, and letting the window manager frame it costs more than the frame: the window then
+ * cannot be hidden until the window manager answers the map and the application next reads its
+ * messages. Roblox Studio shows three of Qt's helper windows and hides them a millisecond later,
+ * so they stay on top of everything for as long as loading a place keeps its thread busy. */
+static BOOL is_bare_tool_window( DWORD style, DWORD ex_style )
+{
+    if (!(style & WS_POPUP) || !(ex_style & WS_EX_TOOLWINDOW)) return FALSE;
+    if (ex_style & WS_EX_APPWINDOW) return FALSE;
+    return (style & WS_CAPTION) != WS_CAPTION && !(style & (WS_SYSMENU | WS_THICKFRAME));
+}
+
 static BOOL is_window_managed( HWND hwnd, UINT swp_flags, BOOL fullscreen )
 {
     DWORD style, ex_style;
@@ -471,6 +483,9 @@ static BOOL is_window_managed( HWND hwnd, UINT swp_flags, BOOL fullscreen )
     /* child windows are not managed */
     style = NtUserGetWindowLongW( hwnd, GWL_STYLE );
     if ((style & (WS_CHILD|WS_POPUP)) == WS_CHILD) return FALSE;
+    ex_style = NtUserGetWindowLongW( hwnd, GWL_EXSTYLE );
+    /* bare tool windows are not managed */
+    if (is_bare_tool_window( style, ex_style )) return FALSE;
     /* activated windows are managed */
     if (!(swp_flags & (SWP_NOACTIVATE|SWP_HIDEWINDOW))) return TRUE;
     if (hwnd == get_active_window()) return TRUE;
@@ -486,7 +501,6 @@ static BOOL is_window_managed( HWND hwnd, UINT swp_flags, BOOL fullscreen )
         if (fullscreen) return TRUE;
     }
     /* application windows are managed */
-    ex_style = NtUserGetWindowLongW( hwnd, GWL_EXSTYLE );
     if (ex_style & WS_EX_APPWINDOW) return TRUE;
     /* windows that own popups are managed */
     if (has_owned_popups( hwnd )) return TRUE;
@@ -1898,9 +1912,13 @@ static void window_set_managed( struct x11drv_win_data *data, BOOL new_managed )
 
     if (!data->whole_window) return; /* no window, nothing to update */
     if (old_managed == new_managed) return; /* states are the same, nothing to update */
-    if (!new_managed)
+    if (!new_managed && (data->pending_state.wm_state != WithdrawnState ||
+                         data->current_state.wm_state != WithdrawnState))
     {
-        ERR( "Changing window to unmanaged is not supported\n" );
+        /* The window manager only reads override-redirect when a window is mapped, so dropping it
+         * while the window is still withdrawn is free. Once mapped there is a frame to unwind and
+         * an answer in flight, and changing it then is not supported. */
+        ERR( "Changing a mapped window to unmanaged is not supported\n" );
         return;
     }
 
@@ -3647,6 +3665,9 @@ void X11DRV_WindowPosChanged( HWND hwnd, HWND insert_after, HWND owner_hint, UIN
 
     if (!(data = get_win_data( hwnd ))) return;
     if (is_managed) window_set_managed( data, TRUE );
+    /* A toolkit that applies its window flags after creating the window leaves one managed that
+     * never should have been. Drop it again while the window is still withdrawn. */
+    else if (is_bare_tool_window( new_style, ex_style )) window_set_managed( data, FALSE );
 
     old_rects = data->rects;
     was_fullscreen = data->is_fullscreen;
