@@ -2643,42 +2643,59 @@ static void get_machine_identity( unsigned char out[32], unsigned char mac[6] )
     sha256_final( &ctx, out );
 }
 
-/* Fills str with size-1 hex digits of the machine's identity, starting at
- * offset in the hash so that two fields never read the same. */
-static const char *machine_derived_serial( char *str, size_t size, unsigned int offset )
+/* One field's worth of identity. Each field is its own hash of the machine
+ * identity and the field's name, never a slice of a shared one: real hardware
+ * does not carry a serial that is part of its UUID, and anything that reads two
+ * of these fields would otherwise see the scheme immediately. Knowing one field
+ * says nothing about any other. */
+static void derive_field( const char *purpose, unsigned char out[32] )
 {
-    static const char hex[] = "0123456789ABCDEF";
     unsigned char id[32], mac[6];
-    size_t i;
+    struct sha256_ctx ctx;
 
     get_machine_identity( id, mac );
-    for (i = 0; i + 1 < size; i++)
-        str[i] = hex[(id[(offset + i / 2) % sizeof(id)] >> (i & 1 ? 0 : 4)) & 0xf];
+    sha256_init( &ctx );
+    sha256_update( &ctx, id, 32 );
+    identity_add( &ctx, purpose );
+    sha256_final( &ctx, out );
+}
+
+/* Fills str with up to size-1 hex digits of this field's own value. */
+static const char *machine_derived_serial( char *str, size_t size, const char *purpose )
+{
+    static const char hex[] = "0123456789ABCDEF";
+    unsigned char field[32];
+    size_t i;
+
+    derive_field( purpose, field );
+    for (i = 0; i + 1 < size && i < 2 * sizeof(field); i++)
+        str[i] = hex[(field[i / 2] >> (i & 1 ? 0 : 4)) & 0xf];
     str[i] = 0;
     return str;
 }
 
 static GUID *get_system_uuid( GUID *uuid )
 {
-    unsigned char id[32], mac[6];
+    unsigned char id[32], mac[6], field[32];
 
     get_machine_identity( id, mac );
+    derive_field( "system uuid", field );
 
     /* The first ten bytes carry the hash; the last six are the MAC, which is
      * where real firmware puts it -- so that part of the value is the
      * machine's own rather than derived. */
-    uuid->Data1 = (unsigned int)id[0] << 24 | (unsigned int)id[1] << 16 |
-                  (unsigned int)id[2] << 8 | id[3];
-    uuid->Data2 = (unsigned short)(id[4] << 8 | id[5]);
-    uuid->Data3 = (unsigned short)(id[6] << 8 | id[7]);
+    uuid->Data1 = (unsigned int)field[0] << 24 | (unsigned int)field[1] << 16 |
+                  (unsigned int)field[2] << 8 | field[3];
+    uuid->Data2 = (unsigned short)(field[4] << 8 | field[5]);
+    uuid->Data3 = (unsigned short)(field[6] << 8 | field[7]);
 
     /* Top two bits of this byte are the variant field. Real firmware sets them
      * to 10, and leaving the hash's own bits there would leave a UUID that no
      * machine reports -- a tell in itself. The version nibble is deliberately
      * left as the hash left it: firmware does not keep that one either (this
      * board reports 13, which is not a version at all). */
-    uuid->Data4[0] = (unsigned char)((id[8] & 0x3f) | 0x80);
-    uuid->Data4[1] = id[9];
+    uuid->Data4[0] = (unsigned char)((field[8] & 0x3f) | 0x80);
+    uuid->Data4[1] = field[9];
     memcpy( uuid->Data4 + 2, mac, 6 );
     return uuid;
 }
@@ -2690,26 +2707,23 @@ static GUID *get_system_uuid( GUID *uuid )
 static const char *get_system_serial( char *str, size_t size )
 {
     get_smbios_string( "/sys/class/dmi/id/product_serial", str, size );
-    if (!str[0]) machine_derived_serial( str, size < 17 ? size : 17, 0 );
+    if (!str[0]) machine_derived_serial( str, size < 17 ? size : 17, "system serial" );
     return str;
 }
 
 static const char *get_chassis_serial( char *str, size_t size )
 {
     get_smbios_string( "/sys/class/dmi/id/chassis_serial", str, size );
-    if (!str[0]) machine_derived_serial( str, size < 17 ? size : 17, 8 );
+    if (!str[0]) machine_derived_serial( str, size < 17 ? size : 17, "chassis serial" );
     return str;
 }
 
-static const char *get_board_serial( char *str, size_t size, const GUID *uuid )
+static const char *get_board_serial( char *str, size_t size )
 {
     get_smbios_string( "/sys/class/dmi/id/board_serial", str, size );
-    if (!str[0])
-    {
-        const BYTE *p = (const BYTE *)uuid;
-        snprintf( str, 33, "%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X", p[0], p[1],
-                  p[2], p[3], p[4], p[5], p[6], p[7], p[8], p[9], p[10], p[11], p[12], p[13], p[14], p[15] );
-    }
+    /* This used to print the UUID's own sixteen bytes, which made the board
+     * serial a transcription of the UUID -- and of the MAC inside it. */
+    if (!str[0]) machine_derived_serial( str, size < 17 ? size : 17, "board serial" );
     return str;
 }
 
@@ -2822,7 +2836,7 @@ static struct smbios_prologue *create_smbios_data(void)
                          get_smbios_string( "/sys/class/dmi/id/board_vendor", S(vendor) ),
                          get_smbios_string( "/sys/class/dmi/id/board_name", S(product) ),
                          get_smbios_string( "/sys/class/dmi/id/board_version", S(version) ),
-                         get_board_serial( S(serial), &uuid ),
+                         get_board_serial( S(serial) ),
                          get_smbios_string( "/sys/class/dmi/id/board_asset_tag", S(asset_tag) ));
 #undef S
 
