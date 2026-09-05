@@ -2700,29 +2700,108 @@ static GUID *get_system_uuid( GUID *uuid )
     return uuid;
 }
 
-/* These two, and get_board_serial below, read the real serial when the system
- * allows it and otherwise derive one -- see the block comment on the machine
- * identity above. Each takes a different slice of the hash so the three fields
- * do not repeat one another, the way three real serials would not. */
+/* Case-insensitive search; needle must already be lower case. */
+static int contains_ci( const char *haystack, const char *needle )
+{
+    size_t i, j;
+
+    for (i = 0; haystack[i]; i++)
+    {
+        for (j = 0; needle[j]; j++)
+        {
+            char c = haystack[i + j];
+            if (c >= 'A' && c <= 'Z') c = (char)(c + 32);
+            if (c != needle[j]) break;
+        }
+        if (!needle[j]) return 1;
+    }
+    return 0;
+}
+
+/* Whether a field still holds whatever the firmware shipped, rather than
+ * something a manufacturer wrote into it. */
+static int is_oem_placeholder( const char *s )
+{
+    static const char *const markers[] =
+    {
+        "to be filled", "default string", "not specified", "not applicable",
+        "serial number", "asset tag", "o.e.m.", "unknown", "xxxxx"
+    };
+    static const char *const exact[] = { "none", "n/a", "na", "0", "123456789" };
+    unsigned int i;
+
+    if (!s || !s[0]) return 0;
+    for (i = 0; i < sizeof(markers) / sizeof(markers[0]); i++)
+        if (contains_ci( s, markers[i] )) return 1;
+    for (i = 0; i < sizeof(exact) / sizeof(exact[0]); i++)
+        if (contains_ci( s, exact[i] ) && strlen( s ) == strlen( exact[i] )) return 1;
+    return 0;
+}
+
+/* The wording this machine's own firmware uses for a field nobody filled in.
+ *
+ * A serial is written by whoever assembles the finished computer. On a machine
+ * somebody built themselves that step never happened, so the firmware's own
+ * placeholder survives -- and that is the truthful answer, not a missing one.
+ * Whether it happened here is readable even when the serials are not: the SKU,
+ * the family and the asset tags are set at the same point on the line and share
+ * the same fate. If they still hold a placeholder, so do the serials.
+ *
+ * The string is copied from whichever of those fields has it, so the exact
+ * wording is the firmware's own -- "To be filled by O.E.M.", "Default string"
+ * and several others are all real, and inventing the wrong one would be its own
+ * mismatch. Returns NULL when this machine was properly programmed, which is
+ * what a built-and-sold computer looks like; there a placeholder would be
+ * wrong and a serial is derived instead. */
+static const char *get_oem_placeholder( char *str, size_t size )
+{
+    static const char *const probes[] =
+    {
+        "/sys/class/dmi/id/product_sku",
+        "/sys/class/dmi/id/product_family",
+        "/sys/class/dmi/id/board_asset_tag",
+        "/sys/class/dmi/id/chassis_asset_tag",
+        "/sys/class/dmi/id/product_version",
+    };
+    unsigned int i;
+
+    for (i = 0; i < sizeof(probes) / sizeof(probes[0]); i++)
+    {
+        get_smbios_string( probes[i], str, size );
+        if (is_oem_placeholder( str )) return str;
+    }
+    str[0] = 0;
+    return NULL;
+}
+
+/* These two, and get_board_serial below, report the real serial wherever the
+ * system allows it to be read. Failing that, a machine nobody serialised gets
+ * its firmware's own placeholder, and one that was serialised gets a derived
+ * value -- see the block comment on the machine identity above. */
 static const char *get_system_serial( char *str, size_t size )
 {
     get_smbios_string( "/sys/class/dmi/id/product_serial", str, size );
-    if (!str[0]) machine_derived_serial( str, size < 17 ? size : 17, "system serial" );
+    if (!str[0] && !get_oem_placeholder( str, size ))
+        machine_derived_serial( str, size < 17 ? size : 17, "system serial" );
     return str;
 }
 
 static const char *get_chassis_serial( char *str, size_t size )
 {
     get_smbios_string( "/sys/class/dmi/id/chassis_serial", str, size );
-    if (!str[0]) machine_derived_serial( str, size < 17 ? size : 17, "chassis serial" );
+    if (!str[0] && !get_oem_placeholder( str, size ))
+        machine_derived_serial( str, size < 17 ? size : 17, "chassis serial" );
     return str;
 }
 
 static const char *get_board_serial( char *str, size_t size )
 {
     get_smbios_string( "/sys/class/dmi/id/board_serial", str, size );
-    /* This used to print the UUID's own sixteen bytes, which made the board
-     * serial a transcription of the UUID -- and of the MAC inside it. */
+    /* Always derived, never the placeholder: the board is the one part that was
+     * manufactured, and its maker programmes a serial even when the machine
+     * around it was never serialised. This used to print the UUID's own sixteen
+     * bytes, which made the board serial a transcription of the UUID -- and of
+     * the MAC inside it. */
     if (!str[0]) machine_derived_serial( str, size < 17 ? size : 17, "board serial" );
     return str;
 }
