@@ -2391,57 +2391,307 @@ static const char *get_smbios_string( const char *path, char *str, size_t size )
     return str;
 }
 
+/* --- The machine's identity, when the firmware's own is out of reach -------
+ *
+ * The real serial numbers and UUID live in the SMBIOS table. Linux keeps every
+ * copy of them root-only on purpose -- /sys/firmware/dmi/tables, the
+ * per-field serial files under /sys/class/dmi/id, product_uuid and /dev/mem
+ * alike -- because
+ * they identify the machine. TuxBlox never asks for root, so on a system that
+ * has not been told to relax those permissions there is nothing true to report.
+ *
+ * What follows builds an identity from the hardware that IS readable, so a
+ * machine looks like itself instead of looking like nothing. It is derived, not
+ * the firmware's own value, and it is not presented as such: get_smbios_from_
+ * sysfs() still wins whenever the real table can be read.
+ *
+ * THE COMPUTATION BELOW MUST NOT CHANGE. Every byte of it -- the inputs, their
+ * order, the separator, the hash -- decides what a machine reports. Change any
+ * of it and every existing install looks like a brand new computer, which is
+ * indistinguishable from someone evading a ban. Fix it only for a real defect,
+ * and only with the repo owner's explicit agreement.
+ *
+ * The inputs are the ones that identify the machine and do not churn: the
+ * board, the processor, and the first permanent MAC. A graphics card or a stick
+ * of RAM is deliberately not included -- a firmware UUID does not change when
+ * you upgrade one, and neither should this. Uniqueness comes from the MAC,
+ * which also fills the node field exactly as real firmware does, so two
+ * identical builds still differ.
+ *
+ * Nothing here reads an environment variable or a registry key. It is not
+ * meant to be adjustable: an adjustable machine identity is a ban-evasion
+ * tool, which is the one thing this must never become.
+ */
+
+/* SHA-256, FIPS 180-4. Self-contained: ntdll's unix half links no crypto. */
+struct sha256_ctx
+{
+    unsigned int h[8];
+    unsigned long long len;
+    unsigned char buf[64];
+    unsigned int buf_len;
+};
+
+#define SHA256_ROR(x,n) (((x) >> (n)) | ((x) << (32 - (n))))
+
+static const unsigned int sha256_k[64] =
+{
+    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+    0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+    0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
+};
+
+static void sha256_block( struct sha256_ctx *ctx, const unsigned char *p )
+{
+    unsigned int w[64], a, b, c, d, e, f, g, h, s0, s1, ch, maj, t1, t2;
+    int i;
+
+    for (i = 0; i < 16; i++)
+        w[i] = (unsigned int)p[i * 4] << 24 | (unsigned int)p[i * 4 + 1] << 16 |
+               (unsigned int)p[i * 4 + 2] << 8 | (unsigned int)p[i * 4 + 3];
+    for (i = 16; i < 64; i++)
+    {
+        s0 = SHA256_ROR(w[i - 15], 7) ^ SHA256_ROR(w[i - 15], 18) ^ (w[i - 15] >> 3);
+        s1 = SHA256_ROR(w[i - 2], 17) ^ SHA256_ROR(w[i - 2], 19) ^ (w[i - 2] >> 10);
+        w[i] = w[i - 16] + s0 + w[i - 7] + s1;
+    }
+
+    a = ctx->h[0]; b = ctx->h[1]; c = ctx->h[2]; d = ctx->h[3];
+    e = ctx->h[4]; f = ctx->h[5]; g = ctx->h[6]; h = ctx->h[7];
+
+    for (i = 0; i < 64; i++)
+    {
+        s1 = SHA256_ROR(e, 6) ^ SHA256_ROR(e, 11) ^ SHA256_ROR(e, 25);
+        ch = (e & f) ^ (~e & g);
+        t1 = h + s1 + ch + sha256_k[i] + w[i];
+        s0 = SHA256_ROR(a, 2) ^ SHA256_ROR(a, 13) ^ SHA256_ROR(a, 22);
+        maj = (a & b) ^ (a & c) ^ (b & c);
+        t2 = s0 + maj;
+        h = g; g = f; f = e; e = d + t1;
+        d = c; c = b; b = a; a = t1 + t2;
+    }
+
+    ctx->h[0] += a; ctx->h[1] += b; ctx->h[2] += c; ctx->h[3] += d;
+    ctx->h[4] += e; ctx->h[5] += f; ctx->h[6] += g; ctx->h[7] += h;
+}
+
+static void sha256_init( struct sha256_ctx *ctx )
+{
+    ctx->h[0] = 0x6a09e667; ctx->h[1] = 0xbb67ae85; ctx->h[2] = 0x3c6ef372; ctx->h[3] = 0xa54ff53a;
+    ctx->h[4] = 0x510e527f; ctx->h[5] = 0x9b05688c; ctx->h[6] = 0x1f83d9ab; ctx->h[7] = 0x5be0cd19;
+    ctx->len = 0;
+    ctx->buf_len = 0;
+}
+
+static void sha256_update( struct sha256_ctx *ctx, const void *data, size_t size )
+{
+    const unsigned char *p = data;
+    size_t take;
+
+    ctx->len += size;
+    while (size)
+    {
+        take = 64 - ctx->buf_len;
+        if (take > size) take = size;
+        memcpy( ctx->buf + ctx->buf_len, p, take );
+        ctx->buf_len += take;
+        p += take;
+        size -= take;
+        if (ctx->buf_len == 64)
+        {
+            sha256_block( ctx, ctx->buf );
+            ctx->buf_len = 0;
+        }
+    }
+}
+
+static void sha256_final( struct sha256_ctx *ctx, unsigned char out[32] )
+{
+    unsigned long long bits = ctx->len * 8;
+    unsigned char pad[8];
+    static const unsigned char one = 0x80;
+    static const unsigned char zero = 0x00;
+    int i;
+
+    sha256_update( ctx, &one, 1 );
+    while (ctx->buf_len != 56) sha256_update( ctx, &zero, 1 );
+    for (i = 0; i < 8; i++) pad[i] = (unsigned char)(bits >> (56 - i * 8));
+    sha256_update( ctx, pad, 8 );
+
+    for (i = 0; i < 8; i++)
+    {
+        out[i * 4]     = (unsigned char)(ctx->h[i] >> 24);
+        out[i * 4 + 1] = (unsigned char)(ctx->h[i] >> 16);
+        out[i * 4 + 2] = (unsigned char)(ctx->h[i] >> 8);
+        out[i * 4 + 3] = (unsigned char)ctx->h[i];
+    }
+}
+
+/* Adds one input, length-prefixed, so that two different sets of values can
+ * never produce the same byte stream. */
+static void identity_add( struct sha256_ctx *ctx, const char *value )
+{
+    unsigned char len[2];
+    size_t size = value ? strlen( value ) : 0;
+
+    if (size > 0xffff) size = 0xffff;
+    len[0] = (unsigned char)(size >> 8);
+    len[1] = (unsigned char)size;
+    sha256_update( ctx, len, 2 );
+    if (size) sha256_update( ctx, value, size );
+}
+
+/* First key from /proc/cpuinfo, which is the first processor's -- the same on
+ * every core of the machines this runs on. */
+static void identity_add_cpuinfo( struct sha256_ctx *ctx, const char *key )
+{
+    char line[256], *colon;
+    size_t key_len = strlen( key );
+    FILE *f = fopen( "/proc/cpuinfo", "r" );
+
+    if (!f)
+    {
+        identity_add( ctx, NULL );
+        return;
+    }
+    while (fgets( line, sizeof(line), f ))
+    {
+        if (strncmp( line, key, key_len )) continue;
+        if (!(colon = strchr( line, ':' ))) continue;
+        colon++;
+        while (*colon == ' ' || *colon == '\t') colon++;
+        colon[strcspn( colon, "\n" )] = 0;
+        identity_add( ctx, colon );
+        fclose( f );
+        return;
+    }
+    fclose( f );
+    identity_add( ctx, NULL );
+}
+
+/* The machine's first permanent MAC, in interface-name order so the answer does
+ * not depend on the order the kernel happened to bring the devices up.
+ * addr_assign_type 0 means the address is the hardware's own, which skips
+ * randomised and software-assigned addresses (bridges, tunnels, containers).
+ * Zeroed if the machine has no such interface at all. */
+static void get_permanent_mac( unsigned char mac[6] )
+{
+    char best[32] = { 0 }, path[256], buf[64];
+    struct dirent *de;
+    unsigned int v[6];
+    DIR *dir;
+    FILE *f;
+    int i;
+
+    memset( mac, 0, 6 );
+    if (!(dir = opendir( "/sys/class/net" ))) return;
+    while ((de = readdir( dir )))
+    {
+        if (de->d_name[0] == '.' || !strcmp( de->d_name, "lo" )) continue;
+        /* No real interface name reaches this length; skipping rather than
+         * truncating keeps two of them from collapsing into one. */
+        if (strlen( de->d_name ) >= sizeof(best)) continue;
+        if (best[0] && strcmp( de->d_name, best ) >= 0) continue;
+
+        snprintf( path, sizeof(path), "/sys/class/net/%.31s/addr_assign_type", de->d_name );
+        if (!(f = fopen( path, "r" ))) continue;
+        buf[0] = 0;
+        if (!fgets( buf, sizeof(buf), f ) || atoi( buf ) != 0)
+        {
+            fclose( f );
+            continue;
+        }
+        fclose( f );
+
+        snprintf( path, sizeof(path), "/sys/class/net/%.31s/address", de->d_name );
+        if (!(f = fopen( path, "r" ))) continue;
+        buf[0] = 0;
+        if (fgets( buf, sizeof(buf), f ) &&
+            sscanf( buf, "%x:%x:%x:%x:%x:%x", &v[0], &v[1], &v[2], &v[3], &v[4], &v[5] ) == 6)
+        {
+            snprintf( best, sizeof(best), "%.31s", de->d_name );
+            for (i = 0; i < 6; i++) mac[i] = (unsigned char)v[i];
+        }
+        fclose( f );
+    }
+    closedir( dir );
+}
+
+/* Hashes the machine's identity. See the block comment above before touching
+ * the inputs or their order. */
+static void get_machine_identity( unsigned char out[32], unsigned char mac[6] )
+{
+    static const char domain[] = "TuxBlox machine identity v1";
+    char value[256];
+    struct sha256_ctx ctx;
+
+    sha256_init( &ctx );
+    identity_add( &ctx, domain );
+    identity_add( &ctx, get_smbios_string( "/sys/class/dmi/id/board_vendor", value, sizeof(value) ) );
+    identity_add( &ctx, get_smbios_string( "/sys/class/dmi/id/board_name", value, sizeof(value) ) );
+    identity_add( &ctx, get_smbios_string( "/sys/class/dmi/id/product_name", value, sizeof(value) ) );
+    identity_add_cpuinfo( &ctx, "vendor_id" );
+    identity_add_cpuinfo( &ctx, "model name" );
+
+    get_permanent_mac( mac );
+    sha256_update( &ctx, mac, 6 );
+    sha256_final( &ctx, out );
+}
+
+/* Fills str with size-1 hex digits of the machine's identity, starting at
+ * offset in the hash so that two fields never read the same. */
+static const char *machine_derived_serial( char *str, size_t size, unsigned int offset )
+{
+    static const char hex[] = "0123456789ABCDEF";
+    unsigned char id[32], mac[6];
+    size_t i;
+
+    get_machine_identity( id, mac );
+    for (i = 0; i + 1 < size; i++)
+        str[i] = hex[(id[(offset + i / 2) % sizeof(id)] >> (i & 1 ? 0 : 4)) & 0xf];
+    str[i] = 0;
+    return str;
+}
+
 static GUID *get_system_uuid( GUID *uuid )
 {
-    static const unsigned char hex[] =
-    {
-        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,        /* 0x00 */
-        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,        /* 0x10 */
-        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,        /* 0x20 */
-        0,1,2,3,4,5,6,7,8,9,0,0,0,0,0,0,        /* 0x30 */
-        0,10,11,12,13,14,15,0,0,0,0,0,0,0,0,0,  /* 0x40 */
-        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,        /* 0x50 */
-        0,10,11,12,13,14,15                     /* 0x60 */
-    };
-    int fd;
+    unsigned char id[32], mac[6];
 
-    memset( uuid, 0xff, sizeof(*uuid) );
-    if ((fd = open( "/var/lib/dbus/machine-id", O_RDONLY )) != -1)
-    {
-        unsigned char buf[32], *p = buf;
-        if (read( fd, buf, sizeof(buf) ) == sizeof(buf))
-        {
-            uuid->Data1 = hex[p[6]] << 28 | hex[p[7]] << 24 | hex[p[4]] << 20 | hex[p[5]] << 16 |
-                          hex[p[2]] << 12 | hex[p[3]] << 8  | hex[p[0]] << 4  | hex[p[1]];
+    get_machine_identity( id, mac );
 
-            uuid->Data2 = hex[p[10]] << 12 | hex[p[11]] << 8 | hex[p[8]]  << 4 | hex[p[9]];
-            uuid->Data3 = hex[p[14]] << 12 | hex[p[15]] << 8 | hex[p[12]] << 4 | hex[p[13]];
-
-            uuid->Data4[0] = hex[p[16]] << 4 | hex[p[17]];
-            uuid->Data4[1] = hex[p[18]] << 4 | hex[p[19]];
-            uuid->Data4[2] = hex[p[20]] << 4 | hex[p[21]];
-            uuid->Data4[3] = hex[p[22]] << 4 | hex[p[23]];
-            uuid->Data4[4] = hex[p[24]] << 4 | hex[p[25]];
-            uuid->Data4[5] = hex[p[26]] << 4 | hex[p[27]];
-            uuid->Data4[6] = hex[p[28]] << 4 | hex[p[29]];
-            uuid->Data4[7] = hex[p[30]] << 4 | hex[p[31]];
-        }
-        close( fd );
-    }
+    /* The first ten bytes carry the hash; the last six are the MAC, which is
+     * where real firmware puts it -- so that part of the value is the
+     * machine's own rather than derived. */
+    uuid->Data1 = (unsigned int)id[0] << 24 | (unsigned int)id[1] << 16 |
+                  (unsigned int)id[2] << 8 | id[3];
+    uuid->Data2 = (unsigned short)(id[4] << 8 | id[5]);
+    uuid->Data3 = (unsigned short)(id[6] << 8 | id[7]);
+    uuid->Data4[0] = id[8];
+    uuid->Data4[1] = id[9];
+    memcpy( uuid->Data4 + 2, mac, 6 );
     return uuid;
 }
 
+/* These two, and get_board_serial below, read the real serial when the system
+ * allows it and otherwise derive one -- see the block comment on the machine
+ * identity above. Each takes a different slice of the hash so the three fields
+ * do not repeat one another, the way three real serials would not. */
 static const char *get_system_serial( char *str, size_t size )
 {
     get_smbios_string( "/sys/class/dmi/id/product_serial", str, size );
-    if (!str[0]) strcpy( str, "System Serial Number" );
+    if (!str[0]) machine_derived_serial( str, size < 17 ? size : 17, 0 );
     return str;
 }
 
 static const char *get_chassis_serial( char *str, size_t size )
 {
     get_smbios_string( "/sys/class/dmi/id/chassis_serial", str, size );
-    if (!str[0]) strcpy( str, "Chassis Serial Number" );
+    if (!str[0]) machine_derived_serial( str, size < 17 ? size : 17, 8 );
     return str;
 }
 
