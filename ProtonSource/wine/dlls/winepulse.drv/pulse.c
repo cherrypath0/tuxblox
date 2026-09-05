@@ -139,6 +139,14 @@ static pa_mainloop *pulse_ml;
 static struct list g_phys_speakers = LIST_INIT(g_phys_speakers);
 static struct list g_phys_sources = LIST_INIT(g_phys_sources);
 
+/* Names of the sink and source PulseAudio is currently defaulting to, filled in
+ * by pulse_server_info_cb before the device lists are walked. The head of each
+ * list above is the "follow the system default" entry, which has no PulseAudio
+ * name of its own; these let it be labelled with the description of whichever
+ * device it actually follows, instead of a placeholder. */
+static char *g_default_sink_name;
+static char *g_default_source_name;
+
 static pthread_mutex_t pulse_mutex;
 static pthread_cond_t pulse_cond = PTHREAD_COND_INITIALIZER;
 
@@ -195,6 +203,11 @@ static void free_phys_device_lists(void)
             free(dev);
         }
     } while (*(++list));
+
+    free(g_default_sink_name);
+    free(g_default_source_name);
+    g_default_sink_name = NULL;
+    g_default_source_name = NULL;
 }
 
 /* copied from kernelbase */
@@ -705,14 +718,93 @@ static void pulse_add_device(struct list *list, pa_proplist *proplist, int index
     TRACE("%s\n", debugstr_w(dev->name));
 }
 
+/* Works out what kind of thing a device actually is, so it is not all reported
+ * as generic speakers.
+ *
+ * Two sources, best first. A device that sets device.form_factor has said what
+ * it is outright. Otherwise the active port's type covers the cases that matter
+ * most in practice: HDMI, S/PDIF and, on hardware that separates them, the
+ * headphone jack.
+ *
+ * Plenty of devices supply neither -- a USB headset commonly reports nothing
+ * beyond "analog output" -- and those keep the caller's default. Guessing from
+ * the product name was considered and rejected: it gets one machine right and
+ * mislabels the next. */
+static EndpointFormFactor pulse_form_factor(pa_proplist *proplist, uint32_t port_type,
+                                            EndpointFormFactor fallback)
+{
+    const char *form;
+
+    if (proplist && (form = pa_proplist_gets(proplist, PA_PROP_DEVICE_FORM_FACTOR))) {
+        if (!strcmp(form, "headphone"))  return Headphones;
+        if (!strcmp(form, "headset"))    return Headset;
+        if (!strcmp(form, "handset"))    return Handset;
+        if (!strcmp(form, "speaker"))    return Speakers;
+        if (!strcmp(form, "microphone")) return Microphone;
+        if (!strcmp(form, "tv"))         return DigitalAudioDisplayDevice;
+    }
+
+#if PA_CHECK_VERSION(14, 0, 0)
+    switch (port_type) {
+    case PA_DEVICE_PORT_TYPE_HEADPHONES: return Headphones;
+    case PA_DEVICE_PORT_TYPE_HEADSET:    return Headset;
+    case PA_DEVICE_PORT_TYPE_HANDSET:    return Handset;
+    case PA_DEVICE_PORT_TYPE_SPEAKER:    return Speakers;
+    case PA_DEVICE_PORT_TYPE_MIC:        return Microphone;
+    case PA_DEVICE_PORT_TYPE_LINE:       return LineLevel;
+    case PA_DEVICE_PORT_TYPE_SPDIF:      return SPDIF;
+    case PA_DEVICE_PORT_TYPE_HDMI:       return DigitalAudioDisplayDevice;
+    case PA_DEVICE_PORT_TYPE_TV:         return DigitalAudioDisplayDevice;
+    default: break;
+    }
+#endif
+
+    return fallback;
+}
+
+#if PA_CHECK_VERSION(14, 0, 0)
+#define PULSE_PORT_TYPE(i) ((i)->active_port ? (i)->active_port->type : 0)
+#else
+#define PULSE_PORT_TYPE(i) 0
+#endif
+
+/* Relabels the "follow the system default" entry at the head of a list once the
+ * device it follows turns up in the enumeration, so it reads as that device
+ * rather than as a placeholder. Its empty PulseAudio name is left alone -- that
+ * is what makes it keep tracking the default rather than pinning to one sink. */
+static void pulse_name_default_device(struct list *list, const char *pulse_name,
+                                      const char *default_name, const char *desc,
+                                      pa_proplist *proplist, EndpointFormFactor form)
+{
+    struct list *head = list_head(list);
+    PhysDevice *dev;
+    WCHAR *name;
+
+    if (!head || !default_name || !pulse_name || strcmp(pulse_name, default_name))
+        return;
+
+    dev = LIST_ENTRY(head, PhysDevice, entry);
+    if (dev->pulse_name[0])
+        return; /* not the default entry after all -- leave it alone */
+
+    if (!(name = get_device_name(desc, proplist)))
+        return;
+
+    free(dev->name);
+    dev->name = name;
+    dev->form = form;
+}
+
 static void pulse_phys_speakers_cb(pa_context *c, const pa_sink_info *i, int eol, void *userdata)
 {
     struct list *speaker;
     UINT channel_mask;
+    EndpointFormFactor form;
 
     if (!i || !i->name || !i->name[0])
         return;
     channel_mask = pulse_channel_map_to_channel_mask(&i->channel_map);
+    form = pulse_form_factor(i->proplist, PULSE_PORT_TYPE(i), Speakers);
 
     /* For default PulseAudio render device, OR together all of the
      * PKEY_AudioEndpoint_PhysicalSpeakers values of the sinks. */
@@ -720,15 +812,39 @@ static void pulse_phys_speakers_cb(pa_context *c, const pa_sink_info *i, int eol
     if (speaker)
         LIST_ENTRY(speaker, PhysDevice, entry)->channel_mask |= channel_mask;
 
-    pulse_add_device(&g_phys_speakers, i->proplist, i->index, Speakers, channel_mask, i->name, i->description);
+    pulse_name_default_device(&g_phys_speakers, i->name, g_default_sink_name, i->description,
+                              i->proplist, form);
+    pulse_add_device(&g_phys_speakers, i->proplist, i->index, form, channel_mask, i->name, i->description);
 }
 
 static void pulse_phys_sources_cb(pa_context *c, const pa_source_info *i, int eol, void *userdata)
 {
+    EndpointFormFactor form;
+
     if (!i || !i->name || !i->name[0])
         return;
-    pulse_add_device(&g_phys_sources, i->proplist, i->index,
-        (i->monitor_of_sink == PA_INVALID_INDEX) ? Microphone : LineLevel, 0, i->name, i->description);
+
+    /* A monitor is not a microphone -- it is whatever the sink it listens to is
+     * playing, so it stays reported as a line-level input, as before. */
+    if (i->monitor_of_sink != PA_INVALID_INDEX)
+        form = LineLevel;
+    else
+        form = pulse_form_factor(i->proplist, PULSE_PORT_TYPE(i), Microphone);
+
+    pulse_name_default_device(&g_phys_sources, i->name, g_default_source_name, i->description,
+                              i->proplist, form);
+    pulse_add_device(&g_phys_sources, i->proplist, i->index, form, 0, i->name, i->description);
+}
+
+static void pulse_server_info_cb(pa_context *c, const pa_server_info *i, void *userdata)
+{
+    if (!i)
+        return;
+
+    free(g_default_sink_name);
+    free(g_default_source_name);
+    g_default_sink_name = i->default_sink_name ? strdup(i->default_sink_name) : NULL;
+    g_default_source_name = i->default_source_name ? strdup(i->default_source_name) : NULL;
 }
 
 /* For most hardware on Windows, users must choose a configuration with an even
@@ -948,7 +1064,20 @@ static NTSTATUS pulse_test_connect(void *args)
     list_init(&g_phys_speakers);
     list_init(&g_phys_sources);
 
-    /* Burnout Paradise Remastered expects device name to have a space. */
+    /* Which sink and source the server is defaulting to, asked before the lists
+     * below are walked so the callbacks can recognise them as they go past and
+     * label the default entries after the real thing. */
+    o = pa_context_get_server_info(pulse_ctx, &pulse_server_info_cb, NULL);
+    if (o) {
+        while (pa_mainloop_iterate(pulse_ml, 1, &ret) >= 0 &&
+                pa_operation_get_state(o) == PA_OPERATION_RUNNING)
+        {}
+        pa_operation_unref(o);
+    }
+
+    /* Placeholder names, used only if the server named no default or the named
+     * device never turns up below. Burnout Paradise Remastered expects device
+     * name to have a space. */
     pulse_add_device(&g_phys_speakers, NULL, 0, Speakers, 0, "", "PulseAudio Output");
     pulse_add_device(&g_phys_sources, NULL, 0, Microphone, 0, "", "PulseAudio Input");
 

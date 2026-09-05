@@ -595,6 +595,76 @@ static const struct product_name_overrides product_name_overrides[] =
     { .id = L"VID_054C&PID_0DF2", .product = L"Wireless Controller" },
 };
 
+/* The word an endpoint's name starts with, picked from what kind of device it
+ * actually is. Windows names endpoints this way -- "Headphones (...)", "Digital
+ * Audio (HDMI) (...)" -- rather than calling everything speakers. */
+static const WCHAR *form_factor_label(UINT form, EDataFlow flow)
+{
+    switch (form)
+    {
+    case Headphones:                return L"Headphones";
+    case Headset:                   return L"Headset";
+    case Handset:                   return L"Handset";
+    case Microphone:                return L"Microphone";
+    case SPDIF:                     return L"Digital Audio (S/PDIF)";
+    case DigitalAudioDisplayDevice: return L"Digital Audio (HDMI)";
+    case LineLevel:                 return flow == eCapture ? L"Line In" : L"Line Out";
+    case Speakers:                  return L"Speakers";
+    default:                        return flow == eCapture ? L"Microphone" : L"Speakers";
+    }
+}
+
+static UINT form_factor_from_name(const WCHAR *name, UINT fallback)
+{
+    static const struct { const WCHAR *name; UINT form; } names[] = {
+        { L"Speakers",   Speakers },
+        { L"Headphones", Headphones },
+        { L"Headset",    Headset },
+        { L"Handset",    Handset },
+        { L"Microphone", Microphone },
+        { L"LineLevel",  LineLevel },
+        { L"SPDIF",      SPDIF },
+        { L"HDMI",       DigitalAudioDisplayDevice },
+    };
+    DWORD i;
+
+    for (i = 0; i < ARRAY_SIZE(names); ++i)
+        if (!wcsicmp(names[i].name, name))
+            return names[i].form;
+
+    return fallback;
+}
+
+/* Lets a device be declared by hand when the driver underneath cannot tell what
+ * it is. A USB headset that reports nothing but "analog output" is the common
+ * case: nothing in the system knows it is a headset, so the user says so.
+ *
+ * Value name is the device's name as it appears in the endpoint list, value is
+ * one of the words in the table above. */
+static UINT find_form_factor_override(const WCHAR *device_name, UINT fallback)
+{
+    WCHAR value[32];
+    DWORD size = sizeof(value), type;
+    UINT form = fallback;
+    HKEY key;
+
+    if (!device_name)
+        return fallback;
+
+    /* @@ Wine registry key: HKCU\Software\TuxBlox\Audio\FormFactor */
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\TuxBlox\\Audio\\FormFactor", 0, KEY_READ, &key))
+        return fallback;
+
+    if (!RegQueryValueExW(key, device_name, NULL, &type, (BYTE *)value, &size) && type == REG_SZ)
+    {
+        value[ARRAY_SIZE(value) - 1] = 0;
+        form = form_factor_from_name(value, fallback);
+    }
+
+    RegCloseKey(key);
+    return form;
+}
+
 static const WCHAR *find_product_name_override(const WCHAR *device_id)
 {
     const WCHAR *match_id = wcschr( device_id, '\\' ) + 1;
@@ -669,6 +739,7 @@ static MMDevice *MMDevice_Create(const WCHAR *name, GUID *id, EDataFlow flow, DW
             PROPVARIANT pv;
             WCHAR *type;
             DWORD len;
+            UINT form;
 
             pv.vt = VT_LPWSTR;
             pv.pwszVal = cur->drv_id;
@@ -689,7 +760,31 @@ static MMDevice *MMDevice_Create(const WCHAR *name, GUID *id, EDataFlow flow, DW
 
             MMDevice_SetPropValue(id, flow, (const PROPERTYKEY*)&DEVPKEY_DeviceInterface_FriendlyName, &pv);
 
-            pv.pwszVal = type = (WCHAR *)(flow == eCapture ? L"Microphone" : L"Speakers");
+            /* Settle what kind of device this is before naming it -- the name
+             * starts with that word, so it has to be known first. The driver
+             * gets asked, a hand-written override wins over its answer, and a
+             * driver that will not answer at all falls back to the old
+             * assumption. */
+            form = (flow == eCapture) ? Microphone : Speakers;
+            if (SUCCEEDED(set_driver_prop_value(id, flow, &PKEY_AudioEndpoint_FormFactor)))
+            {
+                PROPVARIANT pv2;
+
+                PropVariantInit(&pv2);
+                if (SUCCEEDED(MMDevice_GetPropValue(id, flow, &PKEY_AudioEndpoint_FormFactor, &pv2))
+                    && pv2.vt == VT_UI4)
+                    form = pv2.ulVal;
+                PropVariantClear(&pv2);
+            }
+
+            form = find_form_factor_override(cur->drv_id, form);
+
+            pv.vt = VT_UI4;
+            pv.ulVal = form;
+            MMDevice_SetPropValue(id, flow, &PKEY_AudioEndpoint_FormFactor, &pv);
+
+            pv.vt = VT_LPWSTR;
+            pv.pwszVal = type = (WCHAR *)form_factor_label(form, flow);
             MMDevice_SetPropValue(id, flow, (const PROPERTYKEY*)&DEVPKEY_Device_DeviceDesc, &pv);
 
             len = (wcslen(type) + wcslen(cur->drv_id) + wcslen(L" ()") + 1);
@@ -699,18 +794,11 @@ static MMDevice *MMDevice_Create(const WCHAR *name, GUID *id, EDataFlow flow, DW
             MMDevice_SetPropValue(id, flow, (const PROPERTYKEY*)&DEVPKEY_Device_FriendlyName, &pv);
             CoTaskMemFree(pv.pwszVal);
 
+            pv.vt = VT_LPWSTR;
             pv.pwszVal = guidstr;
             MMDevice_SetPropValue(id, flow, &deviceinterface_key, &pv);
 
             set_driver_prop_value(id, flow, (const PROPERTYKEY*)&DEVPKEY_Device_ContainerId);
-
-            if (FAILED(set_driver_prop_value(id, flow, &PKEY_AudioEndpoint_FormFactor)))
-            {
-                pv.vt = VT_UI4;
-                pv.ulVal = (flow == eCapture) ? Microphone : Speakers;
-
-                MMDevice_SetPropValue(id, flow, &PKEY_AudioEndpoint_FormFactor, &pv);
-            }
 
             if (flow != eCapture)
             {
