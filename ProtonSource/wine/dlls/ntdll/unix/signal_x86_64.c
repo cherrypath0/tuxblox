@@ -2036,21 +2036,54 @@ void set_alignment_fault_fixup( BOOLEAN enable )
     if (enable) amd64_thread_data()->alignment_fixup = TRUE;
 }
 
+union reg128
+{
+    M128A   m;
+    BYTE    b[16];
+    USHORT  w[8];
+    ULONG   d[4];
+    ULONG64 q[2];
+};
+
+/* Interleave elements of width bytes taken from one half of each operand: the
+ * low half for punpckl/unpckl, the high half for punpckh/unpckh. */
+static void interleave_halves( union reg128 *a, const union reg128 *s, unsigned int width, BOOL high )
+{
+    unsigned int i, from = high ? 8 : 0;
+    union reg128 r;
+
+    for (i = 0; i < 8 / width; i++)
+    {
+        memcpy( r.b + i * 2 * width, a->b + from + i * width, width );
+        memcpy( r.b + i * 2 * width + width, s->b + from + i * width, width );
+    }
+    *a = r;
+}
+
+/* The saturating conversions the pack instructions narrow their elements with */
+static BYTE saturate_to_signed_byte( int v )
+{
+    return v < -128 ? 0x80 : v > 127 ? 0x7f : (BYTE)v;
+}
+
+static BYTE saturate_to_unsigned_byte( int v )
+{
+    return v < 0 ? 0 : v > 255 ? 0xff : (BYTE)v;
+}
+
+static USHORT saturate_to_signed_word( int v )
+{
+    return v < -32768 ? 0x8000 : v > 32767 ? 0x7fff : (USHORT)v;
+}
+
 /* Carry out one 128-bit SSE operation whose memory operand has been read into
  * src. Doing this here rather than re-running the instruction keeps us from
  * having to hold any executable memory of our own, which is exactly the kind of
  * thing a program checking its own integrity objects to finding. */
 static BOOL emulate_sse_op( CONTEXT *context, BYTE opcode, BOOL opsize,
-                            unsigned int reg, const M128A *src )
+                            unsigned int reg, const M128A *src, BYTE imm, BYTE rep )
 {
-    union reg128
-    {
-        M128A   m;
-        BYTE    b[16];
-        USHORT  w[8];
-        ULONG   d[4];
-        ULONG64 q[2];
-    } a, s;
+    union reg128 a, s, r;
     unsigned int i;
 
     memcpy( &a, &context->FltSave.XmmRegisters[reg], sizeof(a) );
@@ -2062,6 +2095,46 @@ static BOOL emulate_sse_op( CONTEXT *context, BYTE opcode, BOOL opsize,
         if (!opsize) return FALSE;
         /* fall through */
     case 0x28: a = s; break;                               /* movaps, movapd */
+
+    case 0x14: interleave_halves( &a, &s, opsize ? 8 : 4, FALSE ); break;    /* unpcklps, unpcklpd */
+    case 0x15: interleave_halves( &a, &s, opsize ? 8 : 4, TRUE ); break;     /* unpckhps, unpckhpd */
+
+    /* The MMX forms of everything from here to packssdw take a 64-bit memory
+     * operand, which needs no 16-byte alignment and so never faults here. */
+    case 0x60: if (!opsize) return FALSE; interleave_halves( &a, &s, 1, FALSE ); break;  /* punpcklbw */
+    case 0x61: if (!opsize) return FALSE; interleave_halves( &a, &s, 2, FALSE ); break;  /* punpcklwd */
+    case 0x62: if (!opsize) return FALSE; interleave_halves( &a, &s, 4, FALSE ); break;  /* punpckldq */
+    case 0x6c: if (!opsize) return FALSE; interleave_halves( &a, &s, 8, FALSE ); break;  /* punpcklqdq */
+    case 0x68: if (!opsize) return FALSE; interleave_halves( &a, &s, 1, TRUE ); break;   /* punpckhbw */
+    case 0x69: if (!opsize) return FALSE; interleave_halves( &a, &s, 2, TRUE ); break;   /* punpckhwd */
+    case 0x6a: if (!opsize) return FALSE; interleave_halves( &a, &s, 4, TRUE ); break;   /* punpckhdq */
+    case 0x6d: if (!opsize) return FALSE; interleave_halves( &a, &s, 8, TRUE ); break;   /* punpckhqdq */
+
+    case 0x63: if (!opsize) return FALSE;                                                /* packsswb */
+        for (i = 0; i < 8; i++) r.b[i] = saturate_to_signed_byte( (SHORT)a.w[i] );
+        for (i = 0; i < 8; i++) r.b[8 + i] = saturate_to_signed_byte( (SHORT)s.w[i] );
+        a = r;
+        break;
+    case 0x67: if (!opsize) return FALSE;                                                /* packuswb */
+        for (i = 0; i < 8; i++) r.b[i] = saturate_to_unsigned_byte( (SHORT)a.w[i] );
+        for (i = 0; i < 8; i++) r.b[8 + i] = saturate_to_unsigned_byte( (SHORT)s.w[i] );
+        a = r;
+        break;
+    case 0x6b: if (!opsize) return FALSE;                                                /* packssdw */
+        for (i = 0; i < 4; i++) r.w[i] = saturate_to_signed_word( (LONG)a.d[i] );
+        for (i = 0; i < 4; i++) r.w[4 + i] = saturate_to_signed_word( (LONG)s.d[i] );
+        a = r;
+        break;
+
+    case 0x64: if (!opsize) return FALSE;                                                /* pcmpgtb */
+        for (i = 0; i < 16; i++) a.b[i] = ((signed char)a.b[i] > (signed char)s.b[i]) ? 0xff : 0;
+        break;
+    case 0x65: if (!opsize) return FALSE;                                                /* pcmpgtw */
+        for (i = 0; i < 8; i++) a.w[i] = ((SHORT)a.w[i] > (SHORT)s.w[i]) ? 0xffff : 0;
+        break;
+    case 0x66: if (!opsize) return FALSE;                                                /* pcmpgtd */
+        for (i = 0; i < 4; i++) a.d[i] = ((LONG)a.d[i] > (LONG)s.d[i]) ? 0xffffffff : 0;
+        break;
 
     case 0x54: for (i = 0; i < 2; i++) a.q[i] &= s.q[i]; break;              /* andps, andpd */
     case 0x55: for (i = 0; i < 2; i++) a.q[i] = ~a.q[i] & s.q[i]; break;     /* andnps, andnpd */
@@ -2088,6 +2161,32 @@ static BOOL emulate_sse_op( CONTEXT *context, BYTE opcode, BOOL opsize,
         break;
     case 0xf4: if (!opsize) return FALSE;                                                    /* pmuludq */
         for (i = 0; i < 2; i++) a.q[i] = (ULONG64)a.d[i * 2] * s.d[i * 2];
+        break;
+
+    /* The shuffles pick their elements with the instruction's immediate byte.
+     * The two halfword forms leave the half they do not shuffle alone. */
+    case 0x70:                                                              /* pshufd, pshuflw, pshufhw */
+        r = s;
+        if (rep == 0xf2) for (i = 0; i < 4; i++) r.w[i] = s.w[(imm >> (i * 2)) & 3];
+        else if (rep == 0xf3) for (i = 0; i < 4; i++) r.w[4 + i] = s.w[4 + ((imm >> (i * 2)) & 3)];
+        else if (opsize) for (i = 0; i < 4; i++) r.d[i] = s.d[(imm >> (i * 2)) & 3];
+        else return FALSE;
+        a = r;
+        break;
+    case 0xc6:                                                                               /* shufps, shufpd */
+        if (opsize)
+        {
+            r.q[0] = a.q[imm & 1];
+            r.q[1] = s.q[(imm >> 1) & 1];
+        }
+        else
+        {
+            r.d[0] = a.d[imm & 3];
+            r.d[1] = a.d[(imm >> 2) & 3];
+            r.d[2] = s.d[(imm >> 4) & 3];
+            r.d[3] = s.d[(imm >> 6) & 3];
+        }
+        a = r;
         break;
 
     case 0x74: if (!opsize) return FALSE;                                                    /* pcmpeqb */
@@ -2148,7 +2247,7 @@ static BOOL emulate_misaligned_sse( CONTEXT *context )
     BYTE instr[24], opcode;
     unsigned int i = 0, op, modrm_pos, imm_len = 0, len;
     BOOL opsize = FALSE;
-    BYTE rex = 0, modrm, mod, rm;
+    BYTE rex = 0, modrm, mod, rm, imm = 0, rep = 0;
     unsigned int reg;
     LONG64 offset = 0;
     ULONG64 addr;
@@ -2159,7 +2258,7 @@ static BOOL emulate_misaligned_sse( CONTEXT *context )
     while (i < len)  /* prefixes */
     {
         if (instr[i] == 0x66) opsize = TRUE;
-        else if (instr[i] == 0xf2 || instr[i] == 0xf3) return FALSE;  /* unaligned forms never fault */
+        else if (instr[i] == 0xf2 || instr[i] == 0xf3) rep = instr[i];
         else if ((instr[i] & 0xf0) == 0x40) rex = instr[i];
         else if (instr[i] != 0x67 && instr[i] != 0xf0 && instr[i] != 0x2e && instr[i] != 0x36 &&
                  instr[i] != 0x3e && instr[i] != 0x26 && instr[i] != 0x64 && instr[i] != 0x65) break;
@@ -2169,6 +2268,9 @@ static BOOL emulate_misaligned_sse( CONTEXT *context )
     op = ++i;
     if (op >= len) return FALSE;
     opcode = instr[op];
+    /* f2 and f3 select the scalar and unaligned forms, which never fault. The
+     * exception is pshuflw and pshufhw, which are 128-bit and must be aligned. */
+    if (rep && opcode != 0x70) return FALSE;
     if (opcode == 0x38) { if (++i >= len) return FALSE; }              /* three-byte opcode */
     else if (opcode == 0x3a) { if (++i >= len) return FALSE; imm_len = 1; }
     else switch (opcode)
@@ -2224,6 +2326,7 @@ static BOOL emulate_misaligned_sse( CONTEXT *context )
     }
     addr += offset;
     if (i + imm_len > len) return FALSE;
+    imm = imm_len ? instr[i] : 0;
     len = i + imm_len;
 
     if (!(addr & 15)) return FALSE;  /* aligned, so the fault had another cause */
@@ -2242,7 +2345,7 @@ static BOOL emulate_misaligned_sse( CONTEXT *context )
     if (instr[op] == 0x38 || instr[op] == 0x3a) return FALSE;  /* three-byte opcodes */
     if (virtual_uninterrupted_read_memory( (void *)addr, &operand, sizeof(operand) ) != sizeof(operand))
         return FALSE;
-    if (!emulate_sse_op( context, opcode, opsize, reg | ((rex & 4) ? 8 : 0), &operand ))
+    if (!emulate_sse_op( context, opcode, opsize, reg | ((rex & 4) ? 8 : 0), &operand, imm, rep ))
         return FALSE;
 
     context->Rip += len;
@@ -3015,9 +3118,13 @@ static void segv_handler( int signal, siginfo_t *siginfo, void *sigcontext )
             if (amd64_thread_data()->alignment_fixup)
             {
                 ULONG64 rip = context.c.Rip;
+                ULONG64 regs[16] = { context.c.Rax, context.c.Rbx, context.c.Rcx, context.c.Rdx,
+                                     context.c.Rsi, context.c.Rdi, context.c.Rbp, context.c.Rsp,
+                                     context.c.R8,  context.c.R9,  context.c.R10, context.c.R11,
+                                     context.c.R12, context.c.R13, context.c.R14, context.c.R15 };
                 BOOL handled = emulate_misaligned_sse( &context.c );
 
-                tuxblox_diag_align( rip, context.c.Rsp, context.c.Rbp, handled );
+                tuxblox_diag_align( rip, context.c.Rsp, context.c.Rbp, handled, regs );
                 if (handled)
                 {
                     restore_context( &context, ucontext );

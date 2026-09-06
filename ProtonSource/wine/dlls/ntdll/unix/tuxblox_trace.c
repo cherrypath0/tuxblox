@@ -329,6 +329,23 @@ void tuxblox_diag_note_syscall( ULONG64 rip, ULONG64 rsp, ULONG64 rax )
         shown++;
         diag_hex( "stub", (ULONG_PTR)rip - 16, 32 );
     }
+    /* ntdll's stub pushes nothing before the syscall, so rsp here is the
+     * caller's rsp less the return address the call pushed: 8 mod 16 whenever
+     * the caller kept to the ABI, 0 when it did not. That makes every system
+     * call a free alignment sample, and the point where it flips is where the
+     * layer's eight-byte offset begins. */
+    {
+        static int last_parity = -1;
+        int parity = (int)(rsp % 16);
+
+        if (parity != last_parity)
+        {
+            ERR_(seh)( "DIAG parity now %d at call %u rip=0x%llx rsp=0x%llx\n",
+                       parity, diag_ring_pos, (unsigned long long)rip,
+                       (unsigned long long)rsp );
+            last_parity = parity;
+        }
+    }
     i = diag_ring_pos++ % DIAG_RING;
     diag_ring[i].rip = rip;
     diag_ring[i].rsp = rsp;
@@ -1029,9 +1046,10 @@ void tuxblox_diag_watch_sysret( unsigned int id )
  * resumes the program somewhere it should not be. Counting what it sees is the
  * first thing to know before trusting it. Gated on TUXBLOX_DIAG.
  */
-void tuxblox_diag_align( ULONG64 rip, ULONG64 rsp, ULONG64 rbp, BOOL handled )
+void tuxblox_diag_align( ULONG64 rip, ULONG64 rsp, ULONG64 rbp, BOOL handled,
+                         const ULONG64 *regs )
 {
-    static int enabled = -1;
+    static int enabled = -1, log_all = -1;
     static unsigned int seen, declined;
 
     unsigned char buf[16];
@@ -1043,11 +1061,31 @@ void tuxblox_diag_align( ULONG64 rip, ULONG64 rsp, ULONG64 rbp, BOOL handled )
     {
         const char *v = getenv( "TUXBLOX_DIAG" );
         enabled = (v && *v && *v != '0') ? 1 : 0;
+        log_all = getenv( "TUXBLOX_DIAG_ALIGN_ALL" ) ? 1 : 0;
     }
     if (!enabled) return;
     seen++;
     if (!handled) declined++;
-    if (!getenv( "TUXBLOX_DIAG_ALIGN_ALL" ) && seen > 64 && handled) return;
+    /* The Player makes these by the million, so the rate is worth having on its
+     * own, and nothing on this path may call getenv. */
+    if (!(seen % 1000000))
+    {
+        static const char * const names[16] = { "rax", "rbx", "rcx", "rdx", "rsi", "rdi", "rbp", "rsp",
+                                                "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15" };
+        char regline[512];
+        unsigned int k, m = 0;
+
+        for (k = 0; k < 16; k++)
+            m += snprintf( regline + m, sizeof(regline) - m, "%s=%llx ", names[k],
+                           (unsigned long long)regs[k] );
+        ERR_(seh)( "DIAG align %u million so far, %u declined, rip=0x%llx %s\n",
+                   seen / 1000000, declined, (unsigned long long)rip, regline );
+        /* The layer only decrypts its own code in memory, so a fixup this far
+         * in is the moment it can be read. Writes nothing unless
+         * TUXBLOX_DIAG_DUMP names a path. */
+        if (seen >= 2000000) tuxblox_diag_dump_image( "alignment scan" );
+    }
+    if (!log_all && seen > 64 && handled) return;
 
     got = virtual_uninterrupted_read_memory( (const void *)(ULONG_PTR)rip, buf, sizeof(buf) );
     for (i = n = 0; i < got; i++) n += snprintf( line + n, sizeof(line) - n, "%02x ", buf[i] );
@@ -1055,7 +1093,6 @@ void tuxblox_diag_align( ULONG64 rip, ULONG64 rsp, ULONG64 rbp, BOOL handled )
                (int)InterlockedIncrement( &diag_seq ), handled ? "fixed" : "DECLINED",
                seen, diag_ring_pos, (unsigned long long)rip, (unsigned long long)rsp,
                (unsigned long long)rbp, got ? line : "unreadable" );
-    (void)declined;
 }
 
 

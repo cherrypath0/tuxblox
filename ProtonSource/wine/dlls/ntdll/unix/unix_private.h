@@ -221,7 +221,8 @@ extern void tuxblox_diag_dump_image( const char *why );
 extern void tuxblox_diag_exception( const EXCEPTION_RECORD *rec, const CONTEXT *context );
 extern void tuxblox_diag_continue( const CONTEXT *context );
 extern BOOL tuxblox_diag_watch_enabled(void);
-extern void tuxblox_diag_align( ULONG64 rip, ULONG64 rsp, ULONG64 rbp, BOOL handled );
+extern void tuxblox_diag_align( ULONG64 rip, ULONG64 rsp, ULONG64 rbp, BOOL handled,
+                                const ULONG64 *regs );
 extern void tuxblox_diag_note_syscall( ULONG64 rip, ULONG64 rsp, ULONG64 rax );
 extern BOOL tuxblox_diag_step_arm(void);
 extern BOOL tuxblox_diag_step_record( ULONG64 rip, ULONG64 rsp, ULONG64 rcx, ULONG64 rax );
