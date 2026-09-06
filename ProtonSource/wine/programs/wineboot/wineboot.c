@@ -880,6 +880,26 @@ static void create_computer_name_keys(void)
     RegCloseKey( key );
 }
 
+/* Every Windows user profile holds NTUSER.DAT, the file the user's half of the
+ * registry is loaded from. Wine keeps that in the prefix's own user.reg, so the
+ * file a program looks for in the profile is not there at all. Create an empty
+ * one: what is asked of it is that it exists and has an owner, not what is in
+ * it, and Wine has no hive of its own to put inside. */
+static void create_user_profile_hive_file(void)
+{
+    WCHAR path[MAX_PATH];
+    HANDLE file;
+
+    if (FAILED( SHGetFolderPathW( NULL, CSIDL_PROFILE | CSIDL_FLAG_CREATE, NULL,
+                                  SHGFP_TYPE_CURRENT, path ) )) return;
+    if (lstrlenW( path ) + ARRAY_SIZE(L"\\NTUSER.DAT") > ARRAY_SIZE(path)) return;
+    lstrcatW( path, L"\\NTUSER.DAT" );
+
+    file = CreateFileW( path, GENERIC_WRITE, FILE_SHARE_READ, NULL, CREATE_NEW,
+                        FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM, NULL );
+    if (file != INVALID_HANDLE_VALUE) CloseHandle( file );
+}
+
 static void create_volatile_environment_registry_key(void)
 {
     static const WCHAR *preserve[] =
@@ -1986,6 +2006,7 @@ int __cdecl main( int argc, char *argv[] )
 
     create_digitalproductid();
     create_volatile_environment_registry_key();
+    create_user_profile_hive_file();
     create_known_dlls();
     initialize_internet();
 
