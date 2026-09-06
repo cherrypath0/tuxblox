@@ -314,12 +314,66 @@ static BOOL diag_enabled(void)
     return diag_enabled_state == 1;
 }
 
+static void diag_bp_arm(void);
+
+/* Every named section the program tries to open, and whether it was there.
+ *
+ * The layer opens a section, queries it, and then reads a pointer out of one
+ * of its own globals. If the open fails there is nothing to store, so the name
+ * it asked for and the answer it got are the two things worth seeing.
+ */
+/* One query, with the first few words of whatever it answered.
+ *
+ * The layer compares what the loader says about a section against what the
+ * kernel says about the mapping it actually has. Which fields those are is the
+ * question, so the buffer is shown raw rather than interpreted.
+ */
+void tuxblox_diag_note_query( const char *what, unsigned int class, ULONG64 addr,
+                              const void *buffer, unsigned int status )
+{
+    char line[256];
+    unsigned int i, n = 0;
+    ULONG64 words[6] = { 0 };
+
+    if (!diag_enabled()) return;
+    if (buffer && !status)
+    {
+        virtual_uninterrupted_read_memory( buffer, words, sizeof(words) );
+        for (i = 0; i < 6; i++)
+            n += snprintf( line + n, sizeof(line) - n, "%016llx ", (unsigned long long)words[i] );
+    }
+    else line[0] = 0;
+    ERR_(seh)( "DIAG %s class=%u addr=0x%llx -> %08x  %s\n", what, class,
+               (unsigned long long)addr, status, line );
+}
+
+void tuxblox_diag_note_open_section( const OBJECT_ATTRIBUTES *attr, unsigned int status )
+{
+    char name[256];
+    unsigned int i, len = 0;
+
+    if (!diag_enabled()) return;
+    if (attr && attr->ObjectName && attr->ObjectName->Buffer)
+    {
+        len = attr->ObjectName->Length / sizeof(WCHAR);
+        if (len > sizeof(name) - 1) len = sizeof(name) - 1;
+        for (i = 0; i < len; i++)
+        {
+            WCHAR c = attr->ObjectName->Buffer[i];
+            name[i] = (c >= 0x20 && c < 0x7f) ? (char)c : '?';
+        }
+    }
+    name[len] = 0;
+    ERR_(seh)( "DIAG NtOpenSection \"%s\" -> %08x\n", name, status );
+}
+
 void tuxblox_diag_note_syscall( ULONG64 rip, ULONG64 rsp, ULONG64 rax )
 {
     static unsigned int shown;
     unsigned int i;
 
     if (!diag_enabled()) return;
+    diag_bp_arm();
     /* The SIGSYS path resumes the caller at rip + 0xb, which is the shape of
      * ntdll's own stub. The layer issues its system calls from code it
      * generates itself, so what its stubs look like decides whether that
@@ -810,6 +864,10 @@ void tuxblox_diag_exception( const EXCEPTION_RECORD *rec, const CONTEXT *context
                (unsigned long long)context->Rip, (unsigned long long)context->Rsp,
                (unsigned long long)context->Rbp );
     diag_regs( "exc", context );
+    /* Which system calls led here. The layer computes its call numbers rather
+     * than loading them as constants, so the number it actually used is only
+     * visible from the ring. */
+    if (rec->ExceptionCode == STATUS_ACCESS_VIOLATION) diag_dump_ring();
     diag_hex( "at-rip", (ULONG_PTR)context->Rip, 128 );
     diag_hex( "before-rip", (ULONG_PTR)context->Rip - 64, 64 );
     for (i = 0; i < 24; i++)
@@ -1039,6 +1097,171 @@ void tuxblox_diag_watch_sysret( unsigned int id )
     }
 }
 
+/* One-shot breakpoints, for questions a fault counter cannot answer.
+ *
+ * The layer computes almost every address it uses, so reading its code says
+ * little about which branches actually run. An `int3` planted at a chosen
+ * address answers that directly: it reports the registers the first time
+ * execution reaches it, puts the original byte back and carries on. The trap
+ * is swallowed in the handler, so the program is never told it happened --
+ * which matters here, because the layer raises debug traps of its own and
+ * watches how they are delivered.
+ *
+ * Named by TUXBLOX_DIAG_BP as a comma-separated list of absolute addresses.
+ */
+#define DIAG_BP_MAX 8
+
+static ULONG64 diag_bp_addr[DIAG_BP_MAX];
+static unsigned char diag_bp_orig[DIAG_BP_MAX], diag_bp_want[DIAG_BP_MAX];
+static char diag_bp_armed[DIAG_BP_MAX];
+static unsigned int diag_bp_count, diag_bp_pending;
+static int diag_bp_parsed;
+
+/* Arming has to wait for the layer to decrypt the code being watched, and
+ * nothing says when that has happened. Each address may therefore be given the
+ * byte expected to be there -- "0x6ffffdd7bf39=4d" -- and arming is retried
+ * from the busiest hooks until what is there matches. Without a byte, it is
+ * armed at the first opportunity.
+ */
+static void diag_bp_arm(void)
+{
+    unsigned int i;
+
+    if (!diag_bp_parsed)
+    {
+        const char *v = getenv( "TUXBLOX_DIAG_BP" );
+
+        diag_bp_parsed = 1;
+        while (v && *v && diag_bp_count < DIAG_BP_MAX)
+        {
+            ULONG64 addr;
+            char *end;
+
+            addr = strtoull( v, &end, 0 );
+            v = end;
+            if (*v == '=') diag_bp_want[diag_bp_count] = (unsigned char)strtoul( v + 1, &end, 16 );
+            v = end;
+            if (*v == ',') v++;
+            if (addr) diag_bp_addr[diag_bp_count++] = addr;
+        }
+        diag_bp_pending = diag_bp_count;
+    }
+    if (!diag_bp_pending) return;
+
+    for (i = 0; i < diag_bp_count; i++)
+    {
+        unsigned char cur;
+
+        if (diag_bp_armed[i]) continue;
+        if (virtual_uninterrupted_read_memory( (const void *)(ULONG_PTR)diag_bp_addr[i], &cur, 1 ) != 1)
+            continue;
+        if (diag_bp_want[i] && cur != diag_bp_want[i]) continue;
+        if (virtual_patch_code_byte( (void *)(ULONG_PTR)diag_bp_addr[i], 0xcc )) continue;
+
+        diag_bp_orig[i] = cur;
+        diag_bp_armed[i] = 1;
+        diag_bp_pending--;
+        ERR_(seh)( "DIAG bp armed at 0x%llx, was 0x%02x\n",
+                   (unsigned long long)diag_bp_addr[i], cur );
+    }
+}
+
+BOOL tuxblox_diag_bp_hit( ULONG64 rip, const ULONG64 *regs )
+{
+    static const char * const names[16] = { "rax", "rbx", "rcx", "rdx", "rsi", "rdi", "rbp", "rsp",
+                                            "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15" };
+    unsigned int i;
+
+    for (i = 0; i < diag_bp_count; i++)
+    {
+        char line[512];
+        unsigned int k, n = 0;
+
+        if (diag_bp_armed[i] != 1 || diag_bp_addr[i] != rip - 1) continue;
+
+        for (k = 0; k < 16; k++)
+            n += snprintf( line + n, sizeof(line) - n, "%s=%llx ", names[k],
+                           (unsigned long long)regs[k] );
+        ERR_(seh)( "DIAG bp hit 0x%llx %s\n", (unsigned long long)diag_bp_addr[i], line );
+        virtual_patch_code_byte( (void *)(ULONG_PTR)diag_bp_addr[i], diag_bp_orig[i] );
+        diag_bp_armed[i] = 2;
+        return TRUE;
+    }
+    return FALSE;
+}
+
+/* Which instruction is faulting, not just how many of them there are.
+ *
+ * Only the moves have an unaligned twin the same length as themselves --
+ * movaps becomes movups, movdqa becomes movdqu -- so only they could be
+ * rewritten where they sit and made to stop faulting. The arithmetic forms
+ * that take a 128-bit memory operand, paddd and pxor and the rest, have no
+ * unaligned spelling at all. The share of the two, and the number of distinct
+ * addresses the faults come from, together say whether rewriting them is worth
+ * anything. Gated on TUXBLOX_DIAG with the rest of this.
+ */
+#define DIAG_ALIGN_SITES 4096
+
+static unsigned int diag_align_op[256];
+static unsigned int diag_align_undecoded, diag_align_movable, diag_align_nsites;
+static ULONG64 diag_align_site[DIAG_ALIGN_SITES];
+
+/* The opcode of a 0f-escaped instruction, past its prefixes. 0 if it is not one. */
+static unsigned char diag_align_opcode( const unsigned char *p, unsigned int len )
+{
+    unsigned int i = 0;
+
+    while (i < len)
+    {
+        unsigned char b = p[i];
+
+        if (b == 0x66 || b == 0xf2 || b == 0xf3 || b == 0xf0 || b == 0x67 ||
+            b == 0x2e || b == 0x36 || b == 0x3e || b == 0x26 || b == 0x64 || b == 0x65)
+            i++;
+        else break;
+    }
+    if (i < len && p[i] >= 0x40 && p[i] <= 0x4f) i++;
+    if (i + 1 >= len || p[i] != 0x0f) return 0;
+    return p[i + 1];
+}
+
+/* Remembers an address once. The table holds 4096 of them; if it fills, the
+ * count stops rising, which is an answer of its own.
+ */
+static void diag_align_note_site( ULONG64 rip )
+{
+    unsigned int h = (unsigned int)((rip * 0x9e3779b1u) >> 8) & (DIAG_ALIGN_SITES - 1);
+    unsigned int k;
+
+    for (k = 0; k < DIAG_ALIGN_SITES; k++)
+    {
+        unsigned int i = (h + k) & (DIAG_ALIGN_SITES - 1);
+
+        if (diag_align_site[i] == rip) return;
+        if (!diag_align_site[i])
+        {
+            diag_align_site[i] = rip;
+            diag_align_nsites++;
+            return;
+        }
+    }
+}
+
+static void diag_align_report( unsigned int seen )
+{
+    char line[512];
+    unsigned int i, n = 0;
+
+    for (i = 0; i < 256; i++)
+        if (diag_align_op[i] && n < sizeof(line) - 24)
+            n += snprintf( line + n, sizeof(line) - n, "0f%02x=%u ", i, diag_align_op[i] );
+    if (!n) line[0] = 0;
+
+    ERR_(seh)( "DIAG align mix: %u faults, %u movable (%u%%), %u distinct sites, %u undecoded | %s\n",
+               seen, diag_align_movable, seen ? diag_align_movable * 100 / seen : 0,
+               diag_align_nsites, diag_align_undecoded, line );
+}
+
 /* Every misaligned-SSE fixup, and every misaligned fault the fixup declined.
  *
  * The fixup is this build's own code -- it decodes the instruction, performs it
@@ -1050,11 +1273,18 @@ void tuxblox_diag_align( ULONG64 rip, ULONG64 rsp, ULONG64 rbp, BOOL handled,
                          const ULONG64 *regs )
 {
     static int enabled = -1, log_all = -1;
-    static unsigned int seen, declined;
+    static unsigned int seen, declined, dump_at;
+    /* One address to keep an eye on, and the last value seen there. The layer
+     * dies reading a pointer out of one of its own globals that is still zero;
+     * whether it is ever anything else is the first thing to know, and reading
+     * it costs nothing next to the fault that got us here. */
+    static ULONG64 watch, watch_val;
+    static int watch_seen;
 
     unsigned char buf[16];
     char line[3 * sizeof(buf) + 1];
     unsigned int i, n;
+    unsigned char op;
     SIZE_T got;
 
     if (enabled == -1)
@@ -1062,10 +1292,43 @@ void tuxblox_diag_align( ULONG64 rip, ULONG64 rsp, ULONG64 rbp, BOOL handled,
         const char *v = getenv( "TUXBLOX_DIAG" );
         enabled = (v && *v && *v != '0') ? 1 : 0;
         log_all = getenv( "TUXBLOX_DIAG_ALIGN_ALL" ) ? 1 : 0;
+        /* Which fault to photograph the decrypted code at. Two million lands in
+         * the middle of the hashing loop, which is where it was first wanted;
+         * a small number catches the layer's first misaligned frame instead,
+         * seconds into a run rather than minutes. */
+        v = getenv( "TUXBLOX_DIAG_DUMP_AT" );
+        dump_at = v ? atoi( v ) : 2000000;
+        v = getenv( "TUXBLOX_DIAG_WATCH" );
+        watch = v ? strtoull( v, NULL, 0 ) : 0;
+        /* The layer's own code is only readable once it has decrypted itself,
+         * and by the first of these faults it has. */
+        diag_bp_arm();
     }
     if (!enabled) return;
     seen++;
     if (!handled) declined++;
+
+    /* Reading the instruction on every one of these costs, and that is accepted
+     * here: the sample is for proportions, not for timings. */
+    got = virtual_uninterrupted_read_memory( (const void *)(ULONG_PTR)rip, buf, sizeof(buf) );
+    op = diag_align_opcode( buf, (unsigned int)got );
+    if (watch && !(seen % 256))
+    {
+        ULONG64 now = 0;
+
+        if (virtual_uninterrupted_read_memory( (const void *)(ULONG_PTR)watch, &now, sizeof(now) )
+            == sizeof(now) && (!watch_seen || now != watch_val))
+        {
+            ERR_(seh)( "DIAG watch 0x%llx = 0x%llx at fault %u\n",
+                       (unsigned long long)watch, (unsigned long long)now, seen );
+            watch_val = now;
+            watch_seen = 1;
+        }
+    }
+    if (op) diag_align_op[op]++;
+    else diag_align_undecoded++;
+    if (op == 0x28 || op == 0x29 || op == 0x6f || op == 0x7f) diag_align_movable++;
+    diag_align_note_site( rip );
     /* The Player makes these by the million, so the rate is worth having on its
      * own, and nothing on this path may call getenv. */
     if (!(seen % 1000000))
@@ -1080,19 +1343,35 @@ void tuxblox_diag_align( ULONG64 rip, ULONG64 rsp, ULONG64 rbp, BOOL handled,
                            (unsigned long long)regs[k] );
         ERR_(seh)( "DIAG align %u million so far, %u declined, rip=0x%llx %s\n",
                    seen / 1000000, declined, (unsigned long long)rip, regline );
-        /* The layer only decrypts its own code in memory, so a fixup this far
-         * in is the moment it can be read. Writes nothing unless
-         * TUXBLOX_DIAG_DUMP names a path. */
-        if (seen >= 2000000) tuxblox_diag_dump_image( "alignment scan" );
+        diag_align_report( seen );
     }
+    /* The layer only decrypts its own code in memory, so a fixup is the moment
+     * it can be read. Writes nothing unless TUXBLOX_DIAG_DUMP names a path. */
+    if (seen == dump_at) tuxblox_diag_dump_image( "alignment scan" );
     if (!log_all && seen > 64 && handled) return;
 
-    got = virtual_uninterrupted_read_memory( (const void *)(ULONG_PTR)rip, buf, sizeof(buf) );
     for (i = n = 0; i < got; i++) n += snprintf( line + n, sizeof(line) - n, "%02x ", buf[i] );
     ERR_(seh)( "DIAG align s=%d %s #%u n=%u rip=0x%llx rsp=0x%llx rbp=0x%llx %s\n",
                (int)InterlockedIncrement( &diag_seq ), handled ? "fixed" : "DECLINED",
                seen, diag_ring_pos, (unsigned long long)rip, (unsigned long long)rsp,
                (unsigned long long)rbp, got ? line : "unreadable" );
+
+    /* A faulting spill says the frame is eight bytes out; what it does not say
+     * is who put it there. The first faults of a run are the ones close enough
+     * to the origin to be worth the bytes, so they get enough code to reach the
+     * function's epilogue -- which gives the frame size, and with it the slot
+     * holding the return address -- and the stack that return address is in. */
+    if (seen <= 8)
+    {
+        unsigned int k;
+
+        diag_hex( "align-code", (ULONG_PTR)rip, 96 );
+        /* Far enough to hold several of the layer's frames, which run about
+         * 0xc0 bytes each: the offset is inherited from a caller, so one frame
+         * never names where it started. */
+        for (k = 0; k < 4; k++)
+            diag_hex( "align-stack", (ULONG_PTR)rsp + k * 256, 256 );
+    }
 }
 
 

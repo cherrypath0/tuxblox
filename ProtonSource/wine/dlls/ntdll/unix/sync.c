@@ -3168,6 +3168,7 @@ NTSTATUS WINAPI NtOpenSection( HANDLE *handle, ACCESS_MASK access, const OBJECT_
         *handle = wine_server_ptr_handle( reply->handle );
     }
     SERVER_END_REQ;
+    tuxblox_diag_note_open_section( attr, ret );
     return ret;
 }
 

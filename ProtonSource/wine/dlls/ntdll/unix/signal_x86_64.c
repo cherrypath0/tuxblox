@@ -2236,6 +2236,43 @@ static BOOL writes_memory( BYTE opcode, BOOL opsize )
 }
 
 /***********************************************************************
+ *           rewrite_aligned_move
+ *
+ * Rewrite a move that has just faulted so that it stops faulting.
+ *
+ * The moves are the only forms with an unaligned twin the same length as
+ * themselves: movaps is movups and movdqa is movdqu, one byte apart in each
+ * case. Once one of them has faulted on a misaligned address, replacing that
+ * byte where the instruction stands leaves it doing exactly what the fixup
+ * would have done for it, at the speed of the processor, for the rest of the
+ * run. The alternative is a signal for every execution, and a measured Roblox
+ * startup makes 194 million of them from 664 addresses.
+ *
+ * The edit is a single byte, which x86 stores atomically and fetches
+ * coherently, so a thread part-way through the same instruction sees one
+ * spelling or the other and both are correct. Nothing is rewritten unless it
+ * has already faulted, so this never runs over code that was working.
+ */
+static void rewrite_aligned_move( ULONG64 rip, BYTE opcode, unsigned int op_pos,
+                                  unsigned int opsize_pos, unsigned int opsize_count )
+{
+    switch (opcode)
+    {
+    case 0x28:  /* movaps, movapd -> movups, movupd */
+    case 0x29:
+        virtual_patch_code_byte( (void *)(ULONG_PTR)(rip + op_pos), opcode - 0x18 );
+        break;
+    case 0x6f:  /* movdqa -> movdqu, which is spelled f3 where this one has 66 */
+    case 0x7f:
+        /* only when there is exactly one of them, so the instruction cannot end
+         * up carrying both prefixes */
+        if (opsize_count == 1)
+            virtual_patch_code_byte( (void *)(ULONG_PTR)(rip + opsize_pos), 0xf3 );
+        break;
+    }
+}
+
+/***********************************************************************
  *           emulate_misaligned_sse
  *
  * Carry out a 128-bit SSE access that faulted only because its address was not
@@ -2246,6 +2283,7 @@ static BOOL emulate_misaligned_sse( CONTEXT *context )
 {
     BYTE instr[24], opcode;
     unsigned int i = 0, op, modrm_pos, imm_len = 0, len;
+    unsigned int opsize_pos = 0, opsize_count = 0;
     BOOL opsize = FALSE;
     BYTE rex = 0, modrm, mod, rm, imm = 0, rep = 0;
     unsigned int reg;
@@ -2257,7 +2295,7 @@ static BOOL emulate_misaligned_sse( CONTEXT *context )
 
     while (i < len)  /* prefixes */
     {
-        if (instr[i] == 0x66) opsize = TRUE;
+        if (instr[i] == 0x66) { opsize = TRUE; opsize_pos = i; opsize_count++; }
         else if (instr[i] == 0xf2 || instr[i] == 0xf3) rep = instr[i];
         else if ((instr[i] & 0xf0) == 0x40) rex = instr[i];
         else if (instr[i] != 0x67 && instr[i] != 0xf0 && instr[i] != 0x2e && instr[i] != 0x36 &&
@@ -2337,6 +2375,7 @@ static BOOL emulate_misaligned_sse( CONTEXT *context )
         M128A *xmm = &context->FltSave.XmmRegisters[reg | ((rex & 4) ? 8 : 0)];
 
         if (virtual_uninterrupted_write_memory( (void *)addr, xmm, sizeof(*xmm) )) return FALSE;
+        rewrite_aligned_move( context->Rip, opcode, op, opsize_pos, opsize_count );
         context->Rip += len;
         return TRUE;
     }
@@ -2348,6 +2387,7 @@ static BOOL emulate_misaligned_sse( CONTEXT *context )
     if (!emulate_sse_op( context, opcode, opsize, reg | ((rex & 4) ? 8 : 0), &operand, imm, rep ))
         return FALSE;
 
+    rewrite_aligned_move( context->Rip, opcode, op, opsize_pos, opsize_count );
     context->Rip += len;
     return TRUE;
 }
@@ -3210,6 +3250,24 @@ static void trap_handler( int signal, siginfo_t *siginfo, void *sigcontext )
     tuxblox_diag_note_trap( TRAP_sig(ucontext), siginfo->si_code,
                             RIP_sig(ucontext), RSP_sig(ucontext) );
     if (handle_syscall_trap( ucontext, siginfo )) return;
+
+    /* A breakpoint this build planted itself, to report the registers where
+     * execution reached a chosen address. Swallowed here, so the program is
+     * never told a trap happened. */
+    if (TRAP_sig(ucontext) == TRAP_x86_BPTFLT && siginfo->si_code == TRAP_BRKPT)
+    {
+        ULONG64 regs[16] = { RAX_sig(ucontext), RBX_sig(ucontext), RCX_sig(ucontext), RDX_sig(ucontext),
+                             RSI_sig(ucontext), RDI_sig(ucontext), RBP_sig(ucontext), RSP_sig(ucontext),
+                             R8_sig(ucontext), R9_sig(ucontext), R10_sig(ucontext), R11_sig(ucontext),
+                             R12_sig(ucontext), R13_sig(ucontext), R14_sig(ucontext), R15_sig(ucontext) };
+
+        if (tuxblox_diag_bp_hit( RIP_sig(ucontext), regs ))
+        {
+            RIP_sig(ucontext) = RIP_sig(ucontext) - 1;  /* back onto the restored instruction */
+            leave_handler( ucontext );
+            return;
+        }
+    }
 
     /* Diagnostic stepping: record and keep going, without the program ever
      * being told a single-step happened.

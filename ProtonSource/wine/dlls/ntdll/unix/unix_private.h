@@ -221,6 +221,9 @@ extern void tuxblox_diag_dump_image( const char *why );
 extern void tuxblox_diag_exception( const EXCEPTION_RECORD *rec, const CONTEXT *context );
 extern void tuxblox_diag_continue( const CONTEXT *context );
 extern BOOL tuxblox_diag_watch_enabled(void);
+extern BOOL tuxblox_diag_bp_hit( ULONG64 rip, const ULONG64 *regs );
+extern void tuxblox_diag_note_open_section( const OBJECT_ATTRIBUTES *attr, unsigned int status );
+extern void tuxblox_diag_note_query( const char *what, unsigned int class, ULONG64 addr, const void *buffer, unsigned int status );
 extern void tuxblox_diag_align( ULONG64 rip, ULONG64 rsp, ULONG64 rbp, BOOL handled,
                                 const ULONG64 *regs );
 extern void tuxblox_diag_note_syscall( ULONG64 rip, ULONG64 rsp, ULONG64 rax );
@@ -434,6 +437,7 @@ static inline BOOL lookup_known_class( const struct known_class *table, unsigned
 extern void set_alignment_fault_fixup( BOOLEAN enable );
 extern SIZE_T virtual_uninterrupted_read_memory( const void *addr, void *buffer, SIZE_T size );
 extern NTSTATUS virtual_uninterrupted_write_memory( void *addr, const void *buffer, SIZE_T size );
+extern NTSTATUS virtual_patch_code_byte( void *addr, BYTE value );
 extern void virtual_set_force_exec( BOOL enable );
 extern void virtual_enable_write_exceptions( BOOL enable );
 extern void virtual_set_large_address_space(void);

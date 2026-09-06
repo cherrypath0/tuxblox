@@ -5420,6 +5420,35 @@ NTSTATUS virtual_uninterrupted_write_memory( void *addr, const void *buffer, SIZ
 
 
 /***********************************************************************
+ *           virtual_patch_code_byte
+ *
+ * Overwrite a single byte of executable code from inside a fault handler.
+ * Write access is granted on the host only for the store, and the protection
+ * the application asked for is left alone, so nothing it can query changes.
+ * One byte never straddles a page, so only one page is ever touched.
+ */
+NTSTATUS virtual_patch_code_byte( void *addr, BYTE value )
+{
+    char *page = ROUND_ADDR( addr, host_page_mask );
+    NTSTATUS ret = STATUS_ACCESS_VIOLATION;
+    sigset_t sigset;
+    BYTE vprot;
+
+    server_enter_uninterrupted_section( &virtual_mutex, &sigset );
+    vprot = get_host_page_vprot( addr );
+    if ((vprot & VPROT_COMMITTED) && (get_unix_prot( vprot ) & PROT_EXEC) &&
+        !mprotect( page, host_page_size, PROT_READ | PROT_WRITE | PROT_EXEC ))
+    {
+        *(volatile BYTE *)addr = value;
+        mprotect( page, host_page_size, get_unix_prot( vprot ) );
+        ret = STATUS_SUCCESS;
+    }
+    server_leave_uninterrupted_section( &virtual_mutex, &sigset );
+    return ret;
+}
+
+
+/***********************************************************************
  *           virtual_set_force_exec
  *
  * Whether to force exec prot on all views.
@@ -6852,6 +6881,7 @@ NTSTATUS WINAPI NtQueryVirtualMemory( HANDLE process, LPCVOID addr,
 
     if (res_len) reported = *res_len;
     tuxblox_diag_class( "vm", info_class, len, reported, status );
+    tuxblox_diag_note_query( "QueryVirtualMemory", info_class, (ULONG64)(ULONG_PTR)addr, buffer, status );
     return status;
 }
 
@@ -7270,6 +7300,7 @@ NTSTATUS WINAPI NtQuerySection( HANDLE handle, SECTION_INFORMATION_CLASS class, 
     }
     SERVER_END_REQ;
 
+    tuxblox_diag_note_query( "QuerySection", class, 0, ptr, status );
     return status;
 }
 
