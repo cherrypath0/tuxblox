@@ -108,16 +108,20 @@ target_compile_options(installer_core PUBLIC
     ${CURL_CFLAGS_OTHER} ${ARCHIVE_CFLAGS_OTHER} ${OPENSSL_CFLAGS_OTHER})
 
 # Same version resolution as launcher/CMakeLists.txt: TUXBLOX_BUILD_VERSION (set
-# by the root build.sh and forwarded into this build container by build.sh) wins,
-# so one release build stamps the launcher, the installer and proton with the same
-# number; the checked-in VERSION file is the fallback for a standalone run of
-# installer/build.sh. ${CMAKE_BINARY_DIR}/generated is already on
-# TuxBloxInstaller's include path below, alongside the logo/font/license headers.
+# by the root build.sh, or by installer/build.sh from the repo-root VERSION when
+# run standalone, and forwarded into this build container either way) wins, so
+# one release build stamps the launcher, the installer and the compatibility
+# layer with the same number. The repo-root VERSION is the fallback for a bare
+# host cmake run, where it is reachable; it is not, from inside the container.
+# ${CMAKE_BINARY_DIR}/generated is already on TuxBloxInstaller's include path
+# below, alongside the logo/font/license headers.
 file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/generated)
 if(NOT "$ENV{TUXBLOX_BUILD_VERSION}" STREQUAL "")
     set(TUXBLOX_INSTALLER_VERSION "$ENV{TUXBLOX_BUILD_VERSION}")
+elseif(EXISTS "${CMAKE_SOURCE_DIR}/../VERSION")
+    file(STRINGS "${CMAKE_SOURCE_DIR}/../VERSION" TUXBLOX_INSTALLER_VERSION LIMIT_COUNT 1)
 else()
-    file(STRINGS "${CMAKE_SOURCE_DIR}/VERSION" TUXBLOX_INSTALLER_VERSION LIMIT_COUNT 1)
+    set(TUXBLOX_INSTALLER_VERSION "0.0.0-dev")
 endif()
 message(STATUS "TuxBlox installer version: ${TUXBLOX_INSTALLER_VERSION}")
 configure_file(${CMAKE_SOURCE_DIR}/cmake/version.h.in ${CMAKE_BINARY_DIR}/generated/version.h @ONLY)

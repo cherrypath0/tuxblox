@@ -85,8 +85,18 @@ fi
 echo ":: Configuring + Building (in podman, rootless, old-glibc baseline)"
 # TUXBLOX_BUILD_VERSION has to be forwarded explicitly: cmake runs INSIDE this
 # container, so an env var exported by the root build.sh on the host is invisible
-# to it otherwise, and CMakeLists.txt would silently fall back to the VERSION file.
-# Empty when this script is run standalone, which is exactly the fallback case.
+# to it otherwise.
+#
+# The repo-root VERSION file cannot cover that fallback by itself, because only
+# installer/ is mounted at /src -- the root of the repo is not reachable from
+# inside the container at all. So a standalone run of this script (no root
+# build.sh, hence no env var) reads VERSION here on the HOST and passes the
+# value in through the same variable, which is why one number reaches the
+# launcher, the installer and the compatibility layer either way.
+if [[ -z "${TUXBLOX_BUILD_VERSION:-}" && -r "$(pwd)/../VERSION" ]]; then
+    TUXBLOX_BUILD_VERSION="$(sed -n '1p' "$(pwd)/../VERSION" | tr -d '[:space:]')"
+fi
+
 podman run --rm --userns=keep-id -e JOBS="$JOBS" \
     -e TUXBLOX_BUILD_VERSION="${TUXBLOX_BUILD_VERSION:-}" -v "$(pwd):/src:Z" -w /src tuxblox-old-glibc-builder \
     bash -c 'cmake -B build -S . -DCMAKE_BUILD_TYPE=Release && cmake --build build -j"$JOBS"'

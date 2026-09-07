@@ -1,5 +1,5 @@
 build/
-packaging/
+releases/
 
 launcher/build/
 launcher/build-test/
@@ -9,7 +9,6 @@ launcher/third_party/
 .env
 
 push.sh
-package.sh
 install-handler.sh
 launch.sh
 stage.sh
@@ -44,3 +43,4 @@ CLAUDE.md
 
 webkitgtk-bundle/out/
 webkitgtk-bundle/host/webview2loader_ipc_protocol.h
+logs/

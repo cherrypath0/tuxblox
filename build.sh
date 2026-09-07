@@ -34,22 +34,62 @@ for arg in "$@"; do
     esac
 done
 
-version_file="$ROOT/compat/VERSION"
-if [[ -z "$TUXBLOX_BUILD_VERSION" && -r "$version_file" ]]; then
-    TUXBLOX_BUILD_VERSION="$(sed -n '1p' "$version_file" | tr -d '[:space:]')"
+# The one version file for the whole repo: line 1 the version, line 2 the
+# channel. The launcher, the installer and the compatibility layer all take
+# their version from here (via TUXBLOX_BUILD_VERSION, which their own build.sh
+# forwards into the build container), so one build cannot stamp three different
+# numbers into the three halves of one release.
+#
+# It is also rewritten at the end of this block with whatever this build used,
+# so it stays current on its own and never needs editing by hand.
+version_file="$ROOT/VERSION"
+file_version=""
+file_channel=""
+if [[ -r "$version_file" ]]; then
+    file_version="$(sed -n '1p' "$version_file" | tr -d '[:space:]')"
+    file_channel="$(sed -n '2p' "$version_file" | tr -d '[:space:]')"
 fi
-if [[ -z "$TUXBLOX_CHANNEL" && -r "$version_file" ]]; then
-    TUXBLOX_CHANNEL="$(sed -n '2p' "$version_file" | tr -d '[:space:]')"
+
+# An explicit TUXBLOX_BUILD_VERSION means "build exactly this" and is never
+# second-guessed. Otherwise the prompt offers what VERSION already holds, so
+# bumping is a matter of typing the new number rather than editing a file, and
+# pressing Enter rebuilds the same version. -t 0 keeps a non-interactive run
+# (CI, a pipe, nohup) on the file's value instead of blocking on a prompt it
+# cannot answer.
+if [[ -z "$TUXBLOX_BUILD_VERSION" ]]; then
+    if [[ -t 0 ]]; then
+        read -rp "Enter version for this build${file_version:+ ($file_version)}: " TUXBLOX_BUILD_VERSION
+        TUXBLOX_BUILD_VERSION="${TUXBLOX_BUILD_VERSION:-$file_version}"
+        while [[ -z "$TUXBLOX_BUILD_VERSION" ]]; do
+            read -rp "Version cannot be empty. Enter version for this build: " TUXBLOX_BUILD_VERSION
+        done
+    else
+        TUXBLOX_BUILD_VERSION="$file_version"
+    fi
 fi
 
 if [[ -z "$TUXBLOX_BUILD_VERSION" ]]; then
-    read -rp "Enter version for this build: " TUXBLOX_BUILD_VERSION
-    while [[ -z "$TUXBLOX_BUILD_VERSION" ]]; do
-        read -rp "Version cannot be empty. Enter version for this build: " TUXBLOX_BUILD_VERSION
-    done
+    echo "!! No version to build: set TUXBLOX_BUILD_VERSION or put one on line 1 of VERSION." >&2
+    exit 1
 fi
 
-TUXBLOX_CHANNEL="${TUXBLOX_CHANNEL:-stable}"
+# Same three-way resolution as the version above. An empty answer takes
+# whatever VERSION holds, falling back to stable, since the channel picks which
+# releases/ folder this build is published under.
+if [[ -z "$TUXBLOX_CHANNEL" ]]; then
+    default_channel="${file_channel:-stable}"
+    if [[ -t 0 ]]; then
+        read -rp "Enter channel for this build [stable/canary/dev] ($default_channel): " TUXBLOX_CHANNEL
+        TUXBLOX_CHANNEL="${TUXBLOX_CHANNEL:-$default_channel}"
+        while [[ ! "$TUXBLOX_CHANNEL" =~ ^(stable|canary|dev)$ ]]; do
+            read -rp "Channel must be stable, canary or dev: " TUXBLOX_CHANNEL
+            TUXBLOX_CHANNEL="${TUXBLOX_CHANNEL:-$default_channel}"
+        done
+    else
+        TUXBLOX_CHANNEL="$default_channel"
+    fi
+fi
+
 case "$TUXBLOX_CHANNEL" in
     stable|canary|dev) ;;
     *)
@@ -57,6 +97,15 @@ case "$TUXBLOX_CHANNEL" in
         exit 1
         ;;
 esac
+
+# Written back before anything is built, not after: a build that fails halfway
+# still leaves VERSION agreeing with what was attempted, and a re-run then
+# offers that same number as its default rather than silently reverting to the
+# last one that happened to succeed.
+if [[ "$file_version" != "$TUXBLOX_BUILD_VERSION" || "$file_channel" != "$TUXBLOX_CHANNEL" ]]; then
+    printf '%s\n%s\n' "$TUXBLOX_BUILD_VERSION" "$TUXBLOX_CHANNEL" > "$version_file"
+    echo ":: Updated VERSION to $TUXBLOX_BUILD_VERSION $TUXBLOX_CHANNEL"
+fi
 
 echo ":: Building TuxBlox $TUXBLOX_BUILD_VERSION ($TUXBLOX_CHANNEL)"
 export TUXBLOX_BUILD_VERSION TUXBLOX_CHANNEL
@@ -68,6 +117,7 @@ packages=(
     gcc
     uidmap
     git
+    zstd
 )
 
 JOBS="${TUXBLOX_MAKE_JOBS:-$(nproc 2>/dev/null || echo 1)}"
@@ -193,6 +243,143 @@ apply_patches() {
     shopt -u nullglob
 
     echo ":: Applied $applied patch file(s)"
+}
+
+# Publishes what this build produced into releases/<channel>/<version>/, in the
+# shape setup.tuxblox.net serves it, so the server can sync straight from this
+# folder. It is TWO sync paths, not one: releases/<channel>/ mirrors
+# /v1/<channel>/, while releases/latest.json is published at /v2/latest.json.
+#
+# build/.artifacts/ (build scratch) and build/runtime/ (the virtual drive, which
+# can hold a logged-in Roblox session) are deliberately never copied here.
+stage_release() {
+    local version="$TUXBLOX_BUILD_VERSION"
+    local channel="$TUXBLOX_CHANNEL"
+    # Dots are legal in a URL path, but every published artifact has used the
+    # dashed form since the first release -- keep it, so an existing mirror
+    # does not end up holding both spellings of the same file.
+    local slug="${version//./-}"
+    local release_dir="$ROOT/releases/$channel/$version"
+    local url_prefix="/v1/$channel/$version"
+
+    # The launcher's Qt6 bundle is three entries, not one directory that
+    # happens to exist -- an empty libtuxblox/ would tar up fine and fail at
+    # the user's machine instead.
+    local required=(compat/main libtuxblox/lib libtuxblox/plugins libtuxblox/qt.conf
+                    TuxBloxLauncher TuxBloxInstaller mcp.sh)
+    local entry
+    for entry in "${required[@]}"; do
+        if [[ ! -e "$ROOT/build/$entry" ]]; then
+            echo "!! build/$entry is missing, so this build cannot be published." >&2
+            return 1
+        fi
+    done
+
+    # Rebuilding a version replaces its folder outright. Merging into it would
+    # leave the previous run's tarball sitting next to a manifest that no
+    # longer describes it, which the installer would reject as a checksum
+    # mismatch only after the user had downloaded the whole thing.
+    rm -rf "$release_dir"
+    mkdir -p "$release_dir"
+
+    # Both archives are packed with their contents at the ROOT, no wrapper
+    # directory: the installer extracts an archive artifact into
+    # installDir/<path>/<filename>, so a wrapper would nest the payload one
+    # level too deep (compat/compat/main).
+    echo ":: Packing the compatibility layer"
+    tar --zstd -cf "$release_dir/compat-$slug.tar.zst" -C "$ROOT/build/compat" .
+    echo ":: Packing the TuxBlox libraries"
+    tar --zstd -cf "$release_dir/libtuxblox-$slug.tar.zst" -C "$ROOT/build/libtuxblox" .
+
+    # The launcher, installer and MCP helper ship unpacked. They are copied
+    # under the basename the manifest's url gives them, which is how the
+    # server serves them and therefore what a plain rsync of this folder has
+    # to find on disk.
+    cp "$ROOT/build/TuxBloxLauncher" "$release_dir/launcher"
+    cp "$ROOT/build/TuxBloxInstaller" "$release_dir/installer"
+    cp "$ROOT/build/mcp.sh" "$release_dir/mcp.sh"
+
+    echo ":: Writing manifest.json and latest.json"
+    # Written by python rather than assembled from shell heredocs: it hashes
+    # and stats the files it is describing, so a size or checksum cannot drift
+    # from the artifact it belongs to, and latest.json is a read-modify-write
+    # of a file the other channels also have entries in.
+    python3 - "$release_dir" "$ROOT/releases/latest.json" "$channel" "$url_prefix" "$slug" <<'PY'
+import hashlib, json, os, sys
+from datetime import datetime, timezone
+
+release_dir, latest_path, channel, url_prefix, slug = sys.argv[1:6]
+
+# key -> (file on disk, displayname, filename the installer installs it as).
+# "filename" is extension-less by convention: for an archive it names the
+# directory the archive is extracted into, for a flat file it is the name the
+# download is saved under.
+artifacts = [
+    ("launcher",   "launcher",                    "Launcher",             "TuxBloxLauncher"),
+    ("installer",  "installer",                   "Updater",              "TuxBloxInstaller"),
+    # Published as "proton" until the layer was renamed. The launcher reads
+    # either spelling, so emitting the new one is safe for older installs.
+    ("compat",     f"compat-{slug}.tar.zst",      "Compatibility layer",  "compat"),
+    ("libtuxblox", f"libtuxblox-{slug}.tar.zst",  "Libraries",            "libtuxblox"),
+    ("mcp",        "mcp.sh",                      "Studio MCP",           "mcp.sh"),
+]
+
+def digest(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+stamp = datetime.now(timezone.utc).strftime("%m/%d/%y %H:%M:%S")
+
+entries = {}
+for key, filename, displayname, install_as in artifacts:
+    path = os.path.join(release_dir, filename)
+    # The size and hash are of the file that is actually downloaded, which for
+    # the two archives means the compressed tarball, not the tree inside it.
+    entries[key] = {
+        "size": os.path.getsize(path),
+        "sha256": digest(path),
+        "url": f"{url_prefix}/{filename}",
+        "displayname": displayname,
+        "filename": install_as,
+        "path": "/",
+    }
+
+manifest = {
+    "channel": channel,
+    "uploadDate": stamp,
+    "data": {"hasPlayer": False, "hasStudio": True, "isLatest": True},
+    "manifest_version": 2,
+    "artifacts": entries,
+}
+
+with open(os.path.join(release_dir, "manifest.json"), "w") as f:
+    json.dump(manifest, f, indent=2)
+    f.write("\n")
+
+# Only this build's channel moves. Building canary must not disturb which
+# version stable points at, so the other entries are read back and kept.
+latest = {"channels": {"stable": "", "canary": "", "dev": ""}}
+try:
+    with open(latest_path) as f:
+        existing = json.load(f)
+    if isinstance(existing.get("channels"), dict):
+        latest["channels"].update(existing["channels"])
+except (FileNotFoundError, ValueError):
+    pass
+
+latest["channels"][channel] = os.path.basename(release_dir)
+latest["lastUpdate"] = stamp
+
+with open(latest_path, "w") as f:
+    json.dump(latest, f, indent=2)
+    f.write("\n")
+PY
+
+    echo ":: Published to releases/$channel/$version/"
+    du -h "$release_dir"/* | sed 's/^/   /'
 }
 
 step "Cleaning up previous build logs"
@@ -388,5 +575,11 @@ step "Copying include/ into build/"
 if [[ -d include ]]; then
     cp -a include/. build/
 fi
+
+# Last, so it only ever describes a build that got all the way here. build/ is
+# left exactly as it is either way -- this publishes a copy, it does not move
+# anything out.
+step "Publishing to releases/$TUXBLOX_CHANNEL/$TUXBLOX_BUILD_VERSION/"
+run_step "stage_release" strict stage_release
 
 echo -e "Successfully built TuxBlox!"

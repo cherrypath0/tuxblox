@@ -49,15 +49,22 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
 file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/generated)
-# TUXBLOX_BUILD_VERSION is the version the root build.sh prompted for; it wins so
+# TUXBLOX_BUILD_VERSION is the version the root build.sh resolved; it wins so
 # that one release build stamps the same number into the launcher, the installer
-# and proton. The checked-in VERSION file is the fallback, which keeps a
-# standalone `launcher/build.sh` run (no root build.sh, so no env var) producing a
-# sensibly versioned binary rather than an empty string.
+# and the compatibility layer. launcher/build.sh sets it from the repo-root
+# VERSION file when run standalone, so in practice it is always set.
+#
+# The repo-root VERSION is only the second choice because it is not reachable
+# from inside the build container -- only launcher/ is mounted there. It still
+# resolves for a bare `cmake -B build -S .` run on the host, which is the one
+# case that reaches it. Anything else gets a version that is obviously a
+# placeholder rather than a plausible-looking wrong number.
 if(NOT "$ENV{TUXBLOX_BUILD_VERSION}" STREQUAL "")
     set(TUXBLOX_LAUNCHER_VERSION "$ENV{TUXBLOX_BUILD_VERSION}")
+elseif(EXISTS "${CMAKE_SOURCE_DIR}/../VERSION")
+    file(STRINGS "${CMAKE_SOURCE_DIR}/../VERSION" TUXBLOX_LAUNCHER_VERSION LIMIT_COUNT 1)
 else()
-    file(STRINGS "${CMAKE_SOURCE_DIR}/VERSION" TUXBLOX_LAUNCHER_VERSION LIMIT_COUNT 1)
+    set(TUXBLOX_LAUNCHER_VERSION "0.0.0-dev")
 endif()
 message(STATUS "TuxBlox launcher version: ${TUXBLOX_LAUNCHER_VERSION}")
 configure_file(${CMAKE_SOURCE_DIR}/cmake/version.h.in ${CMAKE_BINARY_DIR}/generated/version.h @ONLY)
