@@ -12,6 +12,7 @@ push.sh
 package.sh
 install-handler.sh
 launch.sh
+stage.sh
 
 __pycache__/
 
