@@ -82,6 +82,10 @@ public:
     // Build version, recorded in the log header.
     std::string buildVersion;
 
+    // The command line TuxBlox itself was started with, recorded in the log
+    // header so a bug report says how the run was launched.
+    std::string invocation;
+
     // DLL overrides collected before launch, written out as WINEDLLOVERRIDES.
     std::map<std::string, std::string> dllOverrides;
 

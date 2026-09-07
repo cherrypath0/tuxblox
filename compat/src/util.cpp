@@ -108,6 +108,21 @@ void log(const std::string& message) {
     static_cast<void>(written);
 }
 
+std::string joinCommandLine(const std::vector<std::string>& arguments) {
+    std::string line;
+    for (const std::string& argument : arguments) {
+        if (!line.empty()) {
+            line += " ";
+        }
+        if (argument.find(' ') == std::string::npos) {
+            line += argument;
+        } else {
+            line += "\"" + argument + "\"";
+        }
+    }
+    return line;
+}
+
 bool fileExists(const fs::path& path, bool followSymlinks) {
     std::error_code error;
     const fs::file_status status =

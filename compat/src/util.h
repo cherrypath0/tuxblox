@@ -24,6 +24,7 @@
 #include <fstream>
 #include <map>
 #include <string>
+#include <vector>
 
 #include <sys/types.h>
 
@@ -47,6 +48,10 @@ struct CopyOptions {
 
 // Writes a prefixed line to standard error. Never throws.
 void log(const std::string& message);
+
+// Joins arguments into one line for the log, quoting the ones that contain
+// spaces so a path with a space still reads as a single argument.
+std::string joinCommandLine(const std::vector<std::string>& arguments);
 
 // Unlike std::filesystem::exists, this reports broken symlinks as present
 // when followSymlinks is false.

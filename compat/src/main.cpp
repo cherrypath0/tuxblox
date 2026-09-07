@@ -177,7 +177,10 @@ int runMain(int argc, char *argv[]) {
         return 1;
     }
 
+    const std::string invocation = tuxblox::joinCommandLine({argv, argv + argc});
+
     tuxblox::log("Running TuxBlox version " + TuxBloxVersion + "-" + TuxBloxChannel);
+    tuxblox::log("Launched as: " + invocation);
 
     tuxblox::Proton proton(installDir(argv[0]));
     proton.cleanupLegacyDist();
@@ -186,6 +189,7 @@ int runMain(int argc, char *argv[]) {
 
     tuxblox::Session session(proton, prefixDir);
     session.buildVersion = TuxBloxVersion + "-" + TuxBloxChannel;
+    session.invocation = invocation;
     session.initWine();
 
     tuxblox::Prefix prefix(proton, std::filesystem::path(pPrefixDir), PrefixVersion);

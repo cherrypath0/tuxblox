@@ -410,11 +410,8 @@ void Session::writeLogHeader(const std::vector<std::string>& target) {
 
     std::string header = "======================\n";
     header += "TuxBlox: " + buildVersion + "\n";
-    header += "Command:";
-    for (const std::string& argument : target) {
-        header += " " + argument;
-    }
-    header += "\n";
+    header += "Launched as: " + invocation + "\n";
+    header += "Command: " + joinCommandLine(target) + "\n";
 
     struct utsname info = {};
     if (::uname(&info) == 0) {
