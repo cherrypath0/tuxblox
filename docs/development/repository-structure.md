@@ -18,7 +18,6 @@ These are separate programs that talk to each other while running, not one progr
 - **`ProtonSource/`**, TuxBlox's compatibility layer. Made up of many smaller pieces (submodules), plus a Wine fork maintained directly inside this repository. `ProtonSource/src/` holds TuxBlox's own C++ for the layer, and is the one part of it that is GPLv3.
 - **`webkitgtk-bundle/`**, the bundled web browser component used for things like the Roblox login screen and Toolbox.
 - **`docs/`**, this documentation.
-- **`fonts/`**, fonts bundled with TuxBlox.
 - **`include/`**, extra files that get copied into the finished build.
 - **`third_party_licenses/`**, license text for other software bundled with TuxBlox.
 
