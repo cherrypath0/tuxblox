@@ -2,15 +2,18 @@
 
 ## Reporting a Vulnerability
 
-**Please do not open a public GitHub issue for security vulnerabilities.**
+**Please do not open a public issue for security vulnerabilities.**
 
 Publicly disclosing a vulnerability before it's fixed can put users at risk. Instead,
 please report it privately using one of the following methods:
 
 - Check our [security.txt](https://tuxblox.net/.well-known/security.txt) for the
-  current contact address.
-- (Optional) Use GitHub's [private vulnerability reporting](../../security/advisories/new)
-  feature for this repository.
+  current contact address. This works wherever you found the project and is the
+  method we prefer.
+- On GitHub, you may instead use
+  [private vulnerability reporting](https://github.com/cherrypath0/tuxblox/security/advisories/new).
+- On GitLab, you may instead open an issue and tick **This issue is confidential**
+  before submitting it.
 
 Please include as much of the following as you can:
 
