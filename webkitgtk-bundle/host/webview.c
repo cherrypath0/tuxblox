@@ -18,8 +18,8 @@
 /* webkitgtk-bundle/host/webview.c
  *
  * Window creation/destruction and the live-webview registry -- ported from
- * ProtonSource/wine/dlls/webview2loader/unixlib.c as of commit ac3634ea6
- * (see git show ac3634ea6:ProtonSource/wine/dlls/webview2loader/unixlib.c),
+ * compat/wine/dlls/webview2loader/unixlib.c as of commit ac3634ea6
+ * (see git show ac3634ea6:compat/wine/dlls/webview2loader/unixlib.c),
  * the last commit before Task 3's rewrite deleted that file's in-process
  * dlmopen/GTK-thread machinery. This is Task 4 of the
  * webview2loader-host-process plan

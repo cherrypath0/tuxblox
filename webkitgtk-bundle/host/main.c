@@ -791,7 +791,7 @@ int main(int argc, char **argv)
 
     /* Forced-active/visible override, read by three separate WebKit source
      * patches (WindowIsActive, isInMonitor, isSuspended -- see
-     * ProtonSource/webkitgtk/README-TUXBLOX-PATCHES.md for the full
+     * compat/webkitgtk/README-TUXBLOX-PATCHES.md for the full
      * rationale on each): this webview's GdkSurface gets XReparentWindow'd
      * into Roblox Studio's own window, so it can never receive real
      * WM-mediated active/focus/monitor state again, which left WebKit
@@ -842,7 +842,7 @@ int main(int argc, char **argv)
      * process itself keeps running for hours afterward). Wine's own
      * unixlib.c spawns this helper (spawn_helper(), called from
      * webview2loader_unix_init()) from exactly that shape of thread --
-     * ProtonSource/wine/dlls/webview2loader/main.c's
+     * compat/wine/dlls/webview2loader/main.c's
      * create_environment_worker(), a one-shot CreateThread worker that
      * returns (and so terminates) immediately after the WV2L_OP_INIT
      * round-trip completes. With PDEATHSIG set, this helper was being

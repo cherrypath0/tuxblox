@@ -18,8 +18,8 @@
 /* webkitgtk-bundle/host/navigate.h
  *
  * Navigation, cookies, and the real roblox-studio-auth: OAuth redirect
- * handoff -- ported from ProtonSource/wine/dlls/webview2loader/unixlib.c as
- * of commit ac3634ea6 (see git show ac3634ea6:ProtonSource/wine/dlls/webview2loader/unixlib.c).
+ * handoff -- ported from compat/wine/dlls/webview2loader/unixlib.c as
+ * of commit ac3634ea6 (see git show ac3634ea6:compat/wine/dlls/webview2loader/unixlib.c).
  * This is Task 6 (the last "port real logic" task) of the
  * webview2loader-host-process plan
  * (docs/superpowers/plans/2026-08-14-webview2loader-host-process.md).

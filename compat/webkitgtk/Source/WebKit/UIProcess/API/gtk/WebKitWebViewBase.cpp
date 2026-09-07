@@ -596,7 +596,7 @@ static void webkitWebViewBaseSetToplevelOnScreenWindow(WebKitWebViewBase* webVie
         }
 
 // TuxBlox patch: ungated from upstream's `#if ENABLE(DEVELOPER_MODE)` -- see
-        // ProtonSource/webkitgtk/README-TUXBLOX-PATCHES.md for the full rationale.
+        // compat/webkitgtk/README-TUXBLOX-PATCHES.md for the full rationale.
         // Renamed from UNDER_XVFB to WEBVIEW2LOADER_FORCE_WINDOW_ACTIVE (same
         // check, same semantics -- "this window can never receive real
         // WM-mediated active/focus state, so force WindowIsActive

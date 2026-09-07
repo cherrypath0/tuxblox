@@ -8,11 +8,11 @@ Thanks for your interest in contributing to TuxBlox! This document covers how to
 
 TuxBlox is a multi-license repository, make sure to read all of these:
 
-- **TuxBlox's own launcher code** (everything outside **`ProtonSource/`**) is licensed under **GPLv3**. Contributions here must be compatible with GPLv3.
-- **`ProtonSource/`** (our modified Proton build) remains licensed under **LGPLv2.1**, inherited from Wine/Proton. Contributions here must comply with LGPLv2.1.
+- **TuxBlox's own launcher code** (everything outside **`compat/`**) is licensed under **GPLv3**. Contributions here must be compatible with GPLv3.
+- **`compat/`** (the TuxBlox compatibility layer, based on Wine and Proton) remains licensed under **LGPLv2.1**, inherited from Wine/Proton. Contributions here must comply with LGPLv2.1.
 - **`third_party_licenses/`** is the license texts directory for bundled dependencies. Do not modify.
 
-By submitting a pull request, you agree that your contribution is licensed under the same license as the component you're contributing to (GPLv3 for TuxBlox's own code, LGPLv2.1 for `ProtonSource/`), and that you have the right to submit it under that license.
+By submitting a pull request, you agree that your contribution is licensed under the same license as the component you're contributing to (GPLv3 for TuxBlox's own code, LGPLv2.1 for `compat/`), and that you have the right to submit it under that license.
 
 ### Required Packages for Compiling:
 * curl
@@ -27,7 +27,7 @@ By submitting a pull request, you agree that your contribution is licensed under
 2. Install dependencies (see [tuxblox.net/docs](https://tuxblox.net/docs) for current build requirements).
 3. Build both components separately:
    - TuxBlox's own code builds into its own binary.
-   - `ProtonSource/` builds into its own separate binary.
+   - `compat/` builds into its own separate binary.
    These are **separate compiled artifacts** that communicate at runtime, they are not statically linked into a single binary. Please keep this separation intact in any changes you make; it's what allows the two components to carry different licenses cleanly.
 4. Run the test suite (see docs) before opening a pull request.
 

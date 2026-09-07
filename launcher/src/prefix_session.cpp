@@ -32,7 +32,7 @@ namespace tuxblox {
 
 namespace {
 
-// Kept in sync with SessionHolderImages in ProtonSource/session.cpp.
+// Kept in sync with SessionHolderImages in compat/src/session.cpp.
 // Deliberately an allowlist of the apps this launcher exists to run, not a
 // denylist of helpers -- same reasoning as session.cpp's own comment: forgetting
 // a helper only costs a wrong verb choice, forgetting an app breaks a launch.
@@ -140,7 +140,7 @@ std::string wineImageNameFromCmdline(const std::string& firstCmdlineToken) {
     // "Main". Cut at the first ".exe", not the first space -- the image path
     // itself can contain spaces, and the arguments after it can contain further
     // ".exe" paths (RobloxCrashHandler's --attachment= list, for one). Same rule
-    // as pidWineImage() in ProtonSource/session.cpp.
+    // as pidWineImage() in compat/src/session.cpp.
     const std::string lower = toLower(firstCmdlineToken);
     const size_t cut = lower.find(".exe");
     if (cut == std::string::npos) return "";

@@ -43,7 +43,7 @@ struct ExitEvent {
 const char* exitCodeTitle(int exitCode);
 
 // Proton's own process exit code is now a fixed 0/success, 1/proton-error,
-// 2/process-error contract (see ProtonSource/proton's exit-code contract
+// 2/process-error contract (see compat/proton's exit-code contract
 // note on Session.run()) -- it no longer carries the wrapped process's real,
 // non-truncated exit code (e.g. Hyperion's -2147467260). That value is
 // relayed separately as a "TUXBLOX_REAL_EXIT_CODE=<n>" marker line on

@@ -738,7 +738,7 @@ fetch_and_extract "https://archive.mesa3d.org/mesa-${MESA_VERSION}.tar.xz" /buil
 # .superpowers/sdd/2026-08-14-webview2loader-host-process/) that Task 7's real
 # glvnd/host-EGL GPU-acceleration work exposed: the repo owner's explicit decision
 # was to force software rendering unconditionally (see
-# ProtonSource/wine/dlls/webview2loader/unixlib.c's spawn_helper(), which no
+# compat/wine/dlls/webview2loader/unixlib.c's spawn_helper(), which no
 # longer conditionally prefers the host's own NVIDIA driver at all) rather than
 # chase the upstream WebKitGTK/NVIDIA race tonight -- which makes the software
 # path's own speed newly load-bearing for the ENTIRE webview experience, not just
@@ -773,7 +773,7 @@ ninja -C /build/wpebackend-fdo/_build -j"$JOBS" install
 
 # --- GStreamer (native Linux) -----------------------------------------------------
 # This is a *native Linux* GStreamer build for WebKitGTK's <video>/<audio> support --
-# unrelated to and independent from the existing ProtonSource/submodules/gstreamer submodule,
+# unrelated to and independent from the existing compat/submodules/gstreamer submodule,
 # which cross-compiles GStreamer for the Windows target for use *inside* the Wine
 # prefix by Windows apps. Same project, completely different build/purpose/toolchain.
 #
@@ -964,11 +964,11 @@ ninja -C /build/gst-plugins-bad/_build -j"$JOBS" install
 # this fix narrowly scoped to the two review findings it addresses.
 echo ":: Building webkitgtk $WEBKITGTK_VERSION"
 # 2026-08-15: webkitgtk is now checked directly into this repo, at
-# ProtonSource/webkitgtk (bind-mounted read-only at /src-webkitgtk by build.sh) --
+# compat/webkitgtk (bind-mounted read-only at /src-webkitgtk by build.sh) --
 # same "carry our own patches as a real, versioned tree" treatment CLAUDE.md already
-# documents for ProtonSource/wine, and for the same reason: this bundle now carries
+# documents for compat/wine, and for the same reason: this bundle now carries
 # real source patches (WEBKIT_EXEC_PATH, WindowIsActive, isInMonitor -- see
-# ProtonSource/webkitgtk/README-TUXBLOX-PATCHES.md), previously applied as fragile
+# compat/webkitgtk/README-TUXBLOX-PATCHES.md), previously applied as fragile
 # inline sed/python string-replacements against a freshly downloaded tarball on every
 # build. Patches now live as plain edits in the checked-in source itself -- normal git
 # diff/log/blame, no more "ERROR: expected original text not found" breakage risk
@@ -994,8 +994,8 @@ mkdir -p /build/webkitgtk
 rsync -a -c --delete --exclude=_build /src-webkitgtk/ /build/webkitgtk/
 
 # TuxBlox's own patches (WEBKIT_EXEC_PATH ungated, WindowIsActive forced-active,
-# isInMonitor forced-true) are applied directly to ProtonSource/webkitgtk -- see
-# ProtonSource/webkitgtk/README-TUXBLOX-PATCHES.md for the full rationale for each.
+# isInMonitor forced-true) are applied directly to compat/webkitgtk -- see
+# compat/webkitgtk/README-TUXBLOX-PATCHES.md for the full rationale for each.
 # No patch-application step needed here anymore; the rsync above already synced the
 # already-patched source.
 

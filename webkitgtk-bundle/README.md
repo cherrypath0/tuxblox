@@ -1,7 +1,7 @@
 # webkitgtk-bundle
 
 One-time (or per-version-bump) build tooling for the WebKitGTK tarball vendored at
-`../ProtonSource/contrib/webkitgtk-<version>-x86_64.tar.xz`. This is release
+`../compat/contrib/webkitgtk-<version>-x86_64.tar.xz`. This is release
 engineering, not part of the normal `./build.sh` a user or contributor runs.
 
 ## When to run this
@@ -23,8 +23,8 @@ does a true incremental build and correctly does nothing. Every *other* dependen
 (glib, gtk4, libsoup, icu, ...) still re-fetches and rebuilds from scratch on every
 run regardless -- that's fine, since all of them combined take well under an hour, and
 none of them get the same persistent-source treatment webkitgtk does. Produces
-`out/webkitgtk-<version>-x86_64.tar.xz`. Copy it into `../ProtonSource/contrib/`,
-update the `WEBKITGTK_VER`/tarball filename in `../ProtonSource/Makefile.in` to match,
+`out/webkitgtk-<version>-x86_64.tar.xz`. Copy it into `../compat/contrib/`,
+update the `WEBKITGTK_VER`/tarball filename in `../compat/Makefile.in` to match,
 and commit both together.
 
 `build.sh` uses three persistent podman named volumes so a failed/interrupted run
@@ -64,7 +64,7 @@ relocatable. Several absolute `/opt/tuxblox-webview` paths get compiled in as
 literal string constants during the build -- not RPATH/RUNPATH entries -- and
 `patchelf` cannot touch those; a consumer of this tarball should set these
 environment variables at runtime, computed relative to wherever the tarball actually
-gets extracted (`$(DST_DIR)/lib/tuxblox-webview` in `ProtonSource/Makefile.in`'s
+gets extracted (`$(DST_DIR)/lib/tuxblox-webview` in `compat/Makefile.in`'s
 terms):
 
 > **Read "LD_LIBRARY_PATH beats this bundle's RUNPATH" below before wiring this into
@@ -86,7 +86,7 @@ terms):
 
 where `<extract-dir>` is the tarball's own root (i.e. what's inside the `webkitgtk/`
 top-level directory the tarball's `--transform` wraps everything in -- for
-`ProtonSource/Makefile.in`'s extraction rule, that's `$(DST_DIR)/lib/tuxblox-webview`
+`compat/Makefile.in`'s extraction rule, that's `$(DST_DIR)/lib/tuxblox-webview`
 after `--strip-components=1`).
 
 **On top of the environment variables above**, one file needs actual regeneration,
@@ -94,13 +94,13 @@ not just an env var: gdk-pixbuf's `loaders.cache` (`lib/x86_64-linux-gnu/gdk-pix
 2.10.0/loaders.cache`) bakes each image-loader `.so`'s absolute path into the cache
 FILE ITSELF at the time it was generated (this build's own `/opt/tuxblox-webview`) --
 not an ELF dynamic-section entry `patchelf` can rewrite, and not a `getenv()` call any
-environment variable can override. `ProtonSource/Makefile.in`'s extraction rule now
+environment variable can override. `compat/Makefile.in`'s extraction rule now
 re-runs `gdk-pixbuf-query-loaders` (shipped in the tarball specifically for this,
 under `libexec/gdk-pixbuf-tools/` -- `bin/` itself is still excluded) against the
 just-extracted loaders directory immediately after extraction, once the real final
 path is known, and overwrites `loaders.cache` with freshly-correct paths. If this
 bundle's extraction location ever needs to move without going through
-`ProtonSource/Makefile.in` (e.g. a manual re-extraction for testing), re-run that same
+`compat/Makefile.in` (e.g. a manual re-extraction for testing), re-run that same
 command by hand: `<extract-dir>/libexec/gdk-pixbuf-tools/gdk-pixbuf-query-loaders
 <extract-dir>/lib/x86_64-linux-gnu/gdk-pixbuf-2.0/2.10.0/loaders/*.so >
 <extract-dir>/lib/x86_64-linux-gnu/gdk-pixbuf-2.0/2.10.0/loaders.cache`.
@@ -403,7 +403,7 @@ transcript, because none of it is discoverable from the code alone.
 **This collision was the blocker identified in Plan 1 as required-before-Plan-2.
 Fixed by applying `patchelf --force-rpath` in Task 1.**
 
-`ProtonSource/proton` (lines 1519-1520) prepends `<dist>/lib/x86_64-linux-gnu`
+`compat/proton` (lines 1519-1520) prepends `<dist>/lib/x86_64-linux-gnu`
 (plus the aarch64/i386 siblings) to `LD_LIBRARY_PATH` for every wine process it
 launches. In `ld.so`'s search order, `LD_LIBRARY_PATH` is consulted **before**
 `DT_RUNPATH`. The issue: `patchelf --set-rpath` writes `DT_RUNPATH`, not `DT_RPATH`,
@@ -449,7 +449,7 @@ collision Proton introduces.
 
 ## gdk-pixbuf `loaders.cache` is relocated a second time by the installer (UNRESOLVED)
 
-`ProtonSource/Makefile.in`'s extraction rule regenerates `loaders.cache` after
+`compat/Makefile.in`'s extraction rule regenerates `loaders.cache` after
 unpacking, so its baked-in absolute loader paths match the real extraction directory
 (see the `loaders.cache` note earlier in this file). That fixes exactly one
 relocation -- the one from this bundle's `/opt/tuxblox-webview` build prefix to the
@@ -494,7 +494,7 @@ For a component that renders live web content and handles Roblox login sessions,
 this is worth closing before the bundle ships in an actual release: add a
 `sha256sums` file next to `versions.env` and verify it inside `fetch_and_extract`,
 pin the base image by digest, and pin the meson version exactly. Not blocking today
-(the artifact in `ProtonSource/contrib/` was built and verified by hand), but it is
+(the artifact in `compat/contrib/` was built and verified by hand), but it is
 the difference between "pinned" and "reproducible", and the whole point of this
 directory is that someone can rebuild it in six months for a security update and
 trust the result.

@@ -118,7 +118,7 @@ bool ToplevelWindow::isMinimized() const
 bool ToplevelWindow::isSuspended() const
 {
 #if GTK_CHECK_VERSION(4, 12, 0)
-    // TuxBlox patch: see ProtonSource/webkitgtk/README-TUXBLOX-PATCHES.md for
+    // TuxBlox patch: see compat/webkitgtk/README-TUXBLOX-PATCHES.md for
     // the full rationale. GDK_TOPLEVEL_STATE_SUSPENDED is a real compositor
     // hint ("this surface doesn't need to render") that also gates
     // webkitWebViewBaseUpdateVisibility()'s IsVisible computation, driven by
@@ -162,7 +162,7 @@ bool ToplevelWindow::isInMonitor() const
     // GTK4 always returns a valid monitor from gdk_display_get_monitor_at_surface() even after monitor-leave signal is emitted,
     // so we keep track of the monitors.
     //
-    // TuxBlox patch: see ProtonSource/webkitgtk/README-TUXBLOX-PATCHES.md for
+    // TuxBlox patch: see compat/webkitgtk/README-TUXBLOX-PATCHES.md for
     // the full rationale. Real value still computed and logged once if it
     // would have been false, before being overridden -- diagnostic signal
     // for whether this is really the cause, kept regardless of whether the

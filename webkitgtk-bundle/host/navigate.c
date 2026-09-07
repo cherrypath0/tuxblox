@@ -18,8 +18,8 @@
 /* webkitgtk-bundle/host/navigate.c
  *
  * Navigation, cookies, and the real roblox-studio-auth: OAuth redirect
- * handoff -- ported from ProtonSource/wine/dlls/webview2loader/unixlib.c as
- * of commit ac3634ea6 (see git show ac3634ea6:ProtonSource/wine/dlls/webview2loader/unixlib.c,
+ * handoff -- ported from compat/wine/dlls/webview2loader/unixlib.c as
+ * of commit ac3634ea6 (see git show ac3634ea6:compat/wine/dlls/webview2loader/unixlib.c,
  * the last commit before Task 3's rewrite deleted that file's in-process
  * dlmopen/GTK-thread machinery). This is Task 6 of the
  * webview2loader-host-process plan

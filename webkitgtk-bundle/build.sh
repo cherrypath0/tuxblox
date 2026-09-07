@@ -39,8 +39,8 @@ echo ":: Running dependency + webkitgtk build (this takes a long time -- hours o
 # one-off override. If a future run on a lower-memory host hits that OOM class again,
 # drop back to JOBS=1 and update this comment with the new data point, same as I-1 did.
 podman run --rm -v "$(pwd):/src:ro" -v webkitgtk-prefix:/opt/tuxblox-webview \
-    -v "$(pwd)/../ProtonSource/wine/dlls/webview2loader/webview2loader_ipc_protocol.h:/src/host/webview2loader_ipc_protocol.h:ro" \
-    -v "$(pwd)/../ProtonSource/webkitgtk:/src-webkitgtk:ro" \
+    -v "$(pwd)/../compat/wine/dlls/webview2loader/webview2loader_ipc_protocol.h:/src/host/webview2loader_ipc_protocol.h:ro" \
+    -v "$(pwd)/../compat/webkitgtk:/src-webkitgtk:ro" \
     -v webkitgtk-ccache:/ccache -v webkitgtk-src-build:/build/webkitgtk -e JOBS="${JOBS:-4}" \
     tuxblox-webkitgtk-builder bash -c \
     "mkdir -p /build-scripts && cp /src/*.sh /src/versions.env /build-scripts/ && \
@@ -55,4 +55,4 @@ podman run --rm -v webkitgtk-prefix:/opt/tuxblox-webview -v "$(pwd)/out:/out" \
 
 source versions.env
 echo ":: Done. Output: out/webkitgtk-${WEBKITGTK_VERSION}-x86_64.tar.xz"
-echo ":: Next: cp out/webkitgtk-${WEBKITGTK_VERSION}-x86_64.tar.xz ../ProtonSource/contrib/ && git add/commit it"
+echo ":: Next: cp out/webkitgtk-${WEBKITGTK_VERSION}-x86_64.tar.xz ../compat/contrib/ && git add/commit it"

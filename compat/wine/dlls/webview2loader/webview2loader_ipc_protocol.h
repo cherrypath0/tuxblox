@@ -1,4 +1,4 @@
-/* ProtonSource/wine/dlls/webview2loader/webview2loader_ipc_protocol.h
+/* compat/wine/dlls/webview2loader/webview2loader_ipc_protocol.h
  *
  * Wire format for the socket boundary between unixlib.c (Wine process) and
  * webkitgtk-bundle/host's webview2loader-host (separate process). Only

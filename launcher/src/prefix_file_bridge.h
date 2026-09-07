@@ -38,7 +38,7 @@ extern const char* const kBridgeWindowsRoot;
 //
 // INVARIANT: the return value is a "C:\..." path or "". It must never be a host
 // path -- fake_leaked_command_line() in
-// ProtonSource/wine/dlls/kernelbase/process.c appends the file argument to
+// compat/wine/dlls/kernelbase/process.c appends the file argument to
 // Roblox's command line verbatim, so a host path here would leak straight
 // through the rewrite it exists to prevent.
 std::string bridgeHostPathIntoPrefix(const std::string& installDir, const std::string& hostPath);

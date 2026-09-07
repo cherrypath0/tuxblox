@@ -18,7 +18,7 @@
 /* webkitgtk-bundle/host/webview.h
  *
  * Window creation/destruction and the live-webview registry, ported from
- * ProtonSource/wine/dlls/webview2loader/unixlib.c as of commit ac3634ea6
+ * compat/wine/dlls/webview2loader/unixlib.c as of commit ac3634ea6
  * (see webview.c for the per-function mapping). This is Task 4 of the
  * webview2loader-host-process plan
  * (docs/superpowers/plans/2026-08-14-webview2loader-host-process.md) --

@@ -16,7 +16,7 @@ Please include as much of the following as you can:
 
 - A description of the vulnerability and its potential impact
 - Steps to reproduce, or a proof-of-concept if available
-- The TuxBlox version and component affected (launcher vs. `ProtonSource/`)
+- The TuxBlox version and component affected (launcher vs. `compat/`)
 - Your Linux distribution and kernel version, if relevant
 
 ## Scope
@@ -24,7 +24,7 @@ Please include as much of the following as you can:
 This policy covers:
 
 - TuxBlox's own launcher code (GPLv3-licensed portions of this repository)
-- TB-Proton, our modified Proton build (`ProtonSource/`, LGPLv2.1-licensed)
+- The TuxBlox compatibility layer, based on Wine and Proton (`compat/`, LGPLv2.1-licensed)
 
 Vulnerabilities in upstream Wine, Proton, DXVK, or vkd3d-proton that are **not**
 introduced by TuxBlox-specific modifications should be reported upstream to those

@@ -34,7 +34,7 @@ for arg in "$@"; do
     esac
 done
 
-version_file="$ROOT/ProtonSource/VERSION"
+version_file="$ROOT/compat/VERSION"
 if [[ -z "$TUXBLOX_BUILD_VERSION" && -r "$version_file" ]]; then
     TUXBLOX_BUILD_VERSION="$(sed -n '1p' "$version_file" | tr -d '[:space:]')"
 fi
@@ -156,8 +156,8 @@ apply_patches() {
     echo ":: Reloading submodules to their recorded commit"
     git submodule update --init --force
 
-    local patches_dir="ProtonSource/patches"
-    local proton_source="ProtonSource/submodules"
+    local patches_dir="compat/patches"
+    local proton_source="compat/submodules"
 
     if [[ ! -d "$patches_dir" ]]; then
         return 0
@@ -171,7 +171,7 @@ apply_patches() {
         submodule_name="$(basename "$submodule_dir")"
 
         if [[ "$submodule_name" == "wine" ]]; then
-            echo "!! patches/wine is not supported, wine is patched directly in ProtonSource/wine, not through patches/" >&2
+            echo "!! patches/wine is not supported, wine is patched directly in compat/wine, not through patches/" >&2
             continue
         fi
 
@@ -324,7 +324,7 @@ mkdir -p "$PROTON_BUILD_DIR"
 cd "$PROTON_BUILD_DIR"
 
 step "Configuring Proton (ccache enabled for faster rebuilds)"
-run_step "configure_proton" strict logged "$ROOT/ProtonSource/configure.sh" --enable-ccache
+run_step "configure_proton" strict logged "$ROOT/compat/configure.sh" --enable-ccache
 
 step "First-pass build (1/4) (using $JOBS parallel jobs)"
 run_step "first_pass_build" allow-fail logged make -j"$JOBS"
@@ -333,7 +333,7 @@ step "Fetching external sources (2/4)"
 run_step "fetch_external_sources" strict bash -c 'cd src-glslang && rm -rf External/spirv-tools External/googletest && python3 update_glslang_sources.py'
 
 step "Initializing nested submodules (3/4)"
-run_step "init_submodules" strict bash -c 'cd "$ROOT/ProtonSource/submodules/dxvk-nvapi" && git submodule update --init --recursive'
+run_step "init_submodules" strict bash -c 'cd "$ROOT/compat/submodules/dxvk-nvapi" && git submodule update --init --recursive'
 
 step "Ensuring wine x86_64 is configured"
 run_step "configure_wine_x86_64" strict logged make wine-x86_64-configure
@@ -351,8 +351,8 @@ run_step "compile_proton_native" strict bash -c '
 
     workdir="$(mktemp -d)"
     mkdir -p "$workdir/src/third_party" "$workdir/out"
-    cp "$ROOT"/ProtonSource/src/*.cpp "$ROOT"/ProtonSource/src/*.h "$workdir/src/"
-    cp "$ROOT/ProtonSource/third_party/json.hpp" "$workdir/src/third_party/"
+    cp "$ROOT"/compat/src/*.cpp "$ROOT"/compat/src/*.h "$workdir/src/"
+    cp "$ROOT/compat/third_party/json.hpp" "$workdir/src/third_party/"
 
     # Run through sh so the *.cpp glob is expanded inside the container.
     podman run --rm --userns=keep-id -v "$workdir:/work:Z" -w /work/src \

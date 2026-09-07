@@ -64,7 +64,7 @@ cd "$PREFIX"
 # loader's absolute .so path baked into the cache FILE ITSELF at build time -- a
 # problem RPATH/env-vars can't touch, since it's data, not an ELF dynamic-section
 # entry or a getenv() call. Regenerating it needs the real final install path, which
-# isn't known until TuxBlox's own Proton build runs (see ProtonSource/Makefile.in's
+# isn't known until TuxBlox's own Proton build runs (see compat/Makefile.in's
 # extraction rule, which now runs gdk-pixbuf-query-loaders again post-extraction to
 # rebuild the cache with correct paths) -- but that means gdk-pixbuf-query-loaders
 # itself has to actually be IN the shipped tarball, even though bin/ as a whole is

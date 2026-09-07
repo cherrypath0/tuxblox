@@ -2,8 +2,8 @@
 
 This tree is WebKitGTK 2.52.5 (see `versions.env` in `webkitgtk-bundle/`), checked in
 directly rather than downloaded and patched on every build -- same treatment
-`ProtonSource/wine` already gets, and for the same reason (see the top of
-`ProtonSource/.gitmodules`): TuxBlox carries real patches against it, and applying
+`compat/wine` already gets, and for the same reason (see the top of
+`compat/.gitmodules`): TuxBlox carries real patches against it, and applying
 those as fragile inline `sed`/text-replacement scripts against a freshly-fetched
 tarball on every build is both harder to review and prone to silently breaking the
 moment upstream reflows a comment near the patched text.

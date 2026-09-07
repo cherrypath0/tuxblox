@@ -6,8 +6,8 @@ A quick tour of what lives where in the TuxBlox repository.
 
 TuxBlox's repository is split into two parts with different licenses:
 
-- **Everything outside `ProtonSource/`** is TuxBlox's own launcher and installer code, licensed under **GPLv3**.
-- **`ProtonSource/`** is TuxBlox's compatibility layer, based on Wine and Proton, licensed under **LGPLv2.1**.
+- **Everything outside `compat/`** is TuxBlox's own launcher and installer code, licensed under **GPLv3**.
+- **`compat/`** is TuxBlox's compatibility layer, based on Wine and Proton, licensed under **LGPLv2.1**.
 
 These are separate programs that talk to each other while running, not one program built from both halves. Keeping that separation is important, it is what lets the project use two different licenses.
 
@@ -15,7 +15,7 @@ These are separate programs that talk to each other while running, not one progr
 
 - **`installer/`**, the source code for `TuxBloxInstaller`.
 - **`launcher/`**, the source code for `TuxBloxLauncher`, which sets up and runs Roblox.
-- **`ProtonSource/`**, TuxBlox's compatibility layer. Made up of many smaller pieces (submodules), plus a Wine fork maintained directly inside this repository. `ProtonSource/src/` holds TuxBlox's own C++ for the layer, and is the one part of it that is GPLv3.
+- **`compat/`**, TuxBlox's compatibility layer. Made up of many smaller pieces (submodules), plus a Wine fork maintained directly inside this repository. `compat/src/` holds TuxBlox's own C++ for the layer, and is the one part of it that is GPLv3.
 - **`webkitgtk-bundle/`**, the bundled web browser component used for things like the Roblox login screen and Toolbox.
 - **`docs/`**, this documentation.
 - **`include/`**, extra files that get copied into the finished build.

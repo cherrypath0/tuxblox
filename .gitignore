@@ -25,10 +25,10 @@ installer/third_party/
 *.so
 *.archived
 
-ProtonSource/dist
-ProtonSource/dist-*
-ProtonSource/obj-*
-ProtonSource/syn-*
+compat/dist
+compat/dist-*
+compat/obj-*
+compat/syn-*
 protonbuild-*.tar.gz
 protonbuild-*.tar.zst
 libtuxblox-*.tar.zst

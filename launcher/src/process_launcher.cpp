@@ -211,7 +211,7 @@ std::string protonBinaryPath(const std::string& installDir) {
 
 std::vector<std::string> launchEnvVars(const std::string& installDir, LaunchTarget target) {
     // No DXVK_ASYNC here: the bundled DXVK is 3.0.1, which dropped async
-    // pipeline compilation entirely (nothing in ProtonSource/submodules/dxvk
+    // pipeline compilation entirely (nothing in compat/submodules/dxvk
     // reads that variable any more), so setting it did nothing. Its
     // replacement -- the graphics pipeline library path -- is on by default
     // (dxvk.enableGraphicsPipelineLibrary defaults to Auto). Kept in sync
@@ -361,13 +361,13 @@ LaunchOutcome ProcessLauncher::launch(LaunchTarget target, const std::string& ur
     // process must NOT use Proton's "run" verb:
     //
     //  - "run" goes through init_session(update_prefix_files=True), which calls
-    //    Prefix::setup() in ProtonSource/prefix.cpp. That rewrites prefix state --
+    //    Prefix::setup() in compat/src/prefix.cpp. That rewrites prefix state --
     //    upgrade_pfx(), migrate_user_paths(), and sync_host_theme()'s direct
     //    user.reg text writes -- underneath a live wineserver, which owns the
     //    registry and flushes over such writes.
-    //  - "run" ends in Session::waitForPrefixDrain() in ProtonSource/session.cpp, whose deadline
+    //  - "run" ends in Session::waitForPrefixDrain() in compat/src/session.cpp, whose deadline
     //    is held off for as long as ANY Roblox process holds the prefix
-    //    (Session::run in ProtonSource/session.cpp) -- including one
+    //    (Session::run in compat/src/session.cpp) -- including one
     //    belonging to a different instance.
     //    This launch's exit would not be reported until every instance exited,
     //    delaying its crash popup and Roblox-log capture indefinitely.

@@ -1,78 +1,78 @@
 # wine used to be a submodule, now its a seperately maintained fork, integrated into TuxBlox Proton
-# [submodule "ProtonSource/wine"]
-#	path = ProtonSource/wine
+# [submodule "compat/wine"]
+#	path = compat/wine
 #	url = https://github.com/ValveSoftware/wine
-[submodule "ProtonSource/dxvk"]
-	path = ProtonSource/submodules/dxvk
+[submodule "compat/dxvk"]
+	path = compat/submodules/dxvk
 	url = https://github.com/doitsujin/dxvk.git
-[submodule "ProtonSource/openvr"]
-	path = ProtonSource/submodules/openvr
+[submodule "compat/openvr"]
+	path = compat/submodules/openvr
 	url = https://github.com/ValveSoftware/openvr
-[submodule "ProtonSource/fonts/liberation-fonts"]
-	path = ProtonSource/submodules/liberation-fonts
+[submodule "compat/fonts/liberation-fonts"]
+	path = compat/submodules/liberation-fonts
 	url = https://github.com/liberationfonts/liberation-fonts
-[submodule "ProtonSource/gstreamer"]
-	path = ProtonSource/submodules/gstreamer
+[submodule "compat/gstreamer"]
+	path = compat/submodules/gstreamer
 	url = https://github.com/GStreamer/gstreamer.git
-[submodule "ProtonSource/gst-orc"]
-	path = ProtonSource/submodules/gst-orc
+[submodule "compat/gst-orc"]
+	path = compat/submodules/gst-orc
 	url = https://github.com/GStreamer/orc.git
-[submodule "ProtonSource/vkd3d-proton"]
-	path = ProtonSource/submodules/vkd3d-proton
+[submodule "compat/vkd3d-proton"]
+	path = compat/submodules/vkd3d-proton
 	url = https://github.com/HansKristian-Work/vkd3d-proton
-[submodule "ProtonSource/OpenXR-SDK"]
-	path = ProtonSource/submodules/OpenXR-SDK
+[submodule "compat/OpenXR-SDK"]
+	path = compat/submodules/OpenXR-SDK
 	url = https://github.com/KhronosGroup/OpenXR-SDK
-[submodule "ProtonSource/dxvk-nvapi"]
-	path = ProtonSource/submodules/dxvk-nvapi
+[submodule "compat/dxvk-nvapi"]
+	path = compat/submodules/dxvk-nvapi
 	url = https://github.com/jp7677/dxvk-nvapi
-[submodule "ProtonSource/vkd3d"]
-	path = ProtonSource/submodules/vkd3d
+[submodule "compat/vkd3d"]
+	path = compat/submodules/vkd3d
 	url = https://gitlab.winehq.org/wine/vkd3d
-[submodule "ProtonSource/Vulkan-Headers"]
-	path = ProtonSource/submodules/Vulkan-Headers
+[submodule "compat/Vulkan-Headers"]
+	path = compat/submodules/Vulkan-Headers
 	url = https://github.com/KhronosGroup/Vulkan-Headers
-[submodule "ProtonSource/SPIRV-Headers"]
-	path = ProtonSource/submodules/SPIRV-Headers
+[submodule "compat/SPIRV-Headers"]
+	path = compat/submodules/SPIRV-Headers
 	url = https://github.com/KhronosGroup/SPIRV-Headers
-[submodule "ProtonSource/Vulkan-Loader"]
-	path = ProtonSource/submodules/Vulkan-Loader
+[submodule "compat/Vulkan-Loader"]
+	path = compat/submodules/Vulkan-Loader
 	url = https://github.com/KhronosGroup/Vulkan-Loader
-[submodule "ProtonSource/gst-libav"]
-	path = ProtonSource/submodules/gst-libav
+[submodule "compat/gst-libav"]
+	path = compat/submodules/gst-libav
 	url = https://github.com/GStreamer/gst-libav
-[submodule "ProtonSource/ffmpeg"]
-	path = ProtonSource/submodules/ffmpeg
+[submodule "compat/ffmpeg"]
+	path = compat/submodules/ffmpeg
 	url = https://github.com/FFmpeg/FFmpeg
-[submodule "ProtonSource/dav1d"]
-	path = ProtonSource/submodules/dav1d
+[submodule "compat/dav1d"]
+	path = compat/submodules/dav1d
 	url = https://github.com/videolan/dav1d.git
-[submodule "ProtonSource/gst-plugins-rs"]
-	path = ProtonSource/submodules/gst-plugins-rs
+[submodule "compat/gst-plugins-rs"]
+	path = compat/submodules/gst-plugins-rs
 	url = https://github.com/sdroege/gst-plugin-rs
-[submodule "ProtonSource/graphene"]
-	path = ProtonSource/submodules/graphene
+[submodule "compat/graphene"]
+	path = compat/submodules/graphene
 	url = https://github.com/ebassi/graphene
-[submodule "ProtonSource/glslang"]
-	path = ProtonSource/submodules/glslang
+[submodule "compat/glslang"]
+	path = compat/submodules/glslang
 	url = https://github.com/KhronosGroup/glslang
-[submodule "ProtonSource/piper"]
-	path = ProtonSource/submodules/piper
+[submodule "compat/piper"]
+	path = compat/submodules/piper
 	url = https://github.com/shaunren/piper.git
 	branch = library
-[submodule "ProtonSource/openfst"]
-	path = ProtonSource/submodules/openfst
+[submodule "compat/openfst"]
+	path = compat/submodules/openfst
 	url = https://github.com/alphacep/openfst
-[submodule "ProtonSource/kaldi"]
-	path = ProtonSource/submodules/kaldi
+[submodule "compat/kaldi"]
+	path = compat/submodules/kaldi
 	url = https://github.com/alphacep/kaldi
 	branch = vosk
-[submodule "ProtonSource/vosk-api"]
-	path = ProtonSource/submodules/vosk-api
+[submodule "compat/vosk-api"]
+	path = compat/submodules/vosk-api
 	url = https://github.com/alphacep/vosk-api
-[submodule "ProtonSource/FEX"]
-	path = ProtonSource/submodules/FEX
+[submodule "compat/FEX"]
+	path = compat/submodules/FEX
 	url = https://github.com/FEX-Emu/FEX/
-[submodule "ProtonSource/libsoup"]
-	path = ProtonSource/submodules/libsoup
+[submodule "compat/libsoup"]
+	path = compat/submodules/libsoup
 	url = https://github.com/GNOME/libsoup.git

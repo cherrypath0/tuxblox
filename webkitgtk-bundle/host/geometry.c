@@ -18,8 +18,8 @@
 /* webkitgtk-bundle/host/geometry.c
  *
  * X11 window geometry sync + reparenting -- ported from
- * ProtonSource/wine/dlls/webview2loader/unixlib.c as of commit ac3634ea6
- * (see git show ac3634ea6:ProtonSource/wine/dlls/webview2loader/unixlib.c).
+ * compat/wine/dlls/webview2loader/unixlib.c as of commit ac3634ea6
+ * (see git show ac3634ea6:compat/wine/dlls/webview2loader/unixlib.c).
  * This is Task 5 of the webview2loader-host-process plan
  * (docs/superpowers/plans/2026-08-14-webview2loader-host-process.md).
  *
@@ -698,7 +698,7 @@ gboolean geometry_sync(struct native_webview *nv, struct wv2l_rect bounds, gbool
              * and when it goes false WebKit stops painting the page -- which
              * is the symptom. TuxBlox already force-overrides isInMonitor()
              * and isSuspended() for exactly this reason (see
-             * ProtonSource/webkitgtk/README-TUXBLOX-PATCHES.md patches 3 and
+             * compat/webkitgtk/README-TUXBLOX-PATCHES.md patches 3 and
              * 4), but the other two inputs, gtk_widget_get_mapped() and
              * isMinimized(), are NOT overridden.
              *
