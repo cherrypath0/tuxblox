@@ -145,7 +145,7 @@ fi
 if [[ $stage_only -eq 0 && -z "${TUXBLOX_NO_VERSION_COMMIT:-}" ]] &&
    git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 &&
    ! git -C "$ROOT" diff --quiet HEAD -- "$version_file" 2>/dev/null; then
-    if git -C "$ROOT" commit -q -m "build: version $TUXBLOX_BUILD_VERSION $TUXBLOX_CHANNEL" \
+    if git -C "$ROOT" commit -q -m "Change version to $TUXBLOX_BUILD_VERSION" \
             -- "$version_file" 2>/dev/null; then
         echo ":: Committed VERSION as $TUXBLOX_BUILD_VERSION $TUXBLOX_CHANNEL"
     else
