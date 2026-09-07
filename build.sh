@@ -26,11 +26,17 @@ export BUILD_LOG="$ROOT/build.log"
 debug=1
 force_deps=0
 log_enabled=0
+stage_only=0
 for arg in "$@"; do
     case "$arg" in
         --nodebug) debug=0 ;;
         --reinstall-deps) force_deps=1 ;;
         --log) log_enabled=1 ;;
+        # Re-publish what is already in build/ without rebuilding it. Useful
+        # after the release folder is deleted or its metadata needs redoing:
+        # everything under releases/ is derived from build/, so it can always
+        # be regenerated as long as build/ is intact.
+        --stage-only) stage_only=1 ;;
     esac
 done
 
@@ -56,8 +62,26 @@ fi
 # pressing Enter rebuilds the same version. -t 0 keeps a non-interactive run
 # (CI, a pipe, nohup) on the file's value instead of blocking on a prompt it
 # cannot answer.
+# A --stage-only run publishes what is ALREADY in build/, so the version has
+# to come from the artifact itself: the compiled layer reports the number that
+# was baked into it, while VERSION may have been bumped since that build.
+# Publishing binaries under a version they do not themselves report is exactly
+# the mismatch this avoids -- and it is why this run neither prompts nor writes
+# VERSION back. An explicit TUXBLOX_BUILD_VERSION still wins, for the case
+# where you really do mean to publish under a different number.
+if [[ $stage_only -eq 1 && -z "$TUXBLOX_BUILD_VERSION" && -x "$ROOT/build/compat/main" ]]; then
+    built_version="$("$ROOT/build/compat/main" --version 2>/dev/null | head -1 | tr -d '[:space:]')"
+    if [[ -n "$built_version" ]]; then
+        if [[ -n "$file_version" && "$file_version" != "$built_version" ]]; then
+            echo "!! VERSION says $file_version, but build/ was built as $built_version." >&2
+            echo "!! Staging as $built_version, which is what these binaries report." >&2
+        fi
+        TUXBLOX_BUILD_VERSION="$built_version"
+    fi
+fi
+
 if [[ -z "$TUXBLOX_BUILD_VERSION" ]]; then
-    if [[ -t 0 ]]; then
+    if [[ -t 0 && $stage_only -eq 0 ]]; then
         read -rp "Enter version for this build${file_version:+ ($file_version)}: " TUXBLOX_BUILD_VERSION
         TUXBLOX_BUILD_VERSION="${TUXBLOX_BUILD_VERSION:-$file_version}"
         while [[ -z "$TUXBLOX_BUILD_VERSION" ]]; do
@@ -78,7 +102,7 @@ fi
 # releases/ folder this build is published under.
 if [[ -z "$TUXBLOX_CHANNEL" ]]; then
     default_channel="${file_channel:-stable}"
-    if [[ -t 0 ]]; then
+    if [[ -t 0 && $stage_only -eq 0 ]]; then
         read -rp "Enter channel for this build [stable/canary/dev] ($default_channel): " TUXBLOX_CHANNEL
         TUXBLOX_CHANNEL="${TUXBLOX_CHANNEL:-$default_channel}"
         while [[ ! "$TUXBLOX_CHANNEL" =~ ^(stable|canary|dev)$ ]]; do
@@ -102,12 +126,29 @@ esac
 # still leaves VERSION agreeing with what was attempted, and a re-run then
 # offers that same number as its default rather than silently reverting to the
 # last one that happened to succeed.
-if [[ "$file_version" != "$TUXBLOX_BUILD_VERSION" || "$file_channel" != "$TUXBLOX_CHANNEL" ]]; then
+#
+# Not done for --stage-only: that run publishes an existing build rather than
+# deciding what to build, so it has no business changing what the next build
+# will be.
+if [[ $stage_only -eq 0 ]] &&
+   [[ "$file_version" != "$TUXBLOX_BUILD_VERSION" || "$file_channel" != "$TUXBLOX_CHANNEL" ]]; then
     printf '%s\n%s\n' "$TUXBLOX_BUILD_VERSION" "$TUXBLOX_CHANNEL" > "$version_file"
     echo ":: Updated VERSION to $TUXBLOX_BUILD_VERSION $TUXBLOX_CHANNEL"
 fi
 
-echo ":: Building TuxBlox $TUXBLOX_BUILD_VERSION ($TUXBLOX_CHANNEL)"
+if [[ $stage_only -eq 1 ]]; then
+    # Checked before anything is announced, so a run with nothing to publish
+    # says so instead of first claiming it is staging from a build/ that is
+    # not there.
+    if [[ ! -d build ]]; then
+        echo "!! --stage-only publishes what is in build/, and there is no build/ to publish." >&2
+        echo "!! Run ./build.sh without --stage-only first." >&2
+        exit 1
+    fi
+    echo ":: Staging TuxBlox $TUXBLOX_BUILD_VERSION ($TUXBLOX_CHANNEL) from build/"
+else
+    echo ":: Building TuxBlox $TUXBLOX_BUILD_VERSION ($TUXBLOX_CHANNEL)"
+fi
 export TUXBLOX_BUILD_VERSION TUXBLOX_CHANNEL
 
 packages=(
@@ -381,6 +422,16 @@ PY
     echo ":: Published to releases/$channel/$version/"
     du -h "$release_dir"/* | sed 's/^/   /'
 }
+
+# Everything below this point builds, and the first thing it does is wipe
+# build/ -- which is precisely what a --stage-only run must not do, since
+# build/ is the input it publishes from. So that run ends here, before any of
+# it, having touched nothing but releases/.
+if [[ $stage_only -eq 1 ]]; then
+    stage_release
+    echo -e "Staged TuxBlox $TUXBLOX_BUILD_VERSION ($TUXBLOX_CHANNEL) into releases/"
+    exit 0
+fi
 
 step "Cleaning up previous build logs"
 rm -f "$BUILD_LOG"
