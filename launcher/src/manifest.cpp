@@ -97,7 +97,11 @@ Manifest parseManifest(const std::string& jsonText, const std::string& baseUrl) 
                                      std::to_string(kSupportedManifestVersion) + ")");
         }
         m.channel = j.at("channel").get<std::string>();
-        m.proton = parseArtifact(j.at("artifacts"), "proton", baseUrl);
+        // The compatibility layer was published as "proton" before it was
+        // renamed, so a manifest that predates the rename still names it that.
+        const auto& artifacts = j.at("artifacts");
+        m.compat = parseArtifact(artifacts, artifacts.contains("compat") ? "compat" : "proton",
+                                 baseUrl);
         m.launcher = parseArtifact(j.at("artifacts"), "launcher", baseUrl);
         m.installer = parseArtifact(j.at("artifacts"), "installer", baseUrl);
         return m;

@@ -42,7 +42,7 @@ int runHeadlessQuickLaunch(const std::string& installDir, LaunchTarget target, c
         setenv(kv.substr(0, pos).c_str(), kv.substr(pos + 1).c_str(), 1);
     }
 
-    std::string proton = protonBinaryPath(installDir);
+    std::string proton = compatBinaryPath(installDir);
     std::vector<std::string> argvStrings = {proton, "run", exePath};
     if (!uri.empty()) argvStrings.push_back(uri);
 

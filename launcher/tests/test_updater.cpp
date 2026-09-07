@@ -80,7 +80,7 @@ int main() {
     const std::string installerFileUrl = "file://" + installerSrc.string();
 
     // Fakes an installed proton: an executable proton/main whose --version
-    // output is `version` (readInstalledProtonVersion execs it).
+    // output is `version` (readInstalledCompatVersion execs it).
     auto writeProtonMain = [](const fs::path& installDirPath, const std::string& version) {
         fs::create_directories(installDirPath / "proton");
         { std::ofstream out(installDirPath / "proton" / "main"); out << "#!/bin/sh\necho " << version << "\n"; }

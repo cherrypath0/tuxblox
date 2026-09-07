@@ -15,7 +15,9 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "process_launcher.h"
+
 #include "downloader.h"
+#include "install_paths.h"
 #include "prefix_session.h"
 #include "versions_manifest.h"
 #include <atomic>
@@ -205,8 +207,8 @@ void TrackedProcess::stop() {
     }
 }
 
-std::string protonBinaryPath(const std::string& installDir) {
-    return installDir + "/proton/main";
+std::string compatBinaryPath(const std::string& installDir) {
+    return compatDirUnder(installDir) + "/main";
 }
 
 std::vector<std::string> launchEnvVars(const std::string& installDir, LaunchTarget target) {
@@ -382,7 +384,7 @@ LaunchOutcome ProcessLauncher::launch(LaunchTarget target, const std::string& ur
     // corrupts; the only effect is that each drain-waits for the other, i.e.
     // today's single-instance behaviour. Rare and benign.
     const bool secondary = prefixHasSessionHolder(installDir_ + "/runtime/pfx");
-    std::vector<std::string> argv = {protonBinaryPath(installDir_), "run"};
+    std::vector<std::string> argv = {compatBinaryPath(installDir_), "run"};
     if (secondary) argv.push_back("--immediate");
     argv.push_back(exePath);
     if (!uri.empty()) argv.push_back(uri);

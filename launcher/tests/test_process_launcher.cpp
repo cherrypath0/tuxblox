@@ -36,7 +36,7 @@ int main() {
     using namespace tuxblox;
     using namespace std::chrono_literals;
 
-    assert(protonBinaryPath("/x/tuxblox") == "/x/tuxblox/proton/main");
+    assert(compatBinaryPath("/x/tuxblox") == "/x/tuxblox/compat/main");
 
     // launchEnvVars(): Player gets the shared Proton vars, no DXVK_CONFIG override.
     {

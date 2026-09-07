@@ -31,7 +31,7 @@ struct Artifact {
 struct Manifest {
     int manifestVersion = 0;
     std::string channel;
-    Artifact proton;
+    Artifact compat;
     Artifact launcher;
     Artifact installer;
 };

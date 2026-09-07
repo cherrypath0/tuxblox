@@ -44,7 +44,7 @@
 # SEPARATE release artifacts -- "launcher" is a flat file, "libtuxblox" is a
 # tarball. The installer wipes an archive artifact's whole target directory
 # before re-extracting it on upgrade, so libtuxblox has to own a directory of its
-# own; a flat extraction into ~/.tuxblox itself would delete proton/, runtime/
+# own; a flat extraction into ~/.tuxblox itself would delete compat/, runtime/
 # and the launcher binary on every libtuxblox upgrade.
 #
 #   build/TuxBloxLauncher                        <- artifact "launcher" (flat file)

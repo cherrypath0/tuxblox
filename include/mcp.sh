@@ -94,4 +94,4 @@ protonEnv=(
 
 # "--immediate": a plain "run" waits for the whole prefix to empty, and Studio
 # stays open, so it would never return and would hang the MCP client.
-exec env "${protonEnv[@]}" "$(pwd)/proton/main" run --immediate "$mcpExe" "$@"
+exec env "${protonEnv[@]}" "$(pwd)/compat/main" run --immediate "$mcpExe" "$@"

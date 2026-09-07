@@ -102,7 +102,7 @@ struct LaunchOutcome {
 std::string resolveActiveVersionExePath(LaunchTarget target, const std::string& installDir);
 
 std::string resolveOrBootstrapExePath(LaunchTarget target, const std::string& installDir);
-std::string protonBinaryPath(const std::string& installDir);
+std::string compatBinaryPath(const std::string& installDir);
 
 // Path of the crash/stdout log for one launch. Carries the launcher's pid
 // because several instances can run at once (a second Studio goes through

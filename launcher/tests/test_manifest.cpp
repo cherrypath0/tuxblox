@@ -60,9 +60,9 @@ int main() {
     auto m = parseManifest(good, baseUrl);
     assert(m.manifestVersion == 2);
     assert(m.channel == "canary");
-    assert(m.proton.url == "https://setup.tuxblox.net/v1/canary/0.2.0/proton.tar.zst");
-    assert(m.proton.sha256 == "deadbeef");
-    assert(m.proton.sizeBytes == 123456789ULL);
+    assert(m.compat.url == "https://setup.tuxblox.net/v1/canary/0.2.0/proton.tar.zst");
+    assert(m.compat.sha256 == "deadbeef");
+    assert(m.compat.sizeBytes == 123456789ULL);
     assert(m.launcher.url == "https://setup.tuxblox.net/v1/canary/0.2.0/launcher");
     assert(m.launcher.sha256 == "cafebabe");
     assert(m.launcher.sizeBytes == 12345678ULL);
@@ -84,7 +84,7 @@ int main() {
           }
         })";
         auto m2 = parseManifest(absoluteUrlManifest, baseUrl);
-        assert(m2.proton.url == "https://example.com/proton.tar.zst");
+        assert(m2.compat.url == "https://example.com/proton.tar.zst");
     }
 
     bool threw = false;

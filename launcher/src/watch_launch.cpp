@@ -121,7 +121,7 @@ int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const 
     if (settings.sendCrashReports) {
         CrashReport report;
         report.launcherVersion = currentVersion;
-        report.protonVersion = readInstalledProtonVersion(installDir).value_or("");
+        report.protonVersion = readInstalledCompatVersion(installDir).value_or("");
         report.target = target;
         report.protonExitCode = protonExitCode;
         report.robloxExitCode = robloxExitCode;

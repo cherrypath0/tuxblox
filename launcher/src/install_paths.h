@@ -28,14 +28,15 @@ std::string installDir();
 // True if the filesystem containing `path` has at least `minBytes` free.
 bool hasEnoughDiskSpace(const std::string& path, uint64_t minBytes);
 
-// installDir + "/proton"
-std::string protonDirUnder(const std::string& installDir);
+// installDir + "/compat", falling back to the old "/proton" name when an
+// install still uses it.
+std::string compatDirUnder(const std::string& installDir);
 
-// Runs `<installDir>/proton/main --version` (the build version is baked
+// Runs `<installDir>/compat/main --version` (the build version is baked
 // into the binary by the root build.sh) and returns its first output line,
 // or std::nullopt if the binary is missing, exits nonzero, or prints
 // nothing.
-std::optional<std::string> readInstalledProtonVersion(const std::string& installDir);
+std::optional<std::string> readInstalledCompatVersion(const std::string& installDir);
 
 // The currently-running binary's real on-disk path, via /proc/self/exe -- not
 // argv[0], which can be relative, a bare basename, or missing entirely

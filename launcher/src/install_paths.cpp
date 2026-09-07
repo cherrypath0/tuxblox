@@ -40,12 +40,22 @@ bool hasEnoughDiskSpace(const std::string& path, uint64_t minBytes) {
     return freeBytes >= minBytes;
 }
 
-std::string protonDirUnder(const std::string& installDir) {
-    return installDir + "/proton";
+std::string compatDirUnder(const std::string& installDir) {
+    const std::string current = installDir + "/compat";
+    if (access(current.c_str(), F_OK) == 0) return current;
+
+    // An install made before the compatibility layer was renamed has it under
+    // the old name, and so does one made from a release manifest that still
+    // names the artifact "proton". Accept that name when the current one is
+    // not there, so neither case has to be reinstalled.
+    const std::string legacy = installDir + "/proton";
+    if (access(legacy.c_str(), F_OK) == 0) return legacy;
+
+    return current;
 }
 
-std::optional<std::string> readInstalledProtonVersion(const std::string& installDir) {
-    const std::string bin = protonDirUnder(installDir) + "/main";
+std::optional<std::string> readInstalledCompatVersion(const std::string& installDir) {
+    const std::string bin = compatDirUnder(installDir) + "/main";
     if (access(bin.c_str(), X_OK) != 0) return std::nullopt;
 
     // fork/exec instead of popen: no shell involved, so installDir needs no

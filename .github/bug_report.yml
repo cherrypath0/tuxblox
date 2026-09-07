@@ -30,7 +30,7 @@ body:
     id: tuxbloxVersion
     attributes:
       label: TuxBlox version
-      description: Output of `~/.tuxblox/proton/main --version` (or the release/commit you built from)
+      description: Output of `~/.tuxblox/compat/main --version` (or the release/commit you built from)
       placeholder: e.g. v0.4.2 or commit abc1234
     validations:
       required: true

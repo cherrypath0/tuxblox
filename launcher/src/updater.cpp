@@ -169,11 +169,11 @@ UpdateResult runUpdateCheck(const std::string& currentLauncherVersion,
     // requiredVersion rather than separate tuxbloxVersion/protonVersion
     // fields that no longer exist on Manifest.
     const bool launcherNeedsUpdate = versionNeedsUpdate(currentLauncherVersion, requiredVersion);
-    auto installedProtonVersion = readInstalledProtonVersion(dir);
-    const bool protonNeedsUpdate =
-        !installedProtonVersion.has_value() || versionNeedsUpdate(*installedProtonVersion, requiredVersion);
+    auto installedCompatVersion = readInstalledCompatVersion(dir);
+    const bool compatNeedsUpdate =
+        !installedCompatVersion.has_value() || versionNeedsUpdate(*installedCompatVersion, requiredVersion);
 
-    if (!launcherNeedsUpdate && !protonNeedsUpdate) {
+    if (!launcherNeedsUpdate && !compatNeedsUpdate) {
         report(UpdatePhase::UpToDate, 1.0);
         return {};
     }
@@ -181,7 +181,7 @@ UpdateResult runUpdateCheck(const std::string& currentLauncherVersion,
     EnsureInstallerResult ensured = ensureInstallerBinary(manifest, dir, cancel, onProgress);
     if (!ensured.ok) return {};
 
-    return {true, ensured.installerPath, !installedProtonVersion.has_value()};
+    return {true, ensured.installerPath, !installedCompatVersion.has_value()};
 }
 
 } // namespace tuxblox

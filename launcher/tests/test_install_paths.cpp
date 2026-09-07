@@ -44,13 +44,26 @@ int main() {
     assert(hasEnoughDiskSpace("/tmp", 1) == true);
     assert(hasEnoughDiskSpace("/tmp", (uint64_t)1 << 60) == false);
 
-    assert(protonDirUnder("/x/tuxblox") == "/x/tuxblox/proton");
+    // Neither directory present: the current name is what gets reported.
+    assert(compatDirUnder("/x/tuxblox") == "/x/tuxblox/compat");
+
+    // An install still carrying the old name is found under it, and the
+    // current name wins whenever both are there.
+    {
+        fs::path dir = fs::temp_directory_path() / "tuxblox_test_install_paths_legacy";
+        fs::remove_all(dir);
+        fs::create_directories(dir / "proton");
+        assert(compatDirUnder(dir.string()) == (dir / "proton").string());
+        fs::create_directories(dir / "compat");
+        assert(compatDirUnder(dir.string()) == (dir / "compat").string());
+        fs::remove_all(dir);
+    }
 
     // Missing proton binary -> nullopt.
     {
         fs::path dir = fs::temp_directory_path() / "tuxblox_test_install_paths_missing";
         fs::remove_all(dir);
-        auto v = readInstalledProtonVersion(dir.string());
+        auto v = readInstalledCompatVersion(dir.string());
         assert(!v.has_value());
     }
 
@@ -58,13 +71,13 @@ int main() {
     {
         fs::path dir = fs::temp_directory_path() / "tuxblox_test_install_paths_ok";
         fs::remove_all(dir);
-        fs::create_directories(dir / "proton");
+        fs::create_directories(dir / "compat");
         {
-            std::ofstream out(dir / "proton" / "main");
+            std::ofstream out(dir / "compat" / "main");
             out << "#!/bin/sh\necho 0.1.0\n";
         }
-        fs::permissions(dir / "proton" / "main", fs::perms::owner_all);
-        auto v = readInstalledProtonVersion(dir.string());
+        fs::permissions(dir / "compat" / "main", fs::perms::owner_all);
+        auto v = readInstalledCompatVersion(dir.string());
         assert(v.has_value() && *v == "0.1.0");
         fs::remove_all(dir);
     }
@@ -73,13 +86,13 @@ int main() {
     {
         fs::path dir = fs::temp_directory_path() / "tuxblox_test_install_paths_failing";
         fs::remove_all(dir);
-        fs::create_directories(dir / "proton");
+        fs::create_directories(dir / "compat");
         {
-            std::ofstream out(dir / "proton" / "main");
+            std::ofstream out(dir / "compat" / "main");
             out << "#!/bin/sh\nexit 1\n";
         }
-        fs::permissions(dir / "proton" / "main", fs::perms::owner_all);
-        auto v = readInstalledProtonVersion(dir.string());
+        fs::permissions(dir / "compat" / "main", fs::perms::owner_all);
+        auto v = readInstalledCompatVersion(dir.string());
         assert(!v.has_value());
         fs::remove_all(dir);
     }

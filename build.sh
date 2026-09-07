@@ -377,12 +377,12 @@ shopt -u nullglob
 cd "$ROOT"
 
 step "Staging Proton"
-mv "$PROTON_BUILD_DIR/dist" build/proton
+mv "$PROTON_BUILD_DIR/dist" build/compat
 
 step "Copying licenses into Proton"
-cp -a LICENSE build/proton/LICENSE
-rm -rf build/proton/third_party_licenses
-cp -a third_party_licenses build/proton/third_party_licenses
+cp -a LICENSE build/compat/LICENSE
+rm -rf build/compat/third_party_licenses
+cp -a third_party_licenses build/compat/third_party_licenses
 
 step "Copying include/ into build/"
 if [[ -d include ]]; then
