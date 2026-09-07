@@ -704,6 +704,26 @@ static void output_load_config(void)
 
 
 /*******************************************************************
+ *         default_stack_reserve / default_stack_commit
+ *
+ * The stack a Windows binary asks for when its own spec file does not say.
+ * Every Microsoft system dll reserves 256K and commits a page; their programs
+ * reserve 512K and commit four pages. A program can read both back for each
+ * module it has loaded, so the numbers are worth matching.
+ */
+static unsigned int default_stack_reserve( const DLLSPEC *spec )
+{
+    if (spec->stack_size) return spec->stack_size * 1024;
+    return (spec->characteristics & IMAGE_FILE_DLL) ? 0x40000 : 0x80000;
+}
+
+static unsigned int default_stack_commit( const DLLSPEC *spec, unsigned int page_size )
+{
+    return (spec->characteristics & IMAGE_FILE_DLL) ? page_size : 4 * page_size;
+}
+
+
+/*******************************************************************
  *         output_module
  *
  * Output the module data.
@@ -790,8 +810,8 @@ void output_module( DLLSPEC *spec )
              get_asm_ptr_keyword() );
     output( "\t.long %u\n", page_size );  /* SectionAlignment */
     output( "\t.long %u\n", page_size );  /* FileAlignment */
-    output( "\t.short 1,0\n" );           /* Major/MinorOperatingSystemVersion */
-    output( "\t.short 0,0\n" );           /* Major/MinorImageVersion */
+    output( "\t.short 10,0\n" );          /* Major/MinorOperatingSystemVersion */
+    output( "\t.short 10,0\n" );          /* Major/MinorImageVersion */
     output( "\t.short %u,%u\n",           /* Major/MinorSubsystemVersion */
              spec->subsystem_major, spec->subsystem_minor );
     output( "\t.long 0\n" );                          /* Win32VersionValue */
@@ -803,7 +823,7 @@ void output_module( DLLSPEC *spec )
     output( "\t.short 0x%04x\n",          /* DllCharacteristics */
             spec->dll_characteristics );
     output( "\t%s %u,%u\n",               /* SizeOfStackReserve/Commit */
-             get_asm_ptr_keyword(), (spec->stack_size ? spec->stack_size : 1024) * 1024, page_size );
+             get_asm_ptr_keyword(), default_stack_reserve( spec ), default_stack_commit( spec, page_size ) );
     output( "\t%s %u,%u\n",               /* SizeOfHeapReserve/Commit */
              get_asm_ptr_keyword(), (spec->heap_size ? spec->heap_size : 1024) * 1024, page_size );
     output( "\t.long 0\n" );              /* LoaderFlags */
@@ -1206,9 +1226,9 @@ static void output_pe_file( DLLSPEC *spec, const char signature[32] )
     }
     put_dword( pe.section_align );                   /* SectionAlignment */
     put_dword( pe.file_align );                      /* FileAlignment */
-    put_word( 1 );                                   /* MajorOperatingSystemVersion */
+    put_word( 10 );                                  /* MajorOperatingSystemVersion */
     put_word( 0 );                                   /* MinorOperatingSystemVersion */
-    put_word( 0 );                                   /* MajorImageVersion */
+    put_word( 10 );                                  /* MajorImageVersion */
     put_word( 0 );                                   /* MinorImageVersion */
     put_word( spec->subsystem_major );               /* MajorSubsystemVersion */
     put_word( spec->subsystem_minor );               /* MinorSubsystemVersion */
@@ -1218,8 +1238,8 @@ static void output_pe_file( DLLSPEC *spec, const char signature[32] )
     put_dword( 0 );                                  /* CheckSum */
     put_word( spec->subsystem );                     /* Subsystem */
     put_word( spec->dll_characteristics );           /* DllCharacteristics */
-    put_pword( (spec->stack_size ? spec->stack_size : 1024) * 1024 ); /* SizeOfStackReserve */
-    put_pword( pe.section_align );                   /* SizeOfStackCommit */
+    put_pword( default_stack_reserve( spec ) );      /* SizeOfStackReserve */
+    put_pword( default_stack_commit( spec, pe.section_align ) ); /* SizeOfStackCommit */
     put_pword( (spec->heap_size ? spec->heap_size : 1024) * 1024 );   /* SizeOfHeapReserve */
     put_pword( pe.section_align );                   /* SizeOfHeapCommit */
     put_dword( 0 );                                  /* LoaderFlags */
