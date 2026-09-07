@@ -136,6 +136,23 @@ if [[ $stage_only -eq 0 ]] &&
     echo ":: Updated VERSION to $TUXBLOX_BUILD_VERSION $TUXBLOX_CHANNEL"
 fi
 
+# And committed, so the number a build was published under is recorded rather
+# than left as a stray modification for someone to notice later. Only VERSION
+# is committed -- "git commit -- <path>" takes that path alone and ignores
+# whatever else is staged -- and nothing is ever pushed. Checked against HEAD
+# rather than against the write above, so a VERSION that was edited by hand
+# before the build gets committed too. Set TUXBLOX_NO_VERSION_COMMIT=1 to skip.
+if [[ $stage_only -eq 0 && -z "${TUXBLOX_NO_VERSION_COMMIT:-}" ]] &&
+   git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 &&
+   ! git -C "$ROOT" diff --quiet HEAD -- "$version_file" 2>/dev/null; then
+    if git -C "$ROOT" commit -q -m "build: version $TUXBLOX_BUILD_VERSION $TUXBLOX_CHANNEL" \
+            -- "$version_file" 2>/dev/null; then
+        echo ":: Committed VERSION as $TUXBLOX_BUILD_VERSION $TUXBLOX_CHANNEL"
+    else
+        echo "!! Could not commit VERSION -- left it modified for you to commit." >&2
+    fi
+fi
+
 if [[ $stage_only -eq 1 ]]; then
     # Checked before anything is announced, so a run with nothing to publish
     # says so instead of first claiming it is staging from a build/ that is
@@ -423,11 +440,25 @@ PY
     du -h "$release_dir"/* | sed 's/^/   /'
 }
 
+# Copies include/ over build/, the last thing to land in a build. Shared, so a
+# --stage-only run ships exactly the files a full build would.
+copy_include() {
+    if [[ -d "$ROOT/include" ]]; then
+        cp -a "$ROOT/include/." "$ROOT/build/"
+    fi
+}
+
 # Everything below this point builds, and the first thing it does is wipe
 # build/ -- which is precisely what a --stage-only run must not do, since
 # build/ is the input it publishes from. So that run ends here, before any of
 # it, having touched nothing but releases/.
 if [[ $stage_only -eq 1 ]]; then
+    # include/ holds shipped files that are copied, never compiled, so
+    # refreshing them is not a rebuild -- and without this a --stage-only run
+    # would republish whatever copy the last full build happened to leave in
+    # build/, silently ignoring anything edited in include/ since.
+    echo ":: Copying include/ into build/"
+    copy_include
     stage_release
     echo -e "Staged TuxBlox $TUXBLOX_BUILD_VERSION ($TUXBLOX_CHANNEL) into releases/"
     exit 0
@@ -623,9 +654,7 @@ rm -rf build/compat/third_party_licenses
 cp -a third_party_licenses build/compat/third_party_licenses
 
 step "Copying include/ into build/"
-if [[ -d include ]]; then
-    cp -a include/. build/
-fi
+copy_include
 
 # Last, so it only ever describes a build that got all the way here. build/ is
 # left exactly as it is either way -- this publishes a copy, it does not move
