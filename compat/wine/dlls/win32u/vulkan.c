@@ -2012,6 +2012,18 @@ static BOOL extents_equals( const VkExtent2D *extents, const RECT *rect )
     return extents->width == rect->right - rect->left && extents->height == rect->bottom - rect->top;
 }
 
+/* The Win32 WSI decides whether a swapchain is suboptimal from the window client rect alone,
+ * and we report that ourselves below. Host drivers use their own window instead, which we
+ * resize asynchronously, so they can report a size we have already stopped presenting at.
+ * Mesa keeps such a status for the entire life of the swapchain (see x11_swapchain_result),
+ * which leaves an application that only resizes on WM_SIZE stuck with a swapchain it is never
+ * told to recreate. Drop the host status and let the client rect decide.
+ */
+static VkResult drop_host_suboptimal( VkResult res )
+{
+    return res == VK_SUBOPTIMAL_KHR ? VK_SUCCESS : res;
+}
+
 /*
 #version 460
 
@@ -2688,7 +2700,7 @@ static VkResult win32u_vkAcquireNextImage2KHR( VkDevice client_device, const VkA
     acquire_info_host.swapchain = swapchain->obj.host.swapchain;
     acquire_info_host.semaphore = semaphore ? semaphore->host.semaphore : 0;
     acquire_info_host.fence = fence ? fence->host.fence : 0;
-    res = device->p_vkAcquireNextImage2KHR( device->host.device, &acquire_info_host, image_index );
+    res = drop_host_suboptimal( device->p_vkAcquireNextImage2KHR( device->host.device, &acquire_info_host, image_index ) );
 
     if (!res && swapchain->fshack_dpi != surface_get_fshack_dpi( surface ))
     {
@@ -2718,9 +2730,9 @@ static VkResult win32u_vkAcquireNextImageKHR( VkDevice client_device, VkSwapchai
     RECT client_rect;
     VkResult res;
 
-    res = device->p_vkAcquireNextImageKHR( device->host.device, swapchain->obj.host.swapchain, timeout,
+    res = drop_host_suboptimal( device->p_vkAcquireNextImageKHR( device->host.device, swapchain->obj.host.swapchain, timeout,
                                               semaphore ? semaphore->host.semaphore : 0, fence ? fence->host.fence : 0,
-                                              image_index );
+                                              image_index ) );
 
     if (!res && swapchain->fshack_dpi != surface_get_fshack_dpi( surface ))
     {
@@ -3000,6 +3012,13 @@ static VkResult win32u_vkQueuePresentKHR( VkQueue client_queue, const VkPresentI
     pthread_mutex_lock( &lock );
     res = device->p_vkQueuePresentKHR( queue->host.queue, present_info );
     pthread_mutex_unlock( &lock );
+
+    res = drop_host_suboptimal( res );
+    if (present_info->pResults)
+    {
+        for (uint32_t i = 0; i < present_info->swapchainCount; i++)
+            present_info->pResults[i] = drop_host_suboptimal( present_info->pResults[i] );
+    }
 
     for (uint32_t i = 0; i < present_info->swapchainCount; i++)
     {
