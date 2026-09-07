@@ -247,9 +247,75 @@ bool isNvidiaProprietary(const std::string& driver) {
     return driver == "nvidia";
 }
 
+// "0x10de" and "10de" both normalise to "10de", which is what pci.ids uses.
+std::string bareHexId(const std::string& id) {
+    std::string bare = id.rfind("0x", 0) == 0 ? id.substr(2) : id;
+    std::transform(bare.begin(), bare.end(), bare.begin(),
+                    [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return bare;
+}
+
 } // namespace
 
+std::vector<std::string> defaultPciIdsPaths() {
+    return {
+        "/usr/share/hwdata/pci.ids",  // Arch, Fedora, openSUSE (hwdata)
+        "/usr/share/misc/pci.ids",    // Debian, Ubuntu (pciutils)
+        "/usr/share/pci.ids",         // older layouts and some minimal distributions
+    };
+}
+
+std::string lookupPciDeviceName(const std::string& pciIdsPath, const std::string& vendorId,
+                                 const std::string& deviceId) {
+    const std::string wantVendor = bareHexId(vendorId);
+    const std::string wantDevice = bareHexId(deviceId);
+    if (wantVendor.empty() || wantDevice.empty()) return "";
+
+    std::ifstream in(pciIdsPath);
+    if (!in) return "";
+
+    // pci.ids nests by indentation: vendors flush left, their devices one tab
+    // in, and each device's subsystems two tabs in. Depth is the only thing
+    // separating a device id from a subsystem id, several of which repeat ids
+    // that also exist as devices, so it is what the parse keys on.
+    bool inVendor = false;
+    std::string line;
+    while (std::getline(in, line)) {
+        if (line.empty() || line[0] == '#') continue;
+
+        if (line[0] != '\t') {
+            // A flush-left line is a new vendor (or the trailing "C 03  ..."
+            // class section). Either way the vendor we wanted has ended.
+            if (inVendor) return "";
+            // "10de  NVIDIA Corporation" -- the id, then two spaces.
+            if (line.rfind(wantVendor + "  ", 0) == 0) inVendor = true;
+            continue;
+        }
+        if (!inVendor) continue;
+        if (line.size() < 2 || line[1] == '\t') continue; // a subsystem, not a device
+
+        std::string entry = line.substr(1);
+        if (entry.rfind(wantDevice + "  ", 0) != 0) continue;
+
+        std::string name = trimTrailing(entry.substr(wantDevice.size() + 2));
+        // "GB206 [GeForce RTX 5060 Ti]" -- the bracketed half is the name a
+        // person recognises; the part before it is the chip codename.
+        auto open = name.find('[');
+        auto close = name.rfind(']');
+        if (open != std::string::npos && close != std::string::npos && close > open + 1) {
+            return name.substr(open + 1, close - open - 1);
+        }
+        return name;
+    }
+    return "";
+}
+
 std::vector<GpuDevice> enumerateGpus(const std::string& drmRoot) {
+    return enumerateGpus(drmRoot, defaultPciIdsPaths());
+}
+
+std::vector<GpuDevice> enumerateGpus(const std::string& drmRoot,
+                                      const std::vector<std::string>& pciIdsCandidates) {
     std::error_code ec;
     if (!fs::exists(drmRoot, ec) || ec) return {};
 
@@ -270,6 +336,17 @@ std::vector<GpuDevice> enumerateGpus(const std::string& drmRoot) {
     // choice is a PCI slot, so ordering never changes what is selected.
     std::sort(cardDirs.begin(), cardDirs.end());
 
+    // Resolved once for the whole sweep rather than per card: the file is
+    // ~1.6MB and every card would otherwise re-open and re-scan it.
+    std::string pciIdsPath;
+    for (const auto& candidate : pciIdsCandidates) {
+        std::ifstream probe(candidate);
+        if (probe) {
+            pciIdsPath = candidate;
+            break;
+        }
+    }
+
     std::vector<GpuDevice> gpus;
     for (const auto& cardDir : cardDirs) {
         fs::path devicePath = cardDir / "device";
@@ -288,7 +365,23 @@ std::vector<GpuDevice> enumerateGpus(const std::string& drmRoot) {
         if (gpu.pciAddress.empty()) continue; // no stable way to select it later
 
         gpu.deviceId = readFirstLine(devicePath / "device");
-        gpu.label = gpuVendorLabel(gpu.vendorId) + " (" + gpu.driver + ")";
+
+        // "NVIDIA GeForce RTX 5060 Ti" when the model is known, falling back
+        // to "NVIDIA (nvidia)" when pci.ids is absent or does not list the
+        // card. The vendor leads either way: a name like "Iris Xe Graphics"
+        // does not otherwise say who made it.
+        const std::string vendorLabel = gpuVendorLabel(gpu.vendorId);
+        std::string model;
+        if (!pciIdsPath.empty()) {
+            model = lookupPciDeviceName(pciIdsPath, gpu.vendorId, gpu.deviceId);
+        }
+        if (model.empty()) {
+            gpu.label = vendorLabel + " (" + gpu.driver + ")";
+        } else if (model.rfind(vendorLabel, 0) == 0) {
+            gpu.label = model; // already names its vendor -- don't say it twice
+        } else {
+            gpu.label = vendorLabel + " " + model;
+        }
         gpus.push_back(std::move(gpu));
     }
 

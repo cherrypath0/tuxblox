@@ -211,11 +211,69 @@ int main() {
         }
     };
 
+    // A fixture in pci.ids' real format: vendor lines flush left, device lines
+    // one tab in, subsystem lines two tabs in, comments and a trailing class
+    // section -- all of which the parser has to step over correctly.
+    fs::path pciIds = fs::temp_directory_path() / "tuxblox_test_pci.ids";
+    {
+        std::ofstream out(pciIds);
+        out << "#\n"
+               "#\tList of PCI ID's\n"
+               "#\n"
+               "1002  Advanced Micro Devices, Inc. [AMD/ATI]\n"
+               "\t744c  Navi 31 [Radeon RX 7900 XT/7900 XTX/7900M]\n"
+               "\t\t1002 0e3b  Radeon RX 7900 XTX\n"
+               "\t9999  A Card With No Bracketed Name\n"
+               "8086  Intel Corporation\n"
+               "\t9a49  TigerLake-LP GT2 [Iris Xe Graphics]\n"
+               "10de  NVIDIA Corporation\n"
+               "\t2d04  GB206 [GeForce RTX 5060 Ti]\n"
+               "\t2520  GA106M [GeForce RTX 3060 Mobile / Max-Q]\n"
+               "# the class section that closes every pci.ids file\n"
+               "C 03  Display controller\n"
+               "\t00  VGA compatible controller\n";
+    }
+
+    // lookupPciDeviceName(): the bracketed marketing name wins over the chip
+    // codename -- "GeForce RTX 5060 Ti", not "GB206 [GeForce RTX 5060 Ti]".
+    {
+        assert(lookupPciDeviceName(pciIds.string(), "0x10de", "0x2d04") == "GeForce RTX 5060 Ti");
+        assert(lookupPciDeviceName(pciIds.string(), "0x8086", "0x9a49") == "Iris Xe Graphics");
+        assert(lookupPciDeviceName(pciIds.string(), "0x1002", "0x744c") ==
+               "Radeon RX 7900 XT/7900 XTX/7900M");
+    }
+
+    // lookupPciDeviceName(): a device with no bracketed half keeps its whole
+    // name rather than coming back empty.
+    {
+        assert(lookupPciDeviceName(pciIds.string(), "0x1002", "0x9999") ==
+               "A Card With No Bracketed Name");
+    }
+
+    // lookupPciDeviceName(): a device id that belongs to a DIFFERENT vendor
+    // must not match -- the search has to stop at the next vendor line rather
+    // than scanning the rest of the file.
+    {
+        assert(lookupPciDeviceName(pciIds.string(), "0x1002", "0x2d04").empty());
+        assert(lookupPciDeviceName(pciIds.string(), "0x8086", "0x2520").empty());
+    }
+
+    // lookupPciDeviceName(): unknown vendor, unknown device, missing file and
+    // malformed ids all return "" rather than throwing or half-matching. The
+    // subsystem line "1002 0e3b" must not be mistaken for a device either.
+    {
+        assert(lookupPciDeviceName(pciIds.string(), "0xbeef", "0x1234").empty());
+        assert(lookupPciDeviceName(pciIds.string(), "0x10de", "0xffff").empty());
+        assert(lookupPciDeviceName("/nonexistent/pci.ids", "0x10de", "0x2d04").empty());
+        assert(lookupPciDeviceName(pciIds.string(), "", "").empty());
+        assert(lookupPciDeviceName(pciIds.string(), "0x1002", "0x0e3b").empty());
+    }
+
     // enumerateGpus(): missing root -> empty, never throws.
     {
         fs::path root = fs::temp_directory_path() / "tuxblox_test_gpus_missing";
         fs::remove_all(root);
-        assert(enumerateGpus(root.string()).empty());
+        assert(enumerateGpus(root.string(), {}).empty());
     }
 
     // enumerateGpus(): the hybrid-laptop case -- Intel iGPU on card0, NVIDIA
@@ -226,7 +284,7 @@ int main() {
         makeCard(root, "card0", "0x8086", "0x9a49", "i915", "0000:00:02.0");
         makeCard(root, "card1", "0x10de", "0x2520", "nvidia", "0000:01:00.0");
 
-        auto gpus = enumerateGpus(root.string());
+        auto gpus = enumerateGpus(root.string(), {});
         assert(gpus.size() == 2);
         assert(gpus[0].pciAddress == "0000:00:02.0");
         assert(gpus[0].vendorId == "0x8086");
@@ -248,7 +306,7 @@ int main() {
         makeCard(root, "card0", "0x1002", "0x744c", "amdgpu", "0000:03:00.0");
         makeCard(root, "card1", "0x1002", "0x744c", "amdgpu", "0000:0a:00.0");
 
-        auto gpus = enumerateGpus(root.string());
+        auto gpus = enumerateGpus(root.string(), {});
         assert(gpus.size() == 2);
         assert(gpus[0].label == "AMD (amdgpu) at 0000:03:00.0");
         assert(gpus[1].label == "AMD (amdgpu) at 0000:0a:00.0");
@@ -265,9 +323,70 @@ int main() {
         makeCard(root, "card1", "0x10de", "0x2520", "nvidia", "");       // no slot
         makeCard(root, "card2", "0x8086", "0x9a49", "i915", "0000:00:02.0");
 
-        auto gpus = enumerateGpus(root.string());
+        auto gpus = enumerateGpus(root.string(), {});
         assert(gpus.size() == 1);
         assert(gpus[0].driver == "i915");
+        fs::remove_all(root);
+    }
+
+    // enumerateGpus(): with a pci.ids available, the picker shows the model
+    // name rather than just the vendor -- "NVIDIA GeForce RTX 5060 Ti", not
+    // "NVIDIA (nvidia)". The vendor label still leads, because a name like
+    // "Iris Xe Graphics" does not otherwise say who made it.
+    {
+        fs::path root = fs::temp_directory_path() / "tuxblox_test_gpus_named";
+        fs::remove_all(root);
+        makeCard(root, "card0", "0x8086", "0x9a49", "i915", "0000:00:02.0");
+        makeCard(root, "card1", "0x10de", "0x2d04", "nvidia", "0000:2b:00.0");
+
+        auto gpus = enumerateGpus(root.string(), {pciIds.string()});
+        assert(gpus.size() == 2);
+        assert(gpus[0].label == "Intel Iris Xe Graphics");
+        assert(gpus[1].label == "NVIDIA GeForce RTX 5060 Ti");
+        // The identifying fields are still sysfs', not the database's.
+        assert(gpus[1].pciAddress == "0000:2b:00.0");
+        assert(gpus[1].driver == "nvidia");
+        fs::remove_all(root);
+    }
+
+    // enumerateGpus(): a card the database does not list falls back to the
+    // vendor-and-driver label rather than showing nothing.
+    {
+        fs::path root = fs::temp_directory_path() / "tuxblox_test_gpus_unlisted";
+        fs::remove_all(root);
+        makeCard(root, "card0", "0x10de", "0xffff", "nvidia", "0000:01:00.0");
+
+        auto gpus = enumerateGpus(root.string(), {pciIds.string()});
+        assert(gpus.size() == 1);
+        assert(gpus[0].label == "NVIDIA (nvidia)");
+        fs::remove_all(root);
+    }
+
+    // enumerateGpus(): two identical cards still have to be told apart, even
+    // now that both carry a real model name.
+    {
+        fs::path root = fs::temp_directory_path() / "tuxblox_test_gpus_named_twins";
+        fs::remove_all(root);
+        makeCard(root, "card0", "0x10de", "0x2d04", "nvidia", "0000:2b:00.0");
+        makeCard(root, "card1", "0x10de", "0x2d04", "nvidia", "0000:2c:00.0");
+
+        auto gpus = enumerateGpus(root.string(), {pciIds.string()});
+        assert(gpus.size() == 2);
+        assert(gpus[0].label == "NVIDIA GeForce RTX 5060 Ti at 0000:2b:00.0");
+        assert(gpus[1].label == "NVIDIA GeForce RTX 5060 Ti at 0000:2c:00.0");
+        fs::remove_all(root);
+    }
+
+    // enumerateGpus(): the first READABLE candidate wins, so a distribution
+    // that keeps pci.ids somewhere else still gets names.
+    {
+        fs::path root = fs::temp_directory_path() / "tuxblox_test_gpus_second_path";
+        fs::remove_all(root);
+        makeCard(root, "card0", "0x10de", "0x2d04", "nvidia", "0000:2b:00.0");
+
+        auto gpus = enumerateGpus(root.string(), {"/nonexistent/pci.ids", pciIds.string()});
+        assert(gpus.size() == 1);
+        assert(gpus[0].label == "NVIDIA GeForce RTX 5060 Ti");
         fs::remove_all(root);
     }
 

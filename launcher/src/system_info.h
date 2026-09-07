@@ -82,11 +82,34 @@ struct GpuDevice {
     std::string label;
 };
 
+// The model name for a PCI vendor:device pair, read from a pci.ids database
+// ("0x10de", "0x2d04" -> "GeForce RTX 5060 Ti"). Empty when the file is
+// missing or has no entry for the pair.
+//
+// pci.ids spells a device as "GB206 [GeForce RTX 5060 Ti]": a chip codename
+// followed by the marketing name in brackets. The bracketed half is what a
+// person recognises as their graphics card, so it is preferred when present,
+// and the whole string used when it is not.
+std::string lookupPciDeviceName(const std::string& pciIdsPath, const std::string& vendorId,
+                                 const std::string& deviceId);
+
+// The pci.ids locations shipped by the common distributions, in search order.
+// The database comes from hwdata/pciutils and is very widely installed but not
+// guaranteed, which is why every caller tolerates it being absent.
+std::vector<std::string> defaultPciIdsPaths();
+
 // Every DRM card under `drmRoot` ("/sys/class/drm") that is bound to a driver
 // and has a readable PCI slot, ordered by cardN so the list is stable between
 // runs. Injectable root for testing, like findPrimaryGpu above. Never throws:
 // a missing root or an unreadable card yields a shorter list, not an error.
 std::vector<GpuDevice> enumerateGpus(const std::string& drmRoot);
+
+// As above, but reading model names from the first readable path in
+// `pciIdsCandidates` instead of the system's own. Pass an empty list to get
+// the vendor-and-driver fallback labels with no database at all -- which is
+// also what a machine without pci.ids installed produces.
+std::vector<GpuDevice> enumerateGpus(const std::string& drmRoot,
+                                      const std::vector<std::string>& pciIdsCandidates);
 
 // The environment that steers rendering onto `gpu`, as "VAR=VALUE" pairs.
 //
