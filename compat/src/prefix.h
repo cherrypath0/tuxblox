@@ -40,9 +40,18 @@ public:
     // and adds the DLL overrides they need.
     void setup(Session& session);
 
+    // What a removeTrackedFiles() pass is for.
+    enum class Removal {
+        // Everything this launcher put in the prefix goes, registry included.
+        All,
+        // An upgrade: the files carrying state the prefix accumulated stay,
+        // since they are no longer only ours to replace.
+        KeepAccumulatedState,
+    };
+
     // Deletes everything this launcher put in the prefix, leaving whatever
     // the user or Roblox added.
-    void removeTrackedFiles();
+    void removeTrackedFiles(Removal removal = Removal::All);
 
     std::filesystem::path prefixDir;
 
@@ -51,11 +60,6 @@ private:
 
     std::string readVersion() const;
     void writeVersion() const;
-
-    // Rebuilds the prefix from the template, carrying the whole drive_c/users
-    // tree across so installed Roblox versions, logs, shortcuts and documents
-    // survive.
-    void recreatePreservingUserData();
 
     void copyTemplatePrefix();
     void copyTemplateEntry(const std::filesystem::path& src,
@@ -74,7 +78,6 @@ private:
     std::filesystem::path trackedFilesFile;
     std::filesystem::path creationGuard;
     FileLock prefixLock;
-    std::string oldMachineGuid;
 };
 
 // Reads the host desktop's light/dark preference. Returns an empty string when

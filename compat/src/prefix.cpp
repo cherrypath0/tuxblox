@@ -296,7 +296,16 @@ void Prefix::writeVersion() const {
     }
 }
 
-void Prefix::removeTrackedFiles() {
+// The registry is the one thing the template hands over for good. Roblox's own
+// installers write to it, and so does anything the user changes, so by the time
+// an upgrade comes round it holds far more than TuxBlox put there. Replacing it
+// with the new template's copy would throw all of that away, which is exactly
+// what the old rebuild-everything upgrade did.
+static bool holdsAccumulatedState(const std::string& relative) {
+    return relative == "system.reg" || relative == "user.reg" || relative == "userdef.reg";
+}
+
+void Prefix::removeTrackedFiles(Removal removal) {
     std::ifstream tracked(trackedFilesFile);
     if (!tracked) {
         log("Prefix has no tracked_files??");
@@ -311,6 +320,9 @@ void Prefix::removeTrackedFiles() {
             entry.pop_back();
         }
         if (entry.empty()) {
+            continue;
+        }
+        if (removal == Removal::KeepAccumulatedState && holdsAccumulatedState(entry)) {
             continue;
         }
         const fs::path target = prefixDir / entry;
@@ -335,45 +347,9 @@ void Prefix::removeTrackedFiles() {
         fs::remove(directory, error);
     }
 
-    fs::remove(trackedFilesFile, error);
-    fs::remove(versionFile, error);
-}
-
-void Prefix::recreatePreservingUserData() {
-    std::error_code error;
-    const fs::path users = prefixDir / "drive_c" / "users";
-    const fs::path preserved = baseDir / "users.preserved";
-
-    fs::remove_all(preserved, error);
-
-    // Everything the user owns lives under drive_c/users: installed Roblox
-    // versions in AppData/Local/Roblox/Versions, the logs beside them, the
-    // shortcuts the launcher resolves, and Documents. Moving the whole tree
-    // aside is one rule that cannot go stale as those paths move around.
-    bool havePreserved = false;
-    if (fileExists(users, true)) {
-        fs::rename(users, preserved, error);
-        if (error) {
-            log("Could not preserve user data, leaving the prefix alone: " + error.message());
-            return;
-        }
-        havePreserved = true;
-    }
-
-    // Keep the machine GUID so the prefix looks like the same machine.
-    oldMachineGuid = getRegValue(prefixDir / "system.reg",
-                                 "Software\\\\Microsoft\\\\Cryptography", "MachineGuid");
-
-    fs::remove_all(prefixDir, error);
-    fs::remove(configInfoFile, error);
-    fs::remove(trackedFilesFile, error);
-
-    if (havePreserved) {
-        makeDirs(prefixDir / "drive_c");
-        fs::rename(preserved, users, error);
-        if (error) {
-            log("Could not restore user data: " + error.message());
-        }
+    if (removal == Removal::All) {
+        fs::remove(trackedFilesFile, error);
+        fs::remove(versionFile, error);
     }
 }
 
@@ -437,6 +413,12 @@ void Prefix::copyTemplatePrefix() {
             continue;
         }
         if (fileExists(destination, true)) {
+            // Ours even though it was left where it was: an upgrade keeps the
+            // registry instead of replacing it, and it has to stay on the list
+            // so a later removal still takes it.
+            if (holdsAccumulatedState(relative.generic_string())) {
+                tracked << relative.string() << "\n";
+            }
             continue;
         }
         copyTemplateEntry(entry.path(), destination, false);
@@ -704,11 +686,16 @@ void Prefix::setup(Session& session) {
 
     const std::string oldVersion = readVersion();
 
-    // One rule instead of a migration ladder: if the prefix was not built by
-    // this TuxBlox, rebuild it and carry the user's own files across.
+    // An upgrade replaces what TuxBlox itself laid down and nothing else. The
+    // tracked list says exactly which files those are, so a stale one cannot
+    // survive, while installed Roblox versions, the registry and anything else
+    // the user or Roblox added are left where they are. Rebuilding the whole
+    // prefix instead, as this used to, threw away 225MB of Windows files and
+    // every registry key on every release.
     if (!oldVersion.empty() && oldVersion != prefixVersion) {
-        log("Prefix was built by TuxBlox " + oldVersion + ", rebuilding for " + prefixVersion);
-        recreatePreservingUserData();
+        log("Prefix was built by TuxBlox " + oldVersion + ", updating it for " + prefixVersion);
+        removeTrackedFiles(Removal::KeepAccumulatedState);
+        copyTemplatePrefix();
     }
 
     if (!fileExists(creationGuard, false)) {
@@ -717,10 +704,9 @@ void Prefix::setup(Session& session) {
 
         copyTemplatePrefix();
 
-        const std::string machineGuid =
-            oldMachineGuid.empty() ? "\"" + makeUuid() + "\"" : oldMachineGuid;
         replaceRegValue(prefixDir / "system.reg",
-                        "Software\\\\Microsoft\\\\Cryptography", "MachineGuid", machineGuid);
+                        "Software\\\\Microsoft\\\\Cryptography", "MachineGuid",
+                        "\"" + makeUuid() + "\"");
         ::sync();
 
         std::ofstream guard(creationGuard);
