@@ -221,7 +221,7 @@ void writeDesktopEntries(const std::string& launcherExePath) {
                 "[Desktop Entry]\n"
                 "Type=Application\n"
                 "Name=TuxBlox\n"
-                "Comment=Launch TuxBlox (Roblox on Linux via Proton)\n"
+                "Comment=Roblox on Linux\n"
                 "Exec=\"" << launcherExePath << "\"\n"
                 "Icon=tuxblox\n"
                 "Terminal=false\n"

@@ -147,7 +147,7 @@ void createDesktopShortcut(const std::string& launcherExePath) {
             "[Desktop Entry]\n"
             "Type=Application\n"
             "Name=TuxBlox Launcher\n"
-            "Comment=Launch TuxBlox (Roblox on Linux via Proton)\n"
+            "Comment=Roblox on Linux\n"
             // The full executable path as resolved by the install pipeline,
             // not installDir + "/TuxBloxLauncher": an archive-shaped launcher
             // artifact extracts into its own directory, so the binary lives a
