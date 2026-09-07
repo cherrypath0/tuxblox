@@ -36,10 +36,11 @@ void extractTarZst(const std::string& archivePath, const std::string& destDir,
 
 // Extracts a .zip archive at `archivePath` into `destDir` (created if
 // missing), calling `onProgress` after each entry is written. Same
-// hostile-archive-entry protection as extractTarZst (rejects absolute
-// paths and ".." components) -- these packages come from a remote CDN
-// (Roblox's setup.rbxcdn.com), not a locally-trusted source. Throws
-// std::runtime_error on any libarchive error.
+// hostile-archive-entry protection as extractTarZst: every entry is
+// confined to `destDir` and a ".." component is refused outright -- these
+// packages come from a remote CDN (Roblox's setup.rbxcdn.com), not a
+// locally-trusted source. Throws std::runtime_error on any libarchive
+// error.
 void extractZip(const std::string& archivePath, const std::string& destDir,
                  const TarExtractProgressFn& onProgress = TarExtractProgressFn());
 

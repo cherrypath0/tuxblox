@@ -121,6 +121,36 @@ static void makeFixtureZip(const std::string& path, const char* entryName, const
     archive_write_free(a);
 }
 
+// Roblox's own packages open with a zero-byte root-directory marker whose
+// stored name is a lone DOS separator, which libarchive reads back as "/".
+// Builds that shape: the marker first, then one real file after it.
+static void makeFixtureZipWithRootMarker(const std::string& path, const char* entryName,
+                                          const char* content) {
+    struct archive* a = archive_write_new();
+    archive_write_set_format_zip(a);
+    archive_write_open_filename(a, path.c_str());
+
+    struct archive_entry* marker = archive_entry_new();
+    archive_entry_set_pathname(marker, "/");
+    archive_entry_set_size(marker, 0);
+    archive_entry_set_filetype(marker, AE_IFDIR);
+    archive_entry_set_perm(marker, 0755);
+    archive_write_header(a, marker);
+    archive_entry_free(marker);
+
+    struct archive_entry* entry = archive_entry_new();
+    archive_entry_set_pathname(entry, entryName);
+    archive_entry_set_size(entry, static_cast<int64_t>(strlen(content)));
+    archive_entry_set_filetype(entry, AE_IFREG);
+    archive_entry_set_perm(entry, 0644);
+    archive_write_header(a, entry);
+    archive_write_data(a, content, strlen(content));
+    archive_entry_free(entry);
+
+    archive_write_close(a);
+    archive_write_free(a);
+}
+
 static bool extractZipThrows(const std::string& archivePath, const std::string& destDir) {
     try {
         tuxblox::extractZip(archivePath, destDir);
@@ -162,12 +192,16 @@ int main() {
     fs::remove(ddArchive);
     fs::remove_all(ddDest);
 
+    // An absolute entry path is re-rooted under the destination rather than
+    // refused, the way tar and unzip do it -- what has to hold is that nothing
+    // lands outside destDir.
     fs::path absArchive = tmp / "tuxblox_test_abs.tar.gz";
     fs::path absDest = tmp / "tuxblox_test_abs_dest";
     fs::remove_all(absDest);
     makeFixtureTarGzNamed(absArchive.string(), escapeMarker.string().c_str());
-    assert(extractThrows(absArchive.string(), absDest.string()));
+    assert(!extractThrows(absArchive.string(), absDest.string()));
     assert(!fs::exists(escapeMarker));
+    assert(fs::exists(absDest / escapeMarker.relative_path()));
     fs::remove(absArchive);
     fs::remove_all(absDest);
 
@@ -230,6 +264,25 @@ int main() {
         makeFixtureZip(zipPath.string(), "../tuxblox_test_escaped_marker.txt", "pwned");
         assert(extractZipThrows(zipPath.string(), zipDest.string()));
         assert(!fs::exists(escapeMarker));
+        fs::remove(zipPath);
+        fs::remove_all(zipDest);
+    }
+
+    // extractZip(): Roblox's ApplicationConfig.zip and friends start with a
+    // root-directory marker that reads back as "/". It carries no file, so it
+    // must be skipped rather than failing the whole package.
+    {
+        fs::path zipPath = tmp / "tuxblox_test_rootmarker.zip";
+        fs::path zipDest = tmp / "tuxblox_test_zip_rootmarker_dest";
+        fs::remove_all(zipDest);
+        makeFixtureZipWithRootMarker(zipPath.string(), "OAuth2Config.json", "{\"config\":true}");
+
+        tuxblox::extractZip(zipPath.string(), zipDest.string());
+
+        std::ifstream in(zipDest / "OAuth2Config.json");
+        std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        assert(content == "{\"config\":true}");
+
         fs::remove(zipPath);
         fs::remove_all(zipDest);
     }

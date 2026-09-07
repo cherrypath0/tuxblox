@@ -28,14 +28,32 @@ namespace tuxblox {
 
 namespace {
 
-bool isUnsafeEntryPath(const char* name) {
-    if (name == nullptr || name[0] == '\0') return true;
-    fs::path p(name);
-    if (p.is_absolute() || p.has_root_path() || name[0] == '/') return true;
-    for (const auto& part : p) {
-        if (part == "..") return true;
+// What to do with one archive entry, decided from its stored path.
+enum class EntryPath {
+    Ok,     // safe to extract, under the relative path handed back
+    Skip,   // names no file of its own -- nothing to extract
+    Unsafe, // tries to escape the destination
+};
+
+// Rewrites an archive entry path into one that is safe to join onto the
+// destination, the way tar and unzip do: any root prefix is dropped so the
+// entry always lands inside destDir. Roblox's packages need this -- they mark
+// every directory with a leading separator ("\\Qt5\\", which libarchive reads
+// back as "/Qt5/") and open with a bare root marker that names no file at all.
+// A ".." component is a real escape attempt and is still refused.
+EntryPath vetEntryPath(const char* name, fs::path& relative) {
+    if (name == nullptr || name[0] == '\0') return EntryPath::Skip;
+
+    fs::path cleaned;
+    for (const auto& part : fs::path(name).relative_path()) {
+        if (part == "..") return EntryPath::Unsafe;
+        if (part == "." || part.empty()) continue;
+        cleaned /= part;
     }
-    return false;
+    if (cleaned.empty()) return EntryPath::Skip;
+
+    relative = cleaned;
+    return EntryPath::Ok;
 }
 
 using ConfigureReaderFn = std::function<void(struct archive*)>;
@@ -86,14 +104,17 @@ void extractArchive(const std::string& archivePath, const std::string& destDir,
         }
 
         const char* entryName = archive_entry_pathname(entry);
-        if (isUnsafeEntryPath(entryName)) {
+        fs::path entryRelative;
+        EntryPath verdict = vetEntryPath(entryName, entryRelative);
+        if (verdict == EntryPath::Skip) continue;
+        if (verdict == EntryPath::Unsafe) {
             std::string bad = entryName ? entryName : "(null)";
             archive_read_free(a);
             archive_write_free(ext);
             throw std::runtime_error(std::string(fnName) + ": refusing unsafe archive entry path: " + bad);
         }
 
-        fs::path entryDest = realDest / entryName;
+        fs::path entryDest = realDest / entryRelative;
         archive_entry_set_pathname(entry, entryDest.string().c_str());
 
         r = archive_write_header(ext, entry);
