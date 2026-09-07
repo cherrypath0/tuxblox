@@ -50,6 +50,12 @@ namespace {
 
 // Files copied rather than symlinked into the prefix, so an installer that
 // overwrites one does not write through into the shared TuxBlox install.
+//
+// ntdll.dll is deliberately not in this list, though Proton copies it. The
+// loader maps ntdll straight out of the TuxBlox install, while \KnownDlls\ntdll.dll
+// is a section over the copy in system32; a copy makes those two different
+// files, and the section then describes an image that is nowhere in memory.
+// Linking it keeps them one file, which is what Windows has.
 const std::string DefaultDllCopyPatterns =
     "d3dcompiler_*.dll,d3dx*.dll,"
     "atl.dll,atl1*.dll,concrt*.dll,"
@@ -58,8 +64,6 @@ const std::string DefaultDllCopyPatterns =
     "vcamp1*.dll,vccorlib1*.dll,vcomp1*.dll,vcruntime1*.dll,ucrtbase.dll,"
     // comctl32 exists twice, in system32 and as comctl32_v6 in winsxs.
     "comctl32.dll,"
-    // Some apps object to ntdll being a symlink.
-    "ntdll.dll,"
     // Roblox's anti-cheat loads the official loader.
     "vulkan-1.dll";
 

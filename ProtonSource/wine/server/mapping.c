@@ -1588,6 +1588,11 @@ DECL_HANDLER(get_mapping_info)
         void *data;
 
         if (mapping->fd) get_nt_name( mapping->fd, &name );
+        /* The address may have been picked after this mapping was created --
+         * \KnownDlls sections are made once, and the image they describe is
+         * placed by whoever loads it first -- so ask the file again. */
+        if (!mapping->image.map_addr && mapping->fd)
+            mapping->image.map_addr = get_fd_map_address( mapping->fd );
         reply->total = sizeof(struct pe_image_info) + name.len + mapping->exp_len;
         size = min( reply->total, get_reply_max_size() );
         if ((data = set_reply_data_size( size )))

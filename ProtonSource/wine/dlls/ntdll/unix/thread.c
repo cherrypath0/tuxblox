@@ -2533,6 +2533,9 @@ static NTSTATUS query_information_thread( HANDLE handle, THREADINFOCLASS class,
     case ThreadLastSystemCall:
     {
         OBJECT_BASIC_INFORMATION obj;
+        THREAD_BASIC_INFORMATION basic;
+        ULONG64 first_arg = 0;
+        UINT id = 0;
 
         /* Measured on Windows 11 25H2 with workspace/tests/lastsysprobe, and
          * every line of it contradicts the shape this class looks like it
@@ -2569,13 +2572,53 @@ static NTSTATUS query_information_thread( HANDLE handle, THREADINFOCLASS class,
 
         if (!NtCompareObjects( handle, GetCurrentThread() )) return STATUS_INVALID_PARAMETER;
 
-        /* What the target thread last asked the kernel for is recorded nowhere
-         * reachable from here: it lives in that thread's own syscall frame, and
-         * the frame's first argument is never stored at all. Until it is, say
-         * the thing Windows says about a thread whose last call it will not
-         * report, rather than refusing an access the caller does hold. */
-        FIXME( "ThreadLastSystemCall not recorded for another thread\n" );
-        return STATUS_UNSUCCESSFUL;
+        /* The answer lives in the target thread's own syscall frame, which it
+         * keeps a pointer to in its TEB and which is not cleared when a call
+         * returns -- so it still describes the last one. Readable for a thread
+         * sharing this address space; one in another process would have to be
+         * read across, which no caller here does. */
+        SERVER_START_REQ( get_thread_info )
+        {
+            req->handle = wine_server_obj_handle( handle );
+            req->access = THREAD_GET_CONTEXT;
+            if (!(status = wine_server_call( req )))
+            {
+                basic.TebBaseAddress         = wine_server_get_ptr( reply->teb );
+                basic.ClientId.UniqueProcess = ULongToHandle( reply->pid );
+            }
+        }
+        SERVER_END_REQ;
+        if (status) return status;
+        if (basic.ClientId.UniqueProcess != ULongToHandle( GetCurrentProcessId() ) ||
+            !basic.TebBaseAddress)
+        {
+            FIXME( "ThreadLastSystemCall for a thread in another process\n" );
+            return STATUS_UNSUCCESSFUL;
+        }
+        if (!get_thread_last_syscall( basic.TebBaseAddress, &id, &first_arg ))
+            return STATUS_UNSUCCESSFUL;
+
+        /* Only the named fields are written. Windows leaves the padding as it
+         * found it -- the probe reads back whatever the caller had put there --
+         * so nothing here clears it either. The wait time is not something this
+         * side records, and is left at zero rather than invented. */
+        if (length == sizeof(THREAD_LAST_SYSCALL_INFORMATION))
+        {
+            THREAD_LAST_SYSCALL_INFORMATION *out = data;
+
+            out->FirstArgument    = (void *)(ULONG_PTR)first_arg;
+            out->SystemCallNumber = id & 0xfff;
+            out->WaitTime         = 0;
+        }
+        else
+        {
+            THREAD_LAST_SYSCALL_INFORMATION_V1 *out = data;
+
+            out->FirstArgument    = (void *)(ULONG_PTR)first_arg;
+            out->SystemCallNumber = id & 0xfff;
+        }
+        if (ret_len) *ret_len = length;
+        return STATUS_SUCCESS;
     }
 
     case ThreadSuspendCount:

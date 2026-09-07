@@ -433,6 +433,13 @@ struct machine_frame
     ULONG64 ss;
 };
 
+/* Windows leaves this much of the interrupted stack alone before it places
+ * anything on it. Measured with workspace/tests/dispprobe, which reports the
+ * exception record and the context thirty-two bytes further down on Windows
+ * than they were here; a program that walks its own stack across a handled
+ * fault sees the difference. */
+#define EXC_STACK_HEADROOM 0x20
+
 /* stack layout when calling KiUserExceptionDispatcher */
 struct exc_stack_layout
 {
@@ -504,7 +511,8 @@ struct syscall_frame
     void                 *syscall_cfa;   /* 00a8 */
     DWORD                 syscall_id;    /* 00b0 */
     DWORD                 restore_flags; /* 00b4 */
-    DWORD                 align[2];      /* 00b8 */
+    DWORD                 in_syscall;    /* 00b8 whether the thread is in a call now */
+    DWORD                 align;         /* 00bc */
     XSAVE_FORMAT          xsave;         /* 00c0 */
     DECLSPEC_ALIGN(64) XSAVE_AREA_HEADER xstate;    /* 02c0 */
 };
@@ -523,6 +531,26 @@ ULONG64 get_syscall_caller_pc(void)
 {
     struct syscall_frame *frame = get_syscall_frame();
     return frame ? frame->rip : 0;
+}
+
+/* The last system call a thread made -- its number and its first argument.
+ *
+ * A thread keeps a pointer to its syscall frame in its own TEB, and the pointer
+ * is not cleared when a call returns, so the frame still describes the last
+ * one. That is what ThreadLastSystemCall asks for, and it is readable from any
+ * thread sharing the address space.
+ */
+BOOL get_thread_last_syscall( TEB *teb, UINT *id, ULONG64 *first_arg )
+{
+    struct syscall_frame *frame = ((struct ntdll_thread_data *)&teb->GdiTebBatch)->syscall_frame;
+
+    /* Only for a thread that is in a call now, or has yet to make its first --
+     * Windows refuses one running in user mode, whose trap frame is not the
+     * kernel's to read. */
+    if (!frame || !frame->in_syscall) return FALSE;
+    *id = frame->syscall_id;
+    *first_arg = frame->r10;
+    return TRUE;
 }
 
 ULONG64 get_syscall_caller_sp(void)
@@ -1672,6 +1700,7 @@ static void setup_raise_exception( ucontext_t *sigcontext, EXCEPTION_RECORD *rec
     ULONG_PTR rsp;
     CONTEXT *context = &xcontext->c;
     struct exc_stack_layout *stack;
+    void *exc_xstate;
     size_t stack_size;
     NTSTATUS status;
     XSAVE_AREA_HEADER *src_xs;
@@ -1706,8 +1735,17 @@ static void setup_raise_exception( ucontext_t *sigcontext, EXCEPTION_RECORD *rec
 
     rsp = is_16bit(sigcontext) ? get_wow_teb( NtCurrentTeb() )->SystemReserved1[0] : RSP_sig(sigcontext);
     rsp &= ~(ULONG_PTR)15;
-    stack_size = rsp - ((rsp - sizeof(*stack) - xstate_size) & ~(ULONG_PTR)63);
-    stack = virtual_setup_exception( (void *)rsp, stack_size, rec );
+    /* The block sits the headroom below where it otherwise would, which is what
+     * puts the record and the context where Windows puts them. The extended
+     * state cannot follow it any more -- that would lose the 64-byte alignment
+     * XSAVE needs -- so it goes underneath instead, which the context's own
+     * offset to it describes either way. */
+    exc_xstate = (void *)((((rsp - sizeof(*stack) - xstate_size) & ~(ULONG_PTR)63)
+                           - EXC_STACK_HEADROOM - xstate_size) & ~(ULONG_PTR)63);
+    stack_size = rsp - (ULONG_PTR)exc_xstate;
+    virtual_setup_exception( (void *)rsp, stack_size, rec );
+    stack = (struct exc_stack_layout *)(((rsp - sizeof(*stack) - xstate_size) & ~(ULONG_PTR)63)
+                                        - EXC_STACK_HEADROOM);
     stack->rec               = *rec;
     stack->context           = *context;
     stack->machine_frame.rip = context->Rip;
@@ -1715,7 +1753,7 @@ static void setup_raise_exception( ucontext_t *sigcontext, EXCEPTION_RECORD *rec
 
     if ((src_xs = xstate_from_context( context )))
     {
-        XSAVE_AREA_HEADER *dst_xs = (XSAVE_AREA_HEADER *)(stack + 1);
+        XSAVE_AREA_HEADER *dst_xs = exc_xstate;
         assert( !((ULONG_PTR)dst_xs & 63) );
         context_init_xstate( &stack->context, dst_xs );
         memset( dst_xs, 0, sizeof(*dst_xs) );
@@ -1823,7 +1861,8 @@ NTSTATUS call_user_exception_dispatcher( EXCEPTION_RECORD *rec, CONTEXT *context
     NTSTATUS status = NtSetContextThread( GetCurrentThread(), context );
 
     if (status) return status;
-    stack = (struct exc_stack_layout *)((context->Rsp - sizeof(*stack) - xstate_size) & ~(ULONG_PTR)63);
+    stack = (struct exc_stack_layout *)((context->Rsp - EXC_STACK_HEADROOM - sizeof(*stack)
+                                         - xstate_size) & ~(ULONG_PTR)63);
     memmove( &stack->context, context, sizeof(*context) );
 
     if ((context->ContextFlags & CONTEXT_XSTATE) == CONTEXT_XSTATE)
@@ -3710,6 +3749,9 @@ void init_syscall_frame( LPTHREAD_START_ROUTINE entry, void *arg, BOOL suspend, 
     void *callback;
 
     assert( thread_data->frame_size == frame_size );
+    /* A thread that has not run yet has made no call, and Windows answers for
+     * it rather than refusing it. */
+    frame->in_syscall = 1;
     thread_data->instrumentation_callback = &instrumentation_callback;
 
 #if defined __linux__
@@ -3874,8 +3916,12 @@ __ASM_GLOBAL_FUNC( __wine_syscall_dispatcher,
                    "movw %ss,0x90(%rcx)\n\t"
                    "movq %rbp,0x98(%rcx)\n\t"
                    __ASM_CFI_REG_IS_AT2(rbp, rcx, 0x98, 0x01)
+                   /* the call's first argument, which ThreadLastSystemCall reports
+                    * and nothing else needed until now */
+                   "movq %r10,0x40(%rcx)\n\t"      /* frame->r10 */
                    "movq %gs:0x30,%r13\n\t"        /* teb */
                    "movl %eax,0xb0(%rcx)\n\t"      /* frame->syscall_id */
+                   "movl $1,0xb8(%rcx)\n\t"        /* frame->in_syscall */
                    /* Legends of Runeterra hooks the first system call return instruction, and
                     * depends on us returning to it. Adjust the return address accordingly. */
                    "subq $0xb,0x70(%rcx)\n\t"
@@ -4040,6 +4086,10 @@ __ASM_GLOBAL_FUNC( __wine_syscall_dispatcher,
                    "movq 0x28(%rcx),%rdi\n\t"
                    "movq 0x20(%rcx),%rsi\n\t"
                    "movq 0x08(%rcx),%rbx\n\t"
+                   /* on the way back to user mode: the frame still names the call
+                    * that was made, but the thread is no longer in one, and
+                    * ThreadLastSystemCall answers only for a thread that is */
+                   "movl $0,0xb8(%rcx)\n\t"        /* frame->in_syscall */
                    "testl $0x10000,%edx\n\t"       /* RESTORE_FLAGS_INSTRUMENTATION */
                    "jnz 2f\n\t"
                    "3:\ttestl $0x3,%edx\n\t"       /* CONTEXT_CONTROL | CONTEXT_INTEGER */

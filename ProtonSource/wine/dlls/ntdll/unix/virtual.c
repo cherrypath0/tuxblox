@@ -6397,7 +6397,11 @@ static unsigned int get_memory_region_info( HANDLE process, LPCVOID addr, MEMORY
 
     server_leave_uninterrupted_section( &virtual_mutex, &sigset );
 
-    if (res_len) *res_len = sizeof(*info);
+    /* Only the fields the caller had room for were filled in above, and the
+     * length reported is the length written -- measured on Windows 11, which
+     * answers 24 for a 24-byte buffer rather than the size of the whole
+     * structure. */
+    if (res_len) *res_len = min( len, sizeof(*info) );
     return STATUS_SUCCESS;
 }
 
@@ -6859,6 +6863,25 @@ static NTSTATUS query_virtual_memory( HANDLE process, LPCVOID addr,
             }
             return STATUS_INVALID_HANDLE;
 
+        /* Classes Windows recognises and then refuses. How a class fails is
+         * read as closely as what it returns, and answering "no such class"
+         * where Windows answers something else is a difference in itself.
+         *
+         * MemoryImageExtensionInformation is the one that is actually asked:
+         * Roblox's protection layer puts the question to every loaded image,
+         * four times each, with a 24-byte buffer. Measured on Windows 11 at
+         * every length from 0 to 64 -- too short below 24, and at 24 and above
+         * the address itself is refused. */
+        case MemoryImageExtensionInformation:
+            if (len < 24) return STATUS_INFO_LENGTH_MISMATCH;
+            return STATUS_INVALID_PARAMETER;
+
+        case MemoryBadInformation:
+            return STATUS_INVALID_PARAMETER;
+
+        case MemoryBadInformationAllProcesses:
+            return STATUS_NOT_SUPPORTED;
+
         case MemoryFexStatsShm:
 #if defined(linux) && defined(__aarch64__)
             return get_memory_fex_stats_shm( process, addr, buffer, len, res_len );
@@ -7223,7 +7246,14 @@ NTSTATUS WINAPI NtUnmapViewOfSectionEx( HANDLE process, PVOID addr, ULONG flags 
  */
 void virtual_fill_image_information( const struct pe_image_info *pe_info, SECTION_IMAGE_INFORMATION *info )
 {
-    info->TransferAddress             = wine_server_get_ptr( pe_info->base + pe_info->entry_point );
+    /* Where the image really is, not where it asked to be. Once the server has
+     * picked an address for a dynamically relocated image, every process maps it
+     * there, so that is the address the section describes -- Windows answers with
+     * the loaded base for a \KnownDlls section, and a caller that looks up what
+     * is mapped at the entry point it was just given expects to find the image. */
+    client_ptr_t base = pe_info->map_addr ? pe_info->map_addr : pe_info->base;
+
+    info->TransferAddress             = wine_server_get_ptr( base + pe_info->entry_point );
     info->ZeroBits                    = pe_info->zerobits;
     info->MaximumStackSize            = pe_info->stack_size;
     info->CommittedStackSize          = pe_info->stack_commit;

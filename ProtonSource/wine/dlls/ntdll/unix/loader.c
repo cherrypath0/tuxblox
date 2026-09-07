@@ -741,6 +741,8 @@ void trace_syscall( UINT id, ULONG_PTR *args, ULONG len )
     UINT idx = (id >> 12) & 3, num = id & 0xfff;
     const char **names = syscall_names[idx];
 
+    tuxblox_diag_note_call( id, args, len );
+
     /* Tally unconditionally: this reaches every syscall (Nt* wrapper calls
      * and Hyperion's own raw `syscall` instructions alike, since both funnel
      * through __wine_syscall_dispatcher regardless of entry path), and costs
@@ -774,6 +776,7 @@ void trace_sysret( UINT id, ULONG_PTR retval )
 
     tuxblox_trace_sysret( id, retval );
     tuxblox_diag_watch_sysret( id );
+    tuxblox_diag_note_callret( id, retval );
 
     if (names && names[num])
         TRACE_(syscall)( "\1SysRet   %s() retval=%08lx\n", names[num], retval );

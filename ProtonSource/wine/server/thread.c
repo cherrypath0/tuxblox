@@ -1889,7 +1889,14 @@ DECL_HANDLER(open_thread)
 DECL_HANDLER(get_thread_info)
 {
     struct thread *thread;
-    unsigned int access = req->access & (THREAD_QUERY_INFORMATION | THREAD_QUERY_LIMITED_INFORMATION);
+    /* THREAD_GET_CONTEXT is here because ThreadLastSystemCall is gated on it
+     * rather than on either query right -- a caller reading that class opens
+     * threads with 0x8 and nothing else, and needs the target's TEB to find the
+     * frame the answer lives in. A handle carrying it can already read the
+     * thread's whole register state, so the identity and priority this reply
+     * adds are not a widening of what it grants. */
+    unsigned int access = req->access & (THREAD_QUERY_INFORMATION | THREAD_QUERY_LIMITED_INFORMATION |
+                                         THREAD_GET_CONTEXT);
 
     if (!access) access = THREAD_QUERY_LIMITED_INFORMATION;
     thread = get_thread_from_handle( req->handle, access );

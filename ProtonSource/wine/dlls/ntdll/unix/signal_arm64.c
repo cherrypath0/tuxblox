@@ -236,6 +236,12 @@ static inline void context_init_empty_xstate( CONTEXT *context, void *xstate_buf
     xctx->All.Offset = -(LONG)sizeof(CONTEXT);
 }
 
+/* Not recorded on this architecture; see the x86-64 one. */
+BOOL get_thread_last_syscall( TEB *teb, UINT *id, ULONG64 *first_arg )
+{
+    return FALSE;
+}
+
 void set_process_instrumentation_callback( void *callback )
 {
     if (callback) FIXME( "Not supported.\n" );

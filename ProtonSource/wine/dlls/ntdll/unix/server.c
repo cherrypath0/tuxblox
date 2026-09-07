@@ -1780,7 +1780,8 @@ void server_init_process_done(void)
     signal_init_process();
     thread_data->syscall_table = KeServiceDescriptorTable;
     /* see the matching comment in thread.c's start_thread() */
-    thread_data->syscall_trace = TRACE_ON(syscall) || tuxblox_trace_enabled() || tuxblox_diag_watch_enabled();
+    thread_data->syscall_trace = TRACE_ON(syscall) || tuxblox_trace_enabled() ||
+                                tuxblox_diag_watch_enabled() || tuxblox_diag_enabled();
 
     /* always send the native TEB */
     if (!(teb = NtCurrentTeb64())) teb = NtCurrentTeb();

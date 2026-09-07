@@ -246,6 +246,8 @@ struct inode
     struct list         open;       /* list of open file descriptors */
     struct list         locks;      /* list of file locks */
     struct list         closed;     /* list of file descriptors to close at destroy time */
+    client_ptr_t        map_addr;   /* default mapping address for PE files */
+    mem_size_t          map_size;   /* mapping size for PE files */
 };
 
 static void inode_dump( struct object *obj, int verbose );
@@ -1165,6 +1167,7 @@ static void inode_destroy( struct object *obj )
     assert( list_empty(&inode->open) );
     assert( list_empty(&inode->locks) );
 
+    if (inode->map_addr) free_map_addr( inode->map_addr, inode->map_size );
     list_remove( &inode->entry );
 
     while ((ptr = list_head( &inode->closed )))
@@ -1201,8 +1204,10 @@ static struct inode *get_inode( dev_t dev, ino_t ino, int unix_fd )
     /* not found, create it */
     if ((inode = alloc_object( &inode_ops )))
     {
-        inode->device = device;
-        inode->ino    = ino;
+        inode->device   = device;
+        inode->ino      = ino;
+        inode->map_addr = 0;
+        inode->map_size = 0;
         list_init( &inode->open );
         list_init( &inode->locks );
         list_init( &inode->closed );
@@ -1611,7 +1616,7 @@ static void fd_destroy( struct object *obj )
     free_async_queue( &fd->write_q );
     free_async_queue( &fd->wait_q );
 
-    if (fd->map_addr) free_map_addr( fd->map_addr, fd->map_size );
+    if (fd->map_addr && !fd->inode) free_map_addr( fd->map_addr, fd->map_size );
     if (fd->completion) release_object( fd->completion );
     remove_fd_locks( fd );
     list_remove( &fd->inode_entry );
@@ -2164,15 +2169,29 @@ int get_unix_fd( struct fd *fd )
     return fd->unix_fd;
 }
 
-/* retrieve the suggested mapping address for the fd */
+/* retrieve the suggested mapping address for the fd
+ *
+ * The address belongs to the file, not to one handle on it: a DLL opened by
+ * name and the same DLL opened through its \KnownDlls section have to agree on
+ * where it is, or a section ends up describing an image that is somewhere else.
+ * Keep it on the inode, which both of them share, and fall back to the fd only
+ * for the handles that have no inode at all. */
 client_ptr_t get_fd_map_address( struct fd *fd )
 {
+    if (fd->inode) return fd->inode->map_addr;
     return fd->map_addr;
 }
 
 /* set the suggested mapping address for the fd */
 void set_fd_map_address( struct fd *fd, client_ptr_t addr, mem_size_t size )
 {
+    if (fd->inode)
+    {
+        assert( !fd->inode->map_addr );
+        fd->inode->map_addr = addr;
+        fd->inode->map_size = size;
+        return;
+    }
     assert( !fd->map_addr );
     fd->map_addr = addr;
     fd->map_size = size;

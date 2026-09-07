@@ -2513,6 +2513,8 @@ NTSTATUS WINAPI NtDelayExecution( BOOLEAN alertable, const LARGE_INTEGER *timeou
 {
     unsigned int status = STATUS_SUCCESS;
 
+    tuxblox_diag_note_delay( alertable, timeout );
+
     /* if alertable, we need to query the server */
     if (alertable)
     {

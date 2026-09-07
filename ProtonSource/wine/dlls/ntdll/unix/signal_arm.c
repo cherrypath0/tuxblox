@@ -237,6 +237,12 @@ struct syscall_frame
 C_ASSERT( sizeof( struct syscall_frame ) == 0x160);
 
 
+/* Not recorded on this architecture; see the x86-64 one. */
+BOOL get_thread_last_syscall( TEB *teb, UINT *id, ULONG64 *first_arg )
+{
+    return FALSE;
+}
+
 void set_process_instrumentation_callback( void *callback )
 {
     if (callback) FIXME( "Not supported.\n" );

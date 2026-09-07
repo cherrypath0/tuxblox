@@ -201,6 +201,7 @@ extern WCHAR **main_wargv;
  * docs/superpowers/specs/2026-08-01-player-187-fingerprint-tracer-design.md) */
 extern ULONG64 get_syscall_caller_pc(void);
 extern ULONG64 get_syscall_caller_sp(void);
+extern BOOL get_thread_last_syscall( TEB *teb, UINT *id, ULONG64 *first_arg );
 extern void get_random( void *buf, ULONG len );
 extern NTSTATUS reject_foreign_object( HANDLE handle );
 
@@ -223,6 +224,10 @@ extern void tuxblox_diag_continue( const CONTEXT *context );
 extern BOOL tuxblox_diag_watch_enabled(void);
 extern BOOL tuxblox_diag_bp_hit( ULONG64 rip, const ULONG64 *regs );
 extern void tuxblox_diag_note_open_section( const OBJECT_ATTRIBUTES *attr, unsigned int status );
+extern void tuxblox_diag_note_delay( BOOLEAN alertable, const LARGE_INTEGER *timeout );
+extern BOOL tuxblox_diag_enabled(void);
+extern void tuxblox_diag_note_call( UINT id, const ULONG_PTR *args, ULONG len );
+extern void tuxblox_diag_note_callret( UINT id, ULONG_PTR retval );
 extern void tuxblox_diag_note_query( const char *what, unsigned int class, ULONG64 addr, const void *buffer, unsigned int status );
 extern void tuxblox_diag_align( ULONG64 rip, ULONG64 rsp, ULONG64 rbp, BOOL handled,
                                 const ULONG64 *regs );

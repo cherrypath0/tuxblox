@@ -316,6 +316,48 @@ static BOOL diag_enabled(void)
 
 static void diag_bp_arm(void);
 
+BOOL tuxblox_diag_enabled(void)
+{
+    return diag_enabled();
+}
+
+/* Every system call the process makes, with the answer it got.
+ *
+ * The raw-syscall ring above says which calls the layer issued and on what
+ * stack, but not what came back, and what comes back is what it branches on.
+ * A check that fails is a call that answered differently from Windows, so the
+ * status -- and the information class the call asked about, which is the first
+ * or second argument of every Query and Set -- has to be in the record too.
+ *
+ * Kept to the last few hundred: the divergence is at the end of the run, and a
+ * line per call for a whole run is unreadable and slow.
+ */
+#define DIAG_CALLS 512
+static __thread struct { UINT id; ULONG64 arg0, arg1, ret; } diag_calls[DIAG_CALLS];
+static __thread unsigned int diag_calls_pos;
+static __thread struct { UINT id; ULONG64 arg0, arg1; } diag_call_pending;
+
+void tuxblox_diag_note_call( UINT id, const ULONG_PTR *args, ULONG len )
+{
+    if (!diag_enabled()) return;
+    diag_call_pending.id   = id;
+    diag_call_pending.arg0 = len > 0 ? args[0] : 0;
+    diag_call_pending.arg1 = len > sizeof(ULONG_PTR) ? args[1] : 0;
+}
+
+void tuxblox_diag_note_callret( UINT id, ULONG_PTR retval )
+{
+    unsigned int at;
+
+    if (!diag_enabled()) return;
+    at = diag_calls_pos++ % DIAG_CALLS;
+    diag_calls[at].id   = id;
+    diag_calls[at].ret  = retval;
+    /* only trust the arguments if they belong to this call */
+    diag_calls[at].arg0 = diag_call_pending.id == id ? diag_call_pending.arg0 : 0;
+    diag_calls[at].arg1 = diag_call_pending.id == id ? diag_call_pending.arg1 : 0;
+}
+
 /* Every named section the program tries to open, and whether it was there.
  *
  * The layer opens a section, queries it, and then reads a pointer out of one
@@ -365,6 +407,60 @@ void tuxblox_diag_note_open_section( const OBJECT_ATTRIBUTES *attr, unsigned int
     }
     name[len] = 0;
     ERR_(seh)( "DIAG NtOpenSection \"%s\" -> %08x\n", name, status );
+}
+
+/* Where the Player sleeps out a whole timeout and then calls it a wait.
+ *
+ * The run ends on a thirty second gap in which the thread issues no system call
+ * at all, prints "Wait timeout expired" and aborts. Every wait in sync.c is
+ * traced except NtDelayExecution, which when it is not alertable is a plain
+ * select() -- so the gap is a Sleep, and nothing in any trace says where it is.
+ *
+ * Long delays only, with the Windows stack above the call, because the call
+ * site is the only thing that leads to the check the layer makes when it wakes.
+ */
+void tuxblox_diag_note_delay( BOOLEAN alertable, const LARGE_INTEGER *timeout )
+{
+    ULONG64 sp, pc;
+    LONGLONG when;
+    unsigned int i;
+
+    static unsigned int dumped;
+
+    if (!diag_enabled() || !timeout) return;
+    when = timeout->QuadPart;
+    /* a millisecond, in the 100ns units the timeout is counted in, either sign.
+     * A wait spun out of short sleeps looks like no wait at all otherwise. */
+    if (when > -10000 && when < 10000) return;
+
+    sp = get_syscall_caller_sp();
+    pc = get_syscall_caller_pc();
+    ERR_(seh)( "DIAG NtDelayExecution alertable=%u timeout=%lld pc=0x%llx sp=0x%llx\n",
+               alertable, (long long)when, (unsigned long long)pc, (unsigned long long)sp );
+
+    /* the stack above the call, which is what leads to the check it makes when
+     * it wakes -- only for the long ones, and only a few times */
+    if (when > -10000000 && when < 10000000) return;
+    if (dumped++ >= 4) return;
+    diag_hex( "delay-pc-64", (ULONG_PTR)pc - 64, 128 );
+
+    for (i = 0; i < 64; i++)
+    {
+        ULONG64 slot;
+
+        if (!virtual_uninterrupted_read_memory( (const char *)(ULONG_PTR)sp + i * 8,
+                                                &slot, sizeof(slot) ))
+            continue;
+        ERR_(seh)( "DIAG delay sp+%#x = 0x%llx\n", i * 8, (unsigned long long)slot );
+        /* a return address into a loaded image: show the instruction that
+         * called, and what it does with the answer when it comes back */
+        if ((slot > 0x6ffff0000000ull && slot < 0x700000000000ull) ||
+            (slot > 0x7ff600000000ull && slot < 0x800000000000ull))
+        {
+            diag_hex( "delay-ret-64", (ULONG_PTR)slot - 64, 64 );
+            diag_hex( "delay-ret+0", (ULONG_PTR)slot, 128 );
+        }
+    }
 }
 
 void tuxblox_diag_note_syscall( ULONG64 rip, ULONG64 rsp, ULONG64 rax )
@@ -791,6 +887,21 @@ static void diag_dump_steps(void)
 static void diag_dump_ring(void)
 {
     unsigned int n = diag_ring_pos < DIAG_RING ? diag_ring_pos : DIAG_RING, i;
+
+    unsigned int m = diag_calls_pos < DIAG_CALLS ? diag_calls_pos : DIAG_CALLS;
+
+    ERR_(seh)( "DIAG calls total=%u\n", diag_calls_pos );
+    for (i = 0; i < m; i++)
+    {
+        unsigned int at = (diag_calls_pos - m + i) % DIAG_CALLS;
+        const char *name = ntdll_syscall_name( diag_calls[at].id );
+
+        ERR_(seh)( "DIAG call[-%u] %s id=%04x arg0=0x%llx arg1=0x%llx -> %08x\n", m - i,
+                   name ? name : "?", diag_calls[at].id,
+                   (unsigned long long)diag_calls[at].arg0,
+                   (unsigned long long)diag_calls[at].arg1,
+                   (unsigned int)diag_calls[at].ret );
+    }
 
     ERR_(seh)( "DIAG syscall total=%u\n", diag_ring_pos );
     for (i = 0; i < n; i++)

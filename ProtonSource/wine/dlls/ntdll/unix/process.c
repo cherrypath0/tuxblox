@@ -2376,8 +2376,12 @@ NTSTATUS WINAPI NtSetInformationProcess( HANDLE handle, PROCESSINFOCLASS class, 
         PROCESS_INSTRUMENTATION_CALLBACK_INFORMATION *instr = info;
         void *callback;
 
-        if (size < sizeof(callback)) return STATUS_INFO_LENGTH_MISMATCH;
-        if (size >= sizeof(PROCESS_INSTRUMENTATION_CALLBACK_INFORMATION)) callback = instr->Callback;
+        /* Either a bare pointer or the whole structure, and nothing in between
+         * or beyond: measured on Windows 11, which takes 8 and 16 and answers
+         * STATUS_INFO_LENGTH_MISMATCH to 24. */
+        if (size != sizeof(callback) && size != sizeof(PROCESS_INSTRUMENTATION_CALLBACK_INFORMATION))
+            return STATUS_INFO_LENGTH_MISMATCH;
+        if (size == sizeof(PROCESS_INSTRUMENTATION_CALLBACK_INFORMATION)) callback = instr->Callback;
         else                                                              callback = *(void **)info;
         if (tuxblox_trace_enabled())
         {

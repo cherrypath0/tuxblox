@@ -6747,6 +6747,11 @@ static BOOL notify_desktop( const UNICODE_STRING *text, const UNICODE_STRING *ca
         ntdll_wcstoumbs( caption->Buffer, caption->Length / sizeof(WCHAR), title, sizeof(title) - 1, FALSE ))
         title[min( caption->Length / sizeof(WCHAR), sizeof(title) - 1 )] = 0;
 
+    /* A hard error is the program saying what went wrong in its own words, and
+     * it is the only place it ever says it. The notification is seen once and
+     * then gone, so put it in the log too. */
+    ERR( "hard error: %s: %s\n", title, body );
+
     if (want_answer && !notifier_has_actions()) want_answer = FALSE;
     if (want_answer && pipe( fds ) == -1) want_answer = FALSE;
 
