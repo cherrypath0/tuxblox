@@ -35,7 +35,10 @@ namespace tuxblox {
 int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const std::string& uri,
                        const std::string& currentVersion) {
     Settings settings = loadSettings(installDir);
-    auto extraEnv = parseEnvPairs(settings.envVars);
+    // launchEnvPairs(), not parseEnvPairs(settings.envVars): a launch started
+    // from a desktop shortcut has to carry the graphics-card selection too,
+    // and this is the path that does not go through the running launcher.
+    auto extraEnv = launchEnvPairs(settings);
 
     // Roblox reads FastFlags from a folder inside the version directory, and
     // every install produces a new one, so the file is rewritten here on each

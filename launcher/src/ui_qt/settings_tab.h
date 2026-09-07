@@ -16,7 +16,9 @@
 
 #pragma once
 #include "app.h"
+#include "system_info.h"
 #include <QWidget>
+#include <vector>
 
 class QComboBox;
 class QLineEdit;
@@ -52,7 +54,13 @@ private:
     App& app_;
     QComboBox* channelCombo_ = nullptr;
     ToggleSwitch* autoUpdateToggle_ = nullptr;
+    QComboBox* gpuCombo_ = nullptr;
     QLineEdit* envEdit_ = nullptr;
+
+    // Read once when the tab is built rather than on every snapshot tick:
+    // walking sysfs is cheap but the list cannot change without a reboot or a
+    // hotplug, neither of which happens while this window is open.
+    std::vector<GpuDevice> gpus_;
     ToggleSwitch* crashReportsToggle_ = nullptr;
     QPushButton* terminateButton_ = nullptr;
     DangerButton* wipePrefixButton_ = nullptr;

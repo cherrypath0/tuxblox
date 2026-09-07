@@ -129,6 +129,74 @@ int main() {
         assert(loaded.autoUpdate == true);
     }
 
+    // gpu defaults to "" (let the system decide) and round-trips as a PCI slot.
+    {
+        Settings s;
+        assert(s.gpu.empty());
+        s.gpu = "0000:01:00.0";
+        saveSettings(dir, s);
+
+        Settings loaded = loadSettings(dir);
+        assert(loaded.gpu == "0000:01:00.0");
+    }
+
+    // gpu loads leniently, like channel and auto_update: a settings.json
+    // written before the graphics-card picker existed must keep everything
+    // else it holds rather than resetting to defaults.
+    {
+        std::ofstream out(dir + "/settings.json", std::ios::binary);
+        out << R"({"env_vars": "FOO=bar", "send_crash_reports": false, "channel": "canary", "auto_update": true})";
+        out.close();
+
+        Settings s = loadSettings(dir);
+        assert(s.gpu.empty());
+        assert(s.envVars == "FOO=bar");
+        assert(s.sendCrashReports == false);
+        assert(s.channel == "canary");
+        assert(s.autoUpdate == true);
+    }
+
+    // launchEnvPairs(): with the Automatic default, a launch carries exactly
+    // the user's own variables and nothing else. This is the guarantee that
+    // the picker changes nothing for anyone who never touches it, so it is
+    // asserted rather than assumed.
+    {
+        Settings s;
+        s.envVars = "FOO=bar BAZ=qux";
+        assert(s.gpu.empty());
+
+        auto pairs = launchEnvPairs(s);
+        assert(pairs.size() == 2);
+        assert(pairs[0] == "FOO=bar");
+        assert(pairs[1] == "BAZ=qux");
+    }
+
+    // launchEnvPairs(): a saved card that this machine does not have falls
+    // back to automatic, rather than steering rendering onto a card that
+    // isn't there. (A real PCI slot cannot be asserted here -- the test
+    // machine's own hardware is whatever it is -- but a plainly bogus slot
+    // must never match.)
+    {
+        Settings s;
+        s.gpu = "ffff:ff:ff.f";
+        s.envVars = "FOO=bar";
+
+        auto pairs = launchEnvPairs(s);
+        assert(pairs.size() == 1);
+        assert(pairs[0] == "FOO=bar");
+    }
+
+    // launchEnvPairs(): the user's variables come last, which is what makes
+    // an entry in the settings box override the same variable from the
+    // picker. Order is the contract here, so it is checked directly.
+    {
+        Settings s;
+        s.envVars = "DRI_PRIME=9";
+        auto pairs = launchEnvPairs(s);
+        assert(!pairs.empty());
+        assert(pairs.back() == "DRI_PRIME=9");
+    }
+
     // parseEnvPairs: empty string.
     {
         auto pairs = parseEnvPairs("");

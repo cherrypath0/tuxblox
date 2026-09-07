@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "system_info.h"
+#include <algorithm>
 #include <cassert>
 #include <cstdio>
 #include <cstring>
@@ -180,6 +181,163 @@ int main() {
         // os may legitimately be "" only if /etc/os-release is entirely
         // absent AND uname() somehow fails too -- not expected on any real
         // Linux test runner, so this should hold in practice.
+    }
+
+    // ---- enumerateGpus() / gpuSelectionEnv() ------------------------------
+    //
+    // This machine has a single GPU, so the multi-GPU behaviour these cover
+    // cannot be exercised for real here. The fake sysfs trees below are
+    // therefore the only check that a hybrid or multi-seat machine is read
+    // correctly -- they stand in for hardware the author cannot test on.
+
+    // Builds one fake "cardN" under `root`: vendor/device files, a driver
+    // symlink, and a uevent carrying PCI_SLOT_NAME, exactly as real sysfs
+    // lays them out.
+    auto makeCard = [](const fs::path& root, const std::string& card,
+                       const std::string& vendor, const std::string& device,
+                       const std::string& driver, const std::string& slot) {
+        fs::path dev = root / card / "device";
+        fs::create_directories(dev);
+        { std::ofstream(dev / "vendor") << vendor << "\n"; }
+        { std::ofstream(dev / "device") << device << "\n"; }
+        if (!slot.empty()) {
+            std::ofstream(dev / "uevent")
+                << "DRIVER=" << driver << "\nPCI_SLOT_NAME=" << slot << "\n";
+        }
+        if (!driver.empty()) {
+            fs::path target = root / "fake_drivers" / driver;
+            fs::create_directories(target);
+            fs::create_symlink(target, dev / "driver");
+        }
+    };
+
+    // enumerateGpus(): missing root -> empty, never throws.
+    {
+        fs::path root = fs::temp_directory_path() / "tuxblox_test_gpus_missing";
+        fs::remove_all(root);
+        assert(enumerateGpus(root.string()).empty());
+    }
+
+    // enumerateGpus(): the hybrid-laptop case -- Intel iGPU on card0, NVIDIA
+    // dGPU on card1. Both are listed, in cardN order, each with its own slot.
+    {
+        fs::path root = fs::temp_directory_path() / "tuxblox_test_gpus_hybrid";
+        fs::remove_all(root);
+        makeCard(root, "card0", "0x8086", "0x9a49", "i915", "0000:00:02.0");
+        makeCard(root, "card1", "0x10de", "0x2520", "nvidia", "0000:01:00.0");
+
+        auto gpus = enumerateGpus(root.string());
+        assert(gpus.size() == 2);
+        assert(gpus[0].pciAddress == "0000:00:02.0");
+        assert(gpus[0].vendorId == "0x8086");
+        assert(gpus[0].deviceId == "0x9a49");
+        assert(gpus[0].driver == "i915");
+        assert(gpus[0].label == "Intel (i915)");
+        assert(gpus[1].pciAddress == "0000:01:00.0");
+        assert(gpus[1].driver == "nvidia");
+        assert(gpus[1].label == "NVIDIA (nvidia)");
+        fs::remove_all(root);
+    }
+
+    // enumerateGpus(): two identical cards would produce the same label, so
+    // the PCI slot is appended to BOTH -- a picker with two entries reading
+    // "AMD (amdgpu)" would be unusable.
+    {
+        fs::path root = fs::temp_directory_path() / "tuxblox_test_gpus_twins";
+        fs::remove_all(root);
+        makeCard(root, "card0", "0x1002", "0x744c", "amdgpu", "0000:03:00.0");
+        makeCard(root, "card1", "0x1002", "0x744c", "amdgpu", "0000:0a:00.0");
+
+        auto gpus = enumerateGpus(root.string());
+        assert(gpus.size() == 2);
+        assert(gpus[0].label == "AMD (amdgpu) at 0000:03:00.0");
+        assert(gpus[1].label == "AMD (amdgpu) at 0000:0a:00.0");
+        assert(gpus[0].label != gpus[1].label);
+        fs::remove_all(root);
+    }
+
+    // enumerateGpus(): a card with no bound driver, and a card with no
+    // readable PCI slot, are both left out -- neither could be selected.
+    {
+        fs::path root = fs::temp_directory_path() / "tuxblox_test_gpus_skipped";
+        fs::remove_all(root);
+        makeCard(root, "card0", "0x1002", "0x744c", "", "0000:03:00.0"); // no driver
+        makeCard(root, "card1", "0x10de", "0x2520", "nvidia", "");       // no slot
+        makeCard(root, "card2", "0x8086", "0x9a49", "i915", "0000:00:02.0");
+
+        auto gpus = enumerateGpus(root.string());
+        assert(gpus.size() == 1);
+        assert(gpus[0].driver == "i915");
+        fs::remove_all(root);
+    }
+
+    // gpuSelectionEnv(): a Mesa card gets the Mesa variables and none of the
+    // NVIDIA ones. MESA_VK_DEVICE_SELECT takes bare hex, no "0x", and
+    // DRI_PRIME takes the slot with ':' and '.' replaced by '_'.
+    {
+        GpuDevice amd;
+        amd.pciAddress = "0000:03:00.0";
+        amd.vendorId = "0x1002";
+        amd.deviceId = "0x744c";
+        amd.driver = "amdgpu";
+        auto env = gpuSelectionEnv(amd);
+
+        auto has = [&](const std::string& pair) {
+            return std::find(env.begin(), env.end(), pair) != env.end();
+        };
+        assert(has("MESA_VK_DEVICE_SELECT=1002:744c"));
+        assert(has("DRI_PRIME=pci-0000_03_00_0"));
+        for (const auto& pair : env) assert(pair.rfind("__NV_PRIME", 0) != 0);
+    }
+
+    // gpuSelectionEnv(): an NVIDIA card gets the offload variables and no
+    // MESA_VK_DEVICE_SELECT, which its proprietary driver ignores anyway.
+    {
+        GpuDevice nv;
+        nv.pciAddress = "0000:01:00.0";
+        nv.vendorId = "0x10de";
+        nv.deviceId = "0x2520";
+        nv.driver = "nvidia";
+        auto env = gpuSelectionEnv(nv);
+
+        auto has = [&](const std::string& pair) {
+            return std::find(env.begin(), env.end(), pair) != env.end();
+        };
+        assert(has("__NV_PRIME_RENDER_OFFLOAD=1"));
+        assert(has("__VK_LAYER_NV_optimus=NVIDIA_only"));
+        assert(has("__GLX_VENDOR_LIBRARY_NAME=nvidia"));
+        for (const auto& pair : env) assert(pair.rfind("MESA_VK_DEVICE_SELECT", 0) != 0);
+    }
+
+    // gpuSelectionEnv(): a Mesa card whose device id could not be read still
+    // gets DRI_PRIME, just not the Vulkan selector -- half the steering is
+    // better than none, and an empty id would make a malformed variable.
+    {
+        GpuDevice partial;
+        partial.pciAddress = "0000:03:00.0";
+        partial.vendorId = "0x1002";
+        partial.driver = "amdgpu";
+        auto env = gpuSelectionEnv(partial);
+        for (const auto& pair : env) assert(pair.rfind("MESA_VK_DEVICE_SELECT", 0) != 0);
+        assert(std::find(env.begin(), env.end(), "DRI_PRIME=pci-0000_03_00_0") != env.end());
+    }
+
+    // gpuEnvForSelection(): the Automatic default must emit NOTHING. This is
+    // what guarantees an untouched environment for everyone who never opens
+    // the picker, so it is asserted rather than assumed.
+    {
+        std::vector<GpuDevice> gpus;
+        GpuDevice nv;
+        nv.pciAddress = "0000:01:00.0";
+        nv.vendorId = "0x10de";
+        nv.driver = "nvidia";
+        gpus.push_back(nv);
+
+        assert(gpuEnvForSelection("", gpus).empty());
+        assert(!gpuEnvForSelection("0000:01:00.0", gpus).empty());
+        // A saved choice naming a card that is no longer present falls back
+        // to automatic rather than steering onto something absent.
+        assert(gpuEnvForSelection("0000:09:00.0", gpus).empty());
     }
 
     printf("system_info: all tests passed\n");

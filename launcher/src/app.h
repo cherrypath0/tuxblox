@@ -179,7 +179,7 @@ private:
     void wipePrefixThreadMain();
     void versionInstallThreadMain(LaunchTarget target, VersionSelectMode mode, std::string channel,
                                    std::string manualHash);
-    void applyEnvVars(const std::string& envVars);
+    void applyEnvVars(const Settings& settings);
 
     std::string installDir_;
     std::string currentVersion_;

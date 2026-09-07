@@ -71,7 +71,7 @@ App::App(std::string installDir, std::string currentVersion, std::string launche
     // startUpdateCheck() spawns any other thread, so nothing else can be
     // concurrently calling getenv() yet. See applyGlobalEnvVars()'s own
     // comment for why that ordering matters everywhere else it's called.
-    applyEnvVars(snapshot_.settings.envVars);
+    applyEnvVars(snapshot_.settings);
 
     // A missing /dev/dri inside a Distrobox container almost always means
     // the container was created without GPU passthrough -- Roblox will
@@ -298,11 +298,15 @@ void App::updateSettings(Settings settings) {
     bool envChanged;
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        envChanged = snapshot_.settings.envVars != settings.envVars;
+        // The card picker feeds the same environment, so a change to it has
+        // to re-apply too -- otherwise picking a card would do nothing until
+        // the launcher was restarted.
+        envChanged = snapshot_.settings.envVars != settings.envVars ||
+                     snapshot_.settings.gpu != settings.gpu;
         snapshot_.settings = settings;
     }
     if (envChanged) {
-        applyEnvVars(settings.envVars);
+        applyEnvVars(settings);
     }
 }
 
@@ -317,7 +321,7 @@ void App::dismissUpdateNotification() {
     snapshot_.updateAvailableVersion.reset();
 }
 
-void App::applyEnvVars(const std::string& envVars) {
+void App::applyEnvVars(const Settings& settings) {
     // setenv()/getenv() are not thread-safe in glibc (Finding 6,
     // 2026-07-28 final review) -- this process does have other threads
     // that may call getenv() (the update-check thread, inside curl).
@@ -328,7 +332,7 @@ void App::applyEnvVars(const std::string& envVars) {
     // later calls from updateSettings() (user edits, on the render thread)
     // accept the same small, already-documented race rather than adding
     // cross-thread coordination for a rare, user-initiated edit.
-    for (const auto& kv : parseEnvPairs(envVars)) {
+    for (const auto& kv : launchEnvPairs(settings)) {
         auto pos = kv.find('=');
         setenv(kv.substr(0, pos).c_str(), kv.substr(pos + 1).c_str(), 1);
     }

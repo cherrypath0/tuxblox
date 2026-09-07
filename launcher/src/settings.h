@@ -55,6 +55,12 @@ struct Settings {
     // app.h's AppSnapshot::updateAvailableVersion and
     // App::requestUpdateNow() for the rest of that flow.
     bool autoUpdate = false;
+    // PCI slot of the graphics card to render on, e.g. "0000:01:00.0", or ""
+    // for "let the system decide" -- which is the default, and emits no
+    // environment at all, so a machine with one graphics card behaves exactly
+    // as it did before this setting existed. See system_info.h's GpuDevice for
+    // why the slot is stored rather than an index or a name.
+    std::string gpu;
     // Written into the active Roblox version's ClientSettings folder at every
     // launch -- see fastflag_file.h for why it can't just be written once.
     FastFlagSet fastFlags;
@@ -72,5 +78,16 @@ void saveSettings(const std::string& installDir, const Settings& settings);
 // no '=' are skipped (matches TrackedProcess::start's existing per-pair
 // parsing convention in process_launcher.cpp).
 std::vector<std::string> parseEnvPairs(const std::string& text);
+
+// Every "VAR=VALUE" pair a launch should carry, in the order they must be
+// applied: the graphics-card selection first, then the user's own Environment
+// Variables. That order is the precedence rule -- a variable typed into the
+// settings box overrides the same variable coming from the card picker, so
+// the box stays the escape hatch for a machine the picker gets wrong.
+//
+// Defined here rather than at each call site because there are two of them
+// (the running launcher and a --watch-launch desktop shortcut) and they must
+// not disagree about what a launch's environment is.
+std::vector<std::string> launchEnvPairs(const Settings& settings);
 
 } // namespace tuxblox

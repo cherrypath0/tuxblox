@@ -16,6 +16,7 @@
 
 #include "settings.h"
 #include "json.hpp"
+#include "system_info.h"
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -105,6 +106,7 @@ Settings loadSettings(const std::string& installDir) {
         settings.channel = isKnownChannel(channel) ? channel : "stable";
         // Read leniently, same reasoning as "channel" above.
         settings.autoUpdate = j.value("auto_update", false);
+        settings.gpu = j.value("gpu", std::string(""));
 
         const auto fastFlags = j.find("fast_flags");
         if (fastFlags != j.end()) {
@@ -131,6 +133,7 @@ void saveSettings(const std::string& installDir, const Settings& settings) {
         j["send_crash_reports"] = settings.sendCrashReports;
         j["channel"] = settings.channel;
         j["auto_update"] = settings.autoUpdate;
+        j["gpu"] = settings.gpu;
         j["fast_flags"] = {{"player", fastFlagsToJson(settings.fastFlags.player)},
                             {"studio", fastFlagsToJson(settings.fastFlags.studio)}};
 
@@ -150,6 +153,24 @@ std::vector<std::string> parseEnvPairs(const std::string& text) {
         if (token.find('=') != std::string::npos) {
             pairs.push_back(token);
         }
+    }
+    return pairs;
+}
+
+std::vector<std::string> launchEnvPairs(const Settings& settings) {
+    // Skipped entirely for the "Automatic" default, so the common case does
+    // not walk sysfs at all and, more importantly, adds nothing whatsoever to
+    // the environment a launch has always had.
+    std::vector<std::string> pairs;
+    if (!settings.gpu.empty()) {
+        pairs = gpuEnvForSelection(settings.gpu, enumerateGpus("/sys/class/drm"));
+    }
+
+    // Appended second so that a duplicate variable here is the one that wins:
+    // both consumers apply these in order, with setenv() overwriting and the
+    // child-process environment taking the last occurrence.
+    for (auto& pair : parseEnvPairs(settings.envVars)) {
+        pairs.push_back(std::move(pair));
     }
     return pairs;
 }

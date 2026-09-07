@@ -193,6 +193,166 @@ std::string detectGpu() {
     return vendorLabel + " Mesa (driver: " + driverName + ")";
 }
 
+namespace {
+
+// Trims trailing CR/space/tab, which sysfs files carry after the newline
+// std::getline already removed.
+std::string trimTrailing(std::string value) {
+    while (!value.empty() && (value.back() == '\r' || value.back() == ' ' || value.back() == '\t')) {
+        value.pop_back();
+    }
+    return value;
+}
+
+std::string readFirstLine(const fs::path& path) {
+    std::ifstream in(path);
+    if (!in) return "";
+    std::string line;
+    std::getline(in, line);
+    return trimTrailing(line);
+}
+
+// Real sysfs exposes a card's PCI slot two ways: PCI_SLOT_NAME in the
+// device's uevent, and the basename of the "device" symlink. uevent is tried
+// first because it is a plain file that says what it means; the symlink is
+// the fallback for a kernel that omits the key.
+std::string readPciSlot(const fs::path& devicePath) {
+    std::ifstream uevent(devicePath / "uevent");
+    if (uevent) {
+        std::string line;
+        while (std::getline(uevent, line)) {
+            const std::string key = "PCI_SLOT_NAME=";
+            if (line.rfind(key, 0) == 0) {
+                std::string slot = trimTrailing(line.substr(key.size()));
+                if (!slot.empty()) return slot;
+            }
+        }
+    }
+
+    std::error_code ec;
+    if (fs::is_symlink(devicePath, ec) && !ec) {
+        fs::path resolved = fs::read_symlink(devicePath, ec);
+        if (!ec) {
+            std::string slot = resolved.filename().string();
+            if (!slot.empty()) return slot;
+        }
+    }
+    return "";
+}
+
+// Every kernel DRM driver other than NVIDIA's proprietary one renders through
+// Mesa (amdgpu, i915, xe, nouveau, radeon, virtio_gpu, ...), which is the same
+// split detectGpu() above already makes.
+bool isNvidiaProprietary(const std::string& driver) {
+    return driver == "nvidia";
+}
+
+} // namespace
+
+std::vector<GpuDevice> enumerateGpus(const std::string& drmRoot) {
+    std::error_code ec;
+    if (!fs::exists(drmRoot, ec) || ec) return {};
+
+    std::vector<fs::path> cardDirs;
+    for (const auto& entry : fs::directory_iterator(drmRoot, ec)) {
+        if (ec) break;
+        if (!entry.is_directory()) continue;
+        std::string name = entry.path().filename().string();
+        // Only "cardN" entries -- skip "renderD1xx" and any control nodes.
+        if (name.rfind("card", 0) != 0 || name.size() <= 4) continue;
+        bool allDigits = std::all_of(name.begin() + 4, name.end(),
+                                      [](unsigned char c) { return std::isdigit(c) != 0; });
+        if (!allDigits) continue;
+        cardDirs.push_back(entry.path());
+    }
+    // Sorted so the picker lists cards in the same order every run. Plain
+    // path order puts card10 before card2, which is cosmetic here: the saved
+    // choice is a PCI slot, so ordering never changes what is selected.
+    std::sort(cardDirs.begin(), cardDirs.end());
+
+    std::vector<GpuDevice> gpus;
+    for (const auto& cardDir : cardDirs) {
+        fs::path devicePath = cardDir / "device";
+
+        GpuDevice gpu;
+        gpu.vendorId = readFirstLine(devicePath / "vendor");
+        if (gpu.vendorId.empty()) continue;
+
+        std::error_code driverEc;
+        fs::path resolvedDriver = fs::read_symlink(devicePath / "driver", driverEc);
+        if (driverEc) continue; // unbound device -- nothing would render on it
+        gpu.driver = resolvedDriver.filename().string();
+        if (gpu.driver.empty()) continue;
+
+        gpu.pciAddress = readPciSlot(devicePath);
+        if (gpu.pciAddress.empty()) continue; // no stable way to select it later
+
+        gpu.deviceId = readFirstLine(devicePath / "device");
+        gpu.label = gpuVendorLabel(gpu.vendorId) + " (" + gpu.driver + ")";
+        gpus.push_back(std::move(gpu));
+    }
+
+    // Disambiguate cards that would otherwise read identically. Done after the
+    // fact rather than by always including the slot, so the common hybrid case
+    // stays readable ("NVIDIA (nvidia)", not "NVIDIA (nvidia) at 0000:01:00.0").
+    //
+    // The counts are taken from a snapshot rather than from gpus itself:
+    // appending to one card's label as we go would leave the next card with
+    // the only remaining copy of the original, look unique, and keep the
+    // ambiguous name -- so exactly one of two identical cards would be labelled.
+    std::unordered_map<std::string, int> labelCounts;
+    for (const auto& gpu : gpus) labelCounts[gpu.label]++;
+    for (auto& gpu : gpus) {
+        if (labelCounts[gpu.label] > 1) gpu.label += " at " + gpu.pciAddress;
+    }
+    return gpus;
+}
+
+std::vector<std::string> gpuSelectionEnv(const GpuDevice& gpu) {
+    std::vector<std::string> env;
+    if (gpu.pciAddress.empty()) return env;
+
+    if (isNvidiaProprietary(gpu.driver)) {
+        // The trio NVIDIA's own PRIME render-offload documentation specifies.
+        // __VK_LAYER_NV_optimus is the one that matters to Roblox, which
+        // renders through Vulkan; the GLX variable covers anything in the
+        // prefix that still goes through OpenGL.
+        env.push_back("__NV_PRIME_RENDER_OFFLOAD=1");
+        env.push_back("__VK_LAYER_NV_optimus=NVIDIA_only");
+        env.push_back("__GLX_VENDOR_LIBRARY_NAME=nvidia");
+        return env;
+    }
+
+    // MESA_VK_DEVICE_SELECT wants bare hex ids, "1002:744c", where sysfs
+    // spells them "0x1002". Skipped entirely when the device id could not be
+    // read, since a half-formed value would select nothing and hide the
+    // reason.
+    auto stripHexPrefix = [](const std::string& id) {
+        return id.rfind("0x", 0) == 0 ? id.substr(2) : id;
+    };
+    if (!gpu.vendorId.empty() && !gpu.deviceId.empty()) {
+        env.push_back("MESA_VK_DEVICE_SELECT=" + stripHexPrefix(gpu.vendorId) + ":" +
+                      stripHexPrefix(gpu.deviceId));
+    }
+
+    // DRI_PRIME's pci- form spells the slot with underscores: "0000:03:00.0"
+    // becomes "pci-0000_03_00_0".
+    std::string slot = gpu.pciAddress;
+    std::replace(slot.begin(), slot.end(), ':', '_');
+    std::replace(slot.begin(), slot.end(), '.', '_');
+    env.push_back("DRI_PRIME=pci-" + slot);
+    return env;
+}
+
+std::vector<std::string> gpuEnvForSelection(const std::string& pciAddress,
+                                             const std::vector<GpuDevice>& gpus) {
+    if (pciAddress.empty()) return {};
+    for (const auto& gpu : gpus) {
+        if (gpu.pciAddress == pciAddress) return gpuSelectionEnv(gpu);
+    }
+    return {};
+}
+
 bool detectRootPrivileges() {
     return geteuid() == 0;
 }

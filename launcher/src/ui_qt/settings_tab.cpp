@@ -32,6 +32,10 @@
 namespace tuxblox {
 
 SettingsTab::SettingsTab(App& app, QWidget* parent) : QWidget(parent), app_(app) {
+    // Before any group is built: buildEnvironmentGroup() fills the graphics
+    // card list from this.
+    gpus_ = enumerateGpus("/sys/class/drm");
+
     auto* outer = new QVBoxLayout(this);
     outer->setContentsMargins(0, 0, 0, 0);
 
@@ -109,11 +113,34 @@ QWidget* SettingsTab::buildUpdatesGroup(QWidget* parent) {
 QWidget* SettingsTab::buildEnvironmentGroup(QWidget* parent) {
     auto* group = new BoxedGroup(parent);
 
+    // Above the raw environment box, because it is the friendly form of the
+    // same thing: picking a card here sets the variables a user would
+    // otherwise have to know to type in themselves.
+    auto* gpuRow = new BoxedRow(
+        "Graphics card",
+        "Which graphics card Roblox uses. Only matters if this computer has more than one.");
+    gpuCombo_ = new QComboBox();
+    // The empty userData is the "let the system decide" default, and is what
+    // an unrecognised saved value falls back to.
+    gpuCombo_->addItem("Automatic", QString());
+    for (const auto& gpu : gpus_) {
+        gpuCombo_->addItem(QString::fromStdString(gpu.label),
+                           QString::fromStdString(gpu.pciAddress));
+    }
+    gpuCombo_->setMinimumWidth(210);
+    connect(gpuCombo_, &QComboBox::currentIndexChanged, this, [this](int index) {
+        if (index < 0) return;
+        Settings updated = app_.snapshot().settings;
+        updated.gpu = gpuCombo_->itemData(index).toString().toStdString();
+        commitSettings(updated);
+    });
+    gpuRow->addControl(gpuCombo_);
+    group->addRow(gpuRow);
+
     auto* envRow = new BoxedRow("Environment variables",
-                                 "Space-separated VAR=VALUE pairs, passed to every process "
-                                 "TuxBlox starts.");
+                                 "These variables will be passed to Roblox and the compatibility layer.");
     envEdit_ = new QLineEdit();
-    envEdit_->setPlaceholderText("DXVK_HUD=fps");
+    envEdit_->setPlaceholderText("VARIABLE=value");
     envEdit_->setMinimumWidth(210);
     connect(envEdit_, &QLineEdit::editingFinished, this, [this] {
         Settings updated = app_.snapshot().settings;
@@ -131,7 +158,7 @@ QWidget* SettingsTab::buildPrivacyGroup(QWidget* parent) {
 
     auto* crashRow = new BoxedRow(
         "Send crash reports",
-        "Exit code, Roblox and Proton versions, basic system info, and a copy of the session "
+        "Crash reports include exit code, Roblox and TuxBlox versions, basic system info, and a copy of the session "
         "log. See tuxblox.net/privacy");
     crashReportsToggle_ = new ToggleSwitch();
     connect(crashReportsToggle_, &ToggleSwitch::toggled, this, [this](bool checked) {
@@ -160,8 +187,8 @@ QWidget* SettingsTab::buildDangerGroup(QWidget* parent) {
     group->setObjectName("dangerZone");
 
     auto* terminateRow = new BoxedRow(
-        "Terminate TuxBlox",
-        "Stops Roblox and everything else running in the prefix. The launcher stays open.");
+        "Terminate Roblox",
+        "Stops all Roblox processes running");
     terminateButton_ = new QPushButton("Terminate", this);
     terminateButton_->setObjectName("dangerButton");
     terminateButton_->setCursor(Qt::PointingHandCursor);
@@ -170,14 +197,14 @@ QWidget* SettingsTab::buildDangerGroup(QWidget* parent) {
     group->addRow(terminateRow);
 
     auto* wipeRow = new BoxedRow("Wipe prefix",
-                                  "Deletes the Windows prefix. Roblox is reinstalled on next launch.");
+                                  "Deletes the virtual drive for TuxBlox. Note that this will wipe Roblox installations");
     wipePrefixButton_ = new DangerButton("Wipe prefix", "Click again to wipe", "Wiping...");
     wipeRow->addControl(wipePrefixButton_);
     connect(wipePrefixButton_, &DangerButton::confirmed, this, [this] { app_.requestWipePrefix(); });
     group->addRow(wipeRow);
 
     auto* uninstallRow = new BoxedRow("Uninstall TuxBlox",
-                                       "Removes TuxBlox and everything it installed.");
+                                       "This will delete everything including the virtual drive, shortcuts, and TuxBlox itself.");
     uninstallButton_ = new DangerButton("Uninstall", "Click again to uninstall", "Uninstalling...");
     uninstallRow->addControl(uninstallButton_);
     connect(uninstallButton_, &DangerButton::confirmed, this, [this] { app_.requestUninstall(); });
@@ -223,6 +250,11 @@ void SettingsTab::updateFromSnapshot(const AppSnapshot& snap) {
         envEdit_->setText(QString::fromStdString(snap.settings.envVars));
         crashReportsToggle_->setChecked(snap.settings.sendCrashReports);
         autoUpdateToggle_->setChecked(snap.settings.autoUpdate);
+        // Matched on the stored PCI slot, not on position: a card that has
+        // been removed since the setting was saved has no entry here, and
+        // findData returns -1, which correctly lands back on Automatic.
+        int gpuIndex = gpuCombo_->findData(QString::fromStdString(snap.settings.gpu));
+        gpuCombo_->setCurrentIndex(gpuIndex >= 0 ? gpuIndex : 0);
         fieldsSeeded_ = true;
     }
 
