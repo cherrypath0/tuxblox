@@ -70,8 +70,8 @@ FastFlagsTab::FastFlagsTab(App& app, QWidget* parent) : QWidget(parent), app_(ap
     layout->addWidget(title);
 
     auto* subtitle = new QLabel(
-        "Switches Roblox reads when it starts. They are written into the version "
-        "you are running, so they survive updates.",
+        "FastFlags are internal Roblox settings that you can configure. "
+        "Note that Roblox has a FastFlag allowlist, and Roblox may ban or take action against your account for using this.",
         content);
     subtitle->setObjectName("pageSubtitle");
     subtitle->setWordWrap(true);

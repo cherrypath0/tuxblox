@@ -88,7 +88,7 @@ VersionsTab::VersionsTab(App& app, QWidget* parent) : QWidget(parent), app_(app)
     title->setFont(theme::displayFont(21, QFont::Bold));
     layout->addWidget(title);
 
-    auto* subtitle = new QLabel("Install and switch between Roblox builds.", content);
+    auto* subtitle = new QLabel("Manage Roblox versions here", content);
     subtitle->setObjectName("pageSubtitle");
     layout->addSpacing(4);
     layout->addWidget(subtitle);

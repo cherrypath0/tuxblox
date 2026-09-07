@@ -62,7 +62,7 @@ StartTab::StartTab(App& app, QWidget* parent) : QWidget(parent), app_(app) {
     title_->setFont(theme::displayFont(21, QFont::Bold));
     layout->addWidget(title_);
 
-    subtitle_ = new QLabel("Player and Studio run through TuxBlox's own Proton build.", this);
+    subtitle_ = new QLabel("Launch Roblox on Linux via TuxBlox", this);
     subtitle_->setObjectName("pageSubtitle");
     subtitle_->setWordWrap(true);
     layout->addSpacing(4);
