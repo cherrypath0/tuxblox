@@ -550,6 +550,22 @@ static struct strarray get_link_args( const char *output_name )
         strarray_add( &flags, "-Wl,--dynamicbase" );
         strarray_add( &flags, "-Wl,--disable-auto-image-base" );
 
+        /* The image version and stack size every Windows system binary carries,
+         * and which a program can read back for each library it has loaded. The
+         * linker's own defaults are 0.0 and a 2MB reserve, which no Windows
+         * binary has. Libraries and programs are given different sizes because
+         * Windows gives them different sizes. */
+        strarray_add( &flags, "-Wl,--major-image-version,10" );
+        strarray_add( &flags, "-Wl,--minor-image-version,0" );
+        strarray_add( &flags, "-Wl,--major-os-version,10" );
+        strarray_add( &flags, "-Wl,--minor-os-version,0" );
+        /* -Xlinker, not -Wl: the reserve and the commit are one argument with a
+         * comma in it, and -Wl would split them into two. */
+        strarray_add( &flags, "-Xlinker" );
+        strarray_add( &flags, "--stack" );
+        strarray_add( &flags, "-Xlinker" );
+        strarray_add( &flags, (is_shared || is_win16_app) ? "0x40000,0x1000" : "0x80000,0x4000" );
+
         if (image_base) strarray_add( &flags, strmake("-Wl,--image-base,%s", image_base ));
 
         if (large_address_aware && target.cpu == CPU_i386)
@@ -596,6 +612,12 @@ static struct strarray get_link_args( const char *output_name )
 
         if (large_address_aware && target.cpu == CPU_i386)
             strarray_add( &flags, "-Wl,-largeaddressaware" );
+
+        /* See the mingw case above. */
+        strarray_add( &flags, "-Wl,-version:10.0" );
+        strarray_add( &flags, "-Xlinker" );
+        strarray_add( &flags, (is_shared || is_win16_app) ? "-stack:0x40000,0x1000"
+                                                          : "-stack:0x80000,0x4000" );
 
         if (entry_point) strarray_add( &flags, strmake( "-Wl,-entry:%s", entry_point ));
 
@@ -2047,7 +2069,7 @@ int main(int argc, char **argv)
 
     if (!subsystem) subsystem = is_gui_app ? "windows" : "console";
     if (!strcmp( subsystem, "windows" ) || !strcmp( subsystem, "console" ))
-        subsystem = strmake( "%s:6.0", subsystem );
+        subsystem = strmake( "%s:10.0", subsystem );
 
     if (!winebuild)
     {
