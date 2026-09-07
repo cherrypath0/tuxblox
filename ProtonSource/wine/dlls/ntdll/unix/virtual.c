@@ -6233,6 +6233,53 @@ static struct file_view *get_memory_region_size( char *base, char **region_start
 }
 
 
+/* What the kernel reports for a page in /proc/self/pagemap. */
+#define PAGEMAP_PRESENT ((UINT64)1 << 63)
+#define PAGEMAP_SWAPPED ((UINT64)1 << 62)
+#define PAGEMAP_FILE    ((UINT64)1 << 61)
+
+/***********************************************************************
+ *           update_writecopy_state
+ *
+ * Mark the write-copy image pages whose private copy has already been made.
+ * Windows reports a written image page as the read-write protection it ends
+ * up with rather than as write-copy, so the pages that have been written have
+ * to be told apart from the ones that have not. They cannot be made to fault:
+ * Wine's own loader writes into them before there is a handler to catch it.
+ * The kernel already knows, though. A page that has been written is anonymous,
+ * and one that has not is either still backed by the file it was mapped from
+ * or not resident at all.
+ */
+static void update_writecopy_state( char *base, char *end )
+{
+    static int pagemap_fd = -2;  /* not opened yet; -1 once known unavailable */
+
+    char *page;
+
+    if (pagemap_fd == -2) pagemap_fd = open( "/proc/self/pagemap", O_RDONLY | O_CLOEXEC );
+    if (pagemap_fd < 0) return;
+
+    for (page = base; page < end; page += host_page_size)
+    {
+        const BYTE vprot = get_host_page_vprot( page );
+        UINT64 entry;
+
+        /* Only a page that can still be copied is worth asking about, and a
+         * page already known copied stays that way. */
+        if (!(vprot & VPROT_WRITECOPY) || (vprot & VPROT_COPIED)) continue;
+
+        if (pread( pagemap_fd, &entry, sizeof(entry),
+                   ((UINT64)(UINT_PTR)page / host_page_size) * sizeof(entry) ) != sizeof(entry))
+            return;
+
+        if (!(entry & PAGEMAP_SWAPPED) &&
+            (!(entry & PAGEMAP_PRESENT) || (entry & PAGEMAP_FILE))) continue;
+
+        set_page_vprot_bits( page, host_page_size, VPROT_COPIED, 0 );
+    }
+}
+
+
 static unsigned int fill_basic_memory_info( const void *addr, MEMORY_BASIC_INFORMATION *info )
 {
     char *base, *alloc_base, *alloc_end;
@@ -6278,6 +6325,7 @@ static unsigned int fill_basic_memory_info( const void *addr, MEMORY_BASIC_INFOR
         BYTE vprot;
 
         info->AllocationBase = alloc_base;
+        if (view->protect & SEC_IMAGE) update_writecopy_state( base, alloc_end );
         info->RegionSize = get_committed_size( view, base, ~(size_t)0, &vprot, ~VPROT_WRITEWATCH );
         info->State = (vprot & VPROT_COMMITTED) ? MEM_COMMIT : MEM_RESERVE;
         info->Protect = (vprot & VPROT_COMMITTED) ? get_win32_prot( vprot, view->protect ) : 0;
