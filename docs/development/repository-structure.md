@@ -15,7 +15,7 @@ These are separate programs that talk to each other while running, not one progr
 
 - **`installer/`**, the source code for `TuxBloxInstaller`.
 - **`launcher/`**, the source code for `TuxBloxLauncher`, which sets up and runs Roblox.
-- **`ProtonSource/`**, TuxBlox's compatibility layer. Made up of many smaller pieces (submodules), plus a Wine fork maintained directly inside this repository.
+- **`ProtonSource/`**, TuxBlox's compatibility layer. Made up of many smaller pieces (submodules), plus a Wine fork maintained directly inside this repository. `ProtonSource/src/` holds TuxBlox's own C++ for the layer, and is the one part of it that is GPLv3.
 - **`webkitgtk-bundle/`**, the bundled web browser component used for things like the Roblox login screen and Toolbox.
 - **`docs/`**, this documentation.
 - **`fonts/`**, fonts bundled with TuxBlox.

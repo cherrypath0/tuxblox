@@ -351,7 +351,7 @@ run_step "compile_proton_native" strict bash -c '
 
     workdir="$(mktemp -d)"
     mkdir -p "$workdir/src/third_party" "$workdir/out"
-    cp "$ROOT"/ProtonSource/*.cpp "$ROOT"/ProtonSource/*.h "$workdir/src/"
+    cp "$ROOT"/ProtonSource/src/*.cpp "$ROOT"/ProtonSource/src/*.h "$workdir/src/"
     cp "$ROOT/ProtonSource/third_party/json.hpp" "$workdir/src/third_party/"
 
     # Run through sh so the *.cpp glob is expanded inside the container.
