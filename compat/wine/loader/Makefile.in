@@ -2,7 +2,6 @@ SOURCES = \
 	main.c \
 	preloader.c \
 	preloader_mac.c \
-	wine.desktop \
 	wine.inf.in \
 	wine_info.plist.in
 

@@ -3831,11 +3831,6 @@ programs/winefile/winefile \
 programs/winemine/winemine \
 programs/winepath/winepath \
 server/wineserver"
-
-    case $host_os in
-      cygwin*|mingw32*|darwin*|linux-android*) ;;
-      *) TOP_INSTALL_LIB="$TOP_INSTALL_LIB loader/wine.desktop" ;;
-    esac
 fi
 
 dnl Rules for generated source files
