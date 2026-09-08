@@ -1274,7 +1274,10 @@ static BOOL write_desktop_entry(const WCHAR *link, const WCHAR *location, const 
     fprintf(file, "Exec=" );
 
     fprintf(file, "\"%s\"", escape(path));
-    if (args) fprintf(file, " \"%s\"", escape(args) );
+    /* Checked for emptiness, not just NULL: a shortcut with no arguments still
+     * arrives here as an empty buffer, and writing "" for it hands the program
+     * a stray empty argv entry. */
+    if (args && *args) fprintf(file, " \"%s\"", escape(args) );
     fputc( '\n', file );
     fprintf(file, "Type=Application\n");
     fprintf(file, "StartupNotify=true\n");
@@ -1308,36 +1311,26 @@ static BOOL write_desktop_entry(const WCHAR *link, const WCHAR *location, const 
 static BOOL write_menu_entry(const WCHAR *windows_link, const WCHAR *link, const WCHAR *path, const WCHAR *args,
                              const WCHAR *descr, const WCHAR *workdir, const WCHAR *icon, const WCHAR *wmclass)
 {
-    WCHAR *desktopPath;
-    WCHAR *desktopDir;
-    WCHAR *filename = NULL;
-    BOOL ret = TRUE;
-
     WINE_TRACE("(%s, %s, %s, %s, %s, %s, %s, %s)\n", wine_dbgstr_w(windows_link), wine_dbgstr_w(link),
                wine_dbgstr_w(path), wine_dbgstr_w(args), wine_dbgstr_w(descr),
                wine_dbgstr_w(workdir), wine_dbgstr_w(icon), wine_dbgstr_w(wmclass));
 
-    desktopPath = heap_wprintf(L"%s\\applications\\wine\\%s.desktop", xdg_data_dir, link);
-    desktopDir = wcsrchr(desktopPath, '\\');
-    *desktopDir = 0;
-    if (!create_directories(desktopPath))
+    /* This used to build an XDG menu path under xdg_data_dir and create its
+     * parent directories first. write_desktop_entry() redirects every entry
+     * into c:\proton_shortcuts, so that path was made and then ignored -- but
+     * building it needs WINEHOMEDIR, which set_prefix_bootstrap_vars() removes
+     * once the prefix is built. With the variable gone the path came out as
+     * "(null)\.local\share\...", create_directories() failed, and every Start
+     * Menu shortcut failed with it while Desktop ones (which never touch
+     * xdg_data_dir) kept working.
+     */
+    if (!write_desktop_entry(windows_link, NULL, link, path, args, descr, workdir, icon, wmclass))
     {
-        WINE_WARN("couldn't make parent directories for %s\n", wine_dbgstr_w(desktopPath));
-        ret = FALSE;
-        goto end;
-    }
-    *desktopDir = '\\';
-    if (!write_desktop_entry(windows_link, desktopPath, link, path, args, descr, workdir, icon, wmclass))
-    {
-        WINE_WARN("couldn't make desktop entry %s\n", wine_dbgstr_w(desktopPath));
-        ret = FALSE;
-        goto end;
+        WINE_WARN("couldn't make desktop entry for %s\n", wine_dbgstr_w(link));
+        return FALSE;
     }
 
-end:
-    free(desktopPath);
-    free(filename);
-    return ret;
+    return TRUE;
 }
 
 /***********************************************************************
@@ -2215,6 +2208,13 @@ static BOOL InvokeShellLinker( IShellLinkW *sl, LPCWSTR link, BOOL bWait )
             r = !write_desktop_entry(NULL, NULL, link_name, szPath, szArgs,
                                      szDescription, szWorkDir, icon_name, szWMClass);
     }
+    else if (szPath[0])
+        /* Record the target executable rather than the .lnk, matching what the
+         * desktop-directory branch above already writes. These entries exist to
+         * be read back out of c:\proton_shortcuts, and the reader identifies
+         * Roblox by the executable name -- a .lnk path there matches nothing
+         * and the entry is silently dropped. */
+        r = !write_menu_entry(link, link_name, szPath, szArgs, szDescription, szWorkDir, icon_name, szWMClass);
     else
         r = !write_menu_entry(link, link_name, link, NULL, szDescription, szWorkDir, icon_name, szWMClass);
 
