@@ -568,6 +568,45 @@ static ULONG64 layer_image_base( ULONG64 rip )
     }
     return 0;
 }
+/* Where the layer's image starts, without needing an address inside it first.
+ *
+ * The layer is RobloxPlayerBeta.dll, not the executable of the same name, so
+ * matching "roblox" alone finds the wrong module half the time. Asked of the
+ * loader rather than of /proc/self/maps, for the reason above: the layer's
+ * code pages are anonymous and the maps cannot name them.
+ */
+static ULONG64 roblox_dll_base(void)
+{
+    LIST_ENTRY *head, *cur;
+    unsigned int n = 0;
+
+    if (!peb || !peb->LdrData) return 0;
+    head = &peb->LdrData->InLoadOrderModuleList;
+    for (cur = head->Flink; cur && cur != head && n < 128; cur = cur->Flink, n++)
+    {
+        LDR_DATA_TABLE_ENTRY *m = (LDR_DATA_TABLE_ENTRY *)cur;  /* InLoadOrderLinks at off 0 */
+        const WCHAR *name = m->BaseDllName.Buffer;
+        SIZE_T len = m->BaseDllName.Length / sizeof(WCHAR), i;
+
+        if (!name || len < 10) continue;                        /* "roblox" + ".dll" */
+        if (name[len - 4] != '.' ||
+            (name[len - 3] | 0x20) != 'd' ||
+            (name[len - 2] | 0x20) != 'l' ||
+            (name[len - 1] | 0x20) != 'l') continue;
+
+        for (i = 0; i + 6 <= len; i++)
+        {
+            static const WCHAR robloxW[] = {'r','o','b','l','o','x'};
+            SIZE_T j;
+
+            for (j = 0; j < 6; j++)
+                if ((name[i + j] | 0x20) != robloxW[j]) break;
+            if (j == 6) return (ULONG64)(ULONG_PTR)m->DllBase;
+        }
+    }
+    return 0;
+}
+
 /* Read straight from the signal paths, so an ordinary run pays one load and a
  * predictable branch rather than a call into this file. */
 BOOL tuxblox_diag_stepping;
@@ -1208,25 +1247,42 @@ void tuxblox_diag_watch_sysret( unsigned int id )
     }
 }
 
-/* One-shot breakpoints, for questions a fault counter cannot answer.
+/* Breakpoints, for questions a fault counter cannot answer.
  *
  * The layer computes almost every address it uses, so reading its code says
  * little about which branches actually run. An `int3` planted at a chosen
- * address answers that directly: it reports the registers the first time
- * execution reaches it, puts the original byte back and carries on. The trap
- * is swallowed in the handler, so the program is never told it happened --
- * which matters here, because the layer raises debug traps of its own and
- * watches how they are delivered.
+ * address answers that directly: it reports the registers execution reaches it
+ * with, puts the original byte back and carries on. The trap is swallowed in
+ * the handler, so the program is never told it happened -- which matters here,
+ * because the layer raises debug traps of its own and watches how they are
+ * delivered.
  *
- * Named by TUXBLOX_DIAG_BP as a comma-separated list of absolute addresses.
+ * Named by TUXBLOX_DIAG_BP as a comma-separated list. An address below 4 GB is
+ * an offset into the layer's own image, which is the only way to name one of
+ * its instructions that survives the image moving between runs.
+ *
+ * Each address reports up to TUXBLOX_DIAG_BP_MAX times, eight by default. The
+ * interesting questions are about a call the layer makes more than once with
+ * different arguments, and a breakpoint that fires once cannot tell those
+ * apart.
  */
 #define DIAG_BP_MAX 8
 
 static ULONG64 diag_bp_addr[DIAG_BP_MAX];
 static unsigned char diag_bp_orig[DIAG_BP_MAX], diag_bp_want[DIAG_BP_MAX];
-static char diag_bp_armed[DIAG_BP_MAX];
-static unsigned int diag_bp_count, diag_bp_pending;
+static char diag_bp_armed[DIAG_BP_MAX], diag_bp_resolved[DIAG_BP_MAX];
+static unsigned int diag_bp_hits[DIAG_BP_MAX];
+static ULONG diag_bp_rearm_tid[DIAG_BP_MAX];
+static unsigned int diag_bp_count, diag_bp_pending, diag_bp_max_hits;
 static int diag_bp_parsed;
+
+/* Breakpoint states. A hit leaves the address WAITING rather than ARMED: the
+ * byte has to stay out of the way until the instruction under it has run, and
+ * the first system call the same thread makes is proof that it has. */
+#define DIAG_BP_PENDING 0
+#define DIAG_BP_ARMED   1
+#define DIAG_BP_RETIRED 2
+#define DIAG_BP_WAITING 3
 
 /* Arming has to wait for the layer to decrypt the code being watched, and
  * nothing says when that has happened. Each address may therefore be given the
@@ -1256,6 +1312,8 @@ static void diag_bp_arm(void)
             if (addr) diag_bp_addr[diag_bp_count++] = addr;
         }
         diag_bp_pending = diag_bp_count;
+        v = getenv( "TUXBLOX_DIAG_BP_MAX" );
+        diag_bp_max_hits = v ? atoi( v ) : 8;
     }
     if (!diag_bp_pending) return;
 
@@ -1263,17 +1321,40 @@ static void diag_bp_arm(void)
     {
         unsigned char cur;
 
+        /* A hit thread that has reached a system call is past the instruction
+         * the breakpoint sat on, so the byte can go back. */
+        if (diag_bp_armed[i] == DIAG_BP_WAITING)
+        {
+            if (GetCurrentThreadId() != diag_bp_rearm_tid[i]) continue;
+            diag_bp_armed[i] = DIAG_BP_PENDING;
+        }
         if (diag_bp_armed[i]) continue;
+
+        /* An offset only becomes an address once the layer is loaded. */
+        if (!diag_bp_resolved[i])
+        {
+            ULONG64 base;
+
+            if (diag_bp_addr[i] >= 0x100000000ull) diag_bp_resolved[i] = 1;
+            else if (!(base = roblox_dll_base())) continue;
+            else
+            {
+                diag_bp_addr[i] += base;
+                diag_bp_resolved[i] = 1;
+                ERR_(seh)( "DIAG bp resolved to 0x%llx\n", (unsigned long long)diag_bp_addr[i] );
+            }
+        }
         if (virtual_uninterrupted_read_memory( (const void *)(ULONG_PTR)diag_bp_addr[i], &cur, 1 ) != 1)
             continue;
         if (diag_bp_want[i] && cur != diag_bp_want[i]) continue;
         if (virtual_patch_code_byte( (void *)(ULONG_PTR)diag_bp_addr[i], 0xcc )) continue;
 
         diag_bp_orig[i] = cur;
-        diag_bp_armed[i] = 1;
+        diag_bp_armed[i] = DIAG_BP_ARMED;
         diag_bp_pending--;
-        ERR_(seh)( "DIAG bp armed at 0x%llx, was 0x%02x\n",
-                   (unsigned long long)diag_bp_addr[i], cur );
+        if (!diag_bp_hits[i])
+            ERR_(seh)( "DIAG bp armed at 0x%llx, was 0x%02x\n",
+                       (unsigned long long)diag_bp_addr[i], cur );
     }
 }
 
@@ -1288,14 +1369,46 @@ BOOL tuxblox_diag_bp_hit( ULONG64 rip, const ULONG64 *regs )
         char line[512];
         unsigned int k, n = 0;
 
-        if (diag_bp_armed[i] != 1 || diag_bp_addr[i] != rip - 1) continue;
+        if (diag_bp_armed[i] != DIAG_BP_ARMED || diag_bp_addr[i] != rip - 1) continue;
 
         for (k = 0; k < 16; k++)
             n += snprintf( line + n, sizeof(line) - n, "%s=%llx ", names[k],
                            (unsigned long long)regs[k] );
-        ERR_(seh)( "DIAG bp hit 0x%llx %s\n", (unsigned long long)diag_bp_addr[i], line );
+
+        /* The top of the stack as well as the registers. At a function's first
+         * instruction [rsp] is the return address, which is the only thing
+         * that says which of the layer's many call sites this one came from --
+         * and with the layer's calls all computed, that is the question. Shown
+         * as an offset into the layer where it lands in it. */
+        {
+            ULONG64 stack[4], base = roblox_dll_base();
+
+            if (virtual_uninterrupted_read_memory( (const void *)(ULONG_PTR)regs[7],
+                                                   stack, sizeof(stack) ) == sizeof(stack))
+            {
+                n += snprintf( line + n, sizeof(line) - n, " stack:" );
+                for (k = 0; k < 4; k++)
+                {
+                    if (base && stack[k] > base && stack[k] < base + 0x10000000ull)
+                        n += snprintf( line + n, sizeof(line) - n, " layer+%llx",
+                                       (unsigned long long)(stack[k] - base) );
+                    else
+                        n += snprintf( line + n, sizeof(line) - n, " %llx",
+                                       (unsigned long long)stack[k] );
+                }
+            }
+        }
+        ERR_(seh)( "DIAG bp hit #%u 0x%llx %s\n", diag_bp_hits[i] + 1,
+                   (unsigned long long)diag_bp_addr[i], line );
         virtual_patch_code_byte( (void *)(ULONG_PTR)diag_bp_addr[i], diag_bp_orig[i] );
-        diag_bp_armed[i] = 2;
+
+        if (++diag_bp_hits[i] >= diag_bp_max_hits) diag_bp_armed[i] = DIAG_BP_RETIRED;
+        else
+        {
+            diag_bp_rearm_tid[i] = GetCurrentThreadId();
+            diag_bp_armed[i] = DIAG_BP_WAITING;
+            diag_bp_pending++;
+        }
         return TRUE;
     }
     return FALSE;
