@@ -225,6 +225,7 @@ extern BOOL tuxblox_diag_watch_enabled(void);
 extern BOOL tuxblox_diag_bp_hit( ULONG64 rip, const ULONG64 *regs );
 extern void tuxblox_diag_xpage_arm( void );
 extern void tuxblox_diag_dump_ldr( void );
+extern void tuxblox_diag_dump_keys( ULONG64 rip, ULONG64 rsp );
 extern BOOL tuxblox_diag_xpage_fault( ULONG64 addr, ULONG64 rip, ULONG64 rsp, ULONG kind );
 extern void tuxblox_diag_note_open_section( const OBJECT_ATTRIBUTES *attr, unsigned int status );
 extern void tuxblox_diag_note_delay( BOOLEAN alertable, const LARGE_INTEGER *timeout );

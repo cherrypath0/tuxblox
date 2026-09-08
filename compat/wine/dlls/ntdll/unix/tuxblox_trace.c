@@ -474,6 +474,7 @@ void tuxblox_diag_note_syscall( ULONG64 rip, ULONG64 rsp, ULONG64 rax )
     if (!diag_enabled()) return;
     diag_bp_arm();
     tuxblox_diag_dump_ldr();
+    tuxblox_diag_dump_keys( rip, rsp );
     tuxblox_diag_xpage_arm();
     /* The SIGSYS path resumes the caller at rip + 0xb, which is the shape of
      * ntdll's own stub. The layer issues its system calls from code it
@@ -1518,6 +1519,52 @@ static void xpage_arm_now( ULONG64 rip )
  * InMemoryOrderLinks field -- so the raw bytes are logged rather than a
  * guess at which. TUXBLOX_DIAG_LDR=1.
  */
+/* The layer's obfuscation keys.
+ *
+ * Every computed jump in the flattened function is `base + f(immediate, keys)`
+ * where the immediate is baked into the instruction and the keys are slots in
+ * the function's own frame that do not change for the life of the run. Read
+ * them once and the control flow stops being computed: every target can be
+ * worked out by arithmetic instead of by watching the program run.
+ *
+ * The frame pointer is not passed to this hook, but the function's unwind data
+ * fixes it -- rbp = rsp + 0x80 -- so a system call issued from inside the
+ * function gives it away. TUXBLOX_DIAG_KEYS=<n> dumps at the n-th raw call.
+ */
+void tuxblox_diag_dump_keys( ULONG64 rip, ULONG64 rsp )
+{
+    static const unsigned int slots[] = {
+        0x318, 0x520, 0x780, 0x7c8, 0xa68, 0xb40, 0xb58, 0xb60, 0xd8c, 0xf70,
+        0x1390, 0x1558, 0x1a40, 0x1a78, 0x1ab0, 0x1b30, 0x2070, 0x21c0, 0x2aa0,
+        0x2ab0, 0x2b18, 0x3210, 0x3420, 0x30b0
+    };
+    static int done;
+    ULONG64 base, rbp;
+    const char *v;
+    unsigned int i;
+
+    if (!diag_enabled() || done || !(v = getenv( "TUXBLOX_DIAG_KEYS" ))) return;
+    if (diag_ring_pos < (unsigned int)atoi( v )) return;
+    if (!(base = roblox_dll_base())) return;
+    /* only a call from inside the flattened function, where rbp is known */
+    if (rip < base + 0xb791a0 || rip > base + 0xeb0264) return;
+
+    rbp = rsp + 0x80;
+    done = 1;
+    ERR_(seh)( "DIAG keys rip=layer+0x%llx rsp=0x%llx rbp=0x%llx\n",
+               (unsigned long long)(rip - base), (unsigned long long)rsp,
+               (unsigned long long)rbp );
+    for (i = 0; i < ARRAY_SIZE(slots); i++)
+    {
+        ULONG64 val = 0;
+
+        if (virtual_uninterrupted_read_memory( (const void *)(ULONG_PTR)(rbp + slots[i]),
+                                               &val, sizeof(val) ) == sizeof(val))
+            ERR_(seh)( "DIAG key [rbp+0x%04x] = %016llx\n", slots[i],
+                       (unsigned long long)val );
+    }
+}
+
 void tuxblox_diag_dump_ldr( void )
 {
     static int done;
