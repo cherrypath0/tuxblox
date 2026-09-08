@@ -914,10 +914,55 @@ static struct block *heap_delay_free( struct heap *heap, ULONG flags, struct blo
 }
 
 
+/* smallest free block worth handing back to the OS */
+#define HEAP_MIN_RESET_SIZE  0x10000
+
+/* Hand the interior of a large free block back to the OS.
+ *
+ * The tail decommit in heap_free_block only fires for the last block in a
+ * subheap, so one live block near the end pins everything before it. Windows
+ * releases interior free space and we did not: freeing 800 MB while leaving
+ * 12 MB scattered kept 697 MB resident here against 16 MB on Windows.
+ *
+ * MEM_RESET drops the pages but leaves them committed and writable, so nothing
+ * has to be recommitted on reuse -- they fault back in zeroed. The range is
+ * aligned inwards to REGION_ALIGN, both because MEM_RESET rounds outwards and
+ * because REGION_ALIGN is at least the host page size everywhere we run.
+ */
+static void reset_free_block( const SUBHEAP *subheap, ULONG flags, const struct block *block,
+                              SIZE_T block_size, SIZE_T freed_size )
+{
+    char *start, *end, *commit_end = (char *)subheap_commit_end( subheap );
+    SIZE_T size;
+    void *addr;
+
+    /* those flags write filler across free blocks, which this would erase */
+    if (flags & (HEAP_FREE_CHECKING_ENABLED | HEAP_TAIL_CHECKING_ENABLED)) return;
+
+    /* Gate on the block actually being freed, not on what it coalesced into.
+     * Small blocks merging one after another would otherwise re-reset the
+     * whole growing run on every free, which cost 8x on the free path.
+     */
+    if (freed_size < HEAP_MIN_RESET_SIZE) return;
+
+    /* keep the free list header at the start and the back pointer at the end */
+    start = (char *)((const struct entry *)block + 1);
+    end = (char *)block + block_size - sizeof(struct block *);
+    if (end > commit_end) end = commit_end;
+
+    start = ROUND_ADDR( (UINT_PTR)start + REGION_ALIGN - 1, REGION_ALIGN - 1 );
+    end = ROUND_ADDR( end, REGION_ALIGN - 1 );
+    if (end <= start) return;
+
+    addr = start;
+    size = end - start;
+    NtAllocateVirtualMemory( NtCurrentProcess(), &addr, 0, &size, MEM_RESET, PAGE_READWRITE );
+}
+
 static NTSTATUS heap_free_block( struct heap *heap, ULONG flags, struct block *block )
 {
     SUBHEAP *subheap = block_get_subheap( heap, block );
-    SIZE_T block_size = block_get_size( block );
+    SIZE_T block_size = block_get_size( block ), freed_size = block_size;
     struct entry *entry;
     struct block *next;
 
@@ -955,6 +1000,7 @@ static NTSTATUS heap_free_block( struct heap *heap, ULONG flags, struct block *b
 
     /* keep room for a full committed block as hysteresis */
     if (!next) subheap_decommit( heap, subheap, (char *)((struct entry *)block + 1) + REGION_ALIGN );
+    else reset_free_block( subheap, flags, block, block_size, freed_size );
 
     return STATUS_SUCCESS;
 }
@@ -1941,6 +1987,18 @@ static struct group *heap_acquire_bin_group( struct heap *heap, ULONG flags, SIZ
     return group_allocate( heap, flags, block_size );
 }
 
+/* how many fully freed groups a bin may cache, from a fixed byte budget per bin */
+#define GROUP_CACHE_BYTES  0x4000000
+
+static inline ULONG bin_group_cache_max( const struct heap *heap, const struct bin *bin )
+{
+    SIZE_T block_size = BLOCK_BIN_SIZE( bin - heap->bins );
+    SIZE_T group_size = offsetof( struct group, first_block ) + GROUP_BLOCK_COUNT * block_size;
+    SIZE_T count = GROUP_CACHE_BYTES / group_size;
+
+    return count ? count : 1;
+}
+
 /* release a thread owned and fully freed group to the bin shared group, or free its memory */
 static NTSTATUS heap_release_bin_group( struct heap *heap, ULONG flags, struct bin *bin, struct group *group )
 {
@@ -1952,8 +2010,14 @@ static NTSTATUS heap_release_bin_group( struct heap *heap, ULONG flags, struct b
     if (!InterlockedCompareExchangePointer( (void *)bin_get_affinity_group( bin, affinity ), group, NULL ))
         return STATUS_SUCCESS;
 
-    /* try re-using the block group instead of releasing it */
-    if (RtlQueryDepthSList( &bin->groups ) <= ReadAcquire( &bin->group_max ))
+    /* Try re-using the block group instead of releasing it, up to a fixed budget.
+     *
+     * This used to compare against bin->group_max, an all-time peak that is only
+     * ever raised, so once a bin had been busy the cache never shrank and the
+     * release path below became unreachable. Freeing 800 MB of 4 KB blocks then
+     * returned 0 to the OS where Windows returns all but 2 MB.
+     */
+    if (RtlQueryDepthSList( &bin->groups ) < bin_group_cache_max( heap, bin ))
     {
         RtlInterlockedPushEntrySList( &bin->groups, &group->entry );
         return STATUS_SUCCESS;
