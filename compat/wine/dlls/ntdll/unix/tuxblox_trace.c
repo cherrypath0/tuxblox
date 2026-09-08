@@ -329,10 +329,13 @@ BOOL tuxblox_diag_enabled(void)
  * status -- and the information class the call asked about, which is the first
  * or second argument of every Query and Set -- has to be in the record too.
  *
- * Kept to the last few hundred: the divergence is at the end of the run, and a
- * line per call for a whole run is unreadable and slow.
+ * Sized to hold a whole run rather than the last few hundred. The divergence
+ * is at the end, but what a call at the end is doing usually depends on one
+ * near the beginning -- which handle is being closed depends on what opened it
+ * -- and a ring that stops short cannot answer that. Matches the raw ring, so
+ * the two can be read against each other for the whole run.
  */
-#define DIAG_CALLS 512
+#define DIAG_CALLS 4096
 static __thread struct { UINT id; ULONG64 arg0, arg1, ret; } diag_calls[DIAG_CALLS];
 static __thread unsigned int diag_calls_pos;
 static __thread struct { UINT id; ULONG64 arg0, arg1; } diag_call_pending;
@@ -1271,7 +1274,7 @@ void tuxblox_diag_watch_sysret( unsigned int id )
 static ULONG64 diag_bp_addr[DIAG_BP_MAX];
 static unsigned char diag_bp_orig[DIAG_BP_MAX], diag_bp_want[DIAG_BP_MAX];
 static char diag_bp_armed[DIAG_BP_MAX], diag_bp_resolved[DIAG_BP_MAX];
-static unsigned int diag_bp_hits[DIAG_BP_MAX];
+static unsigned int diag_bp_hits[DIAG_BP_MAX], diag_bp_races[DIAG_BP_MAX];
 static ULONG diag_bp_rearm_tid[DIAG_BP_MAX];
 static unsigned int diag_bp_count, diag_bp_pending, diag_bp_max_hits;
 static int diag_bp_parsed;
@@ -1369,7 +1372,21 @@ BOOL tuxblox_diag_bp_hit( ULONG64 rip, const ULONG64 *regs )
         char line[512];
         unsigned int k, n = 0;
 
-        if (diag_bp_armed[i] != DIAG_BP_ARMED || diag_bp_addr[i] != rip - 1) continue;
+        if (!diag_bp_resolved[i] || diag_bp_addr[i] != rip - 1) continue;
+
+        /* A second thread can reach the same int3 between the trap that
+         * disarmed it and the original byte going back, and by the time its
+         * signal arrives the breakpoint is no longer armed. The trap is still
+         * ours, and handing it to the program is far worse than losing one
+         * reading: the layer sees a breakpoint it never planted and stops.
+         * Swallowed unless the byte underneath was itself an int3, in which
+         * case it really is the program's. */
+        if (diag_bp_armed[i] != DIAG_BP_ARMED)
+        {
+            if (diag_bp_orig[i] == 0xcc) return FALSE;
+            diag_bp_races[i]++;
+            return TRUE;
+        }
 
         for (k = 0; k < 16; k++)
             n += snprintf( line + n, sizeof(line) - n, "%s=%llx ", names[k],
@@ -1398,8 +1415,8 @@ BOOL tuxblox_diag_bp_hit( ULONG64 rip, const ULONG64 *regs )
                 }
             }
         }
-        ERR_(seh)( "DIAG bp hit #%u 0x%llx %s\n", diag_bp_hits[i] + 1,
-                   (unsigned long long)diag_bp_addr[i], line );
+        ERR_(seh)( "DIAG bp hit #%u (%u raced) 0x%llx %s\n", diag_bp_hits[i] + 1,
+                   diag_bp_races[i], (unsigned long long)diag_bp_addr[i], line );
         virtual_patch_code_byte( (void *)(ULONG_PTR)diag_bp_addr[i], diag_bp_orig[i] );
 
         if (++diag_bp_hits[i] >= diag_bp_max_hits) diag_bp_armed[i] = DIAG_BP_RETIRED;
