@@ -524,7 +524,8 @@ void tuxblox_diag_note_syscall( ULONG64 rip, ULONG64 rsp, ULONG64 rax )
  * failing path are `test ecx,ecx`, and the only way to know which way one went
  * is to have the value it tested. */
 static struct { ULONG64 rip, rsp, rcx, rax; } diag_steps[DIAG_STEPS];
-static unsigned int diag_step_pos, diag_step_start;
+static unsigned int diag_step_pos, diag_step_start, diag_step_limit;
+static ULONG64 diag_step_stop_rsp, diag_step_stop_lo, diag_step_stop_hi;
 static ULONG diag_step_tid = (ULONG)-1, diag_step_owner;
 static ULONG64 diag_step_module_base;
 static ULONG diag_step_reject[16];
@@ -626,6 +627,10 @@ BOOL tuxblox_diag_step_arm(void)
 
         start = v ? atoi( v ) : 0;
         diag_step_start = start;
+        if ((v = getenv( "TUXBLOX_DIAG_STEP_MAX" ))) diag_step_limit = atoi( v );
+        if ((v = getenv( "TUXBLOX_DIAG_STEP_STOPRSP" ))) diag_step_stop_rsp = strtoull( v, NULL, 16 );
+        if ((v = getenv( "TUXBLOX_DIAG_STEP_STOPLO" ))) diag_step_stop_lo = strtoull( v, NULL, 16 );
+        if ((v = getenv( "TUXBLOX_DIAG_STEP_STOPHI" ))) diag_step_stop_hi = strtoull( v, NULL, 16 );
     }
     /* Armed once only. Re-arming after each system call was tried and is not
      * usable: the layer clears the trap flag itself -- `pushfq; and qword
@@ -864,6 +869,46 @@ BOOL tuxblox_diag_step_record( ULONG64 rip, ULONG64 rsp, ULONG64 rcx, ULONG64 ra
     diag_steps[diag_step_pos % DIAG_STEPS].rcx = rcx;
     diag_steps[diag_step_pos % DIAG_STEPS].rax = rax;
     diag_step_pos++;
+
+    /* Stop and print when the stack pointer reaches a chosen value.
+     * TUXBLOX_DIAG_STEP_STOPRSP=<hex>. An address cannot catch this: the
+     * question is where the stack pointer stops coming back, and the code that
+     * takes it there is not known in advance -- which is the whole point of
+     * looking. The value is.
+     *
+     * STOPLO/STOPHI narrow it to a range of the layer's own image, because a
+     * stack pointer on its own is ambiguous: the value the frame drops to when
+     * the bytes go missing is also the value it passes through on any ordinary
+     * call, and the two are told apart by whether the code running is the
+     * function that lost them or the one it called.
+     */
+    if (diag_step_stop_rsp && rsp == diag_step_stop_rsp &&
+        (!diag_step_stop_hi ||
+         (rip >= diag_step_stop_lo + diag_step_module_base &&
+          rip <= diag_step_stop_hi + diag_step_module_base)))
+    {
+        ERR_(seh)( "DIAG step stop at rsp=0x%llx rip=0x%llx\n",
+                   (unsigned long long)rsp, (unsigned long long)rip );
+        diag_dump_steps();
+        tuxblox_diag_stepping = FALSE;
+        diag_step_start = 0;
+        return TRUE;
+    }
+
+    /* Stop and print after a chosen number of instructions.
+     * TUXBLOX_DIAG_STEP_MAX=<n>. The other two ways out -- reaching a chosen
+     * address, or the run faulting -- both depend on the run getting somewhere,
+     * and neither fires when the layer clears the trap flag first or the run
+     * ends on a stack overflow, which reaches no handler. Counting always
+     * fires. */
+    if (diag_step_limit && diag_step_pos >= diag_step_limit)
+    {
+        ERR_(seh)( "DIAG step limit %u reached\n", diag_step_limit );
+        diag_dump_steps();
+        tuxblox_diag_stepping = FALSE;
+        diag_step_start = 0;          /* and do not arm again */
+        return TRUE;
+    }
     return TRUE;
 }
 
@@ -912,8 +957,18 @@ static void diag_regs( const char *tag, const CONTEXT *context )
 static void diag_dump_steps(void)
 {
     unsigned int n = diag_step_pos < DIAG_STEPS ? diag_step_pos : DIAG_STEPS, i;
+    const char *tail;
 
     if (!diag_step_pos) return;
+    /* A full ring is half a million lines, which is why printing it is opt-in.
+     * TUXBLOX_DIAG_STEP_TAIL=<n> asks for the last n instead, which is what a
+     * question about one short stretch actually wants. */
+    if ((tail = getenv( "TUXBLOX_DIAG_STEP_TAIL" )))
+    {
+        unsigned int want = atoi( tail );
+
+        if (want && want < n) n = want;
+    }
     ERR_(seh)( "DIAG steps total=%u, last %u:\n", diag_step_pos, n );
     if (getenv( "TUXBLOX_DIAG_QUIETSTEPS" )) return;
     for (i = 0; i < n; i++)
@@ -1020,7 +1075,14 @@ void tuxblox_diag_exception( const EXCEPTION_RECORD *rec, const CONTEXT *context
     /* Which system calls led here. The layer computes its call numbers rather
      * than loading them as constants, so the number it actually used is only
      * visible from the ring. */
-    if (rec->ExceptionCode == STATUS_ACCESS_VIOLATION) diag_dump_ring();
+    /* The run ends on either of these, varying between runs, so both have to
+     * dump or half the runs say nothing. */
+    if (rec->ExceptionCode == STATUS_ACCESS_VIOLATION ||
+        rec->ExceptionCode == STATUS_STACK_OVERFLOW)
+    {
+        diag_dump_ring();
+        diag_dump_steps();
+    }
     diag_hex( "at-rip", (ULONG_PTR)context->Rip, 128 );
     diag_hex( "before-rip", (ULONG_PTR)context->Rip - 64, 64 );
     for (i = 0; i < 24; i++)
