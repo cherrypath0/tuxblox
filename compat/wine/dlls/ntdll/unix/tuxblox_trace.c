@@ -1311,6 +1311,7 @@ void tuxblox_diag_stack_exec( const EXCEPTION_RECORD *rec, const CONTEXT *contex
 #else  /* __x86_64__ */
 
 static void diag_dump_steps(void) { }
+static void diag_dump_steps_around( unsigned int at, unsigned int before, unsigned int after ) { }
 void tuxblox_diag_continue( const CONTEXT *context ) { }
 void tuxblox_diag_exception( const EXCEPTION_RECORD *rec, const CONTEXT *context ) { }
 void tuxblox_diag_stack_exec( const EXCEPTION_RECORD *rec, const CONTEXT *context ) { }

@@ -2588,12 +2588,12 @@ NTSTATUS WINAPI NtDelayExecution( BOOLEAN alertable, const LARGE_INTEGER *timeou
  * because the two happened to be the same thing; those callers now read
  * monotonic_counter() directly, which is what they always meant.
  */
+#ifdef __x86_64__
 static inline ULONG64 mul_hi( ULONG64 a, ULONG64 b )
 {
     return (ULONG64)(((unsigned __int128)a * b) >> 64);
 }
 
-#ifdef __x86_64__
 /* The TSC has to tick at a constant rate and keep ticking in every power
  * state, or it cannot carry a clock. CPUID leaf 0x80000007, EDX bit 8, on both
  * vendors. */
