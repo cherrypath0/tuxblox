@@ -473,6 +473,7 @@ void tuxblox_diag_note_syscall( ULONG64 rip, ULONG64 rsp, ULONG64 rax )
 
     if (!diag_enabled()) return;
     diag_bp_arm();
+    tuxblox_diag_dump_ldr();
     tuxblox_diag_xpage_arm();
     /* The SIGSYS path resumes the caller at rip + 0xb, which is the shape of
      * ntdll's own stub. The layer issues its system calls from code it
@@ -1506,6 +1507,58 @@ static void xpage_arm_now( ULONG64 rip )
     xpage_on = 1;
     ERR_(seh)( "DIAG xpage armed over %u executable ranges, %u pages, live 0x%llx, %u refused\n",
                xpage_ranges, pages, (unsigned long long)xpage_live_set[0], off );
+}
+
+/* Every loader entry, with the fields the layer's module walk reads.
+ *
+ * It iterates a list by a pointer at +0x10 and then requires a non-NULL
+ * pointer at +0x60 and a non-zero 16-bit value at +0x58 of each element. On
+ * an LDR_DATA_TABLE_ENTRY those are BaseDllName.Buffer and BaseDllName.Length
+ * if the pointer is the entry itself, or Flags and the hash links if it is the
+ * InMemoryOrderLinks field -- so the raw bytes are logged rather than a
+ * guess at which. TUXBLOX_DIAG_LDR=1.
+ */
+void tuxblox_diag_dump_ldr( void )
+{
+    static int done;
+    LIST_ENTRY *head, *cur;
+    unsigned int n = 0;
+    const char *v;
+
+    if (!diag_enabled() || done || !(v = getenv( "TUXBLOX_DIAG_LDR" ))) return;
+    /* Late enough that the process has finished loading. The first raw system
+     * call of a process has only its own image in the list, which is not the
+     * question. TUXBLOX_DIAG_LDR=<n> is that threshold. */
+    if (diag_ring_pos < (unsigned int)atoi( v )) return;
+    if (!peb || !peb->LdrData) return;
+
+    head = &peb->LdrData->InMemoryOrderModuleList;
+    for (cur = head->Flink; cur && cur != head && n < 128; cur = cur->Flink, n++)
+    {
+        /* the entry starts one list link before the in-memory-order link */
+        char *e = (char *)cur - 0x10;
+        USHORT base_len = *(USHORT *)(e + 0x58);
+        void  *base_buf = *(void **)(e + 0x60);
+        ULONG  at68     = *(ULONG *)(e + 0x68);
+        void  *at70     = *(void **)(e + 0x70);
+        const WCHAR *nm = (const WCHAR *)base_buf;
+        char name[128];
+        unsigned int i;
+
+        for (i = 0; i + 1 < sizeof(name) && nm && i < base_len / 2; i++) name[i] = (char)nm[i];
+        name[nm ? i : 0] = 0;
+
+        ERR_(seh)( "DIAG ldr[%u] entry=%p base=%p +0x58=%u +0x60=%p +0x68=%08x +0x70=%p %s%s\n",
+                   n, e, *(void **)(e + 0x30), base_len, base_buf,
+                   (unsigned int)at68, at70, name,
+                   (!base_buf || !base_len) ? "  <<< EMPTY at +0x58/+0x60" : "" );
+    }
+    /* The first raw system call of a process happens before its modules are
+     * in the list, so an empty walk is too early rather than an answer: leave
+     * it un-done and look again at the next one. */
+    if (!n) return;
+    done = 1;
+    ERR_(seh)( "DIAG ldr: %u entries\n", n );
 }
 
 void tuxblox_diag_xpage_arm( void )
