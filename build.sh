@@ -320,6 +320,13 @@ stage_release() {
     local release_dir="$ROOT/releases/$channel/$version"
     local url_prefix="/v1/$channel/$version"
 
+    # Absent means the build predates this file; recorded as unknown-and-dirty
+    # so deploy.sh refuses it rather than publishing an unattributable build.
+    local source_commit="" source_dirty="true"
+    if [[ -r "$ROOT/build/.provenance" ]]; then
+        { read -r source_commit || true; read -r source_dirty || true; } < "$ROOT/build/.provenance"
+    fi
+
     # The launcher's Qt6 bundle is three entries, not one directory that
     # happens to exist -- an empty libtuxblox/ would tar up fine and fail at
     # the user's machine instead.
@@ -362,11 +369,13 @@ stage_release() {
     # and stats the files it is describing, so a size or checksum cannot drift
     # from the artifact it belongs to, and latest.json is a read-modify-write
     # of a file the other channels also have entries in.
-    python3 - "$release_dir" "$ROOT/releases/latest.json" "$channel" "$url_prefix" "$slug" <<'PY'
+    python3 - "$release_dir" "$ROOT/releases/latest.json" "$channel" "$url_prefix" "$slug" \
+             "$source_commit" "$source_dirty" <<'PY'
 import hashlib, json, os, sys
 from datetime import datetime, timezone
 
 release_dir, latest_path, channel, url_prefix, slug = sys.argv[1:6]
+source_commit, source_dirty = sys.argv[6:8]
 
 # key -> (file on disk, displayname, filename the installer installs it as).
 # "filename" is extension-less by convention: for an archive it names the
@@ -410,6 +419,10 @@ manifest = {
     "uploadDate": stamp,
     "data": {"hasPlayer": False, "hasStudio": True, "isLatest": True},
     "manifest_version": 2,
+    # The commit this build was made from. Unknown keys are ignored by the
+    # launcher's parser, so this needs no manifest_version bump.
+    "source_commit": source_commit or None,
+    "source_dirty": source_dirty == "true",
     "artifacts": entries,
 }
 
@@ -438,6 +451,24 @@ PY
 
     echo ":: Published to releases/$channel/$version/"
     du -h "$release_dir"/* | sed 's/^/   /'
+}
+
+# Records the commit this build is made from. stage_release() stamps it into
+# manifest.json, which is what lets deploy.sh refuse to publish a binary whose
+# source is not public -- an LGPL obligation, and it also tells anyone holding
+# a download exactly which source built it.
+#
+# Written at build time, not stage time: --stage-only republishes an older
+# build/, so reading HEAD then would describe a commit that build never saw.
+record_provenance() {
+    local commit dirty
+    commit="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || true)"
+    if [[ -n "$(git -C "$ROOT" status --porcelain 2>/dev/null)" ]]; then
+        dirty=true
+    else
+        dirty=false
+    fi
+    printf '%s\n%s\n' "$commit" "$dirty" > "$ROOT/build/.provenance"
 }
 
 # Copies include/ over build/, the last thing to land in a build. Shared, so a
@@ -470,6 +501,7 @@ rm -f "$BUILD_LOG"
 step "Cleaning up old build output"
 rm -rf build
 mkdir -p build/.artifacts build/runtime
+record_provenance
 
 step "Updating dependencies"
 
