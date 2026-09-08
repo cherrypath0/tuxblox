@@ -677,11 +677,20 @@ BOOL tuxblox_diag_step_arm(void)
 /* Every SIGTRAP the stepping thread sees, for the first few after arming.
  * A trace that records nothing needs to say whether no trap arrived or whether
  * something consumed it before the recorder ran. */
+static unsigned int diag_bp_count;
+
 void tuxblox_diag_note_trap( unsigned int trapno, int si_code, ULONG64 rip, ULONG64 rsp )
 {
     static unsigned int shown;
 
-    if (!tuxblox_diag_stepping || GetCurrentThreadId() != diag_step_owner) return;
+    /* Also when breakpoints are armed and nothing is stepping: a breakpoint
+     * that never reports is either an instruction that never ran or a trap
+     * that arrived in a shape the handler does not match, and only the trap
+     * itself tells the two apart. */
+    if (!tuxblox_diag_stepping || GetCurrentThreadId() != diag_step_owner)
+    {
+        if (!diag_bp_count || !diag_enabled()) return;
+    }
     if (shown >= 8) return;
     shown++;
     ERR_(seh)( "DIAG trap #%u trapno=%u si_code=%d rip=0x%llx rsp=0x%llx\n",
@@ -1696,7 +1705,7 @@ static unsigned char diag_bp_orig[DIAG_BP_MAX], diag_bp_want[DIAG_BP_MAX];
 static char diag_bp_armed[DIAG_BP_MAX], diag_bp_resolved[DIAG_BP_MAX];
 static unsigned int diag_bp_hits[DIAG_BP_MAX], diag_bp_races[DIAG_BP_MAX];
 static ULONG diag_bp_rearm_tid[DIAG_BP_MAX];
-static unsigned int diag_bp_count, diag_bp_pending, diag_bp_max_hits;
+static unsigned int diag_bp_pending, diag_bp_max_hits;
 static int diag_bp_parsed;
 
 /* Breakpoint states. A hit leaves the address WAITING rather than ARMED: the

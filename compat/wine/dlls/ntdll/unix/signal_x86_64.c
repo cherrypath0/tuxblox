@@ -3290,6 +3290,10 @@ static void segv_handler( int signal, siginfo_t *siginfo, void *sigcontext )
  *
  * Handler for SIGTRAP.
  */
+#ifndef SI_KERNEL
+#define SI_KERNEL 0x80
+#endif
+
 static void trap_handler( int signal, siginfo_t *siginfo, void *sigcontext )
 {
     ucontext_t *ucontext = init_handler( sigcontext );
@@ -3302,8 +3306,16 @@ static void trap_handler( int signal, siginfo_t *siginfo, void *sigcontext )
 
     /* A breakpoint this build planted itself, to report the registers where
      * execution reached a chosen address. Swallowed here, so the program is
-     * never told a trap happened. */
-    if (TRAP_sig(ucontext) == TRAP_x86_BPTFLT && siginfo->si_code == TRAP_BRKPT)
+     * never told a trap happened.
+     *
+     * An int3 does not always arrive as TRAP_BRKPT: Linux reports SI_KERNEL for
+     * it on this path, which is what made every breakpoint this facility ever
+     * planted go unreported while the trap leaked to the program as
+     * STATUS_BREAKPOINT. Both codes are accepted; the address match inside
+     * tuxblox_diag_bp_hit is what keeps the layer's own probes out, and a
+     * single-step arrives as trap 1 rather than 3. */
+    if (TRAP_sig(ucontext) == TRAP_x86_BPTFLT &&
+        (siginfo->si_code == TRAP_BRKPT || siginfo->si_code == SI_KERNEL))
     {
         ULONG64 regs[16] = { RAX_sig(ucontext), RBX_sig(ucontext), RCX_sig(ucontext), RDX_sig(ucontext),
                              RSI_sig(ucontext), RDI_sig(ucontext), RBP_sig(ucontext), RSP_sig(ucontext),
