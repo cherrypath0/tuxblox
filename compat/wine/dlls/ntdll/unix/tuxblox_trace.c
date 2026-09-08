@@ -473,6 +473,7 @@ void tuxblox_diag_note_syscall( ULONG64 rip, ULONG64 rsp, ULONG64 rax )
 
     if (!diag_enabled()) return;
     diag_bp_arm();
+    tuxblox_diag_xpage_arm();
     /* The SIGSYS path resumes the caller at rip + 0xb, which is the shape of
      * ntdll's own stub. The layer issues its system calls from code it
      * generates itself, so what its stubs look like decides whether that
@@ -1377,6 +1378,195 @@ void tuxblox_diag_watch_sysret( unsigned int id )
         last[i] = now;
         seen |= 1u << i;
     }
+}
+
+/* Page-granularity execution trace.
+ *
+ * Every other way of watching this layer run has been closed by the layer
+ * itself: a planted int3 is read back before the byte is executed, hardware
+ * breakpoints need the debug registers it uses for its own control flow, and
+ * single-stepping is visible in r11 after any system call, which it tests and
+ * answers by poisoning its own frame pointer.
+ *
+ * This watches at page granularity instead. Exactly one of the layer's code
+ * pages is executable at a time; running off it faults, which reports where
+ * execution went and what the stack pointer was, and the page it went to is
+ * made executable in its place. Nothing in the program's own memory is
+ * modified and no processor debug facility is used, so none of the checks
+ * above can see it.
+ *
+ * It is coarse -- one event per page crossed, not per instruction -- but for
+ * the question it is aimed at that is enough: it says which 4 KB page the
+ * stack pointer changed inside, which is a page to disassemble rather than
+ * three megabytes.
+ *
+ * The cost is a fault per crossing. That is affordable here for a measured
+ * reason: this program already takes 194 million SIGSEGVs from the misaligned
+ * SSE fixup during a normal start-up and does not object, so a fault handler
+ * in its path is not itself something it reacts to.
+ *
+ * TUXBLOX_DIAG_XPAGE=1 turns it on, TUXBLOX_DIAG_XPAGE_AT=<n> starts it after
+ * the n-th raw system call, TUXBLOX_DIAG_XPAGE_MAX=<n> stops after n events.
+ */
+static ULONG64 xpage_lo, xpage_hi;
+/* A window of live pages rather than one. An instruction may straddle a page
+ * boundary, and fetching its tail off a page with no execute right faults with
+ * the *next* page as the address while the instruction pointer is still on the
+ * previous one -- so one live page can never complete it. Four is enough for a
+ * straddle plus the page a call returns to, and still narrow enough that every
+ * real transition is seen. */
+#define XPAGE_LIVE 4
+static ULONG64 xpage_live_set[XPAGE_LIVE];
+static unsigned int xpage_live_pos;
+static unsigned int xpage_events, xpage_max, xpage_start;
+static int xpage_parsed, xpage_on;
+
+/* Only the executable pages, and only their execute bit.
+ *
+ * The first version of this took the whole image down to PROT_READ, which also
+ * stripped write permission from its data sections: the layer's next write to
+ * its own data faulted, this handler declined it because the address was not
+ * the instruction pointer, and the program was handed a genuine access
+ * violation about ten system calls after arming. The ranges and their other
+ * permissions come from /proc/self/maps rather than being assumed. */
+#define XPAGE_RANGES 64
+static struct { ULONG64 lo, hi; int prot; } xpage_range[XPAGE_RANGES];
+static unsigned int xpage_ranges;
+
+static int xpage_prot_of( ULONG64 page )
+{
+    unsigned int i;
+
+    for (i = 0; i < xpage_ranges; i++)
+        if (page >= xpage_range[i].lo && page < xpage_range[i].hi) return xpage_range[i].prot;
+    return -1;
+}
+
+static int xpage_setprot( ULONG64 page, int exec )
+{
+    int prot = xpage_prot_of( page );
+
+    if (prot < 0) return -1;                       /* not one of ours */
+    if (exec) prot |= PROT_EXEC;
+    else prot &= ~PROT_EXEC;
+    return mprotect( (void *)(ULONG_PTR)page, page_size, prot );
+}
+
+/* The executable ranges of the layer's image, with the permissions they
+ * already have. */
+static void xpage_scan_ranges( ULONG64 lo, ULONG64 hi )
+{
+    char line[512];
+    FILE *maps;
+
+    xpage_ranges = 0;
+    if (!(maps = fopen( "/proc/self/maps", "r" ))) return;
+    while (fgets( line, sizeof(line), maps ) && xpage_ranges < XPAGE_RANGES)
+    {
+        unsigned long long start, end;
+        char perms[8];
+        int prot = 0;
+
+        if (sscanf( line, "%llx-%llx %7s", &start, &end, perms ) != 3) continue;
+        if (perms[2] != 'x') continue;             /* only executable ranges */
+        if (end <= lo || start >= hi) continue;    /* only the layer's image */
+        if (perms[0] == 'r') prot |= PROT_READ;
+        if (perms[1] == 'w') prot |= PROT_WRITE;
+        prot |= PROT_EXEC;
+        if (start < lo) start = lo;
+        if (end > hi) end = hi;
+        xpage_range[xpage_ranges].lo = start;
+        xpage_range[xpage_ranges].hi = end;
+        xpage_range[xpage_ranges].prot = prot;
+        xpage_ranges++;
+    }
+    fclose( maps );
+}
+
+/* Take execution rights off the whole image, keeping the page the thread is
+ * on so it can carry on from here. */
+static void xpage_arm_now( ULONG64 rip )
+{
+    ULONG64 p;
+    unsigned int off = 0;
+
+    unsigned int i, pages = 0;
+
+    xpage_scan_ranges( xpage_lo, xpage_hi );
+    memset( xpage_live_set, 0, sizeof(xpage_live_set) );
+    xpage_live_set[0] = rip & ~(ULONG64)(page_size - 1);
+    xpage_live_pos = 1;
+    for (i = 0; i < xpage_ranges; i++)
+        for (p = xpage_range[i].lo; p < xpage_range[i].hi; p += page_size)
+        {
+            pages++;
+            if (p == xpage_live_set[0]) continue;
+            if (xpage_setprot( p, 0 )) off++;
+        }
+    xpage_on = 1;
+    ERR_(seh)( "DIAG xpage armed over %u executable ranges, %u pages, live 0x%llx, %u refused\n",
+               xpage_ranges, pages, (unsigned long long)xpage_live_set[0], off );
+}
+
+void tuxblox_diag_xpage_arm( void )
+{
+    ULONG64 base;
+
+    if (!diag_enabled() || xpage_on) return;
+    if (!xpage_parsed)
+    {
+        const char *v = getenv( "TUXBLOX_DIAG_XPAGE" );
+
+        xpage_parsed = 1;
+        if (!v || !*v) return;
+        if ((v = getenv( "TUXBLOX_DIAG_XPAGE_AT" ))) xpage_start = atoi( v );
+        if ((v = getenv( "TUXBLOX_DIAG_XPAGE_MAX" ))) xpage_max = atoi( v );
+        else xpage_max = 200000;
+    }
+    if (!xpage_max) return;                       /* not asked for */
+    if (diag_ring_pos < xpage_start) return;
+    if (!(base = roblox_dll_base())) return;
+
+    /* only the executable part, read from the loader rather than guessed */
+    xpage_lo = base;
+    xpage_hi = base + 0x1490000;
+    xpage_arm_now( get_syscall_caller_pc() );
+}
+
+/* Returns TRUE when the fault was one this made, and execution can carry on. */
+BOOL tuxblox_diag_xpage_fault( ULONG64 addr, ULONG64 rip, ULONG64 rsp, ULONG kind )
+{
+    ULONG64 page, evict;
+    unsigned int i;
+
+    if (!xpage_on || kind != 8) return FALSE;     /* 8 is an execute fault */
+    if (addr < xpage_lo || addr >= xpage_hi) return FALSE;
+
+    /* the page that could not be fetched from, which is not always the one the
+     * instruction pointer is on */
+    page = addr & ~(ULONG64)(page_size - 1);
+    for (i = 0; i < XPAGE_LIVE; i++) if (xpage_live_set[i] == page) return TRUE;
+    if (xpage_setprot( page, 1 )) return FALSE;   /* not ours, let it through */
+
+    evict = xpage_live_set[xpage_live_pos % XPAGE_LIVE];
+    if (evict && evict != page) xpage_setprot( evict, 0 );
+    xpage_live_set[xpage_live_pos % XPAGE_LIVE] = page;
+    xpage_live_pos++;
+    if (xpage_events < xpage_max)
+        ERR_(seh)( "DIAG xpage[%u] rip=0x%llx rsp=0x%llx\n", xpage_events,
+                   (unsigned long long)rip, (unsigned long long)rsp );
+    if (++xpage_events >= xpage_max)
+    {
+        ULONG64 p;
+        unsigned int i;
+
+        ERR_(seh)( "DIAG xpage limit %u reached, releasing\n", xpage_max );
+        for (i = 0; i < xpage_ranges; i++)
+            for (p = xpage_range[i].lo; p < xpage_range[i].hi; p += page_size)
+                xpage_setprot( p, 1 );
+        xpage_on = 0;
+    }
+    return TRUE;
 }
 
 /* Breakpoints, for questions a fault counter cannot answer.

@@ -3221,6 +3221,16 @@ static void segv_handler( int signal, siginfo_t *siginfo, void *sigcontext )
         }
         break;
     case TRAP_x86_PAGEFLT:  /* Page fault */
+        /* A page this build took execution rights off to watch where the
+         * program goes. Handled before anything else looks at it, so the
+         * program is never told a fault happened. */
+        if (tuxblox_diag_xpage_fault( (ULONG64)(ULONG_PTR)siginfo->si_addr,
+                                      RIP_sig(ucontext), RSP_sig(ucontext),
+                                      (ERROR_sig(ucontext) >> 1) & 0x09 ))
+        {
+            leave_handler( ucontext );
+            return;
+        }
         if ((steamclient_addr = steamclient_handle_fault( siginfo->si_addr, (ERROR_sig(ucontext) >> 1) & 0x09 )))
         {
             RIP_sig(ucontext) = (intptr_t)steamclient_addr;
