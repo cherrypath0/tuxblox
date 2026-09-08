@@ -228,6 +228,10 @@ void exportPrefixShortcutsTo(const std::string& installDir, const std::string& l
                        "Type=Application\n"
                        "Name=" << name << "\n"
                        "Comment=via TuxBlox\n"
+                       // Application searches read Keywords but not Comment,
+                       // so without these an entry named "Roblox Studio" is
+                       // unfindable by "tuxblox" or "wine".
+                       "Keywords=Wine;TuxBlox;Roblox;Game;\n"
                        // --run-exe re-resolves the current version rather than
                        // launching this recorded path, so the entry keeps
                        // working after Roblox updates -- see main.cpp. The

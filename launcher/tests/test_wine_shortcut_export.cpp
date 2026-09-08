@@ -114,6 +114,9 @@ int main() {
     const std::string studio = readAll(appsDir / "tuxblox-roblox-studio.desktop");
     assert(studio.find("Name=Roblox Studio\n") != std::string::npos);
     assert(studio.find("Comment=via TuxBlox\n") != std::string::npos);
+    // Application searches read Keywords but not Comment, so an entry named
+    // "Roblox Studio" is otherwise unfindable by "tuxblox" or "wine".
+    assert(studio.find("Keywords=Wine;TuxBlox;Roblox;Game;\n") != std::string::npos);
     // Finding 1 regression pin: the Exec= value must be written back in its
     // still-ESCAPED (winemenubuilder four-backslash) form -- the same bytes
     // that were in the source entry's own Exec= line -- not the human-

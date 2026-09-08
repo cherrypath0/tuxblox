@@ -222,6 +222,11 @@ void writeDesktopEntries(const std::string& launcherExePath) {
                 "Type=Application\n"
                 "Name=TuxBlox\n"
                 "Comment=Roblox on Linux\n"
+                // Application searches match Name, GenericName and Keywords,
+                // but not Comment -- so without these, searching "roblox"
+                // found nothing at all, the word only appearing in Comment.
+                "GenericName=Roblox Client\n"
+                "Keywords=Roblox;Player;Studio;Game;Wine;\n"
                 "Exec=\"" << launcherExePath << "\"\n"
                 "Icon=tuxblox\n"
                 "Terminal=false\n"
