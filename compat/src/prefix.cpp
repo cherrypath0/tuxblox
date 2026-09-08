@@ -521,7 +521,6 @@ void Prefix::installGraphicsFiles(Session& session) {
     const GraphicsConfig& graphics = session.graphics;
 
     std::vector<std::string> dxvkFiles;
-    std::vector<std::string> vkd3dFiles;
     std::vector<std::string> wined3dFiles;
 
     // Roblox picks its renderer at runtime and does not always land on
@@ -530,8 +529,9 @@ void Prefix::installGraphicsFiles(Session& session) {
     if (graphics.useWineD3D) {
         wined3dFiles = {"d3d12", "d3d11", "d3d10", "d3d10core", "d3d10_1", "d3d9"};
     } else {
+        // No d3d12 here: vkd3d-proton is not shipped, so the prefix keeps the
+        // builtin d3d12 it was created with. Roblox never asks for it anyway.
         dxvkFiles = {"d3d11", "d3d10core", "d3d9"};
-        vkd3dFiles = {"d3d12", "d3d12core"};
     }
 
     if (graphics.useDxvkDxgi) {
@@ -560,22 +560,6 @@ void Prefix::installGraphicsFiles(Session& session) {
         copyPath(proton.archPeDir("wine/dxvk", true) / (name + ".dll"),
                  "drive_c/windows/syswow64", options);
         session.dllOverrides[name] = "n";
-    }
-
-    for (const std::string& name : vkd3dFiles) {
-        CopyOptions each = options;
-        // d3d12core is not present in every build.
-        each.optional = (name == "d3d12core");
-        copyPath(proton.archPeDir("wine/vkd3d-proton", false) / (name + ".dll"),
-                 "drive_c/windows/system32", each);
-        copyPath(proton.archPeDir("wine/vkd3d-proton", true) / (name + ".dll"),
-                 "drive_c/windows/syswow64", each);
-        session.dllOverrides[name] = "n";
-    }
-
-    for (const std::string name : {"icuin68", "icuuc68", "icudt68"}) {
-        copyPath(proton.archPeDir("wine/icu", false) / (name + ".dll"),
-                 "drive_c/windows/system32", options);
     }
 
     if (graphics.useNvapi) {

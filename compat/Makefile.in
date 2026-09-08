@@ -406,118 +406,11 @@ $(eval $(call rules-cmake,glslang,aarch64,unix))
 
 
 ##
-## piper
+## piper (text-to-speech) and vosk (speech recognition), with vosk's openfst and
+## kaldi dependencies, are not built. Wine is already configured --without-piper
+## --without-vosk, so nothing linked against them; they still cost 56 MB of the
+## layer in shared libraries, espeak-ng-data and libtashkeel_model.ort.
 ##
-
-$(eval $(call rules-source,piper,$(SRCDIR)/submodules/piper))
-$(eval $(call rules-cmake,piper,x86_64,unix))
-$(eval $(call rules-cmake,piper,aarch64,unix))
-
-$(OBJ)/.piper-x86_64-post-build:
-	mkdir -p $(PIPER_x86_64_DST)/lib/$(x86_64-unix_TARGET)
-	mv $(PIPER_x86_64_DST)/*.so* $(PIPER_x86_64_DST)/lib/$(x86_64-unix_TARGET)
-	mkdir -p $(DST_DIR)/share
-	cp -a $(PIPER_x86_64_DST)/{espeak-ng-data,libtashkeel_model.ort} $(DST_DIR)/share/
-	touch $@
-
-$(OBJ)/.piper-aarch64-post-build:
-	mkdir -p $(PIPER_aarch64_DST)/lib/$(aarch64-unix_TARGET)
-	mv $(PIPER_aarch64_DST)/*.so* $(PIPER_aarch64_DST)/lib/$(aarch64-unix_TARGET)
-ifeq ($(findstring x86_64,$(unix_ARCHS)),)
-	mkdir -p $(DST_DIR)/share
-	cp -a $(PIPER_aarch64_DST)/{espeak-ng-data,libtashkeel_model.ort} $(DST_DIR)/share/
-endif
-	touch $@
-
-
-##
-## openfst
-##
-
-OPENFST_SOURCE_ARGS = \
-  --include src/include/fst/config.h.in \
-  --exclude aclocal.m4 \
-  --exclude ar-lib \
-  --exclude autom4te.cache \
-  --exclude compile \
-  --exclude config.guess \
-  --exclude config.h.in \
-  --exclude config.sub \
-  --exclude configure \
-  --exclude depcomp \
-  --exclude install-sh \
-  --exclude ltmain.sh \
-  --exclude m4/libtool.m4 \
-  --exclude m4/ltoptions.m4 \
-  --exclude m4/ltsugar.m4 \
-  --exclude m4/ltversion.m4 \
-  --exclude m4/lt~obsolete.m4 \
-  --exclude Makefile.in \
-  --exclude missing \
-  --exclude test-driver \
-
-OPENFST_CONFIGURE_ARGS = \
-  --enable-silent-rules \
-  --enable-static \
-  --disable-shared \
-  --enable-far \
-  --enable-ngram-fsts \
-  --enable-lookahead-fsts \
-  --with-pic \
-  --disable-bin \
-
-$(eval $(call rules-source,openfst,$(SRCDIR)/submodules/openfst))
-$(eval $(call rules-configure,openfst,i386,unix))
-$(eval $(call rules-configure,openfst,x86_64,unix))
-$(eval $(call rules-configure,openfst,aarch64,unix))
-
-
-##
-## kaldi
-##
-
-KALDI_SOURCE_ARGS = \
-  --exclude src/**/CMakeLists.txt \
-
-KALDI_CMAKE_ARGS = \
-  -DKALDI_VERSION=5.5-proton \
-  -DBLAS_LIBRARIES=-lblas \
-  -DLAPACK_LIBRARIES=-llapack \
-  -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
-  -DBUILD_SHARED_LIBS=OFF \
-  -DKALDI_BUILD_TEST=OFF \
-  -DKALDI_BUILD_EXE=OFF \
-
-KALDI_DEPENDS = openfst
-
-$(eval $(call rules-source,kaldi,$(SRCDIR)/submodules/kaldi))
-$(eval $(call rules-cmake,kaldi,i386,unix))
-$(eval $(call rules-cmake,kaldi,x86_64,unix))
-$(eval $(call rules-cmake,kaldi,aarch64,unix))
-
-# Kaldi calls cmake/gen_cmake_skeleton.py as a part of cmake invocation which
-# generates a bunch of cmake files in the source directory that are later
-# included. This causes sporadic failures as builds for all architectures share
-# the same source directory.
-#
-# The below assures that only a single configure/build step can run at a time.
-$(OBJ)/.kaldi-x86_64-configure: $(OBJ)/.kaldi-i386-configure
-$(OBJ)/.kaldi-i386-build: $(OBJ)/.kaldi-x86_64-configure
-$(OBJ)/.kaldi-i386-build: $(OBJ)/.kaldi-x86_64-build
-
-##
-## vosk
-##
-
-VOSK_CMAKE_ARGS = \
-  -DBUILD_SHARED_LIBS=ON \
-
-VOSK_DEPENDS = openfst kaldi
-
-$(eval $(call rules-source,vosk,$(SRCDIR)/submodules/vosk-api))
-$(eval $(call rules-cmake,vosk,i386,unix))
-$(eval $(call rules-cmake,vosk,x86_64,unix))
-$(eval $(call rules-cmake,vosk,aarch64,unix))
 
 
 ##
@@ -571,7 +464,6 @@ WINE_x86_64_AUTOCONF_ARGS += \
 WINE_DEPENDS = gst_orc gstreamer gst_base ffmpeg
 WINE_i386_DEPENDS = vkd3d
 WINE_x86_64_DEPENDS = vkd3d
-# WINE_aarch64_DEPENDS = piper
 
 WINE_i386_LIBDIR = $(WINE_i386_DST)/lib
 WINE_x86_64_LIBDIR = $(WINE_x86_64_DST)/lib
@@ -745,41 +637,11 @@ $(OBJ)/.vkd3d-i386-post-build: $(OBJ)/.wine-$(HOST_ARCH)-tools
 
 
 ##
-## vkd3d-proton
+## vkd3d-proton is not built. It only ever supplied d3d12.dll/d3d12core.dll --
+## DXVK provides dxgi -- and Roblox renders through D3D11 or native Vulkan. The
+## prefix keeps Wine's own builtin d3d12, which sits on the vkd3d we still ship,
+## so a D3D12 caller still gets an answer.
 ##
-
-# wine builds DLLs with the same names, we need to differentiate the timestamps
-VKD3D_PROTON_i386_SOURCE_DATE_EPOCH := $(shell expr $(i386_SOURCE_DATE_EPOCH) - 2)
-VKD3D_PROTON_x86_64_SOURCE_DATE_EPOCH := $(shell expr $(x86_64_SOURCE_DATE_EPOCH) - 2)
-VKD3D_PROTON_arm64ec_SOURCE_DATE_EPOCH := $(shell expr $(arm64ec_SOURCE_DATE_EPOCH) - 2)
-
-VKD3D_PROTON_SOURCE_ARGS = \
-  --exclude vkd3d_build.h.in \
-  --exclude vkd3d_version.h.in \
-
-VKD3D_PROTON_i386_MESON_ARGS = --bindir=$(VKD3D_PROTON_i386_DST)/lib/wine/vkd3d-proton/i386-windows
-VKD3D_PROTON_x86_64_MESON_ARGS = --bindir=$(VKD3D_PROTON_x86_64_DST)/lib/wine/vkd3d-proton/x86_64-windows
-VKD3D_PROTON_arm64ec_MESON_ARGS = --bindir=$(VKD3D_PROTON_arm64ec_DST)/lib/wine/vkd3d-proton/aarch64-windows
-VKD3D_PROTON_HOST_DEPENDS = glslang
-
-ifneq ($(UNSTRIPPED_BUILD),)
-	VKD3D_PROTON_MESON_ARGS = -Denable_trace=true
-endif
-
-$(eval $(call rules-source,vkd3d-proton,$(SRCDIR)/submodules/vkd3d-proton))
-$(eval $(call rules-meson,vkd3d-proton,i386,windows))
-$(eval $(call rules-meson,vkd3d-proton,x86_64,windows))
-$(eval $(call rules-meson,vkd3d-proton,arm64ec,windows))
-
-$(OBJ)/.vkd3d-proton-post-source:
-	sed -re 's#@VCS_TAG@#0#' \
-	    $(SRCDIR)/submodules/vkd3d-proton/vkd3d_build.h.in > $(VKD3D_PROTON_SRC)/vkd3d_build.h.in
-	sed -re 's#@VCS_TAG@#tuxblox-local#' \
-	    $(SRCDIR)/submodules/vkd3d-proton/vkd3d_version.h.in > $(VKD3D_PROTON_SRC)/vkd3d_version.h.in
-	mkdir -p $(DST_LIBDIR)/wine/vkd3d-proton
-	rm -rf $(DST_LIBDIR)/wine/vkd3d-proton/version
-	echo "$(shell git -C $(SRCDIR) submodule status -- vkd3d-proton)" > $(DST_LIBDIR)/wine/vkd3d-proton/version
-	touch $@
 
 
 ##
@@ -1109,71 +971,20 @@ all-dist: $(DIST_FONTS)
 
 
 ##
-## Gecko
+## Gecko and wine-mono are not shipped: Gecko backs mshtml (the old IE control),
+## but Roblox's in-client browser is WebView2, which our webview2loader serves
+## from WebKitGTK; mono backs mscoree (.NET), which nothing in the Roblox path
+## uses. Both DLLs are disabled in session.cpp so neither prompts to install.
 ##
-
-GECKO_VER := 2.47.4
-GECKO_i386_TARBALL := wine-gecko-$(GECKO_VER)-x86.tar.xz
-GECKO_x86_64_TARBALL := wine-gecko-$(GECKO_VER)-x86_64.tar.xz
-GECKO_x86_64_TARBALL_URL := https://dl.winehq.org/wine/wine-gecko/$(GECKO_VER)/$(GECKO_x86_64_TARBALL)
-GECKO_i386_TARBALL_URL := https://dl.winehq.org/wine/wine-gecko/$(GECKO_VER)/$(GECKO_i386_TARBALL)
-GECKO_DST := $(DST_DIR)/share/wine/gecko
-
-$(SRC)/contrib/$(GECKO_x86_64_TARBALL):
-	mkdir -p $(dir $@)
-	wget --no-use-server-timestamps -O $@ $(GECKO_x86_64_TARBALL_URL) || (rm $@; false)
-
-$(SRC)/contrib/$(GECKO_i386_TARBALL):
-	mkdir -p $(dir $@)
-	wget --no-use-server-timestamps -O $@ $(GECKO_i386_TARBALL_URL) || (rm $@; false)
-
-$(OBJ)/.gecko-i386-dist: $(SRC)/contrib/$(GECKO_i386_TARBALL)
-	mkdir -p $(GECKO_DST)
-	rm -rf $(GECKO_DST)/wine-gecko-$(GECKO_VER)-x86
-	tar --no-same-owner -xf $< -C $(GECKO_DST)
-	touch $@
-
-$(OBJ)/.gecko-x86_64-dist: $(SRC)/contrib/$(GECKO_x86_64_TARBALL)
-	mkdir -p $(GECKO_DST)
-	rm -rf $(GECKO_DST)/wine-gecko-$(GECKO_VER)-x86_64
-	tar --no-same-owner -xf $< -C $(GECKO_DST)
-	touch $@
-
-all-dist: $(OBJ)/.gecko-i386-dist $(OBJ)/.gecko-x86_64-dist
-
-
-##
-## wine-mono
-##
-
-WINEMONO_VER := 11.0.0
-WINEMONO_TARBALL := wine-mono-$(WINEMONO_VER)-x86.tar.xz
-DIST_WINEMONO_DIR := $(DST_DIR)/share/wine/mono
-DIST_WINEMONO := $(OBJ)/.wine-mono-dist
-MONO_TARBALL_URL := https://github.com/madewokherd/wine-mono/releases/download/wine-mono-$(WINEMONO_VER)/$(WINEMONO_TARBALL)
-
-$(SRC)/contrib/$(WINEMONO_TARBALL):
-	mkdir -p $(dir $@)
-	wget --no-use-server-timestamps -O $@ $(MONO_TARBALL_URL) || (rm $@; false)
-
-$(DIST_WINEMONO): $(SRC)/contrib/$(WINEMONO_TARBALL)
-	mkdir -p $(DIST_WINEMONO_DIR)
-	rm -rf $(DIST_WINEMONO_DIR)/wine-mono-$(WINEMONO_VER)
-	tar --no-same-owner -xf $< -C $(DIST_WINEMONO_DIR)
-	rm -f $(DIST_WINEMONO_DIR)/wine-mono; ln -s wine-mono-$(WINEMONO_VER) $(DIST_WINEMONO_DIR)/wine-mono
-	touch $@
-
-all-dist: $(DIST_WINEMONO)
 
 
 ##
 ## webkitgtk (bundled WebView2 replacement backend)
 ##
 ## Vendored as a prebuilt, relocatable tarball -- see ../webkitgtk-bundle/README.md for
-## how it's built. Modeled directly on the GECKO_* block above, except the tarball is
-## committed to contrib/ rather than fetched over the network at build time (WebKitGTK
-## isn't published anywhere as a ready-to-use relocatable x86_64 tarball the way
-## wine-gecko/wine-mono are -- this repo has to build and vendor its own).
+## how it's built. The tarball is committed to contrib/ rather than fetched over the
+## network at build time, because WebKitGTK isn't published anywhere as a ready-to-use
+## relocatable x86_64 tarball -- this repo has to build and vendor its own.
 ##
 ## WEBKITGTK_VER must be kept in sync BY HAND with webkitgtk-bundle/versions.env's
 ## WEBKITGTK_VERSION -- they live in two different build systems that don't share
@@ -1188,6 +999,13 @@ $(OBJ)/.webkitgtk-x86_64-dist: $(SRC)/contrib/$(WEBKITGTK_x86_64_TARBALL)
 	rm -rf $(WEBKITGTK_DST)
 	mkdir -p $(WEBKITGTK_DST)
 	tar --no-same-owner -xJf $(SRC)/contrib/$(WEBKITGTK_x86_64_TARBALL) -C $(WEBKITGTK_DST) --strip-components=1
+	@# Build-time-only parts of the bundle: headers, .pc files, documentation and
+	@# GTK/WebKit translations. package.sh keeps them out of newer tarballs; this
+	@# prunes whichever vendored tarball is in contrib/ today. 60 MB.
+	rm -rf $(WEBKITGTK_DST)/include $(WEBKITGTK_DST)/lib/pkgconfig \
+	    $(WEBKITGTK_DST)/share/locale $(WEBKITGTK_DST)/share/man \
+	    $(WEBKITGTK_DST)/share/info $(WEBKITGTK_DST)/share/doc \
+	    $(WEBKITGTK_DST)/share/gtk-doc $(WEBKITGTK_DST)/share/gir-1.0
 	@# Task 8 post-review correction (I-2): gdk-pixbuf's loaders.cache bakes in each
 	@# loader .so's absolute path at the time it was generated (webkitgtk-bundle's own
 	@# build-time /opt/tuxblox-webview prefix) -- not fixable by RPATH or an env var,
@@ -1218,40 +1036,10 @@ all-dist: $(OBJ)/.webkitgtk-x86_64-dist
 
 
 ##
-## ICU
+## Proton's bundled ICU (icu.dll forwarding to icuuc68/icuin68/icudt68) is not
+## shipped -- upstream carries it for a handful of Unity titles and Roblox never
+## loads it. The icudt68 data file alone was 28 MB per architecture.
 ##
-
-ICU_VER := 6.8.2
-ICU_x86_64_DIST_DIR := $(DST_LIBDIR)/wine/icu/x86_64-windows
-ICU_x86_64_TARBALL := icu-$(ICU_VER)-x86_64.tar.xz
-ICU_i386_DIST_DIR := $(DST_LIBDIR)/wine/icu/i386-windows
-ICU_i386_TARBALL := icu-$(ICU_VER)-x86.tar.xz
-ICU_aarch64_DIST_DIR := $(DST_LIBDIR)/wine/icu/aarch64-windows
-ICU_aarch64_TARBALL := icu-$(ICU_VER)-x86_64.tar.xz # TODO: Build ICU for arm64(ec/x).
-
-$(OBJ)/.icu-x86_64-dist: $(SRC)/icu/$(ICU_x86_64_TARBALL)
-	mkdir -p $(ICU_x86_64_DIST_DIR)
-	rm -rf $(ICU_x86_64_DIST_DIR)/*.dll
-	tar --no-same-owner -xf $< -C $(ICU_x86_64_DIST_DIR)
-	touch $@
-
-$(OBJ)/.icu-i386-dist: $(SRC)/icu/$(ICU_i386_TARBALL)
-	mkdir -p $(ICU_i386_DIST_DIR)
-	rm -rf $(ICU_i386_DIST_DIR)/*.dll
-	tar --no-same-owner -xf $< -C $(ICU_i386_DIST_DIR)
-	touch $@
-
-$(OBJ)/.icu-aarch64-dist: $(SRC)/icu/$(ICU_aarch64_TARBALL)
-	mkdir -p $(ICU_aarch64_DIST_DIR)
-	rm -rf $(ICU_aarch64_DIST_DIR)/*.dll
-	tar --no-same-owner -xf $< -C $(ICU_aarch64_DIST_DIR)
-	touch $@
-
-all-dist: $(OBJ)/.icu-x86_64-dist $(OBJ)/.icu-i386-dist
-
-ifneq ($(findstring aarch64,$(unix_ARCHS)),)
-all-dist: $(OBJ)/.icu-aarch64-dist
-endif
 
 
 ##
@@ -1285,7 +1073,7 @@ endif
 ## default_pfx
 ##
 
-default_pfx: wine gst_good gst_bad gst_libav dxvk dxvk-nvapi vkd3d-proton
+default_pfx: wine gst_good gst_bad gst_libav dxvk dxvk-nvapi
 	find $(DST_LIBDIR)/wine -type f -execdir chmod a-w '{}' '+'
 	rm -rf $(abspath $(DIST_PREFIX))
 	rm -rf $(abspath $(DIST_PREFIX_ARM64))

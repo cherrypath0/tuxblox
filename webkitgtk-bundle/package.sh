@@ -157,7 +157,7 @@ if [ -f etc/fonts/fonts.conf ]; then
 fi
 
 echo ":: Rewriting RPATH/RUNPATH on every ELF file in the packaged tree"
-find include lib libexec etc share -type f \
+find lib libexec etc share -type f \
     -not -path 'libexec/installed-tests/*' -not -path 'share/installed-tests/*' \
     -print0 2>/dev/null | while IFS= read -r -d '' f; do
     # Portable ELF magic check (first 4 bytes: 0x7f 'E' 'L' 'F') rather than depending
@@ -294,10 +294,18 @@ mkdir -p /out
 # 100 MiB GitHub per-file hard limit was already hit once during Task 8 (C-2, fixed
 # by stripping) -- WebKitGTK grows with every release, so headroom for the next
 # version bump is worth keeping.
+#
+# include/, *.pc, the doc trees and share/locale are dropped for the same reason
+# (2026-09-08, compat-layer size pass): headers and pkg-config files are link-time
+# input this bundle is never linked against, the docs are never read at runtime, and
+# share/locale is 30 MB of GTK/WebKit translations for a UI TuxBlox ships in English.
+# 60 MB uncompressed, ~10 MB of the compressed tarball.
 tar -cJf "/out/webkitgtk-${WEBKITGTK_VERSION}-x86_64.tar.xz" \
     --exclude='libexec/installed-tests' --exclude='share/installed-tests' \
-    --exclude='*.a' \
+    --exclude='*.a' --exclude='*.pc' \
+    --exclude='share/locale' --exclude='share/man' --exclude='share/info' \
+    --exclude='share/doc' --exclude='share/gtk-doc' --exclude='share/gir-1.0' \
     --transform 's,^,webkitgtk/,S' \
-    include lib libexec etc share
+    lib libexec etc share
 
 echo ":: Wrote /out/webkitgtk-${WEBKITGTK_VERSION}-x86_64.tar.xz"

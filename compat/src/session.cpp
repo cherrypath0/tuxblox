@@ -261,6 +261,12 @@ Session::Session(Proton& protonDist, fs::path prefix)
     // winebth.sys crashes winedevice.exe, and Roblox has no use for Bluetooth.
     dllOverrides["winebth.sys"] = "d";
     dllOverrides["opencl"] = "n,d";
+
+    // The layer ships neither Gecko nor Mono, so leaving these enabled would
+    // only ever produce a download prompt nobody can act on. Roblox's in-client
+    // browser is WebView2, which webview2loader answers, not mshtml.
+    dllOverrides["mshtml"] = "d";
+    dllOverrides["mscoree"] = "d";
 }
 
 Session::~Session() {
@@ -308,8 +314,6 @@ void Session::initWine() {
     // Root of the WebKitGTK bundle. webview2loader derives every other
     // WebKit path from this one value, so nothing else needs setting here.
     env["TUXBLOX_WEBVIEW_DIR"] = libDir + "tuxblox-webview/";
-
-    env["ESPEAK_DATA_PATH"] = proton.distDir.string() + "/share";
 
     prependToEnvStr(env, "PATH", proton.binDir.string(), ":");
 }
