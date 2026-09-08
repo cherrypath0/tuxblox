@@ -4106,6 +4106,20 @@ typedef void (CALLBACK *PLDR_DLL_NOTIFICATION_FUNCTION)(ULONG, LDR_DLL_NOTIFICAT
 #define LDR_REDIRECTED                  0x10000000
 
 /* this one is Wine specific */
+/* Bits Windows sets in a loader entry that Wine tracks elsewhere and never
+ * records here: load notifications sent, in the legacy lists, in the index
+ * trees, in the exception table, and delay-load protection on a DLL. All are
+ * true of a Wine module too, so a program reading the field sees the state it
+ * expects rather than zero.
+ *
+ * Measured on Windows 11 24H2: the executable reads 0x2acc, ntdll 0xaac4, an
+ * ordinary DLL 0xaacc. This does not reproduce those exactly and is not meant
+ * to: 0x4 is Wine's LDR_IMAGE_IS_DLL, which picks _CorExeMain over
+ * _CorDllMain, and 0x2000 is its LDR_UNLOAD_IN_PROGRESS. Setting either to
+ * match would change what the loader does. Only the bits Wine leaves free are
+ * set here. */
+#define LDR_WIN_ENTRY_FLAGS             0x00000ac8
+#define LDR_WIN_PROTECT_DELAY_LOAD      0x00008000
 #define LDR_WINE_INTERNAL               0x80000000
 #define LDR_DONT_CALL_DLLMAIN           0x20000000
 

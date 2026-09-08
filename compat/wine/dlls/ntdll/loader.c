@@ -1645,7 +1645,8 @@ static WINE_MODREF *alloc_module( HMODULE hModule, const UNICODE_STRING *nt_name
 
     wm->ldr.DllBase       = hModule;
     wm->ldr.SizeOfImage   = nt->OptionalHeader.SizeOfImage;
-    wm->ldr.Flags         = LDR_DONT_RESOLVE_REFS | (builtin ? LDR_WINE_INTERNAL : 0);
+    wm->ldr.Flags         = LDR_DONT_RESOLVE_REFS | LDR_WIN_ENTRY_FLAGS |
+                            (builtin ? LDR_WINE_INTERNAL : 0);
     wm->ldr.TlsIndex      = 0;
     wm->ldr.LoadCount     = 1;
     wm->CheckSum          = nt->OptionalHeader.CheckSum;
@@ -1685,7 +1686,7 @@ static WINE_MODREF *alloc_module( HMODULE hModule, const UNICODE_STRING *nt_name
     if (!is_dll_native_subsystem( &wm->ldr, nt, p ))
     {
         if (nt->FileHeader.Characteristics & IMAGE_FILE_DLL)
-            wm->ldr.Flags |= LDR_IMAGE_IS_DLL;
+            wm->ldr.Flags |= LDR_IMAGE_IS_DLL | LDR_WIN_PROTECT_DELAY_LOAD;
         if (nt->OptionalHeader.AddressOfEntryPoint)
             wm->ldr.EntryPoint = (char *)hModule + nt->OptionalHeader.AddressOfEntryPoint;
     }
