@@ -1537,6 +1537,18 @@ struct object *create_user_data_mapping( struct object *root, const struct unico
     return &mapping->obj;
 }
 
+/* the page QueryPerformanceCounter is computed from. ntdll fills it in once a
+ * session; the server only has to make it exist and outlive every process. */
+struct object *create_hypervisor_data_mapping( struct object *root, const struct unicode_str *name,
+                                               unsigned int attr, const struct security_descriptor *sd )
+{
+    struct mapping *mapping;
+
+    if (!(mapping = create_mapping( root, name, attr, get_page_size(), SEC_COMMIT, 0,
+                                    FILE_READ_DATA | FILE_WRITE_DATA, sd ))) return NULL;
+    return &mapping->obj;
+}
+
 /* create a file mapping */
 DECL_HANDLER(create_mapping)
 {

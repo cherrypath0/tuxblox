@@ -3352,10 +3352,6 @@ static const unsigned char sys_184_data[] =
     0x00, 0xa0, 0x60, 0xfb, 0x07, 0x00, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0x37, 0x1f, 0x08, 0x00, 0x00, 0x00,
 };
-static const unsigned char sys_197_data[] =
-{
-    0x00, 0xf0, 0xfe, 0x7f, 0x00, 0x00, 0x00, 0x00,
-};
 static const unsigned char sys_198_data[] =
 {
     0x46, 0x42, 0x50, 0x54, 0x38, 0x00, 0x00, 0x00, 0x02, 0x00, 0x30, 0x02,
@@ -3557,7 +3553,6 @@ static const struct known_class known_system_classes[] =
     { 194, 0xc0000061, 0 },
     { 195, 0xc0000004,      8, sys_195_data, 8 },
     { 196, 0xc0000004,      4, sys_196_data, 4 },
-    { 197, 0xc0000004,    8, sys_197_data, 8 },
     { 198, 0xc0000004,   56, sys_198_data, 56 },
     { 199, 0xc0000004, 24, NULL, 0, 0xc0000005 },
     { 200, 0xc0000023, 64 },
@@ -5922,6 +5917,24 @@ static NTSTATUS query_system_information( SYSTEM_INFORMATION_CLASS class,
         }
         memcpy( info, sys_174_data, sizeof(sys_174_data) );
         len = sizeof(sys_174_data);
+        break;
+
+    case SystemHypervisorSharedPageInformation:
+        /* Where QueryPerformanceCounter's scaling is published. The reference
+         * machine answers with a pointer to a page its kernel mapped; this
+         * reports our own, because handing out that machine's address left the
+         * caller a pointer to nothing -- a state no Windows is ever in.
+         *
+         * The refusal below is reasoned, not measured: this machine has the
+         * page, so what one without it answers was never captured. */
+        if (!hypervisor_shared_data) return STATUS_NOT_SUPPORTED;
+        if (size < sizeof(void *))
+        {
+            if (ret_size) *ret_size = sizeof(void *);
+            return STATUS_INFO_LENGTH_MISMATCH;
+        }
+        *(void **)info = hypervisor_shared_data;
+        len = sizeof(void *);
         break;
 
     default:

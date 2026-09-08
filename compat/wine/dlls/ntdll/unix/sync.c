@@ -88,7 +88,7 @@ static const char *debugstr_timeout( const LARGE_INTEGER *timeout )
 
 
 /* return a monotonic time counter, in Win32 ticks */
-static inline ULONGLONG monotonic_counter(void)
+ULONGLONG monotonic_counter(void)
 {
     struct timeval now;
 #ifdef __APPLE__
@@ -2372,7 +2372,8 @@ NTSTATUS WINAPI NtQueryTimer( HANDLE handle, TIMER_INFORMATION_CLASS class,
         if (basic_info->RemainingTime.QuadPart > 0) NtQuerySystemTime( &now );
         else
         {
-            NtQueryPerformanceCounter( &now, NULL );
+            /* a server timeout, so the server's own monotonic clock */
+            now.QuadPart = monotonic_counter();
             basic_info->RemainingTime.QuadPart = -basic_info->RemainingTime.QuadPart;
         }
 
@@ -2567,11 +2568,116 @@ NTSTATUS WINAPI NtDelayExecution( BOOLEAN alertable, const LARGE_INTEGER *timeou
 
 
 /******************************************************************************
+ *              QueryPerformanceCounter, computed the way Windows computes it
+ *
+ * Windows never enters the kernel for this. It publishes a multiplier and a
+ * bias and every caller scales the TSC itself:
+ *
+ *     qpc = mulhi( rdtsc, QpcMultiplier ) + hsd->QpcBias + usd->QpcBias
+ *
+ * Matching that is worth doing twice over. The call cost here was 1910 ns
+ * against 30 ns on the reference machine, and the resolution gave it away just
+ * as loudly: the counter claims 10 MHz, so a tick is 100 ns, but two reads back
+ * to back could never land closer than twenty-three ticks apart, because the
+ * call took longer than twenty-three of its own ticks. Nothing that reads the
+ * clock twice can miss that.
+ *
+ * The counter is therefore the TSC and not the system clock, exactly as it is
+ * on Windows -- it is not steered by NTP and does not follow CLOCK_BOOTTIME.
+ * Wine used to read it for its own timeout arithmetic, which only worked
+ * because the two happened to be the same thing; those callers now read
+ * monotonic_counter() directly, which is what they always meant.
+ */
+static inline ULONG64 mul_hi( ULONG64 a, ULONG64 b )
+{
+    return (ULONG64)(((unsigned __int128)a * b) >> 64);
+}
+
+#ifdef __x86_64__
+/* The TSC has to tick at a constant rate and keep ticking in every power
+ * state, or it cannot carry a clock. CPUID leaf 0x80000007, EDX bit 8, on both
+ * vendors. */
+static BOOL invariant_tsc(void)
+{
+    unsigned int a, b, c, d;
+
+    __asm__( "cpuid" : "=a"(a), "=b"(b), "=c"(c), "=d"(d) : "a"(0x80000000), "c"(0) );
+    if (a < 0x80000007) return FALSE;
+    __asm__( "cpuid" : "=a"(a), "=b"(b), "=c"(c), "=d"(d) : "a"(0x80000007), "c"(0) );
+    return (d & (1 << 8)) != 0;
+}
+
+static ULONGLONG raw_nanoseconds(void)
+{
+    struct timespec ts;
+
+    clock_gettime( CLOCK_MONOTONIC_RAW, &ts );
+    return ts.tv_sec * 1000000000ull + ts.tv_nsec;
+}
+#endif
+
+/* Measure the TSC rate and anchor the counter to it. Runs once per prefix
+ * session, where the shared pages are still writable.
+ *
+ * A millisecond is long enough to measure over. The clock being measured
+ * against is itself read from the TSC, so the error is the cost of the two
+ * reads rather than a second oscillator drifting away, and an exact rate is
+ * not wanted anyway: no two machines agree on it, and nothing compares this
+ * counter against anything else once the internal callers are off it.
+ */
+void qpc_calibrate( struct hypervisor_shared_data *hsd, KUSER_SHARED_DATA *usd )
+{
+#ifdef __x86_64__
+    ULONGLONG t0, elapsed;
+    ULONG64 c0, c1, hz, multiplier;
+
+    if (!hsd || !usd || !invariant_tsc()) return;
+
+    t0 = raw_nanoseconds();
+    c0 = __builtin_ia32_rdtsc();
+    while ((elapsed = raw_nanoseconds() - t0) < 1000000) /* spin */;
+    c1 = __builtin_ia32_rdtsc();
+
+    hz = (c1 - c0) * 1000000000ull / elapsed;
+    if (!hz) return;
+
+    multiplier = (ULONG64)((((unsigned __int128)TICKSPERSEC) << 64) / hz);
+    hsd->QpcMultiplier = multiplier;
+    hsd->QpcBias = 0;
+
+    /* Start where the counter already was, so nothing sees it jump. */
+    usd->QpcBias = monotonic_counter() - mul_hi( __builtin_ia32_rdtsc(), multiplier );
+    usd->QpcShift = 0;
+    usd->QpcFrequency = TICKSPERSEC;
+    usd->QpcBypassEnabled = SHARED_GLOBAL_FLAGS_QPC_BYPASS_ENABLED |
+                            SHARED_GLOBAL_FLAGS_QPC_BYPASS_USE_HV_PAGE |
+                            SHARED_GLOBAL_FLAGS_QPC_BYPASS_USE_RDTSCP;
+#endif
+}
+
+/* The counter, for the unix side. Reads the same published numbers the PE side
+ * reads, so the two can never disagree. */
+ULONGLONG qpc_counter(void)
+{
+#ifdef __x86_64__
+    if (hypervisor_shared_data && user_shared_data->QpcBypassEnabled)
+    {
+        unsigned int aux;
+
+        return mul_hi( __builtin_ia32_rdtscp( &aux ), hypervisor_shared_data->QpcMultiplier ) +
+               hypervisor_shared_data->QpcBias + user_shared_data->QpcBias;
+    }
+#endif
+    return monotonic_counter();
+}
+
+
+/******************************************************************************
  *              NtQueryPerformanceCounter (NTDLL.@)
  */
 NTSTATUS WINAPI NtQueryPerformanceCounter( LARGE_INTEGER *counter, LARGE_INTEGER *frequency )
 {
-    counter->QuadPart = monotonic_counter();
+    counter->QuadPart = qpc_counter();
     if (frequency) frequency->QuadPart = TICKSPERSEC;
     return STATUS_SUCCESS;
 }

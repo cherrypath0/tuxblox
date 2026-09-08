@@ -331,6 +331,7 @@ static BOOL increase_try_map_step = TRUE;
 
 ULONG_PTR user_space_wow_limit = 0;
 struct _KUSER_SHARED_DATA *user_shared_data = (void *)0x7ffe0000;
+struct hypervisor_shared_data *hypervisor_shared_data = (void *)HYPERVISOR_SHARED_DATA_ADDRESS;
 
 /* TEB allocation blocks */
 static void *teb_block;
@@ -4360,6 +4361,23 @@ TEB *virtual_alloc_first_teb(void)
         exit(1);
     }
 
+    /* The hypervisor shared page, which holds the scaling
+     * QueryPerformanceCounter is computed from. Read-only like the page below
+     * it: the session's copy is filled once through a separate writable
+     * mapping, and no process ever writes it at this address. */
+    ptr = hypervisor_shared_data;
+    data_size = page_size;
+    status = NtAllocateVirtualMemory( NtCurrentProcess(), &ptr, 0, &data_size,
+                                      MEM_RESERVE | MEM_COMMIT, PAGE_READONLY );
+    if (status || ptr != hypervisor_shared_data)
+    {
+        /* Not fatal. Without the page the counter keeps entering the kernel,
+         * which is what it did before, and the bypass stays switched off. */
+        WARN( "wine: no hypervisor shared page at %p: %08x\n", hypervisor_shared_data, status );
+        hypervisor_shared_data = NULL;
+    }
+    data_size = page_size;
+
     /* Windows randomises the PEB and TEB above the 4 GB line and Wine pins
      * them just under 2 GB, because a WoW64 process needs them where a 32-bit
      * pointer reaches and this runs before the main image's machine is known.
@@ -4811,6 +4829,87 @@ done:
 static const WCHAR shared_data_nameW[] = {'\\','K','e','r','n','e','l','O','b','j','e','c','t','s',
                                           '\\','_','_','w','i','n','e','_','u','s','e','r','_','s','h','a','r','e','d','_','d','a','t','a',0};
 
+/* The hypervisor shared page is shared for the same reason the user shared
+ * page is: every process has to compute the same counter from it, and a
+ * per-process calibration would have them disagree by more the longer the
+ * session ran. */
+static const WCHAR hypervisor_data_nameW[] = {'\\','K','e','r','n','e','l','O','b','j','e','c','t','s',
+                                              '\\','_','_','w','i','n','e','_','h','y','p','e','r','v','i','s','o','r','_',
+                                              's','h','a','r','e','d','_','d','a','t','a',0};
+
+/***********************************************************************
+ *           init_hypervisor_shared_data
+ *
+ * Measure the counter once a session, while both pages are still writable.
+ * Every process then reads the same numbers, which is the point of the page
+ * being shared: a per-process calibration would have two processes disagree by
+ * more the longer the session ran.
+ */
+static void init_hypervisor_shared_data( KUSER_SHARED_DATA *usd )
+{
+    UNICODE_STRING name_str = RTL_CONSTANT_STRING( hypervisor_data_nameW );
+    OBJECT_ATTRIBUTES attr = { sizeof(attr), 0, &name_str };
+    struct hypervisor_shared_data *hsd;
+    unsigned int status;
+    HANDLE section;
+    int res, fd, needs_close;
+
+    if ((status = NtOpenSection( &section, SECTION_ALL_ACCESS, &attr )))
+    {
+        WARN( "no hypervisor shared data section: %08x\n", status );
+        return;
+    }
+    if ((res = server_get_unix_fd( section, 0, &fd, &needs_close, NULL, NULL )) ||
+        (hsd = mmap( NULL, sizeof(*hsd), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0 )) == MAP_FAILED)
+    {
+        WARN( "failed to map the hypervisor shared data: %d\n", res );
+        if (needs_close) close( fd );
+        NtClose( section );
+        return;
+    }
+    if (needs_close) close( fd );
+    NtClose( section );
+
+    qpc_calibrate( hsd, usd );
+    munmap( hsd, sizeof(*hsd) );
+}
+
+
+/***********************************************************************
+ *           map_hypervisor_shared_data
+ *
+ * Put the session's copy at the address the machine reports for it. Failing is
+ * survivable: without the page the counter keeps entering the kernel, which is
+ * what it did before.
+ */
+static void map_hypervisor_shared_data(void)
+{
+    UNICODE_STRING name_str = RTL_CONSTANT_STRING( hypervisor_data_nameW );
+    OBJECT_ATTRIBUTES attr = { sizeof(attr), 0, &name_str };
+    unsigned int status;
+    HANDLE section;
+    int res, fd, needs_close;
+
+    if (!hypervisor_shared_data) return;
+
+    if ((status = NtOpenSection( &section, SECTION_ALL_ACCESS, &attr )))
+    {
+        WARN( "no hypervisor shared data section: %08x\n", status );
+        hypervisor_shared_data = NULL;
+        return;
+    }
+    if ((res = server_get_unix_fd( section, 0, &fd, &needs_close, NULL, NULL )) ||
+        (hypervisor_shared_data != mmap( hypervisor_shared_data, page_size, PROT_READ,
+                                         MAP_SHARED|MAP_FIXED, fd, 0 )))
+    {
+        WARN( "failed to map the hypervisor shared data: %d\n", res );
+        hypervisor_shared_data = NULL;
+    }
+    if (needs_close) close( fd );
+    NtClose( section );
+}
+
+
 /***********************************************************************
  *           virtual_map_user_shared_data
  */
@@ -4835,6 +4934,8 @@ void virtual_map_user_shared_data(void)
     }
     if (needs_close) close( fd );
     NtClose( section );
+
+    map_hypervisor_shared_data();
 }
 
 
@@ -4945,6 +5046,7 @@ void virtual_init_user_shared_data(void)
     data->ImageNumberHigh = native_machine;
 
     init_shared_data_cpuinfo( data );
+    init_hypervisor_shared_data( data );
     munmap( data, sizeof(*data) );
 }
 

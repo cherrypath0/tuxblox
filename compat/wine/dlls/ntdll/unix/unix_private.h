@@ -271,6 +271,33 @@ extern pthread_mutex_t fd_cache_mutex;
 extern struct _KUSER_SHARED_DATA *user_shared_data;
 extern ULONG process_cookie;
 
+/* The page Windows publishes the QueryPerformanceCounter scaling in, so a
+ * caller can compute the counter without entering the kernel:
+ *
+ *     qpc = mulhi( rdtsc, QpcMultiplier ) + QpcBias + usd->QpcBias
+ *
+ * It sits just above KUSER_SHARED_DATA and is handed out by
+ * NtQuerySystemInformation( SystemHypervisorSharedPageInformation ).
+ */
+struct hypervisor_shared_data
+{
+    ULONG64 unknown;            /* not measured yet; qpcprobe reports it */
+    ULONG64 QpcMultiplier;
+    ULONG64 QpcBias;
+};
+
+/* Just above the user shared page, where the reference machine has it. Not
+ * 0x7ffef000, which is where that machine's kernel put it: Wine tracks free
+ * address ranges at 64 KB granularity, so reserving the user shared page takes
+ * the whole granule it sits in and nothing else fits below 0x7fff0000. The
+ * address is reported rather than assumed -- see NtQuerySystemInformation
+ * class 197 -- so it does not have to be that machine's. */
+#define HYPERVISOR_SHARED_DATA_ADDRESS 0x7fff0000
+extern struct hypervisor_shared_data *hypervisor_shared_data;
+extern void qpc_calibrate( struct hypervisor_shared_data *hsd, struct _KUSER_SHARED_DATA *usd );
+extern ULONGLONG qpc_counter(void);
+extern ULONGLONG monotonic_counter(void);
+
 extern BOOL process_termination_delay;
 extern BOOL fsync_help_simulated_pulse;
 extern BOOL localsystem_sid;
