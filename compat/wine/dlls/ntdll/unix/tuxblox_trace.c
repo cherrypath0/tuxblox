@@ -525,7 +525,8 @@ void tuxblox_diag_note_syscall( ULONG64 rip, ULONG64 rsp, ULONG64 rax )
  * is to have the value it tested. */
 static struct { ULONG64 rip, rsp, rcx, rax; } diag_steps[DIAG_STEPS];
 static unsigned int diag_step_pos, diag_step_start, diag_step_limit;
-static ULONG64 diag_step_stop_rsp, diag_step_stop_lo, diag_step_stop_hi;
+static ULONG64 diag_step_stop_rsp, diag_step_stop_lo, diag_step_stop_hi, diag_step_below;
+static unsigned int diag_step_hold, diag_step_held;
 static ULONG diag_step_tid = (ULONG)-1, diag_step_owner;
 static ULONG64 diag_step_module_base;
 static ULONG diag_step_reject[16];
@@ -631,6 +632,8 @@ BOOL tuxblox_diag_step_arm(void)
         if ((v = getenv( "TUXBLOX_DIAG_STEP_STOPRSP" ))) diag_step_stop_rsp = strtoull( v, NULL, 16 );
         if ((v = getenv( "TUXBLOX_DIAG_STEP_STOPLO" ))) diag_step_stop_lo = strtoull( v, NULL, 16 );
         if ((v = getenv( "TUXBLOX_DIAG_STEP_STOPHI" ))) diag_step_stop_hi = strtoull( v, NULL, 16 );
+        if ((v = getenv( "TUXBLOX_DIAG_STEP_BELOW" ))) diag_step_below = strtoull( v, NULL, 16 );
+        if ((v = getenv( "TUXBLOX_DIAG_STEP_HOLD" ))) diag_step_hold = atoi( v );
     }
     /* Armed once only. Re-arming after each system call was tried and is not
      * usable: the layer clears the trap flag itself -- `pushfq; and qword
@@ -719,6 +722,7 @@ static unsigned int diag_step_watch_count;
 static int diag_step_watch_init;
 static ULONG64 diag_step_stop;
 static void diag_dump_steps(void);
+static void diag_dump_steps_around( unsigned int at, unsigned int before, unsigned int after );
 
 /* Where the module containing an address begins.
  *
@@ -870,6 +874,46 @@ BOOL tuxblox_diag_step_record( ULONG64 rip, ULONG64 rsp, ULONG64 rcx, ULONG64 ra
     diag_steps[diag_step_pos % DIAG_STEPS].rax = rax;
     diag_step_pos++;
 
+    /* Stop and print once the stack pointer has stayed below a watermark for a
+     * chosen number of observed instructions.
+     * TUXBLOX_DIAG_STEP_BELOW=<hex> TUXBLOX_DIAG_STEP_HOLD=<n>.
+     *
+     * This is what separates the frame losing eight bytes from an ordinary
+     * `pushf`, which looks identical for the three instructions it lasts. The
+     * loss is permanent -- afterwards the pointer never comes back -- so the
+     * count grows without bound after it and never exceeds a handful before.
+     * Only an observed value at or above the watermark resets it, so a trace
+     * that runs in bursts still accumulates correctly across the gaps.
+     */
+    /* How far the trace has actually got, and how long it has been below the
+     * watermark. Without this a run that fires nothing is indistinguishable
+     * from a run where stepping barely ran at all. */
+    if (diag_step_pos % 200000 == 0)
+        ERR_(seh)( "DIAG step progress total=%u held=%u rip=0x%llx rsp=0x%llx\n",
+                   diag_step_pos, diag_step_held,
+                   (unsigned long long)rip, (unsigned long long)rsp );
+
+    if (diag_step_below)
+    {
+        if (rsp < diag_step_below) diag_step_held++;
+        else diag_step_held = 0;
+
+        if (diag_step_hold && diag_step_held >= diag_step_hold)
+        {
+            unsigned int back = diag_step_held < diag_step_pos ? diag_step_held : diag_step_pos;
+
+            ERR_(seh)( "DIAG step held below 0x%llx for %u instructions, rip=0x%llx\n",
+                       (unsigned long long)diag_step_below, diag_step_held,
+                       (unsigned long long)rip );
+            /* the transition is exactly diag_step_held records back */
+            diag_dump_steps_around( diag_step_pos - back, 12, 28 );
+            diag_dump_steps();
+            tuxblox_diag_stepping = FALSE;
+            diag_step_start = 0;
+            return TRUE;
+        }
+    }
+
     /* Stop and print when the stack pointer reaches a chosen value.
      * TUXBLOX_DIAG_STEP_STOPRSP=<hex>. An address cannot catch this: the
      * question is where the stack pointer stops coming back, and the code that
@@ -952,6 +996,29 @@ static void diag_regs( const char *tag, const CONTEXT *context )
     ERR_(seh)( "DIAG %s xmm2=%016llx%016llx xmm3=%016llx%016llx\n", tag,
                (unsigned long long)context->Xmm2.High, (unsigned long long)context->Xmm2.Low,
                (unsigned long long)context->Xmm3.High, (unsigned long long)context->Xmm3.Low );
+}
+
+/* The stretch around one recorded instruction, rather than the tail.
+ *
+ * What is wanted when a watermark fires is the moment the stack pointer went
+ * below it, which may be a hundred thousand instructions back -- printing a
+ * tail that long to reach it is unusable. */
+static void diag_dump_steps_around( unsigned int at, unsigned int before, unsigned int after )
+{
+    unsigned int n = diag_step_pos < DIAG_STEPS ? diag_step_pos : DIAG_STEPS;
+    unsigned int first = at > before ? at - before : 0, i;
+
+    if (!diag_step_pos) return;
+    ERR_(seh)( "DIAG steps around %u (total=%u):\n", at, diag_step_pos );
+    for (i = first; i < at + after && i < diag_step_pos; i++)
+    {
+        unsigned int slot = i % DIAG_STEPS;
+
+        if (diag_step_pos > n && i < diag_step_pos - n) continue;   /* wrapped away */
+        ERR_(seh)( "DIAG at[%u] rip=0x%llx rsp=0x%llx rcx=0x%llx rax=0x%llx\n", i,
+                   (unsigned long long)diag_steps[slot].rip, (unsigned long long)diag_steps[slot].rsp,
+                   (unsigned long long)diag_steps[slot].rcx, (unsigned long long)diag_steps[slot].rax );
+    }
 }
 
 static void diag_dump_steps(void)
