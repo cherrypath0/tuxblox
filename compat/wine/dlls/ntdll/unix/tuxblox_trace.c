@@ -1835,6 +1835,24 @@ BOOL tuxblox_diag_bp_hit( ULONG64 rip, const ULONG64 *regs )
                 }
             }
         }
+        /* The layer finds modules by hashing their base name, so at the sites
+         * that matter rdx is a UTF-16 name and rcx its length in characters.
+         * Printing it turns a line of hex into something readable. */
+        if (regs[2] > 0x10000 && regs[1] && regs[1] < 128)
+        {
+            WCHAR buf[128];
+            unsigned int len = (unsigned int)regs[1];
+
+            if (virtual_uninterrupted_read_memory( (const void *)(ULONG_PTR)regs[2],
+                                                   buf, len * sizeof(WCHAR) ) == len * sizeof(WCHAR))
+            {
+                char name[128];
+
+                for (k = 0; k < len; k++) name[k] = (buf[k] < 0x80) ? (char)buf[k] : '?';
+                name[len] = 0;
+                n += snprintf( line + n, sizeof(line) - n, " name=\"%s\"", name );
+            }
+        }
         ERR_(seh)( "DIAG bp hit #%u (%u raced) 0x%llx %s\n", diag_bp_hits[i] + 1,
                    diag_bp_races[i], (unsigned long long)diag_bp_addr[i], line );
         virtual_patch_code_byte( (void *)(ULONG_PTR)diag_bp_addr[i], diag_bp_orig[i] );
