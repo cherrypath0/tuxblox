@@ -70,6 +70,13 @@ struct Settings {
     // for the motors to be reachable at all. That route costs one button off
     // the pad, which is why this is a setting rather than unconditional.
     bool haptics = true;
+    // GPU acceleration for the panels that are web pages -- the login screen
+    // and the Toolbox. On by default.
+    //
+    // Unlike haptics above, BOTH states are emitted: the compatibility layer
+    // still treats an absent value as off, so leaving this on has to say so
+    // rather than imply it by staying quiet.
+    bool webviewGpu = true;
     // Written into the active Roblox version's ClientSettings folder at every
     // launch -- see fastflag_file.h for why it can't just be written once.
     FastFlagSet fastFlags;

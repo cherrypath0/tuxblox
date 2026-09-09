@@ -107,6 +107,7 @@ Settings loadSettings(const std::string& installDir) {
         // Read leniently, same reasoning as "channel" above.
         settings.autoUpdate = j.value("auto_update", false);
         settings.haptics = j.value("haptics", true);
+        settings.webviewGpu = j.value("webview_gpu", true);
         settings.gpu = j.value("gpu", std::string(""));
 
         const auto fastFlags = j.find("fast_flags");
@@ -135,6 +136,7 @@ void saveSettings(const std::string& installDir, const Settings& settings) {
         j["channel"] = settings.channel;
         j["auto_update"] = settings.autoUpdate;
         j["haptics"] = settings.haptics;
+        j["webview_gpu"] = settings.webviewGpu;
         j["gpu"] = settings.gpu;
         j["fast_flags"] = {{"player", fastFlagsToJson(settings.fastFlags.player)},
                             {"studio", fastFlagsToJson(settings.fastFlags.studio)}};
@@ -174,6 +176,10 @@ std::vector<std::string> launchEnvPairs(const Settings& settings) {
     if (!settings.haptics) {
         pairs.push_back("TUXBLOX_HAPTICS=0");
     }
+
+    // Both states are sent, unlike haptics above. The compatibility layer's own
+    // default is off, so "on" cannot be expressed by leaving the variable out.
+    pairs.push_back(settings.webviewGpu ? "TUXBLOX_WEBVIEW_GPU=1" : "TUXBLOX_WEBVIEW_GPU=0");
 
     // Appended second so that a duplicate variable here is the one that wins:
     // both consumers apply these in order, with setenv() overwriting and the

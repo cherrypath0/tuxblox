@@ -31,6 +31,22 @@
 
 namespace tuxblox {
 
+namespace {
+
+// "Automatic (1: NVIDIA GeForce RTX 5060 Ti)", or plain "Automatic" when no
+// card was found. The number matches the card's place in the list below, so
+// the two read as the same thing.
+//
+// Naming a card here is a best guess, not a promise: "Automatic" deliberately
+// sets nothing, so the graphics driver makes the real choice. It is the right
+// answer on a machine with one card, and can differ on a laptop with two.
+QString automaticGpuLabel(const std::vector<GpuDevice>& gpus) {
+    if (gpus.empty()) return "Automatic";
+    return QString("Automatic (1: %1)").arg(QString::fromStdString(gpus.front().label));
+}
+
+} // namespace
+
 SettingsTab::SettingsTab(App& app, QWidget* parent) : QWidget(parent), app_(app) {
     // Before any group is built: buildEnvironmentGroup() fills the graphics
     // card list from this.
@@ -126,10 +142,13 @@ QWidget* SettingsTab::buildEnvironmentGroup(QWidget* parent) {
     gpuCombo_ = new QComboBox();
     // The empty userData is the "let the system decide" default, and is what
     // an unrecognised saved value falls back to.
-    gpuCombo_->addItem("Automatic", QString());
-    for (const auto& gpu : gpus_) {
-        gpuCombo_->addItem(QString::fromStdString(gpu.label),
-                           QString::fromStdString(gpu.pciAddress));
+    gpuCombo_->addItem(automaticGpuLabel(gpus_), QString());
+    // Numbered so two cards of the same model can be told apart at a glance,
+    // and so the "Automatic" entry above can name one by the same number.
+    for (std::size_t i = 0; i < gpus_.size(); ++i) {
+        gpuCombo_->addItem(
+            QString("%1: %2").arg(i + 1).arg(QString::fromStdString(gpus_[i].label)),
+            QString::fromStdString(gpus_[i].pciAddress));
     }
     gpuCombo_->setMinimumWidth(210);
     connect(gpuCombo_, &QComboBox::currentIndexChanged, this, [this](int index) {
@@ -140,6 +159,19 @@ QWidget* SettingsTab::buildEnvironmentGroup(QWidget* parent) {
     });
     gpuRow->addControl(gpuCombo_);
     group->addRow(gpuRow);
+
+    auto* webviewGpuRow = new BoxedRow(
+        "GPU acceleration for web pages",
+        "Speeds up the login screen, the Toolbox and every other panel that uses web pages. "
+        "Does not affect game or Studio graphics. Takes effect the next time Roblox starts.");
+    webviewGpuToggle_ = new ToggleSwitch();
+    connect(webviewGpuToggle_, &ToggleSwitch::toggled, this, [this](bool checked) {
+        Settings updated = app_.snapshot().settings;
+        updated.webviewGpu = checked;
+        commitSettings(updated);
+    });
+    webviewGpuRow->addControl(webviewGpuToggle_);
+    group->addRow(webviewGpuRow);
 
     auto* envRow = new BoxedRow("Environment variables",
                                  "These variables will be passed to Roblox and the compatibility layer.");
@@ -272,6 +304,7 @@ void SettingsTab::updateFromSnapshot(const AppSnapshot& snap) {
         channelCombo_->setCurrentText(QString::fromStdString(snap.settings.channel));
         envEdit_->setText(QString::fromStdString(snap.settings.envVars));
         hapticsToggle_->setChecked(snap.settings.haptics);
+        webviewGpuToggle_->setChecked(snap.settings.webviewGpu);
         crashReportsToggle_->setChecked(snap.settings.sendCrashReports);
         autoUpdateToggle_->setChecked(snap.settings.autoUpdate);
         // Matched on the stored PCI slot, not on position: a card that has

@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "settings.h"
+#include <algorithm>
 #include <cassert>
 #include <cstdio>
 #include <filesystem>
@@ -150,25 +151,48 @@ int main() {
 
         Settings s = loadSettings(dir);
         assert(s.gpu.empty());
+        // Same leniency: a file written before this switch existed reads as on,
+        // rather than silently turning acceleration off on upgrade.
+        assert(s.webviewGpu == true);
         assert(s.envVars == "FOO=bar");
         assert(s.sendCrashReports == false);
         assert(s.channel == "canary");
         assert(s.autoUpdate == true);
     }
 
-    // launchEnvPairs(): with the Automatic default, a launch carries exactly
-    // the user's own variables and nothing else. This is the guarantee that
-    // the picker changes nothing for anyone who never touches it, so it is
-    // asserted rather than assumed.
+    // launchEnvPairs(): with the Automatic default, the graphics-card picker
+    // itself adds nothing -- the guarantee that it changes nothing for anyone
+    // who never touches it, so it is asserted rather than assumed.
+    //
+    // Web-page acceleration is the one exception to "and nothing else", and is
+    // always present: the compatibility layer treats an absent value as off,
+    // so the on default cannot be expressed by staying quiet.
     {
         Settings s;
         s.envVars = "FOO=bar BAZ=qux";
         assert(s.gpu.empty());
 
         auto pairs = launchEnvPairs(s);
-        assert(pairs.size() == 2);
-        assert(pairs[0] == "FOO=bar");
-        assert(pairs[1] == "BAZ=qux");
+        assert(pairs.size() == 3);
+        assert(pairs[0] == "TUXBLOX_WEBVIEW_GPU=1");
+        assert(pairs[1] == "FOO=bar");
+        assert(pairs[2] == "BAZ=qux");
+    }
+
+    // launchEnvPairs(): web-page acceleration is sent in both states, so the
+    // layer never has to fall back to its own default to learn what was chosen.
+    {
+        Settings on;
+        assert(on.webviewGpu == true); // on by default
+        auto onPairs = launchEnvPairs(on);
+        assert(std::find(onPairs.begin(), onPairs.end(), std::string("TUXBLOX_WEBVIEW_GPU=1"))
+               != onPairs.end());
+
+        Settings off;
+        off.webviewGpu = false;
+        auto offPairs = launchEnvPairs(off);
+        assert(std::find(offPairs.begin(), offPairs.end(), std::string("TUXBLOX_WEBVIEW_GPU=0"))
+               != offPairs.end());
     }
 
     // launchEnvPairs(): a saved card that this machine does not have falls
@@ -182,8 +206,9 @@ int main() {
         s.envVars = "FOO=bar";
 
         auto pairs = launchEnvPairs(s);
-        assert(pairs.size() == 1);
-        assert(pairs[0] == "FOO=bar");
+        assert(pairs.size() == 2);
+        assert(pairs[0] == "TUXBLOX_WEBVIEW_GPU=1");
+        assert(pairs[1] == "FOO=bar");
     }
 
     // launchEnvPairs(): the user's variables come last, which is what makes
@@ -334,17 +359,20 @@ int main() {
         assert(loaded.haptics == false);
     }
 
-    // launchEnvPairs(): haptics on is the default, and a default launch must
-    // still carry nothing but the user's own variables -- same guarantee the
-    // graphics-card picker keeps.
+    // launchEnvPairs(): haptics on is the default, and adds nothing of its own
+    // -- same guarantee the graphics-card picker keeps. Only web-page
+    // acceleration, which has to state itself either way, joins the user's
+    // own variables here.
     {
         Settings s;
         s.envVars = "FOO=bar";
         assert(s.haptics == true);
 
         auto pairs = launchEnvPairs(s);
-        assert(pairs.size() == 1);
-        assert(pairs[0] == "FOO=bar");
+        assert(pairs.size() == 2);
+        assert(std::find(pairs.begin(), pairs.end(), std::string("TUXBLOX_HAPTICS=0")) ==
+               pairs.end());
+        assert(pairs[1] == "FOO=bar");
     }
 
     // launchEnvPairs(): turning haptics off is what emits anything at all.
@@ -355,8 +383,9 @@ int main() {
         s.haptics = false;
 
         auto pairs = launchEnvPairs(s);
-        assert(pairs.size() == 1);
+        assert(pairs.size() == 2);
         assert(pairs[0] == "TUXBLOX_HAPTICS=0");
+        assert(pairs[1] == "TUXBLOX_WEBVIEW_GPU=1");
     }
 
     // A user variable still wins over the haptics pair, because it is
@@ -367,9 +396,10 @@ int main() {
         s.envVars = "TUXBLOX_HAPTICS=1";
 
         auto pairs = launchEnvPairs(s);
-        assert(pairs.size() == 2);
+        assert(pairs.size() == 3);
         assert(pairs[0] == "TUXBLOX_HAPTICS=0");
-        assert(pairs[1] == "TUXBLOX_HAPTICS=1");
+        // Last is what counts -- that is the whole point of this case.
+        assert(pairs.back() == "TUXBLOX_HAPTICS=1");
     }
 
     fs::remove_all(dir);

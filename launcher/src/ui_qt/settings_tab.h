@@ -62,6 +62,7 @@ private:
     // walking sysfs is cheap but the list cannot change without a reboot or a
     // hotplug, neither of which happens while this window is open.
     std::vector<GpuDevice> gpus_;
+    ToggleSwitch* webviewGpuToggle_ = nullptr;
     ToggleSwitch* hapticsToggle_ = nullptr;
     ToggleSwitch* crashReportsToggle_ = nullptr;
     QPushButton* terminateButton_ = nullptr;
