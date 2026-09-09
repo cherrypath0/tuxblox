@@ -1960,6 +1960,22 @@ NTSTATUS WINAPI NtClose( HANDLE handle )
     if (HandleToLong( handle ) >= ~5 && HandleToLong( handle ) <= ~0)
         return STATUS_SUCCESS;
 
+    /* Diagnostic: how far the pseudo-handle range reaches. -6..-1 is the
+     * documented set, and Roblox's layer closes -10 and decides something from
+     * whether that is STATUS_INVALID_HANDLE. TUXBLOX_TEST_CLOSE_PSEUDO=<n>
+     * widens the range to -n..-1 so the answer can be A/B'd. */
+    {
+        static int pseudo = -1;
+
+        if (pseudo == -1)
+        {
+            const char *v = getenv( "TUXBLOX_TEST_CLOSE_PSEUDO" );
+            pseudo = v ? atoi( v ) : 0;
+        }
+        if (pseudo && HandleToLong( handle ) >= -pseudo && HandleToLong( handle ) <= ~0)
+            return STATUS_SUCCESS;
+    }
+
     /* hold fd_cache_mutex to prevent the fd from being added again between the
      * call to remove_fd_from_cache and close_handle */
     server_enter_uninterrupted_section( &fd_cache_mutex, &sigset );

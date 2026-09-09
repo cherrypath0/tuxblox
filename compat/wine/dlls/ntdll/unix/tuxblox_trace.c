@@ -476,6 +476,7 @@ void tuxblox_diag_note_syscall( ULONG64 rip, ULONG64 rsp, ULONG64 rax )
     tuxblox_diag_dump_ldr();
     tuxblox_diag_dump_keys( rip, rsp );
     tuxblox_diag_xpage_arm();
+    tuxblox_diag_wpage_arm();
     /* The SIGSYS path resumes the caller at rip + 0xb, which is the shape of
      * ntdll's own stub. The layer issues its system calls from code it
      * generates itself, so what its stubs look like decides whether that
@@ -1164,6 +1165,26 @@ void tuxblox_diag_exception( const EXCEPTION_RECORD *rec, const CONTEXT *context
     }
     diag_hex( "at-rip", (ULONG_PTR)context->Rip, 128 );
     diag_hex( "before-rip", (ULONG_PTR)context->Rip - 64, 64 );
+    /* TUXBLOX_DIAG_HEX=<layer offset>[:<len>][,...] dumps a place in the
+     * layer's own image at every exception. The tables it calls through are at
+     * fixed offsets and hold nothing readable from outside the run. */
+    {
+        const char *v = getenv( "TUXBLOX_DIAG_HEX" );
+        ULONG64 base = roblox_dll_base();
+
+        while (v && *v && base)
+        {
+            char *end;
+            ULONG64 off = strtoull( v, &end, 16 );
+            unsigned int n = 64;
+
+            if (end == v) break;
+            v = end;
+            if (*v == ':') { n = strtoul( v + 1, &end, 0 ); v = end; }
+            if (*v == ',') v++;
+            diag_hex( "hex", (ULONG_PTR)(base + off), n );
+        }
+    }
     for (i = 0; i < 24; i++)
     {
         ULONG64 slot = 0;
@@ -1327,12 +1348,16 @@ void tuxblox_diag_dump_image( const char *why ) { }
  * first call it changes across -- which brackets the write between two calls
  * even when the write itself is not a system call's doing.
  *
- * Armed with TUXBLOX_DIAG_WATCH=<hex address>. Arming it turns on the syscall
- * trace hook, which is otherwise off; nothing is printed per call, so the cost
- * is the hook itself rather than the tracer's stderr writes.
+ * Armed with TUXBLOX_DIAG_WATCH=<hex address>. An address below 4 GB is an
+ * offset into the layer's image, the same as a breakpoint's, which is how a
+ * slot in the layer's own tables gets named at all -- the image moves between
+ * runs. Arming it turns on the syscall trace hook, which is otherwise off;
+ * nothing is printed per call, so the cost is the hook itself rather than the
+ * tracer's stderr writes.
  */
 #define DIAG_WATCH_MAX 4
 static ULONG_PTR diag_watch[DIAG_WATCH_MAX];
+static char diag_watch_resolved[DIAG_WATCH_MAX];
 static unsigned int diag_watch_count;
 
 static void diag_watch_init(void)
@@ -1346,10 +1371,14 @@ static void diag_watch_init(void)
     while (*v && diag_watch_count < DIAG_WATCH_MAX)
     {
         char *end;
-        ULONG_PTR addr = (ULONG_PTR)strtoull( v, &end, 16 );
+        ULONG64 parsed = strtoull( v, &end, 16 );
 
         if (end == v) break;
-        if (addr) diag_watch[diag_watch_count++] = addr;
+        if (parsed)
+        {
+            diag_watch_resolved[diag_watch_count] = (parsed >= 0x100000000ull);
+            diag_watch[diag_watch_count++] = (ULONG_PTR)parsed;
+        }
         v = (*end == ',') ? end + 1 : end;
     }
 }
@@ -1371,14 +1400,25 @@ void tuxblox_diag_watch_sysret( unsigned int id )
     for (i = 0; i < diag_watch_count; i++)
     {
         ULONG_PTR addr = diag_watch[i];
-        ULONG64 now;
+        ULONG64 now = 0;
 
-        /* Only the thread whose stack holds the slot can read it, and only
-         * inside the committed part of that stack. */
-        if ((const char *)addr < (const char *)NtCurrentTeb()->Tib.StackLimit ||
-            (const char *)addr + 8 > (const char *)NtCurrentTeb()->Tib.StackBase) continue;
+        if (!diag_watch_resolved[i])
+        {
+            ULONG64 base = roblox_dll_base();
 
-        now = *(volatile ULONG64 *)addr;
+            if (!base) continue;
+            diag_watch[i] = addr = addr + base;
+            diag_watch_resolved[i] = 1;
+            ERR_(seh)( "DIAG watch resolved to 0x%llx\n", (unsigned long long)addr );
+        }
+        if ((const char *)addr >= (const char *)NtCurrentTeb()->Tib.StackLimit &&
+            (const char *)addr + 8 <= (const char *)NtCurrentTeb()->Tib.StackBase)
+            now = *(volatile ULONG64 *)addr;
+        /* Anywhere else -- a slot in one of the layer's own tables -- is read
+         * the safe way, so an address that is not mapped yet costs a failed
+         * read rather than the process. */
+        else if (virtual_uninterrupted_read_memory( (const void *)addr, &now, sizeof(now) ) != sizeof(now))
+            continue;
         if ((seen & (1u << i)) && now == last[i]) continue;
         if (!name) name = ntdll_syscall_name( id );
         /* n= is the raw-system-call count, so a change here can be ordered
@@ -1430,6 +1470,11 @@ static ULONG64 xpage_lo, xpage_hi;
 #define XPAGE_LIVE 4
 static ULONG64 xpage_live_set[XPAGE_LIVE];
 static unsigned int xpage_live_pos;
+/* TUXBLOX_DIAG_XPAGE_LIVE narrows the window. Two is the smallest that can
+ * still complete an instruction straddling a page boundary, and it records
+ * every hop between two pages that four would absorb -- which is the
+ * difference between seeing a path and seeing the pages it stayed in. */
+static unsigned int xpage_live_n = XPAGE_LIVE;
 static unsigned int xpage_events, xpage_max, xpage_start;
 static int xpage_parsed, xpage_on;
 
@@ -1619,6 +1664,123 @@ void tuxblox_diag_dump_ldr( void )
     ERR_(seh)( "DIAG ldr: %u entries\n", n );
 }
 
+/* A page of the layer's own data with write permission taken off, so that
+ * every store into it reports where it came from.
+ *
+ * "What writes this table" is not answerable by reading the layer: its base
+ * pointers are all computed, and the one place a table's address appears as a
+ * rip-relative constant is an opaque predicate that never uses it as an
+ * address. Named by TUXBLOX_DIAG_WPAGE as a comma-separated list of offsets
+ * into the layer's image. Rearmed at each system call, so a routine that
+ * writes a run of bytes reports its first store rather than all of them --
+ * which is the code site, which is the question.
+ */
+#define WPAGE_MAX 4
+static ULONG64 wpage_addr[WPAGE_MAX];
+static int wpage_prot[WPAGE_MAX];
+static char wpage_armed[WPAGE_MAX];
+static unsigned int wpage_count, wpage_hits, wpage_hit_max;
+static int wpage_parsed;
+
+/* the permissions the page already has, read rather than assumed */
+static int wpage_prot_of( ULONG64 page )
+{
+    char line[512];
+    FILE *maps;
+    int prot = -1;
+
+    if (!(maps = fopen( "/proc/self/maps", "r" ))) return -1;
+    while (fgets( line, sizeof(line), maps ))
+    {
+        unsigned long long start, end;
+        char perm[8];
+
+        if (sscanf( line, "%llx-%llx %7s", &start, &end, perm ) != 3) continue;
+        if (page < start || page >= end) continue;
+        prot = 0;
+        if (perm[0] == 'r') prot |= PROT_READ;
+        if (perm[1] == 'w') prot |= PROT_WRITE;
+        if (perm[2] == 'x') prot |= PROT_EXEC;
+        break;
+    }
+    fclose( maps );
+    return prot;
+}
+
+void tuxblox_diag_wpage_arm( void )
+{
+    ULONG64 base;
+    unsigned int i;
+
+    if (!diag_enabled()) return;
+    if (!wpage_parsed)
+    {
+        const char *v = getenv( "TUXBLOX_DIAG_WPAGE" );
+
+        wpage_parsed = 1;
+        while (v && *v && wpage_count < WPAGE_MAX)
+        {
+            char *end;
+            ULONG64 off = strtoull( v, &end, 16 );
+
+            if (end == v) break;
+            wpage_addr[wpage_count++] = off;
+            v = (*end == ',') ? end + 1 : end;
+        }
+        if ((v = getenv( "TUXBLOX_DIAG_WPAGE_MAX" ))) wpage_hit_max = atoi( v );
+        else wpage_hit_max = 64;
+    }
+    if (!wpage_count || wpage_hits >= wpage_hit_max) return;
+    if (!(base = roblox_dll_base())) return;
+
+    for (i = 0; i < wpage_count; i++)
+    {
+        ULONG64 page;
+
+        if (wpage_armed[i]) continue;
+        if (wpage_addr[i] < 0x100000000ull) wpage_addr[i] += base;
+        page = wpage_addr[i] & ~(ULONG64)(page_size - 1);
+        if (!wpage_prot[i] && (wpage_prot[i] = wpage_prot_of( page )) <= 0)
+        {
+            wpage_prot[i] = 0;                    /* not mapped yet, look again */
+            continue;
+        }
+        if (mprotect( (void *)(ULONG_PTR)page, page_size, wpage_prot[i] & ~PROT_WRITE )) continue;
+        wpage_armed[i] = 1;
+        ERR_(seh)( "DIAG wpage armed at 0x%llx (page 0x%llx, prot %d)\n",
+                   (unsigned long long)wpage_addr[i], (unsigned long long)page, wpage_prot[i] );
+    }
+}
+
+/* Returns TRUE when the fault was one this made and the store can be retried. */
+BOOL tuxblox_diag_wpage_fault( ULONG64 addr, ULONG64 rip, const ULONG64 *regs, ULONG kind )
+{
+    unsigned int i;
+
+    if (!(kind & 1)) return FALSE;                /* reads are not the question */
+    for (i = 0; i < wpage_count; i++)
+    {
+        ULONG64 page = wpage_addr[i] & ~(ULONG64)(page_size - 1), base;
+
+        if (!wpage_armed[i] || (addr & ~(ULONG64)(page_size - 1)) != page) continue;
+        mprotect( (void *)(ULONG_PTR)page, page_size, wpage_prot[i] );
+        wpage_armed[i] = 0;
+        wpage_hits++;
+        base = roblox_dll_base();
+        if (base && rip > base && rip < base + 0x10000000ull)
+            ERR_(seh)( "DIAG wpage write to layer+0x%llx from layer+0x%llx  rcx=%llx rdx=%llx r8=%llx r9=%llx r10=%llx r11=%llx\n",
+                       (unsigned long long)(addr - base), (unsigned long long)(rip - base),
+                       (unsigned long long)regs[2], (unsigned long long)regs[3],
+                       (unsigned long long)regs[8], (unsigned long long)regs[9],
+                       (unsigned long long)regs[10], (unsigned long long)regs[11] );
+        else
+            ERR_(seh)( "DIAG wpage write to 0x%llx from 0x%llx (outside the layer)\n",
+                       (unsigned long long)addr, (unsigned long long)rip );
+        return TRUE;
+    }
+    return FALSE;
+}
+
 void tuxblox_diag_xpage_arm( void )
 {
     ULONG64 base;
@@ -1631,6 +1793,12 @@ void tuxblox_diag_xpage_arm( void )
         xpage_parsed = 1;
         if (!v || !*v) return;
         if ((v = getenv( "TUXBLOX_DIAG_XPAGE_AT" ))) xpage_start = atoi( v );
+        if ((v = getenv( "TUXBLOX_DIAG_XPAGE_LIVE" )))
+        {
+            xpage_live_n = atoi( v );
+            if (xpage_live_n < 2) xpage_live_n = 2;
+            if (xpage_live_n > XPAGE_LIVE) xpage_live_n = XPAGE_LIVE;
+        }
         if ((v = getenv( "TUXBLOX_DIAG_XPAGE_MAX" ))) xpage_max = atoi( v );
         else xpage_max = 200000;
     }
@@ -1656,12 +1824,12 @@ BOOL tuxblox_diag_xpage_fault( ULONG64 addr, ULONG64 rip, ULONG64 rsp, ULONG kin
     /* the page that could not be fetched from, which is not always the one the
      * instruction pointer is on */
     page = addr & ~(ULONG64)(page_size - 1);
-    for (i = 0; i < XPAGE_LIVE; i++) if (xpage_live_set[i] == page) return TRUE;
+    for (i = 0; i < xpage_live_n; i++) if (xpage_live_set[i] == page) return TRUE;
     if (xpage_setprot( page, 1 )) return FALSE;   /* not ours, let it through */
 
-    evict = xpage_live_set[xpage_live_pos % XPAGE_LIVE];
+    evict = xpage_live_set[xpage_live_pos % xpage_live_n];
     if (evict && evict != page) xpage_setprot( evict, 0 );
-    xpage_live_set[xpage_live_pos % XPAGE_LIVE] = page;
+    xpage_live_set[xpage_live_pos % xpage_live_n] = page;
     xpage_live_pos++;
     if (xpage_events < xpage_max)
         ERR_(seh)( "DIAG xpage[%u] rip=0x%llx rsp=0x%llx\n", xpage_events,
@@ -1694,14 +1862,23 @@ BOOL tuxblox_diag_xpage_fault( ULONG64 addr, ULONG64 rip, ULONG64 rsp, ULONG kin
  * an offset into the layer's own image, which is the only way to name one of
  * its instructions that survives the image moving between runs.
  *
+ * An entry may carry "@<delta>", which adds that many bytes to the stack
+ * pointer when the address is reached. That is not a fix for anything: it is
+ * how a theory about a stack imbalance gets tested, by correcting it at one
+ * named instruction and watching what the program does afterwards.
+ *
  * Each address reports up to TUXBLOX_DIAG_BP_MAX times, eight by default. The
  * interesting questions are about a call the layer makes more than once with
  * different arguments, and a breakpoint that fires once cannot tell those
  * apart.
  */
-#define DIAG_BP_MAX 8
+/* Enough to ask "which of these ever runs" of a whole census in one run
+ * rather than eight at a time, which is the question this facility is
+ * actually used for. */
+#define DIAG_BP_MAX 160
 
 static ULONG64 diag_bp_addr[DIAG_BP_MAX];
+static LONG64 diag_bp_rsp_delta[DIAG_BP_MAX];
 static unsigned char diag_bp_orig[DIAG_BP_MAX], diag_bp_want[DIAG_BP_MAX];
 static char diag_bp_armed[DIAG_BP_MAX], diag_bp_resolved[DIAG_BP_MAX];
 static unsigned int diag_bp_hits[DIAG_BP_MAX], diag_bp_races[DIAG_BP_MAX];
@@ -1737,9 +1914,19 @@ static void diag_bp_arm(void)
             ULONG64 addr;
             char *end;
 
-            addr = strtoull( v, &end, 0 );
+            /* hex, with or without the 0x -- offsets are written that way
+             * everywhere else, and a bare one used to consume nothing and
+             * spin here for the life of the process. */
+            addr = strtoull( v, &end, 16 );
+            if (end == v)
+            {
+                ERR_(seh)( "DIAG bp: cannot read an address at \"%s\", giving up on the rest\n", v );
+                break;
+            }
             v = end;
             if (*v == '=') diag_bp_want[diag_bp_count] = (unsigned char)strtoul( v + 1, &end, 16 );
+            v = end;
+            if (*v == '@') diag_bp_rsp_delta[diag_bp_count] = strtoll( v + 1, &end, 0 );
             v = end;
             if (*v == ',') v++;
             if (addr) diag_bp_addr[diag_bp_count++] = addr;
@@ -1791,7 +1978,7 @@ static void diag_bp_arm(void)
     }
 }
 
-BOOL tuxblox_diag_bp_hit( ULONG64 rip, const ULONG64 *regs )
+BOOL tuxblox_diag_bp_hit( ULONG64 rip, const ULONG64 *regs, LONG64 *rsp_delta )
 {
     static const char * const names[16] = { "rax", "rbx", "rcx", "rdx", "rsi", "rdi", "rbp", "rsp",
                                             "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15" };
@@ -1803,6 +1990,11 @@ BOOL tuxblox_diag_bp_hit( ULONG64 rip, const ULONG64 *regs )
         unsigned int k, n = 0;
 
         if (!diag_bp_resolved[i] || diag_bp_addr[i] != rip - 1) continue;
+        if (rsp_delta) *rsp_delta = diag_bp_rsp_delta[i];
+        if (diag_bp_rsp_delta[i])
+            ERR_(seh)( "DIAG bp rsp 0x%llx %+lld -> 0x%llx\n", (unsigned long long)regs[7],
+                       (long long)diag_bp_rsp_delta[i],
+                       (unsigned long long)(regs[7] + diag_bp_rsp_delta[i]) );
 
         /* A second thread can reach the same int3 between the trap that
          * disarmed it and the original byte going back, and by the time its

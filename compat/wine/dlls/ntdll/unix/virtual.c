@@ -3574,7 +3574,20 @@ static unsigned int get_mapping_info( HANDLE handle, ACCESS_MASK access, unsigne
 static void *pick_dynamic_image_base( SIZE_T size, ULONG_PTR limit_low, ULONG_PTR limit_high )
 {
     UINT64 low = 0x00007ff600000000ull, high = 0x00007ff800000000ull, slots, rnd;
+    const char *test = getenv( "TUXBLOX_TEST_IMAGE_BASE" );
 
+    /* Diagnostic only. The protection layer scans memory upwards for the first
+     * image and stops at it; on Windows nothing is mapped between 4 GB and the
+     * executable, so that scan finds the executable, while here it finds a
+     * builtin DLL first. Moving the executable below the builtins is not a
+     * layout Windows produces for a high-entropy image, but it is the one
+     * change that puts the executable first, which is what the reading has to
+     * be tested against. */
+    if (test && *test)
+    {
+        low = strtoull( test, NULL, 16 );
+        high = low + 0x20000000ull;
+    }
     if (!is_win64 || is_wow64()) return NULL;
     if (low < limit_low) low = limit_low;
     if (high > limit_high) high = limit_high;
@@ -4287,7 +4300,9 @@ static TEB *init_teb( void *ptr, BOOL is_wow )
 
 #ifdef _WIN64
     teb = (TEB *)teb64;
-    teb32->Peb = PtrToUlong( (char *)peb + page_size );
+    /* the 32-bit PEB sits a page below the 64-bit one, since the page above it
+     * is now the TEB */
+    teb32->Peb = PtrToUlong( (char *)peb - page_size );
     teb32->Tib.Self = PtrToUlong( teb32 );
     teb32->Tib.ExceptionList = ~0u;
     teb32->ActivationContextStackPointer = PtrToUlong( &teb32->ActivationContextStack );
@@ -4383,14 +4398,34 @@ TEB *virtual_alloc_first_teb(void)
      * pointer reaches and this runs before the main image's machine is known.
      * Measured 2026-08-25: moving them into Windows' band changes nothing about
      * Roblox Player's verdict, so the address is not what it objects to and
-     * this is not worth a live TEB relocation during start-up. */
+     * this is not worth a live TEB relocation during start-up.
+     *
+     * The band is one difference and the *arrangement* is another, and only the
+     * first had been tried. Windows puts the PEB one page below the TEB --
+     * workspace/tests/tebprobe reads "peb - teb = -4096" on the reference
+     * machine -- while this put it a whole 64 KB block above, reading +65536.
+     * Roblox's protection layer reads both pointers through gs: and does
+     * arithmetic on them, so the arrangement is worth matching even though the
+     * band is not. The 32-bit build keeps its own layout, where the 64-bit PEB
+     * sits a page below this one. */
     NtAllocateVirtualMemory( NtCurrentProcess(), &teb_block, is_win64 ? limit_2g - 1 : 0, &total,
                              MEM_RESERVE | MEM_TOP_DOWN, PAGE_READWRITE );
-    teb_block_pos = 30;
     ptr = (char *)teb_block + 30 * block_size;
     data_size = 2 * block_size;
     NtAllocateVirtualMemory( NtCurrentProcess(), (void **)&ptr, 0, &data_size, MEM_COMMIT, PAGE_READWRITE );
-    peb = (PEB *)((char *)teb_block + 31 * block_size + (is_win64 ? 0 : page_size));
+    if (is_win64)
+    {
+        /* the TEB in the top block, the PEB in the page just below it */
+        ptr = (char *)teb_block + 31 * block_size;
+        peb = (PEB *)((char *)ptr - page_size);
+    }
+    else
+    {
+        ptr = (char *)teb_block + 30 * block_size;
+        peb = (PEB *)((char *)teb_block + 31 * block_size + page_size);
+    }
+    /* block 30 holds the PEB pages now, so later threads start below it */
+    teb_block_pos = 30;
     teb = init_teb( ptr, FALSE );
     pthread_key_create( &teb_key, NULL );
     pthread_setspecific( teb_key, teb );
@@ -4762,6 +4797,28 @@ NTSTATUS virtual_set_tls_information( PROCESS_TLS_INFORMATION *t )
 /***********************************************************************
  *           virtual_alloc_thread_stack
  */
+/* Whether to leave the stack mostly reserved and grow it on demand, as Windows
+ * does. Off unless TUXBLOX_TEST_LAZY_STACK is set. */
+static SIZE_T lazy_stack_commit(void)
+{
+    static SIZE_T cached = ~(SIZE_T)0;
+
+    if (cached == ~(SIZE_T)0)
+    {
+        const char *v = getenv( "TUXBLOX_TEST_LAZY_STACK" );
+
+        if (!v || !*v || *v == '0') cached = 0;
+        else
+        {
+            /* the value is how much to commit up front, in hex; "1" means the
+             * 16 KB the reference machine reports */
+            SIZE_T n = strtoull( v, NULL, 16 );
+            cached = (n <= 1) ? 0x4000 : n;
+        }
+    }
+    return cached;
+}
+
 NTSTATUS virtual_alloc_thread_stack( INITIAL_TEB *stack, ULONG_PTR limit_low, ULONG_PTR limit_high,
                                      SIZE_T reserve_size, SIZE_T commit_size, BOOL guard_page )
 {
@@ -4786,6 +4843,40 @@ NTSTATUS virtual_alloc_thread_stack( INITIAL_TEB *stack, ULONG_PTR limit_low, UL
 #ifdef VALGRIND_STACK_REGISTER
     VALGRIND_STACK_REGISTER( view->base, (char *)view->base + view->size );
 #endif
+
+    /* Windows commits SizeOfStackCommit and grows the rest on demand through
+     * the guard page, so a thread reports StackBase - StackLimit of a few pages
+     * until it has actually used more. This committed the whole reservation up
+     * front, which reads as 0x1FE000 against 0x4000 on the reference machine
+     * (workspace/tests/tebprobe). grow_thread_stack() below already implements
+     * the growth correctly -- it commits the faulting page, moves the guard
+     * down and updates Tib.StackLimit -- it was simply never reached, because
+     * nothing was left uncommitted to fault on.
+     *
+     * Gated while it is being measured: switching a near-dead path on is a
+     * risk to every program TuxBlox runs, not only the one being investigated. */
+    if (guard_page && lazy_stack_commit())
+    {
+        SIZE_T commit = max( lazy_stack_commit(), host_page_size );
+        char *top;
+
+        commit = (commit + host_page_mask) & ~host_page_mask;
+        if (commit > size / 2) commit = size / 2;
+        top = (char *)view->base + view->size - commit;
+
+        set_page_vprot( view->base, view->size - commit, 0 );
+        set_page_vprot( top, commit, VPROT_READ | VPROT_WRITE | VPROT_COMMITTED );
+        set_page_vprot( top - host_page_size, host_page_size,
+                        VPROT_READ | VPROT_WRITE | VPROT_COMMITTED | VPROT_GUARD );
+        mprotect_range( view->base, view->size, 0, 0 );
+
+        stack->OldStackBase = 0;
+        stack->OldStackLimit = 0;
+        stack->DeallocationStack = view->base;
+        stack->StackBase = (char *)view->base + view->size;
+        stack->StackLimit = top;
+        goto done;
+    }
 
     /* setup no access guard page */
     if (guard_page)
@@ -6806,25 +6897,16 @@ static NTSTATUS read_nt_symlink( UNICODE_STRING *name, WCHAR *target, DWORD size
 
 static NTSTATUS resolve_drive_symlink( UNICODE_STRING *name, SIZE_T max_name_len, SIZE_T *ret_len, NTSTATUS status )
 {
-    static int enabled = -1;
-
     static const WCHAR dosprefixW[] = {'\\','?','?','\\'};
     UNICODE_STRING device_name;
     SIZE_T required_length, symlink_len;
     WCHAR symlink[256];
     size_t offset = 0;
 
-    if (enabled == -1)
-    {
-        const char *sgi = getenv("SteamGameId");
-
-        enabled = sgi && !strcmp(sgi, "284160");
-    }
-    if (!enabled) return status;
     if (status == STATUS_INFO_LENGTH_MISMATCH)
     {
         /* FIXME */
-        *ret_len += 64;
+        if (ret_len) *ret_len += 64;
         return status;
     }
     if (status) return status;
@@ -6862,7 +6944,15 @@ static NTSTATUS resolve_drive_symlink( UNICODE_STRING *name, SIZE_T max_name_len
 static unsigned int get_memory_section_name( HANDLE process, LPCVOID addr,
                                              MEMORY_SECTION_NAME *info, SIZE_T len, SIZE_T *ret_len )
 {
+    /* Windows names a mapped section by its device path, never by the \??\C:\
+     * form the server keeps, and it reports the length of that device path when
+     * the buffer is too small. The name is fetched whole and resolved before
+     * anything is measured against the caller's buffer, so both the string and
+     * the length it asks for are the ones Windows gives. */
+    WCHAR full[2 * MAX_PATH];
+    UNICODE_STRING name = { 0, sizeof(full), full };
     unsigned int status;
+    SIZE_T needed;
 
     if (!info) return STATUS_ACCESS_VIOLATION;
 
@@ -6870,25 +6960,26 @@ static unsigned int get_memory_section_name( HANDLE process, LPCVOID addr,
     {
         req->process = wine_server_obj_handle( process );
         req->addr = wine_server_client_ptr( addr );
-        if (len > sizeof(*info) + sizeof(WCHAR))
-            wine_server_set_reply( req, info + 1, len - sizeof(*info) - sizeof(WCHAR) );
+        wine_server_set_reply( req, full, sizeof(full) - sizeof(WCHAR) );
         status = wine_server_call( req );
-        if (!status || status == STATUS_BUFFER_OVERFLOW)
-        {
-            if (ret_len) *ret_len = sizeof(*info) + reply->len + sizeof(WCHAR);
-            if (len < sizeof(*info)) status = STATUS_INFO_LENGTH_MISMATCH;
-            if (!status)
-            {
-                info->SectionFileName.Buffer = (WCHAR *)(info + 1);
-                info->SectionFileName.Length = reply->len;
-                info->SectionFileName.MaximumLength = reply->len + sizeof(WCHAR);
-                info->SectionFileName.Buffer[reply->len / sizeof(WCHAR)] = 0;
-            }
-        }
+        if (!status) name.Length = reply->len;
     }
     SERVER_END_REQ;
+    if (status) return status;
 
-    return resolve_drive_symlink( &info->SectionFileName, len - sizeof(*info), ret_len, status );
+    full[name.Length / sizeof(WCHAR)] = 0;
+    resolve_drive_symlink( &name, sizeof(full) - sizeof(WCHAR), NULL, STATUS_SUCCESS );
+
+    needed = sizeof(*info) + name.Length + sizeof(WCHAR);
+    if (ret_len) *ret_len = needed;
+    if (len < sizeof(*info)) return STATUS_INFO_LENGTH_MISMATCH;
+    if (len < needed) return STATUS_BUFFER_OVERFLOW;
+
+    info->SectionFileName.Buffer = (WCHAR *)(info + 1);
+    info->SectionFileName.Length = name.Length;
+    info->SectionFileName.MaximumLength = name.Length + sizeof(WCHAR);
+    memcpy( info->SectionFileName.Buffer, name.Buffer, name.Length + sizeof(WCHAR) );
+    return STATUS_SUCCESS;
 }
 
 static unsigned int get_memory_image_info( HANDLE process, LPCVOID addr, MEMORY_IMAGE_INFORMATION *info,

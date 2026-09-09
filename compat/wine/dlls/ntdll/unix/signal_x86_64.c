@@ -2312,6 +2312,130 @@ static void rewrite_aligned_move( ULONG64 rip, BYTE opcode, unsigned int op_pos,
 }
 
 /***********************************************************************
+ *           avx_available
+ *
+ * Whether VEX-encoded instructions can be run here: the processor has AVX and
+ * the kernel has enabled the state for us.
+ */
+static BOOL avx_available(void)
+{
+    static int cached = -1;
+    unsigned int regs[4];
+    unsigned int lo, hi;
+
+    if (cached != -1) return cached;
+    cached = 0;
+    __asm__( "cpuid" : "=a"(regs[0]), "=b"(regs[1]), "=c"(regs[2]), "=d"(regs[3]) : "a"(1), "c"(0) );
+    if ((regs[2] & (1 << 27)) && (regs[2] & (1 << 28)))  /* OSXSAVE and AVX */
+    {
+        __asm__( "xgetbv" : "=a"(lo), "=d"(hi) : "c"(0) );
+        if ((lo & 6) == 6) cached = 1;  /* the SSE and AVX state are both enabled */
+    }
+    return cached;
+}
+
+/* How the VEX form of a 0f-map SSE instruction spells its operands: three
+ * operands take the destination in VEX.vvvv, two operands leave vvvv unused
+ * and require it to be all ones. Zero means it is not one we rewrite. */
+static unsigned int vex_operand_count( BYTE opcode )
+{
+    switch (opcode)
+    {
+    case 0x14: case 0x15:                                    /* unpcklpd, unpckhpd */
+    case 0x54: case 0x55: case 0x56: case 0x57:              /* andpd .. xorpd */
+    case 0x58: case 0x59: case 0x5c: case 0x5d:              /* addpd, mulpd, subpd, minpd */
+    case 0x5e: case 0x5f:                                    /* divpd, maxpd */
+    case 0x60: case 0x61: case 0x62: case 0x63:              /* punpcklbw .. packsswb */
+    case 0x64: case 0x65: case 0x66: case 0x67:              /* pcmpgtb .. packuswb */
+    case 0x68: case 0x69: case 0x6a: case 0x6b:              /* punpckhbw .. packssdw */
+    case 0x6c: case 0x6d:                                    /* punpcklqdq, punpckhqdq */
+    case 0x74: case 0x75: case 0x76:                         /* pcmpeqb, pcmpeqw, pcmpeqd */
+    case 0xc6:                                               /* shufpd */
+    case 0xd1: case 0xd2: case 0xd3: case 0xd4: case 0xd5:   /* psrlw .. pmullw */
+    case 0xd8: case 0xd9: case 0xda: case 0xdb:              /* psubusb .. pand */
+    case 0xdc: case 0xdd: case 0xde: case 0xdf:              /* paddusb .. pandn */
+    case 0xe0: case 0xe1: case 0xe2: case 0xe3:              /* pavgb .. pavgw */
+    case 0xe4: case 0xe5:                                    /* pmulhuw, pmulhw */
+    case 0xe8: case 0xe9: case 0xea: case 0xeb:              /* psubsb .. por */
+    case 0xec: case 0xed: case 0xee: case 0xef:              /* paddsb .. pxor */
+    case 0xf1: case 0xf2: case 0xf3: case 0xf4:              /* psllw .. pmuludq */
+    case 0xf5: case 0xf6:                                    /* pmaddwd, psadbw */
+    case 0xf8: case 0xf9: case 0xfa: case 0xfb:              /* psubb .. psubq */
+    case 0xfc: case 0xfd: case 0xfe:                         /* paddb, paddw, paddd */
+        return 3;
+    case 0x70:                                               /* pshufd */
+        return 2;
+    }
+    return 0;
+}
+
+/***********************************************************************
+ *           rewrite_vex_sse
+ *
+ * Rewrite an SSE instruction that has just faulted into its VEX form, which
+ * does the same thing without requiring the memory operand to be aligned.
+ *
+ * The moves have an unaligned twin of their own and are handled above. Every
+ * other 128-bit form -- paddd, pxor, the punpcks -- has no unaligned spelling
+ * in the legacy encoding, but its VEX spelling is exactly the same length:
+ * "66 0f fe" becomes "c5 f1 fe", and with a rex prefix "66 45 0f fe" becomes
+ * "c4 41 31 fe". So the instruction can be replaced where it stands, with the
+ * modrm, displacement and immediate after it untouched. A Roblox startup makes
+ * around 194 million of these faults; rewriting each site the first time it
+ * faults removes almost all of them.
+ *
+ * Unlike the move rewrite this changes two or three bytes rather than one, so
+ * it is not a single atomic store. Nothing is rewritten that has not already
+ * faulted, and the loop that produces these faults is single-threaded.
+ *
+ * The VEX form also zeroes the upper half of the destination ymm register
+ * where the legacy form leaves it alone. Code that mixed the two on the same
+ * register would notice; code that only ever uses xmm, which is what faults
+ * here, cannot.
+ */
+static void rewrite_vex_sse( ULONG64 rip, const BYTE *instr, BYTE opcode, unsigned int op,
+                             unsigned int opsize_pos, unsigned int opsize_count, BYTE rep,
+                             BYTE rex, unsigned int rex_pos, unsigned int reg )
+{
+    BYTE want[3], orig[3];
+    unsigned int start, count, vvvv, i;
+
+    if (!avx_available()) return;
+    if (rep || opsize_count != 1) return;  /* the 66 is the one the VEX prefix takes over */
+    switch (vex_operand_count( opcode ))
+    {
+    case 3: vvvv = reg | ((rex & 4) ? 8 : 0); break;
+    case 2: vvvv = 0; break;  /* the field is stored inverted, so this is the unused 1111 */
+    default: return;
+    }
+
+    if (!rex && opsize_pos + 2 == op)  /* 66 0f xx -> c5 xx xx */
+    {
+        start = opsize_pos;
+        count = 2;
+        want[0] = 0xc5;
+        want[1] = 0x80 | ((~vvvv & 0xf) << 3) | 0x01;
+    }
+    else if (rex && rex_pos + 1 == op - 1 && opsize_pos + 1 == rex_pos)  /* 66 rex 0f xx */
+    {
+        start = opsize_pos;
+        count = 3;
+        want[0] = 0xc4;
+        want[1] = ((rex & 4) ? 0 : 0x80) | ((rex & 2) ? 0 : 0x40) | ((rex & 1) ? 0 : 0x20) | 0x01;
+        want[2] = ((rex & 8) ? 0x80 : 0) | ((~vvvv & 0xf) << 3) | 0x01;
+    }
+    else return;
+
+    for (i = 0; i < count; i++) orig[i] = instr[start + i];
+    for (i = 0; i < count; i++)
+    {
+        if (!virtual_patch_code_byte( (void *)(ULONG_PTR)(rip + start + i), want[i] )) continue;
+        while (i--) virtual_patch_code_byte( (void *)(ULONG_PTR)(rip + start + i), orig[i] );
+        return;
+    }
+}
+
+/***********************************************************************
  *           emulate_misaligned_sse
  *
  * Carry out a 128-bit SSE access that faulted only because its address was not
@@ -2322,7 +2446,7 @@ static BOOL emulate_misaligned_sse( CONTEXT *context )
 {
     BYTE instr[24], opcode;
     unsigned int i = 0, op, modrm_pos, imm_len = 0, len;
-    unsigned int opsize_pos = 0, opsize_count = 0;
+    unsigned int opsize_pos = 0, opsize_count = 0, rex_pos = 0;
     BOOL opsize = FALSE;
     BYTE rex = 0, modrm, mod, rm, imm = 0, rep = 0;
     unsigned int reg;
@@ -2336,7 +2460,7 @@ static BOOL emulate_misaligned_sse( CONTEXT *context )
     {
         if (instr[i] == 0x66) { opsize = TRUE; opsize_pos = i; opsize_count++; }
         else if (instr[i] == 0xf2 || instr[i] == 0xf3) rep = instr[i];
-        else if ((instr[i] & 0xf0) == 0x40) rex = instr[i];
+        else if ((instr[i] & 0xf0) == 0x40) { rex = instr[i]; rex_pos = i; }
         else if (instr[i] != 0x67 && instr[i] != 0xf0 && instr[i] != 0x2e && instr[i] != 0x36 &&
                  instr[i] != 0x3e && instr[i] != 0x26 && instr[i] != 0x64 && instr[i] != 0x65) break;
         i++;
@@ -2427,6 +2551,7 @@ static BOOL emulate_misaligned_sse( CONTEXT *context )
         return FALSE;
 
     rewrite_aligned_move( context->Rip, opcode, op, opsize_pos, opsize_count );
+    rewrite_vex_sse( context->Rip, instr, opcode, op, opsize_pos, opsize_count, rep, rex, rex_pos, reg );
     context->Rip += len;
     return TRUE;
 }
@@ -3231,6 +3356,22 @@ static void segv_handler( int signal, siginfo_t *siginfo, void *sigcontext )
             leave_handler( ucontext );
             return;
         }
+        /* The same, for a page whose write rights were taken off to find out
+         * what stores into one of the layer's tables. */
+        {
+            ULONG64 wregs[16] = { context.c.Rax, context.c.Rbx, context.c.Rcx, context.c.Rdx,
+                                  context.c.Rsi, context.c.Rdi, context.c.Rbp, context.c.Rsp,
+                                  context.c.R8,  context.c.R9,  context.c.R10, context.c.R11,
+                                  context.c.R12, context.c.R13, context.c.R14, context.c.R15 };
+
+            if (tuxblox_diag_wpage_fault( (ULONG64)(ULONG_PTR)siginfo->si_addr,
+                                          RIP_sig(ucontext), wregs,
+                                          (ERROR_sig(ucontext) >> 1) & 0x09 ))
+            {
+                leave_handler( ucontext );
+                return;
+            }
+        }
         if ((steamclient_addr = steamclient_handle_fault( siginfo->si_addr, (ERROR_sig(ucontext) >> 1) & 0x09 )))
         {
             RIP_sig(ucontext) = (intptr_t)steamclient_addr;
@@ -3322,9 +3463,12 @@ static void trap_handler( int signal, siginfo_t *siginfo, void *sigcontext )
                              R8_sig(ucontext), R9_sig(ucontext), R10_sig(ucontext), R11_sig(ucontext),
                              R12_sig(ucontext), R13_sig(ucontext), R14_sig(ucontext), R15_sig(ucontext) };
 
-        if (tuxblox_diag_bp_hit( RIP_sig(ucontext), regs ))
+        LONG64 rsp_delta = 0;
+
+        if (tuxblox_diag_bp_hit( RIP_sig(ucontext), regs, &rsp_delta ))
         {
             RIP_sig(ucontext) = RIP_sig(ucontext) - 1;  /* back onto the restored instruction */
+            RSP_sig(ucontext) += rsp_delta;             /* only when one was asked for */
             leave_handler( ucontext );
             return;
         }
