@@ -2292,9 +2292,33 @@ static BOOL writes_memory( BYTE opcode, BOOL opsize )
  * spelling or the other and both are correct. Nothing is rewritten unless it
  * has already faulted, so this never runs over code that was working.
  */
-static void rewrite_aligned_move( ULONG64 rip, BYTE opcode, unsigned int op_pos,
-                                  unsigned int opsize_pos, unsigned int opsize_count )
+/* Instructions that have faulted before. Direct-mapped and a fixed size, so it
+ * needs no allocation in a signal handler; a collision only costs one more
+ * emulated fault. */
+static ULONG64 align_faulted[1024];
+
+/* Whether this instruction has faulted before. Windows corrects a misaligned
+ * access without ever editing the code, so an instruction that faults once and
+ * then reads its own bytes back can see the rewrite. Waiting for a second fault
+ * leaves those alone and still collapses the loops, which fault endlessly. */
+static BOOL align_fault_repeated( ULONG64 rip )
 {
+    /* mixed rather than masked: these instructions sit a few bytes apart, so
+     * any hash that drops the low bits maps neighbours onto one slot and they
+     * evict each other for ever */
+    ULONG64 *slot = &align_faulted[((rip * 0x9e3779b97f4a7c15ull) >> 32) % ARRAY_SIZE(align_faulted)];
+
+    if (*slot == rip) return TRUE;
+    *slot = rip;
+    return FALSE;
+}
+
+static void rewrite_aligned_move( ULONG64 rip, BYTE opcode, unsigned int op_pos,
+                                  unsigned int opsize_pos, unsigned int opsize_count,
+                                  BOOL repeated )
+{
+    if (!repeated) return;
+
     switch (opcode)
     {
     case 0x28:  /* movaps, movapd -> movups, movupd */
@@ -2395,11 +2419,12 @@ static unsigned int vex_operand_count( BYTE opcode )
  */
 static void rewrite_vex_sse( ULONG64 rip, const BYTE *instr, BYTE opcode, unsigned int op,
                              unsigned int opsize_pos, unsigned int opsize_count, BYTE rep,
-                             BYTE rex, unsigned int rex_pos, unsigned int reg )
+                             BYTE rex, unsigned int rex_pos, unsigned int reg, BOOL repeated )
 {
     BYTE want[3], orig[3];
     unsigned int start, count, vvvv, i;
 
+    if (!repeated) return;
     if (!avx_available()) return;
     if (rep || opsize_count != 1) return;  /* the 66 is the one the VEX prefix takes over */
     switch (vex_operand_count( opcode ))
@@ -2447,7 +2472,7 @@ static BOOL emulate_misaligned_sse( CONTEXT *context )
     BYTE instr[24], opcode;
     unsigned int i = 0, op, modrm_pos, imm_len = 0, len;
     unsigned int opsize_pos = 0, opsize_count = 0, rex_pos = 0;
-    BOOL opsize = FALSE;
+    BOOL opsize = FALSE, repeated;
     BYTE rex = 0, modrm, mod, rm, imm = 0, rep = 0;
     unsigned int reg;
     LONG64 offset = 0;
@@ -2532,13 +2557,16 @@ static BOOL emulate_misaligned_sse( CONTEXT *context )
 
     if (!(addr & 15)) return FALSE;  /* aligned, so the fault had another cause */
 
+    /* counted once per fault, since both rewrites below are offered the same one */
+    repeated = align_fault_repeated( context->Rip );
+
     if (writes_memory( opcode, opsize ))
     {
         /* the register is the whole source, so the store can just be performed */
         M128A *xmm = &context->FltSave.XmmRegisters[reg | ((rex & 4) ? 8 : 0)];
 
         if (virtual_uninterrupted_write_memory( (void *)addr, xmm, sizeof(*xmm) )) return FALSE;
-        rewrite_aligned_move( context->Rip, opcode, op, opsize_pos, opsize_count );
+        rewrite_aligned_move( context->Rip, opcode, op, opsize_pos, opsize_count, repeated );
         context->Rip += len;
         return TRUE;
     }
@@ -2550,8 +2578,9 @@ static BOOL emulate_misaligned_sse( CONTEXT *context )
     if (!emulate_sse_op( context, opcode, opsize, reg | ((rex & 4) ? 8 : 0), &operand, imm, rep ))
         return FALSE;
 
-    rewrite_aligned_move( context->Rip, opcode, op, opsize_pos, opsize_count );
-    rewrite_vex_sse( context->Rip, instr, opcode, op, opsize_pos, opsize_count, rep, rex, rex_pos, reg );
+    rewrite_aligned_move( context->Rip, opcode, op, opsize_pos, opsize_count, repeated );
+    rewrite_vex_sse( context->Rip, instr, opcode, op, opsize_pos, opsize_count, rep, rex, rex_pos, reg,
+                     repeated );
     context->Rip += len;
     return TRUE;
 }
