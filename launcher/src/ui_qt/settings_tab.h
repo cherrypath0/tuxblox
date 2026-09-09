@@ -46,6 +46,7 @@ public:
 private:
     QWidget* buildUpdatesGroup(QWidget* parent);
     QWidget* buildEnvironmentGroup(QWidget* parent);
+    QWidget* buildControllerGroup(QWidget* parent);
     QWidget* buildPrivacyGroup(QWidget* parent);
     QWidget* buildDangerGroup(QWidget* parent);
     void onTerminate();
@@ -61,6 +62,7 @@ private:
     // walking sysfs is cheap but the list cannot change without a reboot or a
     // hotplug, neither of which happens while this window is open.
     std::vector<GpuDevice> gpus_;
+    ToggleSwitch* hapticsToggle_ = nullptr;
     ToggleSwitch* crashReportsToggle_ = nullptr;
     QPushButton* terminateButton_ = nullptr;
     DangerButton* wipePrefixButton_ = nullptr;

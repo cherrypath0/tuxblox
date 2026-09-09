@@ -61,6 +61,15 @@ struct Settings {
     // as it did before this setting existed. See system_info.h's GpuDevice for
     // why the slot is stored rather than an index or a name.
     std::string gpu;
+    // Controller vibration. On by default, and the default emits no
+    // environment at all -- only turning it off does, which is what keeps a
+    // launch that never touched this setting exactly as it always was.
+    //
+    // Roblox drives vibration through XInput, and a PlayStation pad is not an
+    // XInput device, so the compatibility layer has to route it through SDL
+    // for the motors to be reachable at all. That route costs one button off
+    // the pad, which is why this is a setting rather than unconditional.
+    bool haptics = true;
     // Written into the active Roblox version's ClientSettings folder at every
     // launch -- see fastflag_file.h for why it can't just be written once.
     FastFlagSet fastFlags;

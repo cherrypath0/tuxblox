@@ -106,6 +106,7 @@ Settings loadSettings(const std::string& installDir) {
         settings.channel = isKnownChannel(channel) ? channel : "stable";
         // Read leniently, same reasoning as "channel" above.
         settings.autoUpdate = j.value("auto_update", false);
+        settings.haptics = j.value("haptics", true);
         settings.gpu = j.value("gpu", std::string(""));
 
         const auto fastFlags = j.find("fast_flags");
@@ -133,6 +134,7 @@ void saveSettings(const std::string& installDir, const Settings& settings) {
         j["send_crash_reports"] = settings.sendCrashReports;
         j["channel"] = settings.channel;
         j["auto_update"] = settings.autoUpdate;
+        j["haptics"] = settings.haptics;
         j["gpu"] = settings.gpu;
         j["fast_flags"] = {{"player", fastFlagsToJson(settings.fastFlags.player)},
                             {"studio", fastFlagsToJson(settings.fastFlags.studio)}};
@@ -164,6 +166,13 @@ std::vector<std::string> launchEnvPairs(const Settings& settings) {
     std::vector<std::string> pairs;
     if (!settings.gpu.empty()) {
         pairs = gpuEnvForSelection(settings.gpu, enumerateGpus("/sys/class/drm"));
+    }
+
+    // Only the non-default is emitted, so a launch with vibration left on
+    // adds nothing. The layer treats an absent variable as "on", which is
+    // also what a launch started outside the launcher should get.
+    if (!settings.haptics) {
+        pairs.push_back("TUXBLOX_HAPTICS=0");
     }
 
     // Appended second so that a duplicate variable here is the one that wins:

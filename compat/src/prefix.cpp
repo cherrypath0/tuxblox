@@ -602,6 +602,50 @@ void Prefix::migrateUserPaths() {
     }
 }
 
+// PlayStation pads Wine routes to its own hidraw implementation. Sony's vendor
+// id with the pads Wine names in is_dualshock4_gamepad/is_dualsense_gamepad.
+const char *const kPlayStationPads[] = {
+    "054C/05C4", // DualShock 4 [CUH-ZCT1x]
+    "054C/09CC", // DualShock 4 [CUH-ZCT2x]
+    "054C/0BA0", // DualShock 4 wireless adaptor
+    "054C/0CE6", // DualSense
+    "054C/0DF2", // DualSense Edge
+};
+
+void Prefix::syncHaptics() {
+    // Roblox asks for vibration through XInput -- its binaries carry
+    // HapticService, SetMotor and XInputSetState, and no Windows.Gaming.Input
+    // force-feedback interface at all. A PlayStation pad is not an XInput
+    // device, so unless something presents it as one the motors cannot be
+    // reached, on Windows either.
+    //
+    // Wine hands these pads to its own hidraw implementation, which describes
+    // the pad more fully but has no vibration. Turning hidraw off for just
+    // these devices hands them to SDL instead, which winexinput.sys then wraps
+    // as an XInput device, and the motors answer. The cost is one button off
+    // the pad, which is why the launcher offers this as a setting.
+    //
+    // Per device rather than the PROTON_DISABLE_HIDRAW variable that does the
+    // same thing: that one is global, and winebus reads it out of the Windows
+    // environment block, which TuxBlox filters precisely so Roblox cannot read
+    // the host's environment. Passing it would put the string
+    // "PROTON_DISABLE_HIDRAW" in front of Roblox.
+    const bool enabled = envOrEmpty("TUXBLOX_HAPTICS") != "0";
+    const std::string hidraw = enabled ? "dword:00000000" : "dword:00000001";
+
+    const fs::path systemReg = prefixDir / "system.reg";
+    bool changed = false;
+    for (const char *pPad : kPlayStationPads) {
+        changed |= setRegKeyValues(systemReg,
+                std::string("System\\\\ControlSet001\\\\Services\\\\winebus\\\\Devices\\\\") + pPad,
+                {{"Hidraw", hidraw}});
+    }
+
+    if (changed) {
+        log(enabled ? "Enabled controller vibration" : "Disabled controller vibration");
+    }
+}
+
 void Prefix::syncHostTheme() {
     const std::string scheme = detectHostColorScheme();
     if (scheme.empty()) {
@@ -700,6 +744,7 @@ void Prefix::setup(Session& session) {
 
     migrateUserPaths();
     syncHostTheme();
+    syncHaptics();
 
     std::error_code error;
     const fs::path driveC = prefixDir / "dosdevices" / "c:";

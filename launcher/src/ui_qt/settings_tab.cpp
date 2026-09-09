@@ -68,6 +68,10 @@ SettingsTab::SettingsTab(App& app, QWidget* parent) : QWidget(parent), app_(app)
     layout->addWidget(buildEnvironmentGroup(content));
 
     layout->addSpacing(18);
+    layout->addWidget(makeSectionLabel("Controller", content));
+
+    layout->addWidget(buildControllerGroup(content));
+
     layout->addWidget(makeSectionLabel("Privacy", content));
     layout->addSpacing(8);
     layout->addWidget(buildPrivacyGroup(content));
@@ -149,6 +153,25 @@ QWidget* SettingsTab::buildEnvironmentGroup(QWidget* parent) {
     });
     envRow->addControl(envEdit_);
     group->addRow(envRow);
+
+    return group;
+}
+
+QWidget* SettingsTab::buildControllerGroup(QWidget* parent) {
+    auto* group = new BoxedGroup(parent);
+
+    auto* hapticsRow = new BoxedRow(
+        "Enable Haptics",
+        "Lets Roblox vibrate your controller. PlayStation controllers give up one of their buttons "
+        "while this is on, and the change takes effect the next time Roblox starts.");
+    hapticsToggle_ = new ToggleSwitch();
+    connect(hapticsToggle_, &ToggleSwitch::toggled, this, [this](bool checked) {
+        Settings updated = app_.snapshot().settings;
+        updated.haptics = checked;
+        commitSettings(updated);
+    });
+    hapticsRow->addControl(hapticsToggle_);
+    group->addRow(hapticsRow);
 
     return group;
 }
@@ -248,6 +271,7 @@ void SettingsTab::updateFromSnapshot(const AppSnapshot& snap) {
     if (!fieldsSeeded_) {
         channelCombo_->setCurrentText(QString::fromStdString(snap.settings.channel));
         envEdit_->setText(QString::fromStdString(snap.settings.envVars));
+        hapticsToggle_->setChecked(snap.settings.haptics);
         crashReportsToggle_->setChecked(snap.settings.sendCrashReports);
         autoUpdateToggle_->setChecked(snap.settings.autoUpdate);
         // Matched on the stored PCI slot, not on position: a card that has

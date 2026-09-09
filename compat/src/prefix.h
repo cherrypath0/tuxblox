@@ -69,6 +69,7 @@ private:
     void installGraphicsFiles(Session& session);
     void migrateUserPaths();
     void syncHostTheme();
+    void syncHaptics();
 
     Proton& proton;
     std::filesystem::path baseDir;

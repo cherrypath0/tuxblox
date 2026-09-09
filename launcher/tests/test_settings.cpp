@@ -306,6 +306,72 @@ int main() {
         assert(s.envVars == "NEW=1");
     }
 
+    // haptics defaults to on. Controller vibration is what a user expects a
+    // controller to do, so the default is the working one.
+    {
+        Settings s;
+        assert(s.haptics == true);
+    }
+
+    // haptics loads leniently: a settings.json written before this field
+    // existed keeps vibration on rather than silently losing it.
+    {
+        std::ofstream out(dir + "/settings.json", std::ios::binary);
+        out << R"({"env_vars": "FOO=bar", "send_crash_reports": false, "channel": "canary"})";
+        out.close();
+
+        Settings s = loadSettings(dir);
+        assert(s.haptics == true);
+    }
+
+    // haptics round-trips through save/load, off included.
+    {
+        Settings s;
+        s.haptics = false;
+        saveSettings(dir, s);
+
+        Settings loaded = loadSettings(dir);
+        assert(loaded.haptics == false);
+    }
+
+    // launchEnvPairs(): haptics on is the default, and a default launch must
+    // still carry nothing but the user's own variables -- same guarantee the
+    // graphics-card picker keeps.
+    {
+        Settings s;
+        s.envVars = "FOO=bar";
+        assert(s.haptics == true);
+
+        auto pairs = launchEnvPairs(s);
+        assert(pairs.size() == 1);
+        assert(pairs[0] == "FOO=bar");
+    }
+
+    // launchEnvPairs(): turning haptics off is what emits anything at all.
+    // The compatibility layer reads this and routes the pad down the path
+    // that has no vibration.
+    {
+        Settings s;
+        s.haptics = false;
+
+        auto pairs = launchEnvPairs(s);
+        assert(pairs.size() == 1);
+        assert(pairs[0] == "TUXBLOX_HAPTICS=0");
+    }
+
+    // A user variable still wins over the haptics pair, because it is
+    // appended after it.
+    {
+        Settings s;
+        s.haptics = false;
+        s.envVars = "TUXBLOX_HAPTICS=1";
+
+        auto pairs = launchEnvPairs(s);
+        assert(pairs.size() == 2);
+        assert(pairs[0] == "TUXBLOX_HAPTICS=0");
+        assert(pairs[1] == "TUXBLOX_HAPTICS=1");
+    }
+
     fs::remove_all(dir);
 
     printf("settings: all tests passed\n");
