@@ -175,10 +175,6 @@ dxvk-nvapi: | $(BUILD_ROOT)/dxvk-nvapi/lib/wine/nvapi
 dxvk-nvapi: any
 	cp -rf $(BUILD_DIR)/dist/files/lib/wine/nvapi/* $(BUILD_ROOT)/dxvk-nvapi/lib/wine/nvapi/
 
-vkd3d-proton: | $(BUILD_ROOT)/vkd3d-proton/lib/wine/vkd3d-proton
-vkd3d-proton: any
-	cp -rf $(BUILD_DIR)/dist/files/lib/wine/vkd3d-proton/* $(BUILD_ROOT)/vkd3d-proton/lib/wine/vkd3d-proton/
-
 lsteamclient: | $(BUILD_ROOT)/lsteamclient/lib/wine/i386-windows
 lsteamclient: | $(BUILD_ROOT)/lsteamclient/lib/wine/i386-unix
 lsteamclient: | $(BUILD_ROOT)/lsteamclient/lib/wine/x86_64-windows

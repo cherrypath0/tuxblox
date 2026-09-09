@@ -17,9 +17,6 @@
 [submodule "compat/gst-orc"]
 	path = compat/submodules/gst-orc
 	url = https://github.com/GStreamer/orc.git
-[submodule "compat/vkd3d-proton"]
-	path = compat/submodules/vkd3d-proton
-	url = https://github.com/HansKristian-Work/vkd3d-proton
 [submodule "compat/OpenXR-SDK"]
 	path = compat/submodules/OpenXR-SDK
 	url = https://github.com/KhronosGroup/OpenXR-SDK
@@ -56,20 +53,6 @@
 [submodule "compat/glslang"]
 	path = compat/submodules/glslang
 	url = https://github.com/KhronosGroup/glslang
-[submodule "compat/piper"]
-	path = compat/submodules/piper
-	url = https://github.com/shaunren/piper.git
-	branch = library
-[submodule "compat/openfst"]
-	path = compat/submodules/openfst
-	url = https://github.com/alphacep/openfst
-[submodule "compat/kaldi"]
-	path = compat/submodules/kaldi
-	url = https://github.com/alphacep/kaldi
-	branch = vosk
-[submodule "compat/vosk-api"]
-	path = compat/submodules/vosk-api
-	url = https://github.com/alphacep/vosk-api
 [submodule "compat/FEX"]
 	path = compat/submodules/FEX
 	url = https://github.com/FEX-Emu/FEX/

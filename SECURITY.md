@@ -29,7 +29,7 @@ This policy covers:
 - TuxBlox's own launcher code (GPLv3-licensed portions of this repository)
 - The TuxBlox compatibility layer, based on Wine and Proton (`compat/`, LGPLv2.1-licensed)
 
-Vulnerabilities in upstream Wine, Proton, DXVK, or vkd3d-proton that are **not**
+Vulnerabilities in upstream Wine, Proton, or DXVK that are **not**
 introduced by TuxBlox-specific modifications should be reported upstream to those
 projects directly, though we're happy to help route reports if you're unsure where
 an issue originates.

@@ -407,9 +407,11 @@ $(eval $(call rules-cmake,glslang,aarch64,unix))
 
 ##
 ## piper (text-to-speech) and vosk (speech recognition), with vosk's openfst and
-## kaldi dependencies, are not built. Wine is already configured --without-piper
-## --without-vosk, so nothing linked against them; they still cost 56 MB of the
-## layer in shared libraries, espeak-ng-data and libtashkeel_model.ort.
+## kaldi dependencies, are gone -- submodules and license texts both removed.
+## Roblox does neither, so nothing here ever wanted them.
+##
+## The --without-piper --without-vosk flags below stay even so: they stop Wine's
+## configure from finding a copy installed on the build machine and linking it.
 ##
 
 
@@ -637,7 +639,7 @@ $(OBJ)/.vkd3d-i386-post-build: $(OBJ)/.wine-$(HOST_ARCH)-tools
 
 
 ##
-## vkd3d-proton is not built. It only ever supplied d3d12.dll/d3d12core.dll --
+## vkd3d-proton was removed. It only ever supplied d3d12.dll/d3d12core.dll --
 ## DXVK provides dxgi -- and Roblox renders through D3D11 or native Vulkan. The
 ## prefix keeps Wine's own builtin d3d12, which sits on the vkd3d we still ship,
 ## so a D3D12 caller still gets an answer.

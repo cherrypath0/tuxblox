@@ -90,6 +90,6 @@ body:
     id: additionalContext
     attributes:
       label: Additional context
-      description: GPU/driver info, DXVK/vkd3d-proton versions, anything else that might be relevant
+      description: GPU/driver info, DXVK version, anything else that might be relevant
     validations:
       required: false
