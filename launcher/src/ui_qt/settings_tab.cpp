@@ -162,8 +162,8 @@ QWidget* SettingsTab::buildControllerGroup(QWidget* parent) {
 
     auto* hapticsRow = new BoxedRow(
         "Enable Haptics",
-        "Lets Roblox vibrate your controller. PlayStation controllers give up one of their buttons "
-        "while this is on, and the change takes effect the next time Roblox starts.");
+        "An experimental feature that lets Roblox vibrate your controller. Takes effect the next "
+        "time Roblox starts.");
     hapticsToggle_ = new ToggleSwitch();
     connect(hapticsToggle_, &ToggleSwitch::toggled, this, [this](bool checked) {
         Settings updated = app_.snapshot().settings;
