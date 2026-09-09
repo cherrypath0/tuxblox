@@ -303,6 +303,142 @@ BOOLEAN  WINAPI RtlDosPathNameToNtPathName_U(PCWSTR dos_path,
     return RtlDosPathNameToNtPathName_U_WithStatus(dos_path, ntpath, file_part, cd) == STATUS_SUCCESS;
 }
 
+#ifndef SYMBOLIC_LINK_QUERY
+#define SYMBOLIC_LINK_QUERY 0x0001   /* ddk/wdm.h, which does not belong here */
+#endif
+
+/***********************************************************************
+ *           find_dos_drive_for_device
+ *
+ * Which DOS drive an NT path's device prefix belongs to. \??\X: is a symlink
+ * to the device, so reading those back is the only honest inverse of the
+ * mapping the other direction already uses.
+ */
+static int find_dos_drive_for_device( const WCHAR *path, ULONG len, ULONG *dev_len )
+{
+    WCHAR drive_str[] = L"\\??\\A:";
+    WCHAR target[MAX_PATH];
+    UNICODE_STRING name, target_str;
+    OBJECT_ATTRIBUTES attr;
+    HANDLE handle;
+    ULONG i, size;
+
+    for (i = 0; i < 26; i++)
+    {
+        drive_str[4] = 'A' + i;
+        RtlInitUnicodeString( &name, drive_str );
+        InitializeObjectAttributes( &attr, &name, OBJ_CASE_INSENSITIVE, 0, NULL );
+        if (NtOpenSymbolicLinkObject( &handle, SYMBOLIC_LINK_QUERY, &attr )) continue;
+
+        target_str.Buffer = target;
+        target_str.Length = 0;
+        target_str.MaximumLength = sizeof(target) - sizeof(WCHAR);
+        size = 0;
+        if (!NtQuerySymbolicLinkObject( handle, &target_str, &size ))
+        {
+            ULONG n = target_str.Length / sizeof(WCHAR);
+
+            /* the whole device name has to match, or \Device\Harddisk1 would
+             * claim a path that belongs to \Device\Harddisk11 */
+            if (n && n <= len && !wcsnicmp( path, target, n ) && (n == len || path[n] == '\\'))
+            {
+                NtClose( handle );
+                *dev_len = n;
+                return i;
+            }
+        }
+        NtClose( handle );
+    }
+    return -1;
+}
+
+
+/***********************************************************************
+ *           RtlNtPathNameToDosPathName    (NTDLL.@)
+ *
+ * Rewrite an NT path as a DOS one, in place. Wine has carried this as a stub
+ * since 2003; a program that asks NtQueryVirtualMemory for a section's file
+ * name gets an NT path back and has no other way to read it as a drive.
+ */
+NTSTATUS WINAPI RtlNtPathNameToDosPathName( ULONG flags, RTL_UNICODE_STRING_BUFFER *path,
+                                            ULONG *disposition, WCHAR **file_part )
+{
+    ULONG type = RTL_NT_PATH_NAME_TO_DOS_PATH_NAME_AMBIGUOUS;
+    ULONG len, skip = 0, head_len = 0, new_len;
+    WCHAR head[2], *buffer;
+
+    TRACE( "%#lx %p %p %p\n", flags, path, disposition, file_part );
+
+    if (flags || !path || !path->String.Buffer) return STATUS_INVALID_PARAMETER;
+    if (file_part) *file_part = NULL;
+
+    buffer = path->String.Buffer;
+    len = path->String.Length / sizeof(WCHAR);
+
+    if (!len || buffer[0] != '\\')
+    {
+        type = RTL_NT_PATH_NAME_TO_DOS_PATH_NAME_ALREADY_DOS;
+    }
+    else if (len >= 8 && !wcsnicmp( buffer, L"\\??\\UNC\\", 8 ))
+    {
+        skip = 8;
+        head[0] = head[1] = '\\';
+        head_len = 2;
+        type = RTL_NT_PATH_NAME_TO_DOS_PATH_NAME_UNC;
+    }
+    else if (len >= 12 && !wcsnicmp( buffer, L"\\Device\\Mup\\", 12 ))
+    {
+        skip = 12;
+        head[0] = head[1] = '\\';
+        head_len = 2;
+        type = RTL_NT_PATH_NAME_TO_DOS_PATH_NAME_UNC;
+    }
+    else if (len >= 4 && !wcsnicmp( buffer, L"\\??\\", 4 ))
+    {
+        skip = 4;
+        type = RTL_NT_PATH_NAME_TO_DOS_PATH_NAME_DRIVE;
+    }
+    else if (len >= 8 && !wcsnicmp( buffer, L"\\Device\\", 8 ))
+    {
+        ULONG dev_len;
+        int drive = find_dos_drive_for_device( buffer, len, &dev_len );
+
+        if (drive >= 0)
+        {
+            skip = dev_len;
+            head[0] = 'A' + drive;
+            head[1] = ':';
+            head_len = 2;
+            type = RTL_NT_PATH_NAME_TO_DOS_PATH_NAME_DRIVE;
+        }
+    }
+
+    if (skip)
+    {
+        /* every form above is shorter than what it replaces, so this always
+         * fits and the buffer never has to grow */
+        new_len = head_len + len - skip;
+        if ((new_len + 1) * sizeof(WCHAR) > path->String.MaximumLength)
+            return STATUS_BUFFER_OVERFLOW;
+        memmove( buffer + head_len, buffer + skip, (len - skip) * sizeof(WCHAR) );
+        memcpy( buffer, head, head_len * sizeof(WCHAR) );
+        buffer[new_len] = 0;
+        path->String.Length = new_len * sizeof(WCHAR);
+        len = new_len;
+    }
+
+    if (file_part && type != RTL_NT_PATH_NAME_TO_DOS_PATH_NAME_AMBIGUOUS)
+    {
+        WCHAR *p = buffer + len;
+
+        while (p > buffer && p[-1] != '\\') p--;
+        if (p > buffer && *p) *file_part = p;
+    }
+    if (disposition) *disposition = type;
+    return STATUS_SUCCESS;
+}
+
+
 /**************************************************************************
  *        RtlDosPathNameToRelativeNtPathName_U_WithStatus [NTDLL.@]
  *

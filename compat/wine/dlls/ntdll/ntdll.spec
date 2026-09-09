@@ -1088,7 +1088,7 @@
 @ stdcall RtlNewSecurityObjectWithMultipleInheritance(ptr ptr ptr ptr long long long long ptr)
 @ stdcall RtlNormalizeProcessParams(ptr)
 @ stdcall RtlNormalizeString(long wstr long ptr ptr)
-# @ stub RtlNtPathNameToDosPathName
+@ stdcall RtlNtPathNameToDosPathName(long ptr ptr ptr)
 @ stdcall RtlNtStatusToDosError(long)
 @ stdcall RtlNtStatusToDosErrorNoTeb(long)
 @ stdcall RtlNumberGenericTableElements(ptr)
