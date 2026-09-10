@@ -3783,7 +3783,9 @@ static NTSTATUS enum_firmware_info( SYSTEM_FIRMWARE_TABLE_INFORMATION *sfti, ULO
         return enum_acpi_tables( sfti, available_len, required_len );
 
     default:
-        FIXME("info_class SYSTEM_FIRMWARE_TABLE_INFORMATION provider %08x\n", (unsigned int)sfti->ProviderSignature);
+        /* Windows refuses FIRM and provider 0 the same way -- measured, so this
+         * is the right answer rather than a gap. TRACE, not FIXME. */
+        TRACE("info_class SYSTEM_FIRMWARE_TABLE_INFORMATION provider %08x\n", (unsigned int)sfti->ProviderSignature);
         return STATUS_NOT_IMPLEMENTED;
     }
 }
@@ -4023,7 +4025,9 @@ static NTSTATUS get_firmware_info( SYSTEM_FIRMWARE_TABLE_INFORMATION *sfti, ULON
         return get_acpi_table( sfti, available_len, required_len );
 
     default:
-        FIXME("info_class SYSTEM_FIRMWARE_TABLE_INFORMATION provider %08x\n", (unsigned int)sfti->ProviderSignature);
+        /* Windows refuses FIRM and provider 0 the same way -- measured, so this
+         * is the right answer rather than a gap. TRACE, not FIXME. */
+        TRACE("info_class SYSTEM_FIRMWARE_TABLE_INFORMATION provider %08x\n", (unsigned int)sfti->ProviderSignature);
         return STATUS_NOT_IMPLEMENTED;
     }
 }
