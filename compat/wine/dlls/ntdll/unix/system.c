@@ -5671,14 +5671,24 @@ static NTSTATUS query_system_information( SYSTEM_INFORMATION_CLASS class,
     {
         SYSTEM_CODEINTEGRITY_INFORMATION *integrity_info = info;
 
-        FIXME("SystemCodeIntegrityInformation, size %u, info %p, stub!\n", size, info);
-
         len = sizeof(SYSTEM_CODEINTEGRITY_INFORMATION);
 
-        if (size >= len)
-            integrity_info->CodeIntegrityOptions = CODEINTEGRITY_OPTION_ENABLED;
-        else
+        if (size < len)
+        {
             ret = STATUS_INFO_LENGTH_MISMATCH;
+            break;
+        }
+        /* The caller fills in Length itself and Windows checks it: measured on
+         * Windows 11 25H2 with workspace/tests/infoprobe, an 8-byte buffer whose
+         * Length field still held the caller's filler was refused with
+         * STATUS_INFO_LENGTH_MISMATCH rather than answered. Only the size of the
+         * buffer was being checked here, so any caller got an answer. */
+        if (integrity_info->Length != len)
+        {
+            ret = STATUS_INFO_LENGTH_MISMATCH;
+            break;
+        }
+        integrity_info->CodeIntegrityOptions = CODEINTEGRITY_OPTION_ENABLED;
         break;
     }
 
