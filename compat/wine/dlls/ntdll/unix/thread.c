@@ -1210,6 +1210,20 @@ NTSTATUS init_thread_stack( TEB *teb, ULONG_PTR limit, SIZE_T reserve_size, SIZE
     WOW_TEB *wow_teb = get_wow_teb( teb );
     INITIAL_TEB stack;
     NTSTATUS status;
+    static SIZE_T floor = (SIZE_T)-1;
+
+    /* A research knob, off unless TUXBLOX_STACK_RESERVE is set: raise every
+     * thread's reserve to at least this many bytes. The Player asks for 4 MB in
+     * its header and gets exactly that, so a run that only survives a larger one
+     * is saying its recursion is deeper here than the binary expects -- which is
+     * the question, and there is no other way to ask it. */
+    if (floor == (SIZE_T)-1)
+    {
+        const char *v = getenv( "TUXBLOX_STACK_RESERVE" );
+
+        floor = v ? strtoull( v, NULL, 0 ) : 0;
+    }
+    if (floor && reserve_size < floor) reserve_size = floor;
 
     /* kernel stack */
     if ((status = virtual_alloc_thread_stack( &stack, limit_4g, 0, kernel_stack_size, kernel_stack_size, FALSE )))
@@ -1625,6 +1639,7 @@ NTSTATUS WINAPI NtRaiseException( EXCEPTION_RECORD *rec, CONTEXT *context, BOOL 
     else if (rec->ExceptionCode == STATUS_NONCONTINUABLE_EXCEPTION)
         ERR_(seh)("Process attempted to continue execution after noncontinuable exception.\n");
     else
+        tuxblox_diag_bp_report();
         ERR_(seh)("Unhandled exception code %x flags %x addr %p\n",
                   rec->ExceptionCode, rec->ExceptionFlags, rec->ExceptionAddress );
 
@@ -1661,6 +1676,55 @@ NTSTATUS WINAPI NtOpenThread( HANDLE *handle, ACCESS_MASK access,
         *handle = wine_server_ptr_handle( reply->handle );
     }
     SERVER_END_REQ;
+
+    /* Research knob, and its premise is REFUTED -- keep the result with the code so
+     * nobody mistakes this for a candidate fix.
+     *
+     * The Roblox Player's layer branches on this call's status, and the failure side
+     * releases a stack allocation made much earlier, so forcing a failure here does
+     * remove its startup crash. But the same call was then measured on a real Windows
+     * machine (workspace/tests/otprobe-windows.txt) and Windows RETURNS SUCCESS for it,
+     * exactly as we do. So failing it is not what Windows does -- it only balances the
+     * stack by hand, and shipping it would assert something false about the system.
+     * TUXBLOX_TEST_OPENTHREAD_FAIL=<hex status>, self-open with ALL_ACCESS only. */
+    if (!ret && access == 0x1fffff && id &&
+        id->UniqueThread == NtCurrentTeb()->ClientId.UniqueThread &&
+        id->UniqueProcess == NtCurrentTeb()->ClientId.UniqueProcess)
+    {
+        const char *force = getenv( "TUXBLOX_TEST_OPENTHREAD_FAIL" );
+
+        if (force)
+        {
+            NtClose( *handle );
+            *handle = 0;
+            ret = strtoul( force, NULL, 16 );
+        }
+    }
+
+    /* Windows validates the whole request -- the attribute block's length, a name
+     * that must not be there, and that the thread really belongs to the process
+     * named in the client id. This only reads the thread id and the attribute
+     * flags, so a request Windows refuses succeeds here. Log what a caller
+     * actually passes, since a deliberately wrong pair is a cheap way for a
+     * program to tell the two apart. */
+    if (tuxblox_trace_enabled())
+    {
+        char detail[256];
+
+        snprintf( detail, sizeof(detail),
+                  "cid.pid=%p cid.tid=%p self.pid=%p self.tid=%p access=%x "
+                  "attr.len=%u attr.flags=%x attr.root=%p attr.name=%p sd=%p sqos=%p ret=%x",
+                  id ? id->UniqueProcess : NULL, id ? id->UniqueThread : NULL,
+                  NtCurrentTeb()->ClientId.UniqueProcess, NtCurrentTeb()->ClientId.UniqueThread,
+                  (unsigned int)access,
+                  attr ? (unsigned int)attr->Length : 0,
+                  attr ? (unsigned int)attr->Attributes : 0,
+                  attr ? attr->RootDirectory : NULL,
+                  attr ? attr->ObjectName : NULL,
+                  attr ? attr->SecurityDescriptor : NULL,
+                  attr ? attr->SecurityQualityOfService : NULL, ret );
+        tuxblox_trace_record( "NtOpenThread.args", detail );
+    }
     return ret;
 }
 

@@ -2053,13 +2053,162 @@ static unsigned int diag_bp_slots_print( char *line, unsigned int n, unsigned in
     return n;
 }
 
-BOOL tuxblox_diag_bp_hit( ULONG64 rip, const ULONG64 *regs, LONG64 *rsp_delta )
+/* Frame slots to WRITE at a breakpoint, from TUXBLOX_DIAG_BP_POKE.
+ *
+ * The layer decides its route from values it computed itself, so the only way to
+ * ask "would it take the other route if this value were different" is to change
+ * the value and watch. This writes one, the way the @<delta> suffix corrects the
+ * stack pointer: a research tool, not a fix for anything.
+ *
+ * Written "990=36a1fadc" for rbp-relative, "rsp:20=0" for rsp-relative. Values are
+ * hex and written as eight bytes. Signal-handler safe -- fixed statics, no
+ * allocation, and a bounded write that reports rather than faulting.
+ */
+#define DIAG_BP_POKE_MAX 8
+
+static LONG64 diag_bp_poke_off[DIAG_BP_POKE_MAX];
+static ULONG64 diag_bp_poke_val[DIAG_BP_POKE_MAX];
+static char diag_bp_poke_rsp[DIAG_BP_POKE_MAX];
+static unsigned int diag_bp_poke_count;
+static int diag_bp_poke_parsed;
+
+static void diag_bp_poke_parse(void)
+{
+    const char *v;
+
+    if (diag_bp_poke_parsed) return;
+    diag_bp_poke_parsed = 1;
+    if (!(v = getenv( "TUXBLOX_DIAG_BP_POKE" ))) return;
+    while (*v && diag_bp_poke_count < DIAG_BP_POKE_MAX)
+    {
+        char *end;
+        int on_rsp = 0;
+
+        if (!strncmp( v, "rsp:", 4 )) { on_rsp = 1; v += 4; }
+        else if (!strncmp( v, "rbp:", 4 )) v += 4;
+        diag_bp_poke_off[diag_bp_poke_count] = strtoll( v, &end, 16 );
+        if (end == v || *end != '=')
+        {
+            ERR_(seh)( "DIAG bp poke: expected <offset>=<value> at \"%s\", giving up on the rest\n", v );
+            break;
+        }
+        v = end + 1;
+        diag_bp_poke_val[diag_bp_poke_count] = strtoull( v, &end, 16 );
+        if (end == v)
+        {
+            ERR_(seh)( "DIAG bp poke: cannot read a value at \"%s\", giving up on the rest\n", v );
+            break;
+        }
+        diag_bp_poke_rsp[diag_bp_poke_count++] = (char)on_rsp;
+        v = end;
+        if (*v == ',') v++;
+    }
+}
+
+/* Applies the pokes at a hit, and says what it did -- a poke that silently failed
+ * would read exactly like the value not mattering. */
+static void diag_bp_poke_apply( const ULONG64 *regs )
+{
+    unsigned int k;
+
+    for (k = 0; k < diag_bp_poke_count; k++)
+    {
+        ULONG64 base = diag_bp_poke_rsp[k] ? regs[7] : regs[6];
+        ULONG64 addr = base + diag_bp_poke_off[k];
+        ULONG64 was = 0;
+        BOOL read_ok = virtual_uninterrupted_read_memory( (const void *)(ULONG_PTR)addr,
+                                                          &was, sizeof(was) ) == sizeof(was);
+
+        if (virtual_uninterrupted_write_memory( (void *)(ULONG_PTR)addr,
+                                                &diag_bp_poke_val[k], sizeof(diag_bp_poke_val[k]) ))
+        {
+            ERR_(seh)( "DIAG bp poke FAILED [%s%+lld] = 0x%llx\n",
+                       diag_bp_poke_rsp[k] ? "rsp" : "rbp", (long long)diag_bp_poke_off[k],
+                       (unsigned long long)diag_bp_poke_val[k] );
+            continue;
+        }
+        ERR_(seh)( "DIAG bp poke [%s%+lld] 0x%llx -> 0x%llx\n",
+                   diag_bp_poke_rsp[k] ? "rsp" : "rbp", (long long)diag_bp_poke_off[k],
+                   read_ok ? (unsigned long long)was : 0ull,
+                   (unsigned long long)diag_bp_poke_val[k] );
+    }
+}
+
+/* Registers to SET at a breakpoint, from TUXBLOX_DIAG_BP_SETREG.
+ *
+ * Poking a frame slot changes every later read of it, which for a slot the layer
+ * reads hundreds of times derails the run instead of steering it. Setting the
+ * register at the one instruction that consumes it changes exactly one use.
+ *
+ * Written "r14=36a1fadc,rax=0". rsp is refused -- the @<delta> suffix owns it.
+ */
+#define DIAG_BP_SETREG_MAX 8
+
+static const char * const diag_reg_names[16] = { "rax", "rbx", "rcx", "rdx", "rsi", "rdi", "rbp", "rsp",
+                                                 "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15" };
+static unsigned int diag_bp_setreg_idx[DIAG_BP_SETREG_MAX];
+static ULONG64 diag_bp_setreg_val[DIAG_BP_SETREG_MAX];
+static unsigned int diag_bp_setreg_count;
+static int diag_bp_setreg_parsed;
+
+static void diag_bp_setreg_parse(void)
+{
+    const char *v;
+
+    if (diag_bp_setreg_parsed) return;
+    diag_bp_setreg_parsed = 1;
+    if (!(v = getenv( "TUXBLOX_DIAG_BP_SETREG" ))) return;
+    while (*v && diag_bp_setreg_count < DIAG_BP_SETREG_MAX)
+    {
+        unsigned int r;
+        char *end;
+
+        for (r = 0; r < 16; r++)
+        {
+            size_t len = strlen( diag_reg_names[r] );
+            if (!strncmp( v, diag_reg_names[r], len ) && v[len] == '=') break;
+        }
+        if (r == 16 || r == 7)
+        {
+            ERR_(seh)( "DIAG bp setreg: not a settable register at \"%s\" (rsp is the @delta suffix's)\n", v );
+            break;
+        }
+        v += strlen( diag_reg_names[r] ) + 1;
+        diag_bp_setreg_val[diag_bp_setreg_count] = strtoull( v, &end, 16 );
+        if (end == v)
+        {
+            ERR_(seh)( "DIAG bp setreg: cannot read a value at \"%s\"\n", v );
+            break;
+        }
+        diag_bp_setreg_idx[diag_bp_setreg_count++] = r;
+        v = end;
+        if (*v == ',') v++;
+    }
+}
+
+static void diag_bp_setreg_apply( ULONG64 *regs )
+{
+    unsigned int k;
+
+    for (k = 0; k < diag_bp_setreg_count; k++)
+    {
+        unsigned int r = diag_bp_setreg_idx[k];
+
+        ERR_(seh)( "DIAG bp setreg %s 0x%llx -> 0x%llx\n", diag_reg_names[r],
+                   (unsigned long long)regs[r], (unsigned long long)diag_bp_setreg_val[k] );
+        regs[r] = diag_bp_setreg_val[k];
+    }
+}
+
+BOOL tuxblox_diag_bp_hit( ULONG64 rip, ULONG64 *regs, LONG64 *rsp_delta )
 {
     static const char * const names[16] = { "rax", "rbx", "rcx", "rdx", "rsi", "rdi", "rbp", "rsp",
                                             "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15" };
     unsigned int i;
 
     diag_bp_slots_parse();
+    diag_bp_poke_parse();
+    diag_bp_setreg_parse();
 
     for (i = 0; i < diag_bp_count; i++)
     {
@@ -2068,6 +2217,8 @@ BOOL tuxblox_diag_bp_hit( ULONG64 rip, const ULONG64 *regs, LONG64 *rsp_delta )
 
         if (!diag_bp_resolved[i] || diag_bp_addr[i] != rip - 1) continue;
         if (rsp_delta) *rsp_delta = diag_bp_rsp_delta[i];
+        diag_bp_poke_apply( regs );
+        diag_bp_setreg_apply( regs );
         if (diag_bp_rsp_delta[i])
             ERR_(seh)( "DIAG bp rsp 0x%llx %+lld -> 0x%llx\n", (unsigned long long)regs[7],
                        (long long)diag_bp_rsp_delta[i],
@@ -2147,6 +2298,45 @@ BOOL tuxblox_diag_bp_hit( ULONG64 rip, const ULONG64 *regs, LONG64 *rsp_delta )
         return TRUE;
     }
     return FALSE;
+}
+
+/* Whether each breakpoint was still where it was put.
+ *
+ * The layer rewrites and re-protects its own code as it runs, so a page holding
+ * one of these can be replaced wholesale after it was armed. The 0xcc goes with
+ * it and nothing notices: the tool still says "armed", the breakpoint never
+ * fires, and the run is read as proof that the instruction never executed. That
+ * conclusion is only safe for an address whose byte survived to the end, so the
+ * survivors are named here and a negative from any other address is void.
+ */
+void tuxblox_diag_bp_report(void)
+{
+    unsigned int i;
+
+    for (i = 0; i < diag_bp_count; i++)
+    {
+        unsigned char cur = 0;
+        const char *state;
+
+        if (!diag_bp_resolved[i]) continue;
+        switch (diag_bp_armed[i])
+        {
+        case DIAG_BP_ARMED:   state = "armed";   break;
+        case DIAG_BP_RETIRED: state = "retired"; break;
+        case DIAG_BP_WAITING: state = "waiting"; break;
+        default:              state = "pending"; break;
+        }
+        if (virtual_uninterrupted_read_memory( (const void *)(ULONG_PTR)diag_bp_addr[i], &cur, 1 ) != 1)
+            ERR_(seh)( "DIAG bp end 0x%llx %s hits=%u UNREADABLE -- a negative here proves nothing\n",
+                       (unsigned long long)diag_bp_addr[i], state, diag_bp_hits[i] );
+        else if (diag_bp_armed[i] == DIAG_BP_ARMED && cur != 0xcc)
+            ERR_(seh)( "DIAG bp end 0x%llx %s hits=%u byte=0x%02x ERASED -- the page was rewritten, "
+                       "a negative here proves nothing\n",
+                       (unsigned long long)diag_bp_addr[i], state, diag_bp_hits[i], cur );
+        else
+            ERR_(seh)( "DIAG bp end 0x%llx %s hits=%u byte=0x%02x survived\n",
+                       (unsigned long long)diag_bp_addr[i], state, diag_bp_hits[i], cur );
+    }
 }
 
 /* Which instruction is faulting, not just how many of them there are.
@@ -2850,6 +3040,7 @@ void tuxblox_trace_exit( LONG exit_code, const char *how )
 {
     if (!tuxblox_trace_enabled()) return;
 
+    tuxblox_diag_bp_report();
     dump_watch();
     dump_maps();
     dump_stack_return_addresses();

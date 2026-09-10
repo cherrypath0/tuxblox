@@ -1843,9 +1843,23 @@ static NTSTATUS query_information_process( HANDLE handle, PROCESSINFOCLASS class
         if (size != len)
             ret = STATUS_INFO_LENGTH_MISMATCH;
         else if (is_win64 && !is_wow64())
-            *(ULONG *)info = MEM_EXECUTE_OPTION_DISABLE |
-                             MEM_EXECUTE_OPTION_DISABLE_THUNK_EMULATION |
-                             MEM_EXECUTE_OPTION_PERMANENT;
+        {
+            /* Research knob: no Windows capture of this class exists, and the
+             * Roblox Player asks for it once per recursion level. TUXBLOX_TEST_EXECUTE_FLAGS
+             * overrides the answer so a candidate value can be A/B'd.
+             *
+             * Swept 2026-09-10 with 0, 1 and 9 against the default answer: same
+             * fault address and same traced-call count every time, so the answer
+             * does NOT decide how deep the Player recurses. The class is asked
+             * once per level because the recursing function calls it, not because
+             * it gates anything. Do not re-run this sweep. */
+            const char *test = getenv( "TUXBLOX_TEST_EXECUTE_FLAGS" );
+
+            if (test) *(ULONG *)info = strtoul( test, NULL, 16 );
+            else *(ULONG *)info = MEM_EXECUTE_OPTION_DISABLE |
+                                  MEM_EXECUTE_OPTION_DISABLE_THUNK_EMULATION |
+                                  MEM_EXECUTE_OPTION_PERMANENT;
+        }
         else
             *(ULONG *)info = execute_flags;
         /* The debug-break/PC-hook installation that used to live here moved to
