@@ -336,9 +336,9 @@ BOOL tuxblox_diag_enabled(void)
  * the two can be read against each other for the whole run.
  */
 #define DIAG_CALLS 4096
-static __thread struct { UINT id; ULONG64 arg0, arg1, ret; } diag_calls[DIAG_CALLS];
+static __thread struct { UINT id; ULONG64 arg0, arg1, arg2, arg3, ret; } diag_calls[DIAG_CALLS];
 static __thread unsigned int diag_calls_pos;
-static __thread struct { UINT id; ULONG64 arg0, arg1; } diag_call_pending;
+static __thread struct { UINT id; ULONG64 arg0, arg1, arg2, arg3; } diag_call_pending;
 
 void tuxblox_diag_note_call( UINT id, const ULONG_PTR *args, ULONG len )
 {
@@ -346,6 +346,9 @@ void tuxblox_diag_note_call( UINT id, const ULONG_PTR *args, ULONG len )
     diag_call_pending.id   = id;
     diag_call_pending.arg0 = len > 0 ? args[0] : 0;
     diag_call_pending.arg1 = len > sizeof(ULONG_PTR) ? args[1] : 0;
+    /* the length and the out-pointer: a query's answer usually turns on these */
+    diag_call_pending.arg2 = len > 2 * sizeof(ULONG_PTR) ? args[2] : 0;
+    diag_call_pending.arg3 = len > 3 * sizeof(ULONG_PTR) ? args[3] : 0;
 }
 
 void tuxblox_diag_note_callret( UINT id, ULONG_PTR retval )
@@ -359,6 +362,8 @@ void tuxblox_diag_note_callret( UINT id, ULONG_PTR retval )
     /* only trust the arguments if they belong to this call */
     diag_calls[at].arg0 = diag_call_pending.id == id ? diag_call_pending.arg0 : 0;
     diag_calls[at].arg1 = diag_call_pending.id == id ? diag_call_pending.arg1 : 0;
+    diag_calls[at].arg2 = diag_call_pending.id == id ? diag_call_pending.arg2 : 0;
+    diag_calls[at].arg3 = diag_call_pending.id == id ? diag_call_pending.arg3 : 0;
 }
 
 /* Every named section the program tries to open, and whether it was there.
@@ -1073,10 +1078,12 @@ static void diag_dump_ring(void)
         unsigned int at = (diag_calls_pos - m + i) % DIAG_CALLS;
         const char *name = ntdll_syscall_name( diag_calls[at].id );
 
-        ERR_(seh)( "DIAG call[-%u] %s id=%04x arg0=0x%llx arg1=0x%llx -> %08x\n", m - i,
-                   name ? name : "?", diag_calls[at].id,
+        ERR_(seh)( "DIAG call[-%u] %s id=%04x arg0=0x%llx arg1=0x%llx arg2=0x%llx arg3=0x%llx -> %08x\n",
+                   m - i, name ? name : "?", diag_calls[at].id,
                    (unsigned long long)diag_calls[at].arg0,
                    (unsigned long long)diag_calls[at].arg1,
+                   (unsigned long long)diag_calls[at].arg2,
+                   (unsigned long long)diag_calls[at].arg3,
                    (unsigned int)diag_calls[at].ret );
     }
 
