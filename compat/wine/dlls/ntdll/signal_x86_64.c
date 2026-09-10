@@ -296,7 +296,7 @@ NTSTATUS call_seh_handlers( EXCEPTION_RECORD *rec, CONTEXT *orig_context )
     for (;;)
     {
         status = virtual_unwind( UNW_FLAG_EHANDLER, &dispatch, &context, need_backtrace( rec->ExceptionCode ) );
-        if (status == STATUS_BAD_FUNCTION_TABLE)
+        if (status == STATUS_BAD_FUNCTION_TABLE || status == STATUS_BAD_STACK)
         {
             /* The walk cannot go any further. That means no handler was found
              * -- not that a second thing has gone wrong. Reporting a new status

@@ -2171,6 +2171,45 @@ static RUNTIME_FUNCTION *find_function_info( ULONG_PTR pc, ULONG_PTR base,
 /**********************************************************************
  *              RtlVirtualUnwind2   (NTDLL.@)
  */
+
+/* Whether an address the unwinder is about to read lies on the current thread's
+ * stack. Windows bounds the unwind -- that is what RtlVirtualUnwind2's limit
+ * arguments are for, and they are the FIXME above -- so a walk over a frame the
+ * program fabricated stops with STATUS_BAD_STACK instead of dereferencing whatever
+ * it finds. Without it the fault lands inside the unwinder, is itself dispatched,
+ * and its unwinder faults in turn, one frame deeper each time.
+ *
+ * The status it returns has to be one the frame walk stops on rather than reports:
+ * report a new status and the caller raises it, dispatching that walks the same
+ * frames again and fails again. It joins the STATUS_BAD_FUNCTION_TABLE case in
+ * call_seh_handlers for exactly that reason. */
+
+/* Only a walk that started on this thread's own stack is bounded by it. A caller
+ * unwinding a context it saved from somewhere else is unwinding a different stack,
+ * and refusing its reads would break it. */
+static BOOL unwind_on_own_stack( ULONG64 rsp )
+{
+    ULONG64 low = (ULONG64)NtCurrentTeb()->Tib.StackLimit;
+    ULONG64 high = (ULONG64)NtCurrentTeb()->Tib.StackBase;
+
+    return low && high && low < high && rsp >= low && rsp < high;
+}
+
+static BOOL unwind_addr_ok( BOOL bounded, ULONG64 addr, ULONG size )
+{
+    ULONG64 low = (ULONG64)NtCurrentTeb()->Tib.StackLimit;
+    ULONG64 high = (ULONG64)NtCurrentTeb()->Tib.StackBase;
+
+    if (!bounded) return TRUE;
+    if (addr < low || addr > high - size)
+    {
+        WARN( "tuxblox: unwind refused addr=%p outside stack %p-%p\n",
+              (void *)addr, (void *)low, (void *)high );
+        return FALSE;
+    }
+    return TRUE;
+}
+
 static NTSTATUS virtual_unwind_amd64( ULONG type, ULONG_PTR base, ULONG_PTR pc,
                                      RUNTIME_FUNCTION *function, CONTEXT *context,
                                      BOOLEAN *mach_frame_unwound, void **data,
@@ -2182,7 +2221,7 @@ static NTSTATUS virtual_unwind_amd64( ULONG type, ULONG_PTR base, ULONG_PTR pc,
     ULONG64 frame, off;
     struct UNWIND_INFO *info;
     unsigned int i, prolog_offset;
-    BOOL mach_frame = FALSE, chained = FALSE;
+    BOOL mach_frame = FALSE, chained = FALSE, bounded;
 
 #ifdef __arm64ec__
     if (RtlIsEcCode( pc ))
@@ -2201,13 +2240,16 @@ static NTSTATUS virtual_unwind_amd64( ULONG type, ULONG_PTR base, ULONG_PTR pc,
     }
 #endif
 
-    TRACE( "type %lx base %I64x rip %I64x rva %I64x rsp %I64x\n", type, base, pc, pc - base, context->Rsp );
+    TRACE( "type %lx base %I64x rip %I64x rva %I64x rsp %I64x caller %p\n",
+           type, base, pc, pc - base, context->Rsp, __builtin_return_address(0) );
     if (limit_low || limit_high) FIXME( "limits not supported\n" );
 
     frame = *frame_ret = context->Rsp;
+    bounded = unwind_on_own_stack( context->Rsp );
 
     if (!function)  /* leaf function */
     {
+        if (!unwind_addr_ok( bounded, context->Rsp, sizeof(ULONG64) )) return STATUS_BAD_STACK;
         context->Rip = *(ULONG64 *)context->Rsp;
         context->Rsp += sizeof(ULONG64);
         if (type) *data = NULL;
@@ -2258,6 +2300,7 @@ static NTSTATUS virtual_unwind_amd64( ULONG type, ULONG_PTR base, ULONG_PTR pc,
             switch (info->opcodes[i].code)
             {
             case UWOP_PUSH_NONVOL:  /* pushq %reg */
+                if (!unwind_addr_ok( bounded, context->Rsp, sizeof(ULONG64) )) return STATUS_BAD_STACK;
                 set_int_reg( context, ctx_ptr, info->opcodes[i].info, (ULONG64 *)context->Rsp );
                 context->Rsp += sizeof(ULONG64);
                 break;
@@ -2273,18 +2316,22 @@ static NTSTATUS virtual_unwind_amd64( ULONG type, ULONG_PTR base, ULONG_PTR pc,
                 break;
             case UWOP_SAVE_NONVOL:  /* movq %reg,n(%rsp) */
                 off = frame + *(USHORT *)&info->opcodes[i+1] * 8;
+                if (!unwind_addr_ok( bounded, off, sizeof(ULONG64) )) return STATUS_BAD_STACK;
                 set_int_reg( context, ctx_ptr, info->opcodes[i].info, (ULONG64 *)off );
                 break;
             case UWOP_SAVE_NONVOL_FAR:  /* movq %reg,nn(%rsp) */
                 off = frame + *(DWORD *)&info->opcodes[i+1];
+                if (!unwind_addr_ok( bounded, off, sizeof(ULONG64) )) return STATUS_BAD_STACK;
                 set_int_reg( context, ctx_ptr, info->opcodes[i].info, (ULONG64 *)off );
                 break;
             case UWOP_SAVE_XMM128:  /* movaps %xmmreg,n(%rsp) */
                 off = frame + *(USHORT *)&info->opcodes[i+1] * 16;
+                if (!unwind_addr_ok( bounded, off, sizeof(M128A) )) return STATUS_BAD_STACK;
                 set_float_reg( context, ctx_ptr, info->opcodes[i].info, (M128A *)off );
                 break;
             case UWOP_SAVE_XMM128_FAR:  /* movaps %xmmreg,nn(%rsp) */
                 off = frame + *(DWORD *)&info->opcodes[i+1];
+                if (!unwind_addr_ok( bounded, off, sizeof(M128A) )) return STATUS_BAD_STACK;
                 set_float_reg( context, ctx_ptr, info->opcodes[i].info, (M128A *)off );
                 break;
             case UWOP_PUSH_MACHFRAME:
