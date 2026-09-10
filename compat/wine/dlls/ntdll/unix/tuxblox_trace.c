@@ -2569,7 +2569,7 @@ static void dump_stack_return_addresses(void)
     unsigned int count = 0, capacity = 512, shown = 0;
     char *buf, *line, *next;
     size_t cap = 512 * 1024, len = 0;
-    ULONG64 sp = get_syscall_caller_sp();
+    ULONG64 sp = get_syscall_caller_sp(), sp_end = 0;
     ssize_t n;
     int fd;
     unsigned int i, slot;
@@ -2583,7 +2583,7 @@ static void dump_stack_return_addresses(void)
     close( fd );
     buf[len] = 0;
 
-    for (line = buf; line && *line && count < capacity; line = next)
+    for (line = buf; line && *line; line = next)
     {
         ULONG64 start, end;
         char *path, *perms;
@@ -2592,9 +2592,12 @@ static void dump_stack_return_addresses(void)
         start = strtoull( line, &path, 16 );
         if (*path != '-') continue;
         end = strtoull( path + 1, &perms, 16 );
+        /* remember where the stack we are about to walk actually ends */
+        if (start <= sp && sp < end) sp_end = end;
         while (*perms == ' ') perms++;
         if (strlen( perms ) < 4 || perms[2] != 'x') continue;
         if (!(path = strchr( perms, '/' ))) continue;
+        if (count == capacity) continue;
 
         ranges[count].start = start;
         ranges[count].end   = end;
@@ -2610,10 +2613,18 @@ static void dump_stack_return_addresses(void)
         count++;
     }
 
-    TRACE_(tuxblox)( "STACK-BEGIN sp=0x%llx\n", (unsigned long long)sp );
+    TRACE_(tuxblox)( "STACK-BEGIN sp=0x%llx end=0x%llx\n",
+                     (unsigned long long)sp, (unsigned long long)sp_end );
+    /* The layer switches stacks, so sp can sit within this window of the
+     * mapping's end. Reading past it faults, and because this runs inside
+     * NtTerminateProcess the fault turns a terminate into a bogus
+     * STATUS_ACCESS_VIOLATION return and the layer runs on into garbage. */
     for (slot = 0; slot < 4096 && shown < 96; slot++)
     {
-        ULONG64 value = ((const ULONG64 *)(ULONG_PTR)sp)[slot];
+        ULONG64 value;
+
+        if (!sp_end || sp + slot * 8 + 8 > sp_end) break;
+        value = ((const ULONG64 *)(ULONG_PTR)sp)[slot];
 
         for (i = 0; i < count; i++)
         {
@@ -2636,6 +2647,41 @@ done:
     free( buf );
 }
 
+/* The mapping that contains addr, so the dumps below can stop at its edge
+ * instead of faulting past it. A fault here is not survivable in any useful
+ * sense: these run inside NtTerminateProcess, where the syscall dispatcher
+ * turns it into a STATUS_ACCESS_VIOLATION return and the caller carries on
+ * as though the process had refused to die. */
+static int mapping_range( ULONG64 addr, ULONG64 *range_start, ULONG64 *range_end )
+{
+    size_t cap = 512 * 1024, len = 0;
+    char *buf, *line, *next, *p;
+    ssize_t n;
+    int fd, found = 0;
+
+    if (!(buf = malloc( cap ))) return 0;
+    if ((fd = open( "/proc/self/maps", O_RDONLY )) == -1) { free( buf ); return 0; }
+    while (len < cap - 1 && (n = read( fd, buf + len, cap - 1 - len )) > 0) len += n;
+    close( fd );
+    buf[len] = 0;
+
+    for (line = buf; line && *line && !found; line = next)
+    {
+        ULONG64 start, end;
+
+        if ((next = strchr( line, '\n' ))) *next++ = 0;
+        start = strtoull( line, &p, 16 );
+        if (*p != '-') continue;
+        end = strtoull( p + 1, &p, 16 );
+        if (addr < start || addr >= end) continue;
+        *range_start = start;
+        *range_end = end;
+        found = 1;
+    }
+    free( buf );
+    return found;
+}
+
 /* The instructions around whatever called for the process to die.
  *
  * The module is packed on disk and only decrypted in memory, so the bytes that
@@ -2645,16 +2691,18 @@ static void dump_code_around( ULONG64 addr )
 {
     const unsigned char *code;
     char line[3 * 16 + 1];
-    ULONG64 start;
+    ULONG64 start, low, high;
     unsigned int i, j;
 
     if (!addr) return;
+    if (!mapping_range( addr, &low, &high )) return;
     start = (addr - 0x400) & ~(ULONG64)0xf;
+    if (start < low) start = low;
     code = (const unsigned char *)(ULONG_PTR)start;
 
     TRACE_(tuxblox)( "CODE-BEGIN around=0x%llx from=0x%llx\n",
                      (unsigned long long)addr, (unsigned long long)start );
-    for (i = 0; i < 0x500; i += 16)
+    for (i = 0; i < 0x500 && start + i + 16 <= high; i += 16)
     {
         for (j = 0; j < 16; j++) snprintf( line + j * 3, 4, "%02x ", code[i + j] );
         TRACE_(tuxblox)( "CODE 0x%llx %s\n", (unsigned long long)(start + i), line );
