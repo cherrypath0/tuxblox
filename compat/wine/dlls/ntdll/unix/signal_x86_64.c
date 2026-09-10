@@ -2295,7 +2295,41 @@ static BOOL writes_memory( BYTE opcode, BOOL opsize )
 /* Instructions that have faulted before. Direct-mapped and a fixed size, so it
  * needs no allocation in a signal handler; a collision only costs one more
  * emulated fault. */
-static ULONG64 align_faulted[1024];
+static ULONG64 align_faulted[16384];
+
+/* How much of that table is in use. The Player's misaligned SIMD sites were
+ * measured at 1771 distinct addresses against the 1024 slots this started with,
+ * so they evicted each other and almost nothing was ever seen to fault twice --
+ * 46 million faults in one run, all of them emulated one at a time. Using the
+ * whole table costs nothing, since it is allocated either way, and took the same
+ * run to 1.3 million faults and from 3m32s to 9s with identical behaviour.
+ * TUXBLOX_ALIGN_TABLE narrows it again to compare against an older run. */
+static unsigned int align_faulted_mask = ARRAY_SIZE(align_faulted) - 1;
+
+/* Whether the VEX rewrite in particular may run. It is the one of the two that
+ * is not semantics-preserving: a legacy SSE instruction leaves bits 255:128 of
+ * the destination alone and its VEX.128 spelling zeroes them, so any value the
+ * layer is keeping in the upper half of that register is destroyed. The move
+ * rewrite has no such problem -- movdqu does exactly what movdqa did. */
+static BOOL vex_rewrite_allowed = TRUE;
+
+/* Whether a general protection fault from an instruction fetch reports execute
+ * rather than read. Wine reports read for every #GP; Windows distinguishes, and
+ * the Roblox layer transfers to non-canonical addresses deliberately, so what its
+ * handler is told about the access matters. Research knob, read once at startup
+ * because nothing on the fault path may call getenv.
+ *
+ * A/B'd 2026-09-10 against the Roblox Player, four runs: same fault address, same
+ * exception count, same traced-call count. The layer's vectored handler does NOT
+ * decline the non-canonical transfer because of this field. Default left at Wine's
+ * behaviour, since the Windows value has never been measured. */
+static BOOL gp_reports_execute = FALSE;
+
+/* Whether a faulted move may be rewritten where it stands. The layer hashes its
+ * own code, so a run with TUXBLOX_NO_ALIGN_REWRITE set separates "the rewrite is
+ * seen" from every other reason a run can fail. Read once at startup, because
+ * nothing on the fault path may call getenv. */
+static BOOL align_rewrite_allowed = TRUE;
 
 /* Whether this instruction has faulted before. Windows corrects a misaligned
  * access without ever editing the code, so an instruction that faults once and
@@ -2306,7 +2340,7 @@ static BOOL align_fault_repeated( ULONG64 rip )
     /* mixed rather than masked: these instructions sit a few bytes apart, so
      * any hash that drops the low bits maps neighbours onto one slot and they
      * evict each other for ever */
-    ULONG64 *slot = &align_faulted[((rip * 0x9e3779b97f4a7c15ull) >> 32) % ARRAY_SIZE(align_faulted)];
+    ULONG64 *slot = &align_faulted[((rip * 0x9e3779b97f4a7c15ull) >> 32) & align_faulted_mask];
 
     if (*slot == rip) return TRUE;
     *slot = rip;
@@ -2317,7 +2351,7 @@ static void rewrite_aligned_move( ULONG64 rip, BYTE opcode, unsigned int op_pos,
                                   unsigned int opsize_pos, unsigned int opsize_count,
                                   BOOL repeated )
 {
-    if (!repeated) return;
+    if (!repeated || !align_rewrite_allowed) return;
 
     switch (opcode)
     {
@@ -2424,7 +2458,7 @@ static void rewrite_vex_sse( ULONG64 rip, const BYTE *instr, BYTE opcode, unsign
     BYTE want[3], orig[3];
     unsigned int start, count, vvvv, i;
 
-    if (!repeated) return;
+    if (!repeated || !align_rewrite_allowed || !vex_rewrite_allowed) return;
     if (!avx_available()) return;
     if (rep || opsize_count != 1) return;  /* the 66 is the one the VEX prefix takes over */
     switch (vex_operand_count( opcode ))
@@ -3368,7 +3402,7 @@ static void segv_handler( int signal, siginfo_t *siginfo, void *sigcontext )
             if ((err & 7) == 2 && handle_interrupt( ucontext, &rec, &context )) return;
             rec.ExceptionCode = EXCEPTION_ACCESS_VIOLATION;
             rec.NumberParameters = 2;
-            rec.ExceptionInformation[0] = 0;
+            rec.ExceptionInformation[0] = gp_reports_execute ? 8 : 0;
             /* if error contains a LDT selector, use that as fault address */
             if ((err & 7) == 4) rec.ExceptionInformation[1] = err & ~7;
             else rec.ExceptionInformation[1] = 0xffffffffffffffff;
@@ -3498,6 +3532,15 @@ static void trap_handler( int signal, siginfo_t *siginfo, void *sigcontext )
         {
             RIP_sig(ucontext) = RIP_sig(ucontext) - 1;  /* back onto the restored instruction */
             RSP_sig(ucontext) += rsp_delta;             /* only when one was asked for */
+            /* TUXBLOX_DIAG_BP_SETREG may have changed one; rsp is left to rsp_delta. */
+            RAX_sig(ucontext) = regs[0];  RBX_sig(ucontext) = regs[1];
+            RCX_sig(ucontext) = regs[2];  RDX_sig(ucontext) = regs[3];
+            RSI_sig(ucontext) = regs[4];  RDI_sig(ucontext) = regs[5];
+            RBP_sig(ucontext) = regs[6];
+            R8_sig(ucontext)  = regs[8];  R9_sig(ucontext)  = regs[9];
+            R10_sig(ucontext) = regs[10]; R11_sig(ucontext) = regs[11];
+            R12_sig(ucontext) = regs[12]; R13_sig(ucontext) = regs[13];
+            R14_sig(ucontext) = regs[14]; R15_sig(ucontext) = regs[15];
             leave_handler( ucontext );
             return;
         }
@@ -3871,6 +3914,17 @@ void signal_init_process(void)
     WOW_TEB *wow_teb = get_wow_teb( NtCurrentTeb() );
     struct ntdll_thread_data *thread_data = ntdll_get_thread_data();
     void *ptr, *kernel_stack = (char *)thread_data->kernel_stack + kernel_stack_size;
+
+    align_rewrite_allowed = !getenv( "TUXBLOX_NO_ALIGN_REWRITE" );
+    gp_reports_execute = !!getenv( "TUXBLOX_TEST_GP_EXEC" );
+    vex_rewrite_allowed = !getenv( "TUXBLOX_NO_VEX_REWRITE" );
+    {
+        const char *v = getenv( "TUXBLOX_ALIGN_TABLE" );
+        unsigned int want = v ? atoi( v ) : 0;
+
+        if (want > ARRAY_SIZE(align_faulted)) want = ARRAY_SIZE(align_faulted);
+        if (want >= 2) align_faulted_mask = want - 1;
+    }
 
     if (user_shared_data->XState.Size) xstate_size = user_shared_data->XState.Size - sizeof(XSAVE_FORMAT);
     frame_size = offsetof( struct syscall_frame, xstate ) + xstate_size;
