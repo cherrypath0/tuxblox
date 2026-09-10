@@ -1978,15 +1978,85 @@ static void diag_bp_arm(void)
     }
 }
 
+/* Frame slots to read at a breakpoint, from TUXBLOX_DIAG_BP_SLOTS.
+ *
+ * The layer's flattened functions keep their dispatcher key in a frame slot --
+ * 0x22b0 in one, 0x540 in another -- and the arithmetic that turns a key into a
+ * jump target reads more slots beside it. Those are run constants, so the graph
+ * cannot be walked without them, and nothing else here can address the stack:
+ * the hex dump is relative to the layer's base and the watch samples far too
+ * rarely. Written "950,22b0" for rbp-relative, "rsp:20" for rsp-relative.
+ */
+#define DIAG_BP_SLOT_MAX 12
+
+static LONG64 diag_bp_slot_off[DIAG_BP_SLOT_MAX];
+static char diag_bp_slot_rsp[DIAG_BP_SLOT_MAX];
+static unsigned int diag_bp_slot_count;
+static int diag_bp_slots_parsed;
+
+static void diag_bp_slots_parse(void)
+{
+    const char *v;
+
+    if (diag_bp_slots_parsed) return;
+    diag_bp_slots_parsed = 1;
+    if (!(v = getenv( "TUXBLOX_DIAG_BP_SLOTS" ))) return;
+    while (*v && diag_bp_slot_count < DIAG_BP_SLOT_MAX)
+    {
+        char *end;
+        int on_rsp = 0;
+
+        if (!strncmp( v, "rsp:", 4 )) { on_rsp = 1; v += 4; }
+        else if (!strncmp( v, "rbp:", 4 )) v += 4;
+        diag_bp_slot_off[diag_bp_slot_count] = strtoll( v, &end, 16 );
+        if (end == v)
+        {
+            ERR_(seh)( "DIAG bp slots: cannot read an offset at \"%s\", giving up on the rest\n", v );
+            break;
+        }
+        diag_bp_slot_rsp[diag_bp_slot_count++] = (char)on_rsp;
+        v = end;
+        if (*v == ',') v++;
+    }
+}
+
+/* Appends the slot values to a breakpoint's line. Reads are uninterrupted and
+ * bounded, so an unmapped slot prints as ? rather than taking the process down. */
+static unsigned int diag_bp_slots_print( char *line, unsigned int n, unsigned int size,
+                                         const ULONG64 *regs )
+{
+    unsigned int k;
+
+    for (k = 0; k < diag_bp_slot_count; k++)
+    {
+        LONG64 off = diag_bp_slot_off[k];
+        ULONG64 addr = regs[diag_bp_slot_rsp[k] ? 7 : 6] + off;
+        const char *reg = diag_bp_slot_rsp[k] ? "rsp" : "rbp";
+        unsigned long long mag = (unsigned long long)(off < 0 ? -off : off);
+        char sign = (off < 0) ? '-' : '+';
+        ULONG64 val;
+
+        if (virtual_uninterrupted_read_memory( (const void *)(ULONG_PTR)addr, &val, sizeof(val) )
+            == sizeof(val))
+            n += snprintf( line + n, size - n, " [%s%c%llx]=%llx", reg, sign, mag,
+                           (unsigned long long)val );
+        else
+            n += snprintf( line + n, size - n, " [%s%c%llx]=?", reg, sign, mag );
+    }
+    return n;
+}
+
 BOOL tuxblox_diag_bp_hit( ULONG64 rip, const ULONG64 *regs, LONG64 *rsp_delta )
 {
     static const char * const names[16] = { "rax", "rbx", "rcx", "rdx", "rsi", "rdi", "rbp", "rsp",
                                             "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15" };
     unsigned int i;
 
+    diag_bp_slots_parse();
+
     for (i = 0; i < diag_bp_count; i++)
     {
-        char line[512];
+        char line[1024];
         unsigned int k, n = 0;
 
         if (!diag_bp_resolved[i] || diag_bp_addr[i] != rip - 1) continue;
@@ -2055,6 +2125,7 @@ BOOL tuxblox_diag_bp_hit( ULONG64 rip, const ULONG64 *regs, LONG64 *rsp_delta )
                 n += snprintf( line + n, sizeof(line) - n, " name=\"%s\"", name );
             }
         }
+        n = diag_bp_slots_print( line, n, sizeof(line), regs );
         ERR_(seh)( "DIAG bp hit #%u (%u raced) 0x%llx %s\n", diag_bp_hits[i] + 1,
                    diag_bp_races[i], (unsigned long long)diag_bp_addr[i], line );
         virtual_patch_code_byte( (void *)(ULONG_PTR)diag_bp_addr[i], diag_bp_orig[i] );
