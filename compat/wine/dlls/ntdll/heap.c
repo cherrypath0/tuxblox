@@ -2115,7 +2115,12 @@ static void bin_try_enable( struct heap *heap, struct bin *bin )
     BOOL enable = FALSE;
 
     if (bin == heap->bins && alloc > 0x10) enable = TRUE;
-    else if (bin - heap->bins < 0x30 && alloc > 0x800) enable = TRUE;
+    /* Frequency, for every bin. Restricting this to the first 0x30 left the
+     * larger bins with only the live-block rule below, which a workload that
+     * frees as fast as it allocates never reaches: a bin of ~1.5 KB blocks
+     * needed 2730 live at once. Those allocations then took the heap lock
+     * forever. Windows keys its buckets on how often a size is asked for. */
+    else if (alloc > 0x800) enable = TRUE;
     else if (bin - heap->bins < 0x30 && alloc - freed > 0x10) enable = TRUE;
     else if (alloc - freed > 0x400000 / block_size) enable = TRUE;
     if (!enable) return;

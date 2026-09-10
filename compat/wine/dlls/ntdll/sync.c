@@ -845,10 +845,25 @@ static struct futex_queue *get_futex_queue( const void *addr )
     return &futex_queues[(val >> 4) % ARRAY_SIZE(futex_queues)];
 }
 
+/* YieldProcessor() is only a pause instruction, so it never gives up the CPU.
+ * Spinning alone means a waiter burns its whole timeslice whenever the thread
+ * holding the lock gets descheduled. Spin briefly for the usual short hold,
+ * then hand the CPU over. */
+#define SPIN_LOCK_SPIN_COUNT 128
+
 static void spin_lock( LONG *lock )
 {
+    unsigned int spins = 0;
+
     while (InterlockedCompareExchange( lock, -1, 0 ))
-        YieldProcessor();
+    {
+        if (++spins < SPIN_LOCK_SPIN_COUNT) YieldProcessor();
+        else
+        {
+            NtYieldExecution();
+            spins = 0;
+        }
+    }
 }
 
 static void spin_unlock( LONG *lock )
