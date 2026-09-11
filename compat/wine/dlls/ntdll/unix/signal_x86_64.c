@@ -3543,6 +3543,9 @@ static void trap_handler( int signal, siginfo_t *siginfo, void *sigcontext )
             R10_sig(ucontext) = regs[10]; R11_sig(ucontext) = regs[11];
             R12_sig(ucontext) = regs[12]; R13_sig(ucontext) = regs[13];
             R14_sig(ucontext) = regs[14]; R15_sig(ucontext) = regs[15];
+            /* TUXBLOX_DIAG_STEP_AT arms stepping at a breakpoint instead of
+             * after a system-call count, which is not reproducible. */
+            if (tuxblox_diag_stepping) EFL_sig(ucontext) |= 0x100;
             leave_handler( ucontext );
             return;
         }

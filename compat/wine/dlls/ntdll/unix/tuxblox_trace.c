@@ -536,6 +536,7 @@ static struct { ULONG64 rip, rsp, rcx, rax; } diag_steps[DIAG_STEPS];
 static unsigned int diag_step_pos, diag_step_start, diag_step_limit;
 static ULONG64 diag_step_stop_rsp, diag_step_stop_lo, diag_step_stop_hi, diag_step_below;
 static unsigned int diag_step_hold, diag_step_held;
+static unsigned int diag_step_cap = 4 * 1024 * 1024;
 static ULONG diag_step_tid = (ULONG)-1, diag_step_owner;
 static ULONG64 diag_step_module_base;
 static ULONG diag_step_reject[16];
@@ -643,6 +644,7 @@ BOOL tuxblox_diag_step_arm(void)
         if ((v = getenv( "TUXBLOX_DIAG_STEP_STOPHI" ))) diag_step_stop_hi = strtoull( v, NULL, 16 );
         if ((v = getenv( "TUXBLOX_DIAG_STEP_BELOW" ))) diag_step_below = strtoull( v, NULL, 16 );
         if ((v = getenv( "TUXBLOX_DIAG_STEP_HOLD" ))) diag_step_hold = atoi( v );
+        if ((v = getenv( "TUXBLOX_DIAG_STEP_CAP" ))) diag_step_cap = strtoul( v, NULL, 0 );
     }
     /* Armed once only. Re-arming after each system call was tried and is not
      * usable: the layer clears the trap flag itself -- `pushfq; and qword
@@ -880,8 +882,10 @@ BOOL tuxblox_diag_step_record( ULONG64 rip, ULONG64 rsp, ULONG64 rcx, ULONG64 ra
                    (unsigned long long)rip, (unsigned long long)rsp,
                    (unsigned long long)diag_step_module_base );
     }
-    /* A run that never reaches the fault must not step forever. */
-    if (diag_step_pos >= 4 * 1024 * 1024)
+    /* A run that never reaches the fault must not step forever.
+     * TUXBLOX_DIAG_STEP_CAP raises the ceiling for a long window; stepping runs
+     * at tens of microseconds an instruction, so raising it costs real time. */
+    if (diag_step_pos >= diag_step_cap)
     {
         tuxblox_diag_stepping = FALSE;
         return FALSE;
@@ -2200,6 +2204,35 @@ static void diag_bp_setreg_apply( ULONG64 *regs )
     }
 }
 
+/* Arm stepping when a breakpoint is reached, rather than after a count of
+ * system calls.
+ *
+ * The count is not reproducible: the layer's path through itself varies between
+ * runs, and thread ids do too, so the same number lands hundreds of calls apart.
+ * An address does not. TUXBLOX_DIAG_STEP_AT=<layer offset>, which must also be
+ * listed in TUXBLOX_DIAG_BP so that there is a breakpoint to arm at.
+ */
+static ULONG64 diag_step_at;
+static int diag_step_at_parsed;
+
+static void diag_step_at_check( ULONG64 addr )
+{
+    if (!diag_step_at_parsed)
+    {
+        const char *v = getenv( "TUXBLOX_DIAG_STEP_AT" );
+        ULONG64 base = roblox_dll_base();
+
+        diag_step_at_parsed = 1;
+        if (v) diag_step_at = strtoull( v, NULL, 16 );
+        if (diag_step_at && diag_step_at < 0x100000000ull && base) diag_step_at += base;
+    }
+    if (!diag_step_at || addr != diag_step_at || tuxblox_diag_stepping) return;
+    tuxblox_diag_stepping = TRUE;
+    diag_step_owner = GetCurrentThreadId();
+    ERR_(seh)( "DIAG step armed at 0x%llx on thread %04x\n",
+               (unsigned long long)addr, (unsigned int)diag_step_owner );
+}
+
 BOOL tuxblox_diag_bp_hit( ULONG64 rip, ULONG64 *regs, LONG64 *rsp_delta )
 {
     static const char * const names[16] = { "rax", "rbx", "rcx", "rdx", "rsi", "rdi", "rbp", "rsp",
@@ -2287,6 +2320,7 @@ BOOL tuxblox_diag_bp_hit( ULONG64 rip, ULONG64 *regs, LONG64 *rsp_delta )
         ERR_(seh)( "DIAG bp hit #%u (%u raced) 0x%llx %s\n", diag_bp_hits[i] + 1,
                    diag_bp_races[i], (unsigned long long)diag_bp_addr[i], line );
         virtual_patch_code_byte( (void *)(ULONG_PTR)diag_bp_addr[i], diag_bp_orig[i] );
+        diag_step_at_check( diag_bp_addr[i] );
 
         if (++diag_bp_hits[i] >= diag_bp_max_hits) diag_bp_armed[i] = DIAG_BP_RETIRED;
         else
