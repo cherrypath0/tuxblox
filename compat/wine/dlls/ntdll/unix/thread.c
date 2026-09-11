@@ -1627,7 +1627,23 @@ NTSTATUS send_debug_event( EXCEPTION_RECORD *rec, CONTEXT *context, BOOL first_c
  */
 NTSTATUS WINAPI NtRaiseException( EXCEPTION_RECORD *rec, CONTEXT *context, BOOL first_chance )
 {
-    NTSTATUS status = send_debug_event( rec, context, first_chance, !(is_win64 || is_wow64() || is_old_wow64()) );
+    NTSTATUS status;
+
+    /* Diagnostic. A software raise -- a C++ throw, RaiseException -- never goes
+     * through setup_raise_exception, so tracing only that path misses exactly
+     * the exceptions most likely to drive an unwind. */
+    if (tuxblox_trace_enabled())
+    {
+        char detail[128];
+
+        snprintf( detail, sizeof(detail), "code=%08x flags=%x addr=%p nparams=%u first=%u",
+                  (unsigned int)rec->ExceptionCode, (unsigned int)rec->ExceptionFlags,
+                  rec->ExceptionAddress, (unsigned int)rec->NumberParameters,
+                  (unsigned int)first_chance );
+        tuxblox_trace_record( "RaiseException", detail );
+    }
+
+    status = send_debug_event( rec, context, first_chance, !(is_win64 || is_wow64() || is_old_wow64()) );
 
     if (status == DBG_CONTINUE || status == DBG_EXCEPTION_HANDLED)
         return NtContinue( context, FALSE );
@@ -1639,9 +1655,11 @@ NTSTATUS WINAPI NtRaiseException( EXCEPTION_RECORD *rec, CONTEXT *context, BOOL 
     else if (rec->ExceptionCode == STATUS_NONCONTINUABLE_EXCEPTION)
         ERR_(seh)("Process attempted to continue execution after noncontinuable exception.\n");
     else
+    {
         tuxblox_diag_bp_report();
         ERR_(seh)("Unhandled exception code %x flags %x addr %p\n",
                   rec->ExceptionCode, rec->ExceptionFlags, rec->ExceptionAddress );
+    }
 
     NtTerminateProcess( NtCurrentProcess(), rec->ExceptionCode );
     return STATUS_SUCCESS;
