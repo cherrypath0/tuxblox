@@ -7013,6 +7013,7 @@ static unsigned int get_memory_section_name( HANDLE process, LPCVOID addr,
 
     full[name.Length / sizeof(WCHAR)] = 0;
     resolve_drive_symlink( &name, sizeof(full) - sizeof(WCHAR), NULL, STATUS_SUCCESS );
+    if (tuxblox_trace_enabled()) tuxblox_trace_record_us( "MemorySectionName", &name );
 
     needed = sizeof(*info) + name.Length + sizeof(WCHAR);
     if (ret_len) *ret_len = needed;

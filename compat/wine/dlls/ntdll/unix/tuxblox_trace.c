@@ -2211,8 +2211,14 @@ static void diag_bp_setreg_apply( ULONG64 *regs )
  * runs, and thread ids do too, so the same number lands hundreds of calls apart.
  * An address does not. TUXBLOX_DIAG_STEP_AT=<layer offset>, which must also be
  * listed in TUXBLOX_DIAG_BP so that there is a breakpoint to arm at.
+ *
+ * "<offset>#<n>" arms at the n-th time that address is reached rather than the
+ * first, for a per-item loop whose one interesting pass is somewhere in the
+ * middle -- the module walk fails on its twenty-first module, and stepping the
+ * first twenty is both useless and slow.
  */
 static ULONG64 diag_step_at;
+static unsigned int diag_step_at_want = 1, diag_step_at_seen;
 static int diag_step_at_parsed;
 
 static void diag_step_at_check( ULONG64 addr )
@@ -2221,12 +2227,18 @@ static void diag_step_at_check( ULONG64 addr )
     {
         const char *v = getenv( "TUXBLOX_DIAG_STEP_AT" );
         ULONG64 base = roblox_dll_base();
+        char *end;
 
         diag_step_at_parsed = 1;
-        if (v) diag_step_at = strtoull( v, NULL, 16 );
+        if (v)
+        {
+            diag_step_at = strtoull( v, &end, 16 );
+            if (*end == '#') diag_step_at_want = strtoul( end + 1, NULL, 0 );
+        }
         if (diag_step_at && diag_step_at < 0x100000000ull && base) diag_step_at += base;
     }
     if (!diag_step_at || addr != diag_step_at || tuxblox_diag_stepping) return;
+    if (++diag_step_at_seen < diag_step_at_want) return;
     tuxblox_diag_stepping = TRUE;
     diag_step_owner = GetCurrentThreadId();
     ERR_(seh)( "DIAG step armed at 0x%llx on thread %04x\n",
