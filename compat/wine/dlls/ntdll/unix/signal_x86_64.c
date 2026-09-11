@@ -3565,8 +3565,12 @@ static void trap_handler( int signal, siginfo_t *siginfo, void *sigcontext )
             R12_sig(ucontext) = regs[12]; R13_sig(ucontext) = regs[13];
             R14_sig(ucontext) = regs[14]; R15_sig(ucontext) = regs[15];
             /* TUXBLOX_DIAG_STEP_AT arms stepping at a breakpoint instead of
-             * after a system-call count, which is not reproducible. */
-            if (tuxblox_diag_stepping) EFL_sig(ucontext) |= 0x100;
+             * after a system-call count, which is not reproducible. The same
+             * flag puts the breakpoint's byte back one instruction later, which
+             * is the only way a breakpoint in a loop that makes no system calls
+             * can report more than once. */
+            if (tuxblox_diag_stepping || tuxblox_diag_bp_step_pending())
+                EFL_sig(ucontext) |= 0x100;
             leave_handler( ucontext );
             return;
         }
@@ -3586,6 +3590,15 @@ static void trap_handler( int signal, siginfo_t *siginfo, void *sigcontext )
                              R8_sig(ucontext), R9_sig(ucontext), R10_sig(ucontext), R11_sig(ucontext),
                              R12_sig(ucontext), R13_sig(ucontext), R14_sig(ucontext), R15_sig(ucontext) };
         tuxblox_diag_step_watch_regs( RIP_sig(ucontext), regs );
+    }
+    /* The instruction under a breakpoint has now run, so the byte goes back. */
+    if (TRAP_sig(ucontext) == TRAP_x86_TRCTRAP && siginfo->si_code == TRAP_TRACE &&
+        tuxblox_diag_bp_step_rearm())
+    {
+        if (tuxblox_diag_stepping) EFL_sig(ucontext) |= 0x100;
+        else EFL_sig(ucontext) &= ~0x100;
+        leave_handler( ucontext );
+        return;
     }
     if (TRAP_sig(ucontext) == TRAP_x86_TRCTRAP && siginfo->si_code == TRAP_TRACE &&
         tuxblox_diag_step_record( RIP_sig(ucontext), RSP_sig(ucontext),

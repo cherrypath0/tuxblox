@@ -1989,6 +1989,32 @@ static void diag_bp_arm(void)
     }
 }
 
+/* Putting a breakpoint's byte back, one instruction after it was hit.
+ *
+ * A hit leaves the address WAITING: the byte has to stay out of the way until
+ * the instruction under it has run. Proof that it has used to be the thread's
+ * next system call -- but the layer's hot loops make none, so a breakpoint
+ * inside one fired exactly once and every count taken from such a loop was
+ * wrong by construction. The trap flag is set for that one instruction instead
+ * and the byte goes back on the way out of the step.
+ *
+ * Stepping is visible to a program that reads its own EFLAGS, so this trades a
+ * one-instruction window of that for counts that mean something. */
+static __thread int diag_bp_rearm_step;
+
+BOOL tuxblox_diag_bp_step_pending(void)
+{
+    return diag_bp_rearm_step != 0;
+}
+
+BOOL tuxblox_diag_bp_step_rearm(void)
+{
+    if (!diag_bp_rearm_step) return FALSE;
+    diag_bp_rearm_step = 0;
+    diag_bp_arm();
+    return TRUE;
+}
+
 /* Frame slots to read at a breakpoint, from TUXBLOX_DIAG_BP_SLOTS.
  *
  * The layer's flattened functions keep their dispatcher key in a frame slot --
@@ -2340,6 +2366,7 @@ BOOL tuxblox_diag_bp_hit( ULONG64 rip, ULONG64 *regs, LONG64 *rsp_delta )
             diag_bp_rearm_tid[i] = GetCurrentThreadId();
             diag_bp_armed[i] = DIAG_BP_WAITING;
             diag_bp_pending++;
+            diag_bp_rearm_step = 1;   /* step one instruction, then put it back */
         }
         return TRUE;
     }

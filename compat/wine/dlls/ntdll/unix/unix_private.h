@@ -224,6 +224,8 @@ extern void tuxblox_diag_exception( const EXCEPTION_RECORD *rec, const CONTEXT *
 extern void tuxblox_diag_continue( const CONTEXT *context );
 extern BOOL tuxblox_diag_watch_enabled(void);
 extern BOOL tuxblox_diag_bp_hit( ULONG64 rip, ULONG64 *regs, LONG64 *rsp_delta );
+extern BOOL tuxblox_diag_bp_step_pending(void);
+extern BOOL tuxblox_diag_bp_step_rearm(void);
 extern void tuxblox_diag_xpage_arm( void );
 extern void tuxblox_diag_wpage_arm( void );
 extern void tuxblox_diag_dump_ldr( void );
