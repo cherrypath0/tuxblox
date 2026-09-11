@@ -2335,6 +2335,21 @@ static BOOL gp_reports_execute = FALSE;
  * nothing on the fault path may call getenv. */
 static BOOL align_rewrite_allowed = TRUE;
 
+/* Whether a faulted move inside a mapped image may be rewritten.
+ *
+ * Windows never needs to: the Roblox layer's misaligned accesses do not trap
+ * there, so its image in memory always matches the file it was mapped from, and
+ * the layer checks. Ours trap 194 million times a run, and rewriting them edits
+ * an image the program can compare against its own file -- which is measurably
+ * what stops its start-up. Leaving images alone fixes that and costs every one
+ * of those faults back: seconds become tens of minutes. So rewriting stays on.
+ *
+ * TUXBLOX_ALIGN_REWRITE_IMAGES=none leaves images alone, =movdqa allows only the
+ * one spelling Windows is known to produce. Read once at startup, because
+ * nothing on the fault path may call getenv. */
+static BOOL align_rewrite_images = TRUE;
+static BOOL align_rewrite_images_dq = FALSE;
+
 /* Whether this instruction has faulted before. Only the VEX rewrite waits for
  * it: that one is not semantics-preserving, so an instruction seen once is left
  * alone. The move rewrite runs on the first fault, as Windows does. */
@@ -2354,6 +2369,11 @@ static void rewrite_aligned_move( ULONG64 rip, BYTE opcode, unsigned int op_pos,
                                   unsigned int opsize_pos, unsigned int opsize_count )
 {
     if (!align_rewrite_allowed) return;
+    if (!align_rewrite_images && virtual_is_image_address( (const void *)(ULONG_PTR)rip ))
+    {
+        /* movdqa is the one spelling Windows is known to rewrite */
+        if (!align_rewrite_images_dq || (opcode != 0x6f && opcode != 0x7f)) return;
+    }
 
     switch (opcode)
     {
@@ -2461,6 +2481,7 @@ static void rewrite_vex_sse( ULONG64 rip, const BYTE *instr, BYTE opcode, unsign
     unsigned int start, count, vvvv, i;
 
     if (!repeated || !align_rewrite_allowed || !vex_rewrite_allowed) return;
+    if (!align_rewrite_images && virtual_is_image_address( (const void *)(ULONG_PTR)rip )) return;
     if (!avx_available()) return;
     if (rep || opsize_count != 1) return;  /* the 66 is the one the VEX prefix takes over */
     switch (vex_operand_count( opcode ))
@@ -3921,6 +3942,12 @@ void signal_init_process(void)
     void *ptr, *kernel_stack = (char *)thread_data->kernel_stack + kernel_stack_size;
 
     align_rewrite_allowed = !getenv( "TUXBLOX_NO_ALIGN_REWRITE" );
+    {
+        const char *v = getenv( "TUXBLOX_ALIGN_REWRITE_IMAGES" );
+
+        if (v && !strcmp( v, "movdqa" )) align_rewrite_images_dq = TRUE;
+        if (v && (!strcmp( v, "movdqa" ) || !strcmp( v, "none" ))) align_rewrite_images = FALSE;
+    }
     gp_reports_execute = !!getenv( "TUXBLOX_TEST_GP_EXEC" );
     vex_rewrite_allowed = !getenv( "TUXBLOX_NO_VEX_REWRITE" );
     {

@@ -5641,6 +5641,29 @@ NTSTATUS virtual_uninterrupted_write_memory( void *addr, const void *buffer, SIZ
  * the application asked for is left alone, so nothing it can query changes.
  * One byte never straddles a page, so only one page is ever touched.
  */
+/***********************************************************************
+ *           virtual_is_image_address
+ *
+ * Whether an address belongs to a mapped image rather than to memory the
+ * program allocated for itself. Correcting a misaligned move rewrites the
+ * instruction, and an image is the one place that must not happen: the program
+ * can map the file it came from and compare, and Windows never gives it a
+ * reason to differ.
+ */
+BOOL virtual_is_image_address( const void *addr )
+{
+    struct file_view *view;
+    sigset_t sigset;
+    BOOL ret;
+
+    server_enter_uninterrupted_section( &virtual_mutex, &sigset );
+    view = find_view( addr, 0 );
+    ret = view && (view->protect & SEC_IMAGE);
+    server_leave_uninterrupted_section( &virtual_mutex, &sigset );
+    return ret;
+}
+
+
 NTSTATUS virtual_patch_code_byte( void *addr, BYTE value )
 {
     char *page = ROUND_ADDR( addr, host_page_mask );
