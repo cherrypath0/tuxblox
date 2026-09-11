@@ -1706,6 +1706,22 @@ static void setup_raise_exception( ucontext_t *sigcontext, EXCEPTION_RECORD *rec
     XSAVE_AREA_HEADER *src_xs;
     void *callback;
 
+    /* Diagnostic: every exception that reaches a handler passes here, which is
+     * how the exception behind an unwind gets named. Alignment faults the
+     * fixup handles return long before this, so this does not see the 194M of
+     * them. Guarded like the other records so the snprintf is not paid with
+     * tracing off. */
+    if (tuxblox_trace_enabled())
+    {
+        char detail[128];
+
+        snprintf( detail, sizeof(detail), "code=%08x flags=%x addr=%p nparams=%u p0=%llx",
+                  (unsigned int)rec->ExceptionCode, (unsigned int)rec->ExceptionFlags,
+                  rec->ExceptionAddress, (unsigned int)rec->NumberParameters,
+                  rec->NumberParameters ? (unsigned long long)rec->ExceptionInformation[0] : 0ull );
+        tuxblox_trace_record( "Exception", detail );
+    }
+
     if (rec->ExceptionCode == EXCEPTION_SINGLE_STEP)
     {
         /* when single stepping can't tell whether this is a hw bp or a
