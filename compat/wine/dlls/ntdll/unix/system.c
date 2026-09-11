@@ -3614,7 +3614,7 @@ static const struct known_class known_system_classes[] =
     { 180, 0xc0000003, NO_LENGTH },
     { 181, 0xc000000d, NO_LENGTH },
     { 182, 0xc0000004,   56, sys_182_data, 56 },
-    { 183, 0xc0000004, NO_LENGTH },
+    /* 183 has its own case in the switch: its answer depends on the length asked. */
     { 184, 0xc0000004,   24, sys_184_data, 24 },
     { 185, 0xc000000d, 0 },
     { 186, 0x80430006, NO_LENGTH },
@@ -6051,6 +6051,20 @@ static NTSTATUS query_system_information( SYSTEM_INFORMATION_CLASS class,
         }
         *(void **)info = hypervisor_shared_data;
         len = sizeof(void *);
+        break;
+
+    case SystemCodeIntegrityCertificateInformation:  /* 183 */
+        /* { HANDLE ImageFile; ULONG Type; }. Roblox asks it per walked module,
+         * first at 8 bytes (the Windows 10 struct) and then at 16 (the Windows
+         * 11 one), which is a version fingerprint in itself.
+         *
+         * Measured on the reference machine with a real handle on a signed
+         * system DLL: 8 is refused, 16 succeeds, and on success it writes
+         * nothing back -- the caller's input is still sitting there afterwards
+         * -- and reports a zero length. This build refused both lengths, which
+         * is right for 8 and wrong for 16. */
+        if (size < 16) return STATUS_INFO_LENGTH_MISMATCH;
+        len = 0;
         break;
 
     default:
