@@ -829,6 +829,17 @@ BOOL CDECL __uncaught_exception(void)
     return msvcrt_get_thread_data()->processing_throw != 0;
 }
 
+/******************************************************************
+ *		__uncaught_exceptions (MSVCRT.@)
+ *
+ * How many exceptions are in flight, where __uncaught_exception is the
+ * yes-or-no. ucrtbase exports both; this one was missing.
+ */
+int CDECL __uncaught_exceptions(void)
+{
+    return msvcrt_get_thread_data()->processing_throw;
+}
+
 /*********************************************************************
  *              _fpieee_flt (MSVCRT.@)
  */

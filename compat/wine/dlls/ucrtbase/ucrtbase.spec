@@ -36,9 +36,6 @@
 @ stub _LCmulcr
 @ stub _SetImageBase
 @ stub _SetThrowImageBase
-@ stub _NLG_Dispatch2
-@ stub _NLG_Return
-@ stub _NLG_Return2
 @ cdecl _SetWinRTOutOfMemoryExceptionCallback(ptr)
 @ cdecl _Strftime(ptr long str ptr ptr)
 @ cdecl _W_Getdays()
@@ -49,6 +46,7 @@
 @ stub __BuildCatchObject
 @ stub __BuildCatchObjectHelper
 @ stdcall -arch=!i386 __C_specific_handler(ptr long ptr ptr)
+@ stdcall -arch=!i386 __C_specific_handler_noexcept(ptr long ptr ptr) __C_specific_handler
 @ cdecl __CxxDetectRethrow(ptr)
 @ cdecl __CxxExceptionFilter(ptr ptr long ptr)
 @ cdecl -norelay __CxxFrameHandler(ptr ptr ptr ptr)
@@ -93,7 +91,6 @@
 @ cdecl __fpe_flt_rounds()
 @ cdecl __fpecode()
 @ cdecl __initialize_lconv_for_unsigned_char() __lconv_init
-@ cdecl __intrinsic_abnormal_termination()
 @ cdecl -norelay __intrinsic_setjmp(ptr) _setjmp
 @ cdecl -arch=!i386 -norelay __intrinsic_setjmpex(ptr ptr) _setjmpex
 @ cdecl __isascii(long)
@@ -178,6 +175,7 @@
 @ cdecl __unDName(ptr str long ptr ptr long)
 @ cdecl __unDNameEx(ptr str long ptr ptr ptr long)
 @ cdecl __uncaught_exception()
+@ cdecl __uncaught_exceptions()
 @ cdecl __wcserror(wstr)
 @ cdecl __wcserror_s(ptr long wstr)
 @ stub __wcsncnt
@@ -245,7 +243,6 @@
 @ cdecl _create_locale(long str)
 @ cdecl _crt_at_quick_exit(ptr)
 @ cdecl _crt_atexit(ptr)
-@ cdecl _crt_debugger_hook(long)
 @ cdecl _ctime32(ptr)
 @ cdecl _ctime32_s(str long ptr)
 @ cdecl _ctime64(ptr)
@@ -1213,7 +1210,7 @@
 @ cdecl _o__mbsnbcat_s(str long ptr long) _mbsnbcat_s
 @ cdecl _o__mbsnbcat_s_l(str long ptr long ptr) _mbsnbcat_s_l
 @ cdecl _o__mbsnbcmp(str str long) _mbsnbcmp
-@ cdecl _o_mbsnbcmp_l(str str long ptr) _mbsnbcmp_l
+@ cdecl _o__mbsnbcmp_l(str str long ptr) _mbsnbcmp_l
 @ cdecl _o__mbsnbcnt(ptr long) _mbsnbcnt
 @ cdecl _o__mbsnbcnt_l(ptr long ptr) _mbsnbcnt_l
 @ cdecl _o__mbsnbcoll(str str long) _mbsnbcoll
