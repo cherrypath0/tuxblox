@@ -6054,15 +6054,17 @@ static NTSTATUS query_system_information( SYSTEM_INFORMATION_CLASS class,
         break;
 
     case SystemCodeIntegrityCertificateInformation:  /* 183 */
-        /* { HANDLE ImageFile; ULONG Type; }. Roblox asks it per walked module,
-         * first at 8 bytes (the Windows 10 struct) and then at 16 (the Windows
-         * 11 one), which is a version fingerprint in itself.
+        /* { HANDLE ImageFile; ULONG Type; }, 16 bytes. Measured on the
+         * reference machine with a real handle on a signed system DLL: the
+         * 8-byte form is refused, the 16-byte one succeeds, writes nothing
+         * back -- the caller's input is still sitting there afterwards -- and
+         * reports a zero length. This build refused both, which is right for 8
+         * and wrong for 16.
          *
-         * Measured on the reference machine with a real handle on a signed
-         * system DLL: 8 is refused, 16 succeeds, and on success it writes
-         * nothing back -- the caller's input is still sitting there afterwards
-         * -- and reports a zero length. This build refused both lengths, which
-         * is right for 8 and wrong for 16. */
+         * How Roblox uses it, counted over a whole run: twice at 8 bytes with
+         * a NULL handle before its module walk begins, which is a capability
+         * probe, and then at 16 bytes with a real handle for each module it
+         * walks -- once when that succeeds, twice when it is refused. */
         if (size < 16) return STATUS_INFO_LENGTH_MISMATCH;
         len = 0;
         break;
