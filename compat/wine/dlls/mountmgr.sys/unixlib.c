@@ -110,6 +110,35 @@ static BOOL is_valid_device( struct stat *st )
 #endif
 }
 
+/* Linux creates /dev/ttyS0..31 whether or not a UART sits behind them, so
+ * taking every one that exists publishes thirty-two serial ports on a machine
+ * that typically has none. No Windows machine looks like that. sysfs is the
+ * thing that knows: "type" is present and non-zero only for a real port.
+ *
+ * Deliberately one-sided -- a port is dropped only when sysfs positively says
+ * there is nothing there. No sysfs, an unreadable file, or any device that is
+ * not a /dev/ttyS (USB and ACM adapters, other platforms) is kept exactly as
+ * before, so this can remove phantoms and cannot remove a working port. */
+static BOOL serial_port_is_real( const char *unix_path )
+{
+#ifdef linux
+    char sys_path[64], buf[32];
+    int fd, n;
+
+    if (strncmp( unix_path, "/dev/ttyS", 9 )) return TRUE;
+    if (snprintf( sys_path, sizeof(sys_path), "/sys/class/tty/%s/type",
+                  unix_path + 5 ) >= (int)sizeof(sys_path)) return TRUE;
+    if ((fd = open( sys_path, O_RDONLY )) == -1) return TRUE;
+    n = read( fd, buf, sizeof(buf) - 1 );
+    close( fd );
+    if (n <= 0) return TRUE;
+    buf[n] = 0;
+    return atoi( buf ) != 0;
+#else
+    return TRUE;
+#endif
+}
+
 static void detect_devices( const char **paths, char *names, ULONG size )
 {
     while (*paths)
@@ -122,6 +151,8 @@ static void detect_devices( const char **paths, char *names, ULONG size )
             int len = snprintf( unix_path, sizeof(unix_path), *paths, i++ );
             if (len + 2 > size) break;
             if (access( unix_path, F_OK ) != 0) break;
+            /* skip, rather than stop: a real port can sit above a phantom one */
+            if (!serial_port_is_real( unix_path )) continue;
             strcpy( names, unix_path );
             names += len + 1;
             size -= len + 1;
