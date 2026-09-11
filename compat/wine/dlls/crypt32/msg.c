@@ -1103,6 +1103,73 @@ typedef enum {
     Verify
 } SignOrVerify;
 
+/* Hash a signer's authenticated attributes the way they were signed.
+ *
+ * DER says a SET OF is sorted, and the encoder sorts accordingly -- which is
+ * right when signing. It is wrong when verifying: the signature is over the
+ * bytes the signer produced, and signers in the field do not always sort. Both
+ * of Roblox's binaries are signed with the four attributes in the order
+ * statement-type, opus-info, content-type, message-digest, which is not sorted
+ * order, so re-encoding them sorted hashes something that was never signed and
+ * the signature is rejected. Each attribute is therefore encoded on its own and
+ * the SET OF is assembled around them in the order given.
+ */
+static BOOL CRYPT_HashAttrsAsSigned(HCRYPTHASH hash,
+ const CRYPT_ATTRIBUTES *attrs)
+{
+    BYTE **encoded;
+    DWORD *sizes, i, total = 0, lenBytes;
+    BYTE header[6];
+    BOOL ret = TRUE;
+
+    if (!(encoded = CryptMemAlloc(attrs->cAttr * sizeof(*encoded))))
+        return FALSE;
+    if (!(sizes = CryptMemAlloc(attrs->cAttr * sizeof(*sizes))))
+    {
+        CryptMemFree(encoded);
+        return FALSE;
+    }
+    memset(encoded, 0, attrs->cAttr * sizeof(*encoded));
+
+    for (i = 0; ret && i < attrs->cAttr; i++)
+    {
+        ret = CryptEncodeObjectEx(X509_ASN_ENCODING, PKCS_ATTRIBUTE,
+         &attrs->rgAttr[i], CRYPT_ENCODE_ALLOC_FLAG, NULL, &encoded[i],
+         &sizes[i]);
+        if (ret) total += sizes[i];
+    }
+
+    if (ret)
+    {
+        /* the SET OF header, definite length as DER requires */
+        header[0] = ASN_CONSTRUCTOR | ASN_SETOF;
+        if (total < 0x80)
+        {
+            header[1] = (BYTE)total;
+            lenBytes = 2;
+        }
+        else
+        {
+            DWORD temp = total, n = 0;
+
+            while (temp) { temp >>= 8; n++; }
+            header[1] = 0x80 | n;
+            for (temp = 0; temp < n; temp++)
+                header[2 + temp] = (BYTE)(total >> ((n - temp - 1) * 8));
+            lenBytes = 2 + n;
+        }
+        ret = CryptHashData(hash, header, lenBytes, 0);
+    }
+    for (i = 0; ret && i < attrs->cAttr; i++)
+        ret = CryptHashData(hash, encoded[i], sizes[i], 0);
+
+    for (i = 0; i < attrs->cAttr; i++)
+        LocalFree(encoded[i]);
+    CryptMemFree(sizes);
+    CryptMemFree(encoded);
+    return ret;
+}
+
 static BOOL CSignedMsgData_UpdateAuthenticatedAttributes(
  CSignedMsgData *msg_data, SignOrVerify flag)
 {
@@ -1131,7 +1198,11 @@ static BOOL CSignedMsgData_UpdateAuthenticatedAttributes(
                     ret = CSignedMsgData_AppendMessageDigestAttribute(msg_data,
                      i);
             }
-            if (ret)
+            if (ret && flag == Verify)
+                ret = CRYPT_HashAttrsAsSigned(
+                 msg_data->signerHandles[i].authAttrHash,
+                 &msg_data->info->rgSignerInfo[i].AuthAttrs);
+            else if (ret)
             {
                 LPBYTE encodedAttrs;
                 DWORD size;
