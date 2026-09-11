@@ -2289,8 +2289,12 @@ static BOOL writes_memory( BYTE opcode, BOOL opsize )
  *
  * The edit is a single byte, which x86 stores atomically and fetches
  * coherently, so a thread part-way through the same instruction sees one
- * spelling or the other and both are correct. Nothing is rewritten unless it
- * has already faulted, so this never runs over code that was working.
+ * spelling or the other and both are correct.
+ *
+ * It happens on the first fault, because that is when Windows does it and the
+ * Roblox layer checks: it runs one misaligned movdqa of its own and compares
+ * that instruction's first opcode byte against 0xf3. A byte still reading 0x66
+ * tells it the correction never came, and its start-up fails from there.
  */
 /* Instructions that have faulted before. Direct-mapped and a fixed size, so it
  * needs no allocation in a signal handler; a collision only costs one more
@@ -2331,10 +2335,9 @@ static BOOL gp_reports_execute = FALSE;
  * nothing on the fault path may call getenv. */
 static BOOL align_rewrite_allowed = TRUE;
 
-/* Whether this instruction has faulted before. Windows corrects a misaligned
- * access without ever editing the code, so an instruction that faults once and
- * then reads its own bytes back can see the rewrite. Waiting for a second fault
- * leaves those alone and still collapses the loops, which fault endlessly. */
+/* Whether this instruction has faulted before. Only the VEX rewrite waits for
+ * it: that one is not semantics-preserving, so an instruction seen once is left
+ * alone. The move rewrite runs on the first fault, as Windows does. */
 static BOOL align_fault_repeated( ULONG64 rip )
 {
     /* mixed rather than masked: these instructions sit a few bytes apart, so
@@ -2348,10 +2351,9 @@ static BOOL align_fault_repeated( ULONG64 rip )
 }
 
 static void rewrite_aligned_move( ULONG64 rip, BYTE opcode, unsigned int op_pos,
-                                  unsigned int opsize_pos, unsigned int opsize_count,
-                                  BOOL repeated )
+                                  unsigned int opsize_pos, unsigned int opsize_count )
 {
-    if (!repeated || !align_rewrite_allowed) return;
+    if (!align_rewrite_allowed) return;
 
     switch (opcode)
     {
@@ -2600,7 +2602,7 @@ static BOOL emulate_misaligned_sse( CONTEXT *context )
         M128A *xmm = &context->FltSave.XmmRegisters[reg | ((rex & 4) ? 8 : 0)];
 
         if (virtual_uninterrupted_write_memory( (void *)addr, xmm, sizeof(*xmm) )) return FALSE;
-        rewrite_aligned_move( context->Rip, opcode, op, opsize_pos, opsize_count, repeated );
+        rewrite_aligned_move( context->Rip, opcode, op, opsize_pos, opsize_count );
         context->Rip += len;
         return TRUE;
     }
@@ -2612,7 +2614,7 @@ static BOOL emulate_misaligned_sse( CONTEXT *context )
     if (!emulate_sse_op( context, opcode, opsize, reg | ((rex & 4) ? 8 : 0), &operand, imm, rep ))
         return FALSE;
 
-    rewrite_aligned_move( context->Rip, opcode, op, opsize_pos, opsize_count, repeated );
+    rewrite_aligned_move( context->Rip, opcode, op, opsize_pos, opsize_count );
     rewrite_vex_sse( context->Rip, instr, opcode, op, opsize_pos, opsize_count, rep, rex, rex_pos, reg,
                      repeated );
     context->Rip += len;
