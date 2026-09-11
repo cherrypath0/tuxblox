@@ -3369,6 +3369,81 @@ static const unsigned char sys_213_data[] =
     0xf1, 0xde, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 };
 
+/* TUXBLOX_DIAG_SYSCLASS: force the answer for a system information class,
+ * written "183:0" or "183:0@10" -- class:status[@size], comma-separated. With
+ * a size, the override applies only to a query at least that big and reports
+ * that length, which is how a class that takes an input structure is asked.
+ *
+ * The table below was measured by asking each class with a zero-length buffer,
+ * which is the only length that can be asked blind. A class whose refusal at
+ * length 0 is right can still be wrong at the length its caller really uses,
+ * and nothing outside the program says which. This A/Bs a candidate answer
+ * without a rebuild per candidate. Diagnostic only, off unless set. */
+#define DIAG_SYSCLASS_MAX 8
+
+static struct
+{
+    unsigned int class, status, len;
+    int has_len;
+} diag_sysclass[DIAG_SYSCLASS_MAX];
+static unsigned int diag_sysclass_count;
+static int diag_sysclass_parsed;
+
+static void diag_sysclass_parse(void)
+{
+    const char *v;
+
+    if (diag_sysclass_parsed) return;
+    diag_sysclass_parsed = 1;
+    if (!(v = getenv( "TUXBLOX_DIAG_SYSCLASS" ))) return;
+    while (*v && diag_sysclass_count < DIAG_SYSCLASS_MAX)
+    {
+        char *end;
+        unsigned int c = strtoul( v, &end, 0 );
+
+        if (end == v || *end != ':') break;
+        v = end + 1;
+        diag_sysclass[diag_sysclass_count].class = c;
+        diag_sysclass[diag_sysclass_count].status = strtoul( v, &end, 16 );
+        if (end == v) break;
+        v = end;
+        if (*v == '@')
+        {
+            diag_sysclass[diag_sysclass_count].len = strtoul( v + 1, &end, 16 );
+            diag_sysclass[diag_sysclass_count].has_len = 1;
+            v = end;
+        }
+        ERR( "DIAG sysclass %u forced to status %08x len %x\n", c,
+             diag_sysclass[diag_sysclass_count].status,
+             diag_sysclass[diag_sysclass_count].len );
+        diag_sysclass_count++;
+        if (*v == ',') v++;
+    }
+}
+
+/* Whether this class is forced, and to what. Logs the caller's input buffer,
+ * which for the classes that take one is the question being asked. */
+static BOOL diag_sysclass_forced( unsigned int class, const void *info, unsigned int size,
+                                  unsigned int *status, unsigned int *len )
+{
+    unsigned int i;
+
+    diag_sysclass_parse();
+    for (i = 0; i < diag_sysclass_count; i++)
+    {
+        if (diag_sysclass[i].class != class) continue;
+        if (diag_sysclass[i].has_len && size < diag_sysclass[i].len) continue;
+        *status = diag_sysclass[i].status;
+        *len = diag_sysclass[i].has_len ? diag_sysclass[i].len : size;
+        if (info && size >= 8)
+            ERR( "DIAG sysclass %u size=%u in=%016llx%s -> %08x\n", class, size,
+                 (unsigned long long)*(const ULONG64 *)info,
+                 size >= 16 ? "..." : "", *status );
+        return TRUE;
+    }
+    return FALSE;
+}
+
 static const struct known_class known_system_classes[] =
 {
     /* Classes this build used to deny outright. A real Windows 11 25H2 has all
@@ -4935,6 +5010,16 @@ static NTSTATUS query_system_information( SYSTEM_INFORMATION_CLASS class,
         tuxblox_trace_record( "NtQuerySystemInformation", class_buf );
     }
 
+    {
+        unsigned int forced_status, forced_len;
+
+        if (diag_sysclass_forced( class, info, size, &forced_status, &forced_len ))
+        {
+            if (ret_size) *ret_size = forced_len;
+            return forced_status;
+        }
+    }
+
     switch (class)
     {
     case SystemNativeBasicInformation:  /* 114 */
@@ -5594,16 +5679,19 @@ static NTSTATUS query_system_information( SYSTEM_INFORMATION_CLASS class,
 
         tuxblox_trace_record( "SystemModuleInformationEx", "" );
 
-        len = sizeof(*module_info) * ARRAY_SIZE(kernel_modules) + sizeof(module_info->NextOffset);
+        /* The list ends with a real entry whose NextOffset is zero, not with an
+         * extra stub after the last one. Writing a stub made the walk hand out
+         * one more module than there are -- a blank one, and one more than the
+         * count SystemModuleInformation reports for the same machine. */
+        len = sizeof(*module_info) * ARRAY_SIZE(kernel_modules);
         if (len <= size)
         {
             memset( info, 0, len );
             for (i = 0; i < ARRAY_SIZE(kernel_modules); i++)
             {
                 fill_module_info( &module_info[i].BaseInfo, i );
-                module_info[i].NextOffset = sizeof(*module_info);
+                module_info[i].NextOffset = (i + 1 < ARRAY_SIZE(kernel_modules)) ? sizeof(*module_info) : 0;
             }
-            module_info[i].NextOffset = 0;
         }
         else ret = STATUS_INFO_LENGTH_MISMATCH;
 
