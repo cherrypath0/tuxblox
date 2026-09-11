@@ -1995,6 +1995,20 @@ NTSTATUS WINAPI NtOpenDirectoryObject( HANDLE *handle, ACCESS_MASK access, const
 {
     unsigned int ret;
 
+    /* Diagnostic: the Roblox layer keeps a set of device names and tests
+     * membership against it, so whether it ever walks the object namespace --
+     * and which directory -- decides whether our \Device, \Driver and missing
+     * \GLOBAL?? matter at all. */
+    if (tuxblox_trace_enabled())
+    {
+        char detail[160];
+
+        snprintf( detail, sizeof(detail), "name=%s access=%x",
+                  attr && attr->ObjectName ? debugstr_us(attr->ObjectName) : "(null)",
+                  (unsigned int)access );
+        tuxblox_trace_record( "NtOpenDirectoryObject", detail );
+    }
+
     *handle = 0;
     if ((ret = validate_open_object_attributes( attr ))) return ret;
 
@@ -2023,6 +2037,9 @@ NTSTATUS WINAPI NtQueryDirectoryObject( HANDLE handle, DIRECTORY_BASIC_INFORMATI
     unsigned int status, i, count, total_len, pos, used_size, used_count, strpool_head;
     ULONG index = restart ? 0 : *context;
     struct directory_entry *entries;
+
+    if (tuxblox_trace_enabled())
+        tuxblox_trace_record( "NtQueryDirectoryObject", restart ? "restart" : "continue" );
 
     if (!(entries = malloc( size ))) return STATUS_NO_MEMORY;
 
