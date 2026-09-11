@@ -8407,6 +8407,10 @@ static NTSTATUS query_object( HANDLE handle, OBJECT_INFORMATION_CLASS info_class
                 p->Name.MaximumLength = name.Length + sizeof(WCHAR);
                 memcpy( p->Name.Buffer, name.Buffer, name.Length + sizeof(WCHAR) );
             }
+            /* Which file a program asked the name of, beside the section-name
+             * record: a walk over modules asks both, and the pair is what says
+             * which module an iteration was about. */
+            if (tuxblox_trace_enabled()) tuxblox_trace_record_us( "ObjectName", &name );
             if (used_len) *used_len = needed;
         }
         else if (!status)  /* no name */
