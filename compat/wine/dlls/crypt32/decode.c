@@ -38,6 +38,7 @@
 #include "windef.h"
 #include "winbase.h"
 #include "wincrypt.h"
+#include "wintrust.h"
 #include "winnls.h"
 #include "snmp.h"
 #include "wine/debug.h"
@@ -6743,6 +6744,87 @@ static BOOL WINAPI CRYPT_AsnDecodeOCSPBasicResponse(DWORD dwCertEncodingType,
     return ret;
 }
 
+/* The digest half of SpcIndirectDataContent:
+ *     DigestInfo ::= SEQUENCE { digestAlgorithm AlgorithmIdentifier,
+ *                               digest          OCTETSTRING }
+ * It decodes into the tail of SPC_INDIRECT_DATA_CONTENT, whose DigestAlgorithm
+ * and Digest members sit side by side, so the two are described by one local
+ * struct laid out the same way.
+ */
+struct SPCDigest
+{
+    CRYPT_ALGORITHM_IDENTIFIER DigestAlgorithm;
+    CRYPT_HASH_BLOB            Digest;
+};
+
+static BOOL CRYPT_AsnDecodeSPCDigest(const BYTE *pbEncoded, DWORD cbEncoded,
+ DWORD dwFlags, void *pvStructInfo, DWORD *pcbStructInfo, DWORD *pcbDecoded)
+{
+    struct SPCDigest *digest = pvStructInfo;
+    struct AsnDecodeSequenceItem items[] = {
+     { ASN_SEQUENCEOF, offsetof(struct SPCDigest, DigestAlgorithm),
+       CRYPT_AsnDecodeAlgorithmId, sizeof(CRYPT_ALGORITHM_IDENTIFIER),
+       FALSE, TRUE, offsetof(struct SPCDigest, DigestAlgorithm.pszObjId), 0 },
+     { ASN_OCTETSTRING, offsetof(struct SPCDigest, Digest),
+       CRYPT_AsnDecodeOctets, sizeof(CRYPT_HASH_BLOB), FALSE, TRUE,
+       offsetof(struct SPCDigest, Digest.pbData), 0 },
+    };
+
+    TRACE("%p, %ld, %08lx, %p, %ld, %p\n", pbEncoded, cbEncoded, dwFlags,
+     pvStructInfo, *pcbStructInfo, pcbDecoded);
+
+    return CRYPT_AsnDecodeSequence(items, ARRAY_SIZE(items), pbEncoded,
+     cbEncoded, dwFlags, NULL, pvStructInfo, pcbStructInfo, pcbDecoded,
+     digest ? digest->DigestAlgorithm.pszObjId : NULL);
+}
+
+/* SpcIndirectDataContent, the structure an Authenticode signature is built
+ * around: it names what was hashed and carries the hash.
+ *
+ *     SpcIndirectDataContent ::= SEQUENCE {
+ *         data          SpcAttributeTypeAndOptionalValue,
+ *         messageDigest DigestInfo }
+ *     SpcAttributeTypeAndOptionalValue ::= SEQUENCE {
+ *         type  ObjectID,
+ *         value ANY OPTIONAL }
+ *
+ * The first member is an object identifier followed by an optional untagged
+ * value, which is the same shape as an AlgorithmIdentifier and decodes into a
+ * CRYPT_ATTRIBUTE_TYPE_VALUE, which has the same layout again -- so the
+ * existing decoder covers it and nothing new is needed for that half.
+ */
+static BOOL WINAPI CRYPT_AsnDecodeSPCIndirectData(DWORD dwCertEncodingType,
+ LPCSTR lpszStructType, const BYTE *pbEncoded, DWORD cbEncoded, DWORD dwFlags,
+ PCRYPT_DECODE_PARA pDecodePara, void *pvStructInfo, DWORD *pcbStructInfo)
+{
+    BOOL ret = FALSE;
+
+    TRACE("%p, %ld, %08lx, %p, %p, %ld\n", pbEncoded, cbEncoded, dwFlags,
+     pDecodePara, pvStructInfo, *pcbStructInfo);
+
+    __TRY
+    {
+        struct AsnDecodeSequenceItem items[] = {
+         { ASN_SEQUENCEOF, offsetof(SPC_INDIRECT_DATA_CONTENT, Data),
+           CRYPT_AsnDecodeAlgorithmId, sizeof(CRYPT_ATTRIBUTE_TYPE_VALUE),
+           FALSE, TRUE, offsetof(SPC_INDIRECT_DATA_CONTENT, Data.pszObjId), 0 },
+         { ASN_SEQUENCEOF, offsetof(SPC_INDIRECT_DATA_CONTENT, DigestAlgorithm),
+           CRYPT_AsnDecodeSPCDigest, sizeof(struct SPCDigest), FALSE, TRUE,
+           offsetof(SPC_INDIRECT_DATA_CONTENT, DigestAlgorithm.pszObjId), 0 },
+        };
+
+        ret = CRYPT_AsnDecodeSequence(items, ARRAY_SIZE(items), pbEncoded,
+         cbEncoded, dwFlags, pDecodePara, pvStructInfo, pcbStructInfo, NULL,
+         NULL);
+    }
+    __EXCEPT_PAGE_FAULT
+    {
+        SetLastError(STATUS_ACCESS_VIOLATION);
+    }
+    __ENDTRY
+    return ret;
+}
+
 static CryptDecodeObjectExFunc CRYPT_GetBuiltinDecoder(DWORD dwCertEncodingType,
  LPCSTR lpszStructType)
 {
@@ -6758,6 +6840,9 @@ static CryptDecodeObjectExFunc CRYPT_GetBuiltinDecoder(DWORD dwCertEncodingType,
     {
         switch (LOWORD(lpszStructType))
         {
+        case LOWORD(SPC_INDIRECT_DATA_CONTENT_STRUCT):
+            decodeFunc = CRYPT_AsnDecodeSPCIndirectData;
+            break;
         case LOWORD(X509_CERT):
             decodeFunc = CRYPT_AsnDecodeCertSignedContent;
             break;
@@ -6960,6 +7045,8 @@ static CryptDecodeObjectExFunc CRYPT_GetBuiltinDecoder(DWORD dwCertEncodingType,
         decodeFunc = CRYPT_AsnDecodeCTL;
     else if (!strcmp(lpszStructType, szOID_ECC_PUBLIC_KEY))
         decodeFunc = CRYPT_AsnDecodeObjectIdentifier;
+    else if (!strcmp(lpszStructType, SPC_INDIRECT_DATA_OBJID))
+        decodeFunc = CRYPT_AsnDecodeSPCIndirectData;
     return decodeFunc;
 }
 
