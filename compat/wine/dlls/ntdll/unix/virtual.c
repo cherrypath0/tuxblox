@@ -4810,10 +4810,31 @@ static SIZE_T lazy_stack_commit(void)
         if (!v || !*v || *v == '0') cached = 0;
         else
         {
-            /* the value is how much to commit up front, in hex; "1" means the
-             * 16 KB the reference machine reports */
+            /* The value is how much to commit up front, in hex; "1" asks for the
+             * 16 KB the reference machine reports.
+             *
+             * That much cannot actually be given. Wine's own start-up makes a
+             * single stack jump bigger than the committed region plus its one
+             * guard page, so it lands on a page that is neither committed nor
+             * guarded; the fault is not a stack-growth fault, the exception is
+             * delivered instead, and writing the exception frame onto the same
+             * uncommitted stack faults again. The process dies with SIGSEGV and
+             * no message at all -- every program, not only Roblox.
+             *
+             * Windows does not hit this because its compilers probe the stack a
+             * page at a time (__chkstk) so a big frame always touches the guard
+             * page first. Wine's unix side is not built that way.
+             *
+             * Measured on procstate.exe: 0xe000 dies, 0xf000 survives. The floor
+             * below keeps a page of margin over that. It means the closest this
+             * can report is 0x10000 against Windows' 0x4000 -- better than the
+             * 0x1fe000 of committing the whole reservation, but not equal, and
+             * closing the rest needs Wine's own start-up to stop taking one big
+             * stack jump. */
             SIZE_T n = strtoull( v, NULL, 16 );
+
             cached = (n <= 1) ? 0x4000 : n;
+            if (cached < 0x10000) cached = 0x10000;
         }
     }
     return cached;
