@@ -639,6 +639,27 @@ static const WCHAR *skip_unc_prefix( const WCHAR *ptr )
 
 
 /******************************************************************
+ *		device_name_to_drive
+ *
+ * Rewrite a \Device\... prefix as the drive it is mounted as, in place.
+ * A file handle is named by its device path, as on Windows.
+ */
+static BOOL device_name_to_drive( UNICODE_STRING *path )
+{
+    ULONG len = path->Length / sizeof(WCHAR), dev_len;
+    int drive = find_dos_drive_for_device( path->Buffer, len, &dev_len );
+
+    if (drive < 0 || dev_len < 6) return FALSE;
+    memmove( path->Buffer + 6, path->Buffer + dev_len, (len - dev_len) * sizeof(WCHAR) );
+    memcpy( path->Buffer, L"\\??\\", 4 * sizeof(WCHAR) );
+    path->Buffer[4] = 'A' + drive;
+    path->Buffer[5] = ':';
+    path->Length -= (dev_len - 6) * sizeof(WCHAR);
+    return TRUE;
+}
+
+
+/******************************************************************
  *		get_unix_full_path
  *
  * Get a full path for a Unix path name. Helper for RtlGetFullPathName_UEx.
@@ -686,15 +707,19 @@ static BOOL get_unix_full_path( LPCWSTR name, LPWSTR buffer, ULONG size, ULONG *
 
         if (!(status = NtQueryObject( handle, ObjectNameInformation, info, bufsize, &retsize )))
         {
-            ULONG len = info->Name.Length;
-            WCHAR *name = info->Name.Buffer;
+            ULONG len;
+            WCHAR *name;
+
+            device_name_to_drive( &info->Name );
+            len = info->Name.Length;
+            name = info->Name.Buffer;
 
             if (len >= 6 * sizeof(WCHAR) && name[5] == ':')
             {
                 len -= 4 * sizeof(WCHAR);
                 name += 4;
             }
-            else name[1] = '\\';
+            else if (len >= 4 * sizeof(WCHAR) && !wcsncmp( name, L"\\??\\", 4 )) name[1] = '\\';
 
             *reqsize = len + file_len + sizeof(WCHAR);
             if (*reqsize <= size)

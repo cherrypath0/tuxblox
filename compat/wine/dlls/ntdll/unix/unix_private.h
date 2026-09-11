@@ -475,6 +475,8 @@ static inline BOOL lookup_known_class( const struct known_class *table, unsigned
 
 extern void set_alignment_fault_fixup( BOOLEAN enable );
 extern BOOL virtual_is_image_address( const void *addr );
+extern NTSTATUS resolve_drive_symlink( UNICODE_STRING *name, SIZE_T max_name_len, SIZE_T *ret_len,
+                                       NTSTATUS status );
 extern SIZE_T virtual_uninterrupted_read_memory( const void *addr, void *buffer, SIZE_T size );
 extern NTSTATUS virtual_uninterrupted_write_memory( void *addr, const void *buffer, SIZE_T size );
 extern NTSTATUS virtual_patch_code_byte( void *addr, BYTE value );

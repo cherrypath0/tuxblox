@@ -87,6 +87,33 @@ static NTSTATUS read_nt_symlink( const WCHAR *name, WCHAR *target, DWORD size )
     return status;
 }
 
+/* map a \Device\... prefix back to the drive it is mounted as, in place.
+ * NtQueryObject names a file the way Windows does, by its device path; the
+ * callers here want the \??\X: form Wine builds its paths from. */
+BOOL device_path_to_dos_path( UNICODE_STRING *path )
+{
+    WCHAR drive[] = L"\\??\\A:", target[MAX_PATH];
+    ULONG len;
+
+    if (path->Length < 8 * sizeof(WCHAR) || wcsnicmp( path->Buffer, L"\\Device\\", 8 )) return FALSE;
+
+    for (drive[4] = 'A'; drive[4] <= 'Z'; drive[4]++)
+    {
+        if (read_nt_symlink( drive, target, ARRAY_SIZE(target) )) continue;
+        len = lstrlenW( target );
+        if (len < 6 || path->Length < len * sizeof(WCHAR)) continue;
+        if (wcsnicmp( path->Buffer, target, len )) continue;
+        if (path->Length > len * sizeof(WCHAR) && path->Buffer[len] != '\\') continue;
+
+        memmove( path->Buffer + 6, path->Buffer + len, path->Length - len * sizeof(WCHAR) );
+        memcpy( path->Buffer, drive, 6 * sizeof(WCHAR) );
+        path->Length -= (len - 6) * sizeof(WCHAR);
+        path->Buffer[path->Length / sizeof(WCHAR)] = 0;
+        return TRUE;
+    }
+    return FALSE;
+}
+
 /* open a handle to a device root */
 static BOOL open_device_root( LPCWSTR root, HANDLE *handle )
 {
@@ -794,6 +821,7 @@ static BOOL resolve_symlink( UNICODE_STRING *path )
     RtlFreeUnicodeString( path );
     status = RtlDuplicateUnicodeString( 0, &info->Name, path );
     HeapFree( GetProcessHeap(), 0, info );
+    if (!status) device_path_to_dos_path( path );
     return !status;
 }
 

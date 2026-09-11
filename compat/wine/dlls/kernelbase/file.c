@@ -1915,6 +1915,10 @@ DWORD WINAPI DECLSPEC_HOTPATCH GetFinalPathNameByHandleW( HANDLE file, LPWSTR pa
         SetLastError( ERROR_INVALID_HANDLE );
         goto done;
     }
+    /* the handle is named by its device path, as on Windows; this code works
+     * from the drive it is mounted as */
+    device_path_to_dos_path( &info->Name );
+
     if (info->Name.Length < 4 * sizeof(WCHAR) || info->Name.Buffer[0] != '\\' ||
         info->Name.Buffer[1] != '?' || info->Name.Buffer[2] != '?' || info->Name.Buffer[3] != '\\' )
     {

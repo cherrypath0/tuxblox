@@ -6939,7 +6939,7 @@ static NTSTATUS read_nt_symlink( UNICODE_STRING *name, WCHAR *target, DWORD size
     return status;
 }
 
-static NTSTATUS resolve_drive_symlink( UNICODE_STRING *name, SIZE_T max_name_len, SIZE_T *ret_len, NTSTATUS status )
+NTSTATUS resolve_drive_symlink( UNICODE_STRING *name, SIZE_T max_name_len, SIZE_T *ret_len, NTSTATUS status )
 {
     static const WCHAR dosprefixW[] = {'\\','?','?','\\'};
     UNICODE_STRING device_name;
@@ -6966,7 +6966,7 @@ static NTSTATUS resolve_drive_symlink( UNICODE_STRING *name, SIZE_T max_name_len
     device_name.Length = offset * sizeof(WCHAR);
     if ((status = read_nt_symlink( &device_name, symlink, ARRAY_SIZE( symlink ))))
     {
-        ERR("read_nt_symlink failed, status %#x.\n", (int)status);
+        WARN("read_nt_symlink failed, status %#x.\n", (int)status);
         return status;
     }
     symlink_len = wcslen( symlink );

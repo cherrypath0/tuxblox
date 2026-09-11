@@ -4571,6 +4571,39 @@ NTSTATUS ntdll_get_dos_file_name( const char *unix_name, WCHAR **dos, UINT dispo
 }
 
 
+/* collapse repeated backslashes in an NT name; helper for get_nt_and_unix_names
+ *
+ * Windows names a file by the path the object manager parsed, which has no
+ * empty components in it. Keeping the caller's spelling makes two handles on
+ * the same file report two different names, and a program that compares one
+ * against the other sees a difference that does not exist on Windows. */
+static void collapse_separators( OBJECT_ATTRIBUTES *attr, UNICODE_STRING *nt_name )
+{
+    UNICODE_STRING *obj_name = attr->ObjectName;
+    ULONG i, out = 0, len = obj_name->Length / sizeof(WCHAR);
+    WCHAR prev = 0;
+
+    for (i = 1; i < len; i++)
+        if (obj_name->Buffer[i] == '\\' && obj_name->Buffer[i - 1] == '\\') break;
+    if (i >= len) return;
+
+    if (obj_name != nt_name)  /* not already redirected, make a copy */
+    {
+        nt_name->Length = nt_name->MaximumLength = obj_name->Length;
+        if (!(nt_name->Buffer = malloc( nt_name->MaximumLength ))) return;
+        memcpy( nt_name->Buffer, obj_name->Buffer, nt_name->Length );
+        attr->ObjectName = nt_name;
+    }
+    for (i = 0; i < len; i++)
+    {
+        WCHAR c = nt_name->Buffer[i];
+
+        if (!(c == '\\' && prev == '\\')) nt_name->Buffer[out++] = c;
+        prev = c;
+    }
+    nt_name->Length = out * sizeof(WCHAR);
+}
+
 /* remove trailing backslash from NT name; helper for get_nt_and_unix_names */
 static void remove_trailing_backslash( OBJECT_ATTRIBUTES *attr, UNICODE_STRING *nt_name )
 {
@@ -4651,6 +4684,7 @@ NTSTATUS get_nt_and_unix_names( OBJECT_ATTRIBUTES *attr, UNICODE_STRING *nt_name
 
     if (!status || status == STATUS_NO_SUCH_FILE)
     {
+        collapse_separators( attr, nt_name );
         remove_trailing_backslash( attr, nt_name );
         TRACE( "%s -> ret %x nt %s unix %s\n", debugstr_us(orig),
                status, debugstr_us(attr->ObjectName), debugstr_a(*unix_name_ret) );
@@ -8328,39 +8362,65 @@ static NTSTATUS query_object( HANDLE handle, OBJECT_INFORMATION_CLASS info_class
 
     case ObjectNameInformation:
     {
+        /* Windows names a file by its device path, never by the \??\C:\ form the
+         * server keeps. The name is fetched whole and resolved before anything is
+         * measured against the caller's buffer, so both the string and the length
+         * reported are the ones Windows gives. Names that are not drive paths are
+         * left exactly as the server recorded them. */
+        static const data_size_t reserve = 256 * sizeof(WCHAR);  /* device-name headroom */
         OBJECT_NAME_INFORMATION *p = ptr;
+        WCHAR stack_name[2 * MAX_PATH + 256], *full = stack_name;
+        data_size_t size = sizeof(stack_name), total = 0;
+        UNICODE_STRING name = { 0, 0, NULL };
+        ULONG needed;
 
-        SERVER_START_REQ( get_object_name )
+        for (;;)
         {
-            req->handle = wine_server_obj_handle( handle );
-            if (len > sizeof(*p) + sizeof(WCHAR))
-                wine_server_set_reply( req, p + 1, len - sizeof(*p) - sizeof(WCHAR) );
-            status = wine_server_call( req );
-            if (status == STATUS_SUCCESS)
+            SERVER_START_REQ( get_object_name )
             {
-                if (!reply->total)  /* no name */
-                {
-                    if (len < sizeof(*p)) status = STATUS_INFO_LENGTH_MISMATCH;
-                    else memset( p, 0, sizeof(*p) );
-                    if (used_len) *used_len = sizeof(*p);
-                }
-                else
-                {
-                    ULONG res = wine_server_reply_size( reply );
-                    p->Name.Buffer = (WCHAR *)(p + 1);
-                    p->Name.Length = res;
-                    p->Name.MaximumLength = res + sizeof(WCHAR);
-                    p->Name.Buffer[res / sizeof(WCHAR)] = 0;
-                    if (used_len) *used_len = sizeof(*p) + p->Name.MaximumLength;
-                }
+                req->handle = wine_server_obj_handle( handle );
+                wine_server_set_reply( req, full, size - reserve );
+                status = wine_server_call( req );
+                total = reply->total;
+                if (!status) name.Length = wine_server_reply_size( reply );
             }
-            else if (status == STATUS_INFO_LENGTH_MISMATCH || status == STATUS_BUFFER_OVERFLOW)
-            {
-                if (len < sizeof(*p)) status = STATUS_INFO_LENGTH_MISMATCH;
-                if (used_len) *used_len = sizeof(*p) + reply->total + sizeof(WCHAR);
-            }
+            SERVER_END_REQ;
+            if (full != stack_name || status != STATUS_BUFFER_OVERFLOW) break;
+            size = total + reserve;
+            if (!(full = malloc( size ))) return STATUS_NO_MEMORY;
         }
-        SERVER_END_REQ;
+
+        if (!status && total)
+        {
+            name.Buffer = full;
+            name.MaximumLength = size;
+            full[name.Length / sizeof(WCHAR)] = 0;
+            resolve_drive_symlink( &name, size - sizeof(WCHAR), NULL, STATUS_SUCCESS );
+
+            needed = sizeof(*p) + name.Length + sizeof(WCHAR);
+            if (len < sizeof(*p)) status = STATUS_INFO_LENGTH_MISMATCH;
+            else if (len < needed) status = STATUS_BUFFER_OVERFLOW;
+            else
+            {
+                p->Name.Buffer = (WCHAR *)(p + 1);
+                p->Name.Length = name.Length;
+                p->Name.MaximumLength = name.Length + sizeof(WCHAR);
+                memcpy( p->Name.Buffer, name.Buffer, name.Length + sizeof(WCHAR) );
+            }
+            if (used_len) *used_len = needed;
+        }
+        else if (!status)  /* no name */
+        {
+            if (len < sizeof(*p)) status = STATUS_INFO_LENGTH_MISMATCH;
+            else memset( p, 0, sizeof(*p) );
+            if (used_len) *used_len = sizeof(*p);
+        }
+        else if (status == STATUS_INFO_LENGTH_MISMATCH || status == STATUS_BUFFER_OVERFLOW)
+        {
+            if (len < sizeof(*p)) status = STATUS_INFO_LENGTH_MISMATCH;
+            if (used_len) *used_len = sizeof(*p) + total + sizeof(WCHAR);
+        }
+        if (full != stack_name) free( full );
         break;
     }
 

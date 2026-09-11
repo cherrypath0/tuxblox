@@ -38,6 +38,7 @@ extern void init_startup_info( RTL_USER_PROCESS_PARAMETERS *params );
 extern void init_locale( HMODULE module );
 extern void init_console(void);
 extern BOOL is_console_handle( HANDLE );
+extern BOOL device_path_to_dos_path( UNICODE_STRING *path );
 
 extern const WCHAR windows_dir[];
 extern const WCHAR system_dir[];
