@@ -6944,16 +6944,23 @@ NTSTATUS WINAPI NtRaiseHardError( NTSTATUS status, ULONG count,
 {
     BOOL answered = FALSE;
 
-    tuxblox_trace_record( "NtRaiseHardError", "" );
-
-    /* the first two parameters of a message box are its text and its title */
-    if (params && count >= 2 && (params_mask & 3) == 3)
-        answered = notify_desktop( params[0], params[1], response && !getenv( "TUXBLOX_HARDERROR_RESPONSE" ) );
+    if (tuxblox_trace_enabled())
+    {
+        char b[80];
+        snprintf( b, sizeof(b), "status=%08x count=%u mask=%x response=%u",
+                  (unsigned)status, (unsigned)count, (unsigned)params_mask, (unsigned)option );
+        tuxblox_trace_record( "NtRaiseHardError", b );
+    }
 
     /* A hard error carries the caller's own diagnostic text: the bits set in
      * params_mask say which parameters are UNICODE_STRING pointers rather than
      * plain values. Recording them is the only way to see what the process was
-     * trying to tell the user before Wine's stub swallowed the message. */
+     * trying to tell the user before Wine's stub swallowed the message.
+     *
+     * Recorded before the notification, not after: notify_desktop waits on the
+     * desktop for up to thirty seconds, and a process that is killed or exits
+     * while it waits never reaches this, which is how the second of two hard
+     * errors in a run came to be logged with no parameters at all. */
     if (tuxblox_trace_enabled() && params)
     {
         ULONG i;
@@ -6971,6 +6978,11 @@ NTSTATUS WINAPI NtRaiseHardError( NTSTATUS status, ULONG count,
             }
         }
     }
+
+    /* the first two parameters of a message box are its text and its title */
+    if (params && count >= 2 && (params_mask & 3) == 3)
+        answered = notify_desktop( params[0], params[1], response && !getenv( "TUXBLOX_HARDERROR_RESPONSE" ) );
+
 
     /* Wine never shows the message box, so a caller waiting on the user's answer
      * gets nothing back. TUXBLOX_HARDERROR_RESPONSE supplies one, which is how a
