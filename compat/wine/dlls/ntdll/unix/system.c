@@ -5341,7 +5341,14 @@ static NTSTATUS query_system_information( SYSTEM_INFORMATION_CLASS class,
         ULONG i;
         RTL_PROCESS_MODULES *smi = info;
 
-        tuxblox_trace_record( "SystemModuleInformation", "" );
+        if (tuxblox_trace_enabled())
+        {
+            char b[64];
+            snprintf( b, sizeof(b), "size=%u need=%u count=%u", (unsigned)size,
+                      (unsigned)offsetof( RTL_PROCESS_MODULES, Modules[ARRAY_SIZE(kernel_modules)] ),
+                      (unsigned)ARRAY_SIZE(kernel_modules) );
+            tuxblox_trace_record( "SystemModuleInformation", b );
+        }
 
         len = offsetof( RTL_PROCESS_MODULES, Modules[ARRAY_SIZE(kernel_modules)] );
         if (len <= size)
@@ -5677,7 +5684,14 @@ static NTSTATUS query_system_information( SYSTEM_INFORMATION_CLASS class,
         RTL_PROCESS_MODULE_INFORMATION_EX *module_info = info;
         ULONG i;
 
-        tuxblox_trace_record( "SystemModuleInformationEx", "" );
+        if (tuxblox_trace_enabled())
+        {
+            char b[64];
+            snprintf( b, sizeof(b), "size=%u need=%u count=%u", (unsigned)size,
+                      (unsigned)(sizeof(*module_info) * ARRAY_SIZE(kernel_modules)),
+                      (unsigned)ARRAY_SIZE(kernel_modules) );
+            tuxblox_trace_record( "SystemModuleInformationEx", b );
+        }
 
         /* The list ends with a real entry whose NextOffset is zero, not with an
          * extra stub after the last one. Writing a stub made the walk hand out
