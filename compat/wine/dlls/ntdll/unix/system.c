@@ -3444,6 +3444,33 @@ static BOOL diag_sysclass_forced( unsigned int class, const void *info, unsigned
     return FALSE;
 }
 
+
+/* Whether a file handle refers to a PE image, for class 183.
+ *
+ * Measured on the reference machine: the class answers success for a signed PE,
+ * STATUS_INVALID_IMAGE_HASH for an unsigned one, and STATUS_INVALID_IMAGE_FORMAT
+ * for a file that is not a PE at all. Only the last of those is decided here --
+ * see the case in the switch for why the signed/unsigned half is not.
+ */
+static BOOL file_is_pe_image( HANDLE handle )
+{
+    int fd, needs_close;
+    BOOL ret = FALSE;
+    IMAGE_DOS_HEADER dos;
+    DWORD sig;
+
+    if (!handle) return FALSE;
+    if (server_get_unix_fd( handle, FILE_READ_DATA, &fd, &needs_close, NULL, NULL )) return FALSE;
+
+    if (pread( fd, &dos, sizeof(dos), 0 ) == sizeof(dos) && dos.e_magic == IMAGE_DOS_SIGNATURE &&
+        dos.e_lfanew > 0 && dos.e_lfanew < 0x10000000 &&
+        pread( fd, &sig, sizeof(sig), dos.e_lfanew ) == sizeof(sig))
+        ret = (sig == IMAGE_NT_SIGNATURE);
+
+    if (needs_close) close( fd );
+    return ret;
+}
+
 static const struct known_class known_system_classes[] =
 {
     /* Classes this build used to deny outright. A real Windows 11 25H2 has all
@@ -6066,6 +6093,22 @@ static NTSTATUS query_system_information( SYSTEM_INFORMATION_CLASS class,
          * probe, and then at 16 bytes with a real handle for each module it
          * walks -- once when that succeeds, twice when it is refused. */
         if (size < 16) return STATUS_INFO_LENGTH_MISMATCH;
+        if (!info) return STATUS_ACCESS_VIOLATION;
+        /* The reference machine distinguishes three cases. Two are answered
+         * here; the third is deliberately not:
+         *
+         *   not a PE at all   -> STATUS_INVALID_IMAGE_FORMAT   (answered)
+         *   a signed PE       -> STATUS_SUCCESS                (answered)
+         *   an unsigned PE    -> STATUS_INVALID_IMAGE_HASH     (NOT answered)
+         *
+         * Answering the unsigned case honestly would report nearly every DLL
+         * here as unsigned, because they are Wine builds and carry no
+         * signature, where the Windows originals are all signed. That is a
+         * machine no Windows ever is, and reporting each answer honestly in
+         * isolation until the whole no longer describes a real system is a
+         * mistake this build has made before. So a PE is answered success. */
+        if (!file_is_pe_image( ((const struct { HANDLE ImageFile; ULONG Type; } *)info)->ImageFile ))
+            return STATUS_INVALID_IMAGE_FORMAT;
         len = 0;
         break;
 
