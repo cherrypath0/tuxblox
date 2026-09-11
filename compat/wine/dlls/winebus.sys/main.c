@@ -110,6 +110,9 @@ static CRITICAL_SECTION device_list_cs = { &critsect_debug, -1, 0, 0, 0, 0 };
 
 static struct list device_list = LIST_INIT(device_list);
 
+/* Numbers the devices below; the old name carried a host address. */
+static LONG device_name_index;
+
 static NTSTATUS winebus_call(unsigned int code, void *args)
 {
     return WINE_UNIX_CALL(code, args);
@@ -377,9 +380,20 @@ static DEVICE_OBJECT *bus_create_hid_device(struct device_desc *desc, UINT64 uni
 
     TRACE("desc %s, unix_device %#I64x\n", debugstr_device_desc(desc), unix_device);
 
-    swprintf(dev_name, ARRAY_SIZE(dev_name), L"\\Device\\WINEBUS#%p", unix_device);
-    RtlInitUnicodeString(&nameW, dev_name);
-    status = IoCreateDevice(driver_obj, sizeof(struct device_extension), &nameW, 0, 0, FALSE, &device);
+    /* The name only has to be unique -- nothing parses it back. It used to be
+     * "\\Device\\WINEBUS#%p" of the unix device, which put both the string
+     * WINEBUS and a live host address into a name any program can read out of
+     * \Device. Windows numbers its PnP devices, so this does too. */
+    /* Numbered like a Windows PnP device. Other drivers have already taken some
+     * of these numbers, so a collision is expected and simply means try the next
+     * one -- giving up on the first would silently lose the device. */
+    do
+    {
+        swprintf(dev_name, ARRAY_SIZE(dev_name), L"\\Device\\%08X",
+                 (unsigned int)InterlockedIncrement(&device_name_index));
+        RtlInitUnicodeString(&nameW, dev_name);
+        status = IoCreateDevice(driver_obj, sizeof(struct device_extension), &nameW, 0, 0, FALSE, &device);
+    } while (status == STATUS_OBJECT_NAME_COLLISION && device_name_index < 0x10000);
     if (status)
     {
         FIXME("failed to create device error %#lx\n", status);

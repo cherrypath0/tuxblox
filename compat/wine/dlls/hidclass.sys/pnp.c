@@ -217,6 +217,9 @@ static NTSTATUS get_hid_device_desc( minidriver *minidriver, DEVICE_OBJECT *devi
     return STATUS_SUCCESS;
 }
 
+/* Numbers the child PDOs below. */
+static LONG pdo_name_index;
+
 static NTSTATUS initialize_device( minidriver *minidriver, DEVICE_OBJECT *device )
 {
     struct func_device *fdo = fdo_from_DEVICE_OBJECT( device );
@@ -270,15 +273,20 @@ static NTSTATUS create_child_pdos( minidriver *minidriver, DEVICE_OBJECT *device
 
     for (i = 0; i < fdo->device_desc.CollectionDescLength; ++i)
     {
-        if (fdo->device_desc.CollectionDescLength > 1)
-            swprintf( pdo_name, ARRAY_SIZE(pdo_name), L"\\Device\\HID#%p&%p&%d", device->DriverObject,
-                      fdo->base.hid.PhysicalDeviceObject, i );
-        else
-            swprintf( pdo_name, ARRAY_SIZE(pdo_name), L"\\Device\\HID#%p&%p", device->DriverObject,
-                      fdo->base.hid.PhysicalDeviceObject );
+        /* Only uniqueness is needed here; nothing reads this name back. The
+         * "\\Device\\HID#%p&%p" it used to be put kernel object addresses into
+         * a name any program can list out of \Device. The device interface
+         * path programs actually use ("\\\\?\\HID#VID_...") is unaffected --
+         * that one comes from the hardware id, not from here. */
+        do
+        {
+            swprintf( pdo_name, ARRAY_SIZE(pdo_name), L"\\Device\\%08X",
+                      (unsigned int)InterlockedIncrement( &pdo_name_index ) );
+            RtlInitUnicodeString( &string, pdo_name );
+            status = IoCreateDevice( device->DriverObject, sizeof(*pdo), &string, 0, 0, FALSE, &child_device );
+        } while (status == STATUS_OBJECT_NAME_COLLISION && pdo_name_index < 0x10000);
 
-        RtlInitUnicodeString(&string, pdo_name);
-        if ((status = IoCreateDevice( device->DriverObject, sizeof(*pdo), &string, 0, 0, FALSE, &child_device )))
+        if (status)
         {
             ERR( "Failed to create child PDO, status %#lx.\n", status );
             return status;

@@ -244,6 +244,10 @@ static void translate_report_to_xinput_state(struct func_device *fdo)
     fdo->xinput_state.trigger = 0x8000 + (lt - rt) * 128;
 }
 
+
+/* Numbers the devices created below. */
+static LONG device_name_index;
+
 static NTSTATUS WINAPI read_completion(DEVICE_OBJECT *device, IRP *xinput_irp, void *context)
 {
     IO_STACK_LOCATION *stack = IoGetCurrentIrpStackLocation(xinput_irp);
@@ -569,23 +573,34 @@ static NTSTATUS create_child_pdos(DEVICE_OBJECT *device)
     WCHAR *tmp, name[255];
     NTSTATUS status;
 
-    swprintf(name, ARRAY_SIZE(name), L"\\Device\\WINEXINPUT#%p&%p&0",
-             device->DriverObject, fdo->bus_device);
-    RtlInitUnicodeString(&name_str, name);
-
-    if ((status = IoCreateDevice(device->DriverObject, sizeof(struct phys_device),
-                                 &name_str, 0, 0, FALSE, &gamepad_device)))
+    /* Numbered like a Windows PnP device. The old name put kernel object
+     * addresses into something any program can list out of \Device. Nothing
+     * reads these names back -- the devices are kept as pointers below, and the
+     * "WINEXINPUT\\" that hidclass matches on is the hardware id, not this.
+     * Other drivers have taken some numbers already, so retry on a collision. */
+    do
+    {
+        swprintf(name, ARRAY_SIZE(name), L"\\Device\\%08X",
+                 (unsigned int)InterlockedIncrement(&device_name_index));
+        RtlInitUnicodeString(&name_str, name);
+        status = IoCreateDevice(device->DriverObject, sizeof(struct phys_device),
+                                &name_str, 0, 0, FALSE, &gamepad_device);
+    } while (status == STATUS_OBJECT_NAME_COLLISION && device_name_index < 0x10000);
+    if (status)
     {
         ERR("failed to create gamepad device, status %#lx.\n", status);
         return status;
     }
 
-    swprintf(name, ARRAY_SIZE(name), L"\\Device\\WINEXINPUT#%p&%p&1",
-             device->DriverObject, fdo->bus_device);
-    RtlInitUnicodeString(&name_str, name);
-
-    if ((status = IoCreateDevice(device->DriverObject, sizeof(struct phys_device),
-                                 &name_str, 0, 0, FALSE, &xinput_device)))
+    do
+    {
+        swprintf(name, ARRAY_SIZE(name), L"\\Device\\%08X",
+                 (unsigned int)InterlockedIncrement(&device_name_index));
+        RtlInitUnicodeString(&name_str, name);
+        status = IoCreateDevice(device->DriverObject, sizeof(struct phys_device),
+                                &name_str, 0, 0, FALSE, &xinput_device);
+    } while (status == STATUS_OBJECT_NAME_COLLISION && device_name_index < 0x10000);
+    if (status)
     {
         ERR("failed to create xinput device, status %#lx.\n", status);
         IoDeleteDevice(gamepad_device);
