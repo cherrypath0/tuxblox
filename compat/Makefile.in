@@ -734,7 +734,7 @@ endif
 
 SYMSTORE_DEPENDS = wine
 
-$(eval $(call rules-source,symstore,$(SRCDIR)/symstore))
+$(eval $(call rules-source,symstore,$(SRCDIR)/tools/symstore))
 $(eval $(call create-rules-common,symstore,SYMSTORE,x86_64,unix))
 
 $(OBJ)/.symstore-x86_64-build:
@@ -756,9 +756,9 @@ symstore-tarball:
 DIST_MEDIA := $(DST_DIR)/share/media
 $(DIST_MEDIA):
 	mkdir -p $@
-	cp $(SRCDIR)/media/blank.mkv $@
-	cp $(SRCDIR)/media/blank.mka $@
-	cp $(SRCDIR)/media/blank.ptna $@
+	cp $(SRCDIR)/assets/media/blank.mkv $@
+	cp $(SRCDIR)/assets/media/blank.mka $@
+	cp $(SRCDIR)/assets/media/blank.ptna $@
 
 all-dist: $(DIST_MEDIA)
 
@@ -768,7 +768,7 @@ all-dist: $(DIST_MEDIA)
 
 .PHONY: fonts
 
-FONTS := $(SRCDIR)/fonts
+FONTS := $(SRCDIR)/assets/fonts
 FONTS_OBJ := ./obj-fonts
 ALT_FONTS_OBJ := $(FONTS_OBJ)/alt
 
