@@ -1115,22 +1115,10 @@ all-dist: default_pfx
 ## Launcher data files
 ##
 
-# The launcher's own data files. syscolors.json holds the light and dark
-# palettes the prefix theme is synced from; the launcher binary itself is
-# compiled by build.sh's proton-compile step straight into $(DST_BASE)/main.
-CONFIG_TARGET := $(addprefix $(DST_BASE)/,config/syscolors.json)
-$(CONFIG_TARGET): $(addprefix $(SRCDIR)/,config/syscolors.json) | $(DST_DIR)
-	mkdir -p $(dir $@)
-	cp -a $< $@
-
 # The licence texts also ship with the dist, but they live at the repo root,
 # which is not bind-mounted into the build container -- only SRCDIR and the
 # build directory are. build.sh stages them after the container step instead,
 # from the host, where both paths exist.
-
-DIST_COPY_TARGETS := $(CONFIG_TARGET)
-
-all-dist: $(DIST_COPY_TARGETS)
 
 all-dist:
 

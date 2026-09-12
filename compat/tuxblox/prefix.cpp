@@ -21,6 +21,7 @@
 
 #include "prefix.h"
 #include "registry.h"
+#include "embedded_data.h"
 
 #include <array>
 #include <cstdio>
@@ -652,16 +653,9 @@ void Prefix::syncHostTheme() {
         return;
     }
 
-    const fs::path colorsFile = proton.baseDir / "config" / "syscolors.json";
-    std::ifstream in(colorsFile);
-    if (!in) {
-        log("No system colours at \"" + colorsFile.string() + "\", leaving the prefix theme alone");
-        return;
-    }
-
     nlohmann::json colors;
     try {
-        in >> colors;
+        colors = nlohmann::json::parse(tuxblox_data::find("syscolors.json"));
     } catch (const nlohmann::json::exception& failure) {
         log(std::string("Could not read system colours: ") + failure.what());
         return;
