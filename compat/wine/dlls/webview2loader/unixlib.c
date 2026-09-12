@@ -54,6 +54,12 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(webview2loader);
 
+/* The webview helper is a separate Linux process, so it cannot use Wine's
+ * debug channels itself. It writes its diagnostics to the stderr it inherits
+ * from Studio, which is the terminal the user launched from. This channel
+ * decides whether that output is kept -- see spawn_helper(). */
+WINE_DECLARE_DEBUG_CHANNEL(tuxbloxwebkit);
+
 static int g_helper_fd = -1;
 static pid_t g_helper_pid = -1;
 static pthread_mutex_t g_ipc_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -436,6 +442,7 @@ static BOOL spawn_helper(const char *bundle_dir)
     char helper_path[PATH_MAX];
     char fd_env[32];
     BOOL host_egl_ok;
+    BOOL keep_helper_stderr;
 
     if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv) != 0) return FALSE;
     /* Second socketpair for host->here events. Failing to create it is NOT
@@ -464,6 +471,11 @@ static BOOL spawn_helper(const char *bundle_dir)
      * person flips WV2L_ALWAYS_USE_BUNDLE_GL back off. */
     host_egl_ok = host_has_usable_egl();
 
+    /* Read the channel here, in the parent, for the same reason host_egl_ok
+     * is read here: the child gets the answer as a plain stack copy and does
+     * no work of its own between fork() and execl(). */
+    keep_helper_stderr = TRACE_ON(tuxbloxwebkit);
+
     g_helper_pid = fork();
     if (g_helper_pid < 0) { close(sv[0]); close(sv[1]); return FALSE; }
 
@@ -475,6 +487,22 @@ static BOOL spawn_helper(const char *bundle_dir)
          * which forbids mixed declarations and code. See this variable's own
          * assignment below for why it exists. */
         BOOL use_bundle_gl;
+        int devnull;
+
+        /* The helper traces every geometry sync and reparent check, which
+         * fills the user's terminal during ordinary use. Send its stderr to
+         * /dev/null unless WINEDEBUG=+tuxbloxwebkit asked for it. Done before
+         * execl so it covers the helper's whole life, including any loader
+         * or GTK output that appears before its own first line. */
+        if (!keep_helper_stderr)
+        {
+            devnull = open("/dev/null", O_WRONLY);
+            if (devnull >= 0)
+            {
+                dup2(devnull, STDERR_FILENO);
+                if (devnull != STDERR_FILENO) close(devnull);
+            }
+        }
 
         /* Child: keep sv[1], drop sv[0]. dup2 onto a fixed fd (3) so the
          * env var passed to the child is a constant, not something that
