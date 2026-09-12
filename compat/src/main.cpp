@@ -180,7 +180,7 @@ int runMain(int argc, char *argv[]) {
     const std::string invocation = tuxblox::joinCommandLine({argv, argv + argc});
 
     tuxblox::log("Running TuxBlox version " + TuxBloxVersion + "-" + TuxBloxChannel);
-    tuxblox::log("Launched as: " + invocation);
+    tuxblox::log("Commandline: " + invocation);
 
     tuxblox::Proton proton(installDir(argv[0]));
     proton.cleanupLegacyDist();
