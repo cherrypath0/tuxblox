@@ -3539,6 +3539,14 @@ static void segv_handler( int signal, siginfo_t *siginfo, void *sigcontext )
             return;
         }
         }
+        /* The same again, for a range whose read rights were taken off to find
+         * out what the layer looks at rather than where it goes. */
+        if (tuxblox_diag_rpage_fault( (ULONG64)(ULONG_PTR)siginfo->si_addr,
+                                      RIP_sig(ucontext), (ERROR_sig(ucontext) >> 1) & 0x09 ))
+        {
+            leave_handler( ucontext );
+            return;
+        }
         /* The same, for a page whose write rights were taken off to find out
          * what stores into one of the layer's tables. */
         {

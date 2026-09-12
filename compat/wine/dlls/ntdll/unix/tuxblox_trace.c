@@ -482,6 +482,7 @@ void tuxblox_diag_note_syscall( ULONG64 rip, ULONG64 rsp, ULONG64 rax )
     tuxblox_diag_dump_keys( rip, rsp );
     tuxblox_diag_xpage_arm();
     tuxblox_diag_wpage_arm();
+    tuxblox_diag_rpage_arm();
     /* The SIGSYS path resumes the caller at rip + 0xb, which is the shape of
      * ntdll's own stub. The layer issues its system calls from code it
      * generates itself, so what its stubs look like decides whether that
@@ -1490,7 +1491,9 @@ static unsigned int xpage_events, xpage_max, xpage_start, xpage_start_seq;
 /* One offset to photograph the registers at. The last page both the passing and
  * the failing traversal of a handler share is the place to read what they are
  * about to branch on; the page trace alone cannot say. */
-static ULONG64 xpage_regs_at;
+#define XPAGE_REGS_AT_MAX 8
+static ULONG64 xpage_regs_at[XPAGE_REGS_AT_MAX];
+static unsigned int xpage_regs_at_n;
 static int xpage_parsed, xpage_on;
 
 /* Only the executable pages, and only their execute bit.
@@ -1812,7 +1815,16 @@ void tuxblox_diag_xpage_arm( void )
          * is indexed by. TUXBLOX_DIAG_XPAGE_SEQ arms at a trace record instead,
          * which is how a window worth tracing is actually identified. */
         if ((v = getenv( "TUXBLOX_DIAG_XPAGE_SEQ" ))) xpage_start_seq = atoi( v );
-        if ((v = getenv( "TUXBLOX_DIAG_XPAGE_REGS_AT" ))) xpage_regs_at = strtoull( v, NULL, 16 );
+        v = getenv( "TUXBLOX_DIAG_XPAGE_REGS_AT" );
+        while (v && *v && xpage_regs_at_n < XPAGE_REGS_AT_MAX)
+        {
+            char *end;
+            ULONG64 off = strtoull( v, &end, 16 );
+
+            if (end == v) break;
+            xpage_regs_at[xpage_regs_at_n++] = off;
+            v = (*end == ',') ? end + 1 : end;
+        }
         if ((v = getenv( "TUXBLOX_DIAG_XPAGE_LIVE" )))
         {
             xpage_live_n = atoi( v );
@@ -1834,6 +1846,103 @@ void tuxblox_diag_xpage_arm( void )
 }
 
 /* Returns TRUE when the fault was one this made, and execution can carry on. */
+/* Read watch: which data the layer reads, as opposed to which code it runs.
+ *
+ * The page trace says where execution goes; it cannot say what a decision was
+ * taken on. This takes read rights off a named range and reports the data reads
+ * the layer makes inside it, which is the question "what is it looking at".
+ *
+ * An x86 page-fault error code distinguishes the three cases, and the caller
+ * already folds it: bit 0 is a write, bit 3 an instruction fetch, neither a
+ * data read. Only data reads are reported, and only from the layer's own code,
+ * so Wine reading its own module is not mistaken for the program doing it.
+ *
+ * TUXBLOX_DIAG_RPAGE=lo-hi (absolute hex), _SEQ=<trace record to arm at>,
+ * _MAX=<events>. One page is made readable again at each fault, so a routine
+ * walking a structure reports every page it touches rather than only the first.
+ */
+static ULONG64 rpage_lo, rpage_hi;
+static unsigned int rpage_events, rpage_max, rpage_start_seq;
+static int rpage_parsed, rpage_on;
+
+static void rpage_arm( void )
+{
+    ULONG64 p;
+    unsigned int n = 0;
+
+    for (p = rpage_lo; p < rpage_hi; p += page_size)
+        if (!mprotect( (void *)(ULONG_PTR)p, page_size, PROT_NONE )) n++;
+    if (!rpage_on)
+        ERR_(seh)( "DIAG rpage armed 0x%llx-0x%llx, %u pages\n",
+                   (unsigned long long)rpage_lo, (unsigned long long)rpage_hi, n );
+    rpage_on = 1;
+}
+
+void tuxblox_diag_rpage_arm( void )
+{
+    if (!diag_enabled()) return;
+    if (!rpage_parsed)
+    {
+        const char *v = getenv( "TUXBLOX_DIAG_RPAGE" );
+        char *end;
+
+        rpage_parsed = 1;
+        if (!v || !*v) return;
+        rpage_lo = strtoull( v, &end, 16 );
+        if (*end != '-') { rpage_lo = 0; return; }
+        rpage_hi = strtoull( end + 1, NULL, 16 );
+        if ((v = getenv( "TUXBLOX_DIAG_RPAGE_SEQ" ))) rpage_start_seq = atoi( v );
+        if ((v = getenv( "TUXBLOX_DIAG_RPAGE_MAX" ))) rpage_max = atoi( v );
+        else rpage_max = 4096;
+    }
+    if (!rpage_lo || !rpage_max || rpage_events >= rpage_max) return;
+    if (rpage_start_seq && (unsigned int)trace_seq < rpage_start_seq) return;
+    /* Re-armed at every system call. A page in an executable range is
+     * unprotected again by the first instruction fetch that touches it, which
+     * Wine's own code does long before the program reads anything, so arming
+     * once reports nothing at all. */
+    rpage_arm();
+}
+
+BOOL tuxblox_diag_rpage_fault( ULONG64 addr, ULONG64 rip, ULONG kind )
+{
+    ULONG64 page;
+    ULONG64 base;
+
+    if (!rpage_on || addr < rpage_lo || addr >= rpage_hi) return FALSE;
+    page = addr & ~(ULONG64)(page_size - 1);
+    if (mprotect( (void *)(ULONG_PTR)page, page_size, PROT_READ | PROT_WRITE | PROT_EXEC ))
+        return FALSE;
+
+    base = roblox_dll_base();
+    if (!(kind & 9) && rpage_events < rpage_max)   /* a data read, not a fetch or a store */
+    {
+        /* the value as well as the address: which slot was consulted says less
+         * than what was in it */
+        ULONG64 val = 0;
+
+        virtual_uninterrupted_read_memory( (const void *)(ULONG_PTR)(addr & ~7ull), &val, sizeof(val) );
+        if (base && rip > base && rip < base + 0x1490000ull)
+            ERR_(seh)( "DIAG rpage read 0x%llx (+0x%llx) = %016llx from layer+0x%llx\n",
+                       (unsigned long long)addr, (unsigned long long)(addr - rpage_lo),
+                       (unsigned long long)val, (unsigned long long)(rip - base) );
+        else
+            ERR_(seh)( "DIAG rpage read 0x%llx (+0x%llx) = %016llx from 0x%llx (not the layer)\n",
+                       (unsigned long long)addr, (unsigned long long)(addr - rpage_lo),
+                       (unsigned long long)val, (unsigned long long)rip );
+        rpage_events++;
+    }
+    return TRUE;
+}
+
+static BOOL xpage_regs_wanted( ULONG64 rva )
+{
+    unsigned int i;
+
+    for (i = 0; i < xpage_regs_at_n; i++) if (xpage_regs_at[i] == rva) return TRUE;
+    return FALSE;
+}
+
 BOOL tuxblox_diag_xpage_fault( ULONG64 addr, ULONG64 rip, ULONG64 rsp, ULONG kind,
                                const ULONG64 *regs )
 {
@@ -1865,7 +1974,7 @@ BOOL tuxblox_diag_xpage_fault( ULONG64 addr, ULONG64 rip, ULONG64 rsp, ULONG kin
                        (unsigned long long)rip,
                        (unsigned long long)(ibase ? rip - ibase : 0),
                        (unsigned long long)rsp );
-        if (xpage_regs_at && regs && ibase && rip - ibase == xpage_regs_at)
+        if (xpage_regs_at_n && regs && ibase && xpage_regs_wanted( rip - ibase ))
         {
             static const char * const names[16] = { "rax","rbx","rcx","rdx","rsi","rdi","rbp","rsp",
                                                     "r8","r9","r10","r11","r12","r13","r14","r15" };
@@ -1876,7 +1985,7 @@ BOOL tuxblox_diag_xpage_fault( ULONG64 addr, ULONG64 rip, ULONG64 rsp, ULONG kin
                 n += snprintf( line + n, sizeof(line) - n, "%s=%llx ", names[k],
                                (unsigned long long)regs[k] );
             ERR_(seh)( "DIAG xpage-regs[%u] +0x%llx %s\n", xpage_events,
-                       (unsigned long long)xpage_regs_at, line );
+                       (unsigned long long)(rip - ibase), line );
         }
     }
     if (++xpage_events >= xpage_max)
