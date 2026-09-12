@@ -35,7 +35,7 @@
 #
 # Fix: copy Qt's own libraries into a libtuxblox/ directory beside the binary and
 # rewrite RPATH to be $ORIGIN-relative, so the bundle works from any directory it
-# is later placed in. Same core technique as webkitgtk-bundle/package.sh, much
+# is later placed in. Same core technique as compat/webkitgtk/bundle/package.sh, much
 # smaller scope.
 #
 # Layout produced (mirrors the installed ~/.tuxblox/ layout exactly, which is why
@@ -323,7 +323,7 @@ done
 
 echo ":: Rewriting RPATHs to \$ORIGIN-relative paths"
 # --force-rpath writes DT_RPATH instead of DT_RUNPATH. Two reasons, both
-# specific to this bundle rather than copied from webkitgtk-bundle/package.sh
+# specific to this bundle rather than copied from compat/webkitgtk/bundle/package.sh
 # (whose stated reason -- Proton prepending its own lib dir to LD_LIBRARY_PATH
 # for every wine process -- does not apply here; nothing prepends
 # LD_LIBRARY_PATH before the launcher):
@@ -380,7 +380,7 @@ echo ":: Rewriting RPATHs to \$ORIGIN-relative paths"
 # bundle root either way), verified
 # with `patchelf --print-rpath` against the pristine aqtinstall tree -- and no
 # file in this closure has an absolute DT_NEEDED entry (so unlike
-# webkitgtk-bundle/package.sh there is no --replace-needed pass to do either),
+# compat/webkitgtk/bundle/package.sh there is no --replace-needed pass to do either),
 # the only file that actually needs rewriting is the executable, which is not a
 # plugin and carries no metadata section to lose.
 #

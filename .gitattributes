@@ -2,8 +2,8 @@ compat/*.sc linguist-detectable=false
 compat/*.SC linguist-detectable=false
 
 # compat/wine gets this for free from GitHub's own submodule handling
-# (it used to be one); compat/webkitgtk is a plain checked-in tree
-# (see compat/webkitgtk/README-TUXBLOX-PATCHES.md for why), so it
+# (it used to be one); compat/webkitgtk/src is a plain checked-in tree
+# (see compat/webkitgtk/src/README-TUXBLOX-PATCHES.md for why), so it
 # needs the same "don't count this vendored third-party code toward the
 # repo's language stats" treatment spelled out explicitly.
-compat/webkitgtk/* linguist-vendored
+compat/webkitgtk/src/* linguist-vendored

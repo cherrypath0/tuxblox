@@ -15,7 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-# webkitgtk-bundle/verify-tls.sh
+# compat/webkitgtk/bundle/verify-tls.sh
 # Re-runnable, real end-to-end verification that the TLS backend built into the
 # webkitgtk-prefix volume (glib-networking + GnuTLS, see build-in-container.sh's
 # "TLS backend for libsoup/GIO" section) actually works, not just that its
@@ -26,11 +26,11 @@
 # certificate).
 #
 # Usage:
-#   webkitgtk-bundle/verify-tls.sh [URL]     # URL defaults to https://example.com
+#   compat/webkitgtk/bundle/verify-tls.sh [URL]     # URL defaults to https://example.com
 #
 # Requires: the tuxblox-webkitgtk-builder image and webkitgtk-prefix volume to
-# already exist (built via webkitgtk-bundle/Containerfile and
-# webkitgtk-bundle/build-in-container.sh). Run this any time that chain is
+# already exist (built via compat/webkitgtk/bundle/Containerfile and
+# compat/webkitgtk/bundle/build-in-container.sh). Run this any time that chain is
 # rebuilt or a TLS-related dependency version is bumped in versions.env, to
 # confirm TLS still actually works end-to-end -- pkg-config reporting a
 # version number is not equivalent proof.

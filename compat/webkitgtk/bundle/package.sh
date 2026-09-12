@@ -15,7 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-# webkitgtk-bundle/package.sh
+# compat/webkitgtk/bundle/package.sh
 # Runs INSIDE the container after build-in-container.sh has populated the
 # webkitgtk-prefix volume (build.sh runs both in sequence; build-in-container.sh
 # always rebuilds WebKitGTK itself, including the WEBKIT_EXEC_PATH source patch, so

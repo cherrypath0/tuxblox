@@ -15,7 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-# webkitgtk-bundle/host/test_ipc_skeleton.sh
+# compat/webkitgtk/bundle/host/test_ipc_skeleton.sh
 # Standalone -- does not involve Wine. Forks the real built helper binary
 # directly over a real socketpair via a tiny python harness (available on
 # any dev machine per this repo's own stated python3 prerequisite).

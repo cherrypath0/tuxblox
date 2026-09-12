@@ -15,7 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-# webkitgtk-bundle/verify-outside-container.sh
+# compat/webkitgtk/bundle/verify-outside-container.sh
 #
 # Task 8 post-review correction (2026-08-10): every dependency-closure check in this
 # plan, through Task 8's own original pass, ran `ldd`/ELF inspection FROM INSIDE the
@@ -34,8 +34,8 @@
 #      project's Arch Linux host).
 #
 # Usage:
-#   webkitgtk-bundle/verify-outside-container.sh [path/to/webkitgtk-*.tar.xz]
-#   (defaults to the newest tarball in webkitgtk-bundle/out/)
+#   compat/webkitgtk/bundle/verify-outside-container.sh [path/to/webkitgtk-*.tar.xz]
+#   (defaults to the newest tarball in compat/webkitgtk/bundle/out/)
 #
 # Exit 0 only if every ELF file's dependency closure resolves cleanly in BOTH
 # environments, after excluding the documented "system-provided, assumed present on

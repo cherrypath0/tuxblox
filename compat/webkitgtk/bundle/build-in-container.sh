@@ -15,7 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-# webkitgtk-bundle/build-in-container.sh
+# compat/webkitgtk/bundle/build-in-container.sh
 # Runs INSIDE the tuxblox-webkitgtk-builder container. Builds the full WebKitGTK
 # dependency chain from source into a private, relocatable prefix.
 set -euo pipefail
@@ -486,7 +486,7 @@ fetch_and_extract \
 # ...but gdk/x11/gdksurface-x11.c's gdk_x11_surface_destroy only unsets it inside
 # `if (!foreign_destroy)`. So any EGL-backed X11 surface destroyed by anyone other
 # than GDK itself trips a fatal assertion. That is not an exotic case for TuxBlox:
-# webkitgtk-bundle/host/geometry.c XReparentWindow's the webview's surface into
+# compat/webkitgtk/bundle/host/geometry.c XReparentWindow's the webview's surface into
 # Roblox Studio's own top-level window, so when Studio destroys that window the X
 # server destroys this child along with it, and GDK arrives at exactly that path via
 # gdk_x11_surface_destroy_notify -> _gdk_surface_destroy (surface, TRUE). Confirmed
@@ -964,11 +964,11 @@ ninja -C /build/gst-plugins-bad/_build -j"$JOBS" install
 # this fix narrowly scoped to the two review findings it addresses.
 echo ":: Building webkitgtk $WEBKITGTK_VERSION"
 # 2026-08-15: webkitgtk is now checked directly into this repo, at
-# compat/webkitgtk (bind-mounted read-only at /src-webkitgtk by build.sh) --
+# compat/webkitgtk/src (bind-mounted read-only at /src-webkitgtk by build.sh) --
 # same "carry our own patches as a real, versioned tree" treatment CLAUDE.md already
 # documents for compat/wine, and for the same reason: this bundle now carries
 # real source patches (WEBKIT_EXEC_PATH, WindowIsActive, isInMonitor -- see
-# compat/webkitgtk/README-TUXBLOX-PATCHES.md), previously applied as fragile
+# compat/webkitgtk/src/README-TUXBLOX-PATCHES.md), previously applied as fragile
 # inline sed/python string-replacements against a freshly downloaded tarball on every
 # build. Patches now live as plain edits in the checked-in source itself -- normal git
 # diff/log/blame, no more "ERROR: expected original text not found" breakage risk
@@ -994,8 +994,8 @@ mkdir -p /build/webkitgtk
 rsync -a -c --delete --exclude=_build /src-webkitgtk/ /build/webkitgtk/
 
 # TuxBlox's own patches (WEBKIT_EXEC_PATH ungated, WindowIsActive forced-active,
-# isInMonitor forced-true) are applied directly to compat/webkitgtk -- see
-# compat/webkitgtk/README-TUXBLOX-PATCHES.md for the full rationale for each.
+# isInMonitor forced-true) are applied directly to compat/webkitgtk/src -- see
+# compat/webkitgtk/src/README-TUXBLOX-PATCHES.md for the full rationale for each.
 # No patch-application step needed here anymore; the rsync above already synced the
 # already-patched source.
 
@@ -1139,7 +1139,7 @@ fi
 # unixlib.c client, not yet written as of this task). Built as a plain two-file gcc
 # invocation, not folded into any of the meson/cmake dependency builds above --
 # there's nothing to configure and no reason to give it its own build system. Source
-# lives at /src/host (the whole webkitgtk-bundle tree is bind-mounted read-only at
+# lives at /src/host (the whole compat/webkitgtk/bundle tree is bind-mounted read-only at
 # /src by build.sh's podman run, and build.sh additionally overlays Task 1's shared
 # protocol header at /src/host/webview2loader_ipc_protocol.h so this single source
 # tree compiles unmodified on both the Wine side and this GTK-process side).
@@ -1188,7 +1188,7 @@ fi
 # detect a reparented-into parent X11 window being destroyed out from under a
 # webview and react before GDK's own async event processing on its own,
 # separate connection can hit a fatal internal-consistency assertion over it
-# -- see webkitgtk-bundle/host/watchdog.h's own top-of-file comment for the
+# -- see compat/webkitgtk/bundle/host/watchdog.h's own top-of-file comment for the
 # full crash mechanism and rationale.
 # -ldl is required, not belt-and-braces: this host dlopen()s libEGL and uses
 # dladdr for the GL-provenance log. glibc >= 2.34 folded libdl into libc, so the

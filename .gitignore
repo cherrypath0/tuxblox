@@ -42,6 +42,6 @@ CLAUDE.md
 /*.tar.gz
 /*.tar.zst
 
-webkitgtk-bundle/out/
-webkitgtk-bundle/host/webview2loader_ipc_protocol.h
+compat/webkitgtk/bundle/out/
+compat/webkitgtk/bundle/host/webview2loader_ipc_protocol.h
 logs/

@@ -1,7 +1,7 @@
-# webkitgtk-bundle
+# compat/webkitgtk/bundle
 
 One-time (or per-version-bump) build tooling for the WebKitGTK tarball vendored at
-`../compat/contrib/webkitgtk-<version>-x86_64.tar.xz`. This is release
+`../prebuilt/webkitgtk-<version>-x86_64.tar.xz`. This is release
 engineering, not part of the normal `./build.sh` a user or contributor runs.
 
 ## When to run this
@@ -11,7 +11,7 @@ engineering, not part of the normal `./build.sh` a user or contributor runs.
 
 ## How to run it
 
-    cd webkitgtk-bundle
+    cd compat/webkitgtk/bundle
     ./build.sh
 
 Takes a long time (building the full GTK4/WebKitGTK stack from source) on a genuinely
@@ -23,9 +23,9 @@ does a true incremental build and correctly does nothing. Every *other* dependen
 (glib, gtk4, libsoup, icu, ...) still re-fetches and rebuilds from scratch on every
 run regardless -- that's fine, since all of them combined take well under an hour, and
 none of them get the same persistent-source treatment webkitgtk does. Produces
-`out/webkitgtk-<version>-x86_64.tar.xz`. Copy it into `../compat/contrib/`,
-update the `WEBKITGTK_VER`/tarball filename in `../compat/Makefile.in` to match,
-and commit both together.
+`out/webkitgtk-<version>-x86_64.tar.xz`. Copy it into `../prebuilt/`,
+bump `WEBKITGTK_VERSION` in `versions.env` to match (`../../Makefile.in` reads it
+from there, so nothing else needs updating), and commit both together.
 
 `build.sh` uses three persistent podman named volumes so a failed/interrupted run
 doesn't force starting over from nothing:
@@ -494,7 +494,7 @@ For a component that renders live web content and handles Roblox login sessions,
 this is worth closing before the bundle ships in an actual release: add a
 `sha256sums` file next to `versions.env` and verify it inside `fetch_and_extract`,
 pin the base image by digest, and pin the meson version exactly. Not blocking today
-(the artifact in `compat/contrib/` was built and verified by hand), but it is
+(the artifact in `compat/webkitgtk/prebuilt/` was built and verified by hand), but it is
 the difference between "pinned" and "reproducible", and the whole point of this
 directory is that someone can rebuild it in six months for a security update and
 trust the result.
