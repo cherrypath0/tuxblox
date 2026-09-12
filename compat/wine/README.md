@@ -19,3 +19,17 @@ copy at build time, so the checkout stays clean.
 Wine is the exception. It is patched **in place**: edit the files here
 directly and commit the change. `build.sh` deliberately refuses a
 `compat/patches/wine` directory for that reason.
+
+## Files here that look removable but are not
+
+Two files in this folder look like documentation and are not:
+
+- **`AUTHORS`** is compiled into `shell32` as a resource for Wine's About
+  dialog (see `dlls/shell32/shell32.rc`). Deleting it makes `configure` fail
+  with "could not create Makefile". A copy also lives in
+  `third_party_licenses/wine/`, which is for licence purposes only — it is not
+  a replacement for this one.
+- **`VERSION`** is read by `configure.ac`, which pulls the Wine version out of
+  it with a regular expression. Deleting it breaks `configure` outright, and
+  pointing it at the repository's own `VERSION` file does not work because the
+  format does not match.
