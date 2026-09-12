@@ -83,8 +83,6 @@ help:
 	@echo "               Current build name: $(_build_name)"
 	@echo "  unstripped - Set to non-empty to avoid stripping installed library files."
 	@echo "  enable_ccache - Enabled by default, set to 0 prior to configuring to disable ccache."
-	@echo "  protonsdk_version - Version of the proton sdk image to use for building,"
-	@echo "                      use protonsdk_version=local to build it locally."
 	@echo ""
 	@echo "Development targets:"
 	@echo "  configure - Configure Proton build directory"
@@ -112,17 +110,11 @@ help:
 clean:
 	rm -rf $(BUILD_DIR)
 
-protonsdk:
-	$(MAKE) $(MFLAGS) $(MAKEOVERRIDES) -C docker $(UNSTRIPPED) PROTONSDK_VERSION=$(protonsdk_version) proton
-
 configure: | $(BUILD_DIR)
 	if [ ! -e $(BUILD_DIR)/Makefile ]; then \
 		(cd $(BUILD_DIR) && $(CONFIGURE_CMD)); \
 	fi
 
-ifeq ($(protonsdk_version),local)
-configure: protonsdk
-endif
 
 proton: configure
 	$(MAKE) $(MFLAGS) $(MAKEOVERRIDES) -C $(BUILD_DIR)/ $(UNSTRIPPED) dist && \
