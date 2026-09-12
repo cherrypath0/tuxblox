@@ -729,27 +729,6 @@ $(OBJ)/.eac-i386-build:
 endif
 
 ##
-## Windows Symbol Store creation
-##
-
-SYMSTORE_DEPENDS = wine
-
-$(eval $(call rules-source,symstore,$(SRCDIR)/tools/symstore))
-$(eval $(call create-rules-common,symstore,SYMSTORE,x86_64,unix))
-
-$(OBJ)/.symstore-x86_64-build:
-	@echo ":: building symstore helper..." >&2
-	rsync -arx "$(SYMSTORE_SRC)/" "$(SYMSTORE_x86_64_OBJ)/"
-	$(MAKE) -C "$(SYMSTORE_x86_64_OBJ)" SYMSTORE_CFLAGS="-I$(WINE_SRC)/include -I$(WINE_x86_64_OBJ)/include"
-	touch $@
-
-.PHONY: symstore-tarball
-symstore-tarball:
-	mkdir -p $(OBJ)/symstore/$(BUILD_NAME)
-	$(SYMSTORE_x86_64_OBJ)/symstore --skip-managed $(DST_BASE) $(OBJ)/symstore/$(BUILD_NAME)
-	cd $(OBJ)/symstore/$(BUILD_NAME) && zip -r ../$(BUILD_NAME)-symstore.zip . >& /dev/null
-
-##
 ## Media
 ##
 
@@ -1168,8 +1147,8 @@ DOCKER_BASE = $(CONTAINER_ENGINE) run --rm -v $(SRC):$(SRC)$(CONTAINER_MOUNT_OPT
                 -w $(OBJ) -e MAKEFLAGS \
                 $(DOCKER_OPTS) $(STEAMRT_IMAGE)
 
-.PHONY: dist symstore-tarball
-.DEFAULT dist symstore-tarball:
+.PHONY: dist
+.DEFAULT dist:
 	if [ "$(ENABLE_CCACHE)" -eq "1" ]; then mkdir -p $(CCACHE_DIR); fi
 	mkdir -p $(CARGO_HOME)
 	$(DOCKER_BASE) sh -c '\
