@@ -30,9 +30,6 @@ compat/dist
 compat/dist-*
 compat/obj-*
 compat/syn-*
-protonbuild-*.tar.gz
-protonbuild-*.tar.zst
-libtuxblox-*.tar.zst
 
 .claude/
 .superpowers/
