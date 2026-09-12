@@ -57,7 +57,7 @@ ifneq ($(enable_ccache),0)
     CONFIGURE_CMD += --enable-ccache
 endif
 
-TOPLEVELGOALS := all any clean configure deploy downloads help install module proton protonsdk redist
+TOPLEVELGOALS := all any clean configure deploy downloads help install module proton redist
 CONTAINERGOALS := $(filter-out $(TOPLEVELGOALS),$(MAKECMDGOALS))
 CONTAINERGOALS := $(filter-out $(BUILD_ROOT)/%,$(CONTAINERGOALS))
 
@@ -84,6 +84,7 @@ help:
 	@echo "  unstripped - Set to non-empty to avoid stripping installed library files."
 	@echo "  enable_ccache - Enabled by default, set to 0 prior to configuring to disable ccache."
 	@echo ""
+	@echo "  protonsdk_version - Version of the proton sdk image to use for building."
 	@echo "Development targets:"
 	@echo "  configure - Configure Proton build directory"
 	@echo "  proton - Build Proton"
