@@ -1,9 +1,9 @@
 # WebKitGTK bundle - third-party license audit trail
 
 This directory holds the verbatim upstream license text for every dependency the
-`webkitgtk-bundle/` build compiles from source and ships in the packaged tarball
+`compat/webkitgtk/bundle/` build compiles from source and ships in the packaged tarball
 (`webkitgtk-<version>-x86_64.tar.xz`), at the exact versions pinned in
-`webkitgtk-bundle/versions.env`. Each subdirectory is named after the dependency
+`compat/webkitgtk/bundle/versions.env`. Each subdirectory is named after the dependency
 (lowercase, matching `versions.env` reasonably) and contains the license file(s)
 using upstream's own filename(s) (`LICENSE`, `COPYING`, `COPYING.LESSERv2`, etc.) —
 nothing here is paraphrased, summarized, or reconstructed from memory; every file
@@ -87,7 +87,7 @@ tarball.
   libraries (faad2, x265, libdvdnav/libdvdread, libdca, mjpegtools) — every
   GStreamer-authored wrapper file carries an LGPL header, and none of those GPL
   external libraries are installed in this bundle's build container
-  (`webkitgtk-bundle/Containerfile`) or enabled by `build-in-container.sh`'s bare
+  (`compat/webkitgtk/bundle/Containerfile`) or enabled by `build-in-container.sh`'s bare
   `meson setup` invocation, so no GPL-only code is actually compiled into this
   bundle's shipped `gst-plugins-bad` output. LGPL-2.1-or-later is correct and
   sufficient for what's actually built and shipped here.
@@ -101,23 +101,23 @@ tarball.
   file at the repository root at this tag (the zlib terms live in individual SIMD
   source file headers instead), so this matches upstream's own structure rather
   than being an omission on our part.
-- **pcre2**: **not listed in `webkitgtk-bundle/versions.env`** — this is a real,
-  previously-unaccounted-for transitive dependency. `webkitgtk-bundle/Containerfile`
+- **pcre2**: **not listed in `compat/webkitgtk/bundle/versions.env`** — this is a real,
+  previously-unaccounted-for transitive dependency. `compat/webkitgtk/bundle/Containerfile`
   deliberately does not install a system `libpcre2-dev` package, and
   `build-in-container.sh` never fetches PCRE2 explicitly, yet
-  `webkitgtk-bundle/package.sh`'s own comments confirm `libpcre2-{8,16,32}.a`
+  `compat/webkitgtk/bundle/package.sh`'s own comments confirm `libpcre2-{8,16,32}.a`
   static archives end up present in the built prefix. This happens because GLib
   2.84.4's own meson build declares a wrap-subproject fallback for PCRE2 (see
   `https://raw.githubusercontent.com/GNOME/glib/2.84.4/subprojects/pcre2.wrap`,
   re-fetched and confirmed during this audit), which meson auto-downloads and
   builds when no system copy is found — pinning PCRE2 to version **10.44**. PCRE2
   is therefore genuinely compiled and shipped by this bundle even though it isn't
-  named in `versions.env`. Recommend `webkitgtk-bundle/versions.env` be updated to
+  named in `versions.env`. Recommend `compat/webkitgtk/bundle/versions.env` be updated to
   track this explicitly (e.g. `PCRE2_VERSION=10.44`) so future GLib bumps don't
   silently drift this pin — flagging for maintainer follow-up, not fixed here per
   the instruction not to modify anything outside `third_party_licenses/webkitgtk/`.
 - **mesa**: this bundle builds mesa in software-only mode (`softpipe`/`osmesa`
-  gallium driver, no Vulkan drivers) per `webkitgtk-bundle/build-in-container.sh`,
+  gallium driver, no Vulkan drivers) per `compat/webkitgtk/bundle/build-in-container.sh`,
   which does not change which files make up Mesa's own authoritative license set
   — `docs/license.rst` and its referenced `licenses/` directory are Mesa's
   project-wide statement regardless of which drivers a given downstream build
@@ -150,7 +150,7 @@ tarball.
   2.84.4's meson wrap file rather than from an explicit project pin — correct as
   of this audit date, but will silently drift out of sync if `GLIB_VERSION` is
   bumped in the future without re-checking. Recommend adding an explicit
-  `PCRE2_VERSION` to `webkitgtk-bundle/versions.env` (maintainer action, not made
+  `PCRE2_VERSION` to `compat/webkitgtk/bundle/versions.env` (maintainer action, not made
   here — out of this task's scope, which is licenses only).
 - **libjpeg-turbo**: the Zlib-licensed leg of its 3-way license split is captured
   only as a reference/pointer (matching upstream's own structure), not as a
