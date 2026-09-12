@@ -34,7 +34,8 @@ struct CliOptions {
     // launcher's footer -- all three come from the same TUXBLOX_BUILD_VERSION.
     bool version = false;
     // Which /v1/<channel>/... release to install. "stable" unless the
-    // launcher passed --channel during an upgrade handoff.
+    // launcher passed --channel during an upgrade handoff. "dev" is accepted
+    // on the command line and stored as its new name, "experimental".
     std::string channel = "stable";
     // Non-empty means the arguments were unusable: the caller should print
     // this and usageText() to stderr and exit non-zero. Every other field is

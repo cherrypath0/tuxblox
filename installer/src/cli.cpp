@@ -43,7 +43,12 @@ CliOptions parseArgs(int argc, const char* const* argv) {
                 options.error = "Missing value for --channel.";
                 return options;
             }
-            options.channel = argv[++i];
+            // "dev" was renamed to "experimental". Accepted as an alias so an
+            // old script, or an older launcher handing off during an upgrade,
+            // does not end up asking the server for a channel that no longer
+            // exists and reading back "no releases yet".
+            const std::string value = argv[++i];
+            options.channel = value == "dev" ? "experimental" : value;
         } else {
             options.error = "Unrecognized argument: " + arg;
             return options;

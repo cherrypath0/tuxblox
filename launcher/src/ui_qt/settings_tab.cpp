@@ -105,8 +105,8 @@ QWidget* SettingsTab::buildUpdatesGroup(QWidget* parent) {
 
     auto* channelRow = new BoxedRow("Update channel", "Which release stream TuxBlox follows.");
     channelCombo_ = new QComboBox();
-    channelCombo_->addItems({"stable", "canary", "dev"});
-    channelCombo_->setFixedWidth(110);
+    channelCombo_->addItems({"stable", "canary", "experimental"});
+    channelCombo_->setFixedWidth(140);
     connect(channelCombo_, &QComboBox::currentTextChanged, this, [this](const QString& text) {
         Settings updated = app_.snapshot().settings;
         updated.channel = text.toStdString();

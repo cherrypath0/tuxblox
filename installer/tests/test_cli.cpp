@@ -86,6 +86,23 @@ int main() {
         assert(o.uninstall && o.headless && o.error.empty());
     }
 
+    // "dev" was renamed to "experimental" and is accepted as an alias, so an
+    // old script or an older launcher handing off during an upgrade does not
+    // ask the server for a channel that no longer exists.
+    {
+        CliOptions o = parse({"--channel", "dev"});
+        assert(o.error.empty());
+        assert(o.channel == "experimental");
+    }
+
+    // Only the exact old name is rewritten -- everything else is passed
+    // through untouched, which is what keeps a future channel working without
+    // a code change here.
+    {
+        CliOptions o = parse({"--channel", "development"});
+        assert(o.channel == "development");
+    }
+
     // --channel as the trailing argument has no value to consume: an error,
     // not a silent fall back to "stable" (which would quietly install the
     // wrong channel during a launcher upgrade handoff).

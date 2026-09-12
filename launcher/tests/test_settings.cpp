@@ -53,6 +53,33 @@ int main() {
         assert(loaded.channel == "canary");
     }
 
+    // "dev" was renamed to "experimental". An existing settings.json still
+    // says "dev" and must be migrated, not treated as an unknown channel --
+    // the unknown-channel fallback would quietly move the user to stable.
+    {
+        std::ofstream out(dir + "/settings.json", std::ios::binary);
+        out << R"({"env_vars": "", "send_crash_reports": true, "channel": "dev"})";
+        out.close();
+
+        Settings s = loadSettings(dir);
+        assert(s.channel == "experimental");
+
+        // And the migrated value is what gets written back, so the old name
+        // does not survive the next save.
+        saveSettings(dir, s);
+        assert(loadSettings(dir).channel == "experimental");
+    }
+
+    // A channel that is neither current nor a known old name still falls back
+    // to stable rather than being passed through to the update checker.
+    {
+        std::ofstream out(dir + "/settings.json", std::ios::binary);
+        out << R"({"env_vars": "", "send_crash_reports": true, "channel": "nightly"})";
+        out.close();
+
+        assert(loadSettings(dir).channel == "stable");
+    }
+
     // Malformed JSON -> defaults, not a crash.
     {
         std::ofstream out(dir + "/settings.json", std::ios::binary);

@@ -32,7 +32,14 @@ std::string settingsFilePath(const std::string& installDir) {
 }
 
 bool isKnownChannel(const std::string& channel) {
-    return channel == "stable" || channel == "canary" || channel == "dev";
+    return channel == "stable" || channel == "canary" || channel == "experimental";
+}
+
+// "dev" was renamed to "experimental". Migrated rather than rejected: an
+// existing settings.json still says "dev", and falling through to the unknown-
+// channel default would silently move those users to stable.
+std::string migrateChannel(const std::string& channel) {
+    return channel == "dev" ? "experimental" : channel;
 }
 
 // TuxBlox used to keep two env var lists, one for the Proton child and one
@@ -102,7 +109,7 @@ Settings loadSettings(const std::string& installDir) {
         // NOT wholesale-reset to defaults just because "channel" is
         // missing -- it should just default to "stable" and keep whatever
         // else was already there.
-        std::string channel = j.value("channel", std::string("stable"));
+        std::string channel = migrateChannel(j.value("channel", std::string("stable")));
         settings.channel = isKnownChannel(channel) ? channel : "stable";
         // Read leniently, same reasoning as "channel" above.
         settings.autoUpdate = j.value("auto_update", false);

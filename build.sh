@@ -97,27 +97,41 @@ if [[ -z "$TUXBLOX_BUILD_VERSION" ]]; then
     exit 1
 fi
 
+# The "dev" channel was renamed to "experimental". Accepted as an alias rather
+# than rejected, so an old VERSION file, an old TUXBLOX_CHANNEL in someone's
+# environment, or muscle memory at the prompt all still land on the right one.
+migrate_channel() {
+    if [[ "$1" == "dev" ]]; then
+        printf 'experimental'
+    else
+        printf '%s' "$1"
+    fi
+}
+
 # Same three-way resolution as the version above. An empty answer takes
 # whatever VERSION holds, falling back to stable, since the channel picks which
 # releases/ folder this build is published under.
 if [[ -z "$TUXBLOX_CHANNEL" ]]; then
     default_channel="${file_channel:-stable}"
     if [[ -t 0 && $stage_only -eq 0 ]]; then
-        read -rp "Enter channel for this build [stable/canary/dev] ($default_channel): " TUXBLOX_CHANNEL
+        read -rp "Enter channel for this build [stable/canary/experimental] ($default_channel): " TUXBLOX_CHANNEL
         TUXBLOX_CHANNEL="${TUXBLOX_CHANNEL:-$default_channel}"
-        while [[ ! "$TUXBLOX_CHANNEL" =~ ^(stable|canary|dev)$ ]]; do
-            read -rp "Channel must be stable, canary or dev: " TUXBLOX_CHANNEL
+        TUXBLOX_CHANNEL="$(migrate_channel "$TUXBLOX_CHANNEL")"
+        while [[ ! "$TUXBLOX_CHANNEL" =~ ^(stable|canary|experimental)$ ]]; do
+            read -rp "Channel must be stable, canary or experimental: " TUXBLOX_CHANNEL
             TUXBLOX_CHANNEL="${TUXBLOX_CHANNEL:-$default_channel}"
+            TUXBLOX_CHANNEL="$(migrate_channel "$TUXBLOX_CHANNEL")"
         done
     else
         TUXBLOX_CHANNEL="$default_channel"
     fi
 fi
 
+TUXBLOX_CHANNEL="$(migrate_channel "$TUXBLOX_CHANNEL")"
 case "$TUXBLOX_CHANNEL" in
-    stable|canary|dev) ;;
+    stable|canary|experimental) ;;
     *)
-        echo "!! Unknown channel \"$TUXBLOX_CHANNEL\" -- expected stable, canary or dev" >&2
+        echo "!! Unknown channel \"$TUXBLOX_CHANNEL\" -- expected stable, canary or experimental" >&2
         exit 1
         ;;
 esac
@@ -444,12 +458,19 @@ with open(os.path.join(release_dir, "manifest.json"), "w") as f:
 
 # Only this build's channel moves. Building canary must not disturb which
 # version stable points at, so the other entries are read back and kept.
-latest = {"channels": {"stable": "", "canary": "", "dev": ""}}
+latest = {"channels": {"stable": "", "canary": "", "experimental": ""}}
 try:
     with open(latest_path) as f:
         existing = json.load(f)
     if isinstance(existing.get("channels"), dict):
-        latest["channels"].update(existing["channels"])
+        channels = dict(existing["channels"])
+        # "dev" was renamed to "experimental". Carry the old key's version over
+        # rather than leaving a dead entry beside an empty new one.
+        if "dev" in channels:
+            if not channels.get("experimental"):
+                channels["experimental"] = channels["dev"]
+            del channels["dev"]
+        latest["channels"].update(channels)
 except (FileNotFoundError, ValueError):
     pass
 

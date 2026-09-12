@@ -196,7 +196,7 @@ int main() {
 
         {
             std::ofstream out(work / "v2" / "latest.json");
-            out << R"({"channels": {"stable": "", "canary": "0.2.0", "dev": ""}, "lastUpdate": "08/08/26 15:35:55"})";
+            out << R"({"channels": {"stable": "", "canary": "0.2.0", "experimental": ""}, "lastUpdate": "08/08/26 15:35:55"})";
         }
         const std::string fileBaseUrl = "file://" + work.string();
 

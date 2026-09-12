@@ -44,7 +44,7 @@ struct Settings {
     // --watch-launch (a desktop shortcut) gets them too.
     std::string envVars;
     bool sendCrashReports = true;
-    // One of "stable"/"canary"/"dev" -- which /v1/<channel>/... the update
+    // One of "stable"/"canary"/"experimental" -- which /v1/<channel>/... the update
     // checker resolves against. Defaults to "stable" even though it may
     // have no releases published yet (see manifest.h's fetchLatestVersion):
     // that's the correct long-term default for a public installer, not a
