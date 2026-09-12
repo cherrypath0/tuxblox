@@ -1873,6 +1873,10 @@ static BOOL x11drv_surface_flush( struct window_surface *window_surface, const R
 
     XFlush( gdi_display );
 
+    /* The window now holds its contents at the current size, which is what a
+     * window manager waiting on _NET_WM_SYNC_REQUEST wants to know. */
+    frame_sync_done( window_surface->hwnd );
+
     return TRUE;
 }
 

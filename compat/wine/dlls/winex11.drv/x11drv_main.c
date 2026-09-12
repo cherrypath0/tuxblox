@@ -39,6 +39,9 @@
 #include <X11/XKBlib.h>
 #ifdef HAVE_X11_EXTENSIONS_XRENDER_H
 #include <X11/extensions/Xrender.h>
+#ifdef HAVE_X11_EXTENSIONS_SYNC_H
+#include <X11/extensions/sync.h>
+#endif
 #endif
 
 #include "ntstatus.h"
@@ -72,6 +75,7 @@ BOOL usexcomposite = TRUE;
 BOOL use_egl = TRUE;
 BOOL use_xfixes = FALSE;
 BOOL use_take_focus = TRUE;
+BOOL use_frame_sync = FALSE;  /* window manager supports _NET_WM_SYNC_REQUEST */
 BOOL use_primary_selection = FALSE;
 BOOL use_system_cursors = TRUE;
 BOOL grab_fullscreen = FALSE;
@@ -159,6 +163,8 @@ const char * const X11DRV_atom_names[NB_XATOMS - FIRST_XATOM] =
     "_NET_WM_STATE_MAXIMIZED_VERT",
     "_NET_WM_STATE_SKIP_PAGER",
     "_NET_WM_STATE_SKIP_TASKBAR",
+    "_NET_WM_SYNC_REQUEST",
+    "_NET_WM_SYNC_REQUEST_COUNTER",
     "_NET_WM_USER_TIME",
     "_NET_WM_USER_TIME_WINDOW",
     "_NET_WM_WINDOW_OPACITY",
@@ -759,6 +765,17 @@ static NTSTATUS x11drv_init( void *arg )
     screen_bpp = pixmap_formats[default_visual.depth]->bits_per_pixel;
 
     XInternAtoms( display, (char **)X11DRV_atom_names, NB_XATOMS - FIRST_XATOM, False, X11DRV_Atoms );
+
+#ifdef HAVE_X11_EXTENSIONS_SYNC_H
+    {
+        /* Frame synchronisation needs the Sync extension to exist; whether the
+         * window manager actually uses it is its own decision, and costs us
+         * nothing if it does not. */
+        int event_base, error_base;
+        use_frame_sync = XSyncQueryExtension( display, &event_base, &error_base );
+        TRACE( "frame synchronisation %s\n", use_frame_sync ? "available" : "unavailable" );
+    }
+#endif
 
     init_win_context();
 

@@ -830,6 +830,13 @@ static void handle_wm_protocols( HWND hwnd, XClientMessageEvent *event )
         if (!hwnd) hwnd = last_focus;
         if (hwnd && can_activate_window(hwnd)) set_focus( event->display, hwnd, event_time );
     }
+    else if (protocol == x11drv_atom(_NET_WM_SYNC_REQUEST))
+    {
+        /* The window manager is about to resize us and will hold the new size
+         * back until we set our counter to this value, once we have painted at
+         * that size. Without it the unpainted area is composited as-is. */
+        frame_sync_request( hwnd, event->data.l[2], event->data.l[3] );
+    }
     else if (protocol == x11drv_atom(_NET_WM_PING))
     {
       XClientMessageEvent xev;

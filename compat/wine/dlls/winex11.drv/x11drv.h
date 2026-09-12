@@ -471,6 +471,7 @@ extern BOOL usexrandr;
 extern BOOL usexvidmode;
 extern BOOL use_egl;
 extern BOOL use_take_focus;
+extern BOOL use_frame_sync;
 extern BOOL use_primary_selection;
 extern BOOL use_system_cursors;
 extern BOOL grab_fullscreen;
@@ -542,6 +543,8 @@ enum x11drv_atoms
     XATOM__NET_WM_STATE_MAXIMIZED_VERT,
     XATOM__NET_WM_STATE_SKIP_PAGER,
     XATOM__NET_WM_STATE_SKIP_TASKBAR,
+    XATOM__NET_WM_SYNC_REQUEST,
+    XATOM__NET_WM_SYNC_REQUEST_COUNTER,
     XATOM__NET_WM_USER_TIME,
     XATOM__NET_WM_USER_TIME_WINDOW,
     XATOM__NET_WM_WINDOW_OPACITY,
@@ -698,7 +701,15 @@ struct x11drv_win_data
     UINT        is_resizable : 1; /* window is allowed to be resized by the window manager */
     UINT        net_wm_state_hack : 1; /* hacking around KWin sticky fullscreen windows */
     UINT        force_below_hack : 1; /* hacking fullscreen black window which is supposed to be order after another window */
+    UINT        frame_sync_pending : 1; /* window manager is waiting for a frame at the new size */
     Window      embedder;       /* window id of embedder */
+    /* Frame synchronisation, _NET_WM_SYNC_REQUEST. The window manager hands us
+     * a value before it resizes us and holds the new size back until we set the
+     * counter to it, which stops the unpainted area being shown. Kept as plain
+     * X types so x11drv.h does not have to pull in the Sync extension header. */
+    XID            frame_sync_counter; /* 0 when the window has none */
+    unsigned long  frame_sync_low;     /* value the window manager asked for */
+    long           frame_sync_high;
     Pixmap         icon_pixmap;
     Pixmap         icon_mask;
     unsigned long *icon_bits;
@@ -750,6 +761,8 @@ extern UINT get_window_net_wm_state( Display *display, Window window );
 extern void get_window_monitors( Display *display, Window window, long *indices );
 extern void make_window_embedded( struct x11drv_win_data *data );
 extern Window create_client_window( HWND hwnd, RECT client_rect, const XVisualInfo *visual, Colormap colormap );
+extern void frame_sync_request( HWND hwnd, unsigned long low, long high );
+extern void frame_sync_done( HWND hwnd );
 extern void detach_client_window( struct x11drv_win_data *data, Window client_window );
 extern void attach_client_window( struct x11drv_win_data *data, Window client_window );
 extern void destroy_client_window( HWND hwnd, Window client_window );

@@ -40,6 +40,9 @@
 #ifdef HAVE_X11_EXTENSIONS_XINPUT2_H
 #include <X11/extensions/XInput2.h>
 #endif
+#ifdef HAVE_X11_EXTENSIONS_SYNC_H
+#include <X11/extensions/sync.h>
+#endif
 
 /* avoid conflict with field names in included win32 headers */
 #undef Status
@@ -1220,6 +1223,82 @@ static void set_style_hints( struct x11drv_win_data *data, DWORD style, DWORD ex
 
 
 /***********************************************************************
+ *              frame synchronisation (_NET_WM_SYNC_REQUEST)
+ *
+ * Without this the window manager resizes us and composites whatever the
+ * window happens to contain, so growing a window shows an unpainted band
+ * until the application catches up -- solid black, since that is the frame
+ * window's background. The protocol lets the manager hold the new size back:
+ * it hands us a counter value before resizing, and waits for us to set the
+ * counter to it once we have drawn at the new size.
+ */
+
+static void create_frame_sync_counter( struct x11drv_win_data *data )
+{
+#ifdef HAVE_X11_EXTENSIONS_SYNC_H
+    XSyncValue zero;
+    XSyncCounter counter;
+    unsigned long value;
+
+    if (!use_frame_sync || data->frame_sync_counter) return;
+
+    XSyncIntToValue( &zero, 0 );
+    if (!(counter = XSyncCreateCounter( data->display, zero ))) return;
+
+    data->frame_sync_counter = counter;
+    value = counter;
+    XChangeProperty( data->display, data->whole_window, x11drv_atom(_NET_WM_SYNC_REQUEST_COUNTER),
+                     XA_CARDINAL, 32, PropModeReplace, (unsigned char *)&value, 1 );
+#endif
+}
+
+static void destroy_frame_sync_counter( struct x11drv_win_data *data )
+{
+#ifdef HAVE_X11_EXTENSIONS_SYNC_H
+    if (!data->frame_sync_counter) return;
+    XSyncDestroyCounter( data->display, data->frame_sync_counter );
+#endif
+    data->frame_sync_counter = 0;
+    data->frame_sync_pending = 0;
+}
+
+/* Records the value the window manager is waiting for. Called from the
+ * WM_PROTOCOLS client message, before the resize arrives. */
+void frame_sync_request( HWND hwnd, unsigned long low, long high )
+{
+    struct x11drv_win_data *data;
+
+    if (!(data = get_win_data( hwnd ))) return;
+    if (data->frame_sync_counter)
+    {
+        data->frame_sync_low = low;
+        data->frame_sync_high = high;
+        data->frame_sync_pending = 1;
+    }
+    release_win_data( data );
+}
+
+/* Tells the window manager the window has been drawn at its new size. Called
+ * once the window surface has been flushed, which is the point the new
+ * contents actually reach the X server. */
+void frame_sync_done( HWND hwnd )
+{
+#ifdef HAVE_X11_EXTENSIONS_SYNC_H
+    struct x11drv_win_data *data;
+    XSyncValue value;
+
+    if (!(data = get_win_data( hwnd ))) return;
+    if (data->frame_sync_pending && data->frame_sync_counter)
+    {
+        XSyncIntsToValue( &value, data->frame_sync_low, data->frame_sync_high );
+        XSyncSetCounter( data->display, data->frame_sync_counter, value );
+        data->frame_sync_pending = 0;
+    }
+    release_win_data( data );
+#endif
+}
+
+/***********************************************************************
  *              set_initial_wm_hints
  *
  * Set the window manager hints that don't change over the lifetime of a window.
@@ -1227,7 +1306,7 @@ static void set_style_hints( struct x11drv_win_data *data, DWORD style, DWORD ex
 static void set_initial_wm_hints( Display *display, Window window )
 {
     long i;
-    Atom protocols[3];
+    Atom protocols[4];
     Atom dndVersion = WINE_XDND_VERSION;
     XClassHint *class_hints;
 
@@ -1236,6 +1315,7 @@ static void set_initial_wm_hints( Display *display, Window window )
     protocols[i++] = x11drv_atom(WM_DELETE_WINDOW);
     protocols[i++] = x11drv_atom(_NET_WM_PING);
     if (use_take_focus) protocols[i++] = x11drv_atom(WM_TAKE_FOCUS);
+    if (use_frame_sync) protocols[i++] = x11drv_atom(_NET_WM_SYNC_REQUEST);
     XChangeProperty( display, window, x11drv_atom(WM_PROTOCOLS),
                      XA_ATOM, 32, PropModeReplace, (unsigned char *)protocols, i );
 
@@ -2809,6 +2889,7 @@ static void create_whole_window( struct x11drv_win_data *data )
     data->desired_state.rect = data->current_state.rect;
 
     x11drv_xinput2_enable( data->display, data->whole_window );
+    create_frame_sync_counter( data );
     set_initial_wm_hints( data->display, data->whole_window );
     set_wm_hints( data );
 
@@ -2845,6 +2926,9 @@ done:
 static void destroy_whole_window( struct x11drv_win_data *data, BOOL already_destroyed )
 {
     TRACE( "win %p xwin %lx/%lx\n", data->hwnd, data->whole_window, data->client_window );
+
+    if (!already_destroyed) destroy_frame_sync_counter( data );
+    else { data->frame_sync_counter = 0; data->frame_sync_pending = 0; }
 
     if (!data->whole_window)
     {

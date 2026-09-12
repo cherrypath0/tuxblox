@@ -1276,6 +1276,7 @@ then
                       X11/extensions/Xinerama.h \
                       X11/extensions/Xrandr.h \
                       X11/extensions/Xrender.h \
+                      X11/extensions/sync.h \
                       X11/extensions/xf86vmode.h \
                       X11/extensions/xf86vmproto.h],,,
                       [$xlib_includes])
