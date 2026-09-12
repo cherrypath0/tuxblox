@@ -664,8 +664,8 @@ run_step "compile_proton_native" strict bash -c '
 
     workdir="$(mktemp -d)"
     mkdir -p "$workdir/src/third_party" "$workdir/out"
-    cp "$ROOT"/compat/src/*.cpp "$ROOT"/compat/src/*.h "$workdir/src/"
-    cp "$ROOT/compat/third_party/json.hpp" "$workdir/src/third_party/"
+    cp "$ROOT"/compat/tuxblox/*.cpp "$ROOT"/compat/tuxblox/*.h "$workdir/src/"
+    cp "$ROOT/compat/tuxblox/third_party/json.hpp" "$workdir/src/third_party/"
 
     # Run through sh so the *.cpp glob is expanded inside the container.
     podman run --rm --userns=keep-id -v "$workdir:/work:Z" -w /work/src \

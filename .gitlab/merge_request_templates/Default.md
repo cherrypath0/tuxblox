@@ -22,7 +22,7 @@ TuxBlox is a two-license repository and the boundary has to stay intact:
 
   - Everything outside compat/ is GPLv3 (TuxBlox's own launcher tooling).
   - compat/ is LGPLv2.1, inherited from Wine/Proton. The exception is
-    compat/src/, which is TuxBlox's own C++ and is GPLv3 like the rest.
+    compat/tuxblox/, which is TuxBlox's own C++ and is GPLv3 like the rest.
 
 The two are separate compiled artifacts that talk at runtime, never statically
 linked into one binary. That separation is what lets the project carry both
