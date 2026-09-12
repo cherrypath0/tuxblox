@@ -2580,7 +2580,10 @@ static unsigned int diag_align_residue[16];
 /* Mirrors the fault counter so the summary can also be printed at exit; a run
  * that faults fewer than a million times never reaches the periodic report. */
 static unsigned int diag_align_seen;
+/* Defined in signal_x86_64.c, so they only exist on x86_64. */
+#ifdef __x86_64__
 extern unsigned int align_rewrites_done, align_rewrites_refused;
+#endif
 enum { ALIGN_RGN_STACK, ALIGN_RGN_IMAGE, ALIGN_RGN_OTHER, ALIGN_RGN_COUNT };
 static unsigned int diag_align_region[ALIGN_RGN_COUNT];
 static const char * const diag_align_region_name[ALIGN_RGN_COUNT] = { "stack", "image", "other" };
@@ -2657,8 +2660,12 @@ static void diag_align_report( unsigned int seen )
         for (k = 0; k < ALIGN_RGN_COUNT; k++)
             gn += snprintf( gline + gn, sizeof(gline) - gn, "%s=%u ",
                             diag_align_region_name[k], diag_align_region[k] );
+#ifdef __x86_64__
         ERR_(seh)( "DIAG align where: %s| %s| rewritten=%u refused=%u\n",
                    rn ? rline : "", gline, align_rewrites_done, align_rewrites_refused );
+#else
+        ERR_(seh)( "DIAG align where: %s| %s|\n", rn ? rline : "", gline );
+#endif
     }
     ERR_(seh)( "DIAG align mix: %u faults, %u movable (%u%%), %u distinct sites, %u undecoded | %s\n",
                seen, diag_align_movable, seen ? diag_align_movable * 100 / seen : 0,
