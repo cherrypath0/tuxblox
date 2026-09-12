@@ -1,0 +1,7 @@
+MODULE    = microsoftedgewebview2setup.exe
+IMPORTS   = advapi32
+
+EXTRADLLFLAGS = -mwindows -municode
+
+SOURCES = \
+	main.c

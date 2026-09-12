@@ -581,6 +581,33 @@ static int battleye_launcher_redirect_hack( const WCHAR *app_name, WCHAR *new_na
     return 1;
 }
 
+/* Roblox's installer ships Microsoft's WebView2 bootstrapper and runs it, which
+ * spends over a minute installing an Edge runtime nothing here ever loads:
+ * webview2loader is builtin and bridges to WebKitGTK instead. Redirect it to our
+ * own stub, which records the runtime as present and exits. Blocking the launch
+ * outright instead stops the installer on a "Module not found" dialog. */
+static int webview2_setup_redirect( const WCHAR *app_name, WCHAR *new_name, DWORD new_name_len )
+{
+    static const WCHAR setupW[] = L"c:\\windows\\system32\\microsoftedgewebview2setup.exe";
+    const WCHAR *basename;
+
+    if (!app_name) return 0;
+
+    basename = wcsrchr( app_name, '\\' );
+    basename = basename ? basename + 1 : app_name;
+    if (wcsicmp( basename, L"MicrosoftEdgeWebview2Setup.exe" )) return 0;
+
+    if (new_name_len < ARRAY_SIZE(setupW))
+    {
+        ERR( "Stub path doesn't fit in buffer.\n" );
+        return 0;
+    }
+
+    TRACE( "Redirecting the WebView2 bootstrapper to the builtin stub.\n" );
+    wcscpy( new_name, setupW );
+    return 1;
+}
+
 static const WCHAR *hack_append_command_line( const WCHAR *cmd )
 {
     static const struct
@@ -742,6 +769,8 @@ BOOL WINAPI DECLSPEC_HOTPATCH CreateProcessInternalW( HANDLE token, const WCHAR 
 
     product_name = get_product_name( app_name );
     if (battleye_launcher_redirect_hack( app_name, name, ARRAY_SIZE(name), &orig_app_name, product_name ))
+        app_name = name;
+    else if (webview2_setup_redirect( app_name, name, ARRAY_SIZE(name) ))
         app_name = name;
 
     /* Warn if unsupported features are used */
