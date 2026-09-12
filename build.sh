@@ -265,42 +265,54 @@ apply_patches() {
     git submodule update --init --force
 
     local patches_dir="compat/patches"
-    local proton_source="compat/submodules"
 
     if [[ ! -d "$patches_dir" ]]; then
         return 0
     fi
 
-    echo ":: Applying patches from $patches_dir/"
+    # The patches themselves are applied by the Proton build, onto its own copy
+    # of each submodule under build/.artifacts/proton/src-<package>, right after
+    # it syncs that copy -- never onto the submodule checkout, which therefore
+    # stays clean and never has to be committed into. See
+    # compat/make/rules-source.mk.
+    #
+    # What is left to do here is check that every patch directory names a
+    # package the build actually has, because one that does not is silently
+    # never applied, and a patch that quietly does nothing is worse than a
+    # build that stops.
+    local known
+    known="$(sed -n 's/.*rules-source,\([^,]*\),.*/\1/p' compat/Makefile.in | sort -u)"
+
     shopt -s nullglob
-    local applied=0
-    local submodule_dir submodule_name target_dir file rel_path dest
-    for submodule_dir in "$patches_dir"/*/; do
-        submodule_name="$(basename "$submodule_dir")"
+    local patch_dir name count=0 bad=0
+    for patch_dir in "$patches_dir"/*/; do
+        name="$(basename "$patch_dir")"
 
-        if [[ "$submodule_name" == "wine" ]]; then
-            echo "!! patches/wine is not supported, wine is patched directly in compat/wine, not through patches/" >&2
+        if [[ "$name" == "wine" ]]; then
+            echo "!! patches/wine is not supported: wine is a maintained fork, patched directly in compat/wine" >&2
+            bad=1
             continue
         fi
 
-        target_dir="$proton_source/$submodule_name"
-        if [[ ! -d "$target_dir" ]]; then
-            echo "!! patches/$submodule_name has no matching $target_dir -- skipping" >&2
+        if ! grep -qx "$name" <<<"$known"; then
+            echo "!! patches/$name matches no package in the build -- it would never be applied." >&2
+            echo "!! Patch directories are named after the build's package (the src-<name> folder)," >&2
+            echo "!! which is not always the submodule folder name. Known packages:" >&2
+            echo "$known" | sed 's/^/!!   /' >&2
+            bad=1
             continue
         fi
 
-        while IFS= read -r -d '' file; do
-            rel_path="${file#"$submodule_dir"}"
-            dest="$target_dir/$rel_path"
-            mkdir -p "$(dirname "$dest")"
-            cp -f "$file" "$dest"
-            echo ":: Applied patch: $file -> $dest"
-            applied=$((applied + 1))
-        done < <(find "$submodule_dir" -type f -print0)
+        count=$(( count + $(find "$patch_dir" -type f | wc -l) ))
+        echo ":: patches/$name will be overlaid onto src-$name ($(find "$patch_dir" -type f | wc -l) file(s))"
     done
     shopt -u nullglob
 
-    echo ":: Applied $applied patch file(s)"
+    if [[ $bad -ne 0 ]]; then
+        return 1
+    fi
+
+    echo ":: $count patch file(s) queued, applied by the Proton build into build/.artifacts/"
 }
 
 # Publishes what this build produced into releases/<channel>/<version>/, in the

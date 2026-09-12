@@ -13,6 +13,9 @@
 #   $(1)-source: target, tracking package source changes
 #   $(1)-clean: target, clean package and force rebuild
 #
+# compat/patches/<package>/ is overlaid onto the rsynced copy after each sync,
+# so a submodule is never modified in place.
+#
 define create-rules-source
 $(2)_SRC = $$(OBJ)/src-$(1)
 $(2)_ORIGIN = $(realpath $(3))
@@ -27,6 +30,15 @@ $$(OBJ)/.$(1)-source: $$(shell echo -n 'syncing $(1)... ' >&2 && \
                               grep -v -e ^$$$$ 2>/dev/null | grep -q ^ && echo $(1)-rebuild && \
                               echo 'done, dirty' >&2 || echo 'done' >&2)
 	rsync --filter=:C --exclude '*~' --exclude .git --exclude compile_commands.json $$($(2)_SOURCE_ARGS) --info=name -Oarx --delete "$$(abspath $(3))/" "$$($(2)_SRC)" $(--quiet?)
+	@# TuxBlox's own changes to a submodule live in compat/patches/<package>/ and
+	@# are overlaid onto this copy, not onto the submodule checkout, so the
+	@# checkout stays clean and nothing has to be committed into it. The rsync
+	@# above uses --delete, so this has to run after it, every time.
+	@# wine is excluded on purpose: it is a maintained fork, patched in place.
+	@if [ "$(1)" != "wine" ] && [ -d "$$(SRCDIR)/patches/$(1)" ]; then \
+	    echo ":: overlaying patches/$(1) onto src-$(1)"; \
+	    cp -a "$$(SRCDIR)/patches/$(1)/." "$$($(2)_SRC)/"; \
+	fi
 	touch $$@
 
 $$(OBJ)/.$(1)-post-source: $$(OBJ)/.$(1)-source
