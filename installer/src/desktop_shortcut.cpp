@@ -94,10 +94,9 @@ struct SchemeHandler {
 // keep the two in sync if either the handler set or naming changes.
 const std::vector<SchemeHandler>& installedHandlers() {
     static const std::vector<SchemeHandler> handlers = {
-        {"tuxblox-roblox-handler.desktop", "TuxBlox",
-         "x-scheme-handler/roblox;", {"x-scheme-handler/roblox"}},
         {"tuxblox-player-handler.desktop", "TuxBlox Player",
-         "x-scheme-handler/roblox-player;", {"x-scheme-handler/roblox-player"}},
+         "x-scheme-handler/roblox;x-scheme-handler/roblox-player;",
+         {"x-scheme-handler/roblox", "x-scheme-handler/roblox-player"}},
         {"tuxblox-studio-handler.desktop", "TuxBlox Studio",
          "x-scheme-handler/roblox-studio;x-scheme-handler/roblox-studio-auth;",
          {"x-scheme-handler/roblox-studio", "x-scheme-handler/roblox-studio-auth"}},
@@ -203,6 +202,7 @@ void refreshUrlHandlers(const std::string& launcherExePath) {
         // behind (e.g. the pre-rename shared "tuxblox-url-handler.desktop").
         for (const auto& h : installedHandlers()) fs::remove(appsDir + "/" + h.desktopId, ec);
         fs::remove(appsDir + "/tuxblox-url-handler.desktop", ec);
+        fs::remove(appsDir + "/tuxblox-roblox-handler.desktop", ec);
 
         for (const auto& h : installedHandlers()) {
             std::ofstream f(appsDir + "/" + h.desktopId);

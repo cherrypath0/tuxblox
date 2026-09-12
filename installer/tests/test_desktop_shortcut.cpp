@@ -110,8 +110,7 @@ int main() {
         const std::string menu = readFile(menuEntry);
         assert(menu.find("Exec=\"" + bundledExe + "\"\n") != std::string::npos);
 
-        for (const char* id : {"tuxblox-roblox-handler.desktop",
-                                "tuxblox-player-handler.desktop",
+        for (const char* id : {"tuxblox-player-handler.desktop",
                                 "tuxblox-studio-handler.desktop"}) {
             const fs::path handler = appsDir / id;
             assert(fs::exists(handler));

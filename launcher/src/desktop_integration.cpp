@@ -35,15 +35,14 @@ namespace tuxblox {
 
 namespace {
 
-// Runs "xdg-mime query default <scheme>" and returns its stdout (trimmed),
-// or "" if the scheme has no default / the query failed. Same no-shell
-// fork+exec style as runCommandBestEffort, but this one needs the child's
-// stdout back, so it pipes it through instead of firing-and-forgetting.
-std::string queryXdgMimeDefault(const std::string& scheme) {
+// Runs a command and returns its stdout (trailing newlines trimmed), or ""
+// if it could not be run. Same no-shell fork+exec style as
+// runCommandBestEffort, but this one needs the child's stdout back, so it
+// pipes it through instead of firing-and-forgetting.
+std::string captureCommand(const std::vector<std::string>& argv) {
     int pipefd[2];
     if (pipe(pipefd) != 0) return "";
 
-    std::vector<std::string> argv = {"xdg-mime", "query", "default", scheme};
     std::vector<char*> cargv;
     cargv.reserve(argv.size() + 1);
     for (const auto& a : argv) cargv.push_back(const_cast<char*>(a.c_str()));
@@ -81,14 +80,48 @@ std::string queryXdgMimeDefault(const std::string& scheme) {
     return result;
 }
 
+// Pulls the desktop id out of `gio mime <type>`, whose first line reads
+// Default application for "x-scheme-handler/roblox": tuxblox-player-handler.desktop
+// Everything after the final ": " is the id; requiring it to look like a
+// bare desktop id keeps this working if that sentence is ever translated,
+// and rejects the "No default applications for ..." line.
+std::string parseGioDefault(const std::string& out) {
+    const size_t eol = out.find('\n');
+    const std::string line = out.substr(0, eol == std::string::npos ? out.size() : eol);
+    const size_t sep = line.rfind(": ");
+    if (sep == std::string::npos) return "";
+    std::string id = line.substr(sep + 2);
+    while (!id.empty() && (id.back() == ' ' || id.back() == '\r')) id.pop_back();
+    const std::string suffix = ".desktop";
+    if (id.size() <= suffix.size()) return "";
+    if (id.compare(id.size() - suffix.size(), suffix.size(), suffix) != 0) return "";
+    if (id.find('/') != std::string::npos || id.find(' ') != std::string::npos) return "";
+    return id;
+}
+
+// The current default application for a scheme, or "" if there is none.
+//
+// gio is asked first, and xdg-mime is only the fallback: xdg-mime's KDE
+// branch shells out to `qtpaths`, which is not installed on every KDE
+// system (it ships with Qt's dev tooling, not the desktop). When it is
+// missing, the query does not fail -- it reports a *different*, wrong
+// application, which silently inverts the isKnownTuxBloxDevHandler() check
+// below and makes the launcher either stomp a deliberate dev handler or
+// leave a stale foreign association in place. gio reads mimeapps.list
+// directly, has no such dependency, and is what GTK apps consult anyway.
+std::string queryXdgMimeDefault(const std::string& scheme) {
+    const std::string viaGio = parseGioDefault(captureCommand({"gio", "mime", scheme}));
+    if (!viaGio.empty()) return viaGio;
+    return captureCommand({"xdg-mime", "query", "default", scheme});
+}
+
 // The repo-local dev workflow (./install-handler.sh, launch.sh %u) writes
 // these IDs. When one of them is the current default for a scheme, that
 // was a deliberate choice by whoever's doing dev/testing work against the
 // repo prefix -- ensureDesktopIntegration() below must not silently revert
 // it back to the installed handler every time the GUI happens to start.
 bool isKnownTuxBloxDevHandler(const std::string& desktopId) {
-    return desktopId == "tuxblox-roblox-dev.desktop" ||
-           desktopId == "tuxblox-player-dev.desktop" ||
+    return desktopId == "tuxblox-player-dev.desktop" ||
            desktopId == "tuxblox-studio-dev.desktop";
 }
 
@@ -101,13 +134,17 @@ struct SchemeHandler {
 
 // One file per Name -- a .desktop entry only has a single Name=, and each
 // of these should read distinctly in "Open With" pickers / xdg-mime query
-// output rather than one generic "URL Handler" covering all three.
+// output rather than one generic "URL Handler" covering both.
+//
+// Exactly two entries, one per app. Bare "roblox:" rides on the Player
+// entry rather than getting a file of its own: main.cpp routes it to the
+// Player anyway, so a separate "TuxBlox" entry only ever added a third
+// indistinguishable row to the "Open With" picker.
 const std::vector<SchemeHandler>& installedHandlers() {
     static const std::vector<SchemeHandler> handlers = {
-        {"tuxblox-roblox-handler.desktop", "TuxBlox",
-         "x-scheme-handler/roblox;", {"x-scheme-handler/roblox"}},
         {"tuxblox-player-handler.desktop", "TuxBlox Player",
-         "x-scheme-handler/roblox-player;", {"x-scheme-handler/roblox-player"}},
+         "x-scheme-handler/roblox;x-scheme-handler/roblox-player;",
+         {"x-scheme-handler/roblox", "x-scheme-handler/roblox-player"}},
         {"tuxblox-studio-handler.desktop", "TuxBlox Studio",
          "x-scheme-handler/roblox-studio;x-scheme-handler/roblox-studio-auth;",
          {"x-scheme-handler/roblox-studio", "x-scheme-handler/roblox-studio-auth"}},
@@ -322,11 +359,14 @@ void writeDesktopEntries(const std::string& launcherExePath) {
                 "MimeType=application/x-roblox-place;application/x-roblox-place+xml;\n";
         }
 
-        // Superseded by the per-scheme files above -- remove so it doesn't
-        // linger as a dead duplicate entry claiming the same MimeTypes.
+        // Superseded by the per-scheme files above -- remove so they don't
+        // linger as dead duplicate entries claiming the same MimeTypes.
+        // tuxblox-roblox-handler is the old standalone "roblox:" entry, now
+        // folded into the Player handler.
         {
             std::error_code rmEc;
             fs::remove(appsDir + "/tuxblox-url-handler.desktop", rmEc);
+            fs::remove(appsDir + "/tuxblox-roblox-handler.desktop", rmEc);
         }
     } catch (...) {
         // Best-effort -- must never fail an otherwise-working launch.
