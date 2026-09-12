@@ -21,7 +21,7 @@
 # situation it exists for -- so its two faces travel inside the document as
 # data: URIs rather than being fetched. Run this after replacing a .woff2:
 #
-#     python3 webkitgtk-bundle/host/fonts/generate-fonts-header.py
+#     python3 compat/webkitgtk/bundle/host/fonts/generate-fonts-header.py
 
 import base64
 import pathlib
@@ -60,11 +60,11 @@ LICENSE_HEADER = """/* TuxBlox - Linux Compatibility Layer for the Roblox Engine
 """
 
 PREAMBLE = """
-/* webkitgtk-bundle/host/errorpage_fonts.h
+/* compat/webkitgtk/bundle/host/errorpage_fonts.h
  *
  * GENERATED FILE -- do not edit by hand. Regenerate with:
  *
- *     python3 webkitgtk-bundle/host/fonts/generate-fonts-header.py
+ *     python3 compat/webkitgtk/bundle/host/fonts/generate-fonts-header.py
  *
  * The two faces the error page is set in, base64'd so they can travel inside
  * the document as data: URIs. They are embedded rather than fetched because

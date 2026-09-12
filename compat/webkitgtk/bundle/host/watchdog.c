@@ -15,7 +15,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-/* webkitgtk-bundle/host/watchdog.c
+/* compat/webkitgtk/bundle/host/watchdog.c
  *
  * See watchdog.h for the full crash mechanism this defends against and the
  * rationale for the dedicated-second-Xlib-connection approach. This file

@@ -15,7 +15,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-/* webkitgtk-bundle/host/webview.c
+/* compat/webkitgtk/bundle/host/webview.c
  *
  * Window creation/destruction and the live-webview registry -- ported from
  * compat/wine/dlls/webview2loader/unixlib.c as of commit ac3634ea6

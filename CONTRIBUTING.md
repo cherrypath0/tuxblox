@@ -9,7 +9,7 @@ Thanks for your interest in contributing to TuxBlox! This document covers how to
 TuxBlox is a multi-license repository, make sure to read all of these:
 
 - **TuxBlox's own launcher code** (everything outside **`compat/`**) is licensed under **GPLv3**. Contributions here must be compatible with GPLv3.
-- **`compat/`** (the TuxBlox compatibility layer, based on Wine and Proton) remains licensed under **LGPLv2.1**, inherited from Wine/Proton. Contributions here must comply with LGPLv2.1.
+- **`compat/`** (the TuxBlox compatibility layer, based on Wine and Proton) remains licensed under **LGPLv2.1**, inherited from Wine/Proton. Contributions here must comply with LGPLv2.1. The exceptions are `compat/tuxblox/` and `compat/webkitgtk/bundle/`, TuxBlox's own code, which are GPLv3 like the rest of TuxBlox's tooling.
 - **`third_party_licenses/`** is the license texts directory for bundled dependencies. Do not modify.
 
 By submitting a pull request, you agree that your contribution is licensed under the same license as the component you're contributing to (GPLv3 for TuxBlox's own code, LGPLv2.1 for `compat/`), and that you have the right to submit it under that license.
@@ -19,7 +19,7 @@ By submitting a pull request, you agree that your contribution is licensed under
 * git
 * podman
 
-`installer/build.sh`, `launcher/build.sh`, and `build.sh`'s Proton-compile step build inside a pinned old-glibc-baseline container (`build-container/Containerfile`) using `podman run --userns=keep-id`, a podman-specific rootless flag -- **docker is not a drop-in substitute for these three build paths**, even though it's fine for anything else in the repo that doesn't rely on that flag. `python` is no longer required on the host: the Proton-compile step is a plain `g++` build run inside that same container image, after a short Python script on the host compiles the launcher's data files into a header.
+`installer/build.sh`, `launcher/build.sh`, and `build.sh`'s Proton-compile step build inside a pinned old-glibc-baseline container (`build-container/Containerfile`) using `podman run --userns=keep-id`, a podman-specific rootless flag -- **docker is not a drop-in substitute for these three build paths**, even though it's fine for anything else in the repo that doesn't rely on that flag.
 
 ## Getting Started
 

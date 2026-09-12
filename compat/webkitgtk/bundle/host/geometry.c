@@ -15,7 +15,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-/* webkitgtk-bundle/host/geometry.c
+/* compat/webkitgtk/bundle/host/geometry.c
  *
  * X11 window geometry sync + reparenting -- ported from
  * compat/wine/dlls/webview2loader/unixlib.c as of commit ac3634ea6

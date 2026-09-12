@@ -19,7 +19,7 @@
 # compiled into the webview2loader-host binary and nothing has to ship beside
 # it. Run after editing the HTML:
 #
-#     python3 webkitgtk-bundle/host/generate-errorpage-template.py
+#     python3 compat/webkitgtk/bundle/host/generate-errorpage-template.py
 #
 # build-in-container.sh runs this itself before compiling, so a real build
 # cannot pick up a stale page. The generated header is committed as well, so a
@@ -61,11 +61,11 @@ LICENSE_HEADER = """/* TuxBlox - Linux Compatibility Layer for the Roblox Engine
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-/* webkitgtk-bundle/host/errorpage_template.h
+/* compat/webkitgtk/bundle/host/errorpage_template.h
  *
  * GENERATED FILE -- do not edit by hand. Edit host/errorpage.html and run:
  *
- *     python3 webkitgtk-bundle/host/generate-errorpage-template.py
+ *     python3 compat/webkitgtk/bundle/host/generate-errorpage-template.py
  *
  * The error page, compiled in so the binary carries it and nothing ships
  * beside it. errorpage.c fills the {{SLOTS}} and drops the IF_URL block when

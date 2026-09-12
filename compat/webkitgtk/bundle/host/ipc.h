@@ -15,7 +15,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-/* webkitgtk-bundle/host/ipc.h
+/* compat/webkitgtk/bundle/host/ipc.h
  *
  * Socket framing helpers for webview2loader-host's side of the IPC boundary
  * described in webview2loader_ipc_protocol.h. Task 3's unixlib.c client

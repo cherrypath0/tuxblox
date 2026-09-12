@@ -15,11 +15,11 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-/* webkitgtk-bundle/host/errorpage_template.h
+/* compat/webkitgtk/bundle/host/errorpage_template.h
  *
  * GENERATED FILE -- do not edit by hand. Edit host/errorpage.html and run:
  *
- *     python3 webkitgtk-bundle/host/generate-errorpage-template.py
+ *     python3 compat/webkitgtk/bundle/host/generate-errorpage-template.py
  *
  * The error page, compiled in so the binary carries it and nothing ships
  * beside it. errorpage.c fills the {{SLOTS}} and drops the IF_URL block when

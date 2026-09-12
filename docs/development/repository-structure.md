@@ -15,7 +15,7 @@ These are separate programs that talk to each other while running, not one progr
 
 - **`installer/`**, the source code for `TuxBloxInstaller`.
 - **`launcher/`**, the source code for `TuxBloxLauncher`, which sets up and runs Roblox.
-- **`compat/`**, TuxBlox's compatibility layer. Made up of many smaller pieces (submodules), plus a Wine fork maintained directly inside this repository. `compat/tuxblox/` holds TuxBlox's own C++ for the layer, and is the one part of it that is GPLv3. `compat/webkitgtk/` holds the bundled web browser component used for things like the Roblox login screen and Toolbox.
+- **`compat/`**, TuxBlox's compatibility layer. Made up of many smaller pieces (submodules), plus a Wine fork maintained directly inside this repository. `compat/tuxblox/` holds TuxBlox's own code for the layer, and `compat/webkitgtk/bundle/` holds TuxBlox's own code for the bundled web browser component used for things like the Roblox login screen and Toolbox — these two are the only parts of it that are GPLv3.
 - **`docs/`**, this documentation.
 - **`include/`**, extra files that get copied into the finished build.
 - **`third_party_licenses/`**, license text for other software bundled with TuxBlox.

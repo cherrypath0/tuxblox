@@ -363,13 +363,13 @@ LaunchOutcome ProcessLauncher::launch(LaunchTarget target, const std::string& ur
     // process must NOT use Proton's "run" verb:
     //
     //  - "run" goes through init_session(update_prefix_files=True), which calls
-    //    Prefix::setup() in compat/tuxblox/prefix.cpp. That rewrites prefix state --
+    //    Prefix::setup() in compat/tuxblox/src/prefix/prefix.cpp. That rewrites prefix state --
     //    upgrade_pfx(), migrate_user_paths(), and sync_host_theme()'s direct
     //    user.reg text writes -- underneath a live wineserver, which owns the
     //    registry and flushes over such writes.
-    //  - "run" ends in Session::waitForPrefixDrain() in compat/tuxblox/session.cpp, whose deadline
+    //  - "run" ends in Session::waitForPrefixDrain() in compat/tuxblox/src/launch/session.cpp, whose deadline
     //    is held off for as long as ANY Roblox process holds the prefix
-    //    (Session::run in compat/tuxblox/session.cpp) -- including one
+    //    (Session::run in compat/tuxblox/src/launch/session.cpp) -- including one
     //    belonging to a different instance.
     //    This launch's exit would not be reported until every instance exited,
     //    delaying its crash popup and Roblox-log capture indefinitely.

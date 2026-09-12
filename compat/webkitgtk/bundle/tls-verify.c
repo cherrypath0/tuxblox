@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-/* webkitgtk-bundle/tls-verify.c
+/* compat/webkitgtk/bundle/tls-verify.c
  *
  * Real end-to-end TLS verification for the glib-networking/GnuTLS backend
  * built by build-in-container.sh -- not just "the .so files exist", but
@@ -38,7 +38,7 @@
  *
  * Re-run this against the webkitgtk-prefix volume with:
  *
- *   webkitgtk-bundle/verify-tls.sh
+ *   compat/webkitgtk/bundle/verify-tls.sh
  *
  * (compiles this file against the volume's own libsoup-3.0/gio-2.0 inside
  * the tuxblox-webkitgtk-builder container and runs it -- see that script for

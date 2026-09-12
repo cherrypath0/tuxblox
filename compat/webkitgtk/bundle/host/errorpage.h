@@ -15,7 +15,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-/* webkitgtk-bundle/host/errorpage.h
+/* compat/webkitgtk/bundle/host/errorpage.h
  *
  * The TuxBlox error screen shown in place of WebKitGTK's own stock "Unable to
  * load page", styled to match tuxblox.net.

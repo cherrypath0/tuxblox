@@ -271,7 +271,7 @@ static void set_webkit_relocation_env(const char *dir)
     snprintf(path, sizeof(path), "%s/lib/x86_64-linux-gnu/gstreamer-1.0", dir);
     /* GStreamer 1.x reads GST_PLUGIN_SYSTEM_PATH_1_0 first and only falls
      * back to the unsuffixed GST_PLUGIN_SYSTEM_PATH when the _1_0-suffixed
-     * one is unset. compat/src/session.cpp sets GST_PLUGIN_SYSTEM_PATH_1_0
+     * one is unset. compat/tuxblox/src/launch/session.cpp sets GST_PLUGIN_SYSTEM_PATH_1_0
      * unconditionally for its own bundled GStreamer, so under this repo's
      * Proton the unsuffixed var alone is inert -- the bundle's own
      * gstreamer-1.0 plugins (built specifically for this bundle) would

@@ -15,7 +15,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-/* webkitgtk-bundle/host/errorpage.c
+/* compat/webkitgtk/bundle/host/errorpage.c
  *
  * See errorpage.h for what this is and who calls it.
  *

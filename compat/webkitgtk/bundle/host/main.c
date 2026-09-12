@@ -15,7 +15,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-/* webkitgtk-bundle/host/main.c
+/* compat/webkitgtk/bundle/host/main.c
  *
  * Entry point for webview2loader-host: a separate GTK4/WebKitGTK process
  * that Task 3's unixlib.c (Wine side) talks to over a socket, using the

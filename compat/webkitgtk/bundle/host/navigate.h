@@ -15,7 +15,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-/* webkitgtk-bundle/host/navigate.h
+/* compat/webkitgtk/bundle/host/navigate.h
  *
  * Navigation, cookies, and the real roblox-studio-auth: OAuth redirect
  * handoff -- ported from compat/wine/dlls/webview2loader/unixlib.c as

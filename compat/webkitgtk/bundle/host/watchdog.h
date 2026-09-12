@@ -15,7 +15,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-/* webkitgtk-bundle/host/watchdog.h
+/* compat/webkitgtk/bundle/host/watchdog.h
  *
  * Crash fix for a real, reproduced fatal GDK assertion, found identically in
  * two independent real login-flow crash sessions (one predating this

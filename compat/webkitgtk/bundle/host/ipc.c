@@ -15,7 +15,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-/* webkitgtk-bundle/host/ipc.c -- see ipc.h for the contract. */
+/* compat/webkitgtk/bundle/host/ipc.c -- see ipc.h for the contract. */
 #include "ipc.h"
 #include <unistd.h>
 #include <errno.h>
