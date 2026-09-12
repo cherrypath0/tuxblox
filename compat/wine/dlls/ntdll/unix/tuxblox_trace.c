@@ -1486,7 +1486,11 @@ static unsigned int xpage_live_pos;
  * every hop between two pages that four would absorb -- which is the
  * difference between seeing a path and seeing the pages it stayed in. */
 static unsigned int xpage_live_n = XPAGE_LIVE;
-static unsigned int xpage_events, xpage_max, xpage_start;
+static unsigned int xpage_events, xpage_max, xpage_start, xpage_start_seq;
+/* One offset to photograph the registers at. The last page both the passing and
+ * the failing traversal of a handler share is the place to read what they are
+ * about to branch on; the page trace alone cannot say. */
+static ULONG64 xpage_regs_at;
 static int xpage_parsed, xpage_on;
 
 /* Only the executable pages, and only their execute bit.
@@ -1804,6 +1808,11 @@ void tuxblox_diag_xpage_arm( void )
         xpage_parsed = 1;
         if (!v || !*v) return;
         if ((v = getenv( "TUXBLOX_DIAG_XPAGE_AT" ))) xpage_start = atoi( v );
+        /* The raw system-call count is not the number anything else in the log
+         * is indexed by. TUXBLOX_DIAG_XPAGE_SEQ arms at a trace record instead,
+         * which is how a window worth tracing is actually identified. */
+        if ((v = getenv( "TUXBLOX_DIAG_XPAGE_SEQ" ))) xpage_start_seq = atoi( v );
+        if ((v = getenv( "TUXBLOX_DIAG_XPAGE_REGS_AT" ))) xpage_regs_at = strtoull( v, NULL, 16 );
         if ((v = getenv( "TUXBLOX_DIAG_XPAGE_LIVE" )))
         {
             xpage_live_n = atoi( v );
@@ -1815,6 +1824,7 @@ void tuxblox_diag_xpage_arm( void )
     }
     if (!xpage_max) return;                       /* not asked for */
     if (diag_ring_pos < xpage_start) return;
+    if (xpage_start_seq && (unsigned int)trace_seq < xpage_start_seq) return;
     if (!(base = roblox_dll_base())) return;
 
     /* only the executable part, read from the loader rather than guessed */
@@ -1824,7 +1834,8 @@ void tuxblox_diag_xpage_arm( void )
 }
 
 /* Returns TRUE when the fault was one this made, and execution can carry on. */
-BOOL tuxblox_diag_xpage_fault( ULONG64 addr, ULONG64 rip, ULONG64 rsp, ULONG kind )
+BOOL tuxblox_diag_xpage_fault( ULONG64 addr, ULONG64 rip, ULONG64 rsp, ULONG kind,
+                               const ULONG64 *regs )
 {
     ULONG64 page, evict;
     unsigned int i;
@@ -1842,9 +1853,32 @@ BOOL tuxblox_diag_xpage_fault( ULONG64 addr, ULONG64 rip, ULONG64 rsp, ULONG kin
     if (evict && evict != page) xpage_setprot( evict, 0 );
     xpage_live_set[xpage_live_pos % xpage_live_n] = page;
     xpage_live_pos++;
-    if (xpage_events < xpage_max)
-        ERR_(seh)( "DIAG xpage[%u] rip=0x%llx rsp=0x%llx\n", xpage_events,
-                   (unsigned long long)rip, (unsigned long long)rsp );
+    {
+        /* xpage_lo is the layer base the arming already resolved; asking the
+         * view tree again from inside a page fault comes back empty */
+        ULONG64 ibase = (rip >= xpage_lo && rip < xpage_hi) ? xpage_lo : 0;
+
+        /* the base moves run to run, so the offset is the only form of the
+         * address that can be compared between them */
+        if (xpage_events < xpage_max)
+            ERR_(seh)( "DIAG xpage[%u] rip=0x%llx rva=+0x%llx rsp=0x%llx\n", xpage_events,
+                       (unsigned long long)rip,
+                       (unsigned long long)(ibase ? rip - ibase : 0),
+                       (unsigned long long)rsp );
+        if (xpage_regs_at && regs && ibase && rip - ibase == xpage_regs_at)
+        {
+            static const char * const names[16] = { "rax","rbx","rcx","rdx","rsi","rdi","rbp","rsp",
+                                                    "r8","r9","r10","r11","r12","r13","r14","r15" };
+            char line[512];
+            unsigned int k, n = 0;
+
+            for (k = 0; k < 16; k++)
+                n += snprintf( line + n, sizeof(line) - n, "%s=%llx ", names[k],
+                               (unsigned long long)regs[k] );
+            ERR_(seh)( "DIAG xpage-regs[%u] +0x%llx %s\n", xpage_events,
+                       (unsigned long long)xpage_regs_at, line );
+        }
+    }
     if (++xpage_events >= xpage_max)
     {
         ULONG64 p;
@@ -2426,6 +2460,31 @@ void tuxblox_diag_bp_report(void)
 
 static unsigned int diag_align_op[256];
 static unsigned int diag_align_undecoded, diag_align_movable, diag_align_nsites;
+/* Where the misaligned accesses point, and by how much.
+ *
+ * The question these answer is whether the layer is reading data that Windows
+ * would have placed 16-byte aligned. A residue histogram piled entirely on 8
+ * means a systematic half-alignment on our side -- a frame or an allocation --
+ * and is fixable at the source; a spread across 1..15 means the layer really is
+ * reading at arbitrary offsets and the faults are inherent. */
+static unsigned int diag_align_residue[16];
+/* Mirrors the fault counter so the summary can also be printed at exit; a run
+ * that faults fewer than a million times never reaches the periodic report. */
+static unsigned int diag_align_seen;
+extern unsigned int align_rewrites_done, align_rewrites_refused;
+enum { ALIGN_RGN_STACK, ALIGN_RGN_IMAGE, ALIGN_RGN_OTHER, ALIGN_RGN_COUNT };
+static unsigned int diag_align_region[ALIGN_RGN_COUNT];
+static const char * const diag_align_region_name[ALIGN_RGN_COUNT] = { "stack", "image", "other" };
+
+static unsigned int diag_align_classify( ULONG64 addr )
+{
+    const TEB *teb = NtCurrentTeb();
+
+    if (addr >= (ULONG64)(ULONG_PTR)teb->Tib.StackLimit
+        && addr < (ULONG64)(ULONG_PTR)teb->Tib.StackBase) return ALIGN_RGN_STACK;
+    if (virtual_is_image_address( (const void *)(ULONG_PTR)addr )) return ALIGN_RGN_IMAGE;
+    return ALIGN_RGN_OTHER;
+}
 static ULONG64 diag_align_site[DIAG_ALIGN_SITES];
 
 /* The opcode of a 0f-escaped instruction, past its prefixes. 0 if it is not one. */
@@ -2479,6 +2538,19 @@ static void diag_align_report( unsigned int seen )
             n += snprintf( line + n, sizeof(line) - n, "0f%02x=%u ", i, diag_align_op[i] );
     if (!n) line[0] = 0;
 
+    {
+        char rline[256], gline[128];
+        unsigned int k, rn = 0, gn = 0;
+
+        for (k = 0; k < 16; k++)
+            if (diag_align_residue[k])
+                rn += snprintf( rline + rn, sizeof(rline) - rn, "+%u=%u ", k, diag_align_residue[k] );
+        for (k = 0; k < ALIGN_RGN_COUNT; k++)
+            gn += snprintf( gline + gn, sizeof(gline) - gn, "%s=%u ",
+                            diag_align_region_name[k], diag_align_region[k] );
+        ERR_(seh)( "DIAG align where: %s| %s| rewritten=%u refused=%u\n",
+                   rn ? rline : "", gline, align_rewrites_done, align_rewrites_refused );
+    }
     ERR_(seh)( "DIAG align mix: %u faults, %u movable (%u%%), %u distinct sites, %u undecoded | %s\n",
                seen, diag_align_movable, seen ? diag_align_movable * 100 / seen : 0,
                diag_align_nsites, diag_align_undecoded, line );
@@ -2491,7 +2563,7 @@ static void diag_align_report( unsigned int seen )
  * resumes the program somewhere it should not be. Counting what it sees is the
  * first thing to know before trusting it. Gated on TUXBLOX_DIAG.
  */
-void tuxblox_diag_align( ULONG64 rip, ULONG64 rsp, ULONG64 rbp, BOOL handled,
+void tuxblox_diag_align( ULONG64 rip, ULONG64 rsp, ULONG64 rbp, ULONG64 addr, BOOL handled,
                          const ULONG64 *regs )
 {
     static int enabled = -1, log_all = -1;
@@ -2502,6 +2574,8 @@ void tuxblox_diag_align( ULONG64 rip, ULONG64 rsp, ULONG64 rbp, BOOL handled,
      * it costs nothing next to the fault that got us here. */
     static ULONG64 watch, watch_val;
     static int watch_seen;
+    static ULONG64 stack_at;
+    static int stack_at_done;
 
     unsigned char buf[16];
     char line[3 * sizeof(buf) + 1];
@@ -2522,12 +2596,18 @@ void tuxblox_diag_align( ULONG64 rip, ULONG64 rsp, ULONG64 rbp, BOOL handled,
         dump_at = v ? atoi( v ) : 2000000;
         v = getenv( "TUXBLOX_DIAG_WATCH" );
         watch = v ? strtoull( v, NULL, 0 ) : 0;
+        /* Which site to photograph the stack at, as an offset in its image.
+         * The first-eight dump catches the start of a run; this catches one
+         * named instruction wherever in the run it faults. */
+        v = getenv( "TUXBLOX_DIAG_ALIGN_STACK_AT" );
+        stack_at = v ? strtoull( v, NULL, 16 ) : 0;
         /* The layer's own code is only readable once it has decrypted itself,
          * and by the first of these faults it has. */
         diag_bp_arm();
     }
     if (!enabled) return;
     seen++;
+    diag_align_seen = seen;
     if (!handled) declined++;
 
     /* Reading the instruction on every one of these costs, and that is accepted
@@ -2546,6 +2626,11 @@ void tuxblox_diag_align( ULONG64 rip, ULONG64 rsp, ULONG64 rbp, BOOL handled,
             watch_val = now;
             watch_seen = 1;
         }
+    }
+    if (addr)
+    {
+        diag_align_residue[addr & 15]++;
+        diag_align_region[diag_align_classify( addr )]++;
     }
     if (op) diag_align_op[op]++;
     else diag_align_undecoded++;
@@ -2570,13 +2655,38 @@ void tuxblox_diag_align( ULONG64 rip, ULONG64 rsp, ULONG64 rbp, BOOL handled,
     /* The layer only decrypts its own code in memory, so a fixup is the moment
      * it can be read. Writes nothing unless TUXBLOX_DIAG_DUMP names a path. */
     if (seen == dump_at) tuxblox_diag_dump_image( "alignment scan" );
+    if (stack_at && !stack_at_done)
+    {
+        ULONG_PTR base = virtual_get_image_base( (const void *)(ULONG_PTR)rip );
+        unsigned int k;
+
+        if (base && rip - base == stack_at)
+        {
+            stack_at_done = 1;
+            ERR_(seh)( "DIAG align-at +0x%llx fault #%u rsp=0x%llx (rsp%%16=%u) rbp=0x%llx\n",
+                       (unsigned long long)stack_at, seen, (unsigned long long)rsp,
+                       (unsigned int)(rsp & 15), (unsigned long long)rbp );
+            diag_hex( "at-code", (ULONG_PTR)rip, 64 );
+            for (k = 0; k < 6; k++) diag_hex( "at-stack", (ULONG_PTR)rsp + k * 256, 256 );
+        }
+    }
     if (!log_all && seen > 64 && handled) return;
 
     for (i = n = 0; i < got; i++) n += snprintf( line + n, sizeof(line) - n, "%02x ", buf[i] );
-    ERR_(seh)( "DIAG align s=%d %s #%u n=%u rip=0x%llx rsp=0x%llx rbp=0x%llx %s\n",
+    ERR_(seh)( "DIAG align s=%d %s #%u n=%u rip=0x%llx rsp=0x%llx rbp=0x%llx addr=0x%llx +%u %s %s\n",
                (int)InterlockedIncrement( &diag_seq ), handled ? "fixed" : "DECLINED",
                seen, diag_ring_pos, (unsigned long long)rip, (unsigned long long)rsp,
-               (unsigned long long)rbp, got ? line : "unreadable" );
+               (unsigned long long)rbp, (unsigned long long)addr, (unsigned int)(addr & 15),
+               addr ? diag_align_region_name[diag_align_classify( addr )] : "-",
+               got ? line : "unreadable" );
+    /* the image base moves run to run, so the offset within it is the only
+     * form of the address worth comparing between runs */
+    {
+        ULONG_PTR base = virtual_get_image_base( (const void *)(ULONG_PTR)rip );
+
+        if (base) ERR_(seh)( "DIAG align-rva #%u rip=+0x%llx base=0x%llx\n",
+                             seen, (unsigned long long)(rip - base), (unsigned long long)base );
+    }
 
     /* A faulting spill says the frame is eight bytes out; what it does not say
      * is who put it there. The first faults of a run are the ones close enough
@@ -3162,6 +3272,7 @@ void tuxblox_trace_exit( LONG exit_code, const char *how )
     if (!tuxblox_trace_enabled()) return;
 
     tuxblox_diag_bp_report();
+    if (diag_align_seen) diag_align_report( diag_align_seen );
     dump_watch();
     dump_maps();
     dump_stack_return_addresses();

@@ -230,7 +230,8 @@ extern void tuxblox_diag_xpage_arm( void );
 extern void tuxblox_diag_wpage_arm( void );
 extern void tuxblox_diag_dump_ldr( void );
 extern void tuxblox_diag_dump_keys( ULONG64 rip, ULONG64 rsp );
-extern BOOL tuxblox_diag_xpage_fault( ULONG64 addr, ULONG64 rip, ULONG64 rsp, ULONG kind );
+extern BOOL tuxblox_diag_xpage_fault( ULONG64 addr, ULONG64 rip, ULONG64 rsp, ULONG kind,
+                                      const ULONG64 *regs );
 extern BOOL tuxblox_diag_wpage_fault( ULONG64 addr, ULONG64 rip, const ULONG64 *regs, ULONG kind );
 extern void tuxblox_diag_note_open_section( const OBJECT_ATTRIBUTES *attr, unsigned int status );
 extern void tuxblox_diag_note_delay( BOOLEAN alertable, const LARGE_INTEGER *timeout );
@@ -238,7 +239,7 @@ extern BOOL tuxblox_diag_enabled(void);
 extern void tuxblox_diag_note_call( UINT id, const ULONG_PTR *args, ULONG len );
 extern void tuxblox_diag_note_callret( UINT id, ULONG_PTR retval );
 extern void tuxblox_diag_note_query( const char *what, unsigned int class, ULONG64 addr, const void *buffer, unsigned int status );
-extern void tuxblox_diag_align( ULONG64 rip, ULONG64 rsp, ULONG64 rbp, BOOL handled,
+extern void tuxblox_diag_align( ULONG64 rip, ULONG64 rsp, ULONG64 rbp, ULONG64 addr, BOOL handled,
                                 const ULONG64 *regs );
 extern void tuxblox_diag_note_syscall( ULONG64 rip, ULONG64 rsp, ULONG64 rax );
 extern BOOL tuxblox_diag_step_arm(void);
@@ -477,6 +478,7 @@ static inline BOOL lookup_known_class( const struct known_class *table, unsigned
 
 extern void set_alignment_fault_fixup( BOOLEAN enable );
 extern BOOL virtual_is_image_address( const void *addr );
+extern ULONG_PTR virtual_get_image_base( const void *addr );
 extern NTSTATUS resolve_drive_symlink( UNICODE_STRING *name, SIZE_T max_name_len, SIZE_T *ret_len,
                                        NTSTATUS status );
 extern SIZE_T virtual_uninterrupted_read_memory( const void *addr, void *buffer, SIZE_T size );

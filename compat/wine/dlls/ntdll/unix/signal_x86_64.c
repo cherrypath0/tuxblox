@@ -2324,7 +2324,7 @@ static ULONG64 align_faulted[16384];
  * whole table costs nothing, since it is allocated either way, and took the same
  * run to 1.3 million faults and from 3m32s to 9s with identical behaviour.
  * TUXBLOX_ALIGN_TABLE narrows it again to compare against an older run. */
-static unsigned int align_faulted_mask = ARRAY_SIZE(align_faulted) - 1;
+static unsigned int align_faulted_mask = ARRAY_SIZE(align_faulted) / 4 - 1;
 
 /* Whether the VEX rewrite in particular may run. It is the one of the two that
  * is not semantics-preserving: a legacy SSE instruction leaves bits 255:128 of
@@ -2365,32 +2365,101 @@ static BOOL align_rewrite_allowed = TRUE;
  * nothing on the fault path may call getenv. */
 static BOOL align_rewrite_images = TRUE;
 static BOOL align_rewrite_images_dq = FALSE;
+/* Whether a move inside an image must fault twice before it is rewritten.
+ * TUXBLOX_ALIGN_IMAGE_FIRST_FAULT=1 restores rewriting on the first one. */
+static BOOL align_image_needs_repeat = TRUE;
+
+/* Which parts of an image may be rewritten, as offsets within it.
+ *
+ * Leaving images alone entirely is correct and costs 194 million faults a run.
+ * The layer only checks *something*, and this narrows down what: allow the
+ * rewrite inside one span at a time and see which spans it objects to.
+ * TUXBLOX_ALIGN_REWRITE_RANGE=lo-hi[,lo-hi...], offsets in hex, and setting it
+ * at all means images are rewritten only inside those spans. */
+#define ALIGN_RANGES 16
+static struct { ULONG64 lo, hi; } align_rewrite_range[ALIGN_RANGES];
+static unsigned int align_rewrite_nranges;
+
+/* Whether a faulted instruction inside a mapped image may be rewritten. An
+ * address outside any image is always allowed: the layer's own probe page is
+ * private memory and requires the rewrite. */
+/* How many rewrites actually landed, and how many the range gate refused. An
+ * arm of a bisect that patched nothing looks exactly like one the layer did not
+ * object to, so the count is what makes a result mean anything. */
+unsigned int align_rewrites_done, align_rewrites_refused;
+
+static BOOL align_rewrite_image_ok( ULONG64 rip, BYTE opcode )
+{
+    ULONG_PTR base = virtual_get_image_base( (const void *)(ULONG_PTR)rip );
+    ULONG64 rva;
+    unsigned int i;
+
+    if (!base) return TRUE;
+    rva = rip - base;
+
+    if (align_rewrite_nranges)
+    {
+        for (i = 0; i < align_rewrite_nranges; i++)
+            if (rva >= align_rewrite_range[i].lo && rva < align_rewrite_range[i].hi) return TRUE;
+        /* only a handful are ever refused, and which ones they are is the
+         * whole question -- name them rather than just counting */
+        if (align_rewrites_refused < 32)
+            ERR( "TuxBlox: image rewrite refused at +0x%llx opcode 0f%02x\n",
+                 (unsigned long long)rva, opcode );
+        align_rewrites_refused++;
+        return FALSE;
+    }
+    if (align_rewrite_images) return TRUE;
+    /* movdqa is the one spelling Windows is known to rewrite */
+    if (align_rewrite_images_dq && (opcode == 0x6f || opcode == 0x7f)) return TRUE;
+    align_rewrites_refused++;
+    return FALSE;
+}
 
 /* Whether this instruction has faulted before. Only the VEX rewrite waits for
  * it: that one is not semantics-preserving, so an instruction seen once is left
  * alone. The move rewrite runs on the first fault, as Windows does. */
+#define ALIGN_WAYS 4
+
 static BOOL align_fault_repeated( ULONG64 rip )
 {
     /* mixed rather than masked: these instructions sit a few bytes apart, so
      * any hash that drops the low bits maps neighbours onto one slot and they
-     * evict each other for ever */
-    ULONG64 *slot = &align_faulted[((rip * 0x9e3779b97f4a7c15ull) >> 32) & align_faulted_mask];
+     * evict each other for ever.
+     *
+     * Four ways rather than one because a direct-mapped table is not merely
+     * lossy here, it is unstable: two sites that collide inside the hashing
+     * loop evict each other on every pass, neither ever reaches a second fault,
+     * and the pair alone costs millions of faults a run. A bucket holds four
+     * distinct addresses, which no observed run comes close to filling. */
+    unsigned int set = (unsigned int)(((rip * 0x9e3779b97f4a7c15ull) >> 32) & align_faulted_mask);
+    ULONG64 *bucket = &align_faulted[set * ALIGN_WAYS];
+    unsigned int i;
 
-    if (*slot == rip) return TRUE;
-    *slot = rip;
+    for (i = 0; i < ALIGN_WAYS; i++) if (bucket[i] == rip) return TRUE;
+    for (i = 0; i < ALIGN_WAYS; i++) if (!bucket[i]) { bucket[i] = rip; return FALSE; }
+    /* full: replace a way chosen by the address itself, so the choice is stable
+     * for a given pair rather than alternating */
+    bucket[(rip >> 4) & (ALIGN_WAYS - 1)] = rip;
     return FALSE;
 }
 
 static void rewrite_aligned_move( ULONG64 rip, BYTE opcode, unsigned int op_pos,
-                                  unsigned int opsize_pos, unsigned int opsize_count )
+                                  unsigned int opsize_pos, unsigned int opsize_count,
+                                  BOOL repeated )
 {
     if (!align_rewrite_allowed) return;
-    if (!align_rewrite_images && virtual_is_image_address( (const void *)(ULONG_PTR)rip ))
-    {
-        /* movdqa is the one spelling Windows is known to rewrite */
-        if (!align_rewrite_images_dq || (opcode != 0x6f && opcode != 0x7f)) return;
-    }
+    /* An instruction inside an image that has faulted only once has executed
+     * only once, and emulating it costs less than the fault it would save.
+     * Patching it is also what the layer notices: the two instructions whose
+     * rewrite stops Roblox starting are both one-shot, while every instruction
+     * worth patching faults thousands of times. The layer's own probe needs the
+     * first-fault rewrite, but that runs in a private page, not an image. */
+    if (align_image_needs_repeat && !repeated
+        && virtual_get_image_base( (const void *)(ULONG_PTR)rip )) return;
+    if (!align_rewrite_image_ok( rip, opcode )) return;
 
+    align_rewrites_done++;
     switch (opcode)
     {
     case 0x28:  /* movaps, movapd -> movups, movupd */
@@ -2497,7 +2566,7 @@ static void rewrite_vex_sse( ULONG64 rip, const BYTE *instr, BYTE opcode, unsign
     unsigned int start, count, vvvv, i;
 
     if (!repeated || !align_rewrite_allowed || !vex_rewrite_allowed) return;
-    if (!align_rewrite_images && virtual_is_image_address( (const void *)(ULONG_PTR)rip )) return;
+    if (!align_rewrite_image_ok( rip, opcode )) return;
     if (!avx_available()) return;
     if (rep || opsize_count != 1) return;  /* the 66 is the one the VEX prefix takes over */
     switch (vex_operand_count( opcode ))
@@ -2531,6 +2600,7 @@ static void rewrite_vex_sse( ULONG64 rip, const BYTE *instr, BYTE opcode, unsign
         while (i--) virtual_patch_code_byte( (void *)(ULONG_PTR)(rip + start + i), orig[i] );
         return;
     }
+    align_rewrites_done++;
 }
 
 /***********************************************************************
@@ -2540,7 +2610,7 @@ static void rewrite_vex_sse( ULONG64 rip, const BYTE *instr, BYTE opcode, unsign
  * 16-byte aligned. Returns FALSE for anything else, so a general protection
  * fault with a different cause is still reported to the program.
  */
-static BOOL emulate_misaligned_sse( CONTEXT *context )
+static BOOL emulate_misaligned_sse( CONTEXT *context, ULONG64 *fault_addr )
 {
     BYTE instr[24], opcode;
     unsigned int i = 0, op, modrm_pos, imm_len = 0, len;
@@ -2630,6 +2700,10 @@ static BOOL emulate_misaligned_sse( CONTEXT *context )
 
     if (!(addr & 15)) return FALSE;  /* aligned, so the fault had another cause */
 
+    /* the address is only known here; the diagnostics need it to say which
+     * region the layer is reading misaligned, and by how much */
+    if (fault_addr) *fault_addr = addr;
+
     /* counted once per fault, since both rewrites below are offered the same one */
     repeated = align_fault_repeated( context->Rip );
 
@@ -2639,7 +2713,7 @@ static BOOL emulate_misaligned_sse( CONTEXT *context )
         M128A *xmm = &context->FltSave.XmmRegisters[reg | ((rex & 4) ? 8 : 0)];
 
         if (virtual_uninterrupted_write_memory( (void *)addr, xmm, sizeof(*xmm) )) return FALSE;
-        rewrite_aligned_move( context->Rip, opcode, op, opsize_pos, opsize_count );
+        rewrite_aligned_move( context->Rip, opcode, op, opsize_pos, opsize_count, repeated );
         context->Rip += len;
         return TRUE;
     }
@@ -2651,7 +2725,7 @@ static BOOL emulate_misaligned_sse( CONTEXT *context )
     if (!emulate_sse_op( context, opcode, opsize, reg | ((rex & 4) ? 8 : 0), &operand, imm, rep ))
         return FALSE;
 
-    rewrite_aligned_move( context->Rip, opcode, op, opsize_pos, opsize_count );
+    rewrite_aligned_move( context->Rip, opcode, op, opsize_pos, opsize_count, repeated );
     rewrite_vex_sse( context->Rip, instr, opcode, op, opsize_pos, opsize_count, rep, rex, rex_pos, reg,
                      repeated );
     context->Rip += len;
@@ -3428,9 +3502,10 @@ static void segv_handler( int signal, siginfo_t *siginfo, void *sigcontext )
                                      context.c.Rsi, context.c.Rdi, context.c.Rbp, context.c.Rsp,
                                      context.c.R8,  context.c.R9,  context.c.R10, context.c.R11,
                                      context.c.R12, context.c.R13, context.c.R14, context.c.R15 };
-                BOOL handled = emulate_misaligned_sse( &context.c );
+                ULONG64 fault_addr = 0;
+                BOOL handled = emulate_misaligned_sse( &context.c, &fault_addr );
 
-                tuxblox_diag_align( rip, context.c.Rsp, context.c.Rbp, handled, regs );
+                tuxblox_diag_align( rip, context.c.Rsp, context.c.Rbp, fault_addr, handled, regs );
                 if (handled)
                 {
                     restore_context( &context, ucontext );
@@ -3451,12 +3526,18 @@ static void segv_handler( int signal, siginfo_t *siginfo, void *sigcontext )
         /* A page this build took execution rights off to watch where the
          * program goes. Handled before anything else looks at it, so the
          * program is never told a fault happened. */
+        {
+        ULONG64 xregs[16] = { context.c.Rax, context.c.Rbx, context.c.Rcx, context.c.Rdx,
+                              context.c.Rsi, context.c.Rdi, context.c.Rbp, context.c.Rsp,
+                              context.c.R8,  context.c.R9,  context.c.R10, context.c.R11,
+                              context.c.R12, context.c.R13, context.c.R14, context.c.R15 };
         if (tuxblox_diag_xpage_fault( (ULONG64)(ULONG_PTR)siginfo->si_addr,
                                       RIP_sig(ucontext), RSP_sig(ucontext),
-                                      (ERROR_sig(ucontext) >> 1) & 0x09 ))
+                                      (ERROR_sig(ucontext) >> 1) & 0x09, xregs ))
         {
             leave_handler( ucontext );
             return;
+        }
         }
         /* The same, for a page whose write rights were taken off to find out
          * what stores into one of the layer's tables. */
@@ -3969,6 +4050,7 @@ void signal_init_process(void)
     WOW_TEB *wow_teb = get_wow_teb( NtCurrentTeb() );
     struct ntdll_thread_data *thread_data = ntdll_get_thread_data();
     void *ptr, *kernel_stack = (char *)thread_data->kernel_stack + kernel_stack_size;
+    unsigned int i;
 
     align_rewrite_allowed = !getenv( "TUXBLOX_NO_ALIGN_REWRITE" );
     {
@@ -3977,13 +4059,38 @@ void signal_init_process(void)
         if (v && !strcmp( v, "movdqa" )) align_rewrite_images_dq = TRUE;
         if (v && (!strcmp( v, "movdqa" ) || !strcmp( v, "none" ))) align_rewrite_images = FALSE;
     }
+    {
+        const char *v = getenv( "TUXBLOX_ALIGN_REWRITE_RANGE" );
+
+        while (v && *v && align_rewrite_nranges < ALIGN_RANGES)
+        {
+            char *end;
+            ULONG64 lo = strtoull( v, &end, 16 );
+
+            if (end == v || *end != '-') break;
+            v = end + 1;
+            align_rewrite_range[align_rewrite_nranges].lo = lo;
+            align_rewrite_range[align_rewrite_nranges].hi = strtoull( v, &end, 16 );
+            if (end == v) break;
+            align_rewrite_nranges++;
+            v = (*end == ',') ? end + 1 : end;
+        }
+        /* a knob that silently parsed nothing reads exactly like one that had
+         * no effect, so say what was understood */
+        for (i = 0; i < align_rewrite_nranges; i++)
+            ERR( "TuxBlox: image rewrites limited to +0x%llx-0x%llx\n",
+                 (unsigned long long)align_rewrite_range[i].lo,
+                 (unsigned long long)align_rewrite_range[i].hi );
+    }
+    align_image_needs_repeat = !getenv( "TUXBLOX_ALIGN_IMAGE_FIRST_FAULT" );
     gp_reports_execute = !!getenv( "TUXBLOX_TEST_GP_EXEC" );
     vex_rewrite_allowed = !getenv( "TUXBLOX_NO_VEX_REWRITE" );
     {
         const char *v = getenv( "TUXBLOX_ALIGN_TABLE" );
         unsigned int want = v ? atoi( v ) : 0;
 
-        if (want > ARRAY_SIZE(align_faulted)) want = ARRAY_SIZE(align_faulted);
+        /* the knob names buckets, so an old run's numbers still reproduce */
+        if (want > ARRAY_SIZE(align_faulted) / 4) want = ARRAY_SIZE(align_faulted) / 4;
         if (want >= 2) align_faulted_mask = want - 1;
     }
 

@@ -5664,6 +5664,28 @@ BOOL virtual_is_image_address( const void *addr )
 }
 
 
+/***********************************************************************
+ *           virtual_get_image_base
+ *
+ * The base of the mapped image an address belongs to, or zero if it is not in
+ * one. Same question as virtual_is_image_address, but it also gives back the
+ * base, so a caller can work in offsets within the image rather than in
+ * addresses that move from run to run.
+ */
+ULONG_PTR virtual_get_image_base( const void *addr )
+{
+    struct file_view *view;
+    sigset_t sigset;
+    ULONG_PTR ret = 0;
+
+    server_enter_uninterrupted_section( &virtual_mutex, &sigset );
+    view = find_view( addr, 0 );
+    if (view && (view->protect & SEC_IMAGE)) ret = (ULONG_PTR)view->base;
+    server_leave_uninterrupted_section( &virtual_mutex, &sigset );
+    return ret;
+}
+
+
 NTSTATUS virtual_patch_code_byte( void *addr, BYTE value )
 {
     char *page = ROUND_ADDR( addr, host_page_mask );
