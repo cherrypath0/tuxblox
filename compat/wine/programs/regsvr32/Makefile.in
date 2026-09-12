@@ -5,5 +5,4 @@ EXTRADLLFLAGS = -mwindows -municode
 
 SOURCES = \
 	regsvr32.c \
-	regsvr32.man.in \
 	regsvr32.rc

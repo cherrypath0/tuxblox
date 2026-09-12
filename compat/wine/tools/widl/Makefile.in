@@ -20,7 +20,6 @@ SOURCES = \
 	typetree.c \
 	utils.c \
 	widl.c \
-	widl.man.in \
 	wpp.c \
 	write_msft.c \
 	write_sltg.c

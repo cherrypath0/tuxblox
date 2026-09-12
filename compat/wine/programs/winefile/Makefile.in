@@ -5,6 +5,5 @@ EXTRADLLFLAGS = -mwindows -municode
 
 SOURCES = \
 	winefile.c \
-	winefile.man.in \
 	winefile.rc \
 	winefile.svg

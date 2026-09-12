@@ -27,5 +27,4 @@ SOURCES = \
 	tgt_module.c \
 	types.c \
 	winedbg.c \
-	winedbg.man.in \
 	winedbg.rc

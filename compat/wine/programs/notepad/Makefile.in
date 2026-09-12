@@ -6,6 +6,5 @@ EXTRADLLFLAGS = -mwindows
 SOURCES = \
 	dialog.c \
 	main.c \
-	notepad.man.in \
 	notepad.rc \
 	notepad.svg

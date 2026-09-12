@@ -5,7 +5,6 @@ EXTRADLLFLAGS = -mwindows
 
 SOURCES = \
 	msiexec.c \
-	msiexec.man.in \
 	msiexec.svg \
 	rsrc.rc \
 	service.c

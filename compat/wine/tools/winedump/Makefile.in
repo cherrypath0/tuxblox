@@ -25,7 +25,6 @@ SOURCES = \
 	reg.c \
 	search.c \
 	symbol.c \
-	tlb.c \
-	winedump.man.in
+	tlb.c
 
 INSTALL_DEV = $(PROGRAMS) $(SCRIPTS)

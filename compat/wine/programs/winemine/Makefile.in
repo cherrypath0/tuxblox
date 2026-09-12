@@ -7,6 +7,5 @@ EXTRADLLFLAGS = -mwindows -municode
 SOURCES = \
 	dialog.c \
 	main.c \
-	winemine.man.in \
 	winemine.rc \
 	winemine.svg

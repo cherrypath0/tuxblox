@@ -7,5 +7,4 @@ EXTRADLLFLAGS = -mconsole
 SOURCES = \
 	shutdown.c \
 	wineboot.c \
-	wineboot.man.in \
 	wineboot.rc

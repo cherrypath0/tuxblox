@@ -9,7 +9,6 @@ SOURCES = \
 	res32.c \
 	spec16.c \
 	spec32.c \
-	utils.c \
-	winebuild.man.in
+	utils.c
 
 INSTALL_DEV = $(PROGRAMS)

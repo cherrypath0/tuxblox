@@ -14,7 +14,6 @@ SOURCES = \
 	main.c \
 	theme.c \
 	winecfg.c \
-	winecfg.man.in \
 	winecfg.rc \
 	winecfg.svg \
 	x11drvdlg.c

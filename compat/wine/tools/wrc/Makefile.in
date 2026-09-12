@@ -11,8 +11,7 @@ SOURCES = \
 	ppy.y \
 	utils.c \
 	wpp.c \
-	wrc.c \
-	wrc.man.in
+	wrc.c
 
 wrc_EXTRADEFS = -DBINDIR="\"${bindir}\"" -DDATADIR="\"${datadir}\"" -DINCLUDEDIR="\"${includedir}\""
 

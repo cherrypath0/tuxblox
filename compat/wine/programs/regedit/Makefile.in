@@ -13,7 +13,6 @@ SOURCES = \
 	listview.c \
 	main.c \
 	regedit.c \
-	regedit.man.in \
 	regedit.rc \
 	regedit.svg \
 	regproc.c \

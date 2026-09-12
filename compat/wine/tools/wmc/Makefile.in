@@ -8,7 +8,6 @@ SOURCES = \
 	po.c \
 	utils.c \
 	wmc.c \
-	wmc.man.in \
 	write.c
 
 wmc_EXTRADEFS = -DBINDIR="\"${bindir}\"" -DDATADIR="\"${datadir}\""

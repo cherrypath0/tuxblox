@@ -6,5 +6,4 @@ EXTRADLLFLAGS = -mwindows -municode
 
 SOURCES = \
 	wineconsole.c \
-	wineconsole.man.in \
 	wineconsole.rc
