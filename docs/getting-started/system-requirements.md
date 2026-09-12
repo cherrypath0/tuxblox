@@ -1,31 +1,75 @@
 # System Requirements
 
-Make sure your system meets these requirements before installing TuxBlox.
+Most computers built in the last ten years will run TuxBlox. Here is the short version, followed by the details.
 
 ## Hardware
 
-- **Processor:** x86-64 processor with SSE4.1 support or newer
-- **Storage:** 6 GB or more of free space
-- **Memory:** 8 GB of RAM or more
+| | Minimum |
+|---|---|
+| **Processor** | x86-64 with SSE4.1 or newer |
+| **Memory** | 8 GB of RAM |
+| **Storage** | 6 GB free |
+| **Graphics** | Anything with a working Vulkan driver |
+
+ARM processors (including Raspberry Pi and Apple Silicon under Asahi Linux) are not supported.
 
 ## Software
 
-- **Operating System:** Ubuntu 20.04 or newer, Debian 11 or newer, Fedora 32 or newer, Arch Linux, or another distribution with glibc 2.31 or newer
-- **Kernel:** Linux 6.14 or newer
-- **GPU Drivers:** NVIDIA proprietary driver 418.49.04 or newer, or Mesa 17.0 or newer for AMD and Intel
+| | Minimum |
+|---|---|
+| **Kernel** | Linux 6.14 or newer |
+| **C library** | glibc 2.31 or newer |
+| **NVIDIA drivers** | Proprietary driver 418.49.04 or newer |
+| **AMD and Intel drivers** | Mesa 17.0 or newer |
 
-Other distributions not listed above may still work, as long as they meet the requirements.
+If you are not sure what any of that means, the distribution list below is an easier way to check.
 
-TuxBlox is designed to run directly on Linux. It does not currently support WSL (Windows Subsystem for Linux) or virtual machines.
+## Distributions
 
-## Distributions that will not work
+These are known to meet the requirements as long as they are reasonably up to date:
 
-### Alpine Linux
+- Ubuntu 20.04 or newer
+- Debian 11 or newer
+- Fedora 32 or newer
+- Arch Linux, Manjaro, EndeavourOS
+- Linux Mint, Pop!\_OS
+- openSUSE Tumbleweed
 
-Alpine Linux uses musl instead of glibc. TuxBlox needs glibc 2.31 or newer, so Alpine Linux is not supported.
+Other distributions will very likely work too. The list is not exhaustive, it is just the set we hear about most often.
 
-This applies to any distribution that does not provide glibc 2.31 or newer.
+> [!NOTE]
+> The kernel requirement is the one that trips people up most. Long term support distributions sometimes ship an older kernel than their release date suggests. Check yours with `uname -r`.
 
-### Void Linux (musl variant)
+## What will not work
 
-Void Linux is offered with either glibc or musl. The musl version is not supported for the same reason as Alpine. The glibc version of Void Linux works fine, as long as it also meets the other requirements above.
+### musl based distributions
+
+TuxBlox needs glibc. Distributions built on musl instead cannot run it at all, and this is not something a workaround can fix.
+
+That rules out:
+
+- **Alpine Linux**
+- **Void Linux**, musl edition only. The glibc edition of Void is fine.
+
+### Windows Subsystem for Linux
+
+WSL is not supported. It does not provide the graphics and kernel features TuxBlox depends on.
+
+### Virtual machines
+
+Running TuxBlox inside a VM is not supported. Graphics passthrough inside a VM is fragile enough that we cannot help debug it, and Roblox's anti-cheat is unlikely to be happy about it either.
+
+### Containers
+
+Running inside a container such as Distrobox works, but only if the container was created with access to your graphics card. TuxBlox detects this case and warns you on startup if the passthrough is missing. See [Common Problems](../troubleshooting/common-problems.md) for the fix.
+
+## Checking what you have
+
+Run these in a terminal if you want to confirm before installing:
+
+```bash
+uname -r                      # kernel version
+ldd --version | head -1       # glibc version
+lspci -k | grep -A3 -i vga    # graphics card and driver in use
+vulkaninfo --summary | head   # Vulkan support, if vulkan-tools is installed
+```

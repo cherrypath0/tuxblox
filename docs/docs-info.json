@@ -7,27 +7,101 @@
                 "Title": "Welcome",
                 "Sort": 1
             },
-            "how-it-works": {
-                "Title": "How TuxBlox Works",
-                "Sort": 2
-            },
             "system-requirements": {
                 "Title": "System Requirements",
-                "Sort": 3
+                "Sort": 2
             },
             "installing-tuxblox": {
                 "Title": "Installing TuxBlox",
+                "Sort": 3
+            },
+            "first-launch": {
+                "Title": "Your First Launch",
                 "Sort": 4
+            },
+            "how-it-works": {
+                "Title": "How TuxBlox Works",
+                "Sort": 5
             },
             "faq": {
                 "Title": "Frequently Asked Questions",
+                "Sort": 6
+            }
+        }
+    },
+    "using-tuxblox": {
+        "Title": "Using TuxBlox",
+        "Sort": 2,
+        "Content": {
+            "the-launcher": {
+                "Title": "The Launcher",
+                "Sort": 1
+            },
+            "settings": {
+                "Title": "Settings",
+                "Sort": 2
+            },
+            "fastflags": {
+                "Title": "FastFlags",
+                "Sort": 3
+            },
+            "versions": {
+                "Title": "Versions",
+                "Sort": 4
+            },
+            "desktop-integration": {
+                "Title": "Desktop Integration",
                 "Sort": 5
+            },
+            "studio-mcp": {
+                "Title": "Studio MCP",
+                "Sort": 6
+            }
+        }
+    },
+    "advanced": {
+        "Title": "Advanced",
+        "Sort": 3,
+        "Content": {
+            "command-line": {
+                "Title": "Command Line Reference",
+                "Sort": 1
+            },
+            "environment-variables": {
+                "Title": "Environment Variables",
+                "Sort": 2
+            },
+            "files-and-folders": {
+                "Title": "Files and Folders",
+                "Sort": 3
+            }
+        }
+    },
+    "troubleshooting": {
+        "Title": "Troubleshooting",
+        "Sort": 4,
+        "Content": {
+            "common-problems": {
+                "Title": "Common Problems",
+                "Sort": 1
+            },
+            "known-issues": {
+                "Title": "Known Issues",
+                "Sort": 2
+            },
+            "logs": {
+                "Title": "Logs and Diagnostics",
+                "Sort": 3
+            },
+            "reporting-bugs": {
+                "Title": "Reporting Bugs",
+                "Sort": 4
             }
         }
     },
     "development": {
         "Title": "Development",
-        "Sort": 2,
+        "Sort": 5,
         "Content": {
             "building-from-source": {
                 "Title": "Building From Source",
@@ -40,20 +114,6 @@
             "contributing": {
                 "Title": "Contributing",
                 "Sort": 3
-            }
-        }
-    },
-    "troubleshooting": {
-        "Title": "Troubleshooting",
-        "Sort": 3,
-        "Content": {
-            "known-issues": {
-                "Title": "Known Issues",
-                "Sort": 1
-            },
-            "reporting-bugs": {
-                "Title": "Reporting Bugs",
-                "Sort": 2
             }
         }
     }

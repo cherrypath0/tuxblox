@@ -1,28 +1,94 @@
 # Repository Structure
 
-A quick tour of what lives where in the TuxBlox repository.
+A tour of the TuxBlox repository, for anyone about to change something in it.
 
 ## Two halves, two licenses
 
-TuxBlox's repository is split into two parts with different licenses:
+This is the most important thing to understand before touching anything.
 
-- **Everything outside `compat/`** is TuxBlox's own launcher and installer code, licensed under **GPLv3**.
-- **`compat/`** is TuxBlox's compatibility layer, based on Wine and Proton, licensed under **LGPLv2.1**.
+| Part | License |
+|---|---|
+| Everything outside `compat/` | **GPLv3** |
+| `compat/` | **LGPLv2.1**, inherited from Wine and Proton |
+| `compat/tuxblox/` and `compat/webkitgtk/bundle/` | **GPLv3**, TuxBlox's own code inside the layer |
+| `third_party_licenses/` | Whatever each bundled project uses. Do not modify. |
 
-These are separate programs that talk to each other while running, not one program built from both halves. Keeping that separation is important, it is what lets the project use two different licenses.
+The two halves are **separate compiled programs that talk to each other while running**, not one program linked from both. That separation is exactly what lets the project carry two licenses cleanly, so keep it intact in any change you make.
 
 ## Top level folders
 
-- **`installer/`**, the source code for `TuxBloxInstaller`.
-- **`launcher/`**, the source code for `TuxBloxLauncher`, which sets up and runs Roblox.
-- **`compat/`**, TuxBlox's compatibility layer. Made up of many smaller pieces (submodules), plus a Wine fork maintained directly inside this repository. `compat/tuxblox/` holds TuxBlox's own code for the layer, and `compat/webkitgtk/bundle/` holds TuxBlox's own code for the bundled web browser component used for things like the Roblox login screen and Toolbox — these two are the only parts of it that are GPLv3.
-- **`docs/`**, this documentation.
-- **`include/`**, extra files that get copied into the finished build.
-- **`third_party_licenses/`**, license text for other software bundled with TuxBlox.
+| Folder | What is in it |
+|---|---|
+| `launcher/` | Source for `TuxBloxLauncher`, the window you use |
+| `installer/` | Source for `TuxBloxInstaller` |
+| `compat/` | The compatibility layer |
+| `include/` | Files copied into the finished build as-is, such as `mcp.sh` |
+| `docs/` | This documentation |
+| `third_party_licenses/` | License texts for everything bundled |
 
 ## Top level files
 
-- **`build.sh`**, builds the installer, launcher, and compatibility layer, in that order. See [Building From Source](building-from-source.md).
-- **`Containerfile`**, describes the container TuxBlox is built inside, to keep builds consistent across different machines.
-- **`CONTRIBUTING.md`**, how to contribute to TuxBlox.
-- **`LICENSE`**, the GPLv3 license covering TuxBlox's own code.
+| File | What it is |
+|---|---|
+| `build.sh` | Builds the installer, launcher and compatibility layer, then packages the result |
+| `launch.sh` | Runs what you just built, without installing it |
+| `VERSION` | The version and channel. One file, read by all three components. |
+| `Containerfile` | The container builds run inside, so they are the same on every machine |
+| `CONTRIBUTING.md` | How to contribute |
+| `SECURITY.md` | How to report a security issue |
+| `LICENSE` | The GPLv3 text |
+
+## Inside compat/
+
+The compatibility layer is by far the largest part of the repository.
+
+| | |
+|---|---|
+| `compat/wine/` | TuxBlox's Wine fork. Checked in directly and maintained here, not a submodule. |
+| `compat/submodules/` | Around two dozen dependencies, including DXVK and vkd3d |
+| `compat/tuxblox/` | TuxBlox's own C++ code for the layer, including the entry point |
+| `compat/webkitgtk/bundle/` | TuxBlox's own browser component, used for Studio's login screen and Toolbox |
+| `compat/patches/` | Changes TuxBlox applies to submodule sources |
+| `compat/make/` | The build rules |
+
+### How patches work
+
+TuxBlox does not commit changes into the dependency submodules. Instead, a change lives in `compat/patches/<package>/<path>`, and the build copies it over its own copy of the source.
+
+The submodules stay clean, which means updating one does not fight with local edits, and nothing has to be committed inside a submodule.
+
+The one exception is `compat/wine/`, which is a fork TuxBlox maintains, so it is edited in place like any other source.
+
+## Build output
+
+`build/` holds everything a build produces and is not tracked in git.
+
+```
+build/
+├── compat/          the compatibility layer, entry point is main
+├── libtuxblox/      libraries the launcher's interface needs
+├── runtime/         the virtual drive
+├── TuxBloxLauncher
+├── TuxBloxInstaller
+├── mcp.sh
+└── .artifacts/      intermediate build files
+```
+
+That layout deliberately matches what ends up in `~/.tuxblox`, so what you test is shaped like what ships.
+
+## Where to put a change
+
+| You want to change | Go to |
+|---|---|
+| Something in the launcher window | `launcher/src/ui_qt/` |
+| How a setting behaves | `launcher/src/settings.cpp` |
+| The install or update flow | `installer/src/` |
+| How Roblox is started | `compat/tuxblox/src/launch/` |
+| How the virtual drive is built | `compat/tuxblox/src/prefix/` |
+| Windows behaviour Roblox depends on | `compat/wine/` |
+| Studio's login screen or Toolbox | `compat/webkitgtk/bundle/` |
+| A dependency such as DXVK | `compat/patches/<package>/` |
+
+## Before you write code
+
+Read [Contributing](contributing.md). It covers code style, the copyright header every TuxBlox source file needs, and what kinds of contribution are and are not accepted.

@@ -1,41 +1,84 @@
 # Reporting Bugs
 
-> **Found a security issue?** Please do not report it publicly. Email us instead at **security@tuxblox.net**.
-
-> Bug reports for modified or forked versions of TuxBlox cannot be looked into by us. If you are running a fork, please report the issue to that fork's maintainers instead. We can only help with bugs that happen on an unmodified, official TuxBlox build.
+> [!CAUTION]
+> **Found a security issue?** Do not report it publicly. Email **security@tuxblox.net** instead.
 
 ## Before you report
 
-Check [Known Issues](known-issues.md) first, your problem might already be a known one.
+1. Check [Common Problems](common-problems.md). Most reports have an answer there.
+2. Check [Known Issues](known-issues.md). We may already know.
+3. Try it on the latest version. It may already be fixed.
+
+> [!NOTE]
+> We cannot look into bugs in modified or forked builds of TuxBlox. If you are running a fork, report it to that fork's maintainers. We can only help with unmodified, official builds.
 
 ## What to include
 
-The more detail you give us, the easier it is to fix. If you can, include:
+The more of this you can give, the faster it gets fixed. You do not need all of it.
 
-- Your Linux distribution and kernel version
-- Your desktop environment or window manager (for example GNOME, KDE Plasma, Hyprland)
-- Whether you are using Wayland or X11
-- Your GPU and driver version
-- Your TuxBlox version
-- Which Roblox experience the bug happened in, if it is game specific
-- What you expected to happen, and what happened instead
-- Steps to make the bug happen again
-- Logs, if you have them, found in `~/.tuxblox/logs`
+**About your system:**
 
-You do not need every item on this list, just include what you can.
+- Distribution and version
+- Kernel version (`uname -r`)
+- Desktop environment (GNOME, KDE Plasma, Hyprland, and so on)
+- Wayland or X11
+- Graphics card and driver version
 
-## How to report
+**About TuxBlox:**
 
-Pick whichever way is easiest for you.
+- Your TuxBlox version, from the About tab
+- Your update channel
+- Whether you have any FastFlags set, and which
+- Anything in the Environment variables box
 
-### Through Discord
+**About the bug:**
 
-Join our [Discord server](https://tuxblox.net/discord) and post in the bugs section under Support.
+- What you expected to happen
+- What actually happened
+- Steps to make it happen again
+- Which Roblox experience or place, if it only happens in one
+- The log file from `~/.tuxblox/logs`
 
-### Through GitLab
+[Logs and Diagnostics](logs.md) has commands that collect most of the system information in one go.
 
-Open an issue on our [GitLab repository](https://gitlab.com/cherrypath0/tuxblox/-/issues).
+> [!WARNING]
+> Attach the log file. Never attach your virtual drive, `~/.tuxblox/runtime/`. It can contain your Roblox session cookies.
 
----
+## A good report looks like this
 
-Please be patient after reporting. It may take some time before a developer gets to look at it.
+> **Studio's Toolbox is blank on Fedora 41**
+>
+> Fedora 41, kernel 6.14.3, KDE Plasma on Wayland, AMD RX 6700 XT with Mesa 25.0.2.
+> TuxBlox 2.1.0 stable, no FastFlags, nothing in the environment box.
+>
+> Opening the Toolbox in Studio shows an empty grey panel. Searching does nothing. Every other panel works.
+>
+> Happens every time, on a brand new empty place. Started after updating to 2.1.0, was fine on 2.0.4.
+>
+> Log attached.
+
+That report can be acted on immediately. "Toolbox broken pls fix" cannot.
+
+## Where to report
+
+### Discord
+
+[tuxblox.net/discord](https://tuxblox.net/discord), in the bugs channel under Support.
+
+Best for anything you are not sure is a bug, and for anything where a back and forth will help.
+
+### GitLab
+
+[gitlab.com/cherrypath0/tuxblox/-/issues](https://gitlab.com/cherrypath0/tuxblox/-/issues)
+
+Best for a clear, reproducible bug you can describe in one go. Search existing issues first.
+
+### GitHub
+
+[github.com/cherrypath0/tuxblox/issues](https://github.com/cherrypath0/tuxblox/issues)
+
+The same project. Every change is pushed to GitLab and GitHub together, so the code is identical on both. Use whichever you already have an account on, there is no need to post in both. Search existing issues first.
+
+## After reporting
+
+Please be patient. TuxBlox is a small project and it may be a while before someone gets to your report. Being asked for more information is normal and usually means somebody is actually looking.
