@@ -22,7 +22,7 @@ directly and commit the change. `build.sh` deliberately refuses a
 
 ## Files here that look removable but are not
 
-Two files in this folder look like documentation and are not:
+A few files in this folder look like documentation and are not:
 
 - **`AUTHORS`** is compiled into `shell32` as a resource for Wine's About
   dialog (see `dlls/shell32/shell32.rc`). Deleting it makes `configure` fail
@@ -33,3 +33,7 @@ Two files in this folder look like documentation and are not:
   it with a regular expression. Deleting it breaks `configure` outright, and
   pointing it at the repository's own `VERSION` file does not work because the
   format does not match.
+- **`tools/winemaker/`'s man pages** are the only entries in that folder's
+  `SOURCES` list, and a folder needs a `SOURCES` list for the Wine build to
+  give it a build target at all. Removing them makes the build stop with
+  "No rule to make target 'tools/winemaker/all'".
