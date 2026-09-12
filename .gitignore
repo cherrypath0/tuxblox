@@ -38,6 +38,7 @@ libtuxblox-*.tar.zst
 .superpowers/
 workspace/
 CLAUDE.md
+SKILL.md
 
 /*.tar.gz
 /*.tar.zst
