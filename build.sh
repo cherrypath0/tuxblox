@@ -663,19 +663,18 @@ run_step "compile_proton_native" strict bash -c '
     podman build -t tuxblox-old-glibc-builder -f "$ROOT/Containerfile" "$ROOT"
 
     workdir="$(mktemp -d)"
-    mkdir -p "$workdir/src/third_party" "$workdir/out"
-    cp "$ROOT"/compat/tuxblox/*.cpp "$ROOT"/compat/tuxblox/*.h "$workdir/src/"
-    cp "$ROOT/compat/tuxblox/third_party/json.hpp" "$workdir/src/third_party/"
-    "$ROOT/compat/tuxblox/embed-data.py" "$ROOT/compat/tuxblox/data" "$workdir/src/embedded_data.h"
+    mkdir -p "$workdir/src" "$workdir/out"
+    cp -a "$ROOT"/compat/tuxblox/src/. "$workdir/src/"
+    "$ROOT/compat/tuxblox/tools/embed-data.py" "$ROOT/compat/tuxblox/data" "$workdir/src/embedded_data.h"
 
     # Run through sh so the *.cpp glob is expanded inside the container.
     podman run --rm --userns=keep-id -v "$workdir:/work:Z" -w /work/src \
         -e TUXBLOX_BUILD_VERSION -e TUXBLOX_CHANNEL \
         tuxblox-old-glibc-builder sh -c \
-        '"'"'g++ -std=c++17 -O2 -Wall -Wextra \
+        '"'"'g++ -std=c++17 -O2 -Wall -Wextra -I. \
             -DTUXBLOX_VERSION="\"$TUXBLOX_BUILD_VERSION\"" \
             -DTUXBLOX_CHANNEL="\"$TUXBLOX_CHANNEL\"" \
-            -o /work/out/main ./*.cpp'"'"'
+            -o /work/out/main $(find . -name "*.cpp")'"'"'
 
     install -m 755 "$workdir/out/main" dist/main
     rm -rf "$workdir"

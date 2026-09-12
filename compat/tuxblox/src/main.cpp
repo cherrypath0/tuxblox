@@ -32,10 +32,10 @@
 #include <string_view>
 #include <vector>
 
-#include "prefix.h"
-#include "proton.h"
-#include "session.h"
-#include "util.h"
+#include "prefix/prefix.h"
+#include "launch/proton.h"
+#include "launch/session.h"
+#include "support/util.h"
 
 #ifndef TUXBLOX_VERSION
 #define TUXBLOX_VERSION "unknown"

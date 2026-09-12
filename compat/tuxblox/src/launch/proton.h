@@ -25,8 +25,8 @@
 #include <string>
 #include <vector>
 
-#include "filelock.h"
-#include "util.h"
+#include "support/filelock.h"
+#include "support/util.h"
 
 namespace tuxblox {
 

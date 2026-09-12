@@ -19,8 +19,8 @@
 // Licensed under the 3-clause BSD license; see
 // third_party_licenses/proton/LICENSE.proton for the full text.
 
-#include "registry.h"
-#include "util.h"
+#include "prefix/registry.h"
+#include "support/util.h"
 
 #include <cstdio>
 #include <ctime>

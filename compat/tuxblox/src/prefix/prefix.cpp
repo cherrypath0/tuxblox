@@ -19,8 +19,8 @@
 // Licensed under the 3-clause BSD license; see
 // third_party_licenses/proton/LICENSE.proton for the full text.
 
-#include "prefix.h"
-#include "registry.h"
+#include "prefix/prefix.h"
+#include "prefix/registry.h"
 #include "embedded_data.h"
 
 #include <array>

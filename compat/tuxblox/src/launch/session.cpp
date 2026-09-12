@@ -19,7 +19,7 @@
 // Licensed under the 3-clause BSD license; see
 // third_party_licenses/proton/LICENSE.proton for the full text.
 
-#include "session.h"
+#include "launch/session.h"
 
 #include <algorithm>
 #include <array>

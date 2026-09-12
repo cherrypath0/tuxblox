@@ -23,9 +23,9 @@
 #include <filesystem>
 #include <string>
 
-#include "filelock.h"
-#include "proton.h"
-#include "session.h"
+#include "support/filelock.h"
+#include "launch/proton.h"
+#include "launch/session.h"
 
 namespace tuxblox {
 

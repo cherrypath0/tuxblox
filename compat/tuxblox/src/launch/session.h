@@ -23,8 +23,8 @@
 #include <string>
 #include <vector>
 
-#include "proton.h"
-#include "util.h"
+#include "launch/proton.h"
+#include "support/util.h"
 
 namespace tuxblox {
 
