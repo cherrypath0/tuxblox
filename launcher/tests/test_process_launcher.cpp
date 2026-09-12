@@ -343,14 +343,24 @@ int main() {
 
         // launchLogPath() is the seam under test -- it must vary per process.
         const std::string a = launchLogPath(tmp.string(), LaunchTarget::Studio);
-        assert(a.find("/logs/RobloxStudio-") != std::string::npos);
+        assert(a.find("/logs/Studio-") != std::string::npos);
         assert(a.rfind(".log") == a.size() - 4);
         // The pid is the uniquifier, so the same process gets the same name and
         // a different process would not. Assert the pid is actually present.
         assert(a.find("-" + std::to_string(getpid()) + ".log") != std::string::npos);
 
         const std::string p = launchLogPath(tmp.string(), LaunchTarget::Player);
-        assert(p.find("/logs/RobloxPlayer-") != std::string::npos);
+        assert(p.find("/logs/Player-") != std::string::npos);
+
+        // Timestamp is UTC in the compact ISO-8601 form: Studio-20260912T143107Z-<pid>.log
+        const std::string stamp = a.substr(a.find("/logs/Studio-") + 13, 16);
+        assert(stamp.size() == 16);
+        assert(stamp[8] == 'T');
+        assert(stamp[15] == 'Z');
+        for (std::size_t i = 0; i < stamp.size(); ++i) {
+            if (i == 8 || i == 15) continue;
+            assert(stamp[i] >= '0' && stamp[i] <= '9');
+        }
 
         fs::remove_all(tmp);
     }

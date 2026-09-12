@@ -104,10 +104,13 @@ std::string resolveActiveVersionExePath(LaunchTarget target, const std::string& 
 std::string resolveOrBootstrapExePath(LaunchTarget target, const std::string& installDir);
 std::string compatBinaryPath(const std::string& installDir);
 
-// Path of the crash/stdout log for one launch. Carries the launcher's pid
-// because several instances can run at once (a second Studio goes through
-// "run --immediate", see ProcessLauncher::launch) and two launches
-// in the same second would otherwise dup2() into the same file.
+// Path of the crash/stdout log for one launch:
+// <installDir>/logs/<Studio|Player>-<YYYYMMDDTHHMMSSZ>-<pid>.log
+//
+// The timestamp is UTC so a filename reads the same for everyone. The pid is
+// there because several instances can run at once (a second Studio goes
+// through "run --immediate", see ProcessLauncher::launch) and two launches in
+// the same second would otherwise dup2() into the same file.
 std::string launchLogPath(const std::string& installDir, LaunchTarget target);
 
 // Env vars ("KEY=VALUE" strings) Proton itself needs to locate the prefix

@@ -312,12 +312,15 @@ bool ProcessLauncher::pollIsRunning(LaunchTarget target) {
 
 namespace {
 
+// UTC, not local time: a log filename means the same thing to whoever reads
+// it, wherever they are, which matters as soon as one is attached to a bug
+// report. Roblox names its own session logs the same way.
 std::string logTimestamp() {
     std::time_t t = std::time(nullptr);
     std::tm tmBuf{};
-    localtime_r(&t, &tmBuf);
+    gmtime_r(&t, &tmBuf);
     char buf[32];
-    std::strftime(buf, sizeof(buf), "%Y%m%d-%H%M%S", &tmBuf);
+    std::strftime(buf, sizeof(buf), "%Y%m%dT%H%M%SZ", &tmBuf);
     return buf;
 }
 
@@ -325,7 +328,7 @@ std::string logTimestamp() {
 
 std::string launchLogPath(const std::string& installDir, LaunchTarget target) {
     const std::string targetName = target == LaunchTarget::Player ? "Player" : "Studio";
-    return installDir + "/logs/Roblox" + targetName + "-" + logTimestamp() + "-" +
+    return installDir + "/logs/" + targetName + "-" + logTimestamp() + "-" +
            std::to_string(getpid()) + ".log";
 }
 
