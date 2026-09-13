@@ -7331,6 +7331,16 @@ NTSTATUS WINAPI NtFsControlFile( HANDLE handle, HANDLE event, PIO_APC_ROUTINE ap
            handle, event, apc, apc_context, io, code,
            in_buffer, in_size, out_buffer, out_size );
 
+    if (tuxblox_trace_enabled())
+    {
+        char detail[96];
+        snprintf( detail, sizeof(detail), "code=%#x dev=%#x func=%#x in=%u out=%u",
+                  (unsigned int)code, (unsigned int)(code >> 16),
+                  (unsigned int)((code >> 2) & 0xfff), (unsigned int)in_size,
+                  (unsigned int)out_size );
+        tuxblox_trace_record( "NtFsControlFile", detail );
+    }
+
     if (!io) return STATUS_INVALID_PARAMETER;
 
     status = server_get_unix_fd( handle, 0, &fd, &needs_close, NULL, &options );
@@ -7383,6 +7393,11 @@ NTSTATUS WINAPI NtFsControlFile( HANDLE handle, HANDLE event, PIO_APC_ROUTINE ap
         break;
     }
 
+    /* CREATE_OR_GET returns the object id, making one if the file has none. Our
+     * id is derived from st_dev/st_ino, so it always exists -- the two behave
+     * identically here. The current Roblox client asks for it on a directory and
+     * faults on the unfilled buffer the default server ioctl leaves behind. */
+    case FSCTL_CREATE_OR_GET_OBJECT_ID:
     case FSCTL_GET_OBJECT_ID:
     {
         FILE_OBJECTID_BUFFER *info = out_buffer;
