@@ -1699,6 +1699,14 @@ NTSTATUS get_thread_wow64_context( HANDLE handle, void *ctx, ULONG size )
  */
 static void setup_raise_exception( ucontext_t *sigcontext, EXCEPTION_RECORD *rec, struct xcontext *xcontext )
 {
+    /* Probe: hand the program an exception frame with no extended context at
+     * all. Wine puts the XSAVE area below the context, so XState.Offset is
+     * negative and All.Length comes out as 0xffffffe0 -- a 4 GB length to
+     * anything that validates the structure, which Roblox's anti-tamper layer
+     * reads on every exception. TUXBLOX_TEST_NO_XSTATE_EXC=1. */
+    static int no_xstate = -1;
+    static int xstate_above = -1;
+
     ULONG_PTR rsp;
     CONTEXT *context = &xcontext->c;
     struct exc_stack_layout *stack;
@@ -1815,18 +1823,37 @@ static void setup_raise_exception( ucontext_t *sigcontext, EXCEPTION_RECORD *rec
      * state cannot follow it any more -- that would lose the 64-byte alignment
      * XSAVE needs -- so it goes underneath instead, which the context's own
      * offset to it describes either way. */
-    exc_xstate = (void *)((((rsp - sizeof(*stack) - xstate_size) & ~(ULONG_PTR)63)
-                           - EXC_STACK_HEADROOM - xstate_size) & ~(ULONG_PTR)63);
-    stack_size = rsp - (ULONG_PTR)exc_xstate;
-    virtual_setup_exception( (void *)rsp, stack_size, rec );
-    stack = (struct exc_stack_layout *)(((rsp - sizeof(*stack) - xstate_size) & ~(ULONG_PTR)63)
-                                        - EXC_STACK_HEADROOM);
+    if (xstate_above)
+    {
+        /* Probe: the extended state in the gap above the frame instead of
+         * below it, which is where Windows keeps it. Below, its offset from
+         * the context is negative and All.Length -- sizeof(CONTEXT) + that
+         * offset + the length -- comes out as 0xffffffe0. */
+        ULONG_PTR xs = (rsp - EXC_STACK_HEADROOM - xstate_size) & ~(ULONG_PTR)63;
+
+        exc_xstate = (void *)xs;
+        stack = (struct exc_stack_layout *)((xs - sizeof(*stack)) & ~(ULONG_PTR)15);
+        stack_size = rsp - (ULONG_PTR)stack;
+        virtual_setup_exception( (void *)rsp, stack_size, rec );
+    }
+    else
+    {
+        exc_xstate = (void *)((((rsp - sizeof(*stack) - xstate_size) & ~(ULONG_PTR)63)
+                               - EXC_STACK_HEADROOM - xstate_size) & ~(ULONG_PTR)63);
+        stack_size = rsp - (ULONG_PTR)exc_xstate;
+        virtual_setup_exception( (void *)rsp, stack_size, rec );
+        stack = (struct exc_stack_layout *)(((rsp - sizeof(*stack) - xstate_size) & ~(ULONG_PTR)63)
+                                            - EXC_STACK_HEADROOM);
+    }
     stack->rec               = *rec;
     stack->context           = *context;
     stack->machine_frame.rip = context->Rip;
     stack->machine_frame.rsp = context->Rsp;
 
-    if ((src_xs = xstate_from_context( context )))
+    if (no_xstate == -1) no_xstate = getenv( "TUXBLOX_TEST_NO_XSTATE_EXC" ) ? 1 : 0;
+    if (xstate_above == -1) xstate_above = getenv( "TUXBLOX_TEST_XSTATE_ABOVE" ) ? 1 : 0;
+
+    if (!no_xstate && (src_xs = xstate_from_context( context )))
     {
         XSAVE_AREA_HEADER *dst_xs = exc_xstate;
         assert( !((ULONG_PTR)dst_xs & 63) );

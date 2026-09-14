@@ -1445,6 +1445,65 @@ void tuxblox_diag_continue( const CONTEXT *context )
 }
 
 
+/* What the program's own image looks like to the memory manager, counted.
+ *
+ * A packed program does not decrypt itself in place: it unmaps the image the
+ * loader gave it and maps its own section over the same addresses, then unlocks
+ * the ranges it needs a few pages at a time. Both halves of that are visible
+ * here -- the region TYPE says whether the remap happened at all, and the
+ * spread of protections says how much has been unlocked. A healthy Windows
+ * capture of the same build is 948 executable ranges interleaved with 947
+ * unreadable ones, all of them MAPPED rather than IMAGE.
+ * TUXBLOX_DIAG_REGIONS=1.
+ */
+static void diag_region_census( void )
+{
+    static const char * const prot_name[] = { "NOACCESS", "READONLY", "READWRITE", "WRITECOPY",
+                                              "EXECUTE", "EXECUTE_READ", "EXECUTE_READWRITE",
+                                              "EXECUTE_WRITECOPY" };
+    struct { ULONG prot, type; unsigned int count; ULONG64 bytes; } seen[16];
+    unsigned int nseen = 0, i, walked = 0;
+    MEMORY_BASIC_INFORMATION mbi;
+    ULONG64 addr, base;
+    SIZE_T len;
+
+    if (!getenv( "TUXBLOX_DIAG_REGIONS" )) return;
+    if (!peb || !peb->ImageBaseAddress) return;
+    addr = base = (ULONG64)(ULONG_PTR)peb->ImageBaseAddress;
+
+    /* Walk while the regions still belong to the allocation the image base
+     * starts: a remap of the same addresses keeps that base, anything past the
+     * image does not. */
+    while (walked < 4096)
+    {
+        if (NtQueryVirtualMemory( GetCurrentProcess(), (void *)(ULONG_PTR)addr,
+                                  MemoryBasicInformation, &mbi, sizeof(mbi), &len )) break;
+        if ((ULONG64)(ULONG_PTR)mbi.AllocationBase != base) break;
+        walked++;
+        for (i = 0; i < nseen; i++)
+            if (seen[i].prot == mbi.Protect && seen[i].type == mbi.Type) break;
+        if (i == nseen && nseen < ARRAY_SIZE(seen)) { seen[nseen].prot = mbi.Protect;
+            seen[nseen].type = mbi.Type; seen[nseen].count = 0; seen[nseen].bytes = 0; nseen++; }
+        if (i < ARRAY_SIZE(seen)) { seen[i].count++; seen[i].bytes += mbi.RegionSize; }
+        if (!mbi.RegionSize) break;
+        addr += mbi.RegionSize;
+    }
+
+    ERR_(seh)( "DIAG regions image %p spans %llx: %u regions\n", peb->ImageBaseAddress,
+               (unsigned long long)(addr - base), walked );
+    for (i = 0; i < nseen; i++)
+    {
+        unsigned int bit = 0, p = seen[i].prot & 0xff;
+
+        while (p > 1 && bit < 7) { p >>= 1; bit++; }
+        ERR_(seh)( "DIAG regions   %5u x %-18s %-8s %llu KB\n", seen[i].count,
+                   seen[i].prot < 0x100 ? prot_name[bit] : "?",
+                   seen[i].type == MEM_IMAGE ? "IMAGE" : seen[i].type == MEM_MAPPED ? "MAPPED" :
+                   seen[i].type == MEM_PRIVATE ? "PRIVATE" : "?",
+                   (unsigned long long)(seen[i].bytes / 1024) );
+    }
+}
+
 void tuxblox_diag_exception( const EXCEPTION_RECORD *rec, const CONTEXT *context )
 {
     static unsigned int seen;
@@ -1458,6 +1517,7 @@ void tuxblox_diag_exception( const EXCEPTION_RECORD *rec, const CONTEXT *context
                (unsigned long long)context->Rip, (unsigned long long)context->Rsp,
                (unsigned long long)context->Rbp );
     diag_regs( "exc", context );
+    diag_region_census();
     /* Which system calls led here. The layer computes its call numbers rather
      * than loading them as constants, so the number it actually used is only
      * visible from the ring. */
