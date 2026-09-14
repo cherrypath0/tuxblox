@@ -417,6 +417,52 @@ void tuxblox_diag_note_open_section( const OBJECT_ATTRIBUTES *attr, unsigned int
     ERR_(seh)( "DIAG NtOpenSection \"%s\" -> %08x\n", name, status );
 }
 
+/* The last files a run opened, kept in memory and printed only when it fails.
+ *
+ * The layer gives up just after a file it maps successfully, so the name is
+ * worth having -- but printing one line per open is itself enough to change the
+ * run: with it on, a run that otherwise reaches three thousand system calls
+ * stops at fourteen hundred. So record into a ring and say nothing until the
+ * program reports a problem. TUXBLOX_DIAG_FILES=1.
+ */
+#define DIAG_FILE_RING 48
+static char diag_files[DIAG_FILE_RING][160];
+static unsigned int diag_files_pos;
+static int diag_files_on = -1;
+
+void tuxblox_diag_note_create_file( const OBJECT_ATTRIBUTES *attr, unsigned int status )
+{
+    char *slot;
+    unsigned int i, len = 0;
+
+    if (diag_files_on == -1) diag_files_on = getenv( "TUXBLOX_DIAG_FILES" ) ? 1 : 0;
+    if (!diag_files_on) return;
+
+    slot = diag_files[diag_files_pos % DIAG_FILE_RING];
+    if (attr && attr->ObjectName && attr->ObjectName->Buffer)
+    {
+        len = attr->ObjectName->Length / sizeof(WCHAR);
+        if (len > 140) len = 140;
+        for (i = 0; i < len; i++)
+        {
+            WCHAR c = attr->ObjectName->Buffer[i];
+            slot[i] = (c >= 0x20 && c < 0x7f) ? (char)c : '?';
+        }
+    }
+    snprintf( slot + len, sizeof(diag_files[0]) - len, " -> %08x", status );
+    diag_files_pos++;
+}
+
+static void diag_dump_files(void)
+{
+    unsigned int n = diag_files_pos < DIAG_FILE_RING ? diag_files_pos : DIAG_FILE_RING, i;
+
+    if (!diag_files_on || !n) return;
+    ERR_(seh)( "DIAG last %u files opened (of %u):\n", n, diag_files_pos );
+    for (i = 0; i < n; i++)
+        ERR_(seh)( "DIAG file[-%u] %s\n", n - i, diag_files[(diag_files_pos - n + i) % DIAG_FILE_RING] );
+}
+
 /* Where the Player sleeps out a whole timeout and then calls it a wait.
  *
  * The run ends on a thirty second gap in which the thread issues no system call
@@ -736,6 +782,7 @@ void tuxblox_diag_note_hard_error( unsigned int status )
     else
         ERR_(seh)( "DIAG hard error %08x raised from 0x%llx\n",
                    status, (unsigned long long)pc );
+    diag_dump_files();
 }
 
 BOOL tuxblox_diag_step_arm(void)

@@ -4969,6 +4969,8 @@ NTSTATUS WINAPI NtCreateFile( HANDLE *handle, ACCESS_MASK access, OBJECT_ATTRIBU
     }
     else WARN( "%s not found (%x)\n", debugstr_us(attr->ObjectName), status );
 
+    tuxblox_diag_note_create_file( attr, status );
+
     if (status == STATUS_SUCCESS)
     {
         if (created) io->Information = FILE_CREATED;
