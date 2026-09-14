@@ -70,6 +70,7 @@ public:
 
     // Launches the target and waits for the prefix to empty. Returns the
     // target's own exit code.
+    void startSubsystem();
     int run(const std::vector<std::string>& target);
 
     // Waits for every process in the prefix to disconnect from wineserver.

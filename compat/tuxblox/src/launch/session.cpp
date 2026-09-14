@@ -698,6 +698,50 @@ void Session::waitForPrefixDrain(int timeoutSeconds) {
     sigprocmask(SIG_SETMASK, &previous, nullptr);
 }
 
+// Windows always runs csrss.exe, and anything that reads the process list
+// notices when it is absent. Start it alongside the session, detached, so it
+// lives as long as the virtual drive does.
+void Session::startSubsystem() {
+    const pid_t outer = ::fork();
+    if (outer < 0) {
+        log(std::string("Could not start the subsystem process: ") + std::strerror(errno));
+        return;
+    }
+    if (outer != 0) {
+        int status = 0;
+        ::waitpid(outer, &status, 0);
+        return;
+    }
+
+    // Fork once more so the process that survives is reparented away from the
+    // launcher and never lands in its wait loop.
+    if (::fork() != 0) {
+        ::_exit(0);
+    }
+
+    ::setsid();
+    if (logFd >= 0) {
+        ::dup2(logFd, STDOUT_FILENO);
+        ::dup2(logFd, STDERR_FILENO);
+    }
+
+    const fs::path driveC = prefixDir / "drive_c";
+    if (::chdir(driveC.c_str()) != 0) {
+        ::_exit(127);
+    }
+
+    const std::string unixDir = proton.libDir.string() + "/wine/x86_64-unix/";
+    const std::vector<std::string> command = {unixDir + "wine-preloader", unixDir + "wine",
+                                              "C:\\windows\\system32\\csrss.exe"};
+
+    std::vector<std::string> argStorage;
+    std::vector<std::string> envStorage;
+    std::vector<char *> argv = buildArgArray(command, argStorage);
+    std::vector<char *> envp = buildEnvArray(env, envStorage);
+    ::execve(argv[0], argv.data(), envp.data());
+    ::_exit(127);
+}
+
 int Session::run(const std::vector<std::string>& target) {
     writeLogHeader(target);
 
@@ -707,6 +751,8 @@ int Session::run(const std::vector<std::string>& target) {
     // start.exe.
     env["WINELOADERNOEXEC"] = "1";
     const std::string unixDir = proton.libDir.string() + "/wine/x86_64-unix/";
+
+    startSubsystem();
 
     std::vector<std::string> command = {unixDir + "wine-preloader", unixDir + "wine"};
     command.insert(command.end(), target.begin(), target.end());

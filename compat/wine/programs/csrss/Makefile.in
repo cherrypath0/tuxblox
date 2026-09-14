@@ -1,0 +1,6 @@
+MODULE    = csrss.exe
+
+EXTRADLLFLAGS = -mwindows -municode
+
+SOURCES = \
+	csrss.c
