@@ -306,6 +306,30 @@ static UINT64 read_tsc_frequency(void)
     return freq;
 }
 
+/* The processor vendor id as CPUID reports it, which is what Windows puts in
+ * VendorIdentifier and PROCESSOR_IDENTIFIER ("AuthenticAMD", "GenuineIntel").
+ * SMBIOS carries the manufacturer's marketing name instead ("Advanced Micro
+ * Devices, Inc."), so it cannot stand in for it: an AMD machine was reporting
+ * an Intel identifier because the AMD64/Intel64 choice below compares against
+ * the CPUID form. Caller frees. */
+static WCHAR *get_cpuid_vendor(void)
+{
+    WCHAR *vendor;
+    char id[12];
+    int regs[4];
+    unsigned int i;
+
+    __cpuid( regs, 0 );
+    memcpy( id, &regs[1], 4 );
+    memcpy( id + 4, &regs[3], 4 );
+    memcpy( id + 8, &regs[2], 4 );
+
+    if (!(vendor = malloc( (ARRAY_SIZE(id) + 1) * sizeof(WCHAR) ))) return NULL;
+    for (i = 0; i < ARRAY_SIZE(id); i++) vendor[i] = (unsigned char)id[i];
+    vendor[ARRAY_SIZE(id)] = 0;
+    return vendor;
+}
+
 #elif defined(__aarch64__)
 
 #define FEX_TSC_SCALE_MAXIMUM 1000000000
@@ -323,11 +347,21 @@ static UINT64 read_tsc_frequency(void)
     return tsc_frequency;
 }
 
+static WCHAR *get_cpuid_vendor(void)
+{
+    return NULL;
+}
+
 #else
 
 static UINT64 read_tsc_frequency(void)
 {
     return 0;
+}
+
+static WCHAR *get_cpuid_vendor(void)
+{
+    return NULL;
 }
 
 #endif
@@ -713,7 +747,7 @@ static void create_bios_processor_values( HKEY system_key, const char *buf, UINT
         proc = (const struct smbios_processor *)hdr;
         offset = (const char *)proc - buf + proc->hdr.length;
         version = get_smbios_string( proc->version, buf, offset, len );
-        vendorid = get_smbios_string( proc->vendor, buf, offset, len );
+        if (!(vendorid = get_cpuid_vendor())) vendorid = get_smbios_string( proc->vendor, buf, offset, len );
 
         switch (sci.ProcessorArchitecture)
         {
