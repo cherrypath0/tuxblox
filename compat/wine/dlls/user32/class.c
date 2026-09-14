@@ -226,8 +226,8 @@ void get_class_version( UNICODE_STRING *name, UNICODE_STRING *version, BOOL load
     /* comctl32 v5 */
     else if (load && is_comctl32_class( name->Buffer ))
     {
-        hmod = GetModuleHandleW( L"C:\\windows\\system32\\comctl32.dll" );
-        if (!hmod) hmod = LoadLibraryW( L"C:\\windows\\system32\\comctl32.dll" );
+        hmod = GetModuleHandleW( L"C:\\Windows\\System32\\comctl32.dll" );
+        if (!hmod) hmod = LoadLibraryW( L"C:\\Windows\\System32\\comctl32.dll" );
     }
 
     if (load && hmod)

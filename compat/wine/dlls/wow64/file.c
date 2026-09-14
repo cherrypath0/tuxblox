@@ -61,7 +61,7 @@ void init_file_redirects(void)
 {
     OBJECT_ATTRIBUTES attr;
     UNICODE_STRING windows = RTL_CONSTANT_STRING( L"\\??\\C:\\windows" );
-    UNICODE_STRING system32 = RTL_CONSTANT_STRING( L"\\??\\C:\\windows\\system32" );
+    UNICODE_STRING system32 = RTL_CONSTANT_STRING( L"\\??\\C:\\Windows\\System32" );
     IO_STATUS_BLOCK io;
     HANDLE handle;
 
@@ -134,7 +134,7 @@ BOOL get_file_redirect( OBJECT_ATTRIBUTES *attr )
         L"system32\\catroot", L"system32\\catroot2", L"system32\\driversstore",
         L"system32\\drivers\\etc", L"system32\\logfiles", L"system32\\spool"
     };
-    static const WCHAR windirW[] = L"\\??\\C:\\windows\\";
+    static const WCHAR windirW[] = L"\\??\\C:\\Windows\\";
     const WCHAR *name = attr->ObjectName->Buffer;
     unsigned int i, prefix_len = 0, len = attr->ObjectName->Length / sizeof(WCHAR);
     const WCHAR *syswow64dir;

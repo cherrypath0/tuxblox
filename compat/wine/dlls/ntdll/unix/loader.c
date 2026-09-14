@@ -609,7 +609,7 @@ NTSTATUS exec_wineloader( char **argv, int socketfd, const struct pe_image_info 
     unsetenv( "WINE_LD_PRELOAD" );
 
     /* HACK: Unset LD_PRELOAD before executing explorer.exe to disable buggy gameoverlayrenderer.so */
-    if (ld_preload && argv[2] && !strcmp( argv[2], "C:\\windows\\system32\\explorer.exe" ) &&
+    if (ld_preload && argv[2] && !strcasecmp( argv[2], "C:\\Windows\\System32\\explorer.exe" ) &&
         argv[3] && !strcmp( argv[3], "/desktop" ))
     {
         static char const gorso[] = "gameoverlayrenderer.so";
@@ -1943,7 +1943,7 @@ NTSTATUS load_start_exe( UNICODE_STRING *nt_name, void **module )
     static const WCHAR startW[] = {'s','t','a','r','t','.','e','x','e',0};
     unsigned int status;
     SIZE_T size;
-    WCHAR *image = malloc( sizeof("\\??\\C:\\windows\\system32\\start.exe") * sizeof(WCHAR) );
+    WCHAR *image = malloc( sizeof("\\??\\C:\\Windows\\System32\\start.exe") * sizeof(WCHAR) );
 
     wcscpy( image, get_machine_wow64_dir( current_machine ));
     wcscat( image, startW );
@@ -2281,7 +2281,7 @@ static void load_wow64_ntdll( USHORT machine )
     if (machine == current_machine) return;
     if (!(wow64_dir = get_machine_wow64_dir( machine ))) return;
 
-    path = malloc( sizeof("\\??\\C:\\windows\\system32\\ntdll.dll") * sizeof(WCHAR) );
+    path = malloc( sizeof("\\??\\C:\\Windows\\System32\\ntdll.dll") * sizeof(WCHAR) );
     wcscpy( path, wow64_dir );
     wcscat( path, ntdllW );
     init_unicode_string( &nt_name, path );

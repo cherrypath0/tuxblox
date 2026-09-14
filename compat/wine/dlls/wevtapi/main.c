@@ -26,7 +26,7 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(wevtapi);
 
-static const WCHAR log_pathW[] = L"C:\\windows\\temp\\evt.log";
+static const WCHAR log_pathW[] = L"C:\\Windows\\temp\\evt.log";
 
 EVT_HANDLE WINAPI EvtOpenSession(EVT_LOGIN_CLASS login_class, void *login, DWORD timeout, DWORD flags)
 {

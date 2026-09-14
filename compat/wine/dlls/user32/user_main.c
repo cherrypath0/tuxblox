@@ -134,7 +134,7 @@ static NTSTATUS WINAPI User32LoadDriver( void *args, ULONG size )
     HMODULE module;
 
     RtlInitUnicodeString( &str, path );
-    return LdrLoadDll( L"c:\\windows\\system32", 0, &str, &module );
+    return LdrLoadDll( L"C:\\Windows\\System32", 0, &str, &module );
 }
 
 static NTSTATUS WINAPI User32UnpackDDEMessage( void *args, ULONG size )

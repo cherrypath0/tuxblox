@@ -1763,7 +1763,7 @@ static MonoAssembly* mono_assembly_try_load(WCHAR *path)
 
 static BOOL compile_assembly(const char *source, const char *target, char *target_path, DWORD target_path_len)
 {
-    static const char *csc = "C:\\windows\\Microsoft.NET\\Framework\\v2.0.50727\\csc.exe";
+    static const char *csc = "C:\\Windows\\Microsoft.NET\\Framework\\v2.0.50727\\csc.exe";
     char cmdline[2 * MAX_PATH + 74], tmp[MAX_PATH], tmpdir[MAX_PATH], source_path[MAX_PATH];
     STARTUPINFOA si = {.cb = sizeof(STARTUPINFOA)};
     PROCESS_INFORMATION pi;

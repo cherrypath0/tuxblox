@@ -27,8 +27,8 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(icm);
 
-static const WCHAR color_path[]      = L"c:\\windows\\system32\\spool\\drivers\\color\\";
-static const WCHAR default_profile[] = L"c:\\windows\\system32\\spool\\drivers\\color\\sRGB Color Space Profile.icm";
+static const WCHAR color_path[]      = L"C:\\Windows\\System32\\spool\\drivers\\color\\";
+static const WCHAR default_profile[] = L"C:\\Windows\\System32\\spool\\drivers\\color\\sRGB Color Space Profile.icm";
 
 struct enum_profiles
 {

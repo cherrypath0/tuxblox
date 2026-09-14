@@ -40,7 +40,7 @@ WINE_DEFAULT_DEBUG_CHANNEL(file);
 
 #define MAX_PATHNAME_LEN        1024
 
-static const WCHAR system_dir[] = L"C:\\windows\\system32";
+static const WCHAR system_dir[] = L"C:\\Windows\\System32";
 
 /***********************************************************************
  *           copy_filename_WtoA

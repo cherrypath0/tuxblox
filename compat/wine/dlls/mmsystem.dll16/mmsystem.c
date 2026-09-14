@@ -1724,7 +1724,7 @@ HINSTANCE16 WINAPI mmTaskCreate16(SEGPTR spProc, HINSTANCE16 *lphMmTask, DWORD d
     lp.reserved = 0;
 
 #ifndef USE_MM_TSK_WINE
-    handle = LoadModule16("c:\\windows\\system\\mmtask.tsk", &lp);
+    handle = LoadModule16("C:\\Windows\\System\\mmtask.tsk", &lp);
 #else
     handle = LoadModule16("mmtask.tsk", &lp);
 #endif

@@ -64,9 +64,9 @@ static inline const WCHAR *get_machine_wow64_dir( USHORT machine )
 {
     switch (machine)
     {
-    case IMAGE_FILE_MACHINE_TARGET_HOST: return L"\\??\\C:\\windows\\system32";
-    case IMAGE_FILE_MACHINE_I386:        return L"\\??\\C:\\windows\\syswow64";
-    case IMAGE_FILE_MACHINE_ARMNT:       return L"\\??\\C:\\windows\\sysarm32";
+    case IMAGE_FILE_MACHINE_TARGET_HOST: return L"\\??\\C:\\Windows\\System32";
+    case IMAGE_FILE_MACHINE_I386:        return L"\\??\\C:\\Windows\\SysWOW64";
+    case IMAGE_FILE_MACHINE_ARMNT:       return L"\\??\\C:\\Windows\\SysArm32";
     default: return NULL;
     }
 }

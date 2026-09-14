@@ -1173,7 +1173,7 @@ static void add_dynamic_environment( WCHAR **env, SIZE_T *pos, SIZE_T *size )
     }
     else append_envW( env, pos, size, "WINEUNIXCP", NULL );
     append_envA( env, pos, size, "SystemDrive", "C:" );
-    append_envA( env, pos, size, "SystemRoot", "C:\\windows" );
+    append_envA( env, pos, size, "SystemRoot", "C:\\Windows" );
 
     if ((var = getenv( "VR_CONFIG_PATH" ))) add_path_var( env, pos, size, "VR_CONFIG_PATH", var );
     if ((var = getenv( "VR_LOG_PATH" ))) add_path_var( env, pos, size, "VR_LOG_PATH", var );

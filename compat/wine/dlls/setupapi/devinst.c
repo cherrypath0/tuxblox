@@ -6618,7 +6618,7 @@ static bool driver_store_files_are_equal(const WCHAR *src_path, const WCHAR *sto
 
 static void find_driver_store_path(struct driver_package *package, const WCHAR *inf_path)
 {
-    static const WCHAR file_repository[] = L"C:\\windows\\system32\\driverstore\\filerepository";
+    static const WCHAR file_repository[] = L"C:\\Windows\\System32\\driverstore\\filerepository";
     WCHAR *search_path = sprintf_path(L"%s\\%s_*", file_repository, package->inf_name);
     unsigned int index = 1;
     WIN32_FIND_DATAW data;
@@ -7083,7 +7083,7 @@ BOOL WINAPI SetupCopyOEMInfW(const WCHAR *source, const WCHAR *location, DWORD m
         }
         else
         {
-            ERR("Inf %s is already installed to driver store, but not found in C:\\windows\\inf!\n",
+            ERR("Inf %s is already installed to driver store, but not found in C:\\Windows\\inf!\n",
                     debugstr_w(source));
             ret = ERROR_FILE_NOT_FOUND;
         }

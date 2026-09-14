@@ -1481,7 +1481,7 @@ static BOOL start_services_process(void)
     STARTUPINFOW si = { sizeof(si) };
     HANDLE wait_handles[2];
 
-    if (!CreateProcessW(L"C:\\windows\\system32\\services.exe", NULL,
+    if (!CreateProcessW(L"C:\\Windows\\System32\\services.exe", NULL,
                         NULL, NULL, TRUE, DETACHED_PROCESS, NULL, NULL, &si, &pi))
     {
         WINE_ERR("Couldn't start services.exe: error %lu\n", GetLastError());
@@ -1547,9 +1547,9 @@ static void install_root_pnp_devices(void)
     }
     root_devices[] =
     {
-        {"root\\wine\\winebth", "root\\winebth\0", "C:\\windows\\inf\\winebth.inf"},
-        {"root\\wine\\winebus", "root\\winebus\0", "C:\\windows\\inf\\winebus.inf"},
-        {"root\\wine\\wineusb", "root\\wineusb\0", "C:\\windows\\inf\\wineusb.inf"},
+        {"root\\wine\\winebth", "root\\winebth\0", "C:\\Windows\\inf\\winebth.inf"},
+        {"root\\wine\\winebus", "root\\winebus\0", "C:\\Windows\\inf\\winebus.inf"},
+        {"root\\wine\\wineusb", "root\\wineusb\0", "C:\\Windows\\inf\\wineusb.inf"},
     };
     SP_DEVINFO_DATA device = {sizeof(device)};
     unsigned int i;

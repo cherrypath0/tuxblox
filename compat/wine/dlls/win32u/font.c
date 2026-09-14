@@ -484,7 +484,7 @@ static void get_fonts_data_dir_path( const WCHAR *file, WCHAR *path )
 
 static void get_fonts_win_dir_path( const WCHAR *file, WCHAR *path )
 {
-    asciiz_to_unicode( path, "\\??\\C:\\windows\\fonts\\" );
+    asciiz_to_unicode( path, "\\??\\C:\\Windows\\Fonts\\" );
     if (file) lstrcatW( path, file );
 }
 

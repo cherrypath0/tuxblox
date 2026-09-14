@@ -232,7 +232,7 @@ wWinMain (HINSTANCE hInstance, HINSTANCE hPrev, LPWSTR cmdline, int nShow)
     {
         STARTUPINFOW si;
         PROCESS_INFORMATION pi;
-        WCHAR filename[] = L"C:\\windows\\system32\\winecfg.exe";
+        WCHAR filename[] = L"C:\\Windows\\System32\\winecfg.exe";
         void *redir;
         DWORD exit_code;
 

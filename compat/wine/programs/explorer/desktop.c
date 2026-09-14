@@ -1200,7 +1200,7 @@ static HANDLE start_tabtip_process(void)
     STARTUPINFOW si = { sizeof(si) };
     HANDLE wait_handles[2];
 
-    if (!CreateProcessW(L"C:\\windows\\system32\\tabtip.exe", NULL,
+    if (!CreateProcessW(L"C:\\Windows\\System32\\tabtip.exe", NULL,
                         NULL, NULL, TRUE, DETACHED_PROCESS, NULL, NULL, &si, &pi))
     {
         WINE_ERR("Couldn't start tabtip.exe: error %lu\n", GetLastError());

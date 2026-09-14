@@ -498,7 +498,7 @@ static HRESULT WINAPI loader_SetObject(IDirectMusicLoader8 *iface, DMUS_OBJECTDE
             lstrcpyW(p, pDesc->wszFileName);
         }
 
-        if (!wcsicmp(file_name, L"C:\\windows\\system32\\drivers\\gm.dls")
+        if (!wcsicmp(file_name, L"C:\\Windows\\System32\\drivers\\gm.dls")
                 && GetFileAttributesW(file_name) == INVALID_FILE_ATTRIBUTES)
         {
             hr = get_system_default_gm_path(file_name, ARRAY_SIZE(file_name));

@@ -139,7 +139,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
 
     if (IsWow64Process( GetCurrentProcess(), &is_wow64 ) && is_wow64)
     {
-        static const WCHAR filename[] = L"C:\\windows\\regedit.exe";
+        static const WCHAR filename[] = L"C:\\Windows\\regedit.exe";
         STARTUPINFOW si;
         PROCESS_INFORMATION pi;
         void *redir;

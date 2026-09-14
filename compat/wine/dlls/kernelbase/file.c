@@ -65,8 +65,8 @@ typedef struct
 
 static const UINT max_entry_size = offsetof( FILE_BOTH_DIRECTORY_INFORMATION, FileName[256] );
 
-const WCHAR windows_dir[] = L"C:\\windows";
-const WCHAR system_dir[] = L"C:\\windows\\system32";
+const WCHAR windows_dir[] = L"C:\\Windows";
+const WCHAR system_dir[] = L"C:\\Windows\\System32";
 
 static BOOL oem_file_apis;
 
@@ -82,8 +82,8 @@ static const WCHAR *get_machine_wow64_dir( WORD machine )
     switch (machine)
     {
     case IMAGE_FILE_MACHINE_TARGET_HOST: return system_dir;
-    case IMAGE_FILE_MACHINE_I386:        return L"C:\\windows\\syswow64";
-    case IMAGE_FILE_MACHINE_ARMNT:       return L"C:\\windows\\sysarm32";
+    case IMAGE_FILE_MACHINE_I386:        return L"C:\\Windows\\SysWOW64";
+    case IMAGE_FILE_MACHINE_ARMNT:       return L"C:\\Windows\\SysArm32";
     default: return NULL;
     }
 }
@@ -91,7 +91,7 @@ static const WCHAR *get_machine_wow64_dir( WORD machine )
 static void redirect_path( UNICODE_STRING *path )
 {
 #ifndef _WIN64
-    static const WCHAR nt_sysdir[] = L"\\??\\C:\\windows\\system32\\";
+    static const WCHAR nt_sysdir[] = L"\\??\\C:\\Windows\\System32\\";
 #ifdef __arm__
     const WCHAR *dir = get_machine_wow64_dir( IMAGE_FILE_MACHINE_ARMNT );
 #else
@@ -351,14 +351,14 @@ static NTSTATUS find_actctx_dllpath( const WCHAR *name, WCHAR **path )
         goto done;
     }
 
-    needed = sizeof(L"C:\\windows\\winsxs\\") + info->ulAssemblyDirectoryNameLength + sizeof(WCHAR);
+    needed = sizeof(L"C:\\Windows\\WinSxS\\") + info->ulAssemblyDirectoryNameLength + sizeof(WCHAR);
 
     if (!(*path = p = RtlAllocateHeap( GetProcessHeap(), 0, needed )))
     {
         status = STATUS_NO_MEMORY;
         goto done;
     }
-    lstrcpyW( p, L"C:\\windows\\winsxs\\" );
+    lstrcpyW( p, L"C:\\Windows\\WinSxS\\" );
     p += lstrlenW(p);
     memcpy( p, info->lpAssemblyDirectoryName, info->ulAssemblyDirectoryNameLength );
     p += info->ulAssemblyDirectoryNameLength / sizeof(WCHAR);

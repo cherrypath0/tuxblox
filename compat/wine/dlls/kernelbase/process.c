@@ -363,8 +363,8 @@ static NTSTATUS create_vdm_process( HANDLE token, HANDLE debug, SECURITY_ATTRIBU
                                     RTL_USER_PROCESS_INFORMATION *info )
 {
     const WCHAR *winevdm = (is_win64 || is_wow64 ?
-                            L"C:\\windows\\syswow64\\winevdm.exe" :
-                            L"C:\\windows\\system32\\winevdm.exe");
+                            L"C:\\Windows\\SysWOW64\\winevdm.exe" :
+                            L"C:\\Windows\\System32\\winevdm.exe");
     WCHAR *newcmdline;
     NTSTATUS status;
     UINT len;
@@ -399,7 +399,7 @@ static NTSTATUS create_cmd_process( HANDLE token, HANDLE debug, SECURITY_ATTRIBU
     UINT len;
 
     if (!GetEnvironmentVariableW( L"COMSPEC", comspec, ARRAY_SIZE( comspec )))
-        lstrcpyW( comspec, L"C:\\windows\\system32\\cmd.exe" );
+        lstrcpyW( comspec, L"C:\\Windows\\System32\\cmd.exe" );
 
     len = lstrlenW(comspec) + 7 + lstrlenW(params->CommandLine.Buffer) + 2;
     if (!(newcmdline = RtlAllocateHeap( GetProcessHeap(), 0, len * sizeof(WCHAR) )))
@@ -549,7 +549,7 @@ static char *get_product_name( const WCHAR *app_name )
 static int battleye_launcher_redirect_hack( const WCHAR *app_name, WCHAR *new_name, DWORD new_name_len,
                                             WCHAR **orig_app_name, const char *product_name )
 {
-    static const WCHAR belauncherW[] = L"c:\\windows\\system32\\belauncher.exe";
+    static const WCHAR belauncherW[] = L"C:\\Windows\\System32\\belauncher.exe";
     unsigned int len;
 
     if (GetEnvironmentVariableW(L"PROTON_ORIG_LAUNCHER_NAME", NULL, 0))
@@ -588,7 +588,7 @@ static int battleye_launcher_redirect_hack( const WCHAR *app_name, WCHAR *new_na
  * outright instead stops the installer on a "Module not found" dialog. */
 static int webview2_setup_redirect( const WCHAR *app_name, WCHAR *new_name, DWORD new_name_len )
 {
-    static const WCHAR setupW[] = L"c:\\windows\\system32\\microsoftedgewebview2setup.exe";
+    static const WCHAR setupW[] = L"C:\\Windows\\System32\\microsoftedgewebview2setup.exe";
     const WCHAR *basename;
 
     if (!app_name) return 0;

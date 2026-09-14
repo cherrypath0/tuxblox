@@ -80,13 +80,17 @@ SYSTEM_DLL_INIT_BLOCK LdrSystemDllInitBlock = { 0xf0 };
 void *__wine_syscall_dispatcher = NULL;
 unixlib_handle_t __wine_unixlib_handle = 0;
 
-/* windows directory */
-const WCHAR windows_dir[] = L"C:\\windows";
+/* windows directory. Windows-canonical casing (Windows, not windows): the
+ * loader stamps these strings straight into each module's FullDllName, which
+ * Roblox reads when it walks the module list, and real Windows reports
+ * C:\Windows\System32. The virtual drive is case-insensitive, so the lower-case
+ * directories on disk still resolve. */
+const WCHAR windows_dir[] = L"C:\\Windows";
 /* system directory with trailing backslash */
-static const WCHAR system_dir[] = L"C:\\windows\\system32\\";
+static const WCHAR system_dir[] = L"C:\\Windows\\System32\\";
 
 /* system search path */
-static const WCHAR system_path[] = L"C:\\windows\\system32;C:\\windows\\system;C:\\windows;C:\\Program Files (x86)\\Steam";
+static const WCHAR system_path[] = L"C:\\Windows\\System32;C:\\Windows\\System;C:\\Windows;C:\\Program Files (x86)\\Steam";
 
 static BOOL is_prefix_bootstrap;  /* are we bootstrapping the prefix? */
 static BOOL imports_fixup_done = FALSE;  /* set once the imports have been fixed up, before attaching them */
@@ -2501,7 +2505,7 @@ static NTSTATUS build_module( LPCWSTR load_path, const UNICODE_STRING *nt_name, 
  */
 static void build_ntdll_module(void)
 {
-    UNICODE_STRING nt_name = RTL_CONSTANT_STRING( L"\\??\\C:\\windows\\system32\\ntdll.dll" );
+    UNICODE_STRING nt_name = RTL_CONSTANT_STRING( L"\\??\\C:\\Windows\\System32\\ntdll.dll" );
     MEMORY_BASIC_INFORMATION meminfo;
     WINE_MODREF *wm;
     void *module;
@@ -4487,7 +4491,7 @@ static void load_arm64ec_module(void)
     ULONG buffer[16];
     KEY_VALUE_PARTIAL_INFORMATION *info = (KEY_VALUE_PARTIAL_INFORMATION *)buffer;
     UNICODE_STRING nameW = RTL_CONSTANT_STRING( L"\\Registry\\Machine\\Software\\Microsoft\\Wow64\\amd64" );
-    WCHAR module[64] = L"C:\\windows\\system32\\libarm64ecfex.dll";
+    WCHAR module[64] = L"C:\\Windows\\System32\\libarm64ecfex.dll";
     OBJECT_ATTRIBUTES attr;
     WINE_MODREF *wm;
     NTSTATUS status;
@@ -4497,7 +4501,7 @@ static void load_arm64ec_module(void)
     if (!NtOpenKey( &key, KEY_READ | KEY_WOW64_64KEY, &attr ))
     {
         UNICODE_STRING valueW = RTL_CONSTANT_STRING( L"" );
-        ULONG dirlen = wcslen( L"C:\\windows\\system32\\" );
+        ULONG dirlen = wcslen( L"C:\\Windows\\System32\\" );
         ULONG size = sizeof(buffer);
 
         if (!NtQueryValueKey( key, &valueW, KeyValuePartialInformation, buffer, size, &size ) && info->Type == REG_SZ)
@@ -4546,7 +4550,7 @@ static void init_wow64( CONTEXT *context )
         HMODULE wow64;
         WINE_MODREF *wm;
         NTSTATUS status;
-        static const WCHAR wow64_path[] = L"C:\\windows\\system32\\wow64.dll";
+        static const WCHAR wow64_path[] = L"C:\\Windows\\System32\\wow64.dll";
 
         build_wow64_main_module();
         build_ntdll_module();
@@ -4579,7 +4583,7 @@ static void map_wow64cpu(void)
 {
     SIZE_T size = 0;
     OBJECT_ATTRIBUTES attr;
-    UNICODE_STRING string = RTL_CONSTANT_STRING( L"\\??\\C:\\windows\\sysnative\\wow64cpu.dll" );
+    UNICODE_STRING string = RTL_CONSTANT_STRING( L"\\??\\C:\\Windows\\sysnative\\wow64cpu.dll" );
     HANDLE file, section;
     IO_STATUS_BLOCK io;
     NTSTATUS status;
