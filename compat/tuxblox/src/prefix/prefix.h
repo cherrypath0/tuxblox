@@ -68,6 +68,7 @@ private:
     void createFontSymlinks();
     void installGraphicsFiles(Session& session);
     void migrateUserPaths();
+    void linkRobloxData();
     void syncHostTheme();
     void syncHaptics();
 

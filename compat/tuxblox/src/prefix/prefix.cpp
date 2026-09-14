@@ -577,6 +577,42 @@ void Prefix::installGraphicsFiles(Session& session) {
     }
 }
 
+void Prefix::linkRobloxData() {
+    // Roblox keeps its installed versions, settings and logs here. Create it up
+    // front, empty, so it is always present -- even a brand-new prefix has the
+    // folder, and Roblox fills it in on first launch.
+    const fs::path robloxData =
+        prefixDir / "drive_c/users/user/AppData/Local/Roblox";
+    makeDirs(robloxData);
+
+    // A "roblox" shortcut in the install folder, so that data is reachable
+    // without walking down through the virtual drive. It sits outside the
+    // drive, where Roblox never sees it -- which is the point of pointing the
+    // shortcut inward rather than moving the data out and linking back to it:
+    // the folder Roblox runs from stays an ordinary directory, not a link the
+    // anti-cheat could notice.
+    const fs::path installRoot = baseDir.parent_path();
+    const std::string runtimeName = baseDir.filename().string();
+    if (installRoot.empty() || runtimeName.empty()) {
+        return; // an unusual prefix path; skip the shortcut rather than guess
+    }
+    const fs::path target =
+        fs::path(runtimeName) / "pfx/drive_c/users/user/AppData/Local/Roblox";
+
+    std::error_code error;
+    const fs::path link = installRoot / "roblox";
+    if (fileExists(link, false)) {
+        if (!isSymlink(link)) {
+            return; // something real is there; leave it alone
+        }
+        if (fs::read_symlink(link, error) == target) {
+            return; // already points where we want
+        }
+        fs::remove(link, error);
+    }
+    fs::create_symlink(target, link, error);
+}
+
 void Prefix::migrateUserPaths() {
     // Wine's own compatibility links: apps that still use the Windows XP
     // folder names find the modern ones through these.
@@ -737,6 +773,7 @@ void Prefix::setup(Session& session) {
     }
 
     migrateUserPaths();
+    linkRobloxData();
     syncHostTheme();
     syncHaptics();
 
