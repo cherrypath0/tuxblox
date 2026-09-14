@@ -279,8 +279,23 @@ static void diag_hex( const char *tag, ULONG_PTR addr, unsigned int len )
     if (len > sizeof(buf)) len = sizeof(buf);
     if (!(got = virtual_uninterrupted_read_memory( (const void *)addr, buf, len )))
     {
-        ERR_(seh)( "DIAG %s 0x%llx unreadable\n", tag, (unsigned long long)addr );
-        return;
+        /* A page the layer set no-access reads as nothing here, which is the
+         * interesting case: it hides whether the contents were decrypted.
+         * /proc/self/mem ignores the protection and disturbs nothing. */
+        int fd = open( "/proc/self/mem", O_RDONLY );
+        ssize_t n = -1;
+
+        if (fd != -1)
+        {
+            n = pread( fd, buf, len, (off_t)addr );
+            close( fd );
+        }
+        if (n <= 0)
+        {
+            ERR_(seh)( "DIAG %s 0x%llx unreadable\n", tag, (unsigned long long)addr );
+            return;
+        }
+        got = n;
     }
     for (i = n = 0; i < got; i++) n += snprintf( line + n, sizeof(line) - n, "%02x ", buf[i] );
     ERR_(seh)( "DIAG %s 0x%llx %s\n", tag, (unsigned long long)addr, line );
@@ -2804,6 +2819,97 @@ static void diag_bp_poke_apply( const ULONG64 *regs )
     }
 }
 
+/* A block of memory saved to a file, whatever its protection.
+ *
+ * The counterpart to the blob above: to find where a program has patched a
+ * library, the mapped copy has to be compared against the file it came from,
+ * and the mapped copy is usually execute-only. Reading through /proc/self/mem
+ * ignores the protection and leaves the mapping alone.
+ *
+ * TUXBLOX_DIAG_SAVE=<address>:<length>@<path>, both hex, written once at the
+ * first diagnostic breakpoint hit.
+ */
+static void diag_save_apply( void )
+{
+    /* static: this runs on the signal stack, which a buffer this size overflows */
+    static unsigned char buf[0x20000];
+    static int done;
+    const char *v, *at;
+    ULONG64 addr, len;
+    char *end;
+    int mem, out;
+    ssize_t got;
+
+    if (done) return;
+    if (!(v = getenv( "TUXBLOX_DIAG_SAVE" )) || !*v) { done = 1; return; }
+    done = 1;
+
+    addr = strtoull( v, &end, 16 );
+    if (*end != ':') return;
+    len = strtoull( end + 1, &end, 16 );
+    if (*end != '@' || !addr || !len) return;
+    at = end + 1;
+    if (len > sizeof(buf)) len = sizeof(buf);
+
+    if ((mem = open( "/proc/self/mem", O_RDONLY )) == -1) return;
+    got = pread( mem, buf, len, (off_t)addr );
+    close( mem );
+    if (got <= 0) { ERR_(seh)( "DIAG save: cannot read 0x%llx\n", (unsigned long long)addr ); return; }
+
+    if ((out = open( at, O_WRONLY | O_CREAT | O_TRUNC, 0600 )) == -1) return;
+    if (write( out, buf, got ) != got) got = -1;
+    close( out );
+    ERR_(seh)( "DIAG save: %zd bytes from 0x%llx -> %s\n", got, (unsigned long long)addr, at );
+}
+
+/* A block of the layer's own data, supplied from a file.
+ *
+ * Some of its tables are built at runtime through pointers it computes, so
+ * there is no store to break on and no way to see what should have built one.
+ * Writing a known-good copy in and watching what the program does next says
+ * whether that table is what it was missing.
+ *
+ * TUXBLOX_TEST_LAYER_BLOB=<path>@<offset into the layer's image>, written once
+ * at the first breakpoint hit. The write goes through /proc/self/mem, so a
+ * read-only page needs no protection change and the mapping is left alone --
+ * a protection change is itself something the layer can notice.
+ */
+static void diag_layer_blob_apply( void )
+{
+    /* static, for the same reason as the save buffer above */
+    static unsigned char buf[0x8000];
+    static int done;
+    char path[512];
+    const char *v, *at;
+    ULONG64 base;
+    ssize_t got;
+    int fd;
+
+    if (done) return;
+    if (!(v = getenv( "TUXBLOX_TEST_LAYER_BLOB" )) || !*v) { done = 1; return; }
+    if (!(base = roblox_dll_base())) return;     /* retry at the next hit */
+    done = 1;
+
+    if (!(at = strrchr( v, '@' )) || (size_t)(at - v) >= sizeof(path)) return;
+    memcpy( path, v, at - v );
+    path[at - v] = 0;
+
+    if ((fd = open( path, O_RDONLY )) == -1)
+    {
+        ERR_(seh)( "DIAG blob: cannot open %s\n", path );
+        return;
+    }
+    got = read( fd, buf, sizeof(buf) );
+    close( fd );
+    if (got <= 0) return;
+
+    if ((fd = open( "/proc/self/mem", O_RDWR )) == -1) return;
+    got = pwrite( fd, buf, got, (off_t)(base + strtoull( at + 1, NULL, 16 )) );
+    close( fd );
+    ERR_(seh)( "DIAG blob: %zd bytes -> layer+0x%llx\n", got,
+               strtoull( at + 1, NULL, 16 ) );
+}
+
 /* Registers to SET at a breakpoint, from TUXBLOX_DIAG_BP_SETREG.
  *
  * Poking a frame slot changes every later read of it, which for a slot the layer
@@ -3018,6 +3124,8 @@ BOOL tuxblox_diag_bp_hit( ULONG64 rip, ULONG64 *regs, LONG64 *rsp_delta )
             {
                 diag_bp_poke_apply( regs );
                 diag_bp_setreg_apply( regs );
+                diag_layer_blob_apply();
+                diag_save_apply();
             }
         }
         if (diag_bp_rsp_delta[i])
