@@ -764,6 +764,8 @@ BOOL tuxblox_roblox_stackfix_hit( ULONG64 rip, ULONG64 *regs )
  * predictable branch rather than a call into this file. */
 BOOL tuxblox_diag_stepping;
 
+static void diag_dump_steps(void);
+
 /* Where the layer decided to give up.
  *
  * A hard error is the layer's own verdict. Its text says what it concluded but
@@ -784,6 +786,10 @@ void tuxblox_diag_note_hard_error( unsigned int status )
         ERR_(seh)( "DIAG hard error %08x raised from 0x%llx\n",
                    status, (unsigned long long)pc );
     diag_dump_files();
+    /* And the instructions that led here, when a trace was running: a program
+     * that reports a problem and exits never reaches any other stopping point,
+     * so without this the ring is filled and thrown away. */
+    diag_dump_steps();
 }
 
 BOOL tuxblox_diag_step_arm(void)
@@ -902,7 +908,6 @@ static ULONG64 diag_step_watch[DIAG_STEP_WATCH_MAX];
 static unsigned int diag_step_watch_count;
 static int diag_step_watch_init;
 static ULONG64 diag_step_stop;
-static void diag_dump_steps(void);
 static void diag_dump_steps_around( unsigned int at, unsigned int before, unsigned int after );
 
 /* Where the module containing an address begins.
