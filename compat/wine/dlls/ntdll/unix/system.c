@@ -4091,6 +4091,60 @@ static const struct { const char *name; ULONG size; USHORT load_count; } kernel_
     { "\\SystemRoot\\system32\\drivers\\wd\\WdNisDrv.sys", 0x1d000, 1 },
 };
 
+/* The kernel image the protection layer opens, and its real checksum.
+ *
+ * Roblox's layer opens \\??\\C:\\WINDOWS\\System32\\ntoskrnl.exe, reads its PE
+ * headers, and compares the CheckSum in them against the ImageCheckSum this
+ * class reports. Windows reports the real one. Reporting zero is a mismatch,
+ * and the layer concludes the system files are damaged. Read it from the file
+ * that is actually installed rather than carrying a number a rebuild would
+ * invalidate; system32's ntoskrnl.exe is a link to this same file.
+ */
+static ULONG ntoskrnl_checksum(void)
+{
+    static const char * const pe_dirs[] = { "/i386-windows", "/x86_64-windows",
+                                            "/arm-windows", "/aarch64-windows" };
+    static ULONG checksum;
+    static int tried;
+    const char *pe_dir;
+    unsigned int i;
+
+    switch (current_machine)
+    {
+    case IMAGE_FILE_MACHINE_I386:  pe_dir = pe_dirs[0]; break;
+    case IMAGE_FILE_MACHINE_AMD64: pe_dir = pe_dirs[1]; break;
+    case IMAGE_FILE_MACHINE_ARMNT: pe_dir = pe_dirs[2]; break;
+    case IMAGE_FILE_MACHINE_ARM64: pe_dir = pe_dirs[3]; break;
+    default:                       pe_dir = ""; break;
+    }
+    if (tried) return checksum;
+    tried = 1;
+    for (i = 0; dll_paths[i]; i++)
+    {
+        unsigned char buf[0x400];
+        char *path;
+        int fd;
+
+        if (!(path = malloc( strlen(dll_paths[i]) + strlen(pe_dir) + sizeof("/ntoskrnl.exe") ))) break;
+        strcpy( path, dll_paths[i] );
+        strcat( path, pe_dir );
+        strcat( path, "/ntoskrnl.exe" );
+        fd = open( path, O_RDONLY );
+        free( path );
+        if (fd == -1) continue;
+        if (read( fd, buf, sizeof(buf) ) == sizeof(buf) && buf[0] == 'M' && buf[1] == 'Z')
+        {
+            unsigned int pe = *(unsigned int *)(buf + 0x3c);
+
+            if (pe < sizeof(buf) - 0x5c && !memcmp( buf + pe, "PE\0\0", 4 ))
+                checksum = *(unsigned int *)(buf + pe + 0x18 + 0x40);
+        }
+        close( fd );
+        if (checksum) break;
+    }
+    return checksum;
+}
+
 static void fill_module_info( RTL_PROCESS_MODULE_INFORMATION *sm, ULONG i )
 {
     sm->ImageBaseAddress = NULL;   /* not disclosed without the privilege for it */
@@ -5746,6 +5800,9 @@ static NTSTATUS query_system_information( SYSTEM_INFORMATION_CLASS class,
             {
                 fill_module_info( &module_info[i].BaseInfo, i );
                 module_info[i].NextOffset = (i + 1 < ARRAY_SIZE(kernel_modules)) ? sizeof(*module_info) : 0;
+                /* The kernel's own entry carries the checksum in its file, which
+                 * is what a caller that opens the file compares against. */
+                if (!i) module_info[i].ImageCheckSum = ntoskrnl_checksum();
                 /* A/B probe: Windows populates the EX-only fields and BaseInfo
                  * Flags/InitOrderIndex/checksum; Wine leaves them zero. Fill
                  * plausible deterministic values to see if the integrity check
