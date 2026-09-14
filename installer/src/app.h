@@ -53,7 +53,12 @@ public:
     // `channel` selects which /v1/<channel>/... release to install/upgrade
     // to -- "stable" when run standalone (main.cpp's default), or whatever
     // the launcher passed via --channel when handing off an upgrade.
-    explicit App(std::string channel = "stable");
+    //
+    // `useLatest` (the --latest flag) picks the newest version on that
+    // channel. Without it the version this binary was built for is installed,
+    // which is what keeps the launcher, installer and compatibility layer of
+    // one release together.
+    explicit App(std::string channel = "stable", bool useLatest = false);
     ~App();
 
     // Starts the background install pipeline (INIT -> ... -> DONE/ERROR).
@@ -78,6 +83,7 @@ private:
     void run(); // background thread entry point
 
     std::string channel_;
+    bool useLatest_ = false;
     mutable std::mutex mutex_;
     AppSnapshot snapshot_;
     std::atomic<bool> cancelRequested_{false};

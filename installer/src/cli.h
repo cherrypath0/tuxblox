@@ -37,6 +37,13 @@ struct CliOptions {
     // launcher passed --channel during an upgrade handoff. "dev" is accepted
     // on the command line and stored as its new name, "experimental".
     std::string channel = "stable";
+    // Install the newest release on the channel instead of the version this
+    // installer binary was built for. Off by default: an installer normally
+    // installs its own version, so the three halves of a release always match
+    // and a downloaded installer can't change what it installs over time.
+    // The launcher's upgrade handoff doesn't need it -- it downloads the new
+    // release's own installer and execs that.
+    bool latest = false;
     // Non-empty means the arguments were unusable: the caller should print
     // this and usageText() to stderr and exit non-zero. Every other field is
     // meaningless when this is set.

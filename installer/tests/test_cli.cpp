@@ -41,6 +41,9 @@ int main() {
         CliOptions o = parse({});
         assert(!o.uninstall && !o.headless && !o.noLaunch && !o.help);
         assert(o.channel == "stable");
+        // Off by default: a plain run installs the version this installer was
+        // built for, not whatever the channel happens to point at.
+        assert(!o.latest);
         assert(o.error.empty());
     }
 
@@ -63,6 +66,10 @@ int main() {
         CliOptions s = parse({"-h"});
         assert(s.help && s.error.empty());
     }
+    {
+        CliOptions o = parse({"--latest"});
+        assert(o.latest && o.error.empty());
+    }
 
     // --channel consumes the following argument as its value.
     {
@@ -76,6 +83,16 @@ int main() {
         CliOptions o = parse({"--nolaunch", "--channel", "beta", "--headless"});
         assert(o.headless && o.noLaunch);
         assert(o.channel == "beta");
+        assert(!o.latest);
+        assert(o.error.empty());
+    }
+
+    // --latest and --channel are independent: --latest picks which version on
+    // the channel, --channel picks which channel to take it from.
+    {
+        CliOptions o = parse({"--latest", "--channel", "canary"});
+        assert(o.latest);
+        assert(o.channel == "canary");
         assert(o.error.empty());
     }
 
@@ -131,6 +148,7 @@ int main() {
         assert(usage.find("--nolaunch") != std::string::npos);
         assert(usage.find("--uninstall") != std::string::npos);
         assert(usage.find("--channel") != std::string::npos);
+        assert(usage.find("--latest") != std::string::npos);
     }
 
     printf("cli: all tests passed\n");

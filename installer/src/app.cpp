@@ -20,6 +20,7 @@
 #include "installer_steps.h"
 #include "desktop_shortcut.h"
 #include "copyright_file.h"
+#include "version.h"
 #include <cstdlib>
 #include <filesystem>
 #include <string>
@@ -57,7 +58,8 @@ void cleanupBestEffort(const std::string& dir) {
 }
 } // namespace
 
-App::App(std::string channel) : channel_(std::move(channel)) {}
+App::App(std::string channel, bool useLatest)
+    : channel_(std::move(channel)), useLatest_(useLatest) {}
 
 App::~App() {
     if (thread_.joinable()) {
@@ -124,15 +126,39 @@ void App::run() {
         if (cancelRequested_.load()) return;
 
         setPhase(AppPhase::FetchingManifest);
-        auto latestVersion = fetchLatestVersion(kSetupBaseUrl, channel_, &cancelRequested_);
-        if (cancelRequested_.load()) return;
-        if (!latestVersion.has_value()) {
-            setError("No releases available for the '" + channel_ + "' channel yet.");
-            return;
+        // Default: install the version this binary was built for, so the
+        // launcher, installer and compatibility layer of one release always
+        // land together and a downloaded installer keeps installing the same
+        // thing. --latest asks the channel for its newest release instead,
+        // which costs the extra /v2/latest.json round trip.
+        std::string version = kTuxBloxVersion;
+        if (useLatest_) {
+            auto latestVersion = fetchLatestVersion(kSetupBaseUrl, channel_, &cancelRequested_);
+            if (cancelRequested_.load()) return;
+            if (!latestVersion.has_value()) {
+                setError("No releases available for the '" + channel_ + "' channel yet.");
+                return;
+            }
+            version = *latestVersion;
         }
         const std::string manifestUrl =
-            std::string(kSetupBaseUrl) + "/v1/" + channel_ + "/" + *latestVersion + "/manifest.json";
-        std::string json = fetchManifestJson(manifestUrl, &cancelRequested_);
+            std::string(kSetupBaseUrl) + "/v1/" + channel_ + "/" + version + "/manifest.json";
+        std::string json;
+        try {
+            json = fetchManifestJson(manifestUrl, &cancelRequested_);
+        } catch (const std::exception& e) {
+            // A pinned version that isn't published reads as a raw 404 here,
+            // which tells the user nothing. Name the version and the way out.
+            // --latest has no version of its own to be missing: latest.json
+            // just named it, so any failure there is a genuine one.
+            // A cancel mid-transfer also arrives as an exception; it is not a
+            // missing version and must stay silent.
+            if (useLatest_ || cancelRequested_.load()) throw;
+            setError(std::string("TuxBlox ") + kTuxBloxVersion + " is not published on the '" +
+                     channel_ + "' channel. Re-run with --latest to install the newest "
+                     "release instead. (" + e.what() + ")");
+            return;
+        }
         Manifest manifest = parseManifest(json, kSetupBaseUrl);
         if (cancelRequested_.load()) return;
 

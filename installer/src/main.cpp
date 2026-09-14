@@ -88,7 +88,7 @@ int main(int argc, char** argv) {
         return ok ? 0 : 1;
     }
 
-    App app(options.channel);
+    App app(options.channel, options.latest);
     app.start();
 
     if (options.headless) {

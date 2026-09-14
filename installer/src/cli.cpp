@@ -35,6 +35,8 @@ CliOptions parseArgs(int argc, const char* const* argv) {
             options.help = true;
         } else if (arg == "--version") {
             options.version = true;
+        } else if (arg == "--latest") {
+            options.latest = true;
         } else if (arg == "--channel") {
             // Falling back to "stable" on a missing value would silently
             // install the wrong channel during a launcher upgrade handoff,
@@ -62,7 +64,8 @@ const char* usageText() {
     return "Usage: TuxBloxInstaller [options]\n"
            "\n"
            "Installs TuxBlox into ~/.tuxblox, upgrading an existing install in\n"
-           "place if one is found, then starts the TuxBlox Launcher.\n"
+           "place if one is found, then starts the TuxBlox Launcher. Installs\n"
+           "the version this installer was built for unless --latest is given.\n"
            "\n"
            "Options:\n"
            "  --headless         Report progress on the terminal instead of\n"
@@ -73,6 +76,8 @@ const char* usageText() {
            "                     installing it.\n"
            "  --channel <name>   Release channel to install from (default:\n"
            "                     stable).\n"
+           "  --latest           Install the newest release on the channel\n"
+           "                     instead of this installer's own version.\n"
            "  --version          Show the build version and exit.\n"
            "  -h, --help         Show this help and exit.\n";
 }

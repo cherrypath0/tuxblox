@@ -63,11 +63,19 @@ Usage: TuxBloxInstaller [options]
   --uninstall        Remove TuxBlox from this system instead of
                      installing it.
   --channel <name>   Release channel to install from (default: stable).
+  --latest           Install the newest release on the channel
+                     instead of this installer's own version.
   --version          Show the build version and exit.
   -h, --help         Show this help and exit.
 ```
 
 Unknown options are an error rather than being ignored, so a typo cannot quietly change what the installer does.
+
+### Which version gets installed
+
+An installer installs the version it was built for — the one `--version` prints. You get exactly the TuxBlox that came with the installer you downloaded, no matter how long ago you downloaded it, and keeping up to date stays the launcher's job.
+
+`--latest` installs the newest release on your channel instead. If the installer's own version is not published on the channel you picked, it says so and points you at `--latest` rather than quietly installing something else.
 
 ### Examples
 
@@ -77,6 +85,9 @@ Unknown options are an error rather than being ignored, so a typo cannot quietly
 
 # Install the canary channel
 ./TuxBloxInstaller --channel canary
+
+# Install the newest release instead of this installer's own version
+./TuxBloxInstaller --latest
 
 # Remove TuxBlox completely
 ~/.tuxblox/TuxBloxInstaller --uninstall
