@@ -5012,6 +5012,25 @@ NTSTATUS WINAPI NtCreateFile( HANDLE *handle, ACCESS_MASK access, OBJECT_ATTRIBU
     }
 
  done:
+    if (tuxblox_trace_enabled())
+    {
+        char detail[640];
+        int n;
+
+        n = snprintf( detail, sizeof(detail), "status=%#x name=", (unsigned int)status );
+        if (attr->ObjectName)
+        {
+            ULONG i, len = attr->ObjectName->Length / sizeof(WCHAR);
+
+            for (i = 0; i < len && n < (int)sizeof(detail) - 1; i++)
+            {
+                WCHAR c = attr->ObjectName->Buffer[i];
+                detail[n++] = (c >= 0x20 && c < 0x7f) ? (char)c : '?';
+            }
+            detail[n] = 0;
+        }
+        tuxblox_trace_record( "NtCreateFile.name", detail );
+    }
     free( unix_name );
     free( nt_name.Buffer );
     return io->Status = status;

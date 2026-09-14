@@ -441,10 +441,16 @@ WINE_SOURCE_ARGS = \
   --exclude server/request_handlers.h \
   --exclude server/request_trace.h \
 
+## --disable-build-id keeps the GNU .buildid section out of every built PE. No
+## Windows system DLL has one, and Roblox's protection layer walks the section
+## table of every module it finds, so a section that only a GNU toolchain emits
+## is a fingerprint on all of them at once. It carries no meaning on Windows;
+## only debug-info matching uses it.
 WINE_AUTOCONF_ARGS = \
   --enable-werror \
   --with-mingw=$(MINGW_TYPE) \
   --disable-tests \
+  --disable-build-id \
   --without-ffmpeg \
   --without-vosk \
   --without-piper

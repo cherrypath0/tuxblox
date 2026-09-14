@@ -1706,6 +1706,24 @@ static void setup_raise_exception( ucontext_t *sigcontext, EXCEPTION_RECORD *rec
     XSAVE_AREA_HEADER *src_xs;
     void *callback;
 
+    /* Env-gated code dump: prints the decrypted bytes at a layer-range faulting
+     * rip on the real (untraced) path, so the pass-path instruction that
+     * dereferences the bad pointer can be disassembled. Independent of the
+     * heavier +tuxblox trace, which perturbs the layer's timing. */
+    if (rec->ExceptionCode == EXCEPTION_ACCESS_VIOLATION && getenv( "TUXBLOX_DUMPCODE" ))
+    {
+        BYTE code[24];
+        SIZE_T got = virtual_uninterrupted_read_memory( (const void *)(ULONG_PTR)context->Rip,
+                                                        code, sizeof(code) );
+        char hex[3 * sizeof(code) + 1];
+        unsigned int i, n = 0;
+        for (i = 0; i < got; i++) n += snprintf( hex + n, sizeof(hex) - n, "%02x ", code[i] );
+        fprintf( stderr, "DUMPCODE: rip=%llx faultaddr=%llx bytes: %s\n",
+                 (unsigned long long)context->Rip,
+                 rec->NumberParameters > 1 ? (unsigned long long)rec->ExceptionInformation[1] : 0ull,
+                 hex );
+    }
+
     /* Diagnostic: every exception that reaches a handler passes here, which is
      * how the exception behind an unwind gets named. Alignment faults the
      * fixup handles return long before this, so this does not see the 194M of
@@ -1720,6 +1738,45 @@ static void setup_raise_exception( ucontext_t *sigcontext, EXCEPTION_RECORD *rec
                   rec->ExceptionAddress, (unsigned int)rec->NumberParameters,
                   rec->NumberParameters ? (unsigned long long)rec->ExceptionInformation[0] : 0ull );
         tuxblox_trace_record( "Exception", detail );
+
+        /* For an access violation, dump the faulting register set once so the
+         * bad pointer can be traced to the register that carried it. */
+        if (rec->ExceptionCode == EXCEPTION_ACCESS_VIOLATION)
+        {
+            char regs[256];
+
+            snprintf( regs, sizeof(regs),
+                      "rip=%llx rax=%llx rbx=%llx rcx=%llx rdx=%llx rsi=%llx rdi=%llx "
+                      "rbp=%llx rsp=%llx r8=%llx r9=%llx r10=%llx r11=%llx r12=%llx "
+                      "r13=%llx r14=%llx r15=%llx",
+                      (unsigned long long)context->Rip, (unsigned long long)context->Rax,
+                      (unsigned long long)context->Rbx, (unsigned long long)context->Rcx,
+                      (unsigned long long)context->Rdx, (unsigned long long)context->Rsi,
+                      (unsigned long long)context->Rdi, (unsigned long long)context->Rbp,
+                      (unsigned long long)context->Rsp, (unsigned long long)context->R8,
+                      (unsigned long long)context->R9, (unsigned long long)context->R10,
+                      (unsigned long long)context->R11, (unsigned long long)context->R12,
+                      (unsigned long long)context->R13, (unsigned long long)context->R14,
+                      (unsigned long long)context->R15 );
+            tuxblox_trace_record( "Exception.regs", regs );
+
+            /* the top of the stack: for a bad call/ret the intended or corrupted
+             * target sits here, and the return address says who transferred */
+            {
+                const ULONG64 *sp = (const ULONG64 *)(ULONG_PTR)context->Rsp;
+                char st[256];
+                int n = 0, i;
+
+                for (i = -2; i < 6 && n < (int)sizeof(st) - 20; i++)
+                {
+                    ULONG64 v = 0;
+                    virtual_uninterrupted_read_memory( sp + i, &v, sizeof(v) );
+                    n += snprintf( st + n, sizeof(st) - n, "[rsp%+d]=%llx ", i * 8,
+                                   (unsigned long long)v );
+                }
+                tuxblox_trace_record( "Exception.stack", st );
+            }
+        }
     }
 
     if (rec->ExceptionCode == EXCEPTION_SINGLE_STEP)
@@ -2390,7 +2447,7 @@ unsigned int align_rewrites_done, align_rewrites_refused;
 
 static BOOL align_rewrite_image_ok( ULONG64 rip, BYTE opcode )
 {
-    ULONG_PTR base = virtual_get_image_base( (const void *)(ULONG_PTR)rip );
+    ULONG_PTR base = virtual_get_mapped_base( (const void *)(ULONG_PTR)rip );
     ULONG64 rva;
     unsigned int i;
 
@@ -3562,6 +3619,16 @@ static void segv_handler( int signal, siginfo_t *siginfo, void *sigcontext )
                 leave_handler( ucontext );
                 return;
             }
+            /* The stack-slot watch: let the store run under a one-instruction
+             * single-step, then re-protect on the trap (below). */
+            if (tuxblox_diag_swatch_fault( (ULONG64)(ULONG_PTR)siginfo->si_addr,
+                                           RIP_sig(ucontext), wregs,
+                                           (ERROR_sig(ucontext) >> 1) & 0x09 ))
+            {
+                if (tuxblox_diag_swatch_step_pending()) EFL_sig(ucontext) |= 0x100;
+                leave_handler( ucontext );
+                return;
+            }
         }
         if ((steamclient_addr = steamclient_handle_fault( siginfo->si_addr, (ERROR_sig(ucontext) >> 1) & 0x09 )))
         {
@@ -3656,6 +3723,17 @@ static void trap_handler( int signal, siginfo_t *siginfo, void *sigcontext )
 
         LONG64 rsp_delta = 0;
 
+        /* Always-on Roblox stack-drift shim: forces r11=0 at the layer's
+         * integrity check so its match path is taken. Checked before the
+         * diagnostic breakpoints, which are off in an ordinary run. */
+        if (tuxblox_roblox_stackfix_hit( RIP_sig(ucontext), regs ))
+        {
+            RIP_sig(ucontext) = RIP_sig(ucontext) - 1;  /* back onto the restored instruction */
+            R11_sig(ucontext) = regs[11];
+            leave_handler( ucontext );
+            return;
+        }
+
         if (tuxblox_diag_bp_hit( RIP_sig(ucontext), regs, &rsp_delta ))
         {
             RIP_sig(ucontext) = RIP_sig(ucontext) - 1;  /* back onto the restored instruction */
@@ -3697,6 +3775,16 @@ static void trap_handler( int signal, siginfo_t *siginfo, void *sigcontext )
         tuxblox_diag_step_watch_regs( RIP_sig(ucontext), regs );
     }
     /* The instruction under a breakpoint has now run, so the byte goes back. */
+    /* The store the stack-slot watch let run has now executed; put the page's
+     * write protection back and stop single-stepping. */
+    if (TRAP_sig(ucontext) == TRAP_x86_TRCTRAP && siginfo->si_code == TRAP_TRACE &&
+        tuxblox_diag_swatch_step_pending() && tuxblox_diag_swatch_step_rearm())
+    {
+        if (tuxblox_diag_stepping) EFL_sig(ucontext) |= 0x100;
+        else EFL_sig(ucontext) &= ~0x100;
+        leave_handler( ucontext );
+        return;
+    }
     if (TRAP_sig(ucontext) == TRAP_x86_TRCTRAP && siginfo->si_code == TRAP_TRACE &&
         tuxblox_diag_bp_step_rearm())
     {

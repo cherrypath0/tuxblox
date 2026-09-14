@@ -4094,6 +4094,10 @@ static const struct { const char *name; ULONG size; USHORT load_count; } kernel_
 static void fill_module_info( RTL_PROCESS_MODULE_INFORMATION *sm, ULONG i )
 {
     sm->ImageBaseAddress = NULL;   /* not disclosed without the privilege for it */
+    /* A/B probe: does the enum wall move if kernel module bases are non-NULL
+     * (as an elevated Windows process would see)?  TUXBLOX_TEST_MODBASE=1. */
+    if (getenv( "TUXBLOX_TEST_MODBASE" ))
+        sm->ImageBaseAddress = (void *)(ULONG_PTR)(0xfffff80000000000ULL + (ULONGLONG)i * 0x1000000ULL);
     sm->ImageSize        = kernel_modules[i].size;
     sm->LoadOrderIndex   = i;
     sm->LoadCount        = kernel_modules[i].load_count;
@@ -5031,9 +5035,17 @@ static NTSTATUS query_system_information( SYSTEM_INFORMATION_CLASS class,
      * name as the reason that caching exists. */
     if (tuxblox_trace_enabled())
     {
-        char class_buf[32];
+        char class_buf[96];
 
-        snprintf( class_buf, sizeof(class_buf), "class=%u", class );
+        /* 183's input is what is interesting about it: the image handle it asks
+         * about and the Type it asks for. */
+        if (class == SystemCodeIntegrityCertificateInformation && info && size >= 16)
+        {
+            const struct { HANDLE ImageFile; ULONG Type; } *ci = info;
+            snprintf( class_buf, sizeof(class_buf), "class=%u size=%u image=%p type=%u",
+                      class, (unsigned int)size, ci->ImageFile, (unsigned int)ci->Type );
+        }
+        else snprintf( class_buf, sizeof(class_buf), "class=%u size=%u", class, (unsigned int)size );
         tuxblox_trace_record( "NtQuerySystemInformation", class_buf );
     }
 
@@ -5727,11 +5739,25 @@ static NTSTATUS query_system_information( SYSTEM_INFORMATION_CLASS class,
         len = sizeof(*module_info) * ARRAY_SIZE(kernel_modules);
         if (len <= size)
         {
+            int test_fields = !!getenv( "TUXBLOX_TEST_MODFIELDS" );
+
             memset( info, 0, len );
             for (i = 0; i < ARRAY_SIZE(kernel_modules); i++)
             {
                 fill_module_info( &module_info[i].BaseInfo, i );
                 module_info[i].NextOffset = (i + 1 < ARRAY_SIZE(kernel_modules)) ? sizeof(*module_info) : 0;
+                /* A/B probe: Windows populates the EX-only fields and BaseInfo
+                 * Flags/InitOrderIndex/checksum; Wine leaves them zero. Fill
+                 * plausible deterministic values to see if the integrity check
+                 * keys on them.  TUXBLOX_TEST_MODFIELDS=1. */
+                if (test_fields)
+                {
+                    module_info[i].ImageCheckSum       = 0x00010000 + i * 0x111;
+                    module_info[i].TimeDateStamp       = 0x5f000000 + i;
+                    module_info[i].DefaultBase         = (void *)(ULONG_PTR)(0xfffff80000000000ULL + (ULONGLONG)i * 0x1000000ULL);
+                    module_info[i].BaseInfo.Flags      = 0x00080000;
+                    module_info[i].BaseInfo.InitOrderIndex = (WORD)i;
+                }
             }
         }
         else ret = STATUS_INFO_LENGTH_MISMATCH;
@@ -6361,6 +6387,12 @@ NTSTATUS WINAPI NtSystemDebugControl( SYSDBG_COMMAND command, void *in_buff, ULO
     FIXME( "(%d, %p, %d, %p, %d, %p), stub\n",
            command, in_buff, in_len, out_buff, out_len, retlen );
 
+    /* The status is load-bearing, so do not "fix" this stub into a different one.
+     * The Roblox layer calls it once a run, with every argument NULL, so the status
+     * is the whole answer it wants -- and it branches on it. Measured 2026-09-12:
+     * STATUS_NOT_IMPLEMENTED, STATUS_ACCESS_DENIED, STATUS_PRIVILEGE_NOT_HELD,
+     * STATUS_INVALID_PARAMETER and STATUS_SUCCESS all stop its start-up nine modules
+     * in, where STATUS_DEBUGGER_INACTIVE carries it through to the end. */
     return STATUS_DEBUGGER_INACTIVE;
 }
 
@@ -6978,12 +7010,24 @@ static BOOL notify_desktop( const UNICODE_STRING *text, const UNICODE_STRING *ca
         struct pollfd pfd = { fds[0], POLLIN, 0 };
         char answer[64];
         ssize_t n;
-
-        close( fds[1] );
+        int ret;
         /* A little beyond the notification's own lifetime, then give up and
          * take the notifier down with us rather than wait on a desktop that
          * is never going to answer. */
-        if (poll( &pfd, 1, 35000 ) > 0 && (n = read( fds[0], answer, sizeof(answer) - 1 )) > 0)
+        ULONGLONG deadline = monotonic_counter() + 35000 * (ULONGLONG)10000;
+
+        close( fds[1] );
+        /* Every server APC arrives as SIGUSR1 and cuts poll short -- another
+         * process merely querying this one's memory is enough -- so EINTR is
+         * not "no answer"; wait out the rest of the time. */
+        for (;;)
+        {
+            ULONGLONG now = monotonic_counter();
+            int timeout = now >= deadline ? 0 : (int)((deadline - now) / 10000);
+
+            if ((ret = poll( &pfd, 1, timeout )) != -1 || errno != EINTR || !timeout) break;
+        }
+        if (ret > 0 && (n = read( fds[0], answer, sizeof(answer) - 1 )) > 0)
         {
             answer[n] = 0;
             if (!strncmp( answer, "ok", 2 )) pressed = TRUE;
@@ -6992,7 +7036,7 @@ static BOOL notify_desktop( const UNICODE_STRING *text, const UNICODE_STRING *ca
         close( fds[0] );
     }
 
-    waitpid( pid, NULL, 0 );
+    while (waitpid( pid, NULL, 0 ) == -1 && errno == EINTR) ;
     return pressed;
 }
 
@@ -7027,7 +7071,17 @@ NTSTATUS WINAPI NtRaiseHardError( NTSTATUS status, ULONG count,
         for (i = 0; i < count && i < 8 * sizeof(params_mask); i++)
         {
             if (params_mask & (1u << i))
-                tuxblox_trace_record_us( "NtRaiseHardError.param", params[i] );
+            {
+                const UNICODE_STRING *us = params[i];
+                char detail[64];
+
+                tuxblox_trace_record_us( "NtRaiseHardError.param", us );
+                /* where the string lives, so the message can be found in the
+                 * caller's own image and the code that chose it located */
+                snprintf( detail, sizeof(detail), "us=%p buf=%p len=%u", us,
+                          us ? us->Buffer : NULL, us ? (unsigned int)us->Length : 0 );
+                tuxblox_trace_record( "NtRaiseHardError.at", detail );
+            }
             else
             {
                 char detail[32];

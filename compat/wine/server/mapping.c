@@ -506,6 +506,11 @@ static int add_process_view( struct thread *thread, struct memory_view *view )
             if (get_view_nt_name( view, &name ) && (process->image = memdup( name.str, name.len )))
                 process->imagelen = name.len;
             process->image_info = view->image;
+            /* Report the address the main image is really mapped at, not its
+             * preferred base: ProcessImageInformation.TransferAddress must be the
+             * relocated entry point, as Windows returns. The main exe is not a
+             * shared image, so map_addr is otherwise unset here. */
+            process->image_info.map_addr = view->base;
             list_add_head( &process->views, &view->entry );
             return 1;
         }

@@ -3700,6 +3700,14 @@ static NTSTATUS virtual_map_image( HANDLE mapping, void **addr_ptr, SIZE_T *size
     struct file_view *view;
     unsigned int status;
     sigset_t sigset;
+    /* Probe: Windows maps a DLL SizeOfImage + 0x5000 -- one committed executable
+     * page at SizeOfImage, then 0x4000 reserved. Measured on the reference machine
+     * across four DLLs of very different sizes, all exactly 0x5000; the executable
+     * gets none. TUXBLOX_TEST_IMAGE_TAIL=1 to try it. */
+    SIZE_T image_tail = 0;
+
+    if ((image_info->image_charact & IMAGE_FILE_DLL) && getenv( "TUXBLOX_TEST_IMAGE_TAIL" ))
+        image_tail = 0x5000;
 
     if (offset >= size)
         return STATUS_INVALID_PARAMETER;
@@ -3728,10 +3736,17 @@ static NTSTATUS virtual_map_image( HANDLE mapping, void **addr_ptr, SIZE_T *size
 
     server_enter_uninterrupted_section( &virtual_mutex, &sigset );
 
-    status = map_image_view( &view, image_info, size, limit_low, limit_high, alloc_type );
+    status = map_image_view( &view, image_info, size + image_tail, limit_low, limit_high, alloc_type );
     if (status) goto done;
 
     status = map_image_into_view( view, nt_name, unix_fd, image_info, machine, shared_fd, needs_close );
+    if (status == STATUS_SUCCESS && image_tail)
+    {
+        char *tail = (char *)view->base + image_info->map_size;
+
+        set_vprot( view, tail, page_size, VPROT_COMMITTED | VPROT_READ | VPROT_EXEC );
+        set_vprot( view, tail + page_size, image_tail - page_size, 0 );
+    }
     if (status == STATUS_SUCCESS)
     {
         if (offset)
@@ -3757,7 +3772,9 @@ static NTSTATUS virtual_map_image( HANDLE mapping, void **addr_ptr, SIZE_T *size
     {
         if (is_builtin && !offset) add_builtin_module( view->base, NULL );
         *addr_ptr = view->base;
-        *size_ptr = size;
+        /* the server validates the view against the section's own size, so the
+         * tail is only added to what the caller is told */
+        *size_ptr = size + image_tail;
         VIRTUAL_DEBUG_DUMP_VIEW( view );
     }
     else delete_view( view );
@@ -5672,6 +5689,35 @@ BOOL virtual_is_image_address( const void *addr )
  * base, so a caller can work in offsets within the image rather than in
  * addresses that move from run to run.
  */
+/***********************************************************************
+ *           virtual_get_mapped_base
+ *
+ * The base of any view that is not private memory -- an image, a file mapping
+ * or a pagefile section -- or 0 for private memory.
+ *
+ * virtual_get_image_base() answers only for SEC_IMAGE views, and Roblox's
+ * protection layer does not run from one: it maps its own code out of the
+ * temp files it writes, which is a plain file mapping. So "leave images alone"
+ * never covered the one module whose instructions actually fault, and its code
+ * was rewritten 79,690 times a run while the layer hashes that same code. The
+ * layer's alignment probe is anonymous memory and still has to be rewritten,
+ * so private memory is the distinction, not SEC_IMAGE.
+ */
+ULONG_PTR virtual_get_mapped_base( const void *addr )
+{
+    struct file_view *view;
+    sigset_t sigset;
+    ULONG_PTR ret = 0;
+
+    server_enter_uninterrupted_section( &virtual_mutex, &sigset );
+    view = find_view( addr, 0 );
+    if (view && (view->protect & (SEC_IMAGE | SEC_FILE | SEC_RESERVE | SEC_COMMIT)))
+        ret = (ULONG_PTR)view->base;
+    server_leave_uninterrupted_section( &virtual_mutex, &sigset );
+    return ret;
+}
+
+
 ULONG_PTR virtual_get_image_base( const void *addr )
 {
     struct file_view *view;
@@ -6636,7 +6682,30 @@ static unsigned int get_basic_memory_info( HANDLE process, LPCVOID addr,
         return result.virtual_query.status;
     }
 
-    if ((status = fill_basic_memory_info( addr, info ))) return status;
+    if ((status = fill_basic_memory_info( addr, info )))
+    {
+        if (tuxblox_trace_enabled())
+        {
+            char detail[128];
+
+            snprintf( detail, sizeof(detail), "ask=%p status=%#x", addr, (unsigned int)status );
+            tuxblox_trace_record( "MemoryBasicInformation", detail );
+        }
+        return status;
+    }
+
+    if (tuxblox_trace_enabled())
+    {
+        char detail[192];
+
+        snprintf( detail, sizeof(detail),
+                  "ask=%p base=%p alloc=%p size=%#lx state=%#x prot=%#x aprot=%#x type=%#x",
+                  addr, info->BaseAddress, info->AllocationBase,
+                  (unsigned long)info->RegionSize, (unsigned int)info->State,
+                  (unsigned int)info->Protect, (unsigned int)info->AllocationProtect,
+                  (unsigned int)info->Type );
+        tuxblox_trace_record( "MemoryBasicInformation", detail );
+    }
 
     if (res_len) *res_len = sizeof(*info);
     return STATUS_SUCCESS;
@@ -7031,7 +7100,17 @@ static unsigned int get_memory_section_name( HANDLE process, LPCVOID addr,
         if (!status) name.Length = reply->len;
     }
     SERVER_END_REQ;
-    if (status) return status;
+    if (status)
+    {
+        if (tuxblox_trace_enabled())
+        {
+            char detail[96];
+
+            snprintf( detail, sizeof(detail), "addr=%p status=%#x", addr, status );
+            tuxblox_trace_record( "MemorySectionName.fail", detail );
+        }
+        return status;
+    }
 
     full[name.Length / sizeof(WCHAR)] = 0;
     resolve_drive_symlink( &name, sizeof(full) - sizeof(WCHAR), NULL, STATUS_SUCCESS );
@@ -7366,8 +7445,37 @@ NTSTATUS WINAPI NtMapViewOfSection( HANDLE handle, HANDLE process, PVOID *addr_p
         return result.map_view.status;
     }
 
-    return virtual_map_section( handle, addr_ptr, 0, get_zero_bits_limit( zero_bits ), commit_size,
-                                offset_ptr, size_ptr, alloc_type, protect, 0 );
+    {
+        NTSTATUS status = virtual_map_section( handle, addr_ptr, 0, get_zero_bits_limit( zero_bits ),
+                                               commit_size, offset_ptr, size_ptr, alloc_type, protect, 0 );
+
+        if (tuxblox_trace_enabled())
+        {
+            char detail[160];
+
+            int n = snprintf( detail, sizeof(detail),
+                              "sec=%p want=%#x type=%#x -> addr=%p size=%#lx status=%#x",
+                              handle, (unsigned int)protect, (unsigned int)alloc_type, *addr_ptr,
+                              (unsigned long)*size_ptr, (unsigned int)status );
+
+            /* the first bytes of what the caller now sees there: a view that is
+             * not the file it asked for is invisible any other way */
+            if (!status && *addr_ptr)
+            {
+                unsigned char head[16];
+                unsigned int i;
+
+                if (virtual_uninterrupted_read_memory( *addr_ptr, head, sizeof(head) ) == sizeof(head))
+                {
+                    n += snprintf( detail + n, sizeof(detail) - n, " head=" );
+                    for (i = 0; i < sizeof(head); i++)
+                        n += snprintf( detail + n, sizeof(detail) - n, "%02x", head[i] );
+                }
+            }
+            tuxblox_trace_record( "NtMapViewOfSection", detail );
+        }
+        return status;
+    }
 }
 
 /***********************************************************************

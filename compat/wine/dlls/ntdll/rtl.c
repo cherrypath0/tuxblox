@@ -1330,6 +1330,120 @@ out:
 
 }
 
+/* Back references in a plain XPRESS stream reach 8192 bytes, so that is all the
+ * history a decoder ever has to keep. */
+#define XPRESS_WINDOW 8192
+
+/* Decompress a plain XPRESS stream -- the LZ77 coding [MS-XCA] 2.3 describes.
+ *
+ * Unlike LZNT1 it has no chunk framing: the whole buffer is one stream, so a
+ * nonzero offset can only be reached by decoding everything in front of it.
+ * window holds the last XPRESS_WINDOW bytes for that case and is NULL when the
+ * offset is zero, where back references can read out of dst directly. */
+static NTSTATUS xpress_decompress(UCHAR *dst, ULONG dst_size, UCHAR *src, ULONG src_size,
+                                  ULONG offset, ULONG *final_size, UCHAR *window)
+{
+    UCHAR *src_cur = src, *src_end = src + src_size, *half_byte = NULL;
+    ULONG pos = 0, out = 0, flags = 0, flag_count = 0;
+    ULONG match_len, match_off;
+    WORD code;
+
+/* Hand one byte to the stream: into the history if there is one, and into dst
+ * once the requested offset has been passed and there is still room. */
+#define XPRESS_EMIT(b) \
+    do { \
+        UCHAR _b = (b); \
+        if (window) window[pos & (XPRESS_WINDOW - 1)] = _b; \
+        if (pos >= offset && out < dst_size) dst[out++] = _b; \
+        pos++; \
+    } while (0)
+
+    while (src_cur < src_end && (out < dst_size || pos < offset))
+    {
+        if (!flag_count)
+        {
+            if (src_cur + sizeof(ULONG) > src_end) break;
+            flags = *(ULONG *)src_cur;
+            src_cur += sizeof(ULONG);
+            flag_count = 32;
+        }
+        flag_count--;
+
+        if (!((flags >> flag_count) & 1))
+        {
+            XPRESS_EMIT( *src_cur++ );
+            continue;
+        }
+
+        /* backwards reference: 13 bits of displacement, 3 of length */
+        if (src_cur + sizeof(WORD) > src_end) break;
+        code = *(WORD *)src_cur;
+        src_cur += sizeof(WORD);
+        match_len = code & 7;
+        match_off = (code >> 3) + 1;
+
+        if (match_len == 7)
+        {
+            /* the length grows a nibble at a time, and two nibbles share a byte */
+            if (!half_byte)
+            {
+                if (src_cur >= src_end) break;
+                half_byte = src_cur;
+                match_len = *src_cur++ & 0x0f;
+            }
+            else
+            {
+                match_len = *half_byte >> 4;
+                half_byte = NULL;
+            }
+            if (match_len == 15)
+            {
+                if (src_cur >= src_end) break;
+                match_len = *src_cur++;
+                if (match_len == 255)
+                {
+                    if (src_cur + sizeof(WORD) > src_end) break;
+                    match_len = *(WORD *)src_cur;
+                    src_cur += sizeof(WORD);
+                    if (!match_len)
+                    {
+                        if (src_cur + sizeof(ULONG) > src_end) break;
+                        match_len = *(ULONG *)src_cur;
+                        src_cur += sizeof(ULONG);
+                    }
+                    if (match_len < 15 + 7) return STATUS_BAD_COMPRESSION_BUFFER;
+                    match_len -= 15 + 7;
+                }
+                match_len += 15;
+            }
+            match_len += 7;
+        }
+        match_len += 3;
+
+        if (match_off > pos) return STATUS_BAD_COMPRESSION_BUFFER;
+        while (match_len-- && (out < dst_size || pos < offset))
+            XPRESS_EMIT( window ? window[(pos - match_off) & (XPRESS_WINDOW - 1)]
+                                : dst[pos - match_off] );
+    }
+
+#undef XPRESS_EMIT
+
+    if (final_size)
+        *final_size = out;
+
+    return STATUS_SUCCESS;
+}
+
+/* The offset path, kept apart so the window stays off the stack of the common
+ * one -- RtlDecompressBuffer always asks for offset zero. */
+static NTSTATUS xpress_decompress_at_offset(UCHAR *dst, ULONG dst_size, UCHAR *src,
+                                            ULONG src_size, ULONG offset, ULONG *final_size)
+{
+    UCHAR window[XPRESS_WINDOW];
+
+    return xpress_decompress(dst, dst_size, src, src_size, offset, final_size, window);
+}
+
 /******************************************************************************
  *  RtlDecompressFragment	[NTDLL.@]
  */
@@ -1345,6 +1459,13 @@ NTSTATUS WINAPI RtlDecompressFragment(USHORT format, PUCHAR uncompressed, ULONG 
         case COMPRESSION_FORMAT_LZNT1:
             return lznt1_decompress(uncompressed, uncompressed_size, compressed,
                                     compressed_size, offset, final_size, workspace);
+
+        case COMPRESSION_FORMAT_XPRESS:
+            if (offset)
+                return xpress_decompress_at_offset(uncompressed, uncompressed_size, compressed,
+                                                   compressed_size, offset, final_size);
+            return xpress_decompress(uncompressed, uncompressed_size, compressed,
+                                     compressed_size, 0, final_size, NULL);
 
         case COMPRESSION_FORMAT_NONE:
         case COMPRESSION_FORMAT_DEFAULT:

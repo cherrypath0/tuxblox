@@ -471,10 +471,46 @@ void tuxblox_diag_note_delay( BOOLEAN alertable, const LARGE_INTEGER *timeout )
     }
 }
 
+static ULONG64 roblox_dll_base(void);
+
 void tuxblox_diag_note_syscall( ULONG64 rip, ULONG64 rsp, ULONG64 rax )
 {
     static unsigned int shown;
     unsigned int i;
+
+    /* Always-on compatibility shim (not gated by the diagnostic knobs). */
+    tuxblox_roblox_stackfix_arm();
+
+    /* Env-gated live code+stack dump at a chosen layer syscall site, so the
+     * polymorphic layer's real bytes (not the dump's) can be read at the drift. */
+    {
+        static ULONG64 dumpsys_addr; static int dumpsys_parsed, dumpsys_done;
+        if (!dumpsys_parsed)
+        {
+            const char *v = getenv( "TUXBLOX_DUMPSYS" );
+            ULONG64 base = roblox_dll_base();
+            if (v && base)          /* wait until the layer base is known */
+            {
+                dumpsys_addr = strtoull( v, NULL, 16 );
+                if (dumpsys_addr < 0x100000000ull) dumpsys_addr += base;
+                dumpsys_parsed = 1;
+            }
+            else if (!v) dumpsys_parsed = 1;
+        }
+        if (dumpsys_addr && rip == dumpsys_addr && !dumpsys_done)
+        {
+            BYTE code[48]; ULONG64 st[8]; unsigned int k, n = 0; char hex[3*48+1];
+            dumpsys_done = 1;
+            if (virtual_uninterrupted_read_memory( (const void *)(ULONG_PTR)(rip-16), code, 48 ) == 48)
+            { for (k=0;k<48;k++) n += snprintf(hex+n,sizeof(hex)-n,"%02x ",code[k]);
+              fprintf( stderr, "DUMPSYS rip=%llx rsp=%llx code[rip-16..+32]: %s\n",
+                       (unsigned long long)rip,(unsigned long long)rsp,hex); }
+            for (k=0;k<8;k++){ st[k]=0; virtual_uninterrupted_read_memory((const void*)(ULONG_PTR)(rsp+8*k),&st[k],8); }
+            fprintf( stderr, "DUMPSYS stack:" );
+            for (k=0;k<8;k++) fprintf(stderr," [rsp+%u]=%llx",8*k,(unsigned long long)st[k]);
+            fprintf( stderr, "\n" );
+        }
+    }
 
     if (!diag_enabled()) return;
     diag_bp_arm();
@@ -482,6 +518,7 @@ void tuxblox_diag_note_syscall( ULONG64 rip, ULONG64 rsp, ULONG64 rax )
     tuxblox_diag_dump_keys( rip, rsp );
     tuxblox_diag_xpage_arm();
     tuxblox_diag_wpage_arm();
+    tuxblox_diag_swatch_arm();
     tuxblox_diag_rpage_arm();
     /* The SIGSYS path resumes the caller at rip + 0xb, which is the shape of
      * ntdll's own stub. The layer issues its system calls from code it
@@ -621,6 +658,59 @@ static ULONG64 roblox_dll_base(void)
         }
     }
     return 0;
+}
+
+/* Roblox current-version stack-drift compatibility shim.
+ *
+ * The layer runs an integrity check at RobloxPlayerBeta.dll+0xd03395
+ * ("cmp %r8d,%r11d; jbe ..."): the two computed sides satisfy the branch on
+ * Windows but not on Wine, so the layer takes the mismatch path -- an unmatched
+ * "add $0x8,%rsp" that drifts the stack 8 bytes and makes a later "ret" read a
+ * poison slot, crashing with 0xC0000005 (the startup "enum wall"). Until the
+ * value divergence is root-caused, force the check's match path by zeroing r11
+ * at the compare.
+ *
+ * This changes only a register, never the layer's code, so the layer's own
+ * self-hash is unaffected. It is base-relative (ASLR-safe) and version-verified
+ * by the compare's opcode bytes, so on any build whose code differs there it
+ * silently does nothing. VERSION-SPECIFIC to version-c5aecda2245e4fae: a Player
+ * update that moves the check leaves this inert and the wall returns until the
+ * offset is refreshed -- or, better, the divergence is fixed at its source.
+ */
+#define ROBLOX_STACKFIX_RVA 0xd03395
+static ULONG64 roblox_stackfix_addr;
+static BYTE roblox_stackfix_orig;
+static int roblox_stackfix_armed, roblox_stackfix_done;
+
+void tuxblox_roblox_stackfix_arm( void )
+{
+    ULONG64 base;
+    BYTE sig[5];
+
+    if (roblox_stackfix_done || roblox_stackfix_armed) return;
+    if (getenv( "TUXBLOX_NO_STACKFIX" )) return;   /* A/B: run the natural (unforced) path */
+    if (!(base = roblox_dll_base())) return;
+    roblox_stackfix_addr = base + ROBLOX_STACKFIX_RVA;
+    /* only where the decrypted code is the known check: cmp r8d,r11d ; jbe */
+    if (virtual_uninterrupted_read_memory( (const void *)(ULONG_PTR)roblox_stackfix_addr,
+                                           sig, sizeof(sig) ) != sizeof(sig))
+        return;                                    /* page not decrypted yet */
+    if (sig[0] != 0x45 || sig[1] != 0x39 || sig[2] != 0xc3 || sig[3] != 0x0f || sig[4] != 0x86)
+        return;                                    /* not this build's check */
+    roblox_stackfix_orig = sig[0];
+    if (virtual_patch_code_byte( (void *)(ULONG_PTR)roblox_stackfix_addr, 0xcc )) return;
+    roblox_stackfix_armed = 1;
+}
+
+/* From the int3 dispatch: TRUE (and r11 forced to 0) when the trap is ours. */
+BOOL tuxblox_roblox_stackfix_hit( ULONG64 rip, ULONG64 *regs )
+{
+    if (!roblox_stackfix_armed || rip - 1 != roblox_stackfix_addr) return FALSE;
+    virtual_patch_code_byte( (void *)(ULONG_PTR)roblox_stackfix_addr, roblox_stackfix_orig );
+    roblox_stackfix_armed = 0;
+    roblox_stackfix_done = 1;                       /* the check runs once */
+    regs[11] = 0;                                   /* r11 = 0 -> the match path */
+    return TRUE;
 }
 
 /* Read straight from the signal paths, so an ordinary run pays one load and a
@@ -837,6 +927,23 @@ void tuxblox_diag_step_watch_regs( ULONG64 rip, const ULONG64 *regs )
     for (i = 0; i < 16; i++)
         n += snprintf( line + n, sizeof(line) - n, "%s=%llx ", names[i], (unsigned long long)regs[i] );
     ERR_(seh)( "DIAG watch rip=0x%llx %s\n", (unsigned long long)rip, line );
+
+    /* Also photograph the memory edi is read from at the drift branch:
+     * edi = movsxd [rax-0x4d]; rax = [rbp+0x820]. Dump around rax and the
+     * [rbp+0x820] pointer so edi's source structure can be identified. */
+    if (getenv( "TUXBLOX_WATCHMEM" ))
+    {
+        ULONG64 rax = regs[0], rbp = regs[6], ptr820 = 0, v = 0;
+        BYTE buf[64]; unsigned int k; char hx[3*64+1];
+        virtual_uninterrupted_read_memory( (const void *)(ULONG_PTR)(rbp + 0x820), &ptr820, 8 );
+        virtual_uninterrupted_read_memory( (const void *)(ULONG_PTR)(rax - 0x4d), &v, 4 );
+        ERR_(seh)( "DIAG watchmem [rbp+0x820]=%llx  [rax-0x4d]=%llx (edi source)\n",
+                   (unsigned long long)ptr820, (unsigned long long)v );
+        if (virtual_uninterrupted_read_memory( (const void *)(ULONG_PTR)(rax - 0x50), buf, 64 ) == 64)
+        { for (k=0;k<64;k++) n = 0, hx[3*k]=0; n=0;
+          for (k=0;k<64;k++) n += snprintf(hx+n,sizeof(hx)-n,"%02x ",buf[k]);
+          ERR_(seh)( "DIAG watchmem [rax-0x50..+0x0e]: %s\n", hx ); }
+    }
 }
 
 BOOL tuxblox_diag_step_record( ULONG64 rip, ULONG64 rsp, ULONG64 rcx, ULONG64 rax )
@@ -1174,6 +1281,7 @@ void tuxblox_diag_exception( const EXCEPTION_RECORD *rec, const CONTEXT *context
     {
         diag_dump_ring();
         diag_dump_steps();
+        tuxblox_diag_hww_dump();
     }
     diag_hex( "at-rip", (ULONG_PTR)context->Rip, 128 );
     diag_hex( "before-rip", (ULONG_PTR)context->Rip - 64, 64 );
@@ -1383,12 +1491,20 @@ static void diag_watch_init(void)
     while (*v && diag_watch_count < DIAG_WATCH_MAX)
     {
         char *end;
-        ULONG64 parsed = strtoull( v, &end, 16 );
+        /* A leading '*' means the address is already absolute. Without it an
+         * address below 4GB is a layer offset, which is right for the layer's
+         * own data and wrong for the stack -- and a frame slot is exactly what
+         * a per-item loop keeps its answer in. */
+        int absolute = (*v == '*');
+        ULONG64 parsed;
+
+        if (absolute) v++;
+        parsed = strtoull( v, &end, 16 );
 
         if (end == v) break;
         if (parsed)
         {
-            diag_watch_resolved[diag_watch_count] = (parsed >= 0x100000000ull);
+            diag_watch_resolved[diag_watch_count] = absolute || (parsed >= 0x100000000ull);
             diag_watch[diag_watch_count++] = (ULONG_PTR)parsed;
         }
         v = (*end == ',') ? end + 1 : end;
@@ -1488,6 +1604,7 @@ static unsigned int xpage_live_pos;
  * difference between seeing a path and seeing the pages it stayed in. */
 static unsigned int xpage_live_n = XPAGE_LIVE;
 static unsigned int xpage_events, xpage_max, xpage_start, xpage_start_seq;
+static int xpage_bp_seen;
 /* One offset to photograph the registers at. The last page both the passing and
  * the failing traversal of a handler share is the place to read what they are
  * about to branch on; the page trace alone cannot say. */
@@ -1799,6 +1916,238 @@ BOOL tuxblox_diag_wpage_fault( ULONG64 addr, ULONG64 rip, const ULONG64 *regs, U
     return FALSE;
 }
 
+/* A single 8-byte slot at an ABSOLUTE address (a stack slot, typically) watched
+ * for writes and re-armed after every store, so it survives a page that is
+ * written constantly and reports only the store that lands on the exact slot.
+ *
+ * WPAGE watches image offsets and disarms per syscall, which is useless for the
+ * stack. This starts on a chosen breakpoint (so it need not slow the whole run),
+ * takes write permission off the containing page, and on each write fault lets
+ * the store run under a one-instruction single-step then re-protects -- the same
+ * re-arm the breakpoints use, which works because the layer only clears TF
+ * across its own NtContinue/NtSetContextThread, never between two adjacent
+ * stores. It is how the instruction that corrupts a stack value is found when
+ * multi-step tracing is defeated. TUXBLOX_DIAG_SWATCH=<abs hex addr>; started by
+ * any diagnostic breakpoint hit (set one near the write with TUXBLOX_DIAG_BP). */
+static ULONG64 swatch_addr, swatch_page;
+static int swatch_prot, swatch_started, swatch_parsed;
+static char swatch_armed;
+static unsigned int swatch_hits, swatch_hit_max;
+static __thread int swatch_rearm_step;
+
+static void swatch_parse( void )
+{
+    const char *v;
+
+    /* Re-read until the address is found: the first arm can run during early
+     * init before the environment is populated, and caching that miss would
+     * disable the watch for the whole run. */
+    if (swatch_parsed || swatch_addr) return;
+    if (!(v = getenv( "TUXBLOX_DIAG_SWATCH" )) || !(swatch_addr = strtoull( v, NULL, 16 )))
+        return;
+    swatch_parsed = 1;
+    if ((v = getenv( "TUXBLOX_DIAG_SWATCH_MAX" ))) swatch_hit_max = atoi( v );
+    else swatch_hit_max = 200;
+    /* with no breakpoint to start it, watch from the first syscall */
+    if (!getenv( "TUXBLOX_DIAG_BP" )) swatch_started = 1;
+    ERR_(seh)( "DIAG swatch parse: addr=0x%llx started=%d\n",
+               (unsigned long long)swatch_addr, swatch_started );
+}
+
+static void swatch_protect( void )
+{
+    static int announced;
+
+    if (!swatch_addr || !swatch_started || swatch_armed) return;
+    if (swatch_hits >= swatch_hit_max) return;
+    swatch_page = swatch_addr & ~(ULONG64)(page_size - 1);
+    if (!swatch_prot && (swatch_prot = wpage_prot_of( swatch_page )) <= 0)
+    {
+        if (!announced) { ERR_(seh)( "DIAG swatch: page 0x%llx not mappable yet (prot=%d)\n",
+                          (unsigned long long)swatch_page, swatch_prot ); }
+        swatch_prot = 0;
+        return;
+    }
+    if (mprotect( (void *)(ULONG_PTR)swatch_page, page_size, swatch_prot & ~PROT_WRITE ))
+    {
+        if (!announced++) ERR_(seh)( "DIAG swatch: mprotect(0x%llx) failed\n",
+                                     (unsigned long long)swatch_page );
+        return;
+    }
+    if (!announced++) ERR_(seh)( "DIAG swatch armed: page 0x%llx prot %d watching 0x%llx\n",
+                                 (unsigned long long)swatch_page, swatch_prot,
+                                 (unsigned long long)swatch_addr );
+    swatch_armed = 1;
+}
+
+/* Called from a breakpoint hit so the watch only runs near the write. */
+void tuxblox_diag_swatch_start( void )
+{
+    if (!diag_enabled()) return;
+    swatch_parse();
+    if (swatch_addr && !swatch_started)
+    {
+        swatch_started = 1;
+        ERR_(seh)( "DIAG swatch started for 0x%llx (page 0x%llx)\n",
+                   (unsigned long long)swatch_addr, (unsigned long long)swatch_page );
+    }
+    swatch_protect();
+}
+
+void tuxblox_diag_swatch_arm( void )
+{
+    if (!diag_enabled()) return;
+    swatch_parse();
+    swatch_protect();
+}
+
+/* Returns TRUE when the fault was one this made and the store can be retried. */
+BOOL tuxblox_diag_swatch_fault( ULONG64 addr, ULONG64 rip, const ULONG64 *regs, ULONG kind )
+{
+    ULONG64 base;
+
+    if (!swatch_armed || !(kind & 1)) return FALSE;               /* writes only */
+    if ((addr & ~(ULONG64)(page_size - 1)) != swatch_page) return FALSE;
+
+    mprotect( (void *)(ULONG_PTR)swatch_page, page_size, swatch_prot );  /* let it run */
+    swatch_armed = 0;
+
+    if (addr == swatch_addr)
+    {
+        swatch_hits++;
+        base = roblox_dll_base();
+        if (base && rip > base && rip < base + 0x10000000ull)
+            ERR_(seh)( "DIAG swatch write to 0x%llx from layer+0x%llx  rax=%llx rbx=%llx rcx=%llx rdx=%llx rsi=%llx rdi=%llx rbp=%llx r8=%llx r9=%llx r10=%llx r11=%llx r12=%llx r13=%llx r14=%llx r15=%llx\n",
+                       (unsigned long long)addr, (unsigned long long)(rip - base),
+                       (unsigned long long)regs[0], (unsigned long long)regs[1],
+                       (unsigned long long)regs[2], (unsigned long long)regs[3],
+                       (unsigned long long)regs[4], (unsigned long long)regs[5],
+                       (unsigned long long)regs[6], (unsigned long long)regs[8],
+                       (unsigned long long)regs[9], (unsigned long long)regs[10],
+                       (unsigned long long)regs[11], (unsigned long long)regs[12],
+                       (unsigned long long)regs[13], (unsigned long long)regs[14],
+                       (unsigned long long)regs[15] );
+        else
+            ERR_(seh)( "DIAG swatch write to 0x%llx from 0x%llx (outside the layer)  rcx=%llx rdx=%llx r8=%llx r9=%llx\n",
+                       (unsigned long long)addr, (unsigned long long)rip,
+                       (unsigned long long)regs[2], (unsigned long long)regs[3],
+                       (unsigned long long)regs[8], (unsigned long long)regs[9] );
+    }
+    swatch_rearm_step = 1;    /* step the store, then re-protect on the trap */
+    return TRUE;
+}
+
+BOOL tuxblox_diag_swatch_step_pending( void )
+{
+    return swatch_rearm_step != 0;
+}
+
+BOOL tuxblox_diag_swatch_step_rearm( void )
+{
+    if (!swatch_rearm_step) return FALSE;
+    swatch_rearm_step = 0;
+    swatch_protect();
+    return TRUE;
+}
+
+/* A single hardware write-watchpoint on an absolute address, via a Linux perf
+ * breakpoint. Unlike SWATCH it fires only on the exact bytes and needs no
+ * single-step or page protection, so it survives the layer's TF-clearing. It
+ * does take one of the CPU's four debug registers, which the layer also uses
+ * (NtSetContextThread), so it is armed LATE -- at a diagnostic breakpoint set
+ * near the write -- to keep the contention window tiny. TUXBLOX_HWWATCH=<abs
+ * hex addr>. The captured store IPs are dumped at the next exception (the
+ * fault), IP + all GP regs, with no range filter so an in-layer anon-region
+ * store is shown. */
+#ifdef __x86_64__
+static ULONG64 hww_addr;
+static int hww_fd = -1;
+static void *hww_buf;
+static int hww_parsed;
+
+void tuxblox_diag_hww_start( void )
+{
+    struct perf_event_attr attr;
+    long pgsz = sysconf( _SC_PAGESIZE );
+    const char *v;
+
+    if (!diag_enabled() || hww_fd != -1) return;
+    if (!hww_parsed)
+    {
+        hww_parsed = 1;
+        if ((v = getenv( "TUXBLOX_HWWATCH" ))) hww_addr = strtoull( v, NULL, 16 );
+    }
+    if (!hww_addr) return;
+
+    memset( &attr, 0, sizeof(attr) );
+    attr.type          = PERF_TYPE_BREAKPOINT;
+    attr.size          = sizeof(attr);
+    attr.bp_type       = HW_BREAKPOINT_W;
+    attr.bp_addr       = hww_addr;
+    attr.bp_len        = HW_BREAKPOINT_LEN_8;
+    attr.sample_period = 1;
+    attr.sample_type   = PERF_SAMPLE_IP | PERF_SAMPLE_REGS_USER;
+    attr.sample_regs_user = 0x00ff01ffULL;   /* AX..IP + R8..R15 */
+    attr.exclude_kernel = 1;
+    attr.exclude_hv     = 1;
+    hww_fd = syscall( __NR_perf_event_open, &attr, 0, -1, -1, 0 );
+    if (hww_fd == -1)
+    {
+        ERR_(seh)( "DIAG hwwatch arm FAILED for 0x%llx errno=%d\n",
+                   (unsigned long long)hww_addr, errno );
+        return;
+    }
+    hww_buf = mmap( NULL, (1 + 8) * pgsz, PROT_READ | PROT_WRITE, MAP_SHARED, hww_fd, 0 );
+    if (hww_buf == MAP_FAILED) hww_buf = NULL;
+    ERR_(seh)( "DIAG hwwatch armed on 0x%llx (fd=%d)\n",
+               (unsigned long long)hww_addr, hww_fd );
+}
+
+void tuxblox_diag_hww_dump( void )
+{
+    struct perf_event_mmap_page *meta;
+    long pgsz = sysconf( _SC_PAGESIZE );
+    unsigned long long head, tail, n = 0;
+    unsigned char *data;
+    ULONG64 base = roblox_dll_base();
+
+    if (!hww_buf) return;
+    meta = hww_buf;
+    head = meta->data_head; __sync_synchronize();
+    tail = meta->data_tail;
+    data = (unsigned char *)hww_buf + pgsz;
+    while (tail < head)
+    {
+        struct perf_event_header *h = (struct perf_event_header *)(data + (tail % (8 * pgsz)));
+        if (h->size == 0) break;
+        if (h->type == PERF_RECORD_SAMPLE)
+        {
+            unsigned char *rec = (unsigned char *)h + sizeof(*h);
+            unsigned long long ip = *(unsigned long long *)rec;
+            unsigned long long *regs = (unsigned long long *)(rec + 16);   /* IP(8)+abi(8) */
+
+            /* regs order matches sample_regs_user bit order:
+             * AX BX CX DX SI DI BP SP IP (0..8), then R8..R15 (9..16) */
+            if (base && ip > base && ip < base + 0x10000000ull)
+                ERR_(seh)( "DIAG hwwatch store #%llu from layer+0x%llx  ax=%llx bx=%llx cx=%llx dx=%llx si=%llx di=%llx bp=%llx sp=%llx r8=%llx r9=%llx r10=%llx r11=%llx r12=%llx r13=%llx r14=%llx r15=%llx\n",
+                           n, (unsigned long long)(ip - base),
+                           regs[0], regs[1], regs[2], regs[3], regs[4], regs[5], regs[6], regs[7],
+                           regs[9], regs[10], regs[11], regs[12], regs[13], regs[14], regs[15], regs[16] );
+            else
+                ERR_(seh)( "DIAG hwwatch store #%llu from 0x%llx (not layer)  cx=%llx dx=%llx r8=%llx r9=%llx\n",
+                           n, ip, regs[2], regs[3], regs[9], regs[10] );
+            n++;
+        }
+        tail += h->size;
+    }
+    meta->data_tail = head;
+    ERR_(seh)( "DIAG hwwatch: %llu store(s) captured to 0x%llx\n", n, (unsigned long long)hww_addr );
+}
+#else
+void tuxblox_diag_hww_start( void ) { }
+void tuxblox_diag_hww_dump( void ) { }
+#endif
+
 void tuxblox_diag_xpage_arm( void )
 {
     ULONG64 base;
@@ -1837,6 +2186,17 @@ void tuxblox_diag_xpage_arm( void )
     if (!xpage_max) return;                       /* not asked for */
     if (diag_ring_pos < xpage_start) return;
     if (xpage_start_seq && (unsigned int)trace_seq < xpage_start_seq) return;
+    /* TUXBLOX_DIAG_XPAGE_BP=1 holds the page tracer until a breakpoint fires.
+     * A trace record number is no anchor for a short window: the count of
+     * records before it swings by hundreds between runs, so two traces armed at
+     * the same number start in different places and cannot be compared. An
+     * address does not move. */
+    if (!xpage_bp_seen)
+    {
+        const char *v = getenv( "TUXBLOX_DIAG_XPAGE_BP" );
+
+        if (v && *v && *v != '0') return;
+    }
     if (!(base = roblox_dll_base())) return;
 
     /* only the executable part, read from the loader rather than guessed */
@@ -1891,12 +2251,32 @@ void tuxblox_diag_rpage_arm( void )
         rpage_lo = strtoull( v, &end, 16 );
         if (*end != '-') { rpage_lo = 0; return; }
         rpage_hi = strtoull( end + 1, NULL, 16 );
+        /* Below 4GB the range is layer-relative, as everywhere else here. The
+         * layer's base moves between builds, so a range written absolutely
+         * silently covers nothing and reads as a true negative. */
+        if (rpage_lo < 0x100000000ull)
+        {
+            ULONG64 base = roblox_dll_base();
+
+            if (!base) { rpage_parsed = 0; return; }   /* not mapped yet, look again */
+            rpage_lo += base;
+            rpage_hi += base;
+        }
         if ((v = getenv( "TUXBLOX_DIAG_RPAGE_SEQ" ))) rpage_start_seq = atoi( v );
         if ((v = getenv( "TUXBLOX_DIAG_RPAGE_MAX" ))) rpage_max = atoi( v );
         else rpage_max = 4096;
     }
     if (!rpage_lo || !rpage_max || rpage_events >= rpage_max) return;
     if (rpage_start_seq && (unsigned int)trace_seq < rpage_start_seq) return;
+    /* TUXBLOX_DIAG_RPAGE_BP=1 waits for a breakpoint, for the same reason the
+     * page tracer has the option: a trace-record number does not name a point
+     * in this run twice. */
+    if (!xpage_bp_seen)
+    {
+        const char *v = getenv( "TUXBLOX_DIAG_RPAGE_BP" );
+
+        if (v && *v && *v != '0') return;
+    }
     /* Re-armed at every system call. A page in an executable range is
      * unprotected again by the first instruction fetch that touches it, which
      * Wine's own code does long before the program reads anything, so arming
@@ -2414,6 +2794,73 @@ static void diag_step_at_check( ULONG64 addr )
                (unsigned long long)addr, (unsigned int)diag_step_owner );
 }
 
+/* The whole of a flattened function's frame at a breakpoint, from
+ * TUXBLOX_DIAG_BP_FRAME=<rbp offset>:<bytes>.
+ *
+ * TUXBLOX_DIAG_BP_SLOTS reads twelve named slots, which is enough once the
+ * interesting one is known and no use at all while it is not. A per-item loop
+ * keeps its accumulated answer somewhere in a frame of several kilobytes; the
+ * way to find that slot is to photograph the frame on every pass and diff the
+ * passes against each other.
+ */
+static void diag_bp_frame_print( const ULONG64 *regs, unsigned int hit )
+{
+    static LONG64 frame_off;
+    static unsigned int frame_len;
+    static unsigned int frame_reg = 6;     /* rbp */
+    static int frame_abs;
+    static int frame_parsed;
+
+    /* static, not on the stack: this runs on the signal stack, where the
+     * handler already keeps a 1 KB line of its own, and a second buffer pair
+     * here was enough to overflow it and kill the run. */
+    static ULONG64 buf[32];
+    static char line[1024];
+
+    unsigned int done;
+
+    if (!frame_parsed)
+    {
+        static const char * const regnames[16] = { "rax", "rbx", "rcx", "rdx", "rsi", "rdi", "rbp",
+                                                   "rsp", "r8", "r9", "r10", "r11", "r12", "r13",
+                                                   "r14", "r15" };
+        const char *v = getenv( "TUXBLOX_DIAG_BP_FRAME" );
+        unsigned int r;
+        char *end;
+
+        frame_parsed = 1;
+        if (!v || !*v) return;
+        /* "*<address>:<len>" reads a fixed address instead of a frame, which is
+         * what photographing the layer's own data section on every pass takes. */
+        if (*v == '*') { frame_abs = 1; v++; }
+        /* "<reg>:<offset>:<len>" reads through a register instead of rbp, which
+         * is what an argument pointing at a structure needs. */
+        else for (r = 0; r < 16; r++)
+        {
+            size_t len = strlen( regnames[r] );
+            if (!strncmp( v, regnames[r], len ) && v[len] == ':') { frame_reg = r; v += len + 1; break; }
+        }
+        frame_off = strtoll( v, &end, 16 );
+        if (*end == ':') frame_len = strtoul( end + 1, NULL, 16 );
+        if (!frame_len) frame_len = 0x200;
+    }
+    if (!frame_len) return;
+
+    for (done = 0; done < frame_len; done += sizeof(buf))
+    {
+        ULONG64 at = (frame_abs ? 0 : regs[frame_reg]) + frame_off + done;
+        unsigned int want = min( (unsigned int)sizeof(buf), frame_len - done );
+        unsigned int k, n = 0;
+
+        if (virtual_uninterrupted_read_memory( (const void *)(ULONG_PTR)at, buf, want ) != want)
+            return;
+        for (k = 0; k < want / sizeof(ULONG64); k++)
+            n += snprintf( line + n, sizeof(line) - n, "%016llx ", (unsigned long long)buf[k] );
+        ERR_(seh)( "DIAG bp frame[%u] @%016llx +%#llx %s\n", hit, (unsigned long long)at,
+                   (unsigned long long)(frame_off + done), line );
+    }
+}
+
 BOOL tuxblox_diag_bp_hit( ULONG64 rip, ULONG64 *regs, LONG64 *rsp_delta )
 {
     static const char * const names[16] = { "rax", "rbx", "rcx", "rdx", "rsi", "rdi", "rbp", "rsp",
@@ -2424,6 +2871,11 @@ BOOL tuxblox_diag_bp_hit( ULONG64 rip, ULONG64 *regs, LONG64 *rsp_delta )
     diag_bp_poke_parse();
     diag_bp_setreg_parse();
 
+    /* Any breakpoint hit starts the stack-slot watch and the hardware
+     * write-watch, so they run only near the write. */
+    tuxblox_diag_swatch_start();
+    tuxblox_diag_hww_start();
+
     for (i = 0; i < diag_bp_count; i++)
     {
         char line[1024];
@@ -2431,8 +2883,26 @@ BOOL tuxblox_diag_bp_hit( ULONG64 rip, ULONG64 *regs, LONG64 *rsp_delta )
 
         if (!diag_bp_resolved[i] || diag_bp_addr[i] != rip - 1) continue;
         if (rsp_delta) *rsp_delta = diag_bp_rsp_delta[i];
-        diag_bp_poke_apply( regs );
-        diag_bp_setreg_apply( regs );
+        /* TUXBLOX_DIAG_BP_FROM=<n> holds the poke and the register write back
+         * until the n-th hit. A per-item loop's interesting pass is rarely its
+         * first, and writing at every pass answers a different question. */
+        {
+            static int from_parsed;
+            static unsigned int from_hit;
+
+            if (!from_parsed)
+            {
+                const char *v = getenv( "TUXBLOX_DIAG_BP_FROM" );
+
+                from_parsed = 1;
+                from_hit = v ? atoi( v ) : 0;
+            }
+            if (diag_bp_hits[i] + 1 >= from_hit)
+            {
+                diag_bp_poke_apply( regs );
+                diag_bp_setreg_apply( regs );
+            }
+        }
         if (diag_bp_rsp_delta[i])
             ERR_(seh)( "DIAG bp rsp 0x%llx %+lld -> 0x%llx\n", (unsigned long long)regs[7],
                        (long long)diag_bp_rsp_delta[i],
@@ -2500,6 +2970,8 @@ BOOL tuxblox_diag_bp_hit( ULONG64 rip, ULONG64 *regs, LONG64 *rsp_delta )
         n = diag_bp_slots_print( line, n, sizeof(line), regs );
         ERR_(seh)( "DIAG bp hit #%u (%u raced) 0x%llx %s\n", diag_bp_hits[i] + 1,
                    diag_bp_races[i], (unsigned long long)diag_bp_addr[i], line );
+        diag_bp_frame_print( regs, diag_bp_hits[i] + 1 );
+        xpage_bp_seen = 1;
         virtual_patch_code_byte( (void *)(ULONG_PTR)diag_bp_addr[i], diag_bp_orig[i] );
         diag_step_at_check( diag_bp_addr[i] );
 

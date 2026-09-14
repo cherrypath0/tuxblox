@@ -904,6 +904,7 @@ static BOOL keep_env_var_for_windows( const char *var )
 
     for (i = 0; i < ARRAY_SIZE(windows_vars); i++)
         if (!strncasecmp( var, windows_vars[i], strlen(windows_vars[i]) )) return TRUE;
+    if (!getenv( "TUXBLOX_HIDE_GFX_ENV" ))  /* A/B: drop the graphics-layer vars, a Wine fingerprint */
     for (i = 0; i < ARRAY_SIZE(kept_prefixes); i++)
         if (!strncmp( var, kept_prefixes[i], strlen(kept_prefixes[i]) )) return TRUE;
 

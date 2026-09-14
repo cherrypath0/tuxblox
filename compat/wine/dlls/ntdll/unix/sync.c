@@ -3255,6 +3255,16 @@ NTSTATUS WINAPI NtCreateSection( HANDLE *handle, ACCESS_MASK access, const OBJEC
     }
     SERVER_END_REQ;
 
+    if (tuxblox_trace_enabled())
+    {
+        char detail[128];
+
+        snprintf( detail, sizeof(detail), "prot=%#x flags=%#x file=%p size=%#llx status=%#x",
+                  (unsigned int)protect, (unsigned int)sec_flags, file,
+                  (unsigned long long)(size ? size->QuadPart : 0), ret );
+        tuxblox_trace_record( "NtCreateSection", detail );
+    }
+
     free( objattr );
     return ret;
 }
