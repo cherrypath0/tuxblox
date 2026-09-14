@@ -3701,8 +3701,9 @@ static void segv_handler( int signal, siginfo_t *siginfo, void *sigcontext )
  */
 static ULONG64 diag_step_reg2( const ucontext_t *ucontext )
 {
-    static const char * const names[16] = { "rax", "rbx", "rcx", "rdx", "rsi", "rdi", "rbp", "rsp",
-                                            "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15" };
+    static const char * const names[24] = { "rax", "rbx", "rcx", "rdx", "rsi", "rdi", "rbp", "rsp",
+                                            "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15",
+                                            "mm0", "mm1", "mm2", "mm3", "mm4", "mm5", "mm6", "mm7" };
     static int which = -1;
 
     if (which == -1)
@@ -3713,6 +3714,15 @@ static ULONG64 diag_step_reg2( const ucontext_t *ucontext )
         which = 2;
         for (i = 0; v && i < ARRAY_SIZE(names); i++)
             if (!strcmp( v, names[i] )) { which = i; break; }
+    }
+    /* The layer keeps state in the MMX registers, which alias the x87 stack and
+     * so live in the signal frame's floating-point area rather than among the
+     * general registers. */
+    if (which >= 16)
+    {
+        const XMM_SAVE_AREA32 *fpu = FPU_sig(ucontext);
+
+        return fpu ? fpu->FloatRegisters[which - 16].Low : 0;
     }
     switch (which)
     {
