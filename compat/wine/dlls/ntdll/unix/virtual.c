@@ -6349,7 +6349,7 @@ NTSTATUS WINAPI NtProtectVirtualMemory( HANDLE process, PVOID *addr_ptr, SIZE_T 
     BYTE vprot;
     SIZE_T size = *size_ptr;
     LPVOID addr = *addr_ptr;
-    DWORD old;
+    DWORD old = 0;
 
     TRACE("%p %p %08lx %08x\n", process, addr, size, new_prot );
 
@@ -6441,6 +6441,8 @@ NTSTATUS WINAPI NtProtectVirtualMemory( HANDLE process, PVOID *addr_ptr, SIZE_T 
     if (!status) VIRTUAL_DEBUG_DUMP_VIEW( view );
 
     server_leave_uninterrupted_section( &virtual_mutex, &sigset );
+
+    tuxblox_diag_note_protect( base, size, new_prot, old, status );
 
     if (status == STATUS_SUCCESS)
     {

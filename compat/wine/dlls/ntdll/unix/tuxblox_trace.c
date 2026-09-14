@@ -397,6 +397,20 @@ void tuxblox_diag_note_query( const char *what, unsigned int class, ULONG64 addr
                (unsigned long long)addr, status, line );
 }
 
+/* Every change of page protection, with the protection that was there before.
+ *
+ * A program that patches code protects a page writable, writes, then restores
+ * what it was told was there. If the "before" answer is wrong the page comes
+ * back wrong -- an executable page restored as read-only faults the moment it
+ * is called, a long way from the call that broke it.
+ */
+void tuxblox_diag_note_protect( const void *addr, unsigned long size,
+                                unsigned int new_prot, unsigned int old_prot, unsigned int status )
+{
+    if (!diag_enabled()) return;
+    ERR_(seh)( "DIAG protect %p size=%lx new=%x old=%x -> %08x\n", addr, size, new_prot, old_prot, status );
+}
+
 void tuxblox_diag_note_open_section( const OBJECT_ATTRIBUTES *attr, unsigned int status )
 {
     char name[256];
