@@ -1124,7 +1124,7 @@ BOOL tuxblox_diag_step_record( ULONG64 rip, ULONG64 rsp, ULONG64 rcx, ULONG64 ra
                     ERR_(seh)( "DIAG step stretch below 0x%llx starts at %u, now %u, rip=0x%llx\n",
                                (unsigned long long)diag_step_below, at, diag_step_pos,
                                (unsigned long long)diag_steps[at % DIAG_STEPS].rip );
-                    diag_dump_steps_around( at, 6, 2 );
+                    diag_dump_steps_around( at, 240, 8 );
                 }
             }
             else
