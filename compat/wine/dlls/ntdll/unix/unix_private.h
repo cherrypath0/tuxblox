@@ -172,6 +172,7 @@ extern void *pKiUserCallbackDispatcher;
 extern void *pKiUserEmulationDispatcher;
 extern void *pLdrInitializeThunk;
 extern void *pRtlUserThreadStart;
+extern void *ntdll_pe_module;
 extern void *p__wine_ctrl_routine;
 extern SYSTEM_DLL_INIT_BLOCK *pLdrSystemDllInitBlock;
 
@@ -245,6 +246,7 @@ extern BOOL tuxblox_roblox_stackfix_hit( ULONG64 rip, ULONG64 *regs );
 extern void tuxblox_diag_hww_start( void );
 extern void tuxblox_diag_hww_dump( void );
 extern void tuxblox_diag_note_open_section( const OBJECT_ATTRIBUTES *attr, unsigned int status );
+extern void tuxblox_diag_note_thread( const void *start, const void *param, unsigned int flags, unsigned int tid );
 extern void tuxblox_diag_note_protect( const void *addr, unsigned long size, unsigned int new_prot, unsigned int old_prot, unsigned int status );
 extern void tuxblox_diag_note_delay( BOOLEAN alertable, const LARGE_INTEGER *timeout );
 extern void tuxblox_diag_note_hard_error( unsigned int status );

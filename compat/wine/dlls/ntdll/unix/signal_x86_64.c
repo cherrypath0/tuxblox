@@ -4385,6 +4385,14 @@ void init_syscall_frame( LPTHREAD_START_ROUTINE entry, void *arg, BOOL suspend, 
     frame->rsp = (ULONG64)ctx - 8;
     frame->rip = (ULONG64)pLdrInitializeThunk;
     frame->rcx = (ULONG64)ctx;
+    /* Windows starts every thread at LdrInitializeThunk( context, ntdll_base ):
+     * the base comes from the APC the kernel queues and ntdll itself never reads
+     * it, so leaving it as whatever happened to be in the frame goes unnoticed --
+     * until something checks it. Roblox's anti-tamper layer hooks this function
+     * and compares the second argument against the ntdll base it recorded; when
+     * they differ it takes a path that faults, and every thread it starts dies
+     * before doing any work. */
+    frame->rdx = (ULONG64)ntdll_pe_module;
     if ((callback = instrumentation_callback))
     {
         frame->r10 = frame->rip;

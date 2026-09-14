@@ -1423,6 +1423,7 @@ NTSTATUS WINAPI NtCreateThreadEx( HANDLE *handle, ACCESS_MASK access, OBJECT_ATT
         {
             *handle = wine_server_ptr_handle( reply->handle );
             tid = reply->tid;
+            tuxblox_diag_note_thread( start, param, flags, tid );
         }
         close( request_pipe[0] );
     }
@@ -2863,10 +2864,9 @@ NTSTATUS WINAPI NtQueryInformationThread( HANDLE handle, THREADINFOCLASS class,
 }
 
 
-/******************************************************************************
- *              NtSetInformationThread  (NTDLL.@)
- */
-NTSTATUS WINAPI NtSetInformationThread( HANDLE handle, THREADINFOCLASS class,
+/* The body of NtSetInformationThread, split out so the diagnostic below sees one
+ * return rather than the forty this switch has. */
+static NTSTATUS set_information_thread( HANDLE handle, THREADINFOCLASS class,
                                         const void *data, ULONG length )
 {
     unsigned int status;
@@ -3127,6 +3127,21 @@ NTSTATUS WINAPI NtSetInformationThread( HANDLE handle, THREADINFOCLASS class,
         return STATUS_NOT_IMPLEMENTED;
     }
     }
+}
+
+/******************************************************************************
+ *              NtSetInformationThread  (NTDLL.@)
+ */
+NTSTATUS WINAPI NtSetInformationThread( HANDLE handle, THREADINFOCLASS class,
+                                        const void *data, ULONG length )
+{
+    NTSTATUS status = set_information_thread( handle, class, data, length );
+
+    /* What a program is told when it sets a class matters as much as what it is
+     * told when it reads one -- a probe triplet reads as a failure until the one
+     * call that succeeds is in the log next to it. */
+    tuxblox_diag_class( "threadset", class, length, 0, status );
+    return status;
 }
 
 

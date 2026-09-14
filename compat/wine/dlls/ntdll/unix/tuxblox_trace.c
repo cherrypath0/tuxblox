@@ -426,6 +426,20 @@ void tuxblox_diag_note_protect( const void *addr, unsigned long size,
     ERR_(seh)( "DIAG protect %p size=%lx new=%x old=%x -> %08x\n", addr, size, new_prot, old_prot, status );
 }
 
+/* Every thread the program starts, with what it asked for.
+ *
+ * A thread that dies in its first few instructions leaves nothing behind but a
+ * thread id, and the id says nothing about which of several creations it was.
+ * The entry point and the parameter do: they are what the code that runs there
+ * is handed, and comparing them across threads is how a routine shared by all
+ * of them is told apart from one the program started for a single purpose.
+ */
+void tuxblox_diag_note_thread( const void *start, const void *param, unsigned int flags, unsigned int tid )
+{
+    if (!diag_enabled()) return;
+    ERR_(seh)( "DIAG thread %04x start=%p param=%p flags=%x\n", tid, start, param, flags );
+}
+
 void tuxblox_diag_note_open_section( const OBJECT_ATTRIBUTES *attr, unsigned int status )
 {
     char name[256];
@@ -4201,18 +4215,24 @@ void tuxblox_diag_class( const char *surface, unsigned int class, ULONG length,
 {
     /* One line per class per size, not one per call: a class read twice --
      * once for the length, once for the data -- is the normal shape and would
-     * otherwise bury the classes asked only once. */
-    static struct { const char *surface; unsigned int class; ULONG length; } seen[4096];
+     * otherwise bury the classes asked only once. The thread is part of the
+     * key: a worker thread asking the same class as the main thread is a
+     * different question, and collapsing the two hid three threads that made
+     * five calls each and then crashed. */
+    static struct { const char *surface; unsigned int class; ULONG length; ULONG tid; } seen[4096];
     static unsigned int seen_count;
+    ULONG tid = GetCurrentThreadId();
     unsigned int i;
 
     if (!diag_class_enabled()) return;
     for (i = 0; i < seen_count; i++)
-        if (seen[i].surface == surface && seen[i].class == class && seen[i].length == length) return;
+        if (seen[i].surface == surface && seen[i].class == class && seen[i].length == length
+            && seen[i].tid == tid) return;
     if (seen_count == ARRAY_SIZE(seen)) return;
     seen[seen_count].surface = surface;
     seen[seen_count].class = class;
     seen[seen_count].length = length;
+    seen[seen_count].tid = tid;
     seen_count++;
 
     ERR_(seh)( "tuxblox: ask s=%d %s class=%u length=%u len=%u status=%08x\n",

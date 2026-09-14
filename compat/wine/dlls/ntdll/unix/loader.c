@@ -110,6 +110,7 @@ void *pKiUserCallbackDispatcher = NULL;
 void *pKiUserEmulationDispatcher = NULL;
 void *pLdrInitializeThunk = NULL;
 void *pRtlUserThreadStart = NULL;
+void *ntdll_pe_module = NULL;
 void *p__wine_ctrl_routine = NULL;
 SYSTEM_DLL_INIT_BLOCK *pLdrSystemDllInitBlock = NULL;
 
@@ -2027,6 +2028,8 @@ static void load_ntdll_functions( HMODULE module )
 
     exports = get_module_data_dir( module, IMAGE_DIRECTORY_ENTRY_EXPORT, NULL );
     assert( exports );
+
+    ntdll_pe_module = module;
 
 #define GET_FUNC(name) \
     if (!(p##name = (void *)find_named_export( module, exports, #name ))) \
