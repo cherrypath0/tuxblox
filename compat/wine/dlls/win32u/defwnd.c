@@ -444,6 +444,8 @@ static HICON set_window_icon( HWND hwnd, WPARAM type, HICON icon )
     if (!is_child && (icon = get_window_icon_info( hwnd, ICON_BIG, icon, &ii )))
     {
         icon_small = get_window_icon_info( hwnd, ICON_SMALL, icon_small, &ii_small );
+        publish_window_icon( hwnd, ICON_BIG, &ii );
+        if (icon_small) publish_window_icon( hwnd, ICON_SMALL, &ii_small );
         user_driver->pSetWindowIcons( hwnd, icon, &ii, icon_small, &ii_small );
     }
 

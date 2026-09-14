@@ -6295,6 +6295,46 @@ struct get_process_handle_table_reply
 };
 
 
+/* Publish a window's icon pixels so that other processes can read them.
+ * Windows lets any process ask for any window's icon -- that is what Alt-Tab
+ * and the task bar do -- but a Wine icon is a per-process GDI object, so the
+ * bits have to live somewhere both sides can reach. Kept at the end of the
+ * protocol like the two requests above: request numbers are positional. */
+struct set_window_icon_request
+{
+    struct request_header __header;
+    user_handle_t  handle;
+    int            type;
+    int            width;
+    int            height;
+    /* VARARG(bits,bytes); */
+    char __pad_28[4];
+};
+struct set_window_icon_reply
+{
+    struct reply_header __header;
+};
+
+
+
+struct get_window_icon_request
+{
+    struct request_header __header;
+    user_handle_t  handle;
+    int            type;
+    char __pad_20[4];
+};
+struct get_window_icon_reply
+{
+    struct reply_header __header;
+    int            width;
+    int            height;
+    data_size_t    total;
+    /* VARARG(bits,bytes); */
+    char __pad_20[4];
+};
+
+
 enum request
 {
     REQ_new_process,
@@ -6609,6 +6649,8 @@ enum request
     REQ_fsync_free_shm_idx,
     REQ_get_process_handle_count,
     REQ_get_process_handle_table,
+    REQ_set_window_icon,
+    REQ_get_window_icon,
     REQ_NB_REQUESTS
 };
 
@@ -6928,6 +6970,8 @@ union generic_request
     struct fsync_free_shm_idx_request fsync_free_shm_idx_request;
     struct get_process_handle_count_request get_process_handle_count_request;
     struct get_process_handle_table_request get_process_handle_table_request;
+    struct set_window_icon_request set_window_icon_request;
+    struct get_window_icon_request get_window_icon_request;
 };
 union generic_reply
 {
@@ -7245,8 +7289,10 @@ union generic_reply
     struct fsync_free_shm_idx_reply fsync_free_shm_idx_reply;
     struct get_process_handle_count_reply get_process_handle_count_reply;
     struct get_process_handle_table_reply get_process_handle_table_reply;
+    struct set_window_icon_reply set_window_icon_reply;
+    struct get_window_icon_reply get_window_icon_reply;
 };
 
-#define SERVER_PROTOCOL_VERSION 933
+#define SERVER_PROTOCOL_VERSION 934
 
 #endif /* __WINE_WINE_SERVER_PROTOCOL_H */

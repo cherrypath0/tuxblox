@@ -53,6 +53,23 @@ enum property_type
 };
 
 
+/* A window's icon, as pixels rather than as a handle.
+ *
+ * Windows lets any process ask for any window's icon; a Wine icon is a
+ * per-process GDI object, so the bits are kept here where every process can
+ * reach them and the asking process builds its own icon from them.
+ */
+struct window_icon
+{
+    int          width;               /* icon width in pixels */
+    int          height;              /* icon height in pixels */
+    data_size_t  size;                /* size of the pixel data */
+    void        *bits;                /* width * height pixels, BGRA, top-down */
+};
+
+#define NB_WINDOW_ICONS 2             /* ICON_SMALL and ICON_BIG */
+#define MAX_WINDOW_ICON_SIDE 256      /* the largest icon Windows has a size for */
+
 struct window
 {
     struct object    obj;             /* object header */
@@ -98,6 +115,7 @@ struct window
     int              nb_extra_bytes;  /* number of extra bytes */
     char            *extra_bytes;     /* extra bytes storage */
     window_shm_t    *shared;          /* window in session shared memory */
+    struct window_icon icons[NB_WINDOW_ICONS]; /* icon pixels, readable by any process */
 };
 
 static void window_dump( struct object *obj, int verbose );
@@ -166,6 +184,7 @@ static void window_dump( struct object *obj, int verbose )
 static void window_destroy( struct object *obj )
 {
     struct window *win = (struct window *)obj;
+    unsigned int i;
 
     assert( !win->handle );
 
@@ -179,6 +198,7 @@ static void window_destroy( struct object *obj )
     if (win->update_region) free_region( win->update_region );
     if (win->class) release_class( win->class );
     free( win->text );
+    for (i = 0; i < NB_WINDOW_ICONS; i++) free( win->icons[i].bits );
 
     if (win->nb_extra_bytes)
     {
@@ -683,6 +703,7 @@ static struct window *create_window( struct window *parent, struct window *owner
     win->nb_extra_bytes = 0;
     win->extra_bytes    = NULL;
     win->shared         = NULL;
+    memset( win->icons, 0, sizeof(win->icons) );
     win->window_rect = win->visible_rect = win->surface_rect = win->client_rect = empty_rect;
     list_init( &win->children );
     list_init( &win->unlinked );
@@ -3283,4 +3304,60 @@ DECL_HANDLER(set_window_layered_info)
         if (!was_layered) redraw_window( win, 0, RDW_ALLCHILDREN | RDW_INVALIDATE | RDW_ERASE | RDW_FRAME, 0, 0 );
     }
     else set_win32_error( ERROR_INVALID_WINDOW_HANDLE );
+}
+
+/* store a window's icon pixels where every process can read them */
+DECL_HANDLER(set_window_icon)
+{
+    struct window *win = get_window( req->handle );
+    struct window_icon *icon;
+    data_size_t size = get_req_data_size();
+    void *bits = NULL;
+
+    if (!win) return;
+    /* the size is the client's claim, so bound it before trusting it */
+    if (req->type < 0 || req->type >= NB_WINDOW_ICONS ||
+        req->width <= 0 || req->width > MAX_WINDOW_ICON_SIDE ||
+        req->height <= 0 || req->height > MAX_WINDOW_ICON_SIDE ||
+        size != (data_size_t)req->width * req->height * 4)
+    {
+        set_error( STATUS_INVALID_PARAMETER );
+        return;
+    }
+
+    if (!(bits = memdup( get_req_data(), size ))) return;
+
+    icon = &win->icons[req->type];
+    free( icon->bits );
+    icon->bits   = bits;
+    icon->size   = size;
+    icon->width  = req->width;
+    icon->height = req->height;
+}
+
+/* read back the icon pixels stored for a window */
+DECL_HANDLER(get_window_icon)
+{
+    struct window *win = get_window( req->handle );
+    const struct window_icon *icon;
+
+    if (!win) return;
+    if (req->type < 0 || req->type >= NB_WINDOW_ICONS)
+    {
+        set_error( STATUS_INVALID_PARAMETER );
+        return;
+    }
+
+    icon = &win->icons[req->type];
+    if (!icon->bits)
+    {
+        set_error( STATUS_NOT_FOUND );
+        return;
+    }
+
+    reply->width  = icon->width;
+    reply->height = icon->height;
+    reply->total  = icon->size;
+    if (icon->size <= get_reply_max_size()) set_reply_data( icon->bits, icon->size );
+    else set_error( STATUS_BUFFER_TOO_SMALL );
 }

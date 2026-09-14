@@ -3588,6 +3588,29 @@ static void dump_get_process_handle_table_reply( const struct get_process_handle
     dump_varargs_uints( ", handles=", cur_size );
 }
 
+static void dump_set_window_icon_request( const struct set_window_icon_request *req )
+{
+    fprintf( stderr, " handle=%08x", req->handle );
+    fprintf( stderr, ", type=%d", req->type );
+    fprintf( stderr, ", width=%d", req->width );
+    fprintf( stderr, ", height=%d", req->height );
+    dump_varargs_bytes( ", bits=", cur_size );
+}
+
+static void dump_get_window_icon_request( const struct get_window_icon_request *req )
+{
+    fprintf( stderr, " handle=%08x", req->handle );
+    fprintf( stderr, ", type=%d", req->type );
+}
+
+static void dump_get_window_icon_reply( const struct get_window_icon_reply *req )
+{
+    fprintf( stderr, " width=%d", req->width );
+    fprintf( stderr, ", height=%d", req->height );
+    fprintf( stderr, ", total=%u", req->total );
+    dump_varargs_bytes( ", bits=", cur_size );
+}
+
 typedef void (*dump_func)( const void *req );
 
 static const dump_func req_dumpers[REQ_NB_REQUESTS] =
@@ -3904,6 +3927,8 @@ static const dump_func req_dumpers[REQ_NB_REQUESTS] =
     (dump_func)dump_fsync_free_shm_idx_request,
     (dump_func)dump_get_process_handle_count_request,
     (dump_func)dump_get_process_handle_table_request,
+    (dump_func)dump_set_window_icon_request,
+    (dump_func)dump_get_window_icon_request,
 };
 
 static const dump_func reply_dumpers[REQ_NB_REQUESTS] =
@@ -4220,6 +4245,8 @@ static const dump_func reply_dumpers[REQ_NB_REQUESTS] =
     NULL,
     (dump_func)dump_get_process_handle_count_reply,
     (dump_func)dump_get_process_handle_table_reply,
+    NULL,
+    (dump_func)dump_get_window_icon_reply,
 };
 
 static const char * const req_names[REQ_NB_REQUESTS] =
@@ -4536,6 +4563,8 @@ static const char * const req_names[REQ_NB_REQUESTS] =
     "fsync_free_shm_idx",
     "get_process_handle_count",
     "get_process_handle_table",
+    "set_window_icon",
+    "get_window_icon",
 };
 
 static const struct

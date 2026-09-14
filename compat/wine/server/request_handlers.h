@@ -319,6 +319,8 @@ DECL_HANDLER(d3dkmt_mutex_release);
 DECL_HANDLER(fsync_free_shm_idx);
 DECL_HANDLER(get_process_handle_count);
 DECL_HANDLER(get_process_handle_table);
+DECL_HANDLER(set_window_icon);
+DECL_HANDLER(get_window_icon);
 
 typedef void (*req_handler)( const void *req, void *reply );
 static const req_handler req_handlers[REQ_NB_REQUESTS] =
@@ -635,6 +637,8 @@ static const req_handler req_handlers[REQ_NB_REQUESTS] =
     (req_handler)req_fsync_free_shm_idx,
     (req_handler)req_get_process_handle_count,
     (req_handler)req_get_process_handle_table,
+    (req_handler)req_set_window_icon,
+    (req_handler)req_get_window_icon,
 };
 
 C_ASSERT( sizeof(abstime_t) == 8 );
@@ -2423,3 +2427,15 @@ C_ASSERT( offsetof(struct get_process_handle_table_request, handle) == 12 );
 C_ASSERT( sizeof(struct get_process_handle_table_request) == 16 );
 C_ASSERT( offsetof(struct get_process_handle_table_reply, count) == 8 );
 C_ASSERT( sizeof(struct get_process_handle_table_reply) == 16 );
+C_ASSERT( offsetof(struct set_window_icon_request, handle) == 12 );
+C_ASSERT( offsetof(struct set_window_icon_request, type) == 16 );
+C_ASSERT( offsetof(struct set_window_icon_request, width) == 20 );
+C_ASSERT( offsetof(struct set_window_icon_request, height) == 24 );
+C_ASSERT( sizeof(struct set_window_icon_request) == 32 );
+C_ASSERT( offsetof(struct get_window_icon_request, handle) == 12 );
+C_ASSERT( offsetof(struct get_window_icon_request, type) == 16 );
+C_ASSERT( sizeof(struct get_window_icon_request) == 24 );
+C_ASSERT( offsetof(struct get_window_icon_reply, width) == 8 );
+C_ASSERT( offsetof(struct get_window_icon_reply, height) == 12 );
+C_ASSERT( offsetof(struct get_window_icon_reply, total) == 16 );
+C_ASSERT( sizeof(struct get_window_icon_reply) == 24 );

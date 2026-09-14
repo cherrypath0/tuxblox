@@ -4372,3 +4372,29 @@ enum fsync_type
     unsigned int count;            /* number of open handles, whether or not they fit */
     VARARG(handles,uints);         /* the handle values themselves */
 @END
+
+
+/* Publish a window's icon pixels so that other processes can read them.
+ * Windows lets any process ask for any window's icon -- that is what Alt-Tab
+ * and the task bar do -- but a Wine icon is a per-process GDI object, so the
+ * bits have to live somewhere both sides can reach. Kept at the end of the
+ * protocol like the two requests above: request numbers are positional. */
+@REQ(set_window_icon)
+    user_handle_t  handle;         /* handle to the window */
+    int            type;           /* ICON_SMALL or ICON_BIG */
+    int            width;          /* icon width in pixels */
+    int            height;         /* icon height in pixels */
+    VARARG(bits,bytes);            /* width * height pixels, BGRA, top-down */
+@END
+
+
+/* Read back the icon pixels published for a window */
+@REQ(get_window_icon)
+    user_handle_t  handle;         /* handle to the window */
+    int            type;           /* ICON_SMALL or ICON_BIG */
+@REPLY
+    int            width;          /* icon width in pixels */
+    int            height;         /* icon height in pixels */
+    data_size_t    total;          /* total size of the pixel data */
+    VARARG(bits,bytes);            /* width * height pixels, BGRA, top-down */
+@END

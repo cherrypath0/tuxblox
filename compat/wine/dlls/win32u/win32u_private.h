@@ -322,6 +322,7 @@ extern HWND get_taskman_window(void);
 extern BOOL is_client_surface_window( struct client_surface *surface, HWND hwnd );
 extern void add_window_client_surface( HWND hwnd, struct client_surface *surface );
 extern HICON get_window_icon_info( HWND hwnd, UINT type, HICON icon, ICONINFO *ret );
+extern void publish_window_icon( HWND hwnd, UINT type, const ICONINFO *ii );
 extern void init_startup_info(void);
 
 /* to release pointers retrieved by win_get_ptr */

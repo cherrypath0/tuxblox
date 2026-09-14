@@ -2196,6 +2196,195 @@ static HICON get_icon_info( HICON icon, ICONINFO *ii )
     return icon && NtUserGetIconInfo( icon, ii, NULL, NULL, NULL, 0 ) ? icon : NULL;
 }
 
+#define MAX_WINDOW_ICON_SIDE 256  /* must match the server's bound */
+
+/* An icon is a per-process GDI object, but Windows lets any process ask for
+ * any window's icon -- that is what Alt-Tab, the task bar and the shell do.
+ * So the pixels are published to the server when a window's icon is set, and
+ * a process asking about someone else's window builds its own icon from them.
+ * The copy is the asker's to destroy, which is what Windows' own
+ * InternalGetWindowIcon hands back.
+ */
+
+/* the icon's pixels, BGRA and top-down; caller frees */
+static unsigned int *icon_bits_from_info( const ICONINFO *ii, int *width, int *height )
+{
+    char buffer[FIELD_OFFSET( BITMAPINFO, bmiColors[256] )];
+    BITMAPINFO *info = (BITMAPINFO *)buffer;
+    unsigned char *mask_bits = NULL;
+    unsigned int *bits = NULL;
+    BOOL has_alpha = FALSE;
+    int i, j, count;
+    BITMAP bm;
+    HDC hdc;
+
+    if (!ii->hbmColor || !NtGdiExtGetObjectW( ii->hbmColor, sizeof(bm), &bm )) return NULL;
+    if (bm.bmWidth <= 0 || bm.bmHeight <= 0) return NULL;
+    if (!(hdc = NtGdiCreateCompatibleDC( 0 ))) return NULL;
+
+    count = bm.bmWidth * bm.bmHeight;
+    memset( info, 0, sizeof(BITMAPINFOHEADER) );
+    info->bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    info->bmiHeader.biWidth = bm.bmWidth;
+    info->bmiHeader.biHeight = -bm.bmHeight;
+    info->bmiHeader.biPlanes = 1;
+    info->bmiHeader.biBitCount = 32;
+    info->bmiHeader.biCompression = BI_RGB;
+    info->bmiHeader.biSizeImage = count * 4;
+
+    if (!(bits = malloc( count * 4 ))) goto done;
+    if (!NtGdiGetDIBitsInternal( hdc, ii->hbmColor, 0, bm.bmHeight, bits, info, DIB_RGB_COLORS, 0, 0 ))
+    {
+        free( bits );
+        bits = NULL;
+        goto done;
+    }
+
+    for (i = 0; i < count; i++)
+        if ((has_alpha = (bits[i] & 0xff000000) != 0)) break;
+
+    /* an icon without an alpha channel carries its transparency in the mask */
+    if (!has_alpha && ii->hbmMask)
+    {
+        unsigned int width_bytes = (bm.bmWidth + 31) / 32 * 4;
+
+        info->bmiHeader.biBitCount = 1;
+        info->bmiHeader.biSizeImage = width_bytes * bm.bmHeight;
+        if ((mask_bits = malloc( info->bmiHeader.biSizeImage )) &&
+            NtGdiGetDIBitsInternal( hdc, ii->hbmMask, 0, bm.bmHeight, mask_bits, info, DIB_RGB_COLORS, 0, 0 ))
+        {
+            for (i = 0; i < bm.bmHeight; i++)
+                for (j = 0; j < bm.bmWidth; j++)
+                    if (!((mask_bits[i * width_bytes + j / 8] << (j % 8)) & 0x80))
+                        bits[i * bm.bmWidth + j] |= 0xff000000;
+        }
+        free( mask_bits );
+    }
+
+    *width = bm.bmWidth;
+    *height = bm.bmHeight;
+
+done:
+    NtGdiDeleteObjectApp( hdc );
+    return bits;
+}
+
+/* publish a window's icon so other processes can read it */
+void publish_window_icon( HWND hwnd, UINT type, const ICONINFO *ii )
+{
+    unsigned int *bits;
+    int width, height;
+
+    if (type >= 2) return;  /* ICON_SMALL and ICON_BIG only */
+    if (!(bits = icon_bits_from_info( ii, &width, &height ))) return;
+    if (width > MAX_WINDOW_ICON_SIDE || height > MAX_WINDOW_ICON_SIDE)
+    {
+        free( bits );
+        return;
+    }
+
+    SERVER_START_REQ( set_window_icon )
+    {
+        req->handle = wine_server_user_handle( hwnd );
+        req->type   = type;
+        req->width  = width;
+        req->height = height;
+        wine_server_add_data( req, bits, width * height * 4 );
+        wine_server_call( req );
+    }
+    SERVER_END_REQ;
+
+    free( bits );
+}
+
+/* build an icon of our own from another process's published pixels */
+static HICON icon_from_other_process( HWND hwnd, UINT type )
+{
+    char buffer[FIELD_OFFSET( BITMAPINFO, bmiColors[256] )];
+    BITMAPINFO *info = (BITMAPINFO *)buffer;
+    struct cursoricon_frame frame = { 0 };
+    struct cursoricon_desc desc = { .frames = &frame };
+    unsigned int *bits = NULL, *dib_bits, *alpha_bits;
+    int width = 0, height = 0, i, count;
+    data_size_t size = 0;
+    HICON handle = 0;
+
+    if (type == ICON_SMALL2) type = ICON_SMALL;
+    if (type >= 2) return 0;
+
+    SERVER_START_REQ( get_window_icon )
+    {
+        req->handle = wine_server_user_handle( hwnd );
+        req->type   = type;
+        /* the biggest icon anyone sets is far below this */
+        if ((bits = malloc( MAX_WINDOW_ICON_SIDE * MAX_WINDOW_ICON_SIDE * 4 )))
+        {
+            wine_server_set_reply( req, bits, MAX_WINDOW_ICON_SIDE * MAX_WINDOW_ICON_SIDE * 4 );
+            if (!wine_server_call( req ))
+            {
+                width  = reply->width;
+                height = reply->height;
+                size   = wine_server_reply_size( reply );
+            }
+        }
+    }
+    SERVER_END_REQ;
+
+    if (!bits) return 0;
+    count = width * height;
+    if (count <= 0 || size != (data_size_t)count * 4) goto done;
+
+    memset( info, 0, sizeof(BITMAPINFOHEADER) );
+    info->bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    info->bmiHeader.biWidth = width;
+    info->bmiHeader.biHeight = -height;
+    info->bmiHeader.biPlanes = 1;
+    info->bmiHeader.biBitCount = 32;
+    info->bmiHeader.biCompression = BI_RGB;
+    info->bmiHeader.biSizeImage = count * 4;
+
+    frame.width = width;
+    frame.height = height;
+    frame.color = NtGdiCreateDIBSection( 0, NULL, 0, info, DIB_RGB_COLORS, 0, 0, 0, (void **)&dib_bits );
+    if (!frame.color) goto done;
+    memcpy( dib_bits, bits, count * 4 );
+
+    /* the drawing path wants the colours premultiplied by the alpha */
+    frame.alpha = NtGdiCreateDIBSection( 0, NULL, 0, info, DIB_RGB_COLORS, 0, 0, 0, (void **)&alpha_bits );
+    if (frame.alpha)
+    {
+        for (i = 0; i < count; i++)
+        {
+            unsigned int a = bits[i] >> 24;
+            alpha_bits[i] = (a << 24) |
+                            ((((bits[i] >> 16) & 0xff) * a / 255) << 16) |
+                            ((((bits[i] >> 8) & 0xff) * a / 255) << 8) |
+                            (((bits[i] & 0xff) * a / 255));
+        }
+    }
+
+    /* transparency lives in the colour bitmap's alpha, so the mask is clear */
+    frame.mask = NtGdiCreateBitmap( width, height, 1, 1, NULL );
+    if (!frame.mask) goto done;
+
+    if ((handle = alloc_cursoricon_handle( TRUE )) &&
+        !NtUserSetCursorIconData( handle, NULL, NULL, &desc ))
+    {
+        NtUserDestroyCursor( handle, 0 );
+        handle = 0;
+    }
+
+done:
+    if (!handle)
+    {
+        if (frame.color) NtGdiDeleteObjectApp( frame.color );
+        if (frame.alpha) NtGdiDeleteObjectApp( frame.alpha );
+        if (frame.mask) NtGdiDeleteObjectApp( frame.mask );
+    }
+    free( bits );
+    return handle;
+}
+
 HICON get_window_icon_info( HWND hwnd, UINT type, HICON icon, ICONINFO *ret )
 {
     if ((icon = get_icon_info( icon, ret ))) return icon;
@@ -2392,6 +2581,8 @@ static BOOL apply_window_pos( HWND hwnd, HWND insert_after, UINT swp_flags, stru
         if (need_icons && (icon = get_window_icon_info( hwnd, ICON_BIG, icon, &ii )))
         {
             icon_small = get_window_icon_info( hwnd, ICON_SMALL, icon_small, &ii_small );
+            publish_window_icon( hwnd, ICON_BIG, &ii );
+            if (icon_small) publish_window_icon( hwnd, ICON_SMALL, &ii_small );
             user_driver->pSetWindowIcons( hwnd, icon, &ii, icon_small, &ii_small );
         }
 
@@ -5218,8 +5409,11 @@ HICON WINAPI NtUserInternalGetWindowIcon( HWND hwnd, UINT type )
     }
     if (win == WND_OTHER_PROCESS || win == WND_DESKTOP)
     {
-        if (is_window( hwnd )) FIXME( "not supported on other process window %p\n", hwnd );
-        return 0;
+        /* Windows answers for any window, not just our own. The pixels were
+         * published to the server when that window's icon was set; build an
+         * icon of our own from them, which the caller owns and destroys. */
+        if (!is_window( hwnd )) return 0;
+        return icon_from_other_process( hwnd, type );
     }
 
     switch (type)
