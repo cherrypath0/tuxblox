@@ -3693,6 +3693,48 @@ static void segv_handler( int signal, siginfo_t *siginfo, void *sigcontext )
 #define SI_KERNEL 0x80
 #endif
 
+/* Which register the step ring's third field carries.
+ *
+ * Tracing a value back to where it came from means watching the register that
+ * holds it, and the ring has room for one besides the program counter and the
+ * stack pointer. TUXBLOX_DIAG_STEP_REG2=<name>; rcx unless asked otherwise.
+ */
+static ULONG64 diag_step_reg2( const ucontext_t *ucontext )
+{
+    static const char * const names[16] = { "rax", "rbx", "rcx", "rdx", "rsi", "rdi", "rbp", "rsp",
+                                            "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15" };
+    static int which = -1;
+
+    if (which == -1)
+    {
+        const char *v = getenv( "TUXBLOX_DIAG_STEP_REG2" );
+        unsigned int i;
+
+        which = 2;
+        for (i = 0; v && i < ARRAY_SIZE(names); i++)
+            if (!strcmp( v, names[i] )) { which = i; break; }
+    }
+    switch (which)
+    {
+    case 0:  return RAX_sig(ucontext);
+    case 1:  return RBX_sig(ucontext);
+    case 3:  return RDX_sig(ucontext);
+    case 4:  return RSI_sig(ucontext);
+    case 5:  return RDI_sig(ucontext);
+    case 6:  return RBP_sig(ucontext);
+    case 7:  return RSP_sig(ucontext);
+    case 8:  return R8_sig(ucontext);
+    case 9:  return R9_sig(ucontext);
+    case 10: return R10_sig(ucontext);
+    case 11: return R11_sig(ucontext);
+    case 12: return R12_sig(ucontext);
+    case 13: return R13_sig(ucontext);
+    case 14: return R14_sig(ucontext);
+    case 15: return R15_sig(ucontext);
+    default: return RCX_sig(ucontext);
+    }
+}
+
 static void trap_handler( int signal, siginfo_t *siginfo, void *sigcontext )
 {
     ucontext_t *ucontext = init_handler( sigcontext );
@@ -3795,7 +3837,7 @@ static void trap_handler( int signal, siginfo_t *siginfo, void *sigcontext )
     }
     if (TRAP_sig(ucontext) == TRAP_x86_TRCTRAP && siginfo->si_code == TRAP_TRACE &&
         tuxblox_diag_step_record( RIP_sig(ucontext), RSP_sig(ucontext),
-                                  RCX_sig(ucontext), RAX_sig(ucontext) ))
+                                  diag_step_reg2( ucontext ), RAX_sig(ucontext) ))
     {
         /* Always swallow the trap; only keep stepping while the tracer wants
          * it. Handing the program a single-step exception it never asked for
