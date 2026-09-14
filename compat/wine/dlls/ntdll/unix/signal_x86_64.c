@@ -533,6 +533,14 @@ ULONG64 get_syscall_caller_pc(void)
     return frame ? frame->rip : 0;
 }
 
+/* The stack the caller was on, for walking back past the one stub a packed
+ * module makes every call through. */
+ULONG64 get_syscall_caller_sp(void)
+{
+    struct syscall_frame *frame = get_syscall_frame();
+    return frame ? frame->rsp : 0;
+}
+
 /* The last system call a thread made -- its number and its first argument.
  *
  * A thread keeps a pointer to its syscall frame in its own TEB, and the pointer
@@ -551,12 +559,6 @@ BOOL get_thread_last_syscall( TEB *teb, UINT *id, ULONG64 *first_arg )
     *id = frame->syscall_id;
     *first_arg = frame->r10;
     return TRUE;
-}
-
-ULONG64 get_syscall_caller_sp(void)
-{
-    struct syscall_frame *frame = get_syscall_frame();
-    return frame ? frame->rsp : 0;
 }
 
 C_ASSERT( offsetof( struct syscall_frame, xsave ) == 0xc0 );

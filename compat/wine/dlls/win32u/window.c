@@ -3162,6 +3162,34 @@ NTSTATUS WINAPI NtUserBuildHwndList( HDESK desktop, HWND hwnd, BOOL children, BO
     return STATUS_SUCCESS;
 }
 
+/* Diagnostics, off unless TUXBLOX_DIAG is set. The unix side of win32u is a
+ * separate library from ntdll's, so it carries its own two helpers rather than
+ * reaching for the ones there. */
+static BOOL tuxblox_diag_on(void)
+{
+    static int state = -1;
+
+    if (state == -1)
+    {
+        const char *v = getenv( "TUXBLOX_DIAG" );
+        state = (v && *v && *v != '0') ? 1 : 0;
+    }
+    return state == 1;
+}
+
+static void tuxblox_diag_strw( char *buf, size_t len, const UNICODE_STRING *str )
+{
+    unsigned int i, n = str->Length / sizeof(WCHAR);
+
+    if (n > len - 1) n = len - 1;
+    for (i = 0; i < n; i++)
+    {
+        WCHAR c = str->Buffer[i];
+        buf[i] = (c >= 0x20 && c < 0x7f) ? (char)c : '?';
+    }
+    buf[n] = 0;
+}
+
 /***********************************************************************
  *           NtUserFindWindowEx (USER32.@)
  */
@@ -3172,6 +3200,19 @@ HWND WINAPI NtUserFindWindowEx( HWND parent, HWND child, UNICODE_STRING *class, 
     HWND retvalue = 0;
     int i = 0, size = 128, title_len;
     NTSTATUS status;
+
+    /* What a program looks for by name says what it expects the desktop to
+     * contain, and a search that finds nothing is indistinguishable from one
+     * that was never made. TUXBLOX_DIAG=1. */
+    if (tuxblox_diag_on())
+    {
+        char c[128] = "(any)", t[128] = "(any)";
+
+        if (class && !IS_INTRESOURCE(class->Buffer)) tuxblox_diag_strw( c, sizeof(c), class );
+        else if (class) snprintf( c, sizeof(c), "#%u", (unsigned int)(ULONG_PTR)class->Buffer );
+        if (title) tuxblox_diag_strw( t, sizeof(t), title );
+        ERR_(win)( "DIAG findwindow parent=%p class=%s title=%s\n", parent, c, t );
+    }
 
     /* empty class is not the same as NULL class */
     if (class && !class->Length && !IS_INTRESOURCE(class->Buffer)) return 0;
@@ -3261,6 +3302,17 @@ INT WINAPI NtUserInternalGetWindowText( HWND hwnd, WCHAR *text, INT count )
     else
     {
         get_server_window_text( hwnd, text, count );
+    }
+
+    /* The other half of the window walk above: what the enumerated windows are
+     * called is what a program fingerprinting the desktop actually reads. */
+    if (tuxblox_diag_on())
+    {
+        UNICODE_STRING str = { .Buffer = text, .Length = lstrlenW(text) * sizeof(WCHAR) };
+        char buf[128];
+
+        tuxblox_diag_strw( buf, sizeof(buf), &str );
+        ERR_(win)( "DIAG windowtext %p \"%s\"\n", hwnd, buf );
     }
     return lstrlenW(text);
 }

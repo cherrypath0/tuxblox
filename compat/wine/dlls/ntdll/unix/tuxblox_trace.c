@@ -419,11 +419,52 @@ void tuxblox_diag_note_query( const char *what, unsigned int class, ULONG64 addr
  * back wrong -- an executable page restored as read-only faults the moment it
  * is called, a long way from the call that broke it.
  */
+static ULONG64 roblox_dll_base(void);
+
 void tuxblox_diag_note_protect( const void *addr, unsigned long size,
                                 unsigned int new_prot, unsigned int old_prot, unsigned int status )
 {
     if (!diag_enabled()) return;
-    ERR_(seh)( "DIAG protect %p size=%lx new=%x old=%x -> %08x\n", addr, size, new_prot, old_prot, status );
+    /* With the caller: a burst of protections says what was done, and the one
+     * address they were all made from says which routine to read next. The
+     * layer makes every call through one stub, so the pc alone names the stub
+     * and nothing else; TUXBLOX_DIAG_PROTECT_STACK=1 scans the caller's stack
+     * for the return addresses above it, which is what names the routine. */
+    {
+        /* Both answers are looked up once: the layer's base costs a module-list
+         * walk and the knob a getenv, and a run is timing-sensitive enough that
+         * paying either on every protection changes where it ends. */
+        static int want = -1;
+        static ULONG64 layer_base;
+        char trail[256] = "";
+
+        if (want == -1) want = getenv( "TUXBLOX_DIAG_PROTECT_STACK" ) ? 1 : 0;
+        if (want && !layer_base) layer_base = roblox_dll_base();
+
+        /* Only for a target outside the layer's own image. The layer protects
+         * its own pages hundreds of times a run; the protections worth
+         * attributing are the ones it makes on somebody else's module. */
+        if (want && layer_base &&
+            ((ULONG64)(ULONG_PTR)addr <= layer_base || (ULONG64)(ULONG_PTR)addr >= layer_base + 0x2000000))
+        {
+            ULONG64 sp = get_syscall_caller_sp();
+            unsigned int i, n = 0, found = 0;
+
+            for (i = 0; sp && i < 64 && found < 4; i++)
+            {
+                ULONG64 val = 0;
+
+                if (virtual_uninterrupted_read_memory( (const void *)(ULONG_PTR)(sp + i * 8),
+                                                       &val, sizeof(val) ) != sizeof(val)) break;
+                if (val <= layer_base || val >= layer_base + 0x2000000) continue;
+                n += snprintf( trail + n, sizeof(trail) - n, " layer+%llx",
+                               (unsigned long long)(val - layer_base) );
+                found++;
+            }
+        }
+        ERR_(seh)( "DIAG protect %p size=%lx new=%x old=%x -> %08x from %llx%s\n", addr, size,
+                   new_prot, old_prot, status, (unsigned long long)get_syscall_caller_pc(), trail );
+    }
 }
 
 /* Every thread the program starts, with what it asked for.
