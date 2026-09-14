@@ -717,6 +717,27 @@ BOOL tuxblox_roblox_stackfix_hit( ULONG64 rip, ULONG64 *regs )
  * predictable branch rather than a call into this file. */
 BOOL tuxblox_diag_stepping;
 
+/* Where the layer decided to give up.
+ *
+ * A hard error is the layer's own verdict. Its text says what it concluded but
+ * not where, and the text is chosen far from the check that chose it. The call
+ * site is the one address that leads back to that check, so record it.
+ */
+void tuxblox_diag_note_hard_error( unsigned int status )
+{
+    ULONG64 pc, base;
+
+    if (!diag_enabled()) return;
+    pc = get_syscall_caller_pc();
+    base = layer_image_base( pc );
+    if (base)
+        ERR_(seh)( "DIAG hard error %08x raised from layer+0x%llx\n",
+                   status, (unsigned long long)(pc - base) );
+    else
+        ERR_(seh)( "DIAG hard error %08x raised from 0x%llx\n",
+                   status, (unsigned long long)pc );
+}
+
 BOOL tuxblox_diag_step_arm(void)
 {
     static int start = -1;

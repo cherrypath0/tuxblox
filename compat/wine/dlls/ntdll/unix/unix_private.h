@@ -246,6 +246,7 @@ extern void tuxblox_diag_hww_start( void );
 extern void tuxblox_diag_hww_dump( void );
 extern void tuxblox_diag_note_open_section( const OBJECT_ATTRIBUTES *attr, unsigned int status );
 extern void tuxblox_diag_note_delay( BOOLEAN alertable, const LARGE_INTEGER *timeout );
+extern void tuxblox_diag_note_hard_error( unsigned int status );
 extern BOOL tuxblox_diag_enabled(void);
 extern void tuxblox_diag_note_call( UINT id, const ULONG_PTR *args, ULONG len );
 extern void tuxblox_diag_note_callret( UINT id, ULONG_PTR retval );

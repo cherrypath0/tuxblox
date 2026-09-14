@@ -7047,6 +7047,8 @@ NTSTATUS WINAPI NtRaiseHardError( NTSTATUS status, ULONG count,
 {
     BOOL answered = FALSE;
 
+    tuxblox_diag_note_hard_error( (unsigned int)status );
+
     if (tuxblox_trace_enabled())
     {
         char b[80];
