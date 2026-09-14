@@ -47,6 +47,7 @@ private:
     QWidget* buildUpdatesGroup(QWidget* parent);
     QWidget* buildEnvironmentGroup(QWidget* parent);
     QWidget* buildControllerGroup(QWidget* parent);
+    QWidget* buildTroubleshootingGroup(QWidget* parent);
     QWidget* buildPrivacyGroup(QWidget* parent);
     QWidget* buildDangerGroup(QWidget* parent);
     void onTerminate();
@@ -64,6 +65,7 @@ private:
     std::vector<GpuDevice> gpus_;
     ToggleSwitch* webviewGpuToggle_ = nullptr;
     ToggleSwitch* hapticsToggle_ = nullptr;
+    ToggleSwitch* debugLoggingToggle_ = nullptr;
     ToggleSwitch* crashReportsToggle_ = nullptr;
     QPushButton* terminateButton_ = nullptr;
     DangerButton* wipePrefixButton_ = nullptr;

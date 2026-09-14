@@ -43,7 +43,12 @@ struct Settings {
     // and explicitly on the Proton child, so a launch started directly with
     // --watch-launch (a desktop shortcut) gets them too.
     std::string envVars;
-    bool sendCrashReports = true;
+    // Off by default: a crash report carries the session log, which is the
+    // user's own data, so sending it is something to opt into rather than
+    // something to notice and turn off. Read strictly (.at(), not .value())
+    // in loadSettings, so an install that already has a settings.json keeps
+    // whatever it says -- only a fresh install gets this default.
+    bool sendCrashReports = false;
     // One of "stable"/"canary"/"experimental" -- which /v1/<channel>/... the update
     // checker resolves against. Defaults to "stable" even though it may
     // have no releases published yet (see manifest.h's fetchLatestVersion):
@@ -77,6 +82,14 @@ struct Settings {
     // still treats an absent value as off, so leaving this on has to say so
     // rather than imply it by staying quiet.
     bool webviewGpu = true;
+    // Detailed logging. Off by default, and like haptics only the non-default
+    // is emitted, so a launch that never touched it carries exactly the
+    // environment it always did.
+    //
+    // The extra detail goes into the session log the launcher already writes
+    // for every launch, rather than a file of its own: that is the file a user
+    // sends when reporting a problem, and the one a crash report attaches.
+    bool debugLogging = false;
     // Written into the active Roblox version's ClientSettings folder at every
     // launch -- see fastflag_file.h for why it can't just be written once.
     FastFlagSet fastFlags;

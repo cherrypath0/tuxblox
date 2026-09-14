@@ -320,6 +320,13 @@ void Session::initWine() {
 
 void Session::initSession() {
     const bool logging = envIsOn("TUXBLOX_LOG");
+    // The launcher's "Detailed logging" toggle. TUXBLOX_LOG above is the
+    // superset, so when both are set this adds nothing. The difference that
+    // matters is where the output lands: this one never opens a log file of
+    // its own, so everything stays on the session log the launcher already
+    // writes per launch -- the file a user sends, and the one a crash report
+    // attaches. A second file nobody knows to upload is no use in a report.
+    const bool debug = !logging && envIsOn("TUXBLOX_DEBUG");
 
     if (logging) {
         const std::string requested = envOrEmpty("TUXBLOX_LOG");
@@ -336,9 +343,33 @@ void Session::initSession() {
         env.emplace("WINE_MONO_TRACE", "E:System.NotImplementedException");
     }
 
-    // Logging is off by default: it costs real frame time.
+    if (debug) {
+        // Chosen for a problem report rather than for an investigation: the
+        // channels that explain a crash or a hang, and none that fire per
+        // frame. +seh and +unwind name an exception that would otherwise take
+        // Roblox down in silence, and +tuxbloxwebkit keeps the output of the
+        // panels that are web pages instead of discarding it.
+        //
+        // Deliberately absent: +tuxblox, which is the fingerprint tracer and
+        // arms hardware breakpoints Roblox itself needs, and +d3d, +vulkan and
+        // +winex11, which each produce more per second than a session log can
+        // usefully hold.
+        if (env.find("WINEDEBUG") == env.end()) {
+            env["WINEDEBUG"] = "+timestamp,+pid,+tid,+threadname,+seh,+unwind,"
+                               "+debugstr,+loaddll,+winediag,+tuxbloxwebkit";
+        }
+        env.emplace("DXVK_LOG_LEVEL", "info");
+        env.emplace("VKD3D_DEBUG", "warn");
+    }
+
+    // Logging is off by default: it costs real frame time. DXVK is the one
+    // exception -- at "error" it stays silent until something has already gone
+    // wrong, and what it says then is often the entire explanation for a crash
+    // that would otherwise reach us with nothing to go on. A lost graphics
+    // device reaches Roblox as an opaque "device removed" and reaches us, at
+    // "none", as nothing at all.
     env.emplace("WINEDEBUG", "-all");
-    env.emplace("DXVK_LOG_LEVEL", "none");
+    env.emplace("DXVK_LOG_LEVEL", "error");
     env.emplace("VKD3D_DEBUG", "none");
     env.emplace("VKD3D_SHADER_DEBUG", "none");
 

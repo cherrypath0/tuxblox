@@ -34,7 +34,7 @@ int main() {
     {
         Settings s = loadSettings(dir);
         assert(s.envVars.empty());
-        assert(s.sendCrashReports == true);
+        assert(s.sendCrashReports == false);
         assert(s.channel == "stable");
         assert(s.autoUpdate == false);
     }
@@ -88,7 +88,7 @@ int main() {
 
         Settings s = loadSettings(dir);
         assert(s.envVars.empty());
-        assert(s.sendCrashReports == true);
+        assert(s.sendCrashReports == false);
         assert(s.channel == "stable");
     }
 
@@ -101,7 +101,7 @@ int main() {
 
         Settings s = loadSettings(dir);
         assert(s.envVars.empty());
-        assert(s.sendCrashReports == true);
+        assert(s.sendCrashReports == false);
         assert(s.channel == "stable");
     }
 
@@ -427,6 +427,72 @@ int main() {
         assert(pairs[0] == "TUXBLOX_HAPTICS=0");
         // Last is what counts -- that is the whole point of this case.
         assert(pairs.back() == "TUXBLOX_HAPTICS=1");
+    }
+
+    // Detailed logging defaults to off. It costs frame time and log size, so
+    // a user who never asked for it must never pay for it.
+    {
+        Settings s;
+        assert(s.debugLogging == false);
+    }
+
+    // Detailed logging loads leniently, same reasoning as haptics above: a
+    // settings.json written before this field existed stays off.
+    {
+        std::ofstream out(dir + "/settings.json", std::ios::binary);
+        out << R"({"env_vars": "FOO=bar", "send_crash_reports": false, "channel": "canary"})";
+        out.close();
+
+        Settings s = loadSettings(dir);
+        assert(s.debugLogging == false);
+    }
+
+    // Detailed logging round-trips through save/load.
+    {
+        Settings s;
+        s.debugLogging = true;
+        saveSettings(dir, s);
+
+        Settings loaded = loadSettings(dir);
+        assert(loaded.debugLogging == true);
+    }
+
+    // launchEnvPairs(): off is the default and emits nothing at all, so a
+    // launch that never touched this setting carries exactly the environment
+    // it always did.
+    {
+        Settings s;
+        assert(s.debugLogging == false);
+
+        auto pairs = launchEnvPairs(s);
+        assert(std::find(pairs.begin(), pairs.end(), std::string("TUXBLOX_DEBUG=1")) ==
+               pairs.end());
+    }
+
+    // launchEnvPairs(): turning it on is what emits anything. Only the "on"
+    // state is sent -- the compatibility layer already treats an absent
+    // value as off.
+    {
+        Settings s;
+        s.debugLogging = true;
+
+        auto pairs = launchEnvPairs(s);
+        assert(pairs.size() == 2);
+        assert(pairs[0] == "TUXBLOX_WEBVIEW_GPU=1");
+        assert(pairs[1] == "TUXBLOX_DEBUG=1");
+    }
+
+    // A user variable still wins over the debug pair, for the same reason it
+    // wins over the haptics one: it is appended after it.
+    {
+        Settings s;
+        s.debugLogging = true;
+        s.envVars = "TUXBLOX_DEBUG=0";
+
+        auto pairs = launchEnvPairs(s);
+        assert(pairs.size() == 3);
+        assert(pairs[1] == "TUXBLOX_DEBUG=1");
+        assert(pairs.back() == "TUXBLOX_DEBUG=0");
     }
 
     fs::remove_all(dir);

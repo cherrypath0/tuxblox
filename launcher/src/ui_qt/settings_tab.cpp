@@ -88,6 +88,12 @@ SettingsTab::SettingsTab(App& app, QWidget* parent) : QWidget(parent), app_(app)
 
     layout->addWidget(buildControllerGroup(content));
 
+    layout->addSpacing(18);
+    layout->addWidget(makeSectionLabel("Troubleshooting", content));
+    layout->addSpacing(8);
+    layout->addWidget(buildTroubleshootingGroup(content));
+
+    layout->addSpacing(18);
     layout->addWidget(makeSectionLabel("Privacy", content));
     layout->addSpacing(8);
     layout->addWidget(buildPrivacyGroup(content));
@@ -208,6 +214,27 @@ QWidget* SettingsTab::buildControllerGroup(QWidget* parent) {
     return group;
 }
 
+QWidget* SettingsTab::buildTroubleshootingGroup(QWidget* parent) {
+    auto* group = new BoxedGroup(parent);
+
+    auto* debugRow = new BoxedRow(
+        "Detailed logging",
+        "Records far more about what Roblox and the compatibility layer are doing, in the log "
+        "TuxBlox already saves for each session. Makes Roblox slightly slower and log files much "
+        "larger, so leave it off unless you are reproducing a problem to report. Takes effect the "
+        "next time Roblox starts.");
+    debugLoggingToggle_ = new ToggleSwitch();
+    connect(debugLoggingToggle_, &ToggleSwitch::toggled, this, [this](bool checked) {
+        Settings updated = app_.snapshot().settings;
+        updated.debugLogging = checked;
+        commitSettings(updated);
+    });
+    debugRow->addControl(debugLoggingToggle_);
+    group->addRow(debugRow);
+
+    return group;
+}
+
 QWidget* SettingsTab::buildPrivacyGroup(QWidget* parent) {
     auto* group = new BoxedGroup(parent);
 
@@ -305,6 +332,7 @@ void SettingsTab::updateFromSnapshot(const AppSnapshot& snap) {
         envEdit_->setText(QString::fromStdString(snap.settings.envVars));
         hapticsToggle_->setChecked(snap.settings.haptics);
         webviewGpuToggle_->setChecked(snap.settings.webviewGpu);
+        debugLoggingToggle_->setChecked(snap.settings.debugLogging);
         crashReportsToggle_->setChecked(snap.settings.sendCrashReports);
         autoUpdateToggle_->setChecked(snap.settings.autoUpdate);
         // Matched on the stored PCI slot, not on position: a card that has
