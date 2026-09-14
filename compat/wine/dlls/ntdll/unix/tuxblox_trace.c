@@ -620,6 +620,7 @@ static struct { ULONG64 rip, rsp, rcx, rax; } diag_steps[DIAG_STEPS];
 static unsigned int diag_step_pos, diag_step_start, diag_step_limit;
 static ULONG64 diag_step_stop_rsp, diag_step_stop_lo, diag_step_stop_hi, diag_step_below;
 static unsigned int diag_step_hold, diag_step_held;
+static BOOL diag_step_nostop, diag_step_said;
 static unsigned int diag_step_cap = 4 * 1024 * 1024;
 static ULONG diag_step_tid = (ULONG)-1, diag_step_owner;
 static ULONG64 diag_step_module_base;
@@ -803,6 +804,7 @@ BOOL tuxblox_diag_step_arm(void)
         if ((v = getenv( "TUXBLOX_DIAG_STEP_STOPHI" ))) diag_step_stop_hi = strtoull( v, NULL, 16 );
         if ((v = getenv( "TUXBLOX_DIAG_STEP_BELOW" ))) diag_step_below = strtoull( v, NULL, 16 );
         if ((v = getenv( "TUXBLOX_DIAG_STEP_HOLD" ))) diag_step_hold = atoi( v );
+        if (getenv( "TUXBLOX_DIAG_STEP_NOSTOP" )) diag_step_nostop = TRUE;
         if ((v = getenv( "TUXBLOX_DIAG_STEP_CAP" ))) diag_step_cap = strtoul( v, NULL, 0 );
     }
     /* Armed once only. Re-arming after each system call was tried and is not
@@ -1063,8 +1065,13 @@ BOOL tuxblox_diag_step_record( ULONG64 rip, ULONG64 rsp, ULONG64 rcx, ULONG64 ra
      * at tens of microseconds an instruction, so raising it costs real time. */
     if (diag_step_pos >= diag_step_cap)
     {
+        /* Stop stepping, but still swallow this trap: it is ours, and handing
+         * the program a single-step exception it never asked for makes the run
+         * fault somewhere that has nothing to do with what is being looked at. */
+        ERR_(seh)( "DIAG step cap %u reached, stepping off\n", diag_step_cap );
         tuxblox_diag_stepping = FALSE;
-        return FALSE;
+        diag_step_start = 0;
+        return TRUE;
     }
     diag_steps[diag_step_pos % DIAG_STEPS].rip = rip;
     diag_steps[diag_step_pos % DIAG_STEPS].rsp = rsp;
@@ -1096,19 +1103,42 @@ BOOL tuxblox_diag_step_record( ULONG64 rip, ULONG64 rsp, ULONG64 rcx, ULONG64 ra
         if (rsp < diag_step_below) diag_step_held++;
         else diag_step_held = 0;
 
+        if (rsp >= diag_step_below) diag_step_said = FALSE;
+
         if (diag_step_hold && diag_step_held >= diag_step_hold)
         {
             unsigned int back = diag_step_held < diag_step_pos ? diag_step_held : diag_step_pos;
 
-            ERR_(seh)( "DIAG step held below 0x%llx for %u instructions, rip=0x%llx\n",
-                       (unsigned long long)diag_step_below, diag_step_held,
-                       (unsigned long long)rip );
-            /* the transition is exactly diag_step_held records back */
-            diag_dump_steps_around( diag_step_pos - back, 12, 28 );
-            diag_dump_steps();
-            tuxblox_diag_stepping = FALSE;
-            diag_step_start = 0;
-            return TRUE;
+            /* TUXBLOX_DIAG_STEP_NOSTOP=1 names every long stretch instead of
+             * stopping at the first. A frame that loses bytes never comes back
+             * up, so the last stretch named is the one that lost them and every
+             * earlier one is a call that returned. Stopping at the first only
+             * ever finds the longest call. */
+            if (diag_step_nostop)
+            {
+                if (!diag_step_said)
+                {
+                    unsigned int at = diag_step_pos - back;
+
+                    diag_step_said = TRUE;
+                    ERR_(seh)( "DIAG step stretch below 0x%llx starts at %u, now %u, rip=0x%llx\n",
+                               (unsigned long long)diag_step_below, at, diag_step_pos,
+                               (unsigned long long)diag_steps[at % DIAG_STEPS].rip );
+                    diag_dump_steps_around( at, 6, 2 );
+                }
+            }
+            else
+            {
+                ERR_(seh)( "DIAG step held below 0x%llx for %u instructions, rip=0x%llx\n",
+                           (unsigned long long)diag_step_below, diag_step_held,
+                           (unsigned long long)rip );
+                /* the transition is exactly diag_step_held records back */
+                diag_dump_steps_around( diag_step_pos - back, 12, 28 );
+                diag_dump_steps();
+                tuxblox_diag_stepping = FALSE;
+                diag_step_start = 0;
+                return TRUE;
+            }
         }
     }
 

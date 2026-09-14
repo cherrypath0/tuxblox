@@ -7000,6 +7000,23 @@ static NTSTATUS get_working_set_ex( HANDLE process, LPCVOID addr,
     if (ref != ref_buffer) free( ref );
     server_leave_uninterrupted_section( &virtual_mutex, &sigset );
 
+    /* A probe, not a fix. Roblox Player scans this answer for the first page
+     * with Valid set and the block it reaches from there leaves eight bytes on
+     * the stack; this says whether that answer is what takes it there.
+     * TUXBLOX_TEST_WSEX=invalid reports every page as not resident;
+     * =prio adds the working-set priority Windows fills in and Wine does not. */
+    {
+        static const char *test;
+        static int parsed;
+
+        if (!parsed) { parsed = 1; test = getenv( "TUXBLOX_TEST_WSEX" ); }
+        if (test) for (i = 0; i < count; i++)
+        {
+            if (!strcmp( test, "invalid" )) info[i].VirtualAttributes.Flags = 0;
+            else if (info[i].VirtualAttributes.Valid) info[i].VirtualAttributes.Flags |= 5u << 24;
+        }
+    }
+
     if (res_len)
         *res_len = len;
     return STATUS_SUCCESS;
