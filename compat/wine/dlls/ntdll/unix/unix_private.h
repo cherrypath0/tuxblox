@@ -255,6 +255,7 @@ extern BOOL tuxblox_diag_enabled(void);
 extern void tuxblox_diag_note_call( UINT id, const ULONG_PTR *args, ULONG len );
 extern void tuxblox_diag_note_callret( UINT id, ULONG_PTR retval );
 extern void tuxblox_diag_note_query( const char *what, unsigned int class, ULONG64 addr, const void *buffer, unsigned int status );
+extern void tuxblox_diag_note_query_input( const char *what, unsigned int class, ULONG64 addr, const void *buffer, SIZE_T len );
 extern void tuxblox_diag_align( ULONG64 rip, ULONG64 rsp, ULONG64 rbp, ULONG64 addr, BOOL handled,
                                 const ULONG64 *regs );
 extern void tuxblox_diag_note_syscall( ULONG64 rip, ULONG64 rsp, ULONG64 rax );

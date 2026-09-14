@@ -7273,14 +7273,38 @@ static NTSTATUS query_virtual_memory( HANDLE process, LPCVOID addr,
          * read as closely as what it returns, and answering "no such class"
          * where Windows answers something else is a difference in itself.
          *
-         * MemoryImageExtensionInformation is the one that is actually asked:
-         * Roblox's protection layer puts the question to every loaded image,
-         * four times each, with a 24-byte buffer. Measured on Windows 11 at
-         * every length from 0 to 64 -- too short below 24, and at 24 and above
-         * the address itself is refused. */
+         * MemoryImageExtensionInformation is the one that is actually asked,
+         * and it reads its buffer: the first field names which image extension
+         * the caller wants. Roblox's protection layer asks about each module it
+         * has rebuilt, four times each, for extensions 0, 1, 2 and 3 with the
+         * rest of the 24-byte buffer zeroed, and Windows answers success,
+         * not-supported, then invalid-parameter twice.
+         *
+         * Length rule measured on Windows 11 from 0 to 64: below 24 too short,
+         * 24 and above accepted. An earlier sweep filled the buffer with 0xcc
+         * and so only ever asked for extension 0xcccc, which is refused at
+         * every kind of address -- which is why the four calls looked alike and
+         * the refusal looked like it was about the address.
+         *
+         * The answer does not depend on what the address is: most of what the
+         * layer asks about is private memory it built a module into, not a
+         * mapped image. What a successful call writes back is not known -- the
+         * trace carries the status only -- so the buffer is cleared;
+         * `workspace/tests/vmprobe.c` sweeps the keys to settle it. */
         case MemoryImageExtensionInformation:
             if (len < 24) return STATUS_INFO_LENGTH_MISMATCH;
-            return STATUS_INVALID_PARAMETER;
+            if (!buffer) return STATUS_ACCESS_VIOLATION;
+            switch (*(const ULONG *)buffer)
+            {
+            case 0:
+                memset( buffer, 0, 24 );
+                if (res_len) *res_len = 24;
+                return STATUS_SUCCESS;
+            case 1:
+                return STATUS_NOT_SUPPORTED;
+            default:
+                return STATUS_INVALID_PARAMETER;
+            }
 
         case MemoryBadInformation:
             return STATUS_INVALID_PARAMETER;
@@ -7306,7 +7330,14 @@ NTSTATUS WINAPI NtQueryVirtualMemory( HANDLE process, LPCVOID addr,
                                       PVOID buffer, SIZE_T len, SIZE_T *res_len )
 {
     SIZE_T reported = 0;
-    NTSTATUS status = query_virtual_memory( process, addr, info_class, buffer, len, res_len ? res_len : &reported );
+    NTSTATUS status;
+
+    /* This class reads its buffer, so the answer means nothing without it. */
+    if (info_class == MemoryImageExtensionInformation)
+        tuxblox_diag_note_query_input( "QueryVirtualMemory", info_class,
+                                       (ULONG64)(ULONG_PTR)addr, buffer, len );
+
+    status = query_virtual_memory( process, addr, info_class, buffer, len, res_len ? res_len : &reported );
 
     if (res_len) reported = *res_len;
     tuxblox_diag_class( "vm", info_class, len, reported, status );

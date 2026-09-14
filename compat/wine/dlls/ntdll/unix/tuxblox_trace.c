@@ -387,6 +387,30 @@ void tuxblox_diag_note_callret( UINT id, ULONG_PTR retval )
  * of its own globals. If the open fails there is nothing to store, so the name
  * it asked for and the answer it got are the two things worth seeing.
  */
+/* What the caller put IN the buffer, for a class that reads it.
+ *
+ * Most information classes only write their buffer, so only the answer is
+ * worth logging. MemoryImageExtensionInformation reads it: the caller names
+ * which extension it is asking about, and the answer depends on that. The
+ * layer asks four times per image and gets four different answers on Windows,
+ * while a probe that filled the buffer with one byte pattern saw only one --
+ * which is why the four calls looked identical until this was logged.
+ */
+void tuxblox_diag_note_query_input( const char *what, unsigned int class, ULONG64 addr,
+                                    const void *buffer, SIZE_T len )
+{
+    unsigned char bytes[32];
+    char line[3 * sizeof(bytes) + 1];
+    unsigned int i, n = 0;
+
+    if (!diag_enabled() || !buffer) return;
+    if (len > sizeof(bytes)) len = sizeof(bytes);
+    if (virtual_uninterrupted_read_memory( buffer, bytes, len ) != len) return;
+    for (i = 0; i < len; i++) n += snprintf( line + n, sizeof(line) - n, "%02x ", bytes[i] );
+    ERR_(seh)( "DIAG %s.in class=%u addr=0x%llx len=%u  %s\n", what, class,
+               (unsigned long long)addr, (unsigned int)len, line );
+}
+
 /* One query, with the first few words of whatever it answered.
  *
  * The layer compares what the loader says about a section against what the
