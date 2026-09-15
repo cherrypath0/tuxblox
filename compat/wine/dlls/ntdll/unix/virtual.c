@@ -5129,6 +5129,18 @@ void virtual_init_user_shared_data(void)
     data->ActiveProcessorCount  = peb->NumberOfProcessors;
     data->ActiveGroupCount      = 1;
 
+    /* BootId is a per-boot counter Windows always fills; the anti-tamper layer
+     * reads it off this page and branches on it, and zero is both an impossible
+     * value on a running Windows and a visible Wine tell. A plausible nonzero
+     * count is enough -- the real value varies boot to boot, so nothing can key
+     * on a specific one. */
+    data->BootId = 33;
+    /* When the current time-zone bias took effect. Windows fills a real
+     * timestamp here; zero says the machine has never had a time zone. Use a
+     * fixed plausible past FILETIME so the pair (start,end) brackets "now". */
+    data->TimeZoneBiasEffectiveStart.QuadPart = 0x01db000000000000ll;
+    data->TimeZoneBiasEffectiveEnd.QuadPart   = 0x7fffffffffffffffll;
+
     /* fixed values that Windows never varies */
     data->Reserved1                      = 0x7ffeffff;
     data->Reserved3                      = 0x80000000;
