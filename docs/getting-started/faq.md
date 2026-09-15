@@ -20,8 +20,6 @@ Studio is not affected. See [Known Issues](../troubleshooting/known-issues.md) f
 
 TuxBlox does not modify Roblox, inject anything into it, or give you any ability a Windows player does not have. It runs the official, unmodified client.
 
-Roblox's CEO has publicly said compatibility layers are acceptable, though that was a spoken answer rather than written policy. We cannot make promises on Roblox's behalf, so use your own judgement.
-
 What we can tell you is what TuxBlox deliberately refuses to do: anything that hides cheating, automates input, edits game memory, or grants a capability the Windows client does not have. None of that will ever be accepted into this project.
 
 ## Is TuxBlox affiliated with Roblox?
