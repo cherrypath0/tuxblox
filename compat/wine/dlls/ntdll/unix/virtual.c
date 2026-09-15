@@ -5732,6 +5732,134 @@ ULONG_PTR virtual_get_image_base( const void *addr )
 }
 
 
+/***********************************************************************
+ *           virtual_inject_client_text
+ *
+ * TuxBlox experiment, env-gated by TUXBLOX_TEST_INJECT_CLIENT=<blob path>.
+ *
+ * The Roblox layer's function F would decrypt the client's .text and make it
+ * executable before the handover; here F is never called, so the client image
+ * stays ciphertext and PAGE_NOACCESS and the handover faults. This does F's job
+ * from a captured plaintext blob instead: it writes each range in and leaves it
+ * PAGE_EXECUTE_READ, so the faulting instruction can be resumed. The client's
+ * .text carries no relocations, so the bytes go in as-is at any ASLR base.
+ *
+ * Blob format: repeated <u32 rva><u32 len><len bytes>, terminated by rva
+ * 0xffffffff. The plaintext is Roblox's own code and is never shipped -- this
+ * only tests whether the unlock is the sole remaining blocker.
+ */
+/* Make the whole client image accessible in place (no overwrite), so Hyperion's
+ * own decryptor F can read the ciphertext and decrypt it. Tests whether F's key
+ * is available without the gated setup. */
+NTSTATUS virtual_unlock_client_access( ULONG_PTR image_base )
+{
+    ULONG_PTR a = image_base + 0x1000;
+    ULONG_PTR hi = image_base + 0x9298000;
+    sigset_t sigset;
+
+    server_enter_uninterrupted_section( &virtual_mutex, &sigset );
+    while (a < hi)
+    {
+        struct file_view *view = find_view( (void *)a, 1 );
+
+        if (view)
+        {
+            ULONG_PTR vend = (ULONG_PTR)view->base + view->size;
+            ULONG_PTR b = hi < vend ? hi : vend;
+
+            set_vprot( view, (void *)a, b - a,
+                       VPROT_READ | VPROT_WRITE | VPROT_EXEC | VPROT_COMMITTED );
+            a = b;
+        }
+        else a += host_page_size;
+    }
+    server_leave_uninterrupted_section( &virtual_mutex, &sigset );
+    return STATUS_SUCCESS;
+}
+
+
+NTSTATUS virtual_inject_client_text( ULONG_PTR image_base )
+{
+    static const unsigned char *blob;
+    static size_t blob_size;
+    static int tried;
+    sigset_t sigset;
+    const unsigned char *p, *end;
+    unsigned int done = 0;
+
+    if (!blob)
+    {
+        const char *path;
+        int fd;
+        struct stat st;
+
+        if (tried) return STATUS_NOT_FOUND;
+        tried = 1;
+        if (!(path = getenv( "TUXBLOX_TEST_INJECT_CLIENT" ))) return STATUS_NOT_FOUND;
+        if ((fd = open( path, O_RDONLY )) < 0) return STATUS_NOT_FOUND;
+        if (!fstat( fd, &st ) && st.st_size > 0)
+        {
+            void *m = mmap( NULL, st.st_size, PROT_READ, MAP_PRIVATE, fd, 0 );
+            if (m != MAP_FAILED) { blob = m; blob_size = st.st_size; }
+        }
+        close( fd );
+        if (!blob) return STATUS_NOT_FOUND;
+    }
+
+    server_enter_uninterrupted_section( &virtual_mutex, &sigset );
+    p = blob;
+    end = blob + blob_size;
+    while (p + 8 <= end)
+    {
+        unsigned int rva = *(const unsigned int *)p;
+        unsigned int len = *(const unsigned int *)(p + 4);
+        struct file_view *view;
+        void *dst;
+
+        p += 8;
+        if (rva == 0xffffffff || (size_t)(end - p) < len) break;
+        dst = (void *)(image_base + rva);
+        if ((view = find_view( dst, len )))
+        {
+            set_vprot( view, dst, len, VPROT_READ | VPROT_WRITE | VPROT_EXEC | VPROT_COMMITTED );
+            memcpy( dst, p, len );
+            set_vprot( view, dst, len, VPROT_READ | VPROT_EXEC | VPROT_COMMITTED );
+            done++;
+        }
+        p += len;
+    }
+
+    /* Only .text is encrypted; .rdata/.data are plaintext on disk, loaded and
+     * relocated correctly by our own loader, so they must not be overwritten --
+     * Hyperion only revoked their access. Make the rest of the image
+     * (0x6051000..SizeOfImage) accessible in place so the client's imports,
+     * vtables and globals work. */
+    {
+        ULONG_PTR a = image_base + 0x6051000;
+        ULONG_PTR hi = image_base + 0x9298000;   /* SizeOfImage for this client */
+
+        while (a < hi)
+        {
+            struct file_view *view = find_view( (void *)a, 1 );
+
+            if (view)
+            {
+                ULONG_PTR vend = (ULONG_PTR)view->base + view->size;
+                ULONG_PTR b = hi < vend ? hi : vend;
+
+                set_vprot( view, (void *)a, b - a,
+                           VPROT_READ | VPROT_WRITE | VPROT_EXEC | VPROT_COMMITTED );
+                a = b;
+            }
+            else a += host_page_size;
+        }
+    }
+    server_leave_uninterrupted_section( &virtual_mutex, &sigset );
+    ERR( "tuxblox: injected %u client .text ranges from the plaintext blob\n", done );
+    return STATUS_SUCCESS;
+}
+
+
 NTSTATUS virtual_patch_code_byte( void *addr, BYTE value )
 {
     char *page = ROUND_ADDR( addr, host_page_mask );

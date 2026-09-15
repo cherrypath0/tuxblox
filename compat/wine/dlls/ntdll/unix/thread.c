@@ -2672,14 +2672,36 @@ static NTSTATUS query_information_thread( HANDLE handle, THREADINFOCLASS class,
         }
         SERVER_END_REQ;
         if (status) return status;
-        if (basic.ClientId.UniqueProcess != ULongToHandle( GetCurrentProcessId() ) ||
-            !basic.TebBaseAddress)
+
+        /* Probe (TUXBLOX_TEST_LASTSYSCALL_XPROC=1, off by default): Roblox's
+         * anti-tamper sweeps ThreadLastSystemCall over every thread on the
+         * machine, where Windows answers SUCCESS for each thread parked in a
+         * wait. Wine can only answer for a thread sharing this address space
+         * that is not currently running, so the sweep here mostly fails. This
+         * gate answers the two failing cases with a plausible parked-in-a-wait
+         * result (last call = NtWaitForSingleObject) so it can be A/B'd whether
+         * the sweep's success is what gates the per-function unlock. Not a real
+         * implementation -- it fabricates, which is why it is env-gated. */
         {
-            FIXME( "ThreadLastSystemCall for a thread in another process\n" );
-            return STATUS_UNSUCCESSFUL;
+            static int fake = -1;
+            if (fake == -1) fake = getenv( "TUXBLOX_TEST_LASTSYSCALL_XPROC" ) ? 1 : 0;
+
+            if (basic.ClientId.UniqueProcess != ULongToHandle( GetCurrentProcessId() ) ||
+                !basic.TebBaseAddress)
+            {
+                if (!fake)
+                {
+                    FIXME( "ThreadLastSystemCall for a thread in another process\n" );
+                    return STATUS_UNSUCCESSFUL;
+                }
+                id = 0x4; first_arg = 0;   /* NtWaitForSingleObject */
+            }
+            else if (!get_thread_last_syscall( basic.TebBaseAddress, &id, &first_arg ))
+            {
+                if (!fake) return STATUS_UNSUCCESSFUL;
+                id = 0x4; first_arg = 0;
+            }
         }
-        if (!get_thread_last_syscall( basic.TebBaseAddress, &id, &first_arg ))
-            return STATUS_UNSUCCESSFUL;
 
         /* Only the named fields are written. Windows leaves the padding as it
          * found it -- the probe reads back whatever the caller had put there --

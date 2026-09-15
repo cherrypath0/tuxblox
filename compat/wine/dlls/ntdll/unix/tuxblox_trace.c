@@ -815,6 +815,13 @@ static ULONG64 roblox_dll_base(void)
     return 0;
 }
 
+/* Non-static accessor so the signal path can find Hyperion's base to force-call
+ * its client decryptor (function F) as an experiment. */
+ULONG64 tuxblox_roblox_dll_base(void)
+{
+    return roblox_dll_base();
+}
+
 /* Roblox current-version stack-drift compatibility shim.
  *
  * The layer runs an integrity check at RobloxPlayerBeta.dll+0xd03395
@@ -3058,6 +3065,7 @@ static void diag_layer_blob_apply( void )
  * Written "r14=36a1fadc,rax=0". rsp is refused -- the @<delta> suffix owns it.
  */
 #define DIAG_BP_SETREG_MAX 8
+#define DIAG_SETREG_IMG 0xffffffffffff01ULL   /* sentinel: substitute peb->ImageBaseAddress */
 
 static const char * const diag_reg_names[16] = { "rax", "rbx", "rcx", "rdx", "rsi", "rdi", "rbp", "rsp",
                                                  "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15" };
@@ -3089,7 +3097,12 @@ static void diag_bp_setreg_parse(void)
             break;
         }
         v += strlen( diag_reg_names[r] ) + 1;
-        diag_bp_setreg_val[diag_bp_setreg_count] = strtoull( v, &end, 16 );
+        if (!strncmp( v, "img", 3 ))   /* the client image base, resolved at apply time */
+        {
+            diag_bp_setreg_val[diag_bp_setreg_count] = DIAG_SETREG_IMG;
+            end = (char *)v + 3;
+        }
+        else diag_bp_setreg_val[diag_bp_setreg_count] = strtoull( v, &end, 16 );
         if (end == v)
         {
             ERR_(seh)( "DIAG bp setreg: cannot read a value at \"%s\"\n", v );
@@ -3109,10 +3122,53 @@ static void diag_bp_setreg_apply( ULONG64 *regs )
     {
         unsigned int r = diag_bp_setreg_idx[k];
 
+        ULONG64 val = diag_bp_setreg_val[k];
+
+        if (val == DIAG_SETREG_IMG && peb) val = (ULONG64)(ULONG_PTR)peb->ImageBaseAddress;
         ERR_(seh)( "DIAG bp setreg %s 0x%llx -> 0x%llx\n", diag_reg_names[r],
-                   (unsigned long long)regs[r], (unsigned long long)diag_bp_setreg_val[k] );
-        regs[r] = diag_bp_setreg_val[k];
+                   (unsigned long long)regs[r], (unsigned long long)val );
+        regs[r] = val;
     }
+}
+
+/* Redirect rip at a breakpoint, from TUXBLOX_DIAG_BP_SETRIP=<layer offset or abs>.
+ *
+ * SETREG can set the arguments and BP_POKE with an @<delta> can push a return
+ * address, but the resume address is otherwise fixed at the breakpoint's own
+ * instruction. This overrides it, which is what lets a breakpoint stand in for a
+ * call: point rip at a layer function with the four argument registers already
+ * set. The redirect is armed once, in the same BP_FROM-gated pass as the poke and
+ * the register writes, and taken by the signal handler in place of rip-1. */
+static ULONG64 diag_bp_setrip;
+static int diag_bp_setrip_parsed;
+static ULONG64 diag_bp_redirect_pending;
+
+static void diag_bp_setrip_arm(void)
+{
+    if (!diag_bp_setrip_parsed)
+    {
+        const char *v = getenv( "TUXBLOX_DIAG_BP_SETRIP" );
+        ULONG64 base = roblox_dll_base();
+
+        diag_bp_setrip_parsed = 1;
+        if (v) diag_bp_setrip = strtoull( v, NULL, 16 );
+        if (diag_bp_setrip && diag_bp_setrip < 0x100000000ull && base) diag_bp_setrip += base;
+    }
+    if (diag_bp_setrip)
+    {
+        ERR_(seh)( "DIAG bp setrip -> 0x%llx\n", (unsigned long long)diag_bp_setrip );
+        diag_bp_redirect_pending = diag_bp_setrip;
+    }
+}
+
+/* The redirect target the last armed breakpoint asked for, taken once. Zero when
+ * none is pending, so the handler falls back to resuming at the instruction. */
+ULONG64 tuxblox_diag_bp_take_redirect(void)
+{
+    ULONG64 t = diag_bp_redirect_pending;
+
+    diag_bp_redirect_pending = 0;
+    return t;
 }
 
 /* Arm stepping when a breakpoint is reached, rather than after a count of
@@ -3263,6 +3319,7 @@ BOOL tuxblox_diag_bp_hit( ULONG64 rip, ULONG64 *regs, LONG64 *rsp_delta )
             {
                 diag_bp_poke_apply( regs );
                 diag_bp_setreg_apply( regs );
+                diag_bp_setrip_arm();
                 diag_layer_blob_apply();
                 diag_save_apply();
             }

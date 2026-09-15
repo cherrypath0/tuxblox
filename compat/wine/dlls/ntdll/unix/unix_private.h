@@ -225,6 +225,7 @@ extern void tuxblox_diag_exception( const EXCEPTION_RECORD *rec, const CONTEXT *
 extern void tuxblox_diag_continue( const CONTEXT *context );
 extern BOOL tuxblox_diag_watch_enabled(void);
 extern BOOL tuxblox_diag_bp_hit( ULONG64 rip, ULONG64 *regs, LONG64 *rsp_delta );
+extern ULONG64 tuxblox_diag_bp_take_redirect(void);
 extern BOOL tuxblox_diag_bp_step_pending(void);
 extern BOOL tuxblox_diag_bp_step_rearm(void);
 extern void tuxblox_diag_xpage_arm( void );
@@ -496,6 +497,9 @@ static inline BOOL lookup_known_class( const struct known_class *table, unsigned
 extern void set_alignment_fault_fixup( BOOLEAN enable );
 extern BOOL virtual_is_image_address( const void *addr );
 extern ULONG_PTR virtual_get_image_base( const void *addr );
+extern NTSTATUS virtual_inject_client_text( ULONG_PTR image_base );
+extern NTSTATUS virtual_unlock_client_access( ULONG_PTR image_base );
+extern ULONG64 tuxblox_roblox_dll_base(void);
 extern ULONG_PTR virtual_get_mapped_base( const void *addr );
 extern NTSTATUS resolve_drive_symlink( UNICODE_STRING *name, SIZE_T max_name_len, SIZE_T *ret_len,
                                        NTSTATUS status );

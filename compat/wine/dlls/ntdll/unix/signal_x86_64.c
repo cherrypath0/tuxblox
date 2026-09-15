@@ -1806,6 +1806,79 @@ static void setup_raise_exception( ucontext_t *sigcontext, EXCEPTION_RECORD *rec
         context->EFlags &= ~0x100;  /* clear single-step flag */
     }
 
+    /* TuxBlox experiment (TUXBLOX_TEST_CALL_F=a1,a2,a3,a4): trigger Hyperion's
+     * OWN client-decryptor F ourselves at the handover fault -- Hyperion does the
+     * decryption, we only pull the trigger the gate normally would. Args are hex;
+     * the token "img" means the client image base. F returns to the faulting
+     * instruction, which succeeds if F decrypted it. Reconnaissance: a wrong arg
+     * faults inside F and names what it wanted. */
+    {
+        const char *cf = getenv( "TUXBLOX_TEST_CALL_F" );
+
+        if (cf && rec->ExceptionCode == EXCEPTION_ACCESS_VIOLATION && rec->NumberParameters > 1)
+        {
+            static int called;
+            ULONG_PTR base = (ULONG_PTR)peb->ImageBaseAddress;
+            ULONG_PTR fault = rec->ExceptionInformation[1];
+
+            if (!called && base && fault >= base + 0x1000 && fault < base + 0x6051000)
+            {
+                ULONG64 lay = tuxblox_roblox_dll_base();
+                ULONG64 a[4] = { 0, 0, 0, 0 };
+                const char *p = cf;
+                int i;
+
+                for (i = 0; i < 4 && *p; i++)
+                {
+                    if (!strncmp( p, "img", 3 )) { a[i] = base; p += 3; }
+                    else a[i] = strtoull( p, (char **)&p, 16 );
+                    if (*p == ',') p++;
+                }
+                if (lay)
+                {
+                    called = 1;
+                    if (getenv( "TUXBLOX_TEST_UNLOCK_ACCESS" ))
+                        virtual_unlock_client_access( base );
+                    context->Rsp -= 8;
+                    *(ULONG64 *)(ULONG_PTR)context->Rsp = context->Rip;
+                    context->Rcx = a[0]; context->Rdx = a[1];
+                    context->R8 = a[2]; context->R9 = a[3];
+                    context->Rip = lay + 0x104caa0;
+                    ERR_(seh)( "tuxblox: force-calling F (layer+0x104caa0) rcx=%llx rdx=%llx r8=%llx r9=%llx\n",
+                               (unsigned long long)a[0], (unsigned long long)a[1],
+                               (unsigned long long)a[2], (unsigned long long)a[3] );
+                    restore_context( xcontext, sigcontext );
+                    return;
+                }
+            }
+        }
+    }
+
+    /* TuxBlox experiment (TUXBLOX_TEST_INJECT_CLIENT=<blob>): the Roblox layer
+     * leaves the client image ciphertext and PAGE_NOACCESS because function F
+     * never runs, so the handover faults executing it. Do F's job here: on the
+     * first access violation inside the main client image, inject the decrypted
+     * .text from the blob, leave it executable, and resume the instruction. */
+    if (rec->ExceptionCode == EXCEPTION_ACCESS_VIOLATION && rec->NumberParameters > 1 &&
+        getenv( "TUXBLOX_TEST_INJECT_CLIENT" ))
+    {
+        static int injected;
+        ULONG_PTR fault = rec->ExceptionInformation[1];
+        ULONG_PTR base = (ULONG_PTR)peb->ImageBaseAddress;
+
+        /* Hyperion remaps the client image as a nameless pagefile-backed
+         * section, so virtual_get_image_base (SEC_IMAGE only) does not answer
+         * for it -- use the PEB base, which the remap leaves alone, and match
+         * a fault inside the client .text (rva 0x1000..0x6051000). */
+        if (!injected && base && fault >= base + 0x1000 && fault < base + 0x6051000 &&
+            !virtual_inject_client_text( base ))
+        {
+            injected = 1;
+            restore_context( xcontext, sigcontext );
+            return;
+        }
+    }
+
     status = send_debug_event( rec, context, TRUE, TRUE );
     if (status == DBG_CONTINUE || status == DBG_EXCEPTION_HANDLED)
     {
@@ -3806,7 +3879,10 @@ static void trap_handler( int signal, siginfo_t *siginfo, void *sigcontext )
 
         if (tuxblox_diag_bp_hit( RIP_sig(ucontext), regs, &rsp_delta ))
         {
-            RIP_sig(ucontext) = RIP_sig(ucontext) - 1;  /* back onto the restored instruction */
+            ULONG64 redir = tuxblox_diag_bp_take_redirect();
+            /* TUXBLOX_DIAG_BP_SETRIP redirects control (a forced call/jump);
+             * otherwise resume on the restored instruction. */
+            RIP_sig(ucontext) = redir ? redir : RIP_sig(ucontext) - 1;
             RSP_sig(ucontext) += rsp_delta;             /* only when one was asked for */
             /* TUXBLOX_DIAG_BP_SETREG may have changed one; rsp is left to rsp_delta. */
             RAX_sig(ucontext) = regs[0];  RBX_sig(ucontext) = regs[1];
