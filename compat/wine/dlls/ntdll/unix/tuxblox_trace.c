@@ -4000,6 +4000,62 @@ static void dump_code_around( ULONG64 addr )
  * own calls can be told apart from Wine's from the log alone. */
 static void arm_watch(void);
 
+/* Saved args of the last syscall on each thread, so the return path (which is
+ * handed only id+retval) can dump the syscall's OUTPUT buffers for the layer
+ * emulator to replay. */
+static __thread ULONG_PTR sysout_args[4];
+static __thread unsigned int sysout_argc;
+
+/* TUXBLOX_DIAG_SYSOUT=<path>: after each traced syscall, append a binary record
+ * of its output so the emulator (workspace/tests/emu.py) can reproduce what the
+ * syscall wrote and stay on the real control-flow path across the census.
+ * Record: u64 tid, u64 syscall_id, u64 retval, u64 nbufs, then nbufs of
+ * (u64 addr, u64 len, len bytes). A buffer is any pointer-valued arg; its length
+ * is the following arg when that looks like a byte count, else 512, capped 64 KB.
+ * Read through /proc/self/mem so a non-pointer arg just yields a short read. */
+static void tuxblox_diag_sysout( unsigned int id, ULONG_PTR retval )
+{
+    static int fd = -2, mem = -1;
+    static __thread char tmp[0x10000];
+    ULONG64 hdr[4], rec[2];
+    struct { ULONG_PTR addr; ULONG64 len; } b[4];
+    unsigned int nb = 0, i;
+
+    if (fd == -1) return;
+    if (fd == -2)
+    {
+        const char *path = getenv( "TUXBLOX_DIAG_SYSOUT" );
+
+        fd = -1;
+        if (!path || !*path) return;
+        if ((mem = open( "/proc/self/mem", O_RDONLY )) < 0) return;
+        if ((fd = open( path, O_WRONLY | O_CREAT | O_TRUNC, 0600 )) < 0) { close( mem ); return; }
+    }
+    for (i = 0; i < sysout_argc && i < 4; i++)
+    {
+        ULONG_PTR p = sysout_args[i];
+        ULONG64 len = 512;
+
+        if (p < 0x10000 || p >= 0x800000000000ull) continue;
+        if (i + 1 < sysout_argc && sysout_args[i + 1] > 0 && sysout_args[i + 1] < 0x100000)
+            len = sysout_args[i + 1];
+        if (len > sizeof(tmp)) len = sizeof(tmp);
+        b[nb].addr = p; b[nb].len = len; nb++;
+    }
+    hdr[0] = HandleToULong( NtCurrentTeb()->ClientId.UniqueThread );
+    hdr[1] = id; hdr[2] = (unsigned int)retval; hdr[3] = nb;
+    if (write( fd, hdr, sizeof(hdr) ) != sizeof(hdr)) return;
+    for (i = 0; i < nb; i++)
+    {
+        ssize_t r = pread( mem, tmp, b[i].len, b[i].addr );
+
+        if (r < 0) r = 0;
+        rec[0] = b[i].addr; rec[1] = (ULONG64)r;
+        if (write( fd, rec, sizeof(rec) ) != sizeof(rec)) return;
+        if (r && write( fd, tmp, r ) != r) return;
+    }
+}
+
 void tuxblox_trace_syscall_args( unsigned int id, const ULONG_PTR *args, ULONG len )
 {
     const char *name;
@@ -4012,6 +4068,8 @@ void tuxblox_trace_syscall_args( unsigned int id, const ULONG_PTR *args, ULONG l
 
     name = ntdll_syscall_name( id );
     len /= sizeof(ULONG_PTR);
+    sysout_argc = len < 4 ? len : 4;
+    { unsigned int i; for (i = 0; i < sysout_argc; i++) sysout_args[i] = args[i]; }
     TRACE_(tuxblox)( "CALL name=%s rip=0x%llx a0=0x%llx a1=0x%llx a2=0x%llx a3=0x%llx\n",
                      name ? name : "?", (unsigned long long)get_syscall_caller_pc(),
                      (unsigned long long)(len > 0 ? args[0] : 0),
@@ -4031,6 +4089,7 @@ void tuxblox_trace_sysret( unsigned int id, ULONG_PTR retval )
     TRACE_(tuxblox)( "RET  syscall=%u name=%s ret=0x%08x rip=0x%llx\n",
                      id, name ? name : "?", (unsigned int)retval,
                      (unsigned long long)get_syscall_caller_pc() );
+    tuxblox_diag_sysout( id, retval );
 }
 
 /* Installing and removing the instrumentation callback -- the hook Windows
