@@ -1673,6 +1673,88 @@ done_dump:
 }
 
 
+/* Whole-process snapshot for the offline layer emulator (workspace/tests/emu.py).
+ *
+ * The layer's F-dispatch decision runs behind anti-single-step, so the native
+ * tracer cannot follow it -- but a CPU emulator can, because the trap-flag
+ * clears are inert under emulation. To emulate OUR run's decision we need its
+ * memory and registers at a chosen point; this writes them in the simple format
+ * emu.py reads (TXSNAP01):
+ *
+ *   "TXSNAP01"        8 bytes
+ *   gs_base           u64   (the Windows TEB address = gs base on x64)
+ *   regs[16]          u64   rax,rbx,rcx,rdx,rsi,rdi,rbp,rsp,r8..r15 (BP order)
+ *   rip               u64
+ *   rflags            u64   (0x202 default -- not carried by the BP path)
+ *   then records:     (start u64, size u64, <size bytes>) ... terminated (0,0)
+ *
+ * Only readable ranges are captured, read through /proc/self/mem so the layer's
+ * PAGE_NOACCESS regions are skipped rather than faulting. Env-gated by
+ * TUXBLOX_DIAG_SNAPSHOT=<path>; fired from a breakpoint hit. The snapshot is the
+ * program's own memory -- keep it out of the repository.
+ */
+void tuxblox_diag_snapshot( ULONG64 *regs, ULONG64 rip, unsigned char bp_orig, LONG64 rsp_delta )
+{
+    static int done;
+    const char *path = getenv( "TUXBLOX_DIAG_SNAPSHOT" );
+    char line[512], page[0x1000];
+    FILE *maps;
+    int mem, out;
+    unsigned long long total = 0, nranges = 0;
+    ULONG64 hdr[20];
+    unsigned int i;
+
+    if (!path || !*path || done) return;
+    done = 1;
+
+    if (!(maps = fopen( "/proc/self/maps", "r" ))) return;
+    if ((mem = open( "/proc/self/mem", O_RDONLY )) == -1) { fclose( maps ); return; }
+    if ((out = open( path, O_WRONLY | O_CREAT | O_TRUNC, 0600 )) == -1)
+    { close( mem ); fclose( maps ); return; }
+
+    memcpy( hdr, "TXSNAP01", 8 );
+    hdr[1] = (ULONG64)(ULONG_PTR)NtCurrentTeb();     /* gs base */
+    for (i = 0; i < 16; i++) hdr[2 + i] = regs[i];
+    hdr[2 + 7] = regs[7] + rsp_delta;                /* rsp: fold in @<delta> */
+    hdr[18] = rip;
+    hdr[19] = 0x202;                                 /* rflags default */
+    if (write( out, hdr, sizeof(hdr) ) != (ssize_t)sizeof(hdr)) goto done_snap;
+
+    while (fgets( line, sizeof(line), maps ))
+    {
+        unsigned long long start, end, off, rec[2];
+        char perms[8];
+
+        if (sscanf( line, "%llx-%llx %7s", &start, &end, perms ) != 3) continue;
+        if (perms[0] != 'r') continue;                       /* readable only */
+        if (strstr( line, "[vvar" ) || strstr( line, "[vsyscall" )) continue;
+        if (end - start > 0x10000000ull) continue;           /* skip >256 MB reserved */
+
+        rec[0] = start; rec[1] = end - start;
+        if (write( out, rec, sizeof(rec) ) != (ssize_t)sizeof(rec)) goto done_snap;
+        for (off = start; off < end; off += sizeof(page))
+        {
+            if (pread( mem, page, sizeof(page), off ) != (ssize_t)sizeof(page))
+                memset( page, 0, sizeof(page) );
+            /* Undo the anchor breakpoint's int3 so the emulator sees the real
+             * instruction at rip rather than a trap. */
+            if (rip >= off && rip < off + sizeof(page))
+                page[rip - off] = bp_orig;
+            if (write( out, page, sizeof(page) ) != (ssize_t)sizeof(page)) goto done_snap;
+            total += sizeof(page);
+        }
+        nranges++;
+    }
+    { ULONG64 term[2] = { 0, 0 }; ssize_t w = write( out, term, sizeof(term) ); (void)w; }
+done_snap:
+    close( out );
+    close( mem );
+    fclose( maps );
+    ERR_(seh)( "DIAG snapshot: %llu ranges, %llu bytes, rip=0x%llx -> %s\n",
+               nranges, total, (unsigned long long)rip, path );
+}
+
+
 void tuxblox_diag_stack_exec( const EXCEPTION_RECORD *rec, const CONTEXT *context )
 {
     static int enabled = -1;
@@ -3322,6 +3404,7 @@ BOOL tuxblox_diag_bp_hit( ULONG64 rip, ULONG64 *regs, LONG64 *rsp_delta )
                 diag_bp_setrip_arm();
                 diag_layer_blob_apply();
                 diag_save_apply();
+                tuxblox_diag_snapshot( regs, rip - 1, diag_bp_orig[i], diag_bp_rsp_delta[i] );
             }
         }
         if (diag_bp_rsp_delta[i])
