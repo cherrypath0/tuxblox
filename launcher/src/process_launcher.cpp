@@ -39,7 +39,6 @@ namespace fs = std::filesystem;
 namespace tuxblox {
 
 const char* exitCodeTitle(int exitCode) {
-    // See plan/plan.txt item 1 for this table.
     switch (exitCode) {
         case 0:   return "OK";
         case 1:   return "General Error";
@@ -209,8 +208,7 @@ std::vector<std::string> launchEnvVars(const std::string& installDir, LaunchTarg
     // pipeline compilation entirely (nothing in compat/submodules/dxvk
     // reads that variable any more), so setting it did nothing. Its
     // replacement -- the graphics pipeline library path -- is on by default
-    // (dxvk.enableGraphicsPipelineLibrary defaults to Auto). Kept in sync
-    // with launch.sh, which carried the same dead variable.
+    // (dxvk.enableGraphicsPipelineLibrary defaults to Auto).
     std::vector<std::string> env = {
         "TUXBLOX_PREFIX=" + installDir + "/runtime",
         "TUXBLOX_LOG_DIR=" + installDir + "/logs",
@@ -227,16 +225,6 @@ std::vector<std::string> launchEnvVars(const std::string& installDir, LaunchTarg
 
 namespace {
 
-// Copies a host-side exe (living outside the prefix entirely -- e.g. a
-// freshly downloaded installer under installDir/RobloxPlayer/) into the
-// prefix's own C: before it's ever handed to Proton. Launching an exe via
-// its raw path outside C: relies on ntdll's \??\unix\ bridge, which stopped
-// working for the executable IMAGE itself once the Z: drive was removed
-// (plan/plan.txt item 20): the process silently fails to launch at all --
-// no window, no trace, just an early exit (observed as exit code 245) --
-// instead of erroring visibly. Staging a real copy inside C: sidesteps the
-// bridge entirely. Mirrors launch.sh's own stageInPrefix(); keep both in
-// sync if this changes.
 std::string stageInPrefix(const std::string& installDir, const std::string& srcPath) {
     const std::string stageDir = installDir + "/runtime/pfx/drive_c/TuxBloxStaging";
     std::error_code ec;

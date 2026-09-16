@@ -1111,7 +1111,7 @@ static void xdg_open_sanitize_env(void)
  * (and fail, showing its own generic "URL can't be shown" error) to load an
  * external URI scheme it doesn't itself recognize -- letting this
  * codebase's own already-installed xdg-mime registrations
- * (install-handler.sh / launcher/src/desktop_integration.cpp --
+ * (launcher/src/desktop_integration.cpp --
  * x-scheme-handler/roblox-studio-auth, -studio, -player) complete the
  * hand-off to a fresh RobloxStudioBeta.exe, exactly reproducing the
  * OS-level custom-URI-protocol activation real, unmodified Roblox Studio
@@ -1188,8 +1188,7 @@ static const char *const known_roblox_schemes[] = {
  *
  * Only WEBKIT_POLICY_DECISION_TYPE_NAVIGATION_ACTION is inspected, and only
  * the three known Roblox custom schemes within it are intercepted -- the
- * original investigation's own round-16 cautionary history (see
- * .superpowers/sdd/2026-08-13-webview2-window-docking-messaging/progress.md):
+ * original investigation's own round-16 cautionary history:
  * an earlier, reverted attempt denylisted too broadly and broke WebKit's own
  * internal about:blank init. Every other decision type
  * (NEW_WINDOW_ACTION, RESPONSE) and every non-matching scheme under
@@ -1461,11 +1460,8 @@ static void queue_crash_page(struct native_webview *nv, WebKitWebView *view,
  * glibc, or the NVIDIA driver -- confirmed NOT a bug in this file, this
  * process, or any other TuxBlox code. This is upstream WebKitGTK/NVIDIA's
  * own bug to fix; this handler does not attempt that (explicitly out of
- * scope -- see this task's own report at
- * .superpowers/sdd/2026-08-14-webview2loader-host-process/
- * webprocess-terminated-mitigation-report.md for the full writeup,
- * including why blanket coredump suppression was deliberately NOT added
- * here). What follows is a purely cosmetic mitigation: react to the real
+ * scope, including why blanket coredump suppression was deliberately NOT
+ * added here). What follows is a purely cosmetic mitigation: react to the real
  * WebKitWebView::web-process-terminated signal so this helper's own state
  * degrades honestly instead of assuming a dead content process is still
  * alive, without touching the actual upstream race.

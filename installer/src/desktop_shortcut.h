@@ -38,7 +38,7 @@ void createDesktopShortcut(const std::string& launcherExePath);
 // them fresh, forcing xdg-mime's default back to them for roblox:,
 // roblox-player:, roblox-studio:, and roblox-studio-auth:. Unlike the
 // launcher's own ensureDesktopIntegration(), this does NOT skip schemes
-// currently pointed at a repo-local dev handler (install-handler.sh) --
+// currently pointed at a repo-local dev handler --
 // running the installer is a deliberate top-level action and should always
 // leave the installed launcher as the real default. launcherExePath should
 // be the just-installed TuxBloxLauncher binary's full path. Best-effort:

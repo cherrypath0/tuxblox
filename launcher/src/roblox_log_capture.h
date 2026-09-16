@@ -28,20 +28,8 @@ namespace tuxblox {
 std::vector<std::string> selectSessionLogFiles(
     const std::vector<std::pair<std::string, std::time_t>>& entries, std::time_t sessionStart);
 
-// Roblox's own per-session log directory inside the Wine prefix (see
-// plan/todo.md item 10). Uses the "user" account name Wine's prefix
-// defaults to today -- item 11 in the same file covers making this the
-// real host account name, not in scope here.
 std::string robloxLogsDir(const std::string& installDir);
 
-// Appends every file in robloxLogsDir(installDir) with mtime >= sessionStart
-// onto the end of destLogPath (which must already exist), each preceded by
-// a "=== ROBLOX LOG: <name> ===" separator line. Streams each source file
-// in fixed-size chunks -- never holds more than one chunk in memory at
-// once, so this stays RAM-safe regardless of how large a long Roblox
-// session's log grows. Best-effort: a missing Roblox logs directory, or
-// any single unreadable file, is silently skipped; never throws. Returns
-// the names of the files actually appended, in the order appended.
 std::vector<std::string> appendRobloxSessionLogs(const std::string& installDir, std::time_t sessionStart,
                                                   const std::string& destLogPath);
 

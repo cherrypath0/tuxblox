@@ -35,10 +35,6 @@ namespace tuxblox {
 
 namespace {
 
-// Runs a command and returns its stdout (trailing newlines trimmed), or ""
-// if it could not be run. Same no-shell fork+exec style as
-// runCommandBestEffort, but this one needs the child's stdout back, so it
-// pipes it through instead of firing-and-forgetting.
 std::string captureCommand(const std::vector<std::string>& argv) {
     int pipefd[2];
     if (pipe(pipefd) != 0) return "";
@@ -80,11 +76,6 @@ std::string captureCommand(const std::vector<std::string>& argv) {
     return result;
 }
 
-// Pulls the desktop id out of `gio mime <type>`, whose first line reads
-// Default application for "x-scheme-handler/roblox": tuxblox-player-handler.desktop
-// Everything after the final ": " is the id; requiring it to look like a
-// bare desktop id keeps this working if that sentence is ever translated,
-// and rejects the "No default applications for ..." line.
 std::string parseGioDefault(const std::string& out) {
     const size_t eol = out.find('\n');
     const std::string line = out.substr(0, eol == std::string::npos ? out.size() : eol);
@@ -99,27 +90,12 @@ std::string parseGioDefault(const std::string& out) {
     return id;
 }
 
-// The current default application for a scheme, or "" if there is none.
-//
-// gio is asked first, and xdg-mime is only the fallback: xdg-mime's KDE
-// branch shells out to `qtpaths`, which is not installed on every KDE
-// system (it ships with Qt's dev tooling, not the desktop). When it is
-// missing, the query does not fail -- it reports a *different*, wrong
-// application, which silently inverts the isKnownTuxBloxDevHandler() check
-// below and makes the launcher either stomp a deliberate dev handler or
-// leave a stale foreign association in place. gio reads mimeapps.list
-// directly, has no such dependency, and is what GTK apps consult anyway.
 std::string queryXdgMimeDefault(const std::string& scheme) {
     const std::string viaGio = parseGioDefault(captureCommand({"gio", "mime", scheme}));
     if (!viaGio.empty()) return viaGio;
     return captureCommand({"xdg-mime", "query", "default", scheme});
 }
 
-// The repo-local dev workflow (./install-handler.sh, launch.sh %u) writes
-// these IDs. When one of them is the current default for a scheme, that
-// was a deliberate choice by whoever's doing dev/testing work against the
-// repo prefix -- ensureDesktopIntegration() below must not silently revert
-// it back to the installed handler every time the GUI happens to start.
 bool isKnownTuxBloxDevHandler(const std::string& desktopId) {
     return desktopId == "tuxblox-player-dev.desktop" ||
            desktopId == "tuxblox-studio-dev.desktop";
@@ -128,18 +104,10 @@ bool isKnownTuxBloxDevHandler(const std::string& desktopId) {
 struct SchemeHandler {
     const char* desktopId;
     const char* name;
-    const char* mimeTypeLine;              // full MimeType= value written to the .desktop file
-    std::vector<const char*> schemes;      // same schemes, split out for the xdg-mime default loop
+    const char* mimeTypeLine;
+    std::vector<const char*> schemes;
 };
 
-// One file per Name -- a .desktop entry only has a single Name=, and each
-// of these should read distinctly in "Open With" pickers / xdg-mime query
-// output rather than one generic "URL Handler" covering both.
-//
-// Exactly two entries, one per app. Bare "roblox:" rides on the Player
-// entry rather than getting a file of its own: main.cpp routes it to the
-// Player anyway, so a separate "TuxBlox" entry only ever added a third
-// indistinguishable row to the "Open With" picker.
 const std::vector<SchemeHandler>& installedHandlers() {
     static const std::vector<SchemeHandler> handlers = {
         {"tuxblox-player-handler.desktop", "TuxBlox Player",
@@ -153,24 +121,11 @@ const std::vector<SchemeHandler>& installedHandlers() {
 }
 
 void runCommandBestEffort(const std::vector<std::string>& argv) {
-    // Build the argv array *before* fork() -- allocating (std::vector's
-    // reserve/push_back) in the child of a multithreaded process is a known
-    // deadlock hazard: another thread could hold the malloc arena lock at
-    // the exact moment of fork(), and that lock is never released in the
-    // child. Only touch the already-built, non-allocating pointer array
-    // after fork().
     std::vector<char*> cargv;
     cargv.reserve(argv.size() + 1);
     for (const auto& a : argv) cargv.push_back(const_cast<char*>(a.c_str()));
     cargv.push_back(nullptr);
 
-    // Silence these helpers. Their exit status is already ignored, but their
-    // chatter (gtk-update-icon-cache's "No theme index file.", xdg-mime's
-    // "qtpaths: command not found") is inherited straight onto our stdout/
-    // stderr and shows up in any terminal the launcher was started from.
-    // Opened before fork() so the child does no allocation of its own;
-    // O_CLOEXEC drops this fd across the exec while the dup2'd 1 and 2
-    // survive it (dup2 clears CLOEXEC on the new descriptor).
     int devnull = open("/dev/null", O_WRONLY | O_CLOEXEC);
 
     pid_t pid = fork();
@@ -187,12 +142,6 @@ void runCommandBestEffort(const std::vector<std::string>& argv) {
         _exit(127);
     }
     if (devnull >= 0) close(devnull);
-    // Bounded, non-blocking wait -- xdg-mime/update-desktop-database talk to
-    // a D-Bus session that can hang (this repo hit exactly this failure mode
-    // once before, see 09b369a13). Give it up to ~3s, then give up rather
-    // than block the caller indefinitely; we deliberately don't kill a
-    // straggler process afterward -- it's harmless to leave running, and
-    // this is best-effort desktop integration, not worth SIGKILL complexity.
     for (int i = 0; i < 30; ++i) {
         int status = 0;
         pid_t r = waitpid(pid, &status, WNOHANG);
@@ -209,28 +158,6 @@ void writeDesktopEntries(const std::string& launcherExePath) {
         if (!home || home[0] == '\0') return;
         const std::string appsDir = std::string(home) + "/.local/share/applications";
 
-        // kTuxbloxLogoPng is already fully embedded in this binary (fetched
-        // and rasterized once at build time -- see FetchLogo.cmake); this
-        // write is not loading a separate asset, it's just producing the
-        // one real file .desktop Icon= entries are required to point at
-        // (the XDG desktop-entry spec has no way to reference bytes inside
-        // a binary directly). Installed under the standard per-user icon
-        // theme location, so Icon= can name it ("tuxblox") instead of
-        // hardcoding an absolute path -- proper icon-theme lookup/scaling,
-        // and it stops being something that has to live under installDir at
-        // all.
-        //
-        // Written into EVERY standard hicolor size bucket, not just 256x256:
-        // the actual embedded image is a fixed 440x440 raster (no scalable
-        // SVG available, see FetchLogo.cmake's own history), and some icon
-        // loaders resolve a specific requested size (e.g. 16/24/32/48, the
-        // sizes a titlebar/taskbar typically ask for) strictly against
-        // whatever bucket exists rather than falling back across sizes --
-        // leaving only 256x256 populated meant every one of those smaller,
-        // more commonly-requested lookups came up empty. All buckets get
-        // the exact same bytes (oversized for the smaller ones); loaders
-        // scale down a too-large icon far more reliably than they
-        // synthesize a missing one.
         static const char* kIconSizes[] = {"16x16", "24x24", "32x32", "48x48",
                                             "64x64", "96x96", "128x128", "256x256"};
         for (const char* size : kIconSizes) {
@@ -259,27 +186,13 @@ void writeDesktopEntries(const std::string& launcherExePath) {
                 "Type=Application\n"
                 "Name=TuxBlox\n"
                 "Comment=Roblox on Linux\n"
-                // Application searches match Name, GenericName and Keywords,
-                // but not Comment -- so without these, searching "roblox"
-                // found nothing at all, the word only appearing in Comment.
                 "GenericName=Roblox Client\n"
                 "Keywords=Roblox;Player;Studio;Game;Wine;\n"
                 "Exec=\"" << launcherExePath << "\"\n"
                 "Icon=tuxblox\n"
                 "Terminal=false\n"
-                // Must match the WM_CLASS Qt's xcb backend actually emits --
-                // on X11 that's the running binary's basename ("TuxBloxLauncher"),
-                // not qapp.setDesktopFileName()'s "tuxblox-launcher" (that only
-                // governs Wayland's xdg_toplevel app_id and icon-theme name
-                // fallback, not X11 WM_CLASS). A mismatch here is why desktop
-                // environments were pinning/taskbar-matching this launcher with
-                // a blank/generic icon instead of tuxblox.png.
                 "StartupWMClass=TuxBloxLauncher\n"
                 "Categories=Game;\n"
-                // No LaunchPlayer/LaunchStudio actions: wine_shortcut_export.cpp
-                // publishes real "Roblox Studio | via TuxBlox" entries once
-                // Roblox has been installed and run, and keeping these too put
-                // duplicate launch points in the app grid -- plan/todo.md item 2.
                 "Actions=Documentation;\n"
                 "\n"
                 "[Desktop Action Documentation]\n"
@@ -296,23 +209,12 @@ void writeDesktopEntries(const std::string& launcherExePath) {
                 "Type=Application\n"
                 "Name=" << h.name << "\n"
                 "Exec=\"" << launcherExePath << "\" %u\n"
-                // Same icon as the main entry. These are NoDisplay (they
-                // exist only to claim the roblox:// schemes), but the desktop
-                // still resolves them for *identity*, not just for menus:
-                // launching through a URL handler names the process's systemd
-                // scope after this entry (app-tuxblox\x2dstudio\x2dhandler@...),
-                // and KDE's System Monitor turns that unit name back into a
-                // desktop entry to label the running process. Without an
-                // Icon= line that row got the right name and no icon at all.
                 "Icon=tuxblox\n"
                 "NoDisplay=true\n"
                 "Terminal=false\n"
                 "MimeType=" << h.mimeTypeLine << "\n";
         }
 
-        // .rbxl/.rbxlx handling -- plan/todo.md item 18. Nothing in
-        // shared-mime-info knows these extensions, so TuxBlox has to define the
-        // types before anything can claim them.
         {
             const std::string mimePackagesDir = std::string(home) + "/.local/share/mime/packages";
             std::error_code mimeEc;
@@ -327,10 +229,6 @@ void writeDesktopEntries(const std::string& launcherExePath) {
                         "    <comment>Roblox Place</comment>\n"
                         "    <glob pattern=\"*.rbxl\"/>\n"
                         "  </mime-type>\n"
-                        // .rbxlx is the XML serialisation of the same thing, so
-                        // it sub-classes text/xml -- that keeps a text editor
-                        // available in "Open With" instead of making Studio the
-                        // only application that will touch it.
                         "  <mime-type type=\"application/x-roblox-place+xml\">\n"
                         "    <comment>Roblox Place (XML)</comment>\n"
                         "    <sub-class-of type=\"text/xml\"/>\n"
@@ -341,9 +239,6 @@ void writeDesktopEntries(const std::string& launcherExePath) {
             }
         }
 
-        // NoDisplay, same as the URL-scheme handlers above: this entry exists to
-        // own the place-file types, not to appear in the app grid -- the entry
-        // wine_shortcut_export.cpp publishes is the visible "Roblox Studio".
         {
             std::ofstream f(appsDir + "/tuxblox-studio-place.desktop");
             if (!f) return;
@@ -359,10 +254,6 @@ void writeDesktopEntries(const std::string& launcherExePath) {
                 "MimeType=application/x-roblox-place;application/x-roblox-place+xml;\n";
         }
 
-        // Superseded by the per-scheme files above -- remove so they don't
-        // linger as dead duplicate entries claiming the same MimeTypes.
-        // tuxblox-roblox-handler is the old standalone "roblox:" entry, now
-        // folded into the Player handler.
         {
             std::error_code rmEc;
             fs::remove(appsDir + "/tuxblox-url-handler.desktop", rmEc);
@@ -381,60 +272,26 @@ void ensureDesktopIntegration(const std::string& launcherExePath, const std::str
         if (!home || home[0] == '\0') return;
         const std::string appsDir = std::string(home) + "/.local/share/applications";
 
-        // Publish Roblox itself to the app menu, routed back through this
-        // launcher -- plan/todo.md item 2. A no-op until Roblox has actually
-        // been installed and run at least once, since winemenubuilder only
-        // writes c:\proton_shortcuts entries in response to the installer's own
-        // .lnk files.
-        //
-        // Must run before update-desktop-database below (so a first GUI start
-        // right after install picks these up in the same refresh) and before
-        // the Distrobox export block (so tuxblox-roblox-{studio,player}.desktop
-        // exist on disk in time to be exported to the host).
         exportPrefixShortcuts(installDir, launcherExePath);
 
         if (!std::getenv("TUXBLOX_SKIP_XDG_MIME")) { // escape hatch for sandboxed test/CI runs
             for (const auto& h : installedHandlers()) {
                 for (const char* scheme : h.schemes) {
-                    // Don't stomp a deliberate switch to the repo-local dev
-                    // handler (see isKnownTuxBloxDevHandler above) -- only
-                    // (re)claim the scheme if it's unset or held by
-                    // something else (a stale/foreign association is still
-                    // self-healed).
                     if (isKnownTuxBloxDevHandler(queryXdgMimeDefault(scheme))) continue;
                     runCommandBestEffort({"xdg-mime", "default", h.desktopId, scheme});
                 }
             }
-            // Place-file types (item 18). update-mime-database must run before
-            // xdg-mime default: the association is rejected for a MIME type the
-            // database doesn't know yet.
+
             runCommandBestEffort({"update-mime-database", std::string(home) + "/.local/share/mime"});
             runCommandBestEffort({"xdg-mime", "default", "tuxblox-studio-place.desktop",
                                    "application/x-roblox-place"});
             runCommandBestEffort({"xdg-mime", "default", "tuxblox-studio-place.desktop",
                                    "application/x-roblox-place+xml"});
             runCommandBestEffort({"update-desktop-database", appsDir});
-            // Best-effort, same reasoning as update-desktop-database above --
-            // not every desktop environment needs this to pick up a newly
-            // added icon-theme file, but GTK-based ones (and the icon
-            // picker in some app launchers) can otherwise keep showing a
-            // generic icon until the theme cache is rebuilt.
+
             runCommandBestEffort({"gtk-update-icon-cache", std::string(home) + "/.local/share/icons/hicolor"});
         }
 
-        // Inside a Distrobox container, ~/.local/share/applications is
-        // shared with the host (Distrobox bind-mounts $HOME by default),
-        // so both .desktop files above are already visible on the host's
-        // app menu -- but their Exec= lines are only valid *inside* the
-        // container. Best-effort: invoke `distrobox-export --app` for each
-        // so the host can launch them correctly (the export mechanism
-        // itself -- whether it rewrites these entries' Exec= in place or
-        // creates separate host-side entries -- has not been verified
-        // against a real Distrobox install; confirm the actual on-disk
-        // result with a real container before relying on this for end
-        // users). Best-effort, same as the xdg-mime calls above: if the
-        // binary isn't on PATH, runCommandBestEffort's execvp ENOENT
-        // handling exits 127 harmlessly.
         if (isInsideDistrobox()) {
             runCommandBestEffort({"distrobox-export", "--app", "tuxblox-launcher"});
             for (const auto& h : installedHandlers()) {
@@ -442,14 +299,7 @@ void ensureDesktopIntegration(const std::string& launcherExePath, const std::str
                 exportId.erase(exportId.size() - std::string(".desktop").size());
                 runCommandBestEffort({"distrobox-export", "--app", exportId});
             }
-            // The Roblox entries wine_shortcut_export.cpp publishes and the
-            // place-file handler above -- exported here too, or the host menu
-            // is left with no way to launch Roblox / open a place file at all
-            // (the old tuxblox-launcher LaunchPlayer/LaunchStudio actions this
-            // replaced no longer exist). A missing id (Roblox not installed
-            // yet, or the .rbxl handler not written) is a harmless no-op --
-            // distrobox-export simply fails, same as any other best-effort
-            // call here.
+
             for (const char* exportId :
                  {"tuxblox-roblox-studio", "tuxblox-roblox-player", "tuxblox-studio-place"}) {
                 runCommandBestEffort({"distrobox-export", "--app", exportId});

@@ -100,12 +100,6 @@ std::string bridgeHostPathIntoPrefix(const std::string& installDir, const std::s
 
         const fs::path parent = canonical.parent_path();
 
-        // Refuse a file sitting directly at the filesystem root outright: an
-        // empty parent-basename maps to "root" below, which would symlink "/"
-        // itself into the prefix -- exactly the Z: drive plan/plan.txt item 20
-        // deliberately removed (mapping the host root as a drive letter is one
-        // of the most common Wine-detection heuristics). No legitimate place
-        // file lives at /place.rbxl, so there's no workflow this breaks.
         if (isFilesystemRoot(parent.string())) return "";
 
         // $HOME itself is deliberately NOT refused the same way, even though a

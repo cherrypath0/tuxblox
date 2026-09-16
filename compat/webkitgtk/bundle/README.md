@@ -225,9 +225,6 @@ extracted to `/tmp/webkitgtk-verify` (a directory with **no relationship** to
 - **LIBGL_DRIVERS_PATH**: see the dedicated section above -- tested, found not
   load-bearing for this build's actual runtime code paths.
 
-See `task-8-report.md` (in the plan's `.superpowers/sdd/` directory, not committed to
-this repo) for the full command transcripts and raw output.
-
 ## Bundle contents and what was deliberately left out
 
 The tarball ships `include/`, `lib/`, `libexec/`, `etc/`, `share/` from the build
@@ -380,10 +377,9 @@ independently-confirmed blockers, not a "didn't get to it":**
    env-var-at-DLL-init-time fallback mechanism cannot work for this specific
    injection point, regardless of (1).
 
-Full evidence, what was tried, and the most promising remaining lead (deciding the
-fallback before Wine's own process starts, e.g. in `launch.sh`, rather than from
-inside `unixlib.c`) are in
-`.superpowers/sdd/2026-08-13-webview2-window-docking-messaging/lag-glvnd-report.md`.
+The most promising remaining lead is deciding the fallback before Wine's own
+process starts, rather than from inside `unixlib.c`.
+
 No source changes from this attempt are committed -- this bundle's own Mesa softpipe
 build is unchanged, and `unixlib.c` is unchanged.
 
@@ -515,7 +511,7 @@ The repo already has machinery for this -- `third_party_licenses/` and
 product's `COPYRIGHT.txt` -- but it currently covers only Proton and the installer's
 own vendored dependencies, not anything in this bundle.
 
-**Deliberately not done here:** `CLAUDE.md` states `third_party_licenses/` holds
+**Deliberately not done here:** the repo requires that `third_party_licenses/` holds
 license texts for bundled dependencies and must not be modified, so this is flagged
 for the repo owner to handle rather than changed unilaterally. It should be resolved
 before any release ships this bundle, not before this work merges.

@@ -347,7 +347,7 @@ stage_release() {
     local url_prefix="/v1/$channel/$version"
 
     # Absent means the build predates this file; recorded as unknown-and-dirty
-    # so deploy.sh refuses it rather than publishing an unattributable build.
+    # so the deploy step refuses it rather than publishing an unattributable build.
     local source_commit="" source_dirty="true"
     if [[ -r "$ROOT/build/.provenance" ]]; then
         { read -r source_commit || true; read -r source_dirty || true; } < "$ROOT/build/.provenance"
@@ -487,7 +487,7 @@ PY
 }
 
 # Records the commit this build is made from. stage_release() stamps it into
-# manifest.json, which is what lets deploy.sh refuse to publish a binary whose
+# manifest.json, which is what lets the deploy step refuse to publish a binary whose
 # source is not public -- an LGPL obligation, and it also tells anyone holding
 # a download exactly which source built it.
 #

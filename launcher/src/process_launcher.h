@@ -35,11 +35,6 @@ struct ExitEvent {
     bool stopRequested = false;
 };
 
-// Maps a process exit code to the short human-readable title used in the
-// exit-code-monitoring popup (e.g. 139 -> "Segmentation Fault"). See
-// plan/plan.txt item 1 for the table this implements. Returns nullptr for
-// anything not in that table -- callers show the bare code rather than
-// inventing a description for a code we don't actually know the meaning of.
 const char* exitCodeTitle(int exitCode);
 
 // Proton's own process exit code is now a fixed 0/success, 1/proton-error,
@@ -119,7 +114,7 @@ std::string launchLogPath(const std::string& installDir, LaunchTarget target);
 // passed to exec*e()) -- never to the launcher's own process, since that
 // process may go on to spawn other, non-Proton children (curl update
 // checks, etc.) that have no business seeing Wine/Proton/Steam-Play-shaped
-// env vars. See item 33 in plan/plan.txt.
+// env vars.
 std::vector<std::string> launchEnvVars(const std::string& installDir, LaunchTarget target);
 
 class ProcessLauncher {

@@ -56,11 +56,6 @@ int main() {
         assert(contains(env, "DXVK_CONFIG=dxgi.enableDummyCompositionSwapchain=True"));
     }
 
-    // launchEnvVars() must not touch this process's own environment -- it's
-    // meant to be applied only to a Proton child (via setenv() in a
-    // soon-to-exec()'d child, or an explicit execve() envp), never to the
-    // launcher process itself, which may go on to spawn other, non-Proton
-    // children. See item 33 in plan/plan.txt.
     {
         assert(getenv("TUXBLOX_PREFIX") == nullptr);
         (void)launchEnvVars("/x/tuxblox", LaunchTarget::Player);
@@ -202,7 +197,7 @@ int main() {
     // outside the prefix, e.g. installDir/RobloxPlayer/RobloxPlayerInstaller.exe)
     // must be staged into runtime/pfx/drive_c/TuxBloxStaging before use --
     // launching it via its raw host path silently fails post-Z:-removal
-    // (observed as exit code 245). See plan/plan.txt item 20.
+    // (observed as exit code 245).
     {
         namespace fs = std::filesystem;
         fs::path installDir = fs::temp_directory_path() / "tuxblox_test_stage_install_dir";

@@ -19,18 +19,6 @@
 
 namespace tuxblox {
 
-// Publishes Roblox to the Linux app menu, routed through this launcher.
-//
-// TuxBlox's Proton redirects every winemenubuilder menu entry into the prefix's
-// own c:\proton_shortcuts (winemenubuilder.c:1262) instead of the host's
-// applications directory, so nothing on Linux ever sees them. This reads those
-// entries and re-emits them as real .desktop files whose Exec= goes through the
-// launcher ("--run-exe"), with a "via TuxBlox" comment -- plan/todo.md item 2,
-// option 1.
-//
-// Only the two Roblox executables are exported; anything else that happens to
-// be in the prefix is skipped rather than published to the user's app menu.
-// Best-effort throughout: never throws, and a failure just means no menu entry.
 void exportPrefixShortcuts(const std::string& installDir, const std::string& launcherExePath);
 
 // Same, against explicit output directories. Exposed for tests.

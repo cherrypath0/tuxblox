@@ -60,7 +60,6 @@ int main() {
         assert(selectSessionLogFiles(entries, 100).empty());
     }
 
-    // robloxLogsDir(): matches plan/todo.md item 10's path exactly.
     {
         assert(robloxLogsDir("/home/x/.tuxblox") ==
                "/home/x/.tuxblox/runtime/pfx/drive_c/users/user/AppData/Local/Roblox/logs");

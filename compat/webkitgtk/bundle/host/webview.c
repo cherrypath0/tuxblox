@@ -710,9 +710,7 @@ struct native_webview *webview_create(int is_message_only)
      * genuine upstream WebKitGTK/NVIDIA bug -- not anything in this file or
      * this process -- see navigate.c's own comment on
      * on_web_process_terminated for the full real-signal/enum verification
-     * against this bundle's actual built WebKitGTK 2.52.5 headers/source,
-     * and .superpowers/sdd/2026-08-14-webview2loader-host-process/
-     * webprocess-terminated-mitigation-report.md for the full writeup).
+     * against this bundle's actual built WebKitGTK 2.52.5 headers/source).
      * Connected unconditionally, same reasoning and same lifetime as the
      * decide-policy connection just above (torn down together by
      * webview_destroy's own gtk_window_destroy call, no separate

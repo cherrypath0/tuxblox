@@ -70,23 +70,10 @@ int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const 
     }
     auto ev = launcher.takeExitEvent(target);
 
-    // Item 10 (plan/todo.md): fold Roblox's own session log(s) into this
-    // launch's log file, unconditionally -- a clean exit still gets its
-    // Roblox log recorded, this isn't gated on crash detection below.
     appendRobloxSessionLogs(installDir, launchStart, outcome.logPath);
-
-    // A fresh install has no c:\proton_shortcuts entries until Roblox's own
-    // installer has run, which happens during this very session -- so refresh
-    // the exported app-menu entries here rather than making the user wait for
-    // the next GUI start. Best-effort, same as everything else in this area.
     exportPrefixShortcuts(installDir, selfExePath());
 
     if (outcome.wasBootstrapInstall && ev && !ev->stopRequested && ev->exitCode == 0) {
-        // The official RobloxPlayerInstaller.exe/RobloxStudioInstaller.exe
-        // just ran (via resolveOrBootstrapExePath's existing fallback) and
-        // exited cleanly -- record whatever version it installed so future
-        // launches use the pinned-version path (Task 5) instead of
-        // re-invoking the installer every time.
         registerBootstrappedVersion(installDir, target);
     }
 
@@ -139,7 +126,6 @@ int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const 
         report.robloxExitCode = robloxExitCode;
         report.logPath = outcome.logPath;
         report.systemInfo = collectSystemInfo();
-
         uploadCrashReport(report);
     }
 

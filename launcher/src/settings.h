@@ -37,7 +37,7 @@ struct FastFlagSet {
 };
 
 struct Settings {
-    // Space-separated "VAR=VALUE" pairs, the same format launch.sh uses.
+    // Space-separated "VAR=VALUE" pairs.
     // Applied two ways, which together cover every process TuxBlox starts:
     // setenv() on the launcher itself, so anything it spawns inherits them,
     // and explicitly on the Proton child, so a launch started directly with

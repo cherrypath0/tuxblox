@@ -96,9 +96,7 @@ cp -a bin/webview2loader-host libexec/
 # level deeper than lib/x86_64-linux-gnu/ itself) and, just as importantly, so
 # no OTHER file's RPATH is ever computed relative to this new subdirectory --
 # confirmed by the earlier, since-reverted attempt at this exact packaging
-# change (see .superpowers/sdd/2026-08-13-webview2-window-docking-messaging/
-# lag-glvnd-report.md) via a full `readelf -d` sweep of the whole repackaged
-# tree.
+# change, via a full `readelf -d` sweep of the whole repackaged tree.
 #
 # Why: unixlib.c's spawn_helper() decides, per-launch, whether
 # webview2loader-host should resolve libEGL.so.1/libGL.so.1 against the

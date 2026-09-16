@@ -22,12 +22,10 @@
  * (see git show ac3634ea6:compat/wine/dlls/webview2loader/unixlib.c),
  * the last commit before Task 3's rewrite deleted that file's in-process
  * dlmopen/GTK-thread machinery. This is Task 5 of the
- * webview2loader-host-process plan
- * (docs/superpowers/plans/2026-08-14-webview2loader-host-process.md).
+ * webview2loader-host-process plan.
  *
  * sync_window_geometry_on_gtk_thread (-> geometry_sync below) is the
- * product of an 18-round, real, hard-won debugging investigation (see
- * .superpowers/sdd/2026-08-13-webview2-window-docking-messaging/progress.md)
+ * product of an 18-round, real, hard-won debugging investigation
  * -- every guard/branch in geometry.c's implementation exists because of a
  * specific, previously-observed crash or visual defect (UAF/TOCTOU races on
  * the shared X11 Display connection, a structurally-impossible >32-bit xid,

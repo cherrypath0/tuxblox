@@ -133,9 +133,7 @@ gboolean on_decide_policy(WebKitWebView *view, WebKitPolicyDecision *decision,
  * real, understood WebKitGTK/NVIDIA Skia GPU-teardown race in
  * WebKitWebProcess's own shutdown path (see navigate.c's own comment on this
  * function for the full real-signal/enum verification against this bundle's
- * actual built WebKitGTK 2.52.5 headers/source, and
- * .superpowers/sdd/2026-08-14-webview2loader-host-process/
- * webprocess-terminated-mitigation-report.md for the full writeup). Exposed
+ * actual built WebKitGTK 2.52.5 headers/source). Exposed
  * here (not static), same reasoning as on_decide_policy above -- connected
  * once per webview at CREATION time, in webview.c's webview_create,
  * alongside close-request/decide-policy. Matches the real

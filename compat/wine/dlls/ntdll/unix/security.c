@@ -571,18 +571,6 @@ static NTSTATUS query_information_token( HANDLE token, TOKEN_INFORMATION_CLASS c
         break;
 
     case TokenPrivileges:
-        /* The five an ordinary Windows process token holds, in the order the
-         * reference machine reports them, measured with
-         * workspace/tests/tokenprobe.exe: 64 bytes, SeChangeNotifyPrivilege
-         * enabled and by default, the rest present but off.
-         *
-         * The server hands out twenty-one, including SeLoadDriverPrivilege and
-         * SeDebugPrivilege, which is not a set any process gets on Windows and
-         * is plainly readable by anything that asks. Only what is *reported*
-         * changes here: the server's list still decides what is allowed, so
-         * nothing that works today stops working. Where the server knows a
-         * privilege, its current enabled state is passed through, so enabling
-         * one still shows up. */
         {
             static const struct { ULONG luid; ULONG attrs; } win_privs[] =
             {

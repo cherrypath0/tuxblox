@@ -22,25 +22,6 @@ namespace tuxblox {
 // Windows path of the bridge root inside the prefix.
 extern const char* const kBridgeWindowsRoot;
 
-// Makes a host file reachable from inside the prefix and returns the Windows
-// path Studio should be given, or "" if it can't be reached.
-//
-// plan/plan.txt item 20 removed the Z: drive (mapping the host root as a drive
-// letter is one of the most common Wine-detection heuristics), so only c: exists
-// in dosdevices/ and a file under /home is otherwise unreachable from inside the
-// prefix. This bridges one file by symlinking its CONTAINING DIRECTORY into
-// C:\users\user\Documents\TuxBlox Files.
-//
-// Directory-level rather than file-level is the whole point: Studio's save path
-// is very likely write-temp-then-rename, and renaming over a FILE symlink
-// replaces the link with a regular file, silently orphaning the user's original.
-// A rename inside a symlinked DIRECTORY lands on the real filesystem.
-//
-// INVARIANT: the return value is a "C:\..." path or "". It must never be a host
-// path -- fake_leaked_command_line() in
-// compat/wine/dlls/kernelbase/process.c appends the file argument to
-// Roblox's command line verbatim, so a host path here would leak straight
-// through the rewrite it exists to prevent.
 std::string bridgeHostPathIntoPrefix(const std::string& installDir, const std::string& hostPath);
 
 // Testable seam: turns a host directory basename into a usable Windows

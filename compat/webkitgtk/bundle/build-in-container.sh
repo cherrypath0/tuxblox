@@ -734,8 +734,7 @@ fetch_and_extract "https://archive.mesa3d.org/mesa-${MESA_VERSION}.tar.xz" /buil
 #
 # This is also the fix for a real, separate, confirmed-reproducible upstream
 # WebKitGTK/NVIDIA driver bug (WebKitWebProcess SIGSEGV in a SkiaGPUWorker thread
-# inside libnvidia-eglcore.so, 5 real coredumps -- see
-# .superpowers/sdd/2026-08-14-webview2loader-host-process/) that Task 7's real
+# inside libnvidia-eglcore.so, 5 real coredumps) that Task 7's real
 # glvnd/host-EGL GPU-acceleration work exposed: the repo owner's explicit decision
 # was to force software rendering unconditionally (see
 # compat/wine/dlls/webview2loader/unixlib.c's spawn_helper(), which no
@@ -965,7 +964,7 @@ ninja -C /build/gst-plugins-bad/_build -j"$JOBS" install
 echo ":: Building webkitgtk $WEBKITGTK_VERSION"
 # 2026-08-15: webkitgtk is now checked directly into this repo, at
 # compat/webkitgtk/src (bind-mounted read-only at /src-webkitgtk by build.sh) --
-# same "carry our own patches as a real, versioned tree" treatment CLAUDE.md already
+# same "carry our own patches as a real, versioned tree" treatment the repo already
 # documents for compat/wine, and for the same reason: this bundle now carries
 # real source patches (WEBKIT_EXEC_PATH, WindowIsActive, isInMonitor -- see
 # compat/webkitgtk/src/README-TUXBLOX-PATCHES.md), previously applied as fragile
