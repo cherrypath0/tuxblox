@@ -203,9 +203,12 @@ static NTSTATUS if_get_physical( const char *name, UINT *type, IF_PHYSICAL_ADDRE
 
         if (!ioctl( fd, SIOCETHTOOL, &ereq ) && perm.hdr.size == phys_addr->Length)
         {
+            /* Read the bytes through space rather than hdr.data, which is the
+             * same storage: older kernel headers declare that trailing array
+             * as data[0], and indexing a zero-length array is an error. */
             /* virtual adapters have no built-in address, and report zeroes */
-            for (j = 0; j < perm.hdr.size; j++) if (perm.hdr.data[j]) break;
-            if (j != perm.hdr.size) memcpy( phys_addr->Address, perm.hdr.data, perm.hdr.size );
+            for (j = 0; j < perm.hdr.size; j++) if (perm.space[j]) break;
+            if (j != perm.hdr.size) memcpy( phys_addr->Address, perm.space, perm.hdr.size );
         }
     }
 #endif

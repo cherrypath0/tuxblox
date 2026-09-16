@@ -1904,6 +1904,8 @@ void tuxblox_diag_continue( const CONTEXT *context ) { }
 void tuxblox_diag_exception( const EXCEPTION_RECORD *rec, const CONTEXT *context ) { }
 void tuxblox_diag_stack_exec( const EXCEPTION_RECORD *rec, const CONTEXT *context ) { }
 void tuxblox_diag_dump_image( const char *why ) { }
+void tuxblox_diag_snapshot( ULONG64 *regs, ULONG64 rip, int bp_orig, LONG64 rsp_delta,
+                            ULONG64 eflags, const void *xmm ) { }
 
 #endif  /* __x86_64__ */
 
