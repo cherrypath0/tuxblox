@@ -113,12 +113,62 @@ int main() {
         assert(packageInstallSubdir("shaders.zip", LaunchTarget::Player) == "shaders/");
         assert(packageInstallSubdir("ssl.zip", LaunchTarget::Player) == "ssl/");
         assert(!packageInstallSubdir("SomeFutureUnknownPackage.zip", LaunchTarget::Player).has_value());
+
+        // Studio's own executable and its Qt runtime -- without these the
+        // version has no RobloxStudioBeta.exe at all.
+        // WebView2Loader.dll sits beside the executable, not in a subfolder.
+        assert(packageInstallSubdir("WebView2.zip", LaunchTarget::Player) == "");
+        assert(packageInstallSubdir("RobloxStudio.zip", LaunchTarget::Player) == "");
+        assert(packageInstallSubdir("Libraries.zip", LaunchTarget::Player) == "");
+        assert(packageInstallSubdir("LibrariesQt5.zip", LaunchTarget::Player) == "");
+        assert(packageInstallSubdir("BuiltInStandalonePlugins.zip", LaunchTarget::Player) ==
+               "BuiltInStandalonePlugins/");
+        assert(packageInstallSubdir("content-qt_translations.zip", LaunchTarget::Player) ==
+               "content/qt_translations/");
+        assert(packageInstallSubdir("content-studio_svg_textures.zip", LaunchTarget::Player) ==
+               "content/studio_svg_textures/");
+        assert(packageInstallSubdir("content-api-docs.zip", LaunchTarget::Player) == "content/api_docs/");
+        assert(packageInstallSubdir("content-platform-dictionaries.zip", LaunchTarget::Player) ==
+               "PlatformContent/pc/shared_compression_dictionaries/");
+        assert(packageInstallSubdir("extracontent-scripts.zip", LaunchTarget::Player) == "ExtraContent/scripts/");
+        assert(packageInstallSubdir("studiocontent-models.zip", LaunchTarget::Player) == "StudioContent/models/");
+        assert(packageInstallSubdir("studiocontent-textures.zip", LaunchTarget::Player) ==
+               "StudioContent/textures/");
+        // Holds MicrosoftEdgeWebview2Setup.exe, which TuxBlox's own WebView2
+        // support makes unnecessary. Skipped on purpose, not unknown.
+        assert(!packageInstallSubdir("WebView2RuntimeInstaller.zip", LaunchTarget::Player).has_value());
+
     }
 
-    // setupCdnUrl(): builds a fetchable URL for a given mirror.
+    // normalizeChannel(): blank means the default channel, and channel
+    // names on the CDN are lowercase only.
     {
-        assert(setupCdnUrl("setup.rbxcdn.com", "version-abc123", "RobloxApp.zip") ==
+        assert(normalizeChannel("") == "live");
+        assert(normalizeChannel("live") == "live");
+        assert(normalizeChannel("LIVE") == "live");
+        assert(normalizeChannel("ZIntegration") == "zintegration");
+        assert(normalizeChannel("  zcanary  ") == "zcanary");
+    }
+
+    // setupCdnUrl(): the default channel lives at the mirror root, every
+    // other channel under channel/<name>/.
+    {
+        assert(setupCdnUrl("setup.rbxcdn.com", "live", "version-abc123", "RobloxApp.zip") ==
                "https://setup.rbxcdn.com/version-abc123-RobloxApp.zip");
+        assert(setupCdnUrl("setup.rbxcdn.com", "", "version-abc123", "RobloxApp.zip") ==
+               "https://setup.rbxcdn.com/version-abc123-RobloxApp.zip");
+        assert(setupCdnUrl("setup.rbxcdn.com", "zcanary", "version-abc123", "RobloxApp.zip") ==
+               "https://setup.rbxcdn.com/channel/zcanary/version-abc123-RobloxApp.zip");
+        assert(setupCdnUrl("setup-aws.rbxcdn.com", "ZCanary", "version-abc123", "rbxPkgManifest.txt") ==
+               "https://setup-aws.rbxcdn.com/channel/zcanary/version-abc123-rbxPkgManifest.txt");
+    }
+
+    // deployHistoryUrl(): same split as setupCdnUrl().
+    {
+        assert(deployHistoryUrl("setup.rbxcdn.com", "live") ==
+               "https://setup.rbxcdn.com/DeployHistory.txt");
+        assert(deployHistoryUrl("setup.rbxcdn.com", "zintegration") ==
+               "https://setup.rbxcdn.com/channel/zintegration/DeployHistory.txt");
     }
 
     printf("roblox_deploy: all tests passed\n");

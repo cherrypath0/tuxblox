@@ -28,11 +28,16 @@ namespace tuxblox {
 // used both in the clientsettings API path and in DeployHistory.txt lines.
 const char* robloxBinaryType(LaunchTarget target);
 
+// Blank means the default channel, and channel names are lowercase only.
+// Every function here that takes a channel normalizes it this way first.
+std::string normalizeChannel(const std::string& channel);
+
 // Fetches https://clientsettings.roblox.com/v2/client-version/{binaryType}
-// (channel segment "/channel/{channel}" appended unless channel == "live",
-// matching Roblox's default-channel convention). Raw curl GET, same
-// pattern as manifest.cpp's fetchManifestJson. Throws std::runtime_error on
-// any transport/HTTP error.
+// (channel segment "/channel/{channel}" appended unless the channel is the
+// default one). Raw curl GET, same pattern as manifest.cpp's
+// fetchManifestJson. Throws std::runtime_error on any transport/HTTP error.
+// Roblox restricts its private channels: anything but "live" answers HTTP
+// 401 without an account that has permission for it.
 std::string fetchClientVersionJson(const std::string& binaryType, const std::string& channel,
                                     const std::atomic<bool>* cancel = nullptr);
 
@@ -42,8 +47,8 @@ std::string fetchClientVersionJson(const std::string& binaryType, const std::str
 // isn't valid JSON.
 std::string parseClientVersionHash(const std::string& json);
 
-// Fetches the raw https://setup.rbxcdn.com/DeployHistory.txt body.
-std::string fetchDeployHistory(const std::atomic<bool>* cancel = nullptr);
+// Fetches the raw DeployHistory.txt body for a channel.
+std::string fetchDeployHistory(const std::string& channel, const std::atomic<bool>* cancel = nullptr);
 
 // Generic HTTP GET returning the response body as text -- exposed publicly
 // (not just used internally by the two functions above) because Task 6
@@ -86,9 +91,14 @@ std::vector<PackageEntry> parsePackageManifest(const std::string& manifestText);
 // across the versions/ directory tree.
 std::optional<std::string> packageInstallSubdir(const std::string& packageName, LaunchTarget target);
 
-// "https://" + mirrorHost + "/" + hash + "-" + filename -- both known
-// mirrors (setup.rbxcdn.com, setup-aws.rbxcdn.com) serve identical content
-// per the spec; callers retry with the alternate mirror on failure.
-std::string setupCdnUrl(const std::string& mirrorHost, const std::string& hash, const std::string& filename);
+// Builds a package URL. The default channel is served from the mirror
+// root, every other channel from channel/<name>/. Both known mirrors
+// (setup.rbxcdn.com, setup-aws.rbxcdn.com) serve identical content, so
+// callers retry with the alternate mirror on failure.
+std::string setupCdnUrl(const std::string& mirrorHost, const std::string& channel,
+                        const std::string& hash, const std::string& filename);
+
+// The channel's DeployHistory.txt, split the same way as setupCdnUrl().
+std::string deployHistoryUrl(const std::string& mirrorHost, const std::string& channel);
 
 } // namespace tuxblox

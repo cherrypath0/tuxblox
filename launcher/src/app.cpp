@@ -470,6 +470,9 @@ void App::versionInstallThreadMain(LaunchTarget target, VersionSelectMode mode, 
     };
 
     const char* binaryType = robloxBinaryType(target);
+    // Canonical form, so the version list doesn't show "ZCanary" and
+    // "zcanary" as two different channels.
+    channel = normalizeChannel(channel);
 
     std::string hash;
     try {
@@ -480,16 +483,24 @@ void App::versionInstallThreadMain(LaunchTarget target, VersionSelectMode mode, 
         } else { // Previous
             std::string latestHash =
                 parseClientVersionHash(fetchClientVersionJson(binaryType, channel, &versionInstallCancel_));
-            std::string history = fetchDeployHistory(&versionInstallCancel_);
+            std::string history = fetchDeployHistory(channel, &versionInstallCancel_);
             auto prev = previousVersionFromDeployHistory(history, binaryType, latestHash);
             if (!prev.has_value()) {
-                fail("No earlier version found in Roblox's deploy history for this channel.");
+                fail("No earlier version found in Roblox's deploy history for this channel. "
+                      "Roblox hides the version list for its private channels, so this only "
+                      "works on the live channel.");
                 return;
             }
             hash = *prev;
         }
     } catch (const std::exception& e) {
-        fail(std::string("Couldn't resolve a version: ") + e.what());
+        const std::string detail = e.what();
+        if (detail.find("401") != std::string::npos) {
+            fail("Roblox does not allow this channel to be looked up, so TuxBlox cannot find its "
+                  "latest version. Type an exact version instead, or use the live channel.");
+        } else {
+            fail(std::string("Couldn't resolve a version: ") + detail);
+        }
         return;
     }
     if (hash.empty()) {
@@ -507,7 +518,7 @@ void App::versionInstallThreadMain(LaunchTarget target, VersionSelectMode mode, 
         bool ok = false;
         for (const char* mirror : kMirrors) {
             try {
-                manifestText = fetchText(setupCdnUrl(mirror, hash, "rbxPkgManifest.txt"),
+                manifestText = fetchText(setupCdnUrl(mirror, channel, hash, "rbxPkgManifest.txt"),
                                           &versionInstallCancel_);
                 ok = true;
                 break;
@@ -543,7 +554,7 @@ void App::versionInstallThreadMain(LaunchTarget target, VersionSelectMode mode, 
         static const char* kMirrors[] = {"setup.rbxcdn.com", "setup-aws.rbxcdn.com"};
         DownloadOutcome outcome{DownloadResult::Failed, "no mirror attempted"};
         for (const char* mirror : kMirrors) {
-            outcome = downloadFile(setupCdnUrl(mirror, hash, pkg.name), destZip,
+            outcome = downloadFile(setupCdnUrl(mirror, channel, hash, pkg.name), destZip,
                 [&](uint64_t now, uint64_t total) {
                     double pkgFraction = total > 0 ? static_cast<double>(now) / total : 0.0;
                     double overall = 0.1 + 0.6 * ((i + pkgFraction) / std::max<size_t>(1, packages.size()));

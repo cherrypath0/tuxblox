@@ -17,12 +17,22 @@ One row of controls along the top:
 | Control | What it does |
 |---|---|
 | **Player / Studio** | Which app you are installing for |
-| **Channel** | Roblox's release channel, `live` unless you have a reason |
+| **Channel** | Roblox's release channel, `live` unless you have a reason. See [Channels](#channels) |
 | **Version** | A specific `version-…` hash, or leave it blank for the latest |
 | **Install** | Downloads and installs what the fields describe |
 | **Previous** | Installs the build immediately before the current latest |
 
 **Previous** is the button most people want. It is the "Roblox broke something today" button.
+
+### Channels
+
+Roblox publishes its builds to named channels. `live` is the one everybody gets, and it is what the box starts on.
+
+Roblox keeps its other channels private. Asking for the newest build on one of those comes back refused, so **Install** with an empty Version box and **Previous** both only work on `live`. Roblox also hides the build list for those channels, which is what **Previous** reads.
+
+If you already know the exact hash you want, type the channel name and that hash and TuxBlox will fetch it. Capitals do not matter.
+
+Whether a channel can be reached at all is Roblox's decision, and TuxBlox cannot change it.
 
 While an install runs you get a progress bar and a label telling you which stage it is at: resolving the version, fetching the package list, downloading, then extracting. Studio is made up of more than thirty packages, so downloading takes a while.
 

@@ -18,6 +18,8 @@
 #include "downloader.h"
 #include "json.hpp"
 #include <curl/curl.h>
+#include <algorithm>
+#include <cctype>
 #include <map>
 #include <sstream>
 #include <stdexcept>
@@ -25,6 +27,8 @@
 namespace tuxblox {
 
 namespace {
+
+const char* const kDefaultChannel = "live";
 
 size_t curlWriteToString(char* ptr, size_t size, size_t nmemb, void* userdata) {
     auto* out = static_cast<std::string*>(userdata);
@@ -76,17 +80,21 @@ std::string httpGet(const std::string& url, const std::atomic<bool>* cancel) {
     return body;
 }
 
-// Ported from the publicly documented RDD/Bloxstrap package->folder
-// mapping. NOT independently re-verified against a live Roblox deployment
-// -- covers the packages this table's author was confident about. Anything
-// else returns nullopt (see packageInstallSubdir's header doc).
+// Where each package's contents belong inside a version directory.
+// Verified against a real Roblox install: every package in a live Studio
+// manifest was extracted and matched to the folder its files actually
+// occupy. WebView2RuntimeInstaller.zip is deliberately absent -- it holds
+// only MicrosoftEdgeWebview2Setup.exe, which TuxBlox's own WebView2 support
+// makes unnecessary. Anything not listed returns nullopt and is skipped
+// rather than guessed at.
 const std::map<std::string, std::string>& knownPackageSubdirs() {
     static const std::map<std::string, std::string> kMap = {
         {"RobloxApp.zip", ""},
         {"redist.zip", ""},
         {"shaders.zip", "shaders/"},
         {"ssl.zip", "ssl/"},
-        {"WebView2.zip", "WebView2/"},
+        // WebView2Loader.dll loads from beside the executable, not a subfolder.
+        {"WebView2.zip", ""},
         {"content-avatar.zip", "content/avatar/"},
         {"content-configs.zip", "content/configs/"},
         {"content-fonts.zip", "content/fonts/"},
@@ -103,7 +111,18 @@ const std::map<std::string, std::string>& knownPackageSubdirs() {
         {"extracontent-textures.zip", "ExtraContent/textures/"},
         {"extracontent-places.zip", "ExtraContent/places/"},
         // Studio-only packages.
+        {"RobloxStudio.zip", ""},
+        {"Libraries.zip", ""},
+        {"LibrariesQt5.zip", ""},
         {"BuiltInPlugins.zip", "BuiltInPlugins/"},
+        {"BuiltInStandalonePlugins.zip", "BuiltInStandalonePlugins/"},
+        {"content-qt_translations.zip", "content/qt_translations/"},
+        {"content-studio_svg_textures.zip", "content/studio_svg_textures/"},
+        {"content-api-docs.zip", "content/api_docs/"},
+        {"content-platform-dictionaries.zip", "PlatformContent/pc/shared_compression_dictionaries/"},
+        {"extracontent-scripts.zip", "ExtraContent/scripts/"},
+        {"studiocontent-models.zip", "StudioContent/models/"},
+        {"studiocontent-textures.zip", "StudioContent/textures/"},
         {"ApplicationConfig.zip", "ApplicationConfig/"},
         {"Plugins.zip", "Plugins/"},
         {"StudioFonts.zip", "StudioFonts/"},
@@ -111,6 +130,14 @@ const std::map<std::string, std::string>& knownPackageSubdirs() {
         {"Bin.zip", ""},
     };
     return kMap;
+}
+
+// The default channel is served from the mirror root, every other channel
+// from channel/<name>/.
+std::string cdnBase(const std::string& mirrorHost, const std::string& channel) {
+    const std::string name = normalizeChannel(channel);
+    if (name == kDefaultChannel) return "https://" + mirrorHost + "/";
+    return "https://" + mirrorHost + "/channel/" + name + "/";
 }
 
 } // namespace
@@ -122,8 +149,9 @@ const char* robloxBinaryType(LaunchTarget target) {
 std::string fetchClientVersionJson(const std::string& binaryType, const std::string& channel,
                                     const std::atomic<bool>* cancel) {
     std::string url = "https://clientsettings.roblox.com/v2/client-version/" + binaryType;
-    if (channel != "live" && !channel.empty()) {
-        url += "/channel/" + channel;
+    const std::string name = normalizeChannel(channel);
+    if (name != kDefaultChannel) {
+        url += "/channel/" + name;
     }
     return httpGet(url, cancel);
 }
@@ -141,8 +169,8 @@ std::string parseClientVersionHash(const std::string& json) {
     }
 }
 
-std::string fetchDeployHistory(const std::atomic<bool>* cancel) {
-    return httpGet("https://setup.rbxcdn.com/DeployHistory.txt", cancel);
+std::string fetchDeployHistory(const std::string& channel, const std::atomic<bool>* cancel) {
+    return httpGet(deployHistoryUrl("setup.rbxcdn.com", channel), cancel);
 }
 
 std::string fetchText(const std::string& url, const std::atomic<bool>* cancel) {
@@ -218,8 +246,23 @@ std::optional<std::string> packageInstallSubdir(const std::string& packageName, 
     return it->second;
 }
 
-std::string setupCdnUrl(const std::string& mirrorHost, const std::string& hash, const std::string& filename) {
-    return "https://" + mirrorHost + "/" + hash + "-" + filename;
+std::string normalizeChannel(const std::string& channel) {
+    const size_t begin = channel.find_first_not_of(" \t\r\n");
+    if (begin == std::string::npos) return kDefaultChannel;
+    const size_t end = channel.find_last_not_of(" \t\r\n");
+    std::string name = channel.substr(begin, end - begin + 1);
+    std::transform(name.begin(), name.end(), name.begin(),
+                    [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return name;
+}
+
+std::string setupCdnUrl(const std::string& mirrorHost, const std::string& channel,
+                        const std::string& hash, const std::string& filename) {
+    return cdnBase(mirrorHost, channel) + hash + "-" + filename;
+}
+
+std::string deployHistoryUrl(const std::string& mirrorHost, const std::string& channel) {
+    return cdnBase(mirrorHost, channel) + "DeployHistory.txt";
 }
 
 } // namespace tuxblox
