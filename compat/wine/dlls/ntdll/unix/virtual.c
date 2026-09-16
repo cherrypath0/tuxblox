@@ -5133,7 +5133,12 @@ void virtual_init_user_shared_data(void)
      * reads it off this page and branches on it, and zero is both an impossible
      * value on a running Windows and a visible Wine tell. A plausible nonzero
      * count is enough -- the real value varies boot to boot, so nothing can key
-     * on a specific one. */
+     * on a specific one.
+     *
+     * The layer branches on BootId modulo three, to pick between equivalent
+     * clones of the same code, so this value decides which arm every run takes.
+     * Both arms were emulated and they converge, so changing it buys nothing;
+     * do not change it without measuring the Player run again. */
     data->BootId = 33;
     /* When the current time-zone bias took effect. Windows fills a real
      * timestamp here; zero says the machine has never had a time zone. Use a
@@ -5786,6 +5791,113 @@ NTSTATUS virtual_unlock_client_access( ULONG_PTR image_base )
         else a += host_page_size;
     }
     server_leave_uninterrupted_section( &virtual_mutex, &sigset );
+    return STATUS_SUCCESS;
+}
+
+
+/***********************************************************************
+ *           client_export_address
+ *
+ * Address of one export, by module base name and function name, from the
+ * loader list this process already has. Hyperion strips the client's import
+ * directory -- it points at a 0x28-byte stub inside the exe's own .byfron
+ * section -- and binds the client's IAT itself at run time, so with the layer's
+ * unlock never happening the client's first import call reads an unbound slot.
+ * This resolves the same names the layer would.
+ */
+static ULONG_PTR client_export_address( const char *dll, const char *func )
+{
+    const LIST_ENTRY *head, *cur;
+    unsigned int i;
+
+    if (!peb || !peb->LdrData) return 0;
+    head = &peb->LdrData->InLoadOrderModuleList;
+    for (cur = head->Flink; cur && cur != head; cur = cur->Flink)
+    {
+        const LDR_DATA_TABLE_ENTRY *mod = (const LDR_DATA_TABLE_ENTRY *)cur;
+        const WCHAR *name = mod->BaseDllName.Buffer;
+        SIZE_T len = mod->BaseDllName.Length / sizeof(WCHAR);
+        const IMAGE_DOS_HEADER *dos;
+        const IMAGE_NT_HEADERS *nt;
+        const IMAGE_EXPORT_DIRECTORY *exp;
+        const DWORD *names, *funcs;
+        const WORD *ordinals;
+        ULONG_PTR base;
+        DWORD size;
+
+        if (!name || len != strlen( dll )) continue;
+        for (i = 0; i < len; i++)
+            if ((name[i] | 0x20) != (dll[i] | 0x20)) break;
+        if (i != len) continue;
+
+        base = (ULONG_PTR)mod->DllBase;
+        dos = (const IMAGE_DOS_HEADER *)base;
+        if (dos->e_magic != IMAGE_DOS_SIGNATURE) return 0;
+        nt = (const IMAGE_NT_HEADERS *)(base + dos->e_lfanew);
+        if (nt->Signature != IMAGE_NT_SIGNATURE) return 0;
+        size = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].Size;
+        if (!size) return 0;
+        exp = (const IMAGE_EXPORT_DIRECTORY *)
+              (base + nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress);
+        names = (const DWORD *)(base + exp->AddressOfNames);
+        funcs = (const DWORD *)(base + exp->AddressOfFunctions);
+        ordinals = (const WORD *)(base + exp->AddressOfNameOrdinals);
+        for (i = 0; i < exp->NumberOfNames; i++)
+        {
+            if (strcmp( (const char *)(base + names[i]), func )) continue;
+            /* a forwarder's RVA points back inside the export directory */
+            if (funcs[ordinals[i]] >= nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress &&
+                funcs[ordinals[i]] <  nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress + size)
+                return 0;
+            return base + funcs[ordinals[i]];
+        }
+        return 0;
+    }
+    return 0;
+}
+
+
+/***********************************************************************
+ *           virtual_bind_client_imports
+ *
+ * TuxBlox experiment, env-gated by TUXBLOX_TEST_BIND_CLIENT=<path>. The file
+ * lists one slot per line as "<hex rva> <dll> <function>", recovered from a
+ * Windows capture where the layer had bound them. Does the layer's binding job
+ * so an injected client can call out; only useful alongside
+ * TUXBLOX_TEST_INJECT_CLIENT, and never part of a normal run.
+ */
+NTSTATUS virtual_bind_client_imports( ULONG_PTR image_base )
+{
+    unsigned int bound = 0, missing = 0, lines = 0;
+    char line[512];
+    const char *path;
+    sigset_t sigset;
+    FILE *fh;
+
+    if (!(path = getenv( "TUXBLOX_TEST_BIND_CLIENT" ))) return STATUS_NOT_FOUND;
+    if (!(fh = fopen( path, "r" ))) return STATUS_NOT_FOUND;
+
+    server_enter_uninterrupted_section( &virtual_mutex, &sigset );
+    while (fgets( line, sizeof(line), fh ))
+    {
+        char dll[128], func[192];
+        unsigned long long rva;
+        struct file_view *view;
+        ULONG_PTR addr, slot;
+
+        if (sscanf( line, "%llx %127s %191s", &rva, dll, func ) != 3) continue;
+        lines++;
+        slot = image_base + (ULONG_PTR)rva;
+        if (!(addr = client_export_address( dll, func ))) { missing++; continue; }
+        if (!(view = find_view( (void *)slot, sizeof(ULONG_PTR) ))) { missing++; continue; }
+        set_vprot( view, (void *)slot, sizeof(ULONG_PTR),
+                   VPROT_READ | VPROT_WRITE | VPROT_COMMITTED );
+        *(ULONG_PTR *)slot = addr;
+        bound++;
+    }
+    server_leave_uninterrupted_section( &virtual_mutex, &sigset );
+    fclose( fh );
+    ERR( "tuxblox: bound %u of %u client imports (%u unresolved)\n", bound, lines, missing );
     return STATUS_SUCCESS;
 }
 
@@ -6727,6 +6839,70 @@ static void update_writecopy_state( char *base, char *end )
 }
 
 
+/* TuxBlox probe, env-gated by TUXBLOX_TEST_IMAGE_REGIONS=1.
+ *
+ * The anti-tamper layer walks the client exe's image regions one
+ * NtQueryVirtualMemory at a time and builds its section list from them. We
+ * report thirteen in-image regions where Windows reports fifteen, because our
+ * write-copy tracking counts loader-dirtied pages as written and so merges
+ * boundaries Windows keeps. Scored against the Windows call sequence the count
+ * matters: the run tracks Windows for 28 calls at thirteen and 36 at fifteen,
+ * and fifteen is a unique peak.
+ *
+ * This fabricates the Windows-shaped answer for that one image so the real run
+ * can be measured before the write-copy accounting is rebuilt for real. The
+ * table is this client build's layout; on any other image it does nothing.
+ */
+struct image_region { unsigned int rva, size, prot; };
+
+static const struct image_region client_regions[] =
+{
+    { 0x0000000, 0x0001000, PAGE_READONLY },          /* headers */
+    { 0x0001000, 0x6050000, PAGE_NOACCESS },          /* .text, still ciphertext */
+    { 0x6051000, 0x0001000, PAGE_EXECUTE_READ },      /* .rodata */
+    { 0x6052000, 0x1bad000, PAGE_READONLY },          /* .rdata */
+    { 0x7bff000, 0x0511000, PAGE_READWRITE },         /* .data, written */
+    { 0x8110000, 0x0c00000, PAGE_WRITECOPY },
+    { 0x8d10000, 0x0001000, PAGE_READWRITE },
+    { 0x8d11000, 0x00de000, PAGE_WRITECOPY },
+    { 0x8def000, 0x033a000, PAGE_READONLY },          /* absorbs .didat, as Windows */
+    { 0x9129000, 0x0001000, PAGE_READWRITE },         /* CPADinfo */
+    { 0x912a000, 0x0001000, PAGE_READONLY },          /* _RDATA */
+    { 0x912b000, 0x005e000, PAGE_WRITECOPY },         /* .xbld + .rsrc, untouched */
+    { 0x9189000, 0x010d000, PAGE_READONLY },          /* .reloc */
+    { 0x9296000, 0x0001000, PAGE_EXECUTE_READWRITE }, /* tempest */
+    { 0x9297000, 0x0001000, PAGE_WRITECOPY },         /* .byfron */
+};
+
+static BOOL fake_client_region( const void *addr, MEMORY_BASIC_INFORMATION *info )
+{
+    static int enabled = -1;
+    ULONG_PTR base, off;
+    unsigned int i;
+
+    if (enabled == -1) enabled = getenv( "TUXBLOX_TEST_IMAGE_REGIONS" ) ? 1 : 0;
+    if (!enabled || !peb) return FALSE;
+    base = (ULONG_PTR)peb->ImageBaseAddress;
+    if (!base || (ULONG_PTR)addr < base) return FALSE;
+    off = (ULONG_PTR)addr - base;
+    for (i = 0; i < ARRAY_SIZE(client_regions); i++)
+    {
+        const struct image_region *r = &client_regions[i];
+
+        if (off < r->rva || off >= r->rva + r->size) continue;
+        info->BaseAddress       = (void *)((ULONG_PTR)addr & ~(ULONG_PTR)page_mask);
+        info->AllocationBase    = (void *)base;
+        info->AllocationProtect = PAGE_EXECUTE_WRITECOPY;
+        info->RegionSize        = base + r->rva + r->size - (ULONG_PTR)info->BaseAddress;
+        info->State             = MEM_COMMIT;
+        info->Protect           = r->prot;
+        info->Type              = MEM_IMAGE;
+        return TRUE;
+    }
+    return FALSE;
+}
+
+
 static unsigned int fill_basic_memory_info( const void *addr, MEMORY_BASIC_INFORMATION *info )
 {
     char *base, *alloc_base, *alloc_end;
@@ -6782,6 +6958,7 @@ static unsigned int fill_basic_memory_info( const void *addr, MEMORY_BASIC_INFOR
         else info->Type = MEM_PRIVATE;
     }
     server_leave_uninterrupted_section( &virtual_mutex, &sigset );
+    fake_client_region( addr, info );
 
     return STATUS_SUCCESS;
 }

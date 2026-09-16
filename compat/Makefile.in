@@ -26,8 +26,13 @@ SHELL := /bin/bash
 #
 TARGET_ARCH ?= x86_64
 
+# Built from Containerfile.compat at the repo root: the sniper SDK (glibc 2.31)
+# plus a newer meson. Upstream's steamrt4 SDK is glibc 2.41, which real Proton
+# gets from the Steam runtime container it runs inside; TuxBlox runs on the
+# user's own system, so that number becomes the oldest distro TuxBlox can start
+# on at all.
 ifeq ($(TARGET_ARCH),x86_64)
-	STEAMRT_IMAGE ?= registry.gitlab.steamos.cloud/proton/steamrt4/sdk/x86_64:4.0.20260331.220802-0
+	STEAMRT_IMAGE ?= tuxblox-compat-builder
 else ifeq ($(TARGET_ARCH),arm64)
 	STEAMRT_IMAGE ?= registry.gitlab.steamos.cloud/proton/steamrt4/sdk/arm64-llvm:4.0.20260331.220802-0
 else

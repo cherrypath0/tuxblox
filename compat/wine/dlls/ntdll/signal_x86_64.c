@@ -356,6 +356,12 @@ NTSTATUS call_seh_handlers( EXCEPTION_RECORD *rec, CONTEXT *orig_context )
         /* hack: call wine handlers registered in the tib list */
         else while (is_valid_frame( (ULONG_PTR)teb_frame ) && (ULONG64)teb_frame < context.Rsp)
         {
+            if (!is_valid_frame_handler( teb_frame ))
+            {
+                WARN( "skipping TEB frame %p, handler %p is not ours\n", teb_frame, teb_frame->Handler );
+                teb_frame = teb_frame->Prev;
+                continue;
+            }
             TRACE( "calling TEB handler %p (rec=%p frame=%p context=%p dispatch=%p) sp=%I64x\n",
                    teb_frame->Handler, rec, teb_frame, orig_context, &dispatch, context.Rsp );
             res = call_seh_handler( rec, (ULONG_PTR)teb_frame, orig_context,
@@ -838,6 +844,12 @@ void WINAPI RtlUnwindEx( PVOID end_frame, PVOID target_ip, EXCEPTION_RECORD *rec
                    (ULONG64)teb_frame < new_context.Rsp &&
                    (ULONG64)teb_frame < (ULONG64)end_frame)
             {
+                if (!is_valid_frame_handler( teb_frame ))
+                {
+                    WARN( "skipping TEB frame %p, handler %p is not ours\n", teb_frame, teb_frame->Handler );
+                    teb_frame = __wine_pop_frame( teb_frame );
+                    continue;
+                }
                 TRACE( "calling TEB handler %p (rec=%p, frame=%p context=%p, dispatch=%p)\n",
                        teb_frame->Handler, rec, teb_frame, dispatch.ContextRecord, &dispatch );
                 res = call_unwind_handler( rec, (ULONG_PTR)teb_frame, dispatch.ContextRecord, &dispatch,

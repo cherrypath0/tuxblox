@@ -626,8 +626,10 @@ else
     echo ":: All dependencies satisfied, skipping package manager."
 fi
 
-step "Checking rootless podman and warming the old-glibc builder image"
-run_step "check_podman" strict bash -c 'podman info >/dev/null && podman build -t tuxblox-old-glibc-builder -f Containerfile .'
+step "Checking rootless podman and warming the old-glibc builder images"
+run_step "check_podman" strict bash -c 'podman info >/dev/null \
+    && podman build -t tuxblox-old-glibc-builder -f Containerfile . \
+    && podman build -t tuxblox-compat-builder -f Containerfile.compat .'
 
 step "Reloading submodules and applying patches"
 run_step "apply_patches" strict apply_patches

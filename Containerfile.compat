@@ -1,0 +1,99 @@
+# Build image for the compatibility layer.
+#
+# Valve build Proton in the steamrt4 SDK (Debian 13, glibc 2.41) because real
+# Proton runs inside the Steam runtime container, which carries that glibc with
+# it. TuxBlox runs the layer straight on the user's system, so the glibc it is
+# built against becomes a hard requirement on everybody's machine -- 2.41 left
+# every Ubuntu 22.04, Mint 21, RHEL 9 and Debian 11 install unable to start
+# wineserver at all. Sniper is Debian 11 (glibc 2.31) with the same gcc 14.2
+# and mingw-w64 14.2 the steamrt4 SDK has, so the floor drops without changing
+# compilers.
+FROM registry.gitlab.steamos.cloud/proton/sniper/sdk:3.0.20250519.130773-0
+
+# sniper ships meson 1.0.1; gstreamer needs 1.4 and gst-orc needs 1.3.
+ARG MESON_VERSION=1.7.0
+RUN curl -sSfL "https://github.com/mesonbuild/meson/releases/download/${MESON_VERSION}/meson-${MESON_VERSION}.tar.gz" \
+        | tar -xz -C /opt \
+    && ln -sf "/opt/meson-${MESON_VERSION}/meson.py" /usr/local/bin/meson \
+    && meson --version
+
+# libsoup's dependencies. The steamrt4 SDK carries these; sniper does not, and
+# a missing one fails the configure step outright rather than degrading. Both
+# architectures, because the layer is built 32- and 64-bit.
+RUN dpkg --add-architecture i386 && apt-get update && apt-get install -y --no-install-recommends \
+        libsqlite3-dev libsqlite3-dev:i386 \
+        libpsl-dev libpsl-dev:i386 \
+        libbrotli-dev libbrotli-dev:i386 \
+    && rm -rf /var/lib/apt/lists/*
+
+# nghttp2's headers, unpacked rather than installed. Two Debian 11 facts get in
+# the way of `apt-get install libnghttp2-dev`: it is not Multi-Arch: same there
+# (Debian 13's, which the steamrt4 SDK uses, is), so the two architectures'
+# -dev packages refuse to co-exist; and bullseye-security still indexes
+# 1.43.0-1+deb11u3 while no longer carrying the file, so apt's own candidate
+# 404s. The runtime library is already in the image for both architectures and
+# the headers are architecture-independent, so unpacking the bullseye -dev
+# package and writing a .pc per architecture gives both builds what they need.
+RUN set -eu; \
+    apt-get update; \
+    cd /tmp; \
+    apt-get download libnghttp2-dev=1.43.0-1+deb11u1; \
+    dpkg-deb -x libnghttp2-dev_*.deb /tmp/nghttp2; \
+    cp -a /tmp/nghttp2/usr/include/. /usr/include/; \
+    for triplet in x86_64-linux-gnu i386-linux-gnu; do \
+        ln -sf libnghttp2.so.14 "/usr/lib/$triplet/libnghttp2.so"; \
+        sed -e "s|^libdir=.*|libdir=/usr/lib/$triplet|" \
+            /tmp/nghttp2/usr/lib/x86_64-linux-gnu/pkgconfig/libnghttp2.pc \
+            > "/usr/lib/$triplet/pkgconfig/libnghttp2.pc"; \
+        PKG_CONFIG_LIBDIR="/usr/lib/$triplet/pkgconfig" pkg-config --modversion libnghttp2; \
+    done; \
+    rm -rf /tmp/nghttp2 /tmp/libnghttp2-dev_*.deb /var/lib/apt/lists/*
+
+# glib 2.70. libsoup 3.7.1 needs it (GTlsProtocolVersion and
+# G_URI_FLAGS_SCHEME_NORMALIZE arrived in 2.70 and 2.68), and Debian 11 carries
+# 2.66. 2.70.5 is the lowest version that satisfies libsoup, which matters
+# because glib is NOT shipped inside the layer: gstreamer and libsoup resolve
+# it from the user's own system at run time, so whatever is built against here
+# becomes a second floor. The steamrt4 SDK's 2.84 put that floor above every
+# distro older than Ubuntu 24.04.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libffi-dev libffi-dev:i386 \
+        libpcre3-dev libpcre3-dev:i386 \
+        zlib1g-dev zlib1g-dev:i386 \
+        libmount-dev libmount-dev:i386 \
+        libselinux1-dev libselinux1-dev:i386 \
+        gettext \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN set -eu; \
+    printf '%s\n' \
+        '[binaries]' \
+        "c = ['gcc', '-m32']" \
+        "cpp = ['g++', '-m32']" \
+        "ar = 'ar'" \
+        "strip = 'strip'" \
+        "pkg-config = 'pkg-config'" \
+        '' \
+        '[properties]' \
+        'needs_exe_wrapper = false' \
+        "pkg_config_libdir = '/usr/lib/i386-linux-gnu/pkgconfig:/usr/share/pkgconfig'" \
+        '' \
+        '[host_machine]' \
+        "system = 'linux'" \
+        "cpu_family = 'x86'" \
+        "cpu = 'i686'" \
+        "endian = 'little'" \
+        > /tmp/i386.cross; \
+    curl -sSfL https://download.gnome.org/sources/glib/2.70/glib-2.70.5.tar.xz | tar -xJ -C /tmp; \
+    cd /tmp/glib-2.70.5; \
+    meson setup _b64 --prefix=/usr --libdir=lib/x86_64-linux-gnu \
+        --buildtype=release -Dtests=false -Dselinux=disabled; \
+    ninja -C _b64 install; \
+    meson setup _b32 --prefix=/usr --libdir=lib/i386-linux-gnu \
+        --buildtype=release -Dtests=false -Dselinux=disabled \
+        --cross-file /tmp/i386.cross; \
+    ninja -C _b32 install; \
+    cd /; rm -rf /tmp/glib-2.70.5 /tmp/i386.cross; \
+    ldconfig; \
+    pkg-config --modversion glib-2.0; \
+    PKG_CONFIG_LIBDIR=/usr/lib/i386-linux-gnu/pkgconfig pkg-config --modversion glib-2.0

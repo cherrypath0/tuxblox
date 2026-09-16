@@ -108,6 +108,11 @@ struct compat_wine_nt_to_unix_file_name_params
     unsigned int disposition;
 };
 
+struct relocate_module_params
+{
+    void *module;
+};
+
 enum ntdll_unix_funcs
 {
     unix_load_so_dll,
@@ -124,6 +129,7 @@ enum ntdll_unix_funcs
     unix_steamclient_setup_trampolines,
     unix_debugstr_pc,
     unix_compat_wine_nt_to_unix_file_name,
+    unix_relocate_module,
 };
 
 extern unixlib_handle_t __wine_unixlib_handle;

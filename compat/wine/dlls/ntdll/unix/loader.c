@@ -1447,6 +1447,19 @@ const char * wine_debuginfostr_pc( void *pc )
     return __wine_dbg_strdup( buffer );
 }
 
+/* Relocating a module means making its sections writable and then putting the
+ * protections back. Windows does that below the Win32 API surface, so a program
+ * that hooks NtProtectVirtualMemory never sees it -- Roblox's anti-tamper layer
+ * hooks it and refuses to let the code section become executable again, which
+ * leaves the DLL unrunnable. Do it here, where our own call does not go through
+ * the hooked stub. */
+static NTSTATUS unixcall_relocate_module( void *args )
+{
+    const struct relocate_module_params *params = args;
+
+    return virtual_relocate_module( params->module );
+}
+
 static const unixlib_entry_t unix_call_funcs[] =
 {
     load_so_dll,
@@ -1463,12 +1476,22 @@ static const unixlib_entry_t unix_call_funcs[] =
     steamclient_setup_trampolines,
     debugstr_pc,
     unixcall_compat_wine_nt_to_unix_file_name,
+    unixcall_relocate_module,
 };
 
 
 #ifdef _WIN64
 
 static NTSTATUS wow64_load_so_dll( void *args ) { return STATUS_INVALID_IMAGE_FORMAT; }
+
+static NTSTATUS wow64_relocate_module( void *args )
+{
+    const struct { ULONG module; } *params32 = args;
+    struct relocate_module_params params = { .module = ULongToPtr( params32->module ) };
+
+    return unixcall_relocate_module( &params );
+}
+
 static NTSTATUS wow64_unwind_builtin_dll( void *args ) { return STATUS_UNSUCCESSFUL; }
 
 static NTSTATUS wow64___wine_get_unix_env( void *args )
@@ -1562,6 +1585,7 @@ const unixlib_entry_t unix_call_wow64_funcs[] =
     wow64_steamclient_setup_trampolines,
     wow64_debugstr_pc,
     wow64_compat_wine_nt_to_unix_file_name,
+    wow64_relocate_module,
 };
 
 #endif  /* _WIN64 */

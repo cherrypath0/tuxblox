@@ -41,6 +41,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <pthread.h>
 #include <unistd.h>
 
 #include "ntstatus.h"
@@ -785,17 +786,34 @@ static ULONG64 layer_image_base( ULONG64 rip )
  */
 static ULONG64 roblox_dll_base(void)
 {
+    static ULONG64 cached;
     LIST_ENTRY *head, *cur;
     unsigned int n = 0;
 
+    /* The layer's base never moves, and the walk below is not free: cache it.
+     * More than tidiness -- the layer unmaps module views as it runs, and a
+     * walk that happens to land on one reads freed memory. */
+    if (cached) return cached;
     if (!peb || !peb->LdrData) return 0;
     head = &peb->LdrData->InLoadOrderModuleList;
     for (cur = head->Flink; cur && cur != head && n < 128; cur = cur->Flink, n++)
     {
-        LDR_DATA_TABLE_ENTRY *m = (LDR_DATA_TABLE_ENTRY *)cur;  /* InLoadOrderLinks at off 0 */
-        const WCHAR *name = m->BaseDllName.Buffer;
-        SIZE_T len = m->BaseDllName.Length / sizeof(WCHAR), i;
+        LDR_DATA_TABLE_ENTRY entry, *m = &entry;
+        WCHAR namebuf[64];
+        const WCHAR *name = namebuf;
+        SIZE_T len, i;
 
+        /* Read the entry and its name through the checked path: the layer
+         * unmaps views mid-run, and a raw dereference here faults inside our
+         * own diagnostic and takes the process with it. */
+        if (virtual_uninterrupted_read_memory( cur, &entry, sizeof(entry) ) != sizeof(entry))
+            break;
+        len = m->BaseDllName.Length / sizeof(WCHAR);
+        if (!m->BaseDllName.Buffer || len < 10 || len > ARRAY_SIZE(namebuf)) continue;
+        if (virtual_uninterrupted_read_memory( m->BaseDllName.Buffer, namebuf,
+                                               len * sizeof(WCHAR) ) != len * sizeof(WCHAR))
+            continue;
+        cur = &entry.InLoadOrderLinks;                          /* walk the copy */
         if (!name || len < 10) continue;                        /* "roblox" + ".dll" */
         if (name[len - 4] != '.' ||
             (name[len - 3] | 0x20) != 'd' ||
@@ -809,7 +827,7 @@ static ULONG64 roblox_dll_base(void)
 
             for (j = 0; j < 6; j++)
                 if ((name[i + j] | 0x20) != robloxW[j]) break;
-            if (j == 6) return (ULONG64)(ULONG_PTR)m->DllBase;
+            if (j == 6) return (cached = (ULONG64)(ULONG_PTR)m->DllBase);
         }
     }
     return 0;
@@ -858,7 +876,13 @@ void tuxblox_roblox_stackfix_arm( void )
                                            sig, sizeof(sig) ) != sizeof(sig))
         return;                                    /* page not decrypted yet */
     if (sig[0] != 0x45 || sig[1] != 0x39 || sig[2] != 0xc3 || sig[3] != 0x0f || sig[4] != 0x86)
-        return;                                    /* not this build's check */
+    {
+        /* Readable and not the check: this build is not the one this shim
+         * patches, and no later read will change that. Stop, rather than
+         * retrying the loader walk on every call for the rest of the run. */
+        roblox_stackfix_done = 1;
+        return;
+    }
     roblox_stackfix_orig = sig[0];
     if (virtual_patch_code_byte( (void *)(ULONG_PTR)roblox_stackfix_addr, 0xcc )) return;
     roblox_stackfix_armed = 1;
@@ -1304,6 +1328,25 @@ BOOL tuxblox_diag_step_record( ULONG64 rip, ULONG64 rsp, ULONG64 rcx, ULONG64 ra
     return TRUE;
 }
 
+/* write() that finishes the job. A Wine process takes signals constantly
+ * (seccomp SIGSYS, suspend SIGUSR1), and an interrupted write returns a short
+ * count -- treating that as fatal truncated snapshots after the first big
+ * range, which reads as "the address space is tiny" rather than as an error. */
+static int write_all( int fd, const void *buf, size_t len )
+{
+    const char *p = buf;
+
+    while (len)
+    {
+        ssize_t n = write( fd, p, len );
+
+        if (n > 0) { p += n; len -= n; continue; }
+        if (n < 0 && errno == EINTR) continue;
+        return 0;
+    }
+    return 1;
+}
+
 /* Everything from here to the end of the block reads an x86-64 CONTEXT by
  * name or dumps 64-bit addresses. What this file diagnoses is 64-bit -- the
  * Player is a 64-bit process and the fault being chased is in its 64-bit
@@ -1693,63 +1736,107 @@ done_dump:
  * TUXBLOX_DIAG_SNAPSHOT=<path>; fired from a breakpoint hit. The snapshot is the
  * program's own memory -- keep it out of the repository.
  */
-void tuxblox_diag_snapshot( ULONG64 *regs, ULONG64 rip, unsigned char bp_orig, LONG64 rsp_delta )
+
+void tuxblox_diag_snapshot( ULONG64 *regs, ULONG64 rip, int bp_orig, LONG64 rsp_delta,
+                            ULONG64 eflags, const void *xmm )
 {
     static int done;
     const char *path = getenv( "TUXBLOX_DIAG_SNAPSHOT" );
-    char line[512], page[0x1000];
-    FILE *maps;
-    int mem, out;
+    static char mapbuf[512 * 1024];
+    static unsigned long long snap_range_max;
+    char page[0x1000];
+    size_t maplen = 0;
+    char *line, *nextline;
+    int mapfd, mem, out;
     unsigned long long total = 0, nranges = 0;
     ULONG64 hdr[20];
     unsigned int i;
 
     if (!path || !*path || done) return;
     done = 1;
+    {
+        const char *mb = getenv( "TUXBLOX_DIAG_SNAP_MAXMB" );
+        snap_range_max = (mb && atoi( mb ) > 0 ? (unsigned long long)atoi( mb ) : 64) << 20;
+    }
 
-    if (!(maps = fopen( "/proc/self/maps", "r" ))) return;
-    if ((mem = open( "/proc/self/mem", O_RDONLY )) == -1) { fclose( maps ); return; }
+    /* Read the whole map FIRST. Walking /proc/self/maps while writing hundreds
+     * of megabytes between fgets() calls does not survive: the kernel's seq_file
+     * iteration is disturbed by the address-space activity and quietly ends
+     * early, which truncated the capture to its first two dozen ranges. */
+    if ((mapfd = open( "/proc/self/maps", O_RDONLY )) == -1) return;
+    while (maplen < sizeof(mapbuf) - 1)
+    {
+        ssize_t n = read( mapfd, mapbuf + maplen, sizeof(mapbuf) - 1 - maplen );
+
+        if (n < 0 && errno == EINTR) continue;
+        if (n <= 0) break;
+        maplen += n;
+    }
+    close( mapfd );
+    mapbuf[maplen] = 0;
+    if ((mem = open( "/proc/self/mem", O_RDONLY )) == -1) return;
     if ((out = open( path, O_WRONLY | O_CREAT | O_TRUNC, 0600 )) == -1)
-    { close( mem ); fclose( maps ); return; }
+    { close( mem ); return; }
 
-    memcpy( hdr, "TXSNAP01", 8 );
+    memcpy( hdr, "TXSNAP02", 8 );        /* 02 carries XMM0-15 after the header */
     hdr[1] = (ULONG64)(ULONG_PTR)NtCurrentTeb();     /* gs base */
     for (i = 0; i < 16; i++) hdr[2 + i] = regs[i];
     hdr[2 + 7] = regs[7] + rsp_delta;                /* rsp: fold in @<delta> */
     hdr[18] = rip;
-    hdr[19] = 0x202;                                 /* rflags default */
-    if (write( out, hdr, sizeof(hdr) ) != (ssize_t)sizeof(hdr)) goto done_snap;
+    hdr[19] = eflags;
+    if (!write_all( out, hdr, sizeof(hdr) )) goto done_snap;
+    {
+        char xmmbuf[16 * 16];
 
-    while (fgets( line, sizeof(line), maps ))
+        if (xmm) memcpy( xmmbuf, xmm, sizeof(xmmbuf) );
+        else memset( xmmbuf, 0, sizeof(xmmbuf) );
+        if (!write_all( out, xmmbuf, sizeof(xmmbuf) )) goto done_snap;
+    }
+
+    for (line = mapbuf; line && *line; line = nextline)
     {
         unsigned long long start, end, off, rec[2];
         char perms[8];
 
+        if ((nextline = strchr( line, '\n' ))) *nextline++ = 0;
         if (sscanf( line, "%llx-%llx %7s", &start, &end, perms ) != 3) continue;
-        if (perms[0] != 'r') continue;                       /* readable only */
+        /* Do not skip a range just because it is unreadable: /proc/self/mem
+         * often reads those anyway, and late in the run the layer has made its
+         * own code PROT_NONE -- a snapshot that skips them is missing the very
+         * page it resumes at. But probe one page first and skip the range if
+         * even that fails, or a large reservation is written out as megabytes
+         * of zeroes and the capture never finishes. */
+        if (perms[0] != 'r' && pread( mem, page, sizeof(page), start ) != (ssize_t)sizeof(page))
+            continue;
         if (strstr( line, "[vvar" ) || strstr( line, "[vsyscall" )) continue;
-        if (end - start > 0x10000000ull) continue;           /* skip >256 MB reserved */
+        /* Skip the huge ranges. Near the end of a run the snapshot is racing the
+         * process's own exit -- another thread terminates it while this one is
+         * still writing -- and the 147 MB ciphertext buffer is most of the
+         * volume while saying nothing about a few calls of control flow. The
+         * layer's own 22 MB image stays under the default.
+         * TUXBLOX_DIAG_SNAP_MAXMB raises it when the bulk really is wanted. */
+        if (end - start > snap_range_max) continue;
 
         rec[0] = start; rec[1] = end - start;
-        if (write( out, rec, sizeof(rec) ) != (ssize_t)sizeof(rec)) goto done_snap;
+        if (!write_all( out, rec, sizeof(rec) )) goto done_snap;
         for (off = start; off < end; off += sizeof(page))
         {
             if (pread( mem, page, sizeof(page), off ) != (ssize_t)sizeof(page))
                 memset( page, 0, sizeof(page) );
             /* Undo the anchor breakpoint's int3 so the emulator sees the real
-             * instruction at rip rather than a trap. */
-            if (rip >= off && rip < off + sizeof(page))
+             * instruction at rip rather than a trap. A syscall-return anchor
+             * passes -1: there is no int3 to undo. */
+            if (bp_orig >= 0 && rip >= off && rip < off + sizeof(page))
                 page[rip - off] = bp_orig;
-            if (write( out, page, sizeof(page) ) != (ssize_t)sizeof(page)) goto done_snap;
+            if (!write_all( out, page, sizeof(page) )) goto done_snap;
             total += sizeof(page);
         }
         nranges++;
     }
-    { ULONG64 term[2] = { 0, 0 }; ssize_t w = write( out, term, sizeof(term) ); (void)w; }
+    { ULONG64 term[2] = { 0, 0 }; write_all( out, term, sizeof(term) ); }
 done_snap:
     close( out );
     close( mem );
-    fclose( maps );
     ERR_(seh)( "DIAG snapshot: %llu ranges, %llu bytes, rip=0x%llx -> %s\n",
                nranges, total, (unsigned long long)rip, path );
 }
@@ -3404,7 +3491,7 @@ BOOL tuxblox_diag_bp_hit( ULONG64 rip, ULONG64 *regs, LONG64 *rsp_delta )
                 diag_bp_setrip_arm();
                 diag_layer_blob_apply();
                 diag_save_apply();
-                tuxblox_diag_snapshot( regs, rip - 1, diag_bp_orig[i], diag_bp_rsp_delta[i] );
+                tuxblox_diag_snapshot( regs, rip - 1, diag_bp_orig[i], diag_bp_rsp_delta[i], 0x202, NULL );
             }
         }
         if (diag_bp_rsp_delta[i])
@@ -4016,6 +4103,7 @@ static __thread unsigned int sysout_argc;
 static void tuxblox_diag_sysout( unsigned int id, ULONG_PTR retval )
 {
     static int fd = -2, mem = -1;
+    static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
     static __thread char tmp[0x10000];
     ULONG64 hdr[4], rec[2];
     struct { ULONG_PTR addr; ULONG64 len; } b[4];
@@ -4033,27 +4121,35 @@ static void tuxblox_diag_sysout( unsigned int id, ULONG_PTR retval )
     }
     for (i = 0; i < sysout_argc && i < 4; i++)
     {
-        ULONG_PTR p = sysout_args[i];
+        ULONG64 p = sysout_args[i];
         ULONG64 len = 512;
 
         if (p < 0x10000 || p >= 0x800000000000ull) continue;
         if (i + 1 < sysout_argc && sysout_args[i + 1] > 0 && sysout_args[i + 1] < 0x100000)
             len = sysout_args[i + 1];
         if (len > sizeof(tmp)) len = sizeof(tmp);
-        b[nb].addr = p; b[nb].len = len; nb++;
+        b[nb].addr = (ULONG_PTR)p; b[nb].len = len; nb++;
     }
     hdr[0] = HandleToULong( NtCurrentTeb()->ClientId.UniqueThread );
     hdr[1] = id; hdr[2] = (unsigned int)retval; hdr[3] = nb;
-    if (write( fd, hdr, sizeof(hdr) ) != sizeof(hdr)) return;
-    for (i = 0; i < nb; i++)
+    /* One record is several writes, so two threads writing at once interleave
+     * and the reader loses the whole stream from there on -- which is exactly
+     * where the layer's worker threads start. Lock, and write_all so a short
+     * write cannot leave a half record either. */
+    pthread_mutex_lock( &lock );
+    if (write_all( fd, hdr, sizeof(hdr) ))
     {
-        ssize_t r = pread( mem, tmp, b[i].len, b[i].addr );
+        for (i = 0; i < nb; i++)
+        {
+            ssize_t r = pread( mem, tmp, b[i].len, b[i].addr );
 
-        if (r < 0) r = 0;
-        rec[0] = b[i].addr; rec[1] = (ULONG64)r;
-        if (write( fd, rec, sizeof(rec) ) != sizeof(rec)) return;
-        if (r && write( fd, tmp, r ) != r) return;
+            if (r < 0) r = 0;
+            rec[0] = b[i].addr; rec[1] = (ULONG64)r;
+            if (!write_all( fd, rec, sizeof(rec) )) break;
+            if (r && !write_all( fd, tmp, r )) break;
+        }
     }
+    pthread_mutex_unlock( &lock );
 }
 
 void tuxblox_trace_syscall_args( unsigned int id, const ULONG_PTR *args, ULONG len )
@@ -4078,6 +4174,107 @@ void tuxblox_trace_syscall_args( unsigned int id, const ULONG_PTR *args, ULONG l
                      (unsigned long long)(len > 3 ? args[3] : 0) );
 }
 
+/* TUXBLOX_DIAG_SNAP_SYSRVA=<layer rva>[,<nth>]: take the emulator snapshot on
+ * the return of the system call made from that place in the layer, rather than
+ * at a breakpoint.
+ *
+ * A syscall return is the one clean anchor the layer cannot hide: no int3 to
+ * patch back, nothing to single-step, no instruction boundary to guess at in
+ * anti-disassembled code, and every byte of process state already current. The
+ * caller resumes at the syscall's return address with the status in rax, which
+ * is exactly the state the snapshot records -- so the emulator picks the run up
+ * mid-flattening and reads the branch that follows as a plain linear trace.
+ */
+static void diag_snap_sysret( unsigned int id, ULONG_PTR retval )
+{
+#ifdef __x86_64__
+    static ULONG64 want_rva;
+    static int want_nth = 1, want_n = -1, stop_after = -1, parsed, seen, fired, left;
+    static unsigned int want_id;
+    static __thread unsigned int calls;
+    ULONG64 regs[16], rip = 0, eflags = 0, base;
+    char xmm[16 * 16];
+
+    if (!parsed)
+    {
+        const char *v;
+        char *end;
+
+        parsed = 1;
+        if ((v = getenv( "TUXBLOX_DIAG_SNAP_SYSRVA" )) && *v)
+        {
+            want_rva = strtoull( v, &end, 16 );
+            if (*end == ',') want_nth = atoi( end + 1 );
+        }
+        if ((v = getenv( "TUXBLOX_DIAG_SNAP_SYSN" )) && *v) want_n = atoi( v );
+        if ((v = getenv( "TUXBLOX_DIAG_SNAP_SYSID" )) && *v)
+        {
+            want_id = strtoul( v, &end, 0 );
+            if (*end == ',') want_nth = atoi( end + 1 );
+        }
+        if ((v = getenv( "TUXBLOX_DIAG_SNAP_STOP" ))) stop_after = atoi( v );
+        left = stop_after;
+    }
+    if (!want_rva && want_n < 0 && !want_id) return;
+    calls++;
+
+    /* TUXBLOX_DIAG_SNAP_STOP=<n>: leave n calls after the anchor. Everything the
+     * emulator replays comes from that window and the run is a dead end past it;
+     * without the cap one snapshotted run left a 25 GB log. */
+    if (fired)
+    {
+        if (stop_after >= 0 && !left--)
+        {
+            ERR_(seh)( "DIAG snapshot: window captured, exiting\n" );
+            fflush( NULL );                          /* _exit drops buffered output */
+            _exit( 0 );
+        }
+        return;
+    }
+    /* An anchor that never matches must not leave the run tracing for ever --
+     * the layer picks a different clone of the same call site from run to run,
+     * so a site RVA read off an old log can simply never come up. */
+    if (stop_after >= 0 &&
+        calls > (unsigned)(want_n >= 0 ? want_n + stop_after + 64 : 6000))
+    {
+        ERR_(seh)( "DIAG snapshot: anchor never matched by call %u, exiting\n", calls );
+        fflush( NULL );
+        _exit( 0 );
+    }
+
+    if (want_id)
+    {
+        /* TUXBLOX_DIAG_SNAP_SYSID=<id>[,<nth>]: the nth call of one system call
+         * on this thread. The steadiest anchor there is -- a call index shifts a
+         * little between runs and a site address shifts a lot, because the layer
+         * picks a different clone of the same site each time.
+         *
+         * Only the low 12 bits identify the call: the layer randomises the rest
+         * of the number every run (the same NtSystemDebugControl came through as
+         * 122175952 and then 261112272, both 0x1d0 in the bottom twelve bits). */
+        if ((id & 0xfff) != (want_id & 0xfff)) return;
+        if (++seen != want_nth) return;
+    }
+    else if (want_n >= 0)
+    {
+        /* TUXBLOX_DIAG_SNAP_SYSN=<n>: the n-th traced call on this thread, which
+         * is what the run log numbers and, unlike a site address, is stable. */
+        if (calls != (unsigned)want_n) return;
+    }
+    else
+    {
+        if (!(base = tuxblox_roblox_dll_base())) return;
+        if (get_syscall_caller_pc() != base + want_rva) return;
+        if (++seen != want_nth) return;
+    }
+    if (!get_syscall_caller_regs( regs, &rip, &eflags, xmm )) return;
+
+    regs[0] = retval;                                /* what the caller sees */
+    tuxblox_diag_snapshot( regs, rip, -1, 0, eflags, xmm );
+    fired = 1;
+#endif
+}
+
 void tuxblox_trace_sysret( unsigned int id, ULONG_PTR retval )
 {
     const char *name;
@@ -4090,6 +4287,7 @@ void tuxblox_trace_sysret( unsigned int id, ULONG_PTR retval )
                      id, name ? name : "?", (unsigned int)retval,
                      (unsigned long long)get_syscall_caller_pc() );
     tuxblox_diag_sysout( id, retval );
+    diag_snap_sysret( id, retval );
 }
 
 /* Installing and removing the instrumentation callback -- the hook Windows

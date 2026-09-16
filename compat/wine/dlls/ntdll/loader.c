@@ -2272,13 +2272,9 @@ static void update_load_config( void *module )
 
 static NTSTATUS perform_relocations( void *module, IMAGE_NT_HEADERS *nt, SIZE_T len )
 {
-    char *base;
-    IMAGE_BASE_RELOCATION *rel, *end;
+    struct relocate_module_params params;
     const IMAGE_DATA_DIRECTORY *relocs;
-    const IMAGE_SECTION_HEADER *sec;
-    INT_PTR delta;
-    ULONG *protect_old, i;
-    NTSTATUS status = STATUS_SUCCESS;
+    char *base;
 
     base = (char *)nt->OptionalHeader.ImageBase;
     if (module == base) return STATUS_SUCCESS;  /* nothing to do */
@@ -2303,55 +2299,16 @@ static NTSTATUS perform_relocations( void *module, IMAGE_NT_HEADERS *nt, SIZE_T 
     if (!relocs->Size) return STATUS_SUCCESS;
     if (!relocs->VirtualAddress) return STATUS_CONFLICTING_ADDRESSES;
 
-    if (!(protect_old = RtlAllocateHeap( GetProcessHeap(), 0,
-                                         nt->FileHeader.NumberOfSections * sizeof(*protect_old ))))
-        return STATUS_NO_MEMORY;
-
-    sec = IMAGE_FIRST_SECTION( nt );
-    for (i = 0; i < nt->FileHeader.NumberOfSections; i++)
-    {
-        void *addr = get_rva( module, sec[i].VirtualAddress );
-        SIZE_T size = sec[i].SizeOfRawData;
-        NtProtectVirtualMemory( NtCurrentProcess(), &addr,
-                                &size, PAGE_READWRITE, &protect_old[i] );
-    }
-
     TRACE( "relocating from %p-%p to %p-%p\n",
            base, base + len, module, (char *)module + len );
 
-    rel = get_rva( module, relocs->VirtualAddress );
-    end = get_rva( module, relocs->VirtualAddress + relocs->Size );
-    delta = (char *)module - base;
-
-    while (rel < end - 1 && rel->SizeOfBlock)
-    {
-        if (rel->VirtualAddress >= len)
-        {
-            WARN( "invalid address %p in relocation %p\n", get_rva( module, rel->VirtualAddress ), rel );
-            status = STATUS_ACCESS_VIOLATION;
-            goto done;
-        }
-        rel = LdrProcessRelocationBlock( get_rva( module, rel->VirtualAddress ),
-                                         (rel->SizeOfBlock - sizeof(*rel)) / sizeof(USHORT),
-                                         (USHORT *)(rel + 1), delta );
-        if (!rel)
-        {
-            status = STATUS_INVALID_IMAGE_FORMAT;
-            goto done;
-        }
-    }
-
-    for (i = 0; i < nt->FileHeader.NumberOfSections; i++)
-    {
-        void *addr = get_rva( module, sec[i].VirtualAddress );
-        SIZE_T size = sec[i].SizeOfRawData;
-        NtProtectVirtualMemory( NtCurrentProcess(), &addr,
-                                &size, protect_old[i], &protect_old[i] );
-    }
-
-done:
-    RtlFreeHeap( GetProcessHeap(), 0, protect_old );
-    return status;
+    /* Relocating means making every section writable and then putting the
+     * protections back. Windows does that below the Win32 API surface, so a
+     * program that hooks NtProtectVirtualMemory never sees it; doing it here
+     * lets such a hook refuse to make the code section executable again, and
+     * the module is then unrunnable. Hand the whole job to the Unix side. */
+    params.module = module;
+    return WINE_UNIX_CALL( unix_relocate_module, &params );
 }
 
 /*************************************************************************

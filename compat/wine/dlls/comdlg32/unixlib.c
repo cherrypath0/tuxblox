@@ -518,21 +518,36 @@ static char *get_external_files_dir_unix(void)
     return unix_dir;
 }
 
-/* Picks "<base> (n)<ext>" inside dir_unix the way Windows/most file managers
- * do, skipping an existing entry unless it's already a symlink to
+/* Splits a unix path into the directory holding it and its leaf name.
+ * Returns the directory (caller frees) and points *out_leaf at the leaf
+ * inside path. Returns NULL if path has no leaf, i.e. it is "/" or ends
+ * in a slash. */
+static char *split_parent_dir(const char *path, const char **out_leaf)
+{
+    const char *slash = strrchr(path, '/');
+    SIZE_T dir_len;
+    char *dir;
+
+    if (!slash || !slash[1]) return NULL;
+    dir_len = (slash == path) ? 1 : (SIZE_T)(slash - path);  /* keep "/" itself */
+    if (!(dir = malloc(dir_len + 1))) return NULL;
+    memcpy(dir, path, dir_len);
+    dir[dir_len] = 0;
+    *out_leaf = slash + 1;
+    return dir;
+}
+
+/* Picks "<name>" or "<name> (n)" inside dir_unix the way Windows/most file
+ * managers do, skipping an existing entry unless it's already a symlink to
  * source_path - in which case that existing entry is reused rather than a
- * duplicate being created (so re-picking the same outside file repeatedly,
- * e.g. re-uploading the same image, doesn't pile up "name (1)", "name (2)",
- * ... forever). *out_reuse is set to TRUE when the returned path is such an
- * existing symlink already pointing at source_path. Returns NULL if no free
- * or matching name could be found. */
+ * duplicate being created (so picking from the same outside folder again
+ * doesn't pile up "name (1)", "name (2)", ... forever). *out_reuse is set to
+ * TRUE when the returned path is such an existing symlink. Returns NULL if no
+ * free or matching name could be found. */
 static char *pick_symlink_path(const char *dir_unix, const char *source_path, BOOL *out_reuse)
 {
     const char *slash = strrchr(source_path, '/');
-    const char *leaf = slash ? slash + 1 : source_path;
-    const char *dot = strrchr(leaf, '.');
-    SIZE_T base_len = (dot && dot != leaf) ? (SIZE_T)(dot - leaf) : strlen(leaf);
-    const char *ext = (dot && dot != leaf) ? dot : "";
+    const char *leaf = (slash && slash[1]) ? slash + 1 : "root";  /* "/" has no name of its own */
     UINT n;
 
     *out_reuse = FALSE;
@@ -546,9 +561,9 @@ static char *pick_symlink_path(const char *dir_unix, const char *source_path, BO
         ssize_t link_len;
 
         if (n) snprintf(suffix, sizeof(suffix), " (%u)", n);
-        if (!(candidate = malloc(strlen(dir_unix) + 1 + base_len + strlen(suffix) + strlen(ext) + 1)))
+        if (!(candidate = malloc(strlen(dir_unix) + 1 + strlen(leaf) + strlen(suffix) + 1)))
             return NULL;
-        sprintf(candidate, "%s/%.*s%s%s", dir_unix, (int)base_len, leaf, suffix, ext);
+        sprintf(candidate, "%s/%s%s", dir_unix, leaf, suffix);
 
         if (lstat(candidate, &st))
         {
@@ -571,29 +586,52 @@ static char *pick_symlink_path(const char *dir_unix, const char *source_path, BO
     return NULL;
 }
 
-/* If dos_path is the unix-fallback form above, symlinks source_unix_path
- * into this prefix's "C:\users\<user>\files" and returns the resulting,
- * properly-resolved dos path (caller frees); returns NULL - leaving
- * dos_path as the caller's problem, same as before this existed - if
+/* If dos_path is the unix-fallback form above, symlinks the folder holding
+ * source_unix_path into this prefix's "C:\users\<user>\files" and returns the
+ * dos path of the file inside that link (caller frees); returns NULL -
+ * leaving dos_path as the caller's problem, same as before this existed - if
  * dos_path already resolved to a normal in-prefix path, or if remapping
- * failed for any reason (unknown username, directory not creatable, all
- * 1000 name slots taken, symlink() itself failing). */
+ * failed for any reason (no leaf name, unknown username, directory not
+ * creatable, all 1000 name slots taken, symlink() itself failing).
+ *
+ * The folder is linked rather than the file itself because that is what makes
+ * saving work. An app writing a file safely writes a temporary next to it and
+ * renames over the target; with a link to the file, that rename replaces the
+ * link with a real file inside the prefix, so the app reports success and the
+ * folder the user picked never receives anything. Creating a file that must
+ * not already exist fails too, because to the system the link is an entry that
+ * exists while the file it names does not. Inside a linked folder both are
+ * ordinary writes to the real folder. */
 static WCHAR *localize_external_path(const char *source_unix_path, WCHAR *dos_path)
 {
-    char *dir_unix, *symlink_path;
+    char *dir_unix, *parent_dir, *symlink_path;
+    const char *leaf;
     WCHAR *new_dos_path = NULL;
     BOOL reuse;
 
     if (!is_unix_fallback_path(dos_path)) return NULL;
-    if (!(dir_unix = get_external_files_dir_unix())) return NULL;
-
-    if ((symlink_path = pick_symlink_path(dir_unix, source_unix_path, &reuse)))
+    if (!(parent_dir = split_parent_dir(source_unix_path, &leaf))) return NULL;
+    if (!(dir_unix = get_external_files_dir_unix()))
     {
-        if (reuse || !symlink(source_unix_path, symlink_path))
-            ntdll_get_dos_file_name(symlink_path, &new_dos_path, 0);
+        free(parent_dir);
+        return NULL;
+    }
+
+    if ((symlink_path = pick_symlink_path(dir_unix, parent_dir, &reuse)))
+    {
+        char *file_path;
+
+        if ((reuse || !symlink(parent_dir, symlink_path))
+            && (file_path = malloc(strlen(symlink_path) + 1 + strlen(leaf) + 1)))
+        {
+            sprintf(file_path, "%s/%s", symlink_path, leaf);
+            ntdll_get_dos_file_name(file_path, &new_dos_path, 0);
+            free(file_path);
+        }
         free(symlink_path);
     }
     free(dir_unix);
+    free(parent_dir);
     return new_dos_path;
 }
 

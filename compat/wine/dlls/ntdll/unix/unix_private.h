@@ -202,6 +202,7 @@ extern WCHAR **main_wargv;
  * docs/superpowers/specs/2026-08-01-player-187-fingerprint-tracer-design.md) */
 extern ULONG64 get_syscall_caller_pc(void);
 extern ULONG64 get_syscall_caller_sp(void);
+extern BOOL get_syscall_caller_regs( ULONG64 *regs, ULONG64 *rip, ULONG64 *eflags, void *xmm );
 extern BOOL get_thread_last_syscall( TEB *teb, UINT *id, ULONG64 *first_arg );
 extern void get_random( void *buf, ULONG len );
 extern NTSTATUS reject_foreign_object( HANDLE handle );
@@ -226,7 +227,8 @@ extern void tuxblox_diag_continue( const CONTEXT *context );
 extern BOOL tuxblox_diag_watch_enabled(void);
 extern BOOL tuxblox_diag_bp_hit( ULONG64 rip, ULONG64 *regs, LONG64 *rsp_delta );
 extern ULONG64 tuxblox_diag_bp_take_redirect(void);
-extern void tuxblox_diag_snapshot( ULONG64 *regs, ULONG64 rip, unsigned char bp_orig, LONG64 rsp_delta );
+extern void tuxblox_diag_snapshot( ULONG64 *regs, ULONG64 rip, int bp_orig, LONG64 rsp_delta,
+                                  ULONG64 eflags, const void *xmm );
 extern BOOL tuxblox_diag_bp_step_pending(void);
 extern BOOL tuxblox_diag_bp_step_rearm(void);
 extern void tuxblox_diag_xpage_arm( void );
@@ -499,6 +501,7 @@ extern void set_alignment_fault_fixup( BOOLEAN enable );
 extern BOOL virtual_is_image_address( const void *addr );
 extern ULONG_PTR virtual_get_image_base( const void *addr );
 extern NTSTATUS virtual_inject_client_text( ULONG_PTR image_base );
+extern NTSTATUS virtual_bind_client_imports( ULONG_PTR image_base );
 extern NTSTATUS virtual_unlock_client_access( ULONG_PTR image_base );
 extern ULONG64 tuxblox_roblox_dll_base(void);
 extern ULONG_PTR virtual_get_mapped_base( const void *addr );

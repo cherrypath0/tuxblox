@@ -541,6 +541,30 @@ ULONG64 get_syscall_caller_sp(void)
     return frame ? frame->rsp : 0;
 }
 
+/* The caller's whole register set at the syscall, in the order the TuxBlox
+ * snapshot format uses (rax,rbx,rcx,rdx,rsi,rdi,rbp,rsp,r8..r15). The frame
+ * holds exactly what the dispatcher restores, so a snapshot taken here resumes
+ * the caller precisely -- which is what makes a syscall return a clean anchor
+ * for the layer emulator, with no breakpoint to perturb the run.
+ */
+BOOL get_syscall_caller_regs( ULONG64 *regs, ULONG64 *rip, ULONG64 *eflags, void *xmm )
+{
+    struct syscall_frame *frame = get_syscall_frame();
+
+    if (!frame) return FALSE;
+    /* XMM0-15 as well: the layer carries obfuscation state in them across a
+     * system call and computes addresses from it (a TEB offset built with
+     * paddw/movd), so a snapshot without them resumes into garbage. */
+    if (xmm) memcpy( xmm, frame->xsave.XmmRegisters, 16 * sizeof(M128A) );
+    regs[0] = frame->rax; regs[1] = frame->rbx; regs[2] = frame->rcx; regs[3] = frame->rdx;
+    regs[4] = frame->rsi; regs[5] = frame->rdi; regs[6] = frame->rbp; regs[7] = frame->rsp;
+    regs[8] = frame->r8;  regs[9] = frame->r9;  regs[10] = frame->r10; regs[11] = frame->r11;
+    regs[12] = frame->r12; regs[13] = frame->r13; regs[14] = frame->r14; regs[15] = frame->r15;
+    *rip = frame->rip;
+    *eflags = frame->eflags;
+    return TRUE;
+}
+
 /* The last system call a thread made -- its number and its first argument.
  *
  * A thread keeps a pointer to its syscall frame in its own TEB, and the pointer
@@ -1874,6 +1898,9 @@ static void setup_raise_exception( ucontext_t *sigcontext, EXCEPTION_RECORD *rec
             !virtual_inject_client_text( base ))
         {
             injected = 1;
+            /* the layer would also bind the client's IAT; without it the first
+             * import call reads an unbound slot */
+            virtual_bind_client_imports( base );
             restore_context( xcontext, sigcontext );
             return;
         }
