@@ -139,9 +139,8 @@ int main() {
     {
         assert(std::string(exitCodeTitle(0)) == "OK");
         assert(std::string(exitCodeTitle(1)) == "General Error");
+        assert(std::string(exitCodeTitle(132)) == "Illegal CPU instruction");
         assert(std::string(exitCodeTitle(139)) == "Segmentation Fault");
-        assert(std::string(exitCodeTitle(187)) == "Session terminated by Hyperion");
-        assert(std::string(exitCodeTitle(201)) == "Integrity verification failure");
         assert(exitCodeTitle(999999) == nullptr);
     }
 

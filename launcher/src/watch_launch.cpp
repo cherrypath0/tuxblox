@@ -108,9 +108,7 @@ int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const 
 
     std::string popupTitle, message;
     if (ev->exitCode == 3) {
-        // The compatibility layer refused to start Roblox because it is not
-        // the program Roblox signed. Not an exit code worth showing: what
-        // matters is that the files are wrong and a reinstall replaces them.
+        // Integrity and certificate verification, TuxBlox's compatibility layer always returns exit code 3 if this failed.
         showErrorMessageBox("Failed to launch Roblox",
             "Failed to verify the integrity of Roblox. Some files might be unsigned or have "
             "been tampered with. Please make sure TuxBlox is up to date, then reinstall "
@@ -119,16 +117,16 @@ int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const 
     }
 
     if (ev->exitCode == 1) {
-        // Proton itself failed before/while supervising the process -- not
-        // Roblox's fault. See plan/plan.txt item 1's "if not roblox" template.
-        // No exit-code line here: 1 is Proton's fixed "TuxBlox itself broke"
-        // code, so printing it tells the reader nothing the wording doesn't.
         popupTitle = "TuxBlox Error";
         message = "TuxBlox has encountered an error and has quit!\n"
             "Full log has been written to " + outcome.logPath;
-    } else {
+    } else if (ev->exitCode == 2) {
         popupTitle = "Roblox Error";
         message = "Roblox has exited with a non-zero exit code.\n" +
+            exitCodeLine + "Full log has been written to " + outcome.logPath;
+    } else {
+        popupTitle = "Something went wrong";
+        message = "An unknown error has occurred which has crashed TuxBlox.\n" +
             exitCodeLine + "Full log has been written to " + outcome.logPath;
     }
 
@@ -141,11 +139,7 @@ int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const 
         report.robloxExitCode = robloxExitCode;
         report.logPath = outcome.logPath;
         report.systemInfo = collectSystemInfo();
-        // This whole process exits right after showing the popup below, so
-        // there's no point detaching this the way the old in-GUI version
-        // did (nothing else is running here for it to avoid blocking) --
-        // just let it complete before we exit, bounded by its own internal
-        // 5s/10s timeouts.
+
         uploadCrashReport(report);
     }
 

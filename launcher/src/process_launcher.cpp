@@ -43,19 +43,12 @@ const char* exitCodeTitle(int exitCode) {
     switch (exitCode) {
         case 0:   return "OK";
         case 1:   return "General Error";
-        case 7:   return "Argument list too long";
-        case 68:  return "Unknown host (DNS/resolution failure)";
-        case 69:  return "Remote host unreachable";
+        case 127: return "Not Executable";
+        case 132: return "Illegal CPU instruction";
         case 134: return "Aborted";
         case 137: return "Out of Memory";
         case 139: return "Segmentation Fault";
         case 143: return "Terminated";
-        case 187: return "Session terminated by Hyperion";
-        case 8:   return "Client crashed";
-        case 200: return "Wineserver timeout";
-        case 201: return "Integrity verification failure";
-        case 202: return "Corrupt prefix";
-        case 203: return "Session terminated for user safety";
         default:  return nullptr; // not in the table -- caller shows the bare code, no made-up description
     }
 }
