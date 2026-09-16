@@ -65,6 +65,10 @@ add_test(NAME container_env COMMAND test_container_env)
 # into the TuxBloxInstaller executable), so this target compiles it in
 # directly and picks up the generated logo header the same way the executable
 # does -- the file embeds kTuxbloxLogoPng at build time.
+add_executable(test_ui_scale test_ui_scale.cpp ../src/ui_scale.cpp)
+target_include_directories(test_ui_scale PRIVATE ../src)
+add_test(NAME ui_scale COMMAND test_ui_scale)
+
 add_executable(test_desktop_shortcut test_desktop_shortcut.cpp ../src/desktop_shortcut.cpp)
 target_include_directories(test_desktop_shortcut PRIVATE ${CMAKE_BINARY_DIR}/generated)
 target_link_libraries(test_desktop_shortcut PRIVATE installer_core)

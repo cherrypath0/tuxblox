@@ -155,6 +155,7 @@ add_executable(TuxBloxInstaller
     src/main.cpp
     src/app.cpp
     src/ui.cpp
+    src/ui_scale.cpp
     src/console_ui.cpp
     src/desktop_shortcut.cpp
     src/copyright_file.cpp

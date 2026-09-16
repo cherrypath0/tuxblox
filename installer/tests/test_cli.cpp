@@ -40,7 +40,8 @@ int main() {
     {
         CliOptions o = parse({});
         assert(!o.uninstall && !o.headless && !o.noLaunch && !o.help);
-        assert(o.channel == "stable");
+        // The channel this installer was built for, not a fixed one.
+        assert(o.channel == tuxblox::kTuxBloxChannel);
         // Off by default: a plain run installs the version this installer was
         // built for, not whatever the channel happens to point at.
         assert(!o.latest);

@@ -23,6 +23,7 @@
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
+#include "ui_scale.h"
 #include "tuxblox_logo_png.h" // generated at build time: kTuxbloxLogoPng[], kTuxbloxLogoPngLen
 #include "inter_regular_ttf.h"  // generated at build time: kInterRegularTtf[], kInterRegularTtfLen
 #include "inter_semibold_ttf.h" // generated at build time: kInterSemiBoldTtf[], kInterSemiBoldTtfLen
@@ -51,6 +52,7 @@ SDL_HitTestResult SDLCALL windowHitTest(SDL_Window*, const SDL_Point* area, void
     return area->y < kDragRegionHeight * g_uiScale ? SDL_HITTEST_DRAGGABLE : SDL_HITTEST_NORMAL;
 }
 
+
 } // namespace
 
 namespace tuxblox {
@@ -63,20 +65,16 @@ bool Ui::init() {
         return false;
     }
 
-    // Every pixel size/position/font size in this file is authored against a
-    // 1440p baseline (g_uiScale == 1.0 there); scale it by the desktop's
-    // actual resolution relative to that baseline so the window occupies the
-    // same proportion of the screen at any resolution, rather than a fixed
-    // pixel count that reads tiny on 4K and oversized on 1080p. Clamped so
-    // an unusual/multi-monitor display mode can't produce a degenerate
-    // window.
+    // Sizes here are authored for 96 DPI. Scaling by the display's DPI keeps
+    // the window one physical size everywhere; scaling by resolution did not,
+    // because a 15" 1080p laptop and a 32" 1440p monitor have very different
+    // DPI at similar pixel counts.
     {
+        float dpi = 0.0f;
+        if (SDL_GetDisplayDPI(0, nullptr, nullptr, &dpi) != 0) dpi = 0.0f;
         SDL_DisplayMode mode;
-        if (SDL_GetDesktopDisplayMode(0, &mode) == 0 && mode.h > 0) {
-            g_uiScale = static_cast<float>(mode.h) / 1440.0f;
-        }
-        if (g_uiScale < 0.75f) g_uiScale = 0.75f;
-        if (g_uiScale > 3.0f) g_uiScale = 3.0f;
+        const int height = SDL_GetDesktopDisplayMode(0, &mode) == 0 ? mode.h : 0;
+        g_uiScale = computeUiScale(dpi, height);
     }
 
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
@@ -98,6 +96,7 @@ bool Ui::init() {
     glContext_ = gl;
     SDL_GL_MakeCurrent(window, gl);
     SDL_GL_SetSwapInterval(1);
+
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
@@ -141,10 +140,23 @@ bool Ui::init() {
         GLuint tex;
         glGenTextures(1, &tex);
         glBindTexture(GL_TEXTURE_2D, tex);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        // The logo is 440px square and draws at ~96px, so it is always
+        // minified. Without mipmaps that samples a fraction of the source
+        // pixels and the edges break up.
+        // glGenerateMipmap is OpenGL 3.0; SDL_opengl.h only declares 1.1, so
+        // the entry point is resolved at runtime. Without it the logo keeps
+        // the plain linear filter and simply looks as it did before.
+        auto generateMipmap = reinterpret_cast<void (APIENTRY*)(GLenum)>(
+            SDL_GL_GetProcAddress("glGenerateMipmap"));
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER,
+                        generateMipmap ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, logoWidth_, logoHeight_, 0,
                      GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+        if (generateMipmap) generateMipmap(GL_TEXTURE_2D);
         logoTexture_ = tex;
 
         // Reuse the same decoded pixels for the taskbar/alt-tab window icon
@@ -266,7 +278,11 @@ bool Ui::renderFrame(App& app) {
     // right edge (~9px margin) while staying anchored 40px from the left.
     // Passing the width explicitly is the only way to get it symmetric.
     ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(0.18f, 0.62f, 0.97f, 1.0f));
-    ImGui::ProgressBar(static_cast<float>(snap.overallPercent / 100.0), ImVec2(w - 80.0f * g_uiScale, 0));
+    // Empty overlay: ImGui draws "42%" inside the bar otherwise.
+    // Height given explicitly: left at 0 the bar takes the font size plus
+    // frame padding, which reads chunkier than it needs to.
+    ImGui::ProgressBar(static_cast<float>(snap.overallPercent / 100.0),
+                       ImVec2(w - 80.0f * g_uiScale, 16.0f * g_uiScale), "");
     ImGui::PopStyleColor();
 
     float buttonWidth = 100.0f * g_uiScale;
