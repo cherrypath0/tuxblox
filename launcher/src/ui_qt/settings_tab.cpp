@@ -123,7 +123,7 @@ QWidget* SettingsTab::buildUpdatesGroup(QWidget* parent) {
 
     auto* autoUpdateRow = new BoxedRow(
         "Automatic updates",
-        "Install updates without asking. When off, you get a notification instead.");
+        "Install TuxBlox updates without asking. When off, you get a notification instead.");
     autoUpdateToggle_ = new ToggleSwitch();
     connect(autoUpdateToggle_, &ToggleSwitch::toggled, this, [this](bool checked) {
         Settings updated = app_.snapshot().settings;
@@ -132,6 +132,19 @@ QWidget* SettingsTab::buildUpdatesGroup(QWidget* parent) {
     });
     autoUpdateRow->addControl(autoUpdateToggle_);
     group->addRow(autoUpdateRow);
+
+    auto* robloxRow = new BoxedRow(
+        "Auto-Update Roblox",
+        "Checks for a newer Roblox before each launch and installs it if there is one. "
+        "Turning this off keeps whichever build you have until you install another yourself.");
+    autoUpdateRobloxToggle_ = new ToggleSwitch();
+    connect(autoUpdateRobloxToggle_, &ToggleSwitch::toggled, this, [this](bool checked) {
+        Settings updated = app_.snapshot().settings;
+        updated.autoUpdateRoblox = checked;
+        commitSettings(updated);
+    });
+    robloxRow->addControl(autoUpdateRobloxToggle_);
+    group->addRow(robloxRow);
 
     return group;
 }
@@ -345,6 +358,7 @@ void SettingsTab::updateFromSnapshot(const AppSnapshot& snap) {
         envEdit_->setText(QString::fromStdString(snap.settings.envVars));
         hapticsToggle_->setChecked(snap.settings.haptics);
         verifyIntegrityToggle_->setChecked(snap.settings.verifyIntegrity);
+        autoUpdateRobloxToggle_->setChecked(snap.settings.autoUpdateRoblox);
         webviewGpuToggle_->setChecked(snap.settings.webviewGpu);
         debugLoggingToggle_->setChecked(snap.settings.debugLogging);
         crashReportsToggle_->setChecked(snap.settings.sendCrashReports);

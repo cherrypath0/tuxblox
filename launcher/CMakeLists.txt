@@ -94,6 +94,7 @@ add_library(launcher_core STATIC
     src/system_info.cpp
     src/roblox_log_capture.cpp
     src/roblox_deploy.cpp
+    src/roblox_autoupdate.cpp
     src/prefix_file_bridge.cpp
     src/wine_shortcut_export.cpp
 )

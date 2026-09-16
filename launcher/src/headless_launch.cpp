@@ -16,6 +16,7 @@
 
 #include "headless_launch.h"
 #include "process_launcher.h"
+#include "roblox_autoupdate.h"
 #include <cstdio>
 #include "settings.h"
 
@@ -26,6 +27,10 @@
 namespace tuxblox {
 
 int runHeadlessQuickLaunch(const std::string& installDir, LaunchTarget target, const std::string& uri) {
+    // Before the exe is resolved, so a version installed by this check is the
+    // one that starts.
+    runRobloxUpdateCheck(installDir, target, loadSettings(installDir));
+
     std::string exePath = resolveOrBootstrapExePath(target, installDir);
     if (exePath.empty()) {
         fprintf(stderr, "TuxBlox: could not resolve or download the Roblox executable\n");

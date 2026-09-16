@@ -117,6 +117,7 @@ Settings loadSettings(const std::string& installDir) {
         settings.webviewGpu = j.value("webview_gpu", true);
         settings.debugLogging = j.value("debug_logging", false);
         settings.verifyIntegrity = j.value("verify_integrity", true);
+        settings.autoUpdateRoblox = j.value("auto_update_roblox", true);
         settings.gpu = j.value("gpu", std::string(""));
 
         const auto fastFlags = j.find("fast_flags");
@@ -148,6 +149,7 @@ void saveSettings(const std::string& installDir, const Settings& settings) {
         j["webview_gpu"] = settings.webviewGpu;
         j["debug_logging"] = settings.debugLogging;
         j["verify_integrity"] = settings.verifyIntegrity;
+        j["auto_update_roblox"] = settings.autoUpdateRoblox;
         j["gpu"] = settings.gpu;
         j["fast_flags"] = {{"player", fastFlagsToJson(settings.fastFlags.player)},
                             {"studio", fastFlagsToJson(settings.fastFlags.studio)}};

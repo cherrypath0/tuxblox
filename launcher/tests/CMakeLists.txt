@@ -132,3 +132,7 @@ add_test(NAME prefix_file_bridge COMMAND test_prefix_file_bridge)
 add_executable(test_wine_shortcut_export test_wine_shortcut_export.cpp)
 target_link_libraries(test_wine_shortcut_export PRIVATE launcher_core)
 add_test(NAME wine_shortcut_export COMMAND test_wine_shortcut_export)
+
+add_executable(test_roblox_autoupdate test_roblox_autoupdate.cpp)
+target_link_libraries(test_roblox_autoupdate PRIVATE launcher_core)
+add_test(NAME roblox_autoupdate COMMAND test_roblox_autoupdate)

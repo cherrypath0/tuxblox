@@ -67,6 +67,7 @@ private:
     ToggleSwitch* hapticsToggle_ = nullptr;
     ToggleSwitch* debugLoggingToggle_ = nullptr;
     ToggleSwitch* crashReportsToggle_ = nullptr;
+    ToggleSwitch* autoUpdateRobloxToggle_ = nullptr;
     ToggleSwitch* verifyIntegrityToggle_ = nullptr;
     QPushButton* terminateButton_ = nullptr;
     DangerButton* wipePrefixButton_ = nullptr;

@@ -96,6 +96,11 @@ struct Settings {
     // outcome. When on, the compatibility layer is run with
     // --verify-integrity and refuses with exit code 3 if the check fails.
     bool verifyIntegrity = true;
+    // Runs the bootstrapper's update check before every launch, so Roblox is
+    // current without the user thinking about it. On by default: that is what
+    // Roblox itself does on Windows. A check that cannot run never blocks the
+    // launch -- see roblox_autoupdate.h.
+    bool autoUpdateRoblox = true;
     // Written into the active Roblox version's ClientSettings folder at every
     // launch -- see fastflag_file.h for why it can't just be written once.
     FastFlagSet fastFlags;

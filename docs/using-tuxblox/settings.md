@@ -42,6 +42,18 @@ When off, you get a notification in the corner of the launcher instead, and noth
 
 Off is the default because an update that starts on its own while you are about to open Studio is annoying. Turn it on if you would rather never think about it.
 
+This setting is about TuxBlox itself. Roblox has its own setting below.
+
+### Auto-Update Roblox
+
+**Default: on**
+
+Before each launch, TuxBlox checks whether Roblox has put out a newer build and installs it if so. A short window appears while it looks, and again while it downloads.
+
+When off, you keep whichever build you have until you install another one yourself from the Versions tab.
+
+On is the default because this is what happens on Windows too, and a Roblox that is behind can refuse to join an experience. If the check cannot finish, TuxBlox starts the Roblox you already have rather than stopping.
+
 ---
 
 ## Environment

@@ -18,6 +18,7 @@
 #include "crash_report.h"
 #include "install_paths.h"
 #include "process_launcher.h"
+#include "roblox_autoupdate.h"
 #include "roblox_log_capture.h"
 #include "settings.h"
 #include "system_info.h"
@@ -35,6 +36,10 @@ namespace tuxblox {
 int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const std::string& uri,
                        const std::string& currentVersion) {
     Settings settings = loadSettings(installDir);
+
+    // Runs before the active version is resolved below, so a freshly
+    // installed version is the one that launches and gets its FastFlags.
+    runRobloxUpdateCheck(installDir, target, settings);
     // launchEnvPairs(), not parseEnvPairs(settings.envVars): a launch started
     // from a desktop shortcut has to carry the graphics-card selection too,
     // and this is the path that does not go through the running launcher.
