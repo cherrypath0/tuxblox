@@ -1,0 +1,113 @@
+#!/bin/bash
+# TuxBlox - Linux Compatibility Layer for the Roblox Engine
+# Copyright (C) 2026 TuxBlox Developers
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+set -eo pipefail
+cd "$(dirname "$0")"
+
+JOBS="${TUXBLOX_MAKE_JOBS:-$(nproc 2>/dev/null || echo 1)}"
+
+detect_pkg_manager() {
+    if command -v apt-get >/dev/null 2>&1; then echo apt
+    elif command -v dnf >/dev/null 2>&1; then echo dnf
+    elif command -v pacman >/dev/null 2>&1; then echo pacman
+    elif command -v brew >/dev/null 2>&1; then echo brew
+    elif command -v apk >/dev/null 2>&1; then echo apk
+    else echo unknown
+    fi
+}
+
+install_deps() {
+    local mgr
+    mgr="$(detect_pkg_manager)"
+    case "$mgr" in
+        apt)
+            sudo apt-get update
+            # uidmap provides newuidmap/newgidmap, required for --userns=keep-id;
+            # it's only an apt Recommends of podman, so --no-install-recommends hosts miss it.
+            sudo apt-get install -y podman curl git uidmap
+            ;;
+        dnf)
+            sudo dnf install -y podman curl git
+            ;;
+        pacman)
+            sudo pacman -S --needed --noconfirm podman curl git
+            ;;
+        brew)
+            brew install podman curl git
+            ;;
+        apk)
+            # uidmap provides newuidmap/newgidmap, required for --userns=keep-id.
+            sudo apk add podman curl git uidmap
+            ;;
+        *)
+            echo "!! Unknown package manager. Install manually: podman, curl, git" >&2
+            ;;
+    esac
+}
+
+echo ":: Checking build dependencies"
+# TUXBLOX_SKIP_DEPS is set by the root build.sh, which installs dependencies
+# once for all three builds -- avoids repeated package-manager round trips.
+if [[ -n "$TUXBLOX_SKIP_DEPS" ]]; then
+    echo ":: TUXBLOX_SKIP_DEPS set, skipping dependency install"
+else
+    install_deps
+fi
+
+echo ":: Vendoring third-party sources"
+./vendor.sh
+
+echo ":: Building builder container image (old-glibc baseline)"
+podman build -t tuxblox-old-glibc-builder -f ../Containerfile ..
+
+# A build/ configured outside the container records host paths in CMakeCache.txt;
+# cmake hard-errors if that cache is reused from /src/build inside the container.
+if [[ -f build/CMakeCache.txt ]] && \
+   ! grep -q '^CMAKE_CACHEFILE_DIR:INTERNAL=/src/build$' build/CMakeCache.txt; then
+    echo ":: Dropping stale host-configured build/ (not configured inside the container)"
+    rm -rf build
+fi
+
+echo ":: Configuring + Building (in podman, rootless, old-glibc baseline)"
+# TUXBLOX_BUILD_VERSION has to be forwarded explicitly: cmake runs INSIDE this
+# container, so an env var exported by the root build.sh on the host is invisible
+# to it otherwise.
+#
+# The repo-root VERSION file cannot cover that fallback by itself, because only
+# installer/ is mounted at /src -- the root of the repo is not reachable from
+# inside the container at all. So a standalone run of this script (no root
+# build.sh, hence no env var) reads VERSION here on the HOST and passes the
+# value in through the same variable, which is why one number reaches the
+# launcher, the bootstrapper and the compatibility layer either way.
+if [[ -z "${TUXBLOX_BUILD_VERSION:-}" && -r "$(pwd)/../VERSION" ]]; then
+    TUXBLOX_BUILD_VERSION="$(sed -n '1p' "$(pwd)/../VERSION" | tr -d '[:space:]')"
+fi
+
+podman run --rm --userns=keep-id -e JOBS="$JOBS" \
+    -e TUXBLOX_BUILD_VERSION="${TUXBLOX_BUILD_VERSION:-}" \
+    -v "$(pwd):/src:Z" -w /src tuxblox-old-glibc-builder \
+    bash -c 'cmake -B build -S . -DCMAKE_BUILD_TYPE=Release && cmake --build build -j"$JOBS"'
+
+# Also stage the finished binary at the repo-root build/ directory -- the same
+# place the root build.sh (which stages this whole build/ tree there via `mv`
+# after calling this script) leaves it, so a standalone run of this script
+# produces a runnable artifact in the same place either way. A plain `cp`,
+# not `mv`: this script's own build/ must stay intact for incremental rebuilds.
+mkdir -p ../build
+cp -f build/TuxBloxBootstrapper ../build/TuxBloxBootstrapper
+
+echo ":: Done. Also staged to $(cd .. && pwd)/build/TuxBloxBootstrapper"

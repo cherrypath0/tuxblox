@@ -97,6 +97,7 @@ int main() {
     fs::path launcherSrc = work / "TuxBloxLauncherSrc";
     fs::path installerSrc = work / "TuxBloxInstallerSrc";
     fs::path widgetSrc = work / "WidgetSrc"; // a non-launcher/installer/proton artifact, to prove genericness
+    fs::path bootstrapperSrc = work / "BootstrapperSrc";
     fs::path robloxPlayerSrc = work / "RobloxPlayerInstallerSrc.exe";
     fs::path robloxStudioSrc = work / "RobloxStudioInstallerSrc.exe";
     fs::path installDirPath = work / "install";
@@ -109,6 +110,10 @@ int main() {
     {
         std::ofstream out(installerSrc, std::ios::binary);
         out << "fake installer binary";
+    }
+    {
+        std::ofstream out(bootstrapperSrc, std::ios::binary);
+        out << "fake bootstrapper contents";
     }
     {
         std::ofstream out(widgetSrc, std::ios::binary);
@@ -172,6 +177,16 @@ int main() {
         widget.path = "/extras";
         m.artifacts["widget"] = widget;
 
+        // Shaped exactly as stage_release() emits it.
+        Artifact bootstrapper;
+        bootstrapper.url = "file://" + bootstrapperSrc.string();
+        bootstrapper.sha256 = sha256File(bootstrapperSrc.string());
+        bootstrapper.sizeBytes = fs::file_size(bootstrapperSrc);
+        bootstrapper.displayname = "Roblox bootstrapper";
+        bootstrapper.filename = "TuxBloxBootstrapper";
+        bootstrapper.path = "/";
+        m.artifacts["bootstrapper"] = bootstrapper;
+
         return m;
     };
     const Manifest manifest = buildManifest();
@@ -199,6 +214,13 @@ int main() {
         // whatever the manifest lists, not a fixed trio -- and that
         // artifact.path ("/extras") actually places it in a subfolder.
         assert(fs::exists(installDirPath / "extras" / "widget.txt"));
+        // The bootstrapper ships exactly as stage_release() publishes it: a
+        // flat file at the install root. It must arrive executable, since
+        // the launcher runs it before every launch.
+        assert(fs::exists(installDirPath / "TuxBloxBootstrapper"));
+        assert((fs::status(installDirPath / "TuxBloxBootstrapper").permissions() &
+                fs::perms::owner_exec) != fs::perms::none);
+
         {
             std::ifstream in(installDirPath / "extras" / "widget.txt", std::ios::binary);
             std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());

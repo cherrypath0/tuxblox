@@ -357,7 +357,7 @@ stage_release() {
     # happens to exist -- an empty libtuxblox/ would tar up fine and fail at
     # the user's machine instead.
     local required=(compat/main libtuxblox/lib libtuxblox/plugins libtuxblox/qt.conf
-                    TuxBloxLauncher TuxBloxInstaller mcp.sh)
+                    TuxBloxLauncher TuxBloxInstaller TuxBloxBootstrapper mcp.sh)
     local entry
     for entry in "${required[@]}"; do
         if [[ ! -e "$ROOT/build/$entry" ]]; then
@@ -388,6 +388,7 @@ stage_release() {
     # to find on disk.
     cp "$ROOT/build/TuxBloxLauncher" "$release_dir/launcher"
     cp "$ROOT/build/TuxBloxInstaller" "$release_dir/installer"
+    cp "$ROOT/build/TuxBloxBootstrapper" "$release_dir/bootstrapper"
     cp "$ROOT/build/mcp.sh" "$release_dir/mcp.sh"
 
     echo ":: Writing manifest.json and latest.json"
@@ -410,6 +411,7 @@ source_commit, source_dirty = sys.argv[6:8]
 artifacts = [
     ("launcher",   "launcher",                    "Launcher",             "TuxBloxLauncher"),
     ("installer",  "installer",                   "Updater",              "TuxBloxInstaller"),
+    ("bootstrapper", "bootstrapper",              "Roblox bootstrapper",  "TuxBloxBootstrapper"),
     # Published as "proton" until the layer was renamed. The launcher reads
     # either spelling, so emitting the new one is safe for older installs.
     ("compat",     f"compat-{slug}.tar.zst",      "Compatibility layer",  "compat"),
@@ -642,6 +644,15 @@ step "Staging installer output into build/"
 rm -f build/TuxBloxInstaller
 mv installer/build build/.artifacts/installer
 mv build/.artifacts/installer/TuxBloxInstaller build/TuxBloxInstaller
+
+step "Building TuxBlox Bootstrapper (podman, old-glibc baseline)"
+run_step "build_bootstrapper" strict logged env TUXBLOX_SKIP_DEPS=1 ./bootstrapper/build.sh
+
+step "Staging bootstrapper output into build/"
+
+rm -f build/TuxBloxBootstrapper
+mv bootstrapper/build build/.artifacts/bootstrapper
+mv build/.artifacts/bootstrapper/TuxBloxBootstrapper build/TuxBloxBootstrapper
 
 step "Building TuxBlox Launcher (podman, old-glibc baseline)"
 run_step "build_launcher" strict logged env TUXBLOX_SKIP_DEPS=1 ./launcher/build.sh

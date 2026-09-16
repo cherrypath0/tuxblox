@@ -10,6 +10,7 @@ Nothing is installed system wide, and nothing needs root.
 ~/.tuxblox/
 ├── TuxBloxLauncher        the launcher you use
 ├── TuxBloxInstaller       kept around for updates and uninstalling
+├── TuxBloxBootstrapper    downloads and updates Roblox itself
 ├── mcp.sh                 the Studio MCP helper
 ├── settings.json          your settings and FastFlags
 ├── versions.json          which Roblox builds are installed
