@@ -15,8 +15,10 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "headless_launch.h"
+#include "install_paths.h"
 #include "process_launcher.h"
 #include "roblox_autoupdate.h"
+#include "wine_shortcut_export.h"
 #include <cstdio>
 #include "settings.h"
 
@@ -30,6 +32,9 @@ int runHeadlessQuickLaunch(const std::string& installDir, LaunchTarget target, c
     // Before the exe is resolved, so a version installed by this check is the
     // one that starts.
     runRobloxUpdateCheck(installDir, target, loadSettings(installDir));
+    // This process execs into the game below, so the menu entry has to be
+    // written here rather than after the session, as the watched path does.
+    exportPrefixShortcuts(installDir, selfExePath());
 
     std::string exePath = resolveOrBootstrapExePath(target, installDir);
     if (exePath.empty()) {

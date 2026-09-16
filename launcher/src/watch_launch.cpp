@@ -40,6 +40,9 @@ int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const 
     // Runs before the active version is resolved below, so a freshly
     // installed version is the one that launches and gets its FastFlags.
     runRobloxUpdateCheck(installDir, target, settings);
+    // Straight after the install rather than only once the session ends, so a
+    // first-ever install gets its menu entry right away.
+    exportPrefixShortcuts(installDir, selfExePath());
     // launchEnvPairs(), not parseEnvPairs(settings.envVars): a launch started
     // from a desktop shortcut has to carry the graphics-card selection too,
     // and this is the path that does not go through the running launcher.

@@ -184,6 +184,46 @@ int main() {
         assert(fs::exists(freshAppsDir / "tuxblox-roblox-studio.desktop"));
     }
 
+    // TuxBlox's own downloader installs Roblox without ever creating a Windows
+    // shortcut, so there is nothing to convert. The entry still has to appear,
+    // carrying the window class, or a taskbar cannot recognise the window and
+    // refuses to pin it.
+    {
+        const fs::path noLnkTmp = tmp / "nolnk";
+        const fs::path noLnkInstall = noLnkTmp / "install";
+        const fs::path noLnkApps = noLnkTmp / "applications";
+        const fs::path noLnkIcons = noLnkTmp / "icons" / "hicolor";
+        const fs::path versions = noLnkInstall / "runtime" / "pfx" / "drive_c" / "users" /
+                                  "user" / "AppData" / "Local" / "Roblox" / "Versions";
+
+        // Studio installed, Player not, and no proton_shortcuts directory.
+        writeAll(versions / "version-abc123" / "RobloxStudioBeta.exe", "MZ");
+
+        exportPrefixShortcutsTo(noLnkInstall.string(), "/opt/tuxblox/TuxBloxLauncher",
+                                noLnkApps.string(), noLnkIcons.string());
+
+        assert(fs::exists(noLnkApps / "tuxblox-roblox-studio.desktop"));
+        // Not installed -- must not be advertised.
+        assert(!fs::exists(noLnkApps / "tuxblox-roblox-player.desktop"));
+
+        const std::string entry = readAll(noLnkApps / "tuxblox-roblox-studio.desktop");
+        // The window class is the whole point of the entry.
+        assert(entry.find("StartupWMClass=robloxstudiobeta.exe\n") != std::string::npos);
+        assert(entry.find("Name=Roblox Studio\n") != std::string::npos);
+        // Launches through TuxBlox, so it follows whichever version is
+        // installed rather than pinning the one present right now.
+        assert(entry.find("--launch-studio\n") != std::string::npos);
+        assert(entry.find("version-abc123") == std::string::npos);
+        // No icon was copied for this one, so it falls back.
+        assert(entry.find("Icon=tuxblox\n") != std::string::npos);
+
+        // Once Roblox is gone the entry goes with it.
+        fs::remove_all(versions);
+        exportPrefixShortcutsTo(noLnkInstall.string(), "/opt/tuxblox/TuxBloxLauncher",
+                                noLnkApps.string(), noLnkIcons.string());
+        assert(!fs::exists(noLnkApps / "tuxblox-roblox-studio.desktop"));
+    }
+
     fs::remove_all(tmp);
     std::printf("wine_shortcut_export: all tests passed\n");
     return 0;

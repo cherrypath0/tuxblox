@@ -9,10 +9,12 @@ All of this is set up for you during install and kept up to date every time the 
 | Entry | When it appears |
 |---|---|
 | **TuxBlox** | Immediately after install |
-| **Roblox Studio** (via TuxBlox) | After Studio has been installed and run once |
-| **Roblox Player** (via TuxBlox) | After Player has been installed and run once |
+| **Roblox Studio** (via TuxBlox) | As soon as Studio is installed |
+| **Roblox Player** (via TuxBlox) | As soon as Player is installed |
 
-The Roblox entries come from Roblox's own Start Menu shortcuts inside the virtual drive. TuxBlox reads them and republishes them as proper Linux entries, so they carry Roblox's own icons and names. They are routed back through the launcher, which is what lets them keep working after Roblox updates itself.
+TuxBlox creates the Roblox entries itself as soon as Roblox is installed, so they are ready the first time you want to pin one to a taskbar or dock. Where Roblox has also left its own Start Menu shortcuts inside the virtual drive, TuxBlox reads those and republishes them instead, so the entries carry Roblox's own icons and names.
+
+Either way the entries are routed back through the launcher rather than at a fixed location, which is what lets them keep working after Roblox updates itself — they always start whichever version you have installed.
 
 The **TuxBlox** entry also has a right click action for opening this documentation.
 

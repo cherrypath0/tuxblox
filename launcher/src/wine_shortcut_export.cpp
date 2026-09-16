@@ -32,14 +32,16 @@ namespace tuxblox {
 namespace {
 
 struct ExportTarget {
-    const char* exeLeaf;   // lowercased basename to match
-    const char* slug;      // "studio" / "player"
+    const char* exeLeaf;     // lowercased basename to match
+    const char* slug;        // "studio" / "player"
+    const char* name;        // shown in menus when we write the entry ourselves
+    const char* launchFlag;  // picks the installed version at launch, not now
 };
 
 const std::vector<ExportTarget>& exportTargets() {
     static const std::vector<ExportTarget> targets = {
-        {"robloxstudiobeta.exe", "studio"},
-        {"robloxplayerbeta.exe", "player"},
+        {"robloxstudiobeta.exe", "studio", "Roblox Studio", "--launch-studio"},
+        {"robloxplayerbeta.exe", "player", "Roblox Player", "--launch-player"},
     };
     return targets;
 }
@@ -176,6 +178,52 @@ std::string exeFromDesktopExecLine(const std::string& execValue) {
     return unescapeWinemenubuilderPath(quotedExecValue(execValue));
 }
 
+// True when that Roblox program is installed in the virtual drive, whichever
+// version folder it sits in.
+bool isTargetInstalled(const std::string& installDir, const char* exeLeaf) {
+    const fs::path versions = fs::path(installDir) / "runtime" / "pfx" / "drive_c" / "users" /
+                              "user" / "AppData" / "Local" / "Roblox" / "Versions";
+    std::error_code ec;
+    fs::directory_iterator it(versions, ec);
+    if (ec) return false;
+    for (const auto& version : it) {
+        std::error_code fileEc;
+        for (const auto& file : fs::directory_iterator(version.path(), fileEc)) {
+            if (fileEc) break;
+            if (toLower(file.path().filename().string()) == exeLeaf) return true;
+        }
+    }
+    return false;
+}
+
+// The entry we write when Roblox was installed without a Windows shortcut for
+// us to convert. TuxBlox's own downloader installs the files directly, so
+// winemenubuilder never runs and proton_shortcuts stays empty -- but the
+// window class is fixed per program, and that is the part a taskbar needs to
+// recognise the window and offer to pin it. The Exec launches through TuxBlox
+// rather than a recorded path, so it follows whichever version is installed.
+std::string builtinEntry(const ExportTarget& target, const std::string& launcherExePath,
+                         const std::string& iconsDir) {
+    const std::string slugIcon = std::string("tuxblox-roblox-") + target.slug;
+    std::error_code ec;
+    const bool haveSlugIcon =
+        fs::exists(fs::path(iconsDir) / "256x256" / "apps" / (slugIcon + ".png"), ec);
+
+    std::ostringstream out;
+    out << "[Desktop Entry]\n"
+           "Type=Application\n"
+           "Name=" << target.name << "\n"
+           "Comment=via TuxBlox\n"
+           "Keywords=Wine;TuxBlox;Roblox;Game;\n"
+           "Exec=\"" << launcherExePath << "\" " << target.launchFlag << "\n"
+           "Icon=" << (haveSlugIcon ? slugIcon : "tuxblox") << "\n"
+           "Terminal=false\n"
+           "StartupNotify=true\n"
+           "StartupWMClass=" << target.exeLeaf << "\n"
+           "Categories=Game;\n";
+    return out.str();
+}
+
 void exportPrefixShortcutsTo(const std::string& installDir, const std::string& launcherExePath,
                              const std::string& appsDir, const std::string& iconsDir) {
     try {
@@ -248,13 +296,19 @@ void exportPrefixShortcutsTo(const std::string& installDir, const std::string& l
             }
         }
 
-        // Prune exports whose source entry has gone (Roblox uninstalled, prefix
-        // wiped). Only ever touches the ids this function owns.
+        // No Windows shortcut produced this one. Write our own entry while the
+        // program is installed, and remove it only once it has gone (Roblox
+        // uninstalled, prefix wiped). Only ever touches the ids this function owns.
         for (const auto& t : exportTargets()) {
             const std::string id = std::string("tuxblox-roblox-") + t.slug + ".desktop";
             bool stillThere = false;
             for (const auto& p : produced) if (p == id) stillThere = true;
             if (stillThere) continue;
+            if (isTargetInstalled(installDir, t.exeLeaf)) {
+                writeFileAtomic(fs::path(appsDir) / id,
+                                builtinEntry(t, launcherExePath, iconsDir));
+                continue;
+            }
             std::error_code rmEc;
             fs::remove(fs::path(appsDir) / id, rmEc);
         }
