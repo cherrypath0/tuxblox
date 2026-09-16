@@ -697,7 +697,8 @@ run_step "compile_proton_native" strict bash -c '
         '"'"'g++ -std=c++17 -O2 -Wall -Wextra -I. \
             -DTUXBLOX_VERSION="\"$TUXBLOX_BUILD_VERSION\"" \
             -DTUXBLOX_CHANNEL="\"$TUXBLOX_CHANNEL\"" \
-            -o /work/out/main $(find . -name "*.cpp")'"'"'
+            -o /work/out/main $(find . -name "*.cpp") \
+            /usr/lib/x86_64-linux-gnu/libcrypto.a -ldl -lpthread'"'"'
 
     install -m 755 "$workdir/out/main" dist/main
     rm -rf "$workdir"

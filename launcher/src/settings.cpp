@@ -116,6 +116,7 @@ Settings loadSettings(const std::string& installDir) {
         settings.haptics = j.value("haptics", true);
         settings.webviewGpu = j.value("webview_gpu", true);
         settings.debugLogging = j.value("debug_logging", false);
+        settings.verifyIntegrity = j.value("verify_integrity", true);
         settings.gpu = j.value("gpu", std::string(""));
 
         const auto fastFlags = j.find("fast_flags");
@@ -146,6 +147,7 @@ void saveSettings(const std::string& installDir, const Settings& settings) {
         j["haptics"] = settings.haptics;
         j["webview_gpu"] = settings.webviewGpu;
         j["debug_logging"] = settings.debugLogging;
+        j["verify_integrity"] = settings.verifyIntegrity;
         j["gpu"] = settings.gpu;
         j["fast_flags"] = {{"player", fastFlagsToJson(settings.fastFlags.player)},
                             {"studio", fastFlagsToJson(settings.fastFlags.studio)}};

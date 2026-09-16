@@ -429,6 +429,36 @@ int main() {
         assert(pairs.back() == "TUXBLOX_HAPTICS=1");
     }
 
+    // Verifying Roblox defaults to ON, unlike every other toggle here.
+    // Roblox signs every release, so a file that does not verify has been
+    // altered or damaged, and starting it anyway is the worse outcome.
+    {
+        Settings s;
+        assert(s.verifyIntegrity == true);
+    }
+
+    // It loads leniently AND keeps defaulting to on: a settings.json written
+    // before this field existed must end up protected, not unprotected.
+    {
+        std::ofstream out(dir + "/settings.json", std::ios::binary);
+        out << R"({"env_vars": "FOO=bar", "send_crash_reports": false, "channel": "canary"})";
+        out.close();
+
+        Settings s = loadSettings(dir);
+        assert(s.verifyIntegrity == true);
+    }
+
+    // Turning it off round-trips -- a user who switched it off must not find
+    // it back on after a restart.
+    {
+        Settings s;
+        s.verifyIntegrity = false;
+        saveSettings(dir, s);
+
+        Settings loaded = loadSettings(dir);
+        assert(loaded.verifyIntegrity == false);
+    }
+
     // Detailed logging defaults to off. It costs frame time and log size, so
     // a user who never asked for it must never pay for it.
     {

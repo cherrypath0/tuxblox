@@ -333,7 +333,8 @@ std::string launchLogPath(const std::string& installDir, LaunchTarget target) {
 }
 
 LaunchOutcome ProcessLauncher::launch(LaunchTarget target, const std::string& uri,
-                                       const std::vector<std::string>& extraEnv) {
+                                       const std::vector<std::string>& extraEnv,
+                                       bool verifyIntegrity) {
     TrackedProcess& p = processFor(target);
     if (p.isRunning()) {
         return {false, "already running", "", false};
@@ -389,6 +390,7 @@ LaunchOutcome ProcessLauncher::launch(LaunchTarget target, const std::string& ur
     const bool secondary = prefixHasSessionHolder(installDir_ + "/runtime/pfx");
     std::vector<std::string> argv = {compatBinaryPath(installDir_), "run"};
     if (secondary) argv.push_back("--immediate");
+    if (verifyIntegrity) argv.push_back("--verify-integrity");
     argv.push_back(exePath);
     if (!uri.empty()) argv.push_back(uri);
 

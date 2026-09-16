@@ -32,10 +32,13 @@
 #include <string_view>
 #include <vector>
 
+#include "integrity/authenticode.h"
 #include "prefix/prefix.h"
 #include "launch/proton.h"
 #include "launch/session.h"
 #include "support/util.h"
+
+#include "embedded_data.h"
 
 #ifndef TUXBLOX_VERSION
 #define TUXBLOX_VERSION "unknown"
@@ -67,17 +70,23 @@ const std::array<std::string, 7> RobloxProcesses = {
     "RCCService.exe"
 };
 
-const std::array<std::string, 7> HelpOutput = {
+const std::array<std::string, 8> HelpOutput = {
     "Options:",
     "--help                  Show this help message",
     "--version               Show TuxBlox version",
     "--immediate             Run TuxBlox without draining the prefix, must be used with the \"run\" argument",
     "--destroy               Destroys the prefix",
+    "--verify-integrity      Check that the executable is signed by Roblox before running it",
     "\nArguments:",
     "run <executable>        Runs the specified executable"
 };
 
 const int PrefixDrainTimeoutSeconds = 15;
+
+// Who a genuine Roblox executable is signed by, and what TuxBlox exits with
+// when --verify-integrity says it is not.
+const std::string RobloxPublisher = "Roblox Corporation";
+const int IntegrityFailureExit = 3;
 
 enum class RunMode {
     None,
@@ -88,6 +97,7 @@ enum class RunMode {
 struct CommandLine {
     RunMode mode = RunMode::None;
     bool runImmediately = false;
+    bool verifyIntegrity = false;
     bool handled = false;
     std::vector<std::string> target;
 };
@@ -129,6 +139,8 @@ CommandLine parseCommandLine(int argc, char *argv[]) {
 
         if (argument == "--immediate") {
             parsed.runImmediately = true;
+        } else if (argument == "--verify-integrity") {
+            parsed.verifyIntegrity = true;
         } else if (argument == "--destroy") {
             parsed.mode = RunMode::Destroy;
         } else if (argument == "run") {
@@ -182,6 +194,20 @@ int runMain(int argc, char *argv[]) {
     tuxblox::log("Running TuxBlox version " + TuxBloxVersion + "-" + TuxBloxChannel);
     tuxblox::log("Commandline: " + invocation);
 
+    // Checked before anything is set up, so a program that is not the one
+    // Roblox signed never gets as far as running. The launcher turns this on
+    // from its "Verify Roblox Integrity" setting and reports the exit code.
+    if (command.verifyIntegrity) {
+        const tuxblox::IntegrityReport report = tuxblox::verifyAuthenticode(
+            command.target.front(), RobloxPublisher, tuxblox_data::find("roots.pem"));
+        if (report.status != tuxblox::IntegrityStatus::Verified) {
+            tuxblox::log(std::string("Integrity check FAILED (") +
+                         tuxblox::integrityStatusName(report.status) + "): " + report.detail);
+            return IntegrityFailureExit;
+        }
+        tuxblox::log("Integrity check passed: " + report.detail);
+    }
+
     tuxblox::Proton proton(installDir(argv[0]));
     proton.cleanupLegacyDist();
 
@@ -228,6 +254,7 @@ int runMain(int argc, char *argv[]) {
     //   0 - the wrapped process exited cleanly
     //   1 - TuxBlox itself failed
     //   2 - the wrapped process exited abnormally
+    //   3 - the executable is not the one Roblox signed (--verify-integrity)
     return rc == 0 ? 0 : 2;
 }
 

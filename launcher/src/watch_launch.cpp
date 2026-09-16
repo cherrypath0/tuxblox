@@ -57,7 +57,7 @@ int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const 
 
     ProcessLauncher launcher(installDir);
     std::time_t launchStart = std::time(nullptr);
-    auto outcome = launcher.launch(target, uri, extraEnv);
+    auto outcome = launcher.launch(target, uri, extraEnv, settings.verifyIntegrity);
     if (!outcome.ok) {
         std::string message = "A TuxBlox process has exited with a non-zero exit code.\n" +
             outcome.errorMessage;
@@ -107,6 +107,17 @@ int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const 
     exitCodeLine += "\n";
 
     std::string popupTitle, message;
+    if (ev->exitCode == 3) {
+        // The compatibility layer refused to start Roblox because it is not
+        // the program Roblox signed. Not an exit code worth showing: what
+        // matters is that the files are wrong and a reinstall replaces them.
+        showErrorMessageBox("Failed to launch Roblox",
+            "Failed to verify the integrity of Roblox. Some files might be unsigned or have "
+            "been tampered with. Please make sure TuxBlox is up to date, then reinstall "
+            "Roblox and try again.");
+        return 1;
+    }
+
     if (ev->exitCode == 1) {
         // Proton itself failed before/while supervising the process -- not
         // Roblox's fault. See plan/plan.txt item 1's "if not roblox" template.

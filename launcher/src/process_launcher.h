@@ -132,8 +132,12 @@ public:
     // Variables" from Settings, appended on top of launchEnvVars(). They
     // reach only this "proton run" child, same as the rest of the vector --
     // never the launcher's own process.
+    // `verifyIntegrity` runs the compatibility layer with --verify-integrity,
+    // which refuses with exit code 3 if the executable is not the one Roblox
+    // signed. Comes from Settings::verifyIntegrity.
     LaunchOutcome launch(LaunchTarget target, const std::string& uri = "",
-                          const std::vector<std::string>& extraEnv = {});
+                          const std::vector<std::string>& extraEnv = {},
+                          bool verifyIntegrity = false);
     void stop(LaunchTarget target);
 
     // See TrackedProcess::takeExitEvent().

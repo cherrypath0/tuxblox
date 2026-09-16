@@ -90,6 +90,12 @@ struct Settings {
     // for every launch, rather than a file of its own: that is the file a user
     // sends when reporting a problem, and the one a crash report attaches.
     bool debugLogging = false;
+    // Checks that Roblox is the program Roblox signed before starting it. On
+    // by default: Roblox signs every release, so a file that does not verify
+    // has been altered or damaged, and starting it anyway is the worse
+    // outcome. When on, the compatibility layer is run with
+    // --verify-integrity and refuses with exit code 3 if the check fails.
+    bool verifyIntegrity = true;
     // Written into the active Roblox version's ClientSettings folder at every
     // launch -- see fastflag_file.h for why it can't just be written once.
     FastFlagSet fastFlags;

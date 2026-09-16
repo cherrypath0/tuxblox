@@ -238,6 +238,19 @@ QWidget* SettingsTab::buildTroubleshootingGroup(QWidget* parent) {
 QWidget* SettingsTab::buildPrivacyGroup(QWidget* parent) {
     auto* group = new BoxedGroup(parent);
 
+    auto* verifyRow = new BoxedRow(
+        "Verify Roblox Integrity",
+        "Checks that Roblox is the program Roblox published before starting it, and refuses to "
+        "start it if the files have been altered or damaged.");
+    verifyIntegrityToggle_ = new ToggleSwitch();
+    connect(verifyIntegrityToggle_, &ToggleSwitch::toggled, this, [this](bool checked) {
+        Settings updated = app_.snapshot().settings;
+        updated.verifyIntegrity = checked;
+        commitSettings(updated);
+    });
+    verifyRow->addControl(verifyIntegrityToggle_);
+    group->addRow(verifyRow);
+
     auto* crashRow = new BoxedRow(
         "Send crash reports",
         "Crash reports include exit code, Roblox and TuxBlox versions, basic system info, and a copy of the session "
@@ -331,6 +344,7 @@ void SettingsTab::updateFromSnapshot(const AppSnapshot& snap) {
         channelCombo_->setCurrentText(QString::fromStdString(snap.settings.channel));
         envEdit_->setText(QString::fromStdString(snap.settings.envVars));
         hapticsToggle_->setChecked(snap.settings.haptics);
+        verifyIntegrityToggle_->setChecked(snap.settings.verifyIntegrity);
         webviewGpuToggle_->setChecked(snap.settings.webviewGpu);
         debugLoggingToggle_->setChecked(snap.settings.debugLogging);
         crashReportsToggle_->setChecked(snap.settings.sendCrashReports);

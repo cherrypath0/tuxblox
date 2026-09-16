@@ -17,6 +17,8 @@
 #include "headless_launch.h"
 #include "process_launcher.h"
 #include <cstdio>
+#include "settings.h"
+
 #include <cstdlib>
 #include <unistd.h>
 #include <vector>
@@ -44,6 +46,9 @@ int runHeadlessQuickLaunch(const std::string& installDir, LaunchTarget target, c
 
     std::string proton = compatBinaryPath(installDir);
     std::vector<std::string> argvStrings = {proton, "run", exePath};
+    // Honours the same setting the GUI does: a check the quick-launch path
+    // skipped would be no check at all, since a roblox: link reaches here.
+    if (loadSettings(installDir).verifyIntegrity) argvStrings.push_back("--verify-integrity");
     if (!uri.empty()) argvStrings.push_back(uri);
 
     std::vector<char*> argv;
