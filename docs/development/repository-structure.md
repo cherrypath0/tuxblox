@@ -31,7 +31,6 @@ The two halves are **separate compiled programs that talk to each other while ru
 | File | What it is |
 |---|---|
 | `build.sh` | Builds the installer, launcher and compatibility layer, then packages the result |
-| `launch.sh` | Runs what you just built, without installing it |
 | `VERSION` | The version and channel. One file, read by all three components. |
 | `Containerfile` | The container builds run inside, so they are the same on every machine |
 | `CONTRIBUTING.md` | How to contribute |

@@ -103,11 +103,35 @@ Takes effect the next time Roblox starts.
 
 ---
 
+## Troubleshooting
+
+### Detailed logging
+
+**Default: off**
+
+Records far more about what Roblox and the compatibility layer are doing, in the same session log TuxBlox already saves for every launch. Reporting a problem still means sending one file.
+
+It makes Roblox slightly slower and log files much larger, which is why it is a setting rather than something that is always on. Leave it off unless you are reproducing a problem to report.
+
+Takes effect the next time Roblox starts.
+
+---
+
 ## Privacy
+
+### Verify Roblox Integrity
+
+**Default: on**
+
+Before launching, TuxBlox checks that Roblox's files carry a valid signature from Roblox and have not been altered since. If that check fails, TuxBlox refuses to launch and tells you to reinstall Roblox.
+
+Leave it on. The check costs a moment at startup and is the one thing standing between you and running a Roblox that somebody else has modified.
+
+If it refuses to launch something you believe is fine, make sure TuxBlox itself is up to date first, then reinstall Roblox. Turning this off to get past the warning means launching files that failed verification, and you should be sure that is what you want.
 
 ### Send crash reports
 
-**Default: on**
+**Default: off**
 
 When Roblox exits badly, TuxBlox sends a report containing:
 
@@ -118,7 +142,7 @@ When Roblox exits badly, TuxBlox sends a report containing:
 
 Nothing else is collected and nothing is sent while things are working normally. The full policy is at [tuxblox.net/privacy](https://tuxblox.net/privacy).
 
-Turn it off if you would rather send nothing. It costs us useful information but it is your call, and TuxBlox works exactly the same either way.
+Turn it on if you would like to help. It gives us information we genuinely cannot get any other way, but it is your call, and TuxBlox works exactly the same either way.
 
 ---
 

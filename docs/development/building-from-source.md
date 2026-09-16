@@ -75,15 +75,24 @@ A build wipes and recreates `build/` every time, including the virtual drive und
 
 ## Running what you built, in place
 
-You do not have to copy the build anywhere to try it:
+The launcher always looks for an installed TuxBlox in `~/.tuxblox`, so it cannot be pointed at your build directory. To try a build without installing it, start the program through the compatibility layer yourself and aim it at the virtual drive inside `build/`:
 
 ```bash
-./launch.sh          # asks which one you want
-./launch.sh studio
-./launch.sh player
+TUXBLOX_PREFIX="$PWD/build/runtime" \
+  ./build/compat/main run \
+  "$PWD/build/runtime/pfx/drive_c/users/user/AppData/Local/Roblox/Versions/version-<id>/RobloxStudioBeta.exe"
 ```
 
-This uses the virtual drive inside `build/` rather than your installed one, so experiments cannot damage a working install.
+Replace `version-<id>` with whichever folder is actually there. Roblox picks a new name on every update, so list the `Versions` folder to see it.
+
+A freshly built virtual drive has no Roblox in it yet. Download the official Roblox installer and run it the same way first, and it will install into that drive rather than your real one.
+
+Two things will cost you an afternoon if you do not know them:
+
+- The path must be absolute, and the program must sit inside `drive_c`. A program anywhere else exits instantly with no message of any kind, which looks exactly like a crash and is not one.
+- Read the program's output in the terminal. Redirecting it to a file leaves the program with no output to write to, and you get an empty file.
+
+This all uses the virtual drive inside `build/` rather than your installed one, so experiments cannot damage a working install.
 
 ## Versioning
 

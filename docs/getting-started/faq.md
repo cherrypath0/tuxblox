@@ -18,9 +18,11 @@ Studio is not affected. See [Known Issues](../troubleshooting/known-issues.md) f
 
 ## Will I get banned for using TuxBlox?
 
-TuxBlox does not modify Roblox, inject anything into it, or give you any ability a Windows player does not have. It runs the official, unmodified client.
+Nobody outside Roblox can answer that, and we will not pretend otherwise. Enforcement is Roblox Corporation's decision alone. TuxBlox has no say in it, no agreement with them, and cannot protect your account.
 
-What we can tell you is what TuxBlox deliberately refuses to do: anything that hides cheating, automates input, edits game memory, or grants a capability the Windows client does not have. None of that will ever be accepted into this project.
+What we can tell you is what TuxBlox does. It runs the official, unmodified client. It does not modify Roblox, inject anything into it, or give you any ability a Windows player does not have.
+
+And what it deliberately refuses to do: anything that hides cheating, automates input, edits game memory, or grants a capability the Windows client does not have. None of that will ever be accepted into this project.
 
 ## Is TuxBlox affiliated with Roblox?
 
@@ -76,7 +78,7 @@ You still have to set up the Studio side first, following [Roblox's guide](https
 
 ## Does TuxBlox collect data about me?
 
-Only crash reports, and only if you leave that setting on. A crash report contains the exit code, your Roblox and TuxBlox versions, basic system information, and the session log.
+Only crash reports, and only if you turn that setting on yourself. It is off unless you do. A crash report contains the exit code, your Roblox and TuxBlox versions, basic system information, and the session log.
 
 You can turn it off in Settings at any time. The full policy is at [tuxblox.net/privacy](https://tuxblox.net/privacy).
 

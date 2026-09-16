@@ -50,7 +50,7 @@ See [FastFlags](fastflags.md).
 
 ## Settings
 
-Update channel, automatic updates, graphics card selection, controller vibration, crash reporting, and the danger zone.
+Update channel, automatic updates, graphics card selection, controller vibration, detailed logging, integrity verification, crash reporting, and the danger zone.
 
 See [Settings](settings.md).
 
