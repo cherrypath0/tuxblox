@@ -240,8 +240,8 @@ QWidget* SettingsTab::buildPrivacyGroup(QWidget* parent) {
 
     auto* verifyRow = new BoxedRow(
         "Verify Roblox Integrity",
-        "Checks that Roblox is the program Roblox published before starting it, and refuses to "
-        "start it if the files have been altered or damaged.");
+        "Checks that Roblox's files are signed by Roblox and haven't been tampered with before "
+        "launching, and then refuses to launch if the verification fails.");
     verifyIntegrityToggle_ = new ToggleSwitch();
     connect(verifyIntegrityToggle_, &ToggleSwitch::toggled, this, [this](bool checked) {
         Settings updated = app_.snapshot().settings;
