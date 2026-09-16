@@ -15,6 +15,8 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #pragma once
+#include "version.h"
+
 #include <atomic>
 #include <mutex>
 #include <string>
@@ -58,7 +60,7 @@ public:
     // channel. Without it the version this binary was built for is installed,
     // which is what keeps the launcher, installer and compatibility layer of
     // one release together.
-    explicit App(std::string channel = "stable", bool useLatest = false);
+    explicit App(std::string channel = kTuxBloxChannel, bool useLatest = false);
     ~App();
 
     // Starts the background install pipeline (INIT -> ... -> DONE/ERROR).

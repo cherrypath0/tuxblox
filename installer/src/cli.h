@@ -15,6 +15,8 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #pragma once
+
+#include "version.h"
 #include <string>
 
 namespace tuxblox {
@@ -33,10 +35,14 @@ struct CliOptions {
     // Print the build version and exit. Matches `proton/main --version` and the
     // launcher's footer -- all three come from the same TUXBLOX_BUILD_VERSION.
     bool version = false;
-    // Which /v1/<channel>/... release to install. "stable" unless the
-    // launcher passed --channel during an upgrade handoff. "dev" is accepted
-    // on the command line and stored as its new name, "experimental".
-    std::string channel = "stable";
+    // Which /v1/<channel>/... release to install. Defaults to the channel this
+    // installer was BUILT for, not to "stable": an installer installs its own
+    // version, and that version only exists on its own channel, so a 2.5.0
+    // experimental installer defaulting to stable asks for a release that was
+    // never published there and fails with a 404. Overridden when the launcher
+    // passes --channel during an upgrade handoff. "dev" is accepted on the
+    // command line and stored as its new name, "experimental".
+    std::string channel = kTuxBloxChannel;
     // Install the newest release on the channel instead of the version this
     // installer binary was built for. Off by default: an installer normally
     // installs its own version, so the three halves of a release always match

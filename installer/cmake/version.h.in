@@ -18,4 +18,9 @@
 
 namespace tuxblox {
 constexpr const char* kTuxBloxVersion = "@TUXBLOX_INSTALLER_VERSION@";
+// The channel this installer was built for. An installer installs its own
+// version, so it has to ask the channel that version was published on -- a
+// 2.5.0 experimental installer asking "stable" gets a 404 and tells the user
+// their own version does not exist.
+constexpr const char* kTuxBloxChannel = "@TUXBLOX_INSTALLER_CHANNEL@";
 } // namespace tuxblox
