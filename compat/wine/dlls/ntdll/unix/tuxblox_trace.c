@@ -83,36 +83,54 @@ static const struct { const WCHAR *name; SIZE_T len; } trace_targets[] =
     { target_webview, ARRAY_SIZE(target_webview) },
 };
 
-static BOOL image_is_target(void)
+static BOOL image_name_matches( const WCHAR *name, SIZE_T len )
 {
     const UNICODE_STRING *image;
-    SIZE_T path_len, i, t;
+    const WCHAR *tail;
+    SIZE_T path_len, i;
 
     if (!peb || !peb->ProcessParameters) return FALSE;
     image = &peb->ProcessParameters->ImagePathName;
     if (!image->Buffer) return FALSE;
 
     path_len = image->Length / sizeof(WCHAR);
+    if (path_len < len) return FALSE;
+    tail = image->Buffer + path_len - len;
+
+    for (i = 0; i < len; i++)
+    {
+        WCHAR c = tail[i];
+        if (c >= 'A' && c <= 'Z') c += 'a' - 'A';
+        if (c != name[i]) return FALSE;
+    }
+    return TRUE;
+}
+
+static BOOL image_is_target(void)
+{
+    SIZE_T t;
 
     for (t = 0; t < ARRAY_SIZE(trace_targets); t++)
-    {
-        const WCHAR *name = trace_targets[t].name;
-        SIZE_T len = trace_targets[t].len;
-        const WCHAR *tail;
-        BOOL match = TRUE;
-
-        if (path_len < len) continue;
-        tail = image->Buffer + path_len - len;
-
-        for (i = 0; i < len; i++)
-        {
-            WCHAR c = tail[i];
-            if (c >= 'A' && c <= 'Z') c += 'a' - 'A';
-            if (c != name[i]) { match = FALSE; break; }
-        }
-        if (match) return TRUE;
-    }
+        if (image_name_matches( trace_targets[t].name, trace_targets[t].len )) return TRUE;
     return FALSE;
+}
+
+/* The anti-tamper layer is a Player-only DLL, so in Studio or the WebView2
+ * helper there is nothing for the loader walk below to find. It caches only a
+ * base it actually found, so without this check those processes repeat the
+ * whole walk on every system call for the life of the process. */
+static BOOL image_is_player(void)
+{
+    static int state = -1;
+
+    if (state == -1)
+    {
+        /* Called before the PEB exists -- answer no, but do not cache it,
+         * or every later call inherits this early answer. */
+        if (!peb || !peb->ProcessParameters) return FALSE;
+        state = image_name_matches( target_player, ARRAY_SIZE(target_player) ) ? 1 : 0;
+    }
+    return state == 1;
 }
 
 /* Per-call logging is the expensive half of this tracer: a write to stderr for
@@ -794,6 +812,7 @@ static ULONG64 roblox_dll_base(void)
      * More than tidiness -- the layer unmaps module views as it runs, and a
      * walk that happens to land on one reads freed memory. */
     if (cached) return cached;
+    if (!image_is_player()) return 0;           /* no layer to find in this process */
     if (!peb || !peb->LdrData) return 0;
     head = &peb->LdrData->InLoadOrderModuleList;
     for (cur = head->Flink; cur && cur != head && n < 128; cur = cur->Flink, n++)
@@ -864,11 +883,15 @@ static int roblox_stackfix_armed, roblox_stackfix_done;
 
 void tuxblox_roblox_stackfix_arm( void )
 {
+    static int disabled = -1;
     ULONG64 base;
     BYTE sig[5];
 
     if (roblox_stackfix_done || roblox_stackfix_armed) return;
-    if (getenv( "TUXBLOX_NO_STACKFIX" )) return;   /* A/B: run the natural (unforced) path */
+    if (!image_is_player()) return;                /* nothing to arm outside the Player */
+    /* Read once: this runs on every system call. */
+    if (disabled == -1) disabled = getenv( "TUXBLOX_NO_STACKFIX" ) ? 1 : 0;
+    if (disabled) return;                          /* A/B: run the natural (unforced) path */
     if (!(base = roblox_dll_base())) return;
     roblox_stackfix_addr = base + ROBLOX_STACKFIX_RVA;
     /* only where the decrypted code is the known check: cmp r8d,r11d ; jbe */
