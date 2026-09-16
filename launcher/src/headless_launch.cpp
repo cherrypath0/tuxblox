@@ -36,7 +36,11 @@ int runHeadlessQuickLaunch(const std::string& installDir, LaunchTarget target, c
     // written here rather than after the session, as the watched path does.
     exportPrefixShortcuts(installDir, selfExePath());
 
-    std::string exePath = resolveOrBootstrapExePath(target, installDir);
+    // The version picked in the Versions tab, not whatever the prefix scan
+    // reaches first: a menu entry or a roblox: link has to start the same
+    // version the launcher itself would, which is what the watched path does.
+    std::string exePath = resolveActiveVersionExePath(target, installDir);
+    if (exePath.empty()) exePath = resolveOrBootstrapExePath(target, installDir);
     if (exePath.empty()) {
         fprintf(stderr, "TuxBlox: could not resolve or download the Roblox executable\n");
         return 1;
