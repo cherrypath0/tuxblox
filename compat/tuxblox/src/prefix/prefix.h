@@ -70,6 +70,7 @@ private:
     void migrateUserPaths();
     void linkRobloxData();
     void syncHostTheme();
+    void syncHostFont();
     void syncHaptics();
 
     Proton& proton;

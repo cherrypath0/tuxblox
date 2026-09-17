@@ -649,6 +649,118 @@ const char *const kPlayStationPads[] = {
     "054C/0DF2", // DualSense Edge
 };
 
+// The desktop's interface font, as a family name and a size in points.
+std::pair<std::string, int> detectHostFont() {
+    const char* home = std::getenv("HOME");
+
+    // KDE keeps it as "Noto Sans,10,-1,5,50,0,0,0,0,0". The line is absent
+    // when the user has never changed it, which is why this falls through.
+    if (home != nullptr) {
+        std::ifstream kdeglobals(fs::path(home) / ".config" / "kdeglobals");
+        std::string line;
+        bool inGeneral = false;
+        while (std::getline(kdeglobals, line)) {
+            if (!line.empty() && line[0] == '[') {
+                inGeneral = (line.rfind("[General]", 0) == 0);
+                continue;
+            }
+            if (!inGeneral || line.rfind("font=", 0) != 0) {
+                continue;
+            }
+            const std::string value = line.substr(5);
+            const size_t comma = value.find(',');
+            if (comma == std::string::npos) {
+                continue;
+            }
+            const std::string family = trimmed(value.substr(0, comma));
+            const std::string rest = value.substr(comma + 1);
+            const int points = std::atoi(rest.c_str());
+            if (!family.empty() && points > 0) {
+                return {family, points};
+            }
+        }
+    }
+
+    // GNOME and anything else following it answer "Noto Sans 10", where the
+    // size is the last space-separated word.
+    const std::string gnome = trimmed(runHostCmd({"gsettings", "get",
+            "org.gnome.desktop.interface", "font-name"}));
+    if (!gnome.empty()) {
+        std::string value = gnome;
+        if (value.size() >= 2 && value.front() == '\'' && value.back() == '\'') {
+            value = value.substr(1, value.size() - 2);
+        }
+        const size_t space = value.find_last_of(' ');
+        if (space != std::string::npos) {
+            const int points = std::atoi(value.substr(space + 1).c_str());
+            const std::string family = trimmed(value.substr(0, space));
+            if (!family.empty() && points > 0) {
+                return {family, points};
+            }
+        }
+    }
+
+    const std::string matched = trimmed(runHostCmd({"fc-match", "--format=%{family}", "sans"}));
+    if (!matched.empty()) {
+        // fc-match can answer with a comma-separated list of aliases.
+        return {trimmed(matched.substr(0, matched.find(','))), 10};
+    }
+    return {"", 0};
+}
+
+// A LOGFONTW for the registry: five LONGs, eight bytes of flags, then the
+// face name as 32 UTF-16 characters. Wine reads these back for the fonts it
+// reports through SystemParametersInfo.
+std::string logFontValue(const std::string& family, int points) {
+    std::array<unsigned char, 92> blob{};
+
+    // Negative asks for a character height rather than a cell height, which
+    // is what a point size means. 96 is the prefix's own LogPixels.
+    const int height = -((points * 96 + 36) / 72);
+    const unsigned int cellHeight = static_cast<unsigned int>(height);
+    const unsigned int weight = 400;
+    for (int byte = 0; byte < 4; byte++) {
+        blob[byte] = static_cast<unsigned char>((cellHeight >> (byte * 8)) & 0xff);
+        blob[16 + byte] = static_cast<unsigned char>((weight >> (byte * 8)) & 0xff);
+    }
+    blob[23] = 1; // DEFAULT_CHARSET
+
+    for (size_t index = 0; index < family.size() && index < 31; index++) {
+        blob[28 + index * 2] = static_cast<unsigned char>(family[index]);
+    }
+
+    std::string hex = "hex:";
+    char pair[4];
+    for (size_t index = 0; index < blob.size(); index++) {
+        std::snprintf(pair, sizeof(pair), "%02x", blob[index]);
+        hex += pair;
+        if (index + 1 < blob.size()) {
+            hex += ",";
+        }
+    }
+    return hex;
+}
+
+void Prefix::syncHostFont() {
+    const auto [family, points] = detectHostFont();
+    if (family.empty() || points <= 0) {
+        return;
+    }
+
+    const std::string font = logFontValue(family, points);
+    const fs::path userReg = prefixDir / "user.reg";
+
+    // Only the fonts Wine reports for dialogs and menus. The caption font is
+    // left alone because the window's title bar is the desktop's to draw.
+    const bool changed = setRegKeyValues(userReg,
+            "Control Panel\\\\Desktop\\\\WindowMetrics",
+            {{"MessageFont", font}, {"MenuFont", font}, {"StatusFont", font}});
+
+    if (changed) {
+        log("Synced prefix to host font " + family + " " + std::to_string(points));
+    }
+}
+
 void Prefix::syncHaptics() {
     // Roblox asks for vibration through XInput -- its binaries carry
     // HapticService, SetMotor and XInputSetState, and no Windows.Gaming.Input
@@ -684,6 +796,12 @@ void Prefix::syncHaptics() {
 }
 
 void Prefix::syncHostTheme() {
+    // The palette is applied once and then left alone, so colours set by hand
+    // in the drive's registry are never written over on a later launch.
+    if (!getRegValue(prefixDir / "user.reg", "Software\\\\TuxBlox\\\\Theme", "Applied").empty()) {
+        return;
+    }
+
     const std::string scheme = detectHostColorScheme();
     if (scheme.empty()) {
         return;
@@ -734,6 +852,8 @@ void Prefix::syncHostTheme() {
             "Software\\\\Microsoft\\\\Windows\\\\CurrentVersion\\\\ThemeManager",
             {{"ThemeActive", scheme == "light" ? "\"1\"" : "\"0\""}});
 
+    setRegKeyValues(userReg, "Software\\\\TuxBlox\\\\Theme", {{"Applied", "\"" + scheme + "\""}});
+
     if (changed) {
         log("Synced prefix to host " + scheme + " theme");
     }
@@ -775,6 +895,7 @@ void Prefix::setup(Session& session) {
     migrateUserPaths();
     linkRobloxData();
     syncHostTheme();
+    syncHostFont();
     syncHaptics();
 
     std::error_code error;

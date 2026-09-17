@@ -117,6 +117,12 @@ On most Wine setups, `Z:` maps your entire Linux filesystem into the Windows wor
 
 The practical effect: a Windows program run inside the drive cannot see your home folder. When you double click a `.rbxl` file, TuxBlox bridges that one file in rather than exposing everything.
 
+### Colours
+
+TuxBlox matches the drive to your desktop's light or dark setting the first time it sets the drive up, and then leaves the colours alone. Anything you change yourself under `Control Panel\Colors` in the drive's registry stays changed, and is never written over on a later launch.
+
+The other side of that is that switching your desktop between light and dark afterwards does not follow through to the drive. Wiping the drive and letting it rebuild picks up your current setting again.
+
 ### Classic message boxes
 
 The small dialogs Windows programs put up inside the virtual drive are drawn to match a modern desktop: roomy margins, a right aligned row of rounded buttons, and the button you would press with Enter outlined in your desktop's accent colour. The colours come from your own theme, so they follow it in light and dark.
@@ -129,6 +135,8 @@ HKEY_CURRENT_USER\Software\TuxBlox\MessageBox
 ```
 
 Anything else, or no value at all, gives the modern one. The change applies to the next dialog that opens, with nothing to restart.
+
+The text in those dialogs uses your desktop's own font, at your desktop's size. TuxBlox reads it at every launch, so changing your font settings is enough -- there is nothing to set here. If it cannot work out what you use, it leaves the drive's own font alone.
 
 ### Resetting it
 

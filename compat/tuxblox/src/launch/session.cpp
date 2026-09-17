@@ -790,6 +790,32 @@ void Session::startSubsystem() {
     ::_exit(127);
 }
 
+// The size of the first connected display, as "2560x1440". Read from sysfs
+// rather than the display server so it works the same on X11 and Wayland.
+std::string primaryScreenSize() {
+    std::error_code error;
+    fs::directory_iterator cards("/sys/class/drm", error);
+    if (error) {
+        return "";
+    }
+
+    for (const fs::directory_entry& card : cards) {
+        std::ifstream status(card.path() / "status");
+        std::string state;
+        if (!std::getline(status, state) || state != "connected") {
+            continue;
+        }
+        std::ifstream modes(card.path() / "modes");
+        std::string mode;
+        while (std::getline(modes, mode)) {
+            if (mode.find('x') != std::string::npos) {
+                return mode;
+            }
+        }
+    }
+    return "";
+}
+
 int Session::run(const std::vector<std::string>& target) {
     writeLogHeader(target);
 
@@ -803,6 +829,15 @@ int Session::run(const std::vector<std::string>& target) {
     startSubsystem();
 
     std::vector<std::string> command = {unixDir + "wine-preloader", unixDir + "wine"};
+
+    // Virtual desktop mode puts every window Roblox opens inside one window of
+    // its own, which is what explorer does when given a desktop to manage.
+    if (envIsOn("TUXBLOX_VIRTUAL_DESKTOP")) {
+        const std::string size = primaryScreenSize();
+        command.push_back("explorer");
+        command.push_back("/desktop=Roblox," + (size.empty() ? std::string("1600x900") : size));
+    }
+
     command.insert(command.end(), target.begin(), target.end());
 
     return runProc(command);

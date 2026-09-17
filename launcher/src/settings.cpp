@@ -115,6 +115,7 @@ Settings loadSettings(const std::string& installDir) {
         settings.autoUpdate = j.value("auto_update", false);
         settings.haptics = j.value("haptics", true);
         settings.webviewGpu = j.value("webview_gpu", true);
+        settings.virtualDesktop = j.value("virtual_desktop", false);
         settings.debugLogging = j.value("debug_logging", false);
         settings.verifyIntegrity = j.value("verify_integrity", true);
         settings.autoUpdateRoblox = j.value("auto_update_roblox", true);
@@ -147,6 +148,7 @@ void saveSettings(const std::string& installDir, const Settings& settings) {
         j["auto_update"] = settings.autoUpdate;
         j["haptics"] = settings.haptics;
         j["webview_gpu"] = settings.webviewGpu;
+        j["virtual_desktop"] = settings.virtualDesktop;
         j["debug_logging"] = settings.debugLogging;
         j["verify_integrity"] = settings.verifyIntegrity;
         j["auto_update_roblox"] = settings.autoUpdateRoblox;
@@ -193,6 +195,12 @@ std::vector<std::string> launchEnvPairs(const Settings& settings) {
     // Both states are sent, unlike haptics above. The compatibility layer's own
     // default is off, so "on" cannot be expressed by leaving the variable out.
     pairs.push_back(settings.webviewGpu ? "TUXBLOX_WEBVIEW_GPU=1" : "TUXBLOX_WEBVIEW_GPU=0");
+
+    // Only the non-default is emitted, as with haptics above. The layer works
+    // out the window size itself, so nothing here describes the screen.
+    if (settings.virtualDesktop) {
+        pairs.push_back("TUXBLOX_VIRTUAL_DESKTOP=1");
+    }
 
     // Only the non-default is emitted, as with haptics above. The layer reads
     // this and turns on the diagnostics it otherwise keeps silenced, all of

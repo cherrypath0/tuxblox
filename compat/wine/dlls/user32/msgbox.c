@@ -239,6 +239,7 @@ static void MSGBOX_OnInit(HWND hwnd, LPMSGBOXPARAMSW lpmb)
     int bspace, bw, bh, theight, tleft, wwidth, wheight, wleft, wtop, bpos;
     int btop, itop, ttop, contentheight, clientwidth;
     BOOL classic = MSGBOX_ClassicStyle();
+    HFONT msgfont = 0;
     int borheight, borwidth, iheight, ileft, iwidth, twidth, tiheight;
     NONCLIENTMETRICSW nclm;
     HMONITOR monitor;
@@ -254,6 +255,18 @@ static void MSGBOX_OnInit(HWND hwnd, LPMSGBOXPARAMSW lpmb)
 
     nclm.cbSize = sizeof(nclm);
     SystemParametersInfoW (SPI_GETNONCLIENTMETRICS, 0, &nclm, 0);
+
+    /* Windows draws a message box in the system message font. The dialog
+     * template carries no font of its own, so without this the box is left
+     * with the default GUI font and matches nothing else on the desktop. */
+    if (!classic && (msgfont = CreateFontIndirectW( &nclm.lfMessageFont )))
+    {
+        SetPropA( hwnd, "WINE_MSGBOX_FONT", msgfont );
+        SendMessageW( hwnd, WM_SETFONT, (WPARAM)msgfont, FALSE );
+        SendDlgItemMessageW( hwnd, MSGBOX_IDTEXT, WM_SETFONT, (WPARAM)msgfont, FALSE );
+        for (i = IDOK; i <= IDCONTINUE; i++)
+            SendDlgItemMessageW( hwnd, i, WM_SETFONT, (WPARAM)msgfont, FALSE );
+    }
 
     if (!IS_INTRESOURCE(lpmb->lpszCaption)) {
        SetWindowTextW(hwnd, lpmb->lpszCaption);
@@ -554,6 +567,17 @@ static INT_PTR CALLBACK MSGBOX_DlgProc( HWND hwnd, UINT message,
        NtUserSetWindowContextHelpId(hwnd, mbp->dwContextHelpId);
        MSGBOX_OnInit(hwnd, mbp);
        SetPropA(hwnd, "WINE_MSGBOX_HELPCALLBACK", mbp->lpfnMsgBoxCallback);
+       break;
+   }
+
+   case WM_DESTROY:
+   {
+       HFONT font = GetPropA( hwnd, "WINE_MSGBOX_FONT" );
+       if (font)
+       {
+           RemovePropA( hwnd, "WINE_MSGBOX_FONT" );
+           DeleteObject( font );
+       }
        break;
    }
 

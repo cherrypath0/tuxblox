@@ -87,6 +87,18 @@ Turn it off if those panels are blank, flickering, drawing garbage, or crashing.
 
 Takes effect the next time Roblox starts.
 
+### Virtual Desktop Mode
+
+**Default: off**
+
+Runs Roblox inside a single window of its own, instead of letting it place windows on your desktop. This is experimental.
+
+Normally every Roblox window is a window on your desktop, moved and resized by your desktop like any other. With this on, Roblox gets a desktop of its own inside one window, and everything it opens stays inside that window. It is sized to your screen.
+
+This is worth trying when windows open in the wrong place, go missing, or will not give your mouse back. It is not better than the normal mode otherwise, and your desktop can no longer arrange Roblox's windows for you.
+
+Takes effect the next time Roblox starts.
+
 ### Environment variables
 
 **Default: empty**

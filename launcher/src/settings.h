@@ -82,6 +82,10 @@ struct Settings {
     // still treats an absent value as off, so leaving this on has to say so
     // rather than imply it by staying quiet.
     bool webviewGpu = true;
+    // Gives Roblox a desktop of its own inside one window rather than letting it
+    // place windows on the user's. Off by default, and like haptics only the
+    // non-default is emitted, so an ordinary launch carries nothing extra.
+    bool virtualDesktop = false;
     // Detailed logging. Off by default, and like haptics only the non-default
     // is emitted, so a launch that never touched it carries exactly the
     // environment it always did.

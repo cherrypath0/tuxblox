@@ -65,6 +65,7 @@ private:
     std::vector<GpuDevice> gpus_;
     ToggleSwitch* webviewGpuToggle_ = nullptr;
     ToggleSwitch* hapticsToggle_ = nullptr;
+    ToggleSwitch* virtualDesktopToggle_ = nullptr;
     ToggleSwitch* debugLoggingToggle_ = nullptr;
     ToggleSwitch* crashReportsToggle_ = nullptr;
     ToggleSwitch* autoUpdateRobloxToggle_ = nullptr;

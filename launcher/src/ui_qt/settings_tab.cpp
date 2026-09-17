@@ -192,6 +192,19 @@ QWidget* SettingsTab::buildEnvironmentGroup(QWidget* parent) {
     webviewGpuRow->addControl(webviewGpuToggle_);
     group->addRow(webviewGpuRow);
 
+    auto* virtualDesktopRow = new BoxedRow(
+        "Virtual Desktop Mode",
+        "An experimental feature that runs Roblox inside a single window of its own, instead of "
+        "letting it place windows on your desktop. Takes effect the next time Roblox starts.");
+    virtualDesktopToggle_ = new ToggleSwitch();
+    connect(virtualDesktopToggle_, &ToggleSwitch::toggled, this, [this](bool checked) {
+        Settings updated = app_.snapshot().settings;
+        updated.virtualDesktop = checked;
+        commitSettings(updated);
+    });
+    virtualDesktopRow->addControl(virtualDesktopToggle_);
+    group->addRow(virtualDesktopRow);
+
     auto* envRow = new BoxedRow("Environment variables",
                                  "These variables will be passed to Roblox and the compatibility layer.");
     envEdit_ = new QLineEdit();
@@ -357,6 +370,7 @@ void SettingsTab::updateFromSnapshot(const AppSnapshot& snap) {
         channelCombo_->setCurrentText(QString::fromStdString(snap.settings.channel));
         envEdit_->setText(QString::fromStdString(snap.settings.envVars));
         hapticsToggle_->setChecked(snap.settings.haptics);
+        virtualDesktopToggle_->setChecked(snap.settings.virtualDesktop);
         verifyIntegrityToggle_->setChecked(snap.settings.verifyIntegrity);
         autoUpdateRobloxToggle_->setChecked(snap.settings.autoUpdateRoblox);
         webviewGpuToggle_->setChecked(snap.settings.webviewGpu);
