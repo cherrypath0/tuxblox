@@ -9,8 +9,6 @@ launcher/third_party/
 .env
 
 push.sh
-install-handler.sh
-launch.sh
 stage.sh
 deploy.sh
 
