@@ -49,11 +49,9 @@ namespace {
 // Version variables
 const std::string TuxBloxVersion = TUXBLOX_VERSION;
 const std::string TuxBloxChannel = TUXBLOX_CHANNEL;
-
 const std::string PrefixVersion = TuxBloxVersion + "-" + TuxBloxChannel;
 
-// All process names that belong to Roblox
-const std::array<std::string, 7> RobloxProcesses = {
+const std::array<std::string, 6> RobloxProcesses = {
     // Clients
     "RobloxPlayerBeta.exe",
     "RobloxStudioBeta.exe",
