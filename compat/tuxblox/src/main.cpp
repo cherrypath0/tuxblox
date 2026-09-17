@@ -14,14 +14,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-// Portions derived from Proton's proton.py:
+// Portions derived from Valve's Proton:
 // Copyright (c) 2018-2022, Valve Corporation. All rights reserved.
 // Licensed under the 3-clause BSD license; see
 // third_party_licenses/proton/LICENSE.proton for the full text.
-
-// The TuxBlox launcher: sets up the Wine prefix for Roblox, runs the target,
-// and waits for the prefix to empty. Rewritten in C++ from proton.py, keeping
-// only what Roblox Player and Studio actually need.
 
 #include <array>
 #include <cstdlib>
@@ -56,18 +52,20 @@ const std::string TuxBloxChannel = TUXBLOX_CHANNEL;
 
 const std::string PrefixVersion = TuxBloxVersion + "-" + TuxBloxChannel;
 
-// All process names that belong to the Roblox Client
+// All process names that belong to Roblox
 const std::array<std::string, 7> RobloxProcesses = {
+    // Clients
     "RobloxPlayerBeta.exe",
     "RobloxStudioBeta.exe",
 
+    // Installers
+    // The installers are no longer used in favor of the new custom bootstrapper, still kept here just in case
     "RobloxPlayerInstaller.exe",
     "RobloxStudioInstaller.exe",
 
+    // Roblox Crash handler and the Studio MCP Server
     "RobloxCrashHandler.exe",
-
     "StudioMCP.exe",
-    "RCCService.exe"
 };
 
 const std::array<std::string, 8> HelpOutput = {
@@ -83,8 +81,7 @@ const std::array<std::string, 8> HelpOutput = {
 
 const int PrefixDrainTimeoutSeconds = 15;
 
-// Who a genuine Roblox executable is signed by, and what TuxBlox exits with
-// when --verify-integrity says it is not.
+const std::string TuxBloxPublisher = "TuxBlox Project";
 const std::string RobloxPublisher = "Roblox Corporation";
 const int IntegrityFailureExit = 3;
 
@@ -132,8 +129,6 @@ CommandLine parseCommandLine(int argc, char *argv[]) {
         }
 
         if (argument == "--version") {
-            // "x.y.z-channel", matching every other TuxBlox binary, so the
-            // launcher can spot a half-updated install with one comparison.
             std::cout << PrefixVersion << std::endl;
             parsed.handled = true;
             return parsed;
@@ -196,9 +191,8 @@ int runMain(int argc, char *argv[]) {
     tuxblox::log("Running TuxBlox version " + TuxBloxVersion + "-" + TuxBloxChannel);
     tuxblox::log("Commandline: " + invocation);
 
-    // Checked before anything is set up, so a program that is not the one
-    // Roblox signed never gets as far as running. The launcher turns this on
-    // from its "Verify Roblox Integrity" setting and reports the exit code.
+    // Authenticode verification ("Verify Roblox Integrity" setting) to ensure the Roblox executables used are legitimate and not tampered with
+    // TODO: Expand this to all third-party executables instead of just the one being launched (including DLLs), potentially even TuxBlox's own DLLs.
     if (command.verifyIntegrity) {
         const tuxblox::IntegrityReport report = tuxblox::verifyAuthenticode(
             command.target.front(), RobloxPublisher, tuxblox_data::find("roots.pem"));
@@ -249,14 +243,11 @@ int runMain(int argc, char *argv[]) {
         session.waitForPrefixDrain(PrefixDrainTimeoutSeconds);
     }
 
-    // Fixed exit-code contract, which the launcher relies on to tell "TuxBlox
-    // itself broke" apart from "the thing TuxBlox ran broke". The wrapped
-    // process's real exit code still reaches the launcher separately, through
-    // the marker line Session relays.
-    //   0 - the wrapped process exited cleanly
-    //   1 - TuxBlox itself failed
-    //   2 - the wrapped process exited abnormally
-    //   3 - the executable is not the one Roblox signed (--verify-integrity)
+    // TuxBlox exit codes:
+    //   0 - OK (successful)
+    //   1 - TuxBlox error
+    //   2 - Launched process error
+    //   3 - Authenticode verification failure (--verify-integrity)
     return rc == 0 ? 0 : 2;
 }
 
