@@ -27,6 +27,7 @@
 #include "wingdi.h"
 #include "winternl.h"
 #include "dlgs.h"
+#include "winreg.h"
 #include "user_private.h"
 #include "resources.h"
 #include "wine/debug.h"
@@ -58,6 +59,176 @@ static BOOL CALLBACK MSGBOX_EnumProc(HWND hwnd, LPARAM lParam)
    return TRUE;
 }
 
+/* Layout metrics for the modern message box. The classic one derives every
+ * size from the text, which is why it ends up cramped next to a dialog from
+ * any current desktop. */
+#define MSGBOX_MARGIN            20
+#define MSGBOX_ICON_GAP          16
+#define MSGBOX_CONTENT_GAP       16
+#define MSGBOX_BUTTON_GAP         6
+#define MSGBOX_BUTTON_HEIGHT     32
+#define MSGBOX_BUTTON_MIN_WIDTH  80
+#define MSGBOX_BUTTON_PADDING    16
+#define MSGBOX_BUTTON_RADIUS      3
+
+/* The rounded corners are drawn at this multiple and averaged back down,
+ * because RoundRect has no antialiasing and leaves visible steps. */
+#define MSGBOX_SUPERSAMPLE        4
+
+/* @@ Wine registry key: HKCU\Software\TuxBlox\MessageBox */
+static BOOL MSGBOX_ClassicStyle(void)
+{
+    WCHAR value[8];
+    DWORD size = sizeof(value), type;
+    BOOL classic = FALSE;
+    HKEY hkey;
+
+    if (!RegOpenKeyExW( HKEY_CURRENT_USER, L"Software\\TuxBlox\\MessageBox", 0, KEY_READ, &hkey ))
+    {
+        if (!RegQueryValueExW( hkey, L"Classic", NULL, &type, (BYTE *)value, &size ) && type == REG_SZ)
+            classic = (value[0] == '1' || value[0] == 'y' || value[0] == 'Y');
+        RegCloseKey( hkey );
+    }
+    return classic;
+}
+
+static BOOL MSGBOX_IsDarkColor( COLORREF color )
+{
+    return (GetRValue(color) * 30 + GetGValue(color) * 59 + GetBValue(color) * 11) / 100 < 128;
+}
+
+/* Positive lightens towards white, negative darkens towards black. */
+static COLORREF MSGBOX_Shade( COLORREF color, int percent )
+{
+    int r = GetRValue(color), g = GetGValue(color), b = GetBValue(color);
+
+    if (percent > 0)
+    {
+        r += (255 - r) * percent / 100;
+        g += (255 - g) * percent / 100;
+        b += (255 - b) * percent / 100;
+    }
+    else
+    {
+        r += r * percent / 100;
+        g += g * percent / 100;
+        b += b * percent / 100;
+    }
+    return RGB( r, g, b );
+}
+
+static void MSGBOX_DrawButton( HWND hwnd, const DRAWITEMSTRUCT *dis )
+{
+    int width = dis->rcItem.right - dis->rcItem.left;
+    int height = dis->rcItem.bottom - dis->rcItem.top;
+    int scale = MSGBOX_SUPERSAMPLE, samples = scale * scale;
+    COLORREF back = GetSysColor( COLOR_3DFACE );
+    BOOL dark = MSGBOX_IsDarkColor( back );
+    COLORREF face, edge;
+    BITMAPINFO bmi;
+    DWORD *bits, *flat;
+    HBITMAP bmp, flatbmp, oldbmp, oldflat;
+    HDC mem, out;
+    HBRUSH brush, oldbrush;
+    HPEN pen, oldpen;
+    WCHAR text[256];
+    RECT rc;
+    int x, y, sx, sy;
+
+    if (width <= 0 || height <= 0) return;
+
+    if (dis->itemState & ODS_SELECTED) face = MSGBOX_Shade( back, dark ? -8 : -10 );
+    else face = MSGBOX_Shade( back, dark ? 12 : 22 );
+
+    /* A focused or default button is outlined in the accent colour, the way
+     * every current desktop marks the one Enter will press. */
+    if (dis->itemState & (ODS_FOCUS | ODS_DEFAULT) ||
+        LOWORD(SendMessageW( hwnd, DM_GETDEFID, 0, 0 )) == dis->CtlID)
+        edge = GetSysColor( COLOR_HIGHLIGHT );
+    else
+        edge = MSGBOX_Shade( back, dark ? 34 : -22 );
+
+    memset( &bmi, 0, sizeof(bmi) );
+    bmi.bmiHeader.biSize = sizeof(bmi.bmiHeader);
+    bmi.bmiHeader.biPlanes = 1;
+    bmi.bmiHeader.biBitCount = 32;
+    bmi.bmiHeader.biCompression = BI_RGB;
+    bmi.bmiHeader.biWidth = width * scale;
+    bmi.bmiHeader.biHeight = -height * scale;
+
+    mem = CreateCompatibleDC( dis->hDC );
+    bmp = CreateDIBSection( dis->hDC, &bmi, DIB_RGB_COLORS, (void **)&bits, NULL, 0 );
+    bmi.bmiHeader.biWidth = width;
+    bmi.bmiHeader.biHeight = -height;
+    out = CreateCompatibleDC( dis->hDC );
+    flatbmp = CreateDIBSection( dis->hDC, &bmi, DIB_RGB_COLORS, (void **)&flat, NULL, 0 );
+    if (!mem || !out || !bmp || !flatbmp)
+    {
+        if (bmp) DeleteObject( bmp );
+        if (flatbmp) DeleteObject( flatbmp );
+        if (mem) DeleteDC( mem );
+        if (out) DeleteDC( out );
+        return;
+    }
+    oldbmp = SelectObject( mem, bmp );
+    oldflat = SelectObject( out, flatbmp );
+
+    rc.left = rc.top = 0;
+    rc.right = width * scale;
+    rc.bottom = height * scale;
+    brush = CreateSolidBrush( back );
+    FillRect( mem, &rc, brush );
+    DeleteObject( brush );
+
+    brush = CreateSolidBrush( face );
+    pen = CreatePen( PS_SOLID, scale, edge );
+    oldbrush = SelectObject( mem, brush );
+    oldpen = SelectObject( mem, pen );
+    RoundRect( mem, scale / 2, scale / 2, width * scale - scale / 2, height * scale - scale / 2,
+               MSGBOX_BUTTON_RADIUS * 2 * scale, MSGBOX_BUTTON_RADIUS * 2 * scale );
+    SelectObject( mem, oldbrush );
+    SelectObject( mem, oldpen );
+    DeleteObject( brush );
+    DeleteObject( pen );
+
+    for (y = 0; y < height; y++)
+    {
+        for (x = 0; x < width; x++)
+        {
+            unsigned int r = 0, g = 0, b = 0;
+
+            for (sy = 0; sy < scale; sy++)
+            {
+                const DWORD *row = bits + (y * scale + sy) * width * scale + x * scale;
+                for (sx = 0; sx < scale; sx++)
+                {
+                    r += (row[sx] >> 16) & 0xff;
+                    g += (row[sx] >> 8) & 0xff;
+                    b += row[sx] & 0xff;
+                }
+            }
+            flat[y * width + x] = ((r / samples) << 16) | ((g / samples) << 8) | (b / samples);
+        }
+    }
+    BitBlt( dis->hDC, dis->rcItem.left, dis->rcItem.top, width, height, out, 0, 0, SRCCOPY );
+
+    SelectObject( mem, oldbmp );
+    SelectObject( out, oldflat );
+    DeleteObject( bmp );
+    DeleteObject( flatbmp );
+    DeleteDC( mem );
+    DeleteDC( out );
+
+    if (GetWindowTextW( dis->hwndItem, text, ARRAY_SIZE(text) ))
+    {
+        SetBkMode( dis->hDC, TRANSPARENT );
+        SetTextColor( dis->hDC, GetSysColor( (dis->itemState & ODS_DISABLED) ? COLOR_GRAYTEXT
+                                                                            : COLOR_BTNTEXT ));
+        rc = dis->rcItem;
+        DrawTextW( dis->hDC, text, -1, &rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE );
+    }
+}
+
 static void MSGBOX_OnInit(HWND hwnd, LPMSGBOXPARAMSW lpmb)
 {
     HFONT hPrevFont;
@@ -66,6 +237,8 @@ static void MSGBOX_OnInit(HWND hwnd, LPMSGBOXPARAMSW lpmb)
     HDC hdc;
     int i, buttons;
     int bspace, bw, bh, theight, tleft, wwidth, wheight, wleft, wtop, bpos;
+    int btop, itop, ttop, contentheight, clientwidth;
+    BOOL classic = MSGBOX_ClassicStyle();
     int borheight, borwidth, iheight, ileft, iwidth, twidth, tiheight;
     NONCLIENTMETRICSW nclm;
     HMONITOR monitor;
@@ -257,29 +430,66 @@ static void MSGBOX_OnInit(HWND hwnd, LPMSGBOXPARAMSW lpmb)
 	    }
 	}
     }
-    bw = max(bw, bh * 2);
-    /* Button white space */
-    bh = bh * 2;
-    bw = bw * 2;
-    bspace = bw/3; /* Space between buttons */
+    if (classic)
+    {
+        bw = max(bw, bh * 2);
+        /* Button white space */
+        bh = bh * 2;
+        bw = bw * 2;
+        bspace = bw/3; /* Space between buttons */
+    }
+    else
+    {
+        bw = max(MSGBOX_BUTTON_MIN_WIDTH, bw + MSGBOX_BUTTON_PADDING * 2);
+        bh = MSGBOX_BUTTON_HEIGHT;
+        bspace = MSGBOX_BUTTON_GAP;
+    }
 
     /* Get the text size */
     GetClientRect(GetDlgItem(hwnd, MSGBOX_IDTEXT), &rect);
     rect.top = rect.left = rect.bottom = 0;
     DrawTextW(hdc, lpszText, -1, &rect,
               DT_LEFT | DT_EXPANDTABS | DT_WORDBREAK | DT_CALCRECT | DT_NOPREFIX);
-    /* Min text width corresponds to space for the buttons */
-    tleft = ileft;
-    if (iwidth) tleft += ileft + iwidth;
-    twidth = max((bw + bspace) * buttons + bspace - tleft, rect.right);
+    if (classic)
+    {
+        /* Min text width corresponds to space for the buttons */
+        tleft = ileft;
+        if (iwidth) tleft += ileft + iwidth;
+        twidth = max((bw + bspace) * buttons + bspace - tleft, rect.right);
+    }
+    else
+    {
+        ileft = MSGBOX_MARGIN;
+        tleft = MSGBOX_MARGIN + (iwidth ? iwidth + MSGBOX_ICON_GAP : 0);
+        twidth = rect.right;
+    }
     theight = rect.bottom;
 
     SelectObject(hdc, hPrevFont);
     NtUserReleaseDC( hwnd, hdc );
 
-    tiheight = 16 + max(iheight, theight);
-    wwidth  = tleft + twidth + ileft + borwidth;
-    wheight = 8 + tiheight + bh + borheight;
+    contentheight = max(iheight, theight);
+    if (classic)
+    {
+        tiheight = 16 + contentheight;
+        wwidth  = tleft + twidth + ileft + borwidth;
+        wheight = 8 + tiheight + bh + borheight;
+        itop = (tiheight - iheight) / 2;
+        ttop = (tiheight - theight) / 2;
+        btop = tiheight;
+    }
+    else
+    {
+        /* The button row is never narrower than the buttons it holds, so a
+         * short message still gets a dialog wide enough for them. */
+        clientwidth = max(tleft + twidth + MSGBOX_MARGIN,
+                          MSGBOX_MARGIN * 2 + (bw + bspace) * buttons - bspace);
+        btop = MSGBOX_MARGIN + contentheight + MSGBOX_CONTENT_GAP;
+        wwidth = clientwidth + borwidth;
+        wheight = btop + bh + MSGBOX_MARGIN + borheight;
+        itop = MSGBOX_MARGIN + (contentheight - iheight) / 2;
+        ttop = MSGBOX_MARGIN + (contentheight - theight) / 2;
+    }
 
     /* Message boxes are always desktop centered, so query desktop size and center window */
     monitor = MonitorFromWindow(lpmb->hwndOwner ? lpmb->hwndOwner : GetActiveWindow(), MONITOR_DEFAULTTOPRIMARY);
@@ -293,15 +503,18 @@ static void MSGBOX_OnInit(HWND hwnd, LPMSGBOXPARAMSW lpmb)
                         SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOREDRAW );
 
     /* Position the icon */
-    NtUserSetWindowPos( GetDlgItem(hwnd, MSGBOX_IDICON), 0, ileft, (tiheight - iheight) / 2, 0, 0,
+    NtUserSetWindowPos( GetDlgItem(hwnd, MSGBOX_IDICON), 0, ileft, itop, 0, 0,
                         SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOREDRAW );
 
     /* Position the text */
-    NtUserSetWindowPos( GetDlgItem(hwnd, MSGBOX_IDTEXT), 0, tleft, (tiheight - theight) / 2, twidth, theight,
+    NtUserSetWindowPos( GetDlgItem(hwnd, MSGBOX_IDTEXT), 0, tleft, ttop, twidth, theight,
                         SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOREDRAW );
 
     /* Position the buttons */
-    bpos = (wwidth - (bw + bspace) * buttons + bspace) / 2;
+    if (classic)
+        bpos = (wwidth - (bw + bspace) * buttons + bspace) / 2;
+    else
+        bpos = clientwidth - MSGBOX_MARGIN - ((bw + bspace) * buttons - bspace);
     for (buttons = i = 0; i < ARRAY_SIZE(buttonOrder); i++) {
 
 	/* Convert the button order to ID* value to order for the buttons */
@@ -309,9 +522,14 @@ static void MSGBOX_OnInit(HWND hwnd, LPMSGBOXPARAMSW lpmb)
 	if (GetWindowLongW(hItem, GWL_STYLE) & WS_VISIBLE) {
 	    if (buttons++ == ((lpmb->dwStyle & MB_DEFMASK) >> 8)) {
 		NtUserSetFocus(hItem);
-		SendMessageW( hItem, BM_SETSTYLE, BS_DEFPUSHBUTTON, TRUE );
+		if (classic)
+		    SendMessageW( hItem, BM_SETSTYLE, BS_DEFPUSHBUTTON, TRUE );
+		else
+		    SendMessageW( hwnd, DM_SETDEFID, buttonOrder[i], 0 );
 	    }
-	    NtUserSetWindowPos( hItem, 0, bpos, tiheight, bw, bh,
+	    if (!classic)
+		SetWindowLongW( hItem, GWL_STYLE, GetWindowLongW( hItem, GWL_STYLE ) | BS_OWNERDRAW );
+	    NtUserSetWindowPos( hItem, 0, bpos, btop, bw, bh,
                                 SWP_NOZORDER|SWP_NOACTIVATE|SWP_NOREDRAW );
 	    bpos += bw + bspace;
 	}
@@ -338,6 +556,10 @@ static INT_PTR CALLBACK MSGBOX_DlgProc( HWND hwnd, UINT message,
        SetPropA(hwnd, "WINE_MSGBOX_HELPCALLBACK", mbp->lpfnMsgBoxCallback);
        break;
    }
+
+   case WM_DRAWITEM:
+    MSGBOX_DrawButton( hwnd, (const DRAWITEMSTRUCT *)lParam );
+    return TRUE;
 
    case WM_COMMAND:
     switch (LOWORD(wParam))

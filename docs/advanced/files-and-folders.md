@@ -117,6 +117,19 @@ On most Wine setups, `Z:` maps your entire Linux filesystem into the Windows wor
 
 The practical effect: a Windows program run inside the drive cannot see your home folder. When you double click a `.rbxl` file, TuxBlox bridges that one file in rather than exposing everything.
 
+### Classic message boxes
+
+The small dialogs Windows programs put up inside the virtual drive are drawn to match a modern desktop: roomy margins, a right aligned row of rounded buttons, and the button you would press with Enter outlined in your desktop's accent colour. The colours come from your own theme, so they follow it in light and dark.
+
+If you would rather have the plain, older looking dialog, set a value in the drive's registry:
+
+```
+HKEY_CURRENT_USER\Software\TuxBlox\MessageBox
+    Classic = "1"
+```
+
+Anything else, or no value at all, gives the modern one. The change applies to the next dialog that opens, with nothing to restart.
+
 ### Resetting it
 
 **Wipe prefix** in Settings deletes the whole thing. The next launch rebuilds it and reinstalls Roblox, which takes about as long as your first launch did.
