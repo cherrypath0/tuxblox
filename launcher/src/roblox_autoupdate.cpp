@@ -16,6 +16,8 @@
 
 #include "roblox_autoupdate.h"
 
+#include "desktop_notify.h"
+
 #include <cstdio>
 #include <filesystem>
 #include <sys/wait.h>
@@ -68,6 +70,14 @@ void runRobloxUpdateCheck(const std::string& installDir, LaunchTarget target,
     if (waitpid(pid, &status, 0) < 0) return;
     if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
         fprintf(stderr, "TuxBlox: the Roblox update check did not finish, launching anyway\n");
+        // The check runs without a window of its own, so there is nothing on
+        // screen for this to have appeared on. It says the update was skipped
+        // rather than that Roblox failed to start: the launch goes ahead on
+        // the version already installed either way.
+        showDesktopNotification(
+            "Failed to Update Roblox",
+            "Something went wrong while attempting to update Roblox, so the update "
+            "was skipped. Please check your internet connection and try again.");
     }
 }
 

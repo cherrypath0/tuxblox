@@ -99,6 +99,7 @@ add_library(launcher_core STATIC
     src/updater.cpp
     src/headless_launch.cpp
     src/desktop_integration.cpp
+    src/desktop_notify.cpp
     src/copyright_file.cpp
     src/license_file.cpp
     src/settings.cpp
