@@ -139,6 +139,12 @@ EnsureInstallerResult ensureInstallerBinary(const Manifest& manifest, const std:
     return {true, installerPath, ""};
 }
 
+std::string buildChannel(const std::string& buildId) {
+    // Version numbers carry no '-', so the first one starts the channel.
+    const size_t dash = buildId.find('-');
+    return dash == std::string::npos ? std::string() : buildId.substr(dash + 1);
+}
+
 std::vector<ComponentVersion> readComponentVersions(const std::string& installDir) {
     std::vector<ComponentVersion> components = {
         {"compatibility layer", compatDirUnder(installDir) + "/main", ""},
@@ -193,11 +199,25 @@ UpdateResult runUpdateCheck(const std::string& currentLauncherBuildId,
     const std::string dir = resolveInstallDir(installDirOverride);
 
     // One release covers every binary, so they all answer to one build id.
-    // The channel is part of it: a user who switches channel has to move even
-    // when both channels happen to sit on the same version number.
+    // Used for the agreement check below and in the message; versionNeedsUpdate
+    // ignores the channel suffix, so it does not affect "is a newer release
+    // out" either way.
     const std::string requiredBuildId = requiredVersion + "-" + channel;
 
     const bool launcherNeedsUpdate = versionNeedsUpdate(currentLauncherBuildId, requiredBuildId);
+
+    // Picking a channel is an explicit instruction, so it is honoured even
+    // when that channel's current release is a LOWER version number than what
+    // is installed. versionNeedsUpdate only ever moves forward, so without
+    // this, selecting a channel that happens to be behind leaves the user
+    // exactly where they were with no sign anything was ignored.
+    //
+    // Deliberately not counted as a mixed install: the pieces still agree with
+    // each other, so this waits for the Auto-Update setting like any ordinary
+    // update. A build from before 2.7.0 reports no channel at all, and an
+    // unknown channel is not a mismatch.
+    const std::string ownChannel = buildChannel(currentLauncherBuildId);
+    const bool channelChanged = !ownChannel.empty() && ownChannel != channel;
 
     // Measured against the RUNNING launcher, not against the latest release:
     // an install where everything agrees on an older build is out of date,
@@ -215,9 +235,14 @@ UpdateResult runUpdateCheck(const std::string& currentLauncherBuildId,
         mismatchedComponents(components, currentLauncherBuildId, !compatMissing);
     const bool mixed = !mismatched.empty();
 
-    if (!launcherNeedsUpdate && !mixed && !compatMissing) {
+    if (!launcherNeedsUpdate && !channelChanged && !mixed && !compatMissing) {
         report(UpdatePhase::UpToDate, 1.0);
         return {};
+    }
+
+    if (channelChanged) {
+        fprintf(stderr, "TuxBlox: this build is from the %s channel but %s is selected -- moving to %s\n",
+                ownChannel.c_str(), channel.c_str(), requiredBuildId.c_str());
     }
 
     for (const ComponentVersion& component : mismatched) {

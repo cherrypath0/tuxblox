@@ -220,6 +220,64 @@ int main() {
         assert(fs::exists(result.installerPath));
     }
 
+    // --- buildChannel() ---
+    assert(buildChannel("2.7.0-stable") == "stable");
+    assert(buildChannel("2.7.0-experimental") == "experimental");
+    // Builds before 2.7.0 report a bare number. That is "cannot tell", and
+    // must not read as a channel change.
+    assert(buildChannel("2.6.0").empty());
+    assert(buildChannel("").empty());
+
+    // --- The selected channel is behind the installed version. versionNeedsUpdate
+    // only ever moves forward, so nothing but the channel change can trigger
+    // this -- and it must, or picking a channel silently does nothing. Not
+    // mixed: the pieces agree with each other, so Auto-Update still decides. ---
+    {
+        fs::path installDirPath = work / "install_channel_switch";
+        writeWholeInstall(installDirPath, "0.9.0-ch-other");
+
+        writeManifest("ch-switch", "0.1.0", installerFileUrl, installerSha);
+
+        auto result = runUpdateCheck("0.9.0-ch-other", fileBaseUrl, "ch-switch", "0.1.0",
+            [](UpdateProgress) {}, nullptr, installDirPath.string());
+
+        assert(result.needsHandoff);
+        assert(!result.mixedInstall);
+        assert(fs::exists(result.installerPath));
+    }
+
+    // --- Same channel, installed version ahead of the server (a local build):
+    // left alone. Without the channel guard above this would downgrade. ---
+    {
+        fs::path installDirPath = work / "install_ahead_same_channel";
+        writeWholeInstall(installDirPath, "0.9.0-ch-ahead");
+
+        writeManifest("ch-ahead", "0.1.0", installerFileUrl, installerSha);
+
+        std::vector<UpdatePhase> phases;
+        auto result = runUpdateCheck("0.9.0-ch-ahead", fileBaseUrl, "ch-ahead", "0.1.0",
+            [&](UpdateProgress p) { phases.push_back(p.phase); }, nullptr, installDirPath.string());
+
+        assert(!result.needsHandoff);
+        assert(phases.back() == UpdatePhase::UpToDate);
+    }
+
+    // --- A pre-2.7.0 install reports no channel. Unknown is not a mismatch,
+    // so it must not be dragged sideways on every check. ---
+    {
+        fs::path installDirPath = work / "install_no_channel";
+        writeWholeInstall(installDirPath, "0.9.0");
+
+        writeManifest("ch-nochannel", "0.1.0", installerFileUrl, installerSha);
+
+        std::vector<UpdatePhase> phases;
+        auto result = runUpdateCheck("0.9.0", fileBaseUrl, "ch-nochannel", "0.1.0",
+            [&](UpdateProgress p) { phases.push_back(p.phase); }, nullptr, installDirPath.string());
+
+        assert(!result.needsHandoff);
+        assert(phases.back() == UpdatePhase::UpToDate);
+    }
+
     // --- A binary is simply gone from an otherwise-current install. Nothing
     // is out of date and nothing disagrees, but the install is incomplete,
     // which is the same kind of broken and gets the same forced repair. ---

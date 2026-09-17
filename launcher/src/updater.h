@@ -44,9 +44,19 @@ struct UpdateProgress {
 
 using UpdateProgressFn = std::function<void(UpdateProgress)>;
 
-// True if `installed` and `required` differ (plain string inequality --
-// the manifest is always authoritative, no version ordering).
+// True if `required` is a HIGHER version number than `installed`, comparing
+// dot-separated parts numerically. It is an ordering, not an inequality: an
+// install ahead of the server -- a local build, or a channel whose published
+// version is lower -- is left alone rather than downgraded.
+//
+// Both sides may be "x.y.z-channel"; the channel is NOT part of the decision.
+// atoi() stops at the '-', so "2.6.0-canary" and "2.6.0-stable" compare equal.
 bool versionNeedsUpdate(const std::string& installed, const std::string& required);
+
+// The channel part of an "x.y.z-channel" build id, or an empty string when
+// there is no suffix -- which is what builds before 2.7.0 report, and means
+// "cannot tell", not "no channel".
+std::string buildChannel(const std::string& buildId);
 
 // One binary that makes up an install, and the build it reports.
 struct ComponentVersion {
@@ -107,10 +117,14 @@ EnsureInstallerResult ensureInstallerBinary(const Manifest& manifest, const std:
 double downloadProgressFraction(uint64_t now, uint64_t total, uint64_t manifestSize);
 
 // Fetches baseUrl + "/v1/" + channel + "/" + requiredVersion + "/manifest.json"
-// and checks it against every installed TuxBlox binary. The comparison is on
-// "x.y.z-channel", not the number alone, so switching channel moves the
-// install even when both channels sit on the same version number, and a
-// half-applied update is caught rather than mistaken for being up to date.
+// and checks it against every installed TuxBlox binary.
+//
+// Two separate questions, with different comparisons:
+//  - "is a newer release out" -- versionNeedsUpdate, which orders version
+//    numbers and ignores the channel suffix entirely.
+//  - "do the pieces of this install agree" -- exact string equality on the
+//    full "x.y.z-channel" build id, so a half-applied update is caught rather
+//    than mistaken for being up to date.
 // If anything is out of date, ensures a verified copy of the
 // installer binary is present at <installDir>/TuxBloxInstaller (fetching a
 // fresh one first if it's missing or its checksum no longer matches the
