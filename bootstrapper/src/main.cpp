@@ -20,8 +20,10 @@
 #include "ui.h"
 #include "version.h"
 
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <thread>
 
 int main(int argc, char** argv) {
     using namespace tuxblox;
@@ -46,17 +48,40 @@ int main(int argc, char** argv) {
         return getenv(name);
     }));
 
-    Ui ui;
-    if (!ui.init()) {
-        fprintf(stderr, "Could not open a window.\n");
-        return 1;
-    }
-
+    // Started before any window exists: an update check is usually a single
+    // network round trip ending in "already up to date", and opening a window
+    // for that means a flash of one on every launch. It also skips creating an
+    // SDL window, a GL context and an ImGui context in the common case.
     app.start();
-    while (ui.renderFrame(app)) {
+
+    Ui ui;
+    bool windowOpen = false;
+    while (true) {
+        if (!windowOpen && app.needsWindow()) {
+            if (!ui.init()) {
+                fprintf(stderr, "Could not open a window.\n");
+                app.cancel();
+                return 1;
+            }
+            windowOpen = true;
+        }
+
+        if (windowOpen) {
+            if (!ui.renderFrame(app)) break;
+        } else {
+            if (app.finished()) break;
+            // Nothing to draw, so this loop only has to notice the two flags
+            // above reasonably promptly.
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
     }
-    ui.shutdown();
+    if (windowOpen) ui.shutdown();
 
     const Snapshot final = app.snapshot();
+    // With no window there was nothing to show a failure on, so it goes to
+    // the terminal instead -- the launcher captures this into the session log.
+    if (!windowOpen && final.phase == Phase::Error) {
+        fprintf(stderr, "TuxBlox: %s\n", final.errorMessage.c_str());
+    }
     return final.phase == Phase::Error ? 1 : 0;
 }

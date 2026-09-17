@@ -64,6 +64,7 @@ const char* usageText() {
            "  --preview   Show the window without downloading or writing anything.\n"
            "  --install   Install the Roblox version the environment describes.\n"
            "  --update    Install the channel's newest version if it is missing.\n"
+           "              Shows no window unless there is something to download.\n"
            "  --help      Show this message.\n"
            "  --version   Print the TuxBlox version and exit.\n"
            "\n"

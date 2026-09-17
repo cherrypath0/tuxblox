@@ -78,6 +78,9 @@ void nap(int milliseconds) {
 
 App::App(Mode mode, Config config) : mode_(mode), config_(std::move(config)) {
     snapshot_.status = titleFor(mode);
+    // Every mode but Update was asked for directly, so its window belongs on
+    // screen immediately. Update earns one only if it finds work to do.
+    needsWindow_ = mode != Mode::Update;
 }
 
 App::~App() {
@@ -213,6 +216,13 @@ void App::runInstall(bool skipIfPresent) {
         finish("Roblox is up to date");
         return;
     }
+
+    // Past this point there is a real download, which is worth showing. An
+    // update check that got here has already spent its network round trip
+    // headless, so the window appears for the part that takes time rather
+    // than for the part that usually finds nothing.
+    needsWindow_ = true;
+
     // A leftover directory would otherwise collide with the rename at the end.
     if (fs::exists(target)) {
         std::error_code stale;

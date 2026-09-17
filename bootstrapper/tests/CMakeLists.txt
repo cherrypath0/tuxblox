@@ -20,6 +20,10 @@
 # changing the optimisation level of anything that ships.
 add_compile_options(-UNDEBUG)
 
+add_executable(test_app test_app.cpp)
+target_link_libraries(test_app PRIVATE bootstrapper_core)
+add_test(NAME app COMMAND test_app)
+
 add_executable(test_cli test_cli.cpp)
 target_link_libraries(test_cli PRIVATE bootstrapper_core)
 add_test(NAME cli COMMAND test_cli)

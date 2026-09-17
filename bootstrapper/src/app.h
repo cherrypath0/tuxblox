@@ -59,6 +59,13 @@ public:
     // close on their own, because the launcher waits for this process.
     bool holdsOpenWhenDone() const;
 
+    // Whether a window should be on screen yet. True from the start for the
+    // modes the user asked for directly, but an update check runs before
+    // every launch and is usually a few hundred milliseconds ending in
+    // "already up to date" -- so it stays headless until it knows it has a
+    // download to do, and flips this only then.
+    bool needsWindow() const { return needsWindow_; }
+
 private:
     void run();
     void runPreview();
@@ -73,6 +80,7 @@ private:
     Snapshot snapshot_;
     std::atomic<bool> cancelled_{false};
     std::atomic<bool> finished_{false};
+    std::atomic<bool> needsWindow_{false};
     std::thread thread_;
 };
 
