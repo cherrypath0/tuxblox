@@ -27,7 +27,7 @@ Which release stream TuxBlox follows.
 > [!NOTE]
 > `experimental` used to be called `dev`. If your settings still say `dev`, TuxBlox moves you to `experimental` automatically, and `--channel dev` on the command line still works. Nothing about the channel itself changed.
 
-Switching channels makes TuxBlox update to that channel's current release on the next check, which can mean moving backwards if stable is behind canary. It updates even when both channels happen to sit on the same version number, since the builds are still different.
+Switching channels makes TuxBlox move to that channel's current release on the next check. That can mean going backwards, if the channel you picked is on an older version than the one you have — you asked for that channel, so TuxBlox gives you what is on it.
 
 The channel shown at the bottom of the Home tab is the one the version you are running came from, so it changes when the update lands rather than the moment you pick a new channel.
 
@@ -52,11 +52,11 @@ This setting is about TuxBlox itself. Roblox has its own setting below.
 
 **Default: on**
 
-Before each launch, TuxBlox checks whether Roblox has put out a newer build and installs it if so. A short window appears while it looks, and again while it downloads.
+Before each launch, TuxBlox checks whether Roblox has put out a newer build and installs it if so. The check itself is silent; a window appears only when there is actually something to download.
 
 When off, you keep whichever build you have until you install another one yourself from the Versions tab.
 
-On is the default because this is what happens on Windows too, and a Roblox that is behind can refuse to join an experience. If the check cannot finish, TuxBlox starts the Roblox you already have rather than stopping.
+On is the default because this is what happens on Windows too, and a Roblox that is behind can refuse to join an experience. If the check cannot finish, TuxBlox starts the Roblox you already have rather than stopping, and says so in a desktop notification.
 
 ---
 
