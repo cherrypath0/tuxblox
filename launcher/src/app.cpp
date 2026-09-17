@@ -387,7 +387,11 @@ void App::updateCheckThreadMain() {
         // the moment the user actually tries to launch something, so this
         // startup-time path installing it unprompted is redundant, not just
         // surprising.
-        if (autoUpdate) {
+        // A mixed install ignores the Auto-Update setting: its pieces do not
+        // agree on one build, which is broken rather than out of date, and
+        // leaving it running is not a state the user chose. An ordinary
+        // available update still waits to be asked for, below.
+        if (autoUpdate || result.mixedInstall) {
             // Unchanged existing behavior/pattern: installerHandoffPath_
             // written unlocked, made safe by the atomic release-store
             // below (see installerHandoffPath()'s own comment for the

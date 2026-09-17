@@ -319,17 +319,23 @@ void Session::initWine() {
 }
 
 void Session::initSession() {
-    const bool logging = envIsOn("TUXBLOX_LOG");
+    // TUXBLOX_LOG=-1 is the opposite end of the same knob: not "no extra
+    // logging" but "no output at all", for a caller whose standard streams
+    // carry a protocol. nonzero() would read "-1" as ON, so it is checked
+    // first and separately.
+    const std::string logSetting = envOrEmpty("TUXBLOX_LOG");
+    const bool silent = logSilenced();
+    const bool logging = !silent && nonzero(logSetting);
     // The launcher's "Detailed logging" toggle. TUXBLOX_LOG above is the
     // superset, so when both are set this adds nothing. The difference that
     // matters is where the output lands: this one never opens a log file of
     // its own, so everything stays on the session log the launcher already
     // writes per launch -- the file a user sends, and the one a crash report
     // attaches. A second file nobody knows to upload is no use in a report.
-    const bool debug = !logging && envIsOn("TUXBLOX_DEBUG");
+    const bool debug = !logging && !silent && envIsOn("TUXBLOX_DEBUG");
 
     if (logging) {
-        const std::string requested = envOrEmpty("TUXBLOX_LOG");
+        const std::string& requested = logSetting;
         if (env.find("WINEDEBUG") == env.end()) {
             env["WINEDEBUG"] = "+timestamp,+pid,+tid,+seh,+unwind,+threadname,"
                                "+debugstr,+loaddll,+mscoree";
@@ -360,6 +366,17 @@ void Session::initSession() {
         }
         env.emplace("DXVK_LOG_LEVEL", "info");
         env.emplace("VKD3D_DEBUG", "warn");
+    }
+
+    // Silence is emplaced before the defaults below, which are emplace too, so
+    // the first writer wins. DXVK drops from "error" to "none" here: an error
+    // line is worth having in a normal session and is not worth corrupting a
+    // protocol stream for.
+    if (silent) {
+        env.emplace("WINEDEBUG", "-all");
+        env.emplace("DXVK_LOG_LEVEL", "none");
+        env.emplace("VKD3D_DEBUG", "none");
+        env.emplace("VKD3D_SHADER_DEBUG", "none");
     }
 
     // Logging is off by default: it costs real frame time. DXVK is the one

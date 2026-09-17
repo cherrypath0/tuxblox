@@ -72,7 +72,7 @@ Yes. Those panels are web pages rendered inside Studio, and TuxBlox ships its ow
 
 ## Can I use the Studio MCP server with an AI assistant?
 
-Yes. TuxBlox includes a helper script for exactly that, and it works with every client Roblox supports: Claude Code, Claude Desktop, Codex CLI, Cursor, Gemini CLI, Visual Studio Code and Antigravity.
+Yes. TuxBlox includes a helper for exactly that, `studio-mcp`, and it works with every client Roblox supports: Claude Code, Claude Desktop, Codex CLI, Cursor, Gemini CLI, Visual Studio Code and Antigravity.
 
 You still have to set up the Studio side first, following [Roblox's guide](https://create.roblox.com/docs/studio/mcp). See [Studio MCP](../using-tuxblox/studio-mcp.md) for the Linux specific part.
 

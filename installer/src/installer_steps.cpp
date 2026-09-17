@@ -238,6 +238,22 @@ InstallOutcome runInstall(const Manifest& manifest,
             report(phaseIndex, 1.0);
             if (isCancelled()) return {false, true, "", ""};
 
+            if (plan.name == "mcp") {
+                // The Studio MCP gateway was a shell script named mcp.sh
+                // through 2.6.0 and is a binary named studio-mcp from 2.7.0.
+                // Different name, so installing the binary leaves the script
+                // untouched -- and an unmaintained script sitting at exactly
+                // the path MCP client configs still name would keep working
+                // while quietly diverging from the binary that replaced it.
+                // Best-effort and narrowly scoped: a regular file at that one
+                // path, nothing else.
+                std::error_code staleEc;
+                const std::string staleScript = dir + "/mcp.sh";
+                if (fs::is_regular_file(staleScript, staleEc)) {
+                    fs::remove(staleScript, staleEc);
+                }
+            }
+
             if (plan.name == "launcher") {
                 // InstallOutcome::launcherPath is contractually the thing the
                 // caller execs (and the thing the .desktop entries' Exec= line

@@ -108,10 +108,16 @@ Options:
   --immediate             Run TuxBlox without draining the prefix, must be
                           used with the "run" argument
   --destroy               Destroys the prefix
+  --verify-integrity      Check that the executable is signed by Roblox
+                          before running it
 
 Arguments:
   run <executable>        Runs the specified executable
 ```
+
+Options go before the executable. Anything after it is passed to the program being run, not read by the layer.
+
+`--version` prints `2.7.0-stable`: the version, then the update channel that build came from. Every TuxBlox program answers the same way.
 
 It needs to be told where the virtual drive is, through `TUXBLOX_PREFIX`:
 
@@ -147,12 +153,15 @@ The path must be absolute. A relative one fails differently, with `wine: failed 
 
 ---
 
-## mcp.sh
+## studio-mcp
 
-`~/.tuxblox/mcp.sh`
+`~/.tuxblox/studio-mcp`
 
-Runs Roblox's Studio MCP server through the compatibility layer. Takes no options of its own and passes anything it is given to the server.
+Runs Roblox's Studio MCP server through the compatibility layer. Takes `--version` and `--help`, and passes anything else it is given to the server.
 
 This is what you point an AI client at. Use the absolute path, since most MCP clients will not expand `~`.
+
+> [!NOTE]
+> This replaced `mcp.sh` in 2.7.0. Updating removes the old script, so a client still configured with `~/.tuxblox/mcp.sh` needs repointing at `~/.tuxblox/studio-mcp`.
 
 See [Studio MCP](../using-tuxblox/studio-mcp.md).

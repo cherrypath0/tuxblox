@@ -54,8 +54,7 @@ std::string compatDirUnder(const std::string& installDir) {
     return current;
 }
 
-std::optional<std::string> readInstalledCompatVersion(const std::string& installDir) {
-    const std::string bin = compatDirUnder(installDir) + "/main";
+std::optional<std::string> readBinaryVersion(const std::string& bin) {
     if (access(bin.c_str(), X_OK) != 0) return std::nullopt;
 
     // fork/exec instead of popen: no shell involved, so installDir needs no
@@ -91,6 +90,10 @@ std::optional<std::string> readInstalledCompatVersion(const std::string& install
     while (!out.empty() && (out.back() == '\r' || out.back() == ' ' || out.back() == '\t')) out.pop_back();
     if (out.empty()) return std::nullopt;
     return out;
+}
+
+std::optional<std::string> readInstalledCompatVersion(const std::string& installDir) {
+    return readBinaryVersion(compatDirUnder(installDir) + "/main");
 }
 
 std::string selfExePath() {

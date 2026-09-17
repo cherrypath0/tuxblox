@@ -18,4 +18,10 @@
 
 namespace tuxblox {
 constexpr const char* kTuxBloxVersion = "@TUXBLOX_BOOTSTRAPPER_VERSION@";
+
+// The channel this build came from, reported by --version so the launcher can
+// tell a matched install from a half-updated one.
+constexpr const char* kTuxBloxChannel = "@TUXBLOX_BOOTSTRAPPER_CHANNEL@";
+constexpr const char* kTuxBloxBuildId =
+    "@TUXBLOX_BOOTSTRAPPER_VERSION@-@TUXBLOX_BOOTSTRAPPER_CHANNEL@";
 } // namespace tuxblox

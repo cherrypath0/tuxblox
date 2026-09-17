@@ -20,6 +20,7 @@
 #include "install_paths.h"
 #include "manifest.h"
 #include <algorithm>
+#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <sstream>
@@ -138,7 +139,34 @@ EnsureInstallerResult ensureInstallerBinary(const Manifest& manifest, const std:
     return {true, installerPath, ""};
 }
 
-UpdateResult runUpdateCheck(const std::string& currentLauncherVersion,
+std::vector<ComponentVersion> readComponentVersions(const std::string& installDir) {
+    std::vector<ComponentVersion> components = {
+        {"compatibility layer", compatDirUnder(installDir) + "/main", ""},
+        {"updater",             installDir + "/TuxBloxInstaller",     ""},
+        {"Roblox bootstrapper", installDir + "/TuxBloxBootstrapper",  ""},
+        {"Studio MCP",          installDir + "/studio-mcp",           ""},
+    };
+    for (ComponentVersion& component : components) {
+        component.buildId = readBinaryVersion(component.path).value_or("");
+    }
+    return components;
+}
+
+std::vector<ComponentVersion> mismatchedComponents(const std::vector<ComponentVersion>& components,
+                                                    const std::string& requiredBuildId,
+                                                    bool absentCounts) {
+    std::vector<ComponentVersion> mismatched;
+    for (const ComponentVersion& component : components) {
+        if (component.buildId.empty()) {
+            if (absentCounts) mismatched.push_back(component);
+            continue;
+        }
+        if (component.buildId != requiredBuildId) mismatched.push_back(component);
+    }
+    return mismatched;
+}
+
+UpdateResult runUpdateCheck(const std::string& currentLauncherBuildId,
                              const std::string& baseUrl,
                              const std::string& channel,
                              const std::string& requiredVersion,
@@ -164,24 +192,50 @@ UpdateResult runUpdateCheck(const std::string& currentLauncherVersion,
 
     const std::string dir = resolveInstallDir(installDirOverride);
 
-    // One release version now covers both the launcher and Proton together
-    // (see updater.h's doc comment) -- both compared against the same
-    // requiredVersion rather than separate tuxbloxVersion/protonVersion
-    // fields that no longer exist on Manifest.
-    const bool launcherNeedsUpdate = versionNeedsUpdate(currentLauncherVersion, requiredVersion);
-    auto installedCompatVersion = readInstalledCompatVersion(dir);
-    const bool compatNeedsUpdate =
-        !installedCompatVersion.has_value() || versionNeedsUpdate(*installedCompatVersion, requiredVersion);
+    // One release covers every binary, so they all answer to one build id.
+    // The channel is part of it: a user who switches channel has to move even
+    // when both channels happen to sit on the same version number.
+    const std::string requiredBuildId = requiredVersion + "-" + channel;
 
-    if (!launcherNeedsUpdate && !compatNeedsUpdate) {
+    const bool launcherNeedsUpdate = versionNeedsUpdate(currentLauncherBuildId, requiredBuildId);
+
+    // Measured against the RUNNING launcher, not against the latest release:
+    // an install where everything agrees on an older build is out of date,
+    // which is ordinary, while one where the pieces disagree with each other
+    // is broken, which is not. Only the second bypasses the Auto-Update
+    // setting, so a plain "new version available" still waits to be asked.
+    const std::vector<ComponentVersion> components = readComponentVersions(dir);
+
+    // Nothing installed at all is the first run, not a broken install -- and
+    // it is the layer being there that makes the rest of the pieces overdue,
+    // since one release places them all together.
+    const bool compatMissing = components.front().buildId.empty();
+
+    const std::vector<ComponentVersion> mismatched =
+        mismatchedComponents(components, currentLauncherBuildId, !compatMissing);
+    const bool mixed = !mismatched.empty();
+
+    if (!launcherNeedsUpdate && !mixed && !compatMissing) {
         report(UpdatePhase::UpToDate, 1.0);
         return {};
+    }
+
+    for (const ComponentVersion& component : mismatched) {
+        fprintf(stderr, "TuxBlox: the %s is %s but the launcher is %s -- updating to %s\n",
+                component.name.c_str(),
+                component.buildId.empty() ? "not installed" : component.buildId.c_str(),
+                currentLauncherBuildId.c_str(), requiredBuildId.c_str());
     }
 
     EnsureInstallerResult ensured = ensureInstallerBinary(manifest, dir, cancel, onProgress);
     if (!ensured.ok) return {};
 
-    return {true, ensured.installerPath, !installedCompatVersion.has_value()};
+    UpdateResult result;
+    result.needsHandoff = true;
+    result.installerPath = ensured.installerPath;
+    result.mixedInstall = mixed;
+    result.protonMissing = compatMissing;
+    return result;
 }
 
 } // namespace tuxblox

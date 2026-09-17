@@ -64,7 +64,7 @@ int main() {
         "mcp": {
           "size": 338,
           "sha256": "9cd03e3d",
-          "url": "/v1/canary/0.2.0/mcp.sh",
+          "url": "/v1/canary/0.2.0/studio-mcp",
           "displayname": "Studio MCP Server",
           "filename": "mcp",
           "path": "/"

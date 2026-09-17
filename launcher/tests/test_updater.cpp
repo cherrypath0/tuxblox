@@ -79,43 +79,62 @@ int main() {
     };
     const std::string installerFileUrl = "file://" + installerSrc.string();
 
-    // Fakes an installed proton: an executable proton/main whose --version
-    // output is `version` (readInstalledCompatVersion execs it).
-    auto writeProtonMain = [](const fs::path& installDirPath, const std::string& version) {
-        fs::create_directories(installDirPath / "proton");
-        { std::ofstream out(installDirPath / "proton" / "main"); out << "#!/bin/sh\necho " << version << "\n"; }
-        fs::permissions(installDirPath / "proton" / "main", fs::perms::owner_all);
+    // Fakes an installed compatibility layer: an executable proton/main whose
+    // --version output is `buildId` (readBinaryVersion execs it). Every TuxBlox
+    // binary answers "x.y.z-channel", which is what the check compares.
+    auto writeVersionStub = [](const fs::path& path, const std::string& buildId) {
+        fs::create_directories(path.parent_path());
+        { std::ofstream out(path); out << "#!/bin/sh\necho " << buildId << "\n"; }
+        fs::permissions(path, fs::perms::owner_all);
+    };
+    auto writeProtonMain = [&](const fs::path& installDirPath, const std::string& buildId) {
+        writeVersionStub(installDirPath / "proton" / "main", buildId);
+    };
+    // A whole install: the layer plus the three binaries beside it. An absent
+    // one counts as a mismatch once the layer is there, so a case that means
+    // to test something else has to write all of them.
+    auto writeWholeInstall = [&](const fs::path& installDirPath, const std::string& buildId) {
+        writeProtonMain(installDirPath, buildId);
+        writeVersionStub(installDirPath / "TuxBloxInstaller", buildId);
+        writeVersionStub(installDirPath / "TuxBloxBootstrapper", buildId);
+        writeVersionStub(installDirPath / "studio-mcp", buildId);
     };
 
     // --- Up-to-date path: both launcher and Proton versions match
     // requiredVersion, no installer fetch happens, needsHandoff stays false. ---
     {
         fs::path installDirPath = work / "install_uptodate";
-        writeProtonMain(installDirPath, "0.1.0");
+        writeWholeInstall(installDirPath, "0.1.0-ch-uptodate");
 
         writeManifest("ch-uptodate", "0.1.0", installerFileUrl, installerSha);
 
         std::vector<UpdatePhase> phases;
-        auto result = runUpdateCheck("0.1.0", fileBaseUrl, "ch-uptodate", "0.1.0",
+        auto result = runUpdateCheck("0.1.0-ch-uptodate", fileBaseUrl, "ch-uptodate", "0.1.0",
             [&](UpdateProgress p) { phases.push_back(p.phase); }, nullptr, installDirPath.string());
 
         assert(!result.needsHandoff);
         assert(!phases.empty());
         assert(phases.back() == UpdatePhase::UpToDate);
-        assert(!fs::exists(installDirPath / "TuxBloxInstaller")); // never fetched -- nothing needed it
+        // Never fetched -- nothing needed it. The stub written above is still
+        // exactly what is on disk, rather than the manifest's installer.
+        std::ifstream untouched(installDirPath / "TuxBloxInstaller");
+        std::string content((std::istreambuf_iterator<char>(untouched)), std::istreambuf_iterator<char>());
+        assert(content.find("new installer binary") == std::string::npos);
     }
 
-    // --- Proton out of date (launcher itself already current): installer
-    // gets fetched, verified, and handed off; the launcher itself does no
-    // Proton downloading/extracting. ---
+    // --- Compatibility layer a build behind the launcher: a half-applied
+    // update, so it is reported as mixed and the installer gets fetched,
+    // verified and handed off. The launcher itself does no downloading or
+    // extracting of the layer. ---
     {
         fs::path installDirPath = work / "install_proton_stale";
-        writeProtonMain(installDirPath, "0.1.0");
+        writeWholeInstall(installDirPath, "0.2.0-ch-protonstale");
+        writeProtonMain(installDirPath, "0.1.0-ch-protonstale");
 
         writeManifest("ch-protonstale", "0.2.0", installerFileUrl, installerSha);
 
         std::vector<UpdatePhase> phases;
-        auto result = runUpdateCheck("0.2.0", fileBaseUrl, "ch-protonstale", "0.2.0",
+        auto result = runUpdateCheck("0.2.0-ch-protonstale", fileBaseUrl, "ch-protonstale", "0.2.0",
             [&](UpdateProgress p) { phases.push_back(p.phase); }, nullptr, installDirPath.string());
 
         assert(result.needsHandoff);
@@ -129,10 +148,12 @@ int main() {
         // The launcher must never touch Proton itself -- that's the
         // installer's job once handed off to.
         assert(fs::exists(installDirPath / "proton" / "main"));
-        // An outdated-but-present Proton install is not the same as no
-        // install at all -- App::updateCheckThreadMain() only bypasses the
-        // Auto-Update opt-out for the latter.
+        // An outdated-but-present layer is not the same as no install at
+        // all -- App::updateCheckThreadMain() treats the two differently.
         assert(!result.protonMissing);
+        // The pieces disagree, so the update applies without consulting the
+        // Auto-Update setting.
+        assert(result.mixedInstall);
     }
 
     // --- No Proton install recorded at all (first run, or a launcher
@@ -152,27 +173,68 @@ int main() {
 
         writeManifest("ch-protonmissing", "0.1.0", installerFileUrl, installerSha);
 
-        auto result = runUpdateCheck("0.1.0", fileBaseUrl, "ch-protonmissing", "0.1.0",
+        auto result = runUpdateCheck("0.1.0-ch-protonmissing", fileBaseUrl, "ch-protonmissing", "0.1.0",
             [](UpdateProgress) {}, nullptr, installDirPath.string());
 
         assert(result.needsHandoff);
         assert(result.protonMissing);
+        // Absent is not mismatched: there is no disagreement to report when
+        // nothing is installed yet.
+        assert(!result.mixedInstall);
         assert(fs::exists(result.installerPath));
     }
 
-    // --- Launcher itself out of date (Proton already current): same
-    // handoff path. ---
+    // --- A new release is out and this install is consistently on the old
+    // one: the ordinary update. needsHandoff, but NOT mixed -- so the
+    // Auto-Update setting still decides whether it is applied now. ---
     {
         fs::path installDirPath = work / "install_launcher_stale";
-        writeProtonMain(installDirPath, "0.2.0");
+        writeWholeInstall(installDirPath, "0.1.0-ch-launcherstale");
 
         writeManifest("ch-launcherstale", "0.2.0", installerFileUrl, installerSha);
 
-        auto result = runUpdateCheck("0.1.0", fileBaseUrl, "ch-launcherstale", "0.2.0",
+        auto result = runUpdateCheck("0.1.0-ch-launcherstale", fileBaseUrl, "ch-launcherstale", "0.2.0",
             [](UpdateProgress) {}, nullptr, installDirPath.string());
 
         assert(result.needsHandoff);
         assert(fs::exists(result.installerPath));
+        assert(!result.protonMissing);
+        assert(!result.mixedInstall);
+    }
+
+    // --- Nothing new published, but the install disagrees with itself: the
+    // layer is on another channel's build of the same number. Caught, and
+    // forced, even though there is no newer release to move to. ---
+    {
+        fs::path installDirPath = work / "install_mixed_channel";
+        writeWholeInstall(installDirPath, "0.1.0-ch-mixed");
+        writeProtonMain(installDirPath, "0.1.0-other");
+
+        writeManifest("ch-mixed", "0.1.0", installerFileUrl, installerSha);
+
+        auto result = runUpdateCheck("0.1.0-ch-mixed", fileBaseUrl, "ch-mixed", "0.1.0",
+            [](UpdateProgress) {}, nullptr, installDirPath.string());
+
+        assert(result.needsHandoff);
+        assert(result.mixedInstall);
+        assert(fs::exists(result.installerPath));
+    }
+
+    // --- A binary is simply gone from an otherwise-current install. Nothing
+    // is out of date and nothing disagrees, but the install is incomplete,
+    // which is the same kind of broken and gets the same forced repair. ---
+    {
+        fs::path installDirPath = work / "install_missing_piece";
+        writeWholeInstall(installDirPath, "0.1.0-ch-missing");
+        fs::remove(installDirPath / "studio-mcp");
+
+        writeManifest("ch-missing", "0.1.0", installerFileUrl, installerSha);
+
+        auto result = runUpdateCheck("0.1.0-ch-missing", fileBaseUrl, "ch-missing", "0.1.0",
+            [](UpdateProgress) {}, nullptr, installDirPath.string());
+
+        assert(result.needsHandoff);
+        assert(result.mixedInstall);
         assert(!result.protonMissing);
     }
 
@@ -180,7 +242,7 @@ int main() {
     // must not be re-downloaded (its mtime/content stays exactly as-is). ---
     {
         fs::path installDirPath = work / "install_installer_cached";
-        writeProtonMain(installDirPath, "0.1.0");
+        writeWholeInstall(installDirPath, "0.1.0-ch-installercached");
         fs::path cachedInstaller = installDirPath / "TuxBloxInstaller";
         { std::ofstream out(cachedInstaller, std::ios::binary); out << "new installer binary"; }
         // Sanity: the pre-placed file's checksum already matches the
@@ -193,7 +255,7 @@ int main() {
         // whole update check instead of silently succeeding.
         writeManifest("ch-installercached", "0.2.0", "file:///nonexistent/should_not_be_fetched", installerSha);
 
-        auto result = runUpdateCheck("0.1.0", fileBaseUrl, "ch-installercached", "0.2.0",
+        auto result = runUpdateCheck("0.1.0-ch-installercached", fileBaseUrl, "ch-installercached", "0.2.0",
             [](UpdateProgress) {}, nullptr, installDirPath.string());
 
         assert(result.needsHandoff);
@@ -204,19 +266,23 @@ int main() {
     // phase, no handoff, no leftover .new temp file. ---
     {
         fs::path installDirPath = work / "install_bad_checksum";
-        writeProtonMain(installDirPath, "0.1.0");
+        writeWholeInstall(installDirPath, "0.1.0-ch-badchecksum");
 
         writeManifest("ch-badchecksum", "0.2.0", installerFileUrl,
             "0000000000000000000000000000000000000000000000000000000000000");
 
         std::vector<UpdatePhase> phases;
-        auto result = runUpdateCheck("0.1.0", fileBaseUrl, "ch-badchecksum", "0.2.0",
+        auto result = runUpdateCheck("0.1.0-ch-badchecksum", fileBaseUrl, "ch-badchecksum", "0.2.0",
             [&](UpdateProgress p) { phases.push_back(p.phase); }, nullptr, installDirPath.string());
 
         assert(!result.needsHandoff);
         assert(!phases.empty());
         assert(phases.back() == UpdatePhase::Error);
-        assert(!fs::exists(installDirPath / "TuxBloxInstaller"));
+        // A download that failed its checksum is never installed over the copy
+        // already there, and leaves no half-written temp file behind.
+        std::ifstream kept(installDirPath / "TuxBloxInstaller");
+        std::string content((std::istreambuf_iterator<char>(kept)), std::istreambuf_iterator<char>());
+        assert(content.find("new installer binary") == std::string::npos);
         assert(!fs::exists(installDirPath / "TuxBloxInstaller.new"));
     }
 

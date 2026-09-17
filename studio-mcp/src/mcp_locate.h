@@ -15,16 +15,13 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #pragma once
+#include <string>
 
 namespace tuxblox {
-constexpr const char* kTuxBloxVersion = "@TUXBLOX_LAUNCHER_VERSION@";
 
-// The channel this launcher was BUILT for, which is not the channel the user
-// has selected in Settings -- those differ from the moment they switch until
-// the update lands. Anything describing what is running reads this one.
-constexpr const char* kTuxBloxChannel = "@TUXBLOX_LAUNCHER_CHANNEL@";
+// Full path of Roblox's StudioMCP.exe inside an install, or an empty string
+// if it is not there. Roblox installs it beside Studio itself, so this is
+// really "which Studio", asked the same way the launcher asks it.
+std::string findStudioMcp(const std::string& installDir);
 
-// "x.y.z-channel", the form every TuxBlox binary answers --version with, so
-// one string comparison decides whether an install is of a piece.
-constexpr const char* kTuxBloxBuildId = "@TUXBLOX_LAUNCHER_VERSION@-@TUXBLOX_LAUNCHER_CHANNEL@";
 } // namespace tuxblox

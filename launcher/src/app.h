@@ -182,6 +182,8 @@ private:
     void applyEnvVars(const Settings& settings);
 
     std::string installDir_;
+    // "x.y.z-channel" -- what this build answers --version with, and what
+    // every other binary in the install is checked against.
     std::string currentVersion_;
     std::string launcherExePath_;
 

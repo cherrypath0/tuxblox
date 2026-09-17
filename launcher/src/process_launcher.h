@@ -21,6 +21,10 @@
 #include <mutex>
 #include <sys/types.h>
 #include "lnk_resolver.h"
+// compatBinaryPath/launchEnvVars/resolveActiveVersionExePath moved here so a
+// binary that only needs paths does not link this file's curl-backed
+// bootstrap. Re-included for the callers that use both.
+#include "launch_paths.h"
 
 namespace tuxblox {
 
@@ -90,14 +94,7 @@ struct LaunchOutcome {
     bool wasBootstrapInstall = false;
 };
 
-// If versions.json has an active pin for `target` AND that version's exe
-// still exists on disk, returns its full path. Otherwise returns an empty
-// string -- callers fall back to resolveOrBootstrapExePath's existing
-// lnk-resolution/official-installer-bootstrap path.
-std::string resolveActiveVersionExePath(LaunchTarget target, const std::string& installDir);
-
 std::string resolveOrBootstrapExePath(LaunchTarget target, const std::string& installDir);
-std::string compatBinaryPath(const std::string& installDir);
 
 // Path of the crash/stdout log for one launch:
 // <installDir>/logs/<Studio|Player>-<YYYYMMDDTHHMMSSZ>-<pid>.log
@@ -107,15 +104,6 @@ std::string compatBinaryPath(const std::string& installDir);
 // through "run --immediate", see ProcessLauncher::launch) and two launches in
 // the same second would otherwise dup2() into the same file.
 std::string launchLogPath(const std::string& installDir, LaunchTarget target);
-
-// Env vars ("KEY=VALUE" strings) Proton itself needs to locate the prefix
-// and render correctly. Callers must apply these only to the environment of
-// the "proton run" child (setenv() in a soon-to-exec()'d child, or an envp
-// passed to exec*e()) -- never to the launcher's own process, since that
-// process may go on to spawn other, non-Proton children (curl update
-// checks, etc.) that have no business seeing Wine/Proton/Steam-Play-shaped
-// env vars.
-std::vector<std::string> launchEnvVars(const std::string& installDir, LaunchTarget target);
 
 class ProcessLauncher {
 public:

@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <functional>
 #include <string>
+#include <vector>
 
 namespace tuxblox {
 
@@ -47,9 +48,35 @@ using UpdateProgressFn = std::function<void(UpdateProgress)>;
 // the manifest is always authoritative, no version ordering).
 bool versionNeedsUpdate(const std::string& installed, const std::string& required);
 
+// One binary that makes up an install, and the build it reports.
+struct ComponentVersion {
+    std::string name;     // as a user would read it, e.g. "compatibility layer"
+    std::string path;     // the binary asked
+    std::string buildId;  // its --version output, empty if it is not installed
+};
+
+// Asks every TuxBlox binary in `installDir` what build it is. The launcher is
+// not among them: it is the one asking, and it knows its own answer.
+std::vector<ComponentVersion> readComponentVersions(const std::string& installDir);
+
+// The components that do not agree with `requiredBuildId`: installed but
+// reporting something else, or -- when `absentCounts` is true -- not installed
+// at all. A release places every one of them together, so once the install
+// exists an absent piece is as broken as a wrong-version one. `absentCounts`
+// is false only before there is an install to be missing from.
+std::vector<ComponentVersion> mismatchedComponents(const std::vector<ComponentVersion>& components,
+                                                    const std::string& requiredBuildId,
+                                                    bool absentCounts);
+
 struct UpdateResult {
     bool needsHandoff = false;  // true if the installer should be exec'd to apply the update
     std::string installerPath;  // valid iff needsHandoff -- the binary to exec
+    // True iff the pieces of this install do not agree on one build -- an
+    // update that stopped halfway, or a channel switch that only some of
+    // them followed. Such an install is broken rather than merely out of
+    // date, so the caller applies the update without asking the Auto-Update
+    // setting.
+    bool mixedInstall = false;
     // True iff needsHandoff and there is no recorded Proton install at all
     // (as opposed to an outdated one) -- nothing can be launched yet, so
     // the Auto-Update opt-out doesn't apply: App::updateCheckThreadMain()
@@ -80,10 +107,11 @@ EnsureInstallerResult ensureInstallerBinary(const Manifest& manifest, const std:
 double downloadProgressFraction(uint64_t now, uint64_t total, uint64_t manifestSize);
 
 // Fetches baseUrl + "/v1/" + channel + "/" + requiredVersion + "/manifest.json"
-// and checks it against the currently-installed launcher/Proton versions
-// (both compared against `requiredVersion` -- a per-channel release bundles
-// launcher+Proton under one version now, there's no separate proton_version
-// to track). If either is out of date, ensures a verified copy of the
+// and checks it against every installed TuxBlox binary. The comparison is on
+// "x.y.z-channel", not the number alone, so switching channel moves the
+// install even when both channels sit on the same version number, and a
+// half-applied update is caught rather than mistaken for being up to date.
+// If anything is out of date, ensures a verified copy of the
 // installer binary is present at <installDir>/TuxBloxInstaller (fetching a
 // fresh one first if it's missing or its checksum no longer matches the
 // manifest's `artifacts.installer` entry) and returns
@@ -92,7 +120,7 @@ double downloadProgressFraction(uint64_t now, uint64_t total, uint64_t manifestS
 // or a replacement launcher binary itself -- that's the installer's job
 // once handed off to, run in its "upgrade" mode (an existing install
 // directory).
-UpdateResult runUpdateCheck(const std::string& currentLauncherVersion,
+UpdateResult runUpdateCheck(const std::string& currentLauncherBuildId,
                              const std::string& baseUrl,
                              const std::string& channel,
                              const std::string& requiredVersion,

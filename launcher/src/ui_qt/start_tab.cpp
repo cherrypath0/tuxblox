@@ -130,9 +130,12 @@ QWidget* StartTab::buildStatusStrip() {
     version->setObjectName("statusText");
     row->addWidget(version);
 
-    channelLabel_ = new QLabel(strip);
-    channelLabel_->setObjectName("statusMuted");
-    row->addWidget(channelLabel_);
+    // The channel this build came from, not the one selected in Settings.
+    // Those differ from the moment the user switches until the update lands,
+    // and this strip describes what is running.
+    auto* channel = new QLabel(QString("\xC2\xB7 %1 channel").arg(kTuxBloxChannel), strip);
+    channel->setObjectName("statusMuted");
+    row->addWidget(channel);
     row->addStretch(1);
 
     // A 6px dot, coloured by the same three states the label describes.
@@ -158,9 +161,6 @@ void StartTab::updateFromSnapshot(const AppSnapshot& snap) {
     const bool studioInstalled = !snap.versions.studio.activeHash.empty();
     playerCard_->setState(playerInstalled, versionLabel(snap.versions.player));
     studioCard_->setState(studioInstalled, versionLabel(snap.versions.studio));
-
-    channelLabel_->setText(
-        QString("\xC2\xB7 %1 channel").arg(QString::fromStdString(snap.settings.channel)));
 
     const bool updating = snap.update.phase == UpdatePhase::CheckingManifest ||
                            snap.update.phase == UpdatePhase::PreparingUpdater;

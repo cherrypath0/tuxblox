@@ -23,6 +23,7 @@
 
 #include <array>
 #include <cerrno>
+#include <cstdlib>
 #include <cstring>
 #include <string_view>
 #include <system_error>
@@ -100,7 +101,20 @@ bool reflinkUnsupported(int errorNumber) {
 
 } // namespace
 
+bool logSilenced() {
+    // Read once: this is on the path of every log call, and the environment
+    // does not change under us after startup.
+    static const bool silenced = [] {
+        const char *pValue = std::getenv("TUXBLOX_LOG");
+        return pValue != nullptr && std::string_view(pValue) == "-1";
+    }();
+    return silenced;
+}
+
 void log(const std::string& message) {
+    if (logSilenced()) {
+        return;
+    }
     const std::string line = LogPrefix + message + "\n";
     // Deliberately ignores the result: if stderr is gone there is nothing
     // useful a second write could report.

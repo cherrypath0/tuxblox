@@ -32,10 +32,12 @@ bool hasEnoughDiskSpace(const std::string& path, uint64_t minBytes);
 // install still uses it.
 std::string compatDirUnder(const std::string& installDir);
 
-// Runs `<installDir>/compat/main --version` (the build version is baked
-// into the binary by the root build.sh) and returns its first output line,
-// or std::nullopt if the binary is missing, exits nonzero, or prints
-// nothing.
+// Runs `<bin> --version` and returns its first output line, or std::nullopt
+// if the binary is missing, is not executable, exits nonzero, or prints
+// nothing. Every TuxBlox binary answers with "x.y.z-channel".
+std::optional<std::string> readBinaryVersion(const std::string& bin);
+
+// readBinaryVersion for the compatibility layer's entry point.
 std::optional<std::string> readInstalledCompatVersion(const std::string& installDir);
 
 // The currently-running binary's real on-disk path, via /proc/self/exe -- not

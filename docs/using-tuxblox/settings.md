@@ -27,7 +27,9 @@ Which release stream TuxBlox follows.
 > [!NOTE]
 > `experimental` used to be called `dev`. If your settings still say `dev`, TuxBlox moves you to `experimental` automatically, and `--channel dev` on the command line still works. Nothing about the channel itself changed.
 
-Switching channels makes TuxBlox update to that channel's current release on the next check, which can mean moving backwards if stable is behind canary.
+Switching channels makes TuxBlox update to that channel's current release on the next check, which can mean moving backwards if stable is behind canary. It updates even when both channels happen to sit on the same version number, since the builds are still different.
+
+The channel shown at the bottom of the Home tab is the one the version you are running came from, so it changes when the update lands rather than the moment you pick a new channel.
 
 > [!WARNING]
 > Bug reports from `canary` and `experimental` are welcome, but say which channel you are on. An `experimental` build may already be broken in ways nobody has looked at yet.
@@ -41,6 +43,8 @@ When on, updates install themselves as soon as TuxBlox finds one.
 When off, you get a notification in the corner of the launcher instead, and nothing happens until you click it.
 
 Off is the default because an update that starts on its own while you are about to open Studio is annoying. Turn it on if you would rather never think about it.
+
+One case ignores this setting. TuxBlox is several programs that ship together and are meant to be the same version, and an update interrupted partway through can leave them mismatched. TuxBlox checks for that at startup and repairs it straight away, because a mismatched install is broken rather than merely out of date. It is not something you can end up in by choosing to postpone an update.
 
 This setting is about TuxBlox itself. Roblox has its own setting below.
 

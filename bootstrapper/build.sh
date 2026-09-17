@@ -97,8 +97,14 @@ if [[ -z "${TUXBLOX_BUILD_VERSION:-}" && -r "$(pwd)/../VERSION" ]]; then
     TUXBLOX_BUILD_VERSION="$(sed -n '1p' "$(pwd)/../VERSION" | tr -d '[:space:]')"
 fi
 
+# The channel rides along for the same reason, from line 2 of the same file.
+if [[ -z "${TUXBLOX_CHANNEL:-}" && -r "$(pwd)/../VERSION" ]]; then
+    TUXBLOX_CHANNEL="$(sed -n '2p' "$(pwd)/../VERSION" | tr -d '[:space:]')"
+fi
+
 podman run --rm --userns=keep-id -e JOBS="$JOBS" \
     -e TUXBLOX_BUILD_VERSION="${TUXBLOX_BUILD_VERSION:-}" \
+    -e TUXBLOX_CHANNEL="${TUXBLOX_CHANNEL:-}" \
     -v "$(pwd):/src:Z" -w /src tuxblox-old-glibc-builder \
     bash -c 'cmake -B build -S . -DCMAKE_BUILD_TYPE=Release && cmake --build build -j"$JOBS"'
 

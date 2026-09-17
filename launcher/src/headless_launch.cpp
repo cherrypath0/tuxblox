@@ -29,9 +29,11 @@
 namespace tuxblox {
 
 int runHeadlessQuickLaunch(const std::string& installDir, LaunchTarget target, const std::string& uri) {
+    const Settings settings = loadSettings(installDir);
+
     // Before the exe is resolved, so a version installed by this check is the
     // one that starts.
-    runRobloxUpdateCheck(installDir, target, loadSettings(installDir));
+    runRobloxUpdateCheck(installDir, target, settings);
     // This process execs into the game below, so the menu entry has to be
     // written here rather than after the session, as the watched path does.
     exportPrefixShortcuts(installDir, selfExePath());
@@ -52,10 +54,13 @@ int runHeadlessQuickLaunch(const std::string& installDir, LaunchTarget target, c
     }
 
     std::string proton = compatBinaryPath(installDir);
-    std::vector<std::string> argvStrings = {proton, "run", exePath};
+    std::vector<std::string> argvStrings = {proton, "run"};
     // Honours the same setting the GUI does: a check the quick-launch path
     // skipped would be no check at all, since a roblox: link reaches here.
-    if (loadSettings(installDir).verifyIntegrity) argvStrings.push_back("--verify-integrity");
+    // Before the exe path, not after: the layer stops reading options at the
+    // first non-option argument, so a flag behind it is passed to Roblox.
+    if (settings.verifyIntegrity) argvStrings.push_back("--verify-integrity");
+    argvStrings.push_back(exePath);
     if (!uri.empty()) argvStrings.push_back(uri);
 
     std::vector<char*> argv;

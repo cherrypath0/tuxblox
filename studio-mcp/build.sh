@@ -61,15 +61,20 @@ install_deps() {
 
 echo ":: Checking build dependencies"
 # TUXBLOX_SKIP_DEPS is set by the root build.sh, which installs dependencies
-# once for all three builds -- avoids repeated package-manager round trips.
+# once for every build it runs -- avoids repeated package-manager round trips.
 if [[ -n "$TUXBLOX_SKIP_DEPS" ]]; then
     echo ":: TUXBLOX_SKIP_DEPS set, skipping dependency install"
 else
     install_deps
 fi
 
-echo ":: Vendoring third-party sources"
-./vendor.sh
+# studio-mcp compiles a handful of the launcher's own source files rather than
+# keeping a second copy of them, and one of those needs the launcher's vendored
+# json.hpp. launcher/third_party/ is not in the repository, so on a fresh clone
+# it has to be fetched before this build -- and this build runs first.
+# vendor.sh only downloads what is missing, so a repeat run costs nothing.
+echo ":: Vendoring the launcher's third-party sources"
+(cd ../launcher && ./vendor.sh)
 
 echo ":: Building builder container image (old-glibc baseline)"
 podman build -t tuxblox-old-glibc-builder -f ../Containerfile ..
@@ -83,26 +88,16 @@ if [[ -f build/CMakeCache.txt ]] && \
 fi
 
 echo ":: Configuring + Building (in podman, rootless, old-glibc baseline)"
-# EmbedLicense.cmake embeds the repo-root LICENSE via /src/../LICENSE, which
-# resolves to /LICENSE inside the container -- mount it there read-only, since
-# only launcher/ itself is mounted at /src.
-#
-# bundle-qt.sh is chained into the SAME container invocation, not run afterwards
-# on the host: it copies Qt6 out of /opt/qt6/6.6.3/gcc_64, a path that only
-# exists inside this image (see Containerfile -- Ubuntu 20.04 has no Qt6 apt
-# packages, so aqtinstall puts it there). Without it the produced binary keeps a
-# RUNPATH into that container-only path and cannot start on any machine without
-# a coincidentally-present system Qt6.
 # TUXBLOX_BUILD_VERSION has to be forwarded explicitly: cmake runs INSIDE this
 # container, so an env var exported by the root build.sh on the host is invisible
 # to it otherwise.
 #
 # The repo-root VERSION file cannot cover that fallback by itself, because only
-# launcher/ is mounted at /src -- the root of the repo is not reachable from
-# inside the container at all. So a standalone run of this script (no root
+# this directory is mounted at /src -- the root of the repo is not reachable
+# from inside the container at all. So a standalone run of this script (no root
 # build.sh, hence no env var) reads VERSION here on the HOST and passes the
 # value in through the same variable, which is why one number reaches the
-# launcher, the installer and the compatibility layer either way.
+# launcher, the bootstrapper and the compatibility layer either way.
 if [[ -z "${TUXBLOX_BUILD_VERSION:-}" && -r "$(pwd)/../VERSION" ]]; then
     TUXBLOX_BUILD_VERSION="$(sed -n '1p' "$(pwd)/../VERSION" | tr -d '[:space:]')"
 fi
@@ -112,25 +107,24 @@ if [[ -z "${TUXBLOX_CHANNEL:-}" && -r "$(pwd)/../VERSION" ]]; then
     TUXBLOX_CHANNEL="$(sed -n '2p' "$(pwd)/../VERSION" | tr -d '[:space:]')"
 fi
 
+# launcher/ is mounted read-only alongside: studio-mcp shares the launcher's
+# path-resolution code rather than keeping a second copy of it, and only /src
+# is reachable from inside the container otherwise. Read-only because this
+# build has no business writing into the launcher tree.
 podman run --rm --userns=keep-id -e JOBS="$JOBS" \
     -e TUXBLOX_BUILD_VERSION="${TUXBLOX_BUILD_VERSION:-}" \
-    -e TUXBLOX_CHANNEL="${TUXBLOX_CHANNEL:-}" -v "$(pwd):/src:Z" \
-    -v "$(pwd)/../LICENSE:/LICENSE:ro,z" -w /src tuxblox-old-glibc-builder \
-    bash -c 'cmake -B build -S . -DCMAKE_BUILD_TYPE=Release && cmake --build build -j"$JOBS" && ./bundle-qt.sh'
+    -e TUXBLOX_CHANNEL="${TUXBLOX_CHANNEL:-}" \
+    -v "$(pwd):/src:Z" -v "$(pwd)/../launcher:/launcher:ro,z" \
+    -w /src tuxblox-old-glibc-builder \
+    bash -c 'cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DTUXBLOX_LAUNCHER_DIR=/launcher \
+             && cmake --build build -j"$JOBS" && ctest --test-dir build --output-on-failure'
 
-# Also stage the finished binary + its Qt6 bundle at the repo-root build/
-# directory -- the same place the root build.sh (which stages this whole
-# build/ tree there via `mv` after calling this script) leaves it, so a
-# standalone run of this script produces a runnable artifact in the same
-# place either way. Plain `cp`, not `mv`: this script's own build/ must stay
-# intact for incremental rebuilds. libtuxblox/ has to be re-copied wholesale
-# (not merged) since the binary's RPATH ($ORIGIN/libtuxblox/lib) requires the
-# two to stay exact siblings -- a stale bundle left over from a previous copy
-# could silently mismatch a freshly rebuilt binary.
+# Also stage the finished binary at the repo-root build/ directory -- the same
+# place the root build.sh (which stages this whole build/ tree there via `mv`
+# after calling this script) leaves it, so a standalone run of this script
+# produces a runnable artifact in the same place either way. A plain `cp`,
+# not `mv`: this script's own build/ must stay intact for incremental rebuilds.
 mkdir -p ../build
-cp -f build/TuxBloxLauncher ../build/TuxBloxLauncher
-rm -rf ../build/libtuxblox
-cp -a build/libtuxblox ../build/libtuxblox
+cp -f build/studio-mcp ../build/studio-mcp
 
-echo ":: Done. Binary at build/TuxBloxLauncher (Qt6 bundled beside it in build/libtuxblox/)"
-echo ":: Also staged to $(cd .. && pwd)/build/TuxBloxLauncher (+ libtuxblox/)"
+echo ":: Done. Also staged to $(cd .. && pwd)/build/studio-mcp"

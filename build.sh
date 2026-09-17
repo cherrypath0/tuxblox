@@ -70,7 +70,10 @@ fi
 # VERSION back. An explicit TUXBLOX_BUILD_VERSION still wins, for the case
 # where you really do mean to publish under a different number.
 if [[ $stage_only -eq 1 && -z "$TUXBLOX_BUILD_VERSION" && -x "$ROOT/build/compat/main" ]]; then
+    # --version answers "x.y.z-channel" now; the release folder is named after
+    # the number alone, so the channel suffix comes off here.
     built_version="$("$ROOT/build/compat/main" --version 2>/dev/null | head -1 | tr -d '[:space:]')"
+    built_version="${built_version%%-*}"
     if [[ -n "$built_version" ]]; then
         if [[ -n "$file_version" && "$file_version" != "$built_version" ]]; then
             echo "!! VERSION says $file_version, but build/ was built as $built_version." >&2
@@ -357,7 +360,7 @@ stage_release() {
     # happens to exist -- an empty libtuxblox/ would tar up fine and fail at
     # the user's machine instead.
     local required=(compat/main libtuxblox/lib libtuxblox/plugins libtuxblox/qt.conf
-                    TuxBloxLauncher TuxBloxInstaller TuxBloxBootstrapper mcp.sh)
+                    TuxBloxLauncher TuxBloxInstaller TuxBloxBootstrapper studio-mcp)
     local entry
     for entry in "${required[@]}"; do
         if [[ ! -e "$ROOT/build/$entry" ]]; then
@@ -389,7 +392,7 @@ stage_release() {
     cp "$ROOT/build/TuxBloxLauncher" "$release_dir/launcher"
     cp "$ROOT/build/TuxBloxInstaller" "$release_dir/installer"
     cp "$ROOT/build/TuxBloxBootstrapper" "$release_dir/bootstrapper"
-    cp "$ROOT/build/mcp.sh" "$release_dir/mcp.sh"
+    cp "$ROOT/build/studio-mcp" "$release_dir/studio-mcp"
 
     echo ":: Writing manifest.json and latest.json"
     # Written by python rather than assembled from shell heredocs: it hashes
@@ -416,7 +419,9 @@ artifacts = [
     # either spelling, so emitting the new one is safe for older installs.
     ("compat",     f"compat-{slug}.tar.zst",      "Compatibility layer",  "compat"),
     ("libtuxblox", f"libtuxblox-{slug}.tar.zst",  "Libraries",            "libtuxblox"),
-    ("mcp",        "mcp.sh",                      "Studio MCP",           "mcp.sh"),
+    # Was the mcp.sh shell script through 2.6.0. The key is unchanged, so an
+    # older installer still finds it; what it downloads is now a binary.
+    ("mcp",        "studio-mcp",                  "Studio MCP",           "studio-mcp"),
 ]
 
 def digest(path):
@@ -653,6 +658,18 @@ step "Staging bootstrapper output into build/"
 rm -f build/TuxBloxBootstrapper
 mv bootstrapper/build build/.artifacts/bootstrapper
 mv build/.artifacts/bootstrapper/TuxBloxBootstrapper build/TuxBloxBootstrapper
+
+# Before the launcher, which is the slowest of the four: studio-mcp compiles
+# launcher sources, so a mistake in them surfaces here in seconds rather than
+# after the whole Qt build.
+step "Building TuxBlox Studio MCP (podman, old-glibc baseline)"
+run_step "build_studio_mcp" strict logged env TUXBLOX_SKIP_DEPS=1 ./studio-mcp/build.sh
+
+step "Staging Studio MCP output into build/"
+
+rm -f build/studio-mcp
+mv studio-mcp/build build/.artifacts/studio-mcp
+mv build/.artifacts/studio-mcp/studio-mcp build/studio-mcp
 
 step "Building TuxBlox Launcher (podman, old-glibc baseline)"
 run_step "build_launcher" strict logged env TUXBLOX_SKIP_DEPS=1 ./launcher/build.sh

@@ -28,7 +28,7 @@ int main(int argc, char** argv) {
 
     const CliOptions options = parseArgs(argc, argv);
     if (options.version) {
-        printf("%s\n", kTuxBloxVersion);
+        printf("%s\n", kTuxBloxBuildId);
         return 0;
     }
     if (options.help) {

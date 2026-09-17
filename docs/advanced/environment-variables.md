@@ -36,6 +36,7 @@ Turns on logging. Off by default, because logging costs real frame time.
 
 | Value | Effect |
 |---|---|
+| `-1` | Silence: nothing at all is printed |
 | unset or `0` | No logging |
 | `1` | A useful default set of channels |
 | anything else | That value is added to the default set |
@@ -43,6 +44,8 @@ Turns on logging. Off by default, because logging costs real frame time.
 The advanced form takes Wine debug channel syntax, so `TUXBLOX_LOG=+seh,+relay` adds those channels on top of the defaults.
 
 Turning this on also raises the graphics layers' own logging to a level that reports warnings.
+
+`-1` goes the other way and turns everything off, including the handful of lines the layer normally prints and the graphics layers' error reporting. It is for programs whose output is being read by something else rather than by a person: [Studio MCP](../using-tuxblox/studio-mcp.md) sets it, because a single unexpected line there breaks the connection to the AI client. There is no reason to set it by hand, and a crash under it leaves nothing to look at.
 
 ### TUXBLOX_LOG_DIR
 

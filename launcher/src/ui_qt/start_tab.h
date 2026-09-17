@@ -53,7 +53,6 @@ private:
     QLabel* updateStatusLabel_ = nullptr;
     QProgressBar* updateProgress_ = nullptr;
     QLabel* errorBanner_ = nullptr;
-    QLabel* channelLabel_ = nullptr;
     QLabel* updateStateDot_ = nullptr;
     QLabel* updateStateLabel_ = nullptr;
 };

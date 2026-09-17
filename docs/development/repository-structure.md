@@ -22,7 +22,8 @@ The two halves are **separate compiled programs that talk to each other while ru
 | `launcher/` | Source for `TuxBloxLauncher`, the window you use |
 | `installer/` | Source for `TuxBloxInstaller` |
 | `compat/` | The compatibility layer |
-| `include/` | Files copied into the finished build as-is, such as `mcp.sh` |
+| `bootstrapper/` | Source for `TuxBloxBootstrapper`, which downloads Roblox itself |
+| `studio-mcp/` | Source for `studio-mcp`, the Studio MCP helper |
 | `docs/` | This documentation |
 | `third_party_licenses/` | License texts for everything bundled |
 
@@ -69,7 +70,8 @@ build/
 ├── runtime/         the virtual drive
 ├── TuxBloxLauncher
 ├── TuxBloxInstaller
-├── mcp.sh
+├── TuxBloxBootstrapper
+├── studio-mcp
 └── .artifacts/      intermediate build files
 ```
 

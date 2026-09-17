@@ -132,7 +132,9 @@ CommandLine parseCommandLine(int argc, char *argv[]) {
         }
 
         if (argument == "--version") {
-            std::cout << TuxBloxVersion << std::endl;
+            // "x.y.z-channel", matching every other TuxBlox binary, so the
+            // launcher can spot a half-updated install with one comparison.
+            std::cout << PrefixVersion << std::endl;
             parsed.handled = true;
             return parsed;
         }

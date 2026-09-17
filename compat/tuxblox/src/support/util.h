@@ -46,8 +46,15 @@ struct CopyOptions {
     std::ofstream *pTrackFile = nullptr;
 };
 
-// Writes a prefixed line to standard error. Never throws.
+// Writes a prefixed line to standard error. Never throws. Writes nothing at
+// all when TUXBLOX_LOG is "-1".
 void log(const std::string& message);
+
+// True when TUXBLOX_LOG is "-1", which means "say nothing": no line from the
+// layer, and every backend turned down to silent. Set by a caller whose
+// standard streams carry a protocol rather than text -- one stray line there
+// is a parse error at the other end, not a log entry.
+bool logSilenced();
 
 // Joins arguments into one line for the log, quoting the ones that contain
 // spaces so a path with a space still reads as a single argument.

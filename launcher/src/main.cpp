@@ -122,6 +122,16 @@ int main(int argc, char** argv) {
 
     if (argc > 1) {
         std::string arg1 = argv[1];
+
+        // Answered before anything else, and before the GUI: this is the same
+        // question the launcher asks every other TuxBlox binary to decide
+        // whether an install is of a piece, so it has to be cheap and it has
+        // to be the build's own answer.
+        if (arg1 == "--version") {
+            printf("%s\n", kTuxBloxBuildId);
+            return 0;
+        }
+
         LaunchTarget target = LaunchTarget::Player;
         std::string uri;
         bool headless = false;
@@ -280,7 +290,7 @@ int main(int argc, char** argv) {
     // 07-28 final review) was about. That concern is specifically about
     // ensureDesktopIntegration()'s up-to-~12s xdg-mime/update-desktop-
     // database calls, which stays after window.show() below, same as before.
-    App app(dir, kTuxBloxVersion, exePath);
+    App app(dir, kTuxBloxBuildId, exePath);
 
     // QGuiApplication::setDesktopFileName() is Qt's native equivalent of
     // the old SDL_VIDEO_X11_WMCLASS env var trick (ui.cpp's Ui::init(),
