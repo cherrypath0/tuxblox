@@ -111,13 +111,19 @@ fi
 # path-resolution code rather than keeping a second copy of it, and only /src
 # is reachable from inside the container otherwise. Read-only because this
 # build has no business writing into the launcher tree.
+#
+# "cd build && ctest", not "ctest --test-dir build": the container is on CMake
+# 3.16, which predates --test-dir. It does not reject the unknown option, it
+# ignores it, runs in the working directory, prints "No tests were found!!!"
+# and exits 0 -- a test gate that passes without running anything.
 podman run --rm --userns=keep-id -e JOBS="$JOBS" \
     -e TUXBLOX_BUILD_VERSION="${TUXBLOX_BUILD_VERSION:-}" \
     -e TUXBLOX_CHANNEL="${TUXBLOX_CHANNEL:-}" \
     -v "$(pwd):/src:Z" -v "$(pwd)/../launcher:/launcher:ro,z" \
     -w /src tuxblox-old-glibc-builder \
     bash -c 'cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DTUXBLOX_LAUNCHER_DIR=/launcher \
-             && cmake --build build -j"$JOBS" && ctest --test-dir build --output-on-failure'
+             && cmake --build build -j"$JOBS" \
+             && cd build && ctest --output-on-failure'
 
 # Also stage the finished binary at the repo-root build/ directory -- the same
 # place the root build.sh (which stages this whole build/ tree there via `mv`

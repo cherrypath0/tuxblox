@@ -20,6 +20,7 @@ installer/build/
 installer/third_party/
 bootstrapper/build/
 studio-mcp/build/
+Testing/
 bootstrapper/third_party/
 
 *.log
