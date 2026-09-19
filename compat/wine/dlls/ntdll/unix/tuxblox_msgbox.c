@@ -34,6 +34,9 @@
 #include <fcntl.h>
 #include <limits.h>
 #include <sys/stat.h>
+#ifdef HAVE_SYS_PRCTL_H
+#include <sys/prctl.h>
+#endif
 #include <errno.h>
 #include <signal.h>
 #include <stdarg.h>
@@ -1285,6 +1288,11 @@ BOOL tuxblox_show_message_box( const char *title, const char *body, BOOL want_an
     if (!pid)
     {
         if (fds[0] != -1) close( fds[0] );
+        /* Forked rather than started, so without this it carries the name of
+         * the program it came from and reads as a second copy of it. */
+#if defined(HAVE_PRCTL) && defined(PR_SET_NAME)
+        prctl( PR_SET_NAME, "TuxBloxDialog" );
+#endif
         _exit( run_dialog( title, body, want_answer, fds[1] ) );
     }
     if (fds[1] != -1) close( fds[1] );
