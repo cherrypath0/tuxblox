@@ -7007,7 +7007,8 @@ static BOOL notifier_has_actions(void)
  * The wait is bounded. notify-send with an action stays up until the user
  * answers or the notification expires, and this runs on the thread that is
  * reporting a crash, so it must not be able to hang the process for good. */
-static BOOL notify_desktop( const UNICODE_STRING *text, const UNICODE_STRING *caption, BOOL want_answer )
+static BOOL notify_desktop( const UNICODE_STRING *text, const UNICODE_STRING *caption, ULONG flags,
+                            BOOL want_answer )
 {
     char body[1024], title[256];
     BOOL pressed = FALSE;
@@ -7034,7 +7035,7 @@ static BOOL notify_desktop( const UNICODE_STRING *text, const UNICODE_STRING *ca
      * left for a session with no display to draw it on. */
     {
         BOOL ran = FALSE;
-        BOOL ok = tuxblox_show_message_box( title, body, want_answer, &ran );
+        BOOL ok = tuxblox_show_message_box( title, body, flags, want_answer, &ran );
 
         if (ran) return ok;
     }
@@ -7161,9 +7162,16 @@ NTSTATUS WINAPI NtRaiseHardError( NTSTATUS status, ULONG count,
         }
     }
 
-    /* the first two parameters of a message box are its text and its title */
+    /* The first two parameters of a message box are its text and its title, and
+     * the third is the same set of flags MessageBox itself takes: which icon to
+     * draw, which buttons to offer, and which of them answers by default. */
     if (params && count >= 2 && (params_mask & 3) == 3)
-        answered = notify_desktop( params[0], params[1], response && !getenv( "TUXBLOX_HARDERROR_RESPONSE" ) );
+    {
+        ULONG flags = (count >= 3 && !(params_mask & 4)) ? (ULONG)(ULONG_PTR)params[2] : 0;
+
+        answered = notify_desktop( params[0], params[1], flags,
+                                   response && !getenv( "TUXBLOX_HARDERROR_RESPONSE" ) );
+    }
 
 
     /* Wine never shows the message box, so a caller waiting on the user's answer

@@ -92,6 +92,17 @@ BOOL tuxblox_program_name( char *buffer, size_t size )
 
 /* What the child reports back. Anything else means it never got a window up
  * and the caller still has to find another way to show the message. */
+/* The same flags MessageBox takes: the low nibble picks the buttons, the next
+ * one picks the icon, and 0x100 makes the second button the one Enter presses. */
+#define MSGBOX_BUTTONS          0x0000000f
+#define MSGBOX_OKCANCEL         0x00000001
+#define MSGBOX_ICON             0x000000f0
+#define MSGBOX_ICON_ERROR       0x00000010
+#define MSGBOX_ICON_QUESTION    0x00000020
+#define MSGBOX_ICON_WARNING     0x00000030
+#define MSGBOX_ICON_INFO        0x00000040
+#define MSGBOX_DEFBUTTON2       0x00000100
+
 #define MSGBOX_PRESSED_OK       0
 #define MSGBOX_DISMISSED        1
 #define MSGBOX_CANNOT_DRAW      2
@@ -161,6 +172,7 @@ struct msgbox
     int line_count;
     struct msgbox_button buttons[2];
     int button_count;
+    unsigned int flags;
     int focused;
     int hot;
     int pressed;
@@ -595,19 +607,42 @@ static int wrap_text( struct msgbox *box, const char *text, int max_width )
     return count;
 }
 
-static void draw_error_icon( struct msgbox *box, int x, int y )
+/* The four Windows draws, in the colours a current desktop uses for them: a
+ * cross for an error, an exclamation for a warning, and a letter for the two
+ * that are only telling you something. */
+static void draw_message_icon( struct msgbox *box, int x, int y )
 {
     const int inset = MSGBOX_ICON_SIZE / 4;
+    const int middle = x + MSGBOX_ICON_SIZE / 2;
+    const unsigned int icon = box->flags & MSGBOX_ICON;
+    unsigned int color = 0xe81123;
+    const char *mark = NULL;
 
-    p_XSetForeground( box->display, box->gc, x_pixel( box, 0xe81123 ) );
+    switch (icon)
+    {
+    case MSGBOX_ICON_INFO:     color = 0x0078d4; mark = "i"; break;
+    case MSGBOX_ICON_QUESTION: color = 0x0078d4; mark = "?"; break;
+    case MSGBOX_ICON_WARNING:  color = 0xf7a800; mark = "!"; break;
+    default: break;
+    }
+
+    p_XSetForeground( box->display, box->gc, x_pixel( box, color ) );
     p_XFillArc( box->display, box->canvas, box->gc, x, y, MSGBOX_ICON_SIZE, MSGBOX_ICON_SIZE, 0, 360 * 64 );
-    p_XSetForeground( box->display, box->gc, x_pixel( box, 0xffffff ) );
-    p_XSetLineAttributes( box->display, box->gc, 3, LineSolid, CapRound, JoinRound );
-    p_XDrawLine( box->display, box->canvas, box->gc, x + inset, y + inset,
-                 x + MSGBOX_ICON_SIZE - inset, y + MSGBOX_ICON_SIZE - inset );
-    p_XDrawLine( box->display, box->canvas, box->gc, x + MSGBOX_ICON_SIZE - inset, y + inset,
-                 x + inset, y + MSGBOX_ICON_SIZE - inset );
-    p_XSetLineAttributes( box->display, box->gc, 1, LineSolid, CapButt, JoinMiter );
+
+    if (!mark)
+    {
+        p_XSetForeground( box->display, box->gc, x_pixel( box, 0xffffff ) );
+        p_XSetLineAttributes( box->display, box->gc, 3, LineSolid, CapRound, JoinRound );
+        p_XDrawLine( box->display, box->canvas, box->gc, x + inset, y + inset,
+                     x + MSGBOX_ICON_SIZE - inset, y + MSGBOX_ICON_SIZE - inset );
+        p_XDrawLine( box->display, box->canvas, box->gc, x + MSGBOX_ICON_SIZE - inset, y + inset,
+                     x + inset, y + MSGBOX_ICON_SIZE - inset );
+        p_XSetLineAttributes( box->display, box->gc, 1, LineSolid, CapButt, JoinMiter );
+        return;
+    }
+
+    draw_text( box, middle - text_width( box, mark, 1 ) / 2,
+               y + (MSGBOX_ICON_SIZE - text_height( box )) / 2, mark, 1, 0xffffff );
 }
 
 /* Whether a point is inside a rounded rectangle, everything in subpixels. */
@@ -710,7 +745,7 @@ static void draw_box( struct msgbox *box )
     int i, y = MSGBOX_MARGIN;
 
     fill_rect( box, box->colors.back, 0, 0, box->width, box->height );
-    draw_error_icon( box, MSGBOX_MARGIN, MSGBOX_MARGIN );
+    draw_message_icon( box, MSGBOX_MARGIN, MSGBOX_MARGIN );
 
     for (i = 0; i < box->line_count; i++)
     {
@@ -1132,8 +1167,8 @@ static void set_window_hints( struct msgbox *box, const char *title )
     p_XSetWMProtocols( box->display, box->window, &box->delete_window, 1 );
 }
 
-static int run_dialog( const char *title, const char *body, BOOL want_answer, int shown_fd,
-                       pid_t parent )
+static int run_dialog( const char *title, const char *body, unsigned int flags, BOOL want_answer,
+                       int shown_fd, pid_t parent )
 {
     struct msgbox box;
     char font_name[128];
@@ -1162,9 +1197,14 @@ static int run_dialog( const char *title, const char *body, BOOL want_answer, in
         if (width > text_width_used) text_width_used = width;
     }
 
+    box.flags = flags;
     box.buttons[box.button_count].label = "OK";
     box.buttons[box.button_count++].affirmative = TRUE;
-    if (want_answer) box.buttons[box.button_count++].label = "Cancel";
+    /* A second button when the caller asked for one, or when it is waiting for
+     * an answer and so has something to tell apart. */
+    if ((flags & MSGBOX_BUTTONS) == MSGBOX_OKCANCEL || (!(flags & MSGBOX_BUTTONS) && want_answer))
+        box.buttons[box.button_count++].label = "Cancel";
+    if ((flags & MSGBOX_DEFBUTTON2) && box.button_count > 1) box.focused = 1;
     box.hot = -1;
 
     content_height = box.line_count * text_height( &box );
@@ -1279,7 +1319,8 @@ closed:
 #endif /* SONAME_LIBX11 */
 
 
-BOOL tuxblox_show_message_box( const char *title, const char *body, BOOL want_answer, BOOL *ran )
+BOOL tuxblox_show_message_box( const char *title, const char *body, ULONG flags, BOOL want_answer,
+                               BOOL *ran )
 {
 #ifdef SONAME_LIBX11
     static int reentered;
@@ -1315,7 +1356,7 @@ BOOL tuxblox_show_message_box( const char *title, const char *body, BOOL want_an
         prctl( PR_SET_NAME, "TuxBloxDialog" );
 #endif
 
-        _exit( run_dialog( title, body, want_answer, fds[1], parent ) );
+        _exit( run_dialog( title, body, flags, want_answer, fds[1], parent ) );
     }
     if (fds[1] != -1) close( fds[1] );
 
