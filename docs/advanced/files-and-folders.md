@@ -36,7 +36,7 @@ Everything from the Settings tab, plus your FastFlags.
   "env_vars": "",
   "gpu": "",
   "haptics": true,
-  "webview_gpu": false,
+  "webview_gpu": true,
   "send_crash_reports": true,
   "fast_flags": {
     "player": [],

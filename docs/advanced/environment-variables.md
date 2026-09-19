@@ -67,9 +67,9 @@ This is what the **Enable Haptics** setting writes.
 
 ### TUXBLOX_WEBVIEW_GPU
 
-`1` turns on GPU acceleration in the panels that are web pages. This is what the **GPU acceleration for web pages** setting writes when you turn it on.
+`1` or `0`, for GPU acceleration in the panels that are web pages. This is what the **GPU acceleration for web pages** setting writes.
 
-Only the non-default is sent: left out, TuxBlox draws those panels on the processor, which is what it does for everyone who has not changed the setting.
+Unlike haptics, both values are sent explicitly, because the layer's own default differs from the launcher's.
 
 ### TUXBLOX_NO_FSYNC
 
