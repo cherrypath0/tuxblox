@@ -189,9 +189,8 @@ int main() {
     }
 
     // An old settings.json says webview_gpu: true, which was the default and
-    // not a choice. It is deliberately not read: the key changed name, so every
-    // install starts from the layer's own behaviour rather than the one that
-    // blanks the panels.
+    // not a choice, and is the setting that blanks the panels. A file with no
+    // version counter in it has that turned off once, keeping everything else.
     {
         std::ofstream out(dir + "/settings.json", std::ios::binary);
         out << R"({"webview_gpu": true, "env_vars": "KEEP=1", "send_crash_reports": true})";
@@ -200,6 +199,17 @@ int main() {
         Settings s = loadSettings(dir);
         assert(s.webviewGpu == false);
         assert(s.envVars == "KEEP=1");
+    }
+
+    // Turned on deliberately after that, it stays on: the choice is saved with
+    // the counter, so the one-time reset above does not reach it again.
+    {
+        Settings s = loadSettings(dir);
+        s.webviewGpu = true;
+        saveSettings(dir, s);
+
+        Settings loaded = loadSettings(dir);
+        assert(loaded.webviewGpu == true);
     }
 
     // launchEnvPairs(): with the Automatic default, the graphics-card picker
