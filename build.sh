@@ -732,6 +732,17 @@ run_step "compile_proton_native" strict bash -c '
     rm -rf "$workdir"
 '
 
+step "Compiling the message box helper"
+run_step "compile_dialog_helper" strict bash -c '
+    set -e
+    # A Windows program, so a hard error is shown in the same message box every
+    # other dialog goes through instead of whatever the desktop happens to ship.
+    # wine.inf links it into system32 with the rest of the built-in programs.
+    x86_64-w64-mingw32-gcc -O2 -municode -mwindows \
+        -o dist/files/lib/wine/x86_64-windows/tuxbloxdialog.exe \
+        "$ROOT/compat/tuxblox/dialog/dialog.c" -lshell32
+'
+
 step "Clearing up unnecessary junk"
 shopt -s nullglob
 if [ -z "$TUXBLOX_KEEP_OBJ" ]; then

@@ -1765,12 +1765,15 @@ static void setup_raise_exception( ucontext_t *sigcontext, EXCEPTION_RECORD *rec
      * tracing off. */
     if (tuxblox_trace_enabled())
     {
-        char detail[128];
+        char detail[160];
 
-        snprintf( detail, sizeof(detail), "code=%08x flags=%x addr=%p nparams=%u p0=%llx",
+        /* For an access violation p0 is the access type and p1 the address it
+         * faulted on, which is the half that says what went wrong. */
+        snprintf( detail, sizeof(detail), "code=%08x flags=%x addr=%p nparams=%u p0=%llx p1=%llx",
                   (unsigned int)rec->ExceptionCode, (unsigned int)rec->ExceptionFlags,
                   rec->ExceptionAddress, (unsigned int)rec->NumberParameters,
-                  rec->NumberParameters ? (unsigned long long)rec->ExceptionInformation[0] : 0ull );
+                  rec->NumberParameters ? (unsigned long long)rec->ExceptionInformation[0] : 0ull,
+                  rec->NumberParameters > 1 ? (unsigned long long)rec->ExceptionInformation[1] : 0ull );
         tuxblox_trace_record( "Exception", detail );
 
         /* For an access violation, dump the faulting register set once so the

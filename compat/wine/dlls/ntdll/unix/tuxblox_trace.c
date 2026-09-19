@@ -2695,7 +2695,7 @@ void tuxblox_diag_xpage_arm( void )
  */
 static ULONG64 rpage_lo, rpage_hi;
 static unsigned int rpage_events, rpage_max, rpage_start_seq;
-static int rpage_parsed, rpage_on;
+static int rpage_parsed, rpage_on, absolute;
 
 static void rpage_arm( void )
 {
@@ -2720,13 +2720,17 @@ void tuxblox_diag_rpage_arm( void )
 
         rpage_parsed = 1;
         if (!v || !*v) return;
+        /* "*<lo>-<hi>" is an absolute range, for the handful of things that
+         * genuinely live below 4GB: the shared user page and the hypervisor
+         * page next to it. */
+        if (*v == '*') { absolute = 1; v++; }
         rpage_lo = strtoull( v, &end, 16 );
         if (*end != '-') { rpage_lo = 0; return; }
         rpage_hi = strtoull( end + 1, NULL, 16 );
         /* Below 4GB the range is layer-relative, as everywhere else here. The
          * layer's base moves between builds, so a range written absolutely
          * silently covers nothing and reads as a true negative. */
-        if (rpage_lo < 0x100000000ull)
+        if (!absolute && rpage_lo < 0x100000000ull)
         {
             ULONG64 base = roblox_dll_base();
 
@@ -4258,9 +4262,11 @@ static void diag_snap_sysret( unsigned int id, ULONG_PTR retval )
     }
     /* An anchor that never matches must not leave the run tracing for ever --
      * the layer picks a different clone of the same call site from run to run,
-     * so a site RVA read off an old log can simply never come up. */
+     * so a site RVA read off an old log can simply never come up. The ceiling
+     * has to sit past the whole run: the main thread passed 7,400 calls once
+     * the relocation fix landed, and a 6,000 one cut every anchor after it. */
     if (stop_after >= 0 &&
-        calls > (unsigned)(want_n >= 0 ? want_n + stop_after + 64 : 6000))
+        calls > (unsigned)(want_n >= 0 ? want_n + stop_after + 64 : 40000))
     {
         ERR_(seh)( "DIAG snapshot: anchor never matched by call %u, exiting\n", calls );
         fflush( NULL );

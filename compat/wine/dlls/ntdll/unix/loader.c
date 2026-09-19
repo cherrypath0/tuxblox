@@ -184,7 +184,7 @@ void ntdll_add_syscall_debug_info( UINT idx, const char **names, const char **us
 static void fatal_error( const char *err, ... ) __attribute__((noreturn, format(printf,1,2)));
 #endif
 
-static const char *bin_dir;
+const char *bin_dir;
 static const char *dll_dir;
 static const char *ntdll_dir;
 static const char *alt_build_dir;
@@ -876,7 +876,17 @@ static void fill_builtin_image_info( void *module, struct pe_image_info *info )
  */
 static NTSTATUS map_so_dll( const IMAGE_NT_HEADERS *nt_descr, HMODULE module )
 {
-    static const char builtin_signature[32] = "Wine builtin DLL";
+    /* The header built here is the one every module walk reads, so it carries
+     * the stub Windows carries rather than one naming Wine. Nothing reads this
+     * copy to tell a built-in module apart -- that is done from the file on
+     * disk -- so the space is free for the real thing. */
+    static const BYTE dos_stub[64] =
+    {
+        0x0e, 0x1f, 0xba, 0x0e, 0x00, 0xb4, 0x09, 0xcd, 0x21, 0xb8, 0x01, 0x4c, 0xcd, 0x21,
+        'T','h','i','s',' ','p','r','o','g','r','a','m',' ','c','a','n','n','o','t',' ',
+        'b','e',' ','r','u','n',' ','i','n',' ','D','O','S',' ','m','o','d','e','.',
+        0x0d, 0x0d, 0x0a, 0x24
+    };
     IMAGE_DATA_DIRECTORY *dir;
     IMAGE_DOS_HEADER *dos;
     IMAGE_NT_HEADERS *nt;
@@ -888,7 +898,7 @@ static NTSTATUS map_so_dll( const IMAGE_NT_HEADERS *nt_descr, HMODULE module )
     unsigned int i;
 
     code_start = (sizeof(IMAGE_DOS_HEADER)
-                  + sizeof(builtin_signature)
+                  + sizeof(dos_stub)
                   + sizeof(IMAGE_NT_HEADERS)
                   + nb_sections * sizeof(IMAGE_SECTION_HEADER)
                   + align_mask) & ~align_mask;
@@ -896,7 +906,7 @@ static NTSTATUS map_so_dll( const IMAGE_NT_HEADERS *nt_descr, HMODULE module )
     if (anon_mmap_fixed( addr, code_start, PROT_READ | PROT_WRITE, 0 ) != addr) return STATUS_NO_MEMORY;
 
     dos = (IMAGE_DOS_HEADER *)addr;
-    nt  = (IMAGE_NT_HEADERS *)((BYTE *)(dos + 1) + sizeof(builtin_signature));
+    nt  = (IMAGE_NT_HEADERS *)((BYTE *)(dos + 1) + sizeof(dos_stub));
     sec = (IMAGE_SECTION_HEADER *)(nt + 1);
 
     /* build the DOS and NT headers */
@@ -909,8 +919,8 @@ static NTSTATUS map_so_dll( const IMAGE_NT_HEADERS *nt_descr, HMODULE module )
     dos->e_maxalloc = 0xffff;
     dos->e_ss       = 0x0000;
     dos->e_sp       = 0x00b8;
-    dos->e_lfanew   = sizeof(*dos) + sizeof(builtin_signature);
-    memcpy( dos + 1, builtin_signature, sizeof(builtin_signature) );
+    dos->e_lfanew   = sizeof(*dos) + sizeof(dos_stub);
+    memcpy( dos + 1, dos_stub, sizeof(dos_stub) );
 
     *nt = *nt_descr;
 
@@ -2222,6 +2232,63 @@ static void load_ntdll(void)
 
 
 /***********************************************************************
+ *           relocate_apiset
+ *
+ * Windows keeps the API set map in an unnamed section backed by the pagefile,
+ * high in the address space and at a different place every run. Mapping the
+ * file instead puts it at a fixed low address, under a name that can be read
+ * back, with a PE header in front of it -- three things a bare Windows process
+ * does not have anywhere below 2 GB, where it has nothing mapped at all.
+ * Copies the data into a section of that shape and hands back the new address.
+ */
+static NTSTATUS relocate_apiset( const API_SET_NAMESPACE *src, void **addr )
+{
+    /* The band Windows places mapped views in, in 64K steps as it does. */
+    static const UINT64 base_low = 0x10000000000ull, base_slots = 0x6000000ull;
+    SIZE_T len = src->Size, view;
+    LARGE_INTEGER size;
+    HANDLE section;
+    unsigned int status;
+    void *ptr;
+    ULONG old;
+    int i;
+
+    size.QuadPart = len;
+    status = NtCreateSection( &section, STANDARD_RIGHTS_REQUIRED | SECTION_QUERY |
+                              SECTION_MAP_READ | SECTION_MAP_WRITE,
+                              NULL, &size, PAGE_READWRITE, SEC_COMMIT, NULL );
+    if (status) return status;
+
+    for (i = 0; i < 16; i++)
+    {
+        UINT64 rnd;
+
+        get_random( &rnd, sizeof(rnd) );
+        ptr = (void *)(ULONG_PTR)(base_low + ((rnd % base_slots) << 16));
+        view = 0;
+        status = NtMapViewOfSection( section, NtCurrentProcess(), &ptr, 0, 0, NULL, &view,
+                                     ViewShare, 0, PAGE_READWRITE );
+        if (!status) break;
+        ptr = NULL;
+    }
+    /* Somewhere high still beats the fixed low address the file mapping gets. */
+    if (!ptr)
+    {
+        view = 0;
+        status = NtMapViewOfSection( section, NtCurrentProcess(), &ptr, 0, 0, NULL, &view,
+                                     ViewShare, MEM_TOP_DOWN, PAGE_READWRITE );
+    }
+    NtClose( section );
+    if (status) return status;
+
+    memcpy( ptr, src, len );
+    NtProtectVirtualMemory( NtCurrentProcess(), &ptr, &view, PAGE_READONLY, &old );
+    *addr = ptr;
+    return STATUS_SUCCESS;
+}
+
+
+/***********************************************************************
  *           load_apiset_dll
  */
 static void load_apiset_dll(void)
@@ -2277,6 +2344,16 @@ static void load_apiset_dll(void)
                 map->Version == 6 &&
                 map->Size <= sec->Misc.VirtualSize)
             {
+                void *copy;
+
+                /* A 32-bit process keeps its map below 4 GB, where its PEB can reach it.
+                 * TUXBLOX_NO_APISET_RELOC keeps the old file mapping, to tell a change
+                 * in behaviour caused by the move apart from one that was already there. */
+                if (!wow_peb && !getenv( "TUXBLOX_NO_APISET_RELOC" ) && !relocate_apiset( map, &copy ))
+                {
+                    NtUnmapViewOfSection( NtCurrentProcess(), ptr );
+                    map = copy;
+                }
                 peb->ApiSetMap = map;
                 if (wow_peb) wow_peb->ApiSetMap = PtrToUlong(map);
                 TRACE( "loaded %s apiset at %p\n", debugstr_w(path), map );

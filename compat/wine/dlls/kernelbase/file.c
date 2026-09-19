@@ -4155,11 +4155,31 @@ BOOL WINAPI DECLSPEC_HOTPATCH FileTimeToSystemTime( const FILETIME *ft, SYSTEMTI
 /*********************************************************************
  *	GetLocalTime   (kernelbase.@)
  */
+static const struct _KUSER_SHARED_DATA *user_shared_data = (struct _KUSER_SHARED_DATA *)0x7ffe0000;
+
+/* Windows serves the system time out of the shared page with no system call at
+ * all, which is why a kernel trace of a Windows process never shows one here;
+ * it also costs a page read instead of a kernel transition on an API that gets
+ * called constantly. The page is maintained by the server alongside TickCount,
+ * which GetTickCount64 already reads this way. */
+static void read_shared_system_time( LARGE_INTEGER *time )
+{
+    ULONG high, low;
+
+    do
+    {
+        high = user_shared_data->SystemTime.High1Time;
+        low = user_shared_data->SystemTime.LowPart;
+    }
+    while (high != user_shared_data->SystemTime.High2Time);
+    time->QuadPart = (LONGLONG)high << 32 | low;
+}
+
 void WINAPI DECLSPEC_HOTPATCH GetLocalTime( SYSTEMTIME *systime )
 {
     LARGE_INTEGER ft, ft2;
 
-    NtQuerySystemTime( &ft );
+    read_shared_system_time( &ft );
     RtlSystemTimeToLocalTime( &ft, &ft2 );
     FileTimeToSystemTime( (FILETIME *)&ft2, systime );
 }
@@ -4172,7 +4192,7 @@ void WINAPI DECLSPEC_HOTPATCH GetSystemTime( SYSTEMTIME *systime )
 {
     LARGE_INTEGER ft;
 
-    NtQuerySystemTime( &ft );
+    read_shared_system_time( &ft );
     FileTimeToSystemTime( (FILETIME *)&ft, systime );
 }
 
@@ -4199,7 +4219,7 @@ BOOL WINAPI DECLSPEC_HOTPATCH GetSystemTimeAdjustment( DWORD *adjust, DWORD *inc
  */
 void WINAPI DECLSPEC_HOTPATCH GetSystemTimeAsFileTime( FILETIME *time )
 {
-    NtQuerySystemTime( (LARGE_INTEGER *)time );
+    read_shared_system_time( (LARGE_INTEGER *)time );
 }
 
 

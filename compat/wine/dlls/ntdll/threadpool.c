@@ -26,6 +26,7 @@
 #include "ntstatus.h"
 #define WIN32_NO_STATUS
 #include "winternl.h"
+#include "ddk/wdm.h"
 
 #include "wine/debug.h"
 #include "wine/list.h"
@@ -33,6 +34,24 @@
 #include "ntdll_misc.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(threadpool);
+
+/* The system time the way Windows' own thread pool reads it: out of the shared
+ * page, with no system call at all. A kernel trace of a Windows process never
+ * shows NtQuerySystemTime anywhere, and the thread pool is one of the places
+ * ours called it. The page is maintained by the server alongside InterruptTime
+ * and TickCount, which are already read this way, so the value is no staler. */
+static void query_system_time( LARGE_INTEGER *time )
+{
+    ULONG high, low;
+
+    do
+    {
+        high = user_shared_data->SystemTime.High1Time;
+        low = user_shared_data->SystemTime.LowPart;
+    }
+    while (high != user_shared_data->SystemTime.High2Time);
+    time->QuadPart = (LONGLONG)high << 32 | low;
+}
 
 /*
  * Old thread pooling API
@@ -1067,7 +1086,7 @@ static void CALLBACK timerqueue_thread_proc( void *param )
     RtlEnterCriticalSection( &timerqueue.cs );
     for (;;)
     {
-        NtQuerySystemTime( &now );
+        query_system_time( &now );
 
         /* Check for expired timers. */
         while ((ptr = list_head( &timerqueue.pending_timers )))
@@ -1260,7 +1279,7 @@ static void CALLBACK waitqueue_thread_proc( void *param )
 
     for (;;)
     {
-        NtQuerySystemTime( &now );
+        query_system_time( &now );
         timeout.QuadPart = MAXLONGLONG;
         num_handles = 0;
 
@@ -3015,7 +3034,7 @@ VOID WINAPI TpSetTimer( TP_TIMER *timer, LARGE_INTEGER *timeout, LONG period, LO
         if ((LONGLONG)timestamp < 0)
         {
             LARGE_INTEGER now;
-            NtQuerySystemTime( &now );
+            query_system_time( &now );
             timestamp = now.QuadPart - timestamp;
         }
         else if (!timestamp)
@@ -3025,7 +3044,7 @@ VOID WINAPI TpSetTimer( TP_TIMER *timer, LARGE_INTEGER *timeout, LONG period, LO
             else
             {
                 LARGE_INTEGER now;
-                NtQuerySystemTime( &now );
+                query_system_time( &now );
                 timestamp = now.QuadPart + (ULONGLONG)period * 10000;
             }
             submit_timer = TRUE;
@@ -3104,7 +3123,7 @@ VOID WINAPI TpSetWait( TP_WAIT *wait, HANDLE handle, LARGE_INTEGER *timeout )
             if ((LONGLONG)timestamp < 0)
             {
                 LARGE_INTEGER now;
-                NtQuerySystemTime( &now );
+                query_system_time( &now );
                 timestamp = now.QuadPart - timestamp;
             }
         }
