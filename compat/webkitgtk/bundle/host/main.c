@@ -180,6 +180,53 @@ static void log_gl_provenance(void *egl_sym)
         fprintf(stderr, "webview2loader-host: GL provenance: no gallium/DRI/vendor GL module mapped yet\n");
 }
 
+/* Which renderer that EGL actually hands out -- the one thing a bug report
+ * needs and the vendor string does not say. "Mesa Project" is what the vendor
+ * reads whether the frames are drawn by a graphics card or by the processor,
+ * and the difference is the whole question when a panel comes up blank or slow.
+ *
+ * A context is needed because the name only exists once one is current. It is
+ * made without a surface, drawn into and read from nothing, and thrown away. */
+static void log_gl_renderer(void *h, void *dpy)
+{
+    unsigned int (*p_eglBindAPI)(unsigned int) = dlsym(h, "eglBindAPI");
+    unsigned int (*p_eglChooseConfig)(void *, const int *, void **, int, int *) = dlsym(h, "eglChooseConfig");
+    void *(*p_eglCreateContext)(void *, void *, void *, const int *) = dlsym(h, "eglCreateContext");
+    unsigned int (*p_eglMakeCurrent)(void *, void *, void *, void *) = dlsym(h, "eglMakeCurrent");
+    unsigned int (*p_eglDestroyContext)(void *, void *) = dlsym(h, "eglDestroyContext");
+    const unsigned char *(*p_glGetString)(unsigned int) = dlsym(h, "eglGetProcAddress")
+        ? ((void *(*)(const char *))dlsym(h, "eglGetProcAddress"))("glGetString") : NULL;
+    /* EGL_OPENGL_ES_API, EGL_SURFACE_TYPE/EGL_PBUFFER_BIT, EGL_RENDERABLE_TYPE/
+     * EGL_OPENGL_ES2_BIT, EGL_NONE, EGL_CONTEXT_CLIENT_VERSION, GL_RENDERER. */
+    static const int config_attrs[] = { 0x3033, 0x0001, 0x3040, 0x0004, 0x3038 };
+    static const int context_attrs[] = { 0x3098, 2, 0x3038 };
+    void *config = NULL, *context;
+    int count = 0;
+
+    if (!p_eglBindAPI || !p_eglChooseConfig || !p_eglCreateContext || !p_eglMakeCurrent || !p_glGetString)
+    {
+        fprintf(stderr, "webview2loader-host: GL renderer: not asked -- EGL is missing the calls it takes\n");
+        return;
+    }
+
+    p_eglBindAPI(0x30A0 /* EGL_OPENGL_ES_API */);
+    if (!p_eglChooseConfig(dpy, config_attrs, &config, 1, &count) || !count ||
+        !(context = p_eglCreateContext(dpy, config, NULL, context_attrs)) ||
+        !p_eglMakeCurrent(dpy, NULL, NULL, context))
+    {
+        fprintf(stderr, "webview2loader-host: GL renderer: unknown -- no context could be made, which is "
+                        "itself the answer if the panels come up blank\n");
+        return;
+    }
+
+    fprintf(stderr, "webview2loader-host: GL renderer: \"%s\" (%s)\n",
+            (const char *)p_glGetString(0x1F01 /* GL_RENDERER */),
+            getenv("LIBGL_ALWAYS_SOFTWARE") ? "drawn on the processor" : "a graphics driver");
+
+    p_eglMakeCurrent(dpy, NULL, NULL, NULL);
+    if (p_eglDestroyContext) p_eglDestroyContext(dpy, context);
+}
+
 static void log_gl_dispatch_info(void)
 {
     void *h;
@@ -256,6 +303,8 @@ static void log_gl_dispatch_info(void)
 
     fprintf(stderr, "webview2loader-host: GL dispatch: EGL_VENDOR=\"%s\" EGL_VERSION=\"%s\" (eglInitialize %d.%d)\n",
             p_eglQueryString(dpy, WV2L_EGL_VENDOR), p_eglQueryString(dpy, WV2L_EGL_VERSION), major, minor);
+
+    log_gl_renderer(h, dpy);
 
     /* Deliberately no eglTerminate()/dlclose() on this success path: this
      * display handle is process-global per EGL's own spec (repeated

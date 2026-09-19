@@ -43,6 +43,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <poll.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -173,6 +174,8 @@ static void *xft_handle;
 MSGBOX_FUNC(XAllocColor);
 MSGBOX_FUNC(XChangeProperty);
 MSGBOX_FUNC(XCloseDisplay);
+MSGBOX_FUNC(XConnectionNumber);
+MSGBOX_FUNC(XPending);
 MSGBOX_FUNC(XCopyArea);
 MSGBOX_FUNC(XCreateGC);
 MSGBOX_FUNC(XCreateImage);
@@ -241,6 +244,8 @@ static BOOL load_libraries(void)
     MSGBOX_FUNC(XAllocColor);
     MSGBOX_FUNC(XChangeProperty);
     MSGBOX_FUNC(XCloseDisplay);
+    MSGBOX_FUNC(XConnectionNumber);
+    MSGBOX_FUNC(XPending);
     MSGBOX_FUNC(XCopyArea);
     MSGBOX_FUNC(XCreateGC);
     MSGBOX_FUNC(XCreateImage);
@@ -1127,7 +1132,8 @@ static void set_window_hints( struct msgbox *box, const char *title )
     p_XSetWMProtocols( box->display, box->window, &box->delete_window, 1 );
 }
 
-static int run_dialog( const char *title, const char *body, BOOL want_answer, int shown_fd )
+static int run_dialog( const char *title, const char *body, BOOL want_answer, int shown_fd,
+                       pid_t parent )
 {
     struct msgbox box;
     char font_name[128];
@@ -1199,6 +1205,19 @@ static int run_dialog( const char *title, const char *body, BOOL want_answer, in
     {
         XEvent event;
 
+        /* Waits for the next event, but not only for that: the box belongs to
+         * the program that raised the error, and a program reporting a crash
+         * often does not live to be answered. Nothing would close the box then,
+         * so the parent is looked in on between events. */
+        while (!p_XPending( box.display ))
+        {
+            struct pollfd pfd = { p_XConnectionNumber( box.display ), POLLIN, 0 };
+
+            p_XFlush( box.display );
+            if (parent && getppid() != parent) goto closed;
+            poll( &pfd, 1, 500 );
+        }
+
         p_XNextEvent( box.display, &event );
         if (event.type == Expose) draw_box( &box );
         /* Without this a keyboard layout that changed since the connection was
@@ -1249,6 +1268,7 @@ static int run_dialog( const char *title, const char *body, BOOL want_answer, in
                  (Atom)event.xclient.data.l[0] == box.delete_window) break;
     }
 
+closed:
     if (box.xft_draw) p_XftDrawDestroy( box.xft_draw );
     p_XFreePixmap( box.display, box.canvas );
     p_XFreeGC( box.display, box.gc );
@@ -1265,7 +1285,7 @@ BOOL tuxblox_show_message_box( const char *title, const char *body, BOOL want_an
     static int reentered;
     int fds[2], status = 0;
     char shown = 0;
-    pid_t pid;
+    pid_t pid, parent;
 
     *ran = FALSE;
     /* A second hard error while one is on screen: the user is already being
@@ -1279,6 +1299,7 @@ BOOL tuxblox_show_message_box( const char *title, const char *body, BOOL want_an
     if (pipe( fds ) == -1) fds[0] = fds[1] = -1;
 
     reentered = 1;
+    parent = getpid();
     if ((pid = fork()) == -1)
     {
         if (fds[0] != -1) { close( fds[0] ); close( fds[1] ); }
@@ -1293,7 +1314,8 @@ BOOL tuxblox_show_message_box( const char *title, const char *body, BOOL want_an
 #if defined(HAVE_PRCTL) && defined(PR_SET_NAME)
         prctl( PR_SET_NAME, "TuxBloxDialog" );
 #endif
-        _exit( run_dialog( title, body, want_answer, fds[1] ) );
+
+        _exit( run_dialog( title, body, want_answer, fds[1], parent ) );
     }
     if (fds[1] != -1) close( fds[1] );
 
