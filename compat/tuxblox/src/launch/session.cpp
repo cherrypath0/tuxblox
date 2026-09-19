@@ -21,6 +21,8 @@
 
 #include "launch/session.h"
 
+#include "support/log_limit.h"
+
 #include <algorithm>
 #include <array>
 #include <cerrno>
@@ -271,6 +273,7 @@ Session::Session(Proton& protonDist, fs::path prefix)
 
 Session::~Session() {
     if (logFd >= 0) {
+        unwatchLogFile(logFd);
         ::close(logFd);
     }
 }
@@ -336,9 +339,13 @@ void Session::initSession() {
 
     if (logging) {
         const std::string& requested = logSetting;
+        // +tuxbloxwebkit belongs here for the same reason it belongs in the
+        // Detailed logging set below: without it the panels that are web pages
+        // explain none of their own failures. It was only in the smaller set,
+        // which left the fuller option telling us strictly less about them.
         if (env.find("WINEDEBUG") == env.end()) {
             env["WINEDEBUG"] = "+timestamp,+pid,+tid,+seh,+unwind,+threadname,"
-                               "+debugstr,+loaddll,+mscoree";
+                               "+debugstr,+loaddll,+mscoree,+tuxbloxwebkit";
         }
         if (requested != "1") {
             appendToEnvStr(env, "WINEDEBUG", requested, ",");
@@ -452,7 +459,12 @@ void Session::openLogFile() {
     if (logFd < 0) {
         log("Could not open log file \"" + logPath.string() + "\": " + std::strerror(errno));
         env["WINEDEBUG"] = "-all";
+        return;
     }
+
+    // This log replaces the launcher's on every child it is handed to, so it
+    // needs the same size limit -- it is the one that grows fastest of the two.
+    watchLogFile(logFd);
 }
 
 void Session::writeLogHeader(const std::vector<std::string>& target) {
@@ -535,6 +547,7 @@ int Session::runProc(const std::vector<std::string>& command, const Environment&
     const struct timespec pollInterval = {0, 100 * 1000 * 1000};
     time_t clientStartedAt = 0;
     time_t lastHolderCheck = 0;
+    time_t lastTrimCheck = 0;
     bool reportedStuckTarget = false;
 
     while (true) {
@@ -559,6 +572,14 @@ int Session::runProc(const std::vector<std::string>& command, const Environment&
                     "s after Roblox started, so it may be stuck. Press Ctrl+C to "
                     "tear the prefix down.");
             }
+        }
+
+        if (now != lastTrimCheck) {
+            lastTrimCheck = now;
+            // Once a second, not per poll: with detailed logging on this is the
+            // only thing standing between a long session and a log too big to
+            // open, and it costs one fstat() per log until one has grown.
+            trimWatchedLogs();
         }
 
         const int signalNumber = ::sigtimedwait(&blocked, nullptr, &pollInterval);

@@ -126,14 +126,35 @@ cp -a bin/webview2loader-host libexec/
 # Idempotent against re-runs on the persisted webkitgtk-prefix podman volume
 # (a second run finds these files already moved and mkdir -p / mv -f/-n
 # handle that without erroring or double-nesting).
+#
+# 2026-09-19: this Mesa now builds against libglvnd, so it installs the vendor
+# libraries libEGL_mesa.so.0/libGLX_mesa.so.0 and no libEGL.so.1/libGL.so.1 of
+# its own -- none of the patterns below match anything any more, and gl-fallback/
+# has been shipping empty. What selects this bundle's GL instead is the glvnd
+# pin in spawn_helper() (__EGL_VENDOR_LIBRARY_FILENAMES, pointed at the
+# share/glvnd/egl_vendor.d/50_mesa.json installed alongside those vendor
+# libraries). The loop is kept for a future Mesa built without glvnd, and the
+# count below is the guard that was missing: this relocation silently becoming
+# a no-op is what let the bundle start resolving EGL from whatever the user's
+# machine had installed, which is not a thing to discover from a bug report.
 echo ":: Relocating bundle's own libEGL/libGL/libGLESv1_CM/libGLESv2 into gl-fallback/"
 mkdir -p lib/x86_64-linux-gnu/gl-fallback
+moved=0
 for pattern in 'libEGL.so*' 'libGL.so*' 'libGLESv1_CM.so*' 'libGLESv2.so*'; do
     for f in lib/x86_64-linux-gnu/$pattern; do
         [ -e "$f" ] || continue
         mv -f "$f" lib/x86_64-linux-gnu/gl-fallback/
+        moved=$((moved + 1))
     done
 done
+if [ "$moved" -eq 0 ] && [ ! -e lib/x86_64-linux-gnu/share/glvnd ] \
+   && [ ! -e share/glvnd/egl_vendor.d/50_mesa.json ]; then
+    echo "!! Mesa installed neither a libEGL.so.1 to relocate nor a glvnd vendor" >&2
+    echo "!! description at share/glvnd/egl_vendor.d/50_mesa.json -- nothing would" >&2
+    echo "!! point this bundle's WebKit at its own GL, so it would fall back to the" >&2
+    echo "!! host's driver on every machine. Check Mesa's meson configuration." >&2
+    exit 1
+fi
 
 # fontconfig's installed fonts.conf hardcodes the build prefix as its first
 # cache directory ($PREFIX/var/cache/fontconfig). That path exists only inside

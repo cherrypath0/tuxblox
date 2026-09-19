@@ -17,12 +17,16 @@ ARM processors (including Raspberry Pi and Apple Silicon under Asahi Linux) are 
 
 | | Minimum |
 |---|---|
-| **Kernel** | Linux 6.14 or newer |
+| **Kernel** | Linux 6.7 or newer (6.14 recommended) |
 | **C library** | glibc 2.31 or newer |
 | **NVIDIA drivers** | Proprietary driver 418.49.04 or newer |
 | **AMD and Intel drivers** | Mesa 17.0 or newer |
 
 If you are not sure what any of that means, the distribution list below is an easier way to check.
+
+Roblox will not start correctly below Linux 6.7: TuxBlox needs a way to ask the kernel which pages of memory a program has written to, and older kernels make it work that out the slow way instead, which Roblox's own protection notices and stops for.
+
+Linux 6.14 is not required, but it is worth having. It is the first kernel that can handle Windows' way of making threads wait for each other directly, which is a large speed difference in Roblox. Without it TuxBlox uses the next best method available, and everything still works.
 
 ## Distributions
 

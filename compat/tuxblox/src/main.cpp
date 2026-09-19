@@ -28,10 +28,13 @@
 #include <string_view>
 #include <vector>
 
+#include <unistd.h>
+
 #include "integrity/authenticode.h"
 #include "prefix/prefix.h"
 #include "launch/proton.h"
 #include "launch/session.h"
+#include "support/log_limit.h"
 #include "support/util.h"
 
 #include "embedded_data.h"
@@ -250,6 +253,11 @@ int runMain(int argc, char *argv[]) {
 }
 
 int main(int argc, char *argv[]) {
+    // Before anything is written, so the log this process and everything it
+    // launches shares cannot outgrow what a person can open and send. Does
+    // nothing when the output is a terminal rather than a launcher's log file.
+    tuxblox::watchLogFile(STDERR_FILENO);
+
     try {
         return runMain(argc, argv);
     } catch (const std::exception& failure) {

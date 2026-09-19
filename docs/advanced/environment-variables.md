@@ -51,6 +51,14 @@ Turning this on also raises the graphics layers' own logging to a level that rep
 
 Where `tuxblox.log` is written. The launcher sets it to `~/.tuxblox/logs`. Defaults to your home folder if unset.
 
+### TUXBLOX_LOG_LIMIT
+
+The largest a session log is allowed to get, in megabytes. Defaults to `64`.
+
+With logging turned up, a log can grow by megabytes a second, and a long session used to be able to produce one far too big to open or send. When a log passes this size, TuxBlox takes the middle out of it and keeps both ends — the start says what was launched and how, the end says what went wrong — and marks the gap in the file where the removed part was.
+
+Set it to `0` to keep everything and let the log grow without limit.
+
 ### TUXBLOX_HAPTICS
 
 Set to `0` to turn off controller vibration. Anything else, including leaving it unset, leaves it on.

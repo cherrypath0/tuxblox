@@ -26,7 +26,7 @@ TuxBlox maintains its own Wine build specifically optimized for Roblox. This all
 * **Memory:** 4 GB or more
 ### Software Requirements:
 * **Operating System:** Ubuntu 20.04 LTS, Debian 11 Bullseye, Fedora 32, Arch Linux, or newer, with glibc 2.31+ support
-* **Kernel Version:** Linux 6.14 or newer
+* **Kernel Version:** Linux 6.7 or newer (6.14 or newer recommended, for `ntsync`)
 * **Graphics Driver:** NVIDIA Proprietary 418.49.04, AMD Mesa 17.0, or newer
 
 ## Installation

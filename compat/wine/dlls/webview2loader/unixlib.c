@@ -25,6 +25,7 @@
  * safe to use directly.
  */
 
+#include <ctype.h>
 #include <dlfcn.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -56,8 +57,9 @@ WINE_DEFAULT_DEBUG_CHANNEL(webview2loader);
 
 /* The webview helper is a separate Linux process, so it cannot use Wine's
  * debug channels itself. It writes its diagnostics to the stderr it inherits
- * from Studio, which is the terminal the user launched from. This channel
- * decides whether that output is kept -- see spawn_helper(). */
+ * from Studio, which is the session log on a normal launch and the terminal
+ * when someone started Studio from one. This channel turns that stream on in
+ * full -- see helper_log_thread(), which decides what is kept without it. */
 WINE_DECLARE_DEBUG_CHANNEL(tuxbloxwebkit);
 
 static int g_helper_fd = -1;
@@ -348,6 +350,38 @@ static void set_webkit_relocation_env(const char *dir)
     setenv("LIBGL_DRIVERS_PATH", path, 1);
     setenv("LIBGL_ALWAYS_SOFTWARE", "1", 1);
 
+    /* Pin glvnd to this bundle's own Mesa, which is what actually makes the
+     * software-only decision above stick.
+     *
+     * The helper links libEGL.so.1/libGLX.so.0, and no bundle has ever shipped
+     * those two: they belong to libglvnd, which only dispatches to a vendor
+     * library chosen from the ICD descriptions in the HOST's
+     * /usr/share/glvnd/egl_vendor.d. So without the two variables below, which
+     * driver WebKit ends up rendering through is decided entirely by what the
+     * user happens to have installed -- and glvnd reads that directory in
+     * filename order, where a proprietary NVIDIA install's 10_nvidia.json sorts
+     * ahead of Mesa's 50_mesa.json and wins. That is the one configuration this
+     * bundle deliberately does not run in: it is the upstream WebKitGTK/NVIDIA
+     * crash (WebKitWebProcess SIGSEGV inside libnvidia-eglcore, five confirmed
+     * coredumps) that the software-only decision was made to avoid in the first
+     * place. LIBGL_ALWAYS_SOFTWARE above cannot prevent it, because that
+     * variable only ever binds Mesa.
+     *
+     * Measured, not assumed: with these unset the helper's own GL provenance
+     * log reports libEGL resolving to /usr/lib/libEGL.so.1, i.e. the host's.
+     * Distributions differ in whether a proprietary driver is installed by
+     * default at all, which is exactly why this reached users as "the webview
+     * renders on one machine and not the next" rather than as a clean failure.
+     *
+     * Both values name the bundle's own copies. The ICD description carries the
+     * bare soname libEGL_mesa.so.0 rather than a path, and __GLX_VENDOR_LIBRARY_NAME
+     * likewise only names "mesa" -- both resolve through the helper binary's own
+     * DT_RPATH, which reaches this bundle's lib directory and which the dynamic
+     * loader consults for a dlopen() from anywhere in the process. */
+    snprintf(path, sizeof(path), "%s/share/glvnd/egl_vendor.d/50_mesa.json", dir);
+    setenv("__EGL_VENDOR_LIBRARY_FILENAMES", path, 1);
+    setenv("__GLX_VENDOR_LIBRARY_NAME", "mesa", 1);
+
     /* Pin EGL's platform to X11, for the same reason main.c pins
      * GDK_BACKEND=x11: this helper is X11-only by construction (it
      * XReparentWindow's its GdkSurface into Studio's window and drives
@@ -435,10 +469,178 @@ static void set_webkit_relocation_env(const char *dir)
  * deleted) for exactly that future flip -- see its own comment. */
 #define WV2L_ALWAYS_USE_BUNDLE_GL TRUE
 
+/* Everything the helper has to say about a failure arrives as plain text on the
+ * stderr it inherits from here, including the dynamic loader's own "error while
+ * loading shared libraries" line -- which names a missing host library outright
+ * and is the whole explanation for a webview that never appears on one machine
+ * and works on the next.
+ *
+ * That stream used to go straight to /dev/null unless WINEDEBUG=+tuxbloxwebkit
+ * asked for it, because the helper traces every geometry sync and filled the
+ * terminal during ordinary use. The cost was that no bug report could explain
+ * itself: a user whose webview stayed blank sent a session log without one line
+ * about it anywhere in it, so every report of it had to be diagnosed by asking
+ * the user to reproduce it again by hand.
+ *
+ * It is read here instead of discarded now. The start of it is kept whatever it
+ * says, because that is the part that explains a broken launch -- the graphics
+ * driver the webview actually picked, and anything the loader printed before the
+ * helper's own first line. After that only lines that read like a problem get
+ * through, which is what keeps the per-sync tracing out of an ordinary session,
+ * and a byte budget ends it either way: a log too big to open helps nobody.
+ * WINEDEBUG=+tuxbloxwebkit still passes the whole stream through untouched. */
+#define HELPER_LOG_INTRO_LINES 200
+#define HELPER_LOG_MAX_BYTES   (256 * 1024)
+
+struct helper_log_state
+{
+    int fd;
+    BOOL verbose;
+    BOOL stopped;
+    unsigned long lines;
+    size_t written;
+};
+
+/* Matched against a lowercased copy so this stays one list rather than one per
+ * capitalisation. The words are deliberately broad: a line wrongly kept costs a
+ * line, a line wrongly dropped costs another round of asking the user. */
+static BOOL helper_log_line_is_interesting(const char *line, size_t len)
+{
+    static const char *const words[] = {
+        "error", "fail", "cannot", "could not", "unable", "warning", "abort",
+        "assert", "missing", "no such", "not found", "invalid", "refused",
+        "denied", "crash", "segmentation", "timed out", NULL
+    };
+    char lower[512];
+    size_t i, n;
+
+    n = len < sizeof(lower) - 1 ? len : sizeof(lower) - 1;
+    for (i = 0; i < n; i++) lower[i] = (char)tolower((unsigned char)line[i]);
+    lower[n] = 0;
+
+    for (i = 0; words[i]; i++)
+        if (strstr(lower, words[i])) return TRUE;
+    return FALSE;
+}
+
+/* One write() per line, never two: other threads of this process write to the
+ * same stderr, and a line split across two calls interleaves with theirs. Only
+ * a signal is retried, for the same reason the read loop retries one. */
+static void helper_log_write(const char *text, size_t len)
+{
+    ssize_t done;
+
+    while ((done = write(STDERR_FILENO, text, len)) < 0 && errno == EINTR) { /* retry */ }
+    (void)done;
+}
+
+static void helper_log_emit(struct helper_log_state *state, const char *line, size_t len)
+{
+    char out[1024];
+
+    if (state->stopped || !len) return;
+
+    if (!state->verbose)
+    {
+        if (state->lines >= HELPER_LOG_INTRO_LINES && !helper_log_line_is_interesting(line, len))
+        {
+            state->lines++;
+            return;
+        }
+        if (state->written >= HELPER_LOG_MAX_BYTES)
+        {
+            static const char msg[] = "webview2loader-host: further output dropped -- "
+                                      "set WINEDEBUG=+tuxbloxwebkit to keep all of it\n";
+            helper_log_write(msg, sizeof(msg) - 1);
+            state->stopped = TRUE;
+            return;
+        }
+    }
+
+    if (len > sizeof(out) - 2) len = sizeof(out) - 2;
+    memcpy(out, line, len);
+    out[len++] = '\n';
+
+    state->lines++;
+    state->written += len;
+    helper_log_write(out, len);
+}
+
+/* Keeps reading to EOF even once it has stopped emitting: the helper writes into
+ * this pipe for its whole life, and a reader that goes away leaves it taking
+ * SIGPIPE for its own diagnostics. EOF means the helper is gone. */
+static void *helper_log_thread(void *arg)
+{
+    struct helper_log_state *state = arg;
+    char line[1024];
+    char buf[4096];
+    size_t line_len = 0;
+    ssize_t got;
+
+    /* A signal arriving mid-read must not end this loop: treating EINTR as EOF
+     * would close the pipe under a helper that is still writing to it, and the
+     * SIGPIPE that follows would kill the webview over a log line. */
+    while ((got = read(state->fd, buf, sizeof(buf))) != 0)
+    {
+        ssize_t i;
+
+        if (got < 0)
+        {
+            if (errno == EINTR) continue;
+            break;
+        }
+
+        for (i = 0; i < got; i++)
+        {
+            if (buf[i] != '\n')
+            {
+                if (line_len < sizeof(line) - 1) line[line_len++] = buf[i];
+                continue;
+            }
+            helper_log_emit(state, line, line_len);
+            line_len = 0;
+        }
+    }
+    if (line_len) helper_log_emit(state, line, line_len);
+
+    close(state->fd);
+    free(state);
+    return NULL;
+}
+
+/* Started before fork() rather than after it, so a thread that cannot start is
+ * still a decision the child can act on: it goes back to the old /dev/null
+ * redirect instead of writing into a pipe with nobody on the other end. */
+static BOOL start_helper_log_thread(int fd, BOOL verbose)
+{
+    struct helper_log_state *state;
+    pthread_attr_t attr;
+    pthread_t thread;
+
+    if (!(state = malloc(sizeof(*state)))) return FALSE;
+    state->fd = fd;
+    state->verbose = verbose;
+    state->stopped = FALSE;
+    state->lines = 0;
+    state->written = 0;
+
+    if (pthread_attr_init(&attr) != 0) { free(state); return FALSE; }
+    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+    if (pthread_create(&thread, &attr, helper_log_thread, state) != 0)
+    {
+        pthread_attr_destroy(&attr);
+        free(state);
+        return FALSE;
+    }
+    pthread_attr_destroy(&attr);
+    return TRUE;
+}
+
 static BOOL spawn_helper(const char *bundle_dir)
 {
     int sv[2];
     int ev[2];
+    int errp[2];
     char helper_path[PATH_MAX];
     char fd_env[32];
     BOOL host_egl_ok;
@@ -476,8 +678,25 @@ static BOOL spawn_helper(const char *bundle_dir)
      * no work of its own between fork() and execl(). */
     keep_helper_stderr = TRACE_ON(tuxbloxwebkit);
 
+    /* Same reasoning again: the pipe and its reader are set up in the parent,
+     * before fork(), so the child inherits a decision rather than making one. */
+    if (pipe(errp) != 0) { errp[0] = -1; errp[1] = -1; }
+    else
+    {
+        fcntl(errp[0], F_SETFD, FD_CLOEXEC);
+        if (!start_helper_log_thread(errp[0], keep_helper_stderr))
+        {
+            close(errp[0]);
+            close(errp[1]);
+            errp[0] = -1;
+            errp[1] = -1;
+        }
+    }
+
     g_helper_pid = fork();
-    if (g_helper_pid < 0) { close(sv[0]); close(sv[1]); return FALSE; }
+    /* errp[0] belongs to the reader thread now; dropping the write end is what
+     * lets it see EOF and retire rather than parking on a pipe forever. */
+    if (g_helper_pid < 0) { close(sv[0]); close(sv[1]); if (errp[1] >= 0) close(errp[1]); return FALSE; }
 
     if (g_helper_pid == 0)
     {
@@ -489,12 +708,20 @@ static BOOL spawn_helper(const char *bundle_dir)
         BOOL use_bundle_gl;
         int devnull;
 
-        /* The helper traces every geometry sync and reparent check, which
-         * fills the user's terminal during ordinary use. Send its stderr to
-         * /dev/null unless WINEDEBUG=+tuxbloxwebkit asked for it. Done before
-         * execl so it covers the helper's whole life, including any loader
-         * or GTK output that appears before its own first line. */
-        if (!keep_helper_stderr)
+        /* Hand the helper's stderr to the reader thread started above. Done
+         * before execl so it covers the helper's whole life, including any
+         * loader or GTK output that appears before its own first line -- which
+         * is the output that explains a helper that never got as far as running.
+         *
+         * Without a pipe there is nothing to read the stream, so it falls back
+         * to what this did before: /dev/null, unless the channel asked for it. */
+        if (errp[1] >= 0)
+        {
+            close(errp[0]);
+            dup2(errp[1], STDERR_FILENO);
+            if (errp[1] != STDERR_FILENO) close(errp[1]);
+        }
+        else if (!keep_helper_stderr)
         {
             devnull = open("/dev/null", O_WRONLY);
             if (devnull >= 0)
@@ -579,9 +806,12 @@ static BOOL spawn_helper(const char *bundle_dir)
         _exit(127); /* only reached if execl itself failed */
     }
 
-    /* Parent: keep sv[0], drop sv[1]. */
+    /* Parent: keep sv[0], drop sv[1]. The helper is the only writer this side
+     * should leave holding the log pipe -- a copy kept here would stop the
+     * reader thread ever seeing EOF, so it would outlive the helper it reads. */
     close(sv[1]);
     if (ev[1] >= 0) close(ev[1]);
+    if (errp[1] >= 0) close(errp[1]);
     if (ev[0] >= 0)
     {
         fcntl(ev[0], F_SETFD, FD_CLOEXEC); /* same rationale as sv[0] below */

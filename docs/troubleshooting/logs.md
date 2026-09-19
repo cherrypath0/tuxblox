@@ -86,7 +86,9 @@ Logging is deliberately quiet by default, because it costs real frame time. To g
 For even more, you can name Wine debug channels, for example `TUXBLOX_LOG=+seh,+loaddll`.
 
 > [!WARNING]
-> Turn it off again when you are done. Verbose channels can slow Roblox to a crawl and produce gigabytes of log. `+relay` in particular will make the session unusable.
+> Turn it off again when you are done. Verbose channels slow Roblox down badly. `+relay` in particular will make the session unusable.
+
+A log will not grow past 64 MB. Once it reaches that, TuxBlox takes the middle out and keeps both ends, leaving a line in the file saying how much it removed — the start and the end are the parts that answer a bug report, and a log too big to open answers nothing. [`TUXBLOX_LOG_LIMIT`](../advanced/environment-variables.md#tuxblox_log_limit) changes the size, or turns the limit off.
 
 ## Before you share a log
 
