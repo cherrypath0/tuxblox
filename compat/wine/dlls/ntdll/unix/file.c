@@ -4680,6 +4680,32 @@ static BOOL path_within( const char *unix_name, const char *dir )
  * compatibility layer's own files, and the fonts installed on the computer,
  * which the font loader opens where they sit.
  */
+/* What a path really points at. A name is only worth checking once every ..
+ * and every symbolic link in it has been followed: /usr/share/fonts/../../../etc
+ * is not in the font directory, and a link left in one leads wherever it likes.
+ * A file that does not exist yet is resolved through the directory holding it.
+ */
+static BOOL resolve_host_path( const char *unix_name, char *resolved )
+{
+    const char *leaf;
+    char dir[PATH_MAX];
+    size_t len;
+
+    if (realpath( unix_name, resolved )) return TRUE;
+    if (!(leaf = strrchr( unix_name, '/' )) || leaf == unix_name) return FALSE;
+
+    len = leaf - unix_name;
+    if (len >= sizeof(dir)) return FALSE;
+    memcpy( dir, unix_name, len );
+    dir[len] = 0;
+    if (!realpath( dir, resolved )) return FALSE;
+
+    len = strlen( resolved );
+    if (len + strlen( leaf ) >= PATH_MAX) return FALSE;
+    strcpy( resolved + len, leaf );
+    return TRUE;
+}
+
 static BOOL host_path_allowed( const char *unix_name )
 {
     static const char *const font_dirs[] =
@@ -4690,9 +4716,12 @@ static BOOL host_path_allowed( const char *unix_name )
     /* Sources of randomness and the two sinks, which have no equivalent inside
      * the drive and carry nothing about the computer. */
     static const char *const devices[] = { "/dev/urandom", "/dev/random", "/dev/null", "/dev/zero" };
+    char resolved[PATH_MAX];
     unsigned int i;
 
     if (getenv( "TUXBLOX_HOST_FILES" )) return TRUE;
+    if (!resolve_host_path( unix_name, resolved )) return FALSE;
+    unix_name = resolved;
 
     for (i = 0; i < ARRAY_SIZE(devices); i++)
         if (!strcmp( unix_name, devices[i] )) return TRUE;
@@ -4702,8 +4731,11 @@ static BOOL host_path_allowed( const char *unix_name )
         return TRUE;
 
     /* Which clock the computer keeps time with, which decides how the layer
-     * answers a program asking for a timestamp. */
-    if (path_within( unix_name, "/sys/bus/clocksource" )) return TRUE;
+     * answers a program asking for a timestamp. Named through /sys/bus, which
+     * is a directory of links into /sys/devices. */
+    if (path_within( unix_name, "/sys/bus/clocksource" ) ||
+        path_within( unix_name, "/sys/devices/system/clocksource" ))
+        return TRUE;
 
     for (i = 0; i < ARRAY_SIZE(font_dirs); i++)
         if (path_within( unix_name, font_dirs[i] )) return TRUE;
