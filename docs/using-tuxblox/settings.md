@@ -44,6 +44,8 @@ When off, you get a notification in the corner of the launcher instead, and noth
 
 Off is the default because an update that starts on its own while you are about to open Studio is annoying. Turn it on if you would rather never think about it.
 
+TuxBlox keeps you on the version your channel publishes, which is usually the newest one but not always. If a release turns out to be broken, the channel is pointed back at the release before it, and the next check moves you back the same way an update moves you forward. You are asked first, like any other update, unless automatic updates are on.
+
 One case ignores this setting. TuxBlox is several programs that ship together and are meant to be the same version, and an update interrupted partway through can leave them mismatched. TuxBlox checks for that at startup and repairs it straight away, because a mismatched install is broken rather than merely out of date. It is not something you can end up in by choosing to postpone an update.
 
 This setting is about TuxBlox itself. Roblox has its own setting below.

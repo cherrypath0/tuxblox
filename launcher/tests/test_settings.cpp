@@ -187,6 +187,17 @@ int main() {
         assert(s.autoUpdate == true);
     }
 
+    // norollback is off unless the file says otherwise, and round-trips.
+    {
+        Settings s;
+        assert(s.noRollback == false);
+        s.noRollback = true;
+        saveSettings(dir, s);
+
+        Settings loaded = loadSettings(dir);
+        assert(loaded.noRollback == true);
+    }
+
     // launchEnvPairs(): with the Automatic default, the graphics-card picker
     // itself adds nothing -- the guarantee that it changes nothing for anyone
     // who never touches it, so it is asserted rather than assumed.

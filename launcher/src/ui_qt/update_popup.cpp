@@ -64,7 +64,7 @@ void UpdatePopup::setAvailableVersion(const std::optional<std::string>& version)
         hide();
         return;
     }
-    textLabel_->setText(QString("Update available: v%1").arg(QString::fromStdString(*version)));
+    textLabel_->setText(QString("Version %1 available").arg(QString::fromStdString(*version)));
     adjustSize();
     show();
     raise();

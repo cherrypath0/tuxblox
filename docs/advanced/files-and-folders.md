@@ -37,6 +37,7 @@ Everything from the Settings tab, plus your FastFlags.
   "gpu": "",
   "haptics": true,
   "webview_gpu": true,
+  "norollback": false,
   "send_crash_reports": true,
   "fast_flags": {
     "player": [],
@@ -44,6 +45,8 @@ Everything from the Settings tab, plus your FastFlags.
   }
 }
 ```
+
+`norollback` has no switch in the launcher and is off unless you put it there. With it on, TuxBlox stays on the version it has when the channel publishes an older one, instead of following the channel back. It is for a copy you built yourself, which is ahead of anything published.
 
 You can edit it by hand. TuxBlox rewrites the file whenever you change something in the launcher, so do not have both going at once.
 

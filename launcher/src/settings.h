@@ -82,6 +82,10 @@ struct Settings {
     // still treats an absent value as off, so leaving this on has to say so
     // rather than imply it by staying quiet.
     bool webviewGpu = true;
+    // Stays on the version it has when the channel publishes an older one. For
+    // a build made here rather than downloaded; there is no switch for it in
+    // the launcher, only the settings file.
+    bool noRollback = false;
     // Gives Roblox a desktop of its own inside one window rather than letting it
     // place windows on the user's. Off by default, and like haptics only the
     // non-default is emitted, so an ordinary launch carries nothing extra.

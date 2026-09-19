@@ -115,6 +115,7 @@ Settings loadSettings(const std::string& installDir) {
         settings.autoUpdate = j.value("auto_update", false);
         settings.haptics = j.value("haptics", true);
         settings.webviewGpu = j.value("webview_gpu", true);
+        settings.noRollback = j.value("norollback", false);
         settings.virtualDesktop = j.value("virtual_desktop", false);
         settings.debugLogging = j.value("debug_logging", false);
         settings.verifyIntegrity = j.value("verify_integrity", true);
@@ -148,6 +149,7 @@ void saveSettings(const std::string& installDir, const Settings& settings) {
         j["auto_update"] = settings.autoUpdate;
         j["haptics"] = settings.haptics;
         j["webview_gpu"] = settings.webviewGpu;
+        j["norollback"] = settings.noRollback;
         j["virtual_desktop"] = settings.virtualDesktop;
         j["debug_logging"] = settings.debugLogging;
         j["verify_integrity"] = settings.verifyIntegrity;

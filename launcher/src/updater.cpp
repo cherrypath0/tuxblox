@@ -19,6 +19,7 @@
 #include "downloader.h"
 #include "install_paths.h"
 #include "manifest.h"
+#include "settings.h"
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
@@ -53,16 +54,30 @@ std::vector<int> parseVersionParts(const std::string& version) {
 
 } // namespace
 
-bool versionNeedsUpdate(const std::string& installed, const std::string& required) {
+namespace {
+
+// Negative when the installed version is behind, positive when it is ahead,
+// zero when they are the same release.
+int compareVersions(const std::string& installed, const std::string& required) {
     std::vector<int> installedParts = parseVersionParts(installed);
     std::vector<int> requiredParts = parseVersionParts(required);
     size_t count = std::max(installedParts.size(), requiredParts.size());
     for (size_t i = 0; i < count; i++) {
         int requiredPart = i < requiredParts.size() ? requiredParts[i] : 0;
         int installedPart = i < installedParts.size() ? installedParts[i] : 0;
-        if (requiredPart != installedPart) return requiredPart > installedPart;
+        if (requiredPart != installedPart) return installedPart < requiredPart ? -1 : 1;
     }
-    return false;
+    return 0;
+}
+
+} // namespace
+
+bool versionNeedsUpdate(const std::string& installed, const std::string& required) {
+    return compareVersions(installed, required) < 0;
+}
+
+bool versionIsAhead(const std::string& installed, const std::string& required) {
+    return compareVersions(installed, required) > 0;
 }
 
 double downloadProgressFraction(uint64_t now, uint64_t total, uint64_t manifestSize) {
@@ -206,6 +221,16 @@ UpdateResult runUpdateCheck(const std::string& currentLauncherBuildId,
 
     const bool launcherNeedsUpdate = versionNeedsUpdate(currentLauncherBuildId, requiredBuildId);
 
+    // The version a channel publishes is the one to be on, in both directions.
+    // A release that turns out to be broken is taken back by pointing the
+    // channel at the release before it, and the installs that already took the
+    // broken one are the ones that have to follow it back -- so being ahead of
+    // the channel is a reason to move, not a reason to stay.
+    // "norollback" in settings.json is the way out for an install that is
+    // deliberately ahead -- a build made on this machine rather than downloaded.
+    const bool launcherIsAhead = versionIsAhead(currentLauncherBuildId, requiredBuildId) &&
+                                 !loadSettings(dir).noRollback;
+
     // Picking a channel is an explicit instruction, so it is honoured even
     // when that channel's current release is a LOWER version number than what
     // is installed. versionNeedsUpdate only ever moves forward, so without
@@ -235,9 +260,14 @@ UpdateResult runUpdateCheck(const std::string& currentLauncherBuildId,
         mismatchedComponents(components, currentLauncherBuildId, !compatMissing);
     const bool mixed = !mismatched.empty();
 
-    if (!launcherNeedsUpdate && !channelChanged && !mixed && !compatMissing) {
+    if (!launcherNeedsUpdate && !launcherIsAhead && !channelChanged && !mixed && !compatMissing) {
         report(UpdatePhase::UpToDate, 1.0);
         return {};
+    }
+
+    if (launcherIsAhead && !channelChanged) {
+        fprintf(stderr, "TuxBlox: this build is %s but %s is on %s -- moving back to it\n",
+                currentLauncherBuildId.c_str(), channel.c_str(), requiredBuildId.c_str());
     }
 
     if (channelChanged) {

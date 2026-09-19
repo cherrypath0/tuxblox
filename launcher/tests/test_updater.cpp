@@ -31,7 +31,15 @@ int main() {
 
     assert(versionNeedsUpdate("0.1.0", "0.1.0") == false);
     assert(versionNeedsUpdate("0.1.0", "0.2.0") == true);
-    assert(versionNeedsUpdate("0.2.0", "0.1.0") == false); // never "update" to an older/equal version
+    assert(versionNeedsUpdate("0.2.0", "0.1.0") == false); // "needs update" is forward only
+    // The other direction, which is what takes a channel's rollback to the
+    // installs that already took the release being taken back.
+    assert(versionIsAhead("0.2.0", "0.1.0") == true);
+    assert(versionIsAhead("0.1.0", "0.2.0") == false);
+    assert(versionIsAhead("0.1.0", "0.1.0") == false);
+    assert(versionIsAhead("2.7.1-stable", "2.7.0-stable") == true);  // the channel suffix is not part of it
+    assert(versionIsAhead("2.7.1-stable", "2.6.0-stable") == true);
+    assert(versionIsAhead("1.10.0", "1.9.0") == true);               // numeric, not lexicographic
     assert(versionNeedsUpdate("1.0.0", "0.2.0") == false); // e.g. installed 1.0.0, manifest still serving 0.2.0
     assert(versionNeedsUpdate("1.0", "1.0.0") == false);   // differing component counts, same value
     assert(versionNeedsUpdate("1.9.0", "1.10.0") == true); // numeric, not lexicographic, comparison
@@ -246,16 +254,39 @@ int main() {
         assert(fs::exists(result.installerPath));
     }
 
-    // --- Same channel, installed version ahead of the server (a local build):
-    // left alone. Without the channel guard above this would downgrade. ---
+    // --- Same channel, installed version ahead of what the channel publishes:
+    // moved back to it. This is how a release that turns out to be broken is
+    // taken away again -- the channel is pointed at the release before it, and
+    // the installs that took the broken one have to follow. Not mixed: the
+    // pieces agree with each other, so Auto-Update still decides. ---
     {
         fs::path installDirPath = work / "install_ahead_same_channel";
         writeWholeInstall(installDirPath, "0.9.0-ch-ahead");
 
         writeManifest("ch-ahead", "0.1.0", installerFileUrl, installerSha);
 
-        std::vector<UpdatePhase> phases;
         auto result = runUpdateCheck("0.9.0-ch-ahead", fileBaseUrl, "ch-ahead", "0.1.0",
+            [](UpdateProgress) {}, nullptr, installDirPath.string());
+
+        assert(result.needsHandoff);
+        assert(!result.mixedInstall);
+        assert(fs::exists(result.installerPath));
+    }
+
+    // --- Ahead of the channel, but the settings file says not to roll back:
+    // left where it is. This is the escape for a build made on this machine. ---
+    {
+        fs::path installDirPath = work / "install_ahead_norollback";
+        writeWholeInstall(installDirPath, "0.9.0-ch-norollback");
+        {
+            std::ofstream out(installDirPath / "settings.json", std::ios::binary);
+            out << R"({"norollback": true, "send_crash_reports": true})";
+        }
+
+        writeManifest("ch-norollback", "0.1.0", installerFileUrl, installerSha);
+
+        std::vector<UpdatePhase> phases;
+        auto result = runUpdateCheck("0.9.0-ch-norollback", fileBaseUrl, "ch-norollback", "0.1.0",
             [&](UpdateProgress p) { phases.push_back(p.phase); }, nullptr, installDirPath.string());
 
         assert(!result.needsHandoff);
@@ -263,15 +294,17 @@ int main() {
     }
 
     // --- A pre-2.7.0 install reports no channel. Unknown is not a mismatch,
-    // so it must not be dragged sideways on every check. ---
+    // so it must not be dragged sideways on every check. On the version the
+    // channel publishes, so that the channel question is the only one being
+    // asked here. ---
     {
         fs::path installDirPath = work / "install_no_channel";
-        writeWholeInstall(installDirPath, "0.9.0");
+        writeWholeInstall(installDirPath, "0.1.0");
 
         writeManifest("ch-nochannel", "0.1.0", installerFileUrl, installerSha);
 
         std::vector<UpdatePhase> phases;
-        auto result = runUpdateCheck("0.9.0", fileBaseUrl, "ch-nochannel", "0.1.0",
+        auto result = runUpdateCheck("0.1.0", fileBaseUrl, "ch-nochannel", "0.1.0",
             [&](UpdateProgress p) { phases.push_back(p.phase); }, nullptr, installDirPath.string());
 
         assert(!result.needsHandoff);

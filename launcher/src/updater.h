@@ -45,13 +45,19 @@ struct UpdateProgress {
 using UpdateProgressFn = std::function<void(UpdateProgress)>;
 
 // True if `required` is a HIGHER version number than `installed`, comparing
-// dot-separated parts numerically. It is an ordering, not an inequality: an
-// install ahead of the server -- a local build, or a channel whose published
-// version is lower -- is left alone rather than downgraded.
+// dot-separated parts numerically. It answers "is the server ahead", and says
+// nothing about the other direction -- versionIsAhead below is that question.
 //
 // Both sides may be "x.y.z-channel"; the channel is NOT part of the decision.
 // atoi() stops at the '-', so "2.6.0-canary" and "2.6.0-stable" compare equal.
 bool versionNeedsUpdate(const std::string& installed, const std::string& required);
+
+// Whether the installed version is NEWER than the one the channel publishes,
+// compared the same way. A channel is moved back to an earlier release when a
+// release turns out to be broken, and the installs that already took the broken
+// one are exactly the ones that have to follow it back, so this is treated as
+// an ordinary update in the other direction rather than as "up to date".
+bool versionIsAhead(const std::string& installed, const std::string& required);
 
 // The channel part of an "x.y.z-channel" build id, or an empty string when
 // there is no suffix -- which is what builds before 2.7.0 report, and means
