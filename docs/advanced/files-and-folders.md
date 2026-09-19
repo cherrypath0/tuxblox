@@ -136,6 +136,8 @@ HKEY_CURRENT_USER\Software\TuxBlox\MessageBox
 
 Anything else, or no value at all, gives the modern one. The change applies to the next dialog that opens, with nothing to restart.
 
+The one TuxBlox draws itself is the message Roblox puts up when it stops unexpectedly. That one keeps the modern look whatever this setting says, and it follows your colours and font the same way.
+
 The text in those dialogs uses your desktop's own font, at your desktop's size. TuxBlox reads it at every launch, so changing your font settings is enough -- there is nothing to set here. If it cannot work out what you use, it leaves the drive's own font alone.
 
 ### Resetting it

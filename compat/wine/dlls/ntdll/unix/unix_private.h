@@ -208,6 +208,7 @@ extern BOOL get_thread_last_syscall( TEB *teb, UINT *id, ULONG64 *first_arg );
 extern void get_random( void *buf, ULONG len );
 extern NTSTATUS reject_foreign_object( HANDLE handle );
 
+extern BOOL tuxblox_show_message_box( const char *title, const char *body, BOOL want_answer, BOOL *ran );
 extern BOOL tuxblox_trace_enabled(void);
 extern void tuxblox_trace_record( const char *surface, const char *detail );
 extern void tuxblox_trace_record_us( const char *surface, const UNICODE_STRING *detail );

@@ -4,7 +4,7 @@ UNIXLIB   = ntdll.so
 IMPORTLIB = ntdll
 IMPORTS   = $(TOMCRYPT_PE_LIBS) $(MUSL_PE_LIBS)
 EXTRAINCL = $(TOMCRYPT_PE_CFLAGS)
-UNIX_CFLAGS  = $(UNWIND_CFLAGS) $(HWLOC_CFLAGS)
+UNIX_CFLAGS  = $(UNWIND_CFLAGS) $(HWLOC_CFLAGS) $(X_CFLAGS)
 UNIX_LIBS    = $(IOKIT_LIBS) $(COREFOUNDATION_LIBS) $(CORESERVICES_LIBS) $(RT_LIBS) $(PTHREAD_LIBS) $(UNWIND_LIBS) $(I386_LIBS) $(PROCSTAT_LIBS) $(HWLOC_LIBS)
 
 EXTRADLLFLAGS = -nodefaultlibs
@@ -67,6 +67,7 @@ SOURCES = \
 	unix/system.c \
 	unix/tape.c \
 	unix/thread.c \
+	unix/tuxblox_msgbox.c \
 	unix/tuxblox_trace.c \
 	unix/virtual.c \
 	unwind.c \

@@ -788,7 +788,6 @@ HKLM,SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x86,"Version",2,"14.42.344
 11,,dosx.exe,*
 11,,dsound.vxd,*
 11,,start.exe
-11,,tuxbloxdialog.exe
 11,,winhlp32.exe
 52,win40\0,wineps16.drv,wineps16.drv16
 

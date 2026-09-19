@@ -6999,68 +6999,24 @@ static BOOL notifier_has_actions(void)
 }
 
 
-/* The message box, drawn by a Windows program so it is the same box every other
- * dialog goes through and looks like the rest of TuxBlox.
- *
- * Windows draws a hard error itself and the program's own text is written for
- * that -- Roblox's says to press OK to collect its support files. This side
- * cannot draw anything, so it starts tuxbloxdialog.exe next to the loader and
- * waits for it, which is what Windows does with csrss.
- *
- * Returns TRUE if the affirmative button was pressed; *ran says whether the
- * dialog appeared at all.
- */
-static BOOL show_message_box( const char *title, const char *body, BOOL want_answer, BOOL *ran )
+/* The running program's file name, without its path or extension. */
+static void program_name( char *buffer, size_t size )
 {
-    static int reentered;
-    pid_t pid;
-    int st = 0;
+    static const WCHAR dot_exe[] = { '.','e','x','e' };
+    const UNICODE_STRING *path = &NtCurrentTeb()->Peb->ProcessParameters->ImagePathName;
+    const WCHAR *name = path->Buffer;
+    size_t len = path->Length / sizeof(WCHAR), i;
 
-    *ran = FALSE;
-    /* A hard error raised while showing one would start this for ever. */
-    if (reentered) return FALSE;
-    if (!wineloader) return FALSE;
+    strcpy( buffer, "Error" );
+    if (!name) return;
 
-    reentered = 1;
-    if ((pid = fork()) == -1) { reentered = 0; return FALSE; }
-    if (!pid)
-    {
-        const char *argv[6];
-        unsigned int n = 0;
-
-        argv[n++] = wineloader;
-        /* By its Windows path: a PE given a unix path outside the virtual drive
-         * does not run at all, and the loader links this one into system32 next
-         * to the rest of the built-in programs. */
-        argv[n++] = "C:\\windows\\system32\\tuxbloxdialog.exe";
-        argv[n++] = title;
-        argv[n++] = body;
-        if (want_answer) argv[n++] = "--ok-cancel";
-        argv[n] = NULL;
-        execv( wineloader, (char **)argv );
-        _exit( 127 );
-    }
-    /* It waits for the user, as a message box should, but this runs on the
-     * thread that is reporting a crash and must not wait for ever on a machine
-     * with nobody in front of it. */
-    {
-        ULONGLONG deadline = monotonic_counter() + 120000 * (ULONGLONG)10000;
-
-        for (;;)
-        {
-            pid_t r = waitpid( pid, &st, WNOHANG );
-
-            if (r == pid) break;
-            if (r == -1 && errno != EINTR) { st = -1; break; }
-            if (monotonic_counter() >= deadline) { kill( pid, SIGTERM ); waitpid( pid, &st, 0 ); st = -1; break; }
-            usleep( 50000 );
-        }
-    }
-    reentered = 0;
-    /* An old prefix has no helper in it yet; the notification still has to. */
-    if (st == -1 || !WIFEXITED(st) || WEXITSTATUS(st) == 127 || WEXITSTATUS(st) == 53) return FALSE;
-    *ran = TRUE;
-    return !WEXITSTATUS(st);
+    for (i = len; i > 0; i--) if (name[i - 1] == '\\' || name[i - 1] == '/') break;
+    name += i;
+    len -= i;
+    if (len > 4 && !wcsnicmp( name + len - 4, dot_exe, 4 )) len -= 4;
+    if (!len || len >= size) return;
+    if (ntdll_wcstoumbs( name, len, buffer, size - 1, FALSE )) buffer[min( len, size - 1 )] = 0;
+    else strcpy( buffer, "Error" );
 }
 
 
@@ -7084,7 +7040,8 @@ static BOOL notify_desktop( const UNICODE_STRING *text, const UNICODE_STRING *ca
         return FALSE;
     body[min( text->Length / sizeof(WCHAR), sizeof(body) - 1 )] = 0;
 
-    strcpy( title, "Roblox" );
+    /* The caption the program chose, and its own name when it named none. */
+    program_name( title, sizeof(title) );
     if (caption && caption->Buffer &&
         ntdll_wcstoumbs( caption->Buffer, caption->Length / sizeof(WCHAR), title, sizeof(title) - 1, FALSE ))
         title[min( caption->Length / sizeof(WCHAR), sizeof(title) - 1 )] = 0;
@@ -7095,10 +7052,10 @@ static BOOL notify_desktop( const UNICODE_STRING *text, const UNICODE_STRING *ca
     ERR( "hard error: %s: %s\n", title, body );
 
     /* Our own message box, as Windows shows one; the notification is what is
-     * left for a prefix that has no helper in it yet. */
+     * left for a session with no display to draw it on. */
     {
         BOOL ran = FALSE;
-        BOOL ok = show_message_box( title, body, want_answer, &ran );
+        BOOL ok = tuxblox_show_message_box( title, body, want_answer, &ran );
 
         if (ran) return ok;
     }
