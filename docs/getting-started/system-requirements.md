@@ -6,7 +6,7 @@ Most computers built in the last ten years will run TuxBlox. Here is the short v
 
 | | Minimum |
 |---|---|
-| **Processor** | x86-64 with SSE4.1 or newer |
+| **Processor** | x86-64 with SSE3 or newer |
 | **Memory** | 8 GB of RAM |
 | **Storage** | 6 GB free |
 | **Graphics** | Anything with a working Vulkan driver |
