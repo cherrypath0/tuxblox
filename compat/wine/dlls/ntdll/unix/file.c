@@ -4641,6 +4641,86 @@ static void remove_trailing_backslash( OBJECT_ATTRIBUTES *attr, UNICODE_STRING *
  *
  * nt_name.Buffer and unix_name must be freed by caller in all cases.
  */
+/* The directory the layer lives in, two levels above the loader itself. */
+static const char *layer_dir(void)
+{
+    static char dir[PATH_MAX];
+
+    if (!dir[0])
+    {
+        char *end;
+
+        /* Resolved, because these are built with .. components in them and a
+         * path with those in it prefix-matches nothing. */
+        if (!data_dir || !realpath( data_dir, dir )) return NULL;
+        if ((end = strrchr( dir, '/' ))) *end = 0;
+        if ((end = strrchr( dir, '/' ))) *end = 0;
+    }
+    return dir[0] ? dir : NULL;
+}
+
+static BOOL path_within( const char *unix_name, const char *dir )
+{
+    size_t len;
+
+    if (!dir || !dir[0]) return FALSE;
+    len = strlen( dir );
+    return !strncmp( unix_name, dir, len ) && (!unix_name[len] || unix_name[len] == '/');
+}
+
+/* Whether a host path a program named directly may be opened.
+ *
+ * \??\unix\<path>, and a plain absolute path such as /etc/hostname, name a
+ * file on the computer rather than one in the virtual drive. A program running
+ * on Windows has no way to reach such a file, and one running here should not
+ * either: it would read the user's own documents, and a path that opens at all
+ * says the machine is not Windows.
+ *
+ * Two kinds stay reachable, because the drive cannot hold them: the
+ * compatibility layer's own files, and the fonts installed on the computer,
+ * which the font loader opens where they sit.
+ */
+static BOOL host_path_allowed( const char *unix_name )
+{
+    static const char *const font_dirs[] =
+    {
+        "/usr/share/fonts", "/usr/local/share/fonts", "/usr/share/X11/fonts",
+        "/run/host/fonts", "/run/host/user-fonts", "/var/cache/fontconfig"
+    };
+    /* Sources of randomness and the two sinks, which have no equivalent inside
+     * the drive and carry nothing about the computer. */
+    static const char *const devices[] = { "/dev/urandom", "/dev/random", "/dev/null", "/dev/zero" };
+    unsigned int i;
+
+    if (getenv( "TUXBLOX_HOST_FILES" )) return TRUE;
+
+    for (i = 0; i < ARRAY_SIZE(devices); i++)
+        if (!strcmp( unix_name, devices[i] )) return TRUE;
+
+    if (path_within( unix_name, config_dir ) || path_within( unix_name, build_dir ) ||
+        path_within( unix_name, bin_dir ) || path_within( unix_name, layer_dir() ))
+        return TRUE;
+
+    /* Which clock the computer keeps time with, which decides how the layer
+     * answers a program asking for a timestamp. */
+    if (path_within( unix_name, "/sys/bus/clocksource" )) return TRUE;
+
+    for (i = 0; i < ARRAY_SIZE(font_dirs); i++)
+        if (path_within( unix_name, font_dirs[i] )) return TRUE;
+
+    if (home_dir)
+    {
+        char path[PATH_MAX];
+
+        snprintf( path, sizeof(path), "%s/.fonts", home_dir );
+        if (path_within( unix_name, path )) return TRUE;
+        snprintf( path, sizeof(path), "%s/.local/share/fonts", home_dir );
+        if (path_within( unix_name, path )) return TRUE;
+    }
+    return FALSE;
+}
+
+
 NTSTATUS get_nt_and_unix_names( OBJECT_ATTRIBUTES *attr, UNICODE_STRING *nt_name,
                                 char **unix_name_ret, UINT disposition, BOOL open_reparse )
 {
@@ -4669,6 +4749,13 @@ NTSTATUS get_nt_and_unix_names( OBJECT_ATTRIBUTES *attr, UNICODE_STRING *nt_name
         {
             init_unicode_string( nt_name, buffer );
             attr->ObjectName = nt_name;
+        }
+        else if (!host_path_allowed( unix_name ))
+        {
+            WARN( "refusing host path %s\n", debugstr_a(unix_name) );
+            free( unix_name );
+            *unix_name_ret = NULL;
+            return STATUS_OBJECT_PATH_NOT_FOUND;
         }
     }
     else
