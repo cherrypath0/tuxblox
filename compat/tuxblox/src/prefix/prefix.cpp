@@ -35,8 +35,10 @@
 #include <system_error>
 #include <vector>
 
+#include <cerrno>
 #include <fcntl.h>
 #include <fnmatch.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -577,6 +579,67 @@ void Prefix::installGraphicsFiles(Session& session) {
     }
 }
 
+// Windows programs write their scratch files into AppData\\Local\\Temp, and every
+// one of them stays in the drive until something clears it out. Pointing it at a
+// folder of our own under the computer's temporary directory hands that job to
+// the system, which empties it on its own schedule.
+//
+// The folder is per user and per drive: a name everyone shares in a place
+// everyone can write is how one account ends up writing through another's link,
+// and two drives running at once must not share one scratch folder. Anything
+// already there that is not ours is left alone rather than replaced.
+void Prefix::linkTempDir() {
+    struct stat info {};
+    if (::stat("/tmp", &info) != 0 || !S_ISDIR(info.st_mode)) {
+        return; // no temporary directory on this computer; leave the drive's own
+    }
+
+    const fs::path base = "/tmp/tuxblox-" + std::to_string(::getuid());
+    if (::mkdir(base.c_str(), 0700) != 0 && errno != EEXIST) {
+        return;
+    }
+    if (::lstat(base.c_str(), &info) != 0 || !S_ISDIR(info.st_mode) || info.st_uid != ::getuid()) {
+        log("Not using " + base.string() + " for temporary files: it is not ours");
+        return;
+    }
+
+    struct stat prefixInfo {};
+    if (::stat(prefixDir.c_str(), &prefixInfo) != 0) {
+        return;
+    }
+    char leafName[64];
+    std::snprintf(leafName, sizeof(leafName), "%llx-%llx",
+                  static_cast<unsigned long long>(prefixInfo.st_dev),
+                  static_cast<unsigned long long>(prefixInfo.st_ino));
+    const fs::path leaf = base / leafName;
+    if (::mkdir(leaf.c_str(), 0700) != 0 && errno != EEXIST) {
+        return;
+    }
+    if (::lstat(leaf.c_str(), &info) != 0 || !S_ISDIR(info.st_mode) || info.st_uid != ::getuid()) {
+        return;
+    }
+
+    std::error_code error;
+    const fs::path temp = prefixDir / "drive_c/users/user/AppData/Local/Temp";
+    if (isSymlink(temp)) {
+        if (fs::read_symlink(temp, error) == leaf) {
+            return; // already points at it
+        }
+        fs::remove(temp, error);
+    } else if (fileExists(temp, true)) {
+        if (!fs::is_empty(temp, error) || error) {
+            return; // someone's files are in there; not ours to move
+        }
+        fs::remove(temp, error);
+    }
+
+    makeDirs(temp.parent_path());
+    fs::create_directory_symlink(leaf, temp, error);
+    if (error) {
+        log("Could not point the drive's temporary folder at " + leaf.string());
+    }
+}
+
 void Prefix::linkRobloxData() {
     // Roblox keeps its installed versions, settings and logs here. Create it up
     // front, empty, so it is always present -- even a brand-new prefix has the
@@ -894,6 +957,7 @@ void Prefix::setup(Session& session) {
 
     migrateUserPaths();
     linkRobloxData();
+    linkTempDir();
     syncHostTheme();
     syncHostFont();
     syncHaptics();

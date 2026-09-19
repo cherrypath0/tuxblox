@@ -158,8 +158,15 @@ Your settings and FastFlags live outside the drive and survive.
 | `~/.local/share/applications/` | Desktop entries for TuxBlox, Roblox Studio, Roblox Player, and the link handlers |
 | `~/.local/share/icons/hicolor/` | Icons for those entries |
 | `~/.local/share/mime/packages/` | The `.rbxl` and `.rbxlx` file type definitions |
+| `/tmp/tuxblox-<your user id>/` | Scratch files programs in the drive write while they run |
 
-That is the complete list. Uninstalling removes all of it.
+That is the complete list. Uninstalling removes all of it, apart from the scratch folder, which your computer clears out on its own.
+
+### Scratch files
+
+Windows programs write their working files into `AppData\Local\Temp` inside the drive, and nothing in Windows ever clears that out. TuxBlox points it at a folder of its own under your computer's temporary directory instead, one per drive, so your computer empties it on the same schedule as everything else there.
+
+The folder is named after your user, and TuxBlox refuses to use one it does not own, so two accounts on the same computer cannot write through each other's. If your computer has no temporary directory at all, the drive keeps its own folder and nothing changes.
 
 ---
 
