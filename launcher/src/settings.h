@@ -81,7 +81,7 @@ struct Settings {
     // Unlike haptics above, BOTH states are emitted: the compatibility layer
     // still treats an absent value as off, so leaving this on has to say so
     // rather than imply it by staying quiet.
-    bool webviewGpu = true;
+    bool webviewGpu = false;
     // Gives Roblox a desktop of its own inside one window rather than letting it
     // place windows on the user's. Off by default, and like haptics only the
     // non-default is emitted, so an ordinary launch carries nothing extra.

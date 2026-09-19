@@ -77,13 +77,15 @@ Picking a card sets the standard Linux graphics offload variables for you, so yo
 
 ### GPU acceleration for web pages
 
-**Default: on**
+**Default: off**
 
-Speeds up the login screen, the Toolbox, and every other panel inside Roblox that is really a web page.
+Draws the login screen, the Toolbox, and every other panel inside Roblox that is really a web page through the graphics driver instead of the processor.
 
-This has nothing to do with game or Studio viewport graphics. Turning it off will not affect your framerate.
+TuxBlox draws those panels with its own graphics driver, which runs on the processor, so going through it is usually slower rather than faster, and on some computers it leaves the panels blank. That is why this is off.
 
-Turn it off if those panels are blank, flickering, drawing garbage, or crashing. That is the most common fix for it, especially on older drivers and on llvmpipe software rendering.
+Turn it on only if one of those panels is slow and turning it on makes it better. If the panels go blank, turn it off again.
+
+This has nothing to do with game or Studio viewport graphics. It will not affect your framerate either way.
 
 Takes effect the next time Roblox starts.
 

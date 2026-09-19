@@ -181,7 +181,10 @@ QWidget* SettingsTab::buildEnvironmentGroup(QWidget* parent) {
 
     auto* webviewGpuRow = new BoxedRow(
         "GPU acceleration for web pages",
-        "Speeds up the login screen, the Toolbox and every other panel that uses web pages. "
+        "Draws the login screen, the Toolbox and the other web panels through the graphics "
+        "driver instead of the processor. TuxBlox's own graphics driver for those panels runs "
+        "on the processor anyway, so this is usually slower, and on some computers it leaves "
+        "the panels blank. Leave it off unless a panel is slow and turning this on helps. "
         "Does not affect game or Studio graphics. Takes effect the next time Roblox starts.");
     webviewGpuToggle_ = new ToggleSwitch();
     connect(webviewGpuToggle_, &ToggleSwitch::toggled, this, [this](bool checked) {

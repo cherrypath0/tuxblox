@@ -114,7 +114,7 @@ Settings loadSettings(const std::string& installDir) {
         // Read leniently, same reasoning as "channel" above.
         settings.autoUpdate = j.value("auto_update", false);
         settings.haptics = j.value("haptics", true);
-        settings.webviewGpu = j.value("webview_gpu", true);
+        settings.webviewGpu = j.value("webview_gpu_forced", false);
         settings.virtualDesktop = j.value("virtual_desktop", false);
         settings.debugLogging = j.value("debug_logging", false);
         settings.verifyIntegrity = j.value("verify_integrity", true);
@@ -147,7 +147,7 @@ void saveSettings(const std::string& installDir, const Settings& settings) {
         j["channel"] = settings.channel;
         j["auto_update"] = settings.autoUpdate;
         j["haptics"] = settings.haptics;
-        j["webview_gpu"] = settings.webviewGpu;
+        j["webview_gpu_forced"] = settings.webviewGpu;
         j["virtual_desktop"] = settings.virtualDesktop;
         j["debug_logging"] = settings.debugLogging;
         j["verify_integrity"] = settings.verifyIntegrity;
@@ -192,9 +192,13 @@ std::vector<std::string> launchEnvPairs(const Settings& settings) {
         pairs.push_back("TUXBLOX_HAPTICS=0");
     }
 
-    // Both states are sent, unlike haptics above. The compatibility layer's own
-    // default is off, so "on" cannot be expressed by leaving the variable out.
-    pairs.push_back(settings.webviewGpu ? "TUXBLOX_WEBVIEW_GPU=1" : "TUXBLOX_WEBVIEW_GPU=0");
+    // Only the non-default is emitted, as with haptics above. The layer draws
+    // web pages on the processor because the graphics it has in that process is
+    // itself drawn on the processor, and sending this asks it to go the long way
+    // round instead -- which on some computers leaves the panel blank.
+    if (settings.webviewGpu) {
+        pairs.push_back("TUXBLOX_WEBVIEW_GPU=1");
+    }
 
     // Only the non-default is emitted, as with haptics above. The layer works
     // out the window size itself, so nothing here describes the screen.

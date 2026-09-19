@@ -33,7 +33,7 @@ Studio's login screen is a web page rendered inside the application. TuxBlox shi
 Log in the same way you would on Windows. Your session is remembered afterwards.
 
 > [!TIP]
-> If the login screen is blank, slow, or flickers, turn off **GPU acceleration for web pages** in [Settings](../using-tuxblox/settings.md#gpu-acceleration-for-web-pages) and start Roblox again. That setting is the usual culprit on older graphics drivers.
+> If the login screen is blank, slow, or flickers, check that **GPU acceleration for web pages** is off in [Settings](../using-tuxblox/settings.md#gpu-acceleration-for-web-pages) and start Roblox again. It is off by default, and turning it on is the usual culprit.
 
 ## Every launch after the first
 

@@ -77,7 +77,7 @@ Then start it again.
 
 ### The login screen is blank, flickering, or full of garbage
 
-Turn off **GPU acceleration for web pages** in Settings and start Roblox again. That is the fix for this the large majority of the time, especially on older drivers and on software rendering.
+Check that **GPU acceleration for web pages** is off in Settings and start Roblox again. It is off by default, and turning it on is what causes this the large majority of the time.
 
 ### Studio's viewport is black or blank
 
