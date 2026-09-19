@@ -54,6 +54,12 @@
 #include <X11/Xutil.h>
 #include <X11/Xatom.h>
 #include <X11/keysym.h>
+#if defined(__has_include)
+#if __has_include(<png.h>)
+#include <png.h>
+#define MSGBOX_HAVE_PNG
+#endif
+#endif
 #endif
 
 /* What the child reports back. Anything else means it never got a window up
@@ -187,6 +193,13 @@ static int (*p_XftColorAllocValue)( Display *, Visual *, Colormap,
                                     const msgbox_render_color *, msgbox_xft_color * );
 static void (*p_XftColorFree)( Display *, Visual *, Colormap, msgbox_xft_color * );
 
+#ifdef MSGBOX_HAVE_PNG
+static void *png_handle;
+static int (*p_png_image_begin_read_from_memory)( png_imagep, const void *, size_t );
+static int (*p_png_image_finish_read)( png_imagep, png_const_colorp, void *, png_int_32, void * );
+static void (*p_png_image_free)( png_imagep );
+#endif
+
 /* Loaded here and not in the child: dlopen takes the loader's lock, and a
  * process that forked while another thread held it would never get it back. */
 static BOOL load_libraries(void)
@@ -252,6 +265,20 @@ static BOOL load_libraries(void)
             !p_XftTextExtentsUtf8 || !p_XftColorAllocValue || !p_XftColorFree)
             p_XftFontOpenName = NULL;
     }
+
+#ifdef MSGBOX_HAVE_PNG
+    /* Modern programs, Roblox among them, keep their icons as PNG rather than
+     * as the bitmap an icon used to be. */
+    if ((png_handle = dlopen( "libpng16.so.16", RTLD_NOW )))
+    {
+        p_png_image_begin_read_from_memory = dlsym( png_handle, "png_image_begin_read_from_memory" );
+        p_png_image_finish_read = dlsym( png_handle, "png_image_finish_read" );
+        p_png_image_free = dlsym( png_handle, "png_image_free" );
+
+        if (!p_png_image_begin_read_from_memory || !p_png_image_finish_read || !p_png_image_free)
+            p_png_image_begin_read_from_memory = NULL;
+    }
+#endif
     return TRUE;
 }
 
@@ -816,17 +843,16 @@ static const void *find_resource( const struct resources *res, WORD type, int na
     return NULL;
 }
 
-/* The one closest to the size a title bar wants, ignoring the very large ones
- * that are stored as a PNG rather than as pixels. */
-static int pick_icon( const struct icon_group_entry *entries, int count )
+/* The one closest to the size a title bar wants, out of those not tried yet. */
+static int pick_icon( const struct icon_group_entry *entries, int count, unsigned int tried )
 {
     int best = -1, best_size = 0, i;
 
-    for (i = 0; i < count; i++)
+    for (i = 0; i < count && i < 32; i++)
     {
         const int size = entries[i].width ? entries[i].width : 256;
 
-        if (size > 64) continue;
+        if (size > 64 || (tried & (1u << i))) continue;
         if (best < 0 || abs( size - 48 ) < abs( best_size - 48 ))
         {
             best = i;
@@ -836,16 +862,79 @@ static int pick_icon( const struct icon_group_entry *entries, int count )
     return best;
 }
 
+/* Both kinds of icon end up as rows of blue, green, red and alpha. */
+static unsigned char *decode_png_icon( const void *data, DWORD size, int *width, int *height )
+{
+#ifdef MSGBOX_HAVE_PNG
+    unsigned char *pixels;
+    png_image image;
+
+    if (!p_png_image_begin_read_from_memory) return NULL;
+
+    memset( &image, 0, sizeof(image) );
+    image.version = PNG_IMAGE_VERSION;
+    if (!p_png_image_begin_read_from_memory( &image, data, size )) return NULL;
+
+    image.format = PNG_FORMAT_BGRA;
+    if (image.width > 64 || image.height > 64 || !image.width || !image.height ||
+        !(pixels = malloc( PNG_IMAGE_SIZE( image ) )))
+    {
+        p_png_image_free( &image );
+        return NULL;
+    }
+    if (!p_png_image_finish_read( &image, NULL, pixels, 0, NULL ))
+    {
+        p_png_image_free( &image );
+        free( pixels );
+        return NULL;
+    }
+    *width = image.width;
+    *height = image.height;
+    return pixels;
+#else
+    return NULL;
+#endif
+}
+
+static unsigned char *load_icon_pixels( const struct resources *res, WORD id, int *width,
+                                        int *height, BOOL *bottom_up )
+{
+    static const unsigned char png_signature[] = { 0x89, 'P', 'N', 'G' };
+    const struct icon_header *icon;
+    unsigned char *pixels;
+    DWORD size = 0;
+
+    if (!(icon = find_resource( res, 3, id, &size ))) return NULL;
+
+    if (size > sizeof(png_signature) && !memcmp( icon, png_signature, sizeof(png_signature) ))
+    {
+        *bottom_up = FALSE;
+        return decode_png_icon( icon, size, width, height );
+    }
+
+    if (size < sizeof(*icon) || icon->size < sizeof(*icon) || icon->bpp != 32) return NULL;
+    *width = icon->width;
+    *height = icon->height / 2;
+    if (*width <= 0 || *height <= 0 || *width > 64 || *height > 64) return NULL;
+    if (size < icon->size + (DWORD)*width * *height * 4) return NULL;
+
+    if (!(pixels = malloc( (size_t)*width * *height * 4 ))) return NULL;
+    memcpy( pixels, (const unsigned char *)icon + icon->size, (size_t)*width * *height * 4 );
+    *bottom_up = TRUE;
+    return pixels;
+}
+
 static void set_window_icon( struct msgbox *box )
 {
     const struct icon_group_entry *entries;
-    const struct icon_header *icon;
-    const unsigned char *bits;
+    BOOL bottom_up = FALSE;
+    unsigned char *pixels = NULL;
     struct resources res;
+    unsigned int tried = 0;
     const void *group;
     DWORD size = 0;
     long *property;
-    int count, chosen, width, height, x, y;
+    int count, chosen, width = 0, height = 0, x, y;
     Atom net_wm_icon;
 
     if (!find_resources( &res )) return;
@@ -854,25 +943,26 @@ static void set_window_icon( struct msgbox *box )
     count = ((const WORD *)group)[2];
     entries = (const struct icon_group_entry *)((const BYTE *)group + 6);
     if (size < 6 + count * sizeof(*entries)) return;
-    if ((chosen = pick_icon( entries, count )) < 0) return;
 
-    if (!(icon = find_resource( &res, 3, entries[chosen].id, &size ))) return;
-    if (size < sizeof(*icon) || icon->size < sizeof(*icon) || icon->bpp != 32) return;
+    /* The best size first, then the next best if that one cannot be read. */
+    while (!pixels && (chosen = pick_icon( entries, count, tried )) >= 0)
+    {
+        tried |= 1u << chosen;
+        pixels = load_icon_pixels( &res, entries[chosen].id, &width, &height, &bottom_up );
+    }
+    if (!pixels) return;
 
-    width = icon->width;
-    height = icon->height / 2;
-    if (width <= 0 || height <= 0 || width > 64 || height > 64) return;
-    if (size < icon->size + (DWORD)width * height * 4) return;
-
-    bits = (const unsigned char *)icon + icon->size;
-    if (!(property = malloc( (2 + (size_t)width * height) * sizeof(*property) ))) return;
+    if (!(property = malloc( (2 + (size_t)width * height) * sizeof(*property) )))
+    {
+        free( pixels );
+        return;
+    }
 
     property[0] = width;
     property[1] = height;
     for (y = 0; y < height; y++)
     {
-        /* Icon rows are stored bottom to top. */
-        const unsigned char *row = bits + (size_t)(height - 1 - y) * width * 4;
+        const unsigned char *row = pixels + (size_t)(bottom_up ? height - 1 - y : y) * width * 4;
 
         for (x = 0; x < width; x++)
             property[2 + y * width + x] = ((long)row[x * 4 + 3] << 24) | (row[x * 4 + 2] << 16) |
@@ -883,6 +973,7 @@ static void set_window_icon( struct msgbox *box )
     p_XChangeProperty( box->display, box->window, net_wm_icon, XA_CARDINAL, 32, PropModeReplace,
                        (unsigned char *)property, 2 + width * height );
     free( property );
+    free( pixels );
 }
 
 
