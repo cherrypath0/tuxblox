@@ -3,6 +3,11 @@ UNIXLIB   = webview2loader.so
 IMPORTLIB = webview2loader
 IMPORTS   = ole32 user32 uuid
 
+# The reader thread that keeps the webview helper's diagnostics needs
+# pthread_create, which lives in libpthread on the glibc this is built against
+# even though a newer one has folded it into libc.
+UNIX_LIBS = $(PTHREAD_LIBS)
+
 SOURCES = \
 	controller.c \
 	cookie_manager.c \
