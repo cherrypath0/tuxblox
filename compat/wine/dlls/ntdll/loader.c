@@ -2316,6 +2316,27 @@ static NTSTATUS perform_relocations( void *module, IMAGE_NT_HEADERS *nt, SIZE_T 
  *
  * Build the module data for a mapped dll.
  */
+/* Windows' own DOS stub, which is what sits here in any PE that was not built
+ * by Wine. Only the first thirty-two bytes were overwritten. */
+static void restore_dos_stub( void *module )
+{
+    static const BYTE dos_stub[32] =
+    {
+        0x0e, 0x1f, 0xba, 0x0e, 0x00, 0xb4, 0x09, 0xcd, 0x21, 0xb8, 0x01, 0x4c, 0xcd, 0x21,
+        'T', 'h', 'i', 's', ' ', 'p', 'r', 'o', 'g', 'r', 'a', 'm', ' ', 'c', 'a', 'n', 'n', 'o'
+    };
+    BYTE *stub = (BYTE *)module + sizeof(IMAGE_DOS_HEADER);
+    ULONG old_prot;
+    SIZE_T size = sizeof(dos_stub);
+    void *base = module;
+
+    if (NtProtectVirtualMemory( NtCurrentProcess(), &base, &size, PAGE_READWRITE, &old_prot )) return;
+    memcpy( stub, dos_stub, sizeof(dos_stub) );
+    base = module;
+    size = sizeof(dos_stub);
+    NtProtectVirtualMemory( NtCurrentProcess(), &base, &size, old_prot, &old_prot );
+}
+
 static NTSTATUS build_module( LPCWSTR load_path, const UNICODE_STRING *nt_name, void **module,
                               const SECTION_IMAGE_INFORMATION *image_info, const struct file_id *id,
                               DWORD flags, BOOL system, BOOL redirected, WINE_MODREF **pwm )
@@ -2340,6 +2361,13 @@ static NTSTATUS build_module( LPCWSTR load_path, const UNICODE_STRING *nt_name, 
 
     is_builtin = ((char *)nt - signature >= sizeof(builtin_signature) &&
                   !memcmp( signature, builtin_signature, sizeof(builtin_signature) ));
+
+    /* The signature names Wine at a fixed offset any walk of the module list can
+     * read, so Windows' own stub goes back over it -- but only now, after the
+     * one reader that needs it has read it. Erasing it at map time instead left
+     * every built-in looking like an ordinary PE to the line above, which is how
+     * a driver ends up without the half of itself that talks to the system. */
+    if (is_builtin) restore_dos_stub( *module );
 
     /* create the MODREF */
 
@@ -2472,6 +2500,10 @@ static void build_ntdll_module(void)
     module = meminfo.AllocationBase;
     wm = alloc_module( module, &nt_name, TRUE );
     assert( wm );
+    /* This one maps itself, so it never passes through build_module and would
+     * otherwise be the one module left naming Wine in its header. Nothing reads
+     * the signature out of it: its own loading is done by the time this runs. */
+    restore_dos_stub( module );
     wm->ldr.Flags &= ~LDR_DONT_RESOLVE_REFS;
     node_ntdll = wm->ldr.DdagNode;
     if (TRACE_ON(relay)) RELAY_SetupDLL( module );

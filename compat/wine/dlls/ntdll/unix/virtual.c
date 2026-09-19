@@ -3689,28 +3689,6 @@ static NTSTATUS map_image_view( struct file_view **view_ret, struct pe_image_inf
  *
  * Map a PE image section into memory.
  */
-/* The stub a built-in module carries in its DOS header names Wine, at a fixed
- * offset that any walk of the module list can read without asking anything.
- * Windows' own stub belongs there, and the bytes after the first thirty-two are
- * already Windows' -- only those were overwritten when the module was built --
- * so putting them back makes the header read like every other PE. The file on
- * disk keeps the signature, which is what identifies a built-in module. */
-static void restore_dos_stub( void *module )
-{
-    static const BYTE dos_stub[32] =
-    {
-        0x0e, 0x1f, 0xba, 0x0e, 0x00, 0xb4, 0x09, 0xcd, 0x21, 0xb8, 0x01, 0x4c, 0xcd, 0x21,
-        'T', 'h', 'i', 's', ' ', 'p', 'r', 'o', 'g', 'r', 'a', 'm', ' ', 'c', 'a', 'n', 'n', 'o'
-    };
-    static const char signature[] = "Wine builtin DLL";
-    BYTE *stub = (BYTE *)module + sizeof(IMAGE_DOS_HEADER);
-
-    if (memcmp( stub, signature, sizeof(signature) - 1 )) return;
-    if (mprotect( module, page_size, PROT_READ | PROT_WRITE )) return;
-    memcpy( stub, dos_stub, sizeof(dos_stub) );
-    mprotect( module, page_size, PROT_READ );
-}
-
 static NTSTATUS virtual_map_image( HANDLE mapping, void **addr_ptr, SIZE_T *size_ptr, HANDLE shared_file,
                                    ULONG_PTR limit_low, ULONG_PTR limit_high, ULONG alloc_type,
                                    USHORT machine, struct pe_image_info *image_info,
@@ -3793,7 +3771,6 @@ static NTSTATUS virtual_map_image( HANDLE mapping, void **addr_ptr, SIZE_T *size
     if (NT_SUCCESS(status))
     {
         if (is_builtin && !offset) add_builtin_module( view->base, NULL );
-        if (is_builtin || image_info->wine_builtin) restore_dos_stub( view->base );
         *addr_ptr = view->base;
         /* the server validates the view against the section's own size, so the
          * tail is only added to what the caller is told */
