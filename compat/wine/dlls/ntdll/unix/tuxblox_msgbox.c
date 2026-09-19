@@ -31,6 +31,9 @@
 
 #include <ctype.h>
 #include <dlfcn.h>
+#include <fcntl.h>
+#include <limits.h>
+#include <sys/stat.h>
 #include <errno.h>
 #include <signal.h>
 #include <stdarg.h>
@@ -62,6 +65,27 @@
 #endif
 #endif
 
+/* The running program's file name, without its path or extension. */
+BOOL tuxblox_program_name( char *buffer, size_t size )
+{
+    static const WCHAR dot_exe[] = { '.','e','x','e' };
+    const UNICODE_STRING *path = &NtCurrentTeb()->Peb->ProcessParameters->ImagePathName;
+    const WCHAR *name = path->Buffer;
+    size_t len = path->Length / sizeof(WCHAR), i;
+
+    if (!name) return FALSE;
+
+    for (i = len; i > 0; i--) if (name[i - 1] == '\\' || name[i - 1] == '/') break;
+    name += i;
+    len -= i;
+    if (len > 4 && !wcsnicmp( name + len - 4, dot_exe, 4 )) len -= 4;
+    if (!len || len >= size) return FALSE;
+    if (!ntdll_wcstoumbs( name, len, buffer, size - 1, FALSE )) return FALSE;
+    buffer[min( len, size - 1 )] = 0;
+    return TRUE;
+}
+
+
 /* What the child reports back. Anything else means it never got a window up
  * and the caller still has to find another way to show the message. */
 #define MSGBOX_PRESSED_OK       0
@@ -81,6 +105,8 @@
 #define MSGBOX_BUTTON_PADDING    16
 #define MSGBOX_BUTTON_RADIUS      3
 #define MSGBOX_SUPERSAMPLE        4
+#define MSGBOX_ICON_WANTED       48
+#define MSGBOX_ICON_MAX         512
 #define MSGBOX_TEXT_MAX_WIDTH   420
 #define MSGBOX_MAX_LINES         64
 
@@ -824,8 +850,7 @@ static const void *find_resource( const struct resources *res, WORD type, int na
 
         for (i = 0; i < count; i++)
         {
-            if (entry[i].NameIsString) continue;
-            if (wanted >= 0 && entry[i].Id != wanted) continue;
+            if (wanted >= 0 && (entry[i].NameIsString || entry[i].Id != wanted)) continue;
             if (level < 2)
             {
                 if (!entry[i].DataIsDirectory) return NULL;
@@ -852,8 +877,8 @@ static int pick_icon( const struct icon_group_entry *entries, int count, unsigne
     {
         const int size = entries[i].width ? entries[i].width : 256;
 
-        if (size > 64 || (tried & (1u << i))) continue;
-        if (best < 0 || abs( size - 48 ) < abs( best_size - 48 ))
+        if (tried & (1u << i)) continue;
+        if (best < 0 || abs( size - MSGBOX_ICON_WANTED ) < abs( best_size - MSGBOX_ICON_WANTED ))
         {
             best = i;
             best_size = size;
@@ -876,8 +901,8 @@ static unsigned char *decode_png_icon( const void *data, DWORD size, int *width,
     if (!p_png_image_begin_read_from_memory( &image, data, size )) return NULL;
 
     image.format = PNG_FORMAT_BGRA;
-    if (image.width > 64 || image.height > 64 || !image.width || !image.height ||
-        !(pixels = malloc( PNG_IMAGE_SIZE( image ) )))
+    if (image.width > MSGBOX_ICON_MAX || image.height > MSGBOX_ICON_MAX || !image.width ||
+        !image.height || !(pixels = malloc( PNG_IMAGE_SIZE( image ) )))
     {
         p_png_image_free( &image );
         return NULL;
@@ -894,6 +919,49 @@ static unsigned char *decode_png_icon( const void *data, DWORD size, int *width,
 #else
     return NULL;
 #endif
+}
+
+/* A plain box filter, which is all an icon on its way down to title bar size
+ * needs, and keeps the property the window manager is handed small. */
+static unsigned char *scale_icon( unsigned char *pixels, int *width, int *height )
+{
+    const int source_width = *width, source_height = *height;
+    unsigned char *scaled;
+    int x, y, channel;
+
+    if (source_width <= MSGBOX_ICON_WANTED && source_height <= MSGBOX_ICON_WANTED) return pixels;
+    if (!(scaled = malloc( (size_t)MSGBOX_ICON_WANTED * MSGBOX_ICON_WANTED * 4 ))) return pixels;
+
+    for (y = 0; y < MSGBOX_ICON_WANTED; y++)
+    {
+        const int top = y * source_height / MSGBOX_ICON_WANTED;
+        const int bottom = (y + 1) * source_height / MSGBOX_ICON_WANTED;
+
+        for (x = 0; x < MSGBOX_ICON_WANTED; x++)
+        {
+            const int left = x * source_width / MSGBOX_ICON_WANTED;
+            const int right = (x + 1) * source_width / MSGBOX_ICON_WANTED;
+
+            for (channel = 0; channel < 4; channel++)
+            {
+                int total = 0, count = 0, sx, sy;
+
+                for (sy = top; sy < bottom || sy == top; sy++)
+                {
+                    for (sx = left; sx < right || sx == left; sx++)
+                    {
+                        total += pixels[((size_t)sy * source_width + sx) * 4 + channel];
+                        count++;
+                    }
+                }
+                scaled[((size_t)y * MSGBOX_ICON_WANTED + x) * 4 + channel] = total / count;
+            }
+        }
+    }
+
+    free( pixels );
+    *width = *height = MSGBOX_ICON_WANTED;
+    return scaled;
 }
 
 static unsigned char *load_icon_pixels( const struct resources *res, WORD id, int *width,
@@ -915,12 +983,44 @@ static unsigned char *load_icon_pixels( const struct resources *res, WORD id, in
     if (size < sizeof(*icon) || icon->size < sizeof(*icon) || icon->bpp != 32) return NULL;
     *width = icon->width;
     *height = icon->height / 2;
-    if (*width <= 0 || *height <= 0 || *width > 64 || *height > 64) return NULL;
+    if (*width <= 0 || *height <= 0 || *width > MSGBOX_ICON_MAX || *height > MSGBOX_ICON_MAX) return NULL;
     if (size < icon->size + (DWORD)*width * *height * 4) return NULL;
 
     if (!(pixels = malloc( (size_t)*width * *height * 4 ))) return NULL;
     memcpy( pixels, (const unsigned char *)icon + icon->size, (size_t)*width * *height * 4 );
     *bottom_up = TRUE;
+    return pixels;
+}
+
+/* The icon TuxBlox installs for itself, which the desktop already has a copy
+ * of. Only reached when the program that raised the error has no icon. */
+static unsigned char *load_tuxblox_icon( int *width, int *height )
+{
+    static const char *const sizes[] = { "48x48", "64x64", "32x32", "256x256" };
+    const char *home = getenv( "HOME" );
+    unsigned char *pixels = NULL;
+    unsigned int i;
+
+    if (!home) return NULL;
+
+    for (i = 0; i < ARRAY_SIZE(sizes) && !pixels; i++)
+    {
+        char path[PATH_MAX];
+        void *data;
+        struct stat info;
+        int fd;
+
+        snprintf( path, sizeof(path), "%s/.local/share/icons/hicolor/%s/apps/tuxblox.png",
+                  home, sizes[i] );
+        if ((fd = open( path, O_RDONLY )) == -1) continue;
+        if (!fstat( fd, &info ) && info.st_size > 0 && (data = malloc( info.st_size )))
+        {
+            if (read( fd, data, info.st_size ) == info.st_size)
+                pixels = decode_png_icon( data, info.st_size, width, height );
+            free( data );
+        }
+        close( fd );
+    }
     return pixels;
 }
 
@@ -937,20 +1037,29 @@ static void set_window_icon( struct msgbox *box )
     int count, chosen, width = 0, height = 0, x, y;
     Atom net_wm_icon;
 
-    if (!find_resources( &res )) return;
-    if (!(group = find_resource( &res, 14, -1, &size )) || size < 6 + sizeof(*entries)) return;
-
-    count = ((const WORD *)group)[2];
-    entries = (const struct icon_group_entry *)((const BYTE *)group + 6);
-    if (size < 6 + count * sizeof(*entries)) return;
-
-    /* The best size first, then the next best if that one cannot be read. */
-    while (!pixels && (chosen = pick_icon( entries, count, tried )) >= 0)
+    if (find_resources( &res ) && (group = find_resource( &res, 14, -1, &size )) &&
+        size >= 6 + sizeof(*entries))
     {
-        tried |= 1u << chosen;
-        pixels = load_icon_pixels( &res, entries[chosen].id, &width, &height, &bottom_up );
+        count = ((const WORD *)group)[2];
+        entries = (const struct icon_group_entry *)((const BYTE *)group + 6);
+        if (size >= 6 + count * sizeof(*entries))
+        {
+            /* The best size first, then the next best if that one cannot be read. */
+            while (!pixels && (chosen = pick_icon( entries, count, tried )) >= 0)
+            {
+                tried |= 1u << chosen;
+                pixels = load_icon_pixels( &res, entries[chosen].id, &width, &height, &bottom_up );
+            }
+        }
+    }
+
+    if (!pixels)
+    {
+        bottom_up = FALSE;
+        pixels = load_tuxblox_icon( &width, &height );
     }
     if (!pixels) return;
+    pixels = scale_icon( pixels, &width, &height );
 
     if (!(property = malloc( (2 + (size_t)width * height) * sizeof(*property) )))
     {
@@ -982,13 +1091,15 @@ static void set_window_icon( struct msgbox *box )
 static void set_window_hints( struct msgbox *box, const char *title )
 {
     Atom window_type, dialog, state, above;
+    char program[128];
     XClassHint class_hint;
     XSizeHints hints;
 
     p_XStoreName( box->display, box->window, title );
 
-    class_hint.res_name = (char *)"tuxblox";
-    class_hint.res_class = (char *)"TuxBlox";
+    if (!tuxblox_program_name( program, sizeof(program) )) strcpy( program, "TuxBloxDialog" );
+    class_hint.res_name = program;
+    class_hint.res_class = program;
     p_XSetClassHint( box->display, box->window, &class_hint );
 
     memset( &hints, 0, sizeof(hints) );

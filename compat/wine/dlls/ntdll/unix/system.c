@@ -6999,27 +6999,6 @@ static BOOL notifier_has_actions(void)
 }
 
 
-/* The running program's file name, without its path or extension. */
-static void program_name( char *buffer, size_t size )
-{
-    static const WCHAR dot_exe[] = { '.','e','x','e' };
-    const UNICODE_STRING *path = &NtCurrentTeb()->Peb->ProcessParameters->ImagePathName;
-    const WCHAR *name = path->Buffer;
-    size_t len = path->Length / sizeof(WCHAR), i;
-
-    strcpy( buffer, "Error" );
-    if (!name) return;
-
-    for (i = len; i > 0; i--) if (name[i - 1] == '\\' || name[i - 1] == '/') break;
-    name += i;
-    len -= i;
-    if (len > 4 && !wcsnicmp( name + len - 4, dot_exe, 4 )) len -= 4;
-    if (!len || len >= size) return;
-    if (ntdll_wcstoumbs( name, len, buffer, size - 1, FALSE )) buffer[min( len, size - 1 )] = 0;
-    else strcpy( buffer, "Error" );
-}
-
-
 /* Show the message. With a button when the caller is waiting for an answer:
  * Roblox's crash notice says to press OK to collect its support files, and
  * without a button there was no way to say yes -- the message named an action
@@ -7041,7 +7020,7 @@ static BOOL notify_desktop( const UNICODE_STRING *text, const UNICODE_STRING *ca
     body[min( text->Length / sizeof(WCHAR), sizeof(body) - 1 )] = 0;
 
     /* The caption the program chose, and its own name when it named none. */
-    program_name( title, sizeof(title) );
+    if (!tuxblox_program_name( title, sizeof(title) )) strcpy( title, "Error" );
     if (caption && caption->Buffer &&
         ntdll_wcstoumbs( caption->Buffer, caption->Length / sizeof(WCHAR), title, sizeof(title) - 1, FALSE ))
         title[min( caption->Length / sizeof(WCHAR), sizeof(title) - 1 )] = 0;
