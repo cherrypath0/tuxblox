@@ -656,18 +656,31 @@ struct native_webview *webview_create(int is_message_only)
         if (st)
         {
             const char *want_gpu = getenv("TUXBLOX_WEBVIEW_GPU");
+            const char *software = getenv("LIBGL_ALWAYS_SOFTWARE");
+            const int asked = want_gpu && *want_gpu && strcmp(want_gpu, "0");
+            /* There is no graphics card in this process to ask for. unixlib.c
+             * sets LIBGL_ALWAYS_SOFTWARE before starting this program and points
+             * the driver search at the bundle, which ships swrast and nothing
+             * else, so the request cannot be honoured however it was made --
+             * acting on it composites the page through a GL that is itself being
+             * drawn on the processor, which is slower everywhere and leaves the
+             * panel blank on some machines. The setting is left alone and simply
+             * has nothing to do here; it takes effect again the day this process
+             * gets a real driver back (see WV2L_ALWAYS_USE_BUNDLE_GL). */
+            const int have_gpu = !(software && *software && strcmp(software, "0"));
             WebKitHardwareAccelerationPolicy policy =
-                (want_gpu && *want_gpu && strcmp(want_gpu, "0"))
+                (asked && have_gpu)
                     ? WEBKIT_HARDWARE_ACCELERATION_POLICY_ALWAYS
                     : WEBKIT_HARDWARE_ACCELERATION_POLICY_NEVER;
 
             webkit_settings_set_hardware_acceleration_policy(st, policy);
-            fprintf(stderr, "webview2loader-host: hardware acceleration policy = %s for nv=%p%s\n",
+            fprintf(stderr, "webview2loader-host: hardware acceleration policy = %s for nv=%p -- %s\n",
                     policy == WEBKIT_HARDWARE_ACCELERATION_POLICY_NEVER ? "NEVER (CPU raster)" : "ALWAYS",
                     (void *)nv,
-                    policy == WEBKIT_HARDWARE_ACCELERATION_POLICY_NEVER
-                        ? " -- GL here is llvmpipe, so compositing through it costs more than it saves"
-                        : " -- forced by TUXBLOX_WEBVIEW_GPU");
+                    !asked ? "not asked for"
+                           : (have_gpu ? "asked for by TUXBLOX_WEBVIEW_GPU, and there is a driver to use"
+                                       : "asked for by TUXBLOX_WEBVIEW_GPU, but the GL in this process is "
+                                         "software only, so the page is drawn on the processor instead"));
         }
     }
     /* Real WebView2's default is TRUE; Studio turns it off explicitly, and that
