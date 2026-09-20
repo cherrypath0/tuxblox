@@ -33,6 +33,8 @@
 #endif
 #include <dlfcn.h>
 #include <stdlib.h>
+#include <dirent.h>
+#include <string.h>
 #include "x11drv.h"
 #include "wine/debug.h"
 
@@ -569,6 +571,41 @@ static unsigned int get_edid( RROutput output, unsigned char **prop,
         }
     }
     if (edid_path) XFree( edid_path );
+
+    /* Xwayland publishes no EDID property, so without this every monitor is
+     * described by the fabricated block below -- manufacturer, product code and
+     * serial all zero, which no real display has. The kernel has the real one
+     * under the connector of the same name. */
+    if (output_info->name)
+    {
+        size_t namelen = strlen( output_info->name );
+        struct dirent *entry;
+        DIR *dir;
+
+        if ((dir = opendir( "/sys/class/drm" )))
+        {
+            while ((entry = readdir( dir )))
+            {
+                char path[PATH_MAX], buffer[512];
+                size_t dirlen = strlen( entry->d_name );
+                FILE *f;
+
+                if (dirlen < namelen + 1 || entry->d_name[dirlen - namelen - 1] != '-') continue;
+                if (strcmp( entry->d_name + dirlen - namelen, output_info->name )) continue;
+                snprintf( path, sizeof(path), "/sys/class/drm/%s/edid", entry->d_name );
+                if (!(f = fopen( path, "rb" ))) continue;
+                len = fread( buffer, 1, sizeof(buffer), f );
+                fclose( f );
+                if (!len) continue;
+                closedir( dir );
+                if (!(*prop = malloc( len ))) return 0;
+                memcpy( *prop, buffer, len );
+                TRACE( "Read %lu byte EDID for output %s from %s.\n", len, output_info->name, path );
+                return len;
+            }
+            closedir( dir );
+        }
+    }
 
     WARN( "Could not retrieve EDID property for output %#lx.\n", output );
     if (!output_info->npreferred)
