@@ -646,6 +646,44 @@ void tuxblox_diag_note_delay( BOOLEAN alertable, const LARGE_INTEGER *timeout )
 
 static ULONG64 roblox_dll_base(void);
 
+/* Put readable zeroed memory under an address the layer is about to read.
+ *
+ * A wild read ends the run at the first bad pointer and says nothing about what
+ * the code after it would have done. Backing the page lets the read return and
+ * the run go on, which is the only way to see whether the pointer is the single
+ * blocker or the first of many. TUXBLOX_DIAG_PREMAP=<hex addr>[,<hex size>].
+ * Wine's view table knows nothing about this, so the page is invisible to
+ * NtQueryVirtualMemory -- a probe, and never something to ship.
+ */
+static void diag_premap( void )
+{
+    static int done;
+    const char *v;
+    ULONG64 addr, size = 0x1000;
+    char *end;
+    void *got;
+
+    if (done) return;
+    done = 1;
+    if (!(v = getenv( "TUXBLOX_DIAG_PREMAP" )) || !*v) return;
+    /* "<addr>[,<size>];<addr>[,<size>]..." -- one wild read leads to the next,
+     * so the question is how many there are, not where the first one is. */
+    while (*v)
+    {
+        addr = strtoull( v, &end, 16 );
+        if (end == v) return;
+        size = 0x1000;
+        if (*end == ',') size = strtoull( end + 1, &end, 16 );
+        addr &= ~(ULONG64)(page_size - 1);
+        size = (size + page_size - 1) & ~(ULONG64)(page_size - 1);
+        got = mmap( (void *)(ULONG_PTR)addr, size, PROT_READ | PROT_WRITE,
+                    MAP_PRIVATE | MAP_ANON | MAP_FIXED_NOREPLACE, -1, 0 );
+        ERR_(seh)( "DIAG premap 0x%llx size 0x%llx -> %p\n", (unsigned long long)addr,
+                   (unsigned long long)size, got );
+        v = (*end == ';') ? end + 1 : end;
+    }
+}
+
 void tuxblox_diag_note_syscall( ULONG64 rip, ULONG64 rsp, ULONG64 rax )
 {
     static unsigned int shown;
@@ -693,6 +731,7 @@ void tuxblox_diag_note_syscall( ULONG64 rip, ULONG64 rsp, ULONG64 rax )
     tuxblox_diag_wpage_arm();
     tuxblox_diag_swatch_arm();
     tuxblox_diag_rpage_arm();
+    diag_premap();
     /* The SIGSYS path resumes the caller at rip + 0xb, which is the shape of
      * ntdll's own stub. The layer issues its system calls from code it
      * generates itself, so what its stubs look like decides whether that

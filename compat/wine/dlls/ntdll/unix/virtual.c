@@ -3265,6 +3265,36 @@ static IMAGE_BASE_RELOCATION *process_relocation_block( char *page, IMAGE_BASE_R
  * Map an executable (PE format) image into an existing view.
  * virtual_mutex must be held by caller.
  */
+/* Give a mingw-built image the section names a Microsoft-built one would have.
+ *
+ * `/4`, `.xdata`, `.edata` and `.idata` are what a GNU toolchain emits and what
+ * the Microsoft linker folds into `.rdata`; a program that reads the section
+ * table can tell the two apart on the names alone. This is an A/B probe behind
+ * TUXBLOX_DIAG_SECNAMES=1, not a fix -- the section count and layout still say
+ * GNU, and nothing has yet shown that the names are what is read.
+ */
+static void diag_rename_gnu_sections( IMAGE_NT_HEADERS *nt )
+{
+    static int want = -1;
+    IMAGE_SECTION_HEADER *sec = IMAGE_FIRST_SECTION( nt );
+    int i;
+
+    if (want == -1)
+    {
+        const char *v = getenv( "TUXBLOX_DIAG_SECNAMES" );
+        want = (v && *v && *v != '0') ? 1 : 0;
+    }
+    if (!want) return;
+    for (i = 0; i < nt->FileHeader.NumberOfSections; i++)
+    {
+        const char *name = (const char *)sec[i].Name;
+
+        if (name[0] == '/' || !memcmp( name, ".xdata", 7 ) ||
+            !memcmp( name, ".edata", 7 ) || !memcmp( name, ".idata", 7 ))
+            memcpy( sec[i].Name, ".rdata\0", 8 );
+    }
+}
+
 static NTSTATUS map_image_into_view( struct file_view *view, const UNICODE_STRING *nt_name, int fd,
                                      struct pe_image_info *image_info, USHORT machine,
                                      int shared_fd, BOOL removable )
@@ -3309,6 +3339,7 @@ static NTSTATUS map_image_into_view( struct file_view *view, const UNICODE_STRIN
         memcpy( sections, sec, sizeof(*sections) * nt->FileHeader.NumberOfSections );
         sec = sections;
     }
+    diag_rename_gnu_sections( nt );
     imports = get_data_dir( nt, total_size, IMAGE_DIRECTORY_ENTRY_IMPORT );
 
     /* check for non page-aligned binary */
@@ -6338,15 +6369,21 @@ NTSTATUS WINAPI NtAllocateVirtualMemory( HANDLE process, PVOID *ret, ULONG_PTR z
         limit = 0;
 
     {
+        /* The address asked for, before the call overwrites it: a program that names
+         * a base and is given another one branches on that, and the answer alone
+         * cannot say whether it was the one requested. */
+        void *wanted = *ret;
+        SIZE_T asked = *size_ptr;
         NTSTATUS status = allocate_virtual_memory( ret, size_ptr, type, protect, 0, limit, 0, 0 );
 
         if (tuxblox_trace_enabled())
         {
-            char detail[96];
+            char detail[128];
 
-            snprintf( detail, sizeof(detail), "addr=%p size=%#lx type=%#x prot=%#x status=%#x",
-                      *ret, (unsigned long)*size_ptr, (unsigned int)type, (unsigned int)protect,
-                      (unsigned int)status );
+            snprintf( detail, sizeof(detail),
+                      "want=%p/%#lx addr=%p size=%#lx type=%#x prot=%#x status=%#x",
+                      wanted, (unsigned long)asked, *ret, (unsigned long)*size_ptr,
+                      (unsigned int)type, (unsigned int)protect, (unsigned int)status );
             tuxblox_trace_record( "NtAllocateVirtualMemory", detail );
         }
         return status;
