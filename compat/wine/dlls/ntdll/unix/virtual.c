@@ -5169,6 +5169,13 @@ void virtual_init_user_shared_data(void)
      * Both arms were emulated and they converge, so changing it buys nothing;
      * do not change it without measuring the Player run again. */
     data->BootId = 33;
+    /* A/B probe: 0 and 33 are both multiples of three, so every value this has
+     * ever been given picks the same clone arm. TUXBLOX_TEST_BOOTID=<n> picks
+     * another one. */
+    {
+        const char *v = getenv( "TUXBLOX_TEST_BOOTID" );
+        if (v && *v) data->BootId = atoi( v );
+    }
     /* When the current time-zone bias took effect. Windows fills a real
      * timestamp here; zero says the machine has never had a time zone. Use a
      * fixed plausible past FILETIME so the pair (start,end) brackets "now". */
