@@ -9,7 +9,7 @@ launcher/third_party/
 .env
 
 push.sh
-stage.sh
+install-handler.sh
 deploy.sh
 
 __pycache__/
@@ -18,7 +18,6 @@ installer/build/
 installer/third_party/
 bootstrapper/build/
 studio-mcp/build/
-Testing/
 bootstrapper/third_party/
 
 *.log
