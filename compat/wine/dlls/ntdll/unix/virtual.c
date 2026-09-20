@@ -5178,7 +5178,9 @@ void virtual_init_user_shared_data(void)
     /* fixed values that Windows never varies */
     data->Reserved1                      = 0x7ffeffff;
     data->Reserved3                      = 0x80000000;
-    data->ComPlusPackage                 = ~0u;
+    /* Measured as 1 on the reference machine, not the ~0 "nobody set this" that
+     * was assumed here. */
+    data->ComPlusPackage                 = 1;
     data->TestRetInstruction             = 0xc3;
     data->QpcFrequency                   = 10000000;
     data->QpcSystemTimeIncrement         = (ULONGLONG)1 << 63;
@@ -5192,6 +5194,10 @@ void virtual_init_user_shared_data(void)
     /* the interactive session, which is 1 on any machine somebody has logged
      * into; zero is the session services run in and no user process sees it */
     data->ActiveConsoleId                = 1;
+    /* When the machine last saw keyboard or mouse input. Zero says it never has,
+     * which no machine somebody is sitting at can report; the session starting is
+     * the last input event we can honestly name. */
+    data->LastSystemRITEventTickCount    = data->TickCountQuad ? (ULONG)data->TickCountQuad : 1;
     /* elevation, virtualisation and installer detection are on for every
      * ordinary install. The secure boot and multi-session bits Windows also
      * reports here describe that machine's firmware and SKU, so they are left
