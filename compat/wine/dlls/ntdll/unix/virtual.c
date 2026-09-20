@@ -3731,14 +3731,12 @@ static NTSTATUS virtual_map_image( HANDLE mapping, void **addr_ptr, SIZE_T *size
     struct file_view *view;
     unsigned int status;
     sigset_t sigset;
-    /* Probe: Windows maps a DLL SizeOfImage + 0x5000 -- one committed executable
-     * page at SizeOfImage, then 0x4000 reserved. Measured on the reference machine
-     * across four DLLs of very different sizes, all exactly 0x5000; the executable
-     * gets none. TUXBLOX_TEST_IMAGE_TAIL=1 to try it. */
-    SIZE_T image_tail = 0;
-
-    if ((image_info->image_charact & IMAGE_FILE_DLL) && getenv( "TUXBLOX_TEST_IMAGE_TAIL" ))
-        image_tail = 0x5000;
+    /* Windows maps a DLL SizeOfImage + 0x5000 -- one committed executable page at
+     * SizeOfImage, then 0x4000 reserved -- and gives the executable none. Measured
+     * across four DLLs of very different sizes, all exactly 0x5000. Without it every
+     * DLL ends two regions early, which any walk of the address space can see. The
+     * server adds the same amount to its own view; keep the two in step. */
+    SIZE_T image_tail = (image_info->image_charact & IMAGE_FILE_DLL) ? 0x5000 : 0;
 
     if (offset >= size)
         return STATUS_INVALID_PARAMETER;

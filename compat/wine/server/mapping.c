@@ -1717,7 +1717,10 @@ DECL_HANDLER(map_image_view)
     if ((view = mem_alloc( sizeof(*view) )))
     {
         view->base      = req->base;
-        view->size      = req->size;
+        /* The client maps a DLL SizeOfImage + 0x5000, the way Windows does. The view
+         * has to cover that tail as well or the section name cannot be answered for
+         * an address in it, where Windows answers with the image's own name. */
+        view->size      = req->size + ((mapping->image.image_charact & IMAGE_FILE_DLL) ? 0x5000 : 0);
         view->flags     = mapping->flags;
         view->start     = 0;
         view->namelen   = 0;
