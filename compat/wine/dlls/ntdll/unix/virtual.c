@@ -3916,6 +3916,21 @@ static unsigned int virtual_map_section( HANDLE handle, PVOID *addr_ptr, ULONG_P
 
     if ((res = server_get_unix_fd( handle, 0, &unix_handle, &needs_close, NULL, NULL ))) return res;
 
+    /* Where a view lands is the one structural difference between this and a
+     * Windows process that is visible without a Windows dump: Windows' bottom-up
+     * randomisation puts a mapped view above 4 GB and ours sits at a couple of
+     * hundred megabytes. The Roblox layer maps every module it verifies and makes
+     * a second view of each one on Windows and none here, so the address it got
+     * back for the first is worth testing as the thing it decides on.
+     * TUXBLOX_TEST_HIGH_VIEWS=<hex floor>, and only where the caller left the
+     * choice to us. */
+    if (!base && !limit_low)
+    {
+        const char *floor = tuxblox_dev_getenv( "TUXBLOX_TEST_HIGH_VIEWS" );
+
+        if (floor && *floor && *floor != '0') limit_low = strtoull( floor, NULL, 16 );
+    }
+
     server_enter_uninterrupted_section( &virtual_mutex, &sigset );
 
     res = map_view( &view, base, size, alloc_type, vprot, limit_low, limit_high, 0 );
