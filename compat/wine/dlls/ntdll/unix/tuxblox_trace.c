@@ -338,11 +338,32 @@ static int diag_enabled_state = -1;
  * cannot do that: several of these happen between two system calls. */
 static LONG diag_seq;
 
+/* getenv() for the development-only diagnostic and experiment knobs.
+ *
+ * The TUXBLOX_DIAG_*, TUXBLOX_TEST_* and TUXBLOX_HOST_FILES variables drive the
+ * reverse-engineering instrumentation -- breakpoints that redirect control,
+ * forced register and memory writes, client-image injection, and the host-file
+ * sandbox escape. They are indispensable while investigating the Roblox client
+ * and must not exist in a shipped build, where they would hand any local program
+ * an injection and sandbox-bypass toolkit behind an environment variable. This
+ * is compiled to read the environment only in a developer build, marked by
+ * TUXBLOX_DEV_TOOLS; a release build leaves it returning NULL, so every one of
+ * those knobs reads as unset and the code behind it never runs. */
+const char *tuxblox_dev_getenv( const char *name )
+{
+#ifdef TUXBLOX_DEV_TOOLS
+    return getenv( name );
+#else
+    (void)name;
+    return NULL;
+#endif
+}
+
 static BOOL diag_enabled(void)
 {
     if (diag_enabled_state == -1)
     {
-        const char *v = getenv( "TUXBLOX_DIAG" );
+        const char *v = tuxblox_dev_getenv( "TUXBLOX_DIAG" );
         diag_enabled_state = (v && *v && *v != '0') ? 1 : 0;
     }
     return diag_enabled_state == 1;
@@ -481,7 +502,7 @@ void tuxblox_diag_note_protect( const void *addr, unsigned long size,
         static ULONG64 layer_base;
         char trail[256] = "";
 
-        if (want == -1) want = getenv( "TUXBLOX_DIAG_PROTECT_STACK" ) ? 1 : 0;
+        if (want == -1) want = tuxblox_dev_getenv( "TUXBLOX_DIAG_PROTECT_STACK" ) ? 1 : 0;
         if (want && !layer_base) layer_base = roblox_dll_base();
 
         /* Only for a target outside the layer's own image. The layer protects
@@ -562,7 +583,7 @@ void tuxblox_diag_note_create_file( const OBJECT_ATTRIBUTES *attr, unsigned int 
     char *slot;
     unsigned int i, len = 0;
 
-    if (diag_files_on == -1) diag_files_on = getenv( "TUXBLOX_DIAG_FILES" ) ? 1 : 0;
+    if (diag_files_on == -1) diag_files_on = tuxblox_dev_getenv( "TUXBLOX_DIAG_FILES" ) ? 1 : 0;
     if (!diag_files_on) return;
 
     slot = diag_files[diag_files_pos % DIAG_FILE_RING];
@@ -665,7 +686,7 @@ static void diag_premap( void )
 
     if (done) return;
     done = 1;
-    if (!(v = getenv( "TUXBLOX_DIAG_PREMAP" )) || !*v) return;
+    if (!(v = tuxblox_dev_getenv( "TUXBLOX_DIAG_PREMAP" )) || !*v) return;
     /* "<addr>[,<size>];<addr>[,<size>]..." -- one wild read leads to the next,
      * so the question is how many there are, not where the first one is. */
     while (*v)
@@ -1001,18 +1022,18 @@ BOOL tuxblox_diag_step_arm(void)
     if (!diag_enabled()) return FALSE;
     if (start == -1)
     {
-        const char *v = getenv( "TUXBLOX_DIAG_STEP" );
+        const char *v = tuxblox_dev_getenv( "TUXBLOX_DIAG_STEP" );
 
         start = v ? atoi( v ) : 0;
         diag_step_start = start;
-        if ((v = getenv( "TUXBLOX_DIAG_STEP_MAX" ))) diag_step_limit = atoi( v );
-        if ((v = getenv( "TUXBLOX_DIAG_STEP_STOPRSP" ))) diag_step_stop_rsp = strtoull( v, NULL, 16 );
-        if ((v = getenv( "TUXBLOX_DIAG_STEP_STOPLO" ))) diag_step_stop_lo = strtoull( v, NULL, 16 );
-        if ((v = getenv( "TUXBLOX_DIAG_STEP_STOPHI" ))) diag_step_stop_hi = strtoull( v, NULL, 16 );
-        if ((v = getenv( "TUXBLOX_DIAG_STEP_BELOW" ))) diag_step_below = strtoull( v, NULL, 16 );
-        if ((v = getenv( "TUXBLOX_DIAG_STEP_HOLD" ))) diag_step_hold = atoi( v );
-        if (getenv( "TUXBLOX_DIAG_STEP_NOSTOP" )) diag_step_nostop = TRUE;
-        if ((v = getenv( "TUXBLOX_DIAG_STEP_CAP" ))) diag_step_cap = strtoul( v, NULL, 0 );
+        if ((v = tuxblox_dev_getenv( "TUXBLOX_DIAG_STEP_MAX" ))) diag_step_limit = atoi( v );
+        if ((v = tuxblox_dev_getenv( "TUXBLOX_DIAG_STEP_STOPRSP" ))) diag_step_stop_rsp = strtoull( v, NULL, 16 );
+        if ((v = tuxblox_dev_getenv( "TUXBLOX_DIAG_STEP_STOPLO" ))) diag_step_stop_lo = strtoull( v, NULL, 16 );
+        if ((v = tuxblox_dev_getenv( "TUXBLOX_DIAG_STEP_STOPHI" ))) diag_step_stop_hi = strtoull( v, NULL, 16 );
+        if ((v = tuxblox_dev_getenv( "TUXBLOX_DIAG_STEP_BELOW" ))) diag_step_below = strtoull( v, NULL, 16 );
+        if ((v = tuxblox_dev_getenv( "TUXBLOX_DIAG_STEP_HOLD" ))) diag_step_hold = atoi( v );
+        if (tuxblox_dev_getenv( "TUXBLOX_DIAG_STEP_NOSTOP" )) diag_step_nostop = TRUE;
+        if ((v = tuxblox_dev_getenv( "TUXBLOX_DIAG_STEP_CAP" ))) diag_step_cap = strtoul( v, NULL, 0 );
     }
     /* Armed once only. Re-arming after each system call was tried and is not
      * usable: the layer clears the trap flag itself -- `pushfq; and qword
@@ -1028,7 +1049,7 @@ BOOL tuxblox_diag_step_arm(void)
      * thread. TUXBLOX_DIAG_STEP_TID=<hex>, the id as it appears in the log. */
     if (diag_step_tid == (ULONG)-1)
     {
-        const char *v = getenv( "TUXBLOX_DIAG_STEP_TID" );
+        const char *v = tuxblox_dev_getenv( "TUXBLOX_DIAG_STEP_TID" );
         diag_step_tid = v ? strtoul( v, NULL, 16 ) : 0;
     }
     if (diag_step_tid && GetCurrentThreadId() != diag_step_tid) return FALSE;
@@ -1159,9 +1180,9 @@ BOOL tuxblox_diag_step_watch_hit( ULONG64 rip )
     if (!tuxblox_diag_stepping) return FALSE;
     if (!diag_step_watch_init)
     {
-        const char *v = getenv( "TUXBLOX_DIAG_STEP_REGS" );
+        const char *v = tuxblox_dev_getenv( "TUXBLOX_DIAG_STEP_REGS" );
 
-        const char *stop = getenv( "TUXBLOX_DIAG_STEP_STOP" );
+        const char *stop = tuxblox_dev_getenv( "TUXBLOX_DIAG_STEP_STOP" );
 
         diag_step_watch_init = 1;
         while (v && *v && diag_step_watch_count < DIAG_STEP_WATCH_MAX)
@@ -1483,14 +1504,14 @@ static void diag_dump_steps(void)
     /* A full ring is half a million lines, which is why printing it is opt-in.
      * TUXBLOX_DIAG_STEP_TAIL=<n> asks for the last n instead, which is what a
      * question about one short stretch actually wants. */
-    if ((tail = getenv( "TUXBLOX_DIAG_STEP_TAIL" )))
+    if ((tail = tuxblox_dev_getenv( "TUXBLOX_DIAG_STEP_TAIL" )))
     {
         unsigned int want = atoi( tail );
 
         if (want && want < n) n = want;
     }
     ERR_(seh)( "DIAG steps total=%u, last %u:\n", diag_step_pos, n );
-    if (getenv( "TUXBLOX_DIAG_QUIETSTEPS" )) return;
+    if (tuxblox_dev_getenv( "TUXBLOX_DIAG_QUIETSTEPS" )) return;
     for (i = 0; i < n; i++)
     {
         unsigned int at = (diag_step_pos - n + i) % DIAG_STEPS;
@@ -1603,7 +1624,7 @@ static void diag_region_census( void )
     ULONG64 addr, base;
     SIZE_T len;
 
-    if (!getenv( "TUXBLOX_DIAG_REGIONS" )) return;
+    if (!tuxblox_dev_getenv( "TUXBLOX_DIAG_REGIONS" )) return;
     if (!peb || !peb->ImageBaseAddress) return;
     addr = base = (ULONG64)(ULONG_PTR)peb->ImageBaseAddress;
 
@@ -1672,7 +1693,7 @@ void tuxblox_diag_exception( const EXCEPTION_RECORD *rec, const CONTEXT *context
      * layer's own image at every exception. The tables it calls through are at
      * fixed offsets and hold nothing readable from outside the run. */
     {
-        const char *v = getenv( "TUXBLOX_DIAG_HEX" );
+        const char *v = tuxblox_dev_getenv( "TUXBLOX_DIAG_HEX" );
         ULONG64 base = roblox_dll_base();
 
         while (v && *v && base)
@@ -1727,7 +1748,7 @@ void tuxblox_diag_exception( const EXCEPTION_RECORD *rec, const CONTEXT *context
 void tuxblox_diag_dump_image( const char *why )
 {
     static int done;
-    const char *path = getenv( "TUXBLOX_DIAG_DUMP" );
+    const char *path = tuxblox_dev_getenv( "TUXBLOX_DIAG_DUMP" );
     char maps_path[512], line[512], page[0x1000];
     FILE *maps;
     int mem, out, idx;
@@ -1803,7 +1824,7 @@ void tuxblox_diag_snapshot( ULONG64 *regs, ULONG64 rip, int bp_orig, LONG64 rsp_
                             ULONG64 eflags, const void *xmm )
 {
     static int done;
-    const char *path = getenv( "TUXBLOX_DIAG_SNAPSHOT" );
+    const char *path = tuxblox_dev_getenv( "TUXBLOX_DIAG_SNAPSHOT" );
     static char mapbuf[512 * 1024];
     static unsigned long long snap_range_max;
     char page[0x1000];
@@ -1817,7 +1838,7 @@ void tuxblox_diag_snapshot( ULONG64 *regs, ULONG64 rip, int bp_orig, LONG64 rsp_
     if (!path || !*path || done) return;
     done = 1;
     {
-        const char *mb = getenv( "TUXBLOX_DIAG_SNAP_MAXMB" );
+        const char *mb = tuxblox_dev_getenv( "TUXBLOX_DIAG_SNAP_MAXMB" );
         snap_range_max = (mb && atoi( mb ) > 0 ? (unsigned long long)atoi( mb ) : 64) << 20;
     }
 
@@ -1915,7 +1936,7 @@ void tuxblox_diag_stack_exec( const EXCEPTION_RECORD *rec, const CONTEXT *contex
 
     if (enabled == -1)
     {
-        const char *v = getenv( "TUXBLOX_DIAG" );
+        const char *v = tuxblox_dev_getenv( "TUXBLOX_DIAG" );
         enabled = (v && *v && *v != '0') ? 1 : 0;
     }
     if (!enabled || done >= 4) return;
@@ -1998,7 +2019,7 @@ static void diag_watch_init(void)
 
     if (done) return;
     done = 1;
-    if (!(v = getenv( "TUXBLOX_DIAG_WATCH" ))) return;
+    if (!(v = tuxblox_dev_getenv( "TUXBLOX_DIAG_WATCH" ))) return;
     while (*v && diag_watch_count < DIAG_WATCH_MAX)
     {
         char *end;
@@ -2245,7 +2266,7 @@ void tuxblox_diag_dump_keys( ULONG64 rip, ULONG64 rsp )
     const char *v;
     unsigned int i;
 
-    if (!diag_enabled() || done || !(v = getenv( "TUXBLOX_DIAG_KEYS" ))) return;
+    if (!diag_enabled() || done || !(v = tuxblox_dev_getenv( "TUXBLOX_DIAG_KEYS" ))) return;
     if (diag_ring_pos < (unsigned int)atoi( v )) return;
     if (!(base = roblox_dll_base())) return;
     /* only a call from inside the flattened function, where rbp is known */
@@ -2274,7 +2295,7 @@ void tuxblox_diag_dump_ldr( void )
     unsigned int n = 0;
     const char *v;
 
-    if (!diag_enabled() || done || !(v = getenv( "TUXBLOX_DIAG_LDR" ))) return;
+    if (!diag_enabled() || done || !(v = tuxblox_dev_getenv( "TUXBLOX_DIAG_LDR" ))) return;
     /* Late enough that the process has finished loading. The first raw system
      * call of a process has only its own image in the list, which is not the
      * question. TUXBLOX_DIAG_LDR=<n> is that threshold. */
@@ -2361,7 +2382,7 @@ void tuxblox_diag_wpage_arm( void )
     if (!diag_enabled()) return;
     if (!wpage_parsed)
     {
-        const char *v = getenv( "TUXBLOX_DIAG_WPAGE" );
+        const char *v = tuxblox_dev_getenv( "TUXBLOX_DIAG_WPAGE" );
 
         wpage_parsed = 1;
         while (v && *v && wpage_count < WPAGE_MAX)
@@ -2373,18 +2394,27 @@ void tuxblox_diag_wpage_arm( void )
             wpage_addr[wpage_count++] = off;
             v = (*end == ',') ? end + 1 : end;
         }
-        if ((v = getenv( "TUXBLOX_DIAG_WPAGE_MAX" ))) wpage_hit_max = atoi( v );
+        if ((v = tuxblox_dev_getenv( "TUXBLOX_DIAG_WPAGE_MAX" ))) wpage_hit_max = atoi( v );
         else wpage_hit_max = 64;
     }
     if (!wpage_count || wpage_hits >= wpage_hit_max) return;
-    if (!(base = roblox_dll_base())) return;
+    /* An absolute address arms as soon as its page exists. Waiting for the
+     * layer's base means waiting for its module to be found, and the layer
+     * writes some of its own globals before that -- so a watch on one of
+     * those never sees the write it was set for. A layer-relative address
+     * still has to wait, because there is nothing to add to it yet. */
+    base = roblox_dll_base();
 
     for (i = 0; i < wpage_count; i++)
     {
         ULONG64 page;
 
         if (wpage_armed[i]) continue;
-        if (wpage_addr[i] < 0x100000000ull) wpage_addr[i] += base;
+        if (wpage_addr[i] < 0x100000000ull)
+        {
+            if (!base) continue;
+            wpage_addr[i] += base;
+        }
         page = wpage_addr[i] & ~(ULONG64)(page_size - 1);
         if (!wpage_prot[i] && (wpage_prot[i] = wpage_prot_of( page )) <= 0)
         {
@@ -2454,13 +2484,13 @@ static void swatch_parse( void )
      * init before the environment is populated, and caching that miss would
      * disable the watch for the whole run. */
     if (swatch_parsed || swatch_addr) return;
-    if (!(v = getenv( "TUXBLOX_DIAG_SWATCH" )) || !(swatch_addr = strtoull( v, NULL, 16 )))
+    if (!(v = tuxblox_dev_getenv( "TUXBLOX_DIAG_SWATCH" )) || !(swatch_addr = strtoull( v, NULL, 16 )))
         return;
     swatch_parsed = 1;
-    if ((v = getenv( "TUXBLOX_DIAG_SWATCH_MAX" ))) swatch_hit_max = atoi( v );
+    if ((v = tuxblox_dev_getenv( "TUXBLOX_DIAG_SWATCH_MAX" ))) swatch_hit_max = atoi( v );
     else swatch_hit_max = 200;
     /* with no breakpoint to start it, watch from the first syscall */
-    if (!getenv( "TUXBLOX_DIAG_BP" )) swatch_started = 1;
+    if (!tuxblox_dev_getenv( "TUXBLOX_DIAG_BP" )) swatch_started = 1;
     ERR_(seh)( "DIAG swatch parse: addr=0x%llx started=%d\n",
                (unsigned long long)swatch_addr, swatch_started );
 }
@@ -2666,16 +2696,16 @@ void tuxblox_diag_xpage_arm( void )
     if (!diag_enabled() || xpage_on) return;
     if (!xpage_parsed)
     {
-        const char *v = getenv( "TUXBLOX_DIAG_XPAGE" );
+        const char *v = tuxblox_dev_getenv( "TUXBLOX_DIAG_XPAGE" );
 
         xpage_parsed = 1;
         if (!v || !*v) return;
-        if ((v = getenv( "TUXBLOX_DIAG_XPAGE_AT" ))) xpage_start = atoi( v );
+        if ((v = tuxblox_dev_getenv( "TUXBLOX_DIAG_XPAGE_AT" ))) xpage_start = atoi( v );
         /* The raw system-call count is not the number anything else in the log
          * is indexed by. TUXBLOX_DIAG_XPAGE_SEQ arms at a trace record instead,
          * which is how a window worth tracing is actually identified. */
-        if ((v = getenv( "TUXBLOX_DIAG_XPAGE_SEQ" ))) xpage_start_seq = atoi( v );
-        v = getenv( "TUXBLOX_DIAG_XPAGE_REGS_AT" );
+        if ((v = tuxblox_dev_getenv( "TUXBLOX_DIAG_XPAGE_SEQ" ))) xpage_start_seq = atoi( v );
+        v = tuxblox_dev_getenv( "TUXBLOX_DIAG_XPAGE_REGS_AT" );
         while (v && *v && xpage_regs_at_n < XPAGE_REGS_AT_MAX)
         {
             char *end;
@@ -2685,13 +2715,13 @@ void tuxblox_diag_xpage_arm( void )
             xpage_regs_at[xpage_regs_at_n++] = off;
             v = (*end == ',') ? end + 1 : end;
         }
-        if ((v = getenv( "TUXBLOX_DIAG_XPAGE_LIVE" )))
+        if ((v = tuxblox_dev_getenv( "TUXBLOX_DIAG_XPAGE_LIVE" )))
         {
             xpage_live_n = atoi( v );
             if (xpage_live_n < 2) xpage_live_n = 2;
             if (xpage_live_n > XPAGE_LIVE) xpage_live_n = XPAGE_LIVE;
         }
-        if ((v = getenv( "TUXBLOX_DIAG_XPAGE_MAX" ))) xpage_max = atoi( v );
+        if ((v = tuxblox_dev_getenv( "TUXBLOX_DIAG_XPAGE_MAX" ))) xpage_max = atoi( v );
         else xpage_max = 200000;
     }
     if (!xpage_max) return;                       /* not asked for */
@@ -2704,7 +2734,7 @@ void tuxblox_diag_xpage_arm( void )
      * address does not move. */
     if (!xpage_bp_seen)
     {
-        const char *v = getenv( "TUXBLOX_DIAG_XPAGE_BP" );
+        const char *v = tuxblox_dev_getenv( "TUXBLOX_DIAG_XPAGE_BP" );
 
         if (v && *v && *v != '0') return;
     }
@@ -2754,7 +2784,7 @@ void tuxblox_diag_rpage_arm( void )
     if (!diag_enabled()) return;
     if (!rpage_parsed)
     {
-        const char *v = getenv( "TUXBLOX_DIAG_RPAGE" );
+        const char *v = tuxblox_dev_getenv( "TUXBLOX_DIAG_RPAGE" );
         char *end;
 
         rpage_parsed = 1;
@@ -2777,8 +2807,8 @@ void tuxblox_diag_rpage_arm( void )
             rpage_lo += base;
             rpage_hi += base;
         }
-        if ((v = getenv( "TUXBLOX_DIAG_RPAGE_SEQ" ))) rpage_start_seq = atoi( v );
-        if ((v = getenv( "TUXBLOX_DIAG_RPAGE_MAX" ))) rpage_max = atoi( v );
+        if ((v = tuxblox_dev_getenv( "TUXBLOX_DIAG_RPAGE_SEQ" ))) rpage_start_seq = atoi( v );
+        if ((v = tuxblox_dev_getenv( "TUXBLOX_DIAG_RPAGE_MAX" ))) rpage_max = atoi( v );
         else rpage_max = 4096;
     }
     if (!rpage_lo || !rpage_max || rpage_events >= rpage_max) return;
@@ -2788,7 +2818,7 @@ void tuxblox_diag_rpage_arm( void )
      * in this run twice. */
     if (!xpage_bp_seen)
     {
-        const char *v = getenv( "TUXBLOX_DIAG_RPAGE_BP" );
+        const char *v = tuxblox_dev_getenv( "TUXBLOX_DIAG_RPAGE_BP" );
 
         if (v && *v && *v != '0') return;
     }
@@ -2955,7 +2985,7 @@ static void diag_bp_arm(void)
 
     if (!diag_bp_parsed)
     {
-        const char *v = getenv( "TUXBLOX_DIAG_BP" );
+        const char *v = tuxblox_dev_getenv( "TUXBLOX_DIAG_BP" );
 
         diag_bp_parsed = 1;
         while (v && *v && diag_bp_count < DIAG_BP_MAX)
@@ -2981,7 +3011,7 @@ static void diag_bp_arm(void)
             if (addr) diag_bp_addr[diag_bp_count++] = addr;
         }
         diag_bp_pending = diag_bp_count;
-        v = getenv( "TUXBLOX_DIAG_BP_MAX" );
+        v = tuxblox_dev_getenv( "TUXBLOX_DIAG_BP_MAX" );
         diag_bp_max_hits = v ? atoi( v ) : 8;
     }
     if (!diag_bp_pending) return;
@@ -3075,7 +3105,7 @@ static void diag_bp_slots_parse(void)
 
     if (diag_bp_slots_parsed) return;
     diag_bp_slots_parsed = 1;
-    if (!(v = getenv( "TUXBLOX_DIAG_BP_SLOTS" ))) return;
+    if (!(v = tuxblox_dev_getenv( "TUXBLOX_DIAG_BP_SLOTS" ))) return;
     while (*v && diag_bp_slot_count < DIAG_BP_SLOT_MAX)
     {
         char *end;
@@ -3146,7 +3176,7 @@ static void diag_bp_poke_parse(void)
 
     if (diag_bp_poke_parsed) return;
     diag_bp_poke_parsed = 1;
-    if (!(v = getenv( "TUXBLOX_DIAG_BP_POKE" ))) return;
+    if (!(v = tuxblox_dev_getenv( "TUXBLOX_DIAG_BP_POKE" ))) return;
     while (*v && diag_bp_poke_count < DIAG_BP_POKE_MAX)
     {
         char *end;
@@ -3224,7 +3254,7 @@ static void diag_save_apply( void )
     ssize_t got;
 
     if (done) return;
-    if (!(v = getenv( "TUXBLOX_DIAG_SAVE" )) || !*v) { done = 1; return; }
+    if (!(v = tuxblox_dev_getenv( "TUXBLOX_DIAG_SAVE" )) || !*v) { done = 1; return; }
     done = 1;
 
     addr = strtoull( v, &end, 16 );
@@ -3256,6 +3286,11 @@ static void diag_save_apply( void )
  * at the first breakpoint hit. The write goes through /proc/self/mem, so a
  * read-only page needs no protection change and the mapping is left alone --
  * a protection change is itself something the layer can notice.
+ *
+ * Several are written by separating them with ";". One patch is rarely a test
+ * on its own: reaching the place a theory is about needs its own patch, and
+ * supplying both from one breakpoint is what keeps the register overrides free
+ * for something else.
  */
 static void diag_layer_blob_apply( void )
 {
@@ -3263,34 +3298,42 @@ static void diag_layer_blob_apply( void )
     static unsigned char buf[0x8000];
     static int done;
     char path[512];
-    const char *v, *at;
+    const char *v;
     ULONG64 base;
-    ssize_t got;
-    int fd;
 
     if (done) return;
-    if (!(v = getenv( "TUXBLOX_TEST_LAYER_BLOB" )) || !*v) { done = 1; return; }
+    if (!(v = tuxblox_dev_getenv( "TUXBLOX_TEST_LAYER_BLOB" )) || !*v) { done = 1; return; }
     if (!(base = roblox_dll_base())) return;     /* retry at the next hit */
     done = 1;
 
-    if (!(at = strrchr( v, '@' )) || (size_t)(at - v) >= sizeof(path)) return;
-    memcpy( path, v, at - v );
-    path[at - v] = 0;
-
-    if ((fd = open( path, O_RDONLY )) == -1)
+    while (*v)
     {
-        ERR_(seh)( "DIAG blob: cannot open %s\n", path );
-        return;
-    }
-    got = read( fd, buf, sizeof(buf) );
-    close( fd );
-    if (got <= 0) return;
+        const char *at = strchr( v, '@' );
+        ULONG64 off;
+        char *end;
+        ssize_t got;
+        int fd;
 
-    if ((fd = open( "/proc/self/mem", O_RDWR )) == -1) return;
-    got = pwrite( fd, buf, got, (off_t)(base + strtoull( at + 1, NULL, 16 )) );
-    close( fd );
-    ERR_(seh)( "DIAG blob: %zd bytes -> layer+0x%llx\n", got,
-               strtoull( at + 1, NULL, 16 ) );
+        if (!at || (size_t)(at - v) >= sizeof(path)) return;
+        memcpy( path, v, at - v );
+        path[at - v] = 0;
+        off = strtoull( at + 1, &end, 16 );
+        v = (*end == ';') ? end + 1 : end;
+
+        if ((fd = open( path, O_RDONLY )) == -1)
+        {
+            ERR_(seh)( "DIAG blob: cannot open %s\n", path );
+            continue;
+        }
+        got = read( fd, buf, sizeof(buf) );
+        close( fd );
+        if (got <= 0) continue;
+
+        if ((fd = open( "/proc/self/mem", O_RDWR )) == -1) return;
+        got = pwrite( fd, buf, got, (off_t)(base + off) );
+        close( fd );
+        ERR_(seh)( "DIAG blob: %zd bytes -> layer+0x%llx\n", got, (unsigned long long)off );
+    }
 }
 
 /* Registers to SET at a breakpoint, from TUXBLOX_DIAG_BP_SETREG.
@@ -3317,7 +3360,7 @@ static void diag_bp_setreg_parse(void)
 
     if (diag_bp_setreg_parsed) return;
     diag_bp_setreg_parsed = 1;
-    if (!(v = getenv( "TUXBLOX_DIAG_BP_SETREG" ))) return;
+    if (!(v = tuxblox_dev_getenv( "TUXBLOX_DIAG_BP_SETREG" ))) return;
     while (*v && diag_bp_setreg_count < DIAG_BP_SETREG_MAX)
     {
         unsigned int r;
@@ -3384,7 +3427,7 @@ static void diag_bp_setrip_arm(void)
 {
     if (!diag_bp_setrip_parsed)
     {
-        const char *v = getenv( "TUXBLOX_DIAG_BP_SETRIP" );
+        const char *v = tuxblox_dev_getenv( "TUXBLOX_DIAG_BP_SETRIP" );
         ULONG64 base = roblox_dll_base();
 
         diag_bp_setrip_parsed = 1;
@@ -3429,7 +3472,7 @@ static void diag_step_at_check( ULONG64 addr )
 {
     if (!diag_step_at_parsed)
     {
-        const char *v = getenv( "TUXBLOX_DIAG_STEP_AT" );
+        const char *v = tuxblox_dev_getenv( "TUXBLOX_DIAG_STEP_AT" );
         ULONG64 base = roblox_dll_base();
         char *end;
 
@@ -3479,7 +3522,7 @@ static void diag_bp_frame_print( const ULONG64 *regs, unsigned int hit )
         static const char * const regnames[16] = { "rax", "rbx", "rcx", "rdx", "rsi", "rdi", "rbp",
                                                    "rsp", "r8", "r9", "r10", "r11", "r12", "r13",
                                                    "r14", "r15" };
-        const char *v = getenv( "TUXBLOX_DIAG_BP_FRAME" );
+        const char *v = tuxblox_dev_getenv( "TUXBLOX_DIAG_BP_FRAME" );
         unsigned int r;
         char *end;
 
@@ -3547,7 +3590,7 @@ BOOL tuxblox_diag_bp_hit( ULONG64 rip, ULONG64 *regs, LONG64 *rsp_delta )
 
             if (!from_parsed)
             {
-                const char *v = getenv( "TUXBLOX_DIAG_BP_FROM" );
+                const char *v = tuxblox_dev_getenv( "TUXBLOX_DIAG_BP_FROM" );
 
                 from_parsed = 1;
                 from_hit = v ? atoi( v ) : 0;
@@ -3832,21 +3875,21 @@ void tuxblox_diag_align( ULONG64 rip, ULONG64 rsp, ULONG64 rbp, ULONG64 addr, BO
 
     if (enabled == -1)
     {
-        const char *v = getenv( "TUXBLOX_DIAG" );
+        const char *v = tuxblox_dev_getenv( "TUXBLOX_DIAG" );
         enabled = (v && *v && *v != '0') ? 1 : 0;
-        log_all = getenv( "TUXBLOX_DIAG_ALIGN_ALL" ) ? 1 : 0;
+        log_all = tuxblox_dev_getenv( "TUXBLOX_DIAG_ALIGN_ALL" ) ? 1 : 0;
         /* Which fault to photograph the decrypted code at. Two million lands in
          * the middle of the hashing loop, which is where it was first wanted;
          * a small number catches the layer's first misaligned frame instead,
          * seconds into a run rather than minutes. */
-        v = getenv( "TUXBLOX_DIAG_DUMP_AT" );
+        v = tuxblox_dev_getenv( "TUXBLOX_DIAG_DUMP_AT" );
         dump_at = v ? atoi( v ) : 2000000;
-        v = getenv( "TUXBLOX_DIAG_WATCH" );
+        v = tuxblox_dev_getenv( "TUXBLOX_DIAG_WATCH" );
         watch = v ? strtoull( v, NULL, 0 ) : 0;
         /* Which site to photograph the stack at, as an offset in its image.
          * The first-eight dump catches the start of a run; this catches one
          * named instruction wherever in the run it faults. */
-        v = getenv( "TUXBLOX_DIAG_ALIGN_STACK_AT" );
+        v = tuxblox_dev_getenv( "TUXBLOX_DIAG_ALIGN_STACK_AT" );
         stack_at = v ? strtoull( v, NULL, 16 ) : 0;
         /* The layer's own code is only readable once it has decrypted itself,
          * and by the first of these faults it has. */
@@ -4180,7 +4223,7 @@ static void tuxblox_diag_sysout( unsigned int id, ULONG_PTR retval )
     if (fd == -1) return;
     if (fd == -2)
     {
-        const char *path = getenv( "TUXBLOX_DIAG_SYSOUT" );
+        const char *path = tuxblox_dev_getenv( "TUXBLOX_DIAG_SYSOUT" );
 
         fd = -1;
         if (!path || !*path) return;
@@ -4227,6 +4270,11 @@ void tuxblox_trace_syscall_args( unsigned int id, const ULONG_PTR *args, ULONG l
     if (!tuxblox_trace_enabled()) return;
 
     arm_watch();  /* once, guarded; arm the field watchpoints early */
+    /* The page watch is otherwise armed from the layer's own system calls,
+     * which is too late for a global the layer writes while it initialises.
+     * This runs on every call, so an absolute address is watched from the
+     * first one the process makes. */
+    tuxblox_diag_wpage_arm();
 
     if (!trace_calls_enabled()) return;
 
@@ -4234,8 +4282,15 @@ void tuxblox_trace_syscall_args( unsigned int id, const ULONG_PTR *args, ULONG l
     len /= sizeof(ULONG_PTR);
     sysout_argc = len < 4 ? len : 4;
     { unsigned int i; for (i = 0; i < sysout_argc; i++) sysout_args[i] = args[i]; }
-    TRACE_(tuxblox)( "CALL name=%s rip=0x%llx a0=0x%llx a1=0x%llx a2=0x%llx a3=0x%llx\n",
+    /* The caller's stack pointer. Its 16-byte residue is the alignment, and a
+     * site that reports both residues over a run brackets the moment the
+     * caller's frame went eight bytes out -- the difference between this build
+     * and Windows on the Player's main thread. The whole value is logged and
+     * not just the residue because the layer runs on stacks it allocates
+     * itself, and one of those being misaligned means nothing. */
+    TRACE_(tuxblox)( "CALL name=%s rip=0x%llx sp=0x%llx a0=0x%llx a1=0x%llx a2=0x%llx a3=0x%llx\n",
                      name ? name : "?", (unsigned long long)get_syscall_caller_pc(),
+                     (unsigned long long)get_syscall_caller_sp(),
                      (unsigned long long)(len > 0 ? args[0] : 0),
                      (unsigned long long)(len > 1 ? args[1] : 0),
                      (unsigned long long)(len > 2 ? args[2] : 0),
@@ -4253,6 +4308,43 @@ void tuxblox_trace_syscall_args( unsigned int id, const ULONG_PTR *args, ULONG l
  * is exactly the state the snapshot records -- so the emulator picks the run up
  * mid-flattening and reads the branch that follows as a plain linear trace.
  */
+/* TUXBLOX_DIAG_SNAP_AFTER_MAPSIZE=<hex size>: hold the snapshot anchor closed
+ * until a view of exactly that size has been mapped.
+ *
+ * Ordinals are not usable on their own here. The module walk visits a different
+ * number of modules from run to run, so "the 23rd time this site is reached" was
+ * a different module in three runs out of three, and a snapshot taken that way
+ * photographs the wrong iteration. The size of the mapped view names the module
+ * instead, and the game's own executable is the only 0x8594000 one. */
+static int snap_gate_wanted, snap_gate_open, snap_gate_nth = 1, snap_gate_seen;
+static ULONG64 snap_gate_size;
+
+void tuxblox_diag_snap_note_map( ULONG64 size )
+{
+    if (!snap_gate_wanted)
+    {
+        const char *v = tuxblox_dev_getenv( "TUXBLOX_DIAG_SNAP_AFTER_MAPSIZE" );
+
+        snap_gate_wanted = 1;
+        if (v && *v)
+        {
+            char *end;
+
+            snap_gate_size = strtoull( v, &end, 16 );
+            if (*end == ',') snap_gate_nth = atoi( end + 1 );
+        }
+    }
+    if (!snap_gate_size || snap_gate_open || size != snap_gate_size) return;
+    /* The same view size can be mapped more than once -- the Player maps its own
+     * executable to hash it long before the module walk maps it again -- so the
+     * count says which of them to wait for. */
+    if (++snap_gate_seen != snap_gate_nth) return;
+    snap_gate_open = 1;
+    ERR_(seh)( "DIAG snapshot: gate opened by view #%d of %#llx\n",
+               snap_gate_seen, (unsigned long long)size );
+}
+
+
 static void diag_snap_sysret( unsigned int id, ULONG_PTR retval )
 {
 #ifdef __x86_64__
@@ -4269,21 +4361,24 @@ static void diag_snap_sysret( unsigned int id, ULONG_PTR retval )
         char *end;
 
         parsed = 1;
-        if ((v = getenv( "TUXBLOX_DIAG_SNAP_SYSRVA" )) && *v)
+        if ((v = tuxblox_dev_getenv( "TUXBLOX_DIAG_SNAP_SYSRVA" )) && *v)
         {
             want_rva = strtoull( v, &end, 16 );
             if (*end == ',') want_nth = atoi( end + 1 );
         }
-        if ((v = getenv( "TUXBLOX_DIAG_SNAP_SYSN" )) && *v) want_n = atoi( v );
-        if ((v = getenv( "TUXBLOX_DIAG_SNAP_SYSID" )) && *v)
+        if ((v = tuxblox_dev_getenv( "TUXBLOX_DIAG_SNAP_SYSN" )) && *v) want_n = atoi( v );
+        if ((v = tuxblox_dev_getenv( "TUXBLOX_DIAG_SNAP_SYSID" )) && *v)
         {
             want_id = strtoul( v, &end, 0 );
             if (*end == ',') want_nth = atoi( end + 1 );
         }
-        if ((v = getenv( "TUXBLOX_DIAG_SNAP_STOP" ))) stop_after = atoi( v );
+        if ((v = tuxblox_dev_getenv( "TUXBLOX_DIAG_SNAP_STOP" ))) stop_after = atoi( v );
         left = stop_after;
     }
     if (!want_rva && want_n < 0 && !want_id) return;
+    /* Nothing counts until the gate opens, so the ordinal is counted within the
+     * iteration the caller asked for rather than across the whole walk. */
+    if (snap_gate_size && !snap_gate_open) return;
     calls++;
 
     /* TUXBLOX_DIAG_SNAP_STOP=<n>: leave n calls after the anchor. Everything the
@@ -4796,7 +4891,7 @@ static BOOL diag_class_enabled(void)
 {
     if (diag_class_state == -1)
     {
-        const char *v = getenv( "TUXBLOX_DIAG_TOKEN" );
+        const char *v = tuxblox_dev_getenv( "TUXBLOX_DIAG_TOKEN" );
         diag_class_state = (v && *v && *v != '0') ? 1 : 0;
     }
     return diag_class_state == 1;

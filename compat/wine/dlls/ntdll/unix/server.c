@@ -1969,7 +1969,7 @@ NTSTATUS WINAPI NtClose( HANDLE handle )
 
         if (pseudo == -1)
         {
-            const char *v = getenv( "TUXBLOX_TEST_CLOSE_PSEUDO" );
+            const char *v = tuxblox_dev_getenv( "TUXBLOX_TEST_CLOSE_PSEUDO" );
             pseudo = v ? atoi( v ) : 0;
         }
         if (pseudo && HandleToLong( handle ) >= -pseudo && HandleToLong( handle ) <= ~0)

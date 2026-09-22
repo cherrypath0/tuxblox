@@ -1487,6 +1487,7 @@ static const unixlib_entry_t unix_call_funcs[] =
     debugstr_pc,
     unixcall_compat_wine_nt_to_unix_file_name,
     unixcall_relocate_module,
+    wine_version_info,
 };
 
 
@@ -1596,6 +1597,7 @@ const unixlib_entry_t unix_call_wow64_funcs[] =
     wow64_debugstr_pc,
     wow64_compat_wine_nt_to_unix_file_name,
     wow64_relocate_module,
+    wine_version_info,
 };
 
 #endif  /* _WIN64 */

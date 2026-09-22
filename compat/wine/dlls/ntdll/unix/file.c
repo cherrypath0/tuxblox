@@ -2000,6 +2000,32 @@ static inline void get_file_times( const struct stat *st, LARGE_INTEGER *mtime, 
 }
 
 
+/* How much room the file takes on disk, the way NTFS accounts for it.
+ *
+ * NTFS charges a file whole clusters, so an ordinary file's allocation size is
+ * its length rounded up. st_blocks is what the filesystem actually billed, which
+ * on ext4 and btrfs includes the extent tree, so a large file used to read back
+ * one block larger than it does on Windows -- a 140 MB executable reported
+ * 0x8595000 here against 0x8594000 there.
+ *
+ * Taking the smaller of the two keeps the cases where a file really does occupy
+ * less than its length, which are the cases Windows also reports small: a sparse
+ * file, and a file short enough that the filesystem kept it in the inode, which
+ * NTFS likewise reports as zero because it keeps such a file resident.
+ *
+ * TUXBLOX_NO_ALLOCSIZE_FIX restores the raw st_blocks answer for comparison. */
+static ULONGLONG file_allocation_size( const struct stat *st )
+{
+    static int raw_blocks = -1;
+    ULONGLONG charged = (ULONGLONG)st->st_blocks * 512;
+    ULONGLONG clusters = ((ULONGLONG)st->st_size + 4095) & ~(ULONGLONG)4095;
+
+    if (raw_blocks == -1) raw_blocks = tuxblox_dev_getenv( "TUXBLOX_NO_ALLOCSIZE_FIX" ) ? 1 : 0;
+    if (raw_blocks) return charged;
+    return charged < clusters ? charged : clusters;
+}
+
+
 /* fill in the file information that depends on the stat and attribute info */
 static NTSTATUS fill_file_info( const struct stat *st, ULONG attr, void *ptr,
                                 FILE_INFORMATION_CLASS class )
@@ -2027,7 +2053,7 @@ static NTSTATUS fill_file_info( const struct stat *st, ULONG attr, void *ptr,
             }
             else
             {
-                info->AllocationSize.QuadPart = (ULONGLONG)st->st_blocks * 512;
+                info->AllocationSize.QuadPart = file_allocation_size( st );
                 info->EndOfFile.QuadPart      = st->st_size;
                 info->NumberOfLinks           = st->st_nlink;
             }
@@ -2066,7 +2092,7 @@ static NTSTATUS fill_file_info( const struct stat *st, ULONG attr, void *ptr,
             }
             else
             {
-                info->AllocationSize.QuadPart = (ULONGLONG)st->st_blocks * 512;
+                info->AllocationSize.QuadPart = file_allocation_size( st );
                 info->EndOfFile.QuadPart      = st->st_size;
             }
         }
@@ -2087,7 +2113,7 @@ static NTSTATUS fill_file_info( const struct stat *st, ULONG attr, void *ptr,
             }
             else
             {
-                info->AllocationSize.QuadPart = (ULONGLONG)st->st_blocks * 512;
+                info->AllocationSize.QuadPart = file_allocation_size( st );
                 info->EndOfFile.QuadPart      = st->st_size;
             }
             info->FileAttributes = attr;
@@ -4719,7 +4745,7 @@ static BOOL host_path_allowed( const char *unix_name )
     char resolved[PATH_MAX];
     unsigned int i;
 
-    if (getenv( "TUXBLOX_HOST_FILES" )) return TRUE;
+    if (tuxblox_dev_getenv( "TUXBLOX_HOST_FILES" )) return TRUE;
     if (!resolve_host_path( unix_name, resolved )) return FALSE;
     unix_name = resolved;
 

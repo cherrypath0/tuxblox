@@ -3281,7 +3281,7 @@ static void diag_rename_gnu_sections( IMAGE_NT_HEADERS *nt )
 
     if (want == -1)
     {
-        const char *v = getenv( "TUXBLOX_DIAG_SECNAMES" );
+        const char *v = tuxblox_dev_getenv( "TUXBLOX_DIAG_SECNAMES" );
         want = (v && *v && *v != '0') ? 1 : 0;
     }
     if (!want) return;
@@ -3605,7 +3605,7 @@ static unsigned int get_mapping_info( HANDLE handle, ACCESS_MASK access, unsigne
 static void *pick_dynamic_image_base( SIZE_T size, ULONG_PTR limit_low, ULONG_PTR limit_high )
 {
     UINT64 low = 0x00007ff600000000ull, high = 0x00007ff800000000ull, slots, rnd;
-    const char *test = getenv( "TUXBLOX_TEST_IMAGE_BASE" );
+    const char *test = tuxblox_dev_getenv( "TUXBLOX_TEST_IMAGE_BASE" );
 
     /* Diagnostic only. The protection layer scans memory upwards for the first
      * image and stops at it; on Windows nothing is mapped between 4 GB and the
@@ -4851,7 +4851,7 @@ static SIZE_T lazy_stack_commit(void)
 
     if (cached == ~(SIZE_T)0)
     {
-        const char *v = getenv( "TUXBLOX_TEST_LAZY_STACK" );
+        const char *v = tuxblox_dev_getenv( "TUXBLOX_TEST_LAZY_STACK" );
 
         if (!v || !*v || *v == '0') cached = 0;
         else
@@ -5173,7 +5173,7 @@ void virtual_init_user_shared_data(void)
      * ever been given picks the same clone arm. TUXBLOX_TEST_BOOTID=<n> picks
      * another one. */
     {
-        const char *v = getenv( "TUXBLOX_TEST_BOOTID" );
+        const char *v = tuxblox_dev_getenv( "TUXBLOX_TEST_BOOTID" );
         if (v && *v) data->BootId = atoi( v );
     }
     /* When the current time-zone bias took effect. Windows fills a real
@@ -5916,7 +5916,7 @@ NTSTATUS virtual_bind_client_imports( ULONG_PTR image_base )
     sigset_t sigset;
     FILE *fh;
 
-    if (!(path = getenv( "TUXBLOX_TEST_BIND_CLIENT" ))) return STATUS_NOT_FOUND;
+    if (!(path = tuxblox_dev_getenv( "TUXBLOX_TEST_BIND_CLIENT" ))) return STATUS_NOT_FOUND;
     if (!(fh = fopen( path, "r" ))) return STATUS_NOT_FOUND;
 
     server_enter_uninterrupted_section( &virtual_mutex, &sigset );
@@ -5961,7 +5961,7 @@ NTSTATUS virtual_inject_client_text( ULONG_PTR image_base )
 
         if (tried) return STATUS_NOT_FOUND;
         tried = 1;
-        if (!(path = getenv( "TUXBLOX_TEST_INJECT_CLIENT" ))) return STATUS_NOT_FOUND;
+        if (!(path = tuxblox_dev_getenv( "TUXBLOX_TEST_INJECT_CLIENT" ))) return STATUS_NOT_FOUND;
         if ((fd = open( path, O_RDONLY )) < 0) return STATUS_NOT_FOUND;
         if (!fstat( fd, &st ) && st.st_size > 0)
         {
@@ -6928,7 +6928,7 @@ static BOOL fake_client_region( const void *addr, MEMORY_BASIC_INFORMATION *info
     ULONG_PTR base, off;
     unsigned int i;
 
-    if (enabled == -1) enabled = getenv( "TUXBLOX_TEST_IMAGE_REGIONS" ) ? 1 : 0;
+    if (enabled == -1) enabled = tuxblox_dev_getenv( "TUXBLOX_TEST_IMAGE_REGIONS" ) ? 1 : 0;
     if (!enabled || !peb) return FALSE;
     base = (ULONG_PTR)peb->ImageBaseAddress;
     if (!base || (ULONG_PTR)addr < base) return FALSE;
@@ -7376,7 +7376,7 @@ static NTSTATUS get_working_set_ex( HANDLE process, LPCVOID addr,
         static const char *test;
         static int parsed;
 
-        if (!parsed) { parsed = 1; test = getenv( "TUXBLOX_TEST_WSEX" ); }
+        if (!parsed) { parsed = 1; test = tuxblox_dev_getenv( "TUXBLOX_TEST_WSEX" ); }
         if (test) for (i = 0; i < count; i++)
         {
             if (!strcmp( test, "invalid" )) info[i].VirtualAttributes.Flags = 0;
@@ -7864,6 +7864,7 @@ NTSTATUS WINAPI NtMapViewOfSection( HANDLE handle, HANDLE process, PVOID *addr_p
         NTSTATUS status = virtual_map_section( handle, addr_ptr, 0, get_zero_bits_limit( zero_bits ),
                                                commit_size, offset_ptr, size_ptr, alloc_type, protect, 0 );
 
+        if (!status) tuxblox_diag_snap_note_map( (ULONG64)*size_ptr );
         if (tuxblox_trace_enabled())
         {
             char detail[160];

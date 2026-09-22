@@ -130,6 +130,7 @@ enum ntdll_unix_funcs
     unix_debugstr_pc,
     unix_compat_wine_nt_to_unix_file_name,
     unix_relocate_module,
+    unix_wine_version,
 };
 
 extern unixlib_handle_t __wine_unixlib_handle;

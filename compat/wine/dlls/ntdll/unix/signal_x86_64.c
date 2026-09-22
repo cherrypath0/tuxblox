@@ -1840,7 +1840,7 @@ static void setup_raise_exception( ucontext_t *sigcontext, EXCEPTION_RECORD *rec
      * instruction, which succeeds if F decrypted it. Reconnaissance: a wrong arg
      * faults inside F and names what it wanted. */
     {
-        const char *cf = getenv( "TUXBLOX_TEST_CALL_F" );
+        const char *cf = tuxblox_dev_getenv( "TUXBLOX_TEST_CALL_F" );
 
         if (cf && rec->ExceptionCode == EXCEPTION_ACCESS_VIOLATION && rec->NumberParameters > 1)
         {
@@ -1864,7 +1864,7 @@ static void setup_raise_exception( ucontext_t *sigcontext, EXCEPTION_RECORD *rec
                 if (lay)
                 {
                     called = 1;
-                    if (getenv( "TUXBLOX_TEST_UNLOCK_ACCESS" ))
+                    if (tuxblox_dev_getenv( "TUXBLOX_TEST_UNLOCK_ACCESS" ))
                         virtual_unlock_client_access( base );
                     context->Rsp -= 8;
                     *(ULONG64 *)(ULONG_PTR)context->Rsp = context->Rip;
@@ -1887,7 +1887,7 @@ static void setup_raise_exception( ucontext_t *sigcontext, EXCEPTION_RECORD *rec
      * first access violation inside the main client image, inject the decrypted
      * .text from the blob, leave it executable, and resume the instruction. */
     if (rec->ExceptionCode == EXCEPTION_ACCESS_VIOLATION && rec->NumberParameters > 1 &&
-        getenv( "TUXBLOX_TEST_INJECT_CLIENT" ))
+        tuxblox_dev_getenv( "TUXBLOX_TEST_INJECT_CLIENT" ))
     {
         static int injected;
         ULONG_PTR fault = rec->ExceptionInformation[1];
@@ -1953,8 +1953,8 @@ static void setup_raise_exception( ucontext_t *sigcontext, EXCEPTION_RECORD *rec
     stack->machine_frame.rip = context->Rip;
     stack->machine_frame.rsp = context->Rsp;
 
-    if (no_xstate == -1) no_xstate = getenv( "TUXBLOX_TEST_NO_XSTATE_EXC" ) ? 1 : 0;
-    if (xstate_above == -1) xstate_above = getenv( "TUXBLOX_TEST_XSTATE_ABOVE" ) ? 1 : 0;
+    if (no_xstate == -1) no_xstate = tuxblox_dev_getenv( "TUXBLOX_TEST_NO_XSTATE_EXC" ) ? 1 : 0;
+    if (xstate_above == -1) xstate_above = tuxblox_dev_getenv( "TUXBLOX_TEST_XSTATE_ABOVE" ) ? 1 : 0;
 
     if (!no_xstate && (src_xs = xstate_from_context( context )))
     {
@@ -3839,7 +3839,7 @@ static ULONG64 diag_step_reg2( const ucontext_t *ucontext )
 
     if (which == -1)
     {
-        const char *v = getenv( "TUXBLOX_DIAG_STEP_REG2" );
+        const char *v = tuxblox_dev_getenv( "TUXBLOX_DIAG_STEP_REG2" );
         unsigned int i;
 
         which = 2;
@@ -4355,7 +4355,7 @@ void signal_init_process(void)
                  (unsigned long long)align_rewrite_range[i].hi );
     }
     align_image_needs_repeat = !getenv( "TUXBLOX_ALIGN_IMAGE_FIRST_FAULT" );
-    gp_reports_execute = !!getenv( "TUXBLOX_TEST_GP_EXEC" );
+    gp_reports_execute = !!tuxblox_dev_getenv( "TUXBLOX_TEST_GP_EXEC" );
     vex_rewrite_allowed = !getenv( "TUXBLOX_NO_VEX_REWRITE" );
     {
         const char *v = getenv( "TUXBLOX_ALIGN_TABLE" );

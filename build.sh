@@ -687,6 +687,21 @@ PROTON_BUILD_DIR="$ROOT/build/.artifacts/proton"
 mkdir -p "$PROTON_BUILD_DIR"
 cd "$PROTON_BUILD_DIR"
 
+# The compatibility layer's reverse-engineering knobs (TUXBLOX_DIAG_*,
+# TUXBLOX_TEST_*, TUXBLOX_HOST_FILES) are compiled out unless this is a developer
+# build. They redirect control flow, write memory, inject into the client image
+# and lift the host-file sandbox, so shipping them would hand any local program
+# an injection toolkit behind an environment variable. Default is a release build
+# with none of them; a developer opts in with TUXBLOX_DEV_TOOLS=1 ./build.sh, and
+# the flag must reach configure so wine records it.
+if [[ -n "${TUXBLOX_DEV_TOOLS:-}" ]]; then
+    export CFLAGS="${CFLAGS:-} -DTUXBLOX_DEV_TOOLS"
+    export CROSSCFLAGS="${CROSSCFLAGS:-} -DTUXBLOX_DEV_TOOLS"
+    step "Developer build: diagnostic and test knobs are ENABLED (TUXBLOX_DEV_TOOLS)"
+else
+    step "Release build: diagnostic and test knobs are compiled out"
+fi
+
 step "Configuring Proton (ccache enabled for faster rebuilds)"
 run_step "configure_proton" strict logged "$ROOT/compat/configure.sh" --enable-ccache
 

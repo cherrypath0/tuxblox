@@ -3358,6 +3358,7 @@ NTSTATUS WINAPI NtUserBuildHwndList( HDESK desktop, HWND hwnd, BOOL children, BO
  * reaching for the ones there. */
 static BOOL tuxblox_diag_on(void)
 {
+#ifdef TUXBLOX_DEV_TOOLS
     static int state = -1;
 
     if (state == -1)
@@ -3366,6 +3367,10 @@ static BOOL tuxblox_diag_on(void)
         state = (v && *v && *v != '0') ? 1 : 0;
     }
     return state == 1;
+#else
+    /* Compiled out of a release build, like ntdll's TUXBLOX_DIAG_* knobs. */
+    return FALSE;
+#endif
 }
 
 static void tuxblox_diag_strw( char *buf, size_t len, const UNICODE_STRING *str )

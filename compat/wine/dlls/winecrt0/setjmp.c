@@ -109,6 +109,13 @@ void __cdecl __attribute__((naked)) __wine_longjmp( __wine_jmp_buf *buf, int ret
 
 #elif defined(__x86_64__)
 
+/* The xmm spills are movdqu, not movdqa. A __wine_jmp_buf is 16-byte aligned
+ * relative to its own frame, so an aligned spill is only correct while every
+ * caller keeps the ABI. This is Wine's own __TRY, used on frames whose
+ * alignment belongs to whoever called in -- RtlImageNtHeader's page-fault
+ * guard among them. Roblox's anti-tamper layer calls in eight bytes out and
+ * faulted here, inside our own unwinder, where Windows faults not at all. The
+ * unaligned form costs nothing on any CPU this runs on. */
 __ASM_GLOBAL_FUNC( __wine_setjmpex,
                    "movq %rdx,(%rcx)\n\t"          /* jmp_buf->Frame */
                    "movq %rbx,0x8(%rcx)\n\t"       /* jmp_buf->Rbx */
@@ -125,16 +132,16 @@ __ASM_GLOBAL_FUNC( __wine_setjmpex,
                    "movq %rax,0x50(%rcx)\n\t"      /* jmp_buf->Rip */
                    "stmxcsr 0x58(%rcx)\n\t"        /* jmp_buf->MxCsr */
                    "fnstcw 0x5c(%rcx)\n\t"         /* jmp_buf->FpCsr */
-                   "movdqa %xmm6,0x60(%rcx)\n\t"   /* jmp_buf->Xmm6 */
-                   "movdqa %xmm7,0x70(%rcx)\n\t"   /* jmp_buf->Xmm7 */
-                   "movdqa %xmm8,0x80(%rcx)\n\t"   /* jmp_buf->Xmm8 */
-                   "movdqa %xmm9,0x90(%rcx)\n\t"   /* jmp_buf->Xmm9 */
-                   "movdqa %xmm10,0xa0(%rcx)\n\t"  /* jmp_buf->Xmm10 */
-                   "movdqa %xmm11,0xb0(%rcx)\n\t"  /* jmp_buf->Xmm11 */
-                   "movdqa %xmm12,0xc0(%rcx)\n\t"  /* jmp_buf->Xmm12 */
-                   "movdqa %xmm13,0xd0(%rcx)\n\t"  /* jmp_buf->Xmm13 */
-                   "movdqa %xmm14,0xe0(%rcx)\n\t"  /* jmp_buf->Xmm14 */
-                   "movdqa %xmm15,0xf0(%rcx)\n\t"  /* jmp_buf->Xmm15 */
+                   "movdqu %xmm6,0x60(%rcx)\n\t"   /* jmp_buf->Xmm6 */
+                   "movdqu %xmm7,0x70(%rcx)\n\t"   /* jmp_buf->Xmm7 */
+                   "movdqu %xmm8,0x80(%rcx)\n\t"   /* jmp_buf->Xmm8 */
+                   "movdqu %xmm9,0x90(%rcx)\n\t"   /* jmp_buf->Xmm9 */
+                   "movdqu %xmm10,0xa0(%rcx)\n\t"  /* jmp_buf->Xmm10 */
+                   "movdqu %xmm11,0xb0(%rcx)\n\t"  /* jmp_buf->Xmm11 */
+                   "movdqu %xmm12,0xc0(%rcx)\n\t"  /* jmp_buf->Xmm12 */
+                   "movdqu %xmm13,0xd0(%rcx)\n\t"  /* jmp_buf->Xmm13 */
+                   "movdqu %xmm14,0xe0(%rcx)\n\t"  /* jmp_buf->Xmm14 */
+                   "movdqu %xmm15,0xf0(%rcx)\n\t"  /* jmp_buf->Xmm15 */
                    "xorq %rax,%rax\n\t"
                    "retq" )
 
@@ -151,16 +158,16 @@ __ASM_GLOBAL_FUNC( __wine_longjmp,
                    "ldmxcsr 0x58(%rcx)\n\t"        /* jmp_buf->MxCsr */
                    "fnclex\n\t"
                    "fldcw 0x5c(%rcx)\n\t"          /* jmp_buf->FpCsr */
-                   "movdqa 0x60(%rcx),%xmm6\n\t"   /* jmp_buf->Xmm6 */
-                   "movdqa 0x70(%rcx),%xmm7\n\t"   /* jmp_buf->Xmm7 */
-                   "movdqa 0x80(%rcx),%xmm8\n\t"   /* jmp_buf->Xmm8 */
-                   "movdqa 0x90(%rcx),%xmm9\n\t"   /* jmp_buf->Xmm9 */
-                   "movdqa 0xa0(%rcx),%xmm10\n\t"  /* jmp_buf->Xmm10 */
-                   "movdqa 0xb0(%rcx),%xmm11\n\t"  /* jmp_buf->Xmm11 */
-                   "movdqa 0xc0(%rcx),%xmm12\n\t"  /* jmp_buf->Xmm12 */
-                   "movdqa 0xd0(%rcx),%xmm13\n\t"  /* jmp_buf->Xmm13 */
-                   "movdqa 0xe0(%rcx),%xmm14\n\t"  /* jmp_buf->Xmm14 */
-                   "movdqa 0xf0(%rcx),%xmm15\n\t"  /* jmp_buf->Xmm15 */
+                   "movdqu 0x60(%rcx),%xmm6\n\t"   /* jmp_buf->Xmm6 */
+                   "movdqu 0x70(%rcx),%xmm7\n\t"   /* jmp_buf->Xmm7 */
+                   "movdqu 0x80(%rcx),%xmm8\n\t"   /* jmp_buf->Xmm8 */
+                   "movdqu 0x90(%rcx),%xmm9\n\t"   /* jmp_buf->Xmm9 */
+                   "movdqu 0xa0(%rcx),%xmm10\n\t"  /* jmp_buf->Xmm10 */
+                   "movdqu 0xb0(%rcx),%xmm11\n\t"  /* jmp_buf->Xmm11 */
+                   "movdqu 0xc0(%rcx),%xmm12\n\t"  /* jmp_buf->Xmm12 */
+                   "movdqu 0xd0(%rcx),%xmm13\n\t"  /* jmp_buf->Xmm13 */
+                   "movdqu 0xe0(%rcx),%xmm14\n\t"  /* jmp_buf->Xmm14 */
+                   "movdqu 0xf0(%rcx),%xmm15\n\t"  /* jmp_buf->Xmm15 */
                    "movq 0x50(%rcx),%rdx\n\t"      /* jmp_buf->Rip */
                    "movq 0x10(%rcx),%rsp\n\t"      /* jmp_buf->Rsp */
                    "jmp *%rdx" )

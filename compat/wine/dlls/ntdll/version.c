@@ -529,7 +529,7 @@ void version_init(void)
     const WCHAR *p, *appname = NtCurrentTeb()->Peb->ProcessParameters->ImagePathName.Buffer;
     WCHAR appversion[MAX_PATH+20];
 
-    NtQuerySystemInformation( SystemWineVersionInformation, wine_version, sizeof(wine_version), NULL );
+    WINE_UNIX_CALL( unix_wine_version, wine_version );
 
     /* The system call numbers, and every measured answer this build gives, come
      * from Windows 11 24H2. Reporting Windows 10 alongside them would describe

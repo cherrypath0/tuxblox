@@ -88,6 +88,42 @@ bool isBlank(const std::string& line) {
     return line.find_first_not_of(" \t\r\n") == std::string::npos;
 }
 
+// A value too long for one line is wrapped, and every line but the last ends
+// in a backslash. Wine saves the window fonts and other binary values that way.
+bool isWrapped(const std::string& line) {
+    const size_t end = line.find_last_not_of(" \t\r\n");
+    return end != std::string::npos && line[end] == '\\';
+}
+
+// How many lines the value starting at `start` runs over.
+size_t valueSpan(const std::vector<std::string>& lines, size_t start) {
+    size_t span = 1;
+    while (start + span < lines.size() && isWrapped(lines[start + span - 1])) {
+        span++;
+    }
+    return span;
+}
+
+// The value as it would read on one line, so one Wine has since re-wrapped
+// still compares equal to the one this launcher wrote.
+std::string joinValue(const std::vector<std::string>& lines, size_t start, size_t span) {
+    std::string joined;
+    for (size_t idx = start; idx < start + span; idx++) {
+        const std::string& line = lines[idx];
+        const size_t end = line.find_last_not_of(" \t\r\n");
+        std::string part = (end == std::string::npos) ? "" : line.substr(0, end + 1);
+        if (!part.empty() && part.back() == '\\') {
+            part.pop_back();
+        }
+        if (idx > start) {
+            const size_t begin = part.find_first_not_of(" \t");
+            part = (begin == std::string::npos) ? "" : part.substr(begin);
+        }
+        joined += part;
+    }
+    return joined;
+}
+
 // Walks a .reg file looking for `name` inside `key`. Returns the old value and,
 // when newValue is given, rewrites the file with it in place.
 std::string findOrReplace(const fs::path& file, const std::string& key,
@@ -104,11 +140,8 @@ std::string findOrReplace(const fs::path& file, const std::string& key,
     bool replaced = false;
     std::string oldValue;
 
-    for (size_t idx = 0; idx < lines.size(); idx++) {
+    for (size_t idx = 0; idx < lines.size() && !replaced; ) {
         const std::string& line = lines[idx];
-        if (replaced) {
-            break;
-        }
         if (!line.empty() && line[0] == '[') {
             // Past the key's own block without a match.
             if (foundKey) {
@@ -118,23 +151,28 @@ std::string findOrReplace(const fs::path& file, const std::string& key,
             if (startsWith(line, header)) {
                 foundKey = true;
             }
+            idx++;
             continue;
         }
         if (!foundKey) {
+            idx++;
             continue;
         }
-        const size_t at = line.find(nameStr);
-        if (at == std::string::npos) {
+        const size_t span = valueSpan(lines, idx);
+        const std::string joined = joinValue(lines, idx, span);
+        const size_t at = joined.find(nameStr);
+        // Anywhere but the front of the line is some other value's text.
+        if (at == std::string::npos || joined.find_first_not_of(" \t") != at) {
+            idx += span;
             continue;
         }
-        oldValue = line.substr(at + nameStr.size());
-        while (!oldValue.empty() && (oldValue.back() == '\n' || oldValue.back() == '\r')) {
-            oldValue.pop_back();
-        }
+        oldValue = joined.substr(at + nameStr.size());
         if (pNewValue == nullptr) {
             return oldValue;
         }
-        lines[idx] = nameStr + *pNewValue + "\n";
+        lines.erase(lines.begin() + static_cast<long>(idx),
+                    lines.begin() + static_cast<long>(idx + span));
+        lines.insert(lines.begin() + static_cast<long>(idx), nameStr + *pNewValue + "\n");
         replaced = true;
     }
 
@@ -210,15 +248,24 @@ bool setRegKeyValues(const fs::path& file, const std::string& key,
             const std::string nameStr = "\"" + name + "\"=";
             const std::string line = nameStr + value + "\n";
             bool found = false;
-            for (std::string& existing : block) {
-                if (startsWith(existing, nameStr)) {
-                    if (existing != line) {
-                        existing = line;
-                        changed = true;
-                    }
-                    found = true;
-                    break;
+            for (size_t idx = 0; idx < block.size(); ) {
+                const size_t span = valueSpan(block, idx);
+                if (!startsWith(block[idx], nameStr)) {
+                    idx += span;
+                    continue;
                 }
+                found = true;
+                // Compared as one line because Wine re-wraps a long value when
+                // it saves, and rewriting its first line alone would leave the
+                // rest of it behind as lines nothing can read.
+                if (joinValue(block, idx, span) + "\n" != line) {
+                    block.erase(block.begin() + static_cast<long>(idx),
+                                block.begin() + static_cast<long>(idx + span));
+                    block.insert(block.begin() + static_cast<long>(idx), line);
+                    insertAt -= span - 1;
+                    changed = true;
+                }
+                break;
             }
             if (!found) {
                 block.insert(block.begin() + static_cast<long>(insertAt), line);

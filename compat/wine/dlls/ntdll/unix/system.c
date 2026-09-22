@@ -3395,7 +3395,7 @@ static void diag_sysclass_parse(void)
 
     if (diag_sysclass_parsed) return;
     diag_sysclass_parsed = 1;
-    if (!(v = getenv( "TUXBLOX_DIAG_SYSCLASS" ))) return;
+    if (!(v = tuxblox_dev_getenv( "TUXBLOX_DIAG_SYSCLASS" ))) return;
     while (*v && diag_sysclass_count < DIAG_SYSCLASS_MAX)
     {
         char *end;
@@ -3466,6 +3466,47 @@ static BOOL file_is_pe_image( HANDLE handle )
         dos.e_lfanew > 0 && dos.e_lfanew < 0x10000000 &&
         pread( fd, &sig, sizeof(sig), dos.e_lfanew ) == sizeof(sig))
         ret = (sig == IMAGE_NT_SIGNATURE);
+
+    if (needs_close) close( fd );
+    return ret;
+}
+
+/* Whether a PE file carries an embedded certificate table, for class 183.
+ *
+ * The distinction matters because the caller treats the two answers as
+ * different questions. A refusal makes Roblox verify the file itself -- map it
+ * and compute its Authenticode digest -- which only means anything for a file
+ * that has a signature to check the digest against. Answering success for the
+ * rest is what a machine whose system files are all signed looks like from the
+ * outside, which is the shape this build is trying to present.
+ */
+static BOOL file_has_certificate( HANDLE handle, ULONG64 min_size )
+{
+    int fd, needs_close;
+    BOOL ret = FALSE;
+    IMAGE_DOS_HEADER dos;
+    DWORD sig, dir[2];
+    struct stat st;
+    WORD magic;
+
+    if (!handle) return FALSE;
+    if (server_get_unix_fd( handle, FILE_READ_DATA, &fd, &needs_close, NULL, NULL )) return FALSE;
+
+    if (pread( fd, &dos, sizeof(dos), 0 ) == sizeof(dos) && dos.e_magic == IMAGE_DOS_SIGNATURE &&
+        dos.e_lfanew > 0 && dos.e_lfanew < 0x10000000 &&
+        pread( fd, &sig, sizeof(sig), dos.e_lfanew ) == sizeof(sig) && sig == IMAGE_NT_SIGNATURE &&
+        pread( fd, &magic, sizeof(magic), dos.e_lfanew + 0x18 ) == sizeof(magic))
+    {
+        /* DataDirectory[IMAGE_DIRECTORY_ENTRY_SECURITY] -- 0xa8 past the NT
+         * headers for PE32+, 0x98 for PE32. Its VirtualAddress is a file
+         * offset rather than an RVA, but only whether it is set matters here. */
+        DWORD off = dos.e_lfanew + (magic == IMAGE_NT_OPTIONAL_HDR64_MAGIC ? 0xa8 : 0x98);
+
+        if (pread( fd, dir, sizeof(dir), off ) == sizeof(dir)) ret = dir[0] && dir[1];
+    }
+    /* A size floor narrows the probe to one file, which is how the main image
+     * is separated from the smaller signed ones it is walked alongside. */
+    if (ret && min_size > 1 && (fstat( fd, &st ) || (ULONG64)st.st_size < min_size)) ret = FALSE;
 
     if (needs_close) close( fd );
     return ret;
@@ -4150,7 +4191,7 @@ static void fill_module_info( RTL_PROCESS_MODULE_INFORMATION *sm, ULONG i )
     sm->ImageBaseAddress = NULL;   /* not disclosed without the privilege for it */
     /* A/B probe: does the enum wall move if kernel module bases are non-NULL
      * (as an elevated Windows process would see)?  TUXBLOX_TEST_MODBASE=1. */
-    if (getenv( "TUXBLOX_TEST_MODBASE" ))
+    if (tuxblox_dev_getenv( "TUXBLOX_TEST_MODBASE" ))
         sm->ImageBaseAddress = (void *)(ULONG_PTR)(0xfffff80000000000ULL + (ULONGLONG)i * 0x1000000ULL);
     sm->ImageSize        = kernel_modules[i].size;
     sm->LoadOrderIndex   = i;
@@ -5067,6 +5108,24 @@ C_ASSERT( sizeof(struct process_info) <= sizeof(SYSTEM_PROCESS_INFORMATION) );
 }
 
 /******************************************************************************
+ *              wine_version_info
+ *
+ * The version, build id and host uname strings, NUL-separated, into the
+ * caller's 256-byte buffer. Only this library's own version_init() asks, and
+ * it asks through the unixlib table, which no image loaded into the process
+ * can reach -- unlike the system-information class this replaced.
+ */
+NTSTATUS wine_version_info( void *args )
+{
+    struct utsname buf;
+
+    uname( &buf );
+    snprintf( args, 256, "%s%c%s%c%s%c%s", PACKAGE_VERSION, 0, wine_build, 0, buf.sysname, 0, buf.release );
+    return STATUS_SUCCESS;
+}
+
+
+/******************************************************************************
  *              NtQuerySystemInformation  (NTDLL.@)
  */
 static NTSTATUS query_system_information( SYSTEM_INFORMATION_CLASS class,
@@ -5793,7 +5852,7 @@ static NTSTATUS query_system_information( SYSTEM_INFORMATION_CLASS class,
         len = sizeof(*module_info) * ARRAY_SIZE(kernel_modules);
         if (len <= size)
         {
-            int test_fields = !!getenv( "TUXBLOX_TEST_MODFIELDS" );
+            int test_fields = !!tuxblox_dev_getenv( "TUXBLOX_TEST_MODFIELDS" );
 
             memset( info, 0, len );
             for (i = 0; i < ARRAY_SIZE(kernel_modules); i++)
@@ -6109,26 +6168,15 @@ static NTSTATUS query_system_information( SYSTEM_INFORMATION_CLASS class,
 
     /* Wine extensions */
 
-    case SystemWineVersionInformation:  /* 1000 */
-    {
-        static const char version[] = PACKAGE_VERSION;
-        struct utsname buf;
-        char result_buf[64];
-
-        uname( &buf );
-        snprintf( info, size, "%s%c%s%c%s%c%s", version, 0, wine_build, 0, buf.sysname, 0, buf.release );
-        len = strlen(version) + strlen(wine_build) + strlen(buf.sysname) + strlen(buf.release) + 4;
-        if (size < len) ret = STATUS_INFO_LENGTH_MISMATCH;
-        /* Diagnostic-only: this class only exists as a Wine extension (real
-         * Windows returns STATUS_INVALID_INFO_CLASS for it, the default case
-         * below), so a caller reaching this point at all -- regardless of
-         * whether the buffer was actually big enough -- has already learned
-         * "this is Wine" from the status code alone. Log size/len/ret so a
-         * trace capture can tell success from a too-small-buffer probe. */
-        snprintf( result_buf, sizeof(result_buf), "size=%u len=%u ret=0x%x", (unsigned)size, (unsigned)len, ret );
-        tuxblox_trace_record( "SystemWineVersionInformation", result_buf );
-        break;
-    }
+    /* SystemWineVersionInformation (1000) is deliberately absent. It exists
+     * only here, so a caller that reaches it has learned "this is not
+     * Windows" from the status code alone, whatever the buffer holds. It now
+     * falls to the default below and is refused exactly as a real system
+     * refuses a class it does not have. The strings it used to hand out are
+     * still needed inside this library, and wine_version_info() above hands
+     * them over without a system call for anything else to make. A probe for
+     * the class is still visible in a trace, because every
+     * NtQuerySystemInformation call records the class it asked for. */
 
     case SystemRootSiloInformation:  /* 174 */
         /* The only system class measured to refuse a short buffer with
@@ -6190,10 +6238,31 @@ static NTSTATUS query_system_information( SYSTEM_INFORMATION_CLASS class,
          * machine no Windows ever is, and reporting each answer honestly in
          * isolation until the whole no longer describes a real system is a
          * mistake this build has made before. So a PE is answered success. */
-        if (!file_is_pe_image( ((const struct { HANDLE ImageFile; ULONG Type; } *)info)->ImageFile ))
-            return STATUS_INVALID_IMAGE_FORMAT;
+    {
+        const struct { HANDLE ImageFile; ULONG Type; } *ci = info;
+        const char *only, *pick;
+
+        if (!file_is_pe_image( ci->ImageFile )) return STATUS_INVALID_IMAGE_FORMAT;
+        /* TUXBLOX_TEST_CIC_TYPE=<n>: answer success for that Type alone and
+         * refuse every other, to find which certificate kind the caller is
+         * looking for. Roblox enumerates Type -- a refused 0 is retried as 2 --
+         * and answering the first ask stops the enumeration, so the Type that
+         * answers decides which path it takes. Diagnostic only, off unless set. */
+        /* TUXBLOX_TEST_CIC_SIGNED=<n> picks which files to answer differently:
+         * only those that really carry a certificate, and with n above 1 only
+         * those at least n bytes, which narrows it to the main image. Without
+         * it every file is picked. TUXBLOX_TEST_CIC_TYPE=<t> then answers
+         * success for Type t alone among the picked files and refuses the rest;
+         * without it a picked file is refused at every Type. Diagnostic only. */
+        pick = tuxblox_dev_getenv( "TUXBLOX_TEST_CIC_SIGNED" );
+        only = tuxblox_dev_getenv( "TUXBLOX_TEST_CIC_TYPE" );
+        if ((pick || only) &&
+            (!pick || file_has_certificate( ci->ImageFile, strtoull( pick, NULL, 0 ) )) &&
+            (!only || ci->Type != strtoul( only, NULL, 0 )))
+            return STATUS_INVALID_IMAGE_HASH;
         len = 0;
         break;
+    }
 
     default:
         const struct known_class *entry;

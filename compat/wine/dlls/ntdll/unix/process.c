@@ -1853,7 +1853,7 @@ static NTSTATUS query_information_process( HANDLE handle, PROCESSINFOCLASS class
              * does NOT decide how deep the Player recurses. The class is asked
              * once per level because the recursing function calls it, not because
              * it gates anything. Do not re-run this sweep. */
-            const char *test = getenv( "TUXBLOX_TEST_EXECUTE_FLAGS" );
+            const char *test = tuxblox_dev_getenv( "TUXBLOX_TEST_EXECUTE_FLAGS" );
 
             if (test) *(ULONG *)info = strtoul( test, NULL, 16 );
             else *(ULONG *)info = MEM_EXECUTE_OPTION_DISABLE |

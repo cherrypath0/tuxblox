@@ -1710,7 +1710,7 @@ NTSTATUS WINAPI NtOpenThread( HANDLE *handle, ACCESS_MASK access,
         id->UniqueThread == NtCurrentTeb()->ClientId.UniqueThread &&
         id->UniqueProcess == NtCurrentTeb()->ClientId.UniqueProcess)
     {
-        const char *force = getenv( "TUXBLOX_TEST_OPENTHREAD_FAIL" );
+        const char *force = tuxblox_dev_getenv( "TUXBLOX_TEST_OPENTHREAD_FAIL" );
 
         if (force)
         {
@@ -2684,7 +2684,7 @@ static NTSTATUS query_information_thread( HANDLE handle, THREADINFOCLASS class,
          * implementation -- it fabricates, which is why it is env-gated. */
         {
             static int fake = -1;
-            if (fake == -1) fake = getenv( "TUXBLOX_TEST_LASTSYSCALL_XPROC" ) ? 1 : 0;
+            if (fake == -1) fake = tuxblox_dev_getenv( "TUXBLOX_TEST_LASTSYSCALL_XPROC" ) ? 1 : 0;
 
             if (basic.ClientId.UniqueProcess != ULongToHandle( GetCurrentProcessId() ) ||
                 !basic.TebBaseAddress)
