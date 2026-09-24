@@ -7513,6 +7513,11 @@ static unsigned int get_memory_section_name( HANDLE process, LPCVOID addr,
 
     full[name.Length / sizeof(WCHAR)] = 0;
     resolve_drive_symlink( &name, sizeof(full) - sizeof(WCHAR), NULL, STATUS_SUCCESS );
+    /* The layer cross-checks the winex11.drv file against its mapped module: if
+     * the file open is hidden but this still names the mapping, it detects the
+     * mismatch. Hide the driver's mapped-section name from the layer's own query
+     * too, so the two views agree (the file and the module both "absent"). */
+    if (tuxblox_hide_wine_driver_file( &name )) return STATUS_INVALID_ADDRESS;
     if (tuxblox_trace_enabled()) tuxblox_trace_record_us( "MemorySectionName", &name );
 
     needed = sizeof(*info) + name.Length + sizeof(WCHAR);
