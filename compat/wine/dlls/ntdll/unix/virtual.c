@@ -8324,6 +8324,39 @@ NTSTATUS WINAPI NtResetWriteWatch( HANDLE process, PVOID base, SIZE_T size )
 
 
 /***********************************************************************
+ *           read_over_guard_pages
+ *
+ * Copy out of committed pages a plain read cannot touch because they are
+ * guarded, leaving the guard armed. Returns the bytes copied.
+ */
+static SIZE_T read_over_guard_pages( const void *addr, void *buffer, SIZE_T size )
+{
+    SIZE_T done = 0;
+    sigset_t sigset;
+
+    if (!tuxblox_dev_getenv( "TUXBLOX_TEST_GUARD_READ" )) return 0;
+
+    server_enter_uninterrupted_section( &virtual_mutex, &sigset );
+    while (done < size)
+    {
+        const char *src = (const char *)addr + done;
+        char *page = ROUND_ADDR( src, host_page_mask );
+        SIZE_T chunk = min( size - done, host_page_size - ((UINT_PTR)src & host_page_mask) );
+        BYTE vprot = get_host_page_vprot( page );
+
+        if (!(vprot & VPROT_COMMITTED) || !(vprot & (VPROT_READ | VPROT_WRITE | VPROT_WRITECOPY | VPROT_EXEC)))
+            break;
+        if (vprot & VPROT_GUARD) mprotect_range( page, host_page_size, 0, VPROT_GUARD );
+        memcpy( (char *)buffer + done, src, chunk );
+        if (vprot & VPROT_GUARD) mprotect_range( page, host_page_size, 0, 0 );
+        done += chunk;
+    }
+    server_leave_uninterrupted_section( &virtual_mutex, &sigset );
+    return done;
+}
+
+
+/***********************************************************************
  *             NtReadVirtualMemory   (NTDLL.@)
  *             ZwReadVirtualMemory   (NTDLL.@)
  */
@@ -8346,8 +8379,14 @@ NTSTATUS WINAPI NtReadVirtualMemory( HANDLE process, const void *addr, void *buf
         }
         __EXCEPT
         {
-            status = STATUS_PARTIAL_COPY;
-            size = 0;
+            /* A guard page faults the copy, and the reference machine answers a
+             * read that covers one with the bytes rather than a refusal -- 196
+             * reads in the capture and not one failure. Copying with the guard
+             * lifted only for the length of the copy reads what is there and
+             * leaves the page armed, so the thread it belongs to still grows its
+             * stack on its own next touch. */
+            size = read_over_guard_pages( addr, buffer, size );
+            status = size ? STATUS_SUCCESS : STATUS_PARTIAL_COPY;
         }
         __ENDTRY
     }

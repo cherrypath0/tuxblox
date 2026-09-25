@@ -613,7 +613,11 @@ static NTSTATUS create_disk_device( enum device_type type, struct disk_device **
         break;
     case DEVICE_HARDDISK_VOL:
         format = L"\\Device\\HarddiskVolume%u";
-        first = 1;  /* harddisk volumes start counting from 1 */
+        /* On a real UEFI Windows-only disk volume 1 is the EFI partition and volume 2 the
+         * recovery partition, so the OS volume (C:) is volume 3 -- it is never volume 1, and
+         * starting the count at 1 is a Wine tell. Begin at 3 so the system volume gets a
+         * plausible number as if only Windows were installed. */
+        first = 3;
         break;
     case DEVICE_FLOPPY:
         format = L"\\Device\\Floppy%u";

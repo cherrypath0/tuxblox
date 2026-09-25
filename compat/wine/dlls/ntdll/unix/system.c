@@ -3512,6 +3512,23 @@ static BOOL file_has_certificate( HANDLE handle, ULONG64 min_size )
     return ret;
 }
 
+/* TUXBLOX_TEST_SYSCLASS_FULL=<class>[,<class>...] or "all" -- see the use below. */
+static BOOL tuxblox_sysclass_answer_full( unsigned int class )
+{
+    const char *v = tuxblox_dev_getenv( "TUXBLOX_TEST_SYSCLASS_FULL" );
+    const char *p;
+
+    if (!v) return FALSE;
+    if (!strcmp( v, "all" )) return TRUE;
+    for (p = v; *p; p++)
+    {
+        if (*p < '0' || *p > '9') continue;
+        if (strtoul( p, NULL, 10 ) == class) return TRUE;
+        while (p[1] >= '0' && p[1] <= '9') p++;
+    }
+    return FALSE;
+}
+
 static const struct known_class known_system_classes[] =
 {
     /* Classes this build used to deny outright. A real Windows 11 25H2 has all
@@ -6283,6 +6300,19 @@ static NTSTATUS query_system_information( SYSTEM_INFORMATION_CLASS class,
                  * measured is answered rather than only sized. */
                 if (entry->full_status)
                 {
+                    /* Every class recorded with an access violation takes an
+                     * input structure in the same buffer, so the probe that
+                     * measured it was refused for its contents rather than for
+                     * the class, and a caller passing valid input is answered.
+                     * The knob tells the two apart by A/B: it answers the
+                     * listed classes with zeros instead of the refusal. */
+                    if (tuxblox_sysclass_answer_full( class ))
+                    {
+                        if (size >= entry->len) memset( info, 0, entry->len );
+                        len = entry->len;
+                        ret = STATUS_SUCCESS;
+                        break;
+                    }
                     len = entry->len;
                     ret = entry->full_status;
                     break;
