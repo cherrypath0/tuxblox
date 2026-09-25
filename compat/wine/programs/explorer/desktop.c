@@ -993,6 +993,21 @@ static BOOL get_no_tray_items_display(void)
     return FALSE;
 }
 
+/* The graphics driver is the one module in the prefix whose file name says Wine,
+ * and Roblox's protection layer reads the name of every module it finds mapped.
+ * Load it under a neutral name instead: an unremarkable third-party DLL in
+ * system32 is a thing every real machine has, and "winex11.drv" is not.
+ *
+ * The name has to exist as a file, not just be reported, because the layer
+ * re-opens and re-maps each module's backing file. build.sh aliases it in both
+ * of Wine's library directories and the prefix links it into system32.
+ */
+static void graphics_driver_module( WCHAR *libname, size_t len, const WCHAR *name )
+{
+    if (!wcscmp( name, L"x11" )) lstrcpynW( libname, L"dispumd.dll", len );
+    else swprintf( libname, len, L"wine%s.drv", name );
+}
+
 static void load_graphics_driver( const WCHAR *driver, GUID *guid )
 {
     static const WCHAR device_keyW[] = L"System\\CurrentControlSet\\Control\\Video\\{%08x-%04x-%04x-%02x%02x-%02x%02x%02x%02x%02x%02x}\\0000";
@@ -1033,7 +1048,7 @@ static void load_graphics_driver( const WCHAR *driver, GUID *guid )
             break;
         }
 
-        swprintf( libname, ARRAY_SIZE( libname ), L"wine%s.drv", name );
+        graphics_driver_module( libname, ARRAY_SIZE( libname ), name );
         if ((module = LoadLibraryW( libname )) != 0) break;
         switch (GetLastError())
         {

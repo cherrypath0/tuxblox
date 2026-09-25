@@ -950,24 +950,48 @@ static BOOL caller_in_loaded_module( ULONG64 pc )
     return FALSE;
 }
 
-BOOL tuxblox_hide_wine_driver_file( const UNICODE_STRING *name )
+/* How much of Wine's graphics driver to hide from the layer's own probes: 1 the
+ * driver file, 2 the name of its mapped section as well.
+ *
+ * Both levels are measured to kill the process, and neither reaches the branch
+ * the hiding was written for. The layer walks the address space, finds the
+ * driver's mapping, reads its section name, and re-opens the backing file to
+ * verify it. Level 2 refuses the name, which leaves a MEM_IMAGE region with no
+ * section name -- impossible on Windows. Level 1 lets the name through and the
+ * re-open then returns STATUS_OBJECT_NAME_NOT_FOUND, which that path does not
+ * check: it reads through the status as a pointer and takes an access violation
+ * at layer+0x2d72a6 on address 0xffffffffc0000034.
+ *
+ * Hiding a driver file while its module stays mapped and named describes a
+ * machine that cannot exist, so it cannot be made to work from the file end
+ * alone. Kept at 0 as the record of that, not as something to turn on.
+ */
+static int hide_wine_drv_level( void )
+{
+    static int level = -1;
+
+    if (level == -1)
+    {
+        const char *v = tuxblox_dev_getenv( "TUXBLOX_HIDE_WINE_DRV" );
+
+        level = v ? atoi( v ) : 0;
+        if (v && !*v) level = 1;
+    }
+    return level;
+}
+
+static BOOL is_wine_driver_probe( const UNICODE_STRING *name )
 {
     static const WCHAR winex11[] = {'w','i','n','e','x','1','1','.','d','r','v'};
     static const WCHAR winewl[]  = {'w','i','n','e','w','a','y','l','a','n','d','.','d','r','v'};
     static const WCHAR wineps[]  = {'w','i','n','e','p','s','.','d','r','v'};
     static const struct { const WCHAR *w; unsigned int n; } drv[] = {
         { winex11, 11 }, { winewl, 15 }, { wineps, 8 } };
-    static int off = -1;
     const WCHAR *buf;
     unsigned int len, d;
     BOOL match = FALSE;
 
-    /* Default OFF: hiding winex11.drv sends the layer down its "file absent"
-     * (Windows) branch, which has its own Wine incompatibilities and fails
-     * EARLIER, so it is not a net win alone -- kept behind a knob for the
-     * iterative investigation of that branch. */
-    if (off == -1) off = tuxblox_dev_getenv( "TUXBLOX_HIDE_WINE_DRV" ) ? 0 : 1;
-    if (off || !name || !name->Buffer) return FALSE;
+    if (!name || !name->Buffer) return FALSE;
     if (!image_is_player()) return FALSE;
 
     buf = name->Buffer;
@@ -1004,6 +1028,16 @@ BOOL tuxblox_hide_wine_driver_file( const UNICODE_STRING *name )
                        rob ? "HIDE" : "allow" );
         return rob != 0;
     }
+}
+
+BOOL tuxblox_hide_wine_driver_file( const UNICODE_STRING *name )
+{
+    return hide_wine_drv_level() >= 1 && is_wine_driver_probe( name );
+}
+
+BOOL tuxblox_hide_wine_driver_section( const UNICODE_STRING *name )
+{
+    return hide_wine_drv_level() >= 2 && is_wine_driver_probe( name );
 }
 
 /* Roblox current-version stack-drift compatibility shim.

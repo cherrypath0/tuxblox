@@ -512,6 +512,7 @@ extern NTSTATUS virtual_bind_client_imports( ULONG_PTR image_base );
 extern NTSTATUS virtual_unlock_client_access( ULONG_PTR image_base );
 extern ULONG64 tuxblox_roblox_dll_base(void);
 extern BOOL tuxblox_hide_wine_driver_file( const UNICODE_STRING *name );
+extern BOOL tuxblox_hide_wine_driver_section( const UNICODE_STRING *name );
 extern ULONG_PTR virtual_get_mapped_base( const void *addr );
 extern NTSTATUS resolve_drive_symlink( UNICODE_STRING *name, SIZE_T max_name_len, SIZE_T *ret_len,
                                        NTSTATUS status );
