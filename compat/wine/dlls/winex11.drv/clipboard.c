@@ -610,6 +610,30 @@ static CPTABLEINFO *get_ansi_cp(void)
 
 
 /***********************************************************************
+ *           dropped_file_to_dos
+ *
+ *  Converts a unix path another application handed us - a file dropped onto a
+ *  window, or pasted from the clipboard - to a DOS filename. A file outside
+ *  every drive this prefix maps has no drive letter to be named by, and the
+ *  "\\?\unix\<path>" form ntdll_get_dos_file_name() falls back to is one many
+ *  applications cannot open, so such a file is linked into the prefix and
+ *  named by the link instead.
+ */
+static WCHAR *dropped_file_to_dos( const char *unix_path )
+{
+    WCHAR *dos_path = NULL, *localized;
+
+    ntdll_get_dos_file_name( unix_path, &dos_path, FILE_OPEN );
+    if (dos_path && (localized = ntdll_localize_external_path( unix_path, dos_path, FALSE )))
+    {
+        free( dos_path );
+        dos_path = localized;
+    }
+    return dos_path;
+}
+
+
+/***********************************************************************
  *           uri_to_dos
  *
  *  Converts a text/uri-list URI to DOS filename.
@@ -656,7 +680,7 @@ static WCHAR* uri_to_dos(char *encodedURI)
             if (uri[7] == '/')
             {
                 /* file:///path/to/file (nautilus, thunar) */
-                ntdll_get_dos_file_name( &uri[7], &ret, FILE_OPEN );
+                ret = dropped_file_to_dos( &uri[7] );
             }
             else if (uri[7])
             {
@@ -670,7 +694,7 @@ static WCHAR* uri_to_dos(char *encodedURI)
                         (!gethostname(hostname, sizeof(hostname)) && !strcmp(hostname, &uri[7])))
                     {
                         *path = '/';
-                        ntdll_get_dos_file_name( path, &ret, FILE_OPEN );
+                        ret = dropped_file_to_dos( path );
                     }
                 }
             }
@@ -678,7 +702,7 @@ static WCHAR* uri_to_dos(char *encodedURI)
         else if (uri[6])
         {
             /* file:/path/to/file (konqueror) */
-            ntdll_get_dos_file_name( &uri[5], &ret, FILE_OPEN );
+            ret = dropped_file_to_dos( &uri[5] );
         }
     }
     free( uri );
@@ -955,7 +979,7 @@ DROPFILES *file_list_to_drop_files( const void *data, size_t size, size_t *ret_s
 
     for (ptr = data; ptr < (const char *)data + size; ptr += strlen( ptr ) + 1)
     {
-        ntdll_get_dos_file_name( ptr, &path, FILE_OPEN );
+        path = dropped_file_to_dos( ptr );
 
         TRACE( "converted URI %s to DOS path %s\n", debugstr_a(ptr), debugstr_w(path) );
 

@@ -476,165 +476,6 @@ static BOOL write_open_result(WCHAR * const *paths, UINT count, WCHAR *out_buf, 
     return TRUE;
 }
 
-/* ntdll_get_dos_file_name() falls back to this "\\?\unix\<path>" device-path
- * form for any file outside every drive this prefix maps - exactly what
- * happens once the portal above lets the user pick a file from outside
- * WINEPREFIX via the native (non-Wine) file chooser. Apps like Roblox don't
- * understand that form and just report the file can't be opened, so
- * localize_external_path() below papers over it. */
-static BOOL is_unix_fallback_path(const WCHAR *dos_path)
-{
-    /* Wide string literals are 32-bit wchar_t on this (unix-side) build, not
-     * the 16-bit WCHAR the rest of Wine uses, so this has to be spelled out
-     * as a char array like unix_prefixW in ntdll/unix/file.c is. */
-    static const WCHAR prefix[] = {'\\','\\','?','\\','u','n','i','x','\\'};
-    return dos_path && !wcsncmp(dos_path, prefix, ARRAY_SIZE(prefix));
-}
-
-/* Resolves "C:\users\user\files" (creating the "files" leaf if needed) to
- * its unix path. The username is hardcoded rather than derived from ntdll
- * (which would give the real *host* username, e.g. "cherry") because
- * GetUserNameA/W (dlls/advapi32/advapi.c) always return the literal string
- * "user" regardless of the host, and wineboot names the actual on-disk
- * profile directory to match that, not the host account - using the real
- * host username here would build a path that doesn't exist and can't be
- * resolved, silently disabling this whole mechanism. Returns NULL if the
- * directory can't be created. */
-static char *get_external_files_dir_unix(void)
-{
-    /* See the comment on is_unix_fallback_path's prefix: no L"" here either. */
-    static const WCHAR pathW[] =
-        {'C',':','\\','u','s','e','r','s','\\','u','s','e','r','\\','f','i','l','e','s',0};
-    char *unix_dir = NULL;
-
-    /* FILE_OPEN_IF: only the leaf "files" component may not exist yet. */
-    ntdll_get_unix_file_name(pathW, &unix_dir, FILE_OPEN_IF);
-
-    if (unix_dir && mkdir(unix_dir, 0755) && errno != EEXIST)
-    {
-        free(unix_dir);
-        unix_dir = NULL;
-    }
-    return unix_dir;
-}
-
-/* Splits a unix path into the directory holding it and its leaf name.
- * Returns the directory (caller frees) and points *out_leaf at the leaf
- * inside path. Returns NULL if path has no leaf, i.e. it is "/" or ends
- * in a slash. */
-static char *split_parent_dir(const char *path, const char **out_leaf)
-{
-    const char *slash = strrchr(path, '/');
-    SIZE_T dir_len;
-    char *dir;
-
-    if (!slash || !slash[1]) return NULL;
-    dir_len = (slash == path) ? 1 : (SIZE_T)(slash - path);  /* keep "/" itself */
-    if (!(dir = malloc(dir_len + 1))) return NULL;
-    memcpy(dir, path, dir_len);
-    dir[dir_len] = 0;
-    *out_leaf = slash + 1;
-    return dir;
-}
-
-/* Picks "<name>" or "<name> (n)" inside dir_unix the way Windows/most file
- * managers do, skipping an existing entry unless it's already a symlink to
- * source_path - in which case that existing entry is reused rather than a
- * duplicate being created (so picking from the same outside folder again
- * doesn't pile up "name (1)", "name (2)", ... forever). *out_reuse is set to
- * TRUE when the returned path is such an existing symlink. Returns NULL if no
- * free or matching name could be found. */
-static char *pick_symlink_path(const char *dir_unix, const char *source_path, BOOL *out_reuse)
-{
-    const char *slash = strrchr(source_path, '/');
-    const char *leaf = (slash && slash[1]) ? slash + 1 : "root";  /* "/" has no name of its own */
-    UINT n;
-
-    *out_reuse = FALSE;
-
-    for (n = 0; n < 1000; n++)
-    {
-        char suffix[32] = "";
-        char *candidate;
-        struct stat st;
-        char link_target[PATH_MAX];
-        ssize_t link_len;
-
-        if (n) snprintf(suffix, sizeof(suffix), " (%u)", n);
-        if (!(candidate = malloc(strlen(dir_unix) + 1 + strlen(leaf) + strlen(suffix) + 1)))
-            return NULL;
-        sprintf(candidate, "%s/%s%s", dir_unix, leaf, suffix);
-
-        if (lstat(candidate, &st))
-        {
-            if (errno == ENOENT) return candidate; /* free slot */
-            free(candidate);
-            return NULL;
-        }
-
-        if ((link_len = readlink(candidate, link_target, sizeof(link_target) - 1)) > 0)
-        {
-            link_target[link_len] = 0;
-            if (!strcmp(link_target, source_path))
-            {
-                *out_reuse = TRUE;
-                return candidate; /* existing symlink to the same source */
-            }
-        }
-        free(candidate);
-    }
-    return NULL;
-}
-
-/* If dos_path is the unix-fallback form above, symlinks the folder holding
- * source_unix_path into this prefix's "C:\users\<user>\files" and returns the
- * dos path of the file inside that link (caller frees); returns NULL -
- * leaving dos_path as the caller's problem, same as before this existed - if
- * dos_path already resolved to a normal in-prefix path, or if remapping
- * failed for any reason (no leaf name, unknown username, directory not
- * creatable, all 1000 name slots taken, symlink() itself failing).
- *
- * The folder is linked rather than the file itself because that is what makes
- * saving work. An app writing a file safely writes a temporary next to it and
- * renames over the target; with a link to the file, that rename replaces the
- * link with a real file inside the prefix, so the app reports success and the
- * folder the user picked never receives anything. Creating a file that must
- * not already exist fails too, because to the system the link is an entry that
- * exists while the file it names does not. Inside a linked folder both are
- * ordinary writes to the real folder. */
-static WCHAR *localize_external_path(const char *source_unix_path, WCHAR *dos_path)
-{
-    char *dir_unix, *parent_dir, *symlink_path;
-    const char *leaf;
-    WCHAR *new_dos_path = NULL;
-    BOOL reuse;
-
-    if (!is_unix_fallback_path(dos_path)) return NULL;
-    if (!(parent_dir = split_parent_dir(source_unix_path, &leaf))) return NULL;
-    if (!(dir_unix = get_external_files_dir_unix()))
-    {
-        free(parent_dir);
-        return NULL;
-    }
-
-    if ((symlink_path = pick_symlink_path(dir_unix, parent_dir, &reuse)))
-    {
-        char *file_path;
-
-        if ((reuse || !symlink(parent_dir, symlink_path))
-            && (file_path = malloc(strlen(symlink_path) + 1 + strlen(leaf) + 1)))
-        {
-            sprintf(file_path, "%s/%s", symlink_path, leaf);
-            ntdll_get_dos_file_name(file_path, &new_dos_path, 0);
-            free(file_path);
-        }
-        free(symlink_path);
-    }
-    free(dir_unix);
-    free(parent_dir);
-    return new_dos_path;
-}
-
 NTSTATUS portal_open_file(void *args)
 {
     struct portal_open_save_params *params = args;
@@ -672,7 +513,7 @@ NTSTATUS portal_open_file(void *args)
              * target (the common case for a save, and possible here too)
              * isn't mistaken for a hard failure. */
             ntdll_get_dos_file_name(path, &dos_path, 0);
-            if (dos_path && (localized = localize_external_path(path, dos_path)))
+            if (dos_path && (localized = ntdll_localize_external_path(path, dos_path, TRUE)))
             {
                 free(dos_path);
                 dos_path = localized;
@@ -728,7 +569,7 @@ NTSTATUS portal_save_file(void *args)
          * not the NTSTATUS - a save target normally doesn't exist yet, and
          * that alone must not be treated as a hard failure here. */
         ntdll_get_dos_file_name(path, &dos_path, 0);
-        if (dos_path && (localized = localize_external_path(path, dos_path)))
+        if (dos_path && (localized = ntdll_localize_external_path(path, dos_path, TRUE)))
         {
             free(dos_path);
             dos_path = localized;

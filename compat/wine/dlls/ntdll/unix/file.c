@@ -4980,6 +4980,222 @@ NTSTATUS ntdll_get_unix_file_name( const WCHAR *dos, char **unix_name, UINT disp
 
 
 /***********************************************************************
+ *           is_unix_fallback_path
+ *
+ * Checks for the "\\?\unix\<path>" device-path form ntdll_get_dos_file_name()
+ * falls back to for a file that no drive in this prefix can reach.
+ */
+static BOOL is_unix_fallback_path( const WCHAR *dos_name )
+{
+    /* Wide string literals are 32-bit wchar_t on this (unix-side) build, not
+     * the 16-bit WCHAR the rest of Wine uses, so this has to be spelled out
+     * as a char array, the same way unix_prefixW above is. */
+    static const WCHAR prefix[] = {'\\','\\','?','\\','u','n','i','x','\\'};
+    return dos_name && !wcsncmp( dos_name, prefix, ARRAY_SIZE(prefix) );
+}
+
+
+/***********************************************************************
+ *           get_external_files_dir_unix
+ *
+ * Resolves "C:\users\user\files" (creating the "files" leaf if needed) to its
+ * unix path. The username is hardcoded rather than taken from the host account
+ * because GetUserNameA/W always return the literal string "user" and wineboot
+ * names the on-disk profile directory to match that, not the host account -
+ * using the real host username here would build a path that does not exist and
+ * cannot be resolved, silently disabling this whole mechanism. Returns NULL if
+ * the directory cannot be created.
+ */
+static char *get_external_files_dir_unix(void)
+{
+    /* See the comment in is_unix_fallback_path: no L"" here either. */
+    static const WCHAR pathW[] =
+        {'C',':','\\','u','s','e','r','s','\\','u','s','e','r','\\','f','i','l','e','s',0};
+    char *unix_dir = NULL;
+
+    /* FILE_OPEN_IF: only the leaf "files" component may not exist yet. */
+    ntdll_get_unix_file_name( pathW, &unix_dir, FILE_OPEN_IF );
+
+    if (unix_dir && mkdir( unix_dir, 0755 ) && errno != EEXIST)
+    {
+        free( unix_dir );
+        unix_dir = NULL;
+    }
+    return unix_dir;
+}
+
+
+/***********************************************************************
+ *           split_parent_dir
+ *
+ * Splits a unix path into the directory holding it and its leaf name. Returns
+ * the directory (caller frees) and points *out_leaf at the leaf inside path.
+ * Returns NULL if path has no leaf, i.e. it is "/" or ends in a slash.
+ */
+static char *split_parent_dir( const char *path, const char **out_leaf )
+{
+    const char *slash = strrchr( path, '/' );
+    SIZE_T dir_len;
+    char *dir;
+
+    if (!slash || !slash[1]) return NULL;
+    dir_len = (slash == path) ? 1 : (SIZE_T)(slash - path);  /* keep "/" itself */
+    if (!(dir = malloc( dir_len + 1 ))) return NULL;
+    memcpy( dir, path, dir_len );
+    dir[dir_len] = 0;
+    *out_leaf = slash + 1;
+    return dir;
+}
+
+
+/***********************************************************************
+ *           dup_without_trailing_slash
+ *
+ * Copies a unix path with any trailing slashes removed, so the name the link
+ * is built from is the last real component rather than the empty string a
+ * dropped folder's "file:///path/" spelling would otherwise leave. Returns
+ * NULL for a path that is nothing but slashes.
+ */
+static char *dup_without_trailing_slash( const char *path )
+{
+    SIZE_T len = strlen( path );
+    char *ret;
+
+    while (len && path[len - 1] == '/') len--;
+    if (!len) return NULL;
+    if (!(ret = malloc( len + 1 ))) return NULL;
+    memcpy( ret, path, len );
+    ret[len] = 0;
+    return ret;
+}
+
+
+/***********************************************************************
+ *           pick_symlink_path
+ *
+ * Picks "<name>" or "<name> (n)" inside dir_unix the way Windows and most file
+ * managers do, skipping an existing entry unless it is already a symlink to
+ * source_path - in which case that entry is reused rather than a duplicate
+ * being created, so reaching for the same thing again does not pile up
+ * "name (1)", "name (2)", ... forever. *out_reuse is set to TRUE when the
+ * returned path is such an existing symlink. Returns NULL if no free or
+ * matching name could be found.
+ */
+static char *pick_symlink_path( const char *dir_unix, const char *source_path, BOOL *out_reuse )
+{
+    const char *slash = strrchr( source_path, '/' );
+    const char *leaf = (slash && slash[1]) ? slash + 1 : "root";  /* "/" has no name of its own */
+    UINT n;
+
+    *out_reuse = FALSE;
+
+    for (n = 0; n < 1000; n++)
+    {
+        char suffix[32] = "";
+        char *candidate;
+        struct stat st;
+        char link_target[PATH_MAX];
+        ssize_t link_len;
+
+        if (n) snprintf( suffix, sizeof(suffix), " (%u)", n );
+        if (!(candidate = malloc( strlen(dir_unix) + 1 + strlen(leaf) + strlen(suffix) + 1 )))
+            return NULL;
+        sprintf( candidate, "%s/%s%s", dir_unix, leaf, suffix );
+
+        if (lstat( candidate, &st ))
+        {
+            if (errno == ENOENT) return candidate;  /* free slot */
+            free( candidate );
+            return NULL;
+        }
+
+        if ((link_len = readlink( candidate, link_target, sizeof(link_target) - 1 )) > 0)
+        {
+            link_target[link_len] = 0;
+            if (!strcmp( link_target, source_path ))
+            {
+                *out_reuse = TRUE;
+                return candidate;  /* existing symlink to the same source */
+            }
+        }
+        free( candidate );
+    }
+    return NULL;
+}
+
+
+/***********************************************************************
+ *           ntdll_localize_external_path
+ *
+ * Gives a file outside every drive this prefix maps a path a Windows program
+ * can actually open. With no drive letter to build one from,
+ * ntdll_get_dos_file_name() falls back to the "\\?\unix\<path>" device-path
+ * form, and a program that normalises a path before opening it destroys that
+ * form - Roblox turns the backslashes into forward slashes, which stops it
+ * being a device path at all, and then reports the file as unreadable. This
+ * symlinks the file into this prefix's "C:\users\user\files" and returns the
+ * dos path of the link (caller frees), so the program is handed an ordinary
+ * C: path instead. Returns NULL - leaving dos_name as the caller's problem,
+ * same as before this existed - if dos_name is already an ordinary path, or if
+ * remapping failed for any reason (no leaf name, unknown username, directory
+ * not creatable, all 1000 name slots taken, symlink() itself failing).
+ *
+ * link_parent links the folder holding the file rather than the file itself,
+ * which is what saving needs. An app writing a file safely writes a temporary
+ * next to it and renames over the target; with a link to the file, that rename
+ * replaces the link with a real file inside the prefix, so the app reports
+ * success and the folder the user picked never receives anything. Creating a
+ * file that must not already exist fails too, because to the system the link is
+ * an entry that exists while the file it names does not. Inside a linked folder
+ * both are ordinary writes to the real folder. A caller that only reads what it
+ * was handed passes FALSE instead, which links the one file and so leaves
+ * everything beside it outside the prefix.
+ */
+WCHAR *ntdll_localize_external_path( const char *unix_name, const WCHAR *dos_name, BOOL link_parent )
+{
+    char *dir_unix, *link_source, *symlink_path;
+    const char *leaf = NULL;
+    WCHAR *new_dos_name = NULL;
+    BOOL reuse;
+
+    if (!is_unix_fallback_path( dos_name )) return NULL;
+
+    if (link_parent) link_source = split_parent_dir( unix_name, &leaf );
+    else link_source = dup_without_trailing_slash( unix_name );
+    if (!link_source) return NULL;
+
+    if (!(dir_unix = get_external_files_dir_unix()))
+    {
+        free( link_source );
+        return NULL;
+    }
+
+    if ((symlink_path = pick_symlink_path( dir_unix, link_source, &reuse )))
+    {
+        if (reuse || !symlink( link_source, symlink_path ))
+        {
+            if (!leaf) ntdll_get_dos_file_name( symlink_path, &new_dos_name, 0 );
+            else
+            {
+                char *file_path;
+
+                if ((file_path = malloc( strlen(symlink_path) + 1 + strlen(leaf) + 1 )))
+                {
+                    sprintf( file_path, "%s/%s", symlink_path, leaf );
+                    ntdll_get_dos_file_name( file_path, &new_dos_name, 0 );
+                    free( file_path );
+                }
+            }
+        }
+        free( symlink_path );
+    }
+    free( dir_unix );
+    free( link_source );
+    return new_dos_name;
+}
+
+
+/***********************************************************************
  *           unmount_device
  *
  * Unmount the specified device.

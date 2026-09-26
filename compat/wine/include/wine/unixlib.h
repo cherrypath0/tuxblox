@@ -44,6 +44,7 @@ NTSYSAPI const WCHAR *ntdll_get_build_dir(void);
 NTSYSAPI const WCHAR *ntdll_get_data_dir(void);
 NTSYSAPI NTSTATUS ntdll_get_dos_file_name( const char *unix_name, WCHAR **dos, UINT disposition );
 NTSYSAPI NTSTATUS ntdll_get_unix_file_name( const WCHAR *dos, char **unix_name, UINT disposition );
+NTSYSAPI WCHAR *ntdll_localize_external_path( const char *unix_name, const WCHAR *dos_name, BOOL link_parent );
 
 /* exception handling */
 
