@@ -771,6 +771,22 @@ std::pair<std::string, int> detectHostFont() {
     return {"", 0};
 }
 
+// The desktop's subpixel layout, as one of rgb, bgr, none or "" when the
+// desktop does not say. This is the same X resource the graphics driver reads
+// when it decides how to rasterise a glyph, so reading it here is what keeps
+// the drive's answer and the rasteriser's behaviour from disagreeing.
+std::string detectHostSubpixel() {
+    const std::string resources = runHostCmd({"xrdb", "-query"});
+    std::istringstream lines(resources);
+    std::string line;
+    while (std::getline(lines, line)) {
+        if (line.rfind("Xft.rgba:", 0) == 0) {
+            return trimmed(line.substr(line.find(':') + 1));
+        }
+    }
+    return "";
+}
+
 // A LOGFONTW for the registry: five LONGs, eight bytes of flags, then the
 // face name as 32 UTF-16 characters. Wine reads these back for the fonts it
 // reports through SystemParametersInfo.
@@ -821,6 +837,29 @@ void Prefix::syncHostFont() {
 
     if (changed) {
         log("Synced prefix to host font " + family + " " + std::to_string(points));
+    }
+}
+
+void Prefix::syncFontSmoothing() {
+    const std::string layout = detectHostSubpixel();
+
+    // Windows reports smoothing type 2 on every machine, and Studio's Qt reads
+    // it once at startup to pick between its two text paths. Answering 1 sent
+    // it down the grey path, where it flattens the colour-striped glyphs the
+    // rasteriser actually returns into one grey channel -- which is what made
+    // its text heavier and softer than the same Qt on Windows. A desktop with
+    // no stripe order, or a vertical one Windows cannot describe, keeps the
+    // grey path, because there the flattening is correct.
+    const bool striped = layout.empty() || layout == "rgb" || layout == "bgr";
+    const std::string type = striped ? "dword:00000002" : "dword:00000001";
+    const std::string orientation = (layout == "bgr") ? "dword:00000000" : "dword:00000001";
+
+    const bool changed = setRegKeyValues(prefixDir / "user.reg",
+            "Control Panel\\\\Desktop",
+            {{"FontSmoothingType", type}, {"FontSmoothingOrientation", orientation}});
+
+    if (changed) {
+        log("Synced prefix to host text smoothing " + (layout.empty() ? "rgb" : layout));
     }
 }
 
@@ -960,6 +999,7 @@ void Prefix::setup(Session& session) {
     linkTempDir();
     syncHostTheme();
     syncHostFont();
+    syncFontSmoothing();
     syncHaptics();
 
     std::error_code error;

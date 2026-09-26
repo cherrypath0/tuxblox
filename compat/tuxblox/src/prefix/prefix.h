@@ -72,6 +72,7 @@ private:
     void linkTempDir();
     void syncHostTheme();
     void syncHostFont();
+    void syncFontSmoothing();
     void syncHaptics();
 
     Proton& proton;
