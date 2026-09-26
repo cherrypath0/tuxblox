@@ -40,6 +40,38 @@ for arg in "$@"; do
     esac
 done
 
+# A build records the commit it started from, and deploy.sh refuses to publish
+# anything dirty, anything that is not HEAD, or anything not already on main at
+# every remote. So a build started on another branch or a dirty tree is one that
+# cannot ship -- worth saying now rather than an hour later at the deploy.
+#
+# Says it and carries on: building a branch to test it is the normal case, and
+# a prompt here would hang every non-interactive build.
+warn_unpublishable() {
+    local branch dirty
+    branch="$(git -C "$ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+    dirty="$(git -C "$ROOT" status --porcelain 2>/dev/null | head -n 1)"
+    if [[ "$branch" == "main" && -z "$dirty" ]]; then
+        return 0
+    fi
+
+    echo
+    echo "!! This build will not be publishable by deploy.sh:"
+    if [[ "$branch" != "main" ]]; then
+        echo "!!   HEAD is on '${branch:-an unknown branch}', not main"
+    fi
+    if [[ -n "$dirty" ]]; then
+        echo "!!   the working tree has uncommitted changes"
+    fi
+    echo "!! Fine for testing. To build something you can release, commit"
+    echo "!! everything, switch to main, and run ./push.sh first."
+    echo
+}
+
+if [[ "$stage_only" -eq 0 ]]; then
+    warn_unpublishable
+fi
+
 # The one version file for the whole repo: line 1 the version, line 2 the
 # channel. The launcher, the installer and the compatibility layer all take
 # their version from here (via TUXBLOX_BUILD_VERSION, which their own build.sh
@@ -795,3 +827,7 @@ step "Publishing to releases/$TUXBLOX_CHANNEL/$TUXBLOX_BUILD_VERSION/"
 run_step "stage_release" strict stage_release
 
 echo -e "Successfully built TuxBlox!"
+
+# Repeated at the end because the start of a long build has scrolled away by
+# now, and this is the line that decides whether the release can go out.
+warn_unpublishable
