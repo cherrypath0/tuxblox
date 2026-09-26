@@ -67,7 +67,15 @@ findExe() {
         fi
     fi
 
-    find "build/runtime/pfx/drive_c" -name "$targetExe" -type f | grep -v "Installer" | head -n1
+    # Prefer the official install (AppData Versions); never auto-pick the patched
+    # build under rbxpatched/. Fall back to a broad search that still skips it.
+    local official
+    official=$(find "build/runtime/pfx/drive_c/users/user/AppData/Local/Roblox/Versions" -name "$targetExe" -type f 2>/dev/null | grep -v "Installer" | head -n1)
+    if [ -n "$official" ]; then
+        printf '%s\n' "$official"
+    else
+        find "build/runtime/pfx/drive_c" -name "$targetExe" -type f | grep -v "Installer" | grep -v "/rbxpatched/" | head -n1
+    fi
 }
 
 case "$choice" in

@@ -5081,6 +5081,7 @@ NTSTATUS WINAPI NtCreateFile( HANDLE *handle, ACCESS_MASK access, OBJECT_ATTRIBU
 
     *handle = 0;
     if (!attr || !attr->ObjectName) return STATUS_INVALID_PARAMETER;
+    if (tuxblox_hide_wine_driver_file( attr->ObjectName )) return STATUS_OBJECT_NAME_NOT_FOUND;
 
     if (alloc_size) FIXME( "alloc_size not supported\n" );
 

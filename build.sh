@@ -513,6 +513,24 @@ record_provenance() {
 
 # Copies include/ over build/, the last thing to land in a build. Shared, so a
 # --stage-only run ships exactly the files a full build would.
+# The graphics driver is the one module in a prefix whose file name says Wine, and Roblox's protection layer reads the name of every module it finds mapped, so ship it under a neutral name too and point the prefix at that one; the name has to be a real file rather than a reported string, because the layer re-opens and re-maps each module's backing file.
+alias_graphics_driver() {
+    local files="$ROOT/build/compat/files"
+    local pe="$files/lib/wine/x86_64-windows"
+    local so="$files/lib/wine/x86_64-unix"
+    local pfx
+
+    [[ -e "$pe/winex11.drv" && -e "$so/winex11.so" ]] || return 0
+    ln -sfn winex11.drv "$pe/dispumd.dll"
+    ln -sfn winex11.so "$so/dispumd.so"
+
+    for pfx in "$files"/share/default_pfx*/drive_c/windows/system32; do
+        [[ -d "$pfx" ]] || continue
+        ln -sfn ../../../../../lib/wine/x86_64-windows/winex11.drv "$pfx/dispumd.dll"
+        rm -f "$pfx/winex11.drv"
+    done
+}
+
 copy_include() {
     if [[ -d "$ROOT/include" ]]; then
         cp -a "$ROOT/include/." "$ROOT/build/"
@@ -763,6 +781,9 @@ step "Copying licenses into Proton"
 cp -a LICENSE build/compat/LICENSE
 rm -rf build/compat/third_party_licenses
 cp -a third_party_licenses build/compat/third_party_licenses
+
+step "Aliasing the graphics driver"
+alias_graphics_driver
 
 step "Copying include/ into build/"
 copy_include

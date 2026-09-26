@@ -919,6 +919,127 @@ ULONG64 tuxblox_roblox_dll_base(void)
     return roblox_dll_base();
 }
 
+/* Wine's own display/printer driver files (winex11.drv, winewayland.drv,
+ * wineps.drv) exist under Wine but not on Windows, where graphics is kernel-side
+ * and no such user-space file is present. The Roblox layer opens winex11.drv by
+ * name and branches on whether the open succeeds -- a Wine tell it gates on
+ * (layer+0x2cc481). Answer NOT_FOUND for the LAYER's own probes -- the system
+ * call's caller is inside the layer image -- while leaving the files openable
+ * for Wine's loader and OpenGL, which call from ntdll and opengl32. This hides a
+ * fingerprint of the environment, not a capability of the client. Off with
+ * TUXBLOX_NO_HIDE_WINE_DRV=1 for A/B. */
+/* Whether an address falls inside any loaded PE module. The layer relocates its
+ * syscall stubs into an anonymous wine-server tmpmap and calls from there, so a
+ * probe it makes has a caller in NO module; Wine's own loader and OpenGL call
+ * from ntdll/opengl32, which ARE modules. Reads only the LDR entry fields (base,
+ * size), never the module content, so an unmapped view does not fault it. */
+static BOOL caller_in_loaded_module( ULONG64 pc )
+{
+    const LIST_ENTRY *head, *cur;
+    unsigned int n = 0;
+
+    if (!pc || !peb || !peb->LdrData) return TRUE;   /* cannot tell -> do not hide */
+    head = &peb->LdrData->InLoadOrderModuleList;
+    for (cur = head->Flink; cur && cur != head && n < 384; cur = cur->Flink, n++)
+    {
+        const LDR_DATA_TABLE_ENTRY *m = (const LDR_DATA_TABLE_ENTRY *)cur;
+        ULONG64 base = (ULONG64)(ULONG_PTR)m->DllBase;
+
+        if (base && pc >= base && pc < base + m->SizeOfImage) return TRUE;
+    }
+    return FALSE;
+}
+
+/* How much of Wine's graphics driver to hide from the layer's own probes: 1 the
+ * driver file, 2 the name of its mapped section as well.
+ *
+ * Both levels are measured to kill the process, and neither reaches the branch
+ * the hiding was written for. The layer walks the address space, finds the
+ * driver's mapping, reads its section name, and re-opens the backing file to
+ * verify it. Level 2 refuses the name, which leaves a MEM_IMAGE region with no
+ * section name -- impossible on Windows. Level 1 lets the name through and the
+ * re-open then returns STATUS_OBJECT_NAME_NOT_FOUND, which that path does not
+ * check: it reads through the status as a pointer and takes an access violation
+ * at layer+0x2d72a6 on address 0xffffffffc0000034.
+ *
+ * Hiding a driver file while its module stays mapped and named describes a
+ * machine that cannot exist, so it cannot be made to work from the file end
+ * alone. Kept at 0 as the record of that, not as something to turn on.
+ */
+static int hide_wine_drv_level( void )
+{
+    static int level = -1;
+
+    if (level == -1)
+    {
+        const char *v = tuxblox_dev_getenv( "TUXBLOX_HIDE_WINE_DRV" );
+
+        level = v ? atoi( v ) : 0;
+        if (v && !*v) level = 1;
+    }
+    return level;
+}
+
+static BOOL is_wine_driver_probe( const UNICODE_STRING *name )
+{
+    static const WCHAR winex11[] = {'w','i','n','e','x','1','1','.','d','r','v'};
+    static const WCHAR winewl[]  = {'w','i','n','e','w','a','y','l','a','n','d','.','d','r','v'};
+    static const WCHAR wineps[]  = {'w','i','n','e','p','s','.','d','r','v'};
+    static const struct { const WCHAR *w; unsigned int n; } drv[] = {
+        { winex11, 11 }, { winewl, 15 }, { wineps, 8 } };
+    const WCHAR *buf;
+    unsigned int len, d;
+    BOOL match = FALSE;
+
+    if (!name || !name->Buffer) return FALSE;
+    if (!image_is_player()) return FALSE;
+
+    buf = name->Buffer;
+    len = name->Length / sizeof(WCHAR);
+    for (d = 0; d < 3 && !match; d++)
+    {
+        unsigned int dl = drv[d].n, k;
+        const WCHAR *tail;
+
+        if (len < dl) continue;
+        tail = buf + len - dl;
+        if (len > dl && tail[-1] != '\\') continue;          /* a full path component only */
+        for (k = 0; k < dl; k++)
+        {
+            WCHAR c = tail[k];
+            if (c >= 'A' && c <= 'Z') c += 'a' - 'A';
+            if (c != drv[d].w[k]) break;
+        }
+        if (k == dl) match = TRUE;
+    }
+    if (!match) return FALSE;
+
+    /* It is one of Wine's driver files. Hide it only from the ROBLOX side's own
+     * probe (caller inside a Roblox module -- the layer or the client), never
+     * from Wine's loader/OpenGL (caller in ntdll/opengl32), so the driver still
+     * loads and graphics keep working. */
+    {
+        ULONG64 cpc = get_syscall_caller_pc();
+        ULONG64 rob = layer_image_base( cpc );
+        BOOL inmod = caller_in_loaded_module( cpc );
+        if (tuxblox_dev_getenv( "TUXBLOX_DIAG_HIDE_DRV" ))
+            ERR_(seh)( "tuxblox: wine-drv probe caller=%llx roblox_mod=%llx in_module=%d -> %s\n",
+                       (unsigned long long)cpc, (unsigned long long)rob, inmod,
+                       rob ? "HIDE" : "allow" );
+        return rob != 0;
+    }
+}
+
+BOOL tuxblox_hide_wine_driver_file( const UNICODE_STRING *name )
+{
+    return hide_wine_drv_level() >= 1 && is_wine_driver_probe( name );
+}
+
+BOOL tuxblox_hide_wine_driver_section( const UNICODE_STRING *name )
+{
+    return hide_wine_drv_level() >= 2 && is_wine_driver_probe( name );
+}
+
 /* Roblox current-version stack-drift compatibility shim.
  *
  * The layer runs an integrity check at RobloxPlayerBeta.dll+0xd03395
@@ -3559,7 +3680,7 @@ static void diag_bp_frame_print( const ULONG64 *regs, unsigned int hit )
     }
 }
 
-BOOL tuxblox_diag_bp_hit( ULONG64 rip, ULONG64 *regs, LONG64 *rsp_delta )
+BOOL tuxblox_diag_bp_hit( ULONG64 rip, ULONG64 *regs, LONG64 *rsp_delta, const void *xmm )
 {
     static const char * const names[16] = { "rax", "rbx", "rcx", "rdx", "rsi", "rdi", "rbp", "rsp",
                                             "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15" };
@@ -3602,7 +3723,7 @@ BOOL tuxblox_diag_bp_hit( ULONG64 rip, ULONG64 *regs, LONG64 *rsp_delta )
                 diag_bp_setrip_arm();
                 diag_layer_blob_apply();
                 diag_save_apply();
-                tuxblox_diag_snapshot( regs, rip - 1, diag_bp_orig[i], diag_bp_rsp_delta[i], 0x202, NULL );
+                tuxblox_diag_snapshot( regs, rip - 1, diag_bp_orig[i], diag_bp_rsp_delta[i], 0x202, xmm );
             }
         }
         if (diag_bp_rsp_delta[i])
@@ -3672,6 +3793,20 @@ BOOL tuxblox_diag_bp_hit( ULONG64 rip, ULONG64 *regs, LONG64 *rsp_delta )
         n = diag_bp_slots_print( line, n, sizeof(line), regs );
         ERR_(seh)( "DIAG bp hit #%u (%u raced) 0x%llx %s\n", diag_bp_hits[i] + 1,
                    diag_bp_races[i], (unsigned long long)diag_bp_addr[i], line );
+        /* The emulator needs the working XMM state (the layer computes xmm6/xmm12
+         * inline and no snapshot register file carries it); dump all 16 here when
+         * the trap handler passed the FXSAVE area. Each M128A is {Low, High}. */
+        if (xmm)
+        {
+            const ULONG64 *x = xmm;
+            unsigned int k, m = 0;
+            char xl[16 * 40];
+
+            for (k = 0; k < 16; k++)
+                m += snprintf( xl + m, sizeof(xl) - m, " xmm%u=%016llx%016llx", k,
+                               (unsigned long long)x[2 * k + 1], (unsigned long long)x[2 * k] );
+            ERR_(seh)( "DIAG bp xmm 0x%llx%s\n", (unsigned long long)diag_bp_addr[i], xl );
+        }
         diag_bp_frame_print( regs, diag_bp_hits[i] + 1 );
         xpage_bp_seen = 1;
         virtual_patch_code_byte( (void *)(ULONG_PTR)diag_bp_addr[i], diag_bp_orig[i] );

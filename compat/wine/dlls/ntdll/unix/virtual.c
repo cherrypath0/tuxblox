@@ -3916,6 +3916,21 @@ static unsigned int virtual_map_section( HANDLE handle, PVOID *addr_ptr, ULONG_P
 
     if ((res = server_get_unix_fd( handle, 0, &unix_handle, &needs_close, NULL, NULL ))) return res;
 
+    /* Where a view lands is the one structural difference between this and a
+     * Windows process that is visible without a Windows dump: Windows' bottom-up
+     * randomisation puts a mapped view above 4 GB and ours sits at a couple of
+     * hundred megabytes. The Roblox layer maps every module it verifies and makes
+     * a second view of each one on Windows and none here, so the address it got
+     * back for the first is worth testing as the thing it decides on.
+     * TUXBLOX_TEST_HIGH_VIEWS=<hex floor>, and only where the caller left the
+     * choice to us. */
+    if (!base && !limit_low)
+    {
+        const char *floor = tuxblox_dev_getenv( "TUXBLOX_TEST_HIGH_VIEWS" );
+
+        if (floor && *floor && *floor != '0') limit_low = strtoull( floor, NULL, 16 );
+    }
+
     server_enter_uninterrupted_section( &virtual_mutex, &sigset );
 
     res = map_view( &view, base, size, alloc_type, vprot, limit_low, limit_high, 0 );
@@ -7498,6 +7513,10 @@ static unsigned int get_memory_section_name( HANDLE process, LPCVOID addr,
 
     full[name.Length / sizeof(WCHAR)] = 0;
     resolve_drive_symlink( &name, sizeof(full) - sizeof(WCHAR), NULL, STATUS_SUCCESS );
+    /* Refusing this leaves a MEM_IMAGE region with no section name, which Windows
+     * never produces, so the layer aborts as soon as its address-space walk
+     * reaches the driver -- only TUXBLOX_HIDE_WINE_DRV=2 asks for it. */
+    if (tuxblox_hide_wine_driver_section( &name )) return STATUS_INVALID_ADDRESS;
     if (tuxblox_trace_enabled()) tuxblox_trace_record_us( "MemorySectionName", &name );
 
     needed = sizeof(*info) + name.Length + sizeof(WCHAR);
@@ -8304,6 +8323,39 @@ NTSTATUS WINAPI NtResetWriteWatch( HANDLE process, PVOID base, SIZE_T size )
 
 
 /***********************************************************************
+ *           read_over_guard_pages
+ *
+ * Copy out of committed pages a plain read cannot touch because they are
+ * guarded, leaving the guard armed. Returns the bytes copied.
+ */
+static SIZE_T read_over_guard_pages( const void *addr, void *buffer, SIZE_T size )
+{
+    SIZE_T done = 0;
+    sigset_t sigset;
+
+    if (!tuxblox_dev_getenv( "TUXBLOX_TEST_GUARD_READ" )) return 0;
+
+    server_enter_uninterrupted_section( &virtual_mutex, &sigset );
+    while (done < size)
+    {
+        const char *src = (const char *)addr + done;
+        char *page = ROUND_ADDR( src, host_page_mask );
+        SIZE_T chunk = min( size - done, host_page_size - ((UINT_PTR)src & host_page_mask) );
+        BYTE vprot = get_host_page_vprot( page );
+
+        if (!(vprot & VPROT_COMMITTED) || !(vprot & (VPROT_READ | VPROT_WRITE | VPROT_WRITECOPY | VPROT_EXEC)))
+            break;
+        if (vprot & VPROT_GUARD) mprotect_range( page, host_page_size, 0, VPROT_GUARD );
+        memcpy( (char *)buffer + done, src, chunk );
+        if (vprot & VPROT_GUARD) mprotect_range( page, host_page_size, 0, 0 );
+        done += chunk;
+    }
+    server_leave_uninterrupted_section( &virtual_mutex, &sigset );
+    return done;
+}
+
+
+/***********************************************************************
  *             NtReadVirtualMemory   (NTDLL.@)
  *             ZwReadVirtualMemory   (NTDLL.@)
  */
@@ -8326,8 +8378,14 @@ NTSTATUS WINAPI NtReadVirtualMemory( HANDLE process, const void *addr, void *buf
         }
         __EXCEPT
         {
-            status = STATUS_PARTIAL_COPY;
-            size = 0;
+            /* A guard page faults the copy, and the reference machine answers a
+             * read that covers one with the bytes rather than a refusal -- 196
+             * reads in the capture and not one failure. Copying with the guard
+             * lifted only for the length of the copy reads what is there and
+             * leaves the page armed, so the thread it belongs to still grows its
+             * stack on its own next touch. */
+            size = read_over_guard_pages( addr, buffer, size );
+            status = size ? STATUS_SUCCESS : STATUS_PARTIAL_COPY;
         }
         __ENDTRY
     }

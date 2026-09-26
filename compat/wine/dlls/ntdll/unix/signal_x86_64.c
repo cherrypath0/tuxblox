@@ -1863,6 +1863,11 @@ static void setup_raise_exception( ucontext_t *sigcontext, EXCEPTION_RECORD *rec
                 }
                 if (lay)
                 {
+                    /* F's RVA moves every build; the default is the current build's
+                     * (version-4310300497aa4917), overridable so a migration needs no recompile. */
+                    const char *frva = tuxblox_dev_getenv( "TUXBLOX_TEST_CALL_F_RVA" );
+                    ULONG64 foff = frva ? strtoull( frva, NULL, 16 ) : 0x9492d0;
+
                     called = 1;
                     if (tuxblox_dev_getenv( "TUXBLOX_TEST_UNLOCK_ACCESS" ))
                         virtual_unlock_client_access( base );
@@ -1870,8 +1875,9 @@ static void setup_raise_exception( ucontext_t *sigcontext, EXCEPTION_RECORD *rec
                     *(ULONG64 *)(ULONG_PTR)context->Rsp = context->Rip;
                     context->Rcx = a[0]; context->Rdx = a[1];
                     context->R8 = a[2]; context->R9 = a[3];
-                    context->Rip = lay + 0x104caa0;
-                    ERR_(seh)( "tuxblox: force-calling F (layer+0x104caa0) rcx=%llx rdx=%llx r8=%llx r9=%llx\n",
+                    context->Rip = lay + foff;
+                    ERR_(seh)( "tuxblox: force-calling F (layer+%llx) rcx=%llx rdx=%llx r8=%llx r9=%llx\n",
+                               (unsigned long long)foff,
                                (unsigned long long)a[0], (unsigned long long)a[1],
                                (unsigned long long)a[2], (unsigned long long)a[3] );
                     restore_context( xcontext, sigcontext );
@@ -3712,6 +3718,43 @@ static void segv_handler( int signal, siginfo_t *siginfo, void *sigcontext )
         }
         break;
     case TRAP_x86_PAGEFLT:  /* Page fault */
+        /* TuxBlox diag: an instruction-fetch fault at a tiny negative address means
+         * the program called through a pointer that is a raw Linux -errno (a fork bug
+         * leaking an untranslated error). Log the caller (return address on the stack)
+         * so the leaking API can be identified. Fires only for this rare bogus case. */
+        if (((ERROR_sig(ucontext) >> 1) & 0x09) == 8 &&
+            (ULONG64)(ULONG_PTR)siginfo->si_addr >= 0xffffffffffffff00ull)
+        {
+            ULONG64 sp = RSP_sig(ucontext);
+            ULONG64 ret0 = *(volatile ULONG64 *)(ULONG_PTR)sp;
+            fprintf( stderr, "TUXBLOX_ERRNO_CALL target=%llx rip=%llx rsp=%llx ret0=%llx ret1=%llx ret2=%llx rax=%llx rbx=%llx rcx=%llx rdx=%llx\n",
+                     (unsigned long long)(ULONG64)(ULONG_PTR)siginfo->si_addr,
+                     (unsigned long long)RIP_sig(ucontext), (unsigned long long)sp,
+                     (unsigned long long)ret0,
+                     (unsigned long long)*(volatile ULONG64 *)(ULONG_PTR)(sp + 8),
+                     (unsigned long long)*(volatile ULONG64 *)(ULONG_PTR)(sp + 16),
+                     (unsigned long long)context.c.Rax, (unsigned long long)context.c.Rbx,
+                     (unsigned long long)context.c.Rcx, (unsigned long long)context.c.Rdx );
+            /* First hit only: back-compute the resolver from the caller's
+             * `call qword ptr [rip+disp32]` (FF 15 <disp32>, 6 bytes ending at ret0),
+             * read its runtime pointer and dump the resolver's code. */
+            {
+                static int shown_resolver;
+                const BYTE *callp = (const BYTE *)(ULONG_PTR)(ret0 - 6);
+                if (!shown_resolver && callp[0] == 0xFF && callp[1] == 0x15)
+                {
+                    int disp = *(const int *)(callp + 2);
+                    ULONG64 slot = ret0 + (LONG64)disp;
+                    ULONG64 resolver = *(volatile ULONG64 *)(ULONG_PTR)slot;
+                    const BYTE *rc = (const BYTE *)(ULONG_PTR)resolver;
+                    int i; char hex[3*160+1]; int n = 0;
+                    shown_resolver = 1;
+                    for (i = 0; i < 160; i++) n += snprintf( hex+n, sizeof(hex)-n, "%02x", rc[i] );
+                    fprintf( stderr, "TUXBLOX_RESOLVER slot=%llx resolver=%llx code=%s\n",
+                             (unsigned long long)slot, (unsigned long long)resolver, hex );
+                }
+            }
+        }
         /* A page this build took execution rights off to watch where the
          * program goes. Handled before anything else looks at it, so the
          * program is never told a fault happened. */
@@ -3895,6 +3938,9 @@ static void trap_handler( int signal, siginfo_t *siginfo, void *sigcontext )
                              R8_sig(ucontext), R9_sig(ucontext), R10_sig(ucontext), R11_sig(ucontext),
                              R12_sig(ucontext), R13_sig(ucontext), R14_sig(ucontext), R15_sig(ucontext) };
         LONG64 rsp_delta = 0;
+        /* The FXSAVE area's XmmRegisters[16] sit at offset 0xa0; hand them to the
+         * breakpoint dump so a snapshot carries the layer's live XMM state. */
+        const void *bp_xmm = FPU_sig(ucontext) ? (const char *)FPU_sig(ucontext) + 0xa0 : NULL;
 
         /* Always-on Roblox stack-drift shim: forces r11=0 at the layer's
          * integrity check so its match path is taken. Checked before the
@@ -3907,7 +3953,7 @@ static void trap_handler( int signal, siginfo_t *siginfo, void *sigcontext )
             return;
         }
 
-        if (tuxblox_diag_bp_hit( RIP_sig(ucontext), regs, &rsp_delta ))
+        if (tuxblox_diag_bp_hit( RIP_sig(ucontext), regs, &rsp_delta, bp_xmm ))
         {
             ULONG64 redir = tuxblox_diag_bp_take_redirect();
             /* TUXBLOX_DIAG_BP_SETRIP redirects control (a forced call/jump);

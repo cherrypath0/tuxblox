@@ -232,7 +232,7 @@ extern void tuxblox_diag_dump_image( const char *why );
 extern void tuxblox_diag_exception( const EXCEPTION_RECORD *rec, const CONTEXT *context );
 extern void tuxblox_diag_continue( const CONTEXT *context );
 extern BOOL tuxblox_diag_watch_enabled(void);
-extern BOOL tuxblox_diag_bp_hit( ULONG64 rip, ULONG64 *regs, LONG64 *rsp_delta );
+extern BOOL tuxblox_diag_bp_hit( ULONG64 rip, ULONG64 *regs, LONG64 *rsp_delta, const void *xmm );
 extern ULONG64 tuxblox_diag_bp_take_redirect(void);
 extern void tuxblox_diag_snapshot( ULONG64 *regs, ULONG64 rip, int bp_orig, LONG64 rsp_delta,
                                   ULONG64 eflags, const void *xmm );
@@ -511,6 +511,8 @@ extern NTSTATUS virtual_inject_client_text( ULONG_PTR image_base );
 extern NTSTATUS virtual_bind_client_imports( ULONG_PTR image_base );
 extern NTSTATUS virtual_unlock_client_access( ULONG_PTR image_base );
 extern ULONG64 tuxblox_roblox_dll_base(void);
+extern BOOL tuxblox_hide_wine_driver_file( const UNICODE_STRING *name );
+extern BOOL tuxblox_hide_wine_driver_section( const UNICODE_STRING *name );
 extern ULONG_PTR virtual_get_mapped_base( const void *addr );
 extern NTSTATUS resolve_drive_symlink( UNICODE_STRING *name, SIZE_T max_name_len, SIZE_T *ret_len,
                                        NTSTATUS status );
