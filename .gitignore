@@ -32,6 +32,7 @@ compat/dist-*
 compat/obj-*
 compat/syn-*
 
+.vscode/
 .claude/
 .superpowers/
 workspace/
