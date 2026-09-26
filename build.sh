@@ -543,26 +543,36 @@ record_provenance() {
     printf '%s\n%s\n' "$commit" "$dirty" > "$ROOT/build/.provenance"
 }
 
-# Copies include/ over build/, the last thing to land in a build. Shared, so a
-# --stage-only run ships exactly the files a full build would.
 # The graphics driver is the one module in a prefix whose file name says Wine, and Roblox's protection layer reads the name of every module it finds mapped, so ship it under a neutral name too and point the prefix at that one; the name has to be a real file rather than a reported string, because the layer re-opens and re-maps each module's backing file.
+# Both architectures have to be aliased together: the desktop records the name it loaded and every later process reads that one back, so a 32-bit program left without the new name gets no display driver at all and cannot open a window. Roblox's own updater is 32-bit.
 alias_graphics_driver() {
     local files="$ROOT/build/compat/files"
-    local pe="$files/lib/wine/x86_64-windows"
-    local so="$files/lib/wine/x86_64-unix"
-    local pfx
+    local arch winArch pe so sysDir pfx
 
-    [[ -e "$pe/winex11.drv" && -e "$so/winex11.so" ]] || return 0
-    ln -sfn winex11.drv "$pe/dispumd.dll"
-    ln -sfn winex11.so "$so/dispumd.so"
+    for arch in x86_64 i386; do
+        winArch="$arch-windows"
+        pe="$files/lib/wine/$winArch"
+        so="$files/lib/wine/$arch-unix"
 
-    for pfx in "$files"/share/default_pfx*/drive_c/windows/system32; do
-        [[ -d "$pfx" ]] || continue
-        ln -sfn ../../../../../lib/wine/x86_64-windows/winex11.drv "$pfx/dispumd.dll"
-        rm -f "$pfx/winex11.drv"
+        [[ -e "$pe/winex11.drv" && -e "$so/winex11.so" ]] || continue
+        ln -sfn winex11.drv "$pe/dispumd.dll"
+        ln -sfn winex11.so "$so/dispumd.so"
+
+        case "$arch" in
+            x86_64) sysDir=system32 ;;
+            i386)   sysDir=syswow64 ;;
+        esac
+
+        for pfx in "$files"/share/default_pfx*/drive_c/windows/"$sysDir"; do
+            [[ -d "$pfx" ]] || continue
+            ln -sfn "../../../../../lib/wine/$winArch/winex11.drv" "$pfx/dispumd.dll"
+            rm -f "$pfx/winex11.drv"
+        done
     done
 }
 
+# Copies include/ over build/, the last thing to land in a build. Shared, so a
+# --stage-only run ships exactly the files a full build would.
 copy_include() {
     if [[ -d "$ROOT/include" ]]; then
         cp -a "$ROOT/include/." "$ROOT/build/"
