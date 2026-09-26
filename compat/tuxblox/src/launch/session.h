@@ -63,8 +63,7 @@ public:
     // files it installed.
     void applyDllOverrides();
 
-    // Runs a command to completion and returns its exit code. Ctrl+C or a
-    // SIGTERM tears down the whole process tree and the prefix with it.
+    // Runs a command to completion and returns its exit code. Ctrl+C or a SIGTERM stops the process tree, and tears the virtual drive down with it only when this session owns it.
     int runProc(const std::vector<std::string>& command);
     int runProc(const std::vector<std::string>& command, const Environment& localEnv);
 
@@ -86,6 +85,9 @@ public:
     // The command line TuxBlox itself was started with, recorded in the log
     // header so a bug report says how the run was launched.
     std::string invocation;
+
+    // False for a run that joined a virtual drive somebody else started, which must never tear that drive down on its way out.
+    bool ownsPrefix = true;
 
     // DLL overrides collected before launch, written out as WINEDLLOVERRIDES.
     std::map<std::string, std::string> dllOverrides;

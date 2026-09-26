@@ -599,10 +599,11 @@ int Session::runProc(const std::vector<std::string>& command, const Environment&
                 ::waitpid(child, &status, 0);
             }
 
-            // wineserver outlives any single client on purpose, so it and the
-            // helpers connected to it survive killing our own process group.
-            // Tear the prefix down explicitly.
-            runSimple({proton.wineserverBin.string(), "-k"}, localEnv, logFd);
+            // wineserver outlives any single client on purpose, so it and the helpers connected to it survive killing our own process group.
+            // A run that only joined the virtual drive stops here instead: the Studio MCP helper shares one with Studio, and tearing it down would close Studio too.
+            if (ownsPrefix) {
+                runSimple({proton.wineserverBin.string(), "-k"}, localEnv, logFd);
+            }
 
             sigprocmask(SIG_SETMASK, &previous, nullptr);
             reportExitCodes(exitCodeFromStatus(status));

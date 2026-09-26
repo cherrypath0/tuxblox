@@ -213,6 +213,7 @@ int runMain(int argc, char *argv[]) {
     tuxblox::Session session(proton, prefixDir);
     session.buildVersion = TuxBloxVersion + "-" + TuxBloxChannel;
     session.invocation = invocation;
+    session.ownsPrefix = !command.runImmediately;
     session.initWine();
 
     tuxblox::Prefix prefix(proton, std::filesystem::path(pPrefixDir), PrefixVersion);
