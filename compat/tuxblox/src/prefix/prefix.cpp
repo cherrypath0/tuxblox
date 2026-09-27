@@ -21,6 +21,7 @@
 
 #include "prefix/prefix.h"
 #include "prefix/registry.h"
+#include "support/account_name.h"
 #include "embedded_data.h"
 
 #include <array>
@@ -620,7 +621,7 @@ void Prefix::linkTempDir() {
     }
 
     std::error_code error;
-    const fs::path temp = prefixDir / "drive_c/users/user/AppData/Local/Temp";
+    const fs::path temp = prefixDir / "drive_c/users" / accountFolder() / "AppData/Local/Temp";
     if (isSymlink(temp)) {
         if (fs::read_symlink(temp, error) == leaf) {
             return; // already points at it
@@ -644,8 +645,9 @@ void Prefix::linkRobloxData() {
     // Roblox keeps its installed versions, settings and logs here. Create it up
     // front, empty, so it is always present -- even a brand-new prefix has the
     // folder, and Roblox fills it in on first launch.
+    const std::string account = accountFolder();
     const fs::path robloxData =
-        prefixDir / "drive_c/users/user/AppData/Local/Roblox";
+        prefixDir / "drive_c/users" / account / "AppData/Local/Roblox";
     makeDirs(robloxData);
 
     // A "roblox" shortcut in the install folder, so that data is reachable
@@ -660,7 +662,7 @@ void Prefix::linkRobloxData() {
         return; // an unusual prefix path; skip the shortcut rather than guess
     }
     const fs::path target =
-        fs::path(runtimeName) / "pfx/drive_c/users/user/AppData/Local/Roblox";
+        fs::path(runtimeName) / "pfx/drive_c/users" / account / "AppData/Local/Roblox";
 
     std::error_code error;
     const fs::path link = installRoot / "roblox";
@@ -676,13 +678,39 @@ void Prefix::linkRobloxData() {
     fs::create_symlink(target, link, error);
 }
 
+// The account folder this drive uses. Whatever Wine created is the truth; the computed name is only for a drive that has not been built yet.
+std::string Prefix::accountFolder() const {
+    const std::string found = prefixAccountName(prefixDir);
+    return found.empty() ? accountName() : found;
+}
+
+// Older drives were built with a folder called "user". Renaming it keeps the installed Roblox, the login and the settings that live inside it.
+void Prefix::migrateAccountFolder() {
+    const std::string wanted = accountName();
+    switch (tuxblox::migrateAccountFolder(prefixDir, wanted)) {
+    case AccountFolderMigration::Renamed:
+        log("Renamed the virtual drive's account folder from \"user\" to \"" + wanted + "\".");
+        break;
+    case AccountFolderMigration::Ambiguous:
+        log("The virtual drive has both a \"user\" and a \"" + wanted +
+            "\" account folder; leaving both alone.");
+        break;
+    case AccountFolderMigration::Failed:
+        log("Could not rename the account folder to \"" + wanted + "\", keeping \"user\".");
+        break;
+    case AccountFolderMigration::NotNeeded:
+        break;
+    }
+}
+
 void Prefix::migrateUserPaths() {
     // Wine's own compatibility links: apps that still use the Windows XP
     // folder names find the modern ones through these.
+    const std::string account = "drive_c/users/" + accountFolder() + "/";
     const std::array<std::array<std::string, 2>, 3> links = {{
-        {"drive_c/users/user/Local Settings/Application Data", "../AppData/Local"},
-        {"drive_c/users/user/Application Data", "./AppData/Roaming"},
-        {"drive_c/users/user/My Documents", "./Documents"}
+        {account + "Local Settings/Application Data", "../AppData/Local"},
+        {account + "Application Data", "./AppData/Roaming"},
+        {account + "My Documents", "./Documents"}
     }};
 
     std::error_code error;
@@ -994,6 +1022,7 @@ void Prefix::setup(Session& session) {
         ::sync();
     }
 
+    migrateAccountFolder();
     migrateUserPaths();
     linkRobloxData();
     linkTempDir();

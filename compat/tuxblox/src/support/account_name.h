@@ -33,4 +33,22 @@ std::string sanitizedAccountName(const std::string& raw);
 // somehow has two, which the caller reports rather than guessing between.
 std::string prefixAccountName(const std::filesystem::path& prefixDir);
 
+// What a migrateAccountFolder() pass did, so the caller can report it.
+enum class AccountFolderMigration {
+    // Already on the wanted name, or there is no old folder to move.
+    NotNeeded,
+    Renamed,
+    // Both the old and the wanted folder are there; nothing was touched.
+    Ambiguous,
+    // The rename was refused; the drive still works under the old name.
+    Failed,
+};
+
+// Moves a drive's old "user" account folder to `wanted` and rewrites the paths
+// the drive's own settings record, so an install made before the account name
+// was real keeps its Roblox, its login and its settings. Does nothing at all
+// unless there is exactly one folder to move.
+AccountFolderMigration migrateAccountFolder(const std::filesystem::path& prefixDir,
+                                            const std::string& wanted);
+
 } // namespace tuxblox

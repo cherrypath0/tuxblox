@@ -20,6 +20,8 @@
 #include <array>
 #include <cctype>
 #include <cstdlib>
+#include <fstream>
+#include <sstream>
 
 #include <pwd.h>
 #include <unistd.h>
@@ -59,6 +61,27 @@ bool isUsable(const std::string& name) {
     return std::find(ReservedNames.begin(), ReservedNames.end(), upper) == ReservedNames.end();
 }
 
+// Replaces every occurrence of a literal in a text file, leaving a file that does not have it untouched.
+void replaceTextInFile(const std::filesystem::path& file, const std::string& from,
+                       const std::string& to) {
+    std::ifstream in(file);
+    if (!in) return;
+    std::stringstream buffer;
+    buffer << in.rdbuf();
+    in.close();
+
+    std::string text = buffer.str();
+    std::size_t at = text.find(from);
+    if (at == std::string::npos) return;
+    while (at != std::string::npos) {
+        text.replace(at, from.size(), to);
+        at = text.find(from, at + to.size());
+    }
+
+    std::ofstream out(file, std::ios::trunc);
+    if (out) out << text;
+}
+
 } // namespace
 
 std::string sanitizedAccountName(const std::string& raw) {
@@ -91,6 +114,34 @@ std::string prefixAccountName(const std::filesystem::path& prefixDir) {
         found = name;
     }
     return found.empty() ? FallbackName : found;
+}
+
+AccountFolderMigration migrateAccountFolder(const std::filesystem::path& prefixDir,
+                                            const std::string& wanted) {
+    namespace fs = std::filesystem;
+
+    if (wanted == FallbackName) return AccountFolderMigration::NotNeeded;
+
+    const fs::path users = prefixDir / "drive_c/users";
+    const fs::path oldDir = users / FallbackName;
+    const fs::path newDir = users / wanted;
+
+    std::error_code error;
+    const bool haveOld = fs::exists(oldDir, error);
+    const bool haveNew = fs::exists(newDir, error);
+
+    if (haveNew) return haveOld ? AccountFolderMigration::Ambiguous : AccountFolderMigration::NotNeeded;
+    if (!haveOld) return AccountFolderMigration::NotNeeded;
+
+    fs::rename(oldDir, newDir, error);
+    if (error) return AccountFolderMigration::Failed;
+
+    // The drive's own settings record the old path in several places, so they are rewritten in the same pass rather than left pointing at nothing.
+    for (const char *pFile : {"user.reg", "system.reg", "userdef.reg"}) {
+        replaceTextInFile(prefixDir / pFile, "C:\\\\users\\\\" + FallbackName,
+                          "C:\\\\users\\\\" + wanted);
+    }
+    return AccountFolderMigration::Renamed;
 }
 
 } // namespace tuxblox

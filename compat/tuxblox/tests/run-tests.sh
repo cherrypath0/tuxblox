@@ -27,4 +27,8 @@ g++ -std=c++17 -O0 -g -Wall -Wextra -UNDEBUG \
     -o "$out/test_account_name" test_account_name.cpp ../src/support/account_name.cpp
 "$out/test_account_name"
 
+g++ -std=c++17 -O0 -g -Wall -Wextra -UNDEBUG \
+    -o "$out/test_account_migration" test_account_migration.cpp ../src/support/account_name.cpp
+"$out/test_account_migration"
+
 printf 'compat tests: all passed\n'

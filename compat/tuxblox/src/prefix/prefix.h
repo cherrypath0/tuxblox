@@ -67,6 +67,8 @@ private:
     void updateBuiltinLibs(const std::string& copyPatterns);
     void createFontSymlinks();
     void installGraphicsFiles(Session& session);
+    std::string accountFolder() const;
+    void migrateAccountFolder();
     void migrateUserPaths();
     void linkRobloxData();
     void linkTempDir();
