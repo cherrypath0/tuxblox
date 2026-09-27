@@ -25,13 +25,41 @@ namespace fs = std::filesystem;
 namespace tuxblox {
 
 std::string bridgeWindowsRoot(const std::string& installDir) {
-    return "C:\\users\\" + prefixUserName(driveCDir(installDir)) + "\\Documents\\TuxBlox Files";
+    return "C:\\users\\" + prefixUserName(driveCDir(installDir)) + "\\files";
 }
 
 namespace {
 
 std::string bridgeRootDir(const std::string& installDir) {
-    return prefixUserDir(installDir) + "/Documents/TuxBlox Files";
+    return prefixUserDir(installDir) + "/files";
+}
+
+// A file inside a folder the drive points at the user's home is already reachable under C:, so it is named directly rather than bridged in a second time. The linked folders are read off the drive rather than listed here, so this follows whatever the compatibility layer actually linked.
+std::string windowsPathUnderLinkedFolder(const std::string& installDir, const fs::path& hostPath) {
+    const std::string driveC = driveCDir(installDir);
+    const std::string account = prefixUserName(driveC);
+
+    std::error_code ec;
+    fs::directory_iterator entries(fs::path(driveC) / "users" / account, ec);
+    if (ec) return "";
+
+    for (const fs::directory_entry& entry : entries) {
+        if (!fs::is_symlink(entry.symlink_status(ec)) || ec) continue;
+
+        const fs::path target = fs::canonical(entry.path(), ec);
+        if (ec) continue;
+
+        const fs::path rel = hostPath.lexically_relative(target);
+        if (rel.empty()) continue;
+        const std::string relStr = rel.generic_string();
+        if (relStr == "." || relStr.rfind("..", 0) == 0) continue;
+
+        std::string win = "C:\\users\\" + account + "\\" +
+                          entry.path().filename().string() + "\\" + relStr;
+        for (char& c : win) if (c == '/') c = '\\';
+        return win;
+    }
+    return "";
 }
 
 // A host path under drive_c is already reachable -- turn it into an ordinary
@@ -96,6 +124,9 @@ std::string bridgeHostPathIntoPrefix(const std::string& installDir, const std::s
             const std::string direct = windowsPathUnderDriveC(canonicalDriveC, canonical);
             if (!direct.empty()) return direct;
         }
+
+        const std::string linked = windowsPathUnderLinkedFolder(installDir, canonical);
+        if (!linked.empty()) return linked;
 
         const fs::path parent = canonical.parent_path();
 

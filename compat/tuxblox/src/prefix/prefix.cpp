@@ -22,6 +22,7 @@
 #include "prefix/prefix.h"
 #include "prefix/registry.h"
 #include "support/account_name.h"
+#include "support/host_folders.h"
 #include "embedded_data.h"
 
 #include <array>
@@ -641,6 +642,38 @@ void Prefix::linkTempDir() {
     }
 }
 
+// Points the drive's Desktop, Documents, Downloads, Music, Pictures and Videos at the matching folders in the user's home, so Roblox can open and save there directly instead of only seeing files handed to it one at a time.
+void Prefix::linkHostUserFolders() {
+    const std::string home = envOrEmpty("HOME");
+    if (home.empty()) {
+        return;
+    }
+
+    const fs::path account = prefixDir / "drive_c/users" / accountFolder();
+
+    // Before Documents starts pointing at the real one, or this would be carried into it.
+    if (!removeLegacyBridgeRoot(account / "Documents")) {
+        log("Could not remove the old \"TuxBlox Files\" folder; leaving it where it is.");
+    }
+
+    for (const HostFolder& folder : hostFolderMappings()) {
+        const std::string hostPath = hostFolderPath(folder.xdgKey, folder.windowsName, home);
+        if (hostPath.empty()) {
+            continue;
+        }
+        switch (linkHostFolder(account / folder.windowsName, hostPath)) {
+        case HostFolderLink::Kept:
+            log("Keeping the drive's own \"" + folder.windowsName +
+                "\" folder: something in it could not be moved to " + hostPath);
+            break;
+        case HostFolderLink::Linked:
+        case HostFolderLink::AlreadyLinked:
+        case HostFolderLink::NoHostFolder:
+            break;
+        }
+    }
+}
+
 void Prefix::linkRobloxData() {
     // Roblox keeps its installed versions, settings and logs here. Create it up
     // front, empty, so it is always present -- even a brand-new prefix has the
@@ -1028,6 +1061,7 @@ void Prefix::setup(Session& session) {
 
     migrateAccountFolder();
     migrateUserPaths();
+    linkHostUserFolders();
     linkRobloxData();
     linkTempDir();
     syncHostTheme();

@@ -70,6 +70,7 @@ private:
     std::string accountFolder() const;
     void migrateAccountFolder();
     void migrateUserPaths();
+    void linkHostUserFolders();
     void linkRobloxData();
     void linkTempDir();
     void syncHostTheme();

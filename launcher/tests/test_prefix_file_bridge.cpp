@@ -49,7 +49,7 @@ int main() {
     const fs::path driveC = installDir / "runtime" / "pfx" / "drive_c";
     fs::create_directories(driveC);
 
-    const fs::path bridgeRoot = driveC / "users" / "user" / "Documents" / "TuxBlox Files";
+    const fs::path bridgeRoot = driveC / "users" / "user" / "files";
 
     // A host file outside the prefix gets a directory symlink and a C:\ path.
     const fs::path places = tmp / "places";
@@ -155,6 +155,37 @@ int main() {
     for (const std::string& s : {win, win2, winInside, again}) {
         assert(s.rfind("C:\\", 0) == 0);
         assert(s.find(tmp.string()) == std::string::npos);
+    }
+
+    // A folder the drive links out to the home folder is already reachable
+    // under C:, so a file in it is named directly instead of being bridged in
+    // again -- otherwise dropping a file from ~/Downloads would build a
+    // symlink pointing back at the folder it came from.
+    {
+        const fs::path linkedInstall = tmp / "linked-install";
+        const fs::path linkedDriveC = linkedInstall / "runtime" / "pfx" / "drive_c";
+        const fs::path account = linkedDriveC / "users" / "cherry";
+        fs::create_directories(account);
+
+        const fs::path hostDownloads = tmp / "fake-home" / "Downloads";
+        fs::create_directories(hostDownloads / "maps");
+        writeAll(hostDownloads / "maps" / "town.rbxl", "x");
+        fs::create_directory_symlink(hostDownloads, account / "Downloads");
+
+        const std::string win = bridgeHostPathIntoPrefix(
+            linkedInstall.string(), (hostDownloads / "maps" / "town.rbxl").string());
+        assert(win == "C:\\users\\cherry\\Downloads\\maps\\town.rbxl");
+        // Nothing was bridged: no files folder was even created.
+        assert(!fs::exists(account / "files"));
+
+        // A file outside every linked folder still goes through the bridge.
+        const fs::path elsewhere = tmp / "elsewhere";
+        fs::create_directories(elsewhere);
+        writeAll(elsewhere / "other.rbxl", "x");
+        const std::string bridged =
+            bridgeHostPathIntoPrefix(linkedInstall.string(), (elsewhere / "other.rbxl").string());
+        assert(bridged == bridgeWindowsRoot(linkedInstall.string()) + "\\elsewhere\\other.rbxl");
+        assert(fs::is_symlink(account / "files" / "elsewhere"));
     }
 
     fs::remove_all(tmp);
