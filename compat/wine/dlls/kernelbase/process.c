@@ -1705,8 +1705,26 @@ static void fake_leaked_command_line( RTL_USER_PROCESS_PARAMETERS *params )
     }
     winpath[3 + rel_len] = 0;
 
-    /* present a generic account name, independent of the prefix's real one */
-    replaced = wstr_replace_once( winpath, L"\\steamuser\\", L"\\user\\" );
+    /* rewrite a stale account name in the leaked path to this prefix's own */
+    {
+        WCHAR account[256], wanted[258];
+        UINT account_len;
+
+        /* USERNAME rather than GetUserNameW: advapi32 sits above kernelbase and
+         * cannot be linked from here. wineboot wrote this variable from that
+         * same answer, so it names the prefix's own account folder. */
+        if (!GetEnvironmentVariableW( L"USERNAME", account, ARRAY_SIZE(account) ))
+            lstrcpyW( account, L"user" );
+
+        account_len = lstrlenW( account );
+        wanted[0] = '\\';
+        memcpy( wanted + 1, account, account_len * sizeof(WCHAR) );
+        wanted[account_len + 1] = '\\';
+        wanted[account_len + 2] = 0;
+
+        replaced = wstr_replace_once( winpath, L"\\steamuser\\", wanted );
+        if (!replaced) replaced = wstr_replace_once( winpath, L"\\user\\", wanted );
+    }
     final_path = replaced ? replaced : winpath;
 
     final_len = lstrlenW( final_path );

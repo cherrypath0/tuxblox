@@ -4995,23 +4995,68 @@ static BOOL is_unix_fallback_path( const WCHAR *dos_name )
 }
 
 
+/* The SAM account name limit, which is what a Windows account is bound by -
+ * not UNLEN, which is a 256-character buffer size. advapi32's GetUserNameA/W
+ * applies the same 20. */
+#define MAX_ACCOUNT_NAME 20
+
+/***********************************************************************
+ *           account_name_is_usable
+ *
+ * Whether the host account name can name a Windows account folder. advapi32
+ * applies this same rule when it answers GetUserNameA/W; the two have to agree,
+ * or this builds a path to a directory wineboot never created.
+ */
+static BOOL account_name_is_usable( const char *name )
+{
+    static const char * const reserved[] =
+    {
+        "CON", "PRN", "AUX", "NUL",
+        "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+    };
+    size_t i, len;
+
+    if (!name || !name[0]) return FALSE;
+    len = strlen( name );
+    if (len > MAX_ACCOUNT_NAME) return FALSE;
+    if (!strcmp( name, "." ) || !strcmp( name, ".." )) return FALSE;
+    if (name[len - 1] == '.' || name[len - 1] == ' ') return FALSE;
+
+    for (i = 0; i < len; i++)
+    {
+        if ((unsigned char)name[i] < ' ') return FALSE;
+        if (strchr( "\\/:*?\"<>|", name[i] )) return FALSE;
+    }
+
+    for (i = 0; i < ARRAY_SIZE(reserved); i++)
+        if (!strcasecmp( name, reserved[i] )) return FALSE;
+
+    return TRUE;
+}
+
+
 /***********************************************************************
  *           get_external_files_dir_unix
  *
- * Resolves "C:\users\user\files" (creating the "files" leaf if needed) to its
- * unix path. The username is hardcoded rather than taken from the host account
- * because GetUserNameA/W always return the literal string "user" and wineboot
- * names the on-disk profile directory to match that, not the host account -
- * using the real host username here would build a path that does not exist and
- * cannot be resolved, silently disabling this whole mechanism. Returns NULL if
- * the directory cannot be created.
+ * Resolves "C:\users\<account>\files" (creating the "files" leaf if needed) to
+ * its unix path. The account name matches what wineboot named the on-disk
+ * profile directory, which is what GetUserNameA/W reports. Returns NULL if the
+ * directory cannot be created.
  */
 static char *get_external_files_dir_unix(void)
 {
     /* See the comment in is_unix_fallback_path: no L"" here either. */
-    static const WCHAR pathW[] =
-        {'C',':','\\','u','s','e','r','s','\\','u','s','e','r','\\','f','i','l','e','s',0};
+    static const WCHAR prefixW[] = {'C',':','\\','u','s','e','r','s','\\'};
+    static const WCHAR suffixW[] = {'\\','f','i','l','e','s',0};
+    const char *account = (user_name && account_name_is_usable( user_name )) ? user_name : "user";
+    WCHAR pathW[ARRAY_SIZE(prefixW) + MAX_ACCOUNT_NAME + ARRAY_SIZE(suffixW)];
     char *unix_dir = NULL;
+    DWORD len;
+
+    memcpy( pathW, prefixW, sizeof(prefixW) );
+    len = ntdll_umbstowcs( account, strlen(account), pathW + ARRAY_SIZE(prefixW), MAX_ACCOUNT_NAME );
+    memcpy( pathW + ARRAY_SIZE(prefixW) + len, suffixW, sizeof(suffixW) );
 
     /* FILE_OPEN_IF: only the leaf "files" component may not exist yet. */
     ntdll_get_unix_file_name( pathW, &unix_dir, FILE_OPEN_IF );
