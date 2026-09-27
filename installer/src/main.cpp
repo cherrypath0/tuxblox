@@ -65,6 +65,17 @@ int main(int argc, char** argv) {
         return 0;
     }
 
+    if (geteuid() == 0) {
+        if (!options.allowRoot) {
+            fprintf(stderr, "TuxBlox: refusing to run as root. Re-run as a normal user, or pass "
+                            "--allow-root if you have a specific reason.\n");
+            return 1;
+        }
+        printf("WARNING: The current user is root, it is highly recommended to launch TuxBlox as "
+               "a normal user unless there is a specific reason why\n");
+        fflush(stdout);
+    }
+
     if (!options.dir.empty()) {
         std::error_code ec;
         const std::filesystem::path path(options.dir);

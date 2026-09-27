@@ -55,6 +55,9 @@ struct CliOptions {
     // this on a handoff so the installer cannot act on a different install
     // from the one that asked for it.
     std::string dir;
+    // Installing as root leaves a folder the real user cannot write to, so
+    // it has to be asked for rather than just happening.
+    bool allowRoot = false;
     // Non-empty means the arguments were unusable: the caller should print
     // this and usageText() to stderr and exit non-zero. Every other field is
     // meaningless when this is set.

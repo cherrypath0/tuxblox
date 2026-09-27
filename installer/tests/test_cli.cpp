@@ -172,6 +172,17 @@ int main() {
         assert(o.error.empty() && o.dir.empty());
     }
 
+    // Installing as root leaves a folder the real user cannot write to, so
+    // it has to be asked for rather than just happening.
+    {
+        CliOptions o = parse({"--allow-root"});
+        assert(o.error.empty() && o.allowRoot);
+    }
+    {
+        CliOptions o = parse({"--headless"});
+        assert(o.error.empty() && !o.allowRoot);
+    }
+
     // Usage text exists and mentions every supported flag -- main() prints
     // it for both --help and a usage error.
     {
@@ -182,6 +193,7 @@ int main() {
         assert(usage.find("--channel") != std::string::npos);
         assert(usage.find("--latest") != std::string::npos);
         assert(usage.find("--dir") != std::string::npos);
+        assert(usage.find("--allow-root") != std::string::npos);
     }
 
     printf("cli: all tests passed\n");

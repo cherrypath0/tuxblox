@@ -51,6 +51,8 @@ CliOptions parseArgs(int argc, const char* const* argv) {
             // exists and reading back "no releases yet".
             const std::string value = argv[++i];
             options.channel = value == "dev" ? "experimental" : value;
+        } else if (arg == "--allow-root") {
+            options.allowRoot = true;
         } else if (arg == "--dir") {
             if (i + 1 >= argc) {
                 options.error = "Missing value for --dir.";
@@ -83,6 +85,8 @@ const char* usageText() {
            "Options:\n"
            "  --dir <path>       Absolute path to install into, instead of\n"
            "                     ~/.tuxblox.\n"
+           "  --allow-root       Allow installing as root, which is not\n"
+           "                     recommended.\n"
            "  --headless         Report progress on the terminal instead of\n"
            "                     opening a window. Needs no display.\n"
            "  --nolaunch         Don't start the launcher once the install\n"
