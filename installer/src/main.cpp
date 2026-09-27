@@ -156,7 +156,12 @@ int main(int argc, char** argv) {
         return 0;
     }
 
-    execl(launcher.c_str(), launcher.c_str(), (char*)nullptr);
+    // Carried across: a root install that did not pass this on would hand off to a launcher that refuses to start, right after saying the install worked.
+    if (options.allowRoot) {
+        execl(launcher.c_str(), launcher.c_str(), "--allow-root", (char*)nullptr);
+    } else {
+        execl(launcher.c_str(), launcher.c_str(), (char*)nullptr);
+    }
     // Only reached if execl() failed -- the install itself already succeeded,
     // so say so rather than letting the window just vanish.
     reportError(options.headless,

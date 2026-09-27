@@ -127,6 +127,10 @@ def make_default_pfx(default_pfx_dir, dist_dir, arm64):
     local_env["WINEPREFIX"] = default_pfx_dir
     local_env["WINEDEBUG"] = "-all"
     local_env["WINEDLLPATH"] = libdir + "vkd3d"
+    # The template ships to every machine, so its account folder must not be
+    # named after whoever built it. Wine takes the account name from USER, and
+    # each install renames the folder to its own account on first launch.
+    local_env["USER"] = "user"
     runtime_args = []
 
 
