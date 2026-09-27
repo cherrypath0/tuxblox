@@ -16,9 +16,12 @@
 
 #include "config.h"
 #include <cassert>
+#include <filesystem>
 #include <cstdio>
 #include <map>
 #include <string>
+
+namespace fs = std::filesystem;
 
 namespace {
 // Stands in for the real environment so the defaults can be tested without
@@ -48,8 +51,25 @@ int main() {
         const std::string self = selfExePath();
         assert(!self.empty() && self[0] == '/');
         const std::string root = self.substr(0, self.rfind('/'));
-        assert(c.installDir ==
-               root + "/runtime/pfx/drive_c/users/user/AppData/Local/Roblox/Versions");
+        const std::string prefix = root + "/runtime/pfx";
+        assert(c.installDir == prefix + "/drive_c/users/" + accountFolderIn(prefix) +
+                                   "/AppData/Local/Roblox/Versions");
+    }
+
+    // The fallback follows the drive's real account folder too, so a run
+    // without the launcher naming the folder still lands where Roblox is read
+    // from rather than in a folder nobody looks at.
+    {
+        const fs::path base = fs::temp_directory_path() / "tuxblox_test_bootstrap_account";
+        fs::remove_all(base);
+        fs::create_directories(base / "drive_c/users/cherry");
+        assert(accountFolderIn(base.string()) == "cherry");
+        fs::create_directories(base / "drive_c/users/Public");
+        assert(accountFolderIn(base.string()) == "cherry");
+        fs::create_directories(base / "drive_c/users/user");
+        assert(accountFolderIn(base.string()) == "user"); // two of them: don't guess
+        fs::remove_all(base);
+        assert(accountFolderIn(base.string()) == "user"); // no drive yet
     }
 
     // Each variable overrides its default.

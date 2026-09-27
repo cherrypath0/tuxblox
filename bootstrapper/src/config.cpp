@@ -17,6 +17,8 @@
 #include "config.h"
 #include <algorithm>
 #include <cctype>
+#include <filesystem>
+#include <system_error>
 
 #include <unistd.h>
 
@@ -26,8 +28,8 @@ namespace {
 
 const char* const kDefaultServer = "setup.rbxcdn.com";
 const char* const kDefaultChannel = "live";
-const char* const kVersionsSuffix =
-    "/runtime/pfx/drive_c/users/user/AppData/Local/Roblox/Versions";
+const char* const kPrefixSuffix = "/runtime/pfx";
+const char* const kVersionsSuffix = "/AppData/Local/Roblox/Versions";
 
 // An unset variable and one set to nothing mean the same thing here: use the
 // default.
@@ -80,9 +82,28 @@ Config loadConfig(const char* (*readEnv)(const char*)) {
         const std::string self = selfExePath();
         const std::size_t slash = self.rfind('/');
         const std::string root = slash == std::string::npos ? home : self.substr(0, slash);
-        config.installDir = root + kVersionsSuffix;
+        const std::string prefix = root + kPrefixSuffix;
+        config.installDir =
+            prefix + "/drive_c/users/" + accountFolderIn(prefix) + kVersionsSuffix;
     }
     return config;
+}
+
+std::string accountFolderIn(const std::string& prefixDir) {
+    namespace fs = std::filesystem;
+
+    std::error_code error;
+    fs::directory_iterator entries(fs::path(prefixDir) / "drive_c/users", error);
+    if (error) return "user";
+
+    std::string found;
+    for (const fs::directory_entry& entry : entries) {
+        const std::string name = entry.path().filename().string();
+        if (name == "Public" || !entry.is_directory(error) || error) continue;
+        if (!found.empty()) return "user"; // two of them; don't guess
+        found = name;
+    }
+    return found.empty() ? "user" : found;
 }
 
 std::string selfExePath() {
