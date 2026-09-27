@@ -58,8 +58,9 @@ void cleanupBestEffort(const std::string& dir) {
 }
 } // namespace
 
-App::App(std::string channel, bool useLatest)
-    : channel_(std::move(channel)), useLatest_(useLatest) {}
+App::App(std::string channel, bool useLatest, std::string installDirOverride)
+    : channel_(std::move(channel)), useLatest_(useLatest),
+      installDirOverride_(std::move(installDirOverride)) {}
 
 App::~App() {
     if (thread_.joinable()) {
@@ -108,7 +109,7 @@ void App::run() {
             return;
         }
 
-        const std::string dir = installDir();
+        const std::string dir = installDirOverride_.empty() ? installDir() : installDirOverride_;
         // An existing install directory means this run is an upgrade in
         // place, not a fresh install -- runs the exact same pipeline, just
         // never wipes anything outside proton/ (and only after the
@@ -186,7 +187,7 @@ void App::run() {
                 snapshot_.currentStepLabel = label;
                 snapshot_.overallPercent = percent;
             },
-            &cancelRequested_, isUpgrade);
+            &cancelRequested_, isUpgrade, installDirOverride_);
 
         if (outcome.cancelled) {
             if (!isUpgrade) cleanupBestEffort(dir);

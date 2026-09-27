@@ -60,7 +60,11 @@ public:
     // channel. Without it the version this binary was built for is installed,
     // which is what keeps the launcher, installer and compatibility layer of
     // one release together.
-    explicit App(std::string channel = kTuxBloxChannel, bool useLatest = false);
+    //
+    // `installDirOverride` (the --dir flag) names the folder to install
+    // into. Empty means installDir() decides.
+    explicit App(std::string channel = kTuxBloxChannel, bool useLatest = false,
+                 std::string installDirOverride = "");
     ~App();
 
     // Starts the background install pipeline (INIT -> ... -> DONE/ERROR).
@@ -86,6 +90,7 @@ private:
 
     std::string channel_;
     bool useLatest_ = false;
+    std::string installDirOverride_;
     mutable std::mutex mutex_;
     AppSnapshot snapshot_;
     std::atomic<bool> cancelRequested_{false};

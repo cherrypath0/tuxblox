@@ -18,15 +18,55 @@
 #include <cassert>
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <stdexcept>
 #include <string>
+
+namespace fs = std::filesystem;
 
 int main() {
     using tuxblox::installDir;
     using tuxblox::hasEnoughDiskSpace;
+    using tuxblox::looksLikeInstall;
+    using tuxblox::selfExePath;
 
+    // Not in an install directory: the default is still the home folder, so
+    // a freshly downloaded installer behaves exactly as it always has.
+    unsetenv("TUXBLOX_ROOT");
     setenv("HOME", "/tmp/tuxblox_test_home", 1);
     assert(installDir() == "/tmp/tuxblox_test_home/.tuxblox");
+
+    // TUXBLOX_ROOT wins, trailing slashes and all.
+    setenv("TUXBLOX_ROOT", "/opt/tuxblox/", 1);
+    assert(installDir() == "/opt/tuxblox");
+    setenv("TUXBLOX_ROOT", "relative/path", 1);
+    assert(installDir() == "/tmp/tuxblox_test_home/.tuxblox");
+    unsetenv("TUXBLOX_ROOT");
+
+    // A directory is only an install if it looks like one.
+    {
+        fs::path dir = fs::temp_directory_path() / "tuxblox_test_looks_like_install";
+        fs::remove_all(dir);
+        fs::create_directories(dir);
+        assert(!looksLikeInstall(dir.string()));
+
+        std::ofstream(dir / "TuxBloxLauncher").put('x');
+        assert(looksLikeInstall(dir.string()));
+        fs::remove(dir / "TuxBloxLauncher");
+
+        fs::create_directories(dir / "compat");
+        std::ofstream(dir / "compat" / "main").put('x');
+        assert(looksLikeInstall(dir.string()));
+        fs::remove_all(dir);
+    }
+
+    // selfExePath() is the installer's own path, not argv[0].
+    {
+        const std::string self = selfExePath();
+        assert(!self.empty() && self[0] == '/');
+        assert(self.find("test_install_paths") != std::string::npos);
+    }
 
     unsetenv("HOME");
     bool threw = false;

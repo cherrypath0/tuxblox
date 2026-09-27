@@ -50,6 +50,11 @@ struct CliOptions {
     // The launcher's upgrade handoff doesn't need it -- it downloads the new
     // release's own installer and execs that.
     bool latest = false;
+    // Where to install, for a manual install outside the home folder. Empty
+    // means the default, which installDir() resolves. The launcher passes
+    // this on a handoff so the installer cannot act on a different install
+    // from the one that asked for it.
+    std::string dir;
     // Non-empty means the arguments were unusable: the caller should print
     // this and usageText() to stderr and exit non-zero. Every other field is
     // meaningless when this is set.

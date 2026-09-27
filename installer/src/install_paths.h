@@ -20,9 +20,20 @@
 
 namespace tuxblox {
 
-// Returns the fixed TuxBlox install directory: $HOME/.tuxblox
-// Throws std::runtime_error if HOME is not set.
+// The folder to install into: TUXBLOX_ROOT when it names an absolute path,
+// else this binary's own directory when that already holds an install (the
+// persisted installer is re-run from there to apply an update), else
+// $HOME/.tuxblox. Throws std::runtime_error if it comes to HOME and HOME is
+// not set.
 std::string installDir();
+
+// True when this directory holds a TuxBlox install rather than being some
+// unrelated folder the installer happens to be sitting in.
+bool looksLikeInstall(const std::string& dir);
+
+// The running binary's real path, via /proc/self/exe rather than argv[0],
+// which can be relative or a bare basename depending on how it was started.
+std::string selfExePath();
 
 // True if the filesystem containing `path` has at least `minBytes` free.
 // `path` must already exist (its containing filesystem is checked).

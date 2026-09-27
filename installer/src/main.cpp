@@ -22,7 +22,9 @@
 #include "version.h"
 #include <SDL.h>
 #include <cstdio>
+#include <filesystem>
 #include <string>
+#include <system_error>
 #include <unistd.h>
 
 namespace {
@@ -62,6 +64,19 @@ int main(int argc, char** argv) {
         return 0;
     }
 
+    if (!options.dir.empty()) {
+        std::error_code ec;
+        const std::filesystem::path path(options.dir);
+        if (std::filesystem::exists(path, ec) && !std::filesystem::is_directory(path, ec)) {
+            reportError(options.headless, "--dir names a file, not a folder: " + options.dir);
+            return 2;
+        }
+        if (!std::filesystem::exists(path.parent_path(), ec)) {
+            reportError(options.headless, "--dir's parent folder does not exist: " + options.dir);
+            return 2;
+        }
+    }
+
     // --uninstall -- passed by the launcher's Settings tab. Never shows the
     // install UI, just does the removal and reports the result.
     if (options.uninstall) {
@@ -88,7 +103,7 @@ int main(int argc, char** argv) {
         return ok ? 0 : 1;
     }
 
-    App app(options.channel, options.latest);
+    App app(options.channel, options.latest, options.dir);
     app.start();
 
     if (options.headless) {

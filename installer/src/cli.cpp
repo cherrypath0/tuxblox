@@ -51,6 +51,18 @@ CliOptions parseArgs(int argc, const char* const* argv) {
             // exists and reading back "no releases yet".
             const std::string value = argv[++i];
             options.channel = value == "dev" ? "experimental" : value;
+        } else if (arg == "--dir") {
+            if (i + 1 >= argc) {
+                options.error = "Missing value for --dir.";
+                return options;
+            }
+            // A relative path would resolve against the current directory, which a double-clicked installer does not meaningfully have.
+            const std::string value = argv[++i];
+            if (value.empty() || value[0] != '/') {
+                options.error = "--dir needs an absolute path.";
+                return options;
+            }
+            options.dir = value;
         } else {
             options.error = "Unrecognized argument: " + arg;
             return options;
@@ -63,11 +75,14 @@ CliOptions parseArgs(int argc, const char* const* argv) {
 const char* usageText() {
     return "Usage: TuxBloxInstaller [options]\n"
            "\n"
-           "Installs TuxBlox into ~/.tuxblox, upgrading an existing install in\n"
-           "place if one is found, then starts the TuxBlox Launcher. Installs\n"
-           "the version this installer was built for unless --latest is given.\n"
+           "Installs TuxBlox, upgrading an existing install in place if one is\n"
+           "found, then starts the TuxBlox Launcher. Installs into ~/.tuxblox\n"
+           "unless --dir says otherwise. Installs the version this installer was\n"
+           "built for unless --latest is given.\n"
            "\n"
            "Options:\n"
+           "  --dir <path>       Absolute path to install into, instead of\n"
+           "                     ~/.tuxblox.\n"
            "  --headless         Report progress on the terminal instead of\n"
            "                     opening a window. Needs no display.\n"
            "  --nolaunch         Don't start the launcher once the install\n"

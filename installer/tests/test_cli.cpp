@@ -141,6 +141,37 @@ int main() {
         assert(!o.error.empty());
     }
 
+    // --dir names where to install, for a manual install outside the home
+    // folder. Absolute only: a relative path would depend on the current
+    // directory, which is not something a double-clicked installer has.
+    {
+        CliOptions o = parse({"--dir", "/opt/tuxblox"});
+        assert(o.error.empty());
+        assert(o.dir == "/opt/tuxblox");
+    }
+    {
+        CliOptions o = parse({"--dir", "relative/path"});
+        assert(!o.error.empty());
+    }
+    {
+        CliOptions o = parse({"--dir"});
+        assert(!o.error.empty());
+    }
+    // Order never matters.
+    {
+        CliOptions o = parse({"--dir", "/opt/tuxblox", "--headless"});
+        assert(o.error.empty() && o.dir == "/opt/tuxblox" && o.headless);
+    }
+    {
+        CliOptions o = parse({"--headless", "--dir", "/opt/tuxblox"});
+        assert(o.error.empty() && o.dir == "/opt/tuxblox" && o.headless);
+    }
+    // Not given at all: empty, so installDir() decides.
+    {
+        CliOptions o = parse({"--headless"});
+        assert(o.error.empty() && o.dir.empty());
+    }
+
     // Usage text exists and mentions every supported flag -- main() prints
     // it for both --help and a usage error.
     {
@@ -150,6 +181,7 @@ int main() {
         assert(usage.find("--uninstall") != std::string::npos);
         assert(usage.find("--channel") != std::string::npos);
         assert(usage.find("--latest") != std::string::npos);
+        assert(usage.find("--dir") != std::string::npos);
     }
 
     printf("cli: all tests passed\n");

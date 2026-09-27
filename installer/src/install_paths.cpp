@@ -15,13 +15,59 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "install_paths.h"
+#include <cstdio>
 #include <cstdlib>
 #include <stdexcept>
 #include <sys/statvfs.h>
+#include <unistd.h>
 
 namespace tuxblox {
 
+namespace {
+
+std::string withoutTrailingSlashes(std::string path) {
+    while (path.size() > 1 && path.back() == '/') path.pop_back();
+    return path;
+}
+
+} // namespace
+
+bool looksLikeInstall(const std::string& dir) {
+    static const char* const markers[] = {
+        "/TuxBloxLauncher",
+        "/compat/main",
+        "/proton/main",
+        "/COPYRIGHT.txt",
+    };
+    for (const char* marker : markers) {
+        if (access((dir + marker).c_str(), F_OK) == 0) return true;
+    }
+    return false;
+}
+
+std::string selfExePath() {
+    char buf[4096];
+    const ssize_t n = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
+    if (n <= 0) return "";
+    buf[n] = '\0';
+    return std::string(buf);
+}
+
 std::string installDir() {
+    const char* root = std::getenv("TUXBLOX_ROOT");
+    if (root && root[0] != '\0') {
+        if (root[0] == '/') return withoutTrailingSlashes(root);
+        fprintf(stderr, "TuxBlox: ignoring TUXBLOX_ROOT, it is not an absolute path: %s\n", root);
+    }
+
+    // The persisted installer lives in the install folder and is re-run from there to apply an update, so its own directory is the right answer -- but only then, since a freshly downloaded one sits in Downloads.
+    const std::string self = selfExePath();
+    const std::size_t slash = self.rfind('/');
+    if (slash != std::string::npos && slash > 0) {
+        const std::string dir = self.substr(0, slash);
+        if (looksLikeInstall(dir)) return dir;
+    }
+
     const char* home = std::getenv("HOME");
     if (!home || home[0] == '\0') {
         throw std::runtime_error("installDir: HOME environment variable is not set");
