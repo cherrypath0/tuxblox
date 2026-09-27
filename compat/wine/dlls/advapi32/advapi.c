@@ -29,6 +29,7 @@
 #include "winreg.h"
 #include "winternl.h"
 #include "winerror.h"
+#include "lmcons.h"
 #include "wincred.h"
 #include "wct.h"
 #include "perflib.h"
@@ -39,19 +40,78 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(advapi);
 
+/* The SAM account name limit, which is what a Windows account is actually
+ * bound by -- not UNLEN, which is the 256-character buffer size. */
+#define MAX_ACCOUNT_NAME 20
+
+static BOOL is_usable_account_name( const WCHAR *name )
+{
+    static const WCHAR * const reserved[] =
+    {
+        L"CON", L"PRN", L"AUX", L"NUL",
+        L"COM1", L"COM2", L"COM3", L"COM4", L"COM5", L"COM6", L"COM7", L"COM8", L"COM9",
+        L"LPT1", L"LPT2", L"LPT3", L"LPT4", L"LPT5", L"LPT6", L"LPT7", L"LPT8", L"LPT9",
+    };
+    unsigned int i, len;
+
+    if (!name || !name[0]) return FALSE;
+    len = lstrlenW( name );
+    if (len > MAX_ACCOUNT_NAME) return FALSE;
+    if (!lstrcmpW( name, L"." ) || !lstrcmpW( name, L".." )) return FALSE;
+    if (name[len - 1] == '.' || name[len - 1] == ' ') return FALSE;
+
+    for (i = 0; i < len; i++)
+    {
+        if (name[i] < ' ') return FALSE;
+        if (wcschr( L"\\/:*?\"<>|", name[i] )) return FALSE;
+    }
+
+    for (i = 0; i < ARRAY_SIZE(reserved); i++)
+        if (!wcsicmp( name, reserved[i] )) return FALSE;
+
+    return TRUE;
+}
+
+/* The name Windows account folders are named after. Wine works it out from the
+ * host account and hands it over in WINEUSERNAME while the prefix is being
+ * built, which is when wineboot creates the profile directory; afterwards it is
+ * in USERNAME, which wineboot wrote from this same answer. */
+static const WCHAR *get_account_name(void)
+{
+    static WCHAR name[MAX_ACCOUNT_NAME + 1];
+    static BOOL resolved;
+    WCHAR raw[UNLEN + 1];
+
+    /* Resolved once: a program that puts its own USERNAME in the environment
+     * must not be able to change what this reports half way through a run. */
+    if (resolved) return name;
+    resolved = TRUE;
+    lstrcpyW( name, L"user" );
+
+    if (!GetEnvironmentVariableW( L"WINEUSERNAME", raw, ARRAY_SIZE(raw) ) &&
+        !GetEnvironmentVariableW( L"USERNAME", raw, ARRAY_SIZE(raw) ))
+        return name;
+
+    if (is_usable_account_name( raw )) lstrcpyW( name, raw );
+    return name;
+}
+
 /******************************************************************************
  * GetUserNameA [ADVAPI32.@]
  */
 BOOL WINAPI GetUserNameA( LPSTR name, LPDWORD size )
 {
-    static const char usernameA[] = {'u','s','e','r',0};
-    if(*size < ARRAY_SIZE(usernameA)){
+    const WCHAR *nameW = get_account_name();
+    DWORD len = WideCharToMultiByte( CP_ACP, 0, nameW, -1, NULL, 0, NULL, NULL );
+
+    if (*size < len)
+    {
         SetLastError( ERROR_INSUFFICIENT_BUFFER );
-        *size = ARRAY_SIZE(usernameA);
+        *size = len;
         return FALSE;
     }
-    memcpy(name, usernameA, sizeof(usernameA));
-    *size = ARRAY_SIZE(usernameA);
+    WideCharToMultiByte( CP_ACP, 0, nameW, -1, name, len, NULL, NULL );
+    *size = len;
     return TRUE;
 }
 
@@ -60,14 +120,17 @@ BOOL WINAPI GetUserNameA( LPSTR name, LPDWORD size )
  */
 BOOL WINAPI GetUserNameW( LPWSTR name, LPDWORD size )
 {
-    static const WCHAR usernameW[] = {'u','s','e','r',0};
-    if(*size < ARRAY_SIZE(usernameW)){
+    const WCHAR *nameW = get_account_name();
+    DWORD len = lstrlenW( nameW ) + 1;
+
+    if (*size < len)
+    {
         SetLastError( ERROR_INSUFFICIENT_BUFFER );
-        *size = ARRAY_SIZE(usernameW);
+        *size = len;
         return FALSE;
     }
-    memcpy(name, usernameW, sizeof(usernameW));
-    *size = ARRAY_SIZE(usernameW);
+    memcpy( name, nameW, len * sizeof(WCHAR) );
+    *size = len;
     return TRUE;
 }
 
