@@ -28,17 +28,40 @@ namespace fs = std::filesystem;
 int main() {
     using namespace tuxblox;
 
-    setenv("HOME", "/tmp/tuxblox_test_home", 1);
-    assert(installDir() == "/tmp/tuxblox_test_home/.tuxblox");
-
-    unsetenv("HOME");
-    bool threw = false;
-    try {
-        installDir();
-    } catch (const std::runtime_error&) {
-        threw = true;
+    // The binary's own directory is the install root: this is what lets a
+    // manual install at /opt/tuxblox work without being told where it is.
+    {
+        unsetenv("TUXBLOX_ROOT");
+        const std::string self = selfExePath();
+        const std::string expected = self.substr(0, self.rfind('/'));
+        assert(installDir() == expected);
     }
-    assert(threw);
+
+    // TUXBLOX_ROOT overrides it, with any trailing slash dropped so the
+    // paths built from it never contain a doubled separator.
+    setenv("TUXBLOX_ROOT", "/opt/tuxblox", 1);
+    assert(installDir() == "/opt/tuxblox");
+    setenv("TUXBLOX_ROOT", "/opt/tuxblox/", 1);
+    assert(installDir() == "/opt/tuxblox");
+    setenv("TUXBLOX_ROOT", "/opt/tuxblox///", 1);
+    assert(installDir() == "/opt/tuxblox");
+
+    // A relative value is ignored rather than resolved against whatever the
+    // current directory happens to be.
+    {
+        setenv("TUXBLOX_ROOT", "tuxblox", 1);
+        const std::string self = selfExePath();
+        assert(installDir() == self.substr(0, self.rfind('/')));
+        unsetenv("TUXBLOX_ROOT");
+    }
+
+    // HOME is no longer consulted when /proc/self/exe is readable, so an
+    // unset HOME is not an error any more.
+    unsetenv("HOME");
+    {
+        const std::string self = selfExePath();
+        assert(installDir() == self.substr(0, self.rfind('/')));
+    }
     setenv("HOME", "/tmp/tuxblox_test_home", 1); // restore for anything running after
 
     assert(hasEnoughDiskSpace("/tmp", 1) == true);

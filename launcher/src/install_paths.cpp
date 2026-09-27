@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "install_paths.h"
+#include <cstdio>
 #include <cstdlib>
 #include <stdexcept>
 #include <sys/statvfs.h>
@@ -23,10 +24,32 @@
 
 namespace tuxblox {
 
+namespace {
+
+std::string withoutTrailingSlashes(std::string path) {
+    while (path.size() > 1 && path.back() == '/') path.pop_back();
+    return path;
+}
+
+} // namespace
+
 std::string installDir() {
+    const char* root = std::getenv("TUXBLOX_ROOT");
+    if (root && root[0] != '\0') {
+        // Resolving a relative value against the current directory would make the answer depend on where TuxBlox happened to be started from.
+        if (root[0] == '/') return withoutTrailingSlashes(root);
+        fprintf(stderr, "TuxBlox: ignoring TUXBLOX_ROOT, it is not an absolute path: %s\n", root);
+    }
+
+    const std::string self = selfExePath();
+    const std::size_t slash = self.rfind('/');
+    if (slash != std::string::npos && slash > 0) {
+        return self.substr(0, slash);
+    }
+
     const char* home = std::getenv("HOME");
     if (!home || home[0] == '\0') {
-        throw std::runtime_error("installDir: HOME environment variable is not set");
+        throw std::runtime_error("installDir: /proc/self/exe is unreadable and HOME is not set");
     }
     return std::string(home) + "/.tuxblox";
 }
