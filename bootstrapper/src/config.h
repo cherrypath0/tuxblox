@@ -42,4 +42,7 @@ struct Config {
 // defaults can be tested without touching the real environment.
 Config loadConfig(const char* (*readEnv)(const char*));
 
+// The running binary's real path, via /proc/self/exe rather than argv[0].
+std::string selfExePath();
+
 } // namespace tuxblox

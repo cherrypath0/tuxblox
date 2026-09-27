@@ -18,6 +18,8 @@
 #include <algorithm>
 #include <cctype>
 
+#include <unistd.h>
+
 namespace tuxblox {
 
 namespace {
@@ -25,7 +27,7 @@ namespace {
 const char* const kDefaultServer = "setup.rbxcdn.com";
 const char* const kDefaultChannel = "live";
 const char* const kVersionsSuffix =
-    "/.tuxblox/runtime/pfx/drive_c/users/user/AppData/Local/Roblox/Versions";
+    "/runtime/pfx/drive_c/users/user/AppData/Local/Roblox/Versions";
 
 // An unset variable and one set to nothing mean the same thing here: use the
 // default.
@@ -71,9 +73,24 @@ Config loadConfig(const char* (*readEnv)(const char*)) {
                      : RobloxApp::Studio;
 
     const std::string installDir = readValue(readEnv, "TUXBLOX_BOOTSTRAPPER_INSTALL_DIR");
-    config.installDir = installDir.empty() ? home + kVersionsSuffix
-                                            : expandHome(installDir, home);
+    if (!installDir.empty()) {
+        config.installDir = expandHome(installDir, home);
+    } else {
+        // The launcher normally names the folder. Without it, the bootstrapper sits in the install folder, so its own location is the answer.
+        const std::string self = selfExePath();
+        const std::size_t slash = self.rfind('/');
+        const std::string root = slash == std::string::npos ? home : self.substr(0, slash);
+        config.installDir = root + kVersionsSuffix;
+    }
     return config;
+}
+
+std::string selfExePath() {
+    char buf[4096];
+    const ssize_t n = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
+    if (n <= 0) return "";
+    buf[n] = '\0';
+    return std::string(buf);
 }
 
 } // namespace tuxblox

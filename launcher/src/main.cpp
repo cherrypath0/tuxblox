@@ -343,13 +343,18 @@ int main(int argc, char** argv) {
 
     if (app.needsUninstallHandoff()) {
         // Same handoff shape as an update, but with --uninstall instead of
-        // --channel: the installer removes ~/.tuxblox and this launcher's
-        // desktop/URL-handler registrations, then shows its own
+        // --channel: the installer removes the install folder and this
+        // launcher's desktop/URL-handler registrations, then shows its own
         // confirmation popup. This process never returns on success.
         std::string installerPath = app.installerHandoffPath();
+        // Naming the folder explicitly, so the installer cannot act on a
+        // different install from the one that asked for it.
+        std::string dir = installDir();
         char* installerArgv[] = {
             const_cast<char*>(installerPath.c_str()),
             const_cast<char*>("--uninstall"),
+            const_cast<char*>("--dir"),
+            const_cast<char*>(dir.c_str()),
             nullptr
         };
         execv(installerPath.c_str(), installerArgv);
@@ -371,10 +376,13 @@ int main(int argc, char** argv) {
         // channel and silently switch the user off whatever they picked in
         // Settings.
         std::string channel = app.snapshot().settings.channel;
+        std::string dir = installDir();
         char* installerArgv[] = {
             const_cast<char*>(installerPath.c_str()),
             const_cast<char*>("--channel"),
             const_cast<char*>(channel.c_str()),
+            const_cast<char*>("--dir"),
+            const_cast<char*>(dir.c_str()),
             nullptr
         };
         execv(installerPath.c_str(), installerArgv);

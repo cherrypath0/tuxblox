@@ -33,8 +33,9 @@ const char* fakeGetenv(const char* name) {
 int main() {
     using namespace tuxblox;
 
-    // Nothing set: every value falls back, and the install directory sits
-    // inside the virtual drive under the user's home.
+    // Nothing set: every value falls back, and the versions folder is found
+    // from the bootstrapper's own location, so an install outside the home
+    // folder still works.
     {
         g_env = {{"HOME", "/home/someone"}};
         Config c = loadConfig(fakeGetenv);
@@ -43,8 +44,12 @@ int main() {
         assert(c.hash.empty());
         assert(c.channel == "live");
         assert(c.app == RobloxApp::Studio);
+
+        const std::string self = selfExePath();
+        assert(!self.empty() && self[0] == '/');
+        const std::string root = self.substr(0, self.rfind('/'));
         assert(c.installDir ==
-               "/home/someone/.tuxblox/runtime/pfx/drive_c/users/user/AppData/Local/Roblox/Versions");
+               root + "/runtime/pfx/drive_c/users/user/AppData/Local/Roblox/Versions");
     }
 
     // Each variable overrides its default.
