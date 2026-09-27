@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "process_launcher.h"
+#include "root_guard.h"
 #include "launch_paths.h"
 
 #include "downloader.h"
@@ -329,6 +330,7 @@ LaunchOutcome ProcessLauncher::launch(LaunchTarget target, const std::string& ur
     std::vector<std::string> argv = {compatBinaryPath(installDir_), "run"};
     if (secondary) argv.push_back("--immediate");
     if (verifyIntegrity) argv.push_back("--verify-integrity");
+    if (allowRoot()) argv.push_back("--allow-root");
     argv.push_back(exePath);
     if (!uri.empty()) argv.push_back(uri);
 

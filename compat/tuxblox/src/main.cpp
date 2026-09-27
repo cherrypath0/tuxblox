@@ -69,13 +69,14 @@ const std::array<std::string, 6> RobloxProcesses = {
     "StudioMCP.exe",
 };
 
-const std::array<std::string, 8> HelpOutput = {
+const std::array<std::string, 9> HelpOutput = {
     "Options:",
     "--help                  Show this help message",
     "--version               Show TuxBlox version",
     "--immediate             Run TuxBlox without draining the prefix, must be used with the \"run\" argument",
     "--destroy               Destroys the prefix",
     "--verify-integrity      Check that the executable is signed by Roblox before running it",
+    "--allow-root            Allow running as root, which is not recommended",
     "\nArguments:",
     "run <executable>        Runs the specified executable"
 };
@@ -96,6 +97,7 @@ struct CommandLine {
     RunMode mode = RunMode::None;
     bool runImmediately = false;
     bool verifyIntegrity = false;
+    bool allowRoot = false;
     bool handled = false;
     std::vector<std::string> target;
 };
@@ -139,6 +141,8 @@ CommandLine parseCommandLine(int argc, char *argv[]) {
             parsed.runImmediately = true;
         } else if (argument == "--verify-integrity") {
             parsed.verifyIntegrity = true;
+        } else if (argument == "--allow-root") {
+            parsed.allowRoot = true;
         } else if (argument == "--destroy") {
             parsed.mode = RunMode::Destroy;
         } else if (argument == "run") {
@@ -164,6 +168,15 @@ int runMain(int argc, char *argv[]) {
     const CommandLine command = parseCommandLine(argc, argv);
     if (command.handled) {
         return 0;
+    }
+
+    // After --help and --version, which the launcher asks of every binary on startup and must keep answering whatever user runs them.
+    if (::geteuid() == 0) {
+        if (!command.allowRoot) {
+            tuxblox::log("Refusing to run as root. Re-run as a normal user, or pass --allow-root if you have a specific reason.");
+            return 1;
+        }
+        tuxblox::log("WARNING: The current user is root, it is highly recommended to launch TuxBlox as a normal user unless there is a specific reason why");
     }
 
     if (command.mode == RunMode::None) {

@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "headless_launch.h"
+#include "root_guard.h"
 #include "install_paths.h"
 #include "process_launcher.h"
 #include "roblox_autoupdate.h"
@@ -60,6 +61,7 @@ int runHeadlessQuickLaunch(const std::string& installDir, LaunchTarget target, c
     // Before the exe path, not after: the layer stops reading options at the
     // first non-option argument, so a flag behind it is passed to Roblox.
     if (settings.verifyIntegrity) argvStrings.push_back("--verify-integrity");
+    if (allowRoot()) argvStrings.push_back("--allow-root");
     argvStrings.push_back(exePath);
     if (!uri.empty()) argvStrings.push_back(uri);
 
