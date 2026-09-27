@@ -89,6 +89,7 @@ configure_file(${CMAKE_SOURCE_DIR}/cmake/version.h.in ${CMAKE_BINARY_DIR}/genera
 add_library(launcher_core STATIC
     src/app.cpp
     src/install_paths.cpp
+    src/root_guard.cpp
     src/checksum.cpp
     src/downloader.cpp
     src/tar_extract.cpp

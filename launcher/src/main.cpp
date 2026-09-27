@@ -20,6 +20,7 @@
 #include "ui_qt/message_box.h"
 #include "ui_qt/theme.h"
 #include "install_paths.h"
+#include "root_guard.h"
 #include "headless_launch.h"
 #include "watch_launch.h"
 #include "prefix_file_bridge.h"
@@ -111,6 +112,14 @@ int main(int argc, char** argv) {
     Q_INIT_RESOURCE(launcher);
 
     using namespace tuxblox;
+
+    // Before the scope is joined and before any argument is read: a root run
+    // builds a virtual drive the real user cannot write to afterwards.
+    const bool allowRootRequested = takeAllowRootFlag(argc, argv);
+    if (!rootRunAllowed(allowRootRequested, geteuid())) {
+        return 1;
+    }
+    setAllowRoot(allowRootRequested);
 
     // Before any mode branches below: every one of them either becomes the
     // long-lived process the desktop will display (GUI, --watch-launch) or

@@ -136,3 +136,7 @@ add_test(NAME wine_shortcut_export COMMAND test_wine_shortcut_export)
 add_executable(test_roblox_autoupdate test_roblox_autoupdate.cpp)
 target_link_libraries(test_roblox_autoupdate PRIVATE launcher_core)
 add_test(NAME roblox_autoupdate COMMAND test_roblox_autoupdate)
+
+add_executable(test_root_guard test_root_guard.cpp)
+target_link_libraries(test_root_guard PRIVATE launcher_core)
+add_test(NAME root_guard COMMAND test_root_guard)
