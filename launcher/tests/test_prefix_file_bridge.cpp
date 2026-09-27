@@ -57,7 +57,7 @@ int main() {
     writeAll(places / "map.rbxl", "original");
 
     const std::string win = bridgeHostPathIntoPrefix(installDir.string(), (places / "map.rbxl").string());
-    assert(win == std::string(kBridgeWindowsRoot) + "\\places\\map.rbxl");
+    assert(win == bridgeWindowsRoot(installDir.string()) + "\\places\\map.rbxl");
     assert(fs::is_symlink(bridgeRoot / "places"));
 
     // Write-through: writing via the bridged path must land on the ORIGINAL
@@ -82,7 +82,7 @@ int main() {
     writeAll(otherPlaces / "two.rbxl", "two");
     const std::string win2 =
         bridgeHostPathIntoPrefix(installDir.string(), (otherPlaces / "two.rbxl").string());
-    assert(win2 == std::string(kBridgeWindowsRoot) + "\\places-2\\two.rbxl");
+    assert(win2 == bridgeWindowsRoot(installDir.string()) + "\\places-2\\two.rbxl");
     assert(fs::is_symlink(bridgeRoot / "places-2"));
 
     // A path already inside drive_c needs no symlink at all.
@@ -147,7 +147,7 @@ int main() {
         writeAll(fakeHome / "place.rbxl", "home-place");
         const std::string winHome =
             bridgeHostPathIntoPrefix(installDir.string(), (fakeHome / "place.rbxl").string());
-        assert(winHome == std::string(kBridgeWindowsRoot) + "\\fake-home\\place.rbxl");
+        assert(winHome == bridgeWindowsRoot(installDir.string()) + "\\fake-home\\place.rbxl");
         assert(fs::is_symlink(bridgeRoot / "fake-home"));
     }
 

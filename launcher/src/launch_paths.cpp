@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "launch_paths.h"
+#include "prefix_user.h"
 #include "install_paths.h"
 #include "versions_manifest.h"
 
@@ -56,12 +57,8 @@ std::string resolveActiveVersionExePath(LaunchTarget target, const std::string& 
     const AppVersions& av = appVersionsFor(manifest, target);
     if (av.activeHash.empty()) return "";
 
-    // NOTE: hardcodes "users/user/..." matching this codebase's current
-    // convention as of this plan's writing (see roblox_log_capture.cpp:37)
-    // -- if the separate Wine-per-user-paths plan lands, this needs the
-    // resolved username instead of the literal "user".
     const std::string versionDir =
-        installDir + "/runtime/pfx/drive_c/users/user/AppData/Local/Roblox/Versions/" + av.activeHash;
+        prefixUserDir(installDir) + "/AppData/Local/Roblox/Versions/" + av.activeHash;
     const std::string exePath = versionDir + "/" + targetExeName(target);
 
     std::error_code ec;

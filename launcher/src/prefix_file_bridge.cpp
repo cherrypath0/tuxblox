@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "prefix_file_bridge.h"
+#include "prefix_user.h"
 #include <filesystem>
 #include <string>
 #include <system_error>
@@ -23,16 +24,14 @@ namespace fs = std::filesystem;
 
 namespace tuxblox {
 
-const char* const kBridgeWindowsRoot = "C:\\users\\user\\Documents\\TuxBlox Files";
+std::string bridgeWindowsRoot(const std::string& installDir) {
+    return "C:\\users\\" + prefixUserName(driveCDir(installDir)) + "\\Documents\\TuxBlox Files";
+}
 
 namespace {
 
-std::string driveCRoot(const std::string& installDir) {
-    return installDir + "/runtime/pfx/drive_c";
-}
-
 std::string bridgeRootDir(const std::string& installDir) {
-    return driveCRoot(installDir) + "/users/user/Documents/TuxBlox Files";
+    return prefixUserDir(installDir) + "/Documents/TuxBlox Files";
 }
 
 // A host path under drive_c is already reachable -- turn it into an ordinary
@@ -92,7 +91,7 @@ std::string bridgeHostPathIntoPrefix(const std::string& installDir, const std::s
         const fs::path canonical = fs::canonical(hostPath, ec);
         if (ec) return ""; // doesn't exist / unreadable -- caller reports this
 
-        const fs::path canonicalDriveC = fs::canonical(driveCRoot(installDir), ec);
+        const fs::path canonicalDriveC = fs::canonical(driveCDir(installDir), ec);
         if (!ec) {
             const std::string direct = windowsPathUnderDriveC(canonicalDriveC, canonical);
             if (!direct.empty()) return direct;
@@ -137,7 +136,7 @@ std::string bridgeHostPathIntoPrefix(const std::string& installDir, const std::s
                 fs::create_directory_symlink(parent, link, linkEc);
                 if (linkEc) continue;
             }
-            return std::string(kBridgeWindowsRoot) + "\\" + linkName + "\\" +
+            return bridgeWindowsRoot(installDir) + "\\" + linkName + "\\" +
                    canonical.filename().string();
         }
         return ""; // 32 same-named directories already bridged -- give up rather than guess

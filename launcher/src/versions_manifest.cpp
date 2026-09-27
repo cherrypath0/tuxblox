@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "versions_manifest.h"
+#include "prefix_user.h"
 #include "json.hpp"
 #include <algorithm>
 #include <filesystem>
@@ -132,10 +133,7 @@ void reconcileTargetWithPrefix(const std::string& installDir, VersionsManifest& 
 } // namespace
 
 std::string prefixVersionsDir(const std::string& installDir) {
-    // NOTE: hardcodes "users/user/..." matching this codebase's current
-    // convention (see roblox_log_capture.cpp) -- if the separate
-    // Wine-per-user-paths plan lands, this needs the resolved username.
-    return installDir + "/runtime/pfx/drive_c/users/user/AppData/Local/Roblox/Versions";
+    return prefixUserDir(installDir) + "/AppData/Local/Roblox/Versions";
 }
 
 std::vector<std::string> scanPrefixVersions(const std::string& installDir, LaunchTarget target) {

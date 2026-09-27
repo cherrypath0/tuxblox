@@ -19,8 +19,9 @@
 
 namespace tuxblox {
 
-// Windows path of the bridge root inside the prefix.
-extern const char* const kBridgeWindowsRoot;
+// Windows path of the bridge root inside the prefix. A function rather than
+// a constant because it names the drive's account folder.
+std::string bridgeWindowsRoot(const std::string& installDir);
 
 std::string bridgeHostPathIntoPrefix(const std::string& installDir, const std::string& hostPath);
 

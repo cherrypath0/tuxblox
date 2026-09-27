@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "app.h"
+#include "prefix_user.h"
 #include "checksum.h"
 #include "container_env.h"
 #include "downloader.h"
@@ -538,11 +539,8 @@ void App::versionInstallThreadMain(LaunchTarget target, VersionSelectMode mode, 
         return;
     }
 
-    // NOTE: hardcodes "users/user/..." -- see resolveActiveVersionExePath's
-    // matching note (process_launcher.cpp, Task 5) about the separate
-    // Wine-per-user-paths plan.
     const std::string versionDir =
-        installDir_ + "/runtime/pfx/drive_c/users/user/AppData/Local/Roblox/Versions/" + hash;
+        prefixUserDir(installDir_) + "/AppData/Local/Roblox/Versions/" + hash;
     const std::string stagingDir = installDir_ + "/RobloxPackageStaging/" + hash;
     std::error_code ec;
     fs::create_directories(stagingDir, ec);

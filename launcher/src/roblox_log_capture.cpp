@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "roblox_log_capture.h"
+#include "prefix_user.h"
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
@@ -34,7 +35,7 @@ std::vector<std::string> selectSessionLogFiles(
 }
 
 std::string robloxLogsDir(const std::string& installDir) {
-    return installDir + "/runtime/pfx/drive_c/users/user/AppData/Local/Roblox/logs";
+    return prefixUserDir(installDir) + "/AppData/Local/Roblox/logs";
 }
 
 namespace {

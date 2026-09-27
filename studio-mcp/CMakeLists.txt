@@ -76,6 +76,7 @@ add_executable(studio-mcp
     ${TUXBLOX_LAUNCHER_DIR}/src/install_paths.cpp
     ${TUXBLOX_LAUNCHER_DIR}/src/launch_paths.cpp
     ${TUXBLOX_LAUNCHER_DIR}/src/lnk_resolver.cpp
+    ${TUXBLOX_LAUNCHER_DIR}/src/prefix_user.cpp
     ${TUXBLOX_LAUNCHER_DIR}/src/settings.cpp
     ${TUXBLOX_LAUNCHER_DIR}/src/system_info.cpp
     ${TUXBLOX_LAUNCHER_DIR}/src/versions_manifest.cpp

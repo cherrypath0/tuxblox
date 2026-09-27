@@ -140,3 +140,7 @@ add_test(NAME roblox_autoupdate COMMAND test_roblox_autoupdate)
 add_executable(test_root_guard test_root_guard.cpp)
 target_link_libraries(test_root_guard PRIVATE launcher_core)
 add_test(NAME root_guard COMMAND test_root_guard)
+
+add_executable(test_prefix_user test_prefix_user.cpp)
+target_link_libraries(test_prefix_user PRIVATE launcher_core)
+add_test(NAME prefix_user COMMAND test_prefix_user)

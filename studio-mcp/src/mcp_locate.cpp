@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "mcp_locate.h"
+#include "prefix_user.h"
 
 #include "launch_paths.h"
 #include "lnk_resolver.h"
@@ -49,7 +50,7 @@ std::string findStudioMcp(const std::string& installDir) {
     // Last resort: the newest version folder that has one. Newest rather than
     // first, so a version left behind by an update cannot win.
     const fs::path versions =
-        fs::path(driveC) / "users/user/AppData/Local/Roblox/Versions";
+        fs::path(driveC) / "users" / prefixUserName(driveC) / "AppData/Local/Roblox/Versions";
     std::error_code ec;
     std::string newest;
     fs::file_time_type newestTime{};

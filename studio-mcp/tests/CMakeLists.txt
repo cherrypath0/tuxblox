@@ -25,6 +25,7 @@ add_executable(test_mcp_locate
     ${TUXBLOX_LAUNCHER_DIR}/src/install_paths.cpp
     ${TUXBLOX_LAUNCHER_DIR}/src/launch_paths.cpp
     ${TUXBLOX_LAUNCHER_DIR}/src/lnk_resolver.cpp
+    ${TUXBLOX_LAUNCHER_DIR}/src/prefix_user.cpp
     ${TUXBLOX_LAUNCHER_DIR}/src/versions_manifest.cpp
 )
 target_include_directories(test_mcp_locate PRIVATE

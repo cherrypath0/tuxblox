@@ -16,18 +16,19 @@
 
 #pragma once
 #include <string>
-#include <vector>
 
 namespace tuxblox {
 
-enum class LaunchTarget { Player, Studio };
+// The virtual drive's C: folder for an install.
+std::string driveCDir(const std::string& installDir);
 
-const char* targetExeName(LaunchTarget target);
-std::string targetLnkRelPath(LaunchTarget target, const std::string& driveCDir);
+// The name of the account folder inside it, e.g. "cherry" in
+// drive_c/users/cherry. The compatibility layer decides it; this reads back
+// what it chose, so the two can never disagree. "user" when there is no drive
+// yet, or when there is somehow more than one folder to choose from.
+std::string prefixUserName(const std::string& driveCDir);
 
-std::string extractExeRelPathFromLnkBytes(const std::vector<unsigned char>& lnkBytes,
-                                           const std::string& targetExeName);
-
-std::string resolveExePath(LaunchTarget target, const std::string& driveCRoot);
+// That folder's full path: where Roblox, its logs and its settings live.
+std::string prefixUserDir(const std::string& installDir);
 
 } // namespace tuxblox

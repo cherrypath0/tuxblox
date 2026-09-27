@@ -41,10 +41,22 @@ int main() {
 
     assert(std::string(targetExeName(LaunchTarget::Player)) == "RobloxPlayerBeta.exe");
     assert(std::string(targetExeName(LaunchTarget::Studio)) == "RobloxStudioBeta.exe");
-    assert(std::string(targetLnkRelPath(LaunchTarget::Player)) ==
+    // No drive on disk: the shortcut is looked for under the old account
+    // folder name, which is what a drive built before the rename has.
+    assert(targetLnkRelPath(LaunchTarget::Player, "/nowhere/drive_c") ==
            "users/user/Desktop/Roblox Player.lnk");
-    assert(std::string(targetLnkRelPath(LaunchTarget::Studio)) ==
+    assert(targetLnkRelPath(LaunchTarget::Studio, "/nowhere/drive_c") ==
            "users/user/Desktop/Roblox Studio.lnk");
+
+    // With one, the shortcut is looked for under the real account folder.
+    {
+        const fs::path driveC = fs::temp_directory_path() / "tuxblox_test_lnk_account/drive_c";
+        fs::remove_all(driveC.parent_path());
+        fs::create_directories(driveC / "users/cherry");
+        assert(targetLnkRelPath(LaunchTarget::Studio, driveC.string()) ==
+               "users/cherry/Desktop/Roblox Studio.lnk");
+        fs::remove_all(driveC.parent_path());
+    }
 
     // ASCII-encoded path inside otherwise-binary .lnk bytes.
     {

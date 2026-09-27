@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "roblox_autoupdate.h"
+#include "prefix_user.h"
 
 #include "desktop_notify.h"
 
@@ -30,7 +31,7 @@ std::string bootstrapperPath(const std::string& installDir) {
 }
 
 std::string robloxVersionsDir(const std::string& installDir) {
-    return installDir + "/runtime/pfx/drive_c/users/user/AppData/Local/Roblox/Versions";
+    return prefixUserDir(installDir) + "/AppData/Local/Roblox/Versions";
 }
 
 bool shouldRunUpdateCheck(const Settings& settings, bool bootstrapperExists) {

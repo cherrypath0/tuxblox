@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "lnk_resolver.h"
+#include "prefix_user.h"
 #include <cctype>
 #include <filesystem>
 #include <fstream>
@@ -118,10 +119,9 @@ const char* targetExeName(LaunchTarget target) {
     return target == LaunchTarget::Player ? "RobloxPlayerBeta.exe" : "RobloxStudioBeta.exe";
 }
 
-const char* targetLnkRelPath(LaunchTarget target) {
-    return target == LaunchTarget::Player
-        ? "users/user/Desktop/Roblox Player.lnk"
-        : "users/user/Desktop/Roblox Studio.lnk";
+std::string targetLnkRelPath(LaunchTarget target, const std::string& driveCDir) {
+    const char *pName = target == LaunchTarget::Player ? "Roblox Player.lnk" : "Roblox Studio.lnk";
+    return "users/" + prefixUserName(driveCDir) + "/Desktop/" + pName;
 }
 
 std::string extractExeRelPathFromLnkBytes(const std::vector<unsigned char>& lnkBytes,
@@ -139,7 +139,7 @@ std::string extractExeRelPathFromLnkBytes(const std::vector<unsigned char>& lnkB
 
 std::string resolveExePath(LaunchTarget target, const std::string& driveCRoot) {
     const std::string exeName = targetExeName(target);
-    const fs::path lnkPath = fs::path(driveCRoot) / targetLnkRelPath(target);
+    const fs::path lnkPath = fs::path(driveCRoot) / targetLnkRelPath(target, driveCRoot);
 
     if (fs::exists(lnkPath)) {
         std::ifstream in(lnkPath, std::ios::binary);

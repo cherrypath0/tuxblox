@@ -90,6 +90,7 @@ add_library(launcher_core STATIC
     src/app.cpp
     src/install_paths.cpp
     src/root_guard.cpp
+    src/prefix_user.cpp
     src/checksum.cpp
     src/downloader.cpp
     src/tar_extract.cpp

@@ -16,14 +16,27 @@
 
 #include "roblox_autoupdate.h"
 #include <cassert>
+#include <filesystem>
 #include <cstdio>
 #include <string>
+
+namespace fs = std::filesystem;
 
 int main() {
     using namespace tuxblox;
 
     // Where the launcher expects the bootstrapper and the versions folder.
     assert(bootstrapperPath("/home/a/.tuxblox") == "/home/a/.tuxblox/TuxBloxBootstrapper");
+    // With a drive on disk, the paths follow the account folder that is in it.
+    {
+        const fs::path base = fs::temp_directory_path() / "tuxblox_test_autoupdate_account";
+        fs::remove_all(base);
+        fs::create_directories(base / "runtime/pfx/drive_c/users/cherry");
+        assert(robloxVersionsDir(base.string()) ==
+               (base / "runtime/pfx/drive_c/users/cherry/AppData/Local/Roblox/Versions").string());
+        fs::remove_all(base);
+    }
+
     assert(robloxVersionsDir("/home/a/.tuxblox") ==
            "/home/a/.tuxblox/runtime/pfx/drive_c/users/user/AppData/Local/Roblox/Versions");
 
