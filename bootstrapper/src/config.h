@@ -45,10 +45,17 @@ Config loadConfig(const char* (*readEnv)(const char*));
 // The running binary's real path, via /proc/self/exe rather than argv[0].
 std::string selfExePath();
 
+// This computer's account name, as Wine takes it: USER, else the password
+// database.
+std::string hostAccountName();
+
 // The name of the account folder inside a virtual drive at `prefixDir`, e.g.
 // "cherry" in drive_c/users/cherry. The compatibility layer decides it; this
-// reads back what it chose. "user" when there is no drive yet, or when there
-// is somehow more than one folder to choose from.
+// reads back what it chose. "user" when there is no drive yet.
+//
+// `preferred` settles it when the drive holds more than one: the one matching
+// it is the folder %USERPROFILE% names. Falls back to "user" when none is.
+std::string accountFolderIn(const std::string& prefixDir, const std::string& preferred);
 std::string accountFolderIn(const std::string& prefixDir);
 
 } // namespace tuxblox

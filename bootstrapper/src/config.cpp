@@ -17,8 +17,12 @@
 #include "config.h"
 #include <algorithm>
 #include <cctype>
+#include <cstdlib>
 #include <filesystem>
 #include <system_error>
+#include <vector>
+
+#include <pwd.h>
 
 #include <unistd.h>
 
@@ -89,21 +93,39 @@ Config loadConfig(const char* (*readEnv)(const char*)) {
     return config;
 }
 
-std::string accountFolderIn(const std::string& prefixDir) {
+std::string hostAccountName() {
+    const char *pUser = std::getenv("USER");
+    if (pUser && pUser[0] != '\0') return pUser;
+
+    const struct passwd *pEntry = ::getpwuid(::getuid());
+    if (pEntry && pEntry->pw_name && pEntry->pw_name[0] != '\0') return pEntry->pw_name;
+    return "user";
+}
+
+std::string accountFolderIn(const std::string& prefixDir, const std::string& preferred) {
     namespace fs = std::filesystem;
 
     std::error_code error;
     fs::directory_iterator entries(fs::path(prefixDir) / "drive_c/users", error);
     if (error) return "user";
 
-    std::string found;
+    std::vector<std::string> found;
     for (const fs::directory_entry& entry : entries) {
         const std::string name = entry.path().filename().string();
         if (name == "Public" || !entry.is_directory(error) || error) continue;
-        if (!found.empty()) return "user"; // two of them; don't guess
-        found = name;
+        found.push_back(name);
     }
-    return found.empty() ? "user" : found;
+
+    if (found.empty()) return "user";
+    if (found.size() == 1) return found.front();
+
+    // More than one. Whichever matches this computer's account is the folder %USERPROFILE% names, so it is where Roblox really is.
+    if (std::find(found.begin(), found.end(), preferred) != found.end()) return preferred;
+    return "user";
+}
+
+std::string accountFolderIn(const std::string& prefixDir) {
+    return accountFolderIn(prefixDir, hostAccountName());
 }
 
 std::string selfExePath() {

@@ -252,7 +252,7 @@ int runMain(int argc, char *argv[]) {
         prefix.setup(session);
 
         // setup() may have just renamed the drive's account folder, and whoever asked for this launch worked the path out before that happened.
-        const std::string account = tuxblox::prefixAccountName(prefixDir);
+        const std::string account = tuxblox::prefixAccountName(prefixDir, tuxblox::accountName());
         for (std::string& entry : target) {
             entry = tuxblox::retargetAfterAccountRename(entry, prefixDir, account);
         }

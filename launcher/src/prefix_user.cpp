@@ -16,8 +16,14 @@
 
 #include "prefix_user.h"
 
+#include <algorithm>
+#include <cstdlib>
 #include <filesystem>
 #include <system_error>
+#include <vector>
+
+#include <pwd.h>
+#include <unistd.h>
 
 namespace fs = std::filesystem;
 
@@ -33,19 +39,37 @@ std::string driveCDir(const std::string& installDir) {
     return installDir + "/runtime/pfx/drive_c";
 }
 
-std::string prefixUserName(const std::string& driveCDir) {
+std::string hostAccountName() {
+    const char *pUser = std::getenv("USER");
+    if (pUser && pUser[0] != '\0') return pUser;
+
+    const struct passwd *pEntry = ::getpwuid(::getuid());
+    if (pEntry && pEntry->pw_name && pEntry->pw_name[0] != '\0') return pEntry->pw_name;
+    return FallbackName;
+}
+
+std::string prefixUserName(const std::string& driveCDir, const std::string& preferred) {
     std::error_code error;
     fs::directory_iterator entries(fs::path(driveCDir) / "users", error);
     if (error) return FallbackName;
 
-    std::string found;
+    std::vector<std::string> found;
     for (const fs::directory_entry& entry : entries) {
         const std::string name = entry.path().filename().string();
         if (name == "Public" || !entry.is_directory(error) || error) continue;
-        if (!found.empty()) return FallbackName; // two of them; don't guess
-        found = name;
+        found.push_back(name);
     }
-    return found.empty() ? FallbackName : found;
+
+    if (found.empty()) return FallbackName;
+    if (found.size() == 1) return found.front();
+
+    // More than one. Whichever matches this computer's account is the folder %USERPROFILE% names, so it is the one Roblox is really using.
+    if (std::find(found.begin(), found.end(), preferred) != found.end()) return preferred;
+    return FallbackName;
+}
+
+std::string prefixUserName(const std::string& driveCDir) {
+    return prefixUserName(driveCDir, hostAccountName());
 }
 
 std::string prefixUserDir(const std::string& installDir) {

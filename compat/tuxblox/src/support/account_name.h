@@ -29,9 +29,14 @@ std::string accountName();
 std::string sanitizedAccountName(const std::string& raw);
 
 // The account folder that is actually in the drive, which is whatever Wine
-// created. Returns "user" when the drive has none, and an empty string when it
-// somehow has two, which the caller reports rather than guessing between.
-std::string prefixAccountName(const std::filesystem::path& prefixDir);
+// created. Returns "user" when the drive has none.
+//
+// `preferred` settles it when the drive somehow holds more than one: the folder
+// matching it is the one Wine will use, since that is what %USERPROFILE%
+// expands to. An empty string comes back only when several are there and none
+// is the host's, which the caller reports rather than guessing between.
+std::string prefixAccountName(const std::filesystem::path& prefixDir,
+                              const std::string& preferred);
 
 // What a migrateAccountFolder() pass did, so the caller can report it.
 enum class AccountFolderMigration {

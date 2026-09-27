@@ -21,6 +21,7 @@
 #include <cctype>
 #include <cstdlib>
 #include <fstream>
+#include <vector>
 #include <sstream>
 
 #include <pwd.h>
@@ -123,21 +124,27 @@ std::string accountName() {
     return FallbackName;
 }
 
-std::string prefixAccountName(const std::filesystem::path& prefixDir) {
+std::string prefixAccountName(const std::filesystem::path& prefixDir,
+                              const std::string& preferred) {
     namespace fs = std::filesystem;
 
     std::error_code error;
     fs::directory_iterator entries(prefixDir / "drive_c/users", error);
     if (error) return FallbackName;
 
-    std::string found;
+    std::vector<std::string> found;
     for (const fs::directory_entry& entry : entries) {
         const std::string name = entry.path().filename().string();
         if (name == "Public" || !entry.is_directory(error) || error) continue;
-        if (!found.empty()) return ""; // two account folders; the caller says so
-        found = name;
+        found.push_back(name);
     }
-    return found.empty() ? FallbackName : found;
+
+    if (found.empty()) return FallbackName;
+    if (found.size() == 1) return found.front();
+
+    // More than one. Whichever matches the host account is the one Wine names in %USERPROFILE%, so it is the only answer that cannot disagree with what Windows programs use.
+    if (std::find(found.begin(), found.end(), preferred) != found.end()) return preferred;
+    return "";
 }
 
 AccountFolderMigration migrateAccountFolder(const std::filesystem::path& prefixDir,

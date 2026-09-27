@@ -85,20 +85,26 @@ int main() {
         fs::remove_all(base);
 
         // Nothing there at all.
-        assert(prefixAccountName(base) == "user");
+        assert(prefixAccountName(base, "cherry") == "user");
 
         // Only Public: still nothing to report.
         fs::create_directories(base / "drive_c/users/Public");
-        assert(prefixAccountName(base) == "user");
+        assert(prefixAccountName(base, "cherry") == "user");
 
         // The account folder beside it is the answer.
         fs::create_directories(base / "drive_c/users/cherry");
-        assert(prefixAccountName(base) == "cherry");
+        assert(prefixAccountName(base, "cherry") == "cherry");
 
-        // Two of them is the drift case: report neither, so the caller can say
-        // so rather than pick one at random.
+        // Two of them: the one matching the host account is the one Wine will
+        // use, because that is what %USERPROFILE% expands to. Picking "user"
+        // here would be the single answer guaranteed to disagree with it.
         fs::create_directories(base / "drive_c/users/user");
-        assert(prefixAccountName(base) == "");
+        assert(prefixAccountName(base, "cherry") == "cherry");
+        assert(prefixAccountName(base, "user") == "user");
+
+        // Neither matches: genuinely ambiguous, so say nothing and let the
+        // caller decide rather than guessing between two strangers.
+        assert(prefixAccountName(base, "someone-else") == "");
 
         fs::remove_all(base);
     }

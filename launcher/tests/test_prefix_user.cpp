@@ -46,9 +46,17 @@ int main() {
     assert(prefixUserDir(base.string()) ==
            (base / "runtime/pfx/drive_c/users/cherry").string());
 
-    // Two account folders: fall back rather than pick one.
+    // Two account folders: the one matching the host account is the one Wine
+    // names in %USERPROFILE%, so that is the one to follow. Answering "user"
+    // here would be the single choice guaranteed to disagree with it.
     fs::create_directories(base / "runtime/pfx/drive_c/users/user");
-    assert(prefixUserName(driveCDir(base.string())) == "user");
+    assert(prefixUserName(driveCDir(base.string()), "cherry") == "cherry");
+    assert(prefixUserName(driveCDir(base.string()), "user") == "user");
+    // Neither is the host's: nothing better to say than the old name.
+    assert(prefixUserName(driveCDir(base.string()), "someone-else") == "user");
+
+    // The host account is read for callers that do not name one.
+    assert(!hostAccountName().empty());
 
     fs::remove_all(base);
     printf("prefix_user: all tests passed\n");

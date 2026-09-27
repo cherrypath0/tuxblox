@@ -63,13 +63,16 @@ int main() {
         const fs::path base = fs::temp_directory_path() / "tuxblox_test_bootstrap_account";
         fs::remove_all(base);
         fs::create_directories(base / "drive_c/users/cherry");
-        assert(accountFolderIn(base.string()) == "cherry");
+        assert(accountFolderIn(base.string(), "cherry") == "cherry");
         fs::create_directories(base / "drive_c/users/Public");
-        assert(accountFolderIn(base.string()) == "cherry");
+        assert(accountFolderIn(base.string(), "cherry") == "cherry");
         fs::create_directories(base / "drive_c/users/user");
-        assert(accountFolderIn(base.string()) == "user"); // two of them: don't guess
+        // Two of them: follow the one matching this computer's account, since
+        // that is the folder %USERPROFILE% names and where Roblox really is.
+        assert(accountFolderIn(base.string(), "cherry") == "cherry");
+        assert(accountFolderIn(base.string(), "someone-else") == "user");
         fs::remove_all(base);
-        assert(accountFolderIn(base.string()) == "user"); // no drive yet
+        assert(accountFolderIn(base.string(), "cherry") == "user"); // no drive yet
     }
 
     // Each variable overrides its default.
