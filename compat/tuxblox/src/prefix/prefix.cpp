@@ -678,10 +678,10 @@ void Prefix::linkRobloxData() {
     fs::create_symlink(target, link, error);
 }
 
-// The account folder this drive uses. Whatever Wine created is the truth; the computed name is only for a drive that has not been built yet.
+// The account folder this drive uses. Whatever Wine created is the truth, and when the drive is ambiguous this answers "user" like every other reader does -- two components disagreeing about the folder is worse than either answer.
 std::string Prefix::accountFolder() const {
     const std::string found = prefixAccountName(prefixDir);
-    return found.empty() ? accountName() : found;
+    return found.empty() ? std::string("user") : found;
 }
 
 // Older drives were built with a folder called "user". Renaming it keeps the installed Roblox, the login and the settings that live inside it.
@@ -697,6 +697,10 @@ void Prefix::migrateAccountFolder() {
         break;
     case AccountFolderMigration::Failed:
         log("Could not rename the account folder to \"" + wanted + "\", keeping \"user\".");
+        break;
+    case AccountFolderMigration::RegistryIncomplete:
+        log("Renamed the virtual drive's account folder to \"" + wanted +
+            "\", but could not update every setting that records the old path.");
         break;
     case AccountFolderMigration::NotNeeded:
         break;

@@ -30,6 +30,7 @@ int main() {
     using tuxblox::hasEnoughDiskSpace;
     using tuxblox::looksLikeInstall;
     using tuxblox::selfExePath;
+    using tuxblox::existingAncestor;
 
     // Not in an install directory: the default is still the home folder, so
     // a freshly downloaded installer behaves exactly as it always has.
@@ -59,6 +60,21 @@ int main() {
         std::ofstream(dir / "compat" / "main").put('x');
         assert(looksLikeInstall(dir.string()));
         fs::remove_all(dir);
+    }
+
+    // The free-space check has to measure the filesystem being installed to,
+    // which may not exist yet, so it measures the nearest folder that does.
+    {
+        fs::path dir = fs::temp_directory_path() / "tuxblox_test_ancestor";
+        fs::remove_all(dir);
+        fs::create_directories(dir);
+        assert(existingAncestor(dir.string()) == dir.string());
+        assert(existingAncestor((dir / "not" / "there" / "yet").string()) == dir.string());
+        fs::remove_all(dir);
+        // Everything gone: falls back to the root, which always exists.
+        assert(existingAncestor((dir / "not" / "there").string()) ==
+               fs::temp_directory_path().string());
+        assert(existingAncestor("/definitely/not/here") == "/");
     }
 
     // selfExePath() is the installer's own path, not argv[0].

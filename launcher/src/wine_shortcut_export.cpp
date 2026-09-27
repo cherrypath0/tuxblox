@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "wine_shortcut_export.h"
+#include "prefix_user.h"
 #include <cctype>
 #include <cstdlib>
 #include <filesystem>
@@ -181,8 +182,8 @@ std::string exeFromDesktopExecLine(const std::string& execValue) {
 // True when that Roblox program is installed in the virtual drive, whichever
 // version folder it sits in.
 bool isTargetInstalled(const std::string& installDir, const char* exeLeaf) {
-    const fs::path versions = fs::path(installDir) / "runtime" / "pfx" / "drive_c" / "users" /
-                              "user" / "AppData" / "Local" / "Roblox" / "Versions";
+    const fs::path versions =
+        fs::path(prefixUserDir(installDir)) / "AppData" / "Local" / "Roblox" / "Versions";
     std::error_code ec;
     fs::directory_iterator it(versions, ec);
     if (ec) return false;

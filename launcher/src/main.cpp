@@ -364,6 +364,7 @@ int main(int argc, char** argv) {
             const_cast<char*>("--uninstall"),
             const_cast<char*>("--dir"),
             const_cast<char*>(dir.c_str()),
+            allowRoot() ? const_cast<char*>("--allow-root") : nullptr,
             nullptr
         };
         execv(installerPath.c_str(), installerArgv);
@@ -392,6 +393,7 @@ int main(int argc, char** argv) {
             const_cast<char*>(channel.c_str()),
             const_cast<char*>("--dir"),
             const_cast<char*>(dir.c_str()),
+            allowRoot() ? const_cast<char*>("--allow-root") : nullptr,
             nullptr
         };
         execv(installerPath.c_str(), installerArgv);

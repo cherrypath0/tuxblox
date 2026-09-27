@@ -149,6 +149,20 @@ int main() {
         assert(o.error.empty());
         assert(o.dir == "/opt/tuxblox");
     }
+    // Normalised at parse time: a trailing separator otherwise defeats both
+    // the parent-folder check and the uninstall guard's home comparison.
+    {
+        CliOptions o = parse({"--dir", "/opt/tuxblox/"});
+        assert(o.error.empty() && o.dir == "/opt/tuxblox");
+    }
+    {
+        CliOptions o = parse({"--dir", "/opt//tuxblox/./"});
+        assert(o.error.empty() && o.dir == "/opt/tuxblox");
+    }
+    {
+        CliOptions o = parse({"--dir", "/"});
+        assert(o.error.empty() && o.dir == "/");
+    }
     {
         CliOptions o = parse({"--dir", "relative/path"});
         assert(!o.error.empty());

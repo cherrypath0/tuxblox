@@ -34,6 +34,8 @@ namespace {
 const std::size_t MaxAccountNameLength = 20;
 
 const std::array<std::string, 23> ReservedNames = {
+    // Public is the drive's own shared folder, so an account of that name would collide with it and nothing would find Roblox.
+    "PUBLIC",
     "CON", "PRN", "AUX", "NUL",
     "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
     "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
@@ -61,25 +63,47 @@ bool isUsable(const std::string& name) {
     return std::find(ReservedNames.begin(), ReservedNames.end(), upper) == ReservedNames.end();
 }
 
-// Replaces every occurrence of a literal in a text file, leaving a file that does not have it untouched.
-void replaceTextInFile(const std::filesystem::path& file, const std::string& from,
+// Replaces every occurrence of a literal in a text file. Writes a new file and renames it over the old one, so a write that fails part way leaves the original intact rather than truncated. False means the file still holds the old text.
+bool replaceTextInFile(const std::filesystem::path& file, const std::string& from,
                        const std::string& to) {
+    namespace fs = std::filesystem;
+
     std::ifstream in(file);
-    if (!in) return;
+    if (!in) return true; // nothing there to rewrite
     std::stringstream buffer;
     buffer << in.rdbuf();
     in.close();
 
     std::string text = buffer.str();
     std::size_t at = text.find(from);
-    if (at == std::string::npos) return;
+    if (at == std::string::npos) return true;
     while (at != std::string::npos) {
         text.replace(at, from.size(), to);
         at = text.find(from, at + to.size());
     }
 
-    std::ofstream out(file, std::ios::trunc);
-    if (out) out << text;
+    const fs::path temp = fs::path(file).concat(".tuxblox-new");
+    {
+        std::ofstream out(temp, std::ios::trunc | std::ios::binary);
+        if (!out) return false;
+        out << text;
+        out.flush();
+        if (!out) {
+            out.close();
+            std::error_code ignored;
+            fs::remove(temp, ignored);
+            return false;
+        }
+    }
+
+    std::error_code error;
+    fs::rename(temp, file, error);
+    if (error) {
+        std::error_code ignored;
+        fs::remove(temp, ignored);
+        return false;
+    }
+    return true;
 }
 
 } // namespace
@@ -137,11 +161,32 @@ AccountFolderMigration migrateAccountFolder(const std::filesystem::path& prefixD
     if (error) return AccountFolderMigration::Failed;
 
     // The drive's own settings record the old path in several places, so they are rewritten in the same pass rather than left pointing at nothing.
+    bool registryComplete = true;
     for (const char *pFile : {"user.reg", "system.reg", "userdef.reg"}) {
-        replaceTextInFile(prefixDir / pFile, "C:\\\\users\\\\" + FallbackName,
-                          "C:\\\\users\\\\" + wanted);
+        registryComplete &= replaceTextInFile(prefixDir / pFile,
+                                              "C:\\\\users\\\\" + FallbackName,
+                                              "C:\\\\users\\\\" + wanted);
     }
-    return AccountFolderMigration::Renamed;
+    return registryComplete ? AccountFolderMigration::Renamed
+                            : AccountFolderMigration::RegistryIncomplete;
+}
+
+std::string retargetAfterAccountRename(const std::string& path,
+                                       const std::filesystem::path& prefixDir,
+                                       const std::string& account) {
+    namespace fs = std::filesystem;
+
+    if (account == FallbackName) return path;
+
+    const std::string oldBase = (prefixDir / "drive_c/users" / FallbackName).string() + "/";
+    if (path.rfind(oldBase, 0) != 0) return path;
+
+    std::error_code error;
+    if (fs::exists(path, error)) return path;
+
+    const std::string fixed =
+        (prefixDir / "drive_c/users" / account).string() + "/" + path.substr(oldBase.size());
+    return fs::exists(fixed, error) ? fixed : path;
 }
 
 } // namespace tuxblox

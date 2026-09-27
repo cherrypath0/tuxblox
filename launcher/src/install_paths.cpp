@@ -16,6 +16,7 @@
 
 #include "install_paths.h"
 #include <cstdio>
+#include <filesystem>
 #include <cstdlib>
 #include <stdexcept>
 #include <sys/statvfs.h>
@@ -26,7 +27,10 @@ namespace tuxblox {
 
 namespace {
 
-std::string withoutTrailingSlashes(std::string path) {
+// One spelling for a folder path, so a trailing separator or a "/." cannot
+// reach the paths built from it.
+std::string normalizedDir(const std::string& dir) {
+    std::string path = std::filesystem::path(dir).lexically_normal().string();
     while (path.size() > 1 && path.back() == '/') path.pop_back();
     return path;
 }
@@ -37,7 +41,7 @@ std::string installDir() {
     const char* root = std::getenv("TUXBLOX_ROOT");
     if (root && root[0] != '\0') {
         // Resolving a relative value against the current directory would make the answer depend on where TuxBlox happened to be started from.
-        if (root[0] == '/') return withoutTrailingSlashes(root);
+        if (root[0] == '/') return normalizedDir(root);
         fprintf(stderr, "TuxBlox: ignoring TUXBLOX_ROOT, it is not an absolute path: %s\n", root);
     }
 

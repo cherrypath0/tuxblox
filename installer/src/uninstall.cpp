@@ -122,8 +122,8 @@ void stripMimeappsAssociations(const std::string& mimeappsPath) {
 namespace {
 
 // Checked before anything on disk is looked at, so a path this wrong is refused whether or not something happens to be sitting there.
-bool isPlausibleInstallPath(const fs::path& dir) {
-    const fs::path path = dir.lexically_normal();
+bool isPlausibleInstallPath(const std::string& dir) {
+    const fs::path path = normalizedDir(dir);
     if (!path.is_absolute()) return false;
 
     // "/" and "/opt" are one bad value away from taking the machine with them.
@@ -134,7 +134,7 @@ bool isPlausibleInstallPath(const fs::path& dir) {
     if (components < 2) return false;
 
     const char* home = std::getenv("HOME");
-    return !(home && home[0] != '\0' && path == fs::path(home).lexically_normal());
+    return !(home && home[0] != '\0' && path == fs::path(normalizedDir(home)));
 }
 
 void refuseToRemove(const std::string& dir) {
@@ -154,7 +154,7 @@ bool removeInstallDir(const std::string& installDir) {
     std::error_code ec;
     if (!fs::exists(installDir, ec)) return true; // already gone -- success
 
-    if (!looksLikeInstall(fs::path(installDir).lexically_normal().string())) {
+    if (!looksLikeInstall(normalizedDir(installDir))) {
         refuseToRemove(installDir);
         return false;
     }

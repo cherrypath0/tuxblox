@@ -1709,12 +1709,15 @@ static void fake_leaked_command_line( RTL_USER_PROCESS_PARAMETERS *params )
     {
         WCHAR account[256], wanted[258];
         UINT account_len;
+        DWORD got;
 
         /* USERNAME rather than GetUserNameW: advapi32 sits above kernelbase and
          * cannot be linked from here. wineboot wrote this variable from that
          * same answer, so it names the prefix's own account folder. */
-        if (!GetEnvironmentVariableW( L"USERNAME", account, ARRAY_SIZE(account) ))
-            lstrcpyW( account, L"user" );
+        got = GetEnvironmentVariableW( L"USERNAME", account, ARRAY_SIZE(account) );
+        /* A value too long for the buffer reports the size it needs and writes
+         * nothing at all, leaving the buffer unterminated. */
+        if (!got || got >= ARRAY_SIZE(account)) lstrcpyW( account, L"user" );
 
         account_len = lstrlenW( account );
         wanted[0] = '\\';

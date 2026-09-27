@@ -42,6 +42,10 @@ enum class AccountFolderMigration {
     Ambiguous,
     // The rename was refused; the drive still works under the old name.
     Failed,
+    // The folder moved but a registry file could not be rewritten, so the
+    // drive still records the old path. Reported rather than hidden: the
+    // caller says so, and nothing was truncated getting here.
+    RegistryIncomplete,
 };
 
 // Moves a drive's old "user" account folder to `wanted` and rewrites the paths
@@ -50,5 +54,14 @@ enum class AccountFolderMigration {
 // unless there is exactly one folder to move.
 AccountFolderMigration migrateAccountFolder(const std::filesystem::path& prefixDir,
                                             const std::string& wanted);
+
+// Points a path that names the drive's old account folder at the one that
+// exists now. Whoever asked for the launch worked the path out before this
+// process started, so on the first launch after the rename it still says
+// "user". Returns the path unchanged unless it is missing and the rewritten
+// one is there, so a file that really has gone still reports itself missing.
+std::string retargetAfterAccountRename(const std::string& path,
+                                       const std::filesystem::path& prefixDir,
+                                       const std::string& account);
 
 } // namespace tuxblox

@@ -56,6 +56,8 @@ int main() {
         {"con",                    "user"},
         {"COM1",                   "user"},
         {"lpt9",                   "user"},
+        {"Public",                 "user"},                   // the drive's shared folder
+        {"public",                 "user"},
         {"COM10",                  "COM10"},                  // not a device name
         {"console",                "console"},                // only the exact names
     };

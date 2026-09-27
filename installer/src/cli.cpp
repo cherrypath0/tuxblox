@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "cli.h"
+#include "install_paths.h"
 #include <string>
 
 namespace tuxblox {
@@ -64,7 +65,7 @@ CliOptions parseArgs(int argc, const char* const* argv) {
                 options.error = "--dir needs an absolute path.";
                 return options;
             }
-            options.dir = value;
+            options.dir = normalizedDir(value);
         } else {
             options.error = "Unrecognized argument: " + arg;
             return options;

@@ -120,7 +120,7 @@ void App::run() {
             std::lock_guard<std::mutex> lock(mutex_);
             snapshot_.isUpgrade = isUpgrade;
         }
-        if (!hasEnoughDiskSpace(home, kMinFreeBytes)) {
+        if (!hasEnoughDiskSpace(existingAncestor(dir), kMinFreeBytes)) {
             setError("Not enough free disk space. TuxBlox requires at least 3GB free.");
             return;
         }
@@ -174,7 +174,7 @@ void App::run() {
         const uint64_t requiredBytes =
             static_cast<uint64_t>(static_cast<double>(artifactBytes) * kPeakUsageFactor) +
             kHeadroomBytes;
-        if (!hasEnoughDiskSpace(home, requiredBytes)) {
+        if (!hasEnoughDiskSpace(existingAncestor(dir), requiredBytes)) {
             setError("Not enough free disk space. This install needs approximately " +
                      std::to_string(requiredBytes / (1024ULL * 1024ULL)) + " MB free.");
             return;

@@ -93,6 +93,30 @@ int main() {
         assert(fs::exists(base / "drive_c/users/user"));
     }
 
+    // A registry file that cannot be written must not be reported as a clean
+    // migration, and must not be left truncated -- a half-written system.reg
+    // is worse than one that still names the old folder.
+    {
+        makeOldPrefix(base);
+        const std::string before = readFile(base / "system.reg");
+        fs::permissions(base / "system.reg", fs::perms::owner_read);
+
+        const AccountFolderMigration result = migrateAccountFolder(base, "cherry");
+        fs::permissions(base / "system.reg", fs::perms::owner_all);
+
+        // Running as root defeats the permission bits, so only assert the
+        // partial-failure path when the write really was refused.
+        if (result == AccountFolderMigration::RegistryIncomplete) {
+            assert(fs::exists(base / "drive_c/users/cherry"));
+            // Untouched, not truncated.
+            assert(readFile(base / "system.reg") == before);
+            // The one that could be written did get written.
+            assert(readFile(base / "user.reg").find("C:\\users\\cherry") != std::string::npos);
+        } else {
+            assert(result == AccountFolderMigration::Renamed);
+        }
+    }
+
     // A rename that cannot happen reports failure and leaves the drive usable
     // on the old name, because a failed migration must never fail a launch.
     {
@@ -109,6 +133,42 @@ int main() {
         } else {
             assert(result == AccountFolderMigration::Renamed);
         }
+    }
+
+    // The launcher works out the executable path before this process starts,
+    // so on the very first launch after an upgrade it still names the old
+    // account folder -- which this run is about to rename out from under it.
+    {
+        makeOldPrefix(base);
+        const std::string stale =
+            (base / "drive_c/users/user/AppData/Local/Roblox/Versions/version-a/RobloxStudioBeta.exe")
+                .string();
+        fs::create_directories(fs::path(stale).parent_path());
+        std::ofstream(stale).put('M');
+
+        assert(migrateAccountFolder(base, "cherry") == AccountFolderMigration::Renamed);
+        assert(!fs::exists(stale));
+
+        const std::string fixed = retargetAfterAccountRename(stale, base, "cherry");
+        assert(fixed ==
+               (base / "drive_c/users/cherry/AppData/Local/Roblox/Versions/version-a/RobloxStudioBeta.exe")
+                   .string());
+        assert(fs::exists(fixed));
+
+        // A path that still resolves is never touched.
+        assert(retargetAfterAccountRename(fixed, base, "cherry") == fixed);
+
+        // Nor is anything that is not inside this drive's old account folder.
+        assert(retargetAfterAccountRename("roblox-player://placeId=1", base, "cherry") ==
+               "roblox-player://placeId=1");
+        assert(retargetAfterAccountRename("/somewhere/else.exe", base, "cherry") ==
+               "/somewhere/else.exe");
+
+        // And a path whose replacement does not exist either is left alone,
+        // so a genuinely missing file still reports itself as missing.
+        const std::string gone =
+            (base / "drive_c/users/user/AppData/Local/Roblox/Versions/version-z/None.exe").string();
+        assert(retargetAfterAccountRename(gone, base, "cherry") == gone);
     }
 
     fs::remove_all(base);

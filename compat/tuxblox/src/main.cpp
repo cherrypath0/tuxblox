@@ -32,6 +32,7 @@
 
 #include "integrity/authenticode.h"
 #include "prefix/prefix.h"
+#include "support/account_name.h"
 #include "launch/proton.h"
 #include "launch/session.h"
 #include "support/log_limit.h"
@@ -246,13 +247,20 @@ int runMain(int argc, char *argv[]) {
 
     session.initSession();
 
+    std::vector<std::string> target = command.target;
     if (!command.runImmediately) {
         prefix.setup(session);
+
+        // setup() may have just renamed the drive's account folder, and whoever asked for this launch worked the path out before that happened.
+        const std::string account = tuxblox::prefixAccountName(prefixDir);
+        for (std::string& entry : target) {
+            entry = tuxblox::retargetAfterAccountRename(entry, prefixDir, account);
+        }
     }
 
     session.applyDllOverrides();
 
-    const int rc = session.run(command.target);
+    const int rc = session.run(target);
 
     if (!command.runImmediately) {
         session.waitForPrefixDrain(PrefixDrainTimeoutSeconds);

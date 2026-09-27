@@ -16,21 +16,30 @@
 
 #include "install_paths.h"
 #include <cstdio>
+#include <filesystem>
 #include <cstdlib>
 #include <stdexcept>
+#include <system_error>
 #include <sys/statvfs.h>
 #include <unistd.h>
 
 namespace tuxblox {
 
-namespace {
-
-std::string withoutTrailingSlashes(std::string path) {
+std::string normalizedDir(const std::string& dir) {
+    std::string path = std::filesystem::path(dir).lexically_normal().string();
     while (path.size() > 1 && path.back() == '/') path.pop_back();
     return path;
 }
 
-} // namespace
+std::string existingAncestor(const std::string& dir) {
+    namespace fs = std::filesystem;
+    std::error_code error;
+    fs::path path = normalizedDir(dir);
+    while (!path.empty() && path != path.root_path() && !fs::exists(path, error)) {
+        path = path.parent_path();
+    }
+    return path.empty() ? std::string("/") : path.string();
+}
 
 bool looksLikeInstall(const std::string& dir) {
     static const char* const markers[] = {
@@ -56,7 +65,7 @@ std::string selfExePath() {
 std::string installDir() {
     const char* root = std::getenv("TUXBLOX_ROOT");
     if (root && root[0] != '\0') {
-        if (root[0] == '/') return withoutTrailingSlashes(root);
+        if (root[0] == '/') return normalizedDir(root);
         fprintf(stderr, "TuxBlox: ignoring TUXBLOX_ROOT, it is not an absolute path: %s\n", root);
     }
 

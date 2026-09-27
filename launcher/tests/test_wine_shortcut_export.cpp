@@ -224,6 +224,33 @@ int main() {
         assert(!fs::exists(noLnkApps / "tuxblox-roblox-studio.desktop"));
     }
 
+    // A drive whose account folder carries the real account name is still
+    // read. Getting this wrong deletes the user's Roblox menu entries on
+    // every launch, silently, because nothing looks installed any more.
+    {
+        const fs::path renamedInstall = tmp / "renamed-install";
+        const fs::path renamedApps = tmp / "renamed-apps";
+        const fs::path renamedIcons = tmp / "renamed-icons";
+        fs::create_directories(renamedApps);
+        fs::create_directories(renamedIcons);
+
+        const fs::path versions = renamedInstall / "runtime" / "pfx" / "drive_c" / "users" /
+                                  "cherry" / "AppData" / "Local" / "Roblox" / "Versions";
+        writeAll(versions / "version-abc123" / "RobloxStudioBeta.exe", "MZ");
+
+        exportPrefixShortcutsTo(renamedInstall.string(), "/opt/tuxblox/TuxBloxLauncher",
+                                renamedApps.string(), renamedIcons.string());
+
+        assert(fs::exists(renamedApps / "tuxblox-roblox-studio.desktop"));
+        assert(!fs::exists(renamedApps / "tuxblox-roblox-player.desktop"));
+
+        // And it still goes when Roblox really is gone.
+        fs::remove_all(versions);
+        exportPrefixShortcutsTo(renamedInstall.string(), "/opt/tuxblox/TuxBloxLauncher",
+                                renamedApps.string(), renamedIcons.string());
+        assert(!fs::exists(renamedApps / "tuxblox-roblox-studio.desktop"));
+    }
+
     fs::remove_all(tmp);
     std::printf("wine_shortcut_export: all tests passed\n");
     return 0;

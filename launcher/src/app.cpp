@@ -16,6 +16,7 @@
 
 #include "app.h"
 #include "prefix_user.h"
+#include "root_guard.h"
 #include "checksum.h"
 #include "container_env.h"
 #include "downloader.h"
@@ -149,8 +150,14 @@ void App::requestLaunch(LaunchTarget target) {
         if (inner == 0) {
             setsid();
             const char* targetArg = (target == LaunchTarget::Player) ? "player" : "studio";
-            execl(launcherExePath_.c_str(), launcherExePath_.c_str(), "--watch-launch", targetArg,
-                  static_cast<char*>(nullptr));
+            // Carried across every re-exec, or a root run that was allowed here is refused by the copy of ourselves that does the launching.
+            if (allowRoot()) {
+                execl(launcherExePath_.c_str(), launcherExePath_.c_str(), "--watch-launch",
+                      targetArg, "--allow-root", static_cast<char*>(nullptr));
+            } else {
+                execl(launcherExePath_.c_str(), launcherExePath_.c_str(), "--watch-launch",
+                      targetArg, static_cast<char*>(nullptr));
+            }
             _exit(127); // only reached if execl itself failed
         }
         _exit(0);

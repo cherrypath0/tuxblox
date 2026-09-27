@@ -27,6 +27,16 @@ namespace tuxblox {
 // not set.
 std::string installDir();
 
+// One spelling for a folder path, so "/home/me", "/home/me/" and "/home/me/."
+// compare equal. Every caller-supplied path goes through this before it is
+// compared against anything or has its parent taken -- a trailing separator
+// otherwise survives normalisation and defeats both.
+std::string normalizedDir(const std::string& dir);
+
+// The nearest folder at or above `dir` that exists, so a filesystem check can
+// be made against a folder the install has not created yet. Ends at "/".
+std::string existingAncestor(const std::string& dir);
+
 // True when this directory holds a TuxBlox install rather than being some
 // unrelated folder the installer happens to be sitting in.
 bool looksLikeInstall(const std::string& dir);

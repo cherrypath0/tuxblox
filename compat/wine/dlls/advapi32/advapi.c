@@ -48,6 +48,9 @@ static BOOL is_usable_account_name( const WCHAR *name )
 {
     static const WCHAR * const reserved[] =
     {
+        /* Public is the prefix's own shared profile folder; an account of
+         * that name would collide with it. */
+        L"PUBLIC",
         L"CON", L"PRN", L"AUX", L"NUL",
         L"COM1", L"COM2", L"COM3", L"COM4", L"COM5", L"COM6", L"COM7", L"COM8", L"COM9",
         L"LPT1", L"LPT2", L"LPT3", L"LPT4", L"LPT5", L"LPT6", L"LPT7", L"LPT8", L"LPT9",
@@ -76,6 +79,14 @@ static BOOL is_usable_account_name( const WCHAR *name )
  * host account and hands it over in WINEUSERNAME while the prefix is being
  * built, which is when wineboot creates the profile directory; afterwards it is
  * in USERNAME, which wineboot wrote from this same answer. */
+/* GetEnvironmentVariableW reports the size it needs and writes nothing when the
+ * value does not fit, so a bare nonzero return would leave the buffer unset. */
+static BOOL read_env_account( const WCHAR *var, WCHAR *out, DWORD size )
+{
+    DWORD len = GetEnvironmentVariableW( var, out, size );
+    return len && len < size;
+}
+
 static const WCHAR *get_account_name(void)
 {
     static WCHAR name[MAX_ACCOUNT_NAME + 1];
@@ -88,8 +99,8 @@ static const WCHAR *get_account_name(void)
     resolved = TRUE;
     lstrcpyW( name, L"user" );
 
-    if (!GetEnvironmentVariableW( L"WINEUSERNAME", raw, ARRAY_SIZE(raw) ) &&
-        !GetEnvironmentVariableW( L"USERNAME", raw, ARRAY_SIZE(raw) ))
+    if (!read_env_account( L"WINEUSERNAME", raw, ARRAY_SIZE(raw) ) &&
+        !read_env_account( L"USERNAME", raw, ARRAY_SIZE(raw) ))
         return name;
 
     if (is_usable_account_name( raw )) lstrcpyW( name, raw );
