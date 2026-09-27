@@ -15,7 +15,9 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "uninstall.h"
+#include "install_paths.h"
 #include <chrono>
+#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -117,14 +119,51 @@ void stripMimeappsAssociations(const std::string& mimeappsPath) {
     for (const auto& l : kept) out << l << "\n";
 }
 
+namespace {
+
+// Checked before anything on disk is looked at, so a path this wrong is refused whether or not something happens to be sitting there.
+bool isPlausibleInstallPath(const fs::path& dir) {
+    const fs::path path = dir.lexically_normal();
+    if (!path.is_absolute()) return false;
+
+    // "/" and "/opt" are one bad value away from taking the machine with them.
+    int components = 0;
+    for (const auto& part : path.relative_path()) {
+        if (!part.empty() && part != ".") components++;
+    }
+    if (components < 2) return false;
+
+    const char* home = std::getenv("HOME");
+    return !(home && home[0] != '\0' && path == fs::path(home).lexically_normal());
+}
+
+void refuseToRemove(const std::string& dir) {
+    fprintf(stderr, "TuxBlox: refusing to delete %s, it is not a TuxBlox install folder\n",
+            dir.c_str());
+}
+
+} // namespace
+
 bool removeInstallDir(const std::string& installDir) {
+    // The path can now come from --dir or TUXBLOX_ROOT, so a recursive delete has to prove it is pointed at a TuxBlox install and not at someone's home folder.
+    if (!isPlausibleInstallPath(installDir)) {
+        refuseToRemove(installDir);
+        return false;
+    }
+
     std::error_code ec;
     if (!fs::exists(installDir, ec)) return true; // already gone -- success
+
+    if (!looksLikeInstall(fs::path(installDir).lexically_normal().string())) {
+        refuseToRemove(installDir);
+        return false;
+    }
+
     fs::remove_all(installDir, ec);
     return !ec;
 }
 
-bool performUninstall() {
+bool performUninstall(const std::string& installDir) {
     const char* home = std::getenv("HOME");
     if (!home || home[0] == '\0') return false;
 
@@ -143,7 +182,11 @@ bool performUninstall() {
         runCommandBestEffort({"update-mime-database", std::string(home) + "/.local/share/mime"});
     }
 
-    return removeInstallDir(std::string(home) + "/.tuxblox");
+    return removeInstallDir(installDir);
+}
+
+bool performUninstall() {
+    return performUninstall(tuxblox::installDir());
 }
 
 } // namespace tuxblox

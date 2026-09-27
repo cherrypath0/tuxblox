@@ -43,9 +43,11 @@ void removeMimePackage(const std::string& xmlPath);
 // INI parser). No-op if the file doesn't exist.
 void stripMimeappsAssociations(const std::string& mimeappsPath);
 
-// Recursively deletes `installDir` (e.g. ~/.tuxblox). Returns false only if
-// the directory existed and could not be fully removed (e.g. a permissions
-// error) -- a directory that didn't exist to begin with counts as success.
+// Recursively deletes `installDir` (e.g. ~/.tuxblox). Returns false if the
+// directory existed and could not be fully removed (e.g. a permissions error),
+// and also if it is not a TuxBlox install -- the path is caller-supplied now,
+// so a recursive delete has to prove what it is aimed at first. A directory
+// that didn't exist to begin with counts as success.
 bool removeInstallDir(const std::string& installDir);
 
 // Full uninstall against the real environment: removes both
@@ -57,5 +59,9 @@ bool removeInstallDir(const std::string& installDir);
 // own -- the caller (main.cpp) reports success/failure, same as every other
 // popup this binary shows. Returns true on full success.
 bool performUninstall();
+
+// The same uninstall against a named folder, for an install that is not in
+// the default location.
+bool performUninstall(const std::string& installDir);
 
 } // namespace tuxblox

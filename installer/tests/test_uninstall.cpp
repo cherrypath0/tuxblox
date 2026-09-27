@@ -117,6 +117,9 @@ int main() {
         fs::remove_all(dir);
         fs::create_directories(dir / "proton" / "files");
         std::ofstream(dir / "runtime_marker") << "x";
+        // removeInstallDir only deletes a directory it can recognise as a
+        // TuxBlox install, so the fixture has to look like one.
+        std::ofstream(dir / "TuxBloxLauncher") << "x";
 
         assert(removeInstallDir(dir.string()) == true);
         assert(!fs::exists(dir));

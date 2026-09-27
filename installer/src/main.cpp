@@ -16,6 +16,7 @@
 
 #include "app.h"
 #include "cli.h"
+#include "install_paths.h"
 #include "console_ui.h"
 #include "ui.h"
 #include "uninstall.h"
@@ -80,10 +81,10 @@ int main(int argc, char** argv) {
     // --uninstall -- passed by the launcher's Settings tab. Never shows the
     // install UI, just does the removal and reports the result.
     if (options.uninstall) {
-        const bool ok = performUninstall();
+        const bool ok = performUninstall(options.dir.empty() ? installDir() : options.dir);
         const char* failureText =
-            "Desktop shortcuts and URL handlers were removed, but ~/.tuxblox could not be "
-            "fully deleted. You may need to remove it manually.";
+            "Desktop shortcuts and URL handlers were removed, but the TuxBlox folder could "
+            "not be fully deleted. You may need to remove it manually.";
         if (options.headless) {
             if (ok) {
                 printf("TuxBlox has been completely removed from this system.\n");
