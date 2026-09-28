@@ -148,3 +148,7 @@ add_test(NAME prefix_user COMMAND test_prefix_user)
 add_executable(test_discord_rpc test_discord_rpc.cpp)
 target_link_libraries(test_discord_rpc PRIVATE launcher_core)
 add_test(NAME discord_rpc COMMAND test_discord_rpc)
+
+add_executable(test_studio_presence test_studio_presence.cpp)
+target_link_libraries(test_studio_presence PRIVATE launcher_core)
+add_test(NAME studio_presence COMMAND test_studio_presence)
