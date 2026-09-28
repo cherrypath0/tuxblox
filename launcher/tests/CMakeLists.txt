@@ -144,3 +144,7 @@ add_test(NAME root_guard COMMAND test_root_guard)
 add_executable(test_prefix_user test_prefix_user.cpp)
 target_link_libraries(test_prefix_user PRIVATE launcher_core)
 add_test(NAME prefix_user COMMAND test_prefix_user)
+
+add_executable(test_discord_rpc test_discord_rpc.cpp)
+target_link_libraries(test_discord_rpc PRIVATE launcher_core)
+add_test(NAME discord_rpc COMMAND test_discord_rpc)
