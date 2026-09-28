@@ -36,8 +36,8 @@
 
 namespace tuxblox {
 
-// The Discord application this presence is published under, registered at discord.com/developers. Public, not a secret, and empty until one exists -- with no id nothing is sent, so the setting simply does nothing.
-const char kDiscordApplicationId[] = "";
+// The Discord application this presence is published under, registered at discord.com/developers. Public, not a secret. Empty would mean nothing is ever sent.
+const char kDiscordApplicationId[] = "1554221498925973584";
 
 int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const std::string& uri,
                        const std::string& currentVersion) {
@@ -109,8 +109,9 @@ int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const 
 
         discord->poll(now);
         const PresenceActivity current = presenceReader.activity();
-        if (!everSent || current != lastSent) {
-            discord->send(activityJson(current, launchStart, settings.discordRpcPlaceName), now);
+        // Only a delivered activity counts: recording one Discord threw away would stop this ever trying again.
+        if ((!everSent || current != lastSent) &&
+            discord->send(activityJson(current, launchStart, settings.discordRpcPlaceName), now)) {
             lastSent = current;
             everSent = true;
         }

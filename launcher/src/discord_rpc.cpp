@@ -41,6 +41,9 @@ const uint32_t OpFrame = 1;
 // Discord being absent is the normal case, so retries are occasional rather than eager.
 const int ReconnectSeconds = 30;
 
+// Discord sometimes accepts a connection and never answers the handshake -- it rate-limits by going silent -- so a connection that never becomes usable is dropped rather than held forever.
+const int ReadyTimeoutSeconds = 10;
+
 std::string runtimeDir() {
     const char *pDir = std::getenv("XDG_RUNTIME_DIR");
     return pDir != nullptr ? std::string(pDir) : std::string();
@@ -91,9 +94,46 @@ void DiscordRpc::disconnect() {
         ::close(fd_);
         fd_ = -1;
     }
+    ready_ = false;
+    pendingReply_.clear();
+    publishedOnConnection_ = false;
 }
 
-void DiscordRpc::poll(std::time_t now) {
+bool DiscordRpc::readyForActivity(std::time_t now) {
+    if (ready_) {
+        return true;
+    }
+    if (fd_ < 0) {
+        return false;
+    }
+
+    char buffer[1024];
+    for (;;) {
+        const ssize_t got = ::recv(fd_, buffer, sizeof(buffer), MSG_DONTWAIT);
+        if (got <= 0) {
+            break;
+        }
+        pendingReply_.append(buffer, static_cast<size_t>(got));
+        if (got < static_cast<ssize_t>(sizeof(buffer))) {
+            break;
+        }
+    }
+
+    if (pendingReply_.size() >= 8) {
+        uint32_t length = 0;
+        std::memcpy(&length, pendingReply_.data() + 4, 4);
+        if (pendingReply_.size() >= 8 + static_cast<size_t>(length)) {
+            ready_ = true;
+            pendingReply_.clear();
+        }
+    }
+    if (!ready_ && now - connectedAt_ >= ReadyTimeoutSeconds) {
+        disconnect();
+    }
+    return ready_;
+}
+
+void DiscordRpc::connectIfNeeded(std::time_t now) {
     // No application id means presence was never set up, so there is nothing to connect to Discord about.
     if (applicationId_.empty()) {
         return;
@@ -119,12 +159,26 @@ void DiscordRpc::poll(std::time_t now) {
             continue;
         }
         fd_ = fd;
+        connectedAt_ = now;
         if (!writeFrame(OpHandshake, "{\"v\":1,\"client_id\":\"" + applicationId_ + "\"}")) {
             disconnect();
             continue;
         }
         return;
     }
+}
+
+void DiscordRpc::republishIfNeeded(std::time_t now) {
+    // A connection that replaced a dropped one starts with no activity on it, and the state may never change again to prompt one.
+    if (fd_ < 0 || publishedOnConnection_ || lastActivity_.empty()) {
+        return;
+    }
+    sendActivity(lastActivity_, now);
+}
+
+void DiscordRpc::poll(std::time_t now) {
+    connectIfNeeded(now);
+    republishIfNeeded(now);
 }
 
 bool DiscordRpc::writeFrame(uint32_t opcode, const std::string& payload) {
@@ -146,17 +200,25 @@ bool DiscordRpc::writeFrame(uint32_t opcode, const std::string& payload) {
     return true;
 }
 
-void DiscordRpc::send(const std::string& activityJson, std::time_t now) {
-    poll(now);
-    if (fd_ < 0) {
-        return;
+bool DiscordRpc::send(const std::string& activityJson, std::time_t now) {
+    lastActivity_ = activityJson;
+    connectIfNeeded(now);
+    return sendActivity(activityJson, now);
+}
+
+bool DiscordRpc::sendActivity(const std::string& activityJson, std::time_t now) {
+    if (fd_ < 0 || !readyForActivity(now)) {
+        return false;
     }
     const std::string payload = "{\"cmd\":\"SET_ACTIVITY\",\"nonce\":\"" + std::to_string(now) +
                                 "\",\"args\":{\"pid\":" + std::to_string(::getpid()) +
                                 ",\"activity\":" + activityJson + "}}";
     if (!writeFrame(OpFrame, payload)) {
         disconnect();
+        return false;
     }
+    publishedOnConnection_ = true;
+    return true;
 }
 
 void DiscordRpc::clear(std::time_t now) {

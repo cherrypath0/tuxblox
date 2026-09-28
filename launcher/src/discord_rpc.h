@@ -39,21 +39,32 @@ public:
 
     bool connected() const;
 
-    // Connects if it is not connected and enough time has passed since the last attempt. Doing nothing is the normal outcome.
+    // Connects if needed, waits for Discord to answer the handshake, and puts the last activity back after a reconnect. Doing nothing is the normal outcome.
     void poll(std::time_t now);
 
-    // Sends an already-serialised activity object. Silently does nothing when Discord is not there.
-    void send(const std::string& activityJson, std::time_t now);
+    // Sends an already-serialised activity object. False means it did not reach Discord, so the caller must not record it as published.
+    bool send(const std::string& activityJson, std::time_t now);
 
     void clear(std::time_t now);
 
 private:
     bool writeFrame(uint32_t opcode, const std::string& payload);
+    // Discord discards anything sent before it has answered the handshake, so nothing goes out until its reply has been read.
+    bool readyForActivity(std::time_t now);
+    void connectIfNeeded(std::time_t now);
+    bool sendActivity(const std::string& activityJson, std::time_t now);
+    void republishIfNeeded(std::time_t now);
     void disconnect();
 
     std::string applicationId_;
     int fd_ = -1;
     std::time_t lastAttempt_ = 0;
+    std::time_t connectedAt_ = 0;
+    bool ready_ = false;
+    std::string pendingReply_;
+    // Kept so a connection that replaced a dropped one does not come back empty.
+    std::string lastActivity_;
+    bool publishedOnConnection_ = false;
 };
 
 } // namespace tuxblox

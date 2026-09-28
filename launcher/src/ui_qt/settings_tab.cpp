@@ -192,31 +192,6 @@ QWidget* SettingsTab::buildEnvironmentGroup(QWidget* parent) {
     webviewGpuRow->addControl(webviewGpuToggle_);
     group->addRow(webviewGpuRow);
 
-    auto* discordRpcRow = new BoxedRow(
-        "Show what you are doing on Discord",
-        "Puts \"Roblox Studio\" on your Discord profile while Studio is open, with whether you are "
-        "editing or play testing, and how long for. Nothing is shown if Discord is not running.");
-    discordRpcToggle_ = new ToggleSwitch();
-    connect(discordRpcToggle_, &ToggleSwitch::toggled, this, [this](bool checked) {
-        Settings updated = app_.snapshot().settings;
-        updated.discordRpc = checked;
-        commitSettings(updated);
-    });
-    discordRpcRow->addControl(discordRpcToggle_);
-    group->addRow(discordRpcRow);
-
-    auto* discordRpcPlaceNameRow = new BoxedRow(
-        "Include the name of what you are editing",
-        "Adds the name of the place you have open to your Discord profile. Anyone who can see your "
-        "profile can read it, including for a game you have not released yet.");
-    discordRpcPlaceNameToggle_ = new ToggleSwitch();
-    connect(discordRpcPlaceNameToggle_, &ToggleSwitch::toggled, this, [this](bool checked) {
-        Settings updated = app_.snapshot().settings;
-        updated.discordRpcPlaceName = checked;
-        commitSettings(updated);
-    });
-    discordRpcPlaceNameRow->addControl(discordRpcPlaceNameToggle_);
-    group->addRow(discordRpcPlaceNameRow);
 
     auto* virtualDesktopRow = new BoxedRow(
         "Virtual Desktop Mode",
@@ -315,6 +290,34 @@ QWidget* SettingsTab::buildPrivacyGroup(QWidget* parent) {
     });
     crashRow->addControl(crashReportsToggle_);
     group->addRow(crashRow);
+
+    auto* discordRpcRow = new BoxedRow(
+        "Show what you are doing on Discord",
+        "Puts Roblox Studio on your Discord profile while Studio is open, with whether you are "
+        "editing or play testing, and how long for. Nothing is shown if Discord is not running. "
+        "Takes effect the next time Roblox starts.");
+    discordRpcToggle_ = new ToggleSwitch();
+    connect(discordRpcToggle_, &ToggleSwitch::toggled, this, [this](bool checked) {
+        Settings updated = app_.snapshot().settings;
+        updated.discordRpc = checked;
+        commitSettings(updated);
+    });
+    discordRpcRow->addControl(discordRpcToggle_);
+    group->addRow(discordRpcRow);
+
+    auto* discordRpcPlaceNameRow = new BoxedRow(
+        "Include the name of what you are editing",
+        "Adds the name of the place you have open to your Discord profile. Anyone who can see your "
+        "profile can read it, including for a game you have not released yet. A place Studio "
+        "identifies only by number is never named. Takes effect the next time Roblox starts.");
+    discordRpcPlaceNameToggle_ = new ToggleSwitch();
+    connect(discordRpcPlaceNameToggle_, &ToggleSwitch::toggled, this, [this](bool checked) {
+        Settings updated = app_.snapshot().settings;
+        updated.discordRpcPlaceName = checked;
+        commitSettings(updated);
+    });
+    discordRpcPlaceNameRow->addControl(discordRpcPlaceNameToggle_);
+    group->addRow(discordRpcPlaceNameRow);
 
     return group;
 }

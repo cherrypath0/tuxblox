@@ -29,12 +29,14 @@ enum class PresenceKind {
 
 struct PresenceActivity {
     PresenceKind kind = PresenceKind::None;
-    // Empty unless a place is open. Shown only when the user has opted in.
+    // Empty unless a place is open and its name is known. Shown only when the user has opted in.
     std::string placeName;
+    // Whether the session joined Team Create, which outlives any one play test.
+    bool teamCreate = false;
 };
 
 inline bool operator==(const PresenceActivity& a, const PresenceActivity& b) {
-    return a.kind == b.kind && a.placeName == b.placeName;
+    return a.kind == b.kind && a.placeName == b.placeName && a.teamCreate == b.teamCreate;
 }
 
 inline bool operator!=(const PresenceActivity& a, const PresenceActivity& b) {

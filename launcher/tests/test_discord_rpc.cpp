@@ -144,5 +144,91 @@ int main() {
         std::filesystem::remove_all(dir);
     }
 
+    // Discord throws away anything that arrives before it has answered the
+    // handshake, so the first activity must not go out in the same breath --
+    // and a send that was not delivered must say so, or the caller records a
+    // state it never published and never tries again.
+    {
+        const std::string dir = "/tmp/tuxblox-rpc-test-ready";
+        std::filesystem::remove_all(dir);
+        std::filesystem::create_directories(dir);
+        setenv("XDG_RUNTIME_DIR", dir.c_str(), 1);
+
+        const std::string sockPath = dir + "/discord-ipc-0";
+        int server = socket(AF_UNIX, SOCK_STREAM, 0);
+        assert(server >= 0);
+        sockaddr_un addr{};
+        addr.sun_family = AF_UNIX;
+        std::strncpy(addr.sun_path, sockPath.c_str(), sizeof(addr.sun_path) - 1);
+        assert(bind(server, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) == 0);
+        assert(listen(server, 2) == 0);
+
+        tuxblox::DiscordRpc rpc("1234567890");
+        rpc.poll(1000);
+        assert(rpc.connected());
+        int client = accept(server, nullptr, nullptr);
+        assert(client >= 0);
+
+        char buffer[1024];
+        assert(read(client, buffer, sizeof(buffer)) > 8); // the handshake
+
+        // Nothing has answered yet, so this must be refused rather than written.
+        assert(!rpc.send("{\"details\":\"Editing\"}", 1001));
+
+        // Answer the handshake the way Discord does, then it may go out.
+        const std::string ready = "{\"cmd\":\"DISPATCH\",\"evt\":\"READY\"}";
+        uint32_t op = 1, len = static_cast<uint32_t>(ready.size());
+        std::string frame(8, '\0');
+        std::memcpy(&frame[0], &op, 4);
+        std::memcpy(&frame[4], &len, 4);
+        frame += ready;
+        assert(write(client, frame.data(), frame.size()) > 0);
+
+        bool delivered = false;
+        for (int i = 0; i < 50 && !delivered; i++) {
+            delivered = rpc.send("{\"details\":\"Editing\"}", 1002 + i);
+        }
+        assert(delivered);
+        ssize_t got = read(client, buffer, sizeof(buffer));
+        assert(got > 8);
+        assert(std::string(buffer + 8, static_cast<size_t>(got) - 8).find("SET_ACTIVITY") !=
+               std::string::npos);
+
+        // Discord restarts mid-session. The presence must come back on its own,
+        // without the caller sending anything new -- the state has not changed,
+        // so nothing would prompt it.
+        close(client);
+        close(server);
+        assert(!rpc.send("{\"details\":\"Editing\"}", 2000));
+
+        std::filesystem::remove(sockPath);
+        int server2 = socket(AF_UNIX, SOCK_STREAM, 0);
+        assert(server2 >= 0);
+        assert(bind(server2, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) == 0);
+        assert(listen(server2, 2) == 0);
+
+        rpc.poll(3000);
+        int client2 = accept(server2, nullptr, nullptr);
+        assert(client2 >= 0);
+        assert(read(client2, buffer, sizeof(buffer)) > 8); // handshake again
+        assert(write(client2, frame.data(), frame.size()) > 0);
+
+        bool republished = false;
+        for (int i = 0; i < 50 && !republished; i++) {
+            rpc.poll(3001 + i);
+            ssize_t again = recv(client2, buffer, sizeof(buffer), MSG_DONTWAIT);
+            if (again > 8 &&
+                std::string(buffer + 8, static_cast<size_t>(again) - 8).find("SET_ACTIVITY") !=
+                    std::string::npos) {
+                republished = true;
+            }
+        }
+        assert(republished);
+
+        close(client2);
+        close(server2);
+        std::filesystem::remove_all(dir);
+    }
+
     return 0;
 }

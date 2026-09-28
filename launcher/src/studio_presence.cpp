@@ -35,11 +35,17 @@ namespace {
 
 // Studio names its own state in these two lines and nowhere else, so matching the marker alongside the state avoids catching the same word printed as output.
 const char StateMarker[] = "Setting StudioGameStateType to StudioGameStateType_";
-const char FallbackMarker[] = "Setting fallback DataModel StudioGameStateType_";
+const char FallbackMarker[] = "Setting fallback DataModel Standalone";
 const char OpenPlaceMarker[] = "[FLog::StudioKeyEvents] open place (identifier = ";
 
 bool contains(const std::string& line, const char *pNeedle) {
     return line.find(pNeedle) != std::string::npos;
+}
+
+bool allDigits(const std::string& text) {
+    return !text.empty() && std::all_of(text.begin(), text.end(), [](unsigned char c) {
+        return std::isdigit(c) != 0;
+    });
 }
 
 // The place as a person would name it: the file's own name, without the folders around it or the extension after it.
@@ -50,14 +56,14 @@ std::string placeNameFromIdentifier(const std::string& identifier) {
     if (dot != std::string::npos && dot > 0) {
         leaf = leaf.substr(0, dot);
     }
-    return leaf;
+    return allDigits(leaf) ? std::string() : leaf;
 }
 
 } // namespace
 
 void StudioPresenceReader::consumeLine(const std::string& line) {
-    if (contains(line, "[FLog::StudioKeyEvents] exit") ||
-        contains(line, "[FLog::StudioKeyEvents] close")) {
+    // Only this one line means the session is over. "close IDE doc" closes a tab and the scope exits fire in ordinary use.
+    if (contains(line, "exit LifecycleManager UserSession scope")) {
         activity_ = PresenceActivity{};
         return;
     }
@@ -73,17 +79,22 @@ void StudioPresenceReader::consumeLine(const std::string& line) {
     }
 
     if (contains(line, "[FLog::StudioKeyEvents] team create connect")) {
+        activity_.teamCreate = true;
         activity_.kind = PresenceKind::TeamCreate;
         return;
     }
 
     if (contains(line, "[FLog::StudioKeyEvents] end play test")) {
-        activity_.kind = PresenceKind::Editing;
+        activity_.kind = activity_.teamCreate ? PresenceKind::TeamCreate : PresenceKind::Editing;
         return;
     }
 
-    const bool stateLine = contains(line, StateMarker) || contains(line, FallbackMarker);
-    if (!stateLine) {
+    if (contains(line, FallbackMarker)) {
+        activity_.kind = PresenceKind::InStudio;
+        return;
+    }
+
+    if (!contains(line, StateMarker)) {
         return;
     }
 
@@ -91,7 +102,7 @@ void StudioPresenceReader::consumeLine(const std::string& line) {
         contains(line, "StudioGameStateType_PlayServer")) {
         activity_.kind = PresenceKind::PlayTesting;
     } else if (contains(line, "StudioGameStateType_Edit")) {
-        activity_.kind = PresenceKind::Editing;
+        activity_.kind = activity_.teamCreate ? PresenceKind::TeamCreate : PresenceKind::Editing;
     } else if (contains(line, "StudioGameStateType_Standalone")) {
         activity_.kind = PresenceKind::InStudio;
     }
@@ -187,27 +198,25 @@ std::string findStudioSessionLog(const std::string& installDir, std::time_t sess
 }
 
 std::string activityJson(const PresenceActivity& activity, std::time_t startedAt, bool showPlaceName) {
-    std::string details;
+    std::string doing;
     switch (activity.kind) {
-        case PresenceKind::Editing: details = "Editing"; break;
-        case PresenceKind::PlayTesting: details = "Play testing"; break;
-        case PresenceKind::TeamCreate: details = "In Team Create"; break;
-        case PresenceKind::InStudio: details = "In Studio"; break;
-        case PresenceKind::None: details = "In Studio"; break;
-    }
-
-    // The place name shares a field with "via TuxBlox", so there is no setting that shows the name without naming the layer.
-    std::string state = "via TuxBlox";
-    if (showPlaceName && !activity.placeName.empty()) {
-        state += " — " + activity.placeName;
+        case PresenceKind::Editing: doing = "Editing"; break;
+        case PresenceKind::PlayTesting: doing = "Play testing"; break;
+        case PresenceKind::TeamCreate: doing = "In Team Create"; break;
+        case PresenceKind::InStudio: doing = "In Studio"; break;
+        case PresenceKind::None: doing = "In Studio"; break;
     }
 
     nlohmann::json activityObject;
-    activityObject["details"] = details;
-    activityObject["state"] = state;
+    // The place is the headline when it is known, with what you are doing under it; otherwise there is just the one line.
+    if (showPlaceName && !activity.placeName.empty()) {
+        activityObject["details"] = activity.placeName;
+    }
+    activityObject["state"] = doing;
     activityObject["timestamps"]["start"] = startedAt;
-    activityObject["assets"]["large_image"] = "tuxblox";
-    return activityObject.dump();
+
+    // A name Roblox wrote in something other than UTF-8 would otherwise throw, and nothing above this catches it.
+    return activityObject.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
 }
 
 } // namespace tuxblox

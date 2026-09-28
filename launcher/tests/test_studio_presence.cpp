@@ -26,7 +26,7 @@ int main() {
     assert(reader.activity().kind == tuxblox::PresenceKind::None);
 
     reader.consumeLine("2026-09-28T15:37:41.313Z,2.313522,0428,6,Info [FLog::RenderSchedulerState] "
-                       "Setting fallback DataModel StudioGameStateType_Standalone");
+                       "Setting fallback DataModel Standalone");
     assert(reader.activity().kind == tuxblox::PresenceKind::InStudio);
 
     reader.consumeLine("2026-09-28T15:37:43.811Z,4.811502,0428,6,Info [FLog::StudioKeyEvents] "
@@ -50,7 +50,7 @@ int main() {
     reader.consumeLine("[FLog::StudioKeyEvents] team create connect");
     assert(reader.activity().kind == tuxblox::PresenceKind::TeamCreate);
 
-    reader.consumeLine("[FLog::StudioKeyEvents] exit");
+    reader.consumeLine("[FLog::StudioKeyEvents] exit LifecycleManager UserSession scope (standalone shutdown)");
     assert(reader.activity().kind == tuxblox::PresenceKind::None);
     assert(reader.activity().placeName.empty());
 
@@ -127,16 +127,23 @@ int main() {
         editing.kind = tuxblox::PresenceKind::Editing;
         editing.placeName = "DOORS GAME";
 
+        // With the name hidden there is one line, the activity, and no trace
+        // of what is open.
         const std::string hidden = tuxblox::activityJson(editing, 1700000000, false);
-        assert(hidden.find("\"details\":\"Editing\"") != std::string::npos);
-        assert(hidden.find("\"state\":\"via TuxBlox\"") != std::string::npos);
-        // The whole point of the opt-in: the name must not appear anywhere.
+        assert(hidden.find("\"state\":\"Editing\"") != std::string::npos);
         assert(hidden.find("DOORS GAME") == std::string::npos);
+        assert(hidden.find("\"details\"") == std::string::npos);
         assert(hidden.find("\"start\":1700000000") != std::string::npos);
 
+        // With it shown the place is the headline and the activity sits under
+        // it, which is the shape people know from Bloxstrap.
         const std::string shown = tuxblox::activityJson(editing, 1700000000, true);
-        assert(shown.find("DOORS GAME") != std::string::npos);
-        assert(shown.find("via TuxBlox") != std::string::npos);
+        assert(shown.find("\"details\":\"DOORS GAME\"") != std::string::npos);
+        assert(shown.find("\"state\":\"Editing\"") != std::string::npos);
+
+        // Nothing says TuxBlox any more; the heading already names the program.
+        assert(shown.find("TuxBlox") == std::string::npos);
+        assert(hidden.find("TuxBlox") == std::string::npos);
 
         // A Windows path's backslashes and any quotes must be escaped, not emitted raw.
         tuxblox::PresenceActivity awkward;
@@ -146,15 +153,70 @@ int main() {
         assert(escaped.find("\\\"Best\\\"") != std::string::npos);
         assert(escaped.find("\\\\") != std::string::npos);
 
+        // A name Roblox wrote in something other than UTF-8 must not throw:
+        // the watcher dying here loses the session log and the crash dialog.
+        tuxblox::PresenceActivity latin1;
+        latin1.kind = tuxblox::PresenceKind::Editing;
+        latin1.placeName = "Caf\xE9 Game";
+        const std::string replaced = tuxblox::activityJson(latin1, 1, true);
+        assert(!replaced.empty());
+
         tuxblox::PresenceActivity playing;
         playing.kind = tuxblox::PresenceKind::PlayTesting;
-        assert(tuxblox::activityJson(playing, 1, false).find("\"details\":\"Play testing\"") !=
+        assert(tuxblox::activityJson(playing, 1, false).find("\"state\":\"Play testing\"") !=
                std::string::npos);
 
         tuxblox::PresenceActivity team;
         team.kind = tuxblox::PresenceKind::TeamCreate;
-        assert(tuxblox::activityJson(team, 1, false).find("\"details\":\"In Team Create\"") !=
+        assert(tuxblox::activityJson(team, 1, false).find("\"state\":\"In Team Create\"") !=
                std::string::npos);
+    }
+
+    // The identifier is a bare place id far more often than a filename, and a
+    // number on a profile tells a viewer nothing, so it is not published.
+    {
+        tuxblox::StudioPresenceReader byId;
+        byId.consumeLine("[FLog::StudioKeyEvents] open place (identifier = 95206881) [start]");
+        assert(byId.activity().placeName.empty());
+
+        tuxblox::StudioPresenceReader byPath;
+        byPath.consumeLine("[FLog::StudioKeyEvents] open place (identifier = "
+                           "C:/users/cherry/files/Baseplate.rbxl) [start]");
+        assert(byPath.activity().placeName == "Baseplate");
+    }
+
+    // Closing a document tab is not the end of the session -- real logs carry
+    // over a hundred Edit states after one -- so presence must survive it.
+    {
+        tuxblox::StudioPresenceReader tabs;
+        tabs.consumeLine("[FLog::StudioKeyEvents] open place (identifier = "
+                         "C:/users/cherry/files/Baseplate.rbxl) [start]");
+        tabs.consumeLine("[FLog::AssetDataModelManager] Setting StudioGameStateType to "
+                         "StudioGameStateType_Edit");
+        tabs.consumeLine("[FLog::StudioKeyEvents] close IDE doc");
+        assert(tabs.activity().kind == tuxblox::PresenceKind::Editing);
+        assert(tabs.activity().placeName == "Baseplate");
+    }
+
+    // Studio's own wording for "no place loaded", which is what the start
+    // screen shows. The state name is not in this line.
+    {
+        tuxblox::StudioPresenceReader home;
+        home.consumeLine("[FLog::RenderSchedulerState] Setting fallback DataModel Standalone");
+        assert(home.activity().kind == tuxblox::PresenceKind::InStudio);
+    }
+
+    // Team Create is a separate fact from what you are doing, so a play test
+    // inside it must not throw it away for the rest of the session.
+    {
+        tuxblox::StudioPresenceReader tc;
+        tc.consumeLine("[FLog::StudioKeyEvents] team create connect (connection accepted)");
+        assert(tc.activity().kind == tuxblox::PresenceKind::TeamCreate);
+        tc.consumeLine("[FLog::AssetDataModelManager] Setting StudioGameStateType to "
+                       "StudioGameStateType_PlayClient");
+        assert(tc.activity().kind == tuxblox::PresenceKind::PlayTesting);
+        tc.consumeLine("[FLog::StudioKeyEvents] end play test");
+        assert(tc.activity().kind == tuxblox::PresenceKind::TeamCreate);
     }
 
     return 0;
