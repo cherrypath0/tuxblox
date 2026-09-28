@@ -287,4 +287,59 @@ bool setRegKeyValues(const fs::path& file, const std::string& key,
     return writeAtomically(file, lines);
 }
 
+bool removeRegKeyValues(const fs::path& file, const std::string& key,
+                        const std::vector<std::string>& names) {
+    bool ok = false;
+    std::vector<std::string> lines = readLines(file, ok);
+    if (!ok) {
+        return false;
+    }
+
+    const std::string header = "[" + key + "]";
+    size_t start = lines.size();
+    for (size_t idx = 0; idx < lines.size(); idx++) {
+        if (startsWith(lines[idx], header)) {
+            start = idx;
+            break;
+        }
+    }
+    if (start == lines.size()) {
+        return false;
+    }
+
+    // The key's block runs to the next key header or the end of the file.
+    size_t end = lines.size();
+    for (size_t idx = start + 1; idx < lines.size(); idx++) {
+        if (!lines[idx].empty() && lines[idx][0] == '[') {
+            end = idx;
+            break;
+        }
+    }
+
+    bool changed = false;
+    for (const std::string& name : names) {
+        const std::string nameStr = "\"" + name + "\"=";
+        for (size_t idx = start + 1; idx < end; ) {
+            // Taken out as one span because Wine wraps a long value over
+            // several lines, and dropping only its first line would leave the
+            // rest behind as text nothing can read.
+            const size_t span = valueSpan(lines, idx);
+            if (!startsWith(lines[idx], nameStr)) {
+                idx += span;
+                continue;
+            }
+            lines.erase(lines.begin() + static_cast<long>(idx),
+                        lines.begin() + static_cast<long>(idx + span));
+            end -= span;
+            changed = true;
+            break;
+        }
+    }
+
+    if (!changed) {
+        return false;
+    }
+    return writeAtomically(file, lines);
+}
+
 } // namespace tuxblox

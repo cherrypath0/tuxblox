@@ -21,6 +21,7 @@
 
 #include "prefix/prefix.h"
 #include "prefix/registry.h"
+#include "prefix/webview_mode.h"
 #include "support/account_name.h"
 #include "support/host_folders.h"
 #include "embedded_data.h"
@@ -71,6 +72,22 @@ const std::string DefaultDllCopyPatterns =
     "comctl32.dll,"
     // Roblox's anti-cheat loads the official loader.
     "vulkan-1.dll";
+
+// Where a WebView2 application looks to find out which runtime is installed. wine.inf writes these into the template prefix, which a drive that already exists never takes another copy of, so they are kept in step on every launch instead.
+const std::array<std::array<std::string, 2>, 6> WebView2VersionKeys = {{
+    {"system.reg", "Software\\\\Microsoft\\\\EdgeUpdate\\\\Clients\\\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"},
+    {"system.reg", "Software\\\\Microsoft\\\\EdgeUpdate\\\\ClientState\\\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"},
+    {"system.reg", "Software\\\\Wow6432Node\\\\Microsoft\\\\EdgeUpdate\\\\Clients\\\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"},
+    {"system.reg", "Software\\\\Wow6432Node\\\\Microsoft\\\\EdgeUpdate\\\\ClientState\\\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"},
+    {"user.reg", "Software\\\\Microsoft\\\\EdgeUpdate\\\\Clients\\\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"},
+    {"user.reg", "Software\\\\Microsoft\\\\EdgeUpdate\\\\ClientState\\\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"},
+}};
+
+// The runtime's two architectures, under the folder layout Microsoft's own loader expects.
+const std::array<std::string, 2> WebView2RuntimeDlls = {
+    "EBWebView/x64/EmbeddedBrowserWebView.dll",
+    "EBWebView/x86/EmbeddedBrowserWebView.dll",
+};
 
 std::string envOrEmpty(const char *pName) {
     const char *pValue = std::getenv(pName);
@@ -741,6 +758,57 @@ void Prefix::migrateAccountFolder() {
     }
 }
 
+// Microsoft mode deletes our runtime out of the drive, and the template prefix is only copied over again on an upgrade, so switching back has to put the files there itself.
+void Prefix::restoreWebViewRuntime() {
+    const fs::path runtime = fs::path("drive_c/Program Files (x86)/Microsoft/EdgeWebView/Application") /
+                             kWebView2RuntimeVersion;
+    for (const std::string& relative : WebView2RuntimeDlls) {
+        const fs::path source = proton.defaultPfxDir / runtime / relative;
+        const fs::path destination = prefixDir / runtime / relative;
+        if (fileExists(destination, false) || !fileExists(source, true)) {
+            continue;
+        }
+        makeDirs(destination.parent_path());
+        copyTemplateEntry(source, destination, false);
+    }
+}
+
+void Prefix::syncWebViewVersionKeys(bool microsoft) {
+    for (const std::array<std::string, 2>& entry : WebView2VersionKeys) {
+        const fs::path file = prefixDir / entry[0];
+        switch (webViewVersionAction(getRegValue(file, entry[1], "pv"), microsoft)) {
+        case WebViewVersionAction::Write:
+            setRegKeyValues(file, entry[1], {{"pv", webViewVersionValue()}});
+            break;
+        case WebViewVersionAction::Remove:
+            removeRegKeyValues(file, entry[1], {"pv"});
+            break;
+        case WebViewVersionAction::Leave:
+            break;
+        }
+    }
+}
+
+// Recorded in the drive because the parts of the runtime that act on it are Windows-side, where TuxBlox's own environment variables are deliberately not visible.
+void Prefix::recordWebViewMode() {
+    const bool microsoft = useMicrosoftWebView();
+    setRegKeyValues(prefixDir / "user.reg", "Software\\\\TuxBlox",
+                    {{"WebView2", "\"" + webViewModeName() + "\""}});
+
+    if (!microsoft) {
+        restoreWebViewRuntime();
+        syncWebViewVersionKeys(false);
+        return;
+    }
+
+    // Dropping the entries that point at a runtime we did not put there would break somebody's real install, which is the one Microsoft mode is meant to hand over to.
+    if (!removeFakeWebViewRuntime(prefixDir)) {
+        log("Leaving the WebView2 runtime in the virtual drive alone: it is not the one TuxBlox put there.");
+        return;
+    }
+    syncWebViewVersionKeys(true);
+}
+
 void Prefix::migrateUserPaths() {
     // Wine's own compatibility links: apps that still use the Windows XP
     // folder names find the modern ones through these.
@@ -1061,6 +1129,7 @@ void Prefix::setup(Session& session) {
     }
 
     migrateAccountFolder();
+    recordWebViewMode();
     migrateUserPaths();
     linkHostUserFolders();
     linkRobloxData();

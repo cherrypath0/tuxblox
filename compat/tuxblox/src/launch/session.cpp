@@ -21,6 +21,7 @@
 
 #include "launch/session.h"
 
+#include "prefix/webview_mode.h"
 #include "support/log_limit.h"
 
 #include <algorithm>
@@ -269,6 +270,11 @@ Session::Session(Proton& protonDist, fs::path prefix)
     // browser is WebView2, which webview2loader answers, not mshtml.
     dllOverrides["mshtml"] = "d";
     dllOverrides["mscoree"] = "d";
+
+    // Microsoft's own loader beside an application wins, so its real runtime is what gets used.
+    if (useMicrosoftWebView()) {
+        dllOverrides["webview2loader"] = "n,b";
+    }
 }
 
 Session::~Session() {

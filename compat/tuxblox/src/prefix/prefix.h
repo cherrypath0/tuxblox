@@ -69,6 +69,9 @@ private:
     void installGraphicsFiles(Session& session);
     std::string accountFolder() const;
     void migrateAccountFolder();
+    void recordWebViewMode();
+    void restoreWebViewRuntime();
+    void syncWebViewVersionKeys(bool microsoft);
     void migrateUserPaths();
     void linkHostUserFolders();
     void linkRobloxData();

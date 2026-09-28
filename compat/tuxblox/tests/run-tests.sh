@@ -35,6 +35,14 @@ g++ -std=c++17 -O0 -g -Wall -Wextra -UNDEBUG \
     -o "$out/test_host_folders" test_host_folders.cpp ../src/support/host_folders.cpp
 "$out/test_host_folders"
 
+g++ -std=c++17 -O0 -g -Wall -Wextra -UNDEBUG -I../src \
+    -o "$out/test_registry" test_registry.cpp ../src/prefix/registry.cpp ../src/support/util.cpp
+"$out/test_registry"
+
+g++ -std=c++17 -O0 -g -Wall -Wextra -UNDEBUG \
+    -o "$out/test_webview_mode" test_webview_mode.cpp ../src/prefix/webview_mode.cpp
+"$out/test_webview_mode"
+
 ./check-rule-parity.py
 
 printf 'compat tests: all passed\n'

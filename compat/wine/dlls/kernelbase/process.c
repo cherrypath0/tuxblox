@@ -25,6 +25,7 @@
 #define WIN32_NO_STATUS
 #include "windef.h"
 #include "winbase.h"
+#include "winreg.h"
 #include "winnls.h"
 #include "winver.h"
 #include "wincontypes.h"
@@ -596,6 +597,31 @@ static int webview2_setup_redirect( const WCHAR *app_name, WCHAR *new_name, DWOR
     basename = wcsrchr( app_name, '\\' );
     basename = basename ? basename + 1 : app_name;
     if (wcsicmp( basename, L"MicrosoftEdgeWebview2Setup.exe" )) return 0;
+
+    /* The drive records which webview it is set up for. TuxBlox's own
+     * environment variables are stripped before a Windows program sees them,
+     * so the registry is the only way that choice reaches here. */
+    {
+        WCHAR mode[16];
+        DWORD size = sizeof(mode) - sizeof(WCHAR), type;
+        HKEY key;
+        BOOL microsoft = FALSE;
+
+        if (!RegOpenKeyExW( HKEY_CURRENT_USER, L"Software\\TuxBlox", 0, KEY_QUERY_VALUE, &key ))
+        {
+            if (!RegQueryValueExW( key, L"WebView2", NULL, &type, (BYTE *)mode, &size ) && type == REG_SZ)
+            {
+                mode[size / sizeof(WCHAR)] = 0;
+                if (!wcsicmp( mode, L"microsoft" )) microsoft = TRUE;
+            }
+            RegCloseKey( key );
+        }
+        if (microsoft)
+        {
+            TRACE( "Microsoft WebView2 selected; letting the real bootstrapper run.\n" );
+            return 0;
+        }
+    }
 
     if (new_name_len < ARRAY_SIZE(setupW))
     {

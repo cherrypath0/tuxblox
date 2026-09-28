@@ -23,6 +23,7 @@
 #include <filesystem>
 #include <map>
 #include <string>
+#include <vector>
 
 namespace tuxblox {
 
@@ -43,5 +44,11 @@ std::string replaceRegValue(const std::filesystem::path& file, const std::string
 // was rewritten.
 bool setRegKeyValues(const std::filesystem::path& file, const std::string& key,
                      const std::map<std::string, std::string>& values);
+
+// Takes the named values out of a key, leaving the key and everything else in
+// it alone. A name that is not there is not an error. Returns true if the file
+// was rewritten.
+bool removeRegKeyValues(const std::filesystem::path& file, const std::string& key,
+                        const std::vector<std::string>& names);
 
 } // namespace tuxblox
