@@ -16,11 +16,13 @@
 
 #include "watch_launch.h"
 #include "crash_report.h"
+#include "discord_rpc.h"
 #include "install_paths.h"
 #include "process_launcher.h"
 #include "roblox_autoupdate.h"
 #include "roblox_log_capture.h"
 #include "settings.h"
+#include "studio_presence.h"
 #include "system_info.h"
 #include "ui_qt/message_box.h"
 #include "fastflag_file.h"
@@ -29,9 +31,13 @@
 #include <chrono>
 #include <filesystem>
 #include <ctime>
+#include <memory>
 #include <thread>
 
 namespace tuxblox {
+
+// The Discord application this presence is published under, registered at discord.com/developers. Public, not a secret, and empty until one exists -- with no id nothing is sent, so the setting simply does nothing.
+const char kDiscordApplicationId[] = "";
 
 int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const std::string& uri,
                        const std::string& currentVersion) {
@@ -73,9 +79,47 @@ int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const 
         return 1;
     }
 
+    // Presence rides the loop that was already here, so it costs no thread and no process of its own.
+    const bool presenceWanted = settings.discordRpc && target == LaunchTarget::Studio;
+    std::unique_ptr<DiscordRpc> discord;
+    std::unique_ptr<SessionLogTail> logTail;
+    StudioPresenceReader presenceReader;
+    PresenceActivity lastSent;
+    bool everSent = false;
+    if (presenceWanted) {
+        discord = std::make_unique<DiscordRpc>(kDiscordApplicationId);
+    }
+
     while (launcher.pollIsRunning(target)) {
         std::this_thread::sleep_for(std::chrono::milliseconds(300));
+        if (!presenceWanted) {
+            continue;
+        }
+
+        const std::time_t now = std::time(nullptr);
+        if (!logTail) {
+            const std::string logFile = findStudioSessionLog(installDir, launchStart);
+            if (!logFile.empty()) {
+                logTail = std::make_unique<SessionLogTail>(logFile);
+            }
+        }
+        if (logTail) {
+            logTail->pump(presenceReader);
+        }
+
+        discord->poll(now);
+        const PresenceActivity current = presenceReader.activity();
+        if (!everSent || current != lastSent) {
+            discord->send(activityJson(current, launchStart, settings.discordRpcPlaceName), now);
+            lastSent = current;
+            everSent = true;
+        }
     }
+
+    if (discord) {
+        discord->clear(std::time(nullptr));
+    }
+
     auto ev = launcher.takeExitEvent(target);
 
     appendRobloxSessionLogs(installDir, launchStart, outcome.logPath);

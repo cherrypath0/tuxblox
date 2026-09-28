@@ -94,6 +94,10 @@ void DiscordRpc::disconnect() {
 }
 
 void DiscordRpc::poll(std::time_t now) {
+    // No application id means presence was never set up, so there is nothing to connect to Discord about.
+    if (applicationId_.empty()) {
+        return;
+    }
     if (fd_ >= 0 || now - lastAttempt_ < ReconnectSeconds) {
         return;
     }

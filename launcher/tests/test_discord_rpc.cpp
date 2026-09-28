@@ -73,6 +73,31 @@ int main() {
         std::filesystem::remove_all(emptyDir);
     }
 
+    // No application id means presence was never configured, so there must be
+    // no connection attempt at all -- not a handshake Discord would reject.
+    {
+        const std::string dir = "/tmp/tuxblox-rpc-test-noid";
+        std::filesystem::remove_all(dir);
+        std::filesystem::create_directories(dir);
+        setenv("XDG_RUNTIME_DIR", dir.c_str(), 1);
+
+        const std::string sockPath = dir + "/discord-ipc-0";
+        int server = socket(AF_UNIX, SOCK_STREAM, 0);
+        assert(server >= 0);
+        sockaddr_un addr{};
+        addr.sun_family = AF_UNIX;
+        std::strncpy(addr.sun_path, sockPath.c_str(), sizeof(addr.sun_path) - 1);
+        assert(bind(server, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) == 0);
+        assert(listen(server, 1) == 0);
+
+        tuxblox::DiscordRpc unconfigured("");
+        unconfigured.poll(5000);
+        assert(!unconfigured.connected());
+
+        close(server);
+        std::filesystem::remove_all(dir);
+    }
+
     // With a socket present, the client connects and writes a handshake first.
     {
         const std::string dir = "/tmp/tuxblox-rpc-test-live";
