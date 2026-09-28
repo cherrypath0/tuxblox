@@ -16,7 +16,17 @@
 
 #include "studio_presence.h"
 
+#include "roblox_log_capture.h"
+
+#include <algorithm>
 #include <cstddef>
+#include <filesystem>
+#include <utility>
+#include <vector>
+
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 namespace tuxblox {
 
@@ -88,6 +98,91 @@ void StudioPresenceReader::consumeLine(const std::string& line) {
 
 PresenceActivity StudioPresenceReader::activity() const {
     return activity_;
+}
+
+SessionLogTail::SessionLogTail(std::string path) : path_(std::move(path)) {}
+
+SessionLogTail::~SessionLogTail() {
+    if (fd_ >= 0) {
+        ::close(fd_);
+    }
+}
+
+bool SessionLogTail::open() {
+    if (fd_ >= 0) {
+        return true;
+    }
+    fd_ = ::open(path_.c_str(), O_RDONLY | O_CLOEXEC | O_NONBLOCK);
+    return fd_ >= 0;
+}
+
+void SessionLogTail::pump(PresenceReader& reader) {
+    if (fd_ < 0 && !open()) {
+        return;
+    }
+
+    char buffer[8192];
+    for (;;) {
+        const ssize_t got = ::read(fd_, buffer, sizeof(buffer));
+        if (got <= 0) {
+            break;
+        }
+        pending_.append(buffer, static_cast<size_t>(got));
+        if (got < static_cast<ssize_t>(sizeof(buffer))) {
+            break;
+        }
+    }
+
+    size_t start = 0;
+    for (;;) {
+        const size_t newline = pending_.find('\n', start);
+        if (newline == std::string::npos) {
+            break;
+        }
+        reader.consumeLine(pending_.substr(start, newline - start));
+        start = newline + 1;
+    }
+    // Whatever is left is a line Studio has not finished writing, so it waits for the next tick.
+    pending_.erase(0, start);
+}
+
+std::string findStudioSessionLog(const std::string& installDir, std::time_t sessionStart) {
+    const std::string dir = robloxLogsDir(installDir);
+    std::error_code error;
+    std::filesystem::directory_iterator entries(dir, error);
+    if (error) {
+        return std::string();
+    }
+
+    std::vector<std::pair<std::string, std::time_t>> candidates;
+    for (const std::filesystem::directory_entry& entry : entries) {
+        const std::string name = entry.path().filename().string();
+        if (name.find("_Studio_") == std::string::npos) {
+            continue;
+        }
+        // stat(), not last_write_time(): the file clock's epoch is unspecified in C++17, and this has to compare against a real time_t. Matches how the session log capture already reads these.
+        struct stat status {};
+        if (::stat(entry.path().c_str(), &status) != 0) {
+            continue;
+        }
+        candidates.emplace_back(name, status.st_mtime);
+    }
+
+    const std::vector<std::string> session = selectSessionLogFiles(candidates, sessionStart);
+    if (session.empty()) {
+        return std::string();
+    }
+
+    // The newest, so a second Studio started in the same session does not pin presence to the first one's log.
+    std::string newest = session.front();
+    std::time_t newestTime = 0;
+    for (const auto& [name, written] : candidates) {
+        if (std::find(session.begin(), session.end(), name) != session.end() && written >= newestTime) {
+            newestTime = written;
+            newest = name;
+        }
+    }
+    return dir + "/" + newest;
 }
 
 } // namespace tuxblox

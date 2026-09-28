@@ -17,6 +17,8 @@
 #include "studio_presence.h"
 
 #include <cassert>
+#include <filesystem>
+#include <fstream>
 #include <string>
 
 int main() {
@@ -67,6 +69,55 @@ int main() {
     tuxblox::StudioPresenceReader noise;
     noise.consumeLine("[FLog::Output] StudioGameStateType_Edit is a string in a print statement");
     assert(noise.activity().kind == tuxblox::PresenceKind::None);
+
+    // A growing file must be read incrementally, and a line that arrives in
+    // two pieces must not reach the state machine until it is whole.
+    {
+        const std::string path = "/tmp/tuxblox-presence-tail.log";
+        std::filesystem::remove(path);
+        {
+            std::ofstream out(path);
+            out << "[FLog::AssetDataModelManager] Setting StudioGameStateType to "
+                   "StudioGameStateType_Standalone\n";
+        }
+
+        tuxblox::StudioPresenceReader tailReader;
+        tuxblox::SessionLogTail tail(path);
+        assert(tail.open());
+        tail.pump(tailReader);
+        assert(tailReader.activity().kind == tuxblox::PresenceKind::InStudio);
+
+        // Nothing new: the state must not change and nothing must be re-read.
+        tail.pump(tailReader);
+        assert(tailReader.activity().kind == tuxblox::PresenceKind::InStudio);
+
+        // Write half a line. It must be held back, not acted on.
+        {
+            std::ofstream out(path, std::ios::app);
+            out << "[FLog::AssetDataModelManager] Setting StudioGameStateType to Studio";
+        }
+        tail.pump(tailReader);
+        assert(tailReader.activity().kind == tuxblox::PresenceKind::InStudio);
+
+        // Complete it; now it counts.
+        {
+            std::ofstream out(path, std::ios::app);
+            out << "GameStateType_Edit\n";
+        }
+        tail.pump(tailReader);
+        assert(tailReader.activity().kind == tuxblox::PresenceKind::Editing);
+
+        std::filesystem::remove(path);
+    }
+
+    // A log that is not there yet is not an error; Studio writes it a moment after it starts.
+    {
+        tuxblox::SessionLogTail missing("/tmp/tuxblox-presence-does-not-exist.log");
+        assert(!missing.open());
+        tuxblox::StudioPresenceReader missingReader;
+        missing.pump(missingReader);
+        assert(missingReader.activity().kind == tuxblox::PresenceKind::None);
+    }
 
     return 0;
 }

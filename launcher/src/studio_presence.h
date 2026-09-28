@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #pragma once
+#include <ctime>
 #include <string>
 
 #include "presence.h"
@@ -29,5 +30,26 @@ public:
 private:
     PresenceActivity activity_;
 };
+
+// Follows a file that is still being written, handing over only whole lines. The offset is held so each tick costs one read of whatever is new.
+class SessionLogTail {
+public:
+    explicit SessionLogTail(std::string path);
+    ~SessionLogTail();
+
+    SessionLogTail(const SessionLogTail&) = delete;
+    SessionLogTail& operator=(const SessionLogTail&) = delete;
+
+    bool open();
+    void pump(PresenceReader& reader);
+
+private:
+    std::string path_;
+    int fd_ = -1;
+    std::string pending_;
+};
+
+// Studio's own log for this session, or empty if it has not appeared yet.
+std::string findStudioSessionLog(const std::string& installDir, std::time_t sessionStart);
 
 } // namespace tuxblox
