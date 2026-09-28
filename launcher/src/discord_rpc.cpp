@@ -16,7 +16,13 @@
 
 #include "discord_rpc.h"
 
+#include <cstdlib>
 #include <cstring>
+#include <utility>
+
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <unistd.h>
 
 namespace tuxblox {
 
@@ -27,6 +33,18 @@ const char *const SocketDirs[] = {
     "app/com.discordapp.Discord/",
     "snap.discord/",
 };
+
+// Discord's opcodes. Only these two are needed to publish presence.
+const uint32_t OpHandshake = 0;
+const uint32_t OpFrame = 1;
+
+// Discord being absent is the normal case, so retries are occasional rather than eager.
+const int ReconnectSeconds = 30;
+
+std::string runtimeDir() {
+    const char *pDir = std::getenv("XDG_RUNTIME_DIR");
+    return pDir != nullptr ? std::string(pDir) : std::string();
+}
 
 } // namespace
 
@@ -56,6 +74,96 @@ std::string encodeFrame(uint32_t opcode, const std::string& payload) {
     std::memcpy(&frame[4], &length, 4);
     frame += payload;
     return frame;
+}
+
+DiscordRpc::DiscordRpc(std::string applicationId) : applicationId_(std::move(applicationId)) {}
+
+DiscordRpc::~DiscordRpc() {
+    disconnect();
+}
+
+bool DiscordRpc::connected() const {
+    return fd_ >= 0;
+}
+
+void DiscordRpc::disconnect() {
+    if (fd_ >= 0) {
+        ::close(fd_);
+        fd_ = -1;
+    }
+}
+
+void DiscordRpc::poll(std::time_t now) {
+    if (fd_ >= 0 || now - lastAttempt_ < ReconnectSeconds) {
+        return;
+    }
+    lastAttempt_ = now;
+
+    for (const std::string& path : discordSocketCandidates(runtimeDir())) {
+        if (path.size() >= sizeof(sockaddr_un{}.sun_path)) {
+            continue;
+        }
+        const int fd = ::socket(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
+        if (fd < 0) {
+            continue;
+        }
+        sockaddr_un addr{};
+        addr.sun_family = AF_UNIX;
+        std::strncpy(addr.sun_path, path.c_str(), sizeof(addr.sun_path) - 1);
+        if (::connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) != 0) {
+            ::close(fd);
+            continue;
+        }
+        fd_ = fd;
+        if (!writeFrame(OpHandshake, "{\"v\":1,\"client_id\":\"" + applicationId_ + "\"}")) {
+            disconnect();
+            continue;
+        }
+        return;
+    }
+}
+
+bool DiscordRpc::writeFrame(uint32_t opcode, const std::string& payload) {
+    if (fd_ < 0) {
+        return false;
+    }
+    const std::string frame = encodeFrame(opcode, payload);
+    size_t sent = 0;
+    while (sent < frame.size()) {
+        // MSG_NOSIGNAL, not write(): Discord closing its end must fail this call, never raise SIGPIPE and kill the launcher.
+        const ssize_t wrote = ::send(fd_, frame.data() + sent, frame.size() - sent, MSG_NOSIGNAL);
+        if (wrote > 0) {
+            sent += static_cast<size_t>(wrote);
+            continue;
+        }
+        // A blocked write is dropped rather than waited on, because a stalled Discord must never stall Roblox.
+        return false;
+    }
+    return true;
+}
+
+void DiscordRpc::send(const std::string& activityJson, std::time_t now) {
+    poll(now);
+    if (fd_ < 0) {
+        return;
+    }
+    const std::string payload = "{\"cmd\":\"SET_ACTIVITY\",\"nonce\":\"" + std::to_string(now) +
+                                "\",\"args\":{\"pid\":" + std::to_string(::getpid()) +
+                                ",\"activity\":" + activityJson + "}}";
+    if (!writeFrame(OpFrame, payload)) {
+        disconnect();
+    }
+}
+
+void DiscordRpc::clear(std::time_t now) {
+    if (fd_ < 0) {
+        return;
+    }
+    const std::string payload = "{\"cmd\":\"SET_ACTIVITY\",\"nonce\":\"" + std::to_string(now) +
+                                "\",\"args\":{\"pid\":" + std::to_string(::getpid()) + "}}";
+    // An activity with no object is how Discord is told to drop the presence.
+    writeFrame(OpFrame, payload);
+    disconnect();
 }
 
 } // namespace tuxblox

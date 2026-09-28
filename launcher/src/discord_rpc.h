@@ -16,6 +16,7 @@
 
 #pragma once
 #include <cstdint>
+#include <ctime>
 #include <string>
 #include <vector>
 
@@ -26,5 +27,33 @@ std::vector<std::string> discordSocketCandidates(const std::string& runtimeDir);
 
 // Discord's IPC frame: a little-endian opcode and length, then the JSON body.
 std::string encodeFrame(uint32_t opcode, const std::string& payload);
+
+// Talks to Discord over its local socket. Every operation is non-blocking: presence must never be able to delay a Roblox session.
+class DiscordRpc {
+public:
+    explicit DiscordRpc(std::string applicationId);
+    ~DiscordRpc();
+
+    DiscordRpc(const DiscordRpc&) = delete;
+    DiscordRpc& operator=(const DiscordRpc&) = delete;
+
+    bool connected() const;
+
+    // Connects if it is not connected and enough time has passed since the last attempt. Doing nothing is the normal outcome.
+    void poll(std::time_t now);
+
+    // Sends an already-serialised activity object. Silently does nothing when Discord is not there.
+    void send(const std::string& activityJson, std::time_t now);
+
+    void clear(std::time_t now);
+
+private:
+    bool writeFrame(uint32_t opcode, const std::string& payload);
+    void disconnect();
+
+    std::string applicationId_;
+    int fd_ = -1;
+    std::time_t lastAttempt_ = 0;
+};
 
 } // namespace tuxblox

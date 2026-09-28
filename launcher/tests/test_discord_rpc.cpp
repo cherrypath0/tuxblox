@@ -18,9 +18,15 @@
 
 #include <cassert>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <string>
 #include <vector>
+
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <unistd.h>
 
 int main() {
     // The three layouts Discord uses on Linux, in the order they are tried.
@@ -50,6 +56,68 @@ int main() {
 
     const std::string empty = tuxblox::encodeFrame(2, "");
     assert(empty.size() == 8);
+
+    // A client with nowhere to connect must stay quiet and cheap, which is the
+    // normal case: most people do not have Discord running.
+    {
+        const std::string emptyDir = "/tmp/tuxblox-rpc-test-empty";
+        std::filesystem::create_directories(emptyDir);
+        setenv("XDG_RUNTIME_DIR", emptyDir.c_str(), 1);
+
+        tuxblox::DiscordRpc rpc("1234567890");
+        rpc.poll(1000);
+        assert(!rpc.connected());
+        // Sending while disconnected must be a no-op rather than an error.
+        rpc.send("{\"state\":\"x\"}", 1000);
+        assert(!rpc.connected());
+        std::filesystem::remove_all(emptyDir);
+    }
+
+    // With a socket present, the client connects and writes a handshake first.
+    {
+        const std::string dir = "/tmp/tuxblox-rpc-test-live";
+        std::filesystem::remove_all(dir);
+        std::filesystem::create_directories(dir);
+        setenv("XDG_RUNTIME_DIR", dir.c_str(), 1);
+
+        const std::string sockPath = dir + "/discord-ipc-0";
+        int server = socket(AF_UNIX, SOCK_STREAM, 0);
+        assert(server >= 0);
+        sockaddr_un addr{};
+        addr.sun_family = AF_UNIX;
+        std::strncpy(addr.sun_path, sockPath.c_str(), sizeof(addr.sun_path) - 1);
+        assert(bind(server, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) == 0);
+        assert(listen(server, 1) == 0);
+
+        tuxblox::DiscordRpc rpc("1234567890");
+        rpc.poll(2000);
+        assert(rpc.connected());
+
+        int client = accept(server, nullptr, nullptr);
+        assert(client >= 0);
+
+        char buffer[512];
+        ssize_t got = read(client, buffer, sizeof(buffer));
+        assert(got > 8);
+        uint32_t op = 0;
+        std::memcpy(&op, buffer, 4);
+        assert(op == 0); // handshake
+        const std::string body(buffer + 8, static_cast<size_t>(got) - 8);
+        assert(body.find("\"client_id\":\"1234567890\"") != std::string::npos);
+        assert(body.find("\"v\":1") != std::string::npos);
+
+        // Discord going away mid-session must not crash or stall; it must drop
+        // the connection and be willing to try again later.
+        close(client);
+        close(server);
+        std::filesystem::remove(sockPath);
+        for (int i = 0; i < 20; i++) {
+            rpc.send("{\"state\":\"x\"}", 3000 + i);
+        }
+        assert(!rpc.connected());
+
+        std::filesystem::remove_all(dir);
+    }
 
     return 0;
 }
