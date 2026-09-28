@@ -15,11 +15,13 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "../src/prefix/webview_mode.h"
+#include "../src/prefix/registry.h"
 #include <cassert>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <sstream>
 #include <string>
 
@@ -74,6 +76,29 @@ std::string infCopyPath(const std::string& relative) {
     return text;
 }
 
+// A drive's two registry files, in the shape Wine writes them, holding whichever
+// of the six keys the caller gave a body for. A key left out is one the drive
+// does not have at all.
+void writeRegFixture(const fs::path& prefixDir, const std::map<size_t, std::string>& values) {
+    fs::create_directories(prefixDir);
+    std::map<std::string, std::string> files;
+    files["system.reg"] = "WINE REGISTRY Version 2\n\n";
+    files["user.reg"] = "WINE REGISTRY Version 2\n\n";
+    for (size_t at = 0; at < tuxblox::WebView2VersionKeys.size(); at++) {
+        const auto found = values.find(at);
+        if (found == values.end()) {
+            continue;
+        }
+        const tuxblox::WebViewVersionKey& entry = tuxblox::WebView2VersionKeys[at];
+        files[entry.file] += "[" + entry.key + "] 1790614297\n#time=1dd4f69a063bee6\n" +
+                             found->second + "\n\n";
+    }
+    for (const auto& [name, text] : files) {
+        std::ofstream out(prefixDir / name);
+        out << text;
+    }
+}
+
 // A fake DLL is a PE carrying this marker; that is what tells our removal apart
 // from a real Microsoft runtime.
 void writeFakeDll(const fs::path& file) {
@@ -110,6 +135,8 @@ int main() {
         for (const WebViewVersionKey& entry : WebView2VersionKeys) {
             const std::string hive = (entry.file == "system.reg") ? "HKLM," : "HKCU,";
             requireInInf(inf, hive + singleBackslashes(entry.key) + ",\"pv\"");
+            // Only ClientState carries the folder, and a key wrongly marked otherwise would just be skipped, so the flag is pinned both ways.
+            assert(entry.namesInstallFolder == (entry.key.find("ClientState") != std::string::npos));
             if (entry.namesInstallFolder) {
                 requireInInf(inf, hive + singleBackslashes(entry.key) + ",\"EBWebView\"");
             }
@@ -119,10 +146,11 @@ int main() {
             requireInInf(inf, version + "\\" + infCopyPath(relative));
         }
 
-        // The folder the layer writes has to be the folder wine.inf.in writes, which spells the drive's own program folder as a number.
+        // The folder is spelled once for the files and once for the registry, and wine.inf.in spells the drive's own program folder as a number. That the number expands to the same place is checked by the build, which writes it into the template prefix; a unit test cannot reach one.
         requireInInf(inf, ",\"EBWebView\",,\"%16426%\\Microsoft\\EdgeWebView\\Application\\" + version + "\"");
         assert(singleBackslashes(webViewInstallPathValue()) ==
                "\"C:\\Program Files (x86)\\Microsoft\\EdgeWebView\\Application\\" + version + "\"");
+        assert(WebView2ApplicationDir == "drive_c/Program Files (x86)/Microsoft/EdgeWebView/Application");
     }
 
     // Only "off" values mean builtin. Anything else a person types meaning
@@ -141,19 +169,25 @@ int main() {
         unsetenv("TUXBLOX_USE_MSWEBVIEW");
     }
 
-    // What each mode does to a registry value, for every version it can find there.
+    // What each mode does to a registry value, for every text it can find there.
     {
         const std::string ours = webViewVersionValue();
         const std::string theirs = "\"154.0.4258.37\"";
         assert(ours == "\"" + version + "\"");
 
-        assert(webViewVersionAction("", false) == WebViewVersionAction::Write);
-        assert(webViewVersionAction(ours, false) == WebViewVersionAction::Leave);
-        assert(webViewVersionAction(theirs, false) == WebViewVersionAction::Leave);
+        assert(!foreignWebViewVersion(""));
+        assert(!foreignWebViewVersion(ours));
+        assert(foreignWebViewVersion(theirs));
 
-        assert(webViewVersionAction("", true) == WebViewVersionAction::Leave);
-        assert(webViewVersionAction(ours, true) == WebViewVersionAction::Remove);
-        assert(webViewVersionAction(theirs, true) == WebViewVersionAction::Leave);
+        // Builtin mode fills in whatever is missing, and a value already ours is not read as "this key is finished".
+        assert(webViewValueAction("", ours, false) == WebViewVersionAction::Write);
+        assert(webViewValueAction(ours, ours, false) == WebViewVersionAction::Leave);
+        assert(webViewValueAction(theirs, ours, false) == WebViewVersionAction::Leave);
+
+        // Microsoft mode takes back exactly ours and nothing else.
+        assert(webViewValueAction("", ours, true) == WebViewVersionAction::Leave);
+        assert(webViewValueAction(ours, ours, true) == WebViewVersionAction::Remove);
+        assert(webViewValueAction(theirs, ours, true) == WebViewVersionAction::Leave);
     }
 
     const fs::path base = fs::temp_directory_path() / "tuxblox_test_webview_mode";
@@ -193,6 +227,82 @@ int main() {
     // Nothing there at all is success, not failure.
     fs::remove_all(base);
     assert(removeFakeWebViewRuntime(base));
+
+    // A drive that already carries a real Microsoft runtime is left entirely
+    // alone, even the keys that runtime never filled in. Writing ours into one
+    // of its keys cannot be taken back: Microsoft mode would later remove what
+    // we overwrote and leave their install advertised by nothing at all. The
+    // shape here is the one measured on a real 2.8.0 drive -- the 32-bit view
+    // holds their version, the 64-bit view holds nothing, and their installer
+    // left a per-user ClientState key with no version in it.
+    {
+        fs::remove_all(base);
+        std::map<size_t, std::string> values;
+        values[2] = "\"location\"=\"C:\\\\Program Files (x86)\\\\Microsoft\\\\EdgeWebView\\\\Application\"\n"
+                    "\"pv\"=\"154.0.4258.37\"";
+        values[3] = "\"EBWebView\"=\"C:\\\\Program Files (x86)\\\\Microsoft\\\\EdgeWebView\\\\Application\\\\154.0.4258.37\"\n"
+                    "\"pv\"=\"154.0.4258.37\"";
+        values[5] = "\"dr\"=\"1\"\n\"lastrun\"=\"13435086078859648\"";
+        writeRegFixture(base, values);
+
+        const std::string systemBefore = readFileText(base / "system.reg");
+        const std::string userBefore = readFileText(base / "user.reg");
+
+        assert(syncWebViewValues(base, false));
+        assert(readFileText(base / "system.reg") == systemBefore);
+        assert(readFileText(base / "user.reg") == userBefore);
+
+        // Nothing of ours is in there, so Microsoft mode has nothing to take back either.
+        assert(!syncWebViewValues(base, true));
+        assert(readFileText(base / "system.reg") == systemBefore);
+        assert(readFileText(base / "user.reg") == userBefore);
+    }
+
+    // A drive built before the folder value existed carries our version and
+    // nothing else. The template is only copied over a drive on an upgrade, so
+    // this reconciliation is the only way a value ever reaches one -- the
+    // version already being ours must not be read as "this key is finished".
+    {
+        fs::remove_all(base);
+        std::map<size_t, std::string> values;
+        for (size_t at = 0; at < WebView2VersionKeys.size(); at++) {
+            values[at] = "\"pv\"=" + webViewVersionValue();
+        }
+        writeRegFixture(base, values);
+
+        assert(!syncWebViewValues(base, false));
+        for (const WebViewVersionKey& entry : WebView2VersionKeys) {
+            const fs::path file = base / entry.file;
+            assert(getRegValue(file, entry.key, "pv") == webViewVersionValue());
+            assert(getRegValue(file, entry.key, "EBWebView") ==
+                   (entry.namesInstallFolder ? webViewInstallPathValue() : ""));
+        }
+
+        // And Microsoft mode takes both back out again, so the round trip is even.
+        assert(!syncWebViewValues(base, true));
+        for (const WebViewVersionKey& entry : WebView2VersionKeys) {
+            const fs::path file = base / entry.file;
+            assert(getRegValue(file, entry.key, "pv").empty());
+            assert(getRegValue(file, entry.key, "EBWebView").empty());
+        }
+    }
+
+    // An empty drive gets the whole set, and running twice changes nothing the
+    // second time -- a reconciliation that rewrote the registry on every launch
+    // would be doing 4 MB of work for nothing.
+    {
+        fs::remove_all(base);
+        writeRegFixture(base, {});
+        assert(!syncWebViewValues(base, false));
+        const std::string systemAfter = readFileText(base / "system.reg");
+        const std::string userAfter = readFileText(base / "user.reg");
+        for (const WebViewVersionKey& entry : WebView2VersionKeys) {
+            assert(getRegValue(base / entry.file, entry.key, "pv") == webViewVersionValue());
+        }
+        assert(!syncWebViewValues(base, false));
+        assert(readFileText(base / "system.reg") == systemAfter);
+        assert(readFileText(base / "user.reg") == userAfter);
+    }
 
     fs::remove_all(base);
     printf("webview_mode: all tests passed\n");

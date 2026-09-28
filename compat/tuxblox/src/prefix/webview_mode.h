@@ -59,8 +59,15 @@ enum class WebViewVersionAction {
     Remove,
 };
 
-// Decides that from the raw text the value holds now, empty when it is absent. A version that is not ours belongs to a real Microsoft runtime, which neither mode may touch.
-WebViewVersionAction webViewVersionAction(const std::string& currentValue, bool microsoft);
+// True when a version found in the drive belongs to a real Microsoft runtime rather than to ours. A key with no version at all is not somebody's install, it is an empty key.
+bool foreignWebViewVersion(const std::string& currentValue);
+
+// Decides what to do with one value, from the raw text it holds now (empty when absent) and the text ours would be. Microsoft mode takes back only what is exactly ours; builtin mode fills in whatever is missing.
+WebViewVersionAction webViewValueAction(const std::string& currentValue, const std::string& ourValue,
+                                        bool microsoft);
+
+// Brings the drive's WebView2 registry values in line with the mode asked for. A drive carrying a version that is not ours anywhere has somebody's real runtime in it, and builtin mode then leaves every one of these values alone rather than advertise over it; that is what the return value reports, being the one outcome nothing else in the drive shows.
+bool syncWebViewValues(const std::filesystem::path& prefixDir, bool microsoft);
 
 // Removes the WebView2 runtime TuxBlox put in the drive, leaving a real Microsoft one alone, since a real install is the whole point of Microsoft mode. True when nothing of ours is left, including when there never was any.
 bool removeFakeWebViewRuntime(const std::filesystem::path& prefixDir);

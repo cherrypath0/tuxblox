@@ -16,8 +16,13 @@
 
 #include "webview_mode.h"
 
+#include "prefix/registry.h"
+
+#include <array>
 #include <cstdlib>
 #include <fstream>
+#include <map>
+#include <vector>
 
 namespace tuxblox {
 
@@ -56,6 +61,15 @@ bool isFakeDll(const std::filesystem::path& file) {
     return text.find(FakeDllMarker) != std::string::npos;
 }
 
+// The values a key should carry, as a registry file spells them.
+std::map<std::string, std::string> ourWebViewValues(const WebViewVersionKey& entry) {
+    std::map<std::string, std::string> values = {{"pv", webViewVersionValue()}};
+    if (entry.namesInstallFolder) {
+        values["EBWebView"] = webViewInstallPathValue();
+    }
+    return values;
+}
+
 } // namespace
 
 bool useMicrosoftWebView() {
@@ -71,20 +85,69 @@ std::string webViewVersionValue() {
     return "\"" + std::string(kWebView2RuntimeVersion) + "\"";
 }
 
+// Derived from the one folder the files are actually written to, so renaming that folder cannot leave the registry naming a place nothing is in.
 std::string webViewInstallPathValue() {
-    return "\"C:\\\\Program Files (x86)\\\\Microsoft\\\\EdgeWebView\\\\Application\\\\" +
-           std::string(kWebView2RuntimeVersion) + "\"";
+    const std::string path = WebView2ApplicationDir + "/" + kWebView2RuntimeVersion;
+    const size_t afterDriveFolder = path.find('/');
+    std::string value = "\"C:";
+    for (size_t at = afterDriveFolder; at < path.size(); at++) {
+        if (path[at] == '/') {
+            value += "\\\\"; // a registry file doubles every separator
+        } else {
+            value += path[at];
+        }
+    }
+    return value + "\"";
 }
 
-WebViewVersionAction webViewVersionAction(const std::string& currentValue, bool microsoft) {
-    if (!currentValue.empty() && currentValue != webViewVersionValue()) {
-        return WebViewVersionAction::Leave;
-    }
+bool foreignWebViewVersion(const std::string& currentValue) {
+    return !currentValue.empty() && currentValue != webViewVersionValue();
+}
+
+WebViewVersionAction webViewValueAction(const std::string& currentValue, const std::string& ourValue,
+                                        bool microsoft) {
     if (microsoft) {
-        return currentValue.empty() ? WebViewVersionAction::Leave : WebViewVersionAction::Remove;
+        // Only ever take back what is exactly ours, wherever it is, so a real install keeps everything it wrote.
+        return currentValue == ourValue ? WebViewVersionAction::Remove : WebViewVersionAction::Leave;
     }
-    // Ours already, so there is nothing to write and no registry file to read back.
+    // Missing rather than not-ours, because a key can carry the version and still be missing the folder.
     return currentValue.empty() ? WebViewVersionAction::Write : WebViewVersionAction::Leave;
+}
+
+bool syncWebViewValues(const std::filesystem::path& prefixDir, bool microsoft) {
+    // Whether the drive holds somebody's real runtime is a fact about the whole install and not about one key, so every version is read before anything is written. Their installer leaves keys of its own with no version in them, and stamping ours into one cannot be undone: Microsoft mode would later take back what we had overwritten and leave their install advertised by nothing at all.
+    if (!microsoft) {
+        for (const WebViewVersionKey& entry : WebView2VersionKeys) {
+            if (foreignWebViewVersion(getRegValue(prefixDir / entry.file, entry.key, "pv"))) {
+                return true;
+            }
+        }
+    }
+
+    for (const WebViewVersionKey& entry : WebView2VersionKeys) {
+        const std::filesystem::path file = prefixDir / entry.file;
+        std::map<std::string, std::string> write;
+        std::vector<std::string> remove;
+        for (const auto& [name, ours] : ourWebViewValues(entry)) {
+            switch (webViewValueAction(getRegValue(file, entry.key, name), ours, microsoft)) {
+            case WebViewVersionAction::Write:
+                write[name] = ours;
+                break;
+            case WebViewVersionAction::Remove:
+                remove.push_back(name);
+                break;
+            case WebViewVersionAction::Leave:
+                break;
+            }
+        }
+        if (!write.empty()) {
+            setRegKeyValues(file, entry.key, write);
+        }
+        if (!remove.empty()) {
+            removeRegKeyValues(file, entry.key, remove);
+        }
+    }
+    return false;
 }
 
 bool removeFakeWebViewRuntime(const std::filesystem::path& prefixDir) {
