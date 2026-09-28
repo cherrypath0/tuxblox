@@ -35,6 +35,7 @@
 
 #include "unixlib.h"
 #include "webview2loader_private.h"
+#include "webview2_version.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(webview2loader);
 
@@ -302,7 +303,7 @@ HRESULT WINAPI GetAvailableCoreWebView2BrowserVersionString(PCWSTR browserExecut
      * Roblox is correct here too, not a placeholder -- and it must match
      * environment_get_BrowserVersionString exactly so Roblox sees the same
      * version whichever of the two functions it calls. */
-    static const WCHAR version[] = L"109.0.1518.140";
+    static const WCHAR version[] = WEBVIEW2_RUNTIME_VERSION;
     SIZE_T len = ARRAY_SIZE(version);
 
     TRACE("(%s, %p)\n", debugstr_w(browserExecutableFolder), versionInfo);
@@ -314,9 +315,9 @@ HRESULT WINAPI GetAvailableCoreWebView2BrowserVersionString(PCWSTR browserExecut
 }
 
 /* Parses up to 4 dot-separated numeric components from a WebView2 version
- * string (e.g. "109.0.1518.140", the exact format
+ * string (e.g. "X.Y.Z.W", the exact format
  * GetAvailableCoreWebView2BrowserVersionString/environment_get_BrowserVersionString
- * both return above/in environment.c). Missing trailing components (e.g.
+ * both return above/in environment.c, per WEBVIEW2_RUNTIME_VERSION). Missing trailing components (e.g.
  * "109.0") default to 0. Anything after the numeric part -- a trailing
  * " beta"/" dev"/" canary" channel suffix, or any other junk -- is
  * deliberately left unparsed and ignored: this matches

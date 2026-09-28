@@ -35,6 +35,7 @@
 
 #include "wine/test.h"
 #include "../webview2loader_private.h"
+#include "../webview2_version.h"
 
 static HRESULT (WINAPI *pCreateCoreWebView2EnvironmentWithOptions)(PCWSTR, PCWSTR, void *, void *);
 static HRESULT (WINAPI *pGetAvailableCoreWebView2BrowserVersionString)(PCWSTR, LPWSTR *);
@@ -2027,6 +2028,32 @@ cleanup:
         FreeLibrary(mod);
 }
 
+static void test_runtime_version_is_shared(void)
+{
+    HMODULE mod = LoadLibraryA("webview2loader.dll");
+    HRESULT (WINAPI *pGetVersion)(PCWSTR, LPWSTR *);
+    LPWSTR version = NULL;
+    HRESULT hr;
+
+    ok(mod != NULL, "LoadLibraryA failed\n");
+    if (!mod) return;
+
+    pGetVersion = (void *)GetProcAddress(mod, "GetAvailableCoreWebView2BrowserVersionString");
+    ok(pGetVersion != NULL, "missing export\n");
+    if (pGetVersion)
+    {
+        hr = pGetVersion(NULL, &version);
+        ok(hr == S_OK, "got %#lx\n", hr);
+        /* The registry, the runtime folder name and this string are one fact.
+         * A loader that finds a version with no folder by that name is the exact
+         * failure the runtime face exists to remove. */
+        ok(version && !wcscmp(version, WEBVIEW2_RUNTIME_VERSION), "got %s\n", wine_dbgstr_w(version));
+        if (version) CoTaskMemFree(version);
+    }
+
+    FreeLibrary(mod);
+}
+
 START_TEST(webview2loader)
 {
     test_module_loads();
@@ -2054,4 +2081,5 @@ START_TEST(webview2loader)
     test_sync_window_geometry();
     test_compute_screen_bounds();
     test_put_bounds_syncs_native_window();
+    test_runtime_version_is_shared();
 }

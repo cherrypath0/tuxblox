@@ -8,6 +8,7 @@
 
 #include "unixlib.h"
 #include "webview2loader_private.h"
+#include "webview2_version.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(webview2loader);
 
@@ -141,7 +142,7 @@ static HRESULT WINAPI environment_get_BrowserVersionString(ICoreWebView2Environm
      * a fixed, plausible-looking version string that never changes out from
      * under Roblox is correct here, not a placeholder -- this matches the
      * design spec's explicit "we control the browser version" note. */
-    static const WCHAR version[] = L"109.0.1518.140";
+    static const WCHAR version[] = WEBVIEW2_RUNTIME_VERSION;
     SIZE_T len = ARRAY_SIZE(version);
 
     if (!versionInfo) return E_POINTER;

@@ -24,6 +24,8 @@
 
 #include "wine/debug.h"
 
+#include "../../dlls/webview2loader/webview2_version.h"
+
 WINE_DEFAULT_DEBUG_CHANNEL(webview2setup);
 
 /* Roblox's installer ships Microsoft's WebView2 bootstrapper and runs it, which
@@ -41,7 +43,7 @@ static const WCHAR clients_key[] =
 /* Matches what webview2loader reports from
  * GetAvailableCoreWebView2BrowserVersionString, so the registry and the API
  * cannot disagree about which runtime is present. */
-static const WCHAR runtime_version[] = L"109.0.1518.140";
+static const WCHAR runtime_version[] = WEBVIEW2_RUNTIME_VERSION;
 
 static void record_runtime(void)
 {
