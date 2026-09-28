@@ -30,10 +30,11 @@ extern const std::string WebView2ApplicationDir;
 // The runtime's two architectures, relative to its version folder.
 extern const std::array<std::string, 2> WebView2RuntimeDlls;
 
-// A registry value that tells a WebView2 application a runtime is installed: the drive file holding it, and the key as a registry file spells it.
+// A registry key that tells a WebView2 application a runtime is installed: the drive file holding it, the key as a registry file spells it, and whether it is one of the keys that also names the folder the runtime sits in.
 struct WebViewVersionKey {
     std::string file;
     std::string key;
+    bool namesInstallFolder;
 };
 
 // Every place such an application looks. wine.inf writes these into the template prefix, which a drive that already exists never takes another copy of, so they are kept in step on every launch instead.
@@ -47,6 +48,9 @@ std::string webViewModeName();
 
 // The version as a registry file spells it, quotes included.
 std::string webViewVersionValue();
+
+// The folder the runtime sits in, as a registry file spells a Windows path. A loader that finds only the version reports no runtime at all, so this has to name the same place the files were laid down.
+std::string webViewInstallPathValue();
 
 // What should happen to one of the runtime's registry values.
 enum class WebViewVersionAction {

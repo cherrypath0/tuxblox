@@ -96,7 +96,7 @@ int main() {
         const std::string header = readFileText("../../wine/dlls/webview2loader/webview2_version.h");
         assert(header.find("L\"" + version + "\"") != std::string::npos);
 
-        // wine.inf.in spells it out eight times: the x64 and x86 runtime folders, and the six EdgeUpdate values.
+        // wine.inf.in spells it out eleven times: the x64 and x86 runtime folders, the six EdgeUpdate versions, and the three folder values that name it again.
         const std::string inf = readFileText("../../wine/loader/wine.inf.in");
         const std::string marker = version.substr(0, version.find('.') + 1);
         size_t copies = 0;
@@ -104,16 +104,25 @@ int main() {
             assert(inf.compare(at, version.size(), version) == 0);
             copies++;
         }
-        assert(copies == 8);
+        assert(copies == 11);
 
         // Every path the layer reconciles is one wine.inf.in laid down. A typo in either would leave an existing drive with a runtime nothing points at, silently.
         for (const WebViewVersionKey& entry : WebView2VersionKeys) {
             const std::string hive = (entry.file == "system.reg") ? "HKLM," : "HKCU,";
             requireInInf(inf, hive + singleBackslashes(entry.key) + ",\"pv\"");
+            if (entry.namesInstallFolder) {
+                requireInInf(inf, hive + singleBackslashes(entry.key) + ",\"EBWebView\"");
+            }
         }
+
         for (const std::string& relative : WebView2RuntimeDlls) {
             requireInInf(inf, version + "\\" + infCopyPath(relative));
         }
+
+        // The folder the layer writes has to be the folder wine.inf.in writes, which spells the drive's own program folder as a number.
+        requireInInf(inf, ",\"EBWebView\",,\"%16426%\\Microsoft\\EdgeWebView\\Application\\" + version + "\"");
+        assert(singleBackslashes(webViewInstallPathValue()) ==
+               "\"C:\\Program Files (x86)\\Microsoft\\EdgeWebView\\Application\\" + version + "\"");
     }
 
     // Only "off" values mean builtin. Anything else a person types meaning

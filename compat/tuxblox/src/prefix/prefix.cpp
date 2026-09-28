@@ -31,6 +31,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <algorithm>
+#include <map>
 #include <random>
 #include <set>
 #include <sstream>
@@ -759,13 +760,24 @@ void Prefix::restoreWebViewRuntime() {
 void Prefix::syncWebViewVersionKeys(bool microsoft) {
     for (const WebViewVersionKey& entry : WebView2VersionKeys) {
         const fs::path file = prefixDir / entry.file;
+        // The version says whose runtime the key describes, so it settles every value in that key.
         switch (webViewVersionAction(getRegValue(file, entry.key, "pv"), microsoft)) {
-        case WebViewVersionAction::Write:
-            setRegKeyValues(file, entry.key, {{"pv", webViewVersionValue()}});
+        case WebViewVersionAction::Write: {
+            std::map<std::string, std::string> values = {{"pv", webViewVersionValue()}};
+            if (entry.namesInstallFolder) {
+                values["EBWebView"] = webViewInstallPathValue();
+            }
+            setRegKeyValues(file, entry.key, values);
             break;
-        case WebViewVersionAction::Remove:
-            removeRegKeyValues(file, entry.key, {"pv"});
+        }
+        case WebViewVersionAction::Remove: {
+            std::vector<std::string> names = {"pv"};
+            if (entry.namesInstallFolder) {
+                names.push_back("EBWebView");
+            }
+            removeRegKeyValues(file, entry.key, names);
             break;
+        }
         case WebViewVersionAction::Leave:
             break;
         }

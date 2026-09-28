@@ -1092,6 +1092,12 @@ HKLM,Software\Wow6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-
 HKLM,Software\Wow6432Node\Microsoft\EdgeUpdate\ClientState\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5},"pv",,"109.0.1518.140"
 HKCU,Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5},"pv",,"109.0.1518.140"
 HKCU,Software\Microsoft\EdgeUpdate\ClientState\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5},"pv",,"109.0.1518.140"
+; The version on its own is not enough. A statically linked loader reads the
+; folder out of ClientState and reports no runtime at all when it is missing,
+; measured against a Tauri application that found nothing until this was here.
+HKLM,Software\Microsoft\EdgeUpdate\ClientState\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5},"EBWebView",,"%16426%\Microsoft\EdgeWebView\Application\109.0.1518.140"
+HKLM,Software\Wow6432Node\Microsoft\EdgeUpdate\ClientState\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5},"EBWebView",,"%16426%\Microsoft\EdgeWebView\Application\109.0.1518.140"
+HKCU,Software\Microsoft\EdgeUpdate\ClientState\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5},"EBWebView",,"%16426%\Microsoft\EdgeWebView\Application\109.0.1518.140"
 
 [WinmgmtService]
 Description="Provides access to Windows Management Instrumentation"
