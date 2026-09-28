@@ -1,0 +1,7 @@
+MODULE    = embeddedbrowserwebview.dll
+IMPORTLIB = embeddedbrowserwebview
+IMPORTS   = webview2loader
+
+SOURCES = \
+	embeddedbrowserwebview.spec \
+	main.c

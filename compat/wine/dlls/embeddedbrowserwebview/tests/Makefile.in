@@ -1,0 +1,5 @@
+TESTDLL   = embeddedbrowserwebview.dll
+IMPORTS   = embeddedbrowserwebview
+
+SOURCES = \
+	embeddedbrowserwebview.c
