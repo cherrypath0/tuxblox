@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "studio_presence.h"
+#include "json.hpp"
 
 #include "roblox_log_capture.h"
 
@@ -183,6 +184,30 @@ std::string findStudioSessionLog(const std::string& installDir, std::time_t sess
         }
     }
     return dir + "/" + newest;
+}
+
+std::string activityJson(const PresenceActivity& activity, std::time_t startedAt, bool showPlaceName) {
+    std::string details;
+    switch (activity.kind) {
+        case PresenceKind::Editing: details = "Editing"; break;
+        case PresenceKind::PlayTesting: details = "Play testing"; break;
+        case PresenceKind::TeamCreate: details = "In Team Create"; break;
+        case PresenceKind::InStudio: details = "In Studio"; break;
+        case PresenceKind::None: details = "In Studio"; break;
+    }
+
+    // The place name shares a field with "via TuxBlox", so there is no setting that shows the name without naming the layer.
+    std::string state = "via TuxBlox";
+    if (showPlaceName && !activity.placeName.empty()) {
+        state += " — " + activity.placeName;
+    }
+
+    nlohmann::json activityObject;
+    activityObject["details"] = details;
+    activityObject["state"] = state;
+    activityObject["timestamps"]["start"] = startedAt;
+    activityObject["assets"]["large_image"] = "tuxblox";
+    return activityObject.dump();
 }
 
 } // namespace tuxblox

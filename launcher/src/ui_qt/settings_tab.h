@@ -64,6 +64,8 @@ private:
     // hotplug, neither of which happens while this window is open.
     std::vector<GpuDevice> gpus_;
     ToggleSwitch* webviewGpuToggle_ = nullptr;
+    ToggleSwitch* discordRpcToggle_ = nullptr;
+    ToggleSwitch* discordRpcPlaceNameToggle_ = nullptr;
     ToggleSwitch* hapticsToggle_ = nullptr;
     ToggleSwitch* virtualDesktopToggle_ = nullptr;
     ToggleSwitch* debugLoggingToggle_ = nullptr;

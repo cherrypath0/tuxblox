@@ -192,6 +192,32 @@ QWidget* SettingsTab::buildEnvironmentGroup(QWidget* parent) {
     webviewGpuRow->addControl(webviewGpuToggle_);
     group->addRow(webviewGpuRow);
 
+    auto* discordRpcRow = new BoxedRow(
+        "Show what you are doing on Discord",
+        "Puts \"Roblox Studio\" on your Discord profile while Studio is open, with whether you are "
+        "editing or play testing, and how long for. Nothing is shown if Discord is not running.");
+    discordRpcToggle_ = new ToggleSwitch();
+    connect(discordRpcToggle_, &ToggleSwitch::toggled, this, [this](bool checked) {
+        Settings updated = app_.snapshot().settings;
+        updated.discordRpc = checked;
+        commitSettings(updated);
+    });
+    discordRpcRow->addControl(discordRpcToggle_);
+    group->addRow(discordRpcRow);
+
+    auto* discordRpcPlaceNameRow = new BoxedRow(
+        "Include the name of what you are editing",
+        "Adds the name of the place you have open to your Discord profile. Anyone who can see your "
+        "profile can read it, including for a game you have not released yet.");
+    discordRpcPlaceNameToggle_ = new ToggleSwitch();
+    connect(discordRpcPlaceNameToggle_, &ToggleSwitch::toggled, this, [this](bool checked) {
+        Settings updated = app_.snapshot().settings;
+        updated.discordRpcPlaceName = checked;
+        commitSettings(updated);
+    });
+    discordRpcPlaceNameRow->addControl(discordRpcPlaceNameToggle_);
+    group->addRow(discordRpcPlaceNameRow);
+
     auto* virtualDesktopRow = new BoxedRow(
         "Virtual Desktop Mode",
         "An experimental feature that runs Roblox inside a single window of its own, instead of "
@@ -374,6 +400,8 @@ void SettingsTab::updateFromSnapshot(const AppSnapshot& snap) {
         verifyIntegrityToggle_->setChecked(snap.settings.verifyIntegrity);
         autoUpdateRobloxToggle_->setChecked(snap.settings.autoUpdateRoblox);
         webviewGpuToggle_->setChecked(snap.settings.webviewGpu);
+        discordRpcToggle_->setChecked(snap.settings.discordRpc);
+        discordRpcPlaceNameToggle_->setChecked(snap.settings.discordRpcPlaceName);
         debugLoggingToggle_->setChecked(snap.settings.debugLogging);
         crashReportsToggle_->setChecked(snap.settings.sendCrashReports);
         autoUpdateToggle_->setChecked(snap.settings.autoUpdate);

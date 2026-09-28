@@ -52,4 +52,7 @@ private:
 // Studio's own log for this session, or empty if it has not appeared yet.
 std::string findStudioSessionLog(const std::string& installDir, std::time_t sessionStart);
 
+// Discord's activity object. The heading above it comes from the Application ID and cannot be set here.
+std::string activityJson(const PresenceActivity& activity, std::time_t startedAt, bool showPlaceName);
+
 } // namespace tuxblox

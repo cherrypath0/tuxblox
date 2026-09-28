@@ -119,5 +119,43 @@ int main() {
         assert(missingReader.activity().kind == tuxblox::PresenceKind::None);
     }
 
+    // The heading comes from the Application ID; these two fields are all the
+    // program controls. "via TuxBlox" is in the one the place name shares, so
+    // no setting can show the place without naming the layer.
+    {
+        tuxblox::PresenceActivity editing;
+        editing.kind = tuxblox::PresenceKind::Editing;
+        editing.placeName = "DOORS GAME";
+
+        const std::string hidden = tuxblox::activityJson(editing, 1700000000, false);
+        assert(hidden.find("\"details\":\"Editing\"") != std::string::npos);
+        assert(hidden.find("\"state\":\"via TuxBlox\"") != std::string::npos);
+        // The whole point of the opt-in: the name must not appear anywhere.
+        assert(hidden.find("DOORS GAME") == std::string::npos);
+        assert(hidden.find("\"start\":1700000000") != std::string::npos);
+
+        const std::string shown = tuxblox::activityJson(editing, 1700000000, true);
+        assert(shown.find("DOORS GAME") != std::string::npos);
+        assert(shown.find("via TuxBlox") != std::string::npos);
+
+        // A Windows path's backslashes and any quotes must be escaped, not emitted raw.
+        tuxblox::PresenceActivity awkward;
+        awkward.kind = tuxblox::PresenceKind::Editing;
+        awkward.placeName = "My \"Best\" \\ Game";
+        const std::string escaped = tuxblox::activityJson(awkward, 1, true);
+        assert(escaped.find("\\\"Best\\\"") != std::string::npos);
+        assert(escaped.find("\\\\") != std::string::npos);
+
+        tuxblox::PresenceActivity playing;
+        playing.kind = tuxblox::PresenceKind::PlayTesting;
+        assert(tuxblox::activityJson(playing, 1, false).find("\"details\":\"Play testing\"") !=
+               std::string::npos);
+
+        tuxblox::PresenceActivity team;
+        team.kind = tuxblox::PresenceKind::TeamCreate;
+        assert(tuxblox::activityJson(team, 1, false).find("\"details\":\"In Team Create\"") !=
+               std::string::npos);
+    }
+
     return 0;
 }
