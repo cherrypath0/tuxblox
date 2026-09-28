@@ -109,6 +109,25 @@ int main() {
         assert(getRegValue(file, clients, "pv") == "\"109.0.1518.140\"");
     }
 
+    // A key whose last value is left wrapped, with nothing after it to wrap
+    // onto. The removal must stop at the key rather than running on into the
+    // next one.
+    {
+        fs::create_directories(base);
+        std::ofstream(file) << "WINE REGISTRY Version 2\n\n"
+                               "[Software\\\\TuxBlox\\\\Torn] 1\n"
+                               "\"Keep\"=\"me\"\n"
+                               "\"Torn\"=hex:11,22,\\\n"
+                               "[Software\\\\TuxBlox\\\\Next] 1\n"
+                               "\"Safe\"=\"me too\"\n";
+        assert(removeRegKeyValues(file, "Software\\\\TuxBlox\\\\Torn", {"Torn", "Keep"}));
+        const std::string text = readFileText(file);
+        assert(text.find("hex:11,22") == std::string::npos);
+        assert(text.find("\"Keep\"") == std::string::npos);
+        assert(text.find("[Software\\\\TuxBlox\\\\Next]") != std::string::npos);
+        assert(getRegValue(file, "Software\\\\TuxBlox\\\\Next", "Safe") == "\"me too\"");
+    }
+
     // A file that is not there at all.
     {
         fs::remove_all(base);

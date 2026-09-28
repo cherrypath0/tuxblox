@@ -27,9 +27,8 @@ namespace fs = std::filesystem;
 
 namespace {
 
-fs::path runtimeDir(const fs::path& prefixDir) {
-    return prefixDir / "drive_c/Program Files (x86)/Microsoft/EdgeWebView/Application" /
-           tuxblox::kWebView2RuntimeVersion / "EBWebView";
+fs::path versionDir(const fs::path& prefixDir) {
+    return prefixDir / tuxblox::WebView2ApplicationDir / tuxblox::kWebView2RuntimeVersion;
 }
 
 std::string readFileText(const fs::path& file) {
@@ -38,6 +37,41 @@ std::string readFileText(const fs::path& file) {
     std::stringstream buffer;
     buffer << in.rdbuf();
     return buffer.str();
+}
+
+// A bare assert would only print the expression, which does not say which path went missing. Written to stderr because abort() does not flush stdout.
+void requireInInf(const std::string& inf, const std::string& text) {
+    if (inf.find(text) != std::string::npos) {
+        return;
+    }
+    fprintf(stderr, "wine.inf.in does not carry \"%s\"\n", text.c_str());
+    assert(false);
+}
+
+// The layer writes a key path for a registry file, where every backslash is doubled; wine.inf.in writes the same path with single ones.
+std::string singleBackslashes(const std::string& key) {
+    std::string text;
+    for (size_t at = 0; at < key.size(); at++) {
+        text.push_back(key[at]);
+        if (key[at] == '\\' && at + 1 < key.size() && key[at + 1] == '\\') {
+            at++;
+        }
+    }
+    return text;
+}
+
+// wine.inf.in spells a copied file as "<folder>,<name>", so the last separator becomes a comma and the rest become backslashes.
+std::string infCopyPath(const std::string& relative) {
+    std::string text = relative;
+    for (char& character : text) {
+        if (character == '/') {
+            character = '\\';
+        }
+    }
+    const size_t last = text.rfind('\\');
+    assert(last != std::string::npos);
+    text[last] = ',';
+    return text;
 }
 
 // A fake DLL is a PE carrying this marker; that is what tells our removal apart
@@ -71,6 +105,15 @@ int main() {
             copies++;
         }
         assert(copies == 8);
+
+        // Every path the layer reconciles is one wine.inf.in laid down. A typo in either would leave an existing drive with a runtime nothing points at, silently.
+        for (const WebViewVersionKey& entry : WebView2VersionKeys) {
+            const std::string hive = (entry.file == "system.reg") ? "HKLM," : "HKCU,";
+            requireInInf(inf, hive + singleBackslashes(entry.key) + ",\"pv\"");
+        }
+        for (const std::string& relative : WebView2RuntimeDlls) {
+            requireInInf(inf, version + "\\" + infCopyPath(relative));
+        }
     }
 
     // Only "off" values mean builtin. Anything else a person types meaning
@@ -109,10 +152,11 @@ int main() {
     // Our fake runtime goes.
     {
         fs::remove_all(base);
-        writeFakeDll(runtimeDir(base) / "x64" / "EmbeddedBrowserWebView.dll");
-        writeFakeDll(runtimeDir(base) / "x86" / "EmbeddedBrowserWebView.dll");
+        for (const std::string& relative : WebView2RuntimeDlls) {
+            writeFakeDll(versionDir(base) / relative);
+        }
         assert(removeFakeWebViewRuntime(base));
-        assert(!fs::exists(runtimeDir(base).parent_path()));
+        assert(!fs::exists(versionDir(base)));
     }
 
     // A real Microsoft runtime is never touched -- it is somebody's install,
@@ -130,7 +174,7 @@ int main() {
     // alone: the marker decides, not the folder name.
     {
         fs::remove_all(base);
-        const fs::path f = runtimeDir(base) / "x64" / "EmbeddedBrowserWebView.dll";
+        const fs::path f = versionDir(base) / WebView2RuntimeDlls[0];
         fs::create_directories(f.parent_path());
         std::ofstream(f, std::ios::binary) << std::string(4096, 'X');
         assert(!removeFakeWebViewRuntime(base));

@@ -22,6 +22,7 @@
 #include "prefix/registry.h"
 #include "support/util.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <ctime>
 #include <fstream>
@@ -322,8 +323,10 @@ bool removeRegKeyValues(const fs::path& file, const std::string& key,
         for (size_t idx = start + 1; idx < end; ) {
             // Taken out as one span because Wine wraps a long value over
             // several lines, and dropping only its first line would leave the
-            // rest behind as text nothing can read.
-            const size_t span = valueSpan(lines, idx);
+            // rest behind as text nothing can read. Clamped to the key's own
+            // block, so a malformed file whose last value ends in a backslash
+            // cannot take the next key's header with it.
+            const size_t span = std::min(valueSpan(lines, idx), end - idx);
             if (!startsWith(lines[idx], nameStr)) {
                 idx += span;
                 continue;

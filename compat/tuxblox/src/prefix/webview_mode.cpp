@@ -23,6 +23,23 @@ namespace tuxblox {
 
 const char *kWebView2RuntimeVersion = "109.0.1518.140";
 
+const std::string WebView2ApplicationDir =
+    "drive_c/Program Files (x86)/Microsoft/EdgeWebView/Application";
+
+const std::array<std::string, 2> WebView2RuntimeDlls = {
+    "EBWebView/x64/EmbeddedBrowserWebView.dll",
+    "EBWebView/x86/EmbeddedBrowserWebView.dll",
+};
+
+const std::array<WebViewVersionKey, 6> WebView2VersionKeys = {{
+    {"system.reg", "Software\\\\Microsoft\\\\EdgeUpdate\\\\Clients\\\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"},
+    {"system.reg", "Software\\\\Microsoft\\\\EdgeUpdate\\\\ClientState\\\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"},
+    {"system.reg", "Software\\\\Wow6432Node\\\\Microsoft\\\\EdgeUpdate\\\\Clients\\\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"},
+    {"system.reg", "Software\\\\Wow6432Node\\\\Microsoft\\\\EdgeUpdate\\\\ClientState\\\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"},
+    {"user.reg", "Software\\\\Microsoft\\\\EdgeUpdate\\\\Clients\\\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"},
+    {"user.reg", "Software\\\\Microsoft\\\\EdgeUpdate\\\\ClientState\\\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"},
+}};
+
 namespace {
 
 // The marker every Wine builtin carries. Its presence is what says a file is ours to delete rather than part of somebody's real install.
@@ -68,15 +85,14 @@ WebViewVersionAction webViewVersionAction(const std::string& currentValue, bool 
 bool removeFakeWebViewRuntime(const std::filesystem::path& prefixDir) {
     namespace fs = std::filesystem;
 
-    const fs::path ours = prefixDir / "drive_c/Program Files (x86)/Microsoft/EdgeWebView/Application" /
-                          kWebView2RuntimeVersion;
+    const fs::path ours = prefixDir / WebView2ApplicationDir / kWebView2RuntimeVersion;
     std::error_code error;
     if (!fs::exists(ours, error)) {
         return true;
     }
 
-    for (const char *pArch : {"x64", "x86"}) {
-        const fs::path dll = ours / "EBWebView" / pArch / "EmbeddedBrowserWebView.dll";
+    for (const std::string& relative : WebView2RuntimeDlls) {
+        const fs::path dll = ours / relative;
         if (fs::exists(dll, error) && !isFakeDll(dll)) {
             return false;
         }

@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #pragma once
+#include <array>
 #include <filesystem>
 #include <string>
 
@@ -22,6 +23,21 @@ namespace tuxblox {
 
 // The layer's copy of the WebView2 runtime version, kept in step with Wine's own webview2_version.h by a test because the two sit on opposite sides of the licence boundary and cannot share a header.
 extern const char *kWebView2RuntimeVersion;
+
+// Where Microsoft's own loader looks for the runtime in the drive. The version folder sits directly under it.
+extern const std::string WebView2ApplicationDir;
+
+// The runtime's two architectures, relative to its version folder.
+extern const std::array<std::string, 2> WebView2RuntimeDlls;
+
+// A registry value that tells a WebView2 application a runtime is installed: the drive file holding it, and the key as a registry file spells it.
+struct WebViewVersionKey {
+    std::string file;
+    std::string key;
+};
+
+// Every place such an application looks. wine.inf writes these into the template prefix, which a drive that already exists never takes another copy of, so they are kept in step on every launch instead.
+extern const std::array<WebViewVersionKey, 6> WebView2VersionKeys;
 
 // True when the user asked for Microsoft's own WebView2 instead of TuxBlox's.
 bool useMicrosoftWebView();

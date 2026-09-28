@@ -73,22 +73,6 @@ const std::string DefaultDllCopyPatterns =
     // Roblox's anti-cheat loads the official loader.
     "vulkan-1.dll";
 
-// Where a WebView2 application looks to find out which runtime is installed. wine.inf writes these into the template prefix, which a drive that already exists never takes another copy of, so they are kept in step on every launch instead.
-const std::array<std::array<std::string, 2>, 6> WebView2VersionKeys = {{
-    {"system.reg", "Software\\\\Microsoft\\\\EdgeUpdate\\\\Clients\\\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"},
-    {"system.reg", "Software\\\\Microsoft\\\\EdgeUpdate\\\\ClientState\\\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"},
-    {"system.reg", "Software\\\\Wow6432Node\\\\Microsoft\\\\EdgeUpdate\\\\Clients\\\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"},
-    {"system.reg", "Software\\\\Wow6432Node\\\\Microsoft\\\\EdgeUpdate\\\\ClientState\\\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"},
-    {"user.reg", "Software\\\\Microsoft\\\\EdgeUpdate\\\\Clients\\\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"},
-    {"user.reg", "Software\\\\Microsoft\\\\EdgeUpdate\\\\ClientState\\\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"},
-}};
-
-// The runtime's two architectures, under the folder layout Microsoft's own loader expects.
-const std::array<std::string, 2> WebView2RuntimeDlls = {
-    "EBWebView/x64/EmbeddedBrowserWebView.dll",
-    "EBWebView/x86/EmbeddedBrowserWebView.dll",
-};
-
 std::string envOrEmpty(const char *pName) {
     const char *pValue = std::getenv(pName);
     return pValue != nullptr ? std::string(pValue) : std::string();
@@ -760,8 +744,7 @@ void Prefix::migrateAccountFolder() {
 
 // Microsoft mode deletes our runtime out of the drive, and the template prefix is only copied over again on an upgrade, so switching back has to put the files there itself.
 void Prefix::restoreWebViewRuntime() {
-    const fs::path runtime = fs::path("drive_c/Program Files (x86)/Microsoft/EdgeWebView/Application") /
-                             kWebView2RuntimeVersion;
+    const fs::path runtime = fs::path(WebView2ApplicationDir) / kWebView2RuntimeVersion;
     for (const std::string& relative : WebView2RuntimeDlls) {
         const fs::path source = proton.defaultPfxDir / runtime / relative;
         const fs::path destination = prefixDir / runtime / relative;
@@ -774,14 +757,14 @@ void Prefix::restoreWebViewRuntime() {
 }
 
 void Prefix::syncWebViewVersionKeys(bool microsoft) {
-    for (const std::array<std::string, 2>& entry : WebView2VersionKeys) {
-        const fs::path file = prefixDir / entry[0];
-        switch (webViewVersionAction(getRegValue(file, entry[1], "pv"), microsoft)) {
+    for (const WebViewVersionKey& entry : WebView2VersionKeys) {
+        const fs::path file = prefixDir / entry.file;
+        switch (webViewVersionAction(getRegValue(file, entry.key, "pv"), microsoft)) {
         case WebViewVersionAction::Write:
-            setRegKeyValues(file, entry[1], {{"pv", webViewVersionValue()}});
+            setRegKeyValues(file, entry.key, {{"pv", webViewVersionValue()}});
             break;
         case WebViewVersionAction::Remove:
-            removeRegKeyValues(file, entry[1], {"pv"});
+            removeRegKeyValues(file, entry.key, {"pv"});
             break;
         case WebViewVersionAction::Leave:
             break;
@@ -1129,7 +1112,6 @@ void Prefix::setup(Session& session) {
     }
 
     migrateAccountFolder();
-    recordWebViewMode();
     migrateUserPaths();
     linkHostUserFolders();
     linkRobloxData();
@@ -1185,6 +1167,9 @@ void Prefix::setup(Session& session) {
             out << configInfo;
         }
     }
+
+    // Last, because copyTemplatePrefix() and updateBuiltinLibs() both lay the WebView2 runtime back down from the template whenever the drive is missing it.
+    recordWebViewMode();
 
     writeVersion();
     createFontSymlinks();
