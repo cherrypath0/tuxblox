@@ -73,7 +73,8 @@ AddReg=\
     ProtonOverrides,\
     Services, \
     SessionMgr,\
-    ThemeManager
+    ThemeManager,\
+    TuxBloxWebView2
 
 [DefaultInstall]
 Needs=BaseInstall
@@ -920,6 +921,13 @@ HKLM,SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x86,"Version",2,"14.42.344
 12,,*.sys
 11,,*
 11,,comctl32_v6.dll,-
+; TuxBlox: a WebView2 runtime made of fake DLLs, so a loader that searches for
+; the real one finds our bridge instead. The version in these paths must match
+; WEBVIEW2_RUNTIME_VERSION and the EdgeUpdate values below. The 4th field names
+; the real module (built lowercase) since the source lookup that builds this
+; stub is a case-sensitive Unix path, unlike the destination it writes to.
+16426,Microsoft\EdgeWebView\Application\109.0.1518.140\EBWebView\x64,EmbeddedBrowserWebView.dll,embeddedbrowserwebview.dll
+16426,Microsoft\EdgeWebView\Application\109.0.1518.140\EBWebView\x86,EmbeddedBrowserWebView.dll,embeddedbrowserwebview.dll
 
 [SystemIni]
 system.ini, mci,,"MPEGVideo=mciqtz32.dll"
@@ -1067,6 +1075,18 @@ HKCU,"Software\Microsoft\Windows\CurrentVersion\ThemeManager","ThemeActive",2,"1
 HKCU,"Software\Microsoft\Windows\CurrentVersion\ThemeManager","DllName",2,"%10%\resources\themes\light\light.msstyles"
 HKCU,"Software\Microsoft\Windows\CurrentVersion\ThemeManager","ColorName",2,"Blue"
 HKCU,"Software\Microsoft\Windows\CurrentVersion\ThemeManager","SizeName",2,"NormalSize"
+
+[TuxBloxWebView2]
+; Every place a WebView2 loader looks. Applications differ: some read only the
+; 32-bit view a real machine-wide install writes, some the 64-bit one, some the
+; per-user one, and one measured application gives up when ClientState is
+; missing even though Clients is there.
+HKLM,Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5},"pv",,"109.0.1518.140"
+HKLM,Software\Microsoft\EdgeUpdate\ClientState\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5},"pv",,"109.0.1518.140"
+HKLM,Software\Wow6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5},"pv",,"109.0.1518.140"
+HKLM,Software\Wow6432Node\Microsoft\EdgeUpdate\ClientState\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5},"pv",,"109.0.1518.140"
+HKCU,Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5},"pv",,"109.0.1518.140"
+HKCU,Software\Microsoft\EdgeUpdate\ClientState\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5},"pv",,"109.0.1518.140"
 
 [WinmgmtService]
 Description="Provides access to Windows Management Instrumentation"
