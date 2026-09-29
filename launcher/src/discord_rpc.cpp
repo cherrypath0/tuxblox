@@ -41,7 +41,7 @@ const uint32_t OpFrame = 1;
 // Discord being absent is the normal case, so retries are occasional rather than eager.
 const int ReconnectSeconds = 30;
 
-// Discord sometimes accepts a connection and never answers the handshake -- it rate-limits by going silent -- so a connection that never becomes usable is dropped rather than held forever.
+// A connection Discord accepts but never answers would otherwise be held for the whole session, so one that does not become usable is dropped and retried.
 const int ReadyTimeoutSeconds = 10;
 
 std::string runtimeDir() {
