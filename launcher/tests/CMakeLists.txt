@@ -156,3 +156,7 @@ add_test(NAME studio_presence COMMAND test_studio_presence)
 add_executable(test_settings_discord test_settings_discord.cpp)
 target_link_libraries(test_settings_discord PRIVATE launcher_core)
 add_test(NAME settings_discord COMMAND test_settings_discord)
+
+add_executable(test_roblox_place_info test_roblox_place_info.cpp)
+target_link_libraries(test_roblox_place_info PRIVATE launcher_core)
+add_test(NAME roblox_place_info COMMAND test_roblox_place_info)

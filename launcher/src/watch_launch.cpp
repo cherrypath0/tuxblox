@@ -21,6 +21,7 @@
 #include "process_launcher.h"
 #include "roblox_autoupdate.h"
 #include "roblox_log_capture.h"
+#include "roblox_place_info.h"
 #include "settings.h"
 #include "studio_presence.h"
 #include "system_info.h"
@@ -31,10 +32,17 @@
 #include <chrono>
 #include <filesystem>
 #include <ctime>
+#include <map>
 #include <memory>
 #include <thread>
 
 namespace tuxblox {
+
+// What Roblox told us about a place, asked for once and kept for the session.
+struct ResolvedPlace {
+    std::string name;
+    std::string iconUrl;
+};
 
 // The Discord application this presence is published under, registered at discord.com/developers. Public, not a secret. Empty would mean nothing is ever sent.
 const char kDiscordApplicationId[] = "1554221498925973584";
@@ -85,6 +93,7 @@ int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const 
     std::unique_ptr<SessionLogTail> logTail;
     StudioPresenceReader presenceReader;
     PresenceActivity lastSent;
+    std::map<std::string, ResolvedPlace> resolvedPlaces;
     bool everSent = false;
     if (presenceWanted) {
         discord = std::make_unique<DiscordRpc>(kDiscordApplicationId);
@@ -108,10 +117,27 @@ int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const 
         }
 
         discord->poll(now);
-        const PresenceActivity current = presenceReader.activity();
+        PresenceActivity current = presenceReader.activity();
+
+        // Studio names a published place only by number, so the name is asked for once per place and remembered, including when Roblox has none to give.
+        if (!current.placeId.empty()) {
+            auto known = resolvedPlaces.find(current.placeId);
+            if (known == resolvedPlaces.end()) {
+                ResolvedPlace fetched;
+                if (current.placeName.empty()) {
+                    fetched.name = fetchPlaceName(current.placeId);
+                }
+                fetched.iconUrl = fetchPlaceIconUrl(current.placeId);
+                known = resolvedPlaces.emplace(current.placeId, fetched).first;
+            }
+            if (current.placeName.empty()) {
+                current.placeName = known->second.name;
+            }
+            current.placeIconUrl = known->second.iconUrl;
+        }
         // Only a delivered activity counts: recording one Discord threw away would stop this ever trying again.
         if ((!everSent || current != lastSent) &&
-            discord->send(activityJson(current, launchStart, settings.discordRpcPlaceName), now)) {
+            discord->send(activityJson(current, launchStart), now)) {
             lastSent = current;
             everSent = true;
         }

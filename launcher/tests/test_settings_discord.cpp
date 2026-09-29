@@ -26,20 +26,17 @@ int main() {
     std::filesystem::remove_all(dir);
     std::filesystem::create_directories(dir);
 
-    // Both are off until asked for: presence goes to an outside service, and the
-    // place name is the part that would publish an unreleased game.
+    // Off until asked for: presence goes to an outside service and names the
+    // place you have open, including one you have not released.
     const tuxblox::Settings fresh = tuxblox::loadSettings(dir);
     assert(!fresh.discordRpc);
-    assert(!fresh.discordRpcPlaceName);
 
     tuxblox::Settings enabled = fresh;
     enabled.discordRpc = true;
-    enabled.discordRpcPlaceName = true;
     tuxblox::saveSettings(dir, enabled);
 
     const tuxblox::Settings reloaded = tuxblox::loadSettings(dir);
     assert(reloaded.discordRpc);
-    assert(reloaded.discordRpcPlaceName);
 
     // A settings file written before these keys existed must pick up the
     // defaults without resetting everything else it already holds.
@@ -49,7 +46,6 @@ int main() {
     }
     const tuxblox::Settings older = tuxblox::loadSettings(dir);
     assert(!older.discordRpc);
-    assert(!older.discordRpcPlaceName);
     assert(older.channel == "canary");
     assert(older.gpu == "card0");
     assert(older.sendCrashReports);

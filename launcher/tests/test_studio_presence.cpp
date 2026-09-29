@@ -25,34 +25,51 @@ int main() {
     tuxblox::StudioPresenceReader reader;
     assert(reader.activity().kind == tuxblox::PresenceKind::None);
 
-    reader.consumeLine("2026-09-28T15:37:41.313Z,2.313522,0428,6,Info [FLog::RenderSchedulerState] "
-                       "Setting fallback DataModel Standalone");
-    assert(reader.activity().kind == tuxblox::PresenceKind::InStudio);
+    // Studio's start screen: no place loaded. This is the only place Standalone appears.
+    reader.consumeLine("[FLog::RenderSchedulerState] Setting fallback DataModel Standalone");
+    assert(reader.activity().kind == tuxblox::PresenceKind::Home);
 
-    reader.consumeLine("2026-09-28T15:37:43.811Z,4.811502,0428,6,Info [FLog::StudioKeyEvents] "
-                       "open place (identifier = C:/users/cherry/files/Workspace/place 6839171747 "
-                       "DOORS GAME(9).rbxl) [start]");
-    reader.consumeLine("2026-09-28T15:37:44.913Z,5.913712,0428,6,Info "
-                       "[FLog::AssetDataModelManager] Setting StudioGameStateType to "
+    reader.consumeLine("[FLog::StudioKeyEvents] open place (identifier = "
+                       "C:/users/cherry/files/DOORS GAME.rbxl) [start]");
+    reader.consumeLine("[FLog::AssetDataModelManager] Setting StudioGameStateType to "
                        "StudioGameStateType_Edit");
     assert(reader.activity().kind == tuxblox::PresenceKind::Editing);
-    assert(reader.activity().placeName == "place 6839171747 DOORS GAME(9)");
+    assert(reader.activity().placeName == "DOORS GAME");
 
     reader.consumeLine("[FLog::AssetDataModelManager] Setting StudioGameStateType to "
                        "StudioGameStateType_PlayClient");
     assert(reader.activity().kind == tuxblox::PresenceKind::PlayTesting);
-    // The place survives a play test, so it is still there when editing resumes.
-    assert(reader.activity().placeName == "place 6839171747 DOORS GAME(9)");
+    assert(reader.activity().placeName == "DOORS GAME");
 
     reader.consumeLine("[FLog::StudioKeyEvents] end play test");
     assert(reader.activity().kind == tuxblox::PresenceKind::Editing);
 
-    reader.consumeLine("[FLog::StudioKeyEvents] team create connect");
-    assert(reader.activity().kind == tuxblox::PresenceKind::TeamCreate);
+    // Closing the place leaves no datamodel, which is the home page again --
+    // and the place that was open must not linger in the name.
+    reader.consumeLine("[FLog::AssetDataModelManager] Setting StudioGameStateType to "
+                       "StudioGameStateType_Null");
+    assert(reader.activity().kind == tuxblox::PresenceKind::Home);
+    assert(reader.activity().placeName.empty());
+
+    // Team Create is not a state of its own: editing is editing either way, so
+    // leaving one cannot leave the presence stuck.
+    tuxblox::StudioPresenceReader tc;
+    tc.consumeLine("[FLog::StudioKeyEvents] open place (identifier = 121959868194179) [start]");
+    tc.consumeLine("[FLog::StudioKeyEvents] team create connect (matchmaker start)");
+    tc.consumeLine("[FLog::AssetDataModelManager] Setting StudioGameStateType to "
+                   "StudioGameStateType_Edit");
+    assert(tc.activity().kind == tuxblox::PresenceKind::Editing);
+    tc.consumeLine("[FLog::AssetDataModelManager] Setting StudioGameStateType to "
+                   "StudioGameStateType_PlayClient");
+    tc.consumeLine("[FLog::StudioKeyEvents] end play test");
+    assert(tc.activity().kind == tuxblox::PresenceKind::Editing);
+    tc.consumeLine("[FLog::StudioKeyEvents] Handling team create disconnection event 0");
+    tc.consumeLine("[FLog::AssetDataModelManager] Setting StudioGameStateType to "
+                   "StudioGameStateType_Null");
+    assert(tc.activity().kind == tuxblox::PresenceKind::Home);
 
     reader.consumeLine("[FLog::StudioKeyEvents] exit LifecycleManager UserSession scope (standalone shutdown)");
     assert(reader.activity().kind == tuxblox::PresenceKind::None);
-    assert(reader.activity().placeName.empty());
 
     // A Windows path is the normal form, and its separators must not survive into the name.
     tuxblox::StudioPresenceReader windowsPath;
@@ -70,6 +87,23 @@ int main() {
     noise.consumeLine("[FLog::Output] StudioGameStateType_Edit is a string in a print statement");
     assert(noise.activity().kind == tuxblox::PresenceKind::None);
 
+    // Closing a document tab is not the end of the session -- real logs carry
+    // on for thousands of lines after one.
+    tuxblox::StudioPresenceReader tabs;
+    tabs.consumeLine("[FLog::StudioKeyEvents] open place (identifier = "
+                     "C:/users/cherry/files/Baseplate.rbxl) [start]");
+    tabs.consumeLine("[FLog::AssetDataModelManager] Setting StudioGameStateType to "
+                     "StudioGameStateType_Edit");
+    tabs.consumeLine("[FLog::StudioKeyEvents] close IDE doc");
+    assert(tabs.activity().kind == tuxblox::PresenceKind::Editing);
+    assert(tabs.activity().placeName == "Baseplate");
+
+    // The identifier is a bare place id far more often than a filename, and a
+    // number on a profile tells a viewer nothing, so it is not published.
+    tuxblox::StudioPresenceReader byId;
+    byId.consumeLine("[FLog::StudioKeyEvents] open place (identifier = 95206881) [start]");
+    assert(byId.activity().placeName.empty());
+
     // A growing file must be read incrementally, and a line that arrives in
     // two pieces must not reach the state machine until it is whole.
     {
@@ -78,18 +112,18 @@ int main() {
         {
             std::ofstream out(path);
             out << "[FLog::AssetDataModelManager] Setting StudioGameStateType to "
-                   "StudioGameStateType_Standalone\n";
+                   "StudioGameStateType_Null\n";
         }
 
         tuxblox::StudioPresenceReader tailReader;
         tuxblox::SessionLogTail tail(path);
         assert(tail.open());
         tail.pump(tailReader);
-        assert(tailReader.activity().kind == tuxblox::PresenceKind::InStudio);
+        assert(tailReader.activity().kind == tuxblox::PresenceKind::Home);
 
         // Nothing new: the state must not change and nothing must be re-read.
         tail.pump(tailReader);
-        assert(tailReader.activity().kind == tuxblox::PresenceKind::InStudio);
+        assert(tailReader.activity().kind == tuxblox::PresenceKind::Home);
 
         // Write half a line. It must be held back, not acted on.
         {
@@ -97,7 +131,7 @@ int main() {
             out << "[FLog::AssetDataModelManager] Setting StudioGameStateType to Studio";
         }
         tail.pump(tailReader);
-        assert(tailReader.activity().kind == tuxblox::PresenceKind::InStudio);
+        assert(tailReader.activity().kind == tuxblox::PresenceKind::Home);
 
         // Complete it; now it counts.
         {
@@ -127,49 +161,67 @@ int main() {
         editing.kind = tuxblox::PresenceKind::Editing;
         editing.placeName = "DOORS GAME";
 
-        // With the name hidden there is one line, the activity, and no trace
-        // of what is open.
-        const std::string hidden = tuxblox::activityJson(editing, 1700000000, false);
-        assert(hidden.find("\"state\":\"Editing\"") != std::string::npos);
-        assert(hidden.find("DOORS GAME") == std::string::npos);
-        assert(hidden.find("\"details\"") == std::string::npos);
-        assert(hidden.find("\"start\":1700000000") != std::string::npos);
-
-        // With it shown the place is the headline and the activity sits under
-        // it, which is the shape people know from Bloxstrap.
-        const std::string shown = tuxblox::activityJson(editing, 1700000000, true);
-        assert(shown.find("\"details\":\"DOORS GAME\"") != std::string::npos);
-        assert(shown.find("\"state\":\"Editing\"") != std::string::npos);
-
-        // Nothing says TuxBlox any more; the heading already names the program.
+        // One phrase, with the place named whenever Studio gave a name.
+        const std::string shown = tuxblox::activityJson(editing, 1700000000);
+        assert(shown.find("\"details\":\"Editing DOORS GAME\"") != std::string::npos);
+        assert(shown.find("\"start\":1700000000") != std::string::npos);
         assert(shown.find("TuxBlox") == std::string::npos);
-        assert(hidden.find("TuxBlox") == std::string::npos);
+
+        // A place Studio never named still reads as a place.
+        tuxblox::PresenceActivity unnamed;
+        unnamed.kind = tuxblox::PresenceKind::Editing;
+        assert(tuxblox::activityJson(unnamed, 1).find("\"details\":\"Editing a place\"") !=
+               std::string::npos);
+
+        // With an icon the place leads and Studio becomes the badge; without
+        // one there is just the Studio mark and no badge to duplicate it.
+        tuxblox::PresenceActivity withIcon = editing;
+        withIcon.placeIconUrl = "https://t0.rbxcdn.com/180DAY-abc";
+        const std::string art = tuxblox::activityJson(withIcon, 1);
+        assert(art.find("\"large_image\":\"https://t0.rbxcdn.com/180DAY-abc\"") != std::string::npos);
+        assert(art.find("\"large_text\":\"DOORS GAME\"") != std::string::npos);
+        assert(art.find("\"small_image\":\"studio\"") != std::string::npos);
+
+        const std::string noArt = tuxblox::activityJson(editing, 1);
+        assert(noArt.find("\"large_image\":\"studio\"") != std::string::npos);
+        assert(noArt.find("small_image") == std::string::npos);
+
+        // A published place gets a button to its page; a local file has no
+        // page to link to, so there is no button at all.
+        tuxblox::PresenceActivity published = editing;
+        published.placeId = "121959868194179";
+        const std::string linked = tuxblox::activityJson(published, 1);
+        assert(linked.find("\"label\":\"Open Game Link\"") != std::string::npos);
+        assert(linked.find("\"url\":\"https://www.roblox.com/games/121959868194179\"") !=
+               std::string::npos);
+        assert(tuxblox::activityJson(editing, 1).find("buttons") == std::string::npos);
+
+        tuxblox::PresenceActivity home;
+        home.kind = tuxblox::PresenceKind::Home;
+        assert(tuxblox::activityJson(home, 1).find("\"details\":\"In the home page\"") !=
+               std::string::npos);
+
+        tuxblox::PresenceActivity playing;
+        playing.kind = tuxblox::PresenceKind::PlayTesting;
+        assert(tuxblox::activityJson(playing, 1).find("\"details\":\"Playtesting a place\"") !=
+               std::string::npos);
+        playing.placeName = "DOORS GAME";
+        assert(tuxblox::activityJson(playing, 1).find("\"details\":\"Playtesting DOORS GAME\"") !=
+               std::string::npos);
 
         // A Windows path's backslashes and any quotes must be escaped, not emitted raw.
         tuxblox::PresenceActivity awkward;
         awkward.kind = tuxblox::PresenceKind::Editing;
         awkward.placeName = "My \"Best\" \\ Game";
-        const std::string escaped = tuxblox::activityJson(awkward, 1, true);
+        const std::string escaped = tuxblox::activityJson(awkward, 1);
         assert(escaped.find("\\\"Best\\\"") != std::string::npos);
-        assert(escaped.find("\\\\") != std::string::npos);
 
         // A name Roblox wrote in something other than UTF-8 must not throw:
         // the watcher dying here loses the session log and the crash dialog.
         tuxblox::PresenceActivity latin1;
         latin1.kind = tuxblox::PresenceKind::Editing;
         latin1.placeName = "Caf\xE9 Game";
-        const std::string replaced = tuxblox::activityJson(latin1, 1, true);
-        assert(!replaced.empty());
-
-        tuxblox::PresenceActivity playing;
-        playing.kind = tuxblox::PresenceKind::PlayTesting;
-        assert(tuxblox::activityJson(playing, 1, false).find("\"state\":\"Play testing\"") !=
-               std::string::npos);
-
-        tuxblox::PresenceActivity team;
-        team.kind = tuxblox::PresenceKind::TeamCreate;
-        assert(tuxblox::activityJson(team, 1, false).find("\"state\":\"In Team Create\"") !=
-               std::string::npos);
+        assert(!tuxblox::activityJson(latin1, 1).empty());
     }
 
     // The identifier is a bare place id far more often than a filename, and a
@@ -203,20 +255,7 @@ int main() {
     {
         tuxblox::StudioPresenceReader home;
         home.consumeLine("[FLog::RenderSchedulerState] Setting fallback DataModel Standalone");
-        assert(home.activity().kind == tuxblox::PresenceKind::InStudio);
-    }
-
-    // Team Create is a separate fact from what you are doing, so a play test
-    // inside it must not throw it away for the rest of the session.
-    {
-        tuxblox::StudioPresenceReader tc;
-        tc.consumeLine("[FLog::StudioKeyEvents] team create connect (connection accepted)");
-        assert(tc.activity().kind == tuxblox::PresenceKind::TeamCreate);
-        tc.consumeLine("[FLog::AssetDataModelManager] Setting StudioGameStateType to "
-                       "StudioGameStateType_PlayClient");
-        assert(tc.activity().kind == tuxblox::PresenceKind::PlayTesting);
-        tc.consumeLine("[FLog::StudioKeyEvents] end play test");
-        assert(tc.activity().kind == tuxblox::PresenceKind::TeamCreate);
+        assert(home.activity().kind == tuxblox::PresenceKind::Home);
     }
 
     return 0;

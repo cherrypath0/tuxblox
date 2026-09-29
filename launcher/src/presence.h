@@ -21,22 +21,25 @@ namespace tuxblox {
 
 enum class PresenceKind {
     None,
-    InStudio,
+    // Studio is open with no place loaded: its start screen, and what closing a place returns to.
+    Home,
     Editing,
     PlayTesting,
-    TeamCreate,
 };
 
 struct PresenceActivity {
     PresenceKind kind = PresenceKind::None;
     // Empty unless a place is open and its name is known. Shown only when the user has opted in.
     std::string placeName;
-    // Whether the session joined Team Create, which outlives any one play test.
-    bool teamCreate = false;
+    // Set instead of the name when Studio identifies the place by number, which is the usual case for a published place.
+    std::string placeId;
+    // The place's own icon, once Roblox has been asked for it. Shown in place of the Studio mark.
+    std::string placeIconUrl;
 };
 
 inline bool operator==(const PresenceActivity& a, const PresenceActivity& b) {
-    return a.kind == b.kind && a.placeName == b.placeName && a.teamCreate == b.teamCreate;
+    return a.kind == b.kind && a.placeName == b.placeName && a.placeId == b.placeId &&
+           a.placeIconUrl == b.placeIconUrl;
 }
 
 inline bool operator!=(const PresenceActivity& a, const PresenceActivity& b) {

@@ -16,6 +16,7 @@
 
 #include "studio_presence.h"
 #include "json.hpp"
+#include "roblox_place_info.h"
 
 #include "roblox_log_capture.h"
 
@@ -36,6 +37,9 @@ namespace {
 // Studio names its own state in these two lines and nowhere else, so matching the marker alongside the state avoids catching the same word printed as output.
 const char StateMarker[] = "Setting StudioGameStateType to StudioGameStateType_";
 const char FallbackMarker[] = "Setting fallback DataModel Standalone";
+// The image uploaded against the Discord application. Discord drops it silently if it is not there, which costs only the artwork.
+const char StudioAssetKey[] = "studio";
+
 const char OpenPlaceMarker[] = "[FLog::StudioKeyEvents] open place (identifier = ";
 
 bool contains(const std::string& line, const char *pNeedle) {
@@ -73,24 +77,25 @@ void StudioPresenceReader::consumeLine(const std::string& line) {
         const size_t start = openPlace + sizeof(OpenPlaceMarker) - 1;
         const size_t end = line.rfind(") [start]");
         if (end != std::string::npos && end > start) {
-            activity_.placeName = placeNameFromIdentifier(line.substr(start, end - start));
+            const std::string identifier = line.substr(start, end - start);
+            const size_t slash = identifier.find_last_of("/\\");
+            const std::string leaf = slash == std::string::npos ? identifier
+                                                                : identifier.substr(slash + 1);
+            activity_.placeId = allDigits(leaf) ? leaf : std::string();
+            activity_.placeName = placeNameFromIdentifier(identifier);
         }
         return;
     }
 
-    if (contains(line, "[FLog::StudioKeyEvents] team create connect")) {
-        activity_.teamCreate = true;
-        activity_.kind = PresenceKind::TeamCreate;
-        return;
-    }
-
+    // Team Create is not a state of its own: editing a place with other people in it is still editing a place.
     if (contains(line, "[FLog::StudioKeyEvents] end play test")) {
-        activity_.kind = activity_.teamCreate ? PresenceKind::TeamCreate : PresenceKind::Editing;
+        activity_.kind = PresenceKind::Editing;
         return;
     }
 
     if (contains(line, FallbackMarker)) {
-        activity_.kind = PresenceKind::InStudio;
+        activity_ = PresenceActivity{};
+        activity_.kind = PresenceKind::Home;
         return;
     }
 
@@ -102,9 +107,11 @@ void StudioPresenceReader::consumeLine(const std::string& line) {
         contains(line, "StudioGameStateType_PlayServer")) {
         activity_.kind = PresenceKind::PlayTesting;
     } else if (contains(line, "StudioGameStateType_Edit")) {
-        activity_.kind = activity_.teamCreate ? PresenceKind::TeamCreate : PresenceKind::Editing;
-    } else if (contains(line, "StudioGameStateType_Standalone")) {
-        activity_.kind = PresenceKind::InStudio;
+        activity_.kind = PresenceKind::Editing;
+    } else if (contains(line, "StudioGameStateType_Null")) {
+        // No datamodel is what closing a place leaves behind, which is the home page with nothing open.
+        activity_ = PresenceActivity{};
+        activity_.kind = PresenceKind::Home;
     }
 }
 
@@ -197,23 +204,43 @@ std::string findStudioSessionLog(const std::string& installDir, std::time_t sess
     return dir + "/" + newest;
 }
 
-std::string activityJson(const PresenceActivity& activity, std::time_t startedAt, bool showPlaceName) {
-    std::string doing;
+std::string activityJson(const PresenceActivity& activity, std::time_t startedAt) {
+    const bool named = !activity.placeName.empty();
+    std::string phrase;
     switch (activity.kind) {
-        case PresenceKind::Editing: doing = "Editing"; break;
-        case PresenceKind::PlayTesting: doing = "Play testing"; break;
-        case PresenceKind::TeamCreate: doing = "In Team Create"; break;
-        case PresenceKind::InStudio: doing = "In Studio"; break;
-        case PresenceKind::None: doing = "In Studio"; break;
+        case PresenceKind::Editing:
+            phrase = named ? "Editing " + activity.placeName : "Editing a place";
+            break;
+        case PresenceKind::PlayTesting:
+            phrase = named ? "Playtesting " + activity.placeName : "Playtesting a place";
+            break;
+        case PresenceKind::Home:
+        case PresenceKind::None:
+            phrase = "In the home page";
+            break;
     }
 
     nlohmann::json activityObject;
-    // The place is the headline when it is known, with what you are doing under it; otherwise there is just the one line.
-    if (showPlaceName && !activity.placeName.empty()) {
-        activityObject["details"] = activity.placeName;
-    }
-    activityObject["state"] = doing;
+    activityObject["details"] = phrase;
     activityObject["timestamps"]["start"] = startedAt;
+
+    // Only a published place has a page to send anyone to.
+    const std::string gameUrl = placeGameUrl(activity.placeId);
+    if (!gameUrl.empty()) {
+        activityObject["buttons"] = nlohmann::json::array(
+            {{{"label", "Open Game Link"}, {"url", gameUrl}}});
+    }
+
+    // The place's own icon when there is one, with the Studio mark badged onto it; otherwise the Studio mark alone.
+    if (named && !activity.placeIconUrl.empty()) {
+        activityObject["assets"]["large_image"] = activity.placeIconUrl;
+        activityObject["assets"]["large_text"] = activity.placeName;
+        activityObject["assets"]["small_image"] = StudioAssetKey;
+        activityObject["assets"]["small_text"] = "Roblox Studio";
+    } else {
+        activityObject["assets"]["large_image"] = StudioAssetKey;
+        activityObject["assets"]["large_text"] = "Roblox Studio";
+    }
 
     // A name Roblox wrote in something other than UTF-8 would otherwise throw, and nothing above this catches it.
     return activityObject.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
