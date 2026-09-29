@@ -192,6 +192,7 @@ QWidget* SettingsTab::buildEnvironmentGroup(QWidget* parent) {
     webviewGpuRow->addControl(webviewGpuToggle_);
     group->addRow(webviewGpuRow);
 
+
     auto* virtualDesktopRow = new BoxedRow(
         "Virtual Desktop Mode",
         "An experimental feature that runs Roblox inside a single window of its own, instead of "
@@ -290,6 +291,22 @@ QWidget* SettingsTab::buildPrivacyGroup(QWidget* parent) {
     crashRow->addControl(crashReportsToggle_);
     group->addRow(crashRow);
 
+    auto* discordRpcRow = new BoxedRow(
+        "Show what you are doing on Discord",
+        "Puts Roblox Studio on your Discord profile while Studio is open: what you have open, "
+        "whether you are editing or play testing, and how long for. Anyone who can see your "
+        "profile can read the name of the place, including a game you have not released yet. "
+        "Nothing is shown if Discord is not running. Takes effect the next time Roblox starts.");
+    discordRpcToggle_ = new ToggleSwitch();
+    connect(discordRpcToggle_, &ToggleSwitch::toggled, this, [this](bool checked) {
+        Settings updated = app_.snapshot().settings;
+        updated.discordRpc = checked;
+        commitSettings(updated);
+    });
+    discordRpcRow->addControl(discordRpcToggle_);
+    group->addRow(discordRpcRow);
+
+
     return group;
 }
 
@@ -374,6 +391,7 @@ void SettingsTab::updateFromSnapshot(const AppSnapshot& snap) {
         verifyIntegrityToggle_->setChecked(snap.settings.verifyIntegrity);
         autoUpdateRobloxToggle_->setChecked(snap.settings.autoUpdateRoblox);
         webviewGpuToggle_->setChecked(snap.settings.webviewGpu);
+        discordRpcToggle_->setChecked(snap.settings.discordRpc);
         debugLoggingToggle_->setChecked(snap.settings.debugLogging);
         crashReportsToggle_->setChecked(snap.settings.sendCrashReports);
         autoUpdateToggle_->setChecked(snap.settings.autoUpdate);

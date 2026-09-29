@@ -16,11 +16,14 @@
 
 #include "watch_launch.h"
 #include "crash_report.h"
+#include "discord_rpc.h"
 #include "install_paths.h"
 #include "process_launcher.h"
 #include "roblox_autoupdate.h"
 #include "roblox_log_capture.h"
+#include "roblox_place_info.h"
 #include "settings.h"
+#include "studio_presence.h"
 #include "system_info.h"
 #include "ui_qt/message_box.h"
 #include "fastflag_file.h"
@@ -29,9 +32,20 @@
 #include <chrono>
 #include <filesystem>
 #include <ctime>
+#include <map>
+#include <memory>
 #include <thread>
 
 namespace tuxblox {
+
+// What Roblox told us about a place, asked for once and kept for the session.
+struct ResolvedPlace {
+    std::string name;
+    std::string iconUrl;
+};
+
+// The Discord application this presence is published under, registered at discord.com/developers. Public, not a secret. Empty would mean nothing is ever sent.
+const char kDiscordApplicationId[] = "1554221498925973584";
 
 int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const std::string& uri,
                        const std::string& currentVersion) {
@@ -73,9 +87,66 @@ int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const 
         return 1;
     }
 
+    // Presence rides the loop that was already here, so it costs no thread and no process of its own.
+    const bool presenceWanted = settings.discordRpc && target == LaunchTarget::Studio;
+    std::unique_ptr<DiscordRpc> discord;
+    std::unique_ptr<SessionLogTail> logTail;
+    StudioPresenceReader presenceReader;
+    PresenceActivity lastSent;
+    std::map<std::string, ResolvedPlace> resolvedPlaces;
+    bool everSent = false;
+    if (presenceWanted) {
+        discord = std::make_unique<DiscordRpc>(kDiscordApplicationId);
+    }
+
     while (launcher.pollIsRunning(target)) {
         std::this_thread::sleep_for(std::chrono::milliseconds(300));
+        if (!presenceWanted) {
+            continue;
+        }
+
+        const std::time_t now = std::time(nullptr);
+        if (!logTail) {
+            const std::string logFile = findStudioSessionLog(installDir, launchStart);
+            if (!logFile.empty()) {
+                logTail = std::make_unique<SessionLogTail>(logFile);
+            }
+        }
+        if (logTail) {
+            logTail->pump(presenceReader);
+        }
+
+        discord->poll(now);
+        PresenceActivity current = presenceReader.activity();
+
+        // Studio names a published place only by number, so the name is asked for once per place and remembered, including when Roblox has none to give.
+        if (!current.placeId.empty()) {
+            auto known = resolvedPlaces.find(current.placeId);
+            if (known == resolvedPlaces.end()) {
+                ResolvedPlace fetched;
+                if (current.placeName.empty()) {
+                    fetched.name = fetchPlaceName(current.placeId);
+                }
+                fetched.iconUrl = fetchPlaceIconUrl(current.placeId);
+                known = resolvedPlaces.emplace(current.placeId, fetched).first;
+            }
+            if (current.placeName.empty()) {
+                current.placeName = known->second.name;
+            }
+            current.placeIconUrl = known->second.iconUrl;
+        }
+        // Only a delivered activity counts: recording one Discord threw away would stop this ever trying again.
+        if ((!everSent || current != lastSent) &&
+            discord->send(activityJson(current, launchStart), now)) {
+            lastSent = current;
+            everSent = true;
+        }
     }
+
+    if (discord) {
+        discord->clear(std::time(nullptr));
+    }
+
     auto ev = launcher.takeExitEvent(target);
 
     appendRobloxSessionLogs(installDir, launchStart, outcome.logPath);

@@ -144,3 +144,19 @@ add_test(NAME root_guard COMMAND test_root_guard)
 add_executable(test_prefix_user test_prefix_user.cpp)
 target_link_libraries(test_prefix_user PRIVATE launcher_core)
 add_test(NAME prefix_user COMMAND test_prefix_user)
+
+add_executable(test_discord_rpc test_discord_rpc.cpp)
+target_link_libraries(test_discord_rpc PRIVATE launcher_core)
+add_test(NAME discord_rpc COMMAND test_discord_rpc)
+
+add_executable(test_studio_presence test_studio_presence.cpp)
+target_link_libraries(test_studio_presence PRIVATE launcher_core)
+add_test(NAME studio_presence COMMAND test_studio_presence)
+
+add_executable(test_settings_discord test_settings_discord.cpp)
+target_link_libraries(test_settings_discord PRIVATE launcher_core)
+add_test(NAME settings_discord COMMAND test_settings_discord)
+
+add_executable(test_roblox_place_info test_roblox_place_info.cpp)
+target_link_libraries(test_roblox_place_info PRIVATE launcher_core)
+add_test(NAME roblox_place_info COMMAND test_roblox_place_info)
