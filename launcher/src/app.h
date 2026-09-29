@@ -144,13 +144,13 @@ public:
     // Variables to the launcher's own process, and updates the snapshot.
     void updateSettings(Settings settings);
 
-    // Called when the user clicks the UpdatePopup -- promotes the
-    // already-staged installer handoff (installerHandoffPath_, already
-    // fetched and verified by updateCheckThreadMain() regardless of
-    // autoUpdate -- see its comment) to an actual handoff, exactly as if
-    // Settings::autoUpdate had been true from the start. A no-op if
-    // there's no update currently staged (snapshot_.updateAvailableVersion
-    // is empty) -- guards a stale click racing a dismiss.
+    // Called when the user clicks the UpdatePopup -- fetches the installer
+    // for the release updateCheckThreadMain() offered and hands off to it,
+    // exactly as if Settings::autoUpdate had been true from the start. The
+    // fetch runs on its own thread, since this is called from the UI thread.
+    // A no-op if there's no update currently offered
+    // (snapshot_.updateAvailableVersion is empty) -- guards a stale click
+    // racing a dismiss -- or if a click is already being acted on.
     void requestUpdateNow();
 
     // Hides the current UpdatePopup notification for this run. Only
@@ -175,6 +175,9 @@ public:
 
 private:
     void updateCheckThreadMain();
+    void updateApplyThreadMain();
+    // Fetches and verifies the installer for `manifest` and records it as the handoff target. False means it could not be prepared, and the reason is already in the snapshot.
+    bool prepareInstallerHandoff(const Manifest& manifest);
     void uninstallThreadMain();
     void wipePrefixThreadMain();
     void versionInstallThreadMain(LaunchTarget target, VersionSelectMode mode, std::string channel,
@@ -192,18 +195,23 @@ private:
     std::atomic<bool> needsInstallerHandoff_{false};
     std::atomic<bool> needsUninstallHandoff_{false};
     std::atomic<bool> shouldQuit_{false};
-    // Written once by whichever of updateCheckThreadMain/uninstallThreadMain
-    // gets there first, strictly before that same thread sets its handoff
-    // flag -- same happens-before idiom as needsInstallerHandoff_ itself.
-    // The two threads' write windows don't overlap in practice (uninstall
-    // is a rare, explicit user action; update-check runs once at startup),
-    // so a single shared field is fine without extra synchronization.
+    // Written once by whichever of the update-check, update-apply and
+    // uninstall threads gets there first, strictly before that same thread
+    // sets its handoff flag -- same happens-before idiom as
+    // needsInstallerHandoff_ itself. Their write windows don't overlap in
+    // practice (uninstall and applying an update are explicit user actions,
+    // one of which ends this process; update-check runs once at startup), so
+    // a single shared field is fine without extra synchronization.
     std::string installerHandoffPath_;
+    // The release updateCheckThreadMain() offered without applying, kept so requestUpdateNow() can fetch its installer if the user does ask for it.
+    Manifest pendingUpdateManifest_;
+    std::atomic<bool> updateApplyStarted_{false};
     std::atomic<bool> updateCancel_{false};
     std::atomic<bool> uninstallCancel_{false};
     std::atomic<bool> versionInstallCancel_{false};
 
     std::thread updateThread_;
+    std::thread updateApplyThread_;
     std::thread uninstallThread_;
     std::thread versionInstallThread_;
     // No cancel flag: unlike the two threads above (both network-bound,

@@ -100,6 +100,7 @@ App::~App() {
     uninstallCancel_.store(true);
     versionInstallCancel_.store(true);
     if (updateThread_.joinable()) updateThread_.join();
+    if (updateApplyThread_.joinable()) updateApplyThread_.join();
     if (uninstallThread_.joinable()) uninstallThread_.join();
     if (wipePrefixThread_.joinable()) wipePrefixThread_.join();
     if (versionInstallThread_.joinable()) versionInstallThread_.join();
@@ -319,9 +320,39 @@ void App::updateSettings(Settings settings) {
 }
 
 void App::requestUpdateNow() {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (!snapshot_.updateAvailableVersion.has_value()) return;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!snapshot_.updateAvailableVersion.has_value()) return;
+    }
+    if (updateApplyStarted_.exchange(true)) return; // already fetching -- ignore repeat clicks
+    // A failed attempt clears the flag again, so this joins that finished thread before replacing it.
+    if (updateApplyThread_.joinable()) updateApplyThread_.join();
+    updateApplyThread_ = std::thread(&App::updateApplyThreadMain, this);
+}
+
+void App::updateApplyThreadMain() {
+    Manifest manifest;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        manifest = pendingUpdateManifest_;
+    }
+    if (!prepareInstallerHandoff(manifest)) {
+        updateApplyStarted_.store(false);
+        return;
+    }
     needsInstallerHandoff_.store(true);
+}
+
+bool App::prepareInstallerHandoff(const Manifest& manifest) {
+    EnsureInstallerResult ensured = ensureInstallerBinary(manifest, installDir_, &updateCancel_,
+        [this](UpdateProgress p) {
+            std::lock_guard<std::mutex> lock(mutex_);
+            snapshot_.update = p;
+        });
+    if (!ensured.ok) return false;
+
+    installerHandoffPath_ = ensured.installerPath; // see its declaration comment on write-before-flag ordering
+    return true;
 }
 
 void App::dismissUpdateNotification() {
@@ -400,45 +431,15 @@ void App::updateCheckThreadMain() {
         // leaving it running is not a state the user chose. An ordinary
         // available update still waits to be asked for, below.
         if (autoUpdate || result.mixedInstall) {
-            // Unchanged existing behavior/pattern: installerHandoffPath_
-            // written unlocked, made safe by the atomic release-store
-            // below (see installerHandoffPath()'s own comment for the
-            // happens-before reasoning) -- callers only ever read it after
-            // observing needsInstallerHandoff_ true.
-            installerHandoffPath_ = result.installerPath;
+            if (!prepareInstallerHandoff(result.manifest)) return;
             needsInstallerHandoff_.store(true);
         } else {
-            // Different synchronization on purpose: needsInstallerHandoff_
-            // does NOT get set here, so the atomic-release trick above
-            // doesn't apply. Instead installerHandoffPath_ is written
-            // under mutex_, in the same critical section as
-            // updateAvailableVersion -- so a UI-thread caller that has
-            // observed updateAvailableVersion via any prior snapshot()
-            // call (itself mutex_-guarded) is guaranteed to also see this
-            // write, letting requestUpdateNow() safely promote it later
-            // purely by taking mutex_ again -- no atomic needed on this
-            // path.
+            // Nothing is fetched and nothing on disk is touched on this path: an update that is only being offered has to leave the install exactly as it was, or the next check reads it as broken and repairs it without asking.
+            // pendingUpdateManifest_ is written under mutex_, in the same critical section as updateAvailableVersion -- a UI-thread caller that has observed updateAvailableVersion through snapshot() is guaranteed to see it too, so requestUpdateNow() needs nothing but mutex_ to pick it up.
             std::lock_guard<std::mutex> lock(mutex_);
-            installerHandoffPath_ = result.installerPath;
+            pendingUpdateManifest_ = result.manifest;
             snapshot_.updateAvailableVersion = *latestVersion;
-            // Without this, snapshot_.update.phase is left exactly where
-            // runUpdateCheck()'s last report() call inside
-            // ensureInstallerBinary() left it -- UpdatePhase::PreparingUpdater
-            // -- forever, since nothing else in this function calls report()
-            // again on this branch. StartTab::updateFromSnapshot() treats
-            // CheckingManifest/PreparingUpdater as "updating" and hides the
-            // Launch Player/Launch Studio buttons in favor of the progress
-            // bar the whole time that's true -- so the Home tab was stuck
-            // showing "Preparing updater" with no way to ever launch
-            // anything. The autoUpdate==true branch above doesn't need this:
-            // it sets needsInstallerHandoff_, which MainWindow::poll() acts
-            // on by closing the window within one tick, so the stuck phase
-            // is never visible. This branch has no such handoff -- the
-            // window stays open indefinitely -- so the phase must be
-            // explicitly resolved back to something StartTab doesn't treat
-            // as "updating", independent of the update-available
-            // notification itself (a separate AppSnapshot field, unaffected
-            // by this).
+            // Without this the phase stays where runUpdateCheck()'s last report() left it -- CheckingManifest -- forever, since nothing else in this function reports again on this branch. StartTab::updateFromSnapshot() treats that as "updating" and hides the Launch buttons in favour of the progress bar for as long as it is true, so the Home tab would sit there with no way to launch anything. The branch above needs no such reset: it sets needsInstallerHandoff_, which MainWindow::poll() acts on by closing the window within one tick.
             snapshot_.update = {UpdatePhase::UpToDate, 1.0};
         }
     }

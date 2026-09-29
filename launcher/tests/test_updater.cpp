@@ -146,11 +146,9 @@ int main() {
             [&](UpdateProgress p) { phases.push_back(p.phase); }, nullptr, installDirPath.string());
 
         assert(result.needsHandoff);
-        assert(result.installerPath == (installDirPath / "TuxBloxInstaller").string());
-        assert(fs::exists(result.installerPath));
-        std::ifstream in(result.installerPath, std::ios::binary);
-        std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-        assert(content == "new installer binary");
+        // The release to hand off to comes back for the caller to fetch the installer from, rather than the check having fetched it.
+        assert(result.manifest.installer.sha256 == installerSha);
+        assert(result.manifest.installer.url == installerFileUrl);
         assert(!phases.empty());
         assert(phases.back() != UpdatePhase::Error);
         // The launcher must never touch Proton itself -- that's the
@@ -189,7 +187,7 @@ int main() {
         // Absent is not mismatched: there is no disagreement to report when
         // nothing is installed yet.
         assert(!result.mixedInstall);
-        assert(fs::exists(result.installerPath));
+        assert(result.manifest.installer.sha256 == installerSha);
     }
 
     // --- A new release is out and this install is consistently on the old
@@ -205,9 +203,37 @@ int main() {
             [](UpdateProgress) {}, nullptr, installDirPath.string());
 
         assert(result.needsHandoff);
-        assert(fs::exists(result.installerPath));
+        assert(result.manifest.installer.sha256 == installerSha);
         assert(!result.protonMissing);
         assert(!result.mixedInstall);
+    }
+
+    // --- The same ordinary update, checked twice. Offering an update must
+    // leave the install exactly as it was: replacing the installer here put a
+    // build the launcher does not agree with into the install, so the next
+    // check read a broken install and repaired it without asking, closing the
+    // launcher on the launch after the one that declined the update. ---
+    {
+        fs::path installDirPath = work / "install_offer_twice";
+        writeWholeInstall(installDirPath, "0.1.0-ch-offertwice");
+
+        writeManifest("ch-offertwice", "0.2.0", installerFileUrl, installerSha);
+
+        auto first = runUpdateCheck("0.1.0-ch-offertwice", fileBaseUrl, "ch-offertwice", "0.2.0",
+            [](UpdateProgress) {}, nullptr, installDirPath.string());
+
+        assert(first.needsHandoff);
+        assert(!first.mixedInstall);
+
+        std::ifstream kept(installDirPath / "TuxBloxInstaller");
+        std::string content((std::istreambuf_iterator<char>(kept)), std::istreambuf_iterator<char>());
+        assert(content.find("new installer binary") == std::string::npos);
+
+        auto second = runUpdateCheck("0.1.0-ch-offertwice", fileBaseUrl, "ch-offertwice", "0.2.0",
+            [](UpdateProgress) {}, nullptr, installDirPath.string());
+
+        assert(second.needsHandoff);
+        assert(!second.mixedInstall);
     }
 
     // --- Nothing new published, but the install disagrees with itself: the
@@ -225,7 +251,7 @@ int main() {
 
         assert(result.needsHandoff);
         assert(result.mixedInstall);
-        assert(fs::exists(result.installerPath));
+        assert(result.manifest.installer.sha256 == installerSha);
     }
 
     // --- buildChannel() ---
@@ -251,7 +277,7 @@ int main() {
 
         assert(result.needsHandoff);
         assert(!result.mixedInstall);
-        assert(fs::exists(result.installerPath));
+        assert(result.manifest.installer.sha256 == installerSha);
     }
 
     // --- Same channel, installed version ahead of what the channel publishes:
@@ -270,7 +296,7 @@ int main() {
 
         assert(result.needsHandoff);
         assert(!result.mixedInstall);
-        assert(fs::exists(result.installerPath));
+        assert(result.manifest.installer.sha256 == installerSha);
     }
 
     // --- Ahead of the channel, but the settings file says not to roll back:
@@ -329,11 +355,28 @@ int main() {
         assert(!result.protonMissing);
     }
 
+    // --- ensureInstallerBinary, the step the caller takes once it knows it is
+    // handing off. Nothing there yet, so it fetches, verifies and installs. ---
+    {
+        fs::path installDirPath = work / "install_installer_fetch";
+        fs::create_directories(installDirPath);
+
+        Manifest manifest;
+        manifest.installer = {installerFileUrl, installerSha, installerSize};
+
+        auto ensured = ensureInstallerBinary(manifest, installDirPath.string(), nullptr,
+            [](UpdateProgress) {});
+
+        assert(ensured.ok);
+        assert(ensured.installerPath == (installDirPath / "TuxBloxInstaller").string());
+        assert(sha256File(ensured.installerPath) == installerSha);
+    }
+
     // --- Installer already present and matching the manifest checksum:
     // must not be re-downloaded (its mtime/content stays exactly as-is). ---
     {
         fs::path installDirPath = work / "install_installer_cached";
-        writeWholeInstall(installDirPath, "0.1.0-ch-installercached");
+        fs::create_directories(installDirPath);
         fs::path cachedInstaller = installDirPath / "TuxBloxInstaller";
         { std::ofstream out(cachedInstaller, std::ios::binary); out << "new installer binary"; }
         // Sanity: the pre-placed file's checksum already matches the
@@ -342,31 +385,34 @@ int main() {
         assert(sha256File(cachedInstaller.string()) == installerSha);
 
         // Point the manifest's installer URL at a nonexistent file -- if the
-        // implementation incorrectly tries to re-fetch, this would fail the
-        // whole update check instead of silently succeeding.
-        writeManifest("ch-installercached", "0.2.0", "file:///nonexistent/should_not_be_fetched", installerSha);
+        // implementation incorrectly tries to re-fetch, this would fail
+        // instead of silently succeeding.
+        Manifest manifest;
+        manifest.installer = {"file:///nonexistent/should_not_be_fetched", installerSha, installerSize};
 
-        auto result = runUpdateCheck("0.1.0-ch-installercached", fileBaseUrl, "ch-installercached", "0.2.0",
-            [](UpdateProgress) {}, nullptr, installDirPath.string());
+        auto ensured = ensureInstallerBinary(manifest, installDirPath.string(), nullptr,
+            [](UpdateProgress) {});
 
-        assert(result.needsHandoff);
-        assert(result.installerPath == cachedInstaller.string());
+        assert(ensured.ok);
+        assert(ensured.installerPath == cachedInstaller.string());
     }
 
     // --- Checksum mismatch on the freshly-downloaded installer: Error
-    // phase, no handoff, no leftover .new temp file. ---
+    // phase, not ok, no leftover .new temp file. ---
     {
         fs::path installDirPath = work / "install_bad_checksum";
-        writeWholeInstall(installDirPath, "0.1.0-ch-badchecksum");
+        fs::create_directories(installDirPath);
+        { std::ofstream out(installDirPath / "TuxBloxInstaller", std::ios::binary); out << "the copy already there"; }
 
-        writeManifest("ch-badchecksum", "0.2.0", installerFileUrl,
-            "0000000000000000000000000000000000000000000000000000000000000");
+        Manifest manifest;
+        manifest.installer = {installerFileUrl,
+            "0000000000000000000000000000000000000000000000000000000000000", installerSize};
 
         std::vector<UpdatePhase> phases;
-        auto result = runUpdateCheck("0.1.0-ch-badchecksum", fileBaseUrl, "ch-badchecksum", "0.2.0",
-            [&](UpdateProgress p) { phases.push_back(p.phase); }, nullptr, installDirPath.string());
+        auto ensured = ensureInstallerBinary(manifest, installDirPath.string(), nullptr,
+            [&](UpdateProgress p) { phases.push_back(p.phase); });
 
-        assert(!result.needsHandoff);
+        assert(!ensured.ok);
         assert(!phases.empty());
         assert(phases.back() == UpdatePhase::Error);
         // A download that failed its checksum is never installed over the copy

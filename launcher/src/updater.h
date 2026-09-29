@@ -86,7 +86,8 @@ std::vector<ComponentVersion> mismatchedComponents(const std::vector<ComponentVe
 
 struct UpdateResult {
     bool needsHandoff = false;  // true if the installer should be exec'd to apply the update
-    std::string installerPath;  // valid iff needsHandoff -- the binary to exec
+    // The release this was checked against, valid iff needsHandoff -- the caller passes it to ensureInstallerBinary() at the moment it actually hands off, so an update that is only being offered leaves the install exactly as it was.
+    Manifest manifest;
     // True iff the pieces of this install do not agree on one build -- an
     // update that stopped halfway, or a channel switch that only some of
     // them followed. Such an install is broken rather than merely out of
@@ -131,15 +132,16 @@ double downloadProgressFraction(uint64_t now, uint64_t total, uint64_t manifestS
 //  - "do the pieces of this install agree" -- exact string equality on the
 //    full "x.y.z-channel" build id, so a half-applied update is caught rather
 //    than mistaken for being up to date.
-// If anything is out of date, ensures a verified copy of the
-// installer binary is present at <installDir>/TuxBloxInstaller (fetching a
-// fresh one first if it's missing or its checksum no longer matches the
-// manifest's `artifacts.installer` entry) and returns
-// {needsHandoff = true, installerPath}: the caller should exec that binary
-// and exit, letting it perform the actual update. Never downloads Proton
-// or a replacement launcher binary itself -- that's the installer's job
-// once handed off to, run in its "upgrade" mode (an existing install
-// directory).
+// If anything is out of date it returns {needsHandoff = true, manifest} and
+// changes nothing on disk. Preparing the installer binary is the caller's
+// step, once it knows it is going to hand off: a check that replaced the
+// installer here left the install's pieces disagreeing whenever the handoff
+// then did not happen, and the next check reads that as a broken install and
+// repairs it without asking the Auto-Update setting.
+//
+// Never downloads Proton or a replacement launcher binary itself -- that's
+// the installer's job once handed off to, run in its "upgrade" mode (an
+// existing install directory).
 UpdateResult runUpdateCheck(const std::string& currentLauncherBuildId,
                              const std::string& baseUrl,
                              const std::string& channel,

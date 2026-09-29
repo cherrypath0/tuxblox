@@ -282,12 +282,9 @@ UpdateResult runUpdateCheck(const std::string& currentLauncherBuildId,
                 currentLauncherBuildId.c_str(), requiredBuildId.c_str());
     }
 
-    EnsureInstallerResult ensured = ensureInstallerBinary(manifest, dir, cancel, onProgress);
-    if (!ensured.ok) return {};
-
     UpdateResult result;
     result.needsHandoff = true;
-    result.installerPath = ensured.installerPath;
+    result.manifest = manifest;
     result.mixedInstall = mixed;
     result.protonMissing = compatMissing;
     return result;
