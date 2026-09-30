@@ -27,9 +27,9 @@ namespace {
 
 struct InstallUi {
     App *pApp = nullptr;
-    AdwStatusPage *pPage = nullptr;
+    GtkLabel *pTitle = nullptr;
+    GtkLabel *pStep = nullptr;
     GtkProgressBar *pBar = nullptr;
-    GtkWidget *pErrorScroll = nullptr;
     GtkLabel *pErrorLabel = nullptr;
     GtkWindow *pWindow = nullptr;
     int result = 2;
@@ -61,14 +61,14 @@ gboolean onTick(gpointer data) {
     const AppSnapshot snap = pUi->pApp->snapshot();
 
     gtk_progress_bar_set_fraction(pUi->pBar, snap.overallPercent / 100.0);
-    adw_status_page_set_description(pUi->pPage, snap.currentStepLabel.c_str());
-    adw_status_page_set_title(pUi->pPage, snap.isUpgrade ? "Updating TuxBlox" : "Installing TuxBlox");
+    gtk_label_set_text(pUi->pStep, snap.currentStepLabel.c_str());
+    gtk_label_set_text(pUi->pTitle, snap.isUpgrade ? "Updating TuxBlox" : "Installing TuxBlox");
 
     if (snap.phase == AppPhase::Error) {
-        adw_status_page_set_title(pUi->pPage, "TuxBlox could not be installed");
-        adw_status_page_set_description(pUi->pPage, nullptr);
+        gtk_label_set_text(pUi->pTitle, "TuxBlox could not be installed");
+        gtk_widget_set_visible(GTK_WIDGET(pUi->pStep), FALSE);
         gtk_label_set_text(pUi->pErrorLabel, snap.errorMessage.c_str());
-        gtk_widget_set_visible(pUi->pErrorScroll, TRUE);
+        gtk_widget_set_visible(GTK_WIDGET(pUi->pErrorLabel), TRUE);
         gtk_widget_set_visible(GTK_WIDGET(pUi->pBar), FALSE);
         pUi->result = 1;
         return G_SOURCE_REMOVE;
@@ -89,47 +89,80 @@ void onActivate(GtkApplication *pGtkApp, gpointer data) {
     GtkWidget *pWindow = adw_application_window_new(pGtkApp);
     pUi->pWindow = GTK_WINDOW(pWindow);
     gtk_window_set_title(pUi->pWindow, "TuxBlox Installer");
-    gtk_window_set_default_size(pUi->pWindow, 480, 460);
+    gtk_window_set_default_size(pUi->pWindow, 520, 180);
+    gtk_window_set_resizable(pUi->pWindow, FALSE);
 
     GtkWidget *pView = adw_toolbar_view_new();
-    adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(pView), adw_header_bar_new());
 
-    GtkWidget *pPage = adw_status_page_new();
-    pUi->pPage = ADW_STATUS_PAGE(pPage);
+
     GdkPaintable *pLogo = logoPaintable();
-    adw_status_page_set_paintable(pUi->pPage, pLogo);
+    // GtkImage rather than GtkPicture: a picture grows to its paintable's natural size, which is the 440px logo, and a size request is only a minimum.
+    GtkWidget *pPicture = gtk_image_new_from_paintable(pLogo);
     g_object_unref(pLogo);
-    adw_status_page_set_title(pUi->pPage, "Installing TuxBlox");
+    gtk_image_set_pixel_size(GTK_IMAGE(pPicture), 72);
+    gtk_widget_set_valign(pPicture, GTK_ALIGN_CENTER);
+    gtk_widget_set_hexpand(pPicture, FALSE);
+    gtk_widget_set_vexpand(pPicture, FALSE);
+
+    GtkWidget *pTitle = gtk_label_new("Installing TuxBlox");
+    pUi->pTitle = GTK_LABEL(pTitle);
+    gtk_label_set_xalign(pUi->pTitle, 0.0);
+    gtk_label_set_wrap(pUi->pTitle, TRUE);
+    gtk_widget_add_css_class(pTitle, "title-2");
+
+    GtkWidget *pStep = gtk_label_new("Preparing");
+    pUi->pStep = GTK_LABEL(pStep);
+    gtk_label_set_xalign(pUi->pStep, 0.0);
+    gtk_label_set_wrap(pUi->pStep, TRUE);
+    gtk_widget_add_css_class(pStep, "dim-label");
 
     GtkWidget *pBar = gtk_progress_bar_new();
     pUi->pBar = GTK_PROGRESS_BAR(pBar);
-    gtk_widget_set_margin_start(pBar, 24);
-    gtk_widget_set_margin_end(pBar, 24);
+    gtk_widget_set_margin_top(pBar, 6);
 
-    // The error text is arbitrary (network failures, long paths), so it scrolls and can be selected and copied into a bug report.
+    // Arbitrary text from network or archive failures, so it wraps and can be selected into a bug report; the window grows rather than scrolling.
     GtkWidget *pErrorLabel = gtk_label_new(nullptr);
     pUi->pErrorLabel = GTK_LABEL(pErrorLabel);
     gtk_label_set_wrap(pUi->pErrorLabel, TRUE);
     gtk_label_set_wrap_mode(pUi->pErrorLabel, PANGO_WRAP_WORD_CHAR);
     gtk_label_set_selectable(pUi->pErrorLabel, TRUE);
     gtk_label_set_xalign(pUi->pErrorLabel, 0.0);
-    gtk_widget_set_margin_start(pErrorLabel, 12);
-    gtk_widget_set_margin_end(pErrorLabel, 12);
+    gtk_widget_set_visible(pErrorLabel, FALSE);
 
-    pUi->pErrorScroll = gtk_scrolled_window_new();
-    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(pUi->pErrorScroll), pErrorLabel);
-    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(pUi->pErrorScroll), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
-    gtk_scrolled_window_set_min_content_height(GTK_SCROLLED_WINDOW(pUi->pErrorScroll), 80);
-    gtk_scrolled_window_set_max_content_height(GTK_SCROLLED_WINDOW(pUi->pErrorScroll), 120);
-    gtk_scrolled_window_set_propagate_natural_height(GTK_SCROLLED_WINDOW(pUi->pErrorScroll), TRUE);
-    gtk_widget_set_visible(pUi->pErrorScroll, FALSE);
+    GtkWidget *pText = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
+    gtk_widget_set_valign(pText, GTK_ALIGN_CENTER);
+    gtk_widget_set_hexpand(pText, TRUE);
+    gtk_box_append(GTK_BOX(pText), pTitle);
+    gtk_box_append(GTK_BOX(pText), pStep);
+    gtk_box_append(GTK_BOX(pText), pErrorLabel);
+    gtk_box_append(GTK_BOX(pText), pBar);
 
-    GtkWidget *pBox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
-    gtk_box_append(GTK_BOX(pBox), pBar);
-    gtk_box_append(GTK_BOX(pBox), pUi->pErrorScroll);
-    adw_status_page_set_child(pUi->pPage, pBox);
+    GtkWidget *pRow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 20);
+    gtk_widget_set_margin_start(pRow, 24);
+    gtk_widget_set_margin_end(pRow, 24);
+    gtk_widget_set_margin_top(pRow, 20);
+    gtk_widget_set_margin_bottom(pRow, 4);
+    gtk_widget_set_valign(pRow, GTK_ALIGN_CENTER);
+    gtk_widget_set_vexpand(pRow, TRUE);
+    gtk_box_append(GTK_BOX(pRow), pPicture);
+    gtk_box_append(GTK_BOX(pRow), pText);
 
-    adw_toolbar_view_set_content(ADW_TOOLBAR_VIEW(pView), pPage);
+    GtkWidget *pCancel = gtk_button_new_with_label("Cancel");
+    gtk_widget_set_halign(pCancel, GTK_ALIGN_END);
+    gtk_widget_set_margin_end(pCancel, 18);
+    gtk_widget_set_margin_bottom(pCancel, 14);
+    g_signal_connect_swapped(pCancel, "clicked", G_CALLBACK(gtk_window_close), pWindow);
+
+    GtkWidget *pOuter = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    gtk_box_append(GTK_BOX(pOuter), pRow);
+    gtk_box_append(GTK_BOX(pOuter), pCancel);
+
+    // Without a title bar there is nothing to drag the window by, so the whole surface becomes the drag handle; buttons inside it still receive their clicks.
+    GtkWidget *pHandle = gtk_window_handle_new();
+    gtk_window_handle_set_child(GTK_WINDOW_HANDLE(pHandle), pOuter);
+
+    adw_toolbar_view_set_content(ADW_TOOLBAR_VIEW(pView), pHandle);
+
     adw_application_window_set_content(ADW_APPLICATION_WINDOW(pWindow), pView);
 
     g_timeout_add(100, onTick, pUi);
