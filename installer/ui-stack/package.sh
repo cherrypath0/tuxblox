@@ -145,6 +145,11 @@ writeDevTree() {
     mkdir -p "$devDir/lib/pkgconfig"
     cp -a "$Prefix/include" "$devDir/include"
     cp -a "$StageDir/$LibRel" "$devDir/$LibRel"
+    for arch in "$Prefix/$LibRel"/*/include; do
+        [ -d "$arch" ] || continue
+        mkdir -p "$devDir/$LibRel/$(basename "$(dirname "$arch")")"
+        cp -a "$arch" "$devDir/$LibRel/$(basename "$(dirname "$arch")")/"
+    done
     for pc in "$Prefix/$LibRel"/pkgconfig/*.pc "$Prefix"/lib/pkgconfig/*.pc "$Prefix"/share/pkgconfig/*.pc; do
         [ -e "$pc" ] || continue
         sed "s|$Prefix|\${pcfiledir}/../..|g" "$pc" > "$devDir/lib/pkgconfig/$(basename "$pc")"

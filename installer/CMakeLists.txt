@@ -166,5 +166,46 @@ target_include_directories(TuxBloxInstaller PRIVATE ${CMAKE_BINARY_DIR}/generate
 target_link_libraries(TuxBloxInstaller PRIVATE installer_core imgui ${SDL2_LIBRARIES} OpenGL::GL ${CMAKE_DL_LIBS} Threads::Threads)
 add_dependencies(TuxBloxInstaller generate_logo_header generate_font_header generate_thirdparty_license_headers)
 
+# The interface binary, which lives inside the appended payload rather than
+# beside the installer, so its libraries are found relative to itself.
+if(TUXBLOX_UI_STACK_DEV)
+    # Private requirements only matter to a static link, and would demand every -dev package the stack was built against from this container
+    set(UI_PC_DIR "${CMAKE_BINARY_DIR}/ui-pkgconfig")
+    file(REMOVE_RECURSE "${UI_PC_DIR}")
+    file(MAKE_DIRECTORY "${UI_PC_DIR}")
+    file(GLOB UI_PC_FILES "${TUXBLOX_UI_STACK_DEV}/lib/pkgconfig/*.pc" "${TUXBLOX_UI_STACK_DEV}/lib/x86_64-linux-gnu/pkgconfig/*.pc")
+    foreach(UI_PC_FILE ${UI_PC_FILES})
+        file(STRINGS "${UI_PC_FILE}" UI_PC_LINES)
+        list(FILTER UI_PC_LINES EXCLUDE REGEX "^Requires\\.private:")
+        get_filename_component(UI_PC_NAME "${UI_PC_FILE}" NAME)
+        get_filename_component(UI_PC_ORIGIN "${UI_PC_FILE}" DIRECTORY)
+        string(REPLACE ";" "\n" UI_PC_TEXT "${UI_PC_LINES}")
+        string(REPLACE "\${pcfiledir}" "${UI_PC_ORIGIN}" UI_PC_TEXT "${UI_PC_TEXT}")
+        file(WRITE "${UI_PC_DIR}/${UI_PC_NAME}" "${UI_PC_TEXT}\n")
+    endforeach()
+    set(ENV{PKG_CONFIG_PATH} "${UI_PC_DIR}")
+    pkg_check_modules(ADWAITA REQUIRED libadwaita-1)
+
+    add_executable(TuxBloxInstaller-ui
+        src/ui_main.cpp
+        src/app.cpp
+        src/ui_adw.cpp
+        src/console_ui.cpp
+        src/desktop_shortcut.cpp
+        src/copyright_file.cpp
+    )
+    target_include_directories(TuxBloxInstaller-ui PRIVATE
+        ${CMAKE_BINARY_DIR}/generated ${ADWAITA_INCLUDE_DIRS})
+    target_compile_options(TuxBloxInstaller-ui PRIVATE ${ADWAITA_CFLAGS_OTHER})
+    target_link_libraries(TuxBloxInstaller-ui PRIVATE
+        installer_core ${ADWAITA_LINK_LIBRARIES} ${CMAKE_DL_LIBS} Threads::Threads)
+    # The stack's X11 dependencies are the host's, absent from this container, and are resolved when the binary runs
+    target_link_options(TuxBloxInstaller-ui PRIVATE -Wl,--allow-shlib-undefined)
+    set_target_properties(TuxBloxInstaller-ui PROPERTIES
+        BUILD_WITH_INSTALL_RPATH TRUE
+        INSTALL_RPATH "$ORIGIN/lib/x86_64-linux-gnu:$ORIGIN/lib")
+    add_dependencies(TuxBloxInstaller-ui generate_logo_header generate_thirdparty_license_headers)
+endif()
+
 enable_testing()
 add_subdirectory(tests)
