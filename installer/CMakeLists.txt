@@ -20,6 +20,11 @@ project(TuxBloxInstaller CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# The interface sources shared with the other programs live outside this directory. The build container mounts them and passes the path; a bare host cmake run finds them beside it.
+if(NOT TUXBLOX_UI_SRC)
+    set(TUXBLOX_UI_SRC "${CMAKE_SOURCE_DIR}/../shared/ui/src")
+endif()
+
 if(NOT EXISTS "${CMAKE_SOURCE_DIR}/third_party/json.hpp")
     message(FATAL_ERROR "third_party/json.hpp is missing. Run ./vendor.sh first.")
 endif()
@@ -150,22 +155,7 @@ endif()
 # The interface binary, which lives inside the appended payload rather than
 # beside the installer, so its libraries are found relative to itself.
 if(TUXBLOX_UI_STACK_DEV)
-    # Private requirements only matter to a static link, and would demand every -dev package the stack was built against from this container
-    set(UI_PC_DIR "${CMAKE_BINARY_DIR}/ui-pkgconfig")
-    file(REMOVE_RECURSE "${UI_PC_DIR}")
-    file(MAKE_DIRECTORY "${UI_PC_DIR}")
-    file(GLOB UI_PC_FILES "${TUXBLOX_UI_STACK_DEV}/lib/pkgconfig/*.pc" "${TUXBLOX_UI_STACK_DEV}/lib/x86_64-linux-gnu/pkgconfig/*.pc")
-    foreach(UI_PC_FILE ${UI_PC_FILES})
-        file(STRINGS "${UI_PC_FILE}" UI_PC_LINES)
-        list(FILTER UI_PC_LINES EXCLUDE REGEX "^Requires\\.private:")
-        get_filename_component(UI_PC_NAME "${UI_PC_FILE}" NAME)
-        get_filename_component(UI_PC_ORIGIN "${UI_PC_FILE}" DIRECTORY)
-        string(REPLACE ";" "\n" UI_PC_TEXT "${UI_PC_LINES}")
-        string(REPLACE "\${pcfiledir}" "${UI_PC_ORIGIN}" UI_PC_TEXT "${UI_PC_TEXT}")
-        file(WRITE "${UI_PC_DIR}/${UI_PC_NAME}" "${UI_PC_TEXT}\n")
-    endforeach()
-    set(ENV{PKG_CONFIG_PATH} "${UI_PC_DIR}")
-    pkg_check_modules(ADWAITA REQUIRED libadwaita-1)
+    include(${TUXBLOX_UI_SRC}/UiStack.cmake)
 
     add_executable(TuxBloxInstaller-ui
         src/ui_main.cpp
@@ -174,9 +164,11 @@ if(TUXBLOX_UI_STACK_DEV)
         src/console_ui.cpp
         src/desktop_shortcut.cpp
         src/copyright_file.cpp
+        ${TUXBLOX_UI_SRC}/adw_env.cpp
+        ${TUXBLOX_UI_SRC}/adw_look.cpp
     )
     target_include_directories(TuxBloxInstaller-ui PRIVATE
-        ${CMAKE_BINARY_DIR}/generated ${ADWAITA_INCLUDE_DIRS})
+        ${CMAKE_BINARY_DIR}/generated ${TUXBLOX_UI_SRC} ${ADWAITA_INCLUDE_DIRS})
     target_compile_options(TuxBloxInstaller-ui PRIVATE ${ADWAITA_CFLAGS_OTHER})
     target_link_libraries(TuxBloxInstaller-ui PRIVATE
         installer_core ${ADWAITA_LINK_LIBRARIES} ${CMAKE_DL_LIBS} Threads::Threads)

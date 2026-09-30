@@ -13,6 +13,7 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
+#include "adw_env.h"
 #include "app.h"
 #include "cli.h"
 #include "ui_adw.h"
@@ -26,50 +27,14 @@
 
 namespace {
 
-// What FONTCONFIG_FILE held when the process started, so the launcher and everything after it can be given the same environment the installer got.
-bool HadFontConfigFile = false;
-std::string OriginalFontConfigFile;
-
-// What GSETTINGS_SCHEMA_DIR held when the process started, restored for the same reason as FONTCONFIG_FILE.
-bool HadSchemaDir = false;
-std::string OriginalSchemaDir;
-
-// Fontconfig has no configuration of its own here, so without this the bundled fonts next to the binary are never scanned on a machine that lacks /etc/fonts.
-void useBundledEnvironment() {
-    const char *pOriginal = getenv("FONTCONFIG_FILE");
-    HadFontConfigFile = pOriginal != nullptr;
-    if (pOriginal) OriginalFontConfigFile = pOriginal;
-
-    const char *pOriginalSchemas = getenv("GSETTINGS_SCHEMA_DIR");
-    HadSchemaDir = pOriginalSchemas != nullptr;
-    if (pOriginalSchemas) OriginalSchemaDir = pOriginalSchemas;
-
+// The interface binary sits inside the unpacked stack, so its own folder is the stack's root.
+std::string selfDirectory() {
     char path[PATH_MAX];
     const ssize_t length = readlink("/proc/self/exe", path, sizeof(path) - 1);
-    if (length <= 0) return;
+    if (length <= 0) return "";
     path[length] = '\0';
-
-    std::string config = path;
-    config = config.substr(0, config.rfind('/')) + "/fonts/fonts.conf";
-    if (access(config.c_str(), R_OK) == 0) setenv("FONTCONFIG_FILE", config.c_str(), 1);
-
-    // GLib otherwise looks under the prefix the stack was built for, finds no schemas and settings such as the colour scheme silently stop working.
-    const std::string schemas = std::string(path).substr(0, std::string(path).rfind('/')) + "/share/glib-2.0/schemas";
-    if (access((schemas + "/gschemas.compiled").c_str(), R_OK) == 0) setenv("GSETTINGS_SCHEMA_DIR", schemas.c_str(), 1);
-}
-
-// The setting is only for this window; the launcher, Wine and Roblox must not inherit a path into a cache folder that is later pruned.
-void restoreBundledEnvironment() {
-    if (HadFontConfigFile) {
-        setenv("FONTCONFIG_FILE", OriginalFontConfigFile.c_str(), 1);
-    } else {
-        unsetenv("FONTCONFIG_FILE");
-    }
-    if (HadSchemaDir) {
-        setenv("GSETTINGS_SCHEMA_DIR", OriginalSchemaDir.c_str(), 1);
-    } else {
-        unsetenv("GSETTINGS_SCHEMA_DIR");
-    }
+    const std::string self = path;
+    return self.substr(0, self.rfind('/'));
 }
 
 } // namespace
@@ -77,7 +42,7 @@ void restoreBundledEnvironment() {
 int main(int argc, char **argv) {
     using namespace tuxblox;
 
-    useBundledEnvironment();
+    useBundledEnvironment(selfDirectory());
 
     // Passed by the outer binary after it has already done the removal, purely so the result can be shown in a window.
     if (argc == 2 && std::string(argv[1]) == "--uninstall-result-ok") return runAdwUninstallResult(true);

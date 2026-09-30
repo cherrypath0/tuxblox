@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 #include "ui_adw.h"
+#include "adw_look.h"
 #include <cstdio>
 #include <string>
 #include "tuxblox_logo_png.h"
@@ -40,20 +41,6 @@ struct ResultUi {
     bool ok = false;
     GtkWindow *pWindow = nullptr;
 };
-
-// Dark as the previous interface was, and the bundled font so it looks the same on every desktop instead of inheriting the host's.
-void applyLook() {
-    adw_style_manager_set_color_scheme(adw_style_manager_get_default(), ADW_COLOR_SCHEME_PREFER_DARK);
-    g_object_set(gtk_settings_get_default(), "gtk-font-name", "Adwaita Sans 11", nullptr);
-}
-
-// The logo is the status page's image, which is also what keeps this free of any icon theme: adwaita-icon-theme is a separate package and its symbolic icons are SVG, which would need librsvg.
-GdkPaintable *logoPaintable() {
-    GBytes *pBytes = g_bytes_new_static(kTuxbloxLogoPng, kTuxbloxLogoPngLen);
-    GdkTexture *pTexture = gdk_texture_new_from_bytes(pBytes, nullptr);
-    g_bytes_unref(pBytes);
-    return GDK_PAINTABLE(pTexture);
-}
 
 // Polled rather than signalled because App already owns a background thread and exposes a mutex-guarded snapshot, exactly as the launcher's own window does.
 gboolean onTick(gpointer data) {
@@ -95,7 +82,7 @@ void onActivate(GtkApplication *pGtkApp, gpointer data) {
     GtkWidget *pView = adw_toolbar_view_new();
 
 
-    GdkPaintable *pLogo = logoPaintable();
+    GdkPaintable *pLogo = logoPaintable(kTuxbloxLogoPng, kTuxbloxLogoPngLen);
     // GtkImage rather than GtkPicture: a picture grows to its paintable's natural size, which is the 440px logo, and a size request is only a minimum.
     GtkWidget *pPicture = gtk_image_new_from_paintable(pLogo);
     g_object_unref(pLogo);

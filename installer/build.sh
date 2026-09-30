@@ -111,12 +111,13 @@ fi
 UiStackArg=""
 UiStackMount=()
 UiStackDev="$(pwd)/../shared/ui/dist/dev"
+UiSrc="$(pwd)/../shared/ui/src"
 if [[ -d "$UiStackDev" ]]; then
-    UiStackArg="-DTUXBLOX_UI_STACK_DEV=/ui-dev"
-    UiStackMount=(-v "$(cd "$UiStackDev" && pwd):/ui-dev:ro")
+    UiStackArg="-DTUXBLOX_UI_STACK_DEV=/ui-dev -DTUXBLOX_UI_SRC=/ui-src"
+    UiStackMount=(-v "$(cd "$UiStackDev" && pwd):/ui-dev:ro" -v "$(cd "$UiSrc" && pwd):/ui-src:ro")
 fi
 
-# The notice names the libadwaita commit the interface was built from, because TuxBlox ships a modified fork and a recipient has to be able to fetch that exact source. git is not usable inside the container, so it is read here. A build with no interface carries no libadwaita, so it names none.
+# The notice names the libadwaita commit the interface was built from, because TuxBlox ships a modified fork and a recipient has to be able to fetch that exact source. git is not usable inside the container, so it is read here. Every release installs the stack, so even a headless installer names it; it names none only when there is no stack to name.
 # The empty default is deliberate: CMake caches the variable, so a build without an interface must clear a commit left by an earlier one.
 LibadwaitaArg="-DTUXBLOX_LIBADWAITA_COMMIT="
 source "$(pwd)/../shared/ui/libadwaita-commit.sh"
