@@ -4,7 +4,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential cmake pkg-config git curl ca-certificates \
-    libsdl2-dev libcurl4-openssl-dev libarchive-dev libssl-dev \
+    libsdl2-dev libxdamage-dev libcurl4-openssl-dev libarchive-dev libssl-dev \
     librsvg2-bin libgl1-mesa-dev \
     libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
     libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xkb1 \

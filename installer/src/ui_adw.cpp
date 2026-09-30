@@ -27,6 +27,8 @@ struct InstallUi {
     App *pApp = nullptr;
     AdwStatusPage *pPage = nullptr;
     GtkProgressBar *pBar = nullptr;
+    GtkWidget *pErrorScroll = nullptr;
+    GtkLabel *pErrorLabel = nullptr;
     GtkWindow *pWindow = nullptr;
     int result = 2;
 };
@@ -61,7 +63,9 @@ gboolean onTick(gpointer data) {
 
     if (snap.phase == AppPhase::Error) {
         adw_status_page_set_title(pUi->pPage, "TuxBlox could not be installed");
-        adw_status_page_set_description(pUi->pPage, snap.errorMessage.c_str());
+        adw_status_page_set_description(pUi->pPage, nullptr);
+        gtk_label_set_text(pUi->pErrorLabel, snap.errorMessage.c_str());
+        gtk_widget_set_visible(pUi->pErrorScroll, TRUE);
         gtk_widget_set_visible(GTK_WIDGET(pUi->pBar), FALSE);
         pUi->result = 1;
         return G_SOURCE_REMOVE;
@@ -81,8 +85,7 @@ void onActivate(GtkApplication *pGtkApp, gpointer data) {
     GtkWidget *pWindow = adw_application_window_new(pGtkApp);
     pUi->pWindow = GTK_WINDOW(pWindow);
     gtk_window_set_title(pUi->pWindow, "TuxBlox Installer");
-    gtk_window_set_default_size(pUi->pWindow, 480, 360);
-    gtk_window_set_resizable(pUi->pWindow, FALSE);
+    gtk_window_set_default_size(pUi->pWindow, 480, 460);
 
     GtkWidget *pView = adw_toolbar_view_new();
     adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(pView), adw_header_bar_new());
@@ -98,7 +101,29 @@ void onActivate(GtkApplication *pGtkApp, gpointer data) {
     pUi->pBar = GTK_PROGRESS_BAR(pBar);
     gtk_widget_set_margin_start(pBar, 24);
     gtk_widget_set_margin_end(pBar, 24);
-    adw_status_page_set_child(pUi->pPage, pBar);
+
+    // The error text is arbitrary (network failures, long paths), so it scrolls and can be selected and copied into a bug report.
+    GtkWidget *pErrorLabel = gtk_label_new(nullptr);
+    pUi->pErrorLabel = GTK_LABEL(pErrorLabel);
+    gtk_label_set_wrap(pUi->pErrorLabel, TRUE);
+    gtk_label_set_wrap_mode(pUi->pErrorLabel, PANGO_WRAP_WORD_CHAR);
+    gtk_label_set_selectable(pUi->pErrorLabel, TRUE);
+    gtk_label_set_xalign(pUi->pErrorLabel, 0.0);
+    gtk_widget_set_margin_start(pErrorLabel, 12);
+    gtk_widget_set_margin_end(pErrorLabel, 12);
+
+    pUi->pErrorScroll = gtk_scrolled_window_new();
+    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(pUi->pErrorScroll), pErrorLabel);
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(pUi->pErrorScroll), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+    gtk_scrolled_window_set_min_content_height(GTK_SCROLLED_WINDOW(pUi->pErrorScroll), 80);
+    gtk_scrolled_window_set_max_content_height(GTK_SCROLLED_WINDOW(pUi->pErrorScroll), 120);
+    gtk_scrolled_window_set_propagate_natural_height(GTK_SCROLLED_WINDOW(pUi->pErrorScroll), TRUE);
+    gtk_widget_set_visible(pUi->pErrorScroll, FALSE);
+
+    GtkWidget *pBox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    gtk_box_append(GTK_BOX(pBox), pBar);
+    gtk_box_append(GTK_BOX(pBox), pUi->pErrorScroll);
+    adw_status_page_set_child(pUi->pPage, pBox);
 
     adw_toolbar_view_set_content(ADW_TOOLBAR_VIEW(pView), pPage);
     adw_application_window_set_content(ADW_APPLICATION_WINDOW(pWindow), pView);

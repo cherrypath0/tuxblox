@@ -18,12 +18,32 @@
 #include "ui_adw.h"
 #include "version.h"
 
+#include <climits>
 #include <cstdio>
+#include <cstdlib>
 #include <string>
 #include <unistd.h>
 
+namespace {
+
+// Fontconfig has no configuration of its own here, so without this the bundled fonts next to the binary are never scanned on a machine that lacks /etc/fonts.
+void useBundledFonts() {
+    char path[PATH_MAX];
+    const ssize_t length = readlink("/proc/self/exe", path, sizeof(path) - 1);
+    if (length <= 0) return;
+    path[length] = '\0';
+
+    std::string config = path;
+    config = config.substr(0, config.rfind('/')) + "/fonts/fonts.conf";
+    if (access(config.c_str(), R_OK) == 0) setenv("FONTCONFIG_FILE", config.c_str(), 1);
+}
+
+} // namespace
+
 int main(int argc, char **argv) {
     using namespace tuxblox;
+
+    useBundledFonts();
 
     // Passed by the outer binary after it has already done the removal, purely so the result can be shown in a window.
     if (argc == 2 && std::string(argv[1]) == "--uninstall-result-ok") return runAdwUninstallResult(true);

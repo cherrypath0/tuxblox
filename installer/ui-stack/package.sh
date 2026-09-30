@@ -59,6 +59,16 @@ stageRuntime() {
     rm -rf "$StageDir/$LibRel/pkgconfig" "$StageDir/$LibRel/glib-2.0/include" "$StageDir/$LibRel/gdk-pixbuf-2.0"
     rm -f "$StageDir/$LibRel"/libgirepository-2.0.so* "$StageDir/$LibRel"/libxkbregistry.so*
     cp -a "$Prefix/fonts/." "$StageDir/fonts/"
+    # Relative to this file, so the bundled fonts are found wherever the payload is unpacked; the host's own configuration is only added for fallback fonts
+    cat > "$StageDir/fonts/fonts.conf" <<'FONTS'
+<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">
+<fontconfig>
+    <dir prefix="relative">.</dir>
+    <cachedir prefix="xdg">tuxblox/fontconfig</cachedir>
+    <include ignore_missing="yes">/etc/fonts/fonts.conf</include>
+</fontconfig>
+FONTS
     cp -a "$Prefix/share/glib-2.0/schemas" "$StageDir/share/glib-2.0/schemas"
     glib-compile-schemas "$StageDir/share/glib-2.0/schemas"
     find "$StageDir" \( -name '*.a' -o -name '*.la' \) -delete

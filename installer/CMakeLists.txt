@@ -199,8 +199,6 @@ if(TUXBLOX_UI_STACK_DEV)
     target_compile_options(TuxBloxInstaller-ui PRIVATE ${ADWAITA_CFLAGS_OTHER})
     target_link_libraries(TuxBloxInstaller-ui PRIVATE
         installer_core ${ADWAITA_LINK_LIBRARIES} ${CMAKE_DL_LIBS} Threads::Threads)
-    # The stack's X11 dependencies are the host's, absent from this container, and are resolved when the binary runs
-    target_link_options(TuxBloxInstaller-ui PRIVATE -Wl,--allow-shlib-undefined)
     set_target_properties(TuxBloxInstaller-ui PROPERTIES
         BUILD_WITH_INSTALL_RPATH TRUE
         INSTALL_RPATH "$ORIGIN/lib/x86_64-linux-gnu:$ORIGIN/lib")
