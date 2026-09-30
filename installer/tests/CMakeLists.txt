@@ -90,3 +90,7 @@ add_test(NAME ui_payload COMMAND test_ui_payload)
 add_executable(test_ui_cache test_ui_cache.cpp)
 target_link_libraries(test_ui_cache PRIVATE installer_core)
 add_test(NAME ui_cache COMMAND test_ui_cache)
+
+add_executable(test_ui_extract test_ui_extract.cpp)
+target_link_libraries(test_ui_extract PRIVATE installer_core)
+add_test(NAME ui_extract COMMAND test_ui_extract)

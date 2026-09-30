@@ -65,6 +65,7 @@ add_library(installer_core STATIC
     src/checksum.cpp
     src/ui_payload.cpp
     src/ui_cache.cpp
+    src/ui_extract.cpp
     src/install_paths.cpp
     src/progress.cpp
     src/installer_steps.cpp

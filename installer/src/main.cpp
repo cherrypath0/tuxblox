@@ -18,32 +18,64 @@
 #include "cli.h"
 #include "install_paths.h"
 #include "console_ui.h"
-#include "ui.h"
+#include "ui_cache.h"
+#include "ui_extract.h"
 #include "uninstall.h"
 #include "version.h"
-#include <SDL.h>
+#include <cerrno>
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <string>
 #include <system_error>
+#include <vector>
+#include <sys/wait.h>
 #include <unistd.h>
 
 namespace {
-// Without --headless this is a windowed, double-clickable app -- there is no
-// terminal to read stderr from, so failures have to surface as a native
-// message box.
-constexpr const char* kErrorTitle =
-    "TuxBlox Installer has encountered an error and has to quit!";
+// Without --headless the interface is a window, and a window has no terminal to read failures from, so a missing graphical session is named up front.
+bool hasGraphicalSession() {
+    const char* display = getenv("DISPLAY");
+    const char* wayland = getenv("WAYLAND_DISPLAY");
+    return (display && *display) || (wayland && *wayland);
+}
 
-// Reports a fatal error the way the current mode can actually be seen in:
-// stderr under --headless (where SDL is never initialized at all, so the
-// installer runs with no display), a message box otherwise.
-void reportError(bool headless, const std::string& details) {
-    if (headless) {
-        fprintf(stderr, "Error: %s\n", details.c_str());
+void reportError(const std::string& details) {
+    fprintf(stderr, "Error: %s\n", details.c_str());
+}
+
+void printUninstallResult(bool ok, const char* failureText) {
+    if (ok) {
+        printf("TuxBlox has been completely removed from this system.\n");
     } else {
-        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, kErrorTitle,
-            ("Details: " + details).c_str(), nullptr);
+        fprintf(stderr, "Error: %s\n", failureText);
+    }
+}
+
+// Runs the finished-uninstall dialog and waits for it, because this process has to outlive the dialog to delete the folder the dialog is running from.
+void showUninstallResult(bool ok, const char* failureText) {
+    if (!hasGraphicalSession()) {
+        printUninstallResult(ok, failureText);
+        return;
+    }
+    const tuxblox::UiStackResult stack = tuxblox::ensureUiStack(tuxblox::selfExePath(), tuxblox::kTuxBloxVersion);
+    if (!stack.ok) {
+        printUninstallResult(ok, failureText);
+        return;
+    }
+    const char* flag = ok ? "--uninstall-result-ok" : "--uninstall-result-failed";
+    const pid_t child = fork();
+    if (child == 0) {
+        execl(stack.uiBinaryPath.c_str(), stack.uiBinaryPath.c_str(), flag, static_cast<char*>(nullptr));
+        _exit(127);
+    }
+    if (child > 0) {
+        int status = 0;
+        waitpid(child, &status, 0);
+        if (WIFEXITED(status) && WEXITSTATUS(status) == 127) {
+            printUninstallResult(ok, failureText);
+        }
     }
 }
 } // namespace
@@ -80,11 +112,11 @@ int main(int argc, char** argv) {
         std::error_code ec;
         const std::filesystem::path path(options.dir);
         if (std::filesystem::exists(path, ec) && !std::filesystem::is_directory(path, ec)) {
-            reportError(options.headless, "--dir names a file, not a folder: " + options.dir);
+            reportError("--dir names a file, not a folder: " + options.dir);
             return 2;
         }
         if (!std::filesystem::exists(path.parent_path(), ec)) {
-            reportError(options.headless, "--dir's parent folder does not exist: " + options.dir);
+            reportError("--dir's parent folder does not exist: " + options.dir);
             return 2;
         }
     }
@@ -97,20 +129,17 @@ int main(int argc, char** argv) {
             "Desktop shortcuts and URL handlers were removed, but the TuxBlox folder could "
             "not be fully deleted. You may need to remove it manually.";
         if (options.headless) {
-            if (ok) {
-                printf("TuxBlox has been completely removed from this system.\n");
-            } else {
-                fprintf(stderr, "Error: %s\n", failureText);
-            }
-        } else if (SDL_Init(SDL_INIT_VIDEO) == 0) {
-            if (ok) {
-                SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, "TuxBlox Uninstalled",
-                    "TuxBlox has been completely removed from this system.", nullptr);
-            } else {
-                SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "TuxBlox Error", failureText,
-                    nullptr);
-            }
-            SDL_Quit();
+            printUninstallResult(ok, failureText);
+        } else {
+            showUninstallResult(ok, failureText);
+        }
+
+        // Last, and from this process rather than one living inside it: the interface was unpacked here, and the folder goes with the install.
+        try {
+            std::error_code cacheEc;
+            std::filesystem::remove_all(uiCacheRoot(), cacheEc);
+        } catch (const std::exception&) {
+            // Nowhere to unpack to means nothing was ever unpacked, so there is nothing to remove.
         }
         return ok ? 0 : 1;
     }
@@ -124,27 +153,33 @@ int main(int argc, char** argv) {
             return 1;
         }
     } else {
-        Ui ui;
-        if (!ui.init()) {
-            reportError(false, "Failed to initialize installer UI (SDL2/OpenGL)");
+        if (!hasGraphicalSession()) {
+            reportError("There is no graphical session to show the installer in. Run this installer from your desktop, or use --headless to install from the terminal.");
             app.cancel();
             return 1;
         }
-
-        bool running = true;
-        while (running) {
-            running = ui.renderFrame(app);
-            if (app.readyToLaunch()) {
-                break;
+        const UiStackResult stack = ensureUiStack(selfExePath(), kTuxBloxVersion);
+        if (!stack.ok) {
+            app.cancel();
+            reportError(stack.errorMessage);
+            if (!stack.errorDetail.empty()) {
+                fprintf(stderr, "Details: %s\n", stack.errorDetail.c_str());
             }
+            return 1;
         }
-
-        ui.shutdown();
-
-        if (!app.readyToLaunch()) {
-            app.cancel(); // ensure the background thread unblocks if the window was closed early
-            return 0;
+        // The interface runs the install itself, so this process's own pipeline stops here.
+        app.cancel();
+        std::vector<char*> args;
+        args.push_back(const_cast<char*>(stack.uiBinaryPath.c_str()));
+        for (int i = 1; i < argc; ++i) {
+            args.push_back(argv[i]);
         }
+        args.push_back(nullptr);
+        execv(stack.uiBinaryPath.c_str(), args.data());
+        const int execError = errno;
+        reportError("TuxBlox unpacked its interface but could not start it. This usually means the folder it was unpacked into does not allow programs to run. Try running this installer with --headless.");
+        fprintf(stderr, "Details: %s: %s\n", stack.uiBinaryPath.c_str(), strerror(execError));
+        return 1;
     }
 
     const std::string launcher = app.launcherPath();
@@ -164,7 +199,7 @@ int main(int argc, char** argv) {
     }
     // Only reached if execl() failed -- the install itself already succeeded,
     // so say so rather than letting the window just vanish.
-    reportError(options.headless,
+    reportError(
         "TuxBlox was installed successfully, but failed to launch " + launcher +
         ". You can try running it manually.");
     return 1;
