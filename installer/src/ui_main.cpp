@@ -26,8 +26,16 @@
 
 namespace {
 
+// What FONTCONFIG_FILE held when the process started, so the launcher and everything after it can be given the same environment the installer got.
+bool HadFontConfigFile = false;
+std::string OriginalFontConfigFile;
+
 // Fontconfig has no configuration of its own here, so without this the bundled fonts next to the binary are never scanned on a machine that lacks /etc/fonts.
 void useBundledFonts() {
+    const char *pOriginal = getenv("FONTCONFIG_FILE");
+    HadFontConfigFile = pOriginal != nullptr;
+    if (pOriginal) OriginalFontConfigFile = pOriginal;
+
     char path[PATH_MAX];
     const ssize_t length = readlink("/proc/self/exe", path, sizeof(path) - 1);
     if (length <= 0) return;
@@ -36,6 +44,15 @@ void useBundledFonts() {
     std::string config = path;
     config = config.substr(0, config.rfind('/')) + "/fonts/fonts.conf";
     if (access(config.c_str(), R_OK) == 0) setenv("FONTCONFIG_FILE", config.c_str(), 1);
+}
+
+// The setting is only for this window; the launcher, Wine and Roblox must not inherit a path into a cache folder that is later pruned.
+void restoreFontConfigEnvironment() {
+    if (HadFontConfigFile) {
+        setenv("FONTCONFIG_FILE", OriginalFontConfigFile.c_str(), 1);
+    } else {
+        unsetenv("FONTCONFIG_FILE");
+    }
 }
 
 } // namespace
@@ -74,6 +91,7 @@ int main(int argc, char **argv) {
     if (options.noLaunch) return 0;
 
     const std::string launcher = app.launcherPath();
+    restoreFontConfigEnvironment();
     if (options.allowRoot) {
         execl(launcher.c_str(), launcher.c_str(), "--allow-root", (char *)nullptr);
     } else {
