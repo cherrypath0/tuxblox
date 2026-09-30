@@ -116,12 +116,27 @@ podman run --rm --userns=keep-id -e JOBS="$JOBS" -e UI_STACK_ARG="$UiStackArg" \
     -e TUXBLOX_CHANNEL="${TUXBLOX_CHANNEL:-}" -v "$(pwd):/src:Z" "${UiStackMount[@]}" -w /src tuxblox-old-glibc-builder \
     bash -c 'cmake -B build -S . -DCMAKE_BUILD_TYPE=Release ${UI_STACK_ARG:-} && cmake --build build -j"$JOBS"'
 
-StackTarballs=("$(pwd)"/../shared/ui/dist/ui-stack-*.tar.zst)
-if [[ -f build/TuxBloxInstaller-ui && -f "${StackTarballs[0]}" ]]; then
+if [[ -n "${TUXBLOX_HEADLESS_ONLY:-}" ]]; then
+    echo ":: TUXBLOX_HEADLESS_ONLY set, building an installer with no graphical interface"
+else
+    shopt -s nullglob
+    StackTarballs=("$(pwd)"/../shared/ui/dist/ui-stack-*.tar.zst)
+    shopt -u nullglob
+    if [[ ! -f build/TuxBloxInstaller-ui ]]; then
+        echo "!! The interface binary build/TuxBloxInstaller-ui was not built: shared/ui/dist/dev is missing. Run shared/ui/build.sh first, or set TUXBLOX_HEADLESS_ONLY=1 for an installer with no interface." >&2
+        exit 1
+    fi
+    if [[ ${#StackTarballs[@]} -eq 0 ]]; then
+        echo "!! No interface stack tarball in shared/ui/dist/. Run shared/ui/build.sh first, or set TUXBLOX_HEADLESS_ONLY=1 for an installer with no interface." >&2
+        exit 1
+    fi
+    if [[ ${#StackTarballs[@]} -gt 1 ]]; then
+        printf '!! More than one interface stack tarball in shared/ui/dist/, remove all but one:\n' >&2
+        printf '   %s\n' "${StackTarballs[@]}" >&2
+        exit 1
+    fi
     echo ":: Appending the interface to the installer"
     ./append-payload.sh build/TuxBloxInstaller "${StackTarballs[0]}" build/TuxBloxInstaller-ui build/TuxBloxInstaller
-else
-    echo ":: No interface built, the installer stays headless-only"
 fi
 
 # Also stage the finished binary at the repo-root build/ directory -- the same

@@ -43,7 +43,7 @@ Payload="$Staging.tar.zst"
 Combined="$Out.partial"
 trap 'rm -rf "$Staging" "$Payload" "$Combined"' EXIT
 
-tar --sort=name --owner=0 --group=0 --numeric-owner -C "$Staging" -cf - . | zstd -19 -T0 -q --force -o "$Payload"
+tar --sort=name --mtime="@${SOURCE_DATE_EPOCH:-0}" --owner=0 --group=0 --numeric-owner -C "$Staging" -cf - . | zstd -19 -T0 -q --force -o "$Payload"
 
 # Writes the outer binary without any payload already on it, then the payload and its trailer. Prints nothing.
 python3 - "$Outer" "$Payload" "$Combined" <<'PY'
@@ -54,8 +54,13 @@ magic = b"TUXBLOXUI\0"
 trailerSize = 62
 
 outer = open(outerPath, "rb").read()
-if len(outer) >= trailerSize and outer[-trailerSize:-trailerSize + len(magic)] == magic:
-    outer = outer[:struct.unpack("<Q", outer[-trailerSize + 14:-trailerSize + 22])[0]]
+if outer[-trailerSize:-trailerSize + len(magic)] == magic:
+    fmt, = struct.unpack("<I", outer[-trailerSize + 10:-trailerSize + 14])
+    off, size = struct.unpack("<QQ", outer[-trailerSize + 14:-trailerSize + 30])
+    digest = outer[-32:]
+    if fmt != 1 or off + size != len(outer) - trailerSize or hashlib.sha256(outer[off:off + size]).digest() != digest:
+        sys.exit("!! " + outerPath + " carries an interface trailer but is not a valid packed installer, refusing to guess")
+    outer = outer[:off]
 
 payload = open(payloadPath, "rb").read()
 trailer = magic + struct.pack("<I", 1) + struct.pack("<Q", len(outer)) + struct.pack("<Q", len(payload)) + hashlib.sha256(payload).digest()
