@@ -145,7 +145,9 @@ checkSymbolVersions() {
 writeTarball() {
     printf ':: Writing %s\n' "$Tarball"
     mkdir -p "$OutDir"
-    tar -C "$StageDir" -cf - lib share fonts | zstd -19 -T0 -q -o "$OutDir/$Tarball" -f
+    # The commit rides inside the tarball so the copyright notice names the libadwaita that was actually built, however old the tarball is
+    printf '%s\n' "${LIBADWAITA_COMMIT:?build.sh passes the full submodule commit}" > "$StageDir/LIBADWAITA_COMMIT"
+    tar -C "$StageDir" -cf - lib share fonts LIBADWAITA_COMMIT | zstd -19 -T0 -q -o "$OutDir/$Tarball" -f
 }
 
 writeDevTree() {

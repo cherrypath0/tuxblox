@@ -40,6 +40,10 @@ void useBundledEnvironment() {
     HadFontConfigFile = pOriginal != nullptr;
     if (pOriginal) OriginalFontConfigFile = pOriginal;
 
+    const char *pOriginalSchemas = getenv("GSETTINGS_SCHEMA_DIR");
+    HadSchemaDir = pOriginalSchemas != nullptr;
+    if (pOriginalSchemas) OriginalSchemaDir = pOriginalSchemas;
+
     char path[PATH_MAX];
     const ssize_t length = readlink("/proc/self/exe", path, sizeof(path) - 1);
     if (length <= 0) return;
@@ -48,10 +52,6 @@ void useBundledEnvironment() {
     std::string config = path;
     config = config.substr(0, config.rfind('/')) + "/fonts/fonts.conf";
     if (access(config.c_str(), R_OK) == 0) setenv("FONTCONFIG_FILE", config.c_str(), 1);
-
-    const char *pOriginalSchemas = getenv("GSETTINGS_SCHEMA_DIR");
-    HadSchemaDir = pOriginalSchemas != nullptr;
-    if (pOriginalSchemas) OriginalSchemaDir = pOriginalSchemas;
 
     // GLib otherwise looks under the prefix the stack was built for, finds no schemas and settings such as the colour scheme silently stop working.
     const std::string schemas = std::string(path).substr(0, std::string(path).rfind('/')) + "/share/glib-2.0/schemas";
@@ -96,6 +96,17 @@ int main(int argc, char **argv) {
     if (options.version) {
         printf("%s-%s\n", kTuxBloxVersion, kTuxBloxChannel);
         return 0;
+    }
+
+    if (geteuid() == 0) {
+        if (!options.allowRoot) {
+            fprintf(stderr, "TuxBlox: refusing to run as root. Re-run as a normal user, or pass "
+                            "--allow-root if you have a specific reason.\n");
+            return 1;
+        }
+        printf("WARNING: The current user is root, it is highly recommended to launch TuxBlox as "
+               "a normal user unless there is a specific reason why\n");
+        fflush(stdout);
     }
 
     App app(options.channel, options.latest, options.dir);

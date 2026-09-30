@@ -33,6 +33,11 @@ if [ -n "$(git -C "$StackDir/libadwaita" status --porcelain)" ]; then
     LibadwaitaSource="$LibadwaitaSource-dirty"
 fi
 
+LibadwaitaCommit="$(git -C "$StackDir/libadwaita" rev-parse HEAD)"
+if [ -n "$(git -C "$StackDir/libadwaita" status --porcelain)" ]; then
+    LibadwaitaCommit="$LibadwaitaCommit-dirty"
+fi
+
 mkdir -p "$DistDir/prefix" "$DistDir/work" "$DistDir/out"
 
 printf ':: Building the builder image\n'
@@ -53,6 +58,7 @@ podman run --rm --userns=keep-id \
     -v "$DistDir/prefix:/opt/tuxblox-ui:ro" \
     -v "$DistDir/out:/out" \
     -e LIBADWAITA_SOURCE="$LibadwaitaSource" \
+    -e LIBADWAITA_COMMIT="$LibadwaitaCommit" \
     "$ImageTag" bash /src/package.sh
 
 rm -rf "$DistDir/dev"

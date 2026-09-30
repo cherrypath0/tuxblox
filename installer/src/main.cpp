@@ -47,8 +47,66 @@ bool hasGraphicalSession() {
     return runtimeDir && *runtimeDir && std::filesystem::exists(std::filesystem::path(runtimeDir) / "wayland-0", ec);
 }
 
+bool commandExists(const char* name) {
+    const char* path = getenv("PATH");
+    if (!path) {
+        return false;
+    }
+    std::string rest = path;
+    size_t start = 0;
+    while (start <= rest.size()) {
+        const size_t end = rest.find(':', start);
+        const std::string dir = rest.substr(start, end == std::string::npos ? std::string::npos : end - start);
+        if (!dir.empty() && access((dir + "/" + name).c_str(), X_OK) == 0) {
+            return true;
+        }
+        if (end == std::string::npos) {
+            break;
+        }
+        start = end + 1;
+    }
+    return false;
+}
+
+// Best effort: a double-clicked installer has no terminal, so the notice goes to whichever small dialog tool the desktop happens to have. Never required, never waited on for long.
+void showGraphicalNotice(const std::string& details) {
+    const char* const tools[] = {"zenity", "kdialog", "xmessage"};
+    for (const char* tool : tools) {
+        if (!commandExists(tool)) {
+            continue;
+        }
+        // Decided before the fork, because this process has threads and the child must do nothing but exec.
+        const int kind = tool == tools[0] ? 0 : tool == tools[1] ? 1 : 2;
+        const char* text = details.c_str();
+        const pid_t child = fork();
+        if (child == 0) {
+            if (kind == 0) {
+                execlp(tool, tool, "--error", "--title", "TuxBlox Installer", "--text", text, static_cast<char*>(nullptr));
+            } else if (kind == 1) {
+                execlp(tool, tool, "--title", "TuxBlox Installer", "--error", text, static_cast<char*>(nullptr));
+            } else {
+                execlp(tool, tool, "-center", text, static_cast<char*>(nullptr));
+            }
+            _exit(127);
+        }
+        if (child < 0) {
+            continue;
+        }
+        int status = 0;
+        waitpid(child, &status, 0);
+        if (WIFEXITED(status) && WEXITSTATUS(status) != 127) {
+            return;
+        }
+    }
+}
+
+bool HeadlessRun = false;
+
 void reportError(const std::string& details) {
     fprintf(stderr, "Error: %s\n", details.c_str());
+    if (!HeadlessRun && hasGraphicalSession()) {
+        showGraphicalNotice(details);
+    }
 }
 
 void printUninstallResult(bool ok, const char* failureText) {
@@ -110,6 +168,8 @@ int main(int argc, char** argv) {
                "a normal user unless there is a specific reason why\n");
         fflush(stdout);
     }
+
+    HeadlessRun = options.headless;
 
     if (!options.dir.empty()) {
         std::error_code ec;
@@ -181,10 +241,16 @@ int main(int argc, char** argv) {
         }
         // The interface runs the install itself, so this process's own pipeline stops here.
         app.cancel();
+        // The interface lives in the cache folder, which never holds an install, so the root this process resolved is handed over rather than left for it to guess.
+        const std::string resolvedDir = options.dir.empty() ? installDir() : std::string();
         std::vector<char*> args;
         args.push_back(const_cast<char*>(stack.uiBinaryPath.c_str()));
         for (int i = 1; i < argc; ++i) {
             args.push_back(argv[i]);
+        }
+        if (!resolvedDir.empty()) {
+            args.push_back(const_cast<char*>("--dir"));
+            args.push_back(const_cast<char*>(resolvedDir.c_str()));
         }
         args.push_back(nullptr);
         execv(stack.uiBinaryPath.c_str(), args.data());

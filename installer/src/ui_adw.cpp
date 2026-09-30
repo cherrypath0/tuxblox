@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 #include "ui_adw.h"
+#include <cstdio>
 #include <string>
 #include "tuxblox_logo_png.h"
 
@@ -32,6 +33,7 @@ struct InstallUi {
     GtkLabel *pErrorLabel = nullptr;
     GtkWindow *pWindow = nullptr;
     int result = 2;
+    bool activated = false;
 };
 
 struct ResultUi {
@@ -82,6 +84,7 @@ gboolean onTick(gpointer data) {
 void onActivate(GtkApplication *pGtkApp, gpointer data) {
     applyLook();
     auto *pUi = static_cast<InstallUi *>(data);
+    pUi->activated = true;
 
     GtkWidget *pWindow = adw_application_window_new(pGtkApp);
     pUi->pWindow = GTK_WINDOW(pWindow);
@@ -165,6 +168,11 @@ int runAdwInstall(App &app, const CliOptions &) {
     g_signal_connect(pGtkApp, "activate", G_CALLBACK(onActivate), &ui);
     g_application_run(G_APPLICATION(pGtkApp), 0, nullptr);
     g_object_unref(pGtkApp);
+    // A window that never appeared means nothing was installed, which must not look like the user closing it.
+    if (!ui.activated) {
+        fprintf(stderr, "TuxBlox could not open its window, so nothing was installed.\n");
+        return 1;
+    }
     return ui.result;
 }
 

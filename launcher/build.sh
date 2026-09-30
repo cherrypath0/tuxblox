@@ -115,13 +115,11 @@ fi
 # The notice names the libadwaita commit the interface was built from, because TuxBlox ships a modified fork and a recipient has to be able to fetch that exact source. git is not usable inside the container, so it is read here. A build with no interface carries no libadwaita, so it names none.
 # The empty default is deliberate: CMake caches the variable, so a build without an interface must clear a commit left by an earlier one.
 LibadwaitaArg="-DTUXBLOX_LIBADWAITA_COMMIT="
-LibadwaitaDir="$(cd "$(pwd)/../shared/ui" 2>/dev/null && pwd -P)/libadwaita"
-# An uninitialised submodule directory makes git answer about the parent repository, so the commit is only trusted when git's top level is the submodule itself.
-if [[ "${TUXBLOX_HEADLESS_ONLY:-}" != "1" && -d "$LibadwaitaDir" && "$(git -C "$LibadwaitaDir" rev-parse --show-toplevel 2>/dev/null)" == "$LibadwaitaDir" ]]; then
-    LibadwaitaCommit="$(git -C "$LibadwaitaDir" rev-parse HEAD)"
-    if [[ -n "$(git -C "$LibadwaitaDir" status --porcelain)" ]]; then
-        LibadwaitaCommit="$LibadwaitaCommit-dirty"
-        echo "!! shared/ui/libadwaita has uncommitted changes: the notice will name $LibadwaitaCommit, a modified tree that is not a published commit. Do not release this build." >&2
+source "$(pwd)/../shared/ui/libadwaita-commit.sh"
+LibadwaitaCommit="$(libadwaitaCommit "$(pwd)/../shared/ui")"
+if [[ -n "$LibadwaitaCommit" ]]; then
+    if [[ "$LibadwaitaCommit" == *-dirty ]]; then
+        echo "!! The libadwaita the interface was built from has uncommitted changes: the notice will name $LibadwaitaCommit, a modified tree that is not a published commit. Do not release this build." >&2
     fi
     LibadwaitaArg="-DTUXBLOX_LIBADWAITA_COMMIT=$LibadwaitaCommit"
 fi

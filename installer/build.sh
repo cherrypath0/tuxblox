@@ -59,6 +59,11 @@ install_deps() {
     esac
 }
 
+if [[ -n "${TUXBLOX_HEADLESS_ONLY:-}" && "$TUXBLOX_HEADLESS_ONLY" != "1" && "$TUXBLOX_HEADLESS_ONLY" != "0" ]]; then
+    echo "!! TUXBLOX_HEADLESS_ONLY must be 1 or 0, got '$TUXBLOX_HEADLESS_ONLY'" >&2
+    exit 1
+fi
+
 echo ":: Checking build dependencies"
 # TUXBLOX_SKIP_DEPS is set by the root build.sh, which installs dependencies
 # once for all three builds -- avoids repeated package-manager round trips.
@@ -114,13 +119,11 @@ fi
 # The notice names the libadwaita commit the interface was built from, because TuxBlox ships a modified fork and a recipient has to be able to fetch that exact source. git is not usable inside the container, so it is read here. A build with no interface carries no libadwaita, so it names none.
 # The empty default is deliberate: CMake caches the variable, so a build without an interface must clear a commit left by an earlier one.
 LibadwaitaArg="-DTUXBLOX_LIBADWAITA_COMMIT="
-LibadwaitaDir="$(cd "$(pwd)/../shared/ui" 2>/dev/null && pwd -P)/libadwaita"
-# An uninitialised submodule directory makes git answer about the parent repository, so the commit is only trusted when git's top level is the submodule itself.
-if [[ "${TUXBLOX_HEADLESS_ONLY:-}" != "1" && -d "$LibadwaitaDir" && "$(git -C "$LibadwaitaDir" rev-parse --show-toplevel 2>/dev/null)" == "$LibadwaitaDir" ]]; then
-    LibadwaitaCommit="$(git -C "$LibadwaitaDir" rev-parse HEAD)"
-    if [[ -n "$(git -C "$LibadwaitaDir" status --porcelain)" ]]; then
-        LibadwaitaCommit="$LibadwaitaCommit-dirty"
-        echo "!! shared/ui/libadwaita has uncommitted changes: the notice will name $LibadwaitaCommit, a modified tree that is not a published commit. Do not release this build." >&2
+source "$(pwd)/../shared/ui/libadwaita-commit.sh"
+LibadwaitaCommit="$(libadwaitaCommit "$(pwd)/../shared/ui")"
+if [[ -n "$LibadwaitaCommit" ]]; then
+    if [[ "$LibadwaitaCommit" == *-dirty ]]; then
+        echo "!! The libadwaita the interface was built from has uncommitted changes: the notice will name $LibadwaitaCommit, a modified tree that is not a published commit. Do not release this build." >&2
     fi
     LibadwaitaArg="-DTUXBLOX_LIBADWAITA_COMMIT=$LibadwaitaCommit"
 fi
@@ -129,11 +132,6 @@ podman run --rm --userns=keep-id -e JOBS="$JOBS" -e UI_STACK_ARG="$UiStackArg" -
     -e TUXBLOX_BUILD_VERSION="${TUXBLOX_BUILD_VERSION:-}" \
     -e TUXBLOX_CHANNEL="${TUXBLOX_CHANNEL:-}" -v "$(pwd):/src:Z" "${UiStackMount[@]}" -w /src tuxblox-old-glibc-builder \
     bash -c 'cmake -B build -S . -DCMAKE_BUILD_TYPE=Release ${UI_STACK_ARG:-} ${LIBADWAITA_ARG:-} && cmake --build build -j"$JOBS"'
-
-if [[ -n "${TUXBLOX_HEADLESS_ONLY:-}" && "$TUXBLOX_HEADLESS_ONLY" != "1" && "$TUXBLOX_HEADLESS_ONLY" != "0" ]]; then
-    echo "!! TUXBLOX_HEADLESS_ONLY must be 1 or 0, got '$TUXBLOX_HEADLESS_ONLY'" >&2
-    exit 1
-fi
 
 if [[ "${TUXBLOX_HEADLESS_ONLY:-}" == "1" ]]; then
     echo ":: TUXBLOX_HEADLESS_ONLY set, building an installer with no graphical interface"
@@ -156,6 +154,13 @@ else
     fi
     echo ":: Appending the interface to the installer"
     ./append-payload.sh build/TuxBloxInstaller "${StackTarballs[0]}" build/TuxBloxInstaller-ui build/TuxBloxInstaller
+    # A failure here stops the build: the finished installer has to start on a machine with no GTK. TUXBLOX_SKIP_SMOKE=1 is the opt-out for iterating, never for a release.
+    if [[ "${TUXBLOX_SKIP_SMOKE:-}" == "1" ]]; then
+        echo "!! TUXBLOX_SKIP_SMOKE set, the fresh-install smoke test was NOT run" >&2
+    else
+        echo ":: Running the fresh-install smoke test"
+        ./smoke-test.sh build/TuxBloxInstaller
+    fi
 fi
 
 # Also stage the finished binary at the repo-root build/ directory -- the same
