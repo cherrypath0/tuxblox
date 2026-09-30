@@ -15,7 +15,6 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "ui_payload.h"
-#include <cassert>
 #include <cstring>
 #include <fstream>
 
@@ -77,10 +76,9 @@ std::string rawToHex(const unsigned char* raw) {
 }
 } // namespace
 
-std::string encodeUiPayloadTrailer(const UiPayloadTrailer& trailer) {
-    // Precondition: trailer.sha256 must be exactly 64 lowercase hex characters. This is validated here to ensure we never return a malformed trailer.
+std::optional<std::string> encodeUiPayloadTrailer(const UiPayloadTrailer& trailer) {
     std::string raw = hexToRaw(trailer.sha256);
-    assert(!raw.empty() && raw.size() == 32);
+    if (raw.empty()) return std::nullopt;
     std::string out;
     out.reserve(kUiPayloadTrailerSize);
     out.append(kMagic, sizeof(kMagic));

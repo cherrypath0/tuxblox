@@ -26,7 +26,7 @@ namespace tuxblox {
 struct UiPayloadTrailer {
     uint64_t offset = 0;      // payload start, from the beginning of the file
     uint64_t size = 0;        // payload length in bytes
-    std::string sha256;       // lowercase hex, 64 characters
+    std::string sha256;       // hex (uppercase or lowercase), 64 characters
     uint32_t format = 1;      // bumped only if this record's own layout changes
 };
 
@@ -36,8 +36,8 @@ constexpr size_t kUiPayloadTrailerSize = 62;
 // The only format this build understands.
 constexpr uint32_t kUiPayloadFormat = 1;
 
-// Encodes a trailer as exactly kUiPayloadTrailerSize bytes, little-endian, ready to append to a binary.
-std::string encodeUiPayloadTrailer(const UiPayloadTrailer& trailer);
+// Encodes a trailer as exactly kUiPayloadTrailerSize bytes, little-endian. Returns nullopt if the digest is not exactly 64 hex characters.
+std::optional<std::string> encodeUiPayloadTrailer(const UiPayloadTrailer& trailer);
 
 // Reads the trailer from the end of `binaryPath`. Absent means there is no usable payload -- too short, wrong magic, unknown format, or an extent that does not fit inside the file -- all of which are ordinary conditions rather than failures to report.
 std::optional<UiPayloadTrailer> readUiPayloadTrailer(const std::string& binaryPath);

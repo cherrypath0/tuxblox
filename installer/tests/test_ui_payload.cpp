@@ -23,17 +23,24 @@
 
 namespace fs = std::filesystem;
 
-// Writes `body` followed by a trailer describing a payload at [offset, offset+size).
-static std::string writeBinary(const fs::path& path, const std::string& body,
-                               uint64_t offset, uint64_t size, const std::string& digest) {
+// Creates a trailer with the given digest for testing.
+static tuxblox::UiPayloadTrailer makeTrailerWithDigest(const std::string& digest, uint64_t offset = 0, uint64_t size = 16) {
     tuxblox::UiPayloadTrailer t;
     t.offset = offset;
     t.size = size;
     t.sha256 = digest;
     t.format = 1;
+    return t;
+}
+
+// Writes `body` followed by a trailer describing a payload at [offset, offset+size).
+static void writeBinary(const fs::path& path, const std::string& body,
+                        uint64_t offset, uint64_t size, const std::string& digest) {
+    tuxblox::UiPayloadTrailer t = makeTrailerWithDigest(digest, offset, size);
+    auto encoded = tuxblox::encodeUiPayloadTrailer(t);
+    assert(encoded.has_value());
     std::ofstream out(path, std::ios::binary);
-    out << body << tuxblox::encodeUiPayloadTrailer(t);
-    return digest;
+    out << body << *encoded;
 }
 
 int main() {
@@ -46,12 +53,10 @@ int main() {
 
     // A trailer is a fixed size, so the reader can always find it by seeking from the end.
     {
-        UiPayloadTrailer t;
-        t.offset = 4096;
-        t.size = 128;
-        t.sha256 = digest;
-        t.format = 1;
-        assert(encodeUiPayloadTrailer(t).size() == kUiPayloadTrailerSize);
+        UiPayloadTrailer t = makeTrailerWithDigest(digest, 4096, 128);
+        auto encoded = encodeUiPayloadTrailer(t);
+        assert(encoded.has_value());
+        assert(encoded->size() == kUiPayloadTrailerSize);
     }
 
     // Round trip: what was encoded is what comes back.
@@ -98,13 +103,12 @@ int main() {
 
     // A format this build does not understand must read as absent rather than be guessed at.
     {
-        UiPayloadTrailer t;
-        t.offset = 0;
-        t.size = 16;
-        t.sha256 = digest;
+        UiPayloadTrailer t = makeTrailerWithDigest(digest);
         t.format = 99;
+        auto encoded = encodeUiPayloadTrailer(t);
+        assert(encoded.has_value());
         std::ofstream out(work / "future", std::ios::binary);
-        out << std::string(64, 'x') << encodeUiPayloadTrailer(t);
+        out << std::string(64, 'x') << *encoded;
         out.close();
         assert(!readUiPayloadTrailer((work / "future").string()).has_value());
     }
@@ -114,42 +118,24 @@ int main() {
 
     // An offset+size that wraps uint64 is impossible, even though the addition wraps to zero.
     {
-        UiPayloadTrailer t;
-        t.offset = 100;
-        t.size = 0xFFFFFFFFFFFFFF9CULL;  // 2^64 - 100, wraps to 0 when added to offset
-        t.sha256 = digest;
-        t.format = 1;
+        UiPayloadTrailer t = makeTrailerWithDigest(digest, 100, 0xFFFFFFFFFFFFFF9CULL);
+        auto encoded = encodeUiPayloadTrailer(t);
+        assert(encoded.has_value());
         std::ofstream out(work / "wrap", std::ios::binary);
-        out << std::string(200, 'x') << encodeUiPayloadTrailer(t);
+        out << std::string(200, 'x') << *encoded;
         out.close();
         assert(!readUiPayloadTrailer((work / "wrap").string()).has_value());
     }
 
-    // Empty digest is invalid and rejected by encodeUiPayloadTrailer (via assert in debug builds).
-    // We test this indirectly: a trailer with an empty digest should not be written/read successfully.
-    // Since encodeUiPayloadTrailer has a precondition on digest validity, we skip the direct test.
-
-    // Odd-length digest: hexToRaw rejects it, so encoding fails.
+    // Malformed digests must be rejected, not silently padded or truncated.
     {
-        UiPayloadTrailer t;
-        t.offset = 0;
-        t.size = 16;
-        t.sha256 = std::string(63, 'a');  // 63 chars, not 64
-        t.format = 1;
-        // We don't call writeBinary here since it would trigger the assert in encodeUiPayloadTrailer.
-        // Instead, we verify that a malformed trailer read from a file is rejected.
-        // This is covered by the wrap test above.
-    }
-
-    // Non-hex characters in digest: hexToRaw validates and rejects.
-    {
-        UiPayloadTrailer t;
-        t.offset = 0;
-        t.size = 16;
-        t.sha256 = std::string(62, 'a') + "zz";  // Last two chars are not hex
-        t.format = 1;
-        // Similar to above, the assert in encodeUiPayloadTrailer protects against this.
-        // The precondition is that callers pass a valid digest.
+        assert(encodeUiPayloadTrailer(makeTrailerWithDigest(digest)).has_value());
+        assert(encodeUiPayloadTrailer(makeTrailerWithDigest(digest))->size() == kUiPayloadTrailerSize);
+        assert(!encodeUiPayloadTrailer(makeTrailerWithDigest("")).has_value());
+        assert(!encodeUiPayloadTrailer(makeTrailerWithDigest(std::string(63, 'a'))).has_value());
+        assert(!encodeUiPayloadTrailer(makeTrailerWithDigest(std::string(65, 'a'))).has_value());
+        assert(!encodeUiPayloadTrailer(makeTrailerWithDigest(std::string(64, 'z'))).has_value());
+        assert(encodeUiPayloadTrailer(makeTrailerWithDigest(std::string(64, 'A'))).has_value());
     }
 
     fs::remove_all(work);
