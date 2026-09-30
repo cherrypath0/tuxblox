@@ -116,7 +116,12 @@ podman run --rm --userns=keep-id -e JOBS="$JOBS" -e UI_STACK_ARG="$UiStackArg" \
     -e TUXBLOX_CHANNEL="${TUXBLOX_CHANNEL:-}" -v "$(pwd):/src:Z" "${UiStackMount[@]}" -w /src tuxblox-old-glibc-builder \
     bash -c 'cmake -B build -S . -DCMAKE_BUILD_TYPE=Release ${UI_STACK_ARG:-} && cmake --build build -j"$JOBS"'
 
-if [[ -n "${TUXBLOX_HEADLESS_ONLY:-}" ]]; then
+if [[ -n "${TUXBLOX_HEADLESS_ONLY:-}" && "$TUXBLOX_HEADLESS_ONLY" != "1" && "$TUXBLOX_HEADLESS_ONLY" != "0" ]]; then
+    echo "!! TUXBLOX_HEADLESS_ONLY must be 1 or 0, got '$TUXBLOX_HEADLESS_ONLY'" >&2
+    exit 1
+fi
+
+if [[ "${TUXBLOX_HEADLESS_ONLY:-}" == "1" ]]; then
     echo ":: TUXBLOX_HEADLESS_ONLY set, building an installer with no graphical interface"
 else
     shopt -s nullglob

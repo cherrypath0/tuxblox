@@ -701,6 +701,21 @@ run_step "check_podman" strict bash -c 'podman info >/dev/null \
 step "Reloading submodules and applying patches"
 run_step "apply_patches" strict apply_patches
 
+ensure_ui_stack() {
+    if compgen -G "$ROOT/shared/ui/dist/ui-stack-*.tar.zst" >/dev/null && [[ -d "$ROOT/shared/ui/dist/dev" ]]; then
+        echo ":: Interface stack already built, skipping"
+        return 0
+    fi
+    if [[ ! -e "$ROOT/shared/ui/libadwaita/meson.build" ]]; then
+        echo "!! shared/ui/libadwaita is empty. Run: git submodule update --init shared/ui/libadwaita" >&2
+        return 1
+    fi
+    "$ROOT/shared/ui/build.sh"
+}
+
+step "Building the installer's interface stack (GTK4 + libadwaita, the first run takes a long time)"
+run_step "build_ui_stack" strict logged ensure_ui_stack
+
 step "Building TuxBlox Installer (podman, old-glibc baseline)"
 run_step "build_installer" strict logged env TUXBLOX_SKIP_DEPS=1 ./installer/build.sh
 
