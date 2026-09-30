@@ -17,9 +17,11 @@
 #include "launcher_window.h"
 #include "adw_look.h"
 #include "asset_home.h"
+#include "asset_settings.h"
 #include "desktop_integration.h"
 #include "page.h"
 #include "page_home.h"
+#include "page_settings.h"
 #include "tuxblox_logo_png.h"
 #include "widgets.h"
 
@@ -266,6 +268,7 @@ void onActivate(GtkApplication *pGtkApp, gpointer data) {
 
     App &app = *pUi->pApp;
     addPage(*pUi, Tab::Start, "Home", kAssetHome, kAssetHomeLen, false, std::make_unique<HomePage>(app));
+    addPage(*pUi, Tab::Settings, "Settings", kAssetSettings, kAssetSettingsLen, false, std::make_unique<SettingsPage>(app));
 
     GtkWidget *pToasts = adw_toast_overlay_new();
     pUi->pToasts = ADW_TOAST_OVERLAY(pToasts);
