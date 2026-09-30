@@ -22,6 +22,9 @@
 #include <fstream>
 #include <string>
 #include <unistd.h>
+#include <vector>
+
+extern char **environ;
 
 namespace fs = std::filesystem;
 
@@ -126,6 +129,64 @@ void restoreWithoutUseChangesNothing() {
     assert(!isSet("GSETTINGS_SCHEMA_DIR"));
 }
 
+// Test helper: the value a NAME=value list gives a variable, or "<unset>"; a name listed twice is itself a failure
+std::string entryValue(const std::vector<std::string> &entries, const std::string &name) {
+    std::string found = "<unset>";
+    int count = 0;
+    for (const std::string &entry : entries) {
+        if (entry.compare(0, name.size() + 1, name + "=") != 0) continue;
+        found = entry.substr(name.size() + 1);
+        ++count;
+    }
+    assert(count <= 1);
+    return found;
+}
+
+// A started program gets back what the bundled environment replaced, while this process keeps the bundled values
+void unbundledEnvironmentPutsTheOriginalsBack() {
+    const fs::path root = makeStack(true, true);
+    setenv("FONTCONFIG_FILE", "/host/fonts.conf", 1);
+    unsetenv("GSETTINGS_SCHEMA_DIR");
+    setenv("TUXBLOX_TEST_PASSTHROUGH", "kept", 1);
+
+    tuxblox::useBundledEnvironment(root.string());
+    const std::vector<std::string> entries = tuxblox::unbundledEnvironment();
+
+    assert(entryValue(entries, "FONTCONFIG_FILE") == "/host/fonts.conf");
+    assert(entryValue(entries, "GSETTINGS_SCHEMA_DIR") == "<unset>");
+    assert(entryValue(entries, "TUXBLOX_TEST_PASSTHROUGH") == "kept");
+    assert(valueOf("FONTCONFIG_FILE") == (root / "fonts/fonts.conf").string());
+
+    tuxblox::restoreBundledEnvironment();
+    unsetenv("TUXBLOX_TEST_PASSTHROUGH");
+    fs::remove_all(root);
+}
+
+// Only the exact names are the stack's, so a variable that merely starts with one passes through
+void unbundledEnvironmentMatchesWholeNames() {
+    const fs::path root = makeStack(true, true);
+    clearBoth();
+    setenv("FONTCONFIG_FILE_EXTRA", "other", 1);
+
+    tuxblox::useBundledEnvironment(root.string());
+    const std::vector<std::string> entries = tuxblox::unbundledEnvironment();
+
+    assert(entryValue(entries, "FONTCONFIG_FILE_EXTRA") == "other");
+    assert(entryValue(entries, "FONTCONFIG_FILE") == "<unset>");
+    tuxblox::restoreBundledEnvironment();
+    unsetenv("FONTCONFIG_FILE_EXTRA");
+    fs::remove_all(root);
+}
+
+// With nothing bundled there is nothing to put back
+void unbundledEnvironmentWithoutUseIsEnviron() {
+    setenv("FONTCONFIG_FILE", "/host/fonts.conf", 1);
+    unsetenv("GSETTINGS_SCHEMA_DIR");
+    std::vector<std::string> expected;
+    for (char **ppEntry = environ; *ppEntry != nullptr; ++ppEntry) expected.push_back(*ppEntry);
+    assert(tuxblox::unbundledEnvironment() == expected);
+}
+
 } // namespace
 
 int main() {
@@ -134,5 +195,8 @@ int main() {
     leavesAVariableAloneWhenItsFileIsMissing();
     secondCallKeepsTheOriginalMemory();
     restoreWithoutUseChangesNothing();
+    unbundledEnvironmentPutsTheOriginalsBack();
+    unbundledEnvironmentMatchesWholeNames();
+    unbundledEnvironmentWithoutUseIsEnviron();
     return 0;
 }

@@ -16,6 +16,7 @@
 
 #pragma once
 #include <string>
+#include <vector>
 
 namespace tuxblox {
 
@@ -24,5 +25,8 @@ void useBundledEnvironment(const std::string &stackRoot);
 
 // Puts FONTCONFIG_FILE and GSETTINGS_SCHEMA_DIR back exactly as useBundledEnvironment() found them, including unset. Does nothing if it was never called.
 void restoreBundledEnvironment();
+
+// A copy of environ with FONTCONFIG_FILE and GSETTINGS_SCHEMA_DIR put back as useBundledEnvironment() found them, for starting another program. The same as environ when nothing is bundled.
+std::vector<std::string> unbundledEnvironment();
 
 } // namespace tuxblox

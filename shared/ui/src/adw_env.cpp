@@ -17,7 +17,10 @@
 #include "adw_env.h"
 
 #include <cstdlib>
+#include <cstring>
 #include <unistd.h>
+
+extern char **environ;
 
 namespace tuxblox {
 
@@ -46,6 +49,11 @@ void put(const char *pName, const Remembered &from) {
     }
 }
 
+bool names(const char *pEntry, const char *pName) {
+    const size_t length = strlen(pName);
+    return strncmp(pEntry, pName, length) == 0 && pEntry[length] == '=';
+}
+
 } // namespace
 
 void useBundledEnvironment(const std::string &stackRoot) {
@@ -69,6 +77,18 @@ void restoreBundledEnvironment() {
     put("FONTCONFIG_FILE", FontConfigFile);
     put("GSETTINGS_SCHEMA_DIR", SchemaDir);
     Recorded = false;
+}
+
+std::vector<std::string> unbundledEnvironment() {
+    std::vector<std::string> entries;
+    for (char **ppEntry = environ; *ppEntry != nullptr; ++ppEntry) {
+        if (Recorded && (names(*ppEntry, "FONTCONFIG_FILE") || names(*ppEntry, "GSETTINGS_SCHEMA_DIR"))) continue;
+        entries.push_back(*ppEntry);
+    }
+    if (!Recorded) return entries;
+    if (FontConfigFile.had) entries.push_back("FONTCONFIG_FILE=" + FontConfigFile.value);
+    if (SchemaDir.had) entries.push_back("GSETTINGS_SCHEMA_DIR=" + SchemaDir.value);
+    return entries;
 }
 
 } // namespace tuxblox
