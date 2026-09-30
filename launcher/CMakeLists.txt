@@ -195,6 +195,7 @@ if(TUXBLOX_UI_STACK_DEV)
         src/ui_adw/page_settings.cpp
         src/ui_adw/page_versions.cpp
         src/ui_adw/page_fastflags.cpp
+        src/ui_adw/page_about.cpp
         src/ui_adw/versions_tab_state.cpp
         ${TUXBLOX_UI_SRC}/adw_look.cpp
     )

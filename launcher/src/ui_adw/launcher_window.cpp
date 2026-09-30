@@ -18,10 +18,12 @@
 #include "adw_look.h"
 #include "asset_fastflags.h"
 #include "asset_home.h"
+#include "asset_info.h"
 #include "asset_roblox_rdd.h"
 #include "asset_settings.h"
 #include "desktop_integration.h"
 #include "page.h"
+#include "page_about.h"
 #include "page_fastflags.h"
 #include "page_home.h"
 #include "page_settings.h"
@@ -275,6 +277,7 @@ void onActivate(GtkApplication *pGtkApp, gpointer data) {
     addPage(*pUi, Tab::Versions, "Versions", kAssetRobloxRdd, kAssetRobloxRddLen, false, std::make_unique<VersionsPage>(app));
     addPage(*pUi, Tab::FastFlags, "FastFlags", kAssetFastflags, kAssetFastflagsLen, false, std::make_unique<FastFlagsPage>(app));
     addPage(*pUi, Tab::Settings, "Settings", kAssetSettings, kAssetSettingsLen, false, std::make_unique<SettingsPage>(app));
+    addPage(*pUi, Tab::About, "About", kAssetInfo, kAssetInfoLen, true, std::make_unique<AboutPage>());
 
     GtkWidget *pToasts = adw_toast_overlay_new();
     pUi->pToasts = ADW_TOAST_OVERLAY(pToasts);
