@@ -245,7 +245,12 @@ runStep libxkbcommon "$XKBCOMMON_VERSION" buildLibxkbcommon
 runStep wayland "$WAYLAND_VERSION" buildWayland
 runStep wayland-protocols "$WAYLAND_PROTOCOLS_VERSION" buildWaylandprotocols
 runStep gtk4 "$GTK4_VERSION" buildGtk4
-runStep libadwaita "$LIBADWAITA_VERSION" buildLibadwaita
+# The marker carries the submodule's commit, and an uncommitted edit always rebuilds; every other libadwaita marker goes, since the install in the prefix is about to be replaced
+case "${LIBADWAITA_SOURCE:?build.sh passes the submodule commit}" in
+    *-dirty) rm -f "$Markers"/libadwaita-* ;;
+    *) [ -e "$Markers/libadwaita-$LIBADWAITA_SOURCE" ] || rm -f "$Markers"/libadwaita-* ;;
+esac
+runStep libadwaita "$LIBADWAITA_SOURCE" buildLibadwaita
 runStep adwaita-fonts "$ADWAITA_FONTS_VERSION" buildAdwaitaFonts
 
 printf ':: Verifying both GDK backends are present\n'

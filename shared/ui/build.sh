@@ -28,6 +28,11 @@ if [ ! -e "$StackDir/libadwaita/meson.build" ]; then
     exit 1
 fi
 
+LibadwaitaSource="$(git -C "$StackDir/libadwaita" rev-parse --short HEAD)"
+if [ -n "$(git -C "$StackDir/libadwaita" status --porcelain)" ]; then
+    LibadwaitaSource="$LibadwaitaSource-dirty"
+fi
+
 mkdir -p "$DistDir/prefix" "$DistDir/work" "$DistDir/out"
 
 printf ':: Building the builder image\n'
@@ -39,6 +44,7 @@ podman run --rm --userns=keep-id \
     -v "$DistDir/prefix:/opt/tuxblox-ui" \
     -v "$DistDir/work:/build" \
     -e JOBS="${JOBS:-$(nproc)}" \
+    -e LIBADWAITA_SOURCE="$LibadwaitaSource" \
     "$ImageTag" bash /src/build-in-container.sh
 
 printf ':: Packaging\n'
@@ -46,6 +52,7 @@ podman run --rm --userns=keep-id \
     -v "$StackDir:/src:ro" \
     -v "$DistDir/prefix:/opt/tuxblox-ui:ro" \
     -v "$DistDir/out:/out" \
+    -e LIBADWAITA_SOURCE="$LibadwaitaSource" \
     "$ImageTag" bash /src/package.sh
 
 rm -rf "$DistDir/dev"
