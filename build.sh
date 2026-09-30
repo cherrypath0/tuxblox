@@ -388,11 +388,9 @@ stage_release() {
         { read -r source_commit || true; read -r source_dirty || true; } < "$ROOT/build/.provenance"
     fi
 
-    # The launcher's Qt6 bundle is three entries, and the interface libraries'
-    # real directory is one level down, not just a directory that happens to
-    # exist -- an empty libtuxblox/ or ui/ would tar up fine and fail at the
+    # The interface libraries' real directory is one level down, not just a directory that happens to exist -- an empty ui/ would tar up fine and fail at the
     # user's machine instead.
-    local required=(compat/main libtuxblox/lib libtuxblox/plugins libtuxblox/qt.conf
+    local required=(compat/main
                     ui/lib/x86_64-linux-gnu
                     TuxBloxLauncher TuxBloxInstaller TuxBloxBootstrapper studio-mcp)
     local entry
@@ -410,14 +408,12 @@ stage_release() {
     rm -rf "$release_dir"
     mkdir -p "$release_dir"
 
-    # Both archives are packed with their contents at the ROOT, no wrapper
+    # The archive is packed with its contents at the ROOT, no wrapper
     # directory: the installer extracts an archive artifact into
     # installDir/<path>/<filename>, so a wrapper would nest the payload one
     # level too deep (compat/compat/main).
     echo ":: Packing the compatibility layer"
     tar --zstd -cf "$release_dir/compat-$slug.tar.zst" -C "$ROOT/build/compat" .
-    echo ":: Packing the TuxBlox libraries"
-    tar --zstd -cf "$release_dir/libtuxblox-$slug.tar.zst" -C "$ROOT/build/libtuxblox" .
 
     # The interface libraries ship as the tarball shared/ui/build.sh already packed, copied rather than repacked, so its checksum does not change when a release is re-staged. The libadwaita commit inside it must be the one build/ui was unpacked from, or the notice would name source for a different build.
     local uiTarballs=("$ROOT"/shared/ui/dist/ui-stack-*.tar.zst)
@@ -465,7 +461,6 @@ artifacts = [
     # Published as "proton" until the layer was renamed. The launcher reads
     # either spelling, so emitting the new one is safe for older installs.
     ("compat",     f"compat-{slug}.tar.zst",      "Compatibility layer",  "compat"),
-    ("libtuxblox", f"libtuxblox-{slug}.tar.zst",  "Libraries",            "libtuxblox"),
     ("ui",         f"ui-{slug}.tar.zst",          "Interface libraries",  "ui"),
     # Was the mcp.sh shell script through 2.6.0. The key is unchanged, so an
     # older installer still finds it; what it downloads is now a binary.
@@ -752,7 +747,7 @@ mv build/.artifacts/bootstrapper/TuxBloxBootstrapper build/TuxBloxBootstrapper
 
 # Before the launcher, which is the slowest of the four: studio-mcp compiles
 # launcher sources, so a mistake in them surfaces here in seconds rather than
-# after the whole Qt build.
+# after the whole launcher build.
 step "Building TuxBlox Studio MCP (podman, old-glibc baseline)"
 run_step "build_studio_mcp" strict logged env TUXBLOX_SKIP_DEPS=1 ./studio-mcp/build.sh
 
@@ -768,11 +763,8 @@ run_step "build_launcher" strict logged env TUXBLOX_SKIP_DEPS=1 ./launcher/build
 step "Staging launcher output into build/"
 
 rm -f build/TuxBloxLauncher
-rm -rf build/libtuxblox
 mv launcher/build build/.artifacts/launcher
 mv build/.artifacts/launcher/TuxBloxLauncher build/TuxBloxLauncher
-
-mv build/.artifacts/launcher/libtuxblox build/libtuxblox
 
 PROTON_BUILD_DIR="$ROOT/build/.artifacts/proton"
 mkdir -p "$PROTON_BUILD_DIR"

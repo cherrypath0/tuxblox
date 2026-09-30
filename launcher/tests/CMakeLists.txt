@@ -101,25 +101,9 @@ add_executable(test_roblox_deploy test_roblox_deploy.cpp)
 target_link_libraries(test_roblox_deploy PRIVATE launcher_core)
 add_test(NAME roblox_deploy COMMAND test_roblox_deploy)
 
-add_executable(test_toggle_switch test_toggle_switch.cpp)
-target_link_libraries(test_toggle_switch PRIVATE launcher_ui_qt Qt6::Test)
-add_test(NAME toggle_switch COMMAND test_toggle_switch)
-set_tests_properties(toggle_switch PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
-
-find_package(Qt6 REQUIRED COMPONENTS Test)
-add_executable(test_danger_button test_danger_button.cpp)
-target_link_libraries(test_danger_button PRIVATE launcher_ui_qt Qt6::Test)
-add_test(NAME danger_button COMMAND test_danger_button)
-set_tests_properties(danger_button PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
-
-add_executable(test_versions_tab_state test_versions_tab_state.cpp ../src/ui_qt/versions_tab_state.cpp)
+add_executable(test_versions_tab_state test_versions_tab_state.cpp ../src/ui_adw/versions_tab_state.cpp)
 target_link_libraries(test_versions_tab_state PRIVATE launcher_core)
 add_test(NAME versions_tab_state COMMAND test_versions_tab_state)
-
-add_executable(test_update_popup test_update_popup.cpp)
-target_link_libraries(test_update_popup PRIVATE launcher_ui_qt Qt6::Test)
-add_test(NAME update_popup COMMAND test_update_popup)
-set_tests_properties(update_popup PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
 add_executable(test_prefix_session test_prefix_session.cpp)
 target_link_libraries(test_prefix_session PRIVATE launcher_core)
@@ -164,3 +148,14 @@ add_test(NAME roblox_place_info COMMAND test_roblox_place_info)
 add_executable(test_child_environment test_child_environment.cpp)
 target_link_libraries(test_child_environment PRIVATE launcher_core)
 add_test(NAME child_environment COMMAND test_child_environment)
+
+# These need the interface stack, which only the container build with TUXBLOX_UI_STACK_DEV provides
+if(TARGET launcher_ui_adw)
+    add_executable(test_widgets test_widgets.cpp)
+    target_link_libraries(test_widgets PRIVATE launcher_ui_adw)
+    add_test(NAME widgets COMMAND test_widgets)
+
+    add_executable(test_message_box test_message_box.cpp)
+    target_link_libraries(test_message_box PRIVATE launcher_ui_adw)
+    add_test(NAME message_box COMMAND test_message_box)
+endif()

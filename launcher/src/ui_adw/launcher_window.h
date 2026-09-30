@@ -14,28 +14,14 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-#include "ui_qt/toggle_switch.h"
-#include <QApplication>
-#include <QSignalSpy>
-#include <cassert>
-#include <cstdio>
+#pragma once
+#include "app.h"
 
-int main(int argc, char** argv) {
-    using namespace tuxblox;
-    QApplication app(argc, argv);
+#include <string>
 
-    ToggleSwitch toggle;
-    assert(toggle.isChecked() == false);
+namespace tuxblox {
 
-    toggle.setChecked(true);
-    assert(toggle.isChecked() == true);
+// Shows the launcher window and returns once it has closed, which is when the caller should look at App's handoff flags. 1 means no window could be opened at all.
+int runLauncherWindow(App &app, const std::string &exePath, const std::string &installDir);
 
-    QSignalSpy spy(&toggle, &ToggleSwitch::toggled);
-    toggle.click();
-    assert(spy.count() == 1);
-    assert(toggle.isChecked() == false); // click() flips a checkable QAbstractButton
-    assert(spy.at(0).at(0).toBool() == false);
-
-    printf("toggle_switch: all tests passed\n");
-    return 0;
-}
+} // namespace tuxblox

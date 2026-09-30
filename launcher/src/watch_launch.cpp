@@ -25,7 +25,7 @@
 #include "settings.h"
 #include "studio_presence.h"
 #include "system_info.h"
-#include "ui_qt/message_box.h"
+#include "ui_adw/message_box.h"
 #include "fastflag_file.h"
 #include "versions_manifest.h"
 #include "wine_shortcut_export.h"

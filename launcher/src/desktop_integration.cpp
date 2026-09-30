@@ -191,7 +191,7 @@ void writeDesktopEntries(const std::string& launcherExePath) {
                 "Exec=\"" << launcherExePath << "\"\n"
                 "Icon=tuxblox\n"
                 "Terminal=false\n"
-                "StartupWMClass=TuxBloxLauncher\n"
+                "StartupWMClass=tuxblox-launcher\n"
                 "Categories=Game;\n"
                 "Actions=Documentation;\n"
                 "\n"

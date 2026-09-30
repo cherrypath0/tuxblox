@@ -44,15 +44,6 @@ pkg_check_modules(OPENSSL REQUIRED openssl)
 # old-glibc-baseline safety makes it cheap insurance).
 find_package(Threads REQUIRED)
 
-# Qt6 for the launcher's UI (launcher/src/ui_qt/) -- see Containerfile for
-# how it's provisioned inside the old-glibc-baseline build container
-# (aqtinstall, since Ubuntu 20.04 ships no Qt6 apt packages at all).
-# CMAKE_PREFIX_PATH is set by that container's ENV; a host build outside the
-# container needs the same variable pointed at a local Qt6 install.
-find_package(Qt6 6.5 REQUIRED COMPONENTS Widgets Test)
-set(CMAKE_AUTOMOC ON)
-set(CMAKE_AUTORCC ON)
-
 file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/generated)
 # TUXBLOX_BUILD_VERSION is the version the root build.sh resolved; it wins so
 # that one release build stamps the same number into the launcher, the installer
@@ -178,69 +169,50 @@ target_compile_options(launcher_core PUBLIC
 include(cmake/FetchLogo.cmake)
 include(cmake/FetchWindowIcon.cmake)
 
-# launcher.qrc's branding entries need the fetched logo/icon PNGs at a path
-# stable regardless of CMAKE_BINARY_DIR's actual name/location -- copy them
-# next to the checked-in resources/ directory's own qrc at configure time
-# instead of hardcoding a relative path into the build directory.
-add_custom_command(
-    OUTPUT ${CMAKE_SOURCE_DIR}/resources/tuxblox_logo.png
-    COMMAND ${CMAKE_COMMAND} -E copy ${LOGO_PNG_PATH} ${CMAKE_SOURCE_DIR}/resources/tuxblox_logo.png
-    DEPENDS ${LOGO_PNG_PATH}
-    COMMENT "Staging logo PNG for launcher.qrc"
-)
-add_custom_command(
-    OUTPUT ${CMAKE_SOURCE_DIR}/resources/tuxblox_window_icon.png
-    COMMAND ${CMAKE_COMMAND} -E copy ${WINDOW_ICON_PNG_PATH} ${CMAKE_SOURCE_DIR}/resources/tuxblox_window_icon.png
-    DEPENDS ${WINDOW_ICON_PNG_PATH}
-    COMMENT "Staging window icon PNG for launcher.qrc"
-)
-add_custom_target(stage_branding_assets DEPENDS
-    ${CMAKE_SOURCE_DIR}/resources/tuxblox_logo.png
-    ${CMAKE_SOURCE_DIR}/resources/tuxblox_window_icon.png)
-
 include(cmake/FetchFont.cmake)
 include(cmake/EmbedThirdPartyLicenses.cmake)
 include(cmake/EmbedLicense.cmake)
+include(cmake/EmbedAssets.cmake)
 
 # launcher_core's own sources need these generated headers regardless of
-# which downstream target (TuxBloxLauncher or launcher_ui_qt) triggers its
-# build: desktop_integration.cpp embeds the logo PNG bytes directly (not
-# via the Qt resource system -- it writes a standalone .desktop icon file),
+# which downstream target (TuxBloxLauncher or launcher_ui_adw) triggers its
+# build: desktop_integration.cpp embeds the logo PNG bytes directly (it
+# writes a standalone .desktop icon file),
 # and copyright_file.cpp/license_file.cpp embed license text. Declared here
 # on launcher_core itself, not duplicated on every consumer, since these
 # are launcher_core's own compile-time requirements.
 add_dependencies(launcher_core generate_logo_header generate_font_header generate_thirdparty_license_headers generate_license_header)
 
-add_library(launcher_ui_qt STATIC
-    src/ui_qt/theme.cpp
-    src/ui_qt/boxed_list.cpp
-    src/ui_qt/app_card.cpp
-    src/ui_qt/toggle_switch.cpp
-    src/ui_qt/danger_button.cpp
-    src/ui_qt/update_popup.cpp
-    src/ui_qt/icon_utils.cpp
-    src/ui_qt/sidebar.cpp
-    src/ui_qt/start_tab.cpp
-    src/ui_qt/settings_tab.cpp
-    src/ui_qt/versions_tab.cpp
-    src/ui_qt/fastflags_tab.cpp
-    src/ui_qt/versions_tab_state.cpp
-    src/ui_qt/about_tab.cpp
-    src/ui_qt/message_box.cpp
-    src/ui_qt/main_window.cpp
-    resources/launcher.qrc
-)
-target_include_directories(launcher_ui_qt PUBLIC src third_party ${CMAKE_BINARY_DIR}/generated)
-target_link_libraries(launcher_ui_qt PUBLIC Qt6::Widgets launcher_core)
-add_dependencies(launcher_ui_qt generate_logo_asset generate_window_icon_asset stage_branding_assets)
+# The window needs the interface stack's development tree, which only exists once shared/ui/build.sh has run; without it only launcher_core and its tests build, and build.sh refuses to finish.
+if(TUXBLOX_UI_STACK_DEV)
+    include(${TUXBLOX_UI_SRC}/UiStack.cmake)
 
-add_executable(TuxBloxLauncher
-    src/main.cpp
-    src/watch_launch.cpp
-)
-target_include_directories(TuxBloxLauncher PRIVATE ${CMAKE_BINARY_DIR}/generated)
-target_link_libraries(TuxBloxLauncher PRIVATE launcher_core launcher_ui_qt ${CMAKE_DL_LIBS} Threads::Threads)
-add_dependencies(TuxBloxLauncher generate_thirdparty_license_headers generate_license_header generate_font_header)
+    add_library(launcher_ui_adw STATIC
+        src/ui_adw/widgets.cpp
+        src/ui_adw/message_box.cpp
+        src/ui_adw/launcher_window.cpp
+        src/ui_adw/page_home.cpp
+        src/ui_adw/versions_tab_state.cpp
+        ${TUXBLOX_UI_SRC}/adw_look.cpp
+    )
+    target_include_directories(launcher_ui_adw PUBLIC
+        src src/ui_adw ${CMAKE_BINARY_DIR}/generated ${ADWAITA_INCLUDE_DIRS})
+    target_compile_options(launcher_ui_adw PUBLIC ${ADWAITA_CFLAGS_OTHER})
+    target_link_libraries(launcher_ui_adw PUBLIC launcher_core ${ADWAITA_LINK_LIBRARIES})
+    add_dependencies(launcher_ui_adw generate_asset_headers generate_logo_header)
+
+    add_executable(TuxBloxLauncher
+        src/main.cpp
+        src/watch_launch.cpp
+    )
+    target_include_directories(TuxBloxLauncher PRIVATE ${CMAKE_BINARY_DIR}/generated)
+    target_link_libraries(TuxBloxLauncher PRIVATE launcher_core launcher_ui_adw ${CMAKE_DL_LIBS} Threads::Threads)
+    # The interface libraries are installed in a folder called ui beside this binary
+    set_target_properties(TuxBloxLauncher PROPERTIES
+        BUILD_WITH_INSTALL_RPATH TRUE
+        INSTALL_RPATH "$ORIGIN/ui/lib/x86_64-linux-gnu:$ORIGIN/ui/lib")
+    add_dependencies(TuxBloxLauncher generate_thirdparty_license_headers generate_license_header generate_font_header)
+endif()
 
 enable_testing()
 add_subdirectory(tests)

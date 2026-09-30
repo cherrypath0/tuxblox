@@ -19,15 +19,7 @@
 
 namespace tuxblox {
 
-// Shows a native-ish blocking QMessageBox and returns once dismissed.
-// Callable from a process that never constructs a QApplication of its own
-// (e.g. the --watch-launch helper) -- if none exists yet on this thread, a
-// minimal local one is constructed first. Replaces every
-// SDL_Init(SDL_INIT_VIDEO) + SDL_ShowSimpleMessageBox + SDL_Quit call site
-// that existed under launcher/src/ before this migration (main.cpp's
-// single-instance error, ui.cpp's Distrobox container warning,
-// watch_launch.cpp's crash/launch-failure popups).
-void showErrorMessageBox(const std::string& title, const std::string& message);
-void showWarningMessageBox(const std::string& title, const std::string& message);
+// Shows a blocking error and returns once it is dismissed, for processes that have no window of their own (the watcher, and errors before the launcher window exists). With no display it prints to stderr instead, which the session log records.
+void showErrorMessageBox(const std::string &title, const std::string &message);
 
 } // namespace tuxblox

@@ -21,20 +21,13 @@
 # rendered as invisible), and depended on both network access and an
 # rsvg-convert install for every build. Using the local, known-good asset
 # fixes that and drops rsvg-convert as a required build dependency entirely.
-# The PNG is consumed two ways:
-#   - generate_logo_asset: the plain PNG itself, embedded into the launcher
-#     via Qt's resource system (resources/launcher.qrc) for launcher_ui_qt.
-#   - generate_logo_header: a generated C header (via BinToHeader.cmake)
-#     still needed by launcher_core/src/desktop_integration.cpp, which
-#     writes a .desktop icon file from the embedded bytes directly.
+# Embedded as a C header, for desktop_integration.cpp's icon file and the launcher window's logo.
 
 set(LOGO_PNG_PATH "${CMAKE_SOURCE_DIR}/assets/tuxblox.png")
 set(GENERATED_DIR "${CMAKE_BINARY_DIR}/generated")
 set(LOGO_HEADER_PATH "${GENERATED_DIR}/tuxblox_logo_png.h")
 
 file(MAKE_DIRECTORY ${GENERATED_DIR})
-
-add_custom_target(generate_logo_asset DEPENDS ${LOGO_PNG_PATH})
 
 add_custom_command(
     OUTPUT ${LOGO_HEADER_PATH}

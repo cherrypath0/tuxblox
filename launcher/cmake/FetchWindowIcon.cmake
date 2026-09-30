@@ -19,21 +19,13 @@
 # to fetch a separate pre-rendered PNG from a remote server at build time --
 # using the same local asset for both removes a second network dependency
 # and guarantees the window icon and the in-app logo are pixel-identical.
-# The PNG is consumed two ways:
-#   - generate_window_icon_asset: the plain PNG itself, embedded via Qt's
-#     resource system (resources/launcher.qrc) for launcher_ui_qt (consumed
-#     by MainWindow's setWindowIcon() and QApplication::setWindowIcon()).
-#   - generate_window_icon_header: a generated C header (via
-#     BinToHeader.cmake) still needed by desktop_integration.cpp, which
-#     writes the same bytes to the XDG icon-theme directory directly.
+# Embedded as a C header, for desktop_integration.cpp, which writes it to the XDG icon theme directory.
 
 set(WINDOW_ICON_PNG_PATH "${CMAKE_SOURCE_DIR}/assets/tuxblox.png")
 set(GENERATED_DIR "${CMAKE_BINARY_DIR}/generated")
 set(WINDOW_ICON_HEADER_PATH "${GENERATED_DIR}/tuxblox_window_icon_png.h")
 
 file(MAKE_DIRECTORY ${GENERATED_DIR})
-
-add_custom_target(generate_window_icon_asset DEPENDS ${WINDOW_ICON_PNG_PATH})
 
 add_custom_command(
     OUTPUT ${WINDOW_ICON_HEADER_PATH}

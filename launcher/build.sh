@@ -87,12 +87,6 @@ echo ":: Configuring + Building (in podman, rootless, old-glibc baseline)"
 # resolves to /LICENSE inside the container -- mount it there read-only, since
 # only launcher/ itself is mounted at /src.
 #
-# bundle-qt.sh is chained into the SAME container invocation, not run afterwards
-# on the host: it copies Qt6 out of /opt/qt6/6.6.3/gcc_64, a path that only
-# exists inside this image (see Containerfile -- Ubuntu 20.04 has no Qt6 apt
-# packages, so aqtinstall puts it there). Without it the produced binary keeps a
-# RUNPATH into that container-only path and cannot start on any machine without
-# a coincidentally-present system Qt6.
 # TUXBLOX_BUILD_VERSION has to be forwarded explicitly: cmake runs INSIDE this
 # container, so an env var exported by the root build.sh on the host is invisible
 # to it otherwise.
@@ -124,28 +118,38 @@ if [[ -n "$LibadwaitaCommit" ]]; then
     LibadwaitaArg="-DTUXBLOX_LIBADWAITA_COMMIT=$LibadwaitaCommit"
 fi
 
-# The sources shared with the other programs live in shared/ui, outside this script's /src mount, so they get a mount of their own
+# The interface stack and the sources shared with the other programs live in shared/ui, outside this script's /src mount, so each gets a mount of its own
+UiStackDev="$(pwd)/../shared/ui/dist/dev"
 UiSrc="$(pwd)/../shared/ui/src"
+if [[ ! -d "$UiStackDev" ]]; then
+    printf '!! shared/ui/dist/dev is missing. Run shared/ui/build.sh first.\n' >&2
+    exit 1
+fi
+
+shopt -s nullglob
+StackTarballs=("$(pwd)"/../shared/ui/dist/ui-stack-*.tar.zst)
+shopt -u nullglob
+if [[ ${#StackTarballs[@]} -ne 1 ]]; then
+    printf '!! Expected exactly one interface stack tarball in shared/ui/dist/, found %s.\n' "${#StackTarballs[@]}" >&2
+    exit 1
+fi
 
 podman run --rm --userns=keep-id -e JOBS="$JOBS" -e LIBADWAITA_ARG="$LibadwaitaArg" \
     -e TUXBLOX_BUILD_VERSION="${TUXBLOX_BUILD_VERSION:-}" \
     -e TUXBLOX_CHANNEL="${TUXBLOX_CHANNEL:-}" -v "$(pwd):/src:Z" \
-    -v "$(pwd)/../LICENSE:/LICENSE:ro,z" -v "$(cd "$UiSrc" && pwd):/ui-src:ro" -w /src tuxblox-old-glibc-builder \
-    bash -c 'cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DTUXBLOX_UI_SRC=/ui-src ${LIBADWAITA_ARG:-} && cmake --build build -j"$JOBS" && ./bundle-qt.sh'
+    -v "$(pwd)/../LICENSE:/LICENSE:ro,z" -v "$(cd "$UiSrc" && pwd):/ui-src:ro" -v "$(cd "$UiStackDev" && pwd):/ui-dev:ro" -w /src tuxblox-old-glibc-builder \
+    bash -c 'cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DTUXBLOX_UI_SRC=/ui-src -DTUXBLOX_UI_STACK_DEV=/ui-dev ${LIBADWAITA_ARG:-} && cmake --build build -j"$JOBS"'
 
-# Also stage the finished binary + its Qt6 bundle at the repo-root build/
-# directory -- the same place the root build.sh (which stages this whole
-# build/ tree there via `mv` after calling this script) leaves it, so a
-# standalone run of this script produces a runnable artifact in the same
-# place either way. Plain `cp`, not `mv`: this script's own build/ must stay
-# intact for incremental rebuilds. libtuxblox/ has to be re-copied wholesale
-# (not merged) since the binary's RPATH ($ORIGIN/libtuxblox/lib) requires the
-# two to stay exact siblings -- a stale bundle left over from a previous copy
-# could silently mismatch a freshly rebuilt binary.
+if [[ ! -f build/TuxBloxLauncher ]]; then
+    printf '!! build/TuxBloxLauncher was not built. The window needs shared/ui/dist/dev.\n' >&2
+    exit 1
+fi
+
+# Also stage the finished binary and the interface libraries beside it at the repo-root build/, where the root build.sh leaves them too. ui/ is re-extracted wholesale, since the binary finds its libraries beside itself and a stale mix would not.
 mkdir -p ../build
 cp -f build/TuxBloxLauncher ../build/TuxBloxLauncher
-rm -rf ../build/libtuxblox
-cp -a build/libtuxblox ../build/libtuxblox
+rm -rf ../build/ui
+mkdir -p ../build/ui
+tar --zstd -xf "${StackTarballs[0]}" -C ../build/ui
 
-echo ":: Done. Binary at build/TuxBloxLauncher (Qt6 bundled beside it in build/libtuxblox/)"
-echo ":: Also staged to $(cd .. && pwd)/build/TuxBloxLauncher (+ libtuxblox/)"
+echo ":: Done. Also staged to $(cd .. && pwd)/build/TuxBloxLauncher (+ ui/)"

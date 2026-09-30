@@ -15,16 +15,19 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #pragma once
-#include <QWidget>
+#include "app.h"
+
+// Third Parties
+#include <gtk/gtk.h>
 
 namespace tuxblox {
 
-// Static content -- logo, title, link rows, version footer. Port of
-// ui.cpp's renderAboutTab().
-class AboutTab : public QWidget {
-    Q_OBJECT
+// One sidebar entry: built once, then refreshed from every snapshot the window polls
+class Page {
 public:
-    explicit AboutTab(QWidget* parent = nullptr);
+    virtual ~Page() = default;
+    virtual GtkWidget *widget() const = 0;
+    virtual void update(const AppSnapshot &snap) = 0;
 };
 
 } // namespace tuxblox

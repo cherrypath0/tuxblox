@@ -15,7 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "versions_manifest.h"
-#include "ui_qt/versions_tab_state.h"
+#include "ui_adw/versions_tab_state.h"
 #include <cassert>
 #include <cstdio>
 

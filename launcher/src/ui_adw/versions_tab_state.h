@@ -26,7 +26,7 @@ namespace tuxblox {
 // Delete permanently greyed out with nothing explaining why. Deleting it
 // simply leaves the prefix without that version, and the next launch
 // installs Roblox again.
-// Pulled out of VersionsTab itself so it's testable without a QApplication.
+// Kept apart from the Versions page so it can be tested without a display.
 bool canDeleteVersion(const AppVersions& av, const std::string& hash);
 
 } // namespace tuxblox

@@ -15,10 +15,9 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "app.h"
-#include "ui_qt/icon_utils.h"
-#include "ui_qt/main_window.h"
-#include "ui_qt/message_box.h"
-#include "ui_qt/theme.h"
+#include "adw_env.h"
+#include "ui_adw/launcher_window.h"
+#include "ui_adw/message_box.h"
 #include "install_paths.h"
 #include "root_guard.h"
 #include "headless_launch.h"
@@ -30,16 +29,6 @@
 #include "single_instance.h"
 #include "app_scope.h"
 #include "version.h"
-#include "inter_regular_ttf.h"       // generated at build time: kInterRegularTtf[]/Len
-#include "inter_medium_ttf.h"        // generated at build time: kInterMediumTtf[]/Len
-#include "inter_semibold_ttf.h"      // generated at build time: kInterSemiBoldTtf[]/Len
-#include "montserrat_semibold_ttf.h" // generated at build time: kMontserratSemiBoldTtf[]/Len
-#include "montserrat_bold_ttf.h"     // generated at build time: kMontserratBoldTtf[]/Len
-#include <QApplication>
-#include <QFont>
-#include <QFontDatabase>
-#include <QIcon>
-#include <QStringList>
 #include <cctype>
 #include <cstddef>
 #include <cstdio>
@@ -56,61 +45,9 @@ bool startsWith(const std::string& s, const char* prefix) {
     return s.rfind(prefix, 0) == 0;
 }
 
-// Adds one embedded TTF to Qt's font database and reports the family name
-// Qt assigned it. Returns an empty string if the bytes were rejected.
-QString addEmbeddedFont(const unsigned char* data, std::size_t length) {
-    int id = QFontDatabase::addApplicationFontFromData(
-        QByteArray(reinterpret_cast<const char*>(data), static_cast<int>(length)));
-    if (id < 0) return QString();
-    QStringList families = QFontDatabase::applicationFontFamilies(id);
-    return families.isEmpty() ? QString() : families.first();
-}
-
-// Registers every embedded weight of both UI typefaces and hands the family
-// names Qt assigned them to the theme. Must be called after a
-// QApplication/QGuiApplication instance exists, since the font database
-// isn't available before then.
-//
-// The family name is read back rather than assumed: fontsource's internal
-// name metadata is not guaranteed to be the literal "Inter"/"Montserrat".
-// If a weight fails to register -- corrupt or truncated embedded bytes --
-// the literal name is used as a fallback, which is harmless: Qt just falls
-// back to its default font.
-void registerFonts() {
-    addEmbeddedFont(kInterMediumTtf, kInterMediumTtfLen);
-    addEmbeddedFont(kInterSemiBoldTtf, kInterSemiBoldTtfLen);
-    QString sans = addEmbeddedFont(kInterRegularTtf, kInterRegularTtfLen);
-
-    addEmbeddedFont(kMontserratBoldTtf, kMontserratBoldTtfLen);
-    QString display = addEmbeddedFont(kMontserratSemiBoldTtf, kMontserratSemiBoldTtfLen);
-
-    if (sans.isEmpty()) sans = "Inter";
-    if (display.isEmpty()) display = "Montserrat";
-    tuxblox::theme::setFontFamilies(sans, display);
-}
-
 } // namespace
 
 int main(int argc, char** argv) {
-    // Required for a Qt resource file (launcher/resources/launcher.qrc)
-    // compiled into a STATIC library (launcher_ui_qt) rather than directly
-    // into this executable: the linker only pulls an archive member into
-    // the final binary if something references a symbol from it, and
-    // nothing calls a function from the generated qrc_launcher.cpp
-    // translation unit directly -- only its static initializer would run,
-    // and only if that .o actually got linked in. Without this call, every
-    // QIcon(":/...")/QPixmap(":/...") construction silently returns a
-    // null/empty image (no console warning from QIcon itself, unlike
-    // QPixmap::scaled()'s explicit "null pixmap" warning) instead of
-    // failing loudly -- observed for real: every sidebar/about-tab icon and
-    // the window icon rendered as blank. Q_INIT_RESOURCE(launcher) forces
-    // the resource registration to run regardless of what else got linked;
-    // "launcher" matches launcher.qrc's own basename, which is what
-    // CMAKE_AUTORCC names the generated qInitResources_launcher() function
-    // after. Must be called from global scope (not inside a namespace),
-    // hence its placement here rather than deeper in App/MainWindow.
-    Q_INIT_RESOURCE(launcher);
-
     using namespace tuxblox;
 
     // Before the scope is joined and before any argument is read: a root run
@@ -262,13 +199,7 @@ int main(int argc, char** argv) {
         std::filesystem::create_directories(dir, ec);
     }
 
-    // Only the GUI itself is single-instance -- the headless quick-launch
-    // and --watch-launch paths above already returned before reaching here,
-    // so a launch-and-watch helper running in the background never trips
-    // this. Same SDL_Init(SDL_INIT_VIDEO)/SDL_ShowSimpleMessageBox/SDL_Quit
-    // shape as the crash popups in watch_launch.cpp -- SDL_ShowSimpleMessageBox
-    // needs a video subsystem already up to pick a real backend, or it just
-    // hangs with no dialog ever appearing instead of failing loudly.
+    // Only the GUI itself is single-instance: the quick-launch and --watch-launch paths above have already returned.
     if (!acquireSingleInstanceLock(dir)) {
         showErrorMessageBox("TuxBlox Error", "An instance of the TuxBlox Launcher is already running!");
         return 1;
@@ -301,54 +232,14 @@ int main(int argc, char** argv) {
     // database calls, which stays after window.show() below, same as before.
     App app(dir, kTuxBloxBuildId, exePath);
 
-    // QGuiApplication::setDesktopFileName() is Qt's native equivalent of
-    // the old SDL_VIDEO_X11_WMCLASS env var trick (ui.cpp's Ui::init(),
-    // now removed) -- both exist so a pinned taskbar icon's running window
-    // matches back to the .desktop entry's StartupWMClass
-    // (ensureDesktopIntegration() below writes "tuxblox-launcher" there).
-    QApplication qapp(argc, argv);
-    qapp.setDesktopFileName("tuxblox-launcher");
-    // Application-wide default so every top-level window (not just
-    // MainWindow, which also sets its own below) gets the TuxBlox icon
-    // instead of Qt's generic fallback -- this is also what X11/xcb
-    // publishes as _NET_WM_ICON for the taskbar/dock entry. Uses
-    // multiSizeWindowIcon(), not a plain QIcon(path) -- see its own doc
-    // comment: a single-size icon was observed to make Qt's xcb backend
-    // publish an empty (zero-data) _NET_WM_ICON property instead of the
-    // actual image.
-    qapp.setWindowIcon(tuxblox::multiSizeWindowIcon(":/branding/tuxblox_window_icon.png"));
-
-    // Must happen before setStyleSheet() below: QSS "font-weight: 600"
-    // rules only resolve to the embedded SemiBold weight if that weight is
-    // already registered by the time the stylesheet is applied, and the
-    // stylesheet names the display family it just recorded.
-    registerFonts();
-    QFont appFont(tuxblox::theme::sansFamily());
-    appFont.setPixelSize(13);
-    qapp.setFont(appFont);
-
-    qapp.setStyleSheet(tuxblox::theme::stylesheet());
-
-    // Before the window is shown, not after: some window managers/
-    // compositors (observed on KDE Plasma/KWin) resolve a new window's
-    // taskbar/titlebar icon by matching its app_id/WM_CLASS against an
-    // installed .desktop file exactly once, at window-creation time, and
-    // never retry -- if that file doesn't exist yet, the icon stays blank
-    // for the window's whole lifetime even once ensureDesktopIntegration()
-    // (below) writes it moments later. writeDesktopEntries() is the fast,
-    // synchronous subset of that work (just the icon PNG + .desktop file
-    // writes); the slower xdg-mime/database-refresh calls stay in
-    // ensureDesktopIntegration() below, after show(), exactly as before.
+    // Before the window exists: some compositors (observed on KDE Plasma/KWin) match a new window to its .desktop entry once, at creation, and never retry
     writeDesktopEntries(exePath);
 
-    MainWindow window(app);
-    window.show();
-
-    ensureDesktopIntegration(exePath, dir);
-
-    app.startUpdateCheck();
-
-    qapp.exec();
+    // Kept for the life of the window, since GTK can re-read fontconfig while it runs; programs started from the window are given the environment without it
+    useBundledEnvironment(interfaceStackRoot());
+    const int windowStatus = runLauncherWindow(app, exePath, dir);
+    restoreBundledEnvironment();
+    if (windowStatus != 0 && !app.needsInstallerHandoff() && !app.needsUninstallHandoff()) return windowStatus;
 
     if (app.needsUninstallHandoff()) {
         // Same handoff shape as an update, but with --uninstall instead of

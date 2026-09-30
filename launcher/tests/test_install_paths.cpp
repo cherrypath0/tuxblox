@@ -129,6 +129,13 @@ int main() {
         assert(self.find("test_install_paths") != std::string::npos);
     }
 
+    // The interface libraries are the ui folder beside the running binary
+    {
+        const std::string root = tuxblox::interfaceStackRoot();
+        const std::string self = tuxblox::selfExePath();
+        assert(root == self.substr(0, self.rfind('/')) + "/ui");
+    }
+
     printf("install_paths: all tests passed\n");
     return 0;
 }

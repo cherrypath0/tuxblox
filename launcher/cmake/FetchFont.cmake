@@ -14,57 +14,38 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-# Downloads the launcher's two UI typefaces (both OFL-1.1) from jsDelivr's
-# fontsource mirror, pinned to fixed releases, and generates C headers
-# embedding the raw TTF bytes plus each family's license text.
-#
-# Inter is the body face and Montserrat the display face, matching
-# tuxblox.net -- the site loads Inter 400/500/600 and Montserrat 600/700
-# from Google Fonts, and these are the same weights.
+# Fetches the Inter OFL-1.1 license text and embeds it, for the COPYRIGHT.txt entry that Adwaita Sans refers to. No font is embedded any more.
 
-set(INTER_VERSION "5.0.0")
-set(MONTSERRAT_VERSION "5.0.0")
-set(FONTSOURCE_BASE "https://cdn.jsdelivr.net/fontsource/fonts")
-set(GOOGLE_FONTS_OFL "https://raw.githubusercontent.com/google/fonts/main/ofl")
+set(INTER_OFL_URL "https://raw.githubusercontent.com/google/fonts/main/ofl/inter/OFL.txt")
 set(GENERATED_DIR "${CMAKE_BINARY_DIR}/generated")
+set(INTER_OFL_TXT_PATH "${GENERATED_DIR}/Inter-OFL.txt")
+set(INTER_OFL_HEADER_PATH "${GENERATED_DIR}/inter_ofl_license_txt.h")
 
 file(MAKE_DIRECTORY ${GENERATED_DIR})
 
-# Downloads one remote file and turns its bytes into a C header. The header
-# name and the C symbol are separate arguments because they don't match --
-# main.cpp includes "inter_regular_ttf.h" to get kInterRegularTtf[].
-function(embedRemoteFile url rawName headerName symbol outVar)
-    set(rawPath "${GENERATED_DIR}/${rawName}")
-    set(headerPath "${GENERATED_DIR}/${headerName}")
-    add_custom_command(
-        OUTPUT ${headerPath}
-        COMMAND ${CMAKE_COMMAND} -DURL=${url} -DDEST=${rawPath}
-                -P ${CMAKE_SOURCE_DIR}/cmake/DownloadFile.cmake
-        COMMAND ${CMAKE_COMMAND} -DINPUT=${rawPath} -DOUTPUT=${headerPath}
-                -DSYMBOL=${symbol}
-                -P ${CMAKE_SOURCE_DIR}/cmake/BinToHeader.cmake
-        COMMENT "Fetching and embedding ${rawName}"
-        VERBATIM
-    )
-    set(${outVar} ${headerPath} PARENT_SCOPE)
-endfunction()
+add_custom_command(
+    OUTPUT ${INTER_OFL_HEADER_PATH}
+    COMMAND ${CMAKE_COMMAND} -DURL=${INTER_OFL_URL} -DDEST=${INTER_OFL_TXT_PATH}
+            -P ${CMAKE_SOURCE_DIR}/cmake/DownloadFile.cmake
+    COMMAND ${CMAKE_COMMAND} -DINPUT=${INTER_OFL_TXT_PATH} -DOUTPUT=${INTER_OFL_HEADER_PATH}
+            -DSYMBOL=kInterOflLicenseTxt
+            -P ${CMAKE_SOURCE_DIR}/cmake/BinToHeader.cmake
+    COMMENT "Fetching and embedding Inter OFL license text"
+    VERBATIM
+)
 
-embedRemoteFile("${FONTSOURCE_BASE}/inter@${INTER_VERSION}/latin-400-normal.ttf"
-    "Inter-Regular.ttf" "inter_regular_ttf.h" "kInterRegularTtf" INTER_REGULAR_HEADER)
-embedRemoteFile("${FONTSOURCE_BASE}/inter@${INTER_VERSION}/latin-500-normal.ttf"
-    "Inter-Medium.ttf" "inter_medium_ttf.h" "kInterMediumTtf" INTER_MEDIUM_HEADER)
-embedRemoteFile("${FONTSOURCE_BASE}/inter@${INTER_VERSION}/latin-600-normal.ttf"
-    "Inter-SemiBold.ttf" "inter_semibold_ttf.h" "kInterSemiBoldTtf" INTER_SEMIBOLD_HEADER)
-embedRemoteFile("${GOOGLE_FONTS_OFL}/inter/OFL.txt"
-    "Inter-OFL.txt" "inter_ofl_license_txt.h" "kInterOflLicenseTxt" INTER_OFL_HEADER)
+set(MONTSERRAT_OFL_URL "https://raw.githubusercontent.com/google/fonts/main/ofl/montserrat/OFL.txt")
+set(MONTSERRAT_OFL_TXT_PATH "${GENERATED_DIR}/Montserrat-OFL.txt")
+set(MONTSERRAT_OFL_HEADER_PATH "${GENERATED_DIR}/montserrat_ofl_license_txt.h")
+add_custom_command(
+    OUTPUT ${MONTSERRAT_OFL_HEADER_PATH}
+    COMMAND ${CMAKE_COMMAND} -DURL=${MONTSERRAT_OFL_URL} -DDEST=${MONTSERRAT_OFL_TXT_PATH}
+            -P ${CMAKE_SOURCE_DIR}/cmake/DownloadFile.cmake
+    COMMAND ${CMAKE_COMMAND} -DINPUT=${MONTSERRAT_OFL_TXT_PATH} -DOUTPUT=${MONTSERRAT_OFL_HEADER_PATH}
+            -DSYMBOL=kMontserratOflLicenseTxt
+            -P ${CMAKE_SOURCE_DIR}/cmake/BinToHeader.cmake
+    COMMENT "Fetching and embedding Montserrat OFL license text"
+    VERBATIM
+)
 
-embedRemoteFile("${FONTSOURCE_BASE}/montserrat@${MONTSERRAT_VERSION}/latin-600-normal.ttf"
-    "Montserrat-SemiBold.ttf" "montserrat_semibold_ttf.h" "kMontserratSemiBoldTtf" MONTSERRAT_SEMIBOLD_HEADER)
-embedRemoteFile("${FONTSOURCE_BASE}/montserrat@${MONTSERRAT_VERSION}/latin-700-normal.ttf"
-    "Montserrat-Bold.ttf" "montserrat_bold_ttf.h" "kMontserratBoldTtf" MONTSERRAT_BOLD_HEADER)
-embedRemoteFile("${GOOGLE_FONTS_OFL}/montserrat/OFL.txt"
-    "Montserrat-OFL.txt" "montserrat_ofl_license_txt.h" "kMontserratOflLicenseTxt" MONTSERRAT_OFL_HEADER)
-
-add_custom_target(generate_font_header DEPENDS
-    ${INTER_REGULAR_HEADER} ${INTER_MEDIUM_HEADER} ${INTER_SEMIBOLD_HEADER} ${INTER_OFL_HEADER}
-    ${MONTSERRAT_SEMIBOLD_HEADER} ${MONTSERRAT_BOLD_HEADER} ${MONTSERRAT_OFL_HEADER})
+add_custom_target(generate_font_header DEPENDS ${INTER_OFL_HEADER_PATH} ${MONTSERRAT_OFL_HEADER_PATH})
