@@ -2,7 +2,7 @@
 
 A standalone graphical installer for [TuxBlox](https://tuxblox.net). It downloads and installs the compiled Proton build, the TuxBlox Launcher, and itself into `~/.tuxblox/` -- or wherever `--dir` names, for a manual install outside the home folder -- then hands off to the Launcher. Run against an existing install, it auto-detects that (no separate flag needed) and switches into upgrade mode: it replaces only `proton/` and the Launcher/Installer binaries, leaving `runtime/` (the Wine prefix, including the user's Roblox login) and everything else untouched, showing "Upgrading Proton"/"Upgrading TuxBlox" instead of the fresh-install wording. This is also how the Launcher applies its own updates -- it doesn't download or apply anything itself, it verifies/fetches this same persisted `TuxBloxInstaller` binary and execs it. It does not handle repair or uninstall.
 
-Built with [Dear ImGui](https://github.com/ocornut/imgui) + SDL2 + OpenGL3, in C++17.
+Its graphical interface is a GTK4 + libadwaita stack appended to the binary and unpacked on first run; the rest is C++17.
 
 ## Building
 
@@ -10,7 +10,7 @@ Built with [Dear ImGui](https://github.com/ocornut/imgui) + SDL2 + OpenGL3, in C
 ./build.sh
 ```
 
-This detects your package manager (apt/dnf/pacman/brew/apk) and installs only the host-side tools needed to drive the containerized build (`podman`, `curl`, `git`), vendors the third-party dependencies below via `./vendor.sh`, then configures and builds inside a pinned old-glibc-baseline container (`podman build`/`podman run` against `build-container/Containerfile`, shared with `launcher/build.sh` and the root `build.sh`'s Proton-compile step) so the resulting binary stays compatible with older-glibc distros regardless of what's on the host. The actual C++ toolchain (`cmake`, a C++ compiler, `SDL2`, `libcurl`, `libarchive`, `openssl`) lives inside that container image, not on the host. The resulting binary is at `build/TuxBloxInstaller`.
+This detects your package manager (apt/dnf/pacman/brew/apk) and installs only the host-side tools needed to drive the containerized build (`podman`, `curl`, `git`), vendors the third-party dependencies below via `./vendor.sh`, then configures and builds inside a pinned old-glibc-baseline container (`podman build`/`podman run` against `build-container/Containerfile`, shared with `launcher/build.sh` and the root `build.sh`'s Proton-compile step) so the resulting binary stays compatible with older-glibc distros regardless of what's on the host. The actual C++ toolchain (`cmake`, a C++ compiler, `libcurl`, `libarchive`, `openssl`) lives inside that container image, not on the host. The resulting binary is at `build/TuxBloxInstaller`.
 
 ## Testing
 
@@ -18,17 +18,15 @@ This detects your package manager (apt/dnf/pacman/brew/apk) and installs only th
 cd build && ctest
 ```
 
-Covers the non-UI logic: manifest parsing, checksum verification, download handling, tar extraction, install path resolution, and progress tracking. There's no automated coverage of the ImGui rendering code (`src/ui.cpp`), changes there are verified by building and running the installer.
+Covers the non-UI logic: manifest parsing, checksum verification, download handling, tar extraction, install path resolution, and progress tracking. There's no automated coverage of the interface itself, changes there are verified by building and running the installer.
 
 ## Dependencies
 
 Vendored automatically by `./vendor.sh` into `third_party/` (not committed to this repo, automatically created by `vendor.sh`):
 
-- [Dear ImGui](https://github.com/ocornut/imgui) (MIT) pinned to `v1.91.0`
 - [nlohmann/json](https://github.com/nlohmann/json) (MIT) pinned to `v3.11.3`, single-header
-- [stb_image.h](https://github.com/nothings/stb) (MIT / public domain) pinned to a fixed commit
 
-The Inter font (OFL-1.1) is fetched and embedded at build time by `cmake/FetchFont.cmake`, and the TuxBlox logo is fetched and embedded by `cmake/FetchLogo.cmake`, neither needs a separate vendoring step.
+The Inter font's license text (OFL-1.1) is fetched and embedded at build time by `cmake/FetchFont.cmake`, and the TuxBlox logo is fetched and embedded by `cmake/FetchLogo.cmake`, neither needs a separate vendoring step.
 
 ## License
 

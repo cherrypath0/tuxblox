@@ -15,15 +15,15 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 # Embeds license texts for third-party dependencies compiled directly into
-# the installer binary (Dear ImGui, nlohmann/json), so copyright_file.cpp
+# the installer binary (nlohmann/json) and by the product as a whole, so copyright_file.cpp
 # can write proper attribution into the installed product's COPYRIGHT.txt.
 # Mirrors FetchFont.cmake's fetch-or-locate + embed pattern.
 #
-# Dear ImGui already ships its own LICENSE.txt in the vendored tree
-# (populated by vendor.sh before cmake runs), so it's embedded directly --
-# no download needed. nlohmann/json is vendored as a single header with no
-# accompanying LICENSE file, so its license is fetched separately, pinned
-# to the exact same v3.11.3 tag vendor.sh already pins json.hpp to.
+# The installer no longer links Dear ImGui, but the shared COPYRIGHT.txt still
+# names it (see copyright_file.cpp), so its license is fetched, pinned to v1.91.0.
+# nlohmann/json is vendored as a single header with no accompanying LICENSE
+# file, so its license is fetched separately, pinned to the exact same v3.11.3
+# tag vendor.sh already pins json.hpp to.
 #
 # The LGPLv3 text covers the Qt6 libraries the *launcher* bundles. It's
 # embedded here too, not just in launcher/, because both binaries write the
@@ -37,10 +37,11 @@
 # libxcb/xkbcommon notices are hardcoded there for the same reason (ICU 56
 # publishes its license only as HTML at that tag).
 
-set(IMGUI_LICENSE_PATH "${CMAKE_SOURCE_DIR}/third_party/imgui/LICENSE.txt")
+set(IMGUI_LICENSE_URL "https://raw.githubusercontent.com/ocornut/imgui/v1.91.0/LICENSE.txt")
 set(JSON_LICENSE_URL "https://raw.githubusercontent.com/nlohmann/json/v3.11.3/LICENSE.MIT")
 set(LGPL3_LICENSE_URL "https://www.gnu.org/licenses/lgpl-3.0.txt")
 set(GENERATED_DIR "${CMAKE_BINARY_DIR}/generated")
+set(IMGUI_LICENSE_TXT_PATH "${GENERATED_DIR}/imgui-LICENSE.txt")
 set(JSON_LICENSE_TXT_PATH "${GENERATED_DIR}/json-LICENSE.MIT")
 set(LGPL3_LICENSE_TXT_PATH "${GENERATED_DIR}/lgpl-3.0.txt")
 set(IMGUI_LICENSE_HEADER_PATH "${GENERATED_DIR}/imgui_license_txt.h")
@@ -49,17 +50,14 @@ set(LGPL3_LICENSE_HEADER_PATH "${GENERATED_DIR}/lgpl3_license_txt.h")
 
 file(MAKE_DIRECTORY ${GENERATED_DIR})
 
-if(NOT EXISTS ${IMGUI_LICENSE_PATH})
-    message(FATAL_ERROR "Dear ImGui LICENSE.txt not found at ${IMGUI_LICENSE_PATH} -- run ./vendor.sh first.")
-endif()
-
 add_custom_command(
     OUTPUT ${IMGUI_LICENSE_HEADER_PATH}
-    COMMAND ${CMAKE_COMMAND} -DINPUT=${IMGUI_LICENSE_PATH} -DOUTPUT=${IMGUI_LICENSE_HEADER_PATH}
+    COMMAND ${CMAKE_COMMAND} -DURL=${IMGUI_LICENSE_URL} -DDEST=${IMGUI_LICENSE_TXT_PATH}
+            -P ${CMAKE_SOURCE_DIR}/cmake/DownloadFile.cmake
+    COMMAND ${CMAKE_COMMAND} -DINPUT=${IMGUI_LICENSE_TXT_PATH} -DOUTPUT=${IMGUI_LICENSE_HEADER_PATH}
             -DSYMBOL=kImguiLicenseTxt
             -P ${CMAKE_SOURCE_DIR}/cmake/BinToHeader.cmake
-    DEPENDS ${IMGUI_LICENSE_PATH}
-    COMMENT "Embedding Dear ImGui license text"
+    COMMENT "Fetching and embedding Dear ImGui license text"
     VERBATIM
 )
 

@@ -102,7 +102,7 @@ if [[ -z "${TUXBLOX_CHANNEL:-}" && -r "$(pwd)/../VERSION" ]]; then
     TUXBLOX_CHANNEL="$(sed -n '2p' "$(pwd)/../VERSION" | tr -d '[:space:]')"
 fi
 
-# The interface stack lives in shared/ui, outside this script's /src mount, so it gets a mount of its own -- the same way studio-mcp/build.sh reaches launcher/. Without it only the SDL installer is built.
+# The interface stack lives in shared/ui, outside this script's /src mount, so it gets a mount of its own -- the same way studio-mcp/build.sh reaches launcher/. Without it the interface binary is not built.
 UiStackArg=""
 UiStackMount=()
 UiStackDev="$(pwd)/../shared/ui/dist/dev"

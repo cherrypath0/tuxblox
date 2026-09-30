@@ -25,8 +25,7 @@ struct CliOptions {
     // Remove the install instead of performing one. Passed by the launcher's
     // Settings tab.
     bool uninstall = false;
-    // Report progress on the terminal instead of opening a window. SDL is
-    // never initialized in this mode, so it works over SSH / with no display.
+    // Report progress on the terminal instead of opening a window, so it works over SSH / with no display.
     bool headless = false;
     // Don't exec the launcher once the install succeeds. Independent of
     // --headless; both modes honor it.

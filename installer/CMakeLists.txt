@@ -20,42 +20,21 @@ project(TuxBloxInstaller CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-if(NOT EXISTS "${CMAKE_SOURCE_DIR}/third_party/imgui/imgui.h")
-    message(FATAL_ERROR "third_party/imgui is missing. Run ./vendor.sh first.")
-endif()
 if(NOT EXISTS "${CMAKE_SOURCE_DIR}/third_party/json.hpp")
     message(FATAL_ERROR "third_party/json.hpp is missing. Run ./vendor.sh first.")
 endif()
-if(NOT EXISTS "${CMAKE_SOURCE_DIR}/third_party/stb_image.h")
-    message(FATAL_ERROR "third_party/stb_image.h is missing. Run ./vendor.sh first.")
-endif()
 
 find_package(PkgConfig REQUIRED)
-pkg_check_modules(SDL2 REQUIRED sdl2)
 pkg_check_modules(CURL REQUIRED libcurl)
 pkg_check_modules(ARCHIVE REQUIRED libarchive)
 pkg_check_modules(OPENSSL REQUIRED openssl)
-find_package(OpenGL REQUIRED)
 # glibc >= 2.34 merged libpthread/libdl's symbols into libc.so itself, so std::thread
 # links "for free" on a newer-glibc host -- but the old-glibc-baseline container this
 # project builds inside (see build-container/Containerfile) still needs them explicit.
 # Threads::Threads is load-bearing (std::thread is used); ${CMAKE_DL_LIBS} is
-# defensive (nothing in this target calls dlopen/dlsym directly, but SDL2/OpenGL's
-# transitive needs and general old-glibc-baseline safety make it cheap insurance).
+# defensive (nothing in this target calls dlopen/dlsym directly, but old-glibc-baseline
+# safety makes it cheap insurance).
 find_package(Threads REQUIRED)
-
-set(IMGUI_DIR ${CMAKE_SOURCE_DIR}/third_party/imgui)
-add_library(imgui STATIC
-    ${IMGUI_DIR}/imgui.cpp
-    ${IMGUI_DIR}/imgui_draw.cpp
-    ${IMGUI_DIR}/imgui_tables.cpp
-    ${IMGUI_DIR}/imgui_widgets.cpp
-    ${IMGUI_DIR}/imgui_demo.cpp
-    ${IMGUI_DIR}/backends/imgui_impl_sdl2.cpp
-    ${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
-)
-target_include_directories(imgui PUBLIC ${IMGUI_DIR} ${IMGUI_DIR}/backends ${SDL2_INCLUDE_DIRS})
-target_compile_options(imgui PRIVATE ${SDL2_CFLAGS_OTHER})
 
 add_library(installer_core STATIC
     src/cli.cpp
@@ -157,14 +136,12 @@ include(cmake/EmbedThirdPartyLicenses.cmake)
 add_executable(TuxBloxInstaller
     src/main.cpp
     src/app.cpp
-    src/ui.cpp
-    src/ui_scale.cpp
     src/console_ui.cpp
     src/desktop_shortcut.cpp
     src/copyright_file.cpp
 )
 target_include_directories(TuxBloxInstaller PRIVATE ${CMAKE_BINARY_DIR}/generated)
-target_link_libraries(TuxBloxInstaller PRIVATE installer_core imgui ${SDL2_LIBRARIES} OpenGL::GL ${CMAKE_DL_LIBS} Threads::Threads)
+target_link_libraries(TuxBloxInstaller PRIVATE installer_core ${CMAKE_DL_LIBS} Threads::Threads)
 add_dependencies(TuxBloxInstaller generate_logo_header generate_font_header generate_thirdparty_license_headers)
 
 # The interface binary, which lives inside the appended payload rather than
