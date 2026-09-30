@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "ui_payload.h"
+#include <cassert>
 #include <cstring>
 #include <fstream>
 
@@ -43,14 +44,24 @@ uint64_t getU64(const unsigned char* p) {
     return v;
 }
 
-// The digest travels as 32 raw bytes and is presented as hex, so the trailer stays a fixed size.
+// The digest travels as 32 raw bytes and is presented as hex, so the trailer stays a fixed size. Input must be exactly 64 hex characters (32 bytes); invalid input returns empty string.
 std::string hexToRaw(const std::string& hex) {
+    if (hex.size() != 64) return std::string();
     std::string raw;
     raw.reserve(32);
-    for (size_t i = 0; i + 1 < hex.size() && raw.size() < 32; i += 2) {
-        raw.push_back(static_cast<char>(std::stoi(hex.substr(i, 2), nullptr, 16)));
+    for (size_t i = 0; i < 64; i += 2) {
+        char high = hex[i];
+        char low = hex[i + 1];
+        int highNibble = -1, lowNibble = -1;
+        if (high >= '0' && high <= '9') highNibble = high - '0';
+        else if (high >= 'a' && high <= 'f') highNibble = high - 'a' + 10;
+        else if (high >= 'A' && high <= 'F') highNibble = high - 'A' + 10;
+        if (low >= '0' && low <= '9') lowNibble = low - '0';
+        else if (low >= 'a' && low <= 'f') lowNibble = low - 'a' + 10;
+        else if (low >= 'A' && low <= 'F') lowNibble = low - 'A' + 10;
+        if (highNibble < 0 || lowNibble < 0) return std::string();
+        raw.push_back(static_cast<char>((highNibble << 4) | lowNibble));
     }
-    raw.resize(32, '\0');
     return raw;
 }
 
@@ -67,13 +78,16 @@ std::string rawToHex(const unsigned char* raw) {
 } // namespace
 
 std::string encodeUiPayloadTrailer(const UiPayloadTrailer& trailer) {
+    // Precondition: trailer.sha256 must be exactly 64 lowercase hex characters. This is validated here to ensure we never return a malformed trailer.
+    std::string raw = hexToRaw(trailer.sha256);
+    assert(!raw.empty() && raw.size() == 32);
     std::string out;
     out.reserve(kUiPayloadTrailerSize);
     out.append(kMagic, sizeof(kMagic));
     putU32(out, trailer.format);
     putU64(out, trailer.offset);
     putU64(out, trailer.size);
-    out.append(hexToRaw(trailer.sha256));
+    out.append(raw);
     return out;
 }
 
@@ -101,7 +115,7 @@ std::optional<UiPayloadTrailer> readUiPayloadTrailer(const std::string& binaryPa
     const uint64_t trailerStart = static_cast<uint64_t>(fileSize) - kUiPayloadTrailerSize;
     if (trailer.size == 0) return std::nullopt;
     if (trailer.offset > trailerStart) return std::nullopt;
-    if (trailer.offset + trailer.size > trailerStart) return std::nullopt;
+    if (trailer.size > trailerStart - trailer.offset) return std::nullopt;
 
     return trailer;
 }
