@@ -116,6 +116,14 @@ podman run --rm --userns=keep-id -e JOBS="$JOBS" -e UI_STACK_ARG="$UiStackArg" \
     -e TUXBLOX_CHANNEL="${TUXBLOX_CHANNEL:-}" -v "$(pwd):/src:Z" "${UiStackMount[@]}" -w /src tuxblox-old-glibc-builder \
     bash -c 'cmake -B build -S . -DCMAKE_BUILD_TYPE=Release ${UI_STACK_ARG:-} && cmake --build build -j"$JOBS"'
 
+StackTarballs=("$(pwd)"/../shared/ui/dist/ui-stack-*.tar.zst)
+if [[ -f build/TuxBloxInstaller-ui && -f "${StackTarballs[0]}" ]]; then
+    echo ":: Appending the interface to the installer"
+    ./append-payload.sh build/TuxBloxInstaller "${StackTarballs[0]}" build/TuxBloxInstaller-ui build/TuxBloxInstaller
+else
+    echo ":: No interface built, the installer stays headless-only"
+fi
+
 # Also stage the finished binary at the repo-root build/ directory -- the same
 # place the root build.sh (which stages this whole build/ tree there via `mv`
 # after calling this script) leaves it, so a standalone run of this script
