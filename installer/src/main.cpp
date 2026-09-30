@@ -38,7 +38,13 @@ namespace {
 bool hasGraphicalSession() {
     const char* display = getenv("DISPLAY");
     const char* wayland = getenv("WAYLAND_DISPLAY");
-    return (display && *display) || (wayland && *wayland);
+    if ((display && *display) || (wayland && *wayland)) {
+        return true;
+    }
+    // A Wayland client falls back to this socket name when the variable is unset.
+    const char* runtimeDir = getenv("XDG_RUNTIME_DIR");
+    std::error_code ec;
+    return runtimeDir && *runtimeDir && std::filesystem::exists(std::filesystem::path(runtimeDir) / "wayland-0", ec);
 }
 
 void reportError(const std::string& details) {
@@ -53,29 +59,26 @@ void printUninstallResult(bool ok, const char* failureText) {
     }
 }
 
-// Runs the finished-uninstall dialog and waits for it, because this process has to outlive the dialog to delete the folder the dialog is running from.
-void showUninstallResult(bool ok, const char* failureText) {
-    if (!hasGraphicalSession()) {
-        printUninstallResult(ok, failureText);
-        return;
-    }
-    const tuxblox::UiStackResult stack = tuxblox::ensureUiStack(tuxblox::selfExePath(), tuxblox::kTuxBloxVersion);
-    if (!stack.ok) {
-        printUninstallResult(ok, failureText);
-        return;
-    }
-    const char* flag = ok ? "--uninstall-result-ok" : "--uninstall-result-failed";
+// Runs the interface binary with `flag` (and `argument` if given) and reports whether a window was shown. Waits for it, because this process has to outlive the window.
+bool runInterfaceDialog(const std::string& uiBinaryPath, const char* flag, const char* argument = nullptr) {
     const pid_t child = fork();
     if (child == 0) {
-        execl(stack.uiBinaryPath.c_str(), stack.uiBinaryPath.c_str(), flag, static_cast<char*>(nullptr));
+        execl(uiBinaryPath.c_str(), uiBinaryPath.c_str(), flag, argument, static_cast<char*>(nullptr));
         _exit(127);
     }
-    if (child > 0) {
-        int status = 0;
-        waitpid(child, &status, 0);
-        if (WIFEXITED(status) && WEXITSTATUS(status) == 127) {
-            printUninstallResult(ok, failureText);
-        }
+    if (child < 0) {
+        return false;
+    }
+    int status = 0;
+    waitpid(child, &status, 0);
+    return !(WIFEXITED(status) && WEXITSTATUS(status) == 127);
+}
+
+// Shows the finished-uninstall dialog, falling back to the terminal when there is no interface to show it with.
+void showUninstallResult(bool ok, const char* failureText, const std::string& uiBinaryPath) {
+    const char* flag = ok ? "--uninstall-result-ok" : "--uninstall-result-failed";
+    if (uiBinaryPath.empty() || !runInterfaceDialog(uiBinaryPath, flag)) {
+        printUninstallResult(ok, failureText);
     }
 }
 } // namespace
@@ -124,6 +127,15 @@ int main(int argc, char** argv) {
     // --uninstall -- passed by the launcher's Settings tab. Never shows the
     // install UI, just does the removal and reports the result.
     if (options.uninstall) {
+        // Unpacked before the removal, because the installer this reads the interface from lives inside the folder about to be deleted.
+        std::string uiBinaryPath;
+        if (!options.headless && hasGraphicalSession()) {
+            const UiStackResult stack = ensureUiStack(selfExePath(), kTuxBloxVersion);
+            if (stack.ok) {
+                uiBinaryPath = stack.uiBinaryPath;
+            }
+        }
+
         const bool ok = performUninstall(options.dir.empty() ? installDir() : options.dir);
         const char* failureText =
             "Desktop shortcuts and URL handlers were removed, but the TuxBlox folder could "
@@ -131,7 +143,7 @@ int main(int argc, char** argv) {
         if (options.headless) {
             printUninstallResult(ok, failureText);
         } else {
-            showUninstallResult(ok, failureText);
+            showUninstallResult(ok, failureText, uiBinaryPath);
         }
 
         // Last, and from this process rather than one living inside it: the interface was unpacked here, and the folder goes with the install.
@@ -177,8 +189,10 @@ int main(int argc, char** argv) {
         args.push_back(nullptr);
         execv(stack.uiBinaryPath.c_str(), args.data());
         const int execError = errno;
-        reportError("TuxBlox unpacked its interface but could not start it. This usually means the folder it was unpacked into does not allow programs to run. Try running this installer with --headless.");
+        const std::string startError = "TuxBlox unpacked its interface but could not start it. This usually means the folder it was unpacked into does not allow programs to run. Try running this installer with --headless.";
+        reportError(startError);
         fprintf(stderr, "Details: %s: %s\n", stack.uiBinaryPath.c_str(), strerror(execError));
+        runInterfaceDialog(stack.uiBinaryPath, "--show-error", startError.c_str());
         return 1;
     }
 

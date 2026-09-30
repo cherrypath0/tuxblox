@@ -16,6 +16,7 @@
 #pragma once
 #include "app.h"
 #include "cli.h"
+#include <string>
 
 namespace tuxblox {
 
@@ -24,5 +25,8 @@ int runAdwInstall(App& app, const CliOptions& options);
 
 // Shows the result of an uninstall and returns once it is dismissed.
 int runAdwUninstallResult(bool ok);
+
+// Shows a failure message in a window and returns once it is dismissed.
+int runAdwError(const std::string& message);
 
 } // namespace tuxblox

@@ -132,11 +132,21 @@ UiStackResult ensureUiStack(const std::string& selfExe, const std::string& versi
         return fail("TuxBlox could not unpack its interface. Check that the disk is not full, or run this installer with --headless.", e.what());
     }
     fs::remove(archive, ec);
+
+    const fs::path binary = partial / UiBinaryName;
+    if (!fs::is_regular_file(binary, ec) || access(binary.c_str(), X_OK) != 0) {
+        fs::remove_all(partial, ec);
+        return fail("This copy of the installer is damaged: its interface is missing the program that should start it. Download TuxBlox again, or run this installer with --headless.");
+    }
     uiCacheMarkComplete(partial.string(), trailer->sha256);
 
-    // rename() is atomic, so a second installer racing this one never sees a half-unpacked folder, and losing the race is not a failure because the winner's copy is just as good.
-    fs::remove_all(dir, ec);
+    // rename() is atomic and refuses a non-empty target, so a second installer racing this one never sees a half-unpacked folder and never deletes a finished one. Losing the race is not a failure because the winner's copy is just as good.
     fs::rename(partial, dir, ec);
+    if (ec && !uiCacheIsComplete(dir, trailer->sha256)) {
+        // What is in the way belongs to another build or an interrupted run, so it is safe to replace; a finished copy of this payload never gets here.
+        fs::remove_all(dir, ec);
+        fs::rename(partial, dir, ec);
+    }
     if (ec) {
         const std::string renameError = ec.message();
         const bool winnerIsComplete = uiCacheIsComplete(dir, trailer->sha256);
