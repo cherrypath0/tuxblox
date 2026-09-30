@@ -388,10 +388,12 @@ stage_release() {
         { read -r source_commit || true; read -r source_dirty || true; } < "$ROOT/build/.provenance"
     fi
 
-    # The launcher's Qt6 bundle is three entries, not one directory that
-    # happens to exist -- an empty libtuxblox/ would tar up fine and fail at
-    # the user's machine instead.
+    # The launcher's Qt6 bundle is three entries, and the interface libraries'
+    # real directory is one level down, not just a directory that happens to
+    # exist -- an empty libtuxblox/ or ui/ would tar up fine and fail at the
+    # user's machine instead.
     local required=(compat/main libtuxblox/lib libtuxblox/plugins libtuxblox/qt.conf
+                    ui/lib/x86_64-linux-gnu
                     TuxBloxLauncher TuxBloxInstaller TuxBloxBootstrapper studio-mcp)
     local entry
     for entry in "${required[@]}"; do
@@ -416,6 +418,19 @@ stage_release() {
     tar --zstd -cf "$release_dir/compat-$slug.tar.zst" -C "$ROOT/build/compat" .
     echo ":: Packing the TuxBlox libraries"
     tar --zstd -cf "$release_dir/libtuxblox-$slug.tar.zst" -C "$ROOT/build/libtuxblox" .
+
+    # The interface libraries ship as the tarball shared/ui/build.sh already packed, copied rather than repacked, so its checksum does not change when a release is re-staged. The libadwaita commit inside it must be the one build/ui was unpacked from, or the notice would name source for a different build.
+    local uiTarballs=("$ROOT"/shared/ui/dist/ui-stack-*.tar.zst)
+    if [[ ${#uiTarballs[@]} -ne 1 || ! -f "${uiTarballs[0]}" ]]; then
+        echo "!! Expected exactly one shared/ui/dist/ui-stack-*.tar.zst, found ${#uiTarballs[@]}." >&2
+        return 1
+    fi
+    if ! tar --zstd -xOf "${uiTarballs[0]}" LIBADWAITA_COMMIT | cmp -s - "$ROOT/build/ui/LIBADWAITA_COMMIT"; then
+        echo "!! shared/ui/dist's stack is not the one build/ui was unpacked from, so this build cannot be published." >&2
+        return 1
+    fi
+    echo ":: Copying the interface libraries"
+    cp "${uiTarballs[0]}" "$release_dir/ui-$slug.tar.zst"
 
     # The launcher, installer and MCP helper ship unpacked. They are copied
     # under the basename the manifest's url gives them, which is how the
@@ -451,6 +466,7 @@ artifacts = [
     # either spelling, so emitting the new one is safe for older installs.
     ("compat",     f"compat-{slug}.tar.zst",      "Compatibility layer",  "compat"),
     ("libtuxblox", f"libtuxblox-{slug}.tar.zst",  "Libraries",            "libtuxblox"),
+    ("ui",         f"ui-{slug}.tar.zst",          "Interface libraries",  "ui"),
     # Was the mcp.sh shell script through 2.6.0. The key is unchanged, so an
     # older installer still finds it; what it downloads is now a binary.
     ("mcp",        "studio-mcp",                  "Studio MCP",           "studio-mcp"),
