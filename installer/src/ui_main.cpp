@@ -30,8 +30,12 @@ namespace {
 bool HadFontConfigFile = false;
 std::string OriginalFontConfigFile;
 
+// What GSETTINGS_SCHEMA_DIR held when the process started, restored for the same reason as FONTCONFIG_FILE.
+bool HadSchemaDir = false;
+std::string OriginalSchemaDir;
+
 // Fontconfig has no configuration of its own here, so without this the bundled fonts next to the binary are never scanned on a machine that lacks /etc/fonts.
-void useBundledFonts() {
+void useBundledEnvironment() {
     const char *pOriginal = getenv("FONTCONFIG_FILE");
     HadFontConfigFile = pOriginal != nullptr;
     if (pOriginal) OriginalFontConfigFile = pOriginal;
@@ -44,14 +48,27 @@ void useBundledFonts() {
     std::string config = path;
     config = config.substr(0, config.rfind('/')) + "/fonts/fonts.conf";
     if (access(config.c_str(), R_OK) == 0) setenv("FONTCONFIG_FILE", config.c_str(), 1);
+
+    const char *pOriginalSchemas = getenv("GSETTINGS_SCHEMA_DIR");
+    HadSchemaDir = pOriginalSchemas != nullptr;
+    if (pOriginalSchemas) OriginalSchemaDir = pOriginalSchemas;
+
+    // GLib otherwise looks under the prefix the stack was built for, finds no schemas and settings such as the colour scheme silently stop working.
+    const std::string schemas = std::string(path).substr(0, std::string(path).rfind('/')) + "/share/glib-2.0/schemas";
+    if (access((schemas + "/gschemas.compiled").c_str(), R_OK) == 0) setenv("GSETTINGS_SCHEMA_DIR", schemas.c_str(), 1);
 }
 
 // The setting is only for this window; the launcher, Wine and Roblox must not inherit a path into a cache folder that is later pruned.
-void restoreFontConfigEnvironment() {
+void restoreBundledEnvironment() {
     if (HadFontConfigFile) {
         setenv("FONTCONFIG_FILE", OriginalFontConfigFile.c_str(), 1);
     } else {
         unsetenv("FONTCONFIG_FILE");
+    }
+    if (HadSchemaDir) {
+        setenv("GSETTINGS_SCHEMA_DIR", OriginalSchemaDir.c_str(), 1);
+    } else {
+        unsetenv("GSETTINGS_SCHEMA_DIR");
     }
 }
 
@@ -60,7 +77,7 @@ void restoreFontConfigEnvironment() {
 int main(int argc, char **argv) {
     using namespace tuxblox;
 
-    useBundledFonts();
+    useBundledEnvironment();
 
     // Passed by the outer binary after it has already done the removal, purely so the result can be shown in a window.
     if (argc == 2 && std::string(argv[1]) == "--uninstall-result-ok") return runAdwUninstallResult(true);
@@ -91,7 +108,7 @@ int main(int argc, char **argv) {
     if (options.noLaunch) return 0;
 
     const std::string launcher = app.launcherPath();
-    restoreFontConfigEnvironment();
+    restoreBundledEnvironment();
     if (options.allowRoot) {
         execl(launcher.c_str(), launcher.c_str(), "--allow-root", (char *)nullptr);
     } else {

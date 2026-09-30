@@ -36,7 +36,7 @@ if grep -q '^VERSION_ID="11"' /etc/os-release; then
     rm -f /etc/apt/sources.list.d/*
     printf 'Acquire::Check-Valid-Until "false";\n' >/etc/apt/apt.conf.d/99archive
 fi
-# libcurl and libarchive are the installer's own dynamic dependencies, and libxcursor1 and libxcb-render0 are X11 client libraries every desktop has; the interface's host allow-list relies on them.
+# libcurl and libarchive are the installer's own dynamic dependencies. The X11 client libraries (libxcursor1, libxcb-render0) are hard requirements of GTK's X11 backend and are deliberately not bundled, so this test assumes a desktop has them.
 apt-get update -qq
 apt-get install -y -qq --no-install-recommends xvfb x11-utils procps ca-certificates libcurl4 libarchive13 libxcursor1 libxcb-render0 >/dev/null
 
@@ -47,6 +47,7 @@ if ldconfig -p | grep -qE 'libgtk-4|libadwaita|libglib-2.0|libpango-1|libcairo\.
     exit 1
 fi
 printf 'OK: the base image has no GTK, libadwaita, GLib, Pango or Cairo\n'
+printf 'CLAIM: no GTK, GLib, Pango or Cairo required; X11 client libraries assumed present\n'
 
 # TuxBlox refuses to run as root, so everything from here runs as an ordinary user.
 useradd -m tester
@@ -62,7 +63,7 @@ runuser -u tester -- env HOME="$home" DISPLAY=:99 /TuxBloxInstaller --nolaunch -
 cache=""
 for _ in $(seq 1 60); do
     cache="$(ls -d $home/.cache/tuxblox/ui-* 2>/dev/null | head -n 1 || true)"
-    if [[ -n "$cache" ]] && pgrep -f TuxBloxInstaller-ui >/dev/null; then break; fi
+    if [[ -n "$cache" ]] && pgrep -u tester -f "^$cache/TuxBloxInstaller-ui" >/dev/null; then break; fi
     sleep 1
 done
 sleep 5
@@ -70,25 +71,63 @@ sleep 5
 printf 'cache directory: %s\n' "$cache"
 test -n "$cache" && test -d "$cache" || { printf 'FAIL: nothing was unpacked\n'; cat /tmp/installer.log; exit 1; }
 test -x "$cache/TuxBloxInstaller-ui" || { printf 'FAIL: no executable interface in the cache\n'; exit 1; }
-pgrep -f TuxBloxInstaller-ui >/dev/null || { printf 'FAIL: the interface binary is not running\n'; cat /tmp/installer.log; exit 1; }
+
+# Anchored to the real path: this script's own shell has the interface's name in its command line, so an unanchored match would always succeed.
+pid="$(pgrep -u tester -f "^$cache/TuxBloxInstaller-ui" | head -n 1 || true)"
+test -n "$pid" || { printf 'FAIL: the interface binary is not running\n'; cat /tmp/installer.log; exit 1; }
+argv0="$(tr '\0' '\n' <"/proc/$pid/cmdline" | head -n 1)"
+test "$argv0" = "$cache/TuxBloxInstaller-ui" || { printf 'FAIL: pid %s is %s, not the unpacked interface\n' "$pid" "$argv0"; exit 1; }
+printf 'interface running as pid %s (%s)\n' "$pid" "$argv0"
 
 ldd "$cache/TuxBloxInstaller-ui" | tee /tmp/deps.txt
 if grep -q 'not found' /tmp/deps.txt; then printf 'FAIL: unresolved libraries\n'; exit 1; fi
-toolkit='libgtk-4|libadwaita|libglib-2.0|libgobject-2.0|libgio-2.0|libpango|libcairo|libgdk_pixbuf|libharfbuzz|libfontconfig|libfreetype'
-if grep -E "$toolkit" /tmp/deps.txt | grep -v "=> $cache/"; then
-    printf 'FAIL: a toolkit library resolved outside the payload\n'
-    exit 1
-fi
-printf 'toolkit libraries resolved inside the payload: %s\n' "$(grep -cE "$toolkit" /tmp/deps.txt)"
-grep -qE 'libgtk-4' /tmp/deps.txt && grep -qE 'libadwaita' /tmp/deps.txt || { printf 'FAIL: GTK 4 or libadwaita missing from the dependencies\n'; exit 1; }
 
-# The running process must not have mapped any toolkit library from outside the cache either.
-pid="$(pgrep -f TuxBloxInstaller-ui | head -n 1)"
-if grep -E "$toolkit" "/proc/$pid/maps" | grep -v "$cache/"; then
-    printf 'FAIL: the running interface mapped a toolkit library from outside the payload\n'
+# Every resolved library must sit in the payload or be a known host library: the installer's own libcurl and libarchive and the X11 client libraries, with what they pull in, the C and C++ runtimes, and the X11 client libraries.
+hostOk="$(cd /usr/lib/x86_64-linux-gnu && ldd libcurl.so.4 libarchive.so.13 libX11.so.6 libXcursor.so.1 libXi.so.6 libxcb-render.so.0 | awk '/=>/ {print $1}' | sort -u)"
+hostPattern='^(libc\.so\.6|libm\.so\.6|libdl\.so\.2|libpthread\.so\.0|librt\.so\.1|libresolv\.so\.2|libstdc\+\+\.so\.6|libgcc_s\.so\.1|libcurl\.so\.4|libarchive\.so\.13|libX[a-zA-Z0-9]*\.so\.[0-9]+|libxcb[a-z-]*\.so\.[0-9]+|libz\.so\.1|libexpat\.so\.1|libpng16\.so\.16|libpcre2-8\.so\.0)$'
+stray=""
+while read -r name arrow path _; do
+    [[ "$arrow" == "=>" ]] || continue
+    [[ "$path" == "$cache/"* ]] && continue
+    if [[ "$name" =~ $hostPattern ]] || grep -qxF "$name" <<<"$hostOk"; then continue; fi
+    stray+="$name => $path"$'\n'
+done < /tmp/deps.txt
+if [[ -n "$stray" ]]; then
+    printf 'FAIL: these libraries resolved outside the payload and are not known host libraries:\n%s' "$stray"
     exit 1
 fi
-printf 'running interface maps only payload toolkit libraries\n'
+inPayload="$(grep -c "=> $cache/" /tmp/deps.txt)"
+printf 'all %s payload libraries resolved inside the cache; every other entry is a known host library\n' "$inPayload"
+for lib in libgtk-4 libadwaita libglib-2.0 libgobject-2.0 libgio-2.0 libpango-1.0 libcairo.so libgdk_pixbuf libharfbuzz libfontconfig libfreetype; do
+    grep -q "$lib.*=> $cache/" /tmp/deps.txt || { printf 'FAIL: %s is not in the payload dependencies\n' "$lib"; exit 1; }
+done
+
+# The running process must not have mapped a library from outside the cache that the payload also ships, which covers modules loaded at run time such as pixbuf loaders and pango modules.
+# Read as the interface's own user: root in a container is not allowed to look inside another user's process.
+maps="$(runuser -u tester -- cat "/proc/$pid/maps")"
+mapped="$(grep -c "$cache/" <<<"$maps" || true)"
+test "$mapped" -gt 0 || { printf 'FAIL: the running interface maps nothing from the payload\n'; exit 1; }
+# Compared by soname, and a library the installer's own host libraries already loaded is exempt: the first copy loaded wins and there is nothing the payload can do about it.
+shipped="$(ls "$cache/lib/x86_64-linux-gnu" | sed -E 's/(\.so\.[0-9]+).*/\1/' | sort -u)"
+outside=""
+while read -r file; do
+    soname="$(basename "$file" | sed -E 's/(\.so\.[0-9]+).*/\1/')"
+    grep -qxF "$soname" <<<"$hostOk" && continue
+    grep -qxF "$soname" <<<"$shipped" && outside+="$file"$'\n'
+done < <(awk '{print $6}' <<<"$maps" | grep -E '\.so' | grep -v "^$cache/" | sort -u)
+if [[ -n "$outside" ]]; then
+    printf 'FAIL: the running interface mapped libraries from outside the payload that the payload also ships:\n%s\n' "$outside"
+    exit 1
+fi
+printf 'running interface maps %s payload files and nothing shadowing the payload\n' "$mapped"
+
+# Missing schemas show up as GLib-GIO critical warnings, and mean settings such as the colour scheme silently do nothing.
+if grep -q 'GLib-GIO-CRITICAL' /tmp/installer.log; then
+    printf 'FAIL: GLib could not find its settings schemas\n'
+    cat /tmp/installer.log
+    exit 1
+fi
+printf 'no GLib-GIO criticals in the interface log\n'
 
 # Fontconfig writes a cache of every directory it scanned, so a cache naming the bundled font proves the bundled configuration was found.
 fontFound=""
