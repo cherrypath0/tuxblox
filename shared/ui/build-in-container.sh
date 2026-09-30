@@ -208,9 +208,11 @@ buildGtk4() {
 }
 
 buildLibadwaita() {
-    fetchAndExtract "https://download.gnome.org/sources/libadwaita/${LIBADWAITA_VERSION%.*}/libadwaita-${LIBADWAITA_VERSION}.tar.xz" /build/libadwaita
-    # libadwaita hard-requires AppStream only to fill an About dialog from an appdata file, which the installer never does, so that one constructor becomes a plain dialog
-    python3 /src/patch-libadwaita.py /build/libadwaita
+    # Not fetched: libadwaita is the one library TuxBlox maintains, and it comes from the submodule at shared/ui/libadwaita, whose commit is the pin
+    # Copied out of the read-only mount rather than built in place, so the checkout the repo owner edits never collects build artefacts
+    rm -rf /build/libadwaita
+    cp -a /src/libadwaita /build/libadwaita
+    rm -rf /build/libadwaita/.git
     mesonBuild libadwaita -Dintrospection=disabled -Dvapi=false -Dtests=false -Dexamples=false
 }
 

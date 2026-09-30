@@ -22,6 +22,12 @@ StackDir="$(pwd)"
 DistDir="$StackDir/dist"
 ImageTag=tuxblox-ui-stack-builder
 
+# A submodule that was never initialised is an empty folder, and the build would fail deep inside meson with nothing pointing back here
+if [ ! -e "$StackDir/libadwaita/meson.build" ]; then
+    printf 'ERROR: shared/ui/libadwaita is empty. Run: git submodule update --init shared/ui/libadwaita\n' >&2
+    exit 1
+fi
+
 mkdir -p "$DistDir/prefix" "$DistDir/work" "$DistDir/out"
 
 printf ':: Building the builder image\n'

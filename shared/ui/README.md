@@ -38,4 +38,5 @@ Notes:
 - libtiff, libjpeg-turbo and pixman are built here because their sonames differ between distributions (or, for pixman, they are not guaranteed to exist without cairo installed).
 - Pango is built without libthai and freetype without brotli, since both would otherwise be extra host dependencies.
 - Mesa is deliberately not built, so the host's GL driver is used.
-- libadwaita is patched (`patch-libadwaita.py`) to drop its AppStream dependency, which only serves `adw_about_dialog_new_from_appdata`; the two `new_from_appdata` constructors become stubs that log a critical message and return an empty dialog.
+- libadwaita is **not** fetched by version. It is the submodule at `shared/ui/libadwaita`, TuxBlox's own packaging fork of libadwaita, and the pinned submodule commit is what decides the source. Run `git submodule update --init shared/ui/libadwaita` before the first build.
+- That fork drops libadwaita's AppStream dependency, which serves only `adw_about_dialog_new_from_appdata()` and `adw_about_window_new_from_appdata()`. Both become stubs that log a critical message and return an empty dialog, so never build an About screen from appdata against this stack -- set the properties instead.
