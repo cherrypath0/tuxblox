@@ -66,9 +66,6 @@ int main(int argc, char **argv) {
     if (argc == 2 && std::string(argv[1]) == "--uninstall-result-ok") return runAdwUninstallResult(true);
     if (argc == 2 && std::string(argv[1]) == "--uninstall-result-failed") return runAdwUninstallResult(false);
 
-    // Passed by the outer binary when something failed after the interface was unpacked, so the reason reaches a user who has no terminal.
-    if (argc == 3 && std::string(argv[1]) == "--show-error") return runAdwError(argv[2]);
-
     CliOptions options = parseArgs(argc, argv);
     if (!options.error.empty()) {
         fprintf(stderr, "%s\n", options.error.c_str());

@@ -22,8 +22,8 @@ namespace tuxblox {
 // The folder TuxBlox owns under the user's cache: $XDG_CACHE_HOME when it names an absolute path, else $HOME/.cache, then "tuxblox". Throws std::runtime_error when neither is usable.
 std::string uiCacheRoot();
 
-// Where an extracted interface stack for `version` lives.
-std::string uiCacheDir(const std::string& version);
+// Where an extracted interface stack for `version` lives. The payload digest is part of the name, so a different payload can never land on another build's folder.
+std::string uiCacheDir(const std::string& version, const std::string& sha256);
 
 // True when `dir` holds a finished extraction of the payload whose digest is `sha256`.
 bool uiCacheIsComplete(const std::string& dir, const std::string& sha256);

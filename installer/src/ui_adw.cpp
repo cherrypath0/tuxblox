@@ -36,7 +36,6 @@ struct InstallUi {
 
 struct ResultUi {
     bool ok = false;
-    std::string message;
     GtkWindow *pWindow = nullptr;
 };
 
@@ -145,8 +144,7 @@ void onResultActivate(GtkApplication *pGtkApp, gpointer data) {
 
     AdwDialog *pDialog = adw_alert_dialog_new(
         pUi->ok ? "TuxBlox Uninstalled" : "TuxBlox Error",
-        !pUi->message.empty() ? pUi->message.c_str()
-        : pUi->ok ? "TuxBlox has been completely removed from this system."
+        pUi->ok ? "TuxBlox has been completely removed from this system."
                 : "Desktop shortcuts and URL handlers were removed, but the TuxBlox folder could "
                   "not be fully deleted. You may need to remove it manually.");
     adw_alert_dialog_add_response(ADW_ALERT_DIALOG(pDialog), "close", "Close");
@@ -179,17 +177,6 @@ int runAdwUninstallResult(bool ok) {
     g_application_run(G_APPLICATION(pGtkApp), 0, nullptr);
     g_object_unref(pGtkApp);
     return ok ? 0 : 1;
-}
-
-int runAdwError(const std::string &message) {
-    ResultUi ui;
-    ui.message = message;
-
-    AdwApplication *pGtkApp = adw_application_new("net.tuxblox.Installer", G_APPLICATION_NON_UNIQUE);
-    g_signal_connect(pGtkApp, "activate", G_CALLBACK(onResultActivate), &ui);
-    g_application_run(G_APPLICATION(pGtkApp), 0, nullptr);
-    g_object_unref(pGtkApp);
-    return 1;
 }
 
 } // namespace tuxblox

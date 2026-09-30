@@ -35,7 +35,8 @@ int main() {
     // XDG_CACHE_HOME wins when it is absolute.
     setenv("XDG_CACHE_HOME", (work / "xdg").c_str(), 1);
     assert(uiCacheRoot() == (work / "xdg" / "tuxblox").string());
-    assert(uiCacheDir("2.9.0") == (work / "xdg" / "tuxblox" / "ui-2.9.0").string());
+    assert(uiCacheDir("2.9.0", std::string(64, 'a')) == (work / "xdg" / "tuxblox" / "ui-2.9.0-aaaaaaaaaaaa").string());
+    assert(uiCacheDir("2.9.0", std::string(64, 'a')) != uiCacheDir("2.9.0", std::string(64, 'b')));
 
     // An empty XDG_CACHE_HOME is the same as it being unset, per the XDG spec.
     setenv("XDG_CACHE_HOME", "", 1);
@@ -58,9 +59,9 @@ int main() {
     setenv("XDG_CACHE_HOME", (work / "xdg").c_str(), 1);
 
     // Completion is recorded by digest, so a payload that changed invalidates an extraction that did not.
-    const std::string dir = uiCacheDir("2.9.0");
-    fs::create_directories(dir);
     const std::string digest(64, 'a');
+    const std::string dir = uiCacheDir("2.9.0", digest);
+    fs::create_directories(dir);
     assert(!uiCacheIsComplete(dir, digest));            // no marker yet
     uiCacheMarkComplete(dir, digest);
     assert(uiCacheIsComplete(dir, digest));

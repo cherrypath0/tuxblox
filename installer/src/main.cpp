@@ -59,11 +59,11 @@ void printUninstallResult(bool ok, const char* failureText) {
     }
 }
 
-// Runs the interface binary with `flag` (and `argument` if given) and reports whether a window was shown. Waits for it, because this process has to outlive the window.
-bool runInterfaceDialog(const std::string& uiBinaryPath, const char* flag, const char* argument = nullptr) {
+// Runs the interface binary with `flag` and reports whether a window was shown. Waits for it, because this process has to outlive the window.
+bool runInterfaceDialog(const std::string& uiBinaryPath, const char* flag) {
     const pid_t child = fork();
     if (child == 0) {
-        execl(uiBinaryPath.c_str(), uiBinaryPath.c_str(), flag, argument, static_cast<char*>(nullptr));
+        execl(uiBinaryPath.c_str(), uiBinaryPath.c_str(), flag, static_cast<char*>(nullptr));
         _exit(127);
     }
     if (child < 0) {
@@ -189,10 +189,8 @@ int main(int argc, char** argv) {
         args.push_back(nullptr);
         execv(stack.uiBinaryPath.c_str(), args.data());
         const int execError = errno;
-        const std::string startError = "TuxBlox unpacked its interface but could not start it. This usually means the folder it was unpacked into does not allow programs to run. Try running this installer with --headless.";
-        reportError(startError);
+        reportError("TuxBlox unpacked its interface but could not start it. This usually means the folder it was unpacked into does not allow programs to run. Try running this installer with --headless.");
         fprintf(stderr, "Details: %s: %s\n", stack.uiBinaryPath.c_str(), strerror(execError));
-        runInterfaceDialog(stack.uiBinaryPath, "--show-error", startError.c_str());
         return 1;
     }
 

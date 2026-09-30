@@ -89,7 +89,7 @@ UiStackResult ensureUiStack(const std::string& selfExe, const std::string& versi
 
     std::string dir;
     try {
-        dir = uiCacheDir(version);
+        dir = uiCacheDir(version, trailer->sha256);
     } catch (const std::exception& e) {
         return fail("TuxBlox could not work out where to unpack its interface. Run this installer with --headless instead.", e.what());
     }
@@ -133,20 +133,18 @@ UiStackResult ensureUiStack(const std::string& selfExe, const std::string& versi
     }
     fs::remove(archive, ec);
 
+    // The mode bits rather than access(), which also fails on a folder mounted to forbid running programs and would blame the download for it.
     const fs::path binary = partial / UiBinaryName;
-    if (!fs::is_regular_file(binary, ec) || access(binary.c_str(), X_OK) != 0) {
+    const fs::perms mode = fs::status(binary, ec).permissions();
+    const bool runnable = fs::is_regular_file(binary, ec) && (mode & (fs::perms::owner_exec | fs::perms::group_exec | fs::perms::others_exec)) != fs::perms::none;
+    if (!runnable) {
         fs::remove_all(partial, ec);
         return fail("This copy of the installer is damaged: its interface is missing the program that should start it. Download TuxBlox again, or run this installer with --headless.");
     }
     uiCacheMarkComplete(partial.string(), trailer->sha256);
 
-    // rename() is atomic and refuses a non-empty target, so a second installer racing this one never sees a half-unpacked folder and never deletes a finished one. Losing the race is not a failure because the winner's copy is just as good.
+    // The folder is named after this exact payload, so rename() failing means someone else published the identical tree, and their copy is just as good.
     fs::rename(partial, dir, ec);
-    if (ec && !uiCacheIsComplete(dir, trailer->sha256)) {
-        // What is in the way belongs to another build or an interrupted run, so it is safe to replace; a finished copy of this payload never gets here.
-        fs::remove_all(dir, ec);
-        fs::rename(partial, dir, ec);
-    }
     if (ec) {
         const std::string renameError = ec.message();
         const bool winnerIsComplete = uiCacheIsComplete(dir, trailer->sha256);

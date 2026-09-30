@@ -137,7 +137,7 @@ int main() {
         buildFakeBinary(work / "cached", "payload");
         auto trailer = readUiPayloadTrailer((work / "cached").string());
         assert(trailer.has_value());
-        const std::string dir = uiCacheDir("2.9.0");
+        const std::string dir = uiCacheDir("2.9.0", trailer->sha256);
         fs::create_directories(dir);
         { std::ofstream out(fs::path(dir) / "TuxBloxInstaller-ui"); out << "#!/bin/sh\n"; }
         uiCacheMarkComplete(dir, trailer->sha256);
@@ -147,16 +147,18 @@ int main() {
         assert(r.uiBinaryPath == (fs::path(dir) / "TuxBloxInstaller-ui").string());
     }
 
-    // A stale extraction from a previous build is not reused, however its name sorts.
+    // An extraction belonging to a different payload is neither reused nor trusted, and is cleaned up once the right one is in place.
     {
-        const std::string dir = uiCacheDir("2.9.0");
-        uiCacheMarkComplete(dir, std::string(64, '0'));
-        buildFakeBinary(work / "stale", "different payload");
-        auto r = ensureUiStack((work / "stale").string(), "2.9.0");
-        // Extraction of a non-tarball fails, but the point is that it was attempted rather than the stale copy trusted.
-        assert(!r.ok);
-        assert(r.errorMessage.find("damaged") != std::string::npos ||
-               r.errorMessage.find("unpack") != std::string::npos);
+        fs::remove_all(uiCacheRoot());
+        const std::string otherDir = uiCacheDir("2.9.0", std::string(64, '0'));
+        fs::create_directories(otherDir);
+        uiCacheMarkComplete(otherDir, std::string(64, '0'));
+        const std::string payload = buildRealPayload(work / "fresh.tar.zst");
+        buildFakeBinary(work / "fresh", payload);
+        auto r = ensureUiStack((work / "fresh").string(), "2.9.0");
+        assert(r.ok);
+        assert(r.uiBinaryPath.find(otherDir) == std::string::npos);
+        assert(!fs::exists(otherDir));
     }
 
     // A real race cannot be forced from a unit test, so two runs in a row stand in for it and neither may leave a partial folder behind.
@@ -165,8 +167,6 @@ int main() {
         buildFakeBinary(work / "twice", "payload");
         auto first = ensureUiStack((work / "twice").string(), "2.9.0");
         auto second = ensureUiStack((work / "twice").string(), "2.9.0");
-        // Extraction of a non-tarball fails, so assert on what is observable either way:
-        // no partial directories survive a failed or a succeeded run.
         assert(first.ok == second.ok);
         int partials = 0;
         std::error_code ec;
@@ -187,22 +187,22 @@ int main() {
         auto first = ensureUiStack((work / "real").string(), "2.9.0");
         assert(first.ok);
         assert(fs::exists(first.uiBinaryPath));
-        assert(first.uiBinaryPath == (fs::path(uiCacheDir("2.9.0")) / "TuxBloxInstaller-ui").string());
-        assert(fs::exists(fs::path(uiCacheDir("2.9.0")) / "lib" / "libdummy.so"));
-        assert(uiCacheIsComplete(uiCacheDir("2.9.0"), trailer->sha256));
+        assert(first.uiBinaryPath == (fs::path(uiCacheDir("2.9.0", trailer->sha256)) / "TuxBloxInstaller-ui").string());
+        assert(fs::exists(fs::path(uiCacheDir("2.9.0", trailer->sha256)) / "lib" / "libdummy.so"));
+        assert(uiCacheIsComplete(uiCacheDir("2.9.0", trailer->sha256), trailer->sha256));
         {
-            std::ifstream marker(fs::path(uiCacheDir("2.9.0")) / ".complete");
+            std::ifstream marker(fs::path(uiCacheDir("2.9.0", trailer->sha256)) / ".complete");
             std::string recorded;
             marker >> recorded;
             assert(recorded == trailer->sha256);
         }
         assert(countPartials() == 0);
 
-        { std::ofstream sentinel(fs::path(uiCacheDir("2.9.0")) / "sentinel"); sentinel << "x"; }
+        // The payload is damaged after the first run, so a second run that unpacked again would fail on the digest, and only a reused extraction can succeed.
+        buildFakeBinary(work / "real", "damaged afterwards", trailer->sha256);
         auto second = ensureUiStack((work / "real").string(), "2.9.0");
         assert(second.ok);
         assert(second.uiBinaryPath == first.uiBinaryPath);
-        assert(fs::exists(fs::path(uiCacheDir("2.9.0")) / "sentinel"));
         assert(countPartials() == 0);
     }
 

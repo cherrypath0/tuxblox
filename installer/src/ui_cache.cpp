@@ -46,8 +46,8 @@ std::string uiCacheRoot() {
     return (fs::path(home) / ".cache" / "tuxblox").string();
 }
 
-std::string uiCacheDir(const std::string& version) {
-    return (fs::path(uiCacheRoot()) / ("ui-" + version)).string();
+std::string uiCacheDir(const std::string& version, const std::string& sha256) {
+    return (fs::path(uiCacheRoot()) / ("ui-" + version + "-" + sha256.substr(0, 12))).string();
 }
 
 bool uiCacheIsComplete(const std::string& dir, const std::string& sha256) {
