@@ -54,7 +54,7 @@ constexpr const char* kInterHeading = "Inter (font)\nhttps://github.com/rsms/int
 constexpr const char* kMontserratHeading =
     "Montserrat (font)\nhttps://github.com/JulietaUla/Montserrat\n\n";
 constexpr const char* kImguiHeading =
-    "Dear ImGui (used by the TuxBlox Installer's UI)\nhttps://github.com/ocornut/imgui\n\n";
+    "Dear ImGui (used by earlier versions of the TuxBlox Installer)\nhttps://github.com/ocornut/imgui\n\n";
 constexpr const char* kJsonHeading = "JSON for Modern C++ (nlohmann/json)\nhttps://github.com/nlohmann/json\n\n";
 constexpr const char* kStbHeading = "stb_image.h (stb single-file libraries)\nhttps://github.com/nothings/stb\n\n";
 
@@ -250,6 +250,84 @@ constexpr const char* kXcbLicenseTxt =
     "Software without prior written authorization from the\n"
     "authors.\n";
 
+constexpr const char* kGtkHeading =
+    "GTK 4 toolkit stack (used by the TuxBlox Installer's interface)\n"
+    "https://www.gtk.org  |  https://gitlab.gnome.org/GNOME\n\n";
+
+// The installer carries these inside its own file and unpacks them to ~/.cache/tuxblox on the first graphical run, so the notice has to name each one and, for the libraries whose license asks for it, say where the source is.
+constexpr const char* kGtkLicenseTxt =
+    "The TuxBlox Installer's interface is built on the libraries below. They are\n"
+    "packed inside the installer, unpacked on the first graphical run into\n"
+    "~/.cache/tuxblox/, and loaded as separate shared libraries. Each one is\n"
+    "redistributed unmodified, except libadwaita, which has its own entry after\n"
+    "this one.\n"
+    "\n"
+    "  GTK 4.18.6             LGPL-2.1-or-later   https://download.gnome.org/sources/gtk/\n"
+    "  GLib 2.84.4            LGPL-2.1-or-later   https://download.gnome.org/sources/glib/\n"
+    "  Pango 1.56.4           LGPL-2.0-or-later   https://download.gnome.org/sources/pango/\n"
+    "  gdk-pixbuf 2.42.12     LGPL-2.1-or-later   https://download.gnome.org/sources/gdk-pixbuf/\n"
+    "  cairo 1.18.4           LGPL-2.1 or MPL-1.1 https://cairographics.org/releases/\n"
+    "  FriBidi 1.0.16         LGPL-2.1-or-later   https://github.com/fribidi/fribidi\n"
+    "  graphene 1.10.8        MIT                 https://github.com/ebassi/graphene\n"
+    "  HarfBuzz 14.3.0        MIT                 https://github.com/harfbuzz/harfbuzz\n"
+    "  FreeType 2.14.3        FreeType License    https://freetype.org\n"
+    "  libepoxy 1.5.10        MIT                 https://github.com/anholt/libepoxy\n"
+    "  libxkbcommon 1.6.0     MIT                 https://xkbcommon.org\n"
+    "  Wayland 1.23.1         MIT                 https://wayland.freedesktop.org\n"
+    "  pixman 0.44.2          MIT                 https://www.pixman.org\n"
+    "  libffi 3.4.6           MIT                 https://github.com/libffi/libffi\n"
+    "  libjpeg-turbo 3.1.0    BSD-3-Clause, IJG, Zlib\n"
+    "                         https://libjpeg-turbo.org\n"
+    "  libtiff 4.7.0          libtiff license (BSD-style)\n"
+    "                         https://libtiff.gitlab.io/libtiff/\n"
+    "  zstd 1.5.6             BSD-3-Clause        https://github.com/facebook/zstd\n"
+    "\n"
+    "The LGPL libraries above are free software: you can redistribute and modify\n"
+    "them under the terms of the GNU Lesser General Public License, version 2.1\n"
+    "or (for those that allow it) any later version, published by the Free\n"
+    "Software Foundation. The full text is at\n"
+    "https://www.gnu.org/licenses/old-licenses/lgpl-2.1.txt and in the source of\n"
+    "each project. They are distributed in the hope that they will be useful, but\n"
+    "WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or\n"
+    "FITNESS FOR A PARTICULAR PURPOSE. The MIT, BSD and FreeType licenses require\n"
+    "that their copyright notices travel with the software; each project's own\n"
+    "copyright notice is in its source at the address given.\n";
+
+constexpr const char* kAdwaitaHeading =
+    "libadwaita (MODIFIED; used by the TuxBlox Installer's interface)\n"
+    "https://github.com/cherrypath0/libadwaita-compat\n\n";
+
+// The fork is the one library in the stack TuxBlox changes, so its source address and exact commit are stated here for anyone who receives the binary.
+constexpr const char* kAdwaitaLicenseTxt =
+    "libadwaita is licensed under the GNU Lesser General Public License,\n"
+    "version 2.1 or (at your option) any later version.\n"
+    "\n"
+    "The copy bundled in the TuxBlox Installer is MODIFIED. TuxBlox ships a fork of\n"
+    "libadwaita 1.7.12 in which the dependency on AppStream has been removed. It\n"
+    "is otherwise libadwaita as released by the GNOME project.\n"
+    "\n"
+    "The complete corresponding source code of the library you received, with\n"
+    "TuxBlox's changes, is available at:\n"
+    "\n"
+    "  https://github.com/cherrypath0/libadwaita-compat\n"
+    "  commit caa612e6c6efee21728c94960e2bce3a32574b4c\n"
+    "\n"
+    "The upstream project is https://gitlab.gnome.org/GNOME/libadwaita. The\n"
+    "library is loaded as a separate shared library from ~/.cache/tuxblox/, so\n"
+    "you may replace it with a build of your own from that source, as the LGPL\n"
+    "allows. The full text of the license is at\n"
+    "https://www.gnu.org/licenses/old-licenses/lgpl-2.1.txt.\n";
+
+constexpr const char* kAdwaitaSansHeading =
+    "Adwaita Sans (font, used by the TuxBlox Installer's interface)\n"
+    "https://gitlab.gnome.org/GNOME/adwaita-fonts\n\n";
+
+constexpr const char* kAdwaitaSansLicenseTxt =
+    "Adwaita Sans 48.2, from the GNOME project. It is derived from Inter, and is\n"
+    "licensed under the SIL Open Font License, Version 1.1. Inter's own license\n"
+    "text, which is the same license, is reproduced in full in the entry for Inter\n"
+    "at the top of this file. The license is also at https://openfontlicense.org.\n";
+
 void writeEntry(std::ofstream& file, const char* heading,
                  const unsigned char* text, std::size_t textLen) {
     file << kDivider << "\n" << heading;
@@ -286,6 +364,9 @@ void writeCopyrightFile(const std::string& installDir) {
         writeEntry(file, kQtHeading, kQtPreamble, kLgpl3LicenseTxt, kLgpl3LicenseTxtLen);
         writeEntry(file, kIcuHeading, kIcuLicenseTxt);
         writeEntry(file, kXcbHeading, kXcbLicenseTxt);
+        writeEntry(file, kGtkHeading, kGtkLicenseTxt);
+        writeEntry(file, kAdwaitaHeading, kAdwaitaLicenseTxt);
+        writeEntry(file, kAdwaitaSansHeading, kAdwaitaSansLicenseTxt);
         file << kDivider;
     } catch (...) {
         // Best-effort -- a missing COPYRIGHT.txt must not fail an otherwise
