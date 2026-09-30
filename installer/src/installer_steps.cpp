@@ -38,11 +38,11 @@ std::string resolveInstallDir(const std::string& override) {
 // the directory an archive extracts into rather than the executable itself. A
 // flat-file launcher artifact IS the executable and never touches this.
 //
-// As shipped today the launcher is a flat file: its Qt6 dependencies travel as
-// a SEPARATE "libtuxblox" archive artifact extracted to installDir/libtuxblox/
-// (see launcher/bundle-qt.sh and production.sh), which the launcher finds
-// through its own $ORIGIN/libtuxblox/lib RPATH and which needs no support here
-// -- it is installed by the generic archive path below like any other artifact.
+// As shipped today the launcher is a flat file, and the libraries its window
+// needs travel as the separate "ui" archive artifact, extracted to
+// installDir/ui/ and found through the launcher's own $ORIGIN/ui/lib RPATH,
+// which needs no support here -- it is installed by the generic archive path
+// below like any other artifact.
 // This constant stays because the archive shape is still fully supported and
 // chosen per-artifact from the URL, not from the component name.
 constexpr const char* kLauncherExeName = "TuxBloxLauncher";
@@ -306,10 +306,11 @@ InstallOutcome runInstall(const Manifest& manifest,
                     // is left with a stale, un-bundled binary sitting at
                     // exactly the path old pinned taskbar entries / shell
                     // aliases still point at. That binary is the one thing
-                    // this whole Qt6-bundling effort exists to stop shipping
-                    // (it dies with "cannot open libQt6Widgets.so.6" on a
-                    // host with no system Qt6) -- so leaving it in place
-                    // silently recreates the exact failure mode being fixed.
+                    // an archive-shaped launcher exists to stop shipping (it
+                    // dies with "cannot open shared object file" on a host
+                    // without the libraries it was built against) -- so
+                    // leaving it in place silently recreates the exact
+                    // failure mode being fixed.
                     // Best-effort and narrowly scoped: only ever removes a
                     // REGULAR FILE (never a directory -- e.g. this same
                     // logic running twice, or a future artifact reusing this
@@ -323,6 +324,12 @@ InstallOutcome runInstall(const Manifest& manifest,
                     }
                 }
             }
+        }
+
+        // Qt's libraries shipped as their own folder until the launcher moved to the shared interface libraries, and an upgrade only replaces the folders a release still names
+        if (isUpgrade && manifest.artifacts.count("libtuxblox") == 0) {
+            std::error_code staleEc;
+            fs::remove_all(dir + "/libtuxblox", staleEc);
         }
 
         // Roblox Player/Studio pre-warm -- unrelated to manifest artifacts,

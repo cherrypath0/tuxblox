@@ -244,9 +244,8 @@ int main() {
     // Archive-shaped launcher artifact: a "launcher" artifact whose URL ends
     // in .tar.zst, whose manifest "filename" therefore names the DIRECTORY it
     // extracts into rather than the executable. Not the shape currently
-    // shipped (the launcher is a flat file again, with its Qt6 dependencies in
-    // a separate "libtuxblox" archive -- see launcher/bundle-qt.sh and
-    // production.sh), but the shape is still fully supported and chosen from
+    // shipped (the launcher is a flat file, with its interface libraries in
+    // the separate "ui" archive), but the shape is still fully supported and chosen from
     // the URL, so it stays covered: this is what the flat-file case above
     // cannot reach, and it's what InstallOutcome::launcherPath has to keep
     // resolving to a runnable binary for -- main.cpp execs it and both
@@ -484,6 +483,38 @@ int main() {
         assert(!badUpgradeOutcome.cancelled);
         assert(fs::exists(survivorMarker));
         assert(fs::exists(installDir7)); // the directory itself must never be wiped on an upgrade failure
+    }
+
+    // An install upgraded from a Qt launcher still has Qt's libraries, and a release that no longer ships them must take them away
+    {
+        fs::path installDir9 = work / "install_upgrade_from_qt";
+        fs::create_directories(installDir9 / "libtuxblox" / "lib");
+        { std::ofstream out(installDir9 / "libtuxblox" / "lib" / "libQt6Core.so.6"); out << "old qt library"; }
+        fs::path runtimeMarker = installDir9 / "runtime" / "session_cookie.txt";
+        fs::create_directories(runtimeMarker.parent_path());
+        { std::ofstream out(runtimeMarker); out << "must survive the upgrade"; }
+
+        auto outcome = runInstall(manifest, [](const std::string&, double) {}, nullptr, /*isUpgrade=*/true,
+            installDir9.string(), robloxPlayerUrl, robloxStudioUrl);
+
+        assert(outcome.ok);
+        assert(!fs::exists(installDir9 / "libtuxblox"));
+        assert(fs::exists(runtimeMarker));
+    }
+
+    // A failed upgrade leaves the old launcher in place, and that launcher still needs its libraries
+    {
+        fs::path installDir10 = work / "install_failed_upgrade_from_qt";
+        fs::create_directories(installDir10 / "libtuxblox" / "lib");
+        { std::ofstream out(installDir10 / "libtuxblox" / "lib" / "libQt6Core.so.6"); out << "old qt library"; }
+
+        Manifest badManifest = manifest;
+        badManifest.artifacts["proton"].sha256 = "0000000000000000000000000000000000000000000000000000000000000";
+        auto outcome = runInstall(badManifest, [](const std::string&, double) {}, nullptr, /*isUpgrade=*/true,
+            installDir10.string(), robloxPlayerUrl, robloxStudioUrl);
+
+        assert(!outcome.ok);
+        assert(fs::exists(installDir10 / "libtuxblox" / "lib" / "libQt6Core.so.6"));
     }
 
     fs::remove_all(work);

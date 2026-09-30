@@ -25,7 +25,7 @@ namespace tuxblox {
 // TuxBloxLauncher binary's full path -- the same value refreshUrlHandlers()
 // takes, i.e. InstallOutcome::launcherPath. It is deliberately NOT derived
 // from the install directory: the launcher now ships as an archive artifact
-// (a Qt6 bundle directory), so its executable no longer sits directly at
+// (a bundle directory), so its executable no longer sits directly at
 // installDir. Nothing else here is relative to the install directory -- the
 // icon goes to the per-user icon theme -- so this is the function's only
 // path input. Best-effort: never throws -- failure here must not fail an

@@ -12,8 +12,3 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxkbcommon-x11-0 libxkbcommon0 \
     python3 python3-dev python3-pip patchelf \
     && rm -rf /var/lib/apt/lists/*
-
-RUN pip3 install aqtinstall==3.1.* && \
-    python3 -m aqt install-qt linux desktop 6.6.3 gcc_64 -O /opt/qt6 \
-        -m qtnetworkauth
-ENV CMAKE_PREFIX_PATH="/opt/qt6/6.6.3/gcc_64:${CMAKE_PREFIX_PATH}"

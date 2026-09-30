@@ -21,24 +21,18 @@
 # The set of texts is deliberately the *product's*, not this binary's: the
 # launcher and the installer both write the same ~/.tuxblox/COPYRIGHT.txt and
 # whichever ran last wins, so both must be able to emit identical content --
-# see the comment at the top of copyright_file.cpp. That's why the LGPLv3 text
-# is embedded in the installer even though only the launcher bundles Qt6.
+# see the comment at the top of copyright_file.cpp.
 #
-# stb_image.h's dual-license text, ICU 56's license and the libxcb/xkbcommon
-# notices are hardcoded in copyright_file.cpp rather than fetched here: stb
-# keeps its text inline in the (large, mostly-code) header, and ICU 56
-# publishes its license only as HTML at the release-56-1 tag.
+# stb_image.h's dual-license text is hardcoded in copyright_file.cpp rather than
+# fetched here: stb keeps its text inline in the (large, mostly-code) header.
 
 set(JSON_LICENSE_URL "https://raw.githubusercontent.com/nlohmann/json/v3.11.3/LICENSE.MIT")
 set(LGPL21_LICENSE_URL "https://www.gnu.org/licenses/old-licenses/lgpl-2.1.txt")
-set(LGPL3_LICENSE_URL "https://www.gnu.org/licenses/lgpl-3.0.txt")
 set(GENERATED_DIR "${CMAKE_BINARY_DIR}/generated")
 set(JSON_LICENSE_TXT_PATH "${GENERATED_DIR}/json-LICENSE.MIT")
 set(LGPL21_LICENSE_TXT_PATH "${GENERATED_DIR}/lgpl-2.1.txt")
-set(LGPL3_LICENSE_TXT_PATH "${GENERATED_DIR}/lgpl-3.0.txt")
 set(JSON_LICENSE_HEADER_PATH "${GENERATED_DIR}/json_license_txt.h")
 set(LGPL21_LICENSE_HEADER_PATH "${GENERATED_DIR}/lgpl21_license_txt.h")
-set(LGPL3_LICENSE_HEADER_PATH "${GENERATED_DIR}/lgpl3_license_txt.h")
 
 file(MAKE_DIRECTORY ${GENERATED_DIR})
 
@@ -54,17 +48,6 @@ add_custom_command(
 )
 
 add_custom_command(
-    OUTPUT ${LGPL3_LICENSE_HEADER_PATH}
-    COMMAND ${CMAKE_COMMAND} -DURL=${LGPL3_LICENSE_URL} -DDEST=${LGPL3_LICENSE_TXT_PATH}
-            -P ${CMAKE_SOURCE_DIR}/cmake/DownloadFile.cmake
-    COMMAND ${CMAKE_COMMAND} -DINPUT=${LGPL3_LICENSE_TXT_PATH} -DOUTPUT=${LGPL3_LICENSE_HEADER_PATH}
-            -DSYMBOL=kLgpl3LicenseTxt
-            -P ${CMAKE_SOURCE_DIR}/cmake/BinToHeader.cmake
-    COMMENT "Fetching and embedding LGPLv3 license text (bundled Qt6)"
-    VERBATIM
-)
-
-add_custom_command(
     OUTPUT ${LGPL21_LICENSE_HEADER_PATH}
     COMMAND ${CMAKE_COMMAND} -DURL=${LGPL21_LICENSE_URL} -DDEST=${LGPL21_LICENSE_TXT_PATH}
             -P ${CMAKE_SOURCE_DIR}/cmake/DownloadFile.cmake
@@ -76,4 +59,4 @@ add_custom_command(
 )
 
 add_custom_target(generate_thirdparty_license_headers DEPENDS
-    ${JSON_LICENSE_HEADER_PATH} ${LGPL3_LICENSE_HEADER_PATH} ${LGPL21_LICENSE_HEADER_PATH})
+    ${JSON_LICENSE_HEADER_PATH} ${LGPL21_LICENSE_HEADER_PATH})

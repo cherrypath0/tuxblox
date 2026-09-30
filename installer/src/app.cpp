@@ -201,7 +201,7 @@ void App::run() {
 
         launcherPath_ = outcome.launcherPath;
         // Both take the resolved launcher *executable* path, never `dir` --
-        // the launcher artifact is an archive (a Qt6 bundle directory), so
+        // the launcher artifact is an archive (a bundle directory), so
         // its binary is not directly at the install root.
         createDesktopShortcut(outcome.launcherPath); // best-effort -- see desktop_shortcut.h
         refreshUrlHandlers(outcome.launcherPath);    // best-effort -- see desktop_shortcut.h

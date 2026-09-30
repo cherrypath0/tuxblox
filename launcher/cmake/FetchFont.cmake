@@ -34,18 +34,4 @@ add_custom_command(
     VERBATIM
 )
 
-set(MONTSERRAT_OFL_URL "https://raw.githubusercontent.com/google/fonts/main/ofl/montserrat/OFL.txt")
-set(MONTSERRAT_OFL_TXT_PATH "${GENERATED_DIR}/Montserrat-OFL.txt")
-set(MONTSERRAT_OFL_HEADER_PATH "${GENERATED_DIR}/montserrat_ofl_license_txt.h")
-add_custom_command(
-    OUTPUT ${MONTSERRAT_OFL_HEADER_PATH}
-    COMMAND ${CMAKE_COMMAND} -DURL=${MONTSERRAT_OFL_URL} -DDEST=${MONTSERRAT_OFL_TXT_PATH}
-            -P ${CMAKE_SOURCE_DIR}/cmake/DownloadFile.cmake
-    COMMAND ${CMAKE_COMMAND} -DINPUT=${MONTSERRAT_OFL_TXT_PATH} -DOUTPUT=${MONTSERRAT_OFL_HEADER_PATH}
-            -DSYMBOL=kMontserratOflLicenseTxt
-            -P ${CMAKE_SOURCE_DIR}/cmake/BinToHeader.cmake
-    COMMENT "Fetching and embedding Montserrat OFL license text"
-    VERBATIM
-)
-
-add_custom_target(generate_font_header DEPENDS ${INTER_OFL_HEADER_PATH} ${MONTSERRAT_OFL_HEADER_PATH})
+add_custom_target(generate_font_header DEPENDS ${INTER_OFL_HEADER_PATH})

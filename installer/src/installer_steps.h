@@ -31,8 +31,8 @@ struct InstallOutcome {
     // The installed launcher *executable's* path, populated iff ok -- the
     // caller should exec this, and it is what the .desktop entries' Exec=
     // lines name. When the "launcher" artifact is a flat file this is simply
-    // its installed path (the shape shipped today -- the launcher's Qt6
-    // dependencies ride along in their own separate "libtuxblox" archive
+    // its installed path (the shape shipped today -- the launcher's
+    // interface libraries ride along in their own separate "ui" archive
     // artifact, which needs no handling here); when it is an archive the
     // artifact's own filename names the extraction *directory*, so this points
     // one level inside it at "TuxBloxLauncher". Artifact placement is otherwise fully
