@@ -122,6 +122,10 @@ add_library(launcher_core STATIC
     src/prefix_file_bridge.cpp
     src/wine_shortcut_export.cpp
 )
+if(TUXBLOX_LIBADWAITA_COMMIT)
+    target_compile_definitions(launcher_core PRIVATE TUXBLOX_LIBADWAITA_COMMIT="${TUXBLOX_LIBADWAITA_COMMIT}")
+endif()
+
 target_include_directories(launcher_core PUBLIC
     src third_party ${CMAKE_BINARY_DIR}/generated
     ${CURL_INCLUDE_DIRS} ${ARCHIVE_INCLUDE_DIRS} ${OPENSSL_INCLUDE_DIRS})

@@ -112,11 +112,23 @@ if [[ -z "${TUXBLOX_CHANNEL:-}" && -r "$(pwd)/../VERSION" ]]; then
     TUXBLOX_CHANNEL="$(sed -n '2p' "$(pwd)/../VERSION" | tr -d '[:space:]')"
 fi
 
-podman run --rm --userns=keep-id -e JOBS="$JOBS" \
+# The notice names the libadwaita commit the interface was built from, because TuxBlox ships a modified fork and a recipient has to be able to fetch that exact source. git is not usable inside the container, so it is read here. A build with no interface carries no libadwaita, so it names none.
+# The empty default is deliberate: CMake caches the variable, so a build without an interface must clear a commit left by an earlier one.
+LibadwaitaArg="-DTUXBLOX_LIBADWAITA_COMMIT="
+if [[ "${TUXBLOX_HEADLESS_ONLY:-}" != "1" ]] && git -C "$(pwd)/../shared/ui/libadwaita" rev-parse --verify -q HEAD >/dev/null 2>&1; then
+    LibadwaitaCommit="$(git -C "$(pwd)/../shared/ui/libadwaita" rev-parse HEAD)"
+    if [[ -n "$(git -C "$(pwd)/../shared/ui/libadwaita" status --porcelain)" ]]; then
+        echo "!! shared/ui/libadwaita has uncommitted changes, so commit $LibadwaitaCommit is not the source being built" >&2
+        exit 1
+    fi
+    LibadwaitaArg="-DTUXBLOX_LIBADWAITA_COMMIT=$LibadwaitaCommit"
+fi
+
+podman run --rm --userns=keep-id -e JOBS="$JOBS" -e LIBADWAITA_ARG="$LibadwaitaArg" \
     -e TUXBLOX_BUILD_VERSION="${TUXBLOX_BUILD_VERSION:-}" \
     -e TUXBLOX_CHANNEL="${TUXBLOX_CHANNEL:-}" -v "$(pwd):/src:Z" \
     -v "$(pwd)/../LICENSE:/LICENSE:ro,z" -w /src tuxblox-old-glibc-builder \
-    bash -c 'cmake -B build -S . -DCMAKE_BUILD_TYPE=Release && cmake --build build -j"$JOBS" && ./bundle-qt.sh'
+    bash -c 'cmake -B build -S . -DCMAKE_BUILD_TYPE=Release ${LIBADWAITA_ARG:-} && cmake --build build -j"$JOBS" && ./bundle-qt.sh'
 
 # Also stage the finished binary + its Qt6 bundle at the repo-root build/
 # directory -- the same place the root build.sh (which stages this whole

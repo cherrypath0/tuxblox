@@ -143,6 +143,9 @@ add_executable(TuxBloxInstaller
 target_include_directories(TuxBloxInstaller PRIVATE ${CMAKE_BINARY_DIR}/generated)
 target_link_libraries(TuxBloxInstaller PRIVATE installer_core ${CMAKE_DL_LIBS} Threads::Threads)
 add_dependencies(TuxBloxInstaller generate_logo_header generate_font_header generate_thirdparty_license_headers)
+if(TUXBLOX_LIBADWAITA_COMMIT)
+    target_compile_definitions(TuxBloxInstaller PRIVATE TUXBLOX_LIBADWAITA_COMMIT="${TUXBLOX_LIBADWAITA_COMMIT}")
+endif()
 
 # The interface binary, which lives inside the appended payload rather than
 # beside the installer, so its libraries are found relative to itself.
@@ -181,6 +184,9 @@ if(TUXBLOX_UI_STACK_DEV)
         BUILD_WITH_INSTALL_RPATH TRUE
         INSTALL_RPATH "$ORIGIN/lib/x86_64-linux-gnu:$ORIGIN/lib")
     add_dependencies(TuxBloxInstaller-ui generate_logo_header generate_thirdparty_license_headers)
+    if(TUXBLOX_LIBADWAITA_COMMIT)
+        target_compile_definitions(TuxBloxInstaller-ui PRIVATE TUXBLOX_LIBADWAITA_COMMIT="${TUXBLOX_LIBADWAITA_COMMIT}")
+    endif()
 endif()
 
 enable_testing()

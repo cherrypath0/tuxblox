@@ -111,10 +111,22 @@ if [[ -d "$UiStackDev" ]]; then
     UiStackMount=(-v "$(cd "$UiStackDev" && pwd):/ui-dev:ro")
 fi
 
-podman run --rm --userns=keep-id -e JOBS="$JOBS" -e UI_STACK_ARG="$UiStackArg" \
+# The notice names the libadwaita commit the interface was built from, because TuxBlox ships a modified fork and a recipient has to be able to fetch that exact source. git is not usable inside the container, so it is read here. A build with no interface carries no libadwaita, so it names none.
+# The empty default is deliberate: CMake caches the variable, so a build without an interface must clear a commit left by an earlier one.
+LibadwaitaArg="-DTUXBLOX_LIBADWAITA_COMMIT="
+if [[ "${TUXBLOX_HEADLESS_ONLY:-}" != "1" ]] && git -C "$(pwd)/../shared/ui/libadwaita" rev-parse --verify -q HEAD >/dev/null 2>&1; then
+    LibadwaitaCommit="$(git -C "$(pwd)/../shared/ui/libadwaita" rev-parse HEAD)"
+    if [[ -n "$(git -C "$(pwd)/../shared/ui/libadwaita" status --porcelain)" ]]; then
+        echo "!! shared/ui/libadwaita has uncommitted changes, so commit $LibadwaitaCommit is not the source being built" >&2
+        exit 1
+    fi
+    LibadwaitaArg="-DTUXBLOX_LIBADWAITA_COMMIT=$LibadwaitaCommit"
+fi
+
+podman run --rm --userns=keep-id -e JOBS="$JOBS" -e UI_STACK_ARG="$UiStackArg" -e LIBADWAITA_ARG="$LibadwaitaArg" \
     -e TUXBLOX_BUILD_VERSION="${TUXBLOX_BUILD_VERSION:-}" \
     -e TUXBLOX_CHANNEL="${TUXBLOX_CHANNEL:-}" -v "$(pwd):/src:Z" "${UiStackMount[@]}" -w /src tuxblox-old-glibc-builder \
-    bash -c 'cmake -B build -S . -DCMAKE_BUILD_TYPE=Release ${UI_STACK_ARG:-} && cmake --build build -j"$JOBS"'
+    bash -c 'cmake -B build -S . -DCMAKE_BUILD_TYPE=Release ${UI_STACK_ARG:-} ${LIBADWAITA_ARG:-} && cmake --build build -j"$JOBS"'
 
 if [[ -n "${TUXBLOX_HEADLESS_ONLY:-}" && "$TUXBLOX_HEADLESS_ONLY" != "1" && "$TUXBLOX_HEADLESS_ONLY" != "0" ]]; then
     echo "!! TUXBLOX_HEADLESS_ONLY must be 1 or 0, got '$TUXBLOX_HEADLESS_ONLY'" >&2

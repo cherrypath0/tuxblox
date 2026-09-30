@@ -28,6 +28,7 @@
 #include "montserrat_ofl_license_txt.h" // generated at build time
 #include "imgui_license_txt.h"      // generated at build time
 #include "json_license_txt.h"       // generated at build time
+#include "lgpl21_license_txt.h"     // generated at build time
 #include "lgpl3_license_txt.h"      // generated at build time
 #include <fstream>
 
@@ -250,6 +251,8 @@ constexpr const char* kXcbLicenseTxt =
     "Software without prior written authorization from the\n"
     "authors.\n";
 
+// The interface stack is only in the installer when it carries a payload, so a build without one names none of it
+#ifdef TUXBLOX_LIBADWAITA_COMMIT
 constexpr const char* kGtkHeading =
     "GTK 4 toolkit stack (used by the TuxBlox Installer's interface)\n"
     "https://www.gtk.org  |  https://gitlab.gnome.org/GNOME\n\n";
@@ -259,8 +262,8 @@ constexpr const char* kGtkLicenseTxt =
     "The TuxBlox Installer's interface is built on the libraries below. They are\n"
     "packed inside the installer, unpacked on the first graphical run into\n"
     "~/.cache/tuxblox/, and loaded as separate shared libraries. Each one is\n"
-    "redistributed unmodified, except libadwaita, which has its own entry after\n"
-    "this one.\n"
+    "redistributed unmodified, except libadwaita, which has its own entry below\n"
+    "the license text.\n"
     "\n"
     "  GTK 4.18.6             LGPL-2.1-or-later   https://download.gnome.org/sources/gtk/\n"
     "  GLib 2.84.4            LGPL-2.1-or-later   https://download.gnome.org/sources/glib/\n"
@@ -285,13 +288,16 @@ constexpr const char* kGtkLicenseTxt =
     "The LGPL libraries above are free software: you can redistribute and modify\n"
     "them under the terms of the GNU Lesser General Public License, version 2.1\n"
     "or (for those that allow it) any later version, published by the Free\n"
-    "Software Foundation. The full text is at\n"
-    "https://www.gnu.org/licenses/old-licenses/lgpl-2.1.txt and in the source of\n"
-    "each project. They are distributed in the hope that they will be useful, but\n"
-    "WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or\n"
-    "FITNESS FOR A PARTICULAR PURPOSE. The MIT, BSD and FreeType licenses require\n"
-    "that their copyright notices travel with the software; each project's own\n"
-    "copyright notice is in its source at the address given.\n";
+    "Software Foundation. The full text of version 2.1 follows this entry. They are\n"
+    "distributed in the hope that they will be useful, but WITHOUT ANY WARRANTY;\n"
+    "without even the implied warranty of MERCHANTABILITY or FITNESS FOR A\n"
+    "PARTICULAR PURPOSE. The MIT, BSD and FreeType licenses require that their\n"
+    "copyright notices travel with the software; each project's own copyright\n"
+    "notice is in its source at the address given.\n";
+
+constexpr const char* kLgpl21Heading =
+    "GNU Lesser General Public License, version 2.1 (GTK stack and libadwaita)\n"
+    "https://www.gnu.org/licenses/old-licenses/lgpl-2.1.txt\n\n";
 
 constexpr const char* kAdwaitaHeading =
     "libadwaita (MODIFIED; used by the TuxBlox Installer's interface)\n"
@@ -303,20 +309,20 @@ constexpr const char* kAdwaitaLicenseTxt =
     "version 2.1 or (at your option) any later version.\n"
     "\n"
     "The copy bundled in the TuxBlox Installer is MODIFIED. TuxBlox ships a fork of\n"
-    "libadwaita 1.7.12 in which the dependency on AppStream has been removed. It\n"
-    "is otherwise libadwaita as released by the GNOME project.\n"
+    "libadwaita 1.7.12 in which the dependency on AppStream has been removed, with\n"
+    "the About dialogs changed to match. It is otherwise libadwaita as released by\n"
+    "the GNOME project.\n"
     "\n"
     "The complete corresponding source code of the library you received, with\n"
     "TuxBlox's changes, is available at:\n"
     "\n"
     "  https://github.com/cherrypath0/libadwaita-compat\n"
-    "  commit caa612e6c6efee21728c94960e2bce3a32574b4c\n"
+    "  commit " TUXBLOX_LIBADWAITA_COMMIT "\n"
     "\n"
     "The upstream project is https://gitlab.gnome.org/GNOME/libadwaita. The\n"
     "library is loaded as a separate shared library from ~/.cache/tuxblox/, so\n"
     "you may replace it with a build of your own from that source, as the LGPL\n"
-    "allows. The full text of the license is at\n"
-    "https://www.gnu.org/licenses/old-licenses/lgpl-2.1.txt.\n";
+    "allows. The full text of the license is included in this file.\n";
 
 constexpr const char* kAdwaitaSansHeading =
     "Adwaita Sans (font, used by the TuxBlox Installer's interface)\n"
@@ -327,6 +333,7 @@ constexpr const char* kAdwaitaSansLicenseTxt =
     "licensed under the SIL Open Font License, Version 1.1. Inter's own license\n"
     "text, which is the same license, is reproduced in full in the entry for Inter\n"
     "at the top of this file. The license is also at https://openfontlicense.org.\n";
+#endif
 
 void writeEntry(std::ofstream& file, const char* heading,
                  const unsigned char* text, std::size_t textLen) {
@@ -364,9 +371,12 @@ void writeCopyrightFile(const std::string& installDir) {
         writeEntry(file, kQtHeading, kQtPreamble, kLgpl3LicenseTxt, kLgpl3LicenseTxtLen);
         writeEntry(file, kIcuHeading, kIcuLicenseTxt);
         writeEntry(file, kXcbHeading, kXcbLicenseTxt);
+#ifdef TUXBLOX_LIBADWAITA_COMMIT
         writeEntry(file, kGtkHeading, kGtkLicenseTxt);
+        writeEntry(file, kLgpl21Heading, kLgpl21LicenseTxt, kLgpl21LicenseTxtLen);
         writeEntry(file, kAdwaitaHeading, kAdwaitaLicenseTxt);
         writeEntry(file, kAdwaitaSansHeading, kAdwaitaSansLicenseTxt);
+#endif
         file << kDivider;
     } catch (...) {
         // Best-effort -- a missing COPYRIGHT.txt must not fail an otherwise

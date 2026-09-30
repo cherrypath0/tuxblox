@@ -37,13 +37,16 @@
 
 set(IMGUI_LICENSE_URL "https://raw.githubusercontent.com/ocornut/imgui/v1.91.0/LICENSE.txt")
 set(JSON_LICENSE_URL "https://raw.githubusercontent.com/nlohmann/json/v3.11.3/LICENSE.MIT")
+set(LGPL21_LICENSE_URL "https://www.gnu.org/licenses/old-licenses/lgpl-2.1.txt")
 set(LGPL3_LICENSE_URL "https://www.gnu.org/licenses/lgpl-3.0.txt")
 set(GENERATED_DIR "${CMAKE_BINARY_DIR}/generated")
 set(IMGUI_LICENSE_TXT_PATH "${GENERATED_DIR}/imgui-LICENSE.txt")
 set(JSON_LICENSE_TXT_PATH "${GENERATED_DIR}/json-LICENSE.MIT")
+set(LGPL21_LICENSE_TXT_PATH "${GENERATED_DIR}/lgpl-2.1.txt")
 set(LGPL3_LICENSE_TXT_PATH "${GENERATED_DIR}/lgpl-3.0.txt")
 set(IMGUI_LICENSE_HEADER_PATH "${GENERATED_DIR}/imgui_license_txt.h")
 set(JSON_LICENSE_HEADER_PATH "${GENERATED_DIR}/json_license_txt.h")
+set(LGPL21_LICENSE_HEADER_PATH "${GENERATED_DIR}/lgpl21_license_txt.h")
 set(LGPL3_LICENSE_HEADER_PATH "${GENERATED_DIR}/lgpl3_license_txt.h")
 
 file(MAKE_DIRECTORY ${GENERATED_DIR})
@@ -81,5 +84,16 @@ add_custom_command(
     VERBATIM
 )
 
+add_custom_command(
+    OUTPUT ${LGPL21_LICENSE_HEADER_PATH}
+    COMMAND ${CMAKE_COMMAND} -DURL=${LGPL21_LICENSE_URL} -DDEST=${LGPL21_LICENSE_TXT_PATH}
+            -P ${CMAKE_SOURCE_DIR}/cmake/DownloadFile.cmake
+    COMMAND ${CMAKE_COMMAND} -DINPUT=${LGPL21_LICENSE_TXT_PATH} -DOUTPUT=${LGPL21_LICENSE_HEADER_PATH}
+            -DSYMBOL=kLgpl21LicenseTxt
+            -P ${CMAKE_SOURCE_DIR}/cmake/BinToHeader.cmake
+    COMMENT "Fetching and embedding LGPLv2.1 license text (bundled GTK stack)"
+    VERBATIM
+)
+
 add_custom_target(generate_thirdparty_license_headers DEPENDS
-    ${IMGUI_LICENSE_HEADER_PATH} ${JSON_LICENSE_HEADER_PATH} ${LGPL3_LICENSE_HEADER_PATH})
+    ${IMGUI_LICENSE_HEADER_PATH} ${JSON_LICENSE_HEADER_PATH} ${LGPL3_LICENSE_HEADER_PATH} ${LGPL21_LICENSE_HEADER_PATH})
