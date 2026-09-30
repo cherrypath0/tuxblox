@@ -50,6 +50,9 @@ public:
     // Signals cancellation; the thread stops at its next checkpoint.
     void cancel();
 
+    // True once cancel() has been called, so a stop the user asked for can be told apart from the work failing.
+    bool cancelRequested() const { return cancelled_; }
+
     Snapshot snapshot() const;
 
     // True once the thread has reached Done or Error.

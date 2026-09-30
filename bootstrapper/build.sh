@@ -102,18 +102,54 @@ if [[ -z "${TUXBLOX_CHANNEL:-}" && -r "$(pwd)/../VERSION" ]]; then
     TUXBLOX_CHANNEL="$(sed -n '2p' "$(pwd)/../VERSION" | tr -d '[:space:]')"
 fi
 
+# The interface stack and the sources shared with the other programs live in shared/ui, outside this script's /src mount, so each gets a mount of its own -- the same way installer/build.sh reaches them.
+UiStackDev="$(pwd)/../shared/ui/dist/dev"
+UiSrc="$(pwd)/../shared/ui/src"
+if [[ ! -d "$UiStackDev" ]]; then
+    printf '!! shared/ui/dist/dev is missing. Run shared/ui/build.sh first.\n' >&2
+    exit 1
+fi
+
+shopt -s nullglob
+StackTarballs=("$(pwd)"/../shared/ui/dist/ui-stack-*.tar.zst)
+shopt -u nullglob
+if [[ ${#StackTarballs[@]} -ne 1 ]]; then
+    printf '!! Expected exactly one interface stack tarball in shared/ui/dist/, found %s.\n' "${#StackTarballs[@]}" >&2
+    exit 1
+fi
+
 podman run --rm --userns=keep-id -e JOBS="$JOBS" \
     -e TUXBLOX_BUILD_VERSION="${TUXBLOX_BUILD_VERSION:-}" \
     -e TUXBLOX_CHANNEL="${TUXBLOX_CHANNEL:-}" \
-    -v "$(pwd):/src:Z" -w /src tuxblox-old-glibc-builder \
-    bash -c 'cmake -B build -S . -DCMAKE_BUILD_TYPE=Release && cmake --build build -j"$JOBS"'
+    -v "$(pwd):/src:Z" \
+    -v "$(cd "$UiStackDev" && pwd):/ui-dev:ro" \
+    -v "$(cd "$UiSrc" && pwd):/ui-src:ro" \
+    -w /src tuxblox-old-glibc-builder \
+    bash -c 'cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DTUXBLOX_UI_STACK_DEV=/ui-dev -DTUXBLOX_UI_SRC=/ui-src && cmake --build build -j"$JOBS"'
 
-# Also stage the finished binary at the repo-root build/ directory -- the same
-# place the root build.sh (which stages this whole build/ tree there via `mv`
-# after calling this script) leaves it, so a standalone run of this script
-# produces a runnable artifact in the same place either way. A plain `cp`,
-# not `mv`: this script's own build/ must stay intact for incremental rebuilds.
+if [[ ! -f build/TuxBloxBootstrapper ]]; then
+    printf '!! build/TuxBloxBootstrapper was not built. The interface needs shared/ui/dist/dev.\n' >&2
+    exit 1
+fi
+
+# A failure here stops the build before anything is staged: the finished binary has to start on a machine with no GTK. TUXBLOX_SKIP_SMOKE=1 is the opt-out for iterating, never for a release.
+if [[ "${TUXBLOX_SKIP_SMOKE:-}" == "1" ]]; then
+    printf '!! TUXBLOX_SKIP_SMOKE set, the fresh-install smoke test was NOT run\n' >&2
+else
+    ./smoke-test.sh build/TuxBloxBootstrapper "${StackTarballs[0]}"
+fi
+
+# Also stage the finished binary and the interface libraries beside it at the
+# repo-root build/ directory -- the same place the root build.sh (which stages
+# this whole build/ tree there via `mv` after calling this script) leaves
+# them, so a standalone run of this script produces a runnable artifact in the
+# same place either way. A plain `cp`, not `mv`: this script's own build/ must
+# stay intact for incremental rebuilds. ui/ is re-extracted wholesale, since
+# the binary finds its libraries beside itself and a stale mix would not.
 mkdir -p ../build
 cp -f build/TuxBloxBootstrapper ../build/TuxBloxBootstrapper
+rm -rf ../build/ui
+mkdir -p ../build/ui
+tar --zstd -xf "${StackTarballs[0]}" -C ../build/ui
 
-echo ":: Done. Also staged to $(cd .. && pwd)/build/TuxBloxBootstrapper"
+echo ":: Done. Also staged to $(cd .. && pwd)/build/TuxBloxBootstrapper (+ ui/)"

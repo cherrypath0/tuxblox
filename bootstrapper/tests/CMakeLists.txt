@@ -36,10 +36,6 @@ add_executable(test_progress test_progress.cpp)
 target_link_libraries(test_progress PRIVATE bootstrapper_core)
 add_test(NAME progress COMMAND test_progress)
 
-add_executable(test_ui_scale test_ui_scale.cpp)
-target_link_libraries(test_ui_scale PRIVATE bootstrapper_core)
-add_test(NAME ui_scale COMMAND test_ui_scale)
-
 add_executable(test_install_plan test_install_plan.cpp)
 target_link_libraries(test_install_plan PRIVATE bootstrapper_core)
 add_test(NAME install_plan COMMAND test_install_plan)
@@ -59,3 +55,7 @@ add_test(NAME tar_extract COMMAND test_tar_extract)
 add_executable(test_checksum test_checksum.cpp)
 target_link_libraries(test_checksum PRIVATE bootstrapper_core)
 add_test(NAME checksum COMMAND test_checksum)
+
+add_executable(test_adw_env test_adw_env.cpp ${TUXBLOX_UI_SRC}/adw_env.cpp)
+target_include_directories(test_adw_env PRIVATE ${TUXBLOX_UI_SRC})
+add_test(NAME adw_env COMMAND test_adw_env)

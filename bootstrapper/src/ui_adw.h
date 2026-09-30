@@ -14,31 +14,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-#include "ui_scale.h"
+#pragma once
+#include "app.h"
 
 namespace tuxblox {
 
-namespace {
-
-constexpr float kBaselineDpi = 96.0f;
-constexpr float kBaselineHeight = 1440.0f;
-constexpr float kMinScale = 0.75f;
-constexpr float kMaxScale = 3.0f;
-
-float clampScale(float scale) {
-    if (scale < kMinScale) return kMinScale;
-    if (scale > kMaxScale) return kMaxScale;
-    return scale;
-}
-
-} // namespace
-
-float computeUiScale(float dpi, int displayHeightPx) {
-    if (dpi > 0.0f) return clampScale(dpi / kBaselineDpi);
-    if (displayHeightPx > 0) {
-        return clampScale(static_cast<float>(displayHeightPx) / kBaselineHeight);
-    }
-    return 1.0f;
-}
+// Shows the progress window and returns once it has closed. False means no window could be opened at all, and the work is still running.
+bool runAdwProgress(App &app);
 
 } // namespace tuxblox

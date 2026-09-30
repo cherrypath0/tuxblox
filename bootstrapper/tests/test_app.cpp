@@ -56,6 +56,14 @@ int main() {
         assert(app.needsWindow());
     }
 
+    // Cancelling is the user's choice, so it has to be reported as one rather than looking like the worker failing.
+    {
+        App app(Mode::Preview, config);
+        assert(!app.cancelRequested());
+        app.cancel();
+        assert(app.cancelRequested());
+    }
+
     printf("app: all tests passed\n");
     return 0;
 }

@@ -17,7 +17,7 @@
 #include "app.h"
 #include "cli.h"
 #include "config.h"
-#include "ui.h"
+#include "ui_adw.h"
 #include "version.h"
 
 #include <chrono>
@@ -50,38 +50,31 @@ int main(int argc, char** argv) {
 
     // Started before any window exists: an update check is usually a single
     // network round trip ending in "already up to date", and opening a window
-    // for that means a flash of one on every launch. It also skips creating an
-    // SDL window, a GL context and an ImGui context in the common case.
+    // for that means a flash of one on every launch. It also means GTK is not
+    // initialised at all in the common case.
     app.start();
 
-    Ui ui;
-    bool windowOpen = false;
-    while (true) {
-        if (!windowOpen && app.needsWindow()) {
-            if (!ui.init()) {
-                fprintf(stderr, "Could not open a window.\n");
-                app.cancel();
-                return 1;
-            }
-            windowOpen = true;
+    bool windowShown = false;
+    while (!app.finished()) {
+        if (app.needsWindow()) {
+            windowShown = runAdwProgress(app);
+            break;
         }
-
-        if (windowOpen) {
-            if (!ui.renderFrame(app)) break;
-        } else {
-            if (app.finished()) break;
-            // Nothing to draw, so this loop only has to notice the two flags
-            // above reasonably promptly.
-            std::this_thread::sleep_for(std::chrono::milliseconds(20));
-        }
+        // Nothing to draw, so this loop only has to notice the two flags above reasonably promptly.
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
-    if (windowOpen) ui.shutdown();
+
+    // A window that never opened leaves the work running, so wait for it rather than abandoning a half-finished update.
+    while (!windowShown && !app.finished()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
 
     const Snapshot final = app.snapshot();
     // With no window there was nothing to show a failure on, so it goes to
     // the terminal instead -- the launcher captures this into the session log.
-    if (!windowOpen && final.phase == Phase::Error) {
+    if (!windowShown && final.phase == Phase::Error) {
         fprintf(stderr, "TuxBlox: %s\n", final.errorMessage.c_str());
     }
-    return final.phase == Phase::Error ? 1 : 0;
+    // A cancel surfaces as the worker abandoning its download, which is not a failure the launcher should report.
+    return final.phase == Phase::Error && !app.cancelRequested() ? 1 : 0;
 }

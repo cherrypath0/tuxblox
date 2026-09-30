@@ -20,45 +20,28 @@ project(TuxBloxBootstrapper CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-if(NOT EXISTS "${CMAKE_SOURCE_DIR}/third_party/imgui/imgui.h")
-    message(FATAL_ERROR "third_party/imgui is missing. Run ./vendor.sh first.")
+# The interface sources shared with the other programs live outside this directory. The build container mounts them and passes the path; a bare host cmake run finds them beside it.
+if(NOT TUXBLOX_UI_SRC)
+    set(TUXBLOX_UI_SRC "${CMAKE_SOURCE_DIR}/../shared/ui/src")
 endif()
+
 if(NOT EXISTS "${CMAKE_SOURCE_DIR}/third_party/json.hpp")
     message(FATAL_ERROR "third_party/json.hpp is missing. Run ./vendor.sh first.")
 endif()
-if(NOT EXISTS "${CMAKE_SOURCE_DIR}/third_party/stb_image.h")
-    message(FATAL_ERROR "third_party/stb_image.h is missing. Run ./vendor.sh first.")
-endif()
 
 find_package(PkgConfig REQUIRED)
-pkg_check_modules(SDL2 REQUIRED sdl2)
 pkg_check_modules(CURL REQUIRED libcurl)
 pkg_check_modules(ARCHIVE REQUIRED libarchive)
 pkg_check_modules(OPENSSL REQUIRED openssl)
-find_package(OpenGL REQUIRED)
 # glibc >= 2.34 folded libpthread/libdl into libc, so std::thread links for
 # free on a newer host -- the old-glibc container this builds in still needs
 # them named.
 find_package(Threads REQUIRED)
 
-set(IMGUI_DIR ${CMAKE_SOURCE_DIR}/third_party/imgui)
-add_library(imgui STATIC
-    ${IMGUI_DIR}/imgui.cpp
-    ${IMGUI_DIR}/imgui_draw.cpp
-    ${IMGUI_DIR}/imgui_tables.cpp
-    ${IMGUI_DIR}/imgui_widgets.cpp
-    ${IMGUI_DIR}/imgui_demo.cpp
-    ${IMGUI_DIR}/backends/imgui_impl_sdl2.cpp
-    ${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
-)
-target_include_directories(imgui PUBLIC ${IMGUI_DIR} ${IMGUI_DIR}/backends ${SDL2_INCLUDE_DIRS})
-target_compile_options(imgui PRIVATE ${SDL2_CFLAGS_OTHER})
-
 add_library(bootstrapper_core STATIC
     src/cli.cpp
     src/config.cpp
     src/progress.cpp
-    src/ui_scale.cpp
     src/install_plan.cpp
     src/roblox_deploy.cpp
     src/downloader.cpp
@@ -119,16 +102,28 @@ configure_file(${CMAKE_SOURCE_DIR}/cmake/version.h.in ${CMAKE_BINARY_DIR}/genera
 target_include_directories(bootstrapper_core PUBLIC ${CMAKE_BINARY_DIR}/generated)
 
 include(cmake/FetchLogo.cmake)
-include(cmake/FetchFont.cmake)
-include(cmake/EmbedThirdPartyLicenses.cmake)
 
-add_executable(TuxBloxBootstrapper
-    src/main.cpp
-    src/ui.cpp
-)
-target_include_directories(TuxBloxBootstrapper PRIVATE ${CMAKE_BINARY_DIR}/generated)
-target_link_libraries(TuxBloxBootstrapper PRIVATE bootstrapper_core imgui ${SDL2_LIBRARIES} OpenGL::GL ${CMAKE_DL_LIBS} Threads::Threads)
-add_dependencies(TuxBloxBootstrapper generate_logo_header generate_font_header generate_thirdparty_license_headers)
+# The interface binary needs the stack's development tree, which only exists once shared/ui/build.sh has run; without it only the tests build, and build.sh refuses to finish.
+if(TUXBLOX_UI_STACK_DEV)
+    include(${TUXBLOX_UI_SRC}/UiStack.cmake)
+
+    add_executable(TuxBloxBootstrapper
+        src/main.cpp
+        src/ui_adw.cpp
+        ${TUXBLOX_UI_SRC}/adw_env.cpp
+        ${TUXBLOX_UI_SRC}/adw_look.cpp
+    )
+    target_include_directories(TuxBloxBootstrapper PRIVATE
+        ${CMAKE_BINARY_DIR}/generated ${TUXBLOX_UI_SRC} ${ADWAITA_INCLUDE_DIRS})
+    target_compile_options(TuxBloxBootstrapper PRIVATE ${ADWAITA_CFLAGS_OTHER})
+    target_link_libraries(TuxBloxBootstrapper PRIVATE
+        bootstrapper_core ${ADWAITA_LINK_LIBRARIES} ${CMAKE_DL_LIBS} Threads::Threads)
+    # The libraries are installed in a folder called ui beside this binary.
+    set_target_properties(TuxBloxBootstrapper PROPERTIES
+        BUILD_WITH_INSTALL_RPATH TRUE
+        INSTALL_RPATH "$ORIGIN/ui/lib/x86_64-linux-gnu:$ORIGIN/ui/lib")
+    add_dependencies(TuxBloxBootstrapper generate_logo_header)
+endif()
 
 enable_testing()
 add_subdirectory(tests)
