@@ -29,13 +29,12 @@ export PATH="$Prefix/bin:$PATH"
 # Libraries safe to assume on an arbitrary Linux desktop with no GTK installed; anything else must be shipped in the stack
 HostAllowList=(
     '^libc\.so\.6$' '^libm\.so\.6$' '^libdl\.so\.2$' '^libpthread\.so\.0$' '^librt\.so\.1$' '^libresolv\.so\.2$'
-    '^ld-linux-x86-64\.so\.2$' '^libstdc\+\+\.so\.6$' '^libgcc_s\.so\.1$'
+    '^ld-linux-x86-64\.so\.2$'
     '^libX11\.so\.6$' '^libX11-xcb\.so\.1$' '^libXau\.so\.6$' '^libXdmcp\.so\.6$' '^libXext\.so\.6$' '^libXrender\.so\.1$'
     '^libXi\.so\.6$' '^libXrandr\.so\.2$' '^libXcursor\.so\.1$' '^libXdamage\.so\.1$' '^libXfixes\.so\.3$' '^libXinerama\.so\.1$'
-    '^libxcb(-[a-z0-9]+)?\.so\.[0-9]+$'
+    '^libxcb\.so\.1$' '^libxcb-render\.so\.0$' '^libxcb-shm\.so\.0$'
     '^libGL\.so\.1$' '^libEGL\.so\.1$' '^libGLdispatch\.so\.0$'
-    '^libwayland-(client|cursor|egl|server)\.so\.0$'
-    '^libz\.so\.1$' '^libexpat\.so\.1$' '^libpng16\.so\.16$' '^libpcre2-8\.so\.0$' '^libfontconfig\.so\.1$'
+    '^libz\.so\.1$' '^libexpat\.so\.1$' '^libpng16\.so\.16$' '^libpcre2-8\.so\.0$'
 )
 
 isElf() {
@@ -108,6 +107,31 @@ checkNeededLibraries() {
     printf '%s' "$hostLines" | sort -u | sed 's/^/::   /'
 }
 
+maxSymbolVersion() {
+    local prefix="$1" f
+    while IFS= read -r -d '' f; do
+        isElf "$f" || continue
+        objdump -T "$f" 2>/dev/null | grep -o "${prefix}_[0-9][0-9.]*" || true
+    done < <(find "$StageDir/lib" -type f -print0) | sort -uV | tail -1
+}
+
+checkSymbolVersions() {
+    local glibcMax glibcxxMax
+    printf ':: Checking the symbol versions the stack requires\n'
+    glibcMax="$(maxSymbolVersion GLIBC)"
+    glibcxxMax="$(maxSymbolVersion GLIBCXX)"
+    printf '::   highest GLIBC: %s\n' "${glibcMax:-none}"
+    printf '::   highest GLIBCXX: %s\n' "${glibcxxMax:-none}"
+    if [ -n "$glibcxxMax" ]; then
+        printf 'ERROR: something in the stack needs libstdc++ symbols (%s); it must be linked statically instead\n' "$glibcxxMax" >&2
+        exit 1
+    fi
+    if [ "$(printf '%s\n%s\n' "$glibcMax" "GLIBC_2.31" | sort -V | tail -1)" != "GLIBC_2.31" ]; then
+        printf 'ERROR: the stack needs %s, above the glibc 2.31 floor\n' "$glibcMax" >&2
+        exit 1
+    fi
+}
+
 writeTarball() {
     printf ':: Writing %s\n' "$Tarball"
     mkdir -p "$OutDir"
@@ -130,5 +154,6 @@ writeDevTree() {
 stageRuntime
 rewriteRpaths
 checkNeededLibraries
+checkSymbolVersions
 writeTarball
 writeDevTree
