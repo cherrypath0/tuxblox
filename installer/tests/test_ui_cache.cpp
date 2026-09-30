@@ -79,6 +79,20 @@ int main() {
     assert(!fs::exists(fs::path(uiCacheRoot()) / "ui-9.9.9"));
     assert(fs::exists(fs::path(uiCacheRoot()) / "something-else"));
 
+    // keepDir passed WITH a trailing slash: the kept directory still exists afterwards, and a sibling ui-* is still removed.
+    fs::create_directories(fs::path(uiCacheRoot()) / "ui-2.8.0");
+    uiCachePruneOthers(dir + "/");
+    assert(fs::exists(dir));
+    assert(!fs::exists(fs::path(uiCacheRoot()) / "ui-2.8.0"));
+
+    // prune with a keepDir whose parent contains a non-"ui-" directory: that directory survives.
+    fs::create_directories(fs::path(uiCacheRoot()) / "ui-3.0.0");
+    fs::create_directories(fs::path(uiCacheRoot()) / "other-data");
+    uiCachePruneOthers(dir);
+    assert(fs::exists(dir));
+    assert(!fs::exists(fs::path(uiCacheRoot()) / "ui-3.0.0"));
+    assert(fs::exists(fs::path(uiCacheRoot()) / "other-data"));
+
     fs::remove_all(work);
     printf("ui_cache: all tests passed\n");
     return 0;

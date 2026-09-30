@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "ui_cache.h"
+#include "install_paths.h"
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -63,17 +64,24 @@ void uiCacheMarkComplete(const std::string& dir, const std::string& sha256) {
 }
 
 void uiCachePruneOthers(const std::string& keepDir) {
-    std::error_code ec;
-    const fs::path root = uiCacheRoot();
-    const fs::path keep = fs::path(keepDir).lexically_normal();
-    for (const auto& entry : fs::directory_iterator(root, ec)) {
-        if (ec) return;
-        if (!entry.is_directory()) continue;
-        const std::string name = entry.path().filename().string();
-        if (name.rfind("ui-", 0) != 0) continue;
-        if (entry.path().lexically_normal() == keep) continue;
-        std::error_code removeEc;
-        fs::remove_all(entry.path(), removeEc);
+    try {
+        const fs::path root = fs::path(normalizedDir(keepDir)).parent_path();
+        const std::string keep = normalizedDir(keepDir);
+        std::error_code ec;
+        auto it = fs::directory_iterator(root, ec);
+        const auto end = fs::directory_iterator();
+        while (it != end) {
+            std::error_code entry_ec;
+            const auto entry = *it;
+            ++it;
+            if (!entry.is_directory(entry_ec) || entry_ec) continue;
+            const std::string name = entry.path().filename().string();
+            if (name.rfind("ui-", 0) != 0) continue;
+            if (normalizedDir(entry.path().string()) == keep) continue;
+            std::error_code removeEc;
+            fs::remove_all(entry.path(), removeEc);
+        }
+    } catch (...) {
     }
 }
 
