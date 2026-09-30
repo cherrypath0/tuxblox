@@ -145,6 +145,13 @@ if [[ ! -f build/TuxBloxLauncher ]]; then
     exit 1
 fi
 
+# A failure here stops the build before anything is staged: the finished binary has to start on a machine with no GTK. TUXBLOX_SKIP_SMOKE=1 is the opt-out for iterating, never for a release.
+if [[ "${TUXBLOX_SKIP_SMOKE:-}" == "1" ]]; then
+    printf '!! TUXBLOX_SKIP_SMOKE set, the fresh-install smoke test was NOT run\n' >&2
+else
+    ./smoke-test.sh build/TuxBloxLauncher "${StackTarballs[0]}"
+fi
+
 # Also stage the finished binary and the interface libraries beside it at the repo-root build/, where the root build.sh leaves them too. ui/ is re-extracted wholesale, since the binary finds its libraries beside itself and a stale mix would not.
 mkdir -p ../build
 cp -f build/TuxBloxLauncher ../build/TuxBloxLauncher
