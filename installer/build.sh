@@ -102,13 +102,18 @@ if [[ -z "${TUXBLOX_CHANNEL:-}" && -r "$(pwd)/../VERSION" ]]; then
     TUXBLOX_CHANNEL="$(sed -n '2p' "$(pwd)/../VERSION" | tr -d '[:space:]')"
 fi
 
-# The interface stack sits inside installer/, so the container sees it at /src/ui-stack; without it only the SDL installer is built.
+# The interface stack lives in shared/ui, outside this script's /src mount, so it gets a mount of its own -- the same way studio-mcp/build.sh reaches launcher/. Without it only the SDL installer is built.
 UiStackArg=""
-[[ -d "$(pwd)/ui-stack/dist/dev" ]] && UiStackArg="-DTUXBLOX_UI_STACK_DEV=/src/ui-stack/dist/dev"
+UiStackMount=()
+UiStackDev="$(pwd)/../shared/ui/dist/dev"
+if [[ -d "$UiStackDev" ]]; then
+    UiStackArg="-DTUXBLOX_UI_STACK_DEV=/ui-dev"
+    UiStackMount=(-v "$(cd "$UiStackDev" && pwd):/ui-dev:ro")
+fi
 
 podman run --rm --userns=keep-id -e JOBS="$JOBS" -e UI_STACK_ARG="$UiStackArg" \
     -e TUXBLOX_BUILD_VERSION="${TUXBLOX_BUILD_VERSION:-}" \
-    -e TUXBLOX_CHANNEL="${TUXBLOX_CHANNEL:-}" -v "$(pwd):/src:Z" -w /src tuxblox-old-glibc-builder \
+    -e TUXBLOX_CHANNEL="${TUXBLOX_CHANNEL:-}" -v "$(pwd):/src:Z" "${UiStackMount[@]}" -w /src tuxblox-old-glibc-builder \
     bash -c 'cmake -B build -S . -DCMAKE_BUILD_TYPE=Release ${UI_STACK_ARG:-} && cmake --build build -j"$JOBS"'
 
 # Also stage the finished binary at the repo-root build/ directory -- the same

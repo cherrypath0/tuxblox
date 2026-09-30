@@ -16,7 +16,7 @@ You should have received a copy of the GNU General Public License
 along with this program. If not, see <https://www.gnu.org/licenses/>.
 -->
 
-# ui-stack
+# shared/ui — the GTK4 and libadwaita interface stack
 
 Builds the shared GTK4 and libadwaita stack that TuxBlox's graphical interface links against, from source, inside the sniper SDK container (glibc 2.31).
 
