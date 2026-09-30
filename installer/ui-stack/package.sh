@@ -19,58 +19,116 @@ set -euo pipefail
 
 source "$(dirname "$0")/versions.env"
 
-PREFIX=/opt/tuxblox-ui
-LIBREL=lib/x86_64-linux-gnu
-export PATH="$PREFIX/bin:$PATH"
-Stage=/tmp/ui-stack-stage
-Out=/out
+Prefix=/opt/tuxblox-ui
+LibRel=lib/x86_64-linux-gnu
+StageDir=/tmp/ui-stack-stage
+OutDir=/out
 Tarball="ui-stack-${UI_STACK_VERSION}-x86_64.tar.zst"
+export PATH="$Prefix/bin:$PATH"
 
-rm -rf "$Stage"
-mkdir -p "$Stage/$LIBREL" "$Stage/share/glib-2.0" "$Stage/fonts"
+# Libraries safe to assume on an arbitrary Linux desktop with no GTK installed; anything else must be shipped in the stack
+HostAllowList=(
+    '^libc\.so\.6$' '^libm\.so\.6$' '^libdl\.so\.2$' '^libpthread\.so\.0$' '^librt\.so\.1$' '^libresolv\.so\.2$'
+    '^ld-linux-x86-64\.so\.2$' '^libstdc\+\+\.so\.6$' '^libgcc_s\.so\.1$'
+    '^libX11\.so\.6$' '^libX11-xcb\.so\.1$' '^libXau\.so\.6$' '^libXdmcp\.so\.6$' '^libXext\.so\.6$' '^libXrender\.so\.1$'
+    '^libXi\.so\.6$' '^libXrandr\.so\.2$' '^libXcursor\.so\.1$' '^libXdamage\.so\.1$' '^libXfixes\.so\.3$' '^libXinerama\.so\.1$'
+    '^libxcb(-[a-z0-9]+)?\.so\.[0-9]+$'
+    '^libGL\.so\.1$' '^libEGL\.so\.1$' '^libGLdispatch\.so\.0$'
+    '^libwayland-(client|cursor|egl|server)\.so\.0$'
+    '^libz\.so\.1$' '^libexpat\.so\.1$' '^libpng16\.so\.16$' '^libpcre2-8\.so\.0$' '^libfontconfig\.so\.1$'
+)
 
-printf ':: Staging runtime files\n'
-cp -a "$PREFIX/$LIBREL/." "$Stage/$LIBREL/"
-rm -rf "$Stage/$LIBREL/pkgconfig"
-cp -a "$PREFIX/fonts/." "$Stage/fonts/"
-cp -a "$PREFIX/share/glib-2.0/schemas" "$Stage/share/glib-2.0/schemas"
-glib-compile-schemas "$Stage/share/glib-2.0/schemas"
-find "$Stage" -name '*.a' -delete
-find "$Stage" -name '*.la' -delete
-rm -rf "$Stage/$LIBREL/glib-2.0/include" "$Stage/$LIBREL/gdk-pixbuf-2.0"
-rm -f "$Stage/$LIBREL"/libgirepository-2.0.so* "$Stage/$LIBREL"/libxkbregistry.so*
+isElf() {
+    [ "$(head -c4 "$1" | od -An -tx1 | tr -d ' \n')" = "7f454c46" ]
+}
 
-printf ':: Rewriting RPATH on every shipped ELF file\n'
-while IFS= read -r -d '' f; do
-    [ "$(head -c4 "$f" | od -An -tx1 | tr -d ' \n')" = "7f454c46" ] || continue
-    patchelf --print-rpath "$f" >/dev/null 2>&1 || continue
-    dir="$(dirname "${f#"$Stage"/}")"
-    up=""
-    if [ "$dir" != "." ]; then
-        IFS=/ read -ra parts <<<"$dir"
-        for _ in "${parts[@]}"; do up="../$up"; done
+isAllowedHostLibrary() {
+    local name="$1" pattern
+    for pattern in "${HostAllowList[@]}"; do
+        if [[ "$name" =~ $pattern ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+stageRuntime() {
+    printf ':: Staging runtime files\n'
+    rm -rf "$StageDir"
+    mkdir -p "$StageDir/$LibRel" "$StageDir/share/glib-2.0" "$StageDir/fonts"
+    cp -a "$Prefix/$LibRel/." "$StageDir/$LibRel/"
+    rm -rf "$StageDir/$LibRel/pkgconfig" "$StageDir/$LibRel/glib-2.0/include" "$StageDir/$LibRel/gdk-pixbuf-2.0"
+    rm -f "$StageDir/$LibRel"/libgirepository-2.0.so* "$StageDir/$LibRel"/libxkbregistry.so*
+    cp -a "$Prefix/fonts/." "$StageDir/fonts/"
+    cp -a "$Prefix/share/glib-2.0/schemas" "$StageDir/share/glib-2.0/schemas"
+    glib-compile-schemas "$StageDir/share/glib-2.0/schemas"
+    find "$StageDir" \( -name '*.a' -o -name '*.la' \) -delete
+}
+
+rewriteRpaths() {
+    local f dir up part parts
+    printf ':: Rewriting RPATH on every shipped ELF file\n'
+    while IFS= read -r -d '' f; do
+        isElf "$f" || continue
+        patchelf --print-rpath "$f" >/dev/null 2>&1 || continue
+        dir="$(dirname "${f#"$StageDir"/}")"
+        up=""
+        if [ "$dir" != "." ]; then
+            IFS=/ read -ra parts <<<"$dir"
+            for part in "${parts[@]}"; do up="../$up"; done
+        fi
+        strip --strip-unneeded "$f"
+        patchelf --force-rpath --set-rpath "\$ORIGIN:\$ORIGIN/${up}${LibRel}" "$f"
+    done < <(find "$StageDir/lib" -type f -print0)
+}
+
+checkNeededLibraries() {
+    local f needed failed=0
+    local hostLines=""
+    printf ':: Checking every DT_NEEDED entry is shipped or on the host allow-list\n'
+    while IFS= read -r -d '' f; do
+        isElf "$f" || continue
+        while IFS= read -r needed; do
+            [ -n "$needed" ] || continue
+            if [ -e "$StageDir/$LibRel/$needed" ]; then
+                continue
+            fi
+            if isAllowedHostLibrary "$needed"; then
+                hostLines+="$needed"$'\n'
+                continue
+            fi
+            printf 'ERROR: %s needs %s, which is neither shipped nor on the allow-list\n' "${f#"$StageDir"/}" "$needed" >&2
+            failed=1
+        done < <(readelf -d "$f" 2>/dev/null | sed -n 's/.*(NEEDED).*\[\(.*\)\]/\1/p')
+    done < <(find "$StageDir/lib" -type f -print0)
+    if [ "$failed" -ne 0 ]; then
+        exit 1
     fi
-    strip --strip-unneeded "$f"
-    patchelf --force-rpath --set-rpath "\$ORIGIN:\$ORIGIN/${up}${LIBREL}" "$f"
-done < <(find "$Stage/lib" -type f -print0)
+    printf ':: Host libraries the stack relies on:\n'
+    printf '%s' "$hostLines" | sort -u | sed 's/^/::   /'
+}
 
-printf ':: Checking nothing still names the build prefix\n'
-if grep -rl --binary-files=text "$PREFIX" "$Stage" >/dev/null 2>&1; then
-    printf 'NOTE: files that still mention %s:\n' "$PREFIX" >&2
-    grep -rl --binary-files=text "$PREFIX" "$Stage" >&2 || true
-fi
+writeTarball() {
+    printf ':: Writing %s\n' "$Tarball"
+    mkdir -p "$OutDir"
+    tar -C "$StageDir" -cf - lib share fonts | zstd -19 -T0 -q -o "$OutDir/$Tarball" -f
+}
 
-printf ':: Writing %s\n' "$Tarball"
-mkdir -p "$Out"
-tar -C "$Stage" -cf - lib share fonts | zstd -19 -T0 -q -o "$Out/$Tarball" -f
+writeDevTree() {
+    local devDir="$OutDir/dev" pc
+    printf ':: Writing the dev tree\n'
+    rm -rf "$devDir"
+    mkdir -p "$devDir/lib/pkgconfig"
+    cp -a "$Prefix/include" "$devDir/include"
+    cp -a "$StageDir/$LibRel" "$devDir/$LibRel"
+    for pc in "$Prefix/$LibRel"/pkgconfig/*.pc "$Prefix"/lib/pkgconfig/*.pc "$Prefix"/share/pkgconfig/*.pc; do
+        [ -e "$pc" ] || continue
+        sed "s|$Prefix|\${pcfiledir}/../..|g" "$pc" > "$devDir/lib/pkgconfig/$(basename "$pc")"
+    done
+}
 
-printf ':: Writing the dev tree\n'
-Dev="$Out/dev"
-rm -rf "$Dev"
-mkdir -p "$Dev/lib/pkgconfig"
-cp -a "$PREFIX/include" "$Dev/include"
-cp -a "$Stage/$LIBREL" "$Dev/$LIBREL"
-for pc in "$PREFIX/$LIBREL"/pkgconfig/*.pc "$PREFIX"/lib/pkgconfig/*.pc "$PREFIX"/share/pkgconfig/*.pc; do
-    [ -e "$pc" ] || continue
-    sed "s|$PREFIX|\${pcfiledir}/../..|g" "$pc" > "$Dev/lib/pkgconfig/$(basename "$pc")"
-done
+stageRuntime
+rewriteRpaths
+checkNeededLibraries
+writeTarball
+writeDevTree

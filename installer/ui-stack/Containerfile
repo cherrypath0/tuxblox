@@ -24,7 +24,7 @@ RUN sed -i '/debian-security/d' /etc/apt/sources.list /etc/apt/sources.list.d/* 
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc-14 g++-14 build-essential ninja-build pkg-config git curl ca-certificates \
-    python3 python3-pip patchelf ccache \
+    python3 python3-pip patchelf ccache cmake nasm \
     libz-dev libpng-dev libjpeg-dev libexpat1-dev libpixman-1-dev \
     libfontconfig1-dev libfribidi-dev libthai-dev libdatrie-dev \
     libx11-dev libxext-dev libxrender-dev libxi-dev libxrandr-dev \

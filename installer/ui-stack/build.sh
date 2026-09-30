@@ -19,11 +19,10 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 StackDir="$(pwd)"
-RepoRoot="$(cd ../.. && pwd)"
-Artifacts="$RepoRoot/build/.artifacts/ui-stack"
+DistDir="$StackDir/dist"
 ImageTag=tuxblox-ui-stack-builder
 
-mkdir -p "$Artifacts/prefix" "$Artifacts/work" "$Artifacts/out"
+mkdir -p "$DistDir/prefix" "$DistDir/work" "$DistDir/out"
 
 printf ':: Building the builder image\n'
 podman build -t "$ImageTag" -f Containerfile .
@@ -31,21 +30,22 @@ podman build -t "$ImageTag" -f Containerfile .
 printf ':: Building the stack (a rerun skips every library that already finished)\n'
 podman run --rm --userns=keep-id \
     -v "$StackDir:/src:ro" \
-    -v "$Artifacts/prefix:/opt/tuxblox-ui" \
-    -v "$Artifacts/work:/build" \
+    -v "$DistDir/prefix:/opt/tuxblox-ui" \
+    -v "$DistDir/work:/build" \
     -e JOBS="${JOBS:-$(nproc)}" \
     "$ImageTag" bash /src/build-in-container.sh
 
 printf ':: Packaging\n'
 podman run --rm --userns=keep-id \
     -v "$StackDir:/src:ro" \
-    -v "$Artifacts/prefix:/opt/tuxblox-ui:ro" \
-    -v "$Artifacts/out:/out" \
+    -v "$DistDir/prefix:/opt/tuxblox-ui:ro" \
+    -v "$DistDir/out:/out" \
     "$ImageTag" bash /src/package.sh
 
-rm -rf "$Artifacts/dev"
-mv "$Artifacts/out/dev" "$Artifacts/dev"
-mv "$Artifacts/out"/ui-stack-*.tar.zst "$Artifacts/"
-rm -rf "$Artifacts/out"
+rm -rf "$DistDir/dev"
+mv "$DistDir/out/dev" "$DistDir/dev"
+rm -f "$DistDir"/ui-stack-*.tar.zst
+mv "$DistDir/out"/ui-stack-*.tar.zst "$DistDir/"
+rm -rf "$DistDir/out"
 
-printf ':: Done. Output in %s\n' "$Artifacts"
+printf ':: Done. Output in %s\n' "$DistDir"

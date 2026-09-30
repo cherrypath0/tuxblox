@@ -39,7 +39,9 @@ def replaceOnce(text, old, new, what):
 
 
 meson = readFile("src/meson.build")
-meson = re.sub(r"appstream_dep = dependency\('appstream',.*?\n\)\n", "", meson, count=1, flags=re.S)
+meson, mesonMatches = re.subn(r"appstream_dep = dependency\('appstream',.*?\n\)\n", "", meson, count=1, flags=re.S)
+if mesonMatches != 1:
+    sys.exit("ERROR: libadwaita patch did not match (appstream dependency in src/meson.build): the source layout changed")
 meson = replaceOnce(meson, "  appstream_dep,\n", "", "appstream_dep in the dependency list")
 writeFile("src/meson.build", meson)
 
@@ -50,8 +52,8 @@ for kind in ("dialog", "window"):
     text = re.sub(r"static gboolean\nget_release_for_version \(AsRelease.*?\n}\n\n", "", text, count=1, flags=re.S)
     retType, cast, typeMacro = ("AdwDialog", "ADW_DIALOG", "ADW_TYPE_ABOUT_DIALOG") if kind == "dialog" else ("GtkWidget", "GTK_WIDGET", "ADW_TYPE_ABOUT_WINDOW")
     pattern = r"(%s \*\nadw_about_%s_new_from_appdata \(.*?\)\n)\{.*?\n\}\n" % (retType, kind)
-    stub = r"\1{\n  return %s (g_object_new (%s, NULL));\n}\n" % (cast, typeMacro)
-    text, n = re.subn(pattern, stub, text, count=1, flags=re.S)
+    body = "{\n  g_critical (\"adw_about_%s_new_from_appdata() is a stub in this build (no AppStream): returning an empty dialog\");\n  return %s (g_object_new (%s, NULL));\n}\n" % (kind, cast, typeMacro)
+    text, n = re.subn(pattern, lambda m: m.group(1) + body, text, count=1, flags=re.S)
     if n != 1:
         sys.exit("ERROR: libadwaita patch did not match (%s new_from_appdata)" % kind)
     if re.search(r"\bas_[a-z_]+ \(|\bAs[A-Z]", text):

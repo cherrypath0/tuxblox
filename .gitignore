@@ -45,3 +45,4 @@ SKILL.md
 compat/webkitgtk/bundle/out/
 compat/webkitgtk/bundle/host/webview2loader_ipc_protocol.h
 logs/
+installer/ui-stack/dist/
