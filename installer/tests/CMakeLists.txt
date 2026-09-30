@@ -82,3 +82,7 @@ add_test(NAME uninstall COMMAND test_uninstall)
 add_executable(test_uninstall_guard test_uninstall_guard.cpp)
 target_link_libraries(test_uninstall_guard PRIVATE installer_core)
 add_test(NAME uninstall_guard COMMAND test_uninstall_guard)
+
+add_executable(test_ui_payload test_ui_payload.cpp)
+target_link_libraries(test_ui_payload PRIVATE installer_core)
+add_test(NAME ui_payload COMMAND test_ui_payload)

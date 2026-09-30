@@ -63,6 +63,7 @@ add_library(installer_core STATIC
     src/downloader.cpp
     src/tar_extract.cpp
     src/checksum.cpp
+    src/ui_payload.cpp
     src/install_paths.cpp
     src/progress.cpp
     src/installer_steps.cpp
