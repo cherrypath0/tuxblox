@@ -19,8 +19,6 @@
 # can write proper attribution into the installed product's COPYRIGHT.txt.
 # Mirrors FetchFont.cmake's fetch-or-locate + embed pattern.
 #
-# The installer no longer links Dear ImGui, but the shared COPYRIGHT.txt still
-# names it (see copyright_file.cpp), so its license is fetched, pinned to v1.91.0.
 # nlohmann/json is vendored as a single header with no accompanying LICENSE
 # file, so its license is fetched separately, pinned to the exact same v3.11.3
 # tag vendor.sh already pins json.hpp to.
@@ -37,32 +35,18 @@
 # libxcb/xkbcommon notices are hardcoded there for the same reason (ICU 56
 # publishes its license only as HTML at that tag).
 
-set(IMGUI_LICENSE_URL "https://raw.githubusercontent.com/ocornut/imgui/v1.91.0/LICENSE.txt")
 set(JSON_LICENSE_URL "https://raw.githubusercontent.com/nlohmann/json/v3.11.3/LICENSE.MIT")
 set(LGPL21_LICENSE_URL "https://www.gnu.org/licenses/old-licenses/lgpl-2.1.txt")
 set(LGPL3_LICENSE_URL "https://www.gnu.org/licenses/lgpl-3.0.txt")
 set(GENERATED_DIR "${CMAKE_BINARY_DIR}/generated")
-set(IMGUI_LICENSE_TXT_PATH "${GENERATED_DIR}/imgui-LICENSE.txt")
 set(JSON_LICENSE_TXT_PATH "${GENERATED_DIR}/json-LICENSE.MIT")
 set(LGPL21_LICENSE_TXT_PATH "${GENERATED_DIR}/lgpl-2.1.txt")
 set(LGPL3_LICENSE_TXT_PATH "${GENERATED_DIR}/lgpl-3.0.txt")
-set(IMGUI_LICENSE_HEADER_PATH "${GENERATED_DIR}/imgui_license_txt.h")
 set(JSON_LICENSE_HEADER_PATH "${GENERATED_DIR}/json_license_txt.h")
 set(LGPL21_LICENSE_HEADER_PATH "${GENERATED_DIR}/lgpl21_license_txt.h")
 set(LGPL3_LICENSE_HEADER_PATH "${GENERATED_DIR}/lgpl3_license_txt.h")
 
 file(MAKE_DIRECTORY ${GENERATED_DIR})
-
-add_custom_command(
-    OUTPUT ${IMGUI_LICENSE_HEADER_PATH}
-    COMMAND ${CMAKE_COMMAND} -DURL=${IMGUI_LICENSE_URL} -DDEST=${IMGUI_LICENSE_TXT_PATH}
-            -P ${CMAKE_SOURCE_DIR}/cmake/DownloadFile.cmake
-    COMMAND ${CMAKE_COMMAND} -DINPUT=${IMGUI_LICENSE_TXT_PATH} -DOUTPUT=${IMGUI_LICENSE_HEADER_PATH}
-            -DSYMBOL=kImguiLicenseTxt
-            -P ${CMAKE_SOURCE_DIR}/cmake/BinToHeader.cmake
-    COMMENT "Fetching and embedding Dear ImGui license text"
-    VERBATIM
-)
 
 add_custom_command(
     OUTPUT ${JSON_LICENSE_HEADER_PATH}
@@ -98,4 +82,4 @@ add_custom_command(
 )
 
 add_custom_target(generate_thirdparty_license_headers DEPENDS
-    ${IMGUI_LICENSE_HEADER_PATH} ${JSON_LICENSE_HEADER_PATH} ${LGPL3_LICENSE_HEADER_PATH} ${LGPL21_LICENSE_HEADER_PATH})
+    ${JSON_LICENSE_HEADER_PATH} ${LGPL3_LICENSE_HEADER_PATH} ${LGPL21_LICENSE_HEADER_PATH})

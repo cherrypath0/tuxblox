@@ -15,13 +15,10 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-# Sourced by installer/build.sh and launcher/build.sh. Prints the libadwaita commit to name in the copyright notice, or nothing when the build carries no interface.
+# Sourced by installer/build.sh and launcher/build.sh. Prints the libadwaita commit to name in the copyright notice, or nothing when there is no stack to name. A headless installer still names it, because every release installs the stack.
 # The tarball's own record wins, because it describes the library that is actually inside it; git is only asked when the tarball predates the record.
 libadwaitaCommit() {
     local uiDir="$1" tarball commit dir
-    if [[ "${TUXBLOX_HEADLESS_ONLY:-}" == "1" ]]; then
-        return 0
-    fi
     for tarball in "$uiDir"/dist/ui-stack-*.tar.zst; do
         [[ -f "$tarball" ]] || continue
         commit="$(zstd -dc "$tarball" 2>/dev/null | tar -xO LIBADWAITA_COMMIT 2>/dev/null | tr -d '[:space:]' || true)"

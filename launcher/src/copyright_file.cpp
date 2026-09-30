@@ -26,7 +26,6 @@
 #include "copyright_file.h"
 #include "inter_ofl_license_txt.h"       // generated at build time
 #include "montserrat_ofl_license_txt.h" // generated at build time
-#include "imgui_license_txt.h"      // generated at build time
 #include "json_license_txt.h"       // generated at build time
 #include "lgpl21_license_txt.h"     // generated at build time
 #include "lgpl3_license_txt.h"      // generated at build time
@@ -54,8 +53,6 @@ constexpr const char* kDivider =
 constexpr const char* kInterHeading = "Inter (font)\nhttps://github.com/rsms/inter\n\n";
 constexpr const char* kMontserratHeading =
     "Montserrat (font)\nhttps://github.com/JulietaUla/Montserrat\n\n";
-constexpr const char* kImguiHeading =
-    "Dear ImGui (used by earlier versions of the TuxBlox Installer)\nhttps://github.com/ocornut/imgui\n\n";
 constexpr const char* kJsonHeading = "JSON for Modern C++ (nlohmann/json)\nhttps://github.com/nlohmann/json\n\n";
 constexpr const char* kStbHeading = "stb_image.h (stb single-file libraries)\nhttps://github.com/nothings/stb\n\n";
 
@@ -251,19 +248,19 @@ constexpr const char* kXcbLicenseTxt =
     "Software without prior written authorization from the\n"
     "authors.\n";
 
-// The interface stack is only in the installer when it carries a payload, so a build without one names none of it
+// Named only when the build was given the commit of the interface stack it ships, so a build without one names none of it
 #ifdef TUXBLOX_LIBADWAITA_COMMIT
 constexpr const char* kGtkHeading =
-    "GTK 4 toolkit stack (used by the TuxBlox Installer's interface)\n"
+    "GTK 4 toolkit stack (used by TuxBlox's interface)\n"
     "https://www.gtk.org  |  https://gitlab.gnome.org/GNOME\n\n";
 
-// The installer carries these inside its own file and unpacks them to ~/.cache/tuxblox on the first graphical run, so the notice has to name each one and, for the libraries whose license asks for it, say where the source is.
+// The stack is installed as its own folder and the installer also carries a copy inside its own file, so the notice has to name each library and, for the ones whose license asks for it, say where the source is.
 constexpr const char* kGtkLicenseTxt =
-    "The TuxBlox Installer's interface is built on the libraries below. They are\n"
-    "packed inside the installer, unpacked on the first graphical run into\n"
-    "~/.cache/tuxblox/, and loaded as separate shared libraries. Each one is\n"
-    "redistributed unmodified, except libadwaita, which has its own entry below\n"
-    "the license text.\n"
+    "TuxBlox's interface is built on the libraries below. They are installed in\n"
+    "the ui folder of the TuxBlox folder, and the installer carries its own copy\n"
+    "inside its file, unpacked to ~/.cache/tuxblox/ on the first graphical run.\n"
+    "They load as separate shared libraries. Each one is redistributed unmodified,\n"
+    "except libadwaita, which has its own entry below the license text.\n"
     "\n"
     "  GTK 4.18.6             LGPL-2.1-or-later   https://download.gnome.org/sources/gtk/\n"
     "  GLib 2.84.4            LGPL-2.1-or-later   https://download.gnome.org/sources/glib/\n"
@@ -300,7 +297,7 @@ constexpr const char* kLgpl21Heading =
     "https://www.gnu.org/licenses/old-licenses/lgpl-2.1.txt\n\n";
 
 constexpr const char* kAdwaitaHeading =
-    "libadwaita (MODIFIED; used by the TuxBlox Installer's interface)\n"
+    "libadwaita (MODIFIED; used by TuxBlox's interface)\n"
     "https://github.com/cherrypath0/libadwaita-compat\n\n";
 
 // The fork is the one library in the stack TuxBlox changes, so its source address and exact commit are stated here for anyone who receives the binary.
@@ -325,7 +322,7 @@ constexpr const char* kAdwaitaLicenseTxt =
     "allows. The full text of the license is included in this file.\n";
 
 constexpr const char* kAdwaitaSansHeading =
-    "Adwaita Sans (font, used by the TuxBlox Installer's interface)\n"
+    "Adwaita Sans (font, used by TuxBlox's interface)\n"
     "https://gitlab.gnome.org/GNOME/adwaita-fonts\n\n";
 
 constexpr const char* kAdwaitaSansLicenseTxt =
@@ -364,7 +361,6 @@ void writeCopyrightFile(const std::string& installDir) {
         file << kCopyrightIntro;
         writeEntry(file, kInterHeading, kInterOflLicenseTxt, kInterOflLicenseTxtLen);
         writeEntry(file, kMontserratHeading, kMontserratOflLicenseTxt, kMontserratOflLicenseTxtLen);
-        writeEntry(file, kImguiHeading, kImguiLicenseTxt, kImguiLicenseTxtLen);
         writeEntry(file, kJsonHeading, kJsonLicenseTxt, kJsonLicenseTxtLen);
         writeEntry(file, kStbHeading, kStbLicenseTxt);
         writeEntry(file, kSimpleIconsHeading, kSimpleIconsLicenseTxt);
