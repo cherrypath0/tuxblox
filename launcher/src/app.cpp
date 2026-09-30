@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "app.h"
+#include "child_environment.h"
 #include "prefix_user.h"
 #include "root_guard.h"
 #include "checksum.h"
@@ -31,6 +32,7 @@
 #include <optional>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <vector>
 
 namespace tuxblox {
 
@@ -140,26 +142,27 @@ void App::setActiveTab(Tab tab) {
 void App::requestLaunch(LaunchTarget target) {
     if (shouldQuit_.load()) return; // already spawned one -- ignore further clicks
 
+    const char* targetArg = (target == LaunchTarget::Player) ? "player" : "studio";
+    std::vector<char*> argv = {const_cast<char*>(launcherExePath_.c_str()), const_cast<char*>("--watch-launch"),
+                               const_cast<char*>(targetArg)};
+    // Carried across every re-exec, or a root run that was allowed here is refused by the copy of ourselves that does the launching.
+    if (allowRoot()) argv.push_back(const_cast<char*>("--allow-root"));
+    argv.push_back(nullptr);
+    // Wine is started by the process this becomes, so it must not inherit the interface libraries' font and settings paths
+    ChildEnvironment environment;
+
     pid_t pid = fork();
     if (pid < 0) return; // fork failed -- nothing else to do, stay open
     if (pid == 0) {
-        // Double-fork detach, same pattern as ui.cpp's openUrl(): the
-        // immediate child exits right away, the grandchild (the actual
-        // --watch-launch process) is re-parented to init so it outlives
-        // this whole launcher cleanly, with no zombie left behind.
+        // Double-fork detach: the immediate child exits right away, the
+        // grandchild (the actual --watch-launch process) is re-parented to
+        // init so it outlives this whole launcher cleanly, with no zombie
+        // left behind.
         pid_t inner = fork();
         if (inner == 0) {
             setsid();
-            const char* targetArg = (target == LaunchTarget::Player) ? "player" : "studio";
-            // Carried across every re-exec, or a root run that was allowed here is refused by the copy of ourselves that does the launching.
-            if (allowRoot()) {
-                execl(launcherExePath_.c_str(), launcherExePath_.c_str(), "--watch-launch",
-                      targetArg, "--allow-root", static_cast<char*>(nullptr));
-            } else {
-                execl(launcherExePath_.c_str(), launcherExePath_.c_str(), "--watch-launch",
-                      targetArg, static_cast<char*>(nullptr));
-            }
-            _exit(127); // only reached if execl itself failed
+            execve(launcherExePath_.c_str(), argv.data(), environment.envp());
+            _exit(127); // only reached if execve itself failed
         }
         _exit(0);
     }

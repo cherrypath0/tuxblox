@@ -20,6 +20,11 @@ project(TuxBloxLauncher CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# The interface sources shared with the other programs live outside this directory. The build container mounts them and passes the path; a bare host cmake run finds them beside it.
+if(NOT TUXBLOX_UI_SRC)
+    set(TUXBLOX_UI_SRC "${CMAKE_SOURCE_DIR}/../shared/ui/src")
+endif()
+
 if(NOT EXISTS "${CMAKE_SOURCE_DIR}/third_party/json.hpp")
     message(FATAL_ERROR "third_party/json.hpp is missing. Run ./vendor.sh first.")
 endif()
@@ -121,13 +126,15 @@ add_library(launcher_core STATIC
     src/roblox_autoupdate.cpp
     src/prefix_file_bridge.cpp
     src/wine_shortcut_export.cpp
+    src/open_url.cpp
+    ${TUXBLOX_UI_SRC}/adw_env.cpp
 )
 if(TUXBLOX_LIBADWAITA_COMMIT)
     target_compile_definitions(launcher_core PRIVATE TUXBLOX_LIBADWAITA_COMMIT="${TUXBLOX_LIBADWAITA_COMMIT}")
 endif()
 
 target_include_directories(launcher_core PUBLIC
-    src third_party ${CMAKE_BINARY_DIR}/generated
+    src third_party ${CMAKE_BINARY_DIR}/generated ${TUXBLOX_UI_SRC}
     ${CURL_INCLUDE_DIRS} ${ARCHIVE_INCLUDE_DIRS} ${OPENSSL_INCLUDE_DIRS})
 # Statically link OpenSSL rather than ${OPENSSL_LIBRARIES} (dynamic) -- this
 # binary is built inside the pinned Ubuntu 20.04 container, which ships
@@ -212,7 +219,6 @@ add_library(launcher_ui_qt STATIC
     src/ui_qt/danger_button.cpp
     src/ui_qt/update_popup.cpp
     src/ui_qt/icon_utils.cpp
-    src/ui_qt/open_url.cpp
     src/ui_qt/sidebar.cpp
     src/ui_qt/start_tab.cpp
     src/ui_qt/settings_tab.cpp

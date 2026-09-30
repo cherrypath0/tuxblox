@@ -124,11 +124,14 @@ if [[ -n "$LibadwaitaCommit" ]]; then
     LibadwaitaArg="-DTUXBLOX_LIBADWAITA_COMMIT=$LibadwaitaCommit"
 fi
 
+# The sources shared with the other programs live in shared/ui, outside this script's /src mount, so they get a mount of their own
+UiSrc="$(pwd)/../shared/ui/src"
+
 podman run --rm --userns=keep-id -e JOBS="$JOBS" -e LIBADWAITA_ARG="$LibadwaitaArg" \
     -e TUXBLOX_BUILD_VERSION="${TUXBLOX_BUILD_VERSION:-}" \
     -e TUXBLOX_CHANNEL="${TUXBLOX_CHANNEL:-}" -v "$(pwd):/src:Z" \
-    -v "$(pwd)/../LICENSE:/LICENSE:ro,z" -w /src tuxblox-old-glibc-builder \
-    bash -c 'cmake -B build -S . -DCMAKE_BUILD_TYPE=Release ${LIBADWAITA_ARG:-} && cmake --build build -j"$JOBS" && ./bundle-qt.sh'
+    -v "$(pwd)/../LICENSE:/LICENSE:ro,z" -v "$(cd "$UiSrc" && pwd):/ui-src:ro" -w /src tuxblox-old-glibc-builder \
+    bash -c 'cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DTUXBLOX_UI_SRC=/ui-src ${LIBADWAITA_ARG:-} && cmake --build build -j"$JOBS" && ./bundle-qt.sh'
 
 # Also stage the finished binary + its Qt6 bundle at the repo-root build/
 # directory -- the same place the root build.sh (which stages this whole

@@ -18,10 +18,7 @@
 
 namespace tuxblox {
 
-// Opens `url` in the user's default browser via xdg-open, without leaving a
-// zombie behind -- see the .cpp for the double-fork detach mechanics
-// (unchanged from ui.cpp's original openUrl(), just relocated here since
-// ui.cpp itself is going away in Task 12).
-void openUrl(const char* url);
+// Opens url in the desktop's default browser through xdg-open, fully detached so no zombie is left behind
+void openUrl(const char *url);
 
 } // namespace tuxblox

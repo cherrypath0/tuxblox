@@ -160,3 +160,7 @@ add_test(NAME settings_discord COMMAND test_settings_discord)
 add_executable(test_roblox_place_info test_roblox_place_info.cpp)
 target_link_libraries(test_roblox_place_info PRIVATE launcher_core)
 add_test(NAME roblox_place_info COMMAND test_roblox_place_info)
+
+add_executable(test_child_environment test_child_environment.cpp)
+target_link_libraries(test_child_environment PRIVATE launcher_core)
+add_test(NAME child_environment COMMAND test_child_environment)

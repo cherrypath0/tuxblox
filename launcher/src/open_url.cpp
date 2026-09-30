@@ -15,22 +15,29 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "open_url.h"
+#include "child_environment.h"
+
 #include <sys/wait.h>
 #include <unistd.h>
 
 namespace tuxblox {
 
-void openUrl(const char* url) {
-    pid_t pid = fork();
+void openUrl(const char *url) {
+    char *argv[] = {const_cast<char *>("xdg-open"), const_cast<char *>(url), nullptr};
+    // The browser must not inherit the interface libraries' font configuration, or it would only see the bundled fonts
+    ChildEnvironment environment;
+
+    const pid_t pid = fork();
     if (pid == 0) {
-        pid_t inner = fork();
+        const pid_t inner = fork();
         if (inner == 0) {
             setsid();
-            execlp("xdg-open", "xdg-open", url, nullptr);
+            execvpe("xdg-open", argv, environment.envp());
             _exit(127);
         }
         _exit(0);
-    } else if (pid > 0) {
+    }
+    if (pid > 0) {
         int status = 0;
         waitpid(pid, &status, 0);
     }
