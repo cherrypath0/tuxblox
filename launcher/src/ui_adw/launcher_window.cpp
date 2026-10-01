@@ -203,6 +203,7 @@ GtkWidget *buildSidebar(WindowUi &ui) {
     g_object_unref(pLogo);
     gtk_image_set_pixel_size(GTK_IMAGE(pLogoImage), 24);
     GtkWidget *pBrand = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    gtk_widget_set_margin_start(pBrand, 5);
     gtk_box_append(GTK_BOX(pBrand), pLogoImage);
     gtk_box_append(GTK_BOX(pBrand), pName);
 
