@@ -112,10 +112,47 @@ Same diagnostic-first shape as patch 3: real value still computed and logged onc
 `g_printerr()` before being overridden, so a real test confirms or rules this out
 regardless of whether the override alone fixes the visible symptom.
 
+## 5. A user agent may carry more than one `/` per product
+
+**File:** `Source/WebCore/platform/network/HTTPParsers.cpp`, `skipUserAgentProduct()`
+
+RFC 7231's `User-Agent` grammar is `product *( RWS ( product / comment ) )`, where
+`product = token ["/" product-version]` — at most **one** slash per product. The Roblox
+Player's own agent carries two:
+
+```
+RobloxNewBrowser Roblox/WinInetRobloxApp/0.740.0.7400927 (GlobalDist; RobloxDirectDownload) GAMEPADNAVIGATION
+```
+
+So `isValidUserAgentHeaderValue()` returned false at the second slash,
+`webkit_settings_set_user_agent()` dropped the value on its `g_return_if_fail`, and the
+agent silently stayed at WebKit's own default. Measured against this bundle, before the
+patch, for the document and for both an `XMLHttpRequest` and an `<img>` subresource:
+
+```
+Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/60.5 Safari/605.1.15
+```
+
+That is what Roblox's servers were being told the webview was. They decide from the agent
+whether they are talking to the in-app browser, so sending the default is wrong rather
+than merely untidy. Studio is unaffected — its agent has one slash per product and
+validates as it stands, which is why this only ever showed up on the Player.
+
+The patch allows further slash-separated tokens and nothing else. `/` is not a token
+character, so the grammar widens without admitting any new character — in particular no
+whitespace, CR or LF, which is what would matter in a header value. Validity is still
+required: an agent that is malformed for any other reason is still rejected, confirmed
+with a control (`Roblox/WinInet RobloxApp/(bad` still fails and still falls back to the
+default agent).
+
+`webview2loader-host` also installs a `navigator.userAgent` override from its own
+`webview_set_user_agent()`. That stays, as a fallback for an agent rejected for some
+other reason; with this patch it is no longer the only thing making the agent effective.
+
 ## Rebasing onto a new upstream WebKitGTK release
 
 1. Download and extract the new release tarball to a scratch directory (`tar --strip-components=1`).
-2. Diff the three files above (in the scratch extraction) against this tree's copies to
+2. Diff the files listed above (in the scratch extraction) against this tree's copies to
    confirm the patched regions haven't moved/changed shape upstream.
 3. Re-apply each patch (or adjust it, if upstream changed the surrounding code) to the
    new source.

@@ -533,13 +533,23 @@ gboolean webview_set_user_agent(struct native_webview *nv, const char *user_agen
 
         /* Report success when the agent is effective for the page -- either
          * WebKit accepted the header, OR we installed the navigator.userAgent
-         * override. This is the difference between a blank panel and a working
-         * one: WebKit rejects Roblox's Player agent outright (invalid RFC7231
-         * grammar), so without this put_UserAgent returns E_FAIL to the client,
+         * override.
+         *
+         * This bundle's WebKit now accepts the Player's agent: upstream allows
+         * only one "/" per User-Agent product and the Player's carries two
+         * ("Roblox/WinInetRobloxApp/<version>"), which is patch 5 in
+         * compat/webkitgtk/src/README-TUXBLOX-PATCHES.md. Before that patch this
+         * read REJECTED BY WEBKIT on every Player launch, and the agent stayed at
+         * WebKit's default for every request the webview made.
+         *
+         * The override and this fallback both stay, for an agent rejected for some
+         * other reason. Without them put_UserAgent returns E_FAIL to the client,
          * which treats a failed setup call as fatal and tears the webview down
          * BEFORE it ever navigates (see this file's Wine-side put_UserAgent and
-         * the abort-before-Navigate pattern it documents). The agent is applied
-         * either way; returning success here lets the navigation actually happen. */
+         * the abort-before-Navigate pattern it documents) -- the difference
+         * between a blank panel and a working one. Note the override only changes
+         * what scripts on the page read; only an accepted agent reaches the wire,
+         * which is what Roblox's own servers see. */
         return ok || nv->ua_script_installed;
     }
 }

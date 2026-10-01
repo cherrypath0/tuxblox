@@ -283,8 +283,22 @@ static bool skipUserAgentProduct(const String& value, unsigned& pos)
     // product-version = token
     if (!skipHTTPToken(value, pos))
         return false;
-    if (skipCharacter(value, pos, '/'))
-        return skipHTTPToken(value, pos);
+    // TuxBlox patch: accept more than one "/" group per product, which RFC 7231
+    // does not allow. The Roblox Player's own agent carries two --
+    // "Roblox/WinInetRobloxApp/<version>" -- so upstream rejected it outright,
+    // webkit_settings_set_user_agent() dropped it on its g_return_if_fail, and
+    // every request from the webview went out as WebKit's default agent instead.
+    // Roblox's own servers decide from that agent whether they are talking to the
+    // in-app browser, so sending the default is wrong rather than merely untidy.
+    // Only further slash-separated tokens are allowed: "/" is not a token
+    // character, so this widens the grammar without admitting any new character
+    // -- in particular no whitespace, CR or LF, which is what would matter for a
+    // header value. Validity is still required; the agent is not passed through
+    // unchecked.
+    while (skipCharacter(value, pos, '/')) {
+        if (!skipHTTPToken(value, pos))
+            return false;
+    }
     return true;
 }
 
