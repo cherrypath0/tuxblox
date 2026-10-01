@@ -105,15 +105,15 @@ HomePage::HomePage(App &app) : app_(app) {
     gtk_widget_add_css_class(pChannel, "dim-label");
     gtk_widget_set_hexpand(pChannel, TRUE);
     gtk_box_append(GTK_BOX(pStrip), pChannel);
-    GtkWidget *pState = textLabel("", "caption");
-    pUpdateState_ = GTK_LABEL(pState);
-    gtk_box_append(GTK_BOX(pStrip), pState);
+    // Left of the status text, so the button sits beside what it acts on
     pUpdateButton_ = gtk_button_new_with_label("Update");
-    gtk_widget_add_css_class(pUpdateButton_, "flat");
-    gtk_widget_add_css_class(pUpdateButton_, "caption");
+    gtk_widget_add_css_class(pUpdateButton_, "update-button");
     gtk_widget_set_visible(pUpdateButton_, FALSE);
     g_signal_connect(pUpdateButton_, "clicked", G_CALLBACK(onUpdateClicked), this);
     gtk_box_append(GTK_BOX(pStrip), pUpdateButton_);
+    GtkWidget *pState = textLabel("", "caption");
+    pUpdateState_ = GTK_LABEL(pState);
+    gtk_box_append(GTK_BOX(pStrip), pState);
     gtk_box_append(GTK_BOX(pBox), pStrip);
 
     pRoot_ = adw_clamp_new();

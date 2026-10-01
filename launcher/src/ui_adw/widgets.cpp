@@ -171,7 +171,8 @@ void installLauncherStyles() {
     gtk_css_provider_load_from_string(pProvider,
         "button.launch-green { background-color: @success_bg_color; color: @success_fg_color; }\n"
         "button.launch-green:hover { background-image: image(alpha(white, 0.1)); }\n"
-        "button.launch-green:active { background-image: image(alpha(black, 0.1)); }\n");
+        "button.launch-green:active { background-image: image(alpha(black, 0.1)); }\n"
+        "button.update-button { font-weight: 700; font-size: 1rem; padding: 4px 16px; }\n");
     gtk_style_context_add_provider_for_display(gdk_display_get_default(), GTK_STYLE_PROVIDER(pProvider),
                                                GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
     g_object_unref(pProvider);
