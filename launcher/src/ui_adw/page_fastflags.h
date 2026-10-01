@@ -45,6 +45,17 @@ private:
         std::vector<FlagRow> rows;
     };
 
+    // The import window while it is open, freed when it closes
+    struct ImportDialog {
+        FastFlagsPage *pOwner;
+        Section *pSection;
+        AdwDialog *pDialog = nullptr;
+        GtkTextBuffer *pBuffer = nullptr;
+        GtkWidget *pImportButton = nullptr;
+        GtkWidget *pStatus = nullptr;
+        std::vector<FastFlag> parsed;
+    };
+
     struct RemoveAction {
         Section *pSection;
         GtkEntry *pName;
@@ -54,12 +65,19 @@ private:
     void addRow(Section &section, const FastFlag &flag);
     void rebuild(Section &section, const std::vector<FastFlag> &flags);
     void refreshEmpty(Section &section);
+    void openImport(Section &section, GtkWidget *pParent);
+    void importFlags(Section &section, const std::vector<FastFlag> &flags);
     std::vector<FastFlag> collect(const Section &section) const;
     void markDuplicates(Section &section);
     // Reads every row back out of the widgets and saves the result, dropping rows whose name is still empty
     void commit();
 
     static void onAdd(GtkButton *, gpointer data);
+    static void onImportClicked(GtkButton *pButton, gpointer data);
+    static void onImportTextChanged(GtkTextBuffer *, gpointer data);
+    static void onImportConfirm(GtkButton *, gpointer data);
+    static void onImportCancel(GtkButton *, gpointer data);
+    static void onImportClosed(AdwDialog *, gpointer data);
     static void onActivate(GtkEntry *, gpointer data);
     static void onFocusLeft(GtkEventControllerFocus *, gpointer data);
     static void onRemove(GtkButton *, gpointer data);

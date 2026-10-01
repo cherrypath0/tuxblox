@@ -163,3 +163,7 @@ endif()
 add_executable(test_desktop_notify test_desktop_notify.cpp)
 target_link_libraries(test_desktop_notify PRIVATE launcher_core)
 add_test(NAME desktop_notify COMMAND test_desktop_notify)
+
+add_executable(test_fastflag_import test_fastflag_import.cpp)
+target_link_libraries(test_fastflag_import PRIVATE launcher_core)
+add_test(NAME fastflag_import COMMAND test_fastflag_import)

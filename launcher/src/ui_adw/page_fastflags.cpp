@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "page_fastflags.h"
+#include "fastflag_import.h"
 #include "widgets.h"
 
 #include <algorithm>
@@ -62,11 +63,15 @@ AdwPreferencesGroup *FastFlagsPage::buildSection(Section &section, const char *p
     adw_preferences_group_set_title(ADW_PREFERENCES_GROUP(pGroup), pTitle);
     section.pGroup = ADW_PREFERENCES_GROUP(pGroup);
 
+    GtkWidget *pImport = gtk_button_new_with_label("Import JSON");
+    g_signal_connect(pImport, "clicked", G_CALLBACK(onImportClicked), &section);
     GtkWidget *pAdd = gtk_button_new_with_label("Add flag");
-    gtk_widget_add_css_class(pAdd, "flat");
-    gtk_widget_set_valign(pAdd, GTK_ALIGN_CENTER);
     g_signal_connect(pAdd, "clicked", G_CALLBACK(onAdd), &section);
-    adw_preferences_group_set_header_suffix(section.pGroup, pAdd);
+    GtkWidget *pButtons = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    gtk_widget_set_valign(pButtons, GTK_ALIGN_CENTER);
+    gtk_box_append(GTK_BOX(pButtons), pImport);
+    gtk_box_append(GTK_BOX(pButtons), pAdd);
+    adw_preferences_group_set_header_suffix(section.pGroup, pButtons);
 
     section.pEmpty = plainActionRow("No flags set.", "");
     adw_preferences_group_add(section.pGroup, section.pEmpty);
@@ -173,6 +178,119 @@ void FastFlagsPage::onAdd(GtkButton *, gpointer data) {
     // Not saved yet: an empty row has no name, so there is nothing to save until one is typed
     pSection->pOwner->addRow(*pSection, FastFlag{});
     gtk_widget_grab_focus(GTK_WIDGET(pSection->rows.back().pName));
+}
+
+void FastFlagsPage::importFlags(Section &section, const std::vector<FastFlag> &flags) {
+    rebuild(section, mergeFastFlags(collect(section), flags));
+    commit();
+}
+
+void FastFlagsPage::onImportClicked(GtkButton *pButton, gpointer data) {
+    auto *pSection = static_cast<Section *>(data);
+    pSection->pOwner->openImport(*pSection, GTK_WIDGET(pButton));
+}
+
+void FastFlagsPage::openImport(Section &section, GtkWidget *pParent) {
+    auto *pImport = new ImportDialog{this, &section};
+
+    GtkWidget *pText = gtk_text_view_new();
+    gtk_text_view_set_monospace(GTK_TEXT_VIEW(pText), TRUE);
+    gtk_text_view_set_wrap_mode(GTK_TEXT_VIEW(pText), GTK_WRAP_WORD_CHAR);
+    gtk_text_view_set_top_margin(GTK_TEXT_VIEW(pText), 8);
+    gtk_text_view_set_bottom_margin(GTK_TEXT_VIEW(pText), 8);
+    gtk_text_view_set_left_margin(GTK_TEXT_VIEW(pText), 8);
+    gtk_text_view_set_right_margin(GTK_TEXT_VIEW(pText), 8);
+    pImport->pBuffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(pText));
+
+    GtkWidget *pScroll = gtk_scrolled_window_new();
+    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(pScroll), pText);
+    gtk_widget_set_vexpand(pScroll, TRUE);
+    gtk_widget_add_css_class(pScroll, "card");
+
+    pImport->pStatus = gtk_label_new("Paste the flags as JSON, like {\"FlagName\": \"true\"}.");
+    gtk_label_set_wrap(GTK_LABEL(pImport->pStatus), TRUE);
+    gtk_label_set_wrap_mode(GTK_LABEL(pImport->pStatus), PANGO_WRAP_WORD_CHAR);
+    gtk_label_set_xalign(GTK_LABEL(pImport->pStatus), 0.0f);
+    gtk_widget_add_css_class(pImport->pStatus, "dim-label");
+
+    GtkWidget *pBody = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
+    gtk_widget_set_margin_start(pBody, 12);
+    gtk_widget_set_margin_end(pBody, 12);
+    gtk_widget_set_margin_top(pBody, 6);
+    gtk_widget_set_margin_bottom(pBody, 12);
+    gtk_box_append(GTK_BOX(pBody), pScroll);
+    gtk_box_append(GTK_BOX(pBody), pImport->pStatus);
+
+    GtkWidget *pCancel = gtk_button_new_with_label("Cancel");
+    g_signal_connect(pCancel, "clicked", G_CALLBACK(onImportCancel), pImport);
+    pImport->pImportButton = gtk_button_new_with_label("Import");
+    gtk_widget_add_css_class(pImport->pImportButton, "suggested-action");
+    gtk_widget_set_sensitive(pImport->pImportButton, FALSE);
+    g_signal_connect(pImport->pImportButton, "clicked", G_CALLBACK(onImportConfirm), pImport);
+
+    GtkWidget *pHeader = adw_header_bar_new();
+    adw_header_bar_set_show_start_title_buttons(ADW_HEADER_BAR(pHeader), FALSE);
+    adw_header_bar_set_show_end_title_buttons(ADW_HEADER_BAR(pHeader), FALSE);
+    adw_header_bar_pack_start(ADW_HEADER_BAR(pHeader), pCancel);
+    adw_header_bar_pack_end(ADW_HEADER_BAR(pHeader), pImport->pImportButton);
+
+    GtkWidget *pView = adw_toolbar_view_new();
+    adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(pView), pHeader);
+    adw_toolbar_view_set_content(ADW_TOOLBAR_VIEW(pView), pBody);
+
+    AdwDialog *pDialog = adw_dialog_new();
+    pImport->pDialog = pDialog;
+    adw_dialog_set_title(pDialog, &section == &player_ ? "Import JSON into Player" : "Import JSON into Studio");
+    adw_dialog_set_content_width(pDialog, 560);
+    adw_dialog_set_content_height(pDialog, 420);
+    adw_dialog_set_child(pDialog, pView);
+    adw_dialog_set_focus(pDialog, pText);
+    g_signal_connect(pImport->pBuffer, "changed", G_CALLBACK(onImportTextChanged), pImport);
+    g_signal_connect(pDialog, "closed", G_CALLBACK(onImportClosed), pImport);
+    adw_dialog_present(pDialog, pParent);
+}
+
+void FastFlagsPage::onImportTextChanged(GtkTextBuffer *pBuffer, gpointer data) {
+    auto *pImport = static_cast<ImportDialog *>(data);
+    GtkTextIter start, end;
+    gtk_text_buffer_get_bounds(pBuffer, &start, &end);
+    char *pText = gtk_text_buffer_get_text(pBuffer, &start, &end, FALSE);
+    const FastFlagImport result = parseFastFlagJson(pText);
+    const bool empty = std::string(pText).find_first_not_of(" \t\r\n") == std::string::npos;
+    g_free(pText);
+
+    pImport->parsed = result.flags;
+    gtk_widget_set_sensitive(pImport->pImportButton, result.ok);
+
+    GtkWidget *pStatus = pImport->pStatus;
+    gtk_widget_remove_css_class(pStatus, "error");
+    gtk_widget_remove_css_class(pStatus, "success");
+    gtk_widget_remove_css_class(pStatus, "dim-label");
+    if (result.ok) {
+        gtk_widget_add_css_class(pStatus, "success");
+        const std::string count = std::to_string(result.flags.size());
+        gtk_label_set_text(GTK_LABEL(pStatus), (count + (result.flags.size() == 1 ? " flag is" : " flags are") + " ready to import.").c_str());
+    } else if (empty) {
+        gtk_widget_add_css_class(pStatus, "dim-label");
+        gtk_label_set_text(GTK_LABEL(pStatus), "Paste the flags as JSON, like {\"FlagName\": \"true\"}.");
+    } else {
+        gtk_widget_add_css_class(pStatus, "error");
+        gtk_label_set_text(GTK_LABEL(pStatus), result.error.c_str());
+    }
+}
+
+void FastFlagsPage::onImportConfirm(GtkButton *, gpointer data) {
+    auto *pImport = static_cast<ImportDialog *>(data);
+    pImport->pOwner->importFlags(*pImport->pSection, pImport->parsed);
+    adw_dialog_close(pImport->pDialog);
+}
+
+void FastFlagsPage::onImportCancel(GtkButton *, gpointer data) {
+    adw_dialog_close(static_cast<ImportDialog *>(data)->pDialog);
+}
+
+void FastFlagsPage::onImportClosed(AdwDialog *, gpointer data) {
+    delete static_cast<ImportDialog *>(data);
 }
 
 void FastFlagsPage::onActivate(GtkEntry *, gpointer data) {

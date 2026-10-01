@@ -105,6 +105,7 @@ add_library(launcher_core STATIC
     src/license_file.cpp
     src/settings.cpp
     src/fastflag_file.cpp
+    src/fastflag_import.cpp
     src/versions_manifest.cpp
     src/crash_report.cpp
     src/container_env.cpp
