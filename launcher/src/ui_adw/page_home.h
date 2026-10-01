@@ -42,6 +42,7 @@ private:
 
     GtkWidget *buildCard(Card &card, const char *pTitle, const unsigned char *pIcon, size_t iconLength);
     void setCard(Card &card, bool installed, const std::string &versionLabel);
+    void showUpdateButton(bool shown);
     void setUpdateState(const std::string &text, const std::string &styleClass);
     static void onLaunchClicked(GtkButton *pButton, gpointer data);
     static void onUpdateClicked(GtkButton *, gpointer data);
@@ -56,6 +57,7 @@ private:
     GtkWidget *pError_ = nullptr;
     GtkLabel *pUpdateState_ = nullptr;
     GtkWidget *pUpdateButton_ = nullptr;
+    GtkWidget *pUpdateDot_ = nullptr;
     std::string updateStateClass_;
     Card player_{LaunchTarget::Player, "Launch Player"};
     Card studio_{LaunchTarget::Studio, "Launch Studio"};

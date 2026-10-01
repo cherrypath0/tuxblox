@@ -108,6 +108,11 @@ HomePage::HomePage(App &app) : app_(app) {
     GtkWidget *pState = textLabel("", "caption");
     pUpdateState_ = GTK_LABEL(pState);
     gtk_box_append(GTK_BOX(pStrip), pState);
+    // The same dot that separates the version from the channel, shown only while the button is
+    pUpdateDot_ = textLabel("\xC2\xB7", "caption");
+    gtk_widget_add_css_class(pUpdateDot_, "dim-label");
+    gtk_widget_set_visible(pUpdateDot_, FALSE);
+    gtk_box_append(GTK_BOX(pStrip), pUpdateDot_);
     pUpdateButton_ = gtk_button_new_with_label("Update");
     gtk_widget_add_css_class(pUpdateButton_, "update-button");
     gtk_widget_set_visible(pUpdateButton_, FALSE);
@@ -177,6 +182,11 @@ void HomePage::onLaunchClicked(GtkButton *pButton, gpointer data) {
     pSelf->app_.requestLaunch(static_cast<LaunchTarget>(target));
 }
 
+void HomePage::showUpdateButton(bool shown) {
+    gtk_widget_set_visible(pUpdateButton_, shown);
+    gtk_widget_set_visible(pUpdateDot_, shown);
+}
+
 void HomePage::onUpdateClicked(GtkButton *, gpointer data) {
     static_cast<HomePage *>(data)->app_.requestUpdateNow();
 }
@@ -221,7 +231,7 @@ void HomePage::update(const AppSnapshot &snap) {
     gtk_widget_set_visible(pSubtitle_, !updating);
 
     if (updating) {
-        gtk_widget_set_visible(pUpdateButton_, FALSE);
+        showUpdateButton(false);
         setLabelText(pTitle_, "Updating TuxBlox");
         setLabelText(GTK_LABEL(pUpdateStatus_), updatePhaseLabel(snap.update.phase));
         gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(pUpdateBar_), snap.update.fraction);
@@ -231,7 +241,7 @@ void HomePage::update(const AppSnapshot &snap) {
     }
 
     setLabelText(pTitle_, "Ready to play");
-    gtk_widget_set_visible(pUpdateButton_, snap.updateAvailableVersion.has_value());
+    showUpdateButton(snap.updateAvailableVersion.has_value());
     if (snap.update.phase == UpdatePhase::Error) {
         showError(pError_, snap.update.errorMessage);
         setUpdateState("Update check failed", "error");
