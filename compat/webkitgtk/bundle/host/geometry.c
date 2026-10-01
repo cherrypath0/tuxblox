@@ -339,6 +339,26 @@ gboolean geometry_sync(struct native_webview *nv, struct wv2l_rect bounds, gbool
                        * function's existing degrade-gracefully pattern */
     }
 
+    /* Unconditional (not geometry_debug_on()-gated) so the exact rect Roblox
+     * asks for is visible in every session log without depending on an env flag
+     * the launcher may not have picked up -- this is the data the "blank panel
+     * covers the screen" investigation needs: whether the covering webview is
+     * being handed fullscreen bounds, offscreen bounds, or something else. */
+    fprintf(stderr, "webview2loader-host: geometry_sync nv=%p bounds=(%d,%d)+%dx%d visible=%d parent_xid=0x%lx\n",
+            (void *)nv, bounds.left, bounds.top, width, height, visible, (unsigned long)parent_xid);
+
+    /* A webview Roblox has not navigated has no content to show. Keep it hidden
+     * and do no reparent/position work at all, so it never appears as a blank box
+     * over the game even when Roblox asks for it to be visible (its purchase/Robux
+     * and btid cookie-sync panels do exactly that, then never load). The first
+     * navigation shows it (navigate_and_wait / on_load_changed_diag set
+     * has_navigated), after which this runs normally. */
+    if (!nv->has_navigated)
+    {
+        gtk_widget_set_visible(nv->window, FALSE);
+        return TRUE;
+    }
+
     /* 2026-08-15 flicker investigation diagnostic: log every real transition
      * of the `visible` flag this function receives from put_Bounds/
      * put_IsVisible (i.e. what Roblox Studio itself is asking for), not

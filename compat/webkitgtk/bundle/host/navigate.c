@@ -222,6 +222,18 @@ void navigate_and_wait(struct native_webview *nv, const char *uri_utf8, gboolean
         return;
     }
 
+    /* This webview is being navigated, so it is a real content panel: show it
+     * now -- before the load starts, so it is already visible while it loads and
+     * there is no hidden-load concern -- and mark it navigated. webview_create
+     * deliberately leaves new webviews hidden so the ones Roblox makes visible
+     * but never loads (btid cookie-sync, panels whose content path isn't wired
+     * up) don't sit as a blank box over the game. See has_navigated in webview.h. */
+    if (!nv->has_navigated)
+    {
+        nv->has_navigated = TRUE;
+        gtk_widget_set_visible(nv->window, TRUE);
+    }
+
     ctx.handler_id = g_signal_connect_data(nv->view, "load-changed", (GCallback)on_load_changed, &ctx, NULL, 0);
     webkit_web_view_load_uri(nv->view, uri_utf8 ? uri_utf8 : "");
 

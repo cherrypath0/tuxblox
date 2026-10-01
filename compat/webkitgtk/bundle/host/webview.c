@@ -401,6 +401,60 @@ gboolean webview_apply_settings(struct native_webview *nv, gboolean script_enabl
     return TRUE;
 }
 
+/* Makes the page's own navigator.userAgent report `ua` verbatim, via a
+ * document-start script, independent of what WebKit accepted for the HTTP
+ * header.
+ *
+ * WebKitGTK validates a put_UserAgent value against the RFC7231 User-Agent
+ * product grammar and refuses anything outside it; Chromium/WebView2 on Windows
+ * accepts any string. Roblox's Player agent
+ * ("...Roblox/WinInetRobloxApp/0.740... GAMEPADNAVIGATION") has a product token
+ * with two slashes, so WebKit rejects it and the page is left reading the
+ * generic Edge fallback agent with no Roblox identity -- which is enough for
+ * Roblox's in-experience web UI to decline to render. This sets what the page's
+ * client-side code actually branches on back to the real agent. `ua` is already
+ * trimmed and guaranteed free of control characters by the caller, so only the
+ * JS string delimiters need escaping. */
+static gboolean webview_install_ua_override(struct native_webview *nv, const char *ua)
+{
+    WebKitUserContentManager *manager = webkit_web_view_get_user_content_manager(nv->view);
+    WebKitUserScript *script;
+    GString *js;
+    const char *p;
+
+    if (!manager)
+    {
+        fprintf(stderr, "webview2loader-host: no WebKitUserContentManager for nv=%p -- cannot "
+                        "override navigator.userAgent\n", (void *)nv);
+        return FALSE;
+    }
+
+    js = g_string_new("(function(){try{Object.defineProperty(navigator,'userAgent',"
+                      "{get:function(){return '");
+    for (p = ua; *p; p++)
+    {
+        if (*p == '\\' || *p == '\'')
+            g_string_append_c(js, '\\');
+        g_string_append_c(js, *p);
+    }
+    g_string_append(js, "';},configurable:true});}catch(e){}})();");
+
+    /* ALL_FRAMES + DOCUMENT_START for the same reasons the bridge shim uses them:
+     * the page must see the agent before its own scripts feature-check it, and
+     * Roblox's pages use iframes. NULL world == the page's own main world. */
+    script = webkit_user_script_new(js->str,
+                                     WEBKIT_USER_CONTENT_INJECT_ALL_FRAMES,
+                                     WEBKIT_USER_SCRIPT_INJECT_AT_DOCUMENT_START,
+                                     NULL, NULL);
+    webkit_user_content_manager_add_script(manager, script);
+    webkit_user_script_unref(script);
+    g_string_free(js, TRUE);
+
+    fprintf(stderr, "webview2loader-host: navigator.userAgent override installed for nv=%p: %s\n",
+            (void *)nv, ua);
+    return TRUE;
+}
+
 gboolean webview_set_user_agent(struct native_webview *nv, const char *user_agent_utf8)
 {
     WebKitSettings *settings;
@@ -466,8 +520,27 @@ gboolean webview_set_user_agent(struct native_webview *nv, const char *user_agen
 
         fprintf(stderr, "webview2loader-host: user agent %s on nv=%p: %s\n",
                 ok ? "set" : "REJECTED BY WEBKIT", (void *)nv, trimmed);
+
+        /* Whether or not WebKit accepted the header value, make the page's own
+         * navigator.userAgent report the exact agent -- see
+         * webview_install_ua_override. Once per webview (the first real agent):
+         * a second user script cannot be removed, and Roblox sets the agent once
+         * per webview in practice. */
+        if (!nv->ua_script_installed)
+            nv->ua_script_installed = webview_install_ua_override(nv, trimmed);
+
         g_free(trimmed);
-        return ok;
+
+        /* Report success when the agent is effective for the page -- either
+         * WebKit accepted the header, OR we installed the navigator.userAgent
+         * override. This is the difference between a blank panel and a working
+         * one: WebKit rejects Roblox's Player agent outright (invalid RFC7231
+         * grammar), so without this put_UserAgent returns E_FAIL to the client,
+         * which treats a failed setup call as fatal and tears the webview down
+         * BEFORE it ever navigates (see this file's Wine-side put_UserAgent and
+         * the abort-before-Navigate pattern it documents). The agent is applied
+         * either way; returning success here lets the navigation actually happen. */
+        return ok || nv->ua_script_installed;
     }
 }
 
@@ -547,6 +620,41 @@ static void webview_install_message_probe(struct native_webview *nv)
     webkit_user_script_unref(script);
     fprintf(stderr, "webview2loader-host: window.chrome.webview bridge installed for nv=%p\n",
             (void *)nv);
+}
+
+/* Diagnostic: logs every load-changed transition and the URI it is on.
+ *
+ * Nothing else records a successful load. navigate_and_wait (navigate.c)
+ * connects load-changed only for the span of one explicit Navigate() call and
+ * logs nothing from it, and the failure handlers only fire on real failures --
+ * so a page that drives its own navigation (the Player's in-experience web UI,
+ * which is not loaded through a PE-side Navigate) left no trace at all of
+ * whether it even committed or finished. Without that, a blank webview cannot
+ * be told apart from one whose page loaded fine but never painted. Connected
+ * for the webview's whole lifetime in webview_create and torn down with
+ * nv->view, exactly like the failure handlers alongside it. */
+static void on_load_changed_diag(WebKitWebView *view, WebKitLoadEvent load_event, void *user_data)
+{
+    struct native_webview *nv = user_data;
+    const char *uri = webkit_web_view_get_uri(view);
+    const char *name =
+        load_event == WEBKIT_LOAD_STARTED    ? "STARTED" :
+        load_event == WEBKIT_LOAD_REDIRECTED ? "REDIRECTED" :
+        load_event == WEBKIT_LOAD_COMMITTED  ? "COMMITTED" :
+        load_event == WEBKIT_LOAD_FINISHED   ? "FINISHED" : "?";
+
+    fprintf(stderr, "webview2loader-host: load %s nv=%p uri=%s\n",
+            name, (void *)nv, uri ? uri : "(none)");
+
+    /* Any load event means this webview is a real, navigated content panel --
+     * mark it and make sure it is shown. Covers a WebKit-internal navigation
+     * that did not go through navigate_and_wait; the common Navigate path shows
+     * it there already. See has_navigated's comment in webview.h. */
+    if (nv && !nv->has_navigated)
+    {
+        nv->has_navigated = TRUE;
+        gtk_widget_set_visible(nv->window, TRUE);
+    }
 }
 
 static void webview_unmanage_window(GtkWidget *window)
@@ -743,6 +851,10 @@ struct native_webview *webview_create(int is_message_only)
     g_signal_connect_data(nv->view, "load-failed", (GCallback)on_load_failed, nv, NULL, 0);
     g_signal_connect_data(nv->view, "load-failed-with-tls-errors",
                            (GCallback)on_load_failed_with_tls_errors, nv, NULL, 0);
+    /* Diagnostic load tracing -- see on_load_changed_diag for why the existing
+     * handlers above leave a self-driven page's load invisible. Same lifetime
+     * and teardown as those, no separate disconnect needed. */
+    g_signal_connect_data(nv->view, "load-changed", (GCallback)on_load_changed_diag, nv, NULL, 0);
     gtk_window_set_child(GTK_WINDOW(nv->window), GTK_WIDGET(nv->view));
     /* Plan 3 Task 2 (original unixlib.c comment): HWND_MESSAGE-parented
      * controllers (the CookieManager flow) still need a real, live
@@ -763,8 +875,15 @@ struct native_webview *webview_create(int is_message_only)
      * deprecation-fix suggestion in the compiler note. */
     if (!is_message_only)
     {
+        /* Realize + set override-redirect, but do NOT show the window yet.
+         * Roblox creates webviews it makes visible but never loads (the btid
+         * cookie-sync view; panels whose content path isn't wired up), and
+         * showing those at creation is what put an empty box over the game.
+         * The window is shown by the first navigation instead -- see
+         * has_navigated in webview.h, navigate_and_wait, and on_load_changed_diag.
+         * webview_unmanage_window realizes the window (needed for the
+         * override-redirect attribute), which does not map/show it. */
         webview_unmanage_window(nv->window);
-        gtk_widget_set_visible(nv->window, TRUE);
     }
 
     live_webview_register(nv); /* Task 7 UAF guard -- see webview_lookup's own comment above */

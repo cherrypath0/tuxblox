@@ -97,6 +97,30 @@ struct native_webview
      * would break it. Set by webview_create from its own is_message_only
      * argument. */
     gboolean message_only;
+
+    /* One-shot latch for the navigator.userAgent override script -- see
+     * webview_set_user_agent. WebKitGTK validates a put_UserAgent value against
+     * the RFC7231 User-Agent grammar and rejects anything a Chromium/WebView2
+     * host would accept (Roblox's Player agent has a two-slash product token),
+     * leaving the page to read a generic Edge agent with no Roblox identity. The
+     * override makes navigator.userAgent report the exact agent regardless, and
+     * only the first real agent needs it -- installing it again on a later call
+     * would stack a second, never-removable user script. Zero-initialized by
+     * webview_create's calloc, like every other field here. */
+    gboolean ua_script_installed;
+
+    /* TRUE once Roblox has actually navigated this webview (or a load has
+     * otherwise started on it) -- i.e. it is a real content panel, not one of
+     * the webviews Roblox creates and makes visible but never loads (the btid
+     * cookie-sync view; a purchase/Robux panel whose content path isn't wired up
+     * yet). The window is kept hidden until this flips, so a never-loaded webview
+     * never shows as a blank box over the game. Set by navigate_and_wait
+     * (navigate.c) the instant Navigate is called -- before the load itself, so
+     * the view is already visible while it loads -- and by on_load_changed_diag
+     * (webview.c) for any WebKit-internal navigation. Zero-initialized by
+     * webview_create's calloc; webview_create deliberately does NOT show the
+     * window, leaving that to the first navigation. */
+    gboolean has_navigated;
 };
 
 /* Creates a new native window + WebKitWebView pair, undecorated, with the
