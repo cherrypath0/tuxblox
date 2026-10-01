@@ -269,6 +269,29 @@ void tuxblox_trace_code( const char *tag, ULONG_PTR addr, unsigned int len )
     TRACE_(tuxblox)( "CODE %s 0x%llx %s\n", tag, (unsigned long long)addr, line );
 }
 
+/* Reads an address the traced program chose, returning how much came back.
+ *
+ * Two reasons never to go through the pointer directly. A page the layer set
+ * no-access reads as nothing, which is the interesting case: it hides whether
+ * the contents were decrypted. And a bad pointer dereferenced inside a fault
+ * handler faults again on the signal stack, with nothing left to catch it,
+ * killing the process in a way that looks like the bug being investigated.
+ * /proc/self/mem ignores the protection, disturbs nothing, and answers a bad
+ * address with a short read. */
+static SIZE_T diag_read( ULONG_PTR addr, void *buf, SIZE_T len )
+{
+    SIZE_T got;
+    ssize_t n;
+    int fd;
+
+    if (!addr || !len) return 0;
+    if ((got = virtual_uninterrupted_read_memory( (const void *)addr, buf, len ))) return got;
+    if ((fd = open( "/proc/self/mem", O_RDONLY )) == -1) return 0;
+    n = pread( fd, buf, len, (off_t)addr );
+    close( fd );
+    return n > 0 ? (SIZE_T)n : 0;
+}
+
 
 /* A control transfer into the thread's own stack, reported once.
  *
@@ -296,28 +319,61 @@ static void diag_hex( const char *tag, ULONG_PTR addr, unsigned int len )
 
     if (!addr) return;
     if (len > sizeof(buf)) len = sizeof(buf);
-    if (!(got = virtual_uninterrupted_read_memory( (const void *)addr, buf, len )))
+    if (!(got = diag_read( addr, buf, len )))
     {
-        /* A page the layer set no-access reads as nothing here, which is the
-         * interesting case: it hides whether the contents were decrypted.
-         * /proc/self/mem ignores the protection and disturbs nothing. */
-        int fd = open( "/proc/self/mem", O_RDONLY );
-        ssize_t n = -1;
-
-        if (fd != -1)
-        {
-            n = pread( fd, buf, len, (off_t)addr );
-            close( fd );
-        }
-        if (n <= 0)
-        {
-            ERR_(seh)( "DIAG %s 0x%llx unreadable\n", tag, (unsigned long long)addr );
-            return;
-        }
-        got = n;
+        ERR_(seh)( "DIAG %s 0x%llx unreadable\n", tag, (unsigned long long)addr );
+        return;
     }
     for (i = n = 0; i < got; i++) n += snprintf( line + n, sizeof(line) - n, "%02x ", buf[i] );
     ERR_(seh)( "DIAG %s 0x%llx %s\n", tag, (unsigned long long)addr, line );
+}
+
+/* A call that transferred control to a tiny negative number.
+ *
+ * An instruction-fetch fault at an address like 0xfffffffffffffff9 means the
+ * program called through a pointer holding a raw Linux -errno, which is how an
+ * untranslated error code leaking out of this fork shows up: it reaches a
+ * function pointer and gets called. The caller's return address and the slot the
+ * call went through together name the API that leaked it.
+ *
+ * A hit is not proof of that bug, though. The anti-tamper layer dispatches
+ * through `jmp rax` stubs using small negative sentinels of its own, so read the
+ * resolver before concluding anything -- a stub inside the layer's own module is
+ * its control flow, not a defect here.
+ *
+ * Development-only, so compiled out of a release build. Every address below is
+ * one the faulting program chose, and the resolver dump is the client's own
+ * code, which has no place in a session log a user is asked to upload.
+ */
+void tuxblox_diag_errno_call( ULONG64 target, const CONTEXT *context )
+{
+    static int shown_resolver;
+    ULONG64 stack[3] = { 0 }, slot, resolver = 0;
+    unsigned char call[6];
+
+    if (!tuxblox_dev_getenv( "TUXBLOX_DIAG_ERRNO_CALL" )) return;
+
+    diag_read( context->Rsp, stack, sizeof(stack) );
+    ERR_(seh)( "DIAG errno call: target 0x%llx rip 0x%llx rsp 0x%llx ret 0x%llx 0x%llx 0x%llx "
+               "rax 0x%llx rbx 0x%llx rcx 0x%llx rdx 0x%llx\n",
+               (unsigned long long)target, (unsigned long long)context->Rip,
+               (unsigned long long)context->Rsp, (unsigned long long)stack[0],
+               (unsigned long long)stack[1], (unsigned long long)stack[2],
+               (unsigned long long)context->Rax, (unsigned long long)context->Rbx,
+               (unsigned long long)context->Rcx, (unsigned long long)context->Rdx );
+
+    if (shown_resolver) return;
+
+    /* Back-compute the slot from the caller's `call qword ptr [rip+disp32]`, six bytes ending at the return address. */
+    if (diag_read( stack[0] - sizeof(call), call, sizeof(call) ) != sizeof(call)) return;
+    if (call[0] != 0xFF || call[1] != 0x15) return;
+    slot = stack[0] + (LONG64)*(const int *)(call + 2);
+    if (diag_read( slot, &resolver, sizeof(resolver) ) != sizeof(resolver)) return;
+
+    shown_resolver = 1;
+    ERR_(seh)( "DIAG errno call: slot 0x%llx resolver 0x%llx\n",
+               (unsigned long long)slot, (unsigned long long)resolver );
+    diag_hex( "errno call resolver", resolver, 64 );
 }
 
 /* The last raw system calls the layer issued, with the stack pointer each was

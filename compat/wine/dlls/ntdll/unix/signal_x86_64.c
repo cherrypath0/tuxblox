@@ -3720,41 +3720,11 @@ static void segv_handler( int signal, siginfo_t *siginfo, void *sigcontext )
     case TRAP_x86_PAGEFLT:  /* Page fault */
         /* TuxBlox diag: an instruction-fetch fault at a tiny negative address means
          * the program called through a pointer that is a raw Linux -errno (a fork bug
-         * leaking an untranslated error). Log the caller (return address on the stack)
-         * so the leaking API can be identified. Fires only for this rare bogus case. */
+         * leaking an untranslated error). Log the caller so the leaking API can be
+         * identified. Fires only for this rare bogus case. */
         if (((ERROR_sig(ucontext) >> 1) & 0x09) == 8 &&
             (ULONG64)(ULONG_PTR)siginfo->si_addr >= 0xffffffffffffff00ull)
-        {
-            ULONG64 sp = RSP_sig(ucontext);
-            ULONG64 ret0 = *(volatile ULONG64 *)(ULONG_PTR)sp;
-            fprintf( stderr, "TUXBLOX_ERRNO_CALL target=%llx rip=%llx rsp=%llx ret0=%llx ret1=%llx ret2=%llx rax=%llx rbx=%llx rcx=%llx rdx=%llx\n",
-                     (unsigned long long)(ULONG64)(ULONG_PTR)siginfo->si_addr,
-                     (unsigned long long)RIP_sig(ucontext), (unsigned long long)sp,
-                     (unsigned long long)ret0,
-                     (unsigned long long)*(volatile ULONG64 *)(ULONG_PTR)(sp + 8),
-                     (unsigned long long)*(volatile ULONG64 *)(ULONG_PTR)(sp + 16),
-                     (unsigned long long)context.c.Rax, (unsigned long long)context.c.Rbx,
-                     (unsigned long long)context.c.Rcx, (unsigned long long)context.c.Rdx );
-            /* First hit only: back-compute the resolver from the caller's
-             * `call qword ptr [rip+disp32]` (FF 15 <disp32>, 6 bytes ending at ret0),
-             * read its runtime pointer and dump the resolver's code. */
-            {
-                static int shown_resolver;
-                const BYTE *callp = (const BYTE *)(ULONG_PTR)(ret0 - 6);
-                if (!shown_resolver && callp[0] == 0xFF && callp[1] == 0x15)
-                {
-                    int disp = *(const int *)(callp + 2);
-                    ULONG64 slot = ret0 + (LONG64)disp;
-                    ULONG64 resolver = *(volatile ULONG64 *)(ULONG_PTR)slot;
-                    const BYTE *rc = (const BYTE *)(ULONG_PTR)resolver;
-                    int i; char hex[3*160+1]; int n = 0;
-                    shown_resolver = 1;
-                    for (i = 0; i < 160; i++) n += snprintf( hex+n, sizeof(hex)-n, "%02x", rc[i] );
-                    fprintf( stderr, "TUXBLOX_RESOLVER slot=%llx resolver=%llx code=%s\n",
-                             (unsigned long long)slot, (unsigned long long)resolver, hex );
-                }
-            }
-        }
+            tuxblox_diag_errno_call( (ULONG64)(ULONG_PTR)siginfo->si_addr, &context.c );
         /* A page this build took execution rights off to watch where the
          * program goes. Handled before anything else looks at it, so the
          * program is never told a fault happened. */

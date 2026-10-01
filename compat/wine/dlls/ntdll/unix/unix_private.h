@@ -270,6 +270,7 @@ extern void tuxblox_diag_note_query_input( const char *what, unsigned int class,
 extern void tuxblox_diag_align( ULONG64 rip, ULONG64 rsp, ULONG64 rbp, ULONG64 addr, BOOL handled,
                                 const ULONG64 *regs );
 extern void tuxblox_diag_note_syscall( ULONG64 rip, ULONG64 rsp, ULONG64 rax );
+extern void tuxblox_diag_errno_call( ULONG64 target, const CONTEXT *context );
 extern BOOL tuxblox_diag_step_arm(void);
 extern BOOL tuxblox_diag_step_record( ULONG64 rip, ULONG64 rsp, ULONG64 rcx, ULONG64 rax );
 extern BOOL tuxblox_diag_step_watch_hit( ULONG64 rip );
