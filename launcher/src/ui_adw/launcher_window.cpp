@@ -65,6 +65,7 @@ struct WindowUi {
     std::vector<PageEntry> pages;
     std::optional<Tab> shownTab;
     std::string notifiedVersion;
+    ActionNotification updateNotice;
     bool containerWarningShown = false;
     bool backgroundWorkStarted = false;
     guint tickId = 0;
@@ -112,11 +113,13 @@ void addPage(WindowUi &ui, Tab tab, const char *pTitle, const unsigned char *pIc
     ui.pages.push_back({tab, pTitle, footer, std::move(page), GTK_LIST_BOX_ROW(pRow)});
 }
 
-// Once per offered version, so the notice does not repeat on every poll; the Update button on the Home page is what acts on it
+// Once per offered version, so the notice does not repeat on every poll; its Update button, like the one on the Home page, starts the update
 void notifyUpdate(WindowUi &ui, const AppSnapshot &snap) {
     if (!snap.updateAvailableVersion || *snap.updateAvailableVersion == ui.notifiedVersion) return;
     ui.notifiedVersion = *snap.updateAvailableVersion;
-    showDesktopNotification("TuxBlox", "TuxBlox " + ui.notifiedVersion + " is available", "tuxblox");
+    App *pApp = ui.pApp;
+    ui.updateNotice.show("TuxBlox", "TuxBlox " + ui.notifiedVersion + " is available", "tuxblox", "Update",
+                         [pApp] { pApp->requestUpdateNow(); });
 }
 
 gboolean onTick(gpointer data) {

@@ -15,7 +15,11 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #pragma once
+#include <atomic>
+#include <functional>
 #include <string>
+#include <sys/types.h>
+#include <thread>
 #include <vector>
 
 namespace tuxblox {
@@ -30,5 +34,30 @@ void showDesktopNotification(const std::string& title, const std::string& body,
 // The notify-send command line, program name first. Exposed for testing.
 std::vector<std::string> notifySendArguments(const std::string& title, const std::string& body,
                                              const std::string& icon);
+
+// The same command line with one action button, whose name is "update" and which notify-send prints when it is pressed. Exposed for testing.
+std::vector<std::string> notifySendActionArguments(const std::string& title, const std::string& body,
+                                                   const std::string& icon, const std::string& actionLabel);
+
+// A notification with a button on it. show() returns at once; onAction runs on another thread if the button is pressed, so it must be safe to call from there. A notify-send too old for buttons falls back to the plain notification.
+class ActionNotification {
+public:
+    ActionNotification() = default;
+    ~ActionNotification() { cancel(); }
+    ActionNotification(const ActionNotification&) = delete;
+    ActionNotification& operator=(const ActionNotification&) = delete;
+
+    void show(const std::string& title, const std::string& body, const std::string& icon,
+              const std::string& actionLabel, std::function<void()> onAction);
+
+    // Withdraws the notification and waits for its thread, so onAction can no longer run once this has returned
+    void cancel();
+
+private:
+    pid_t pid_ = -1;
+    std::atomic<bool> pidLive_{false};
+    std::atomic<bool> cancelled_{false};
+    std::thread thread_;
+};
 
 } // namespace tuxblox
