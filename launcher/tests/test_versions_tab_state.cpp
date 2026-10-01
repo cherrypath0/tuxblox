@@ -40,6 +40,13 @@ int main() {
     AppVersions none;
     assert(!canDeleteVersion(none, "version-a"));
 
+    // Channel names are lowercase, so whatever was typed or pasted is folded, and stray spaces around it dropped
+    assert(normalizedChannel("LIVE") == "live");
+    assert(normalizedChannel("Zintegration") == "zintegration");
+    assert(normalizedChannel("  zCanary2 ") == "zcanary2");
+    assert(normalizedChannel("live") == "live");
+    assert(normalizedChannel("") == "");
+
     printf("versions_tab_state: all tests passed\n");
     return 0;
 }

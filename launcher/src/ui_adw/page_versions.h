@@ -52,6 +52,7 @@ private:
     void connectRowAction(GtkWidget *pButton, GCallback onClicked, LaunchTarget target, const std::string &hash);
 
     static void onTargetChanged(GObject *, GParamSpec *, gpointer data);
+    static void onChannelChanged(GtkEditable *pEditable, gpointer);
     static void onInstall(AdwButtonRow *, gpointer data);
     static void onPrevious(AdwButtonRow *, gpointer data);
     static void onSetActive(GtkButton *, gpointer data);

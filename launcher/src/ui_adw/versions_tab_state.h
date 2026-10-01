@@ -29,4 +29,7 @@ namespace tuxblox {
 // Kept apart from the Versions page so it can be tested without a display.
 bool canDeleteVersion(const AppVersions& av, const std::string& hash);
 
+// The channel as it is sent: lowercase, without spaces around it
+std::string normalizedChannel(const std::string& typed);
+
 } // namespace tuxblox

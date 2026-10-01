@@ -24,4 +24,15 @@ bool canDeleteVersion(const AppVersions& av, const std::string& hash) {
                         [&](const InstalledVersion& v) { return v.hash == hash; });
 }
 
+std::string normalizedChannel(const std::string& typed) {
+    const size_t first = typed.find_first_not_of(" \t\r\n");
+    if (first == std::string::npos) return "";
+    const size_t last = typed.find_last_not_of(" \t\r\n");
+    std::string channel = typed.substr(first, last - first + 1);
+    for (char& letter : channel) {
+        if (letter >= 'A' && letter <= 'Z') letter = static_cast<char>(letter - 'A' + 'a');
+    }
+    return channel;
+}
+
 } // namespace tuxblox

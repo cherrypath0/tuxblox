@@ -85,9 +85,10 @@ void VersionsPage::buildInstallGroup() {
 
     GtkWidget *pChannel = entryRow("Channel", "live");
     pChannel_ = GTK_EDITABLE(pChannel);
+    g_signal_connect(pChannel, "changed", G_CALLBACK(onChannelChanged), nullptr);
     adw_preferences_group_add(ADW_PREFERENCES_GROUP(pGroup), pChannel);
 
-    GtkWidget *pHash = entryRow("Version (version-\xE2\x80\xA6 or blank for latest)", "");
+    GtkWidget *pHash = entryRow("Version hash (leave blank for latest)", "");
     pHash_ = GTK_EDITABLE(pHash);
     adw_preferences_group_add(ADW_PREFERENCES_GROUP(pGroup), pHash);
 
@@ -98,7 +99,7 @@ void VersionsPage::buildInstallGroup() {
     adw_preferences_group_add(ADW_PREFERENCES_GROUP(pGroup), pInstall_);
 
     pPrevious_ = adw_button_row_new();
-    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(pPrevious_), "Install the build before the current latest");
+    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(pPrevious_), "Install previous version");
     g_signal_connect(pPrevious_, "activated", G_CALLBACK(onPrevious), this);
     adw_preferences_group_add(ADW_PREFERENCES_GROUP(pGroup), pPrevious_);
 
@@ -184,9 +185,22 @@ void VersionsPage::onTargetChanged(GObject *, GParamSpec *, gpointer data) {
     pSelf->update(pSelf->app_.snapshot());
 }
 
+void VersionsPage::onChannelChanged(GtkEditable *pEditable, gpointer) {
+    const std::string typed = gtk_editable_get_text(pEditable);
+    std::string folded = typed;
+    for (char &letter : folded) {
+        if (letter >= 'A' && letter <= 'Z') letter = static_cast<char>(letter - 'A' + 'a');
+    }
+    if (folded == typed) return;
+    // Setting the text moves the cursor to the start, so it is put back where the user was typing
+    const int position = gtk_editable_get_position(pEditable);
+    gtk_editable_set_text(pEditable, folded.c_str());
+    gtk_editable_set_position(pEditable, position);
+}
+
 void VersionsPage::onInstall(AdwButtonRow *, gpointer data) {
     auto *pSelf = static_cast<VersionsPage *>(data);
-    const std::string channel = gtk_editable_get_text(pSelf->pChannel_);
+    const std::string channel = normalizedChannel(gtk_editable_get_text(pSelf->pChannel_));
     const std::string hash = trimmed(gtk_editable_get_text(pSelf->pHash_));
     if (hash.empty()) {
         pSelf->app_.requestInstallVersion(pSelf->selectedTarget(), VersionSelectMode::Latest, channel);
@@ -198,7 +212,7 @@ void VersionsPage::onInstall(AdwButtonRow *, gpointer data) {
 void VersionsPage::onPrevious(AdwButtonRow *, gpointer data) {
     auto *pSelf = static_cast<VersionsPage *>(data);
     pSelf->app_.requestInstallVersion(pSelf->selectedTarget(), VersionSelectMode::Previous,
-                                      gtk_editable_get_text(pSelf->pChannel_));
+                                      normalizedChannel(gtk_editable_get_text(pSelf->pChannel_)));
 }
 
 void VersionsPage::onSetActive(GtkButton *, gpointer data) {
