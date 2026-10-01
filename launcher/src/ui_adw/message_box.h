@@ -22,4 +22,7 @@ namespace tuxblox {
 // Shows a blocking error and returns once it is dismissed, for processes that have no window of their own (the watcher, and errors before the launcher window exists). With no display it prints to stderr instead, which the session log records.
 void showErrorMessageBox(const std::string &title, const std::string &message);
 
+// The same popup with a second button beside OK, labelled actionLabel. True only if that button was pressed, so with no display it is always false.
+bool showErrorMessageBoxWithAction(const std::string &title, const std::string &message, const std::string &actionLabel);
+
 } // namespace tuxblox

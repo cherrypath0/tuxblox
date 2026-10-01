@@ -23,6 +23,7 @@
 #include "asset_globe.h"
 #include "asset_home.h"
 #include "asset_info.h"
+#include "asset_play.h"
 #include "asset_privacy.h"
 #include "asset_roblox_player.h"
 #include "asset_roblox_rdd.h"
@@ -47,6 +48,7 @@ int main() {
         {"globe", kAssetGlobe, kAssetGlobeLen},
         {"home", kAssetHome, kAssetHomeLen},
         {"info", kAssetInfo, kAssetInfoLen},
+        {"play", kAssetPlay, kAssetPlayLen},
         {"privacy", kAssetPrivacy, kAssetPrivacyLen},
         {"roblox-player", kAssetRobloxPlayer, kAssetRobloxPlayerLen},
         {"roblox-rdd", kAssetRobloxRdd, kAssetRobloxRddLen},

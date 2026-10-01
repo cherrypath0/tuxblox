@@ -196,7 +196,7 @@ int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const 
             exitCodeLine + "Full log has been written to " + outcome.logPath;
     }
 
-    if (settings.sendCrashReports) {
+    auto sendReport = [&] {
         CrashReport report;
         report.launcherVersion = currentVersion;
         report.protonVersion = readInstalledCompatVersion(installDir).value_or("");
@@ -206,9 +206,14 @@ int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const 
         report.logPath = outcome.logPath;
         report.systemInfo = collectSystemInfo();
         uploadCrashReport(report);
-    }
+    };
 
-    showErrorMessageBox(popupTitle, message);
+    if (settings.sendCrashReports) {
+        sendReport();
+        showErrorMessageBox(popupTitle, message);
+    } else if (showErrorMessageBoxWithAction(popupTitle, message, "Report")) {
+        sendReport();
+    }
 
     return 1;
 }

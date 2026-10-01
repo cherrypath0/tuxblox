@@ -16,6 +16,7 @@
 
 #pragma once
 #include <string>
+#include <vector>
 
 namespace tuxblox {
 
@@ -23,6 +24,11 @@ namespace tuxblox {
 // the same way the compatibility layer reports Roblox's own error dialogs.
 // Best effort and never blocking: it returns as soon as the notifier has been
 // started, and does nothing at all on a desktop without one.
-void showDesktopNotification(const std::string& title, const std::string& body);
+void showDesktopNotification(const std::string& title, const std::string& body,
+                             const std::string& icon = "dialog-error");
+
+// The notify-send command line, program name first. Exposed for testing.
+std::vector<std::string> notifySendArguments(const std::string& title, const std::string& body,
+                                             const std::string& icon);
 
 } // namespace tuxblox

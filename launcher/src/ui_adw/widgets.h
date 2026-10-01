@@ -41,6 +41,9 @@ void showError(GtkWidget *pLabel, const std::string &message);
 void setLabelText(GtkLabel *pLabel, const std::string &text);
 void setButtonLabel(GtkButton *pButton, const std::string &text);
 
+// Styles the launcher adds on top of libadwaita's: the green Launch button. Call once the display is up.
+void installLauncherStyles();
+
 void showNotice(GtkWidget *pParent, const std::string &heading, const std::string &body);
 
 // onConfirm runs only if the destructive button is pressed; Escape and closing both count as cancel

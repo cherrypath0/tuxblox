@@ -15,13 +15,26 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "desktop_notify.h"
+#include "child_environment.h"
 
 #include <sys/wait.h>
 #include <unistd.h>
 
 namespace tuxblox {
 
-void showDesktopNotification(const std::string& title, const std::string& body) {
+std::vector<std::string> notifySendArguments(const std::string& title, const std::string& body,
+                                             const std::string& icon) {
+    return {"notify-send", "-a", "TuxBlox", "-i", icon, "--", title, body};
+}
+
+void showDesktopNotification(const std::string& title, const std::string& body, const std::string& icon) {
+    std::vector<std::string> arguments = notifySendArguments(title, body, icon);
+    std::vector<char*> argv;
+    for (std::string& argument : arguments) argv.push_back(argument.data());
+    argv.push_back(nullptr);
+    // notify-send is the desktop's own program, so it must not inherit the interface libraries' settings paths
+    ChildEnvironment environment;
+
     const pid_t pid = fork();
     if (pid < 0) return;
 
@@ -31,9 +44,7 @@ void showDesktopNotification(const std::string& title, const std::string& body) 
         // a single fork would leave the notifier reparented mid-flight or, on
         // the watched path, sitting as a zombie for the whole session.
         if (fork() == 0) {
-            execlp("notify-send", "notify-send", "-a", "TuxBlox",
-                   "-i", "dialog-error", title.c_str(), body.c_str(),
-                   static_cast<char*>(nullptr));
+            execvpe("notify-send", argv.data(), environment.envp());
             // No notify-send on this desktop: nothing to report it to, and a
             // missing notification must never be worth failing a launch over.
             _exit(127);

@@ -22,13 +22,13 @@
 #include "asset_roblox_rdd.h"
 #include "asset_settings.h"
 #include "desktop_integration.h"
+#include "desktop_notify.h"
 #include "page.h"
 #include "page_about.h"
 #include "page_fastflags.h"
 #include "page_home.h"
 #include "page_settings.h"
 #include "page_versions.h"
-#include "tuxblox_logo_png.h"
 #include "widgets.h"
 
 #include <cstdio>
@@ -58,16 +58,13 @@ struct WindowUi {
     std::string exePath;
     std::string installDir;
     GtkWindow *pWindow = nullptr;
-    AdwToastOverlay *pToasts = nullptr;
     AdwNavigationPage *pContentPage = nullptr;
     GtkStack *pStack = nullptr;
     GtkListBox *pMainList = nullptr;
     GtkListBox *pFooterList = nullptr;
     std::vector<PageEntry> pages;
     std::optional<Tab> shownTab;
-    AdwToast *pUpdateToast = nullptr;
-    std::string toastVersion;
-    bool updateClicked = false;
+    std::string notifiedVersion;
     bool containerWarningShown = false;
     bool backgroundWorkStarted = false;
     guint tickId = 0;
@@ -115,38 +112,11 @@ void addPage(WindowUi &ui, Tab tab, const char *pTitle, const unsigned char *pIc
     ui.pages.push_back({tab, pTitle, footer, std::move(page), GTK_LIST_BOX_ROW(pRow)});
 }
 
-void onToastButton(AdwToast *, gpointer data) {
-    auto *pUi = static_cast<WindowUi *>(data);
-    pUi->updateClicked = true;
-    pUi->pApp->requestUpdateNow();
-}
-
-void onToastDismissed(AdwToast *, gpointer data) {
-    auto *pUi = static_cast<WindowUi *>(data);
-    // Pressing Update also dismisses the toast, and that must not withdraw the update that was just asked for
-    if (!pUi->updateClicked) pUi->pApp->dismissUpdateNotification();
-    g_clear_object(&pUi->pUpdateToast);
-}
-
-void syncUpdateToast(WindowUi &ui, const AppSnapshot &snap) {
-    if (!snap.updateAvailableVersion) {
-        if (ui.pUpdateToast != nullptr) adw_toast_dismiss(ui.pUpdateToast);
-        ui.toastVersion.clear();
-        return;
-    }
-    if (*snap.updateAvailableVersion == ui.toastVersion) return;
-
-    ui.toastVersion = *snap.updateAvailableVersion;
-    ui.updateClicked = false;
-    const std::string title = "TuxBlox " + ui.toastVersion + " is available";
-    AdwToast *pToast = adw_toast_new(title.c_str());
-    adw_toast_set_use_markup(pToast, FALSE);
-    adw_toast_set_button_label(pToast, "Update");
-    adw_toast_set_timeout(pToast, 0);
-    g_signal_connect(pToast, "button-clicked", G_CALLBACK(onToastButton), &ui);
-    g_signal_connect(pToast, "dismissed", G_CALLBACK(onToastDismissed), &ui);
-    ui.pUpdateToast = ADW_TOAST(g_object_ref(pToast));
-    adw_toast_overlay_add_toast(ui.pToasts, pToast);
+// Once per offered version, so the notice does not repeat on every poll; the Update button on the Home page is what acts on it
+void notifyUpdate(WindowUi &ui, const AppSnapshot &snap) {
+    if (!snap.updateAvailableVersion || *snap.updateAvailableVersion == ui.notifiedVersion) return;
+    ui.notifiedVersion = *snap.updateAvailableVersion;
+    showDesktopNotification("TuxBlox", "TuxBlox " + ui.notifiedVersion + " is available", "tuxblox");
 }
 
 gboolean onTick(gpointer data) {
@@ -156,7 +126,7 @@ gboolean onTick(gpointer data) {
 
     showTab(*pUi, snap.activeTab);
     for (PageEntry &entry : pUi->pages) entry.page->update(snap);
-    syncUpdateToast(*pUi, snap);
+    notifyUpdate(*pUi, snap);
 
     if (!snap.containerWarning.empty() && !pUi->containerWarningShown) {
         pUi->containerWarningShown = true;
@@ -221,18 +191,11 @@ GtkWidget *buildSidebar(WindowUi &ui) {
     gtk_box_append(GTK_BOX(pLists), pMain);
     gtk_box_append(GTK_BOX(pLists), pFooter);
 
-    GdkPaintable *pLogo = logoPaintable(kTuxbloxLogoPng, kTuxbloxLogoPngLen);
-    GtkWidget *pLogoImage = gtk_image_new_from_paintable(pLogo);
-    g_object_unref(pLogo);
-    gtk_image_set_pixel_size(GTK_IMAGE(pLogoImage), 20);
     GtkWidget *pName = gtk_label_new("TuxBlox");
     gtk_widget_add_css_class(pName, "heading");
-    GtkWidget *pBrand = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
-    gtk_box_append(GTK_BOX(pBrand), pLogoImage);
-    gtk_box_append(GTK_BOX(pBrand), pName);
-
+    // The desktop's own window buttons already put the app icon in this header bar, so only the name goes here
     GtkWidget *pHeader = adw_header_bar_new();
-    adw_header_bar_set_title_widget(ADW_HEADER_BAR(pHeader), pBrand);
+    adw_header_bar_set_title_widget(ADW_HEADER_BAR(pHeader), pName);
 
     GtkWidget *pView = adw_toolbar_view_new();
     adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(pView), pHeader);
@@ -257,6 +220,7 @@ void onActivate(GtkApplication *pGtkApp, gpointer data) {
     auto *pUi = static_cast<WindowUi *>(data);
     pUi->activated = true;
     applyLook();
+    installLauncherStyles();
 
     GtkWidget *pWindow = adw_application_window_new(pGtkApp);
     pUi->pWindow = GTK_WINDOW(pWindow);
@@ -279,10 +243,7 @@ void onActivate(GtkApplication *pGtkApp, gpointer data) {
     addPage(*pUi, Tab::Settings, "Settings", kAssetSettings, kAssetSettingsLen, false, std::make_unique<SettingsPage>(app));
     addPage(*pUi, Tab::About, "About", kAssetInfo, kAssetInfoLen, true, std::make_unique<AboutPage>());
 
-    GtkWidget *pToasts = adw_toast_overlay_new();
-    pUi->pToasts = ADW_TOAST_OVERLAY(pToasts);
-    adw_toast_overlay_set_child(pUi->pToasts, pSplit);
-    adw_application_window_set_content(ADW_APPLICATION_WINDOW(pWindow), pToasts);
+    adw_application_window_set_content(ADW_APPLICATION_WINDOW(pWindow), pSplit);
 
     onTick(pUi);
     pUi->tickId = g_timeout_add(100, onTick, pUi);

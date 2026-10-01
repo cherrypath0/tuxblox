@@ -34,6 +34,8 @@ private:
         std::string launchLabel;
         GtkLabel *pMeta = nullptr;
         GtkButton *pButton = nullptr;
+        GtkLabel *pButtonLabel = nullptr;
+        GtkWidget *pButtonIcon = nullptr;
         bool installed = false;
         bool applied = false;
     };
@@ -42,6 +44,7 @@ private:
     void setCard(Card &card, bool installed, const std::string &versionLabel);
     void setUpdateState(const std::string &text, const std::string &styleClass);
     static void onLaunchClicked(GtkButton *pButton, gpointer data);
+    static void onUpdateClicked(GtkButton *, gpointer data);
 
     App &app_;
     GtkWidget *pRoot_ = nullptr;
@@ -52,6 +55,7 @@ private:
     GtkWidget *pUpdateBar_ = nullptr;
     GtkWidget *pError_ = nullptr;
     GtkLabel *pUpdateState_ = nullptr;
+    GtkWidget *pUpdateButton_ = nullptr;
     std::string updateStateClass_;
     Card player_{LaunchTarget::Player, "Launch Player"};
     Card studio_{LaunchTarget::Studio, "Launch Studio"};

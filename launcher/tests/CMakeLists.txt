@@ -159,3 +159,7 @@ if(TARGET launcher_ui_adw)
     target_link_libraries(test_message_box PRIVATE launcher_ui_adw)
     add_test(NAME message_box COMMAND test_message_box)
 endif()
+
+add_executable(test_desktop_notify test_desktop_notify.cpp)
+target_link_libraries(test_desktop_notify PRIVATE launcher_core)
+add_test(NAME desktop_notify COMMAND test_desktop_notify)

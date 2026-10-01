@@ -166,6 +166,17 @@ void setButtonLabel(GtkButton *pButton, const std::string &text) {
     if (pCurrent == nullptr || text != pCurrent) gtk_button_set_label(pButton, text.c_str());
 }
 
+void installLauncherStyles() {
+    GtkCssProvider *pProvider = gtk_css_provider_new();
+    gtk_css_provider_load_from_string(pProvider,
+        "button.launch-green { background-color: @success_bg_color; color: @success_fg_color; }\n"
+        "button.launch-green:hover { background-image: image(alpha(white, 0.1)); }\n"
+        "button.launch-green:active { background-image: image(alpha(black, 0.1)); }\n");
+    gtk_style_context_add_provider_for_display(gdk_display_get_default(), GTK_STYLE_PROVIDER(pProvider),
+                                               GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+    g_object_unref(pProvider);
+}
+
 void showNotice(GtkWidget *pParent, const std::string &heading, const std::string &body) {
     AdwDialog *pDialog = adw_alert_dialog_new(heading.c_str(), body.c_str());
     adw_alert_dialog_add_response(ADW_ALERT_DIALOG(pDialog), "ok", "OK");

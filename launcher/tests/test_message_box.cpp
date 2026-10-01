@@ -46,6 +46,8 @@ int main() {
         unsetenv("DISPLAY");
         setenv("FONTCONFIG_FILE", "/host/fonts.conf", 1);
         tuxblox::showErrorMessageBox("Test title", "Test message body");
+        // With nowhere to show the question, the optional action is never taken on the user's behalf
+        if (tuxblox::showErrorMessageBoxWithAction("Action title", "Action body", "Report")) _exit(4);
         const char *pAfter = getenv("FONTCONFIG_FILE");
         _exit(pAfter != nullptr && std::string(pAfter) == "/host/fonts.conf" ? 0 : 3);
     }
@@ -62,6 +64,8 @@ int main() {
     assert(WEXITSTATUS(status) == 0);
     assert(output.find("Test title") != std::string::npos);
     assert(output.find("Test message body") != std::string::npos);
+    assert(output.find("Action title") != std::string::npos);
+    assert(output.find("Action body") != std::string::npos);
     printf("message_box: all tests passed\n");
     return 0;
 }

@@ -15,6 +15,8 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "page_home.h"
+#include "asset_download.h"
+#include "asset_play.h"
 #include "asset_roblox_player.h"
 #include "asset_roblox_studio.h"
 #include "version.h"
@@ -106,6 +108,12 @@ HomePage::HomePage(App &app) : app_(app) {
     GtkWidget *pState = textLabel("", "caption");
     pUpdateState_ = GTK_LABEL(pState);
     gtk_box_append(GTK_BOX(pStrip), pState);
+    pUpdateButton_ = gtk_button_new_with_label("Update");
+    gtk_widget_add_css_class(pUpdateButton_, "flat");
+    gtk_widget_add_css_class(pUpdateButton_, "caption");
+    gtk_widget_set_visible(pUpdateButton_, FALSE);
+    g_signal_connect(pUpdateButton_, "clicked", G_CALLBACK(onUpdateClicked), this);
+    gtk_box_append(GTK_BOX(pStrip), pUpdateButton_);
     gtk_box_append(GTK_BOX(pBox), pStrip);
 
     pRoot_ = adw_clamp_new();
@@ -135,7 +143,16 @@ GtkWidget *HomePage::buildCard(Card &card, const char *pTitle, const unsigned ch
     gtk_box_append(GTK_BOX(pHeader), pIconImage);
     gtk_box_append(GTK_BOX(pHeader), pText);
 
-    GtkWidget *pButton = gtk_button_new_with_label("Install & Launch");
+    GtkWidget *pButtonIcon = iconImage(kAssetDownload, kAssetDownloadLen, 16);
+    GtkWidget *pButtonLabel = gtk_label_new("Install & Launch");
+    card.pButtonIcon = pButtonIcon;
+    card.pButtonLabel = GTK_LABEL(pButtonLabel);
+    GtkWidget *pButtonContent = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    gtk_widget_set_halign(pButtonContent, GTK_ALIGN_CENTER);
+    gtk_box_append(GTK_BOX(pButtonContent), pButtonIcon);
+    gtk_box_append(GTK_BOX(pButtonContent), pButtonLabel);
+    GtkWidget *pButton = gtk_button_new();
+    gtk_button_set_child(GTK_BUTTON(pButton), pButtonContent);
     card.pButton = GTK_BUTTON(pButton);
     gtk_widget_set_margin_top(pButton, 12);
     g_object_set_data(G_OBJECT(pButton), "tuxblox-target", GINT_TO_POINTER(static_cast<int>(card.target)));
@@ -161,18 +178,26 @@ void HomePage::onLaunchClicked(GtkButton *pButton, gpointer data) {
     pSelf->app_.requestLaunch(static_cast<LaunchTarget>(target));
 }
 
+void HomePage::onUpdateClicked(GtkButton *, gpointer data) {
+    static_cast<HomePage *>(data)->app_.requestUpdateNow();
+}
+
 void HomePage::setCard(Card &card, bool installed, const std::string &versionLabel) {
     setLabelText(card.pMeta, installed ? versionLabel : "Not installed yet");
     if (card.applied && card.installed == installed) return;
     card.installed = installed;
     card.applied = true;
 
-    setButtonLabel(card.pButton, installed ? card.launchLabel : "Install & Launch");
+    setLabelText(card.pButtonLabel, installed ? card.launchLabel : "Install & Launch");
+    // Installing is the neutral grey button with a download arrow; launching is the green one with a play symbol
+    GdkPaintable *pIcon = symbolicIcon(installed ? kAssetPlay : kAssetDownload, installed ? kAssetPlayLen : kAssetDownloadLen);
+    gtk_image_set_from_paintable(GTK_IMAGE(card.pButtonIcon), pIcon);
+    g_object_unref(pIcon);
     if (installed) {
-        gtk_widget_add_css_class(GTK_WIDGET(card.pButton), "suggested-action");
+        gtk_widget_add_css_class(GTK_WIDGET(card.pButton), "launch-green");
         gtk_widget_add_css_class(GTK_WIDGET(card.pMeta), "monospace");
     } else {
-        gtk_widget_remove_css_class(GTK_WIDGET(card.pButton), "suggested-action");
+        gtk_widget_remove_css_class(GTK_WIDGET(card.pButton), "launch-green");
         gtk_widget_remove_css_class(GTK_WIDGET(card.pMeta), "monospace");
     }
 }
@@ -197,6 +222,7 @@ void HomePage::update(const AppSnapshot &snap) {
     gtk_widget_set_visible(pSubtitle_, !updating);
 
     if (updating) {
+        gtk_widget_set_visible(pUpdateButton_, FALSE);
         setLabelText(pTitle_, "Updating TuxBlox");
         setLabelText(GTK_LABEL(pUpdateStatus_), updatePhaseLabel(snap.update.phase));
         gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(pUpdateBar_), snap.update.fraction);
@@ -206,6 +232,7 @@ void HomePage::update(const AppSnapshot &snap) {
     }
 
     setLabelText(pTitle_, "Ready to play");
+    gtk_widget_set_visible(pUpdateButton_, snap.updateAvailableVersion.has_value());
     if (snap.update.phase == UpdatePhase::Error) {
         showError(pError_, snap.update.errorMessage);
         setUpdateState("Update check failed", "error");

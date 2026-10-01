@@ -56,7 +56,7 @@ SettingsPage::SettingsPage(App &app) : app_(app) {
               "Checks that Roblox's files are signed by Roblox and haven't been tampered with before launching, and then "
               "refuses to launch if the verification fails.",
               &Settings::verifyIntegrity);
-    addToggle(pPrivacy, "Send crash reports",
+    addToggle(pPrivacy, "Always send crash reports",
               "Crash reports include exit code, Roblox and TuxBlox versions, basic system info, and a copy of the session "
               "log. See tuxblox.net/privacy",
               &Settings::sendCrashReports);

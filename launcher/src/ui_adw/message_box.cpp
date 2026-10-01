@@ -28,13 +28,29 @@ namespace tuxblox {
 
 namespace {
 
+struct Answer {
+    GMainLoop *pLoop;
+    bool actionChosen = false;
+};
+
+void onResponse(AdwAlertDialog *, const char *pResponse, gpointer data) {
+    static_cast<Answer *>(data)->actionChosen = g_strcmp0(pResponse, "action") == 0;
+}
+
 void onClosed(AdwDialog *, gpointer data) {
-    g_main_loop_quit(static_cast<GMainLoop *>(data));
+    g_main_loop_quit(static_cast<Answer *>(data)->pLoop);
 }
 
 } // namespace
 
-void showErrorMessageBox(const std::string &title, const std::string &message) {
+bool showErrorMessageBoxWithAction(const std::string &title, const std::string &message, const std::string &actionLabel) {
+    // GTK cannot be started again after it failed to find a display, so the second message goes straight to stderr
+    static bool noDisplay = false;
+    if (noDisplay) {
+        fprintf(stderr, "TuxBlox: %s\n%s\n", title.c_str(), message.c_str());
+        return false;
+    }
+
     // GTK already running means the launcher window set the bundled environment up, and it is not this function's to undo
     const bool startsGtk = !gtk_is_initialized();
     if (startsGtk) {
@@ -42,24 +58,38 @@ void showErrorMessageBox(const std::string &title, const std::string &message) {
         // gtk_init() would exit the whole process when there is no display, taking the caller's remaining work with it
         if (!gtk_init_check()) {
             restoreBundledEnvironment();
+            noDisplay = true;
             fprintf(stderr, "TuxBlox: %s\n%s\n", title.c_str(), message.c_str());
-            return;
+            return false;
         }
         adw_init();
         applyLook();
     }
 
     AdwDialog *pDialog = adw_alert_dialog_new(title.c_str(), message.c_str());
-    adw_alert_dialog_add_response(ADW_ALERT_DIALOG(pDialog), "ok", "OK");
-    adw_alert_dialog_set_close_response(ADW_ALERT_DIALOG(pDialog), "ok");
-    GMainLoop *pLoop = g_main_loop_new(nullptr, FALSE);
-    g_signal_connect(pDialog, "closed", G_CALLBACK(onClosed), pLoop);
+    AdwAlertDialog *pAlert = ADW_ALERT_DIALOG(pDialog);
+    adw_alert_dialog_add_response(pAlert, "ok", "OK");
+    if (!actionLabel.empty()) {
+        adw_alert_dialog_add_response(pAlert, "action", actionLabel.c_str());
+        adw_alert_dialog_set_response_appearance(pAlert, "action", ADW_RESPONSE_SUGGESTED);
+    }
+    adw_alert_dialog_set_close_response(pAlert, "ok");
+
+    Answer answer;
+    answer.pLoop = g_main_loop_new(nullptr, FALSE);
+    g_signal_connect(pDialog, "response", G_CALLBACK(onResponse), &answer);
+    g_signal_connect(pDialog, "closed", G_CALLBACK(onClosed), &answer);
     // With no parent, libadwaita gives the dialog a small window of its own
     adw_dialog_present(pDialog, nullptr);
-    g_main_loop_run(pLoop);
-    g_main_loop_unref(pLoop);
+    g_main_loop_run(answer.pLoop);
+    g_main_loop_unref(answer.pLoop);
 
     if (startsGtk) restoreBundledEnvironment();
+    return answer.actionChosen;
+}
+
+void showErrorMessageBox(const std::string &title, const std::string &message) {
+    showErrorMessageBoxWithAction(title, message, "");
 }
 
 } // namespace tuxblox
