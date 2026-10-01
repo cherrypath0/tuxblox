@@ -152,11 +152,11 @@ else
     ./smoke-test.sh build/TuxBloxLauncher "${StackTarballs[0]}"
 fi
 
-# Also stage the finished binary and the interface libraries beside it at the repo-root build/, where the root build.sh leaves them too. ui/ is re-extracted wholesale, since the binary finds its libraries beside itself and a stale mix would not.
+# Also stage the finished binary and the interface libraries beside it at the repo-root build/, where the root build.sh leaves them too. libtuxblox/ is re-extracted wholesale, since the binary finds its libraries beside itself and a stale mix would not.
 mkdir -p ../build
 cp -f build/TuxBloxLauncher ../build/TuxBloxLauncher
-rm -rf ../build/ui
-mkdir -p ../build/ui
-tar --zstd -xf "${StackTarballs[0]}" -C ../build/ui
+rm -rf ../build/libtuxblox
+mkdir -p ../build/libtuxblox
+tar --zstd -xf "${StackTarballs[0]}" -C ../build/libtuxblox
 
-echo ":: Done. Also staged to $(cd .. && pwd)/build/TuxBloxLauncher (+ ui/)"
+echo ":: Done. Also staged to $(cd .. && pwd)/build/TuxBloxLauncher (+ libtuxblox/)"

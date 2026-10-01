@@ -40,8 +40,8 @@ std::string resolveInstallDir(const std::string& override) {
 // flat-file launcher artifact IS the executable and never touches this.
 //
 // As shipped today the launcher is a flat file, and the libraries its window
-// needs travel as the separate "ui" archive artifact, extracted to
-// installDir/ui/ and found through the launcher's own $ORIGIN/ui/lib RPATH,
+// needs travel as the separate "libtuxblox" archive artifact, extracted to
+// installDir/libtuxblox/ and found through the launcher's own $ORIGIN/libtuxblox/lib RPATH,
 // which needs no support here -- it is installed by the generic archive path
 // below like any other artifact.
 // This constant stays because the archive shape is still fully supported and
@@ -130,8 +130,9 @@ InstallOutcome runInstall(const Manifest& manifest,
     if (plans.empty()) {
         return {false, false, "manifest has no artifacts to install", ""};
     }
-    // The launcher is replaced last, so a download that fails part-way leaves the old launcher beside the libraries it needs instead of a new one without them
-    std::stable_partition(plans.begin(), plans.end(), [](const ArtifactPlan& plan) { return plan.name != "launcher"; });
+    // Everything else first, then the libraries, then the launcher: a download that fails part-way leaves the old launcher beside the libraries it needs, and the two only differ for the length of one small download
+    auto installRank = [](const ArtifactPlan& plan) { return plan.name == "launcher" ? 2 : plan.name == "libtuxblox" ? 1 : 0; };
+    std::stable_sort(plans.begin(), plans.end(), [&](const ArtifactPlan& a, const ArtifactPlan& b) { return installRank(a) < installRank(b); });
     if (!hasLauncher) {
         return {false, false, "manifest has no 'launcher' artifact -- nothing to hand off to", ""};
     }
@@ -327,12 +328,6 @@ InstallOutcome runInstall(const Manifest& manifest,
                     }
                 }
             }
-        }
-
-        // Qt's libraries shipped as their own folder until the launcher moved to the shared interface libraries, and an upgrade only replaces the folders a release still names
-        if (isUpgrade && manifest.artifacts.count("libtuxblox") == 0) {
-            std::error_code staleEc;
-            fs::remove_all(dir + "/libtuxblox", staleEc);
         }
 
         // Roblox Player/Studio pre-warm -- unrelated to manifest artifacts,

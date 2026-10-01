@@ -88,7 +88,7 @@ void watcherDoesNotInheritTheBundledEnvironment(const fs::path &work) {
     fs::create_directories(work / "install");
 
     tuxblox::App app((work / "install").string(), "0.0.0-test", recorder.string());
-    tuxblox::useBundledEnvironment((work / "ui").string());
+    tuxblox::useBundledEnvironment((work / "libtuxblox").string());
     app.requestLaunch(tuxblox::LaunchTarget::Studio);
     const std::string environment = waitFor(record);
     const std::string arguments = waitFor(record.string() + ".args");
@@ -111,7 +111,7 @@ void browserDoesNotInheritTheBundledEnvironment(const fs::path &work) {
     const std::string oldPath = getenv("PATH") ? getenv("PATH") : "";
     setenv("PATH", (bin.string() + ":" + oldPath).c_str(), 1);
 
-    tuxblox::useBundledEnvironment((work / "ui").string());
+    tuxblox::useBundledEnvironment((work / "libtuxblox").string());
     tuxblox::openUrl("https://tuxblox.net/docs");
     const std::string environment = waitFor(record);
     const std::string arguments = waitFor(record.string() + ".args");
@@ -129,7 +129,7 @@ int main() {
     const fs::path work = fs::temp_directory_path() / ("child_environment_test_" + std::to_string(getpid()));
     fs::remove_all(work);
     fs::create_directories(work);
-    makeStack(work / "ui");
+    makeStack(work / "libtuxblox");
     setenv("FONTCONFIG_FILE", "/host/fonts.conf", 1);
     unsetenv("GSETTINGS_SCHEMA_DIR");
 

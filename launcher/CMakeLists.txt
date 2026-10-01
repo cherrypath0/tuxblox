@@ -212,10 +212,10 @@ if(TUXBLOX_UI_STACK_DEV)
     )
     target_include_directories(TuxBloxLauncher PRIVATE ${CMAKE_BINARY_DIR}/generated)
     target_link_libraries(TuxBloxLauncher PRIVATE launcher_core launcher_ui_adw ${CMAKE_DL_LIBS} Threads::Threads)
-    # The interface libraries are installed in a folder called ui beside this binary
+    # The interface libraries are installed in the libtuxblox folder beside this binary
     set_target_properties(TuxBloxLauncher PROPERTIES
         BUILD_WITH_INSTALL_RPATH TRUE
-        INSTALL_RPATH "$ORIGIN/ui/lib/x86_64-linux-gnu:$ORIGIN/ui/lib")
+        INSTALL_RPATH "$ORIGIN/libtuxblox/lib/x86_64-linux-gnu:$ORIGIN/libtuxblox/lib")
     add_dependencies(TuxBloxLauncher generate_thirdparty_license_headers generate_license_header generate_font_header)
 endif()
 

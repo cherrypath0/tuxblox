@@ -388,10 +388,10 @@ stage_release() {
         { read -r source_commit || true; read -r source_dirty || true; } < "$ROOT/build/.provenance"
     fi
 
-    # The interface libraries' real directory is one level down, not just a directory that happens to exist -- an empty ui/ would tar up fine and fail at the
+    # The interface libraries' real directory is one level down, not just a directory that happens to exist -- an empty libtuxblox/ would tar up fine and fail at the
     # user's machine instead.
     local required=(compat/main
-                    ui/lib/x86_64-linux-gnu
+                    libtuxblox/lib/x86_64-linux-gnu
                     TuxBloxLauncher TuxBloxInstaller TuxBloxBootstrapper studio-mcp)
     local entry
     for entry in "${required[@]}"; do
@@ -421,12 +421,12 @@ stage_release() {
         echo "!! Expected exactly one shared/ui/dist/ui-stack-*.tar.zst, found ${#uiTarballs[@]}." >&2
         return 1
     fi
-    if ! tar --zstd -xOf "${uiTarballs[0]}" LIBADWAITA_COMMIT | cmp -s - "$ROOT/build/ui/LIBADWAITA_COMMIT"; then
-        echo "!! shared/ui/dist's stack is not the one build/ui was unpacked from, so this build cannot be published." >&2
+    if ! tar --zstd -xOf "${uiTarballs[0]}" LIBADWAITA_COMMIT | cmp -s - "$ROOT/build/libtuxblox/LIBADWAITA_COMMIT"; then
+        echo "!! shared/ui/dist's stack is not the one build/libtuxblox was unpacked from, so this build cannot be published." >&2
         return 1
     fi
     echo ":: Copying the interface libraries"
-    cp "${uiTarballs[0]}" "$release_dir/ui-$slug.tar.zst"
+    cp "${uiTarballs[0]}" "$release_dir/libtuxblox-$slug.tar.zst"
 
     # The launcher, installer and MCP helper ship unpacked. They are copied
     # under the basename the manifest's url gives them, which is how the
@@ -461,7 +461,7 @@ artifacts = [
     # Published as "proton" until the layer was renamed. The launcher reads
     # either spelling, so emitting the new one is safe for older installs.
     ("compat",     f"compat-{slug}.tar.zst",      "Compatibility layer",  "compat"),
-    ("ui",         f"ui-{slug}.tar.zst",          "Interface libraries",  "ui"),
+    ("libtuxblox", f"libtuxblox-{slug}.tar.zst",  "Libraries",            "libtuxblox"),
     # Was the mcp.sh shell script through 2.6.0. The key is unchanged, so an
     # older installer still finds it; what it downloads is now a binary.
     ("mcp",        "studio-mcp",                  "Studio MCP",           "studio-mcp"),

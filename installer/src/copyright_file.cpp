@@ -118,7 +118,7 @@ constexpr const char* kGtkHeading =
 // The stack is installed as its own folder and the installer also carries a copy inside its own file, so the notice has to name each library and, for the ones whose license asks for it, say where the source is.
 constexpr const char* kGtkLicenseTxt =
     "TuxBlox's interface is built on the libraries below. They are installed in\n"
-    "the ui folder of the TuxBlox folder, and the installer carries its own copy\n"
+    "the libtuxblox folder of the TuxBlox folder, and the installer carries its own copy\n"
     "inside its file, unpacked to ~/.cache/tuxblox/ on the first graphical run.\n"
     "They load as separate shared libraries. Each one is redistributed unmodified,\n"
     "except libadwaita, which has its own entry below the license text.\n"

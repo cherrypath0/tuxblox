@@ -133,7 +133,7 @@ std::string selfExePath() {
 
 std::string interfaceStackRoot() {
     const std::string self = selfExePath();
-    return self.substr(0, self.rfind('/')) + "/ui";
+    return self.substr(0, self.rfind('/')) + "/libtuxblox";
 }
 
 } // namespace tuxblox

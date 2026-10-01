@@ -245,7 +245,7 @@ int main() {
     // in .tar.zst, whose manifest "filename" therefore names the DIRECTORY it
     // extracts into rather than the executable. Not the shape currently
     // shipped (the launcher is a flat file, with its interface libraries in
-    // the separate "ui" archive), but the shape is still fully supported and chosen from
+    // the separate "libtuxblox" archive), but the shape is still fully supported and chosen from
     // the URL, so it stays covered: this is what the flat-file case above
     // cannot reach, and it's what InstallOutcome::launcherPath has to keep
     // resolving to a runnable binary for -- main.cpp execs it and both
@@ -485,7 +485,22 @@ int main() {
         assert(fs::exists(installDir7)); // the directory itself must never be wiped on an upgrade failure
     }
 
-    // An install upgraded from a Qt launcher still has Qt's libraries, and a release that no longer ships them must take them away
+    // The shared libraries are one more artifact, extracted into libtuxblox/, and a package built for the new launcher
+    fs::path librariesSrc = work / "libtuxblox.tar.zst";
+    makeFixtureBundleTarZst(librariesSrc.string(), {{"lib/x86_64-linux-gnu/libgtk-4.so.1", "new gtk library"}}, "");
+    Manifest withLibraries = manifest;
+    {
+        Artifact libraries;
+        libraries.url = "file://" + librariesSrc.string();
+        libraries.sha256 = sha256File(librariesSrc.string());
+        libraries.sizeBytes = fs::file_size(librariesSrc);
+        libraries.displayname = "Libraries";
+        libraries.filename = "libtuxblox";
+        libraries.path = "/";
+        withLibraries.artifacts["libtuxblox"] = libraries;
+    }
+
+    // An install upgraded from a Qt launcher has Qt's libraries in the same folder, and upgrading replaces them as it replaces any other artifact
     {
         fs::path installDir9 = work / "install_upgrade_from_qt";
         fs::create_directories(installDir9 / "libtuxblox" / "lib");
@@ -494,44 +509,46 @@ int main() {
         fs::create_directories(runtimeMarker.parent_path());
         { std::ofstream out(runtimeMarker); out << "must survive the upgrade"; }
 
-        auto outcome = runInstall(manifest, [](const std::string&, double) {}, nullptr, /*isUpgrade=*/true,
+        auto outcome = runInstall(withLibraries, [](const std::string&, double) {}, nullptr, /*isUpgrade=*/true,
             installDir9.string(), robloxPlayerUrl, robloxStudioUrl);
 
         assert(outcome.ok);
-        assert(!fs::exists(installDir9 / "libtuxblox"));
+        assert(!fs::exists(installDir9 / "libtuxblox" / "lib" / "libQt6Core.so.6"));
+        assert(fs::exists(installDir9 / "libtuxblox" / "lib" / "x86_64-linux-gnu" / "libgtk-4.so.1"));
         assert(fs::exists(runtimeMarker));
     }
 
-    // A failed upgrade leaves the old launcher in place, and that launcher still needs its libraries
+    // A download that fails part-way must leave the old launcher and the old libraries it needs as a working pair
     {
-        fs::path installDir10 = work / "install_failed_upgrade_from_qt";
+        fs::path installDir10 = work / "install_failed_upgrade_pair";
         fs::create_directories(installDir10 / "libtuxblox" / "lib");
         { std::ofstream out(installDir10 / "libtuxblox" / "lib" / "libQt6Core.so.6"); out << "old qt library"; }
+        { std::ofstream out(installDir10 / "TuxBloxLauncher"); out << "old launcher binary"; }
 
-        Manifest badManifest = manifest;
-        badManifest.artifacts["proton"].sha256 = "0000000000000000000000000000000000000000000000000000000000000";
-        auto outcome = runInstall(badManifest, [](const std::string&, double) {}, nullptr, /*isUpgrade=*/true,
+        Manifest badWidgetManifest = withLibraries;
+        badWidgetManifest.artifacts["widget"].sha256 = "0000000000000000000000000000000000000000000000000000000000000";
+        auto outcome = runInstall(badWidgetManifest, [](const std::string&, double) {}, nullptr, /*isUpgrade=*/true,
             installDir10.string(), robloxPlayerUrl, robloxStudioUrl);
 
         assert(!outcome.ok);
         assert(fs::exists(installDir10 / "libtuxblox" / "lib" / "libQt6Core.so.6"));
-    }
-
-    // The launcher is replaced last: if a later download fails, the old launcher and the libraries it needs are still a working pair
-    {
-        fs::path installDir11 = work / "install_launcher_last";
-        fs::create_directories(installDir11);
-        { std::ofstream out(installDir11 / "TuxBloxLauncher"); out << "old launcher binary"; }
-
-        Manifest badWidgetManifest = manifest;
-        badWidgetManifest.artifacts["widget"].sha256 = "0000000000000000000000000000000000000000000000000000000000000";
-        auto outcome = runInstall(badWidgetManifest, [](const std::string&, double) {}, nullptr, /*isUpgrade=*/true,
-            installDir11.string(), robloxPlayerUrl, robloxStudioUrl);
-
-        assert(!outcome.ok);
-        std::ifstream in(installDir11 / "TuxBloxLauncher");
+        std::ifstream in(installDir10 / "TuxBloxLauncher");
         std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
         assert(content == "old launcher binary");
+    }
+
+    // Order: everything else, then the libraries, then the launcher, so the window in which the two do not match is one small download wide
+    {
+        fs::path installDir12 = work / "install_order";
+        std::vector<std::string> labels;
+        auto outcome = runInstall(withLibraries, [&](const std::string& label, double) {
+            if (label.rfind("Upgrading ", 0) == 0 && (labels.empty() || labels.back() != label)) labels.push_back(label);
+        }, nullptr, /*isUpgrade=*/true, installDir12.string(), robloxPlayerUrl, robloxStudioUrl);
+
+        assert(outcome.ok);
+        assert(labels.size() >= 3);
+        assert(labels.back() == "Upgrading Launcher");
+        assert(labels[labels.size() - 2] == "Upgrading Libraries");
     }
 
     fs::remove_all(work);

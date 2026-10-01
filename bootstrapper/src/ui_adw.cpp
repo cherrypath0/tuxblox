@@ -158,10 +158,10 @@ void onActivate(GtkApplication *pGtkApp, gpointer data) {
     gtk_window_present(pUi->pWindow);
 }
 
-// The interface libraries are installed in a folder called ui beside the binary.
+// The interface libraries are installed in the libtuxblox folder beside the binary.
 std::string stackRoot() {
     const std::string self = selfExePath();
-    return self.substr(0, self.rfind('/')) + "/ui";
+    return self.substr(0, self.rfind('/')) + "/libtuxblox";
 }
 
 } // namespace

@@ -60,7 +60,7 @@ done
 [[ -n "$HOME" ]] || fail "HOME is not set, cannot find installation path"
 INSTALL_DIR="$HOME/.tuxblox"
 
-COMPONENTS=(compat ui TuxBloxLauncher TuxBloxInstaller TuxBloxBootstrapper studio-mcp)
+COMPONENTS=(compat libtuxblox TuxBloxLauncher TuxBloxInstaller TuxBloxBootstrapper studio-mcp)
 
 [[ -d build ]] || fail "build/ not found, make sure to run ./build.sh first"
 [[ -f build/compat/main ]] || fail "build/compat/main not found, make sure to run ./build.sh first"

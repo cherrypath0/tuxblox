@@ -49,7 +49,7 @@ std::optional<std::string> readInstalledCompatVersion(const std::string& install
 // unavailable, which cannot happen for the calling process on Linux.
 std::string selfExePath();
 
-// The shared interface libraries, installed in a folder called ui beside the running binary
+// The shared interface libraries, installed in the libtuxblox folder beside the running binary
 std::string interfaceStackRoot();
 
 } // namespace tuxblox

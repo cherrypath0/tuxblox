@@ -118,10 +118,10 @@ if(TUXBLOX_UI_STACK_DEV)
     target_compile_options(TuxBloxBootstrapper PRIVATE ${ADWAITA_CFLAGS_OTHER})
     target_link_libraries(TuxBloxBootstrapper PRIVATE
         bootstrapper_core ${ADWAITA_LINK_LIBRARIES} ${CMAKE_DL_LIBS} Threads::Threads)
-    # The libraries are installed in a folder called ui beside this binary.
+    # The libraries are installed in the libtuxblox folder beside this binary.
     set_target_properties(TuxBloxBootstrapper PROPERTIES
         BUILD_WITH_INSTALL_RPATH TRUE
-        INSTALL_RPATH "$ORIGIN/ui/lib/x86_64-linux-gnu:$ORIGIN/ui/lib")
+        INSTALL_RPATH "$ORIGIN/libtuxblox/lib/x86_64-linux-gnu:$ORIGIN/libtuxblox/lib")
     add_dependencies(TuxBloxBootstrapper generate_logo_header)
 endif()
 

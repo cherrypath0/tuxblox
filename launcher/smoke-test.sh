@@ -64,19 +64,19 @@ home=/home/tester
 root=/opt/tuxblox-smoke
 install -d -o tester "$root"
 install -o tester -m 0755 /TuxBloxLauncher "$root/TuxBloxLauncher"
-install -d -o tester "$root/ui"
-tar --zstd -xf /ui-stack.tar.zst -C "$root/ui"
-chown -R tester "$root/ui"
+install -d -o tester "$root/libtuxblox"
+tar --zstd -xf /ui-stack.tar.zst -C "$root/libtuxblox"
+chown -R tester "$root/libtuxblox"
 run() { runuser -u tester -- env HOME="$home" "$@"; }
 
 # Case A: without its libraries the launcher must fail to load, and say why.
-mv "$root/ui" "$root/ui.gone"
+mv "$root/libtuxblox" "$root/libtuxblox.gone"
 status=0
 run "$root/TuxBloxLauncher" --version >/tmp/missing.txt 2>&1 || status=$?
-mv "$root/ui.gone" "$root/ui"
+mv "$root/libtuxblox.gone" "$root/libtuxblox"
 test "$status" -ne 0 || fail 'it ran without its interface libraries'
 grep -q 'error while loading shared libraries' /tmp/missing.txt || { cat /tmp/missing.txt; fail 'the failure does not name the loader'; }
-printf 'OK: a missing ui folder fails to load (exit %s)\n' "$status"
+printf 'OK: a missing libtuxblox folder fails to load (exit %s)\n' "$status"
 
 # Case B: with them, the version is the x.y.z-channel string every component is compared by.
 version="$(run "$root/TuxBloxLauncher" --version)"
@@ -123,7 +123,7 @@ hostPattern='^(libc\.so\.6|libm\.so\.6|libdl\.so\.2|libpthread\.so\.0|librt\.so\
 stray=""
 while read -r name arrow path _; do
     [[ "$arrow" == "=>" ]] || continue
-    [[ "$path" == "$root/ui/"* ]] && continue
+    [[ "$path" == "$root/libtuxblox/"* ]] && continue
     if [[ "$name" =~ $hostPattern ]] || grep -qxF "$name" <<<"$hostOk"; then continue; fi
     stray+="$name => $path"$'\n'
 done < /tmp/deps.txt
@@ -132,9 +132,9 @@ if [[ -n "$stray" ]]; then
     fail 'stray libraries'
 fi
 for lib in libgtk-4 libadwaita libglib-2.0 libgobject-2.0 libgio-2.0 libpango-1.0 libcairo.so libgdk_pixbuf libharfbuzz libfontconfig libfreetype; do
-    grep -q "$lib.*=> $root/ui/" /tmp/deps.txt || fail "$lib is not resolved from the ui folder"
+    grep -q "$lib.*=> $root/libtuxblox/" /tmp/deps.txt || fail "$lib is not resolved from the libtuxblox folder"
 done
-printf 'OK: every library outside the host allow-list resolves from the ui folder\n'
+printf 'OK: every library outside the host allow-list resolves from the libtuxblox folder\n'
 
 # Missing schemas show up as GLib-GIO critical warnings, and mean settings such as the colour scheme silently do nothing.
 if grep -q 'GLib-GIO-CRITICAL' /tmp/launcher.log; then

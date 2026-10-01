@@ -144,12 +144,12 @@ fi
 # this whole build/ tree there via `mv` after calling this script) leaves
 # them, so a standalone run of this script produces a runnable artifact in the
 # same place either way. A plain `cp`, not `mv`: this script's own build/ must
-# stay intact for incremental rebuilds. ui/ is re-extracted wholesale, since
+# stay intact for incremental rebuilds. libtuxblox/ is re-extracted wholesale, since
 # the binary finds its libraries beside itself and a stale mix would not.
 mkdir -p ../build
 cp -f build/TuxBloxBootstrapper ../build/TuxBloxBootstrapper
-rm -rf ../build/ui
-mkdir -p ../build/ui
-tar --zstd -xf "${StackTarballs[0]}" -C ../build/ui
+rm -rf ../build/libtuxblox
+mkdir -p ../build/libtuxblox
+tar --zstd -xf "${StackTarballs[0]}" -C ../build/libtuxblox
 
-echo ":: Done. Also staged to $(cd .. && pwd)/build/TuxBloxBootstrapper (+ ui/)"
+echo ":: Done. Also staged to $(cd .. && pwd)/build/TuxBloxBootstrapper (+ libtuxblox/)"

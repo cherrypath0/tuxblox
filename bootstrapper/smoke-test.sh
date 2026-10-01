@@ -61,19 +61,19 @@ home=/home/tester
 root=/opt/tuxblox-smoke
 install -d -o tester "$root"
 install -o tester -m 0755 /TuxBloxBootstrapper "$root/TuxBloxBootstrapper"
-install -d -o tester "$root/ui"
-tar --zstd -xf /ui-stack.tar.zst -C "$root/ui"
-chown -R tester "$root/ui"
+install -d -o tester "$root/libtuxblox"
+tar --zstd -xf /ui-stack.tar.zst -C "$root/libtuxblox"
+chown -R tester "$root/libtuxblox"
 run() { runuser -u tester -- env HOME="$home" "$@"; }
 
 # Case A: without its libraries the bootstrapper must fail to load, so the launcher reads no version and repairs the install instead of trusting a broken one.
-mv "$root/ui" "$root/ui.gone"
+mv "$root/libtuxblox" "$root/libtuxblox.gone"
 status=0
 run "$root/TuxBloxBootstrapper" --version >/tmp/missing.txt 2>&1 || status=$?
-mv "$root/ui.gone" "$root/ui"
+mv "$root/libtuxblox.gone" "$root/libtuxblox"
 test "$status" -ne 0 || fail 'it ran without its interface libraries'
 grep -q 'error while loading shared libraries' /tmp/missing.txt || { cat /tmp/missing.txt; fail 'the failure does not name the loader'; }
-printf 'OK: a missing ui folder fails to load (exit %s)\n' "$status"
+printf 'OK: a missing libtuxblox folder fails to load (exit %s)\n' "$status"
 
 # Case B: with them, the version is the x.y.z-channel string the launcher compares.
 version="$(run "$root/TuxBloxBootstrapper" --version)"
@@ -124,7 +124,7 @@ hostPattern='^(libc\.so\.6|libm\.so\.6|libdl\.so\.2|libpthread\.so\.0|librt\.so\
 stray=""
 while read -r name arrow path _; do
     [[ "$arrow" == "=>" ]] || continue
-    [[ "$path" == "$root/ui/"* ]] && continue
+    [[ "$path" == "$root/libtuxblox/"* ]] && continue
     if [[ "$name" =~ $hostPattern ]] || grep -qxF "$name" <<<"$hostOk"; then continue; fi
     stray+="$name => $path"$'\n'
 done < /tmp/deps.txt
@@ -133,21 +133,21 @@ if [[ -n "$stray" ]]; then
     fail 'stray libraries'
 fi
 for lib in libgtk-4 libadwaita libglib-2.0 libgobject-2.0 libgio-2.0 libpango-1.0 libcairo.so libgdk_pixbuf libharfbuzz libfontconfig libfreetype; do
-    grep -q "$lib.*=> $root/ui/" /tmp/deps.txt || fail "$lib is not resolved from the ui folder"
+    grep -q "$lib.*=> $root/libtuxblox/" /tmp/deps.txt || fail "$lib is not resolved from the libtuxblox folder"
 done
-printf 'OK: every library outside the host allow-list resolves from the ui folder\n'
+printf 'OK: every library outside the host allow-list resolves from the libtuxblox folder\n'
 
 # The running process must not have mapped a library from outside the stack that the stack also ships, which covers modules loaded at run time such as pixbuf loaders and pango modules. Read as the same user: root in a container may not look inside another user's process.
 maps="$(runuser -u tester -- cat "/proc/$pid/maps")"
-mapped="$(grep -c "$root/ui/" <<<"$maps" || true)"
-test "$mapped" -gt 0 || fail 'the running bootstrapper maps nothing from the ui folder'
-shipped="$(ls "$root/ui/lib/x86_64-linux-gnu" | sed -E 's/(\.so\.[0-9]+).*/\1/' | sort -u)"
+mapped="$(grep -c "$root/libtuxblox/" <<<"$maps" || true)"
+test "$mapped" -gt 0 || fail 'the running bootstrapper maps nothing from the libtuxblox folder'
+shipped="$(ls "$root/libtuxblox/lib/x86_64-linux-gnu" | sed -E 's/(\.so\.[0-9]+).*/\1/' | sort -u)"
 outside=""
 while read -r file; do
     soname="$(basename "$file" | sed -E 's/(\.so\.[0-9]+).*/\1/')"
     grep -qxF "$soname" <<<"$hostOk" && continue
     grep -qxF "$soname" <<<"$shipped" && outside+="$file"$'\n'
-done < <(awk '{print $6}' <<<"$maps" | grep -E '\.so' | grep -v "^$root/ui/" | sort -u)
+done < <(awk '{print $6}' <<<"$maps" | grep -E '\.so' | grep -v "^$root/libtuxblox/" | sort -u)
 if [[ -n "$outside" ]]; then
     printf '%s\n' "$outside"
     fail 'the running bootstrapper mapped libraries from outside the stack that the stack also ships'
