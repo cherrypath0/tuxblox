@@ -29,6 +29,7 @@
 #include "asset_roblox_rdd.h"
 #include "asset_roblox_studio.h"
 #include "asset_settings.h"
+#include "asset_tuxblox_icon.h"
 
 #include <cassert>
 #include <cstdio>
@@ -54,6 +55,7 @@ int main() {
         {"roblox-rdd", kAssetRobloxRdd, kAssetRobloxRddLen},
         {"roblox-studio", kAssetRobloxStudio, kAssetRobloxStudioLen},
         {"settings", kAssetSettings, kAssetSettingsLen},
+        {"tuxblox-icon", kAssetTuxbloxIcon, kAssetTuxbloxIconLen},
     };
 
     for (const Asset &asset : assets) {

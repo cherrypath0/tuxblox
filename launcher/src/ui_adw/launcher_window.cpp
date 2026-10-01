@@ -20,6 +20,7 @@
 #include "asset_home.h"
 #include "asset_info.h"
 #include "asset_roblox_rdd.h"
+#include "asset_tuxblox_icon.h"
 #include "asset_settings.h"
 #include "desktop_integration.h"
 #include "desktop_notify.h"
@@ -196,9 +197,19 @@ GtkWidget *buildSidebar(WindowUi &ui) {
 
     GtkWidget *pName = gtk_label_new("TuxBlox");
     gtk_widget_add_css_class(pName, "heading");
-    // The desktop's own window buttons already put the app icon in this header bar, so only the name goes here
+    // The desktop's window buttons would draw the app icon here, scaled from a much larger file; this copy is made for the size it is shown at
+    GdkPaintable *pLogo = logoPaintable(kAssetTuxbloxIcon, kAssetTuxbloxIconLen);
+    GtkWidget *pLogoImage = gtk_image_new_from_paintable(pLogo);
+    g_object_unref(pLogo);
+    gtk_image_set_pixel_size(GTK_IMAGE(pLogoImage), 24);
+    GtkWidget *pBrand = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    gtk_box_append(GTK_BOX(pBrand), pLogoImage);
+    gtk_box_append(GTK_BOX(pBrand), pName);
+
     GtkWidget *pHeader = adw_header_bar_new();
-    adw_header_bar_set_title_widget(ADW_HEADER_BAR(pHeader), pName);
+    adw_header_bar_set_decoration_layout(ADW_HEADER_BAR(pHeader), ":");
+    adw_header_bar_set_show_title(ADW_HEADER_BAR(pHeader), FALSE);
+    adw_header_bar_pack_start(ADW_HEADER_BAR(pHeader), pBrand);
 
     GtkWidget *pView = adw_toolbar_view_new();
     adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(pView), pHeader);
