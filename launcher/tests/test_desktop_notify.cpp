@@ -129,15 +129,30 @@ int main() {
         assert(pressedCount.load() == 0);
     }
 
-    // Closing the launcher must not leave the notice or its thread waiting for a click that can no longer be acted on
+    // Closing the launcher must not leave the notice or its thread waiting for a click that can no longer be acted on. The real notify-send only closes its notification on an interrupt, so a program that ignores a plain terminate stands in for it
     {
-        writeFakeNotifySend(work / "waiting", "sleep 30");
+        writeFakeNotifySend(work / "waiting", "trap '' TERM\nexec sleep 30");
         setenv("PATH", ((work / "waiting").string() + ":" + oldPath).c_str(), 1);
         tuxblox::ActionNotification notice;
         notice.show("TuxBlox", "body", "tuxblox", "Update", [] {});
         const auto start = std::chrono::steady_clock::now();
         notice.cancel();
         assert(std::chrono::steady_clock::now() - start < std::chrono::seconds(5));
+    }
+
+    // The pipe that carries the answer back belongs to the launcher alone, not to Wine or the browser it starts next
+    {
+        writeFakeNotifySend(work / "waiting2", "exec sleep 30");
+        setenv("PATH", ((work / "waiting2").string() + ":" + oldPath).c_str(), 1);
+        tuxblox::ActionNotification notice;
+        notice.show("TuxBlox", "body", "tuxblox", "Update", [] {});
+        FILE *pList = popen("for f in /proc/self/fd/*; do n=${f##*/}; [ \"$n\" -gt 2 ] 2>/dev/null && readlink \"$f\"; done | grep -c pipe:", "r");
+        int pipes = -1;
+        assert(pList != nullptr && fscanf(pList, "%d", &pipes) == 1);
+        pclose(pList);
+        // Anything above the standard three that is a pipe was inherited from the launcher
+        assert(pipes == 0);
+        notice.cancel();
     }
 
     setenv("PATH", oldPath.c_str(), 1);

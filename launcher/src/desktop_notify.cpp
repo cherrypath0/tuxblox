@@ -18,6 +18,7 @@
 #include "child_environment.h"
 
 #include <csignal>
+#include <fcntl.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -75,7 +76,8 @@ void ActionNotification::show(const std::string& title, const std::string& body,
     ChildEnvironment environment;
 
     int pipeEnds[2];
-    if (pipe(pipeEnds) != 0) return;
+    // Close-on-exec, or Wine and the browser started next would inherit the read end for as long as the notice is up
+    if (pipe2(pipeEnds, O_CLOEXEC) != 0) return;
     const pid_t pid = fork();
     if (pid < 0) {
         close(pipeEnds[0]);
@@ -116,7 +118,8 @@ void ActionNotification::show(const std::string& title, const std::string& body,
 
 void ActionNotification::cancel() {
     cancelled_.store(true);
-    if (pidLive_.load() && pid_ > 0) kill(pid_, SIGTERM);
+    // notify-send takes its notification down on an interrupt, and a plain terminate would leave it on screen with a button that does nothing
+    if (pidLive_.load() && pid_ > 0) kill(pid_, SIGINT);
     if (thread_.joinable()) thread_.join();
     pid_ = -1;
 }

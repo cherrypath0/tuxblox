@@ -517,6 +517,23 @@ int main() {
         assert(fs::exists(installDir10 / "libtuxblox" / "lib" / "libQt6Core.so.6"));
     }
 
+    // The launcher is replaced last: if a later download fails, the old launcher and the libraries it needs are still a working pair
+    {
+        fs::path installDir11 = work / "install_launcher_last";
+        fs::create_directories(installDir11);
+        { std::ofstream out(installDir11 / "TuxBloxLauncher"); out << "old launcher binary"; }
+
+        Manifest badWidgetManifest = manifest;
+        badWidgetManifest.artifacts["widget"].sha256 = "0000000000000000000000000000000000000000000000000000000000000";
+        auto outcome = runInstall(badWidgetManifest, [](const std::string&, double) {}, nullptr, /*isUpgrade=*/true,
+            installDir11.string(), robloxPlayerUrl, robloxStudioUrl);
+
+        assert(!outcome.ok);
+        std::ifstream in(installDir11 / "TuxBloxLauncher");
+        std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        assert(content == "old launcher binary");
+    }
+
     fs::remove_all(work);
 
     printf("installer_steps: all tests passed\n");

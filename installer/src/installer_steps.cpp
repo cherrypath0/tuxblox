@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "installer_steps.h"
+#include <algorithm>
 #include "install_paths.h"
 #include "downloader.h"
 #include "checksum.h"
@@ -129,6 +130,8 @@ InstallOutcome runInstall(const Manifest& manifest,
     if (plans.empty()) {
         return {false, false, "manifest has no artifacts to install", ""};
     }
+    // The launcher is replaced last, so a download that fails part-way leaves the old launcher beside the libraries it needs instead of a new one without them
+    std::stable_partition(plans.begin(), plans.end(), [](const ArtifactPlan& plan) { return plan.name != "launcher"; });
     if (!hasLauncher) {
         return {false, false, "manifest has no 'launcher' artifact -- nothing to hand off to", ""};
     }
