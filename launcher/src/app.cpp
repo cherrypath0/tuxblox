@@ -205,6 +205,11 @@ void App::requestLaunch(LaunchTarget target) {
 }
 
 int App::requestTerminateProcesses() {
+    // Sessions first, so each one ends through the compatibility layer and
+    // reports success instead of being killed underneath it, which showed the
+    // user a crash window for something they asked for.
+    stopPrefixSessions(installDir_, LaunchTarget::Player);
+    stopPrefixSessions(installDir_, LaunchTarget::Studio);
     return terminatePrefixProcesses(installDir_ + "/runtime/pfx");
 }
 
