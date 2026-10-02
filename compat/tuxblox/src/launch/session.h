@@ -24,6 +24,7 @@
 #include <vector>
 
 #include "launch/proton.h"
+#include "support/sessions.h"
 #include "support/util.h"
 
 namespace tuxblox {
@@ -117,18 +118,5 @@ private:
     int logFd = -1;
     std::filesystem::path logPath;
 };
-
-// A running Roblox process that keeps the prefix session alive, as opposed to
-// a leftover helper.
-struct SessionHolder {
-    std::string pid;
-    std::string image;
-    // The Player or Studio client itself, rather than one of the installers.
-    bool client = false;
-};
-
-// Every Roblox process still running in the prefix. Empty means only helpers
-// are left and the session is over.
-std::vector<SessionHolder> prefixSessionHolders(const std::filesystem::path& prefixDir);
 
 } // namespace tuxblox

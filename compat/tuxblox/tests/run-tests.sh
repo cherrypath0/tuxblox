@@ -36,6 +36,10 @@ g++ -std=c++17 -O0 -g -Wall -Wextra -UNDEBUG \
 "$out/test_host_folders"
 
 g++ -std=c++17 -O0 -g -Wall -Wextra -UNDEBUG -I../src \
+    -o "$out/test_sessions" test_sessions.cpp ../src/support/sessions.cpp ../src/support/util.cpp
+"$out/test_sessions"
+
+g++ -std=c++17 -O0 -g -Wall -Wextra -UNDEBUG -I../src \
     -o "$out/test_registry" test_registry.cpp ../src/prefix/registry.cpp ../src/support/util.cpp
 "$out/test_registry"
 

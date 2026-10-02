@@ -44,50 +44,10 @@ namespace tuxblox {
 
 namespace {
 
-// Only these keep a prefix session alive. The crash handler, StudioMCP and
-// RCCService are helpers: if they are all that is left, the session is over
-// and the prefix should be torn down.
-const std::array<std::string_view, 2> ClientHolderImages = {
-    "robloxplayerbeta.exe",
-    "robloxstudiobeta.exe"
-};
-
-const std::array<std::string_view, 2> InstallerHolderImages = {
-    "robloxplayerinstaller.exe",
-    "robloxstudioinstaller.exe"
-};
-
 // How long an installer may keep running after the client it installed has
 // started. It normally exits within a couple of seconds, so anything past
 // this is worth telling the user about rather than waiting on in silence.
 const int StuckInstallerNoticeSeconds = 15;
-
-std::string toLower(const std::string& text) {
-    std::string lowered = text;
-    std::transform(lowered.begin(), lowered.end(), lowered.begin(),
-                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-    return lowered;
-}
-
-bool imageIsClient(const std::string& image) {
-    const std::string lowered = toLower(image);
-    return std::find(ClientHolderImages.begin(), ClientHolderImages.end(), lowered) !=
-           ClientHolderImages.end();
-}
-
-bool imageIsInstaller(const std::string& image) {
-    const std::string lowered = toLower(image);
-    return std::find(InstallerHolderImages.begin(), InstallerHolderImages.end(), lowered) !=
-           InstallerHolderImages.end();
-}
-
-// The bare file name of a path, for matching against the image lists above.
-std::string imageNameOf(const std::string& path) {
-    std::string name = path;
-    std::replace(name.begin(), name.end(), '\\', '/');
-    const size_t slash = name.rfind('/');
-    return slash == std::string::npos ? name : name.substr(slash + 1);
-}
 
 std::string describeSessionHolders(const std::vector<SessionHolder>& holders) {
     std::string description;
@@ -141,45 +101,6 @@ std::vector<char *> buildArgArray(const std::vector<std::string>& command,
     return pointers;
 }
 
-// A Wine process's /proc/<pid>/cmdline holds the Windows command line, so the
-// image name is what identifies it. comm is no use: Studio names its main
-// thread "Main".
-std::string pidWineImage(const std::string& pid) {
-    std::ifstream cmdline("/proc/" + pid + "/cmdline", std::ios::binary);
-    if (!cmdline) {
-        return "";
-    }
-    std::string first;
-    std::getline(cmdline, first, '\0');
-
-    // Cut at the first ".exe" rather than the first space: the image path can
-    // contain spaces, and later arguments can contain further ".exe" paths.
-    const size_t cut = toLower(first).find(".exe");
-    if (cut == std::string::npos) {
-        return "";
-    }
-    return imageNameOf(first.substr(0, cut + 4));
-}
-
-std::string pidWinePrefix(const std::string& pid) {
-    std::ifstream environ("/proc/" + pid + "/environ", std::ios::binary);
-    if (!environ) {
-        // Not ours to read (another user, a kernel thread), so not ours.
-        return "";
-    }
-    std::string entry;
-    const std::string wanted = "WINEPREFIX=";
-    while (std::getline(environ, entry, '\0')) {
-        if (entry.compare(0, wanted.size(), wanted) == 0) {
-            std::error_code error;
-            const fs::path value = entry.substr(wanted.size());
-            const fs::path normalized = value.lexically_normal();
-            return normalized.string();
-        }
-    }
-    return "";
-}
-
 int runSimple(const std::vector<std::string>& command, const Environment& localEnv, int logFd) {
     const pid_t child = ::fork();
     if (child < 0) {
@@ -214,42 +135,6 @@ int exitCodeFromStatus(int status) {
 }
 
 } // namespace
-
-std::vector<SessionHolder> prefixSessionHolders(const fs::path& prefixDir) {
-    std::vector<SessionHolder> holders;
-    const std::string wanted = prefixDir.lexically_normal().string();
-
-    std::error_code error;
-    fs::directory_iterator procEntries("/proc", error);
-    if (error) {
-        return holders;
-    }
-
-    for (const fs::directory_entry& entry : procEntries) {
-        const std::string pid = entry.path().filename().string();
-        if (pid.empty() || !std::all_of(pid.begin(), pid.end(),
-                                        [](unsigned char c) { return std::isdigit(c); })) {
-            continue;
-        }
-        // Image name first: cmdline is world-readable and cheap, and it
-        // narrows a few hundred processes down to the handful worth reading
-        // environ for.
-        const std::string image = pidWineImage(pid);
-        const bool client = imageIsClient(image);
-        if (!client && !imageIsInstaller(image)) {
-            continue;
-        }
-        if (pidWinePrefix(pid) != wanted) {
-            continue;
-        }
-        SessionHolder holder;
-        holder.pid = pid;
-        holder.image = image;
-        holder.client = client;
-        holders.push_back(holder);
-    }
-    return holders;
-}
 
 Session::Session(Proton& protonDist, fs::path prefix)
     : proton(protonDist), prefixDir(std::move(prefix)) {
