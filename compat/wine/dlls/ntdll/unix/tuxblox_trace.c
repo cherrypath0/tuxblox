@@ -345,6 +345,8 @@ static void diag_hex( const char *tag, ULONG_PTR addr, unsigned int len )
  * one the faulting program chose, and the resolver dump is the client's own
  * code, which has no place in a session log a user is asked to upload.
  */
+#ifdef __x86_64__
+
 void tuxblox_diag_errno_call( ULONG64 target, const CONTEXT *context )
 {
     static int shown_resolver;
@@ -375,6 +377,12 @@ void tuxblox_diag_errno_call( ULONG64 target, const CONTEXT *context )
                (unsigned long long)slot, (unsigned long long)resolver );
     diag_hex( "errno call resolver", resolver, 64 );
 }
+
+#else  /* __x86_64__ */
+
+void tuxblox_diag_errno_call( ULONG64 target, const CONTEXT *context ) { }
+
+#endif  /* __x86_64__ */
 
 /* The last raw system calls the layer issued, with the stack pointer each was
  * made on.
