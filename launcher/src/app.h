@@ -22,6 +22,7 @@
 #include <string>
 #include <thread>
 #include "lnk_resolver.h"
+#include "prefix_session.h"
 #include "settings.h"
 #include "updater.h"
 #include "versions_manifest.h"
@@ -78,6 +79,16 @@ struct AppSnapshot {
 
     VersionsManifest versions;
     VersionInstallProgress versionInstall;
+
+    // What is running in the virtual drive, refreshed about once a second by
+    // App's own thread. The Home cards read it to decide whether their button
+    // launches or stops.
+    PrefixSessions sessions;
+    // True from a Stop click until that app's sessions are actually gone. The
+    // census is up to a second old, so without this the button would go on
+    // offering Stop for a moment after being clicked.
+    bool stoppingPlayer = false;
+    bool stoppingStudio = false;
 };
 
 class App {
@@ -147,6 +158,11 @@ public:
     // while already in progress.
     void requestWipePrefix();
 
+    // Closes every running session of `target` -- the Home cards' Stop buttons.
+    // Runs on its own thread, since it waits for Roblox to actually exit, and a
+    // second request while one is still running is ignored.
+    void requestStopSessions(LaunchTarget target);
+
     // Stops everything running inside the prefix -- Roblox, wineserver and
     // the Wine services -- without touching the launcher itself. Returns
     // how many processes were signalled.
@@ -194,6 +210,8 @@ private:
     bool prepareInstallerHandoff(const Manifest& manifest);
     void uninstallThreadMain();
     void wipePrefixThreadMain();
+    void sessionPollThreadMain();
+    void stopSessionsThreadMain(LaunchTarget target);
     void versionInstallThreadMain(LaunchTarget target, VersionSelectMode mode, std::string channel,
                                    std::string manualHash);
     void applyEnvVars(const Settings& settings);
@@ -223,7 +241,13 @@ private:
     std::atomic<bool> updateCancel_{false};
     std::atomic<bool> uninstallCancel_{false};
     std::atomic<bool> versionInstallCancel_{false};
+    std::atomic<bool> sessionPollStop_{false};
+    std::atomic<bool> stopPlayerBusy_{false};
+    std::atomic<bool> stopStudioBusy_{false};
 
+    std::thread sessionPollThread_;
+    std::thread stopPlayerThread_;
+    std::thread stopStudioThread_;
     std::thread updateThread_;
     std::thread updateApplyThread_;
     std::thread uninstallThread_;

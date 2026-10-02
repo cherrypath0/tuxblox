@@ -91,6 +91,12 @@ App::App(std::string installDir, std::string currentVersion, std::string launche
             "GPU access, e.g. `distrobox create --nvidia ...` or "
             "`--additional-flags \"--device /dev/dri\"`.";
     }
+
+    // Taken once here rather than only on the poll thread, so the first frame
+    // already shows Stop for a session that was running before the launcher was
+    // opened instead of flickering from Launch a second later.
+    snapshot_.sessions = prefixSessions(installDir_ + "/runtime/pfx");
+    sessionPollThread_ = std::thread(&App::sessionPollThreadMain, this);
 }
 
 App::~App() {
@@ -102,6 +108,10 @@ App::~App() {
     updateCancel_.store(true);
     uninstallCancel_.store(true);
     versionInstallCancel_.store(true);
+    sessionPollStop_.store(true);
+    if (sessionPollThread_.joinable()) sessionPollThread_.join();
+    if (stopPlayerThread_.joinable()) stopPlayerThread_.join();
+    if (stopStudioThread_.joinable()) stopStudioThread_.join();
     if (updateThread_.joinable()) updateThread_.join();
     if (updateApplyThread_.joinable()) updateApplyThread_.join();
     if (uninstallThread_.joinable()) uninstallThread_.join();
@@ -320,6 +330,57 @@ void App::wipePrefixThreadMain() {
     snapshot_.wipePrefix.inProgress = false;
     snapshot_.wipePrefix.errorMessage = error;
     snapshot_.versions = emptyVersions;
+}
+
+void App::sessionPollThreadMain() {
+    // Once a second, not on the interface's own 100 ms tick: this walks /proc
+    // and reads a file per process, which is far too much work to do ten times
+    // a second for a button label.
+    while (!sessionPollStop_.load()) {
+        for (int waited = 0; waited < 1000 && !sessionPollStop_.load(); waited += 100) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+        if (sessionPollStop_.load()) return;
+
+        PrefixSessions sessions = prefixSessions(installDir_ + "/runtime/pfx");
+        std::lock_guard<std::mutex> lock(mutex_);
+        snapshot_.sessions = sessions;
+        if (sessions.player == 0) snapshot_.stoppingPlayer = false;
+        if (sessions.studio == 0) snapshot_.stoppingStudio = false;
+    }
+}
+
+void App::requestStopSessions(LaunchTarget target) {
+    const bool player = target == LaunchTarget::Player;
+    std::atomic<bool>& busy = player ? stopPlayerBusy_ : stopStudioBusy_;
+    if (busy.exchange(true)) return; // a stop for this app is already running
+    std::thread& thread = player ? stopPlayerThread_ : stopStudioThread_;
+    if (thread.joinable()) thread.join(); // an earlier stop has finished -- reclaim it before reusing the slot
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (player) {
+            snapshot_.stoppingPlayer = true;
+        } else {
+            snapshot_.stoppingStudio = true;
+        }
+    }
+    thread = std::thread(&App::stopSessionsThreadMain, this, target);
+}
+
+void App::stopSessionsThreadMain(LaunchTarget target) {
+    stopPrefixSessions(installDir_, target);
+
+    PrefixSessions sessions = prefixSessions(installDir_ + "/runtime/pfx");
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        snapshot_.sessions = sessions;
+        if (target == LaunchTarget::Player) {
+            snapshot_.stoppingPlayer = false;
+        } else {
+            snapshot_.stoppingStudio = false;
+        }
+    }
+    (target == LaunchTarget::Player ? stopPlayerBusy_ : stopStudioBusy_).store(false);
 }
 
 AppSnapshot App::snapshot() const {
