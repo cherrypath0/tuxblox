@@ -57,10 +57,18 @@ struct WipePrefixProgress {
     std::string errorMessage;
 };
 
+// Same shape again, for the Terminate button. `signalled` is how many processes
+// the last run closed, or -1 before one has finished.
+struct TerminateProgress {
+    bool inProgress = false;
+    int signalled = -1;
+};
+
 struct AppSnapshot {
     UpdateProgress update;
     UninstallProgress uninstall;
     WipePrefixProgress wipePrefix;
+    TerminateProgress terminate;
     Tab activeTab = Tab::Start;
     Settings settings;
     // Set once at startup (App's constructor) if running inside a
@@ -164,9 +172,11 @@ public:
     void requestStopSessions(LaunchTarget target);
 
     // Stops everything running inside the prefix -- Roblox, wineserver and
-    // the Wine services -- without touching the launcher itself. Returns
-    // how many processes were signalled.
-    int requestTerminateProcesses();
+    // the Wine services -- without touching the launcher itself. Runs on its own
+    // thread, because closing the sessions properly first can take several
+    // seconds and this is called from the interface; snapshot().terminate
+    // reports progress and how many processes were closed.
+    void requestTerminateProcesses();
 
     AppSnapshot snapshot() const;
 
@@ -212,6 +222,7 @@ private:
     void wipePrefixThreadMain();
     void sessionPollThreadMain();
     void stopSessionsThreadMain(LaunchTarget target);
+    void terminateThreadMain();
     void versionInstallThreadMain(LaunchTarget target, VersionSelectMode mode, std::string channel,
                                    std::string manualHash);
     void applyEnvVars(const Settings& settings);
@@ -244,10 +255,12 @@ private:
     std::atomic<bool> sessionPollStop_{false};
     std::atomic<bool> stopPlayerBusy_{false};
     std::atomic<bool> stopStudioBusy_{false};
+    std::atomic<bool> terminateBusy_{false};
 
     std::thread sessionPollThread_;
     std::thread stopPlayerThread_;
     std::thread stopStudioThread_;
+    std::thread terminateThread_;
     std::thread updateThread_;
     std::thread updateApplyThread_;
     std::thread uninstallThread_;

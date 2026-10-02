@@ -67,6 +67,8 @@ private:
     AdwComboRow *pGpu_ = nullptr;
     GtkEntry *pEnvironment_ = nullptr;
     GtkButton *pTerminate_ = nullptr;
+    // True from a Terminate click until its result has been shown on the button.
+    bool terminateAwaited_ = false;
     GtkButton *pWipe_ = nullptr;
     GtkWidget *pWipeError_ = nullptr;
     GtkButton *pUninstall_ = nullptr;

@@ -131,6 +131,18 @@ std::string normalized(const std::string& path) {
     return value;
 }
 
+// Symlinks resolved, not just the path collapsed: /proc/<pid>/exe is a resolved
+// path, and an install reached through a symlink spells its own paths the other
+// way, so both sides of a comparison have to be put in the same form.
+std::string resolved(const std::string& path) {
+    if (path.empty()) {
+        return path;
+    }
+    std::error_code error;
+    const fs::path canonical = fs::weakly_canonical(path, error);
+    return normalized(error ? path : canonical.string());
+}
+
 bool isPidName(const std::string& name) {
     return !name.empty() && std::all_of(name.begin(), name.end(),
                                         [](unsigned char c) { return std::isdigit(c); });
@@ -213,16 +225,19 @@ std::vector<std::string> sessionsToReplace(const std::string& image,
     return pids;
 }
 
-bool shouldTearDownPrefix(bool ownsPrefix, const std::vector<SessionHolder>& remaining) {
-    return ownsPrefix && remaining.empty();
+DriveExit driveExitOnClose(bool ownsPrefix, const std::vector<SessionHolder>& remaining) {
+    if (!ownsPrefix) {
+        return DriveExit::Leave;
+    }
+    return remaining.empty() ? DriveExit::TearDownNow : DriveExit::WaitThenTearDown;
 }
 
 std::vector<std::string> otherLayerProcesses(const fs::path& procRoot, const fs::path& layerBinary,
                                              const std::string& tuxbloxPrefix,
                                              const std::string& image, int selfPid) {
     std::vector<std::string> pids;
-    const fs::path wantedBinary = layerBinary.lexically_normal();
-    const std::string wantedPrefix = normalized(tuxbloxPrefix);
+    const std::string wantedBinary = resolved(layerBinary.string());
+    const std::string wantedPrefix = resolved(tuxbloxPrefix);
     const std::string wantedImage = toLower(imageNameOf(image));
 
     std::error_code error;
@@ -238,13 +253,13 @@ std::vector<std::string> otherLayerProcesses(const fs::path& procRoot, const fs:
         }
         std::error_code linkError;
         const fs::path exe = fs::read_symlink(entry.path() / "exe", linkError);
-        if (linkError || exe.lexically_normal() != wantedBinary) {
+        if (linkError || resolved(exe.string()) != wantedBinary) {
             continue;
         }
         if (toLower(pidLayerTarget(procRoot, pid)) != wantedImage) {
             continue;
         }
-        if (normalized(envValue(entry.path() / "environ", "TUXBLOX_PREFIX")) != wantedPrefix) {
+        if (resolved(envValue(entry.path() / "environ", "TUXBLOX_PREFIX")) != wantedPrefix) {
             continue;
         }
         pids.push_back(pid);
@@ -275,10 +290,17 @@ void replaceRunningSession(const fs::path& prefixDir, const std::string& image,
         }
     }
 
+    // Both the Roblox process and whatever is closing it: the other layer process
+    // only exits once it has finished with the virtual drive, and the drive is set
+    // up again moments from now, so leaving while it is still working lets the two
+    // write over each other.
+    std::vector<std::string> waitingFor = replacing;
+    waitingFor.insert(waitingFor.end(), owners.begin(), owners.end());
+
     const struct timespec pollInterval = {0, 100 * 1000 * 1000};
     for (int waited = 0; waited < ReplaceWaitSeconds * 10; waited++) {
         bool anyAlive = false;
-        for (const std::string& pid : replacing) {
+        for (const std::string& pid : waitingFor) {
             if (pidAlive(pid)) {
                 anyAlive = true;
                 break;

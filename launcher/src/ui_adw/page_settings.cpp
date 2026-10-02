@@ -214,10 +214,10 @@ void SettingsPage::onEnvironmentFocusLeft(GtkEventControllerFocus *, gpointer da
 
 void SettingsPage::onTerminate(GtkButton *pButton, gpointer data) {
     auto *pSelf = static_cast<SettingsPage *>(data);
-    const int signalled = pSelf->app_.requestTerminateProcesses();
-    setButtonLabel(pButton, signalled == 0 ? "Nothing running" : "Stopped " + std::to_string(signalled));
+    pSelf->terminateAwaited_ = true;
+    pSelf->app_.requestTerminateProcesses();
+    setButtonLabel(pButton, "Stopping\xE2\x80\xA6");
     gtk_widget_set_sensitive(GTK_WIDGET(pButton), FALSE);
-    g_timeout_add(2500, onTerminateReset, pSelf);
 }
 
 gboolean SettingsPage::onTerminateReset(gpointer data) {
@@ -268,6 +268,15 @@ void SettingsPage::update(const AppSnapshot &snap) {
     gtk_widget_set_sensitive(GTK_WIDGET(pUninstall_), !snap.uninstall.inProgress);
     setButtonLabel(pUninstall_, snap.uninstall.inProgress ? "Uninstalling\xE2\x80\xA6" : "Uninstall");
     showError(pUninstallError_, snap.uninstall.errorMessage);
+
+    // Closing the sessions properly takes seconds, so this follows the snapshot the way Wipe does rather than a return value, which used to freeze the window while it worked.
+    if (terminateAwaited_ && !snap.terminate.inProgress && snap.terminate.signalled >= 0) {
+        terminateAwaited_ = false;
+        setButtonLabel(pTerminate_, snap.terminate.signalled == 0
+                                        ? "Nothing running"
+                                        : "Stopped " + std::to_string(snap.terminate.signalled));
+        g_timeout_add(2500, onTerminateReset, this);
+    }
 }
 
 } // namespace tuxblox

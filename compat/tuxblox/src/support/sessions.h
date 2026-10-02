@@ -53,10 +53,19 @@ std::vector<SessionHolder> prefixSessionHolders(const std::filesystem::path& pre
 std::vector<std::string> sessionsToReplace(const std::string& image,
                                            const std::vector<SessionHolder>& holders);
 
-// Whether a session on its way out should take the virtual drive down with it.
-// The first session to start owns the drive, so without the second condition
-// closing it would close every other session sharing it.
-bool shouldTearDownPrefix(bool ownsPrefix, const std::vector<SessionHolder>& remaining);
+// What a session closing must do with the virtual drive.
+enum class DriveExit {
+    // A session that joined somebody else's drive: never its to close.
+    Leave,
+    // The last one out closes the drive behind it.
+    TearDownNow,
+    // This session owns the drive but others are still using it, so it has to
+    // stay until the last of them leaves and close the drive then. Leaving now
+    // would leave the drive running with nobody left who will ever close it.
+    WaitThenTearDown
+};
+
+DriveExit driveExitOnClose(bool ownsPrefix, const std::vector<SessionHolder>& remaining);
 
 // The other compatibility-layer processes running `image` for this virtual
 // drive. Matched on the resolved exe rather than the command line, so another

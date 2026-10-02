@@ -82,8 +82,6 @@ const std::array<std::string, 8> HelpOutput = {
     "run <executable>        Runs the specified executable"
 };
 
-const int PrefixDrainTimeoutSeconds = 15;
-
 const std::string TuxBloxPublisher = "TuxBlox Project";
 const std::string RobloxPublisher = "Roblox Corporation";
 const int IntegrityFailureExit = 3;
@@ -279,8 +277,9 @@ int runMain(int argc, char *argv[]) {
 
     const int rc = session.run(target);
 
-    if (!command.runImmediately) {
-        session.waitForPrefixDrain(PrefixDrainTimeoutSeconds);
+    // A stop that arrives while the drive is draining ends the run as a success: the user asked for it, so it is not a failure to report.
+    if (!command.runImmediately && session.waitForPrefixDrain(tuxblox::PrefixDrainTimeoutSeconds)) {
+        return 0;
     }
 
     // TuxBlox exit codes:

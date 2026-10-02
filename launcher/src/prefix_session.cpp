@@ -92,6 +92,16 @@ std::string layerTargetImage(const std::string& cmdlineBlob) {
     return wineImageNameFromCmdline(joined);
 }
 
+// Symlinks resolved, not just the path collapsed: /proc/<pid>/exe is a resolved
+// path, and an install reached through a symlink spells its own paths the other
+// way, so both sides of a comparison have to be put in the same form.
+std::string resolvedPath(const std::string& p) {
+    if (p.empty()) return p;
+    std::error_code ec;
+    const fs::path resolved = fs::weakly_canonical(p, ec);
+    return normalizePath(ec ? p : resolved.string());
+}
+
 bool anyAlive(const std::vector<int>& pids) {
     for (int pid : pids)
         if (::kill(pid, 0) == 0) return true;
@@ -229,8 +239,11 @@ std::vector<int> layerProcessesForIn(const std::string& procRoot, const std::str
                                      LaunchTarget target) {
     std::vector<int> pids;
     std::error_code ec;
-    const fs::path layerBinary = fs::path(compatBinaryPath(installDir)).lexically_normal();
-    const std::string wantPrefix = normalizePath(installDir + "/runtime");
+    // Resolved, so an install reached through a symlink still matches: otherwise
+    // every Stop falls back to killing Roblox outright, and the layer's non-zero
+    // exit shows the crash window this exists to avoid.
+    const std::string layerBinary = resolvedPath(compatBinaryPath(installDir));
+    const std::string wantPrefix = resolvedPath(installDir + "/runtime");
     const std::string wantImage = target == LaunchTarget::Player ? "robloxplayerbeta.exe"
                                                                  : "robloxstudiobeta.exe";
 
@@ -247,11 +260,11 @@ std::vector<int> layerProcessesForIn(const std::string& procRoot, const std::str
 
         std::error_code linkEc;
         const fs::path exe = fs::read_symlink(entry.path() / "exe", linkEc);
-        if (linkEc || exe.lexically_normal() != layerBinary) continue;
+        if (linkEc || resolvedPath(exe.string()) != layerBinary) continue;
 
         if (layerTargetImage(readWholeFile(entry.path() / "cmdline")) != wantImage) continue;
-        if (normalizePath(envValueFromEnviron(readWholeFile(entry.path() / "environ"),
-                                             "TUXBLOX_PREFIX")) != wantPrefix) continue;
+        if (resolvedPath(envValueFromEnviron(readWholeFile(entry.path() / "environ"),
+                                            "TUXBLOX_PREFIX")) != wantPrefix) continue;
         pids.push_back(pid);
     }
     return pids;

@@ -91,13 +91,17 @@ int main() {
     assert(sessionsToReplace("RobloxPlayerInstaller.exe", holders).empty());
     assert(sessionsToReplace("RobloxPlayerBeta.exe", {}).empty());
 
-    // shouldTearDownPrefix(): a drive another session is still using must survive.
-    assert(shouldTearDownPrefix(true, {}));
-    assert(!shouldTearDownPrefix(false, {}));
+    // driveExitOnClose(): who takes the virtual drive down as a session closes.
+    // The last one out takes it down; a guest never does; and a session that owns
+    // the drive but is not the last out has to stay until the others leave --
+    // exiting then would leave the drive running with nobody left to close it.
     std::vector<SessionHolder> studioLeft = {SessionHolder{"51", "robloxstudiobeta.exe", true}};
-    assert(!shouldTearDownPrefix(true, studioLeft));
     std::vector<SessionHolder> installerLeft = {SessionHolder{"52", "robloxstudioinstaller.exe", false}};
-    assert(!shouldTearDownPrefix(true, installerLeft));
+    assert(driveExitOnClose(true, {}) == DriveExit::TearDownNow);
+    assert(driveExitOnClose(false, {}) == DriveExit::Leave);
+    assert(driveExitOnClose(false, studioLeft) == DriveExit::Leave);
+    assert(driveExitOnClose(true, studioLeft) == DriveExit::WaitThenTearDown);
+    assert(driveExitOnClose(true, installerLeft) == DriveExit::WaitThenTearDown);
 
     // otherLayerProcesses(): which layer process is running which session.
     {

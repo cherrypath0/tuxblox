@@ -494,14 +494,20 @@ int Session::runProc(const std::vector<std::string>& command, const Environment&
             }
 
             // wineserver outlives any single client on purpose, so it and the helpers connected to it survive killing our own process group.
-            // Only the last session out takes the drive down: a run that joined somebody else's must not, and neither must one whose drive another session is still using.
-            if (shouldTearDownPrefix(ownsPrefix, prefixSessionHolders(prefixDir))) {
+            const DriveExit driveExit = driveExitOnClose(ownsPrefix, prefixSessionHolders(prefixDir));
+            if (driveExit == DriveExit::TearDownNow) {
                 runSimple({proton.wineserverBin.string(), "-k"}, localEnv, logFd);
             }
 
             sigprocmask(SIG_SETMASK, &previous, nullptr);
             if (stopRequested) {
-                log("Session closed at TuxBlox's request.");
+                // This session is closing but it owns a drive others are still using, so it keeps the owner's duty and closes the drive once the last of them leaves.
+                if (driveExit == DriveExit::WaitThenTearDown) {
+                    log("Session closed at TuxBlox's request; staying until the other sessions in the virtual drive close.");
+                    waitForPrefixDrain(PrefixDrainTimeoutSeconds);
+                } else {
+                    log("Session closed at TuxBlox's request.");
+                }
                 std::exit(0);
             }
             reportExitCodes(exitCodeFromStatus(status));
@@ -571,17 +577,21 @@ void Session::writeLine(const std::string& line) {
     static_cast<void>(written);
 }
 
-void Session::waitForPrefixDrain(int timeoutSeconds) {
+bool Session::waitForPrefixDrain(int timeoutSeconds) {
     std::vector<std::string> argStorage;
     std::vector<std::string> envStorage;
 
     // Blocked here too, not just in runProc: a Ctrl+C while waiting has to tear
     // the prefix down, otherwise wineserver and everything still connected to
     // it outlive this process as orphans.
+    // SIGUSR1 is collected here as well, because it is blocked process-wide and
+    // would otherwise stay pending for the whole wait -- a Stop during it would
+    // be dropped, and the launcher would fall back to killing Roblox outright.
     sigset_t blocked;
     sigemptyset(&blocked);
     sigaddset(&blocked, SIGINT);
     sigaddset(&blocked, SIGTERM);
+    sigaddset(&blocked, SIGUSR1);
 
     sigset_t previous;
     sigprocmask(SIG_BLOCK, &blocked, &previous);
@@ -589,7 +599,7 @@ void Session::waitForPrefixDrain(int timeoutSeconds) {
     const pid_t watcher = ::fork();
     if (watcher < 0) {
         sigprocmask(SIG_SETMASK, &previous, nullptr);
-        return;
+        return false;
     }
     if (watcher == 0) {
         ::setsid();
@@ -611,6 +621,7 @@ void Session::waitForPrefixDrain(int timeoutSeconds) {
     // self-relaunch this wait exists for is exactly an app outliving the
     // process runProc waited on.
     bool haveDeadline = false;
+    bool stopRequested = false;
     time_t deadline = 0;
     std::string reported;
     const struct timespec pollInterval = {1, 0};
@@ -619,10 +630,15 @@ void Session::waitForPrefixDrain(int timeoutSeconds) {
         int status = 0;
         if (::waitpid(watcher, &status, WNOHANG) == watcher) {
             sigprocmask(SIG_SETMASK, &previous, nullptr);
-            return;
+            return false;
         }
 
         const int signalNumber = ::sigtimedwait(&blocked, nullptr, &pollInterval);
+        if (signalNumber == SIGUSR1) {
+            stopRequested = true;
+            log("Closing the virtual drive at TuxBlox's request.");
+            break;
+        }
         if (signalNumber == SIGINT || signalNumber == SIGTERM) {
             log("Interrupted while waiting for the prefix, tearing it down");
             break;
@@ -655,7 +671,7 @@ void Session::waitForPrefixDrain(int timeoutSeconds) {
         int status = 0;
         if (::waitpid(watcher, &status, WNOHANG) == watcher) {
             sigprocmask(SIG_SETMASK, &previous, nullptr);
-            return;
+            return stopRequested;
         }
         const struct timespec shortWait = {0, 100 * 1000 * 1000};
         ::nanosleep(&shortWait, nullptr);
@@ -664,6 +680,7 @@ void Session::waitForPrefixDrain(int timeoutSeconds) {
     int status = 0;
     ::waitpid(watcher, &status, 0);
     sigprocmask(SIG_SETMASK, &previous, nullptr);
+    return stopRequested;
 }
 
 // Windows always runs csrss.exe, and anything that reads the process list

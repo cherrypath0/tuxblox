@@ -72,10 +72,11 @@ App::App(std::string installDir, std::string currentVersion, std::string launche
     // Start tab would offer "Install & Launch" for something that's
     // sitting right there in the prefix).
     snapshot_.versions = loadInstalledVersions(installDir_);
-    // Safe to call unlocked here: the constructor runs before
-    // startUpdateCheck() spawns any other thread, so nothing else can be
-    // concurrently calling getenv() yet. See applyGlobalEnvVars()'s own
-    // comment for why that ordering matters everywhere else it's called.
+    // Safe to call unlocked here: no thread of this object's has started yet, so
+    // nothing else can be concurrently calling getenv(). Anything added below the
+    // session poll thread started at the end of this constructor no longer has
+    // that guarantee. See applyGlobalEnvVars()'s own comment for why the ordering
+    // matters everywhere else it is called.
     applyEnvVars(snapshot_.settings);
 
     // A missing /dev/dri inside a Distrobox container almost always means
@@ -112,6 +113,7 @@ App::~App() {
     if (sessionPollThread_.joinable()) sessionPollThread_.join();
     if (stopPlayerThread_.joinable()) stopPlayerThread_.join();
     if (stopStudioThread_.joinable()) stopStudioThread_.join();
+    if (terminateThread_.joinable()) terminateThread_.join();
     if (updateThread_.joinable()) updateThread_.join();
     if (updateApplyThread_.joinable()) updateApplyThread_.join();
     if (uninstallThread_.joinable()) uninstallThread_.join();
@@ -204,13 +206,35 @@ void App::requestLaunch(LaunchTarget target) {
     if (closeWindow) shouldQuit_.store(true);
 }
 
-int App::requestTerminateProcesses() {
+void App::requestTerminateProcesses() {
+    if (terminateBusy_.exchange(true)) return; // already running -- ignore repeat clicks
+    if (terminateThread_.joinable()) terminateThread_.join(); // an earlier run has finished -- reclaim it before reusing the slot
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        snapshot_.terminate.inProgress = true;
+        snapshot_.terminate.signalled = -1;
+    }
+    terminateThread_ = std::thread(&App::terminateThreadMain, this);
+}
+
+void App::terminateThreadMain() {
     // Sessions first, so each one ends through the compatibility layer and
     // reports success instead of being killed underneath it, which showed the
     // user a crash window for something they asked for.
-    stopPrefixSessions(installDir_, LaunchTarget::Player);
-    stopPrefixSessions(installDir_, LaunchTarget::Studio);
-    return terminatePrefixProcesses(installDir_ + "/runtime/pfx");
+    const int sessions = stopPrefixSessions(installDir_, LaunchTarget::Player) +
+                          stopPrefixSessions(installDir_, LaunchTarget::Studio);
+    // Both counts: closing the sessions can empty the drive by itself, and
+    // reporting only the sweep would then say nothing was running.
+    const int signalled = sessions + terminatePrefixProcesses(installDir_ + "/runtime/pfx");
+
+    PrefixSessions sessionsLeft = prefixSessions(installDir_ + "/runtime/pfx");
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        snapshot_.terminate.inProgress = false;
+        snapshot_.terminate.signalled = signalled;
+        snapshot_.sessions = sessionsLeft;
+    }
+    terminateBusy_.store(false);
 }
 
 void App::requestUninstall() {

@@ -29,6 +29,9 @@
 
 namespace tuxblox {
 
+// How long the virtual drive may stay busy after the last Roblox process has gone before it is closed anyway.
+const int PrefixDrainTimeoutSeconds = 15;
+
 // Which graphics backend the prefix should be set up for. Roblox usually
 // renders through its own Vulkan backend, but it can fall back to Direct3D or
 // OpenGL, so both paths have to keep working.
@@ -75,8 +78,9 @@ public:
 
     // Waits for every process in the prefix to disconnect from wineserver.
     // The timeout only starts once no Roblox process is left, so a live
-    // session is never cut short.
-    void waitForPrefixDrain(int timeoutSeconds);
+    // session is never cut short. True means a stop arrived during the wait, so
+    // the run ends as a success rather than reporting the drive being closed.
+    bool waitForPrefixDrain(int timeoutSeconds);
 
     Environment env;
 

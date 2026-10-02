@@ -277,6 +277,16 @@ int main() {
                                                      LaunchTarget::Player);
         assert((player == std::vector<int>{41}));
 
+        // An install reached through a symlink still matches. /proc/<pid>/exe is
+        // fully resolved, so comparing it against an unresolved install path finds
+        // nothing, every Stop falls back to killing Roblox outright, and the layer
+        // then exits non-zero -- which is the crash window this exists to avoid.
+        const fs::path linkedInstall = tmp / "install-link";
+        fs::create_directory_symlink(installDir, linkedInstall);
+        std::vector<int> viaLink = layerProcessesForIn(layerRoot.string(), linkedInstall.string(),
+                                                      LaunchTarget::Player);
+        assert((viaLink == std::vector<int>{41}));
+
         // Nothing running for an install with no processes at all.
         assert(layerProcessesForIn(layerRoot.string(), (tmp / "install3").string(),
                                    LaunchTarget::Studio).empty());
