@@ -37,18 +37,19 @@ SettingsPage::SettingsPage(App &app) : app_(app) {
     pRoot_ = adw_preferences_page_new();
 
     AdwPreferencesGroup *pLauncher = addGroup("Launcher");
-    addToggle(pLauncher, "Minimize to background", "Close this window when Roblox starts.",
+    addToggle(pLauncher, "Minimize to background", "Automatically close this window whenever Roblox starts.",
               &Settings::minimizeToBackground);
 
     buildUpdates();
     buildEnvironment();
 
     AdwPreferencesGroup *pController = addGroup("Controller");
-    addToggle(pController, "Enable Haptics", "Let Roblox vibrate your controller.", &Settings::haptics);
+    addToggle(pController, "Enable Haptics", "An experimental feature that lets Roblox vibrate your controller",
+              &Settings::haptics);
 
     AdwPreferencesGroup *pTroubleshooting = addGroup("Troubleshooting");
     addToggle(pTroubleshooting, "Detailed logging",
-              "Record much more in the session log. Only useful when reporting a problem.",
+              "Records much more information in session logs. Turn this on if you're reporting a bug.",
               &Settings::debugLogging);
 
     AdwPreferencesGroup *pPrivacy = addGroup("Privacy");
@@ -85,7 +86,7 @@ void SettingsPage::buildUpdates() {
 
     GtkWidget *pChannel = adw_combo_row_new();
     adw_preferences_row_set_title(ADW_PREFERENCES_ROW(pChannel), "Update channel");
-    adw_action_row_set_subtitle(ADW_ACTION_ROW(pChannel), "Which releases TuxBlox updates to.");
+    adw_action_row_set_subtitle(ADW_ACTION_ROW(pChannel), "The release channel TuxBlox updates to");
     GtkStringList *pChannels = gtk_string_list_new(Channels);
     adw_combo_row_set_model(ADW_COMBO_ROW(pChannel), G_LIST_MODEL(pChannels));
     g_object_unref(pChannels);
@@ -103,7 +104,6 @@ void SettingsPage::buildEnvironment() {
 
     GtkWidget *pGpu = adw_combo_row_new();
     adw_preferences_row_set_title(ADW_PREFERENCES_ROW(pGpu), "Graphics card");
-    adw_action_row_set_subtitle(ADW_ACTION_ROW(pGpu), "Which graphics card Roblox renders on.");
     GtkStringList *pGpus = gtk_string_list_new(nullptr);
     gtk_string_list_append(pGpus, automaticGpuLabel(gpus_).c_str());
     for (size_t i = 0; i < gpus_.size(); ++i) {
@@ -116,12 +116,12 @@ void SettingsPage::buildEnvironment() {
     adw_preferences_group_add(pGroup, pGpu);
 
     addToggle(pGroup, "GPU acceleration for web pages",
-              "Speed up the login screen and the Toolbox. Turn off if they look wrong.", &Settings::webviewGpu);
-    addToggle(pGroup, "Virtual Desktop Mode", "Keep every Roblox window inside one window of its own.",
+              "Speed up the rendering of web panels using your graphics card", &Settings::webviewGpu);
+    addToggle(pGroup, "Virtual Desktop Mode", "Run Roblox in a separate window that acts as a desktop",
               &Settings::virtualDesktop);
 
-    // An entry beside the row rather than an AdwEntryRow, which has no room for the explanation underneath
-    GtkWidget *pRow = plainActionRow("Environment variables", "Passed to Roblox when it starts.");
+    // An entry beside the row rather than an AdwEntryRow, which puts the entry on its own line
+    GtkWidget *pRow = plainActionRow("Environment variables", "");
     GtkWidget *pEntry = gtk_entry_new();
     pEnvironment_ = GTK_ENTRY(pEntry);
     gtk_entry_set_placeholder_text(pEnvironment_, "VARIABLE=value");

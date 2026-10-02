@@ -145,8 +145,8 @@ void VersionsPage::connectRowAction(GtkWidget *pButton, GCallback onClicked, Lau
 }
 
 GtkWidget *VersionsPage::versionRow(LaunchTarget target, const AppVersions &versions, const InstalledVersion &version) {
+    // The bundled font, not the monospace family: TuxBlox ships no monospace font, so what that family picks is the machine's, and on this one it draws a 7 as a bare slash
     GtkWidget *pRow = plainActionRow(version.hash, describe(version));
-    gtk_widget_add_css_class(pRow, "monospace");
 
     if (version.hash == versions.activeHash) {
         GtkWidget *pActive = gtk_label_new("Active");

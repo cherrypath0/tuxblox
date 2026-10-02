@@ -48,8 +48,8 @@ FastFlagsPage::FastFlagsPage(App &app) : app_(app) {
     pRoot_ = adw_preferences_page_new();
     adw_preferences_page_set_description(
         ADW_PREFERENCES_PAGE(pRoot_),
-        "FastFlags are internal Roblox settings that you can configure. Note that Roblox has a FastFlag allowlist, and "
-        "Roblox may ban or take action against your account for using this.");
+        "Hidden Roblox settings you can change yourself. Only some of them are meant to be changed, and what happens "
+        "to an account that changes the rest is Roblox's decision alone.");
     adw_preferences_page_add(ADW_PREFERENCES_PAGE(pRoot_), buildSection(player_, "Player"));
     adw_preferences_page_add(ADW_PREFERENCES_PAGE(pRoot_), buildSection(studio_, "Studio"));
 }

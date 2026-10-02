@@ -130,6 +130,7 @@ GtkWidget *HomePage::buildCard(Card &card, const char *pTitle, const unsigned ch
 
     GtkWidget *pMeta = textLabel("Not installed yet", "caption");
     gtk_widget_add_css_class(pMeta, "dim-label");
+    gtk_widget_add_css_class(pMeta, "version-meta");
     gtk_label_set_ellipsize(GTK_LABEL(pMeta), PANGO_ELLIPSIZE_END);
     card.pMeta = GTK_LABEL(pMeta);
 
@@ -213,10 +214,8 @@ void HomePage::setCard(Card &card, bool installed, const std::string &versionLab
     g_object_unref(pIcon);
     if (installed) {
         gtk_widget_add_css_class(GTK_WIDGET(card.pButton), "launch-green");
-        gtk_widget_add_css_class(GTK_WIDGET(card.pMeta), "monospace");
     } else {
         gtk_widget_remove_css_class(GTK_WIDGET(card.pButton), "launch-green");
-        gtk_widget_remove_css_class(GTK_WIDGET(card.pMeta), "monospace");
     }
 }
 
