@@ -386,13 +386,14 @@ int Session::runProc(const std::vector<std::string>& command) {
 }
 
 int Session::runProc(const std::vector<std::string>& command, const Environment& localEnv) {
-    // Block both signals up front so the wait loop can collect them with
+    // Block the signals up front so the wait loop can collect them with
     // sigtimedwait instead of running teardown inside a signal handler,
     // where almost nothing is safe to call.
     sigset_t blocked;
     sigemptyset(&blocked);
     sigaddset(&blocked, SIGINT);
     sigaddset(&blocked, SIGTERM);
+    sigaddset(&blocked, SIGUSR1);
 
     sigset_t previous;
     sigprocmask(SIG_BLOCK, &blocked, &previous);
@@ -474,7 +475,9 @@ int Session::runProc(const std::vector<std::string>& command, const Environment&
         }
 
         const int signalNumber = ::sigtimedwait(&blocked, nullptr, &pollInterval);
-        if (signalNumber == SIGINT || signalNumber == SIGTERM) {
+        if (signalNumber == SIGINT || signalNumber == SIGTERM || signalNumber == SIGUSR1) {
+            // SIGUSR1 is a stop TuxBlox asked for -- a Stop button, or a new Player session taking this one's place. It is not a failure, so it reports success and the launcher shows nothing.
+            const bool stopRequested = signalNumber == SIGUSR1;
             killProcessGroup(child, SIGTERM);
 
             bool reaped = false;
@@ -491,12 +494,16 @@ int Session::runProc(const std::vector<std::string>& command, const Environment&
             }
 
             // wineserver outlives any single client on purpose, so it and the helpers connected to it survive killing our own process group.
-            // A run that only joined the virtual drive stops here instead: the Studio MCP helper shares one with Studio, and tearing it down would close Studio too.
-            if (ownsPrefix) {
+            // Only the last session out takes the drive down: a run that joined somebody else's must not, and neither must one whose drive another session is still using.
+            if (shouldTearDownPrefix(ownsPrefix, prefixSessionHolders(prefixDir))) {
                 runSimple({proton.wineserverBin.string(), "-k"}, localEnv, logFd);
             }
 
             sigprocmask(SIG_SETMASK, &previous, nullptr);
+            if (stopRequested) {
+                log("Session closed at TuxBlox's request.");
+                std::exit(0);
+            }
             reportExitCodes(exitCodeFromStatus(status));
             // A user-initiated Ctrl+C is not a TuxBlox failure, so this
             // reports as "the wrapped process ended abnormally".

@@ -28,6 +28,7 @@
 #include <string_view>
 #include <vector>
 
+#include <signal.h>
 #include <unistd.h>
 
 #include "integrity/authenticode.h"
@@ -168,6 +169,14 @@ int runMain(int argc, char *argv[]) {
     if (command.handled) {
         return 0;
     }
+
+    // Blocked from the start, so a stop that arrives while the virtual drive is
+    // still being set up waits for the loop that knows how to act on it instead
+    // of ending this process where it stands.
+    sigset_t stopSignal;
+    sigemptyset(&stopSignal);
+    sigaddset(&stopSignal, SIGUSR1);
+    sigprocmask(SIG_BLOCK, &stopSignal, nullptr);
 
     // After --help and --version, which the launcher asks of every binary on startup and must keep answering whatever user runs them.
     if (::geteuid() == 0) {
