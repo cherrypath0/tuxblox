@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "prefix_session.h"
+#include "launch_paths.h"
 #include <cctype>
 #include <chrono>
 #include <cstdlib>
@@ -80,6 +81,20 @@ bool imageIsStudio(const std::string& image) { return image == kClientImages[1];
 bool imageIsInstaller(const std::string& image) {
     for (const char* candidate : kInstallerImages)
         if (image == candidate) return true;
+    return false;
+}
+
+// The image a layer process was told to run. Its own path has no ".exe" in it,
+// so the first one in the whole command line is the Roblox executable.
+std::string layerTargetImage(const std::string& cmdlineBlob) {
+    std::string joined = cmdlineBlob;
+    for (char& c : joined) if (c == '\0') c = ' ';
+    return wineImageNameFromCmdline(joined);
+}
+
+bool anyAlive(const std::vector<int>& pids) {
+    for (int pid : pids)
+        if (::kill(pid, 0) == 0) return true;
     return false;
 }
 
@@ -208,6 +223,69 @@ bool launchJoinsPrefix(LaunchTarget target, const PrefixSessions& sessions) {
     const int others = target == LaunchTarget::Player ? sessions.studio
                                                       : sessions.player + sessions.studio;
     return others + sessions.installers > 0;
+}
+
+std::vector<int> layerProcessesForIn(const std::string& procRoot, const std::string& installDir,
+                                     LaunchTarget target) {
+    std::vector<int> pids;
+    std::error_code ec;
+    const fs::path layerBinary = fs::path(compatBinaryPath(installDir)).lexically_normal();
+    const std::string wantPrefix = normalizePath(installDir + "/runtime");
+    const std::string wantImage = target == LaunchTarget::Player ? "robloxplayerbeta.exe"
+                                                                 : "robloxstudiobeta.exe";
+
+    fs::directory_iterator it(procRoot, ec);
+    if (ec) return pids;
+
+    const int self = static_cast<int>(getpid());
+    for (const auto& entry : it) {
+        const std::string name = entry.path().filename().string();
+        if (name.empty() || name.find_first_not_of("0123456789") != std::string::npos) continue;
+
+        const int pid = std::atoi(name.c_str());
+        if (pid <= 0 || pid == self) continue;
+
+        std::error_code linkEc;
+        const fs::path exe = fs::read_symlink(entry.path() / "exe", linkEc);
+        if (linkEc || exe.lexically_normal() != layerBinary) continue;
+
+        if (layerTargetImage(readWholeFile(entry.path() / "cmdline")) != wantImage) continue;
+        if (normalizePath(envValueFromEnviron(readWholeFile(entry.path() / "environ"),
+                                             "TUXBLOX_PREFIX")) != wantPrefix) continue;
+        pids.push_back(pid);
+    }
+    return pids;
+}
+
+std::vector<int> layerProcessesFor(const std::string& installDir, LaunchTarget target) {
+    return layerProcessesForIn("/proc", installDir, target);
+}
+
+int stopPrefixSessions(const std::string& installDir, LaunchTarget target) {
+    const PrefixSessions sessions = prefixSessions(installDir + "/runtime/pfx");
+    const std::vector<int> clients = target == LaunchTarget::Player ? sessions.playerPids
+                                                                    : sessions.studioPids;
+    if (clients.empty()) return 0;
+
+    // SIGUSR1 is the compatibility layer's "stand down" signal: it closes the
+    // session and reports success, so no crash window appears. A session whose
+    // layer process has gone is stopped directly instead.
+    for (int pid : layerProcessesFor(installDir, target)) ::kill(pid, SIGUSR1);
+
+    for (int waited = 0; waited < 5000; waited += 100) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        if (!anyAlive(clients)) return static_cast<int>(clients.size());
+    }
+
+    // Roblox under the runtime routinely ignores SIGTERM, the same reason
+    // terminatePrefixProcesses() escalates.
+    for (int pid : clients) ::kill(pid, SIGTERM);
+    for (int waited = 0; waited < 3000; waited += 100) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        if (!anyAlive(clients)) return static_cast<int>(clients.size());
+    }
+    for (int pid : clients) ::kill(pid, SIGKILL);
+    return static_cast<int>(clients.size());
 }
 
 bool prefixHasSessionHolderIn(const std::string& procRoot, const std::string& prefixDir) {

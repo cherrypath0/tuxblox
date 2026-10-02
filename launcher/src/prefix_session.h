@@ -46,6 +46,17 @@ PrefixSessions prefixSessions(const std::string& prefixDir);
 // session a guest that never sets the drive up and never tears it down.
 bool launchJoinsPrefix(LaunchTarget target, const PrefixSessions& sessions);
 
+// The compatibility-layer processes running `target`'s sessions for the install
+// at `installDir`. Found by the resolved /proc/<pid>/exe, so another install's
+// processes and another drive's are both left out.
+std::vector<int> layerProcessesFor(const std::string& installDir, LaunchTarget target);
+
+// Closes every live `target` session: asks each one's compatibility-layer
+// process to stand down, which ends it cleanly and reports no error, then
+// insists on the Roblox process itself if it is still there. Returns how many
+// sessions it acted on, so nothing running reports zero rather than failing.
+int stopPrefixSessions(const std::string& installDir, LaunchTarget target);
+
 // True if any Roblox process is currently live inside `prefixDir` -- the
 // WINEPREFIX, i.e. installDir + "/runtime/pfx", NOT installDir + "/runtime".
 //
@@ -80,6 +91,10 @@ bool prefixHasSessionHolderIn(const std::string& procRoot, const std::string& pr
 
 // prefixSessions() against an arbitrary /proc-shaped root.
 PrefixSessions prefixSessionsIn(const std::string& procRoot, const std::string& prefixDir);
+
+// layerProcessesFor() against an arbitrary /proc-shaped root.
+std::vector<int> layerProcessesForIn(const std::string& procRoot, const std::string& installDir,
+                                     LaunchTarget target);
 
 // The value of `key` in a NUL-delimited /proc/<pid>/environ blob, or "" if it
 // has no such entry. A key that is only a prefix of another never matches it.

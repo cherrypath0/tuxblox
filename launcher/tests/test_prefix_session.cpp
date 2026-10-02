@@ -228,6 +228,73 @@ int main() {
         assert(launchJoinsPrefix(LaunchTarget::Studio, twoStudio));
     }
 
+    // layerProcessesForIn(): which compatibility-layer process is driving which
+    // session. Identified by the resolved /proc/<pid>/exe rather than by argv[0],
+    // so a different spelling of the same path still matches.
+    {
+        const fs::path layerRoot = tmp / "proc_layer";
+        const fs::path installDir = tmp / "install";
+        const fs::path layerBinary = installDir / "compat" / "main";
+        fs::create_directories(layerBinary.parent_path());
+        std::ofstream(layerBinary) << "not really a binary";
+
+        const std::string prefixEnv = (installDir / "runtime").string();
+
+        auto makeLayerEntry = [&](const std::string& pid, const fs::path& exe,
+                                  const std::string& targetExe, const std::string& tuxbloxPrefix) {
+            fs::create_directories(layerRoot / pid);
+            writeNulJoined(layerRoot / pid / "cmdline", {exe.string(), "run", "--immediate", targetExe});
+            std::vector<std::string> env = {"PATH=/usr/bin"};
+            if (!tuxbloxPrefix.empty()) env.push_back("TUXBLOX_PREFIX=" + tuxbloxPrefix);
+            writeNulJoined(layerRoot / pid / "environ", env);
+            fs::create_symlink(exe, layerRoot / pid / "exe");
+        };
+
+        makeLayerEntry("40", layerBinary, "/v/RobloxStudioBeta.exe", prefixEnv);
+        makeLayerEntry("41", layerBinary, "/v/RobloxPlayerBeta.exe", prefixEnv);
+        makeLayerEntry("42", layerBinary, "/v/RobloxStudioBeta.exe", prefixEnv);
+
+        // Another install's layer process, same image, must be left alone --
+        // stopping Studio here must not stop Studio there.
+        const fs::path otherInstall = tmp / "install2";
+        const fs::path otherBinary = otherInstall / "compat" / "main";
+        fs::create_directories(otherBinary.parent_path());
+        std::ofstream(otherBinary) << "another install";
+        makeLayerEntry("43", otherBinary, "/v/RobloxStudioBeta.exe", (otherInstall / "runtime").string());
+
+        // The same binary, pointed at a different drive by TUXBLOX_PREFIX.
+        makeLayerEntry("44", layerBinary, "/v/RobloxStudioBeta.exe", (tmp / "elsewhere").string());
+
+        // A Roblox process itself is not a layer process.
+        makeProcEntry(layerRoot, "45", "C:\\v\\RobloxStudioBeta.exe", wanted);
+
+        std::vector<int> studio = layerProcessesForIn(layerRoot.string(), installDir.string(),
+                                                     LaunchTarget::Studio);
+        std::sort(studio.begin(), studio.end());
+        assert((studio == std::vector<int>{40, 42}));
+
+        std::vector<int> player = layerProcessesForIn(layerRoot.string(), installDir.string(),
+                                                     LaunchTarget::Player);
+        assert((player == std::vector<int>{41}));
+
+        // Nothing running for an install with no processes at all.
+        assert(layerProcessesForIn(layerRoot.string(), (tmp / "install3").string(),
+                                   LaunchTarget::Studio).empty());
+        // A missing /proc root is "nothing running", not an error.
+        assert(layerProcessesForIn((tmp / "nope").string(), installDir.string(),
+                                   LaunchTarget::Studio).empty());
+    }
+
+    // Stopping an app with nothing running is a no-op that reports zero, not an
+    // error -- the census a click acts on is up to a second old, so it can
+    // always race a session that just exited.
+    {
+        const fs::path quietInstall = tmp / "install_quiet";
+        fs::create_directories(quietInstall / "runtime" / "pfx");
+        assert(stopPrefixSessions(quietInstall.string(), LaunchTarget::Player) == 0);
+        assert(stopPrefixSessions(quietInstall.string(), LaunchTarget::Studio) == 0);
+    }
+
     fs::remove_all(tmp);
     std::printf("prefix_session: all tests passed\n");
     return 0;
