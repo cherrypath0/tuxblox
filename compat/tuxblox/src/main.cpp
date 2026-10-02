@@ -255,6 +255,16 @@ int runMain(int argc, char *argv[]) {
     session.initSession();
 
     std::vector<std::string> target = command.target;
+
+    // Before the drive is set up and before anything is launched: Roblox runs
+    // one Player session at a time, and a new Player that finds the old one
+    // still running closes itself within 50 ms instead of starting. Studio is
+    // untouched -- several Studio sessions are expected to be open at once.
+    if (command.mode == RunMode::Run && !target.empty()) {
+        tuxblox::replaceRunningSession(prefixDir, tuxblox::imageNameOf(target.front()),
+                                       installDir(argv[0]) / "main", pPrefixDir);
+    }
+
     if (!command.runImmediately) {
         prefix.setup(session);
 
