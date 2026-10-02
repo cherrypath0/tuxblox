@@ -17,6 +17,7 @@
 #include "headless_launch.h"
 #include "root_guard.h"
 #include "install_paths.h"
+#include "prefix_session.h"
 #include "process_launcher.h"
 #include "roblox_autoupdate.h"
 #include "wine_shortcut_export.h"
@@ -56,6 +57,14 @@ int runHeadlessQuickLaunch(const std::string& installDir, LaunchTarget target, c
 
     std::string proton = compatBinaryPath(installDir);
     std::vector<std::string> argvStrings = {proton, "run"};
+    // Without this a link or a menu entry opened during a session sets the drive
+    // up underneath the session already using it, and then waits for every
+    // Roblox process to leave before this process can exit -- which is the rest
+    // of that session. The watched path has always made this choice; this one
+    // never did.
+    if (launchJoinsPrefix(target, prefixSessions(installDir + "/runtime/pfx"))) {
+        argvStrings.push_back("--immediate");
+    }
     if (allowRoot()) argvStrings.push_back("--allow-root");
     argvStrings.push_back(exePath);
     if (!uri.empty()) argvStrings.push_back(uri);

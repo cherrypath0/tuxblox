@@ -204,6 +204,12 @@ PrefixSessions prefixSessions(const std::string& prefixDir) {
     return prefixSessionsIn("/proc", prefixDir);
 }
 
+bool launchJoinsPrefix(LaunchTarget target, const PrefixSessions& sessions) {
+    const int others = target == LaunchTarget::Player ? sessions.studio
+                                                      : sessions.player + sessions.studio;
+    return others + sessions.installers > 0;
+}
+
 bool prefixHasSessionHolderIn(const std::string& procRoot, const std::string& prefixDir) {
     const PrefixSessions sessions = prefixSessionsIn(procRoot, prefixDir);
     return sessions.player + sessions.studio + sessions.installers > 0;

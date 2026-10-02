@@ -18,6 +18,8 @@
 #include <string>
 #include <vector>
 
+#include "lnk_resolver.h"
+
 namespace tuxblox {
 
 // Which Roblox processes are live in a virtual drive. Clients are what a
@@ -36,6 +38,13 @@ struct PrefixSessions {
 // own copy because it has to answer this before deciding which run option to
 // invoke, and because the two halves carry different licences.
 PrefixSessions prefixSessions(const std::string& prefixDir);
+
+// True when this launch has to join a virtual drive somebody else set up
+// ("run --immediate") rather than set the drive up itself ("run"). A Player
+// launch does not count a live Player session, which the compatibility layer
+// stands down before the new one starts -- counting it would make the new
+// session a guest that never sets the drive up and never tears it down.
+bool launchJoinsPrefix(LaunchTarget target, const PrefixSessions& sessions);
 
 // True if any Roblox process is currently live inside `prefixDir` -- the
 // WINEPREFIX, i.e. installDir + "/runtime/pfx", NOT installDir + "/runtime".

@@ -325,7 +325,8 @@ LaunchOutcome ProcessLauncher::launch(LaunchTarget target, const std::string& ur
     // use "run". prefix_lock still serialises setup_prefix(), so nothing
     // corrupts; the only effect is that each drain-waits for the other, i.e.
     // today's single-instance behaviour. Rare and benign.
-    const bool secondary = prefixHasSessionHolder(installDir_ + "/runtime/pfx");
+    // A live Player is left out of that count on purpose: the compatibility layer stands it down before the new client starts, so the drive is this launch's to set up.
+    const bool secondary = launchJoinsPrefix(target, prefixSessions(installDir_ + "/runtime/pfx"));
     std::vector<std::string> argv = {compatBinaryPath(installDir_), "run"};
     if (secondary) argv.push_back("--immediate");
     if (allowRoot()) argv.push_back("--allow-root");

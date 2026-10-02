@@ -195,6 +195,39 @@ int main() {
         assert(envValueFromEnviron(blob, "TUXBLOX").empty());
     }
 
+    // launchJoinsPrefix(): which launches join a drive somebody else set up.
+    {
+        PrefixSessions empty;
+        assert(!launchJoinsPrefix(LaunchTarget::Player, empty));
+        assert(!launchJoinsPrefix(LaunchTarget::Studio, empty));
+
+        // A Player launch ignores the Player it is about to replace, so it still
+        // owns the drive and still tears it down on the way out.
+        PrefixSessions onePlayer;
+        onePlayer.player = 1;
+        onePlayer.playerPids = {10};
+        assert(!launchJoinsPrefix(LaunchTarget::Player, onePlayer));
+        // Studio makes no such claim -- several Studio sessions run at once.
+        assert(launchJoinsPrefix(LaunchTarget::Studio, onePlayer));
+
+        // Anything else holding the drive makes both launches guests.
+        PrefixSessions withStudio;
+        withStudio.studio = 1;
+        withStudio.studioPids = {11};
+        assert(launchJoinsPrefix(LaunchTarget::Player, withStudio));
+        assert(launchJoinsPrefix(LaunchTarget::Studio, withStudio));
+
+        PrefixSessions withInstaller;
+        withInstaller.installers = 1;
+        assert(launchJoinsPrefix(LaunchTarget::Player, withInstaller));
+        assert(launchJoinsPrefix(LaunchTarget::Studio, withInstaller));
+
+        PrefixSessions twoStudio;
+        twoStudio.studio = 2;
+        twoStudio.studioPids = {12, 13};
+        assert(launchJoinsPrefix(LaunchTarget::Studio, twoStudio));
+    }
+
     fs::remove_all(tmp);
     std::printf("prefix_session: all tests passed\n");
     return 0;
