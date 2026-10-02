@@ -26,7 +26,6 @@
 #include "launch_paths.h"
 #include "lnk_resolver.h"
 #include "mcp_locate.h"
-#include "settings.h"
 #include "version.h"
 
 #include <cstdio>
@@ -114,9 +113,6 @@ int main(int argc, char** argv) {
     // precisely while Studio is open -- it would never return, and the client
     // would hang on shutdown waiting for pipes this process still owned.
     std::vector<std::string> args = {compat, "run", "--immediate"};
-    // Options go before the executable: the layer stops reading them at the
-    // first non-option argument.
-    if (loadSettings(dir).verifyIntegrity) args.push_back("--verify-integrity");
     args.push_back(mcpExe);
     for (const std::string& arg : passthrough) args.push_back(arg);
 

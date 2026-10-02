@@ -36,36 +36,27 @@ SettingsPage::SettingsPage(App &app) : app_(app) {
     gpus_ = enumerateGpus("/sys/class/drm");
     pRoot_ = adw_preferences_page_new();
 
+    AdwPreferencesGroup *pLauncher = addGroup("Launcher");
+    addToggle(pLauncher, "Minimize to background", "Close this window when Roblox starts.",
+              &Settings::minimizeToBackground);
+
     buildUpdates();
     buildEnvironment();
 
     AdwPreferencesGroup *pController = addGroup("Controller");
-    addToggle(pController, "Enable Haptics",
-              "An experimental feature that lets Roblox vibrate your controller. Takes effect the next time Roblox starts.",
-              &Settings::haptics);
+    addToggle(pController, "Enable Haptics", "Let Roblox vibrate your controller.", &Settings::haptics);
 
     AdwPreferencesGroup *pTroubleshooting = addGroup("Troubleshooting");
     addToggle(pTroubleshooting, "Detailed logging",
-              "Records far more about what Roblox and the compatibility layer are doing, in the log TuxBlox already saves "
-              "for each session. Makes Roblox slightly slower and log files much larger, so leave it off unless you are "
-              "reproducing a problem to report. Takes effect the next time Roblox starts.",
+              "Record much more in the session log. Only useful when reporting a problem.",
               &Settings::debugLogging);
 
     AdwPreferencesGroup *pPrivacy = addGroup("Privacy");
-    addToggle(pPrivacy, "Verify Roblox Integrity",
-              "Checks that Roblox's files are signed by Roblox and haven't been tampered with before launching, and then "
-              "refuses to launch if the verification fails.",
-              &Settings::verifyIntegrity);
     addToggle(pPrivacy, "Always send crash reports",
-              "Crash reports include exit code, Roblox and TuxBlox versions, basic system info, and a copy of the session "
-              "log. See tuxblox.net/privacy",
+              "Send the session log and your versions when Roblox crashes. See tuxblox.net/privacy",
               &Settings::sendCrashReports);
     addToggle(pPrivacy, "Show what you are doing on Discord",
-              "Puts Roblox Studio on your Discord profile while Studio is open: what you have open, whether you are "
-              "editing or play testing, and how long for. Anyone who can see your profile can read the name of the "
-              "place, including a game you have not released yet. Nothing is shown if Discord is not running. Takes "
-              "effect the next time Roblox starts.",
-              &Settings::discordRpc);
+              "Show the place you have open in Studio on your Discord profile.", &Settings::discordRpc);
 
     buildDangerZone();
 }
@@ -94,7 +85,7 @@ void SettingsPage::buildUpdates() {
 
     GtkWidget *pChannel = adw_combo_row_new();
     adw_preferences_row_set_title(ADW_PREFERENCES_ROW(pChannel), "Update channel");
-    adw_action_row_set_subtitle(ADW_ACTION_ROW(pChannel), "Which release stream TuxBlox follows.");
+    adw_action_row_set_subtitle(ADW_ACTION_ROW(pChannel), "Which releases TuxBlox updates to.");
     GtkStringList *pChannels = gtk_string_list_new(Channels);
     adw_combo_row_set_model(ADW_COMBO_ROW(pChannel), G_LIST_MODEL(pChannels));
     g_object_unref(pChannels);
@@ -102,12 +93,8 @@ void SettingsPage::buildUpdates() {
     g_signal_connect(pChannel, "notify::selected", G_CALLBACK(onChannel), this);
     adw_preferences_group_add(pGroup, pChannel);
 
-    addToggle(pGroup, "Automatic updates",
-              "Install TuxBlox updates without asking. When off, you get a notification instead.",
-              &Settings::autoUpdate);
-    addToggle(pGroup, "Auto-Update Roblox",
-              "Checks for a newer Roblox before each launch and installs it if there is one. Turning this off keeps "
-              "whichever build you have until you install another yourself.",
+    addToggle(pGroup, "Automatic updates", "Install TuxBlox updates without asking.", &Settings::autoUpdate);
+    addToggle(pGroup, "Auto-Update Roblox", "Keep Roblox up to date before each launch.",
               &Settings::autoUpdateRoblox);
 }
 
@@ -116,8 +103,7 @@ void SettingsPage::buildEnvironment() {
 
     GtkWidget *pGpu = adw_combo_row_new();
     adw_preferences_row_set_title(ADW_PREFERENCES_ROW(pGpu), "Graphics card");
-    adw_action_row_set_subtitle(ADW_ACTION_ROW(pGpu),
-                                "Which graphics card Roblox uses. Only matters if this computer has more than one.");
+    adw_action_row_set_subtitle(ADW_ACTION_ROW(pGpu), "Which graphics card Roblox renders on.");
     GtkStringList *pGpus = gtk_string_list_new(nullptr);
     gtk_string_list_append(pGpus, automaticGpuLabel(gpus_).c_str());
     for (size_t i = 0; i < gpus_.size(); ++i) {
@@ -130,17 +116,12 @@ void SettingsPage::buildEnvironment() {
     adw_preferences_group_add(pGroup, pGpu);
 
     addToggle(pGroup, "GPU acceleration for web pages",
-              "Speeds up the login screen, the Toolbox and every other panel that uses web pages. Does not affect game or "
-              "Studio graphics. Takes effect the next time Roblox starts.",
-              &Settings::webviewGpu);
-    addToggle(pGroup, "Virtual Desktop Mode",
-              "An experimental feature that runs Roblox inside a single window of its own, instead of letting it place "
-              "windows on your desktop. Takes effect the next time Roblox starts.",
+              "Speed up the login screen and the Toolbox. Turn off if they look wrong.", &Settings::webviewGpu);
+    addToggle(pGroup, "Virtual Desktop Mode", "Keep every Roblox window inside one window of its own.",
               &Settings::virtualDesktop);
 
     // An entry beside the row rather than an AdwEntryRow, which has no room for the explanation underneath
-    GtkWidget *pRow = plainActionRow("Environment variables",
-                                     "These variables will be passed to Roblox and the compatibility layer.");
+    GtkWidget *pRow = plainActionRow("Environment variables", "Passed to Roblox when it starts.");
     GtkWidget *pEntry = gtk_entry_new();
     pEnvironment_ = GTK_ENTRY(pEntry);
     gtk_entry_set_placeholder_text(pEnvironment_, "VARIABLE=value");
@@ -166,17 +147,15 @@ GtkButton *SettingsPage::dangerButton(GtkWidget *pRow, const char *pLabel, GCall
 void SettingsPage::buildDangerZone() {
     AdwPreferencesGroup *pGroup = addGroup("Danger zone");
 
-    GtkWidget *pTerminate = plainActionRow("Terminate Roblox", "Stops all Roblox processes running");
+    GtkWidget *pTerminate = plainActionRow("Terminate Roblox", "Stops everything Roblox has running.");
     pTerminate_ = dangerButton(pTerminate, "Terminate", G_CALLBACK(onTerminate));
     adw_preferences_group_add(pGroup, pTerminate);
 
-    GtkWidget *pWipe = plainActionRow("Wipe prefix",
-                                      "Deletes the virtual drive for TuxBlox. Note that this will wipe Roblox installations");
+    GtkWidget *pWipe = plainActionRow("Wipe the virtual drive", "Deletes every installed Roblox with it.");
     pWipe_ = dangerButton(pWipe, "Wipe prefix", G_CALLBACK(onWipe));
     adw_preferences_group_add(pGroup, pWipe);
 
-    GtkWidget *pUninstall = plainActionRow("Uninstall TuxBlox",
-                                           "This will delete everything including the virtual drive, shortcuts, and TuxBlox itself.");
+    GtkWidget *pUninstall = plainActionRow("Uninstall TuxBlox", "Removes TuxBlox and everything it installed.");
     pUninstall_ = dangerButton(pUninstall, "Uninstall", G_CALLBACK(onUninstall));
     adw_preferences_group_add(pGroup, pUninstall);
 
@@ -251,15 +230,15 @@ gboolean SettingsPage::onTerminateReset(gpointer data) {
 void SettingsPage::onWipe(GtkButton *pButton, gpointer data) {
     App *pApp = &static_cast<SettingsPage *>(data)->app_;
     confirmDestructive(GTK_WIDGET(pButton), "Wipe the virtual drive?",
-                       "Deletes the virtual drive for TuxBlox. Note that this will wipe Roblox installations", "Wipe",
+                       "Every installed Roblox goes with it. Your settings and FastFlags are kept.", "Wipe",
                        [pApp] { pApp->requestWipePrefix(); });
 }
 
 void SettingsPage::onUninstall(GtkButton *pButton, gpointer data) {
     App *pApp = &static_cast<SettingsPage *>(data)->app_;
     confirmDestructive(GTK_WIDGET(pButton), "Uninstall TuxBlox?",
-                       "This will delete everything including the virtual drive, shortcuts, and TuxBlox itself.",
-                       "Uninstall", [pApp] { pApp->requestUninstall(); });
+                       "Removes the virtual drive, the shortcuts and TuxBlox itself.", "Uninstall",
+                       [pApp] { pApp->requestUninstall(); });
 }
 
 void SettingsPage::seed(const Settings &settings) {

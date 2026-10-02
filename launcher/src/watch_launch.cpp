@@ -79,7 +79,7 @@ int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const 
 
     ProcessLauncher launcher(installDir);
     std::time_t launchStart = std::time(nullptr);
-    auto outcome = launcher.launch(target, uri, extraEnv, settings.verifyIntegrity);
+    auto outcome = launcher.launch(target, uri, extraEnv);
     if (!outcome.ok) {
         std::string message = "A TuxBlox process has exited with a non-zero exit code.\n" +
             outcome.errorMessage;

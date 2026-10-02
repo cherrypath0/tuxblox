@@ -25,6 +25,13 @@ struct InstalledVersion {
     std::string hash;         // e.g. "version-abc123def456"
     std::string channel;      // e.g. "live", or empty for a manually-entered hash
     std::string installedAt;  // ISO-8601 UTC, e.g. "2026-08-16T00:00:00Z"
+    // The version Roblox reports for itself, e.g. "0.740.0.7400927" -- what a
+    // person recognises, where the hash is only an identifier. Read off the
+    // exe by reconcileWithPrefix() and deliberately not stored in
+    // versions.json: it is recoverable from disk, so storing it would only
+    // create a second answer that could go stale. Empty when the exe carries
+    // no version, which is the caller's cue to fall back to the hash.
+    std::string versionString;
 };
 
 struct AppVersions {

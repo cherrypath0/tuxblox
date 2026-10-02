@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "versions_manifest.h"
+#include "pe_version.h"
 #include "prefix_user.h"
 #include "json.hpp"
 #include <algorithm>
@@ -123,6 +124,13 @@ void reconcileTargetWithPrefix(const std::string& installDir, VersionsManifest& 
         bool known = std::any_of(av.installed.begin(), av.installed.end(),
                                   [&](const InstalledVersion& v) { return v.hash == hash; });
         if (!known) av.installed.push_back({hash, "live", ""}); // installedAt unknown -- installer-driven
+    }
+
+    // Read from the exe every time rather than kept in versions.json, so this can never report a
+    // version that is not the one sitting on disk.
+    for (InstalledVersion& version : av.installed) {
+        version.versionString = peFileVersion(
+            (fs::path(prefixVersionsDir(installDir)) / version.hash / targetExeName(target)).string());
     }
 
     if (!av.activeHash.empty() && !onDisk(av.activeHash)) av.activeHash.clear();

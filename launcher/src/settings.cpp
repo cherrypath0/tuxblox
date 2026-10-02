@@ -118,7 +118,7 @@ Settings loadSettings(const std::string& installDir) {
         settings.noRollback = j.value("norollback", false);
         settings.virtualDesktop = j.value("virtual_desktop", false);
         settings.debugLogging = j.value("debug_logging", false);
-        settings.verifyIntegrity = j.value("verify_integrity", true);
+        settings.minimizeToBackground = j.value("minimize_to_background", true);
         settings.autoUpdateRoblox = j.value("auto_update_roblox", true);
         settings.gpu = j.value("gpu", std::string(""));
         settings.discordRpc = j.value("discord_rpc", false);
@@ -153,7 +153,7 @@ void saveSettings(const std::string& installDir, const Settings& settings) {
         j["norollback"] = settings.noRollback;
         j["virtual_desktop"] = settings.virtualDesktop;
         j["debug_logging"] = settings.debugLogging;
-        j["verify_integrity"] = settings.verifyIntegrity;
+        j["minimize_to_background"] = settings.minimizeToBackground;
         j["auto_update_roblox"] = settings.autoUpdateRoblox;
         j["gpu"] = settings.gpu;
         j["discord_rpc"] = settings.discordRpc;

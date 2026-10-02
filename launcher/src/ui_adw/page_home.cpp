@@ -29,22 +29,14 @@ namespace tuxblox {
 
 namespace {
 
-const char *updatePhaseLabel(UpdatePhase phase) {
-    switch (phase) {
-        case UpdatePhase::CheckingManifest: return "Checking for updates";
-        case UpdatePhase::PreparingUpdater: return "Preparing updater";
-        case UpdatePhase::Error: return "Update check failed";
-        default: return "";
-    }
-}
-
 std::string versionLabel(const AppVersions &versions) {
     std::string label = versions.activeHash;
     for (const auto &installed : versions.installed) {
-        if (installed.hash == versions.activeHash && !installed.channel.empty()) {
-            label += " \xC2\xB7 " + installed.channel;
-            break;
-        }
+        if (installed.hash != versions.activeHash) continue;
+        // The version Roblox reports for itself reads as a version; the hash is only an identifier, so it is the fallback
+        if (!installed.versionString.empty()) label = installed.versionString;
+        if (!installed.channel.empty()) label += " \xC2\xB7 " + installed.channel;
+        break;
     }
     return label;
 }
@@ -179,7 +171,21 @@ GtkWidget *HomePage::buildCard(Card &card, const char *pTitle, const unsigned ch
 void HomePage::onLaunchClicked(GtkButton *pButton, gpointer data) {
     auto *pSelf = static_cast<HomePage *>(data);
     const int target = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(pButton), "tuxblox-target"));
+    pSelf->beginLaunchCooldown();
     pSelf->app_.requestLaunch(static_cast<LaunchTarget>(target));
+}
+
+void HomePage::beginLaunchCooldown() {
+    gtk_widget_set_sensitive(GTK_WIDGET(player_.pButton), FALSE);
+    gtk_widget_set_sensitive(GTK_WIDGET(studio_.pButton), FALSE);
+    g_timeout_add(2500, onLaunchCooldownOver, this);
+}
+
+gboolean HomePage::onLaunchCooldownOver(gpointer data) {
+    auto *pSelf = static_cast<HomePage *>(data);
+    gtk_widget_set_sensitive(GTK_WIDGET(pSelf->player_.pButton), TRUE);
+    gtk_widget_set_sensitive(GTK_WIDGET(pSelf->studio_.pButton), TRUE);
+    return G_SOURCE_REMOVE;
 }
 
 void HomePage::showUpdateButton(bool shown) {
@@ -223,17 +229,18 @@ void HomePage::update(const AppSnapshot &snap) {
     setCard(player_, !snap.versions.player.activeHash.empty(), versionLabel(snap.versions.player));
     setCard(studio_, !snap.versions.studio.activeHash.empty(), versionLabel(snap.versions.studio));
 
-    const bool updating = snap.update.phase == UpdatePhase::CheckingManifest ||
-                          snap.update.phase == UpdatePhase::PreparingUpdater;
-    gtk_widget_set_visible(pUpdateStatus_, updating);
-    gtk_widget_set_visible(pUpdateBar_, updating);
-    gtk_widget_set_visible(pCards_, !updating);
-    gtk_widget_set_visible(pSubtitle_, !updating);
+    // Only an update actually being applied takes the screen over. Merely checking leaves the cards
+    // there and says so in the strip at the bottom, so nothing flickers in and out on startup.
+    const bool applying = snap.update.phase == UpdatePhase::PreparingUpdater;
+    gtk_widget_set_visible(pUpdateStatus_, applying);
+    gtk_widget_set_visible(pUpdateBar_, applying);
+    gtk_widget_set_visible(pCards_, !applying);
+    gtk_widget_set_visible(pSubtitle_, !applying);
 
-    if (updating) {
+    if (applying) {
         showUpdateButton(false);
         setLabelText(pTitle_, "Updating TuxBlox");
-        setLabelText(GTK_LABEL(pUpdateStatus_), updatePhaseLabel(snap.update.phase));
+        setLabelText(GTK_LABEL(pUpdateStatus_), "Preparing updater");
         gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(pUpdateBar_), snap.update.fraction);
         setUpdateState("Updating", "warning");
         showError(pError_, "");
@@ -249,7 +256,11 @@ void HomePage::update(const AppSnapshot &snap) {
     }
 
     showError(pError_, "");
-    if (snap.updateAvailableVersion) {
+    const bool checking = snap.update.phase == UpdatePhase::Idle ||
+                          snap.update.phase == UpdatePhase::CheckingManifest;
+    if (checking) {
+        setUpdateState("Checking\xE2\x80\xA6", "dim-label");
+    } else if (snap.updateAvailableVersion) {
         setUpdateState("Version " + *snap.updateAvailableVersion + " available", "warning");
     } else {
         setUpdateState("Up to date", "success");

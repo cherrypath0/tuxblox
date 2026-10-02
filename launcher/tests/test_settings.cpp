@@ -440,34 +440,41 @@ int main() {
         assert(pairs.back() == "TUXBLOX_HAPTICS=1");
     }
 
-    // Verifying Roblox defaults to ON, unlike every other toggle here.
-    // Roblox signs every release, so a file that does not verify has been
-    // altered or damaged, and starting it anyway is the worse outcome.
-    {
-        Settings s;
-        assert(s.verifyIntegrity == true);
-    }
-
-    // It loads leniently AND keeps defaulting to on: a settings.json written
-    // before this field existed must end up protected, not unprotected.
+    // Verifying Roblox is no longer a setting -- the compatibility layer always checks. A settings.json
+    // from before that still carries the old field must load as normal, with everything else intact,
+    // rather than being rejected as malformed and losing the user's other settings with it.
     {
         std::ofstream out(dir + "/settings.json", std::ios::binary);
-        out << R"({"env_vars": "FOO=bar", "send_crash_reports": false, "channel": "canary"})";
+        out << R"({"env_vars": "FOO=bar", "send_crash_reports": false, "verify_integrity": false, "channel": "canary"})";
         out.close();
 
         Settings s = loadSettings(dir);
-        assert(s.verifyIntegrity == true);
+        assert(s.envVars == "FOO=bar");
+        assert(s.channel == "canary");
     }
 
-    // Turning it off round-trips -- a user who switched it off must not find
-    // it back on after a restart.
+    // Closing the launcher when Roblox starts defaults to on -- that is what TuxBlox has always done,
+    // so an install that never touched this setting behaves exactly as it did before it existed.
     {
         Settings s;
-        s.verifyIntegrity = false;
-        saveSettings(dir, s);
+        assert(s.minimizeToBackground == true);
+    }
 
-        Settings loaded = loadSettings(dir);
-        assert(loaded.verifyIntegrity == false);
+    // It loads leniently and keeps defaulting to on, so a settings.json written before this field
+    // existed does not suddenly start leaving the window open.
+    {
+        std::ofstream out(dir + "/settings.json", std::ios::binary);
+        out << R"({"send_crash_reports": false})";
+        out.close();
+        assert(loadSettings(dir).minimizeToBackground == true);
+    }
+
+    // Turning it off round-trips -- a user who wants the window kept must not find it closing again.
+    {
+        Settings s;
+        s.minimizeToBackground = false;
+        saveSettings(dir, s);
+        assert(loadSettings(dir).minimizeToBackground == false);
     }
 
     // Detailed logging defaults to off. It costs frame time and log size, so

@@ -85,6 +85,18 @@ add_executable(test_system_info test_system_info.cpp)
 target_link_libraries(test_system_info PRIVATE launcher_core)
 add_test(NAME system_info COMMAND test_system_info)
 
+add_executable(test_pe_version test_pe_version.cpp)
+target_link_libraries(test_pe_version PRIVATE launcher_core)
+add_test(NAME pe_version COMMAND test_pe_version)
+
+add_executable(test_system_requirements test_system_requirements.cpp)
+target_link_libraries(test_system_requirements PRIVATE launcher_core)
+add_test(NAME system_requirements COMMAND test_system_requirements)
+
+add_executable(test_desktop_integration test_desktop_integration.cpp)
+target_link_libraries(test_desktop_integration PRIVATE launcher_core)
+add_test(NAME desktop_integration COMMAND test_desktop_integration)
+
 add_executable(test_roblox_log_capture test_roblox_log_capture.cpp)
 target_link_libraries(test_roblox_log_capture PRIVATE launcher_core)
 add_test(NAME roblox_log_capture COMMAND test_roblox_log_capture)

@@ -46,6 +46,10 @@ private:
     void setUpdateState(const std::string &text, const std::string &styleClass);
     static void onLaunchClicked(GtkButton *pButton, gpointer data);
     static void onUpdateClicked(GtkButton *, gpointer data);
+    // Both buttons go quiet for a moment after a launch. With "Minimize to background" off the window
+    // stays open, so without this a double click would start Roblox twice.
+    static gboolean onLaunchCooldownOver(gpointer data);
+    void beginLaunchCooldown();
 
     App &app_;
     GtkWidget *pRoot_ = nullptr;

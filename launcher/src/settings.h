@@ -100,12 +100,12 @@ struct Settings {
     // for every launch, rather than a file of its own: that is the file a user
     // sends when reporting a problem, and the one a crash report attaches.
     bool debugLogging = false;
-    // Checks that Roblox is the program Roblox signed before starting it. On
-    // by default: Roblox signs every release, so a file that does not verify
-    // has been altered or damaged, and starting it anyway is the worse
-    // outcome. When on, the compatibility layer is run with
-    // --verify-integrity and refuses with exit code 3 if the check fails.
-    bool verifyIntegrity = true;
+    // Closes the launcher window once Roblox is on its way. On by default,
+    // which is what TuxBlox has always done -- Roblox is watched by a separate
+    // process either way, so nothing is lost by the window going. Turning it
+    // off keeps the window open and usable instead, for anyone who wants to
+    // start Studio and the Player, or change a setting, without reopening it.
+    bool minimizeToBackground = true;
     // Runs the bootstrapper's update check before every launch, so Roblox is
     // current without the user thinking about it. On by default: that is what
     // Roblox itself does on Windows. A check that cannot run never blocks the

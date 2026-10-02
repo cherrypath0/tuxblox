@@ -51,4 +51,32 @@ void writeDesktopEntries(const std::string& launcherExePath);
 // own c:\proton_shortcuts -- see wine_shortcut_export.h.
 void ensureDesktopIntegration(const std::string& launcherExePath, const std::string& installDir);
 
+// Whether TuxBlox should make itself the default for a file type or a link
+// scheme. `currentDefault` is the desktop id the system reports for it now,
+// empty when nothing is set; `currentDefaultInstalled` says whether that id
+// names a .desktop file that is actually present.
+//
+// It claims the type when nothing is set, when the default is already one of
+// TuxBlox's own installed entries, or when the default names a program that is
+// not installed -- a default pointing at something that is gone opens nothing,
+// so there is no choice there to respect.
+//
+// It leaves anything else alone. Somebody running another Roblox program
+// alongside TuxBlox chose that, and the launcher runs on every startup, so
+// taking the type back each time would make their choice impossible to keep. A
+// development handler is left alone for the same reason: it is put there by
+// hand and outranks the installed one.
+bool shouldClaimAssociation(const std::string& currentDefault, bool currentDefaultInstalled);
+
+// The desktop id explicitly set as the default for `mimeType` in a mimeapps.list,
+// given that file's text. Empty when it sets none.
+//
+// Only an entry naming the exact type counts. Asking the desktop instead
+// answers for a type nobody has set, because a Roblox place in XML form is also
+// XML, and the XML handler comes back -- which would read as somebody having
+// chosen a web browser for Roblox files. Reading the file also avoids
+// `xdg-mime query default`, which reports the wrong application entirely on a
+// KDE system that has no qtpaths installed.
+std::string explicitDefaultFor(const std::string& mimeappsText, const std::string& mimeType);
+
 } // namespace tuxblox

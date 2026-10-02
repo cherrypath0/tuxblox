@@ -113,6 +113,8 @@ add_library(launcher_core STATIC
     src/prefix_session.cpp
     src/app_scope.cpp
     src/system_info.cpp
+    src/pe_version.cpp
+    src/system_requirements.cpp
     src/roblox_log_capture.cpp
     src/roblox_deploy.cpp
     src/roblox_autoupdate.cpp

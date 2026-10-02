@@ -155,13 +155,14 @@ gboolean onCloseRequest(GtkWindow *, gpointer data) {
     return FALSE;
 }
 
-// Desktop integration can block for seconds on xdg-mime, so it waits until the window has been drawn once
+// Desktop integration can block for seconds on xdg-mime, so it waits until the window has been drawn
+// once. The update check is deliberately not here: it starts as the window is built, so it is never
+// held up behind this.
 gboolean startBackgroundWork(gpointer data) {
     auto *pUi = static_cast<WindowUi *>(data);
     if (pUi->backgroundWorkStarted) return G_SOURCE_REMOVE;
     pUi->backgroundWorkStarted = true;
     ensureDesktopIntegration(pUi->exePath, pUi->installDir);
-    pUi->pApp->startUpdateCheck();
     return G_SOURCE_REMOVE;
 }
 
@@ -252,6 +253,10 @@ void onActivate(GtkApplication *pGtkApp, gpointer data) {
     adw_navigation_split_view_set_content(ADW_NAVIGATION_SPLIT_VIEW(pSplit), ADW_NAVIGATION_PAGE(buildContent(*pUi)));
 
     App &app = *pUi->pApp;
+    // First thing, so the check is already running while the pages are built and is never waiting behind
+    // desktop integration. A no-op when main() already started it, which it does with Auto-Update on.
+    app.startUpdateCheck();
+
     addPage(*pUi, Tab::Start, "Home", kAssetHome, kAssetHomeLen, false, std::make_unique<HomePage>(app));
     addPage(*pUi, Tab::Versions, "Versions", kAssetRobloxRdd, kAssetRobloxRddLen, false, std::make_unique<VersionsPage>(app));
     addPage(*pUi, Tab::FastFlags, "FastFlags", kAssetFastflags, kAssetFastflagsLen, false, std::make_unique<FastFlagsPage>(app));
@@ -262,7 +267,7 @@ void onActivate(GtkApplication *pGtkApp, gpointer data) {
 
     onTick(pUi);
     pUi->tickId = g_timeout_add(100, onTick, pUi);
-    // A window that never gets a frame, such as one opened on a hidden workspace, must still check for updates
+    // A window that never gets a frame, such as one opened on a hidden workspace, must still register itself with the desktop
     g_timeout_add_seconds(2, startBackgroundWork, pUi);
     gtk_window_present(pUi->pWindow);
 }

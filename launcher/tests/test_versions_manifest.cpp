@@ -15,10 +15,12 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "versions_manifest.h"
+#include "pe_fixture.h"
 #include <cassert>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <string>
 
 namespace fs = std::filesystem;
 
@@ -321,6 +323,51 @@ int main() {
     }
 
     fs::remove_all(dir);
+    // reconcileWithPrefix(): the version Roblox reports for itself is read off its own exe, so the
+    // launcher can show "0.740.0.7400927" rather than the hash the folder happens to be named after.
+    {
+        fs::path dir = fs::temp_directory_path() / "tuxblox_test_versions_manifest_version_string";
+        fs::remove_all(dir);
+        fs::path versionsDir = dir / "runtime/pfx/drive_c/users/user/AppData/Local/Roblox/Versions";
+        fs::create_directories(versionsDir / "version-aaa");
+        fs::create_directories(versionsDir / "version-bbb");
+        {
+            const std::string player = tuxblox_test::peReporting("0, 740, 0, 7400927");
+            std::ofstream f(versionsDir / "version-aaa" / "RobloxPlayerBeta.exe", std::ios::binary);
+            f.write(player.data(), static_cast<std::streamsize>(player.size()));
+        }
+        // An exe that carries no version of its own must leave the field empty rather than fail the scan.
+        std::ofstream(versionsDir / "version-bbb" / "RobloxStudioBeta.exe") << "not a windows program";
+
+        VersionsManifest m;
+        reconcileWithPrefix(dir.string(), m);
+
+        assert(m.player.installed.size() == 1);
+        assert(m.player.installed[0].hash == "version-aaa");
+        assert(m.player.installed[0].versionString == "0.740.0.7400927");
+        assert(m.studio.installed.size() == 1);
+        assert(m.studio.installed[0].versionString.empty());
+        fs::remove_all(dir);
+    }
+
+    // The version string is read from the prefix every time, never trusted from versions.json, so a
+    // stale or hand-edited file cannot make the launcher report a version that is not installed.
+    {
+        fs::path dir = fs::temp_directory_path() / "tuxblox_test_versions_manifest_version_string_stale";
+        fs::remove_all(dir);
+        fs::path versionsDir = dir / "runtime/pfx/drive_c/users/user/AppData/Local/Roblox/Versions";
+        fs::create_directories(versionsDir / "version-aaa");
+        std::ofstream(versionsDir / "version-aaa" / "RobloxPlayerBeta.exe") << "not a windows program";
+
+        VersionsManifest m;
+        m.player.installed.push_back({"version-aaa", "live", "", "9.9.9.9"});
+        reconcileWithPrefix(dir.string(), m);
+
+        assert(m.player.installed.size() == 1);
+        assert(m.player.installed[0].versionString.empty());
+        fs::remove_all(dir);
+    }
+
     printf("versions_manifest: all tests passed\n");
     return 0;
 }

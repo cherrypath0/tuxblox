@@ -28,14 +28,17 @@
 #include "desktop_integration.h"
 #include "single_instance.h"
 #include "app_scope.h"
+#include "system_requirements.h"
 #include "version.h"
 #include <cctype>
+#include <chrono>
 #include <cstddef>
 #include <cstdio>
 #include <filesystem>
 #include <string>
 #include <system_error>
 #include <unistd.h>
+#include <vector>
 
 namespace {
 
@@ -66,17 +69,29 @@ int main(int argc, char** argv) {
     // launch method otherwise decides whether TuxBlox is identifiable at all.
     ensureAppScope();
 
+    // Answered before anything else, and before the GUI: this is the same
+    // question the launcher asks every other TuxBlox binary to decide
+    // whether an install is of a piece, so it has to be cheap and it has
+    // to be the build's own answer. Ahead of the requirements check below for
+    // the same reason -- an install must still be able to say what it is.
+    if (argc > 1 && std::string(argv[1]) == "--version") {
+        printf("%s\n", kTuxBloxBuildId);
+        return 0;
+    }
+
+    // Every route to Roblox passes through here -- the window, a roblox: link, a desktop shortcut, a
+    // place file -- so one check covers all of them. It refuses only what it can prove: see
+    // system_requirements.h for why being unable to read a version never stops a launch.
+    {
+        const std::vector<UnmetRequirement> unmet = unmetRequirements(collectSystemFacts());
+        if (!unmet.empty()) {
+            showErrorMessageBox("TuxBlox is not supported on your system", unsupportedSystemMessage(unmet));
+            return 1;
+        }
+    }
+
     if (argc > 1) {
         std::string arg1 = argv[1];
-
-        // Answered before anything else, and before the GUI: this is the same
-        // question the launcher asks every other TuxBlox binary to decide
-        // whether an install is of a piece, so it has to be cheap and it has
-        // to be the build's own answer.
-        if (arg1 == "--version") {
-            printf("%s\n", kTuxBloxBuildId);
-            return 0;
-        }
 
         LaunchTarget target = LaunchTarget::Player;
         std::string uri;
@@ -232,13 +247,26 @@ int main(int argc, char** argv) {
     // database calls, which stays after window.show() below, same as before.
     App app(dir, kTuxBloxBuildId, exePath);
 
-    // Before the window exists: some compositors (observed on KDE Plasma/KWin) match a new window to its .desktop entry once, at creation, and never retry
-    writeDesktopEntries(exePath);
+    // With Auto-Update on the answer decides whether a window is wanted at all, so it is worth waiting
+    // for one, and an update about to install never flashes the Home screen up first. With it off the
+    // update is only being offered, so the check belongs behind the window, which starts it the moment
+    // it opens -- starting it here as well would mean a run with no display to open had to wait for a
+    // network request it was never going to use.
+    if (app.snapshot().settings.autoUpdate) {
+        app.startUpdateCheck();
+        app.waitForUpdateCheck(std::chrono::seconds(5));
+    }
 
-    // Kept for the life of the window, since GTK can re-read fontconfig while it runs; programs started from the window are given the environment without it
-    useBundledEnvironment(interfaceStackRoot());
-    const int windowStatus = runLauncherWindow(app, exePath, dir);
-    restoreBundledEnvironment();
+    int windowStatus = 0;
+    if (!app.needsInstallerHandoff()) {
+        // Before the window exists: some compositors (observed on KDE Plasma/KWin) match a new window to its .desktop entry once, at creation, and never retry
+        writeDesktopEntries(exePath);
+
+        // Kept for the life of the window, since GTK can re-read fontconfig while it runs; programs started from the window are given the environment without it
+        useBundledEnvironment(interfaceStackRoot());
+        windowStatus = runLauncherWindow(app, exePath, dir);
+        restoreBundledEnvironment();
+    }
     if (windowStatus != 0 && !app.needsInstallerHandoff() && !app.needsUninstallHandoff()) return windowStatus;
 
     if (app.needsUninstallHandoff()) {

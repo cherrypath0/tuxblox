@@ -27,13 +27,20 @@ bool sameVersions(const AppVersions &a, const AppVersions &b) {
     for (size_t i = 0; i < a.installed.size(); ++i) {
         const InstalledVersion &x = a.installed[i];
         const InstalledVersion &y = b.installed[i];
-        if (x.hash != y.hash || x.channel != y.channel || x.installedAt != y.installedAt) return false;
+        if (x.hash != y.hash || x.channel != y.channel || x.installedAt != y.installedAt ||
+            x.versionString != y.versionString) {
+            return false;
+        }
     }
     return true;
 }
 
 std::string describe(const InstalledVersion &version) {
-    std::string text = version.channel;
+    std::string text = version.versionString;
+    if (!version.channel.empty()) {
+        if (!text.empty()) text += " \xC2\xB7 ";
+        text += version.channel;
+    }
     if (!version.installedAt.empty()) {
         if (!text.empty()) text += " \xC2\xB7 ";
         text += "installed " + version.installedAt.substr(0, 10);

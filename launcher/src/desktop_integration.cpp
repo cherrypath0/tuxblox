@@ -18,11 +18,13 @@
 #include "tuxblox_logo_png.h" // generated at build time: kTuxbloxLogoPng[], kTuxbloxLogoPngLen
 #include "container_env.h"
 #include "wine_shortcut_export.h"
+#include <cctype>
 #include <chrono>
 #include <cstdlib>
 #include <fcntl.h>
 #include <filesystem>
 #include <fstream>
+#include <sstream>
 #include <sys/wait.h>
 #include <system_error>
 #include <thread>
@@ -35,70 +37,100 @@ namespace tuxblox {
 
 namespace {
 
-std::string captureCommand(const std::vector<std::string>& argv) {
-    int pipefd[2];
-    if (pipe(pipefd) != 0) return "";
+std::vector<std::string> xdgDirList(const char* pVariable, const std::string& fallback) {
+    const char* value = std::getenv(pVariable);
+    const std::string dirs = (value != nullptr && value[0] != '\0') ? value : fallback;
 
-    std::vector<char*> cargv;
-    cargv.reserve(argv.size() + 1);
-    for (const auto& a : argv) cargv.push_back(const_cast<char*>(a.c_str()));
-    cargv.push_back(nullptr);
-
-    pid_t pid = fork();
-    if (pid < 0) {
-        close(pipefd[0]);
-        close(pipefd[1]);
-        return "";
+    std::vector<std::string> out;
+    size_t at = 0;
+    while (at <= dirs.size()) {
+        const size_t colon = dirs.find(':', at);
+        const std::string dir = dirs.substr(at, colon == std::string::npos ? std::string::npos : colon - at);
+        if (!dir.empty()) out.push_back(dir);
+        if (colon == std::string::npos) break;
+        at = colon + 1;
     }
-    if (pid == 0) {
-        dup2(pipefd[1], STDOUT_FILENO);
-        close(pipefd[0]);
-        close(pipefd[1]);
-        execvp(cargv[0], cargv.data());
-        _exit(127);
-    }
-    close(pipefd[1]);
-
-    std::string result;
-    char buf[256];
-    ssize_t n;
-    while ((n = read(pipefd[0], buf, sizeof(buf))) > 0) result.append(buf, static_cast<size_t>(n));
-    close(pipefd[0]);
-
-    int status = 0;
-    for (int i = 0; i < 30; ++i) {
-        pid_t r = waitpid(pid, &status, WNOHANG);
-        if (r == pid || r < 0) break;
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    }
-
-    while (!result.empty() && (result.back() == '\n' || result.back() == '\r')) result.pop_back();
-    return result;
+    return out;
 }
 
-std::string parseGioDefault(const std::string& out) {
-    const size_t eol = out.find('\n');
-    const std::string line = out.substr(0, eol == std::string::npos ? out.size() : eol);
-    const size_t sep = line.rfind(": ");
-    if (sep == std::string::npos) return "";
-    std::string id = line.substr(sep + 2);
-    while (!id.empty() && (id.back() == ' ' || id.back() == '\r')) id.pop_back();
-    const std::string suffix = ".desktop";
-    if (id.size() <= suffix.size()) return "";
-    if (id.compare(id.size() - suffix.size(), suffix.size(), suffix) != 0) return "";
-    if (id.find('/') != std::string::npos || id.find(' ') != std::string::npos) return "";
-    return id;
+std::string xdgHomeDir(const char* pVariable, const char* pDefaultSuffix) {
+    const char* value = std::getenv(pVariable);
+    if (value != nullptr && value[0] != '\0') return value;
+    const char* home = std::getenv("HOME");
+    if (home == nullptr || home[0] == '\0') return "";
+    return std::string(home) + pDefaultSuffix;
 }
 
-std::string queryXdgMimeDefault(const std::string& scheme) {
-    const std::string viaGio = parseGioDefault(captureCommand({"gio", "mime", scheme}));
-    if (!viaGio.empty()) return viaGio;
-    return captureCommand({"xdg-mime", "query", "default", scheme});
+// Every mimeapps.list that can hold a default, in the order the desktop reads them.
+std::vector<std::string> mimeappsCandidatePaths() {
+    std::vector<std::string> paths;
+
+    // A desktop can keep its own list, and that one wins over the shared one.
+    std::vector<std::string> prefixes;
+    for (const std::string& desktop : xdgDirList("XDG_CURRENT_DESKTOP", "")) {
+        std::string lowered = desktop;
+        for (char& c : lowered) c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
+        prefixes.push_back(lowered + "-");
+    }
+    prefixes.push_back("");
+
+    const std::string configHome = xdgHomeDir("XDG_CONFIG_HOME", "/.config");
+    const std::string dataHome = xdgHomeDir("XDG_DATA_HOME", "/.local/share");
+    for (const std::string& prefix : prefixes) {
+        if (!configHome.empty()) paths.push_back(configHome + "/" + prefix + "mimeapps.list");
+        // Where these used to live; still read, since an install older than the move keeps its choices here.
+        if (!dataHome.empty()) paths.push_back(dataHome + "/applications/" + prefix + "mimeapps.list");
+    }
+    for (const std::string& prefix : prefixes) {
+        for (const std::string& dir : xdgDirList("XDG_CONFIG_DIRS", "/etc/xdg")) {
+            paths.push_back(dir + "/" + prefix + "mimeapps.list");
+        }
+        for (const std::string& dir : xdgDirList("XDG_DATA_DIRS", "/usr/local/share:/usr/share")) {
+            paths.push_back(dir + "/applications/" + prefix + "mimeapps.list");
+        }
+    }
+    return paths;
 }
 
-bool isKnownTuxBloxDevHandler(const std::string& desktopId) {
-    return desktopId == "tuxblox-player-dev.desktop" ||
-           desktopId == "tuxblox-studio-dev.desktop";
+std::string readWholeFile(const std::string& path) {
+    std::ifstream file(path, std::ios::binary);
+    if (!file) return "";
+    std::ostringstream out;
+    out << file.rdbuf();
+    return out.str();
+}
+
+// Whether a desktop id names an entry that is actually installed, searched the way the desktop itself
+// searches: the user's own applications directory first, then every directory in $XDG_DATA_DIRS.
+bool desktopEntryInstalled(const std::string& desktopId) {
+    if (desktopId.empty()) return false;
+
+    std::vector<std::string> roots;
+    const char* dataHome = std::getenv("XDG_DATA_HOME");
+    if (dataHome != nullptr && dataHome[0] != '\0') {
+        roots.push_back(dataHome);
+    } else if (const char* home = std::getenv("HOME"); home != nullptr && home[0] != '\0') {
+        roots.push_back(std::string(home) + "/.local/share");
+    }
+
+    const char* dataDirs = std::getenv("XDG_DATA_DIRS");
+    const std::string dirs = (dataDirs != nullptr && dataDirs[0] != '\0')
+                                  ? dataDirs
+                                  : "/usr/local/share:/usr/share";
+    size_t at = 0;
+    while (at <= dirs.size()) {
+        const size_t colon = dirs.find(':', at);
+        const std::string dir = dirs.substr(at, colon == std::string::npos ? std::string::npos : colon - at);
+        if (!dir.empty()) roots.push_back(dir);
+        if (colon == std::string::npos) break;
+        at = colon + 1;
+    }
+
+    for (const std::string& root : roots) {
+        std::error_code ec;
+        if (fs::exists(fs::path(root) / "applications" / desktopId, ec) && !ec) return true;
+    }
+    return false;
 }
 
 struct SchemeHandler {
@@ -150,7 +182,76 @@ void runCommandBestEffort(const std::vector<std::string>& argv) {
     }
 }
 
+// Makes TuxBlox the default for `mimeType`, unless somebody else's choice is already there.
+void claimDefaultIfFree(const std::string& mimeType, const char* pDesktopId) {
+    std::string current;
+    for (const std::string& path : mimeappsCandidatePaths()) {
+        current = explicitDefaultFor(readWholeFile(path), mimeType);
+        if (!current.empty()) break;
+    }
+    if (!shouldClaimAssociation(current, desktopEntryInstalled(current))) return;
+    runCommandBestEffort({"xdg-mime", "default", pDesktopId, mimeType});
+}
+
+// The file types TuxBlox opens in Studio. One handler covers all of them.
+//
+// A place is two types because the XML form is also XML and wants saying so, while a model is one type
+// covering both its forms, which is how the rest of the Linux Roblox ecosystem already maps them -- a
+// second, conflicting definition of the same extensions is worse than matching what is there.
+const std::vector<const char*>& placeFileMimeTypes() {
+    static const std::vector<const char*> types = {
+        "application/x-roblox-place",      // .rbxl
+        "application/x-roblox-place+xml",  // .rbxlx
+        "application/x-roblox-model",      // .rbxm and .rbxmx
+    };
+    return types;
+}
+
 } // namespace
+
+std::string explicitDefaultFor(const std::string& mimeappsText, const std::string& mimeType) {
+    bool inDefaults = false;
+    size_t at = 0;
+    while (at < mimeappsText.size()) {
+        const size_t eol = mimeappsText.find('\n', at);
+        std::string line = mimeappsText.substr(at, eol == std::string::npos ? std::string::npos : eol - at);
+        at = eol == std::string::npos ? mimeappsText.size() : eol + 1;
+
+        while (!line.empty() && (line.back() == '\r' || line.back() == ' ')) line.pop_back();
+        if (line.empty() || line.front() == '#') continue;
+
+        if (line.front() == '[') {
+            inDefaults = line == "[Default Applications]";
+            continue;
+        }
+        if (!inDefaults) continue;
+
+        const size_t equals = line.find('=');
+        // Matched on the whole key, so a longer type that starts the same way is a different entry.
+        if (equals == std::string::npos || line.compare(0, equals, mimeType) != 0) continue;
+
+        std::string value = line.substr(equals + 1);
+        const size_t semicolon = value.find(';');
+        if (semicolon != std::string::npos) value = value.substr(0, semicolon);
+        while (!value.empty() && value.front() == ' ') value.erase(value.begin());
+        while (!value.empty() && value.back() == ' ') value.pop_back();
+        if (!value.empty()) return value;
+    }
+    return "";
+}
+
+bool shouldClaimAssociation(const std::string& currentDefault, bool currentDefaultInstalled) {
+    if (currentDefault.empty()) return true;
+    // Not installed, so it opens nothing -- a leftover rather than a choice, whoever left it.
+    if (!currentDefaultInstalled) return true;
+    // Put there by hand to test a build, so it outranks the installed entry.
+    if (currentDefault == "tuxblox-player-dev.desktop" || currentDefault == "tuxblox-studio-dev.desktop") {
+        return false;
+    }
+    // Already ours: setting it again costs nothing and repairs a half-written mimeapps.list.
+    if (currentDefault.rfind("tuxblox-", 0) == 0) return true;
+    return false;
+}
 
 void writeDesktopEntries(const std::string& launcherExePath) {
     try {
@@ -234,6 +335,11 @@ void writeDesktopEntries(const std::string& launcherExePath) {
                         "    <sub-class-of type=\"text/xml\"/>\n"
                         "    <glob pattern=\"*.rbxlx\"/>\n"
                         "  </mime-type>\n"
+                        "  <mime-type type=\"application/x-roblox-model\">\n"
+                        "    <comment>Roblox Model</comment>\n"
+                        "    <glob pattern=\"*.rbxm\"/>\n"
+                        "    <glob pattern=\"*.rbxmx\"/>\n"
+                        "  </mime-type>\n"
                         "</mime-info>\n";
                 }
             }
@@ -251,7 +357,7 @@ void writeDesktopEntries(const std::string& launcherExePath) {
                 "Icon=tuxblox\n"
                 "NoDisplay=true\n"
                 "Terminal=false\n"
-                "MimeType=application/x-roblox-place;application/x-roblox-place+xml;\n";
+                "MimeType=application/x-roblox-place;application/x-roblox-place+xml;application/x-roblox-model;\n";
         }
 
         {
@@ -277,16 +383,15 @@ void ensureDesktopIntegration(const std::string& launcherExePath, const std::str
         if (!std::getenv("TUXBLOX_SKIP_XDG_MIME")) { // escape hatch for sandboxed test/CI runs
             for (const auto& h : installedHandlers()) {
                 for (const char* scheme : h.schemes) {
-                    if (isKnownTuxBloxDevHandler(queryXdgMimeDefault(scheme))) continue;
-                    runCommandBestEffort({"xdg-mime", "default", h.desktopId, scheme});
+                    claimDefaultIfFree(scheme, h.desktopId);
                 }
             }
 
+            // Before claiming the file types: the types have to exist in the database before anything can be made their default.
             runCommandBestEffort({"update-mime-database", std::string(home) + "/.local/share/mime"});
-            runCommandBestEffort({"xdg-mime", "default", "tuxblox-studio-place.desktop",
-                                   "application/x-roblox-place"});
-            runCommandBestEffort({"xdg-mime", "default", "tuxblox-studio-place.desktop",
-                                   "application/x-roblox-place+xml"});
+            for (const char* mimeType : placeFileMimeTypes()) {
+                claimDefaultIfFree(mimeType, "tuxblox-studio-place.desktop");
+            }
             runCommandBestEffort({"update-desktop-database", appsDir});
 
             runCommandBestEffort({"gtk-update-icon-cache", std::string(home) + "/.local/share/icons/hicolor"});

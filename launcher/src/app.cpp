@@ -26,6 +26,7 @@
 #include "roblox_deploy.h"
 #include "tar_extract.h"
 #include <algorithm>
+#include <chrono>
 #include <ctime>
 #include <filesystem>
 #include <fstream>
@@ -113,6 +114,20 @@ void App::startUpdateCheck() {
     updateThread_ = std::thread(&App::updateCheckThreadMain, this);
 }
 
+bool App::waitForUpdateCheck(std::chrono::milliseconds timeout) {
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    while (true) {
+        if (needsInstallerHandoff_.load()) return true;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            const UpdatePhase phase = snapshot_.update.phase;
+            if (phase == UpdatePhase::UpToDate || phase == UpdatePhase::Error) return true;
+        }
+        if (std::chrono::steady_clock::now() >= deadline) return false;
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+}
+
 bool App::needsInstallerHandoff() const {
     return needsInstallerHandoff_.load();
 }
@@ -142,6 +157,12 @@ void App::setActiveTab(Tab tab) {
 void App::requestLaunch(LaunchTarget target) {
     if (shouldQuit_.load()) return; // already spawned one -- ignore further clicks
 
+    bool closeWindow;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        closeWindow = snapshot_.settings.minimizeToBackground;
+    }
+
     const char* targetArg = (target == LaunchTarget::Player) ? "player" : "studio";
     std::vector<char*> argv = {const_cast<char*>(launcherExePath_.c_str()), const_cast<char*>("--watch-launch"),
                                const_cast<char*>(targetArg)};
@@ -169,7 +190,8 @@ void App::requestLaunch(LaunchTarget target) {
     int status = 0;
     waitpid(pid, &status, 0); // reap the immediate child; it exits almost instantly
 
-    shouldQuit_.store(true);
+    // Off means the window stays open and can launch again, so the "already spawned one" guard above must not latch
+    if (closeWindow) shouldQuit_.store(true);
 }
 
 int App::requestTerminateProcesses() {

@@ -16,6 +16,7 @@
 
 #pragma once
 #include <atomic>
+#include <chrono>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -86,6 +87,15 @@ public:
 
     void startUpdateCheck();
 
+    // Blocks until the update check has reached a verdict, or `timeout` passes;
+    // true iff it reached one. Only the pre-window wait in main() uses this,
+    // and only when Auto-Update is on: an update that is about to be applied
+    // should not flash a window up first, but one that is merely being offered
+    // must not hold the window back. Bounded because the check makes two
+    // requests of 30s each, so a dead network would otherwise keep the
+    // launcher from appearing at all for a minute.
+    bool waitForUpdateCheck(std::chrono::milliseconds timeout);
+
     // True once the update check has determined a verified installer
     // binary is ready to be exec'd -- the caller should stop the render
     // loop, exec() installerHandoffPath(), and never return.
@@ -98,8 +108,12 @@ public:
     // that starts `target` via Proton and, from that point on, is the only
     // thing tracking it: it waits for the process, shows a crash popup if
     // warranted, and otherwise produces no UI at all. This process has no
-    // further involvement -- no tray icon, no hidden window kept around --
-    // it just closes (shouldQuit() below drives that). Tried backgrounding
+    // further involvement -- no tray icon, no hidden window kept around.
+    //
+    // Whether the window then closes is Settings::minimizeToBackground, on by
+    // default: on, it closes (shouldQuit() below drives that); off, it stays
+    // open and can launch again, since the watcher owns the launch either way.
+    // Tried backgrounding
     // to a system tray icon first; abandoned after extensive testing showed
     // xembedsniproxy (KDE's XEmbed-to-StatusNotifierItem proxy) takes over
     // the icon window once docked and rejects any further property/attribute

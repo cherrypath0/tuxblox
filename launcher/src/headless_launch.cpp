@@ -56,11 +56,6 @@ int runHeadlessQuickLaunch(const std::string& installDir, LaunchTarget target, c
 
     std::string proton = compatBinaryPath(installDir);
     std::vector<std::string> argvStrings = {proton, "run"};
-    // Honours the same setting the GUI does: a check the quick-launch path
-    // skipped would be no check at all, since a roblox: link reaches here.
-    // Before the exe path, not after: the layer stops reading options at the
-    // first non-option argument, so a flag behind it is passed to Roblox.
-    if (settings.verifyIntegrity) argvStrings.push_back("--verify-integrity");
     if (allowRoot()) argvStrings.push_back("--allow-root");
     argvStrings.push_back(exePath);
     if (!uri.empty()) argvStrings.push_back(uri);

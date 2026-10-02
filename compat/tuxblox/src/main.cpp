@@ -70,13 +70,12 @@ const std::array<std::string, 6> RobloxProcesses = {
     "StudioMCP.exe",
 };
 
-const std::array<std::string, 9> HelpOutput = {
+const std::array<std::string, 8> HelpOutput = {
     "Options:",
     "--help                  Show this help message",
     "--version               Show TuxBlox version",
     "--immediate             Run TuxBlox without draining the prefix, must be used with the \"run\" argument",
     "--destroy               Destroys the prefix",
-    "--verify-integrity      Check that the executable is signed by Roblox before running it",
     "--allow-root            Allow running as root, which is not recommended",
     "\nArguments:",
     "run <executable>        Runs the specified executable"
@@ -97,7 +96,6 @@ enum class RunMode {
 struct CommandLine {
     RunMode mode = RunMode::None;
     bool runImmediately = false;
-    bool verifyIntegrity = false;
     bool allowRoot = false;
     bool handled = false;
     std::vector<std::string> target;
@@ -141,7 +139,7 @@ CommandLine parseCommandLine(int argc, char *argv[]) {
         if (argument == "--immediate") {
             parsed.runImmediately = true;
         } else if (argument == "--verify-integrity") {
-            parsed.verifyIntegrity = true;
+            // The integrity check is no longer optional, but the flag is still accepted: an unknown argument ends the option list and becomes the executable to launch, so a launcher that still passes this would otherwise be told to run it.
         } else if (argument == "--allow-root") {
             parsed.allowRoot = true;
         } else if (argument == "--destroy") {
@@ -206,9 +204,9 @@ int runMain(int argc, char *argv[]) {
     tuxblox::log("Running TuxBlox version " + TuxBloxVersion + "-" + TuxBloxChannel);
     tuxblox::log("Commandline: " + invocation);
 
-    // Authenticode verification ("Verify Roblox Integrity" setting) to ensure the Roblox executables used are legitimate and not tampered with
+    // Authenticode verification to ensure the Roblox executables used are legitimate and not tampered with
     // TODO: Expand this to all third-party executables instead of just the one being launched (including DLLs), potentially even TuxBlox's own DLLs.
-    if (command.verifyIntegrity) {
+    if (command.mode == RunMode::Run) {
         const tuxblox::IntegrityReport report = tuxblox::verifyAuthenticode(
             command.target.front(), RobloxPublisher, tuxblox_data::find("roots.pem"));
         if (report.status != tuxblox::IntegrityStatus::Verified) {
@@ -270,7 +268,7 @@ int runMain(int argc, char *argv[]) {
     //   0 - OK (successful)
     //   1 - TuxBlox error
     //   2 - Launched process error
-    //   3 - Authenticode verification failure (--verify-integrity)
+    //   3 - Authenticode verification failure
     return rc == 0 ? 0 : 2;
 }
 
