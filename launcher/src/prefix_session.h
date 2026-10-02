@@ -20,6 +20,23 @@
 
 namespace tuxblox {
 
+// Which Roblox processes are live in a virtual drive. Clients are what a
+// session is; an installer holds the drive without being one, so it is counted
+// apart -- a first-ever install must not turn a Launch button into Stop.
+struct PrefixSessions {
+    int player = 0;
+    int studio = 0;
+    int installers = 0;
+    std::vector<int> playerPids;
+    std::vector<int> studioPids;
+};
+
+// Mirrors prefixSessionHolders() in compat/tuxblox/src/support/sessions.cpp and
+// must stay in sync with it, including the image lists. The launcher needs its
+// own copy because it has to answer this before deciding which run option to
+// invoke, and because the two halves carry different licences.
+PrefixSessions prefixSessions(const std::string& prefixDir);
+
 // True if any Roblox process is currently live inside `prefixDir` -- the
 // WINEPREFIX, i.e. installDir + "/runtime/pfx", NOT installDir + "/runtime".
 //
@@ -51,5 +68,12 @@ std::string wineImageNameFromCmdline(const std::string& firstCmdlineToken);
 
 // prefixHasSessionHolder() against an arbitrary /proc-shaped root.
 bool prefixHasSessionHolderIn(const std::string& procRoot, const std::string& prefixDir);
+
+// prefixSessions() against an arbitrary /proc-shaped root.
+PrefixSessions prefixSessionsIn(const std::string& procRoot, const std::string& prefixDir);
+
+// The value of `key` in a NUL-delimited /proc/<pid>/environ blob, or "" if it
+// has no such entry. A key that is only a prefix of another never matches it.
+std::string envValueFromEnviron(const std::string& environBlob, const std::string& key);
 
 } // namespace tuxblox

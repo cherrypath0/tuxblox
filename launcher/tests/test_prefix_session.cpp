@@ -125,6 +125,76 @@ int main() {
         assert(collectPrefixPidsIn(killRoot.string(), "").empty());
     }
 
+    // prefixSessions(): counts and pids per app, which the Home cards and the
+    // Stop buttons both read.
+    {
+        const fs::path censusRoot = tmp / "proc_census";
+        fs::create_directories(censusRoot);
+        makeProcEntry(censusRoot, "20", "C:\\x\\RobloxStudioBeta.exe", wanted);
+        makeProcEntry(censusRoot, "21", "C:\\x\\RobloxStudioBeta.exe", wanted);
+        makeProcEntry(censusRoot, "22", "C:\\x\\RobloxPlayerBeta.exe", wanted);
+        makeProcEntry(censusRoot, "23", "C:\\x\\RobloxPlayerInstaller.exe", wanted);
+        makeProcEntry(censusRoot, "24", "C:\\x\\RobloxStudioBeta.exe", other);
+        makeProcEntry(censusRoot, "25", "C:\\windows\\system32\\explorer.exe", wanted);
+
+        PrefixSessions sessions = prefixSessionsIn(censusRoot.string(), wanted);
+        assert(sessions.studio == 2);
+        assert(sessions.player == 1);
+        assert(sessions.installers == 1);
+        std::vector<int> studioPids = sessions.studioPids;
+        std::sort(studioPids.begin(), studioPids.end());
+        assert((studioPids == std::vector<int>{20, 21}));
+        assert((sessions.playerPids == std::vector<int>{22}));
+
+        // The trailing-slash spelling the layer sets WINEPREFIX with must match.
+        assert(prefixSessionsIn(censusRoot.string(), wanted + "/").studio == 2);
+
+        // An installer alone is not a session, but it is still a holder.
+        fs::remove_all(censusRoot / "20");
+        fs::remove_all(censusRoot / "21");
+        fs::remove_all(censusRoot / "22");
+        PrefixSessions installerOnly = prefixSessionsIn(censusRoot.string(), wanted);
+        assert(installerOnly.player == 0 && installerOnly.studio == 0);
+        assert(installerOnly.installers == 1);
+        assert(prefixHasSessionHolderIn(censusRoot.string(), wanted));
+
+        // A missing /proc root is "nothing running", not an error.
+        PrefixSessions none = prefixSessionsIn((tmp / "nope").string(), wanted);
+        assert(none.player == 0 && none.studio == 0 && none.installers == 0);
+
+        // An empty prefix must never match every process on the machine.
+        PrefixSessions empty = prefixSessionsIn(censusRoot.string(), "");
+        assert(empty.player == 0 && empty.studio == 0 && empty.installers == 0);
+    }
+
+    // An environ that cannot be read is "not ours", never a match -- it is how
+    // another user's processes and kernel threads look.
+    {
+        const fs::path blindRoot = tmp / "proc_blind";
+        fs::create_directories(blindRoot / "30");
+        writeNulJoined(blindRoot / "30" / "cmdline", {"C:\\x\\RobloxPlayerBeta.exe"});
+        // No environ file at all.
+        assert(prefixSessionsIn(blindRoot.string(), wanted).player == 0);
+        assert(!prefixHasSessionHolderIn(blindRoot.string(), wanted));
+    }
+
+    // envValueFromEnviron(): the general form wineprefixFromEnviron now uses.
+    {
+        // Built up rather than written as one literal: a NUL inside a string
+        // literal needs an exact byte count, which is a silent bug waiting to
+        // happen every time the test is edited.
+        std::string blob;
+        for (const char* entry : {"PATH=/usr/bin", "TUXBLOX_PREFIX=/opt/tb/runtime", "HOME=/root"}) {
+            blob += entry;
+            blob.push_back('\0');
+        }
+        assert(envValueFromEnviron(blob, "TUXBLOX_PREFIX") == "/opt/tb/runtime");
+        assert(envValueFromEnviron(blob, "PATH") == "/usr/bin");
+        assert(envValueFromEnviron(blob, "MISSING").empty());
+        // A key that is only a prefix of a real one must not match it.
+        assert(envValueFromEnviron(blob, "TUXBLOX").empty());
+    }
+
     fs::remove_all(tmp);
     std::printf("prefix_session: all tests passed\n");
     return 0;

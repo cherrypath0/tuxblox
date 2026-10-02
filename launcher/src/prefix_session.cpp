@@ -32,13 +32,16 @@ namespace tuxblox {
 
 namespace {
 
-// Kept in sync with SessionHolderImages in compat/tuxblox/src/launch/session.cpp.
+// Kept in sync with the image lists in compat/tuxblox/src/support/sessions.cpp.
 // Deliberately an allowlist of the apps this launcher exists to run, not a
-// denylist of helpers -- same reasoning as session.cpp's own comment: forgetting
-// a helper only costs a wrong verb choice, forgetting an app breaks a launch.
-const char* const kSessionHolderImages[] = {
+// denylist of helpers -- forgetting a helper only costs a wrong run option,
+// forgetting an app breaks a launch.
+const char* const kClientImages[] = {
     "robloxplayerbeta.exe",
     "robloxstudiobeta.exe",
+};
+
+const char* const kInstallerImages[] = {
     "robloxplayerinstaller.exe",
     "robloxstudioinstaller.exe",
 };
@@ -67,26 +70,33 @@ std::string normalizePath(const std::string& p) {
 }
 
 std::string wineprefixFromEnviron(const std::string& environBlob) {
-    static const std::string key = "WINEPREFIX=";
-    size_t pos = 0;
-    while (pos < environBlob.size()) {
-        size_t end = environBlob.find('\0', pos);
-        if (end == std::string::npos) end = environBlob.size();
-        if (environBlob.compare(pos, key.size(), key) == 0)
-            return normalizePath(environBlob.substr(pos + key.size(), end - pos - key.size()));
-        pos = end + 1;
-    }
-    return "";
+    return normalizePath(envValueFromEnviron(environBlob, "WINEPREFIX"));
 }
 
-bool isSessionHolderImage(const std::string& image) {
-    if (image.empty()) return false;
-    for (const char* candidate : kSessionHolderImages)
+bool imageIsPlayer(const std::string& image) { return image == kClientImages[0]; }
+
+bool imageIsStudio(const std::string& image) { return image == kClientImages[1]; }
+
+bool imageIsInstaller(const std::string& image) {
+    for (const char* candidate : kInstallerImages)
         if (image == candidate) return true;
     return false;
 }
 
 } // namespace
+
+std::string envValueFromEnviron(const std::string& environBlob, const std::string& key) {
+    const std::string wanted = key + "=";
+    size_t pos = 0;
+    while (pos < environBlob.size()) {
+        size_t end = environBlob.find('\0', pos);
+        if (end == std::string::npos) end = environBlob.size();
+        if (environBlob.compare(pos, wanted.size(), wanted) == 0)
+            return environBlob.substr(pos + wanted.size(), end - pos - wanted.size());
+        pos = end + 1;
+    }
+    return "";
+}
 
 std::vector<int> collectPrefixPidsIn(const std::string& procRoot, const std::string& prefixDir) {
     std::vector<int> pids;
@@ -150,13 +160,14 @@ std::string wineImageNameFromCmdline(const std::string& firstCmdlineToken) {
     return slash == std::string::npos ? image : image.substr(slash + 1);
 }
 
-bool prefixHasSessionHolderIn(const std::string& procRoot, const std::string& prefixDir) {
+PrefixSessions prefixSessionsIn(const std::string& procRoot, const std::string& prefixDir) {
+    PrefixSessions sessions;
     const std::string want = normalizePath(prefixDir);
-    if (want.empty()) return false;
+    if (want.empty()) return sessions; // never match every process on the machine
 
     std::error_code ec;
     fs::directory_iterator it(procRoot, ec);
-    if (ec) return false; // no /proc, or not readable -- "nothing running", not an error
+    if (ec) return sessions; // no /proc, or not readable -- "nothing running", not an error
 
     for (const auto& entry : it) {
         const std::string name = entry.path().filename().string();
@@ -164,15 +175,38 @@ bool prefixHasSessionHolderIn(const std::string& procRoot, const std::string& pr
 
         // Image name first: cmdline is world-readable and cheap, and it narrows
         // a few hundred processes down to the handful worth reading environ for
-        // (environ is not world-readable). Same ordering as session.cpp.
+        // (environ is not world-readable). Same ordering as sessions.cpp.
         const std::string cmdline = readWholeFile(entry.path() / "cmdline");
         const size_t nul = cmdline.find('\0');
         const std::string first = nul == std::string::npos ? cmdline : cmdline.substr(0, nul);
-        if (!isSessionHolderImage(wineImageNameFromCmdline(first))) continue;
+        const std::string image = wineImageNameFromCmdline(first);
+        const bool player = imageIsPlayer(image);
+        const bool studio = imageIsStudio(image);
+        if (!player && !studio && !imageIsInstaller(image)) continue;
 
-        if (wineprefixFromEnviron(readWholeFile(entry.path() / "environ")) == want) return true;
+        if (wineprefixFromEnviron(readWholeFile(entry.path() / "environ")) != want) continue;
+
+        const int pid = std::atoi(name.c_str());
+        if (player) {
+            sessions.player++;
+            sessions.playerPids.push_back(pid);
+        } else if (studio) {
+            sessions.studio++;
+            sessions.studioPids.push_back(pid);
+        } else {
+            sessions.installers++;
+        }
     }
-    return false;
+    return sessions;
+}
+
+PrefixSessions prefixSessions(const std::string& prefixDir) {
+    return prefixSessionsIn("/proc", prefixDir);
+}
+
+bool prefixHasSessionHolderIn(const std::string& procRoot, const std::string& prefixDir) {
+    const PrefixSessions sessions = prefixSessionsIn(procRoot, prefixDir);
+    return sessions.player + sessions.studio + sessions.installers > 0;
 }
 
 bool prefixHasSessionHolder(const std::string& prefixDir) {
