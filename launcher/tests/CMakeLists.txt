@@ -121,6 +121,10 @@ add_executable(test_versions_tab_state test_versions_tab_state.cpp ../src/ui_adw
 target_link_libraries(test_versions_tab_state PRIVATE launcher_core)
 add_test(NAME versions_tab_state COMMAND test_versions_tab_state)
 
+add_executable(test_home_card_state test_home_card_state.cpp ../src/ui_adw/home_card_state.cpp)
+target_link_libraries(test_home_card_state PRIVATE launcher_core)
+add_test(NAME home_card_state COMMAND test_home_card_state)
+
 add_executable(test_prefix_session test_prefix_session.cpp)
 target_link_libraries(test_prefix_session PRIVATE launcher_core)
 add_test(NAME prefix_session COMMAND test_prefix_session)

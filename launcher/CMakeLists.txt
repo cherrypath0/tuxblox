@@ -201,6 +201,7 @@ if(TUXBLOX_UI_STACK_DEV)
         src/ui_adw/page_fastflags.cpp
         src/ui_adw/page_about.cpp
         src/ui_adw/versions_tab_state.cpp
+        src/ui_adw/home_card_state.cpp
         ${TUXBLOX_UI_SRC}/adw_look.cpp
     )
     target_include_directories(launcher_ui_adw PUBLIC
