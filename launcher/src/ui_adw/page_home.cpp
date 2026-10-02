@@ -35,10 +35,7 @@ std::string versionLabel(const AppVersions &versions) {
         if (installed.hash != versions.activeHash) continue;
         // The version Roblox reports for itself reads as a version; the hash is only an identifier, so it is the fallback
         if (!installed.versionString.empty()) label = installed.versionString;
-        // Only a channel worth naming: the card is too narrow to spend room on "live", which is what almost every install is on, and the Versions page names it either way
-        if (!installed.channel.empty() && installed.channel != "live") {
-            label += " \xC2\xB7 " + installed.channel;
-        }
+        if (!installed.channel.empty()) label += " \xC2\xB7 " + installed.channel;
         break;
     }
     return label;

@@ -66,7 +66,9 @@ GtkWidget *entryRow(const char *pTitle, const char *pText) {
 
 VersionsPage::VersionsPage(App &app) : app_(app) {
     pRoot_ = adw_preferences_page_new();
-    adw_preferences_page_set_description(ADW_PREFERENCES_PAGE(pRoot_), "Manage Roblox versions here");
+    adw_preferences_page_set_description(ADW_PREFERENCES_PAGE(pRoot_),
+                                         "Choose which build of Roblox you play on, install an older one, or remove "
+                                         "the ones you no longer need.");
     buildInstallGroup();
     adw_preferences_page_add(ADW_PREFERENCES_PAGE(pRoot_), buildList(player_, "Player"));
     adw_preferences_page_add(ADW_PREFERENCES_PAGE(pRoot_), buildList(studio_, "Studio"));
