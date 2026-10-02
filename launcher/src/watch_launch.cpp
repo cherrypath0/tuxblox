@@ -19,6 +19,7 @@
 #include "discord_rpc.h"
 #include "install_paths.h"
 #include "process_launcher.h"
+#include "process_name.h"
 #include "roblox_autoupdate.h"
 #include "roblox_log_capture.h"
 #include "roblox_place_info.h"
@@ -49,6 +50,10 @@ const char kDiscordApplicationId[] = "1554221498925973584";
 
 int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const std::string& uri,
                        const std::string& currentVersion) {
+    // The launcher and this watcher are the same binary, so without this they are the same name in
+    // every process list, and anything matching the launcher matches a running Roblox session too.
+    setProcessName("tuxbloxWatcher");
+
     Settings settings = loadSettings(installDir);
 
     // Runs before the active version is resolved below, so a freshly

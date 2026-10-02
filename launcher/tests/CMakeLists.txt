@@ -97,6 +97,10 @@ add_executable(test_desktop_integration test_desktop_integration.cpp)
 target_link_libraries(test_desktop_integration PRIVATE launcher_core)
 add_test(NAME desktop_integration COMMAND test_desktop_integration)
 
+add_executable(test_process_name test_process_name.cpp)
+target_link_libraries(test_process_name PRIVATE launcher_core)
+add_test(NAME process_name COMMAND test_process_name)
+
 add_executable(test_roblox_log_capture test_roblox_log_capture.cpp)
 target_link_libraries(test_roblox_log_capture PRIVATE launcher_core)
 add_test(NAME roblox_log_capture COMMAND test_roblox_log_capture)
