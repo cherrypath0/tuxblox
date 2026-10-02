@@ -31,20 +31,27 @@ public:
 private:
     struct Card {
         LaunchTarget target;
-        std::string launchLabel;
         GtkLabel *pMeta = nullptr;
+        GtkLabel *pSessions = nullptr;
         GtkButton *pButton = nullptr;
         GtkLabel *pButtonLabel = nullptr;
         GtkWidget *pButtonIcon = nullptr;
-        bool installed = false;
+        // Studio only: a second button, since a new session can start while others are open.
+        GtkButton *pStopButton = nullptr;
+        GtkLabel *pStopLabel = nullptr;
+        // What was last applied, so the icon and the style classes are only touched when they change.
+        std::string appliedLaunchLabel;
+        bool appliedStops = false;
+        bool appliedInstalled = false;
         bool applied = false;
     };
 
     GtkWidget *buildCard(Card &card, const char *pTitle, const unsigned char *pIcon, size_t iconLength);
-    void setCard(Card &card, bool installed, const std::string &versionLabel);
+    void setCard(Card &card, bool installed, const std::string &versionLabel, int sessions, bool stopping);
     void showUpdateButton(bool shown);
     void setUpdateState(const std::string &text, const std::string &styleClass);
     static void onLaunchClicked(GtkButton *pButton, gpointer data);
+    static void onStopClicked(GtkButton *pButton, gpointer data);
     static void onUpdateClicked(GtkButton *, gpointer data);
     // Both buttons go quiet for a moment after a launch. With "Minimize to background" off the window
     // stays open, so without this a double click would start Roblox twice.
@@ -63,8 +70,8 @@ private:
     GtkWidget *pUpdateButton_ = nullptr;
     GtkWidget *pUpdateDot_ = nullptr;
     std::string updateStateClass_;
-    Card player_{LaunchTarget::Player, "Launch Player"};
-    Card studio_{LaunchTarget::Studio, "Launch Studio"};
+    Card player_{LaunchTarget::Player};
+    Card studio_{LaunchTarget::Studio};
 };
 
 } // namespace tuxblox

@@ -19,6 +19,8 @@
 #include "asset_play.h"
 #include "asset_roblox_player.h"
 #include "asset_roblox_studio.h"
+#include "asset_stop.h"
+#include "home_card_state.h"
 #include "version.h"
 #include "widgets.h"
 
@@ -131,10 +133,17 @@ GtkWidget *HomePage::buildCard(Card &card, const char *pTitle, const unsigned ch
     gtk_label_set_ellipsize(GTK_LABEL(pMeta), PANGO_ELLIPSIZE_END);
     card.pMeta = GTK_LABEL(pMeta);
 
+    GtkWidget *pSessions = textLabel("", "caption");
+    gtk_widget_add_css_class(pSessions, "dim-label");
+    gtk_widget_add_css_class(pSessions, "version-meta");
+    gtk_widget_set_visible(pSessions, FALSE);
+    card.pSessions = GTK_LABEL(pSessions);
+
     GtkWidget *pText = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
     gtk_widget_set_hexpand(pText, TRUE);
     gtk_box_append(GTK_BOX(pText), textLabel(pTitle, "heading"));
     gtk_box_append(GTK_BOX(pText), pMeta);
+    gtk_box_append(GTK_BOX(pText), pSessions);
 
     GtkWidget *pHeader = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 11);
     gtk_box_append(GTK_BOX(pHeader), pIconImage);
@@ -150,10 +159,34 @@ GtkWidget *HomePage::buildCard(Card &card, const char *pTitle, const unsigned ch
     gtk_box_append(GTK_BOX(pButtonContent), pButtonLabel);
     GtkWidget *pButton = gtk_button_new();
     gtk_button_set_child(GTK_BUTTON(pButton), pButtonContent);
+    gtk_widget_set_hexpand(pButton, TRUE);
     card.pButton = GTK_BUTTON(pButton);
-    gtk_widget_set_margin_top(pButton, 12);
     g_object_set_data(G_OBJECT(pButton), "tuxblox-target", GINT_TO_POINTER(static_cast<int>(card.target)));
     g_signal_connect(pButton, "clicked", G_CALLBACK(onLaunchClicked), this);
+
+    GtkWidget *pButtons = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    gtk_widget_set_margin_top(pButtons, 12);
+    gtk_box_append(GTK_BOX(pButtons), pButton);
+
+    // Only Studio gets a second button: a new Studio session can start while others are open, so its Launch button has to stay a Launch button.
+    if (card.target == LaunchTarget::Studio) {
+        GtkWidget *pStopIcon = iconImage(kAssetStop, kAssetStopLen, 16);
+        GtkWidget *pStopText = gtk_label_new("Stop Studio");
+        card.pStopLabel = GTK_LABEL(pStopText);
+        GtkWidget *pStopContent = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+        gtk_widget_set_halign(pStopContent, GTK_ALIGN_CENTER);
+        gtk_box_append(GTK_BOX(pStopContent), pStopIcon);
+        gtk_box_append(GTK_BOX(pStopContent), pStopText);
+        GtkWidget *pStopButton = gtk_button_new();
+        gtk_button_set_child(GTK_BUTTON(pStopButton), pStopContent);
+        gtk_widget_add_css_class(pStopButton, "stop-red");
+        gtk_widget_set_visible(pStopButton, FALSE);
+        card.pStopButton = GTK_BUTTON(pStopButton);
+        g_object_set_data(G_OBJECT(pStopButton), "tuxblox-target",
+                          GINT_TO_POINTER(static_cast<int>(card.target)));
+        g_signal_connect(pStopButton, "clicked", G_CALLBACK(onStopClicked), this);
+        gtk_box_append(GTK_BOX(pButtons), pStopButton);
+    }
 
     GtkWidget *pInner = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
     gtk_widget_set_margin_start(pInner, 16);
@@ -161,7 +194,7 @@ GtkWidget *HomePage::buildCard(Card &card, const char *pTitle, const unsigned ch
     gtk_widget_set_margin_top(pInner, 15);
     gtk_widget_set_margin_bottom(pInner, 15);
     gtk_box_append(GTK_BOX(pInner), pHeader);
-    gtk_box_append(GTK_BOX(pInner), pButton);
+    gtk_box_append(GTK_BOX(pInner), pButtons);
 
     GtkWidget *pCard = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
     gtk_widget_add_css_class(pCard, "card");
@@ -172,8 +205,20 @@ GtkWidget *HomePage::buildCard(Card &card, const char *pTitle, const unsigned ch
 void HomePage::onLaunchClicked(GtkButton *pButton, gpointer data) {
     auto *pSelf = static_cast<HomePage *>(data);
     const int target = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(pButton), "tuxblox-target"));
+    const Card &card = static_cast<LaunchTarget>(target) == LaunchTarget::Player ? pSelf->player_
+                                                                                 : pSelf->studio_;
+    if (card.appliedStops) {
+        pSelf->app_.requestStopSessions(static_cast<LaunchTarget>(target));
+        return;
+    }
     pSelf->beginLaunchCooldown();
     pSelf->app_.requestLaunch(static_cast<LaunchTarget>(target));
+}
+
+void HomePage::onStopClicked(GtkButton *pButton, gpointer data) {
+    auto *pSelf = static_cast<HomePage *>(data);
+    const int target = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(pButton), "tuxblox-target"));
+    pSelf->app_.requestStopSessions(static_cast<LaunchTarget>(target));
 }
 
 void HomePage::beginLaunchCooldown() {
@@ -198,22 +243,56 @@ void HomePage::onUpdateClicked(GtkButton *, gpointer data) {
     static_cast<HomePage *>(data)->app_.requestUpdateNow();
 }
 
-void HomePage::setCard(Card &card, bool installed, const std::string &versionLabel) {
+void HomePage::setCard(Card &card, bool installed, const std::string &versionLabel, int sessions,
+                       bool stopping) {
     setLabelText(card.pMeta, installed ? versionLabel : "Not installed yet");
-    if (card.applied && card.installed == installed) return;
-    card.installed = installed;
+
+    const CardState state = cardState(card.target, installed, sessions, stopping);
+    setLabelText(card.pSessions, state.sessionLabel);
+    gtk_widget_set_visible(GTK_WIDGET(card.pSessions), !state.sessionLabel.empty());
+
+    if (card.pStopButton != nullptr) {
+        gtk_widget_set_visible(GTK_WIDGET(card.pStopButton), !state.stopLabel.empty());
+        if (!state.stopLabel.empty()) setLabelText(card.pStopLabel, state.stopLabel);
+        gtk_widget_set_sensitive(GTK_WIDGET(card.pStopButton), !stopping);
+    }
+
+    if (card.applied && card.appliedInstalled == installed &&
+        card.appliedLaunchLabel == state.launchLabel && card.appliedStops == state.launchStops) {
+        return;
+    }
+    card.appliedInstalled = installed;
+    card.appliedLaunchLabel = state.launchLabel;
+    card.appliedStops = state.launchStops;
     card.applied = true;
 
-    setLabelText(card.pButtonLabel, installed ? card.launchLabel : "Install & Launch");
-    // Installing is the neutral grey button with a download arrow; launching is the green one with a play symbol
-    GdkPaintable *pIcon = symbolicIcon(installed ? kAssetPlay : kAssetDownload, installed ? kAssetPlayLen : kAssetDownloadLen);
+    setLabelText(card.pButtonLabel, state.launchLabel);
+    // Installing is the neutral grey button with a download arrow, launching the green one with a play symbol, stopping the red one with a square
+    const unsigned char *pIconData = kAssetDownload;
+    size_t iconLength = kAssetDownloadLen;
+    if (state.launchStops) {
+        pIconData = kAssetStop;
+        iconLength = kAssetStopLen;
+    } else if (installed) {
+        pIconData = kAssetPlay;
+        iconLength = kAssetPlayLen;
+    }
+    GdkPaintable *pIcon = symbolicIcon(pIconData, iconLength);
     gtk_image_set_from_paintable(GTK_IMAGE(card.pButtonIcon), pIcon);
     g_object_unref(pIcon);
-    if (installed) {
-        gtk_widget_add_css_class(GTK_WIDGET(card.pButton), "launch-green");
-    } else {
+
+    if (state.launchStops) {
         gtk_widget_remove_css_class(GTK_WIDGET(card.pButton), "launch-green");
+        gtk_widget_add_css_class(GTK_WIDGET(card.pButton), "stop-red");
+    } else {
+        gtk_widget_remove_css_class(GTK_WIDGET(card.pButton), "stop-red");
+        if (installed) {
+            gtk_widget_add_css_class(GTK_WIDGET(card.pButton), "launch-green");
+        } else {
+            gtk_widget_remove_css_class(GTK_WIDGET(card.pButton), "launch-green");
+        }
     }
+    gtk_widget_set_sensitive(GTK_WIDGET(card.pButton), !(state.launchStops && stopping));
 }
 
 void HomePage::setUpdateState(const std::string &text, const std::string &styleClass) {
@@ -225,8 +304,10 @@ void HomePage::setUpdateState(const std::string &text, const std::string &styleC
 }
 
 void HomePage::update(const AppSnapshot &snap) {
-    setCard(player_, !snap.versions.player.activeHash.empty(), versionLabel(snap.versions.player));
-    setCard(studio_, !snap.versions.studio.activeHash.empty(), versionLabel(snap.versions.studio));
+    setCard(player_, !snap.versions.player.activeHash.empty(), versionLabel(snap.versions.player),
+            snap.sessions.player, snap.stoppingPlayer);
+    setCard(studio_, !snap.versions.studio.activeHash.empty(), versionLabel(snap.versions.studio),
+            snap.sessions.studio, snap.stoppingStudio);
 
     // Only an update actually being applied takes the screen over. Merely checking leaves the cards
     // there and says so in the strip at the bottom, so nothing flickers in and out on startup.
