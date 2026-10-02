@@ -50,7 +50,8 @@ CardState cardState(LaunchTarget target, bool installed, int sessions, bool stop
         if (stopping) {
             state.stopLabel = Stopping;
         } else {
-            state.stopLabel = sessions == 1 ? "Stop Studio" : "Stop " + std::to_string(sessions);
+            // No app name: it sits beside Launch under a heading that already says which app this is, and the room it saves is room the Launch label would otherwise lose.
+            state.stopLabel = sessions == 1 ? "Stop" : "Stop " + std::to_string(sessions);
         }
     }
     return state;

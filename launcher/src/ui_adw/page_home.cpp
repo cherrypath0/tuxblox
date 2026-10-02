@@ -136,6 +136,7 @@ GtkWidget *HomePage::buildCard(Card &card, const char *pTitle, const unsigned ch
     GtkWidget *pSessions = textLabel("", "caption");
     gtk_widget_add_css_class(pSessions, "dim-label");
     gtk_widget_add_css_class(pSessions, "version-meta");
+    gtk_label_set_ellipsize(GTK_LABEL(pSessions), PANGO_ELLIPSIZE_END);
     gtk_widget_set_visible(pSessions, FALSE);
     card.pSessions = GTK_LABEL(pSessions);
 
@@ -151,6 +152,8 @@ GtkWidget *HomePage::buildCard(Card &card, const char *pTitle, const unsigned ch
 
     GtkWidget *pButtonIcon = iconImage(kAssetDownload, kAssetDownloadLen, 16);
     GtkWidget *pButtonLabel = gtk_label_new("Install & Launch");
+    // Lets this button give room to the Stop button beside it rather than the card growing wider when a session starts
+    gtk_label_set_ellipsize(GTK_LABEL(pButtonLabel), PANGO_ELLIPSIZE_END);
     card.pButtonIcon = pButtonIcon;
     card.pButtonLabel = GTK_LABEL(pButtonLabel);
     GtkWidget *pButtonContent = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
@@ -171,7 +174,7 @@ GtkWidget *HomePage::buildCard(Card &card, const char *pTitle, const unsigned ch
     // Only Studio gets a second button: a new Studio session can start while others are open, so its Launch button has to stay a Launch button.
     if (card.target == LaunchTarget::Studio) {
         GtkWidget *pStopIcon = iconImage(kAssetStop, kAssetStopLen, 16);
-        GtkWidget *pStopText = gtk_label_new("Stop Studio");
+        GtkWidget *pStopText = gtk_label_new("Stop");
         card.pStopLabel = GTK_LABEL(pStopText);
         GtkWidget *pStopContent = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
         gtk_widget_set_halign(pStopContent, GTK_ALIGN_CENTER);

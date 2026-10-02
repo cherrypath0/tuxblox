@@ -56,9 +56,12 @@ int main() {
     CardState oneStudio = cardState(LaunchTarget::Studio, true, 1, false);
     assert(oneStudio.launchLabel == "Launch Studio");
     assert(!oneStudio.launchStops);
-    assert(oneStudio.stopLabel == "Stop Studio");
+    assert(oneStudio.stopLabel == "Stop");
     assert(oneStudio.sessionLabel == "1 session running");
 
+    // The button sits beside Launch on the same card, under a heading that
+    // already says Roblox Studio, so it does not repeat the name -- that is the
+    // room the Launch label would otherwise have to give up.
     // The singular/plural and count boundaries.
     CardState twoStudio = cardState(LaunchTarget::Studio, true, 2, false);
     assert(twoStudio.stopLabel == "Stop 2");
@@ -76,7 +79,7 @@ int main() {
     // offers to stop it -- the version could have been deleted mid-session.
     CardState orphan = cardState(LaunchTarget::Studio, false, 1, false);
     assert(orphan.launchLabel == "Install & Launch");
-    assert(orphan.stopLabel == "Stop Studio");
+    assert(orphan.stopLabel == "Stop");
     assert(orphan.sessionLabel == "1 session running");
 
     std::printf("home_card_state: all tests passed\n");
