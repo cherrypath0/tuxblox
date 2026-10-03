@@ -30,7 +30,7 @@ struct CardState {
     bool launchStops = false;
     // Studio's separate Stop button, hidden while this is empty.
     std::string stopLabel;
-    // "2 sessions running", empty when nothing is.
+    // "2 sessions running" on Studio, always empty on the Player, which runs one session at a time.
     std::string sessionLabel;
 };
 

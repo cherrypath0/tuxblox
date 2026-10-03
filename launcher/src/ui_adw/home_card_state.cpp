@@ -31,7 +31,8 @@ std::string sessionCount(int sessions) {
 
 CardState cardState(LaunchTarget target, bool installed, int sessions, bool stopping) {
     CardState state;
-    state.sessionLabel = sessionCount(sessions);
+    // Studio only: the Player runs one session at a time, so a count says nothing its Stop button does not.
+    state.sessionLabel = target == LaunchTarget::Studio ? sessionCount(sessions) : "";
 
     const bool playerRunning = target == LaunchTarget::Player && sessions > 0;
     if (playerRunning) {

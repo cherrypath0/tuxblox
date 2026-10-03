@@ -46,7 +46,7 @@ int main() {
     assert(livePlayer.launchLabel == "Stop Player");
     assert(livePlayer.launchStops);
     assert(livePlayer.stopLabel.empty());
-    assert(livePlayer.sessionLabel == "1 session running");
+    assert(livePlayer.sessionLabel.empty());
 
     CardState stoppingPlayer = cardState(LaunchTarget::Player, true, 1, true);
     assert(stoppingPlayer.launchLabel == "Stopping\xE2\x80\xA6");
