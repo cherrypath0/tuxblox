@@ -80,6 +80,7 @@ gboolean onCloseRequest(GtkWindow *, gpointer data) {
 
 void onActivate(GtkApplication *pGtkApp, gpointer data) {
     applyLook();
+    applyTheme(settingsTheme());
     auto *pUi = static_cast<ProgressUi *>(data);
     pUi->activated = true;
 

@@ -70,6 +70,7 @@ gboolean onTick(gpointer data) {
 
 void onActivate(GtkApplication *pGtkApp, gpointer data) {
     applyLook();
+    applyTheme(settingsTheme());
     auto *pUi = static_cast<InstallUi *>(data);
     pUi->activated = true;
 
@@ -158,6 +159,7 @@ void onActivate(GtkApplication *pGtkApp, gpointer data) {
 
 void onResultActivate(GtkApplication *pGtkApp, gpointer data) {
     applyLook();
+    applyTheme(settingsTheme());
     auto *pUi = static_cast<ResultUi *>(data);
 
     GtkWidget *pWindow = adw_application_window_new(pGtkApp);
