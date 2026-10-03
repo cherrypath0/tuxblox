@@ -129,6 +129,20 @@ XContext cursor_context = 0;
 static RECT clip_rect;
 static Cursor create_cursor( HANDLE handle );
 
+/* XWayland pins the pointer the X protocol reports but leaves the compositor's own pointer free,
+ * so a cursor left visible during a mouse lock slides around the window while the app is told it
+ * is held still. Nothing can move the sprite back, so the only cure is not to draw one. */
+static BOOL clipping_mouse_lock;
+
+static BOOL display_is_xwayland( Display *display )
+{
+    static int cached = -1;
+    int opcode, event, error;
+
+    if (cached == -1) cached = XQueryExtension( display, "XWAYLAND", &opcode, &event, &error );
+    return cached;
+}
+
 #ifdef HAVE_X11_EXTENSIONS_XINPUT2_H
 static BOOL xinput2_available;
 static BOOL broken_rawevents;
@@ -506,6 +520,10 @@ static BOOL grab_clipping_window( const RECT *clip )
                        GrabModeAsync, GrabModeAsync, clip_window, None, CurrentTime ))
         clipping_cursor = TRUE;
 
+    /* A clip this small is a mouse lock rather than a region to drag in. */
+    clipping_mouse_lock = clipping_cursor && display_is_xwayland( data->display ) &&
+                          clip->right - clip->left <= 2 && clip->bottom - clip->top <= 2;
+
     SERVER_START_REQ( set_cursor )
     {
         req->flags = 0;
@@ -515,7 +533,7 @@ static BOOL grab_clipping_window( const RECT *clip )
     }
     SERVER_END_REQ;
 
-    set_window_cursor( clip_window, cursor );
+    set_window_cursor( clip_window, clipping_mouse_lock ? 0 : cursor );
 
     if (!clipping_cursor)
     {
@@ -548,6 +566,31 @@ void ungrab_clipping_window(void)
     if (clipping_cursor) XUngrabPointer( data->display, CurrentTime );
     clipping_cursor = FALSE;
     data->clipping_cursor = FALSE;
+
+    /* Put the cursor back rather than waiting for the application to set it again, so that one that
+     * sets it once and never again is not left with an invisible one for the rest of its life. */
+    if (clipping_mouse_lock)
+    {
+        struct x11drv_win_data *win_data;
+        HCURSOR cursor;
+
+        clipping_mouse_lock = FALSE;
+
+        SERVER_START_REQ( set_cursor )
+        {
+            req->flags = 0;
+            wine_server_call( req );
+            if (reply->prev_count < 0) cursor = 0;
+            else cursor = wine_server_ptr_handle( reply->prev_handle );
+        }
+        SERVER_END_REQ;
+
+        if ((win_data = get_win_data( NtUserGetForegroundWindow() )))
+        {
+            set_window_cursor( win_data->whole_window, cursor );
+            release_win_data( win_data );
+        }
+    }
     x11drv_xinput2_disable( data->display, DefaultRootWindow( data->display ) );
 }
 
@@ -1460,6 +1503,10 @@ void X11DRV_DestroyCursorIcon( HCURSOR handle )
 void X11DRV_SetCursor( HWND hwnd, HCURSOR handle )
 {
     struct x11drv_win_data *data;
+
+    /* The sprite the compositor draws is the one belonging to whatever its pointer is over, which is
+     * the application's own window rather than the clip window, so this has to cover both. */
+    if (clipping_mouse_lock) handle = 0;
 
     if ((data = get_win_data( hwnd )))
     {
