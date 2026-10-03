@@ -110,6 +110,8 @@ void freeConfirmation(gpointer data, GClosure *) {
 }
 
 const char LauncherStyles[] =
+    // libadwaita puts a pencil on every editable row, from an icon theme TuxBlox does not ship, so it drew as a broken-image box
+    ".editable-area > .edit-icon { -gtk-icon-size: 0; min-width: 0; min-height: 0; padding: 0; margin: 0; opacity: 0; }\n"
     "button.launch-green { background-color: @success_bg_color; color: @success_fg_color; }\n"
     "button.launch-green:hover { background-image: image(alpha(white, 0.1)); }\n"
     "button.launch-green:active { background-image: image(alpha(black, 0.1)); }\n"
