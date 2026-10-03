@@ -65,6 +65,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         gettext \
     && rm -rf /var/lib/apt/lists/*
 
+# Wayland driver. Without these, Wine's configure prints "Wayland 64-bit development
+# files not found" and drops dlls/winewayland.drv, so the layer is X11-only and the
+# compositor is the only thing that can confine the pointer. wayland-protocols is not
+# needed: the driver carries its own copies of every protocol XML it uses, and only
+# wayland-scanner (libwayland-bin) is required to compile them.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libwayland-dev libwayland-dev:i386 \
+        libwayland-bin \
+        libxkbcommon-dev libxkbcommon-dev:i386 \
+        libxkbregistry-dev libxkbregistry-dev:i386 \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN set -eu; \
     printf '%s\n' \
         '[binaries]' \
