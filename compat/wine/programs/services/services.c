@@ -387,6 +387,79 @@ static BOOL schedule_delayed_autostart(struct service_entry **services, unsigned
     return TRUE;
 }
 
+struct async_autostart_params
+{
+    unsigned int count;
+    struct service_entry **services;
+};
+
+/* Starts services in order, putting the ones that asked to be delayed into the delayed list instead. */
+static void start_startup_services(struct service_entry **services, unsigned int count,
+                                   struct service_entry **delayed, unsigned int *delayed_cnt)
+{
+    struct service_entry *service;
+    unsigned int i;
+    DWORD err;
+
+    for (i = 0; i < count; i++)
+    {
+        service = services[i];
+        if (delayed && service->delayed_autostart)
+        {
+            TRACE("delayed starting %s\n", wine_dbgstr_w(service->name));
+            delayed[(*delayed_cnt)++] = service;
+            continue;
+        }
+        err = service_start(service, 0, NULL);
+        if (err != ERROR_SUCCESS)
+            WINE_FIXME("Auto-start service %s failed to start: %ld\n",
+                       wine_dbgstr_w(service->name), err);
+        release_service(service);
+    }
+}
+
+/* Auto-start services and the device stack are not needed before the first program runs, so they are
+ * started here rather than holding the boot up for them. */
+static DWORD WINAPI async_autostart_thread(void *arg)
+{
+    struct async_autostart_params *params = arg;
+    unsigned int delayed_cnt = 0;
+
+    scmdatabase_lock_startup(active_database, INFINITE);
+    start_startup_services(params->services, params->count, params->services, &delayed_cnt);
+    scmdatabase_unlock_startup(active_database);
+
+    if (!delayed_cnt || !schedule_delayed_autostart(params->services, delayed_cnt))
+        free(params->services);
+    free(params);
+    return 0;
+}
+
+static BOOL start_services_async(struct service_entry **services, unsigned int count)
+{
+    struct async_autostart_params *params;
+    HANDLE thread;
+
+    if (!(params = malloc(sizeof(*params)))) return FALSE;
+    if (!(params->services = malloc(count * sizeof(params->services[0]))))
+    {
+        free(params);
+        return FALSE;
+    }
+    memcpy(params->services, services, count * sizeof(params->services[0]));
+    params->count = count;
+
+    if (!(thread = CreateThread(NULL, 0, async_autostart_thread, params, 0, NULL)))
+    {
+        ERR("Failed to start the auto-start thread, error %lu\n", GetLastError());
+        free(params->services);
+        free(params);
+        return FALSE;
+    }
+    CloseHandle(thread);
+    return TRUE;
+}
+
 static BOOL is_root_pnp_service(HDEVINFO set, const struct service_entry *service)
 {
     SP_DEVINFO_DATA device = {sizeof(device)};
@@ -412,6 +485,7 @@ static void scmdatabase_autostart_services(struct scmdatabase *db)
     unsigned int i = 0;
     unsigned int size = 32;
     unsigned int delayed_cnt = 0;
+    unsigned int sync_cnt;
     struct service_entry *service;
     HDEVINFO set;
 
@@ -447,26 +521,22 @@ static void scmdatabase_autostart_services(struct scmdatabase *db)
 
     scmdatabase_unlock(db);
     qsort(services_list, size, sizeof(services_list[0]), compare_service);
+
+    /* compare_service orders by start type, so everything that has to be up before the first program
+     * runs sits at the front of the list and the rest can be started once the boot is already done. */
+    for (sync_cnt = 0; sync_cnt < size; sync_cnt++)
+        if (services_list[sync_cnt]->config.dwStartType > SERVICE_SYSTEM_START) break;
+
     scmdatabase_lock_startup(db, INFINITE);
-
-    for (i = 0; i < size; i++)
-    {
-        DWORD err;
-        service = services_list[i];
-        if (service->delayed_autostart)
-        {
-            TRACE("delayed starting %s\n", wine_dbgstr_w(service->name));
-            services_list[delayed_cnt++] = service;
-            continue;
-        }
-        err = service_start(service, 0, NULL);
-        if (err != ERROR_SUCCESS)
-            WINE_FIXME("Auto-start service %s failed to start: %ld\n",
-                       wine_dbgstr_w(service->name), err);
-        release_service(service);
-    }
-
+    start_startup_services(services_list, sync_cnt, NULL, NULL);
     scmdatabase_unlock_startup(db);
+
+    if (sync_cnt < size && !start_services_async(services_list + sync_cnt, size - sync_cnt))
+    {
+        scmdatabase_lock_startup(db, INFINITE);
+        start_startup_services(services_list + sync_cnt, size - sync_cnt, services_list, &delayed_cnt);
+        scmdatabase_unlock_startup(db);
+    }
 
     if (!delayed_cnt || !schedule_delayed_autostart(services_list, delayed_cnt))
         free(services_list);
