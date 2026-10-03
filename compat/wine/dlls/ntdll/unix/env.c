@@ -2081,6 +2081,9 @@ static RTL_USER_PROCESS_PARAMETERS *build_initial_params( void **module )
     {
         char *loader;
 
+        /* the test below is for failure, and a relocated image reports the informational
+         * STATUS_IMAGE_NOT_AT_BASE, which would otherwise send every ASLR executable through start.exe */
+        status = STATUS_SUCCESS;
         if (main_image_info.ImageCharacteristics & IMAGE_FILE_DLL) status = STATUS_INVALID_IMAGE_FORMAT;
         /* if we have to use a different loader, fall back to start.exe */
         if ((loader = get_alternate_wineloader( main_image_info.Machine )))
