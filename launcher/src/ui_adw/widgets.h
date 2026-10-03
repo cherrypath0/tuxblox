@@ -24,8 +24,8 @@
 
 namespace tuxblox {
 
-// One of the launcher's white PNG icons, drawn in the text colour of wherever it is shown so it stays visible in light and dark. Empty, not null, if the bytes are not a PNG. The caller owns the reference.
-GdkPaintable *symbolicIcon(const unsigned char *pPng, size_t length);
+// One of the launcher's white PNG icons, drawn in the text colour of wherever it is shown so it stays visible in light and dark. Sized for pixelSize, empty if the bytes are not a PNG. The caller owns the reference.
+GdkPaintable *symbolicIcon(const unsigned char *pPng, size_t length, int pixelSize);
 
 GtkWidget *iconImage(const unsigned char *pPng, size_t length, int pixelSize);
 
@@ -41,8 +41,8 @@ void showError(GtkWidget *pLabel, const std::string &message);
 void setLabelText(GtkLabel *pLabel, const std::string &text);
 void setButtonLabel(GtkButton *pButton, const std::string &text);
 
-// Styles the launcher adds on top of libadwaita's: the green Launch button and the yellow-orange Update button. Call once the display is up.
-void installLauncherStyles();
+// Puts the launcher into one of its four looks -- "system", "dark", "grey" or "light" -- and loads the styles that go with it. Call it whenever the setting changes; the window redraws itself.
+void applyLauncherTheme(const std::string &theme);
 
 void showNotice(GtkWidget *pParent, const std::string &heading, const std::string &body);
 

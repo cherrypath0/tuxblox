@@ -161,6 +161,10 @@ add_executable(test_settings_discord test_settings_discord.cpp)
 target_link_libraries(test_settings_discord PRIVATE launcher_core)
 add_test(NAME settings_discord COMMAND test_settings_discord)
 
+add_executable(test_settings_theme test_settings_theme.cpp)
+target_link_libraries(test_settings_theme PRIVATE launcher_core)
+add_test(NAME settings_theme COMMAND test_settings_theme)
+
 add_executable(test_roblox_place_info test_roblox_place_info.cpp)
 target_link_libraries(test_roblox_place_info PRIVATE launcher_core)
 add_test(NAME roblox_place_info COMMAND test_roblox_place_info)

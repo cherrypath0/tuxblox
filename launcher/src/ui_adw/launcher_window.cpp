@@ -67,6 +67,7 @@ struct WindowUi {
     std::optional<Tab> shownTab;
     std::string notifiedVersion;
     ActionNotification updateNotice;
+    std::string appliedTheme;
     bool containerWarningShown = false;
     bool backgroundWorkStarted = false;
     guint tickId = 0;
@@ -129,6 +130,10 @@ gboolean onTick(gpointer data) {
     const AppSnapshot snap = app.snapshot();
 
     showTab(*pUi, snap.activeTab);
+    if (pUi->appliedTheme != snap.settings.theme) {
+        pUi->appliedTheme = snap.settings.theme;
+        applyLauncherTheme(pUi->appliedTheme);
+    }
     for (PageEntry &entry : pUi->pages) entry.page->update(snap);
     notifyUpdate(*pUi, snap);
 
@@ -199,7 +204,7 @@ GtkWidget *buildSidebar(WindowUi &ui) {
     GtkWidget *pName = gtk_label_new("TuxBlox");
     gtk_widget_add_css_class(pName, "heading");
     // The desktop's window buttons would draw the app icon here, scaled from a much larger file; this copy is made for the size it is shown at
-    GdkPaintable *pLogo = logoPaintable(kAssetTuxbloxIcon, kAssetTuxbloxIconLen);
+    GdkPaintable *pLogo = logoPaintable(kAssetTuxbloxIcon, kAssetTuxbloxIconLen, 24);
     GtkWidget *pLogoImage = gtk_image_new_from_paintable(pLogo);
     g_object_unref(pLogo);
     gtk_image_set_pixel_size(GTK_IMAGE(pLogoImage), 24);
@@ -236,7 +241,8 @@ void onActivate(GtkApplication *pGtkApp, gpointer data) {
     auto *pUi = static_cast<WindowUi *>(data);
     pUi->activated = true;
     applyLook();
-    installLauncherStyles();
+    pUi->appliedTheme = pUi->pApp->snapshot().settings.theme;
+    applyLauncherTheme(pUi->appliedTheme);
 
     GtkWidget *pWindow = adw_application_window_new(pGtkApp);
     pUi->pWindow = GTK_WINDOW(pWindow);

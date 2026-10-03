@@ -61,20 +61,21 @@ int main() {
     };
 
     for (const Asset &asset : assets) {
-        GdkPaintable *pIcon = tuxblox::symbolicIcon(asset.pPng, asset.length);
+        GdkPaintable *pIcon = tuxblox::symbolicIcon(asset.pPng, asset.length, 16);
         // The PNGs are white, so anything but a symbolic paintable disappears in light mode
         assert(GTK_IS_SYMBOLIC_PAINTABLE(pIcon));
         const int width = gdk_paintable_get_intrinsic_width(pIcon);
         const int height = gdk_paintable_get_intrinsic_height(pIcon);
-        if (width <= 0 || width > 96 || height <= 0 || height > 96) {
-            fprintf(stderr, "%s decodes to %dx%d, expected 1-96 px each way\n", asset.pName, width, height);
+        // Resized to twice the size it is drawn at, so the renderer is never left shrinking a 96 px image into a 16 px box
+        if (width <= 0 || width > 32 || height <= 0 || height > 32) {
+            fprintf(stderr, "%s decodes to %dx%d, expected 1-32 px each way\n", asset.pName, width, height);
             return 1;
         }
         g_object_unref(pIcon);
     }
 
     const unsigned char notAPng[] = {1, 2, 3, 4};
-    GdkPaintable *pBroken = tuxblox::symbolicIcon(notAPng, sizeof(notAPng));
+    GdkPaintable *pBroken = tuxblox::symbolicIcon(notAPng, sizeof(notAPng), 16);
     assert(pBroken != nullptr);
     assert(gdk_paintable_get_intrinsic_width(pBroken) == 0);
     g_object_unref(pBroken);

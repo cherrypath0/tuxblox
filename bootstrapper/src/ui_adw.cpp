@@ -90,7 +90,7 @@ void onActivate(GtkApplication *pGtkApp, gpointer data) {
     gtk_window_set_resizable(pUi->pWindow, FALSE);
     g_signal_connect(pWindow, "close-request", G_CALLBACK(onCloseRequest), pUi);
 
-    GdkPaintable *pLogo = logoPaintable(kTuxbloxLogoPng, kTuxbloxLogoPngLen);
+    GdkPaintable *pLogo = logoPaintable(kTuxbloxLogoPng, kTuxbloxLogoPngLen, 72);
     // GtkImage rather than GtkPicture: a picture grows to its paintable's natural size, which is the 440px logo, and a size request is only a minimum.
     GtkWidget *pPicture = gtk_image_new_from_paintable(pLogo);
     g_object_unref(pLogo);

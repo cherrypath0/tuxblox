@@ -25,6 +25,10 @@ namespace {
 
 const char *const Channels[] = {"stable", "canary", "experimental", nullptr};
 
+// What settings.json stores, in the order the dropdown offers them
+const char *const Themes[] = {"system", "dark", "grey", "light", nullptr};
+const char *const ThemeLabels[] = {"System theme", "Dark", "Grey", "Light", nullptr};
+
 std::string automaticGpuLabel(const std::vector<GpuDevice> &gpus) {
     if (gpus.empty()) return "Automatic";
     return "Automatic (1: " + gpus.front().label + ")";
@@ -37,6 +41,7 @@ SettingsPage::SettingsPage(App &app) : app_(app) {
     pRoot_ = adw_preferences_page_new();
 
     AdwPreferencesGroup *pLauncher = addGroup("Launcher");
+    buildTheme(pLauncher);
     addToggle(pLauncher, "Minimize to background", "Automatically close this window whenever Roblox starts.",
               &Settings::minimizeToBackground);
 
@@ -79,6 +84,18 @@ void SettingsPage::addToggle(AdwPreferencesGroup *pGroup, const char *pTitle, co
     toggles_.push_back(std::make_unique<Toggle>(Toggle{this, pField, ADW_SWITCH_ROW(pRow)}));
     g_signal_connect(pRow, "notify::active", G_CALLBACK(onToggle), toggles_.back().get());
     adw_preferences_group_add(pGroup, pRow);
+}
+
+void SettingsPage::buildTheme(AdwPreferencesGroup *pGroup) {
+    GtkWidget *pTheme = adw_combo_row_new();
+    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(pTheme), "Launcher theme");
+    adw_action_row_set_subtitle(ADW_ACTION_ROW(pTheme), "The colours this window uses. Roblox itself is unaffected.");
+    GtkStringList *pThemes = gtk_string_list_new(ThemeLabels);
+    adw_combo_row_set_model(ADW_COMBO_ROW(pTheme), G_LIST_MODEL(pThemes));
+    g_object_unref(pThemes);
+    pTheme_ = ADW_COMBO_ROW(pTheme);
+    g_signal_connect(pTheme, "notify::selected", G_CALLBACK(onTheme), this);
+    adw_preferences_group_add(pGroup, pTheme);
 }
 
 void SettingsPage::buildUpdates() {
@@ -185,6 +202,18 @@ void SettingsPage::onChannel(GObject *pRow, GParamSpec *, gpointer data) {
     pSelf->app_.updateSettings(updated);
 }
 
+void SettingsPage::onTheme(GObject *pRow, GParamSpec *, gpointer data) {
+    auto *pSelf = static_cast<SettingsPage *>(data);
+    if (pSelf->seeding_) return;
+    const guint selected = adw_combo_row_get_selected(ADW_COMBO_ROW(pRow));
+    if (selected >= G_N_ELEMENTS(Themes) - 1) return;
+    Settings updated = pSelf->app_.snapshot().settings;
+    updated.theme = Themes[selected];
+    pSelf->app_.updateSettings(updated);
+    // Straight away rather than on the next poll, so the window changes colour as the row is clicked
+    applyLauncherTheme(updated.theme);
+}
+
 void SettingsPage::onGpu(GObject *pRow, GParamSpec *, gpointer data) {
     auto *pSelf = static_cast<SettingsPage *>(data);
     if (pSelf->seeding_) return;
@@ -245,6 +274,9 @@ void SettingsPage::seed(const Settings &settings) {
     seeding_ = true;
     for (guint i = 0; Channels[i] != nullptr; ++i) {
         if (settings.channel == Channels[i]) adw_combo_row_set_selected(pChannel_, i);
+    }
+    for (guint i = 0; Themes[i] != nullptr; ++i) {
+        if (settings.theme == Themes[i]) adw_combo_row_set_selected(pTheme_, i);
     }
     guint gpuIndex = 0;
     for (size_t i = 0; i < gpus_.size(); ++i) {

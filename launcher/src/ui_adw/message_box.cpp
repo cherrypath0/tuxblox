@@ -18,6 +18,7 @@
 #include "adw_env.h"
 #include "adw_look.h"
 #include "install_paths.h"
+#include "widgets.h"
 
 #include <cstdio>
 
@@ -64,6 +65,8 @@ bool showErrorMessageBoxWithAction(const std::string &title, const std::string &
         }
         adw_init();
         applyLook();
+        // A dialog shown before the window exists has no settings to read, so it takes the default look
+        applyLauncherTheme("system");
     }
 
     AdwDialog *pDialog = adw_alert_dialog_new(title.c_str(), message.c_str());

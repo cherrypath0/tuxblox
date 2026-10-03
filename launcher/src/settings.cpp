@@ -31,6 +31,10 @@ std::string settingsFilePath(const std::string& installDir) {
     return installDir + "/settings.json";
 }
 
+bool isKnownTheme(const std::string& theme) {
+    return theme == "system" || theme == "dark" || theme == "grey" || theme == "light";
+}
+
 bool isKnownChannel(const std::string& channel) {
     return channel == "stable" || channel == "canary" || channel == "experimental";
 }
@@ -122,6 +126,8 @@ Settings loadSettings(const std::string& installDir) {
         settings.autoUpdateRoblox = j.value("auto_update_roblox", true);
         settings.gpu = j.value("gpu", std::string(""));
         settings.discordRpc = j.value("discord_rpc", false);
+        const std::string theme = j.value("theme", std::string("system"));
+        settings.theme = isKnownTheme(theme) ? theme : "system";
 
         const auto fastFlags = j.find("fast_flags");
         if (fastFlags != j.end()) {
@@ -157,6 +163,7 @@ void saveSettings(const std::string& installDir, const Settings& settings) {
         j["auto_update_roblox"] = settings.autoUpdateRoblox;
         j["gpu"] = settings.gpu;
         j["discord_rpc"] = settings.discordRpc;
+        j["theme"] = settings.theme;
         j["fast_flags"] = {{"player", fastFlagsToJson(settings.fastFlags.player)},
                             {"studio", fastFlagsToJson(settings.fastFlags.studio)}};
 

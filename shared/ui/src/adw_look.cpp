@@ -18,6 +18,7 @@
 
 // Third Parties
 #include <adwaita.h>
+#include <gdk-pixbuf/gdk-pixbuf.h>
 
 namespace tuxblox {
 
@@ -26,11 +27,32 @@ void applyLook() {
     g_object_set(gtk_settings_get_default(), "gtk-font-name", "Adwaita Sans 11", nullptr);
 }
 
-GdkPaintable *logoPaintable(const unsigned char *pPng, size_t length) {
+GdkTexture *iconTexture(const unsigned char *pPng, size_t length, int pixelSize) {
     GBytes *pBytes = g_bytes_new_static(pPng, length);
-    GdkTexture *pTexture = gdk_texture_new_from_bytes(pBytes, nullptr);
+    GInputStream *pStream = g_memory_input_stream_new_from_bytes(pBytes);
+    GdkPixbuf *pFullSize = gdk_pixbuf_new_from_stream(pStream, nullptr, nullptr);
+    g_object_unref(pStream);
     g_bytes_unref(pBytes);
-    return GDK_PAINTABLE(pTexture);
+    if (pFullSize == nullptr) return nullptr;
+
+    // Twice the size it is drawn at, so it is already sharp on a high-resolution screen and halves cleanly on an ordinary one
+    const int target = pixelSize * 2;
+    const int width = gdk_pixbuf_get_width(pFullSize);
+    const int height = gdk_pixbuf_get_height(pFullSize);
+    GdkPixbuf *pSized = pFullSize;
+    if (pixelSize > 0 && width > target && height > target) {
+        pSized = gdk_pixbuf_scale_simple(pFullSize, target, target, GDK_INTERP_BILINEAR);
+        g_object_unref(pFullSize);
+        if (pSized == nullptr) return nullptr;
+    }
+
+    GdkTexture *pTexture = gdk_texture_new_for_pixbuf(pSized);
+    g_object_unref(pSized);
+    return pTexture;
+}
+
+GdkPaintable *logoPaintable(const unsigned char *pPng, size_t length, int pixelSize) {
+    return GDK_PAINTABLE(iconTexture(pPng, length, pixelSize));
 }
 
 } // namespace tuxblox

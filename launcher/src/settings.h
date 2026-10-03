@@ -111,6 +111,12 @@ struct Settings {
     // Roblox itself does on Windows. A check that cannot run never blocks the
     // launch -- see roblox_autoupdate.h.
     bool autoUpdateRoblox = true;
+    // The launcher's own colours: "system" follows the desktop's light or dark
+    // setting, "dark" and "light" pin it to one of them, and "grey" is
+    // libadwaita's own palette, which is what the launcher looked like before
+    // it took the website's. Only the window is affected -- Roblox never sees
+    // this.
+    std::string theme = "system";
     // Written into the active Roblox version's ClientSettings folder at every
     // launch -- see fastflag_file.h for why it can't just be written once.
     FastFlagSet fastFlags;

@@ -41,6 +41,7 @@ private:
 
     AdwPreferencesGroup *addGroup(const char *pTitle);
     void addToggle(AdwPreferencesGroup *pGroup, const char *pTitle, const char *pSubtitle, bool Settings::*pField);
+    void buildTheme(AdwPreferencesGroup *pGroup);
     void buildUpdates();
     void buildEnvironment();
     void buildDangerZone();
@@ -50,6 +51,7 @@ private:
 
     static void onToggle(GObject *pRow, GParamSpec *, gpointer data);
     static void onChannel(GObject *pRow, GParamSpec *, gpointer data);
+    static void onTheme(GObject *pRow, GParamSpec *, gpointer data);
     static void onGpu(GObject *pRow, GParamSpec *, gpointer data);
     static void onEnvironmentActivate(GtkEntry *, gpointer data);
     static void onEnvironmentFocusLeft(GtkEventControllerFocus *, gpointer data);
@@ -63,6 +65,7 @@ private:
     std::vector<std::unique_ptr<Toggle>> toggles_;
     // Read once when the page is built: the list cannot change without a reboot or a hotplug, neither of which happens while the window is open
     std::vector<GpuDevice> gpus_;
+    AdwComboRow *pTheme_ = nullptr;
     AdwComboRow *pChannel_ = nullptr;
     AdwComboRow *pGpu_ = nullptr;
     GtkEntry *pEnvironment_ = nullptr;

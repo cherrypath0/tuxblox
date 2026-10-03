@@ -60,7 +60,7 @@ GtkWidget *centredLabel(const std::string &text, const char *pStyleClass) {
 AboutPage::AboutPage() {
     pRoot_ = adw_preferences_page_new();
 
-    GdkPaintable *pLogo = logoPaintable(kTuxbloxLogoPng, kTuxbloxLogoPngLen);
+    GdkPaintable *pLogo = logoPaintable(kTuxbloxLogoPng, kTuxbloxLogoPngLen, 96);
     GtkWidget *pLogoImage = gtk_image_new_from_paintable(pLogo);
     g_object_unref(pLogo);
     gtk_image_set_pixel_size(GTK_IMAGE(pLogoImage), 96);

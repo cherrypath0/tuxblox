@@ -71,6 +71,8 @@ HomePage::HomePage(App &app) : app_(app) {
     pCards_ = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
     gtk_box_set_homogeneous(GTK_BOX(pCards_), TRUE);
     gtk_widget_set_margin_top(pCards_, 18);
+    // Stops the cards' own vertical expansion from reaching the page and stretching them down the window
+    gtk_widget_set_vexpand(pCards_, FALSE);
     gtk_box_append(GTK_BOX(pCards_), buildCard(player_, "Roblox Player", kAssetRobloxPlayer, kAssetRobloxPlayerLen));
     gtk_box_append(GTK_BOX(pCards_), buildCard(studio_, "Roblox Studio", kAssetRobloxStudio, kAssetRobloxStudioLen));
     gtk_box_append(GTK_BOX(pBox), pCards_);
@@ -149,6 +151,9 @@ GtkWidget *HomePage::buildCard(Card &card, const char *pTitle, const unsigned ch
     GtkWidget *pHeader = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 11);
     gtk_box_append(GTK_BOX(pHeader), pIconImage);
     gtk_box_append(GTK_BOX(pHeader), pText);
+    // Only Studio carries a session line, so the header takes the spare height and both cards' buttons stay on one line
+    gtk_widget_set_vexpand(pHeader, TRUE);
+    gtk_widget_set_valign(pHeader, GTK_ALIGN_START);
 
     GtkWidget *pButtonIcon = iconImage(kAssetDownload, kAssetDownloadLen, 16);
     GtkWidget *pButtonLabel = gtk_label_new("Install & Launch");
@@ -280,7 +285,7 @@ void HomePage::setCard(Card &card, bool installed, const std::string &versionLab
         pIconData = kAssetPlay;
         iconLength = kAssetPlayLen;
     }
-    GdkPaintable *pIcon = symbolicIcon(pIconData, iconLength);
+    GdkPaintable *pIcon = symbolicIcon(pIconData, iconLength, 16);
     gtk_image_set_from_paintable(GTK_IMAGE(card.pButtonIcon), pIcon);
     g_object_unref(pIcon);
 
