@@ -89,7 +89,6 @@ void SettingsPage::addToggle(AdwPreferencesGroup *pGroup, const char *pTitle, co
 void SettingsPage::buildTheme(AdwPreferencesGroup *pGroup) {
     GtkWidget *pTheme = adw_combo_row_new();
     adw_preferences_row_set_title(ADW_PREFERENCES_ROW(pTheme), "Launcher theme");
-    adw_action_row_set_subtitle(ADW_ACTION_ROW(pTheme), "The colours this window uses. Roblox itself is unaffected.");
     GtkStringList *pThemes = gtk_string_list_new(ThemeLabels);
     adw_combo_row_set_model(ADW_COMBO_ROW(pTheme), G_LIST_MODEL(pThemes));
     g_object_unref(pThemes);
