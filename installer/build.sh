@@ -19,6 +19,8 @@ set -eo pipefail
 cd "$(dirname "$0")"
 
 JOBS="${TUXBLOX_MAKE_JOBS:-$(nproc 2>/dev/null || echo 1)}"
+# Lives outside build/, which every full build wipes, so a rebuild of unchanged sources is a cache hit
+CacheDir="${CCACHE_DIR:-$HOME/.ccache}"
 
 detect_pkg_manager() {
     if command -v apt-get >/dev/null 2>&1; then echo apt
@@ -82,6 +84,7 @@ if [[ ! -f ../build/.artifacts/shared/lib/libcurl.a ]]; then
     ../shared/tools/libs-build.sh
 fi
 
+mkdir -p "$CacheDir"
 echo ":: Building builder container image (old-glibc baseline)"
 podman build -t tuxblox-old-glibc-builder -f ../Containerfile ..
 
@@ -144,8 +147,8 @@ fi
 
 podman run --rm --userns=keep-id -e JOBS="$JOBS" -e UI_STACK_ARG="$UiStackArg" -e LIBADWAITA_ARG="$LibadwaitaArg" \
     -e TUXBLOX_BUILD_VERSION="${TUXBLOX_BUILD_VERSION:-}" \
-    -e TUXBLOX_CHANNEL="${TUXBLOX_CHANNEL:-}" -v "$(pwd):/src:Z" -v "$(pwd)/../build/.artifacts/shared:/shared:ro,z" -v "$(pwd)/../shared/crypto:/shared-crypto:ro,z" "${UiStackMount[@]}" -w /src tuxblox-old-glibc-builder \
-    bash -c 'cmake -B build -S . -G Ninja -DCMAKE_BUILD_TYPE=Release -DTUXBLOX_SHARED_DIR=/shared -DTUXBLOX_SHARED_CRYPTO=/shared-crypto/src ${UI_STACK_ARG:-} ${LIBADWAITA_ARG:-} && cmake --build build -j"$JOBS"'
+    -e TUXBLOX_CHANNEL="${TUXBLOX_CHANNEL:-}" -v "$(pwd):/src:Z" -v "$(pwd)/../build/.artifacts/shared:/shared:ro,z" -v "$(pwd)/../shared/crypto:/shared-crypto:ro,z" "${UiStackMount[@]}" -v "$CacheDir:/ccache:z" -e CCACHE_DIR=/ccache -w /src tuxblox-old-glibc-builder \
+    bash -c 'cmake -B build -S . -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DTUXBLOX_SHARED_DIR=/shared -DTUXBLOX_SHARED_CRYPTO=/shared-crypto/src ${UI_STACK_ARG:-} ${LIBADWAITA_ARG:-} && cmake --build build -j"$JOBS"'
 
 if [[ "${TUXBLOX_HEADLESS_ONLY:-}" == "1" ]]; then
     echo ":: TUXBLOX_HEADLESS_ONLY set, building an installer with no graphical interface"

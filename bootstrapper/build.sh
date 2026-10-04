@@ -19,6 +19,8 @@ set -eo pipefail
 cd "$(dirname "$0")"
 
 JOBS="${TUXBLOX_MAKE_JOBS:-$(nproc 2>/dev/null || echo 1)}"
+# Lives outside build/, which every full build wipes, so a rebuild of unchanged sources is a cache hit
+CacheDir="${CCACHE_DIR:-$HOME/.ccache}"
 
 detect_pkg_manager() {
     if command -v apt-get >/dev/null 2>&1; then echo apt
@@ -77,6 +79,7 @@ if [[ ! -f ../build/.artifacts/shared/lib/libcurl.a ]]; then
     ../shared/tools/libs-build.sh
 fi
 
+mkdir -p "$CacheDir"
 echo ":: Building builder container image (old-glibc baseline)"
 podman build -t tuxblox-old-glibc-builder -f ../Containerfile ..
 
@@ -138,8 +141,8 @@ podman run --rm --userns=keep-id -e JOBS="$JOBS" \
     -v "$(cd "$UiStackDev" && pwd):/ui-dev:ro" \
     -v "$(cd "$UiSrc" && pwd):/ui-src:ro" \
     -v "$(pwd)/../build/.artifacts/shared:/shared:ro,z" -v "$(pwd)/../shared/crypto:/shared-crypto:ro,z" \
-    -w /src tuxblox-old-glibc-builder \
-    bash -c 'cmake -B build -S . -G Ninja -DCMAKE_BUILD_TYPE=Release -DTUXBLOX_UI_STACK_DEV=/ui-dev -DTUXBLOX_UI_SRC=/ui-src -DTUXBLOX_SHARED_DIR=/shared -DTUXBLOX_SHARED_CRYPTO=/shared-crypto/src && cmake --build build -j"$JOBS"'
+    -v "$CacheDir:/ccache:z" -e CCACHE_DIR=/ccache -w /src tuxblox-old-glibc-builder \
+    bash -c 'cmake -B build -S . -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DTUXBLOX_UI_STACK_DEV=/ui-dev -DTUXBLOX_UI_SRC=/ui-src -DTUXBLOX_SHARED_DIR=/shared -DTUXBLOX_SHARED_CRYPTO=/shared-crypto/src && cmake --build build -j"$JOBS"'
 
 if [[ ! -f build/TuxBloxBootstrapper ]]; then
     printf '!! build/TuxBloxBootstrapper was not built. The interface needs shared/ui/dist/dev.\n' >&2

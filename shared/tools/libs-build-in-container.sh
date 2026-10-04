@@ -27,6 +27,16 @@ JOBS="${JOBS:-$(nproc 2>/dev/null || echo 1)}"
 mkdir -p "$Prefix/lib" "$Prefix/include" "$Markers" /build
 export PKG_CONFIG_PATH="$Prefix/lib/pkgconfig"
 
+# Every full build wipes build/ and so rebuilds all six from scratch; the cache is mounted from
+# outside it, which turns an unchanged pin into a few seconds instead of several minutes.
+if command -v ccache >/dev/null 2>&1 && [ -n "${CCACHE_DIR:-}" ]; then
+    export CC="ccache gcc"
+    export CXX="ccache g++"
+    CMakeLauncher="-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
+else
+    CMakeLauncher=""
+fi
+
 # The marker carries the submodule commit, which the host resolves and passes in because the source is mounted read-only
 runStep() {
     local name="$1" commitVar="$2" func="$3" commit marker
@@ -113,7 +123,8 @@ buildLibarchive() {
     # libarchive wants a newer cmake than this baseline's, so the one installed beside it is used
     local cmakeBin=/opt/cmake/bin/cmake
     # Exactly the formats and filters the three tar_extract.cpp files ask for, and nothing else
-    "$cmakeBin" -B _b -S . -G Ninja -DCMAKE_BUILD_TYPE=Release \
+    # shellcheck disable=SC2086
+    "$cmakeBin" -B _b -S . -G Ninja -DCMAKE_BUILD_TYPE=Release $CMakeLauncher \
         -DCMAKE_PREFIX_PATH="$Prefix" -DCMAKE_INSTALL_PREFIX="$Prefix" \
         -DBUILD_SHARED_LIBS=OFF -DENABLE_TEST=OFF -DENABLE_INSTALL=ON \
         -DENABLE_ZLIB=ON -DENABLE_ZSTD=ON \

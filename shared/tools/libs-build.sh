@@ -24,6 +24,8 @@ Root="$(cd "$ScriptDir/../.." && pwd)"
 OutDir="$Root/build/.artifacts/shared"
 ScratchDir="$Root/build/.artifacts/shared-build"
 JOBS="${TUXBLOX_MAKE_JOBS:-$(nproc 2>/dev/null || echo 1)}"
+# Lives outside build/, which every full build wipes, so an unchanged pin is a cache hit rather than a recompile
+CacheDir="${CCACHE_DIR:-$HOME/.ccache}"
 
 Submodules=(
     "shared/crypto/openssl:OPENSSL_COMMIT"
@@ -50,10 +52,11 @@ printf ':: Building builder container image (old-glibc baseline)\n'
 podman build -t tuxblox-old-glibc-builder -f "$Root/Containerfile" "$Root"
 
 # The container runs as the calling user, so it cannot create anything at the root; both the output and the scratch space are mounted in.
-mkdir -p "$OutDir" "$ScratchDir"
+mkdir -p "$OutDir" "$ScratchDir" "$CacheDir"
 printf ':: Building the shared libraries (in podman, rootless, old-glibc baseline)\n'
 podman run --rm --userns=keep-id -e JOBS="$JOBS" "${CommitArgs[@]}" \
     -v "$Root:/src:ro,z" -v "$OutDir:/out:z" -v "$ScratchDir:/build:z" \
+    -v "$CacheDir:/ccache:z" -e CCACHE_DIR=/ccache \
     tuxblox-old-glibc-builder bash /src/shared/tools/libs-build-in-container.sh
 
 printf ':: Done. %s\n' "$OutDir"
