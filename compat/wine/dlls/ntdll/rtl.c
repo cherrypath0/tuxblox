@@ -1510,6 +1510,14 @@ BOOL WINAPI RtlSetCurrentTransaction(HANDLE new_transaction)
 }
 
 /**********************************************************************
+ *           RtlGetCurrentProcessorNumber [NTDLL.@]
+ */
+ULONG WINAPI RtlGetCurrentProcessorNumber(void)
+{
+    return NtGetCurrentProcessorNumber();
+}
+
+/**********************************************************************
  *           RtlGetCurrentProcessorNumberEx [NTDLL.@]
  */
 void WINAPI RtlGetCurrentProcessorNumberEx(PROCESSOR_NUMBER *processor)
