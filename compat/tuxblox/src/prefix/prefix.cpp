@@ -71,7 +71,7 @@ const std::string DefaultDllCopyPatterns =
     "vcamp1*.dll,vccorlib1*.dll,vcomp1*.dll,vcruntime1*.dll,ucrtbase.dll,"
     // comctl32 exists twice, in system32 and as comctl32_v6 in winsxs.
     "comctl32.dll,"
-    // Roblox's anti-cheat loads the official loader.
+    // Roblox's anti-tamper loads the official loader.
     "vulkan-1.dll";
 
 std::string envOrEmpty(const char *pName) {
@@ -690,7 +690,7 @@ void Prefix::linkRobloxData() {
     // drive, where Roblox never sees it -- which is the point of pointing the
     // shortcut inward rather than moving the data out and linking back to it:
     // the folder Roblox runs from stays an ordinary directory, not a link the
-    // anti-cheat could notice.
+    // anti-tamper could notice.
     const fs::path installRoot = baseDir.parent_path();
     const std::string runtimeName = baseDir.filename().string();
     if (installRoot.empty() || runtimeName.empty()) {
