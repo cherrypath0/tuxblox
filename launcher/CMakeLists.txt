@@ -187,7 +187,7 @@ include(cmake/EmbedAssets.cmake)
 # are launcher_core's own compile-time requirements.
 add_dependencies(launcher_core generate_logo_header generate_font_header generate_thirdparty_license_headers generate_license_header)
 
-# The window needs the interface stack's development tree, which only exists once shared/ui/build.sh has run; without it only launcher_core and its tests build, and build.sh refuses to finish.
+# The window needs the interface stack's development tree, which only exists once shared/tools/ui-build.sh has run; without it only launcher_core and its tests build, and build.sh refuses to finish.
 if(TUXBLOX_UI_STACK_DEV)
     include(${TUXBLOX_UI_SRC}/UiStack.cmake)
 

@@ -16,9 +16,10 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 set -euo pipefail
-cd "$(dirname "$0")"
-
-StackDir="$(pwd)"
+ToolsDir="$(cd "$(dirname "$0")" && pwd)"
+SharedDir="$(cd "$ToolsDir/.." && pwd)"
+StackDir="$SharedDir/ui"
+cd "$ToolsDir"
 DistDir="$StackDir/dist"
 ImageTag=tuxblox-ui-stack-builder
 
@@ -41,25 +42,25 @@ fi
 mkdir -p "$DistDir/prefix" "$DistDir/work" "$DistDir/out"
 
 printf ':: Building the builder image\n'
-podman build -t "$ImageTag" -f Containerfile .
+podman build -t "$ImageTag" -f "$ToolsDir/Containerfile.ui" "$ToolsDir"
 
 printf ':: Building the stack (a rerun skips every library that already finished)\n'
 podman run --rm --userns=keep-id \
-    -v "$StackDir:/src:ro" \
+    -v "$SharedDir:/src:ro" \
     -v "$DistDir/prefix:/opt/tuxblox-ui" \
     -v "$DistDir/work:/build" \
     -e JOBS="${JOBS:-$(nproc)}" \
     -e LIBADWAITA_SOURCE="$LibadwaitaSource" \
-    "$ImageTag" bash /src/build-in-container.sh
+    "$ImageTag" bash /src/tools/ui-build-in-container.sh
 
 printf ':: Packaging\n'
 podman run --rm --userns=keep-id \
-    -v "$StackDir:/src:ro" \
+    -v "$SharedDir:/src:ro" \
     -v "$DistDir/prefix:/opt/tuxblox-ui:ro" \
     -v "$DistDir/out:/out" \
     -e LIBADWAITA_SOURCE="$LibadwaitaSource" \
     -e LIBADWAITA_COMMIT="$LibadwaitaCommit" \
-    "$ImageTag" bash /src/package.sh
+    "$ImageTag" bash /src/tools/ui-package.sh
 
 rm -rf "$DistDir/dev"
 mv "$DistDir/out/dev" "$DistDir/dev"

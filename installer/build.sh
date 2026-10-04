@@ -148,11 +148,11 @@ else
     StackTarballs=("$(pwd)"/../shared/ui/dist/ui-stack-*.tar.zst)
     shopt -u nullglob
     if [[ ! -f build/TuxBloxInstaller-ui ]]; then
-        echo "!! The interface binary build/TuxBloxInstaller-ui was not built: shared/ui/dist/dev is missing. Run shared/ui/build.sh first, or set TUXBLOX_HEADLESS_ONLY=1 for an installer with no interface." >&2
+        echo "!! The interface binary build/TuxBloxInstaller-ui was not built: shared/ui/dist/dev is missing. Run shared/tools/ui-build.sh first, or set TUXBLOX_HEADLESS_ONLY=1 for an installer with no interface." >&2
         exit 1
     fi
     if [[ ${#StackTarballs[@]} -eq 0 ]]; then
-        echo "!! No interface stack tarball in shared/ui/dist/. Run shared/ui/build.sh first, or set TUXBLOX_HEADLESS_ONLY=1 for an installer with no interface." >&2
+        echo "!! No interface stack tarball in shared/ui/dist/. Run shared/tools/ui-build.sh first, or set TUXBLOX_HEADLESS_ONLY=1 for an installer with no interface." >&2
         exit 1
     fi
     if [[ ${#StackTarballs[@]} -gt 1 ]]; then

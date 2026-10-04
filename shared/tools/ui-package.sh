@@ -17,7 +17,7 @@
 
 set -euo pipefail
 
-source "$(dirname "$0")/versions.env"
+source "$(dirname "$0")/ui-versions.env"
 
 Prefix=/opt/tuxblox-ui
 LibRel=lib/x86_64-linux-gnu

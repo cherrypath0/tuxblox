@@ -415,7 +415,7 @@ stage_release() {
     echo ":: Packing the compatibility layer"
     tar --zstd -cf "$release_dir/compat-$slug.tar.zst" -C "$ROOT/build/compat" .
 
-    # The interface libraries ship as the tarball shared/ui/build.sh already packed, copied rather than repacked, so its checksum does not change when a release is re-staged. The libadwaita commit inside it must be the one build/ui was unpacked from, or the notice would name source for a different build.
+    # The interface libraries ship as the tarball shared/tools/ui-build.sh already packed, copied rather than repacked, so its checksum does not change when a release is re-staged. The libadwaita commit inside it must be the one build/ui was unpacked from, or the notice would name source for a different build.
     local uiTarballs=("$ROOT"/shared/ui/dist/ui-stack-*.tar.zst)
     if [[ ${#uiTarballs[@]} -ne 1 || ! -f "${uiTarballs[0]}" ]]; then
         echo "!! Expected exactly one shared/ui/dist/ui-stack-*.tar.zst, found ${#uiTarballs[@]}." >&2
@@ -721,7 +721,7 @@ ensure_ui_stack() {
         echo "!! shared/ui/libadwaita is empty. Run: git submodule update --init shared/ui/libadwaita" >&2
         return 1
     fi
-    "$ROOT/shared/ui/build.sh"
+    "$ROOT/shared/tools/ui-build.sh"
 }
 
 step "Building the installer's interface stack (GTK4 + libadwaita, the first run takes a long time)"

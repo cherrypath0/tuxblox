@@ -129,7 +129,7 @@ fi
 UiStackDev="$(pwd)/../shared/ui/dist/dev"
 UiSrc="$(pwd)/../shared/ui/src"
 if [[ ! -d "$UiStackDev" ]]; then
-    printf '!! shared/ui/dist/dev is missing. Run shared/ui/build.sh first.\n' >&2
+    printf '!! shared/ui/dist/dev is missing. Run shared/tools/ui-build.sh first.\n' >&2
     exit 1
 fi
 

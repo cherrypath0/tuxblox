@@ -17,7 +17,7 @@
 
 set -euo pipefail
 
-source "$(dirname "$0")/versions.env"
+source "$(dirname "$0")/ui-versions.env"
 
 Prefix=/opt/tuxblox-ui
 LibDir="$Prefix/lib/x86_64-linux-gnu"
@@ -211,7 +211,7 @@ buildLibadwaita() {
     # Not fetched: libadwaita is the one library TuxBlox maintains, and it comes from the submodule at shared/ui/libadwaita, whose commit is the pin
     # Copied out of the read-only mount rather than built in place, so the checkout the repo owner edits never collects build artefacts
     rm -rf /build/libadwaita
-    cp -a /src/libadwaita /build/libadwaita
+    cp -a /src/ui/libadwaita /build/libadwaita
     rm -rf /build/libadwaita/.git
     mesonBuild libadwaita -Dintrospection=disabled -Dvapi=false -Dtests=false -Dexamples=false
 }

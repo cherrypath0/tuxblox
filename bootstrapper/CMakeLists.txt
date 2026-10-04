@@ -103,7 +103,7 @@ target_include_directories(bootstrapper_core PUBLIC ${CMAKE_BINARY_DIR}/generate
 
 include(cmake/FetchLogo.cmake)
 
-# The interface binary needs the stack's development tree, which only exists once shared/ui/build.sh has run; without it only the tests build, and build.sh refuses to finish.
+# The interface binary needs the stack's development tree, which only exists once shared/tools/ui-build.sh has run; without it only the tests build, and build.sh refuses to finish.
 if(TUXBLOX_UI_STACK_DEV)
     include(${TUXBLOX_UI_SRC}/UiStack.cmake)
 

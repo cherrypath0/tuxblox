@@ -1,0 +1,137 @@
+#!/usr/bin/env bash
+# TuxBlox - Linux Compatibility Layer for the Roblox Engine
+# Copyright (C) 2026 TuxBlox Developers
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+# Builds the libraries TuxBlox ships inside its own programs, as static archives.
+
+set -euo pipefail
+
+Prefix=/out
+SrcRoot=/src
+Markers="$Prefix/.markers"
+JOBS="${JOBS:-$(nproc 2>/dev/null || echo 1)}"
+
+mkdir -p "$Prefix/lib" "$Prefix/include" "$Markers" /build
+export PKG_CONFIG_PATH="$Prefix/lib/pkgconfig"
+
+# The marker carries the submodule commit, which the host resolves and passes in because the source is mounted read-only
+runStep() {
+    local name="$1" commitVar="$2" func="$3" commit marker
+    commit="${!commitVar:-nocommit}"
+    marker="$Markers/$name-$commit"
+    if [ -e "$marker" ]; then
+        printf ':: Skipping %s %s (already built)\n' "$name" "$commit"
+        return 0
+    fi
+    printf ':: Building %s %s\n' "$name" "$commit"
+    "$func"
+    touch "$marker"
+}
+
+# The source is mounted read-only, so every build happens on a copy
+copySource() {
+    local from="$1" to="$2"
+    rm -rf "$to"
+    cp -a "$SrcRoot/$from" "$to"
+}
+
+buildZlib() {
+    copySource shared/fs/zlib /build/zlib
+    cd /build/zlib
+    ./configure --prefix="$Prefix" --static
+    make -j"$JOBS"
+    make install
+    cd /build
+}
+
+buildZstd() {
+    copySource shared/fs/zstd /build/zstd
+    # Library only: no command line tool, and no legacy format support
+    make -C /build/zstd/lib -j"$JOBS" libzstd.a
+    make -C /build/zstd/lib install-static install-includes install-pc \
+        PREFIX="$Prefix" ZSTD_LEGACY_SUPPORT=0
+    cd /build
+}
+
+buildNghttp2() {
+    copySource shared/network/nghttp2 /build/nghttp2
+    cd /build/nghttp2
+    autoreconf -i
+    ./configure --prefix="$Prefix" --enable-lib-only --enable-static --disable-shared
+    make -j"$JOBS"
+    make install
+    cd /build
+}
+
+buildOpenssl() {
+    copySource shared/crypto/openssl /build/openssl
+    cd /build/openssl
+    # Keeps the TLS 1.2/1.3 client, X.509 for the layer's signature checks, and SHA-256 for checksums
+    ./Configure linux-x86_64 --prefix="$Prefix" --openssldir="$Prefix/ssl" --libdir=lib \
+        no-shared no-dso no-engine no-tests no-apps no-docs \
+        no-legacy no-md2 no-md4 no-rc2 no-rc4 no-rc5 no-idea no-seed no-camellia \
+        no-weak-ssl-ciphers no-ssl3 no-comp -O2
+    make -j"$JOBS"
+    make install_dev
+    cd /build
+}
+
+buildCurl() {
+    copySource shared/network/libcurl /build/curl
+    cd /build/curl
+    autoreconf -fi
+    # Everything nothing in TuxBlox uses is off, so the list of libraries cannot grow back
+    ./configure --prefix="$Prefix" --disable-shared --enable-static \
+        --with-openssl="$Prefix" --with-nghttp2="$Prefix" --without-zlib \
+        --without-libssh2 --without-libssh --without-gssapi --without-libidn2 \
+        --without-libpsl --without-brotli --without-zstd --without-nghttp3 \
+        --without-ngtcp2 --without-librtmp --without-ldap-lib --without-libgsasl \
+        --disable-ldap --disable-ldaps --disable-rtsp --disable-dict --disable-telnet \
+        --disable-tftp --disable-pop3 --disable-imap --disable-smtp --disable-gopher \
+        --disable-smb --disable-mqtt --disable-manual --disable-ntlm
+    make -j"$JOBS"
+    make install
+    cd /build
+}
+
+buildLibarchive() {
+    copySource shared/fs/libarchive /build/libarchive
+    cd /build/libarchive
+    # libarchive wants a newer cmake than this baseline's, so the one installed beside it is used
+    local cmakeBin=/opt/cmake/bin/cmake
+    # Exactly the formats and filters the three tar_extract.cpp files ask for, and nothing else
+    "$cmakeBin" -B _b -S . -G Ninja -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_PREFIX_PATH="$Prefix" -DCMAKE_INSTALL_PREFIX="$Prefix" \
+        -DBUILD_SHARED_LIBS=OFF -DENABLE_TEST=OFF -DENABLE_INSTALL=ON \
+        -DENABLE_ZLIB=ON -DENABLE_ZSTD=ON \
+        -DENABLE_BZip2=OFF -DENABLE_LZMA=OFF -DENABLE_LZ4=OFF -DENABLE_LZO=OFF \
+        -DENABLE_OPENSSL=OFF -DENABLE_LIBXML2=OFF -DENABLE_EXPAT=OFF \
+        -DENABLE_ICONV=OFF -DENABLE_ACL=OFF -DENABLE_XATTR=OFF \
+        -DENABLE_CNG=OFF -DENABLE_PCREPOSIX=OFF -DENABLE_PCRE2POSIX=OFF \
+        -DENABLE_CAT=OFF -DENABLE_TAR=OFF -DENABLE_CPIO=OFF -DENABLE_UNZIP=OFF
+    "$cmakeBin" --build _b -j"$JOBS"
+    "$cmakeBin" --install _b
+    cd /build
+}
+
+runStep zlib       ZLIB_COMMIT       buildZlib
+runStep zstd       ZSTD_COMMIT       buildZstd
+runStep nghttp2    NGHTTP2_COMMIT    buildNghttp2
+runStep openssl    OPENSSL_COMMIT    buildOpenssl
+runStep curl       CURL_COMMIT       buildCurl
+runStep libarchive LIBARCHIVE_COMMIT buildLibarchive
+
+printf ':: Done. Static archives in %s/lib\n' "$Prefix"
