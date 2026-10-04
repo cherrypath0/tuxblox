@@ -111,8 +111,7 @@ void SettingsPage::buildUpdates() {
     adw_preferences_group_add(pGroup, pChannel);
 
     addToggle(pGroup, "Automatic updates", "Install TuxBlox updates without asking.", &Settings::autoUpdate);
-    addToggle(pGroup, "Auto-Update Roblox", "Keep Roblox up to date before each launch.",
-              &Settings::autoUpdateRoblox);
+    addToggle(pGroup, "Auto-Update Roblox", "", &Settings::autoUpdateRoblox);
 }
 
 void SettingsPage::buildEnvironment() {
@@ -163,15 +162,15 @@ GtkButton *SettingsPage::dangerButton(GtkWidget *pRow, const char *pLabel, GCall
 void SettingsPage::buildDangerZone() {
     AdwPreferencesGroup *pGroup = addGroup("Danger zone");
 
-    GtkWidget *pTerminate = plainActionRow("Terminate Roblox", "Stops everything Roblox has running.");
+    GtkWidget *pTerminate = plainActionRow("Terminate Roblox", "");
     pTerminate_ = dangerButton(pTerminate, "Terminate", G_CALLBACK(onTerminate));
     adw_preferences_group_add(pGroup, pTerminate);
 
-    GtkWidget *pWipe = plainActionRow("Wipe the virtual drive", "Deletes every installed Roblox with it.");
+    GtkWidget *pWipe = plainActionRow("Wipe the virtual drive", "");
     pWipe_ = dangerButton(pWipe, "Wipe prefix", G_CALLBACK(onWipe));
     adw_preferences_group_add(pGroup, pWipe);
 
-    GtkWidget *pUninstall = plainActionRow("Uninstall TuxBlox", "Removes TuxBlox and everything it installed.");
+    GtkWidget *pUninstall = plainActionRow("Uninstall TuxBlox", "");
     pUninstall_ = dangerButton(pUninstall, "Uninstall", G_CALLBACK(onUninstall));
     adw_preferences_group_add(pGroup, pUninstall);
 
