@@ -82,6 +82,13 @@ if [[ -f build/CMakeCache.txt ]] && \
     rm -rf build
 fi
 
+# cmake also hard-errors when the cached generator is not the one being asked for, which is what a build/ from before the Ninja switch holds.
+if [[ -f build/CMakeCache.txt ]] && \
+   ! grep -q '^CMAKE_GENERATOR:INTERNAL=Ninja$' build/CMakeCache.txt; then
+    echo ":: Dropping stale build/ (configured for a different generator)"
+    rm -rf build
+fi
+
 echo ":: Configuring + Building (in podman, rootless, old-glibc baseline)"
 # TUXBLOX_BUILD_VERSION has to be forwarded explicitly: cmake runs INSIDE this
 # container, so an env var exported by the root build.sh on the host is invisible
@@ -125,7 +132,7 @@ podman run --rm --userns=keep-id -e JOBS="$JOBS" \
     -v "$(cd "$UiStackDev" && pwd):/ui-dev:ro" \
     -v "$(cd "$UiSrc" && pwd):/ui-src:ro" \
     -w /src tuxblox-old-glibc-builder \
-    bash -c 'cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DTUXBLOX_UI_STACK_DEV=/ui-dev -DTUXBLOX_UI_SRC=/ui-src && cmake --build build -j"$JOBS"'
+    bash -c 'cmake -B build -S . -G Ninja -DCMAKE_BUILD_TYPE=Release -DTUXBLOX_UI_STACK_DEV=/ui-dev -DTUXBLOX_UI_SRC=/ui-src && cmake --build build -j"$JOBS"'
 
 if [[ ! -f build/TuxBloxBootstrapper ]]; then
     printf '!! build/TuxBloxBootstrapper was not built. The interface needs shared/ui/dist/dev.\n' >&2

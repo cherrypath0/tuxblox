@@ -3,7 +3,7 @@ FROM ubuntu:20.04
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential cmake pkg-config git curl ca-certificates \
+    build-essential cmake ninja-build pkg-config git curl ca-certificates \
     libsdl2-dev libxdamage-dev libcurl4-openssl-dev libarchive-dev libssl-dev \
     librsvg2-bin libgl1-mesa-dev \
     libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \

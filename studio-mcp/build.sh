@@ -87,6 +87,13 @@ if [[ -f build/CMakeCache.txt ]] && \
     rm -rf build
 fi
 
+# cmake also hard-errors when the cached generator is not the one being asked for, which is what a build/ from before the Ninja switch holds.
+if [[ -f build/CMakeCache.txt ]] && \
+   ! grep -q '^CMAKE_GENERATOR:INTERNAL=Ninja$' build/CMakeCache.txt; then
+    echo ":: Dropping stale build/ (configured for a different generator)"
+    rm -rf build
+fi
+
 echo ":: Configuring + Building (in podman, rootless, old-glibc baseline)"
 # TUXBLOX_BUILD_VERSION has to be forwarded explicitly: cmake runs INSIDE this
 # container, so an env var exported by the root build.sh on the host is invisible
@@ -121,7 +128,7 @@ podman run --rm --userns=keep-id -e JOBS="$JOBS" \
     -e TUXBLOX_CHANNEL="${TUXBLOX_CHANNEL:-}" \
     -v "$(pwd):/src:Z" -v "$(pwd)/../launcher:/launcher:ro,z" \
     -w /src tuxblox-old-glibc-builder \
-    bash -c 'cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DTUXBLOX_LAUNCHER_DIR=/launcher \
+    bash -c 'cmake -B build -S . -G Ninja -DCMAKE_BUILD_TYPE=Release -DTUXBLOX_LAUNCHER_DIR=/launcher \
              && cmake --build build -j"$JOBS" \
              && cd build && ctest --output-on-failure'
 

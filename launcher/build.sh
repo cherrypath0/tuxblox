@@ -82,6 +82,13 @@ if [[ -f build/CMakeCache.txt ]] && \
     rm -rf build
 fi
 
+# cmake also hard-errors when the cached generator is not the one being asked for, which is what a build/ from before the Ninja switch holds.
+if [[ -f build/CMakeCache.txt ]] && \
+   ! grep -q '^CMAKE_GENERATOR:INTERNAL=Ninja$' build/CMakeCache.txt; then
+    echo ":: Dropping stale build/ (configured for a different generator)"
+    rm -rf build
+fi
+
 echo ":: Configuring + Building (in podman, rootless, old-glibc baseline)"
 # EmbedLicense.cmake embeds the repo-root LICENSE via /src/../LICENSE, which
 # resolves to /LICENSE inside the container -- mount it there read-only, since
@@ -138,7 +145,7 @@ podman run --rm --userns=keep-id -e JOBS="$JOBS" -e LIBADWAITA_ARG="$LibadwaitaA
     -e TUXBLOX_BUILD_VERSION="${TUXBLOX_BUILD_VERSION:-}" \
     -e TUXBLOX_CHANNEL="${TUXBLOX_CHANNEL:-}" -v "$(pwd):/src:Z" \
     -v "$(pwd)/../LICENSE:/LICENSE:ro,z" -v "$(cd "$UiSrc" && pwd):/ui-src:ro" -v "$(cd "$UiStackDev" && pwd):/ui-dev:ro" -w /src tuxblox-old-glibc-builder \
-    bash -c 'cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DTUXBLOX_UI_SRC=/ui-src -DTUXBLOX_UI_STACK_DEV=/ui-dev ${LIBADWAITA_ARG:-} && cmake --build build -j"$JOBS"'
+    bash -c 'cmake -B build -S . -G Ninja -DCMAKE_BUILD_TYPE=Release -DTUXBLOX_UI_SRC=/ui-src -DTUXBLOX_UI_STACK_DEV=/ui-dev ${LIBADWAITA_ARG:-} && cmake --build build -j"$JOBS"'
 
 if [[ ! -f build/TuxBloxLauncher ]]; then
     printf '!! build/TuxBloxLauncher was not built. The window needs shared/ui/dist/dev.\n' >&2
