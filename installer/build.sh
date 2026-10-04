@@ -76,6 +76,12 @@ fi
 echo ":: Vendoring third-party sources"
 ./vendor.sh
 
+# Built here when absent so this script still works on its own; the root build.sh runs it once up front.
+if [[ ! -f ../build/.artifacts/shared/lib/libcurl.a ]]; then
+    printf ':: Shared libraries missing, building them first\n'
+    ../shared/tools/libs-build.sh
+fi
+
 echo ":: Building builder container image (old-glibc baseline)"
 podman build -t tuxblox-old-glibc-builder -f ../Containerfile ..
 
@@ -138,8 +144,8 @@ fi
 
 podman run --rm --userns=keep-id -e JOBS="$JOBS" -e UI_STACK_ARG="$UiStackArg" -e LIBADWAITA_ARG="$LibadwaitaArg" \
     -e TUXBLOX_BUILD_VERSION="${TUXBLOX_BUILD_VERSION:-}" \
-    -e TUXBLOX_CHANNEL="${TUXBLOX_CHANNEL:-}" -v "$(pwd):/src:Z" "${UiStackMount[@]}" -w /src tuxblox-old-glibc-builder \
-    bash -c 'cmake -B build -S . -G Ninja -DCMAKE_BUILD_TYPE=Release ${UI_STACK_ARG:-} ${LIBADWAITA_ARG:-} && cmake --build build -j"$JOBS"'
+    -e TUXBLOX_CHANNEL="${TUXBLOX_CHANNEL:-}" -v "$(pwd):/src:Z" -v "$(pwd)/../build/.artifacts/shared:/shared:ro,z" "${UiStackMount[@]}" -w /src tuxblox-old-glibc-builder \
+    bash -c 'cmake -B build -S . -G Ninja -DCMAKE_BUILD_TYPE=Release -DTUXBLOX_SHARED_DIR=/shared ${UI_STACK_ARG:-} ${LIBADWAITA_ARG:-} && cmake --build build -j"$JOBS"'
 
 if [[ "${TUXBLOX_HEADLESS_ONLY:-}" == "1" ]]; then
     echo ":: TUXBLOX_HEADLESS_ONLY set, building an installer with no graphical interface"
