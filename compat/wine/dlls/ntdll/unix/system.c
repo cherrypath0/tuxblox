@@ -495,17 +495,41 @@ static void init_xstate_features( XSTATE_CONFIGURATION *xstate )
 
     xstate->Size = xstate->CompactionEnabled ? off :
            offsetof( XSAVE_FORMAT, XmmRegisters ) + xstate->Features[i - 1].Offset + xstate->Features[i - 1].Size;
-    /* The size of every feature described here, which is the size just computed
-     * plus the supervisor features, and there are none of those. It was taken
-     * straight from CPUID above, so it covered whatever the host has enabled in
-     * XCR0 rather than the features actually listed here -- 0x988 against the
-     * 0x340 they add up to, and against 0x350 on Windows, whose extra 0x10 is
-     * the one supervisor feature it enables. This field sits in the shared page
-     * at a fixed address and is readable with no system call, so a value that
-     * contradicts the features beside it is visible to anything that looks. */
     xstate->AllFeatureSize = xstate->Size;
-    TRACE( "xstate size %x, compacted %d, optimized %d.\n",
-           xstate->Size, xstate->CompactionEnabled, xstate->OptimizedSave );
+
+    /* The loop above only walks the user components in XCR0, so it never sees
+     * the supervisor components CPUID enumerates in leaf 0xD subleaf 1 (the
+     * IA32_XSS set). On a CET-capable CPU that leaf reports CET_U, which Windows
+     * records in the shared page -- AllFeatures[11]=0x10 and AllFeatureSize one
+     * component larger, 0x350 rather than 0x340. Describing the user set alone
+     * leaves the page contradicting CPUID beside it, readable with no system
+     * call. Mirror what CPUID reports, exactly as the user loop does.
+     *
+     * Only the descriptive fields change. Size stays the user-context size, so
+     * the real xsave area and the xstate_size derived from it are untouched --
+     * these are supervisor states a user-mode context never saves. */
+    {
+        unsigned int sup_regs[4];
+        ULONG64 xss_mask, bit;
+
+        do_cpuid( 0x0000000d, 1, sup_regs );
+        xss_mask = ((ULONG64)sup_regs[3] << 32) | sup_regs[2];
+        for (bit = XSTATE_CET_U; bit <= XSTATE_CET_U + 1; ++bit)   /* CET_U, CET_S */
+        {
+            if (!(xss_mask & ((ULONG64)1 << bit))) continue;
+            do_cpuid( 0x0000000d, (unsigned int)bit, sup_regs );
+            xstate->AllFeatures[bit]    = sup_regs[0];
+            xstate->Features[bit].Size  = sup_regs[0];
+            if (bit == XSTATE_CET_U)   /* the user-visible one Windows enables */
+            {
+                xstate->EnabledSupervisorFeatures            |= (ULONG64)1 << bit;
+                xstate->EnabledUserVisibleSupervisorFeatures |= (ULONG64)1 << bit;
+                xstate->AllFeatureSize += sup_regs[0];
+            }
+        }
+    }
+    TRACE( "xstate size %x, compacted %d, optimized %d, all-feature size %x.\n",
+           xstate->Size, xstate->CompactionEnabled, xstate->OptimizedSave, xstate->AllFeatureSize );
 }
 
 void init_shared_data_cpuinfo( KUSER_SHARED_DATA *data )
