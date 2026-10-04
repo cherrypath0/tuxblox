@@ -48,6 +48,12 @@ g++ -std=c++17 -O0 -g -Wall -Wextra -UNDEBUG -I../src \
     ../src/prefix/registry.cpp ../src/support/util.cpp
 "$out/test_webview_mode"
 
+# Skips itself when no Roblox is installed, so the suite still runs on a machine without one
+signedExe="$(find "$HOME/.tuxblox/runtime" ../../../build/runtime -name 'RobloxStudioBeta.exe' -o -name 'RobloxPlayerBeta.exe' 2>/dev/null | head -1)"
+g++ -std=c++17 -O0 -g -Wall -Wextra -UNDEBUG -I../src \
+    -o "$out/test_authenticode" test_authenticode.cpp ../src/integrity/authenticode.cpp -lcrypto
+"$out/test_authenticode" ../data/roots.pem "$signedExe"
+
 ./check-rule-parity.py
 
 printf 'compat tests: all passed\n'
