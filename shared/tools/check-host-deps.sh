@@ -122,6 +122,27 @@ for entry in "${Binaries[@]}"; do
     checkBinary "${entry%%:*}" "${entry##*:}"
 done
 
+# Carrying our own C++ runtime is only safe while the interface stack stays pure C: a C++ library
+# in there could throw across the boundary into a different runtime than the one it was built with.
+for lib in "$BuildDir/$StackDirName"/lib/x86_64-linux-gnu/*.so.* "$BuildDir/$StackDirName"/lib/*.so.*; do
+    [[ -e "$lib" ]] || continue
+    if objdump -p "$lib" 2>/dev/null | grep -q 'NEEDED.*libstdc++'; then
+        problem "!! $(basename "$lib") needs a C++ runtime, so carrying our own in the programs is no longer safe"
+    fi
+done
+
+# No program may ask the machine for a C++ runtime version any more, and the C library floor must not have risen.
+for entry in "${Binaries[@]}"; do
+    name="${entry%%:*}"
+    binary="$BuildDir/$name"
+    [[ -x "$binary" ]] || continue
+    if objdump -T "$binary" 2>/dev/null | grep -q 'GLIBCXX_'; then
+        problem "!! $name still asks the machine for a GLIBCXX version"
+    fi
+    maxGlibc="$(objdump -T "$binary" 2>/dev/null | grep -oE 'GLIBC_[0-9.]+' | sort -V | tail -1)"
+    note "   $name needs at most ${maxGlibc:-no} C library version"
+done
+
 if [[ $Failures -gt 0 ]]; then
     printf '!! %s problems\n' "$Failures" >&2
     exit 1

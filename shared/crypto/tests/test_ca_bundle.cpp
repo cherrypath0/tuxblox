@@ -92,6 +92,20 @@ int main() {
         printf("  built-in bundle is %zu bytes\n", embedded.size());
     }
 
+    // The certificate list must never be written to a predictable path in a folder every user can
+    // write to: whoever swapped the file between the write and the read would decide what TuxBlox
+    // trusts. It is handed to the download straight from memory instead.
+    {
+        const fs::path predictable = fs::temp_directory_path() / "tuxblox-ca-bundle.pem";
+        fs::remove(predictable);
+        CURL *pCurl = curl_easy_init();
+        assert(pCurl != nullptr);
+        tuxblox::applyCaBundle(pCurl);
+        curl_easy_cleanup(pCurl);
+        assert(!fs::exists(predictable));
+        printf("  no certificate list written to a shared folder\n");
+    }
+
     fs::remove_all(tempDir);
     printf("ca_bundle: all tests passed\n");
     return 0;

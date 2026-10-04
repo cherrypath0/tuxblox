@@ -80,6 +80,8 @@ add_executable(studio-mcp
     ${TUXBLOX_LAUNCHER_DIR}/src/prefix_user.cpp
     ${TUXBLOX_LAUNCHER_DIR}/src/versions_manifest.cpp
 )
+# These would otherwise make every machine need a C++ runtime at least as new as this builder's, for no gain.
+target_link_options(studio-mcp PRIVATE -static-libstdc++ -static-libgcc)
 target_include_directories(studio-mcp PRIVATE
     src
     ${TUXBLOX_LAUNCHER_DIR}/src

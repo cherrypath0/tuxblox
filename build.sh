@@ -821,7 +821,7 @@ run_step "compile_proton_native" strict bash -c '
         -v "$ROOT/build/.artifacts/shared:/shared:ro,z" \
         -e TUXBLOX_BUILD_VERSION -e TUXBLOX_CHANNEL \
         tuxblox-old-glibc-builder sh -c \
-        '"'"'g++ -std=c++17 -O2 -Wall -Wextra -I. -I/shared/include \
+        '"'"'g++ -std=c++17 -O2 -Wall -Wextra -static-libstdc++ -static-libgcc -I. -I/shared/include \
             -DTUXBLOX_VERSION="\"$TUXBLOX_BUILD_VERSION\"" \
             -DTUXBLOX_CHANNEL="\"$TUXBLOX_CHANNEL\"" \
             -o /work/out/main $(find . -name "*.cpp") \

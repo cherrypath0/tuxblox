@@ -73,20 +73,16 @@ void applyCaBundle(CURL *pCurl) {
         return;
     }
 
-    // Nothing on this machine was usable, so the copy built into TuxBlox is written out once and used.
-    static std::string embeddedPath;
-    if (embeddedPath.empty()) {
-        std::error_code error;
-        const std::filesystem::path out =
-            std::filesystem::temp_directory_path(error) / "tuxblox-ca-bundle.pem";
-        const std::string pem = caBundleEmbedded();
-        std::ofstream file(out, std::ios::binary | std::ios::trunc);
-        file.write(pem.data(), static_cast<std::streamsize>(pem.size()));
-        if (file.good()) embeddedPath = out.string();
-    }
-    if (!embeddedPath.empty()) {
-        curl_easy_setopt(pCurl, CURLOPT_CAINFO, embeddedPath.c_str());
-    }
+    // Nothing on this machine was usable, so the copy built into TuxBlox is handed over directly from
+    // memory. It is never written to a file: a list of certificates sitting at a predictable path in a
+    // folder every user can write to could be swapped between being written and being read, and
+    // whoever swapped it would decide which sites TuxBlox trusts.
+    static const std::string embedded = caBundleEmbedded();
+    struct curl_blob blob;
+    blob.data = const_cast<char *>(embedded.data());
+    blob.len = embedded.size();
+    blob.flags = CURL_BLOB_COPY;
+    curl_easy_setopt(pCurl, CURLOPT_CAINFO_BLOB, &blob);
 }
 
 } // namespace tuxblox

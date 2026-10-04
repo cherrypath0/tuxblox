@@ -94,6 +94,8 @@ target_link_options(installer_core PUBLIC
     -Wl,--exclude-libs=libarchive.a -Wl,--exclude-libs=libzstd.a
     -Wl,--exclude-libs=libz.a
     -Wl,--exclude-libs=libssl.a -Wl,--exclude-libs=libcrypto.a)
+# These would otherwise make every machine need a C++ runtime at least as new as this builder's, for no gain. The interface stack TuxBlox loads is all C, so nothing throws across a library boundary.
+target_link_options(installer_core PUBLIC -static-libstdc++ -static-libgcc)
 add_dependencies(installer_core generate_ca_bundle_header)
 
 # Same version resolution as launcher/CMakeLists.txt: TUXBLOX_BUILD_VERSION (set
