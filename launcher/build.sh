@@ -71,6 +71,12 @@ fi
 echo ":: Vendoring third-party sources"
 ./vendor.sh
 
+# Built here when absent so this script still works on its own; the root build.sh runs it once up front.
+if [[ ! -f ../build/.artifacts/shared/lib/libcurl.a ]]; then
+    printf ':: Shared libraries missing, building them first\n'
+    ../shared/tools/libs-build.sh
+fi
+
 echo ":: Building builder container image (old-glibc baseline)"
 podman build -t tuxblox-old-glibc-builder -f ../Containerfile ..
 
@@ -116,7 +122,7 @@ fi
 # The notice names the libadwaita commit the interface was built from, because TuxBlox ships a modified fork and a recipient has to be able to fetch that exact source. git is not usable inside the container, so it is read here. Every release installs the stack, so even a headless installer names it; it names none only when there is no stack to name.
 # The empty default is deliberate: CMake caches the variable, so a build without an interface must clear a commit left by an earlier one.
 LibadwaitaArg="-DTUXBLOX_LIBADWAITA_COMMIT="
-source "$(pwd)/../shared/ui/libadwaita-commit.sh"
+source "$(pwd)/../shared/tools/ui-libadwaita-commit.sh"
 LibadwaitaCommit="$(libadwaitaCommit "$(pwd)/../shared/ui")"
 if [[ -n "$LibadwaitaCommit" ]]; then
     if [[ "$LibadwaitaCommit" == *-dirty ]]; then
@@ -144,8 +150,8 @@ fi
 podman run --rm --userns=keep-id -e JOBS="$JOBS" -e LIBADWAITA_ARG="$LibadwaitaArg" \
     -e TUXBLOX_BUILD_VERSION="${TUXBLOX_BUILD_VERSION:-}" \
     -e TUXBLOX_CHANNEL="${TUXBLOX_CHANNEL:-}" -v "$(pwd):/src:Z" \
-    -v "$(pwd)/../LICENSE:/LICENSE:ro,z" -v "$(cd "$UiSrc" && pwd):/ui-src:ro" -v "$(cd "$UiStackDev" && pwd):/ui-dev:ro" -w /src tuxblox-old-glibc-builder \
-    bash -c 'cmake -B build -S . -G Ninja -DCMAKE_BUILD_TYPE=Release -DTUXBLOX_UI_SRC=/ui-src -DTUXBLOX_UI_STACK_DEV=/ui-dev ${LIBADWAITA_ARG:-} && cmake --build build -j"$JOBS"'
+    -v "$(pwd)/../LICENSE:/LICENSE:ro,z" -v "$(cd "$UiSrc" && pwd):/ui-src:ro" -v "$(cd "$UiStackDev" && pwd):/ui-dev:ro" -v "$(pwd)/../build/.artifacts/shared:/shared:ro,z" -w /src tuxblox-old-glibc-builder \
+    bash -c 'cmake -B build -S . -G Ninja -DCMAKE_BUILD_TYPE=Release -DTUXBLOX_UI_SRC=/ui-src -DTUXBLOX_UI_STACK_DEV=/ui-dev -DTUXBLOX_SHARED_DIR=/shared ${LIBADWAITA_ARG:-} && cmake --build build -j"$JOBS"'
 
 if [[ ! -f build/TuxBloxLauncher ]]; then
     printf '!! build/TuxBloxLauncher was not built. The window needs shared/ui/dist/dev.\n' >&2
