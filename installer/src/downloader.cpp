@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "downloader.h"
+#include "ca_bundle.h"
 #include <curl/curl.h>
 #include <cstdio>
 
@@ -74,6 +75,7 @@ DownloadOutcome downloadFile(const std::string& url,
     char errBuf[CURL_ERROR_SIZE] = {0};
 
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+    tuxblox::applyCaBundle(curl);
     curl_easy_setopt(curl, CURLOPT_USERAGENT, "TuxBlox-Client/1.0");
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curlWriteToFile);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &writeCtx);

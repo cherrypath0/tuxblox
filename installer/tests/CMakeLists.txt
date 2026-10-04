@@ -90,3 +90,7 @@ add_test(NAME ui_cache COMMAND test_ui_cache)
 add_executable(test_ui_extract test_ui_extract.cpp)
 target_link_libraries(test_ui_extract PRIVATE installer_core)
 add_test(NAME ui_extract COMMAND test_ui_extract)
+
+add_executable(test_ca_bundle ${TUXBLOX_SHARED_CRYPTO}/../tests/test_ca_bundle.cpp)
+target_link_libraries(test_ca_bundle PRIVATE installer_core)
+add_test(NAME ca_bundle COMMAND test_ca_bundle)

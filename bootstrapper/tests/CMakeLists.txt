@@ -59,3 +59,7 @@ add_test(NAME checksum COMMAND test_checksum)
 add_executable(test_adw_env test_adw_env.cpp ${TUXBLOX_UI_SRC}/adw_env.cpp)
 target_include_directories(test_adw_env PRIVATE ${TUXBLOX_UI_SRC})
 add_test(NAME adw_env COMMAND test_adw_env)
+
+add_executable(test_ca_bundle ${TUXBLOX_SHARED_CRYPTO}/../tests/test_ca_bundle.cpp)
+target_link_libraries(test_ca_bundle PRIVATE bootstrapper_core)
+add_test(NAME ca_bundle COMMAND test_ca_bundle)

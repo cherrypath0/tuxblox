@@ -137,9 +137,9 @@ podman run --rm --userns=keep-id -e JOBS="$JOBS" \
     -v "$(pwd):/src:Z" \
     -v "$(cd "$UiStackDev" && pwd):/ui-dev:ro" \
     -v "$(cd "$UiSrc" && pwd):/ui-src:ro" \
-    -v "$(pwd)/../build/.artifacts/shared:/shared:ro,z" \
+    -v "$(pwd)/../build/.artifacts/shared:/shared:ro,z" -v "$(pwd)/../shared/crypto:/shared-crypto:ro,z" \
     -w /src tuxblox-old-glibc-builder \
-    bash -c 'cmake -B build -S . -G Ninja -DCMAKE_BUILD_TYPE=Release -DTUXBLOX_UI_STACK_DEV=/ui-dev -DTUXBLOX_UI_SRC=/ui-src -DTUXBLOX_SHARED_DIR=/shared && cmake --build build -j"$JOBS"'
+    bash -c 'cmake -B build -S . -G Ninja -DCMAKE_BUILD_TYPE=Release -DTUXBLOX_UI_STACK_DEV=/ui-dev -DTUXBLOX_UI_SRC=/ui-src -DTUXBLOX_SHARED_DIR=/shared -DTUXBLOX_SHARED_CRYPTO=/shared-crypto/src && cmake --build build -j"$JOBS"'
 
 if [[ ! -f build/TuxBloxBootstrapper ]]; then
     printf '!! build/TuxBloxBootstrapper was not built. The interface needs shared/ui/dist/dev.\n' >&2

@@ -35,6 +35,11 @@ endif()
 # Still needed by the interface stack's UiStack.cmake, which finds GTK and libadwaita through pkg-config.
 find_package(PkgConfig REQUIRED)
 
+# TuxBlox's own code that uses those libraries, mounted read-only by build.sh.
+if(NOT TUXBLOX_SHARED_CRYPTO)
+    set(TUXBLOX_SHARED_CRYPTO "${CMAKE_SOURCE_DIR}/../shared/crypto/src")
+endif()
+
 # The libraries TuxBlox ships rather than taking from the machine, built by shared/tools/libs-build.sh and mounted read-only by build.sh.
 if(NOT TUXBLOX_SHARED_DIR)
     set(TUXBLOX_SHARED_DIR "${CMAKE_SOURCE_DIR}/../build/.artifacts/shared")
@@ -99,6 +104,7 @@ message(STATUS "TuxBlox launcher channel: ${TUXBLOX_LAUNCHER_CHANNEL}")
 configure_file(${CMAKE_SOURCE_DIR}/cmake/version.h.in ${CMAKE_BINARY_DIR}/generated/version.h @ONLY)
 
 add_library(launcher_core STATIC
+    ${TUXBLOX_SHARED_CRYPTO}/ca_bundle.cpp
     src/app.cpp
     src/discord_rpc.cpp
     src/roblox_place_info.cpp
@@ -144,9 +150,11 @@ if(TUXBLOX_LIBADWAITA_COMMIT)
     target_compile_definitions(launcher_core PRIVATE TUXBLOX_LIBADWAITA_COMMIT="${TUXBLOX_LIBADWAITA_COMMIT}")
 endif()
 
+include(${TUXBLOX_SHARED_CRYPTO}/EmbedCaBundle.cmake)
+
 target_include_directories(launcher_core PUBLIC
     src third_party ${CMAKE_BINARY_DIR}/generated ${TUXBLOX_UI_SRC}
-    ${TUXBLOX_SHARED_INCLUDE})
+    ${TUXBLOX_SHARED_INCLUDE} ${TUXBLOX_SHARED_CRYPTO} ${CMAKE_BINARY_DIR}/generated)
 target_link_libraries(launcher_core PUBLIC
     ${TUXBLOX_SHARED_LIBS} ${CMAKE_DL_LIBS} Threads::Threads)
 # --exclude-libs keeps these archives' symbols out of the binary's dynamic symbol table. They are
@@ -177,7 +185,7 @@ include(cmake/EmbedAssets.cmake)
 # and copyright_file.cpp/license_file.cpp embed license text. Declared here
 # on launcher_core itself, not duplicated on every consumer, since these
 # are launcher_core's own compile-time requirements.
-add_dependencies(launcher_core generate_logo_header generate_font_header generate_thirdparty_license_headers generate_license_header)
+add_dependencies(launcher_core generate_ca_bundle_header generate_logo_header generate_font_header generate_thirdparty_license_headers generate_license_header)
 
 # The window needs the interface stack's development tree, which only exists once shared/tools/ui-build.sh has run; without it only launcher_core and its tests build, and build.sh refuses to finish.
 if(TUXBLOX_UI_STACK_DEV)

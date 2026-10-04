@@ -191,3 +191,7 @@ add_test(NAME desktop_notify COMMAND test_desktop_notify)
 add_executable(test_fastflag_import test_fastflag_import.cpp)
 target_link_libraries(test_fastflag_import PRIVATE launcher_core)
 add_test(NAME fastflag_import COMMAND test_fastflag_import)
+
+add_executable(test_ca_bundle ${TUXBLOX_SHARED_CRYPTO}/../tests/test_ca_bundle.cpp)
+target_link_libraries(test_ca_bundle PRIVATE launcher_core)
+add_test(NAME ca_bundle COMMAND test_ca_bundle)

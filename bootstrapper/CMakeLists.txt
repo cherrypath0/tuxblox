@@ -32,6 +32,11 @@ endif()
 # Still needed by the interface stack's UiStack.cmake, which finds GTK and libadwaita through pkg-config.
 find_package(PkgConfig REQUIRED)
 
+# TuxBlox's own code that uses those libraries, mounted read-only by build.sh.
+if(NOT TUXBLOX_SHARED_CRYPTO)
+    set(TUXBLOX_SHARED_CRYPTO "${CMAKE_SOURCE_DIR}/../shared/crypto/src")
+endif()
+
 # The libraries TuxBlox ships rather than taking from the machine, built by shared/tools/libs-build.sh and mounted read-only by build.sh.
 if(NOT TUXBLOX_SHARED_DIR)
     set(TUXBLOX_SHARED_DIR "${CMAKE_SOURCE_DIR}/../build/.artifacts/shared")
@@ -55,6 +60,7 @@ set(TUXBLOX_SHARED_LIBS
 find_package(Threads REQUIRED)
 
 add_library(bootstrapper_core STATIC
+    ${TUXBLOX_SHARED_CRYPTO}/ca_bundle.cpp
     src/cli.cpp
     src/config.cpp
     src/progress.cpp
@@ -65,8 +71,10 @@ add_library(bootstrapper_core STATIC
     src/checksum.cpp
     src/app.cpp
 )
+include(${TUXBLOX_SHARED_CRYPTO}/EmbedCaBundle.cmake)
+
 target_include_directories(bootstrapper_core PUBLIC
-    src third_party ${TUXBLOX_SHARED_INCLUDE})
+    src third_party ${TUXBLOX_SHARED_INCLUDE} ${TUXBLOX_SHARED_CRYPTO} ${CMAKE_BINARY_DIR}/generated)
 target_link_libraries(bootstrapper_core PUBLIC
     ${TUXBLOX_SHARED_LIBS} ${CMAKE_DL_LIBS} Threads::Threads)
 # --exclude-libs keeps these archives' symbols out of the binary's dynamic symbol table. They are
@@ -79,6 +87,7 @@ target_link_options(bootstrapper_core PUBLIC
     -Wl,--exclude-libs=libarchive.a -Wl,--exclude-libs=libzstd.a
     -Wl,--exclude-libs=libz.a
     -Wl,--exclude-libs=libssl.a -Wl,--exclude-libs=libcrypto.a)
+add_dependencies(bootstrapper_core generate_ca_bundle_header)
 
 # Same version resolution as the launcher and the installer, so one release
 # stamps the same number into all of them. The repo-root VERSION is only
