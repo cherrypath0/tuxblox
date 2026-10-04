@@ -253,6 +253,61 @@ esac
 runStep libadwaita "$LIBADWAITA_SOURCE" buildLibadwaita
 runStep adwaita-fonts "$ADWAITA_FONTS_VERSION" buildAdwaitaFonts
 
+# GTK and libadwaita each carry the icons their own widgets ask for, but only inside the libraries, where they are reachable only through whichever icon index the host happens to provide. Collecting them into a theme TuxBlox ships and selects is what makes a window draw the same on a desktop with its own icons and on one with none.
+printf ':: Assembling the icon theme\n'
+themeDir="$Prefix/share/icons/TuxBlox"
+for iconSource in /build/gtk4/gtk/icons /build/libadwaita/src/icons; do
+    if [ ! -d "$iconSource" ]; then
+        printf 'ERROR: %s is missing, so the icon theme cannot be assembled; delete %s and build again\n' "$iconSource" "$Markers" >&2
+        exit 1
+    fi
+done
+rm -rf "$themeDir"
+mkdir -p "$themeDir"
+cp -a /build/gtk4/gtk/icons/. "$themeDir/"
+cp -a /build/libadwaita/src/icons/. "$themeDir/"
+rm -f "$themeDir/hicolor.index.theme"
+
+# Only the folders that are actually here. GTK's own index names every folder the icon standard allows, and the interface stats each one against every search path at startup, so listing the hundreds TuxBlox does not ship would cost real time on every launch and find nothing. Each description is still copied from that index, which already has these folders right; inheriting keeps the host's icons available for anything TuxBlox does not carry.
+iconDirs="$(cd "$themeDir" && find . -mindepth 2 -type d | sed 's#^\./##' | sort)"
+{
+    printf '[Icon Theme]\nName=TuxBlox\nComment=The icons TuxBlox ships\nInherits=Adwaita,hicolor\n'
+    printf 'Directories=%s\n' "$(printf '%s\n' "$iconDirs" | paste -sd,)"
+    printf '%s\n' "$iconDirs" | while IFS= read -r iconDir; do
+        printf '\n'
+        awk -v section="[$iconDir]" '
+            $0 == section { inside = 1; print; next }
+            inside && /^\[/ { exit }
+            inside { print }
+        ' /build/gtk4/gtk/icons/hicolor.index.theme
+    done
+} > "$themeDir/index.theme"
+
+# An icon in a folder the index does not describe cannot be found at all, which is the failure this theme exists to prevent, so it fails the build rather than shipping
+themeFailed=0
+sections="$(grep -c '^\[.*\]$' "$themeDir/index.theme")"
+sizes="$(grep -c '^Size=' "$themeDir/index.theme")"
+if [ "$sections" -ne "$((sizes + 1))" ]; then
+    printf 'ERROR: the theme index has %s folder descriptions but %s sizes, so one of them says nothing\n' "$((sections - 1))" "$sizes" >&2
+    themeFailed=1
+fi
+while IFS= read -r iconDir; do
+    relDir="${iconDir#"$themeDir"/}"
+    if ! grep -q "^\[$relDir\]$" "$themeDir/index.theme"; then
+        printf 'ERROR: icon folder %s is not listed in the theme index, so nothing in it can be found\n' "$relDir" >&2
+        themeFailed=1
+    fi
+done < <(find "$themeDir" -mindepth 2 -type d)
+# The icon drawn in place of one that is missing; without it the interface searches for it forever and dies
+if [ ! -e "$themeDir/16x16/status/image-missing.png" ]; then
+    printf 'ERROR: the icon theme has no image-missing\n' >&2
+    themeFailed=1
+fi
+if [ "$themeFailed" -ne 0 ]; then
+    exit 1
+fi
+printf ':: %s icons in %s folders\n' "$(find "$themeDir" -type f ! -name index.theme | wc -l)" "$(find "$themeDir" -mindepth 2 -type d | wc -l)"
+
 printf ':: Verifying both GDK backends are present\n'
 gtkSo="$LibDir/libgtk-4.so"
 for backend in gdk_wayland gdk_x11; do

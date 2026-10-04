@@ -34,6 +34,7 @@ struct Remembered {
 bool Recorded = false;
 Remembered FontConfigFile;
 Remembered SchemaDir;
+std::string IconDir;
 
 void remember(const char *pName, Remembered &into) {
     const char *pValue = getenv(pName);
@@ -70,13 +71,22 @@ void useBundledEnvironment(const std::string &stackRoot) {
     // GLib otherwise looks under the prefix the stack was built for, finds no schemas and settings such as the colour scheme silently stop working.
     const std::string schemas = stackRoot + "/share/glib-2.0/schemas";
     if (access((schemas + "/gschemas.compiled").c_str(), R_OK) == 0) setenv("GSETTINGS_SCHEMA_DIR", schemas.c_str(), 1);
+
+    // Not a variable: applyLook() hands this to the interface itself. An install from before TuxBlox shipped icons has none, and the empty answer is what makes the caller leave the host's alone.
+    const std::string icons = stackRoot + "/share/icons";
+    IconDir = access((icons + "/TuxBlox/index.theme").c_str(), R_OK) == 0 ? icons : std::string();
 }
 
 void restoreBundledEnvironment() {
+    IconDir.clear();
     if (!Recorded) return;
     put("FONTCONFIG_FILE", FontConfigFile);
     put("GSETTINGS_SCHEMA_DIR", SchemaDir);
     Recorded = false;
+}
+
+std::string bundledIconDir() {
+    return IconDir;
 }
 
 std::vector<std::string> unbundledEnvironment() {

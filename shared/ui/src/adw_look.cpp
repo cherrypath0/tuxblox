@@ -16,6 +16,8 @@
 
 #include "adw_look.h"
 
+#include "adw_env.h"
+
 #include <climits>
 #include <cstdlib>
 #include <fstream>
@@ -157,10 +159,44 @@ std::string installRootDir() {
     return "";
 }
 
+// Every folder of icons below `dir` that the interface carries inside itself, registered under its own name.
+void addIconResourceDirs(GtkIconTheme *pTheme, const std::string &dir) {
+    char **ppChildren = g_resources_enumerate_children(dir.c_str(), G_RESOURCE_LOOKUP_FLAGS_NONE, nullptr);
+    if (ppChildren == nullptr) return;
+
+    for (char **ppChild = ppChildren; *ppChild != nullptr; ++ppChild) {
+        const std::string child(*ppChild);
+        if (child.empty() || child.back() != '/') continue;
+        const std::string subdir = dir + child;
+        gtk_icon_theme_add_resource_path(pTheme, subdir.c_str());
+        addIconResourceDirs(pTheme, subdir);
+    }
+
+    g_strfreev(ppChildren);
+}
+
+// The icons TuxBlox ships, so every window draws the same on a desktop that has its own icons and on one that has none at all.
+void useBundledIcons() {
+    GtkIconTheme *pTheme = gtk_icon_theme_get_for_display(gdk_display_get_default());
+    const std::string icons = bundledIconDir();
+
+    if (!icons.empty()) {
+        gtk_icon_theme_add_search_path(pTheme, icons.c_str());
+        // Through the settings rather than gtk_icon_theme_set_theme_name(), which refuses the theme a display hands out
+        g_object_set(gtk_settings_get_default(), "gtk-icon-theme-name", "TuxBlox", nullptr);
+        return;
+    }
+
+    // An install from before TuxBlox shipped icons has to fall back on the ones inside the interface itself, and those are only reachable through whatever icon index the host provides: where that index leaves a folder out, even the square drawn in place of a missing icon cannot be found, and the search for it repeats until the program runs out of stack and dies.
+    addIconResourceDirs(pTheme, "/org/gtk/libgtk/icons/");
+    addIconResourceDirs(pTheme, "/org/gnome/Adwaita/icons/");
+}
+
 } // namespace
 
 void applyLook() {
     adw_style_manager_set_color_scheme(adw_style_manager_get_default(), ADW_COLOR_SCHEME_PREFER_DARK);
+    useBundledIcons();
     g_object_set(gtk_settings_get_default(), "gtk-font-name", "Adwaita Sans 11", nullptr);
 }
 

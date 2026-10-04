@@ -392,6 +392,7 @@ stage_release() {
     # user's machine instead.
     local required=(compat/main
                     libtuxblox/lib/x86_64-linux-gnu
+                    libtuxblox/share/icons/TuxBlox/index.theme
                     TuxBloxLauncher TuxBloxInstaller TuxBloxBootstrapper studio-mcp)
     local entry
     for entry in "${required[@]}"; do

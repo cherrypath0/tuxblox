@@ -71,6 +71,12 @@ stageRuntime() {
 FONTS
     cp -a "$Prefix/share/glib-2.0/schemas" "$StageDir/share/glib-2.0/schemas"
     glib-compile-schemas "$StageDir/share/glib-2.0/schemas"
+    # The icons the interface draws. Shipping them is what keeps a window identical on a desktop that has its own and on one that has none, so a stack without them is not shippable.
+    cp -a "$Prefix/share/icons" "$StageDir/share/icons"
+    if [ ! -e "$StageDir/share/icons/TuxBlox/index.theme" ] || [ ! -e "$StageDir/share/icons/TuxBlox/16x16/status/image-missing.png" ]; then
+        printf 'ERROR: the icon theme is missing from the stack\n' >&2
+        exit 1
+    fi
     find "$StageDir" \( -name '*.a' -o -name '*.la' \) -delete
 }
 

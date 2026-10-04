@@ -30,13 +30,15 @@ namespace fs = std::filesystem;
 
 namespace {
 
-fs::path makeStack(bool withFonts, bool withSchemas) {
-    const fs::path root = fs::temp_directory_path() / ("adw_env_test_" + std::to_string(getpid()) + (withFonts ? "f" : "n") + (withSchemas ? "s" : "n"));
+fs::path makeStack(bool withFonts, bool withSchemas, bool withIcons = true) {
+    const fs::path root = fs::temp_directory_path() / ("adw_env_test_" + std::to_string(getpid()) + (withFonts ? "f" : "n") + (withSchemas ? "s" : "n") + (withIcons ? "i" : "n"));
     fs::remove_all(root);
     fs::create_directories(root / "fonts");
     fs::create_directories(root / "share/glib-2.0/schemas");
+    fs::create_directories(root / "share/icons/TuxBlox");
     if (withFonts) std::ofstream(root / "fonts/fonts.conf") << "<fontconfig/>";
     if (withSchemas) std::ofstream(root / "share/glib-2.0/schemas/gschemas.compiled") << "x";
+    if (withIcons) std::ofstream(root / "share/icons/TuxBlox/index.theme") << "[Icon Theme]\n";
     return root;
 }
 
@@ -129,6 +131,39 @@ void restoreWithoutUseChangesNothing() {
     assert(!isSet("GSETTINGS_SCHEMA_DIR"));
 }
 
+// The icons live in the stack that was pointed at, so the window toolkit can be told where they are
+void iconDirIsFoundInsideTheStack() {
+    const fs::path root = makeStack(true, true);
+
+    tuxblox::useBundledEnvironment(root.string());
+    assert(tuxblox::bundledIconDir() == (root / "share/icons").string());
+
+    tuxblox::restoreBundledEnvironment();
+    fs::remove_all(root);
+}
+
+// An install from before TuxBlox shipped icons has none to point at, and saying so is what lets the caller fall back
+void noIconDirWhenTheThemeIsMissing() {
+    const fs::path root = makeStack(true, true, false);
+
+    tuxblox::useBundledEnvironment(root.string());
+    assert(tuxblox::bundledIconDir().empty());
+
+    tuxblox::restoreBundledEnvironment();
+    fs::remove_all(root);
+}
+
+void noIconDirBeforeUseOrAfterRestore() {
+    const fs::path root = makeStack(true, true);
+    tuxblox::restoreBundledEnvironment();
+    assert(tuxblox::bundledIconDir().empty());
+
+    tuxblox::useBundledEnvironment(root.string());
+    tuxblox::restoreBundledEnvironment();
+    assert(tuxblox::bundledIconDir().empty());
+    fs::remove_all(root);
+}
+
 // Test helper: the value a NAME=value list gives a variable, or "<unset>"; a name listed twice is itself a failure
 std::string entryValue(const std::vector<std::string> &entries, const std::string &name) {
     std::string found = "<unset>";
@@ -195,6 +230,9 @@ int main() {
     leavesAVariableAloneWhenItsFileIsMissing();
     secondCallKeepsTheOriginalMemory();
     restoreWithoutUseChangesNothing();
+    iconDirIsFoundInsideTheStack();
+    noIconDirWhenTheThemeIsMissing();
+    noIconDirBeforeUseOrAfterRestore();
     unbundledEnvironmentPutsTheOriginalsBack();
     unbundledEnvironmentMatchesWholeNames();
     unbundledEnvironmentWithoutUseIsEnviron();
