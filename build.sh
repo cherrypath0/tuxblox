@@ -310,8 +310,13 @@ logged() {
 }
 
 apply_patches() {
-    echo ":: Reloading submodules to their recorded commit"
-    git submodule update --init --force
+    echo ":: Reloading the compatibility layer's submodules to their recorded commit"
+    # Scoped to compat: --force discards local changes, and shared/ui/libadwaita is a fork that gets worked on.
+    git submodule update --init --force -- compat
+
+    # The libraries TuxBlox ships are only checked out, never reset, so work in progress there survives a build.
+    echo ":: Making sure the shared libraries are checked out"
+    git submodule update --init -- shared
 
     local patches_dir="compat/patches"
 
@@ -725,6 +730,17 @@ ensure_ui_stack() {
     "$ROOT/shared/tools/ui-build.sh"
 }
 
+ensure_shared_libs() {
+    if [[ -f "$ROOT/build/.artifacts/shared/lib/libcurl.a" ]]; then
+        echo ":: Shared libraries already built, skipping"
+        return 0
+    fi
+    "$ROOT/shared/tools/libs-build.sh"
+}
+
+step "Building the libraries TuxBlox ships (OpenSSL, curl, libarchive and the rest)"
+run_step "build_shared_libs" strict logged ensure_shared_libs
+
 step "Building the installer's interface stack (GTK4 + libadwaita, the first run takes a long time)"
 run_step "build_ui_stack" strict logged ensure_ui_stack
 
@@ -851,6 +867,10 @@ cp -a third_party_licenses build/compat/third_party_licenses
 
 step "Aliasing the graphics driver"
 alias_graphics_driver
+
+# Runs here because compat/main only reaches build/compat once Proton has been staged above.
+step "Checking every program loads only what it is expected to"
+run_step "check_host_deps" strict logged "$ROOT/shared/tools/check-host-deps.sh" "$ROOT/build"
 
 step "Copying include/ into build/"
 copy_include

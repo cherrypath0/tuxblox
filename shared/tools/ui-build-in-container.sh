@@ -73,6 +73,48 @@ runStep() {
     touch "$marker"
 }
 
+buildZlib() {
+    fetchAndExtract "https://zlib.net/zlib-${ZLIB_VERSION}.tar.gz" /build/zlib \
+        "https://github.com/madler/zlib/releases/download/v${ZLIB_VERSION}/zlib-${ZLIB_VERSION}.tar.gz"
+    cd /build/zlib
+    ./configure --prefix="$Prefix" --libdir="$LibDir"
+    make -j"$JOBS"
+    make install
+    rm -f "$LibDir/libz.a"
+    cd /build
+}
+
+buildPcre2() {
+    fetchAndExtract "https://github.com/PCRE2Project/pcre2/releases/download/pcre2-${PCRE2_VERSION}/pcre2-${PCRE2_VERSION}.tar.bz2" /build/pcre2
+    cd /build/pcre2
+    # GLib needs the 8-bit library with unicode; nothing here wants the 16- or 32-bit ones or the tools
+    ./configure --prefix="$Prefix" --libdir="$LibDir" --disable-static \
+        --enable-pcre2-8 --disable-pcre2-16 --disable-pcre2-32 --enable-unicode
+    make -j"$JOBS"
+    make install
+    cd /build
+}
+
+buildExpat() {
+    fetchAndExtract "https://github.com/libexpat/libexpat/releases/download/R_${EXPAT_VERSION//./_}/expat-${EXPAT_VERSION}.tar.xz" /build/expat
+    cd /build/expat
+    ./configure --prefix="$Prefix" --libdir="$LibDir" --disable-static --without-docbook --without-examples --without-tests
+    make -j"$JOBS"
+    make install
+    cd /build
+}
+
+buildLibpng() {
+    fetchAndExtract "https://downloads.sourceforge.net/libpng/libpng-${LIBPNG_VERSION}.tar.xz" /build/libpng \
+        "https://github.com/pnggroup/libpng/releases/download/v${LIBPNG_VERSION}/libpng-${LIBPNG_VERSION}.tar.xz"
+    cd /build/libpng
+    ./configure --prefix="$Prefix" --libdir="$LibDir" --disable-static
+    make -j"$JOBS"
+    make install
+    rm -f "$LibDir/libpng.a"
+    cd /build
+}
+
 buildLibffi() {
     fetchAndExtract "https://github.com/libffi/libffi/releases/download/v${LIBFFI_VERSION}/libffi-${LIBFFI_VERSION}.tar.gz" /build/libffi
     cd /build/libffi
@@ -226,6 +268,10 @@ buildAdwaitaFonts() {
     fi
 }
 
+runStep zlib "$ZLIB_VERSION" buildZlib
+runStep pcre2 "$PCRE2_VERSION" buildPcre2
+runStep expat "$EXPAT_VERSION" buildExpat
+runStep libpng "$LIBPNG_VERSION" buildLibpng
 runStep libffi "$LIBFFI_VERSION" buildLibffi
 runStep glib "$GLIB_VERSION" buildGlib
 runStep zstd "$ZSTD_VERSION" buildZstd

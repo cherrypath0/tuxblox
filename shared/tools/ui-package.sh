@@ -34,7 +34,6 @@ HostAllowList=(
     '^libXi\.so\.6$' '^libXrandr\.so\.2$' '^libXcursor\.so\.1$' '^libXdamage\.so\.1$' '^libXfixes\.so\.3$' '^libXinerama\.so\.1$'
     '^libxcb\.so\.1$' '^libxcb-render\.so\.0$' '^libxcb-shm\.so\.0$'
     '^libGL\.so\.1$' '^libEGL\.so\.1$' '^libGLdispatch\.so\.0$'
-    '^libz\.so\.1$' '^libexpat\.so\.1$' '^libpng16\.so\.16$' '^libpcre2-8\.so\.0$'
 )
 
 isElf() {
