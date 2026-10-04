@@ -19,10 +19,13 @@ if(NOT DEFINED URL OR NOT DEFINED DEST)
     message(FATAL_ERROR "DownloadFile.cmake requires -DURL and -DDEST")
 endif()
 
+# TLS_VERIFY is off by default below CMake 3.31 and the builder runs 3.16, so it is named here. One of
+# the things fetched this way is the list of certificates TuxBlox falls back on, and an unverified
+# download of that would let whoever answered decide what every build of TuxBlox trusts.
 if(DEFINED USERAGENT)
-    file(DOWNLOAD "${URL}" "${DEST}" STATUS status LOG log USERAGENT "${USERAGENT}")
+    file(DOWNLOAD "${URL}" "${DEST}" STATUS status LOG log TLS_VERIFY ON USERAGENT "${USERAGENT}")
 else()
-    file(DOWNLOAD "${URL}" "${DEST}" STATUS status LOG log)
+    file(DOWNLOAD "${URL}" "${DEST}" STATUS status LOG log TLS_VERIFY ON)
 endif()
 list(GET status 0 statusCode)
 if(NOT statusCode EQUAL 0)

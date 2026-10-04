@@ -17,6 +17,7 @@
 #include "roblox_deploy.h"
 #include "downloader.h"
 #include "json.hpp"
+#include "ca_bundle.h"
 #include <curl/curl.h>
 #include <algorithm>
 #include <cctype>
@@ -44,6 +45,7 @@ size_t curlWriteToString(char* ptr, size_t size, size_t nmemb, void* userdata) {
 std::string httpGet(const std::string& url, const std::atomic<bool>* cancel) {
     CURL* curl = curl_easy_init();
     if (!curl) throw std::runtime_error("httpGet: curl_easy_init failed");
+    tuxblox::applyCaBundle(curl);
 
     std::string body;
     char errBuf[CURL_ERROR_SIZE] = {0};

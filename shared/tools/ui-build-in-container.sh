@@ -63,7 +63,8 @@ mesonBuild() {
 
 # Runs a build function once; the marker carries the version so a bump rebuilds it
 runStep() {
-    local name="$1" version="$2" func="$3" marker="$Markers/$1-$2"
+    # The stack version is part of the marker because adding a library changes what every later one links against, and Task 10 of the dependency work had to wipe dist/ by hand for exactly this reason.
+    local name="$1" version="$2" func="$3" marker="$Markers/$1-$2-stack$UI_STACK_VERSION"
     if [ -e "$marker" ]; then
         printf ':: Skipping %s %s (already built)\n' "$name" "$version"
         return 0

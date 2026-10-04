@@ -16,6 +16,7 @@
 
 #include "roblox_place_info.h"
 #include "json.hpp"
+#include "ca_bundle.h"
 
 #include <algorithm>
 #include <cctype>
@@ -127,6 +128,7 @@ std::string httpGet(const std::string& url) {
     if (pCurl == nullptr) {
         return std::string();
     }
+    tuxblox::applyCaBundle(pCurl);
 
     std::string body;
     curl_easy_setopt(pCurl, CURLOPT_URL, url.c_str());

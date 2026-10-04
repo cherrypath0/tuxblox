@@ -92,18 +92,29 @@ int main() {
         printf("  built-in bundle is %zu bytes\n", embedded.size());
     }
 
-    // The certificate list must never be written to a predictable path in a folder every user can
-    // write to: whoever swapped the file between the write and the read would decide what TuxBlox
-    // trusts. It is handed to the download straight from memory instead.
+    // The built-in copy must never be written to a predictable path in a folder every user can write to: whoever swapped the file between the write and the read would decide what TuxBlox trusts.
     {
         const fs::path predictable = fs::temp_directory_path() / "tuxblox-ca-bundle.pem";
         fs::remove(predictable);
         CURL *pCurl = curl_easy_init();
         assert(pCurl != nullptr);
-        tuxblox::applyCaBundle(pCurl);
+        // Told there is no list on this machine, which is the only path that reaches the built-in copy.
+        tuxblox::applyCaBundleWith(pCurl, std::string());
         curl_easy_cleanup(pCurl);
         assert(!fs::exists(predictable));
-        printf("  no certificate list written to a shared folder\n");
+        printf("  built-in list is not written to a shared folder\n");
+    }
+
+    // And the ordinary path must still hand the machine's own list straight through.
+    {
+        const fs::path bundle = tempDir / "passthrough.pem";
+        std::ofstream(bundle) << "-----BEGIN CERTIFICATE-----\n";
+        CURL *pCurl = curl_easy_init();
+        assert(pCurl != nullptr);
+        tuxblox::applyCaBundleWith(pCurl, bundle.string());
+        curl_easy_cleanup(pCurl);
+        assert(!fs::exists(fs::temp_directory_path() / "tuxblox-ca-bundle.pem"));
+        printf("  the machine's own list is used as given\n");
     }
 
     fs::remove_all(tempDir);

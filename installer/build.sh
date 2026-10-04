@@ -78,11 +78,8 @@ fi
 echo ":: Vendoring third-party sources"
 ./vendor.sh
 
-# Built here when absent so this script still works on its own; the root build.sh runs it once up front.
-if [[ ! -f ../build/.artifacts/shared/lib/libcurl.a ]]; then
-    printf ':: Shared libraries missing, building them first\n'
-    ../shared/tools/libs-build.sh
-fi
+# Run every time so this script works on its own; its own markers know the pins and the recipe, so a moved pin rebuilds and everything else is skipped.
+../shared/tools/libs-build.sh
 
 mkdir -p "$CacheDir"
 echo ":: Building builder container image (old-glibc baseline)"

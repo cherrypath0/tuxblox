@@ -17,6 +17,7 @@
 #include "manifest.h"
 #include "downloader.h"
 #include "json.hpp"
+#include "ca_bundle.h"
 #include <curl/curl.h>
 #include <stdexcept>
 #include <string>
@@ -119,6 +120,7 @@ std::string fetchManifestJson(const std::string& url, const std::atomic<bool>* c
     if (!curl) {
         throw std::runtime_error("fetchManifestJson: curl_easy_init failed");
     }
+    tuxblox::applyCaBundle(curl);
 
     std::string body;
     char errBuf[CURL_ERROR_SIZE] = {0};

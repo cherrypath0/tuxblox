@@ -38,10 +38,13 @@ else
 fi
 
 # The marker carries the submodule commit, which the host resolves and passes in because the source is mounted read-only
+# The recipe is part of what decides the archive, so the marker carries a hash of this file too.
+RecipeId="$(sha256sum "${BASH_SOURCE[0]}" | cut -c1-12)"
+
 runStep() {
     local name="$1" commitVar="$2" func="$3" commit marker
     commit="${!commitVar:-nocommit}"
-    marker="$Markers/$name-$commit"
+    marker="$Markers/$name-$commit-$RecipeId"
     if [ -e "$marker" ]; then
         printf ':: Skipping %s %s (already built)\n' "$name" "$commit"
         return 0
@@ -70,7 +73,7 @@ buildZlib() {
 buildZstd() {
     copySource shared/fs/zstd /build/zstd
     # Library only: no command line tool, and no legacy format support
-    make -C /build/zstd/lib -j"$JOBS" libzstd.a
+    make -C /build/zstd/lib -j"$JOBS" libzstd.a ZSTD_LEGACY_SUPPORT=0
     make -C /build/zstd/lib install-static install-includes install-pc \
         PREFIX="$Prefix" ZSTD_LEGACY_SUPPORT=0
     cd /build
@@ -108,6 +111,7 @@ buildCurl() {
         --with-openssl="$Prefix" --with-nghttp2="$Prefix" --without-zlib \
         --without-libssh2 --without-libssh --without-gssapi --without-libidn2 \
         --without-libpsl --without-brotli --without-zstd --without-nghttp3 \
+        --without-ca-bundle --without-ca-path \
         --without-ngtcp2 --without-librtmp --without-ldap-lib --without-libgsasl \
         --disable-ldap --disable-ldaps --disable-rtsp --disable-dict --disable-telnet \
         --disable-tftp --disable-pop3 --disable-imap --disable-smtp --disable-gopher \
@@ -138,11 +142,38 @@ buildLibarchive() {
     cd /build
 }
 
+# curl must carry no certificate list of its own. With one baked in, a download that forgot to ask
+# for the list would quietly work on this builder's distribution and fail on everyone else's.
+checkCurlHasNoBakedCertificates() {
+    local found
+    found="$(strings "$Prefix/lib/libcurl.a" | grep -cE '^/etc/(ssl|pki)' || true)"
+    if [ "$found" -ne 0 ]; then
+        printf 'ERROR: libcurl.a has %s certificate paths compiled into it; pass --without-ca-bundle --without-ca-path\n' "$found" >&2
+        strings "$Prefix/lib/libcurl.a" | grep -E '^/etc/(ssl|pki)' | sort -u >&2
+        exit 1
+    fi
+    printf ':: curl carries no certificate list of its own\n'
+}
+
 runStep zlib       ZLIB_COMMIT       buildZlib
 runStep zstd       ZSTD_COMMIT       buildZstd
 runStep nghttp2    NGHTTP2_COMMIT    buildNghttp2
 runStep openssl    OPENSSL_COMMIT    buildOpenssl
 runStep curl       CURL_COMMIT       buildCurl
 runStep libarchive LIBARCHIVE_COMMIT buildLibarchive
+
+# The old formats were dropped on purpose, so a build that silently kept them is a build that lied
+checkZstdHasNoLegacyFormats() {
+    local found
+    found="$(nm "$Prefix/lib/libzstd.a" 2>/dev/null | grep -cE 'ZSTDv0[0-9]_' || true)"
+    if [ "$found" -ne 0 ]; then
+        printf 'ERROR: libzstd.a still carries %s symbols for the old formats\n' "$found" >&2
+        exit 1
+    fi
+    printf ':: zstd carries no old-format decoders\n'
+}
+
+checkZstdHasNoLegacyFormats
+checkCurlHasNoBakedCertificates
 
 printf ':: Done. Static archives in %s/lib\n' "$Prefix"

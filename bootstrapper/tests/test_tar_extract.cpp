@@ -287,10 +287,7 @@ int main() {
         fs::remove_all(zipDest);
     }
 
-    printf("tar_extract: all tests passed\n");
-    return 0;
-    // An xz payload cannot be read any more: libarchive is built with only tar, zip, zstd and inflate,
-    // so the user has to get TuxBlox's own message rather than a silent success.
+    // An xz payload cannot be read any more: libarchive is built with only tar, zip, zstd and inflate, so the user has to get TuxBlox's own message rather than a silent success.
     {
         fs::path xzPath = tmp / "tuxblox_test_payload.tar.xz";
         fs::path xzDest = tmp / "tuxblox_test_xz_dest";
@@ -307,4 +304,6 @@ int main() {
         fs::remove_all(xzDest);
     }
 
+    printf("tar_extract: all tests passed\n");
+    return 0;
 }

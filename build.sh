@@ -731,10 +731,8 @@ ensure_ui_stack() {
 }
 
 ensure_shared_libs() {
-    if [[ -f "$ROOT/build/.artifacts/shared/lib/libcurl.a" ]]; then
-        echo ":: Shared libraries already built, skipping"
-        return 0
-    fi
+    # Always run it: its own per-library markers decide what to skip, and they know the pins and the
+    # recipe. Deciding here on whether one archive exists would miss a moved pin entirely.
     "$ROOT/shared/tools/libs-build.sh"
 }
 

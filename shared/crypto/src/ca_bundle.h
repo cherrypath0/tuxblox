@@ -35,6 +35,9 @@ std::string caBundleEmbedded();
 // Points a download at whichever of the two applies.
 void applyCaBundle(CURL *pCurl);
 
+// The same, told which list to use, so the built-in copy's path can be exercised on a machine that has one of its own.
+void applyCaBundleWith(CURL *pCurl, const std::string& bundlePath);
+
 } // namespace tuxblox
 
 #endif // TUXBLOX_CA_BUNDLE_H

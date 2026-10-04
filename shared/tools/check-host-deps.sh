@@ -21,6 +21,8 @@ set -euo pipefail
 
 BuildDir="${1:-build}"
 StackDirName="libtuxblox"
+# The C library version TuxBlox tells users it needs; raising it is a decision, not a build detail.
+GlibcFloor="GLIBC_2.25"
 
 # Libraries that have to come from the machine: the C library and the loader.
 GlibcNames='^(libc|libm|libdl|libpthread|librt|libresolv|libutil|libanl)\.so\.[0-9]+$'
@@ -53,8 +55,8 @@ resolveLoaded() {
     ldd "$binary" 2>/dev/null | awk '
         /=>/ {
             path = $3
-            if (path == "" || path == "(0x0)") path = "not-found"
-            sub(/^\(/, "", path)
+            if ($3 == "not" && $4 == "found") path = "not-found"
+            else if (path == "" || path ~ /^\(0x/) path = "kernel-or-loader"
             print $1 "\t" path
             next
         }
@@ -124,12 +126,11 @@ done
 
 # Carrying our own C++ runtime is only safe while the interface stack stays pure C: a C++ library
 # in there could throw across the boundary into a different runtime than the one it was built with.
-for lib in "$BuildDir/$StackDirName"/lib/x86_64-linux-gnu/*.so.* "$BuildDir/$StackDirName"/lib/*.so.*; do
-    [[ -e "$lib" ]] || continue
+while IFS= read -r lib; do
     if objdump -p "$lib" 2>/dev/null | grep -q 'NEEDED.*libstdc++'; then
         problem "!! $(basename "$lib") needs a C++ runtime, so carrying our own in the programs is no longer safe"
     fi
-done
+done < <(find "$BuildDir/$StackDirName" -name '*.so*' -type f 2>/dev/null)
 
 # No program may ask the machine for a C++ runtime version any more, and the C library floor must not have risen.
 for entry in "${Binaries[@]}"; do
@@ -139,8 +140,16 @@ for entry in "${Binaries[@]}"; do
     if objdump -T "$binary" 2>/dev/null | grep -q 'GLIBCXX_'; then
         problem "!! $name still asks the machine for a GLIBCXX version"
     fi
-    maxGlibc="$(objdump -T "$binary" 2>/dev/null | grep -oE 'GLIBC_[0-9.]+' | sort -V | tail -1)"
-    note "   $name needs at most ${maxGlibc:-no} C library version"
+    maxGlibc="$(objdump -T "$binary" 2>/dev/null | grep -oE 'GLIBC_[0-9.]+' | sort -V | tail -1 || true)"
+    if [[ -z "$maxGlibc" ]]; then
+        note "   $name asks for no C library version at all"
+        continue
+    fi
+    note "   $name needs at most $maxGlibc"
+    # The floor is a published requirement, so a change that raises it has to be a decision rather than a surprise.
+    if [[ "$(printf '%s\n' "${maxGlibc#GLIBC_}" "${GlibcFloor#GLIBC_}" | sort -V | tail -1)" != "${GlibcFloor#GLIBC_}" ]]; then
+        problem "!! $name needs $maxGlibc, above the $GlibcFloor floor TuxBlox promises"
+    fi
 done
 
 if [[ $Failures -gt 0 ]]; then

@@ -62,12 +62,16 @@ std::string caBundleEmbedded() {
 }
 
 void applyCaBundle(CURL *pCurl) {
+    applyCaBundleWith(pCurl, caBundlePath());
+}
+
+void applyCaBundleWith(CURL *pCurl, const std::string& bundlePath) {
     // A folder of certificates is passed through untouched, since that is the machine's own layout.
     if (const char *pDirectory = std::getenv("SSL_CERT_DIR")) {
         if (*pDirectory) curl_easy_setopt(pCurl, CURLOPT_CAPATH, pDirectory);
     }
 
-    const std::string bundle = caBundlePath();
+    const std::string& bundle = bundlePath;
     if (!bundle.empty()) {
         curl_easy_setopt(pCurl, CURLOPT_CAINFO, bundle.c_str());
         return;

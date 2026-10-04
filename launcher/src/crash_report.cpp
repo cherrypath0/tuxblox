@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "crash_report.h"
+#include "ca_bundle.h"
 #include <cstdio>
 #include <ctime>
 #include <curl/curl.h>
@@ -78,6 +79,7 @@ nlohmann::json buildReportJson(const CrashReport& report, const std::string& tim
 void uploadCrashReport(const CrashReport& report) {
     CURL* curl = curl_easy_init();
     if (!curl) return;
+    tuxblox::applyCaBundle(curl);
 
     std::string jsonBody = buildReportJson(report, isoTimestampUtc()).dump();
     std::string logTail = readLogTail(report.logPath, kMaxLogTailBytes);
