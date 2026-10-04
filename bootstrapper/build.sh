@@ -71,6 +71,12 @@ fi
 echo ":: Vendoring third-party sources"
 ./vendor.sh
 
+# Built here when absent so this script still works on its own; the root build.sh runs it once up front.
+if [[ ! -f ../build/.artifacts/shared/lib/libcurl.a ]]; then
+    printf ':: Shared libraries missing, building them first\n'
+    ../shared/tools/libs-build.sh
+fi
+
 echo ":: Building builder container image (old-glibc baseline)"
 podman build -t tuxblox-old-glibc-builder -f ../Containerfile ..
 
@@ -131,8 +137,9 @@ podman run --rm --userns=keep-id -e JOBS="$JOBS" \
     -v "$(pwd):/src:Z" \
     -v "$(cd "$UiStackDev" && pwd):/ui-dev:ro" \
     -v "$(cd "$UiSrc" && pwd):/ui-src:ro" \
+    -v "$(pwd)/../build/.artifacts/shared:/shared:ro,z" \
     -w /src tuxblox-old-glibc-builder \
-    bash -c 'cmake -B build -S . -G Ninja -DCMAKE_BUILD_TYPE=Release -DTUXBLOX_UI_STACK_DEV=/ui-dev -DTUXBLOX_UI_SRC=/ui-src && cmake --build build -j"$JOBS"'
+    bash -c 'cmake -B build -S . -G Ninja -DCMAKE_BUILD_TYPE=Release -DTUXBLOX_UI_STACK_DEV=/ui-dev -DTUXBLOX_UI_SRC=/ui-src -DTUXBLOX_SHARED_DIR=/shared && cmake --build build -j"$JOBS"'
 
 if [[ ! -f build/TuxBloxBootstrapper ]]; then
     printf '!! build/TuxBloxBootstrapper was not built. The interface needs shared/ui/dist/dev.\n' >&2

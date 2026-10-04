@@ -289,4 +289,22 @@ int main() {
 
     printf("tar_extract: all tests passed\n");
     return 0;
+    // An xz payload cannot be read any more: libarchive is built with only tar, zip, zstd and inflate,
+    // so the user has to get TuxBlox's own message rather than a silent success.
+    {
+        fs::path xzPath = tmp / "tuxblox_test_payload.tar.xz";
+        fs::path xzDest = tmp / "tuxblox_test_xz_dest";
+        fs::remove_all(xzDest);
+        const unsigned char xzHeader[] = {0xfd, '7', 'z', 'X', 'Z', 0x00, 0x00, 0x04,
+                                          0xe6, 0xd6, 0xb4, 0x46, 0x00, 0x00, 0x00, 0x00};
+        {
+            std::ofstream out(xzPath, std::ios::binary | std::ios::trunc);
+            out.write(reinterpret_cast<const char *>(xzHeader), sizeof(xzHeader));
+        }
+        assert(extractThrows(xzPath.string(), xzDest.string()));
+        printf("  xz payload rejected\n");
+        fs::remove(xzPath);
+        fs::remove_all(xzDest);
+    }
+
 }

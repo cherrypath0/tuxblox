@@ -29,10 +29,26 @@ if(NOT EXISTS "${CMAKE_SOURCE_DIR}/third_party/json.hpp")
     message(FATAL_ERROR "third_party/json.hpp is missing. Run ./vendor.sh first.")
 endif()
 
+# Still needed by the interface stack's UiStack.cmake, which finds GTK and libadwaita through pkg-config.
 find_package(PkgConfig REQUIRED)
-pkg_check_modules(CURL REQUIRED libcurl)
-pkg_check_modules(ARCHIVE REQUIRED libarchive)
-pkg_check_modules(OPENSSL REQUIRED openssl)
+
+# The libraries TuxBlox ships rather than taking from the machine, built by shared/tools/libs-build.sh and mounted read-only by build.sh.
+if(NOT TUXBLOX_SHARED_DIR)
+    set(TUXBLOX_SHARED_DIR "${CMAKE_SOURCE_DIR}/../build/.artifacts/shared")
+endif()
+if(NOT EXISTS "${TUXBLOX_SHARED_DIR}/lib/libcurl.a")
+    message(FATAL_ERROR "${TUXBLOX_SHARED_DIR}/lib/libcurl.a is missing. Run ../shared/tools/libs-build.sh first.")
+endif()
+set(TUXBLOX_SHARED_INCLUDE "${TUXBLOX_SHARED_DIR}/include")
+# Static archives are order sensitive: each must come before whatever it calls into.
+set(TUXBLOX_SHARED_LIBS
+    "${TUXBLOX_SHARED_DIR}/lib/libcurl.a"
+    "${TUXBLOX_SHARED_DIR}/lib/libnghttp2.a"
+    "${TUXBLOX_SHARED_DIR}/lib/libarchive.a"
+    "${TUXBLOX_SHARED_DIR}/lib/libzstd.a"
+    "${TUXBLOX_SHARED_DIR}/lib/libz.a"
+    "${TUXBLOX_SHARED_DIR}/lib/libssl.a"
+    "${TUXBLOX_SHARED_DIR}/lib/libcrypto.a")
 # glibc >= 2.34 folded libpthread/libdl into libc, so std::thread links for
 # free on a newer host -- the old-glibc container this builds in still needs
 # them named.
@@ -50,23 +66,19 @@ add_library(bootstrapper_core STATIC
     src/app.cpp
 )
 target_include_directories(bootstrapper_core PUBLIC
-    src third_party
-    ${CURL_INCLUDE_DIRS} ${ARCHIVE_INCLUDE_DIRS} ${OPENSSL_INCLUDE_DIRS})
-# OpenSSL is linked statically for the same reason as the launcher and the
-# installer: this builds against OpenSSL 1.1 in the container, and a host on
-# OpenSSL 3 carries no libcrypto.so.1.1 for a dynamic link to find.
-find_library(OPENSSL_SSL_STATIC_LIB NAMES libssl.a REQUIRED)
-find_library(OPENSSL_CRYPTO_STATIC_LIB NAMES libcrypto.a REQUIRED)
+    src third_party ${TUXBLOX_SHARED_INCLUDE})
 target_link_libraries(bootstrapper_core PUBLIC
-    ${CURL_LIBRARIES} ${ARCHIVE_LIBRARIES}
-    ${OPENSSL_SSL_STATIC_LIB} ${OPENSSL_CRYPTO_STATIC_LIB} ${CMAKE_DL_LIBS}
-    Threads::Threads)
-# Keeps our static OpenSSL 1.1 symbols out of the dynamic symbol table, so
-# libcurl cannot resolve its own OpenSSL 3 calls against them.
+    ${TUXBLOX_SHARED_LIBS} ${CMAKE_DL_LIBS} Threads::Threads)
+# --exclude-libs keeps these archives' symbols out of the binary's dynamic symbol table. They are
+# still linked in and callable from our own code; this only controls whether they are exported.
+# It is load-bearing for zlib, which this process holds twice on purpose: a static copy inside
+# libarchive.a here, and the interface stack's own libz.so.1, which its libtiff and libfreetype
+# both load. Exported, our static inflate and crc32 would be handed to them instead of the stack's.
 target_link_options(bootstrapper_core PUBLIC
+    -Wl,--exclude-libs=libcurl.a -Wl,--exclude-libs=libnghttp2.a
+    -Wl,--exclude-libs=libarchive.a -Wl,--exclude-libs=libzstd.a
+    -Wl,--exclude-libs=libz.a
     -Wl,--exclude-libs=libssl.a -Wl,--exclude-libs=libcrypto.a)
-target_compile_options(bootstrapper_core PUBLIC
-    ${CURL_CFLAGS_OTHER} ${ARCHIVE_CFLAGS_OTHER} ${OPENSSL_CFLAGS_OTHER})
 
 # Same version resolution as the launcher and the installer, so one release
 # stamps the same number into all of them. The repo-root VERSION is only
