@@ -221,6 +221,7 @@ private:
     void uninstallThreadMain();
     void wipePrefixThreadMain();
     void sessionPollThreadMain();
+    void refreshVersionsIfChanged();
     void stopSessionsThreadMain(LaunchTarget target);
     void terminateThreadMain();
     void versionInstallThreadMain(LaunchTarget target, VersionSelectMode mode, std::string channel,

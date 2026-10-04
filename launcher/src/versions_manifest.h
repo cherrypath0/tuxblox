@@ -61,6 +61,13 @@ std::string prefixVersionsDir(const std::string& installDir);
 // or the directory doesn't exist yet.
 std::vector<std::string> scanPrefixVersions(const std::string& installDir, LaunchTarget target);
 
+// The newest version directory present in `after` but not in `before`, or empty when nothing was
+// added. An update that installed nothing returns empty, so a version the user chose on purpose is
+// never moved underneath them.
+std::string newestAddedVersion(const std::string& installDir,
+                               const std::vector<std::string>& before,
+                               const std::vector<std::string>& after);
+
 // Makes `manifest` agree with what's actually in the prefix: adds version
 // directories it didn't know about, drops entries whose directory is gone,
 // and re-pins `activeHash` (to the newest version directory) whenever the

@@ -18,6 +18,7 @@
 #include "prefix_user.h"
 
 #include "desktop_notify.h"
+#include "versions_manifest.h"
 
 #include <cstdio>
 #include <filesystem>
@@ -52,6 +53,9 @@ void runRobloxUpdateCheck(const std::string& installDir, LaunchTarget target,
     std::error_code error;
     if (!shouldRunUpdateCheck(settings, std::filesystem::exists(bootstrapper, error))) return;
 
+    // Taken before the update so the version it installs can be told apart from the ones already there.
+    const std::vector<std::string> versionsBefore = scanPrefixVersions(installDir, target);
+
     pid_t pid = fork();
     if (pid < 0) {
         fprintf(stderr, "TuxBlox: could not start the update check, launching anyway\n");
@@ -79,7 +83,27 @@ void runRobloxUpdateCheck(const std::string& installDir, LaunchTarget target,
             "Failed to Update Roblox",
             "Something went wrong while attempting to update Roblox, so the update "
             "was skipped. Please check your internet connection and try again.");
+        return;
     }
+
+    activateNewlyUpdatedVersion(installDir, target, versionsBefore);
+}
+
+void activateNewlyUpdatedVersion(const std::string& installDir, LaunchTarget target,
+                                  const std::vector<std::string>& versionsBefore) {
+    const std::string installed =
+        newestAddedVersion(installDir, versionsBefore, scanPrefixVersions(installDir, target));
+    // Nothing new means the update had nothing to do, and whichever version is active stays active.
+    if (installed.empty()) return;
+
+    // Re-read rather than reuse anything held earlier: the bootstrapper has just changed the prefix,
+    // and the launcher may be running and holding its own copy.
+    VersionsManifest manifest = loadInstalledVersions(installDir);
+    AppVersions& versions = appVersionsFor(manifest, target);
+    if (versions.activeHash == installed) return;
+
+    versions.activeHash = installed;
+    saveVersionsManifest(installDir, manifest);
 }
 
 } // namespace tuxblox

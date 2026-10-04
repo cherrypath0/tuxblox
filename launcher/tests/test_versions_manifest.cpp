@@ -22,6 +22,8 @@
 #include <fstream>
 #include <string>
 
+#include <thread>
+
 namespace fs = std::filesystem;
 
 int main() {
@@ -365,6 +367,62 @@ int main() {
 
         assert(m.player.installed.size() == 1);
         assert(m.player.installed[0].versionString.empty());
+        fs::remove_all(dir);
+    }
+
+    // An update that installs a newer Roblox has to make it the active one, or the launcher keeps
+    // launching the old exe and writing its FastFlags into the old folder.
+    {
+        fs::path dir = fs::temp_directory_path() / "tuxblox_test_versions_newest_added";
+        fs::remove_all(dir);
+        fs::path versionsDir = dir / "runtime/pfx/drive_c/users/user/AppData/Local/Roblox/Versions";
+        fs::create_directories(versionsDir / "version-old");
+        std::ofstream(versionsDir / "version-old" / "RobloxStudioBeta.exe") << "x";
+
+        const std::vector<std::string> before = scanPrefixVersions(dir.string(), LaunchTarget::Studio);
+        assert(before.size() == 1);
+
+        // The bootstrapper installs a newer one beside it and removes nothing.
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        fs::create_directories(versionsDir / "version-new");
+        std::ofstream(versionsDir / "version-new" / "RobloxStudioBeta.exe") << "x";
+
+        const std::vector<std::string> after = scanPrefixVersions(dir.string(), LaunchTarget::Studio);
+        assert(after.size() == 2);
+        assert(newestAddedVersion(dir.string(), before, after) == "version-new");
+        fs::remove_all(dir);
+    }
+
+    // An update that installed nothing must leave the active version exactly as the user left it.
+    {
+        fs::path dir = fs::temp_directory_path() / "tuxblox_test_versions_nothing_added";
+        fs::remove_all(dir);
+        fs::path versionsDir = dir / "runtime/pfx/drive_c/users/user/AppData/Local/Roblox/Versions";
+        fs::create_directories(versionsDir / "version-only");
+        std::ofstream(versionsDir / "version-only" / "RobloxStudioBeta.exe") << "x";
+
+        const std::vector<std::string> same = scanPrefixVersions(dir.string(), LaunchTarget::Studio);
+        assert(newestAddedVersion(dir.string(), same, same).empty());
+        fs::remove_all(dir);
+    }
+
+    // Reconcile must not move the active version on its own: a version chosen on purpose stays chosen even once a newer one is sitting beside it.
+    {
+        fs::path dir = fs::temp_directory_path() / "tuxblox_test_versions_keeps_choice";
+        fs::remove_all(dir);
+        fs::path versionsDir = dir / "runtime/pfx/drive_c/users/user/AppData/Local/Roblox/Versions";
+        for (const char *hash : {"version-chosen", "version-later"}) {
+            fs::create_directories(versionsDir / hash);
+            std::ofstream(versionsDir / hash / "RobloxStudioBeta.exe") << "x";
+        }
+
+        VersionsManifest m;
+        m.studio.installed.push_back({"version-chosen", "live", "", ""});
+        m.studio.activeHash = "version-chosen";
+        reconcileWithPrefix(dir.string(), m);
+
+        assert(m.studio.installed.size() == 2);
+        assert(m.studio.activeHash == "version-chosen");
         fs::remove_all(dir);
     }
 

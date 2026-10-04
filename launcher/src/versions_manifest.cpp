@@ -133,12 +133,27 @@ void reconcileTargetWithPrefix(const std::string& installDir, VersionsManifest& 
             (fs::path(prefixVersionsDir(installDir)) / version.hash / targetExeName(target)).string());
     }
 
+    // Only ever pins when nothing is pinned, or when what was pinned is gone. Moving it because a
+    // newer version appeared would throw away a version the user picked on purpose; advancing it
+    // after an update is the updater's job, which knows an update actually happened.
     if (!av.activeHash.empty() && !onDisk(av.activeHash)) av.activeHash.clear();
     if (av.activeHash.empty() && !hashes.empty()) av.activeHash = newestVersion(installDir, hashes);
     if (!hashes.empty()) av.bootstrapped = true;
 }
 
 } // namespace
+
+std::string newestAddedVersion(const std::string& installDir,
+                               const std::vector<std::string>& before,
+                               const std::vector<std::string>& after) {
+    std::vector<std::string> added;
+    for (const std::string& hash : after) {
+        if (std::find(before.begin(), before.end(), hash) == before.end()) added.push_back(hash);
+    }
+    if (added.empty()) return "";
+    return newestVersion(installDir, added);
+}
+
 
 std::string prefixVersionsDir(const std::string& installDir) {
     return prefixUserDir(installDir) + "/AppData/Local/Roblox/Versions";

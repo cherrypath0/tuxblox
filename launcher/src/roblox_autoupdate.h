@@ -45,5 +45,9 @@ std::vector<std::string> updateEnvironment(const std::string& installDir, Launch
 // the worse outcome by far.
 void runRobloxUpdateCheck(const std::string& installDir, LaunchTarget target,
                            const Settings& settings);
+// Makes the version the update just installed the active one, given what was installed before it
+// ran. Does nothing when the update installed nothing, so a version chosen on purpose is kept.
+void activateNewlyUpdatedVersion(const std::string& installDir, LaunchTarget target,
+                                  const std::vector<std::string>& versionsBefore);
 
 } // namespace tuxblox

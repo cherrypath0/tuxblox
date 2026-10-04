@@ -372,11 +372,44 @@ void App::sessionPollThreadMain() {
         if (sessionPollStop_.load()) return;
 
         PrefixSessions sessions = prefixSessions(installDir_ + "/runtime/pfx");
-        std::lock_guard<std::mutex> lock(mutex_);
-        snapshot_.sessions = sessions;
-        if (sessions.player == 0) snapshot_.stoppingPlayer = false;
-        if (sessions.studio == 0) snapshot_.stoppingStudio = false;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            snapshot_.sessions = sessions;
+            if (sessions.player == 0) snapshot_.stoppingPlayer = false;
+            if (sessions.studio == 0) snapshot_.stoppingStudio = false;
+        }
+        refreshVersionsIfChanged();
     }
+}
+
+// The bootstrapper installs Roblox from its own process, so nothing tells a running launcher that
+// the versions on disk have moved. Only the directory names are compared here, because the full
+// re-read opens an exe per version to read its number and is not worth doing once a second.
+void App::refreshVersionsIfChanged() {
+    std::vector<std::string> player = scanPrefixVersions(installDir_, LaunchTarget::Player);
+    std::vector<std::string> studio = scanPrefixVersions(installDir_, LaunchTarget::Studio);
+    std::sort(player.begin(), player.end());
+    std::sort(studio.begin(), studio.end());
+
+    auto hashesOf = [](const AppVersions& versions) {
+        std::vector<std::string> out;
+        for (const InstalledVersion& version : versions.installed) out.push_back(version.hash);
+        std::sort(out.begin(), out.end());
+        return out;
+    };
+
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (hashesOf(snapshot_.versions.player) == player &&
+            hashesOf(snapshot_.versions.studio) == studio) {
+            return;
+        }
+    }
+
+    // The Versions screen compares what it drew against this and redraws itself when they differ, so replacing it is all that is needed.
+    VersionsManifest fresh = loadInstalledVersions(installDir_);
+    std::lock_guard<std::mutex> lock(mutex_);
+    snapshot_.versions = fresh;
 }
 
 void App::requestStopSessions(LaunchTarget target) {
