@@ -4701,8 +4701,38 @@ MINMAXINFO get_min_max_info( HWND hwnd )
     minmax.ptMaxTrackSize.x = max( minmax.ptMaxTrackSize.x, minmax.ptMinTrackSize.x );
     minmax.ptMaxTrackSize.y = max( minmax.ptMaxTrackSize.y, minmax.ptMinTrackSize.y );
 
+    /* keep it for the graphics drivers, the host window manager performs interactive resizes and has to honor it */
+    if ((win = get_win_ptr( hwnd )) && win != WND_DESKTOP && win != WND_OTHER_PROCESS)
+    {
+        win->min_track_size = minmax.ptMinTrackSize;
+        release_win_ptr( win );
+    }
+
     set_thread_dpi_awareness_context( context );
     return minmax;
+}
+
+/*******************************************************************
+ *           window_get_min_track_size
+ *
+ * Get the smallest size a window accepts, in raw dpi, as reported by its last WM_GETMINMAXINFO.
+ */
+BOOL window_get_min_track_size( HWND hwnd, SIZE *size )
+{
+    POINT min_track;
+    UINT raw_dpi;
+    WND *win;
+
+    if (!(win = get_win_ptr( hwnd )) || win == WND_DESKTOP || win == WND_OTHER_PROCESS) return FALSE;
+    min_track = win->min_track_size;
+    release_win_ptr( win );
+    if (min_track.x <= 0 || min_track.y <= 0) return FALSE;
+
+    get_win_monitor_dpi( hwnd, &raw_dpi );
+    min_track = map_dpi_point( min_track, get_dpi_for_window( hwnd ), raw_dpi );
+    size->cx = min_track.x;
+    size->cy = min_track.y;
+    return TRUE;
 }
 
 static POINT get_first_minimized_child_pos( const RECT *parent, const MINIMIZEDMETRICS *mm,

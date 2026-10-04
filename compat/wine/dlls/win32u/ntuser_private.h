@@ -54,6 +54,7 @@ typedef struct tagWND
     RECT               present_rect;  /* present rect for exclusive fullscreen mode */
     POINT              min_pos;       /* Position for minimized window */
     POINT              max_pos;       /* Position for maximized window */
+    POINT              min_track_size; /* Smallest size the window accepts, from the last WM_GETMINMAXINFO */
     WCHAR             *text;          /* Window text */
     struct win_scroll_bar_info *pScroll; /* Scroll-bar info */
     UINT               dwStyle;       /* Window style (from CreateWindow) */

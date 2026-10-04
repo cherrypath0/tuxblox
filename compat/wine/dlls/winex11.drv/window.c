@@ -984,6 +984,7 @@ static void window_set_wm_normal_hints( struct x11drv_win_data *data, XSizeHints
 static void set_size_hints( struct x11drv_win_data *data, DWORD style )
 {
     XSizeHints *size_hints;
+    SIZE min_size;
 
     if (!(size_hints = XAllocSizeHints())) return;
 
@@ -1011,6 +1012,16 @@ static void set_size_hints( struct x11drv_win_data *data, DWORD style )
             size_hints->min_width = size_hints->max_width;
             size_hints->min_height = size_hints->max_height;
             size_hints->flags |= PMinSize | PMaxSize;
+        }
+        else if (window_get_min_track_size( data->hwnd, &min_size ))
+        {
+            RECT min_rect = {0, 0, min_size.cx, min_size.cy};
+
+            /* the window manager performs the interactive resize itself, so it is the one that has to refuse going any smaller */
+            min_rect = visible_rect_from_window( &data->rects, min_rect );
+            size_hints->min_width = max( min_rect.right - min_rect.left, 0 );
+            size_hints->min_height = max( min_rect.bottom - min_rect.top, 0 );
+            size_hints->flags |= PMinSize;
         }
     }
 
