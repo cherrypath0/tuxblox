@@ -147,7 +147,7 @@ fi
 
 podman run --rm --userns=keep-id -e JOBS="$JOBS" -e UI_STACK_ARG="$UiStackArg" -e LIBADWAITA_ARG="$LibadwaitaArg" \
     -e TUXBLOX_BUILD_VERSION="${TUXBLOX_BUILD_VERSION:-}" \
-    -e TUXBLOX_CHANNEL="${TUXBLOX_CHANNEL:-}" -v "$(pwd):/src:Z" -v "$(pwd)/../build/.artifacts/shared:/shared:ro,z" -v "$(pwd)/../shared/crypto:/shared-crypto:ro,z" "${UiStackMount[@]}" -v "$CacheDir:/ccache:z" -e CCACHE_DIR=/ccache -w /src tuxblox-old-glibc-builder \
+    -e TUXBLOX_CHANNEL="${TUXBLOX_CHANNEL:-}" -v "$(pwd):/src:Z" -v "$(pwd)/../build/.artifacts/shared:/shared:ro,z" -v "$(pwd)/../shared/crypto:/shared-crypto:ro,z" "${UiStackMount[@]}" -v "$CacheDir:/ccache:z" -e CCACHE_DIR=/ccache -e CCACHE_MAXSIZE=30G -w /src tuxblox-old-glibc-builder \
     bash -c 'cmake -B build -S . -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DTUXBLOX_SHARED_DIR=/shared -DTUXBLOX_SHARED_CRYPTO=/shared-crypto/src ${UI_STACK_ARG:-} ${LIBADWAITA_ARG:-} && cmake --build build -j"$JOBS"'
 
 if [[ "${TUXBLOX_HEADLESS_ONLY:-}" == "1" ]]; then

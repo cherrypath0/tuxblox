@@ -130,7 +130,7 @@ podman run --rm --userns=keep-id -e JOBS="$JOBS" \
     -e TUXBLOX_BUILD_VERSION="${TUXBLOX_BUILD_VERSION:-}" \
     -e TUXBLOX_CHANNEL="${TUXBLOX_CHANNEL:-}" \
     -v "$(pwd):/src:Z" -v "$(pwd)/../launcher:/launcher:ro,z" \
-    -v "$CacheDir:/ccache:z" -e CCACHE_DIR=/ccache -w /src tuxblox-old-glibc-builder \
+    -v "$CacheDir:/ccache:z" -e CCACHE_DIR=/ccache -e CCACHE_MAXSIZE=30G -w /src tuxblox-old-glibc-builder \
     bash -c 'cmake -B build -S . -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DTUXBLOX_LAUNCHER_DIR=/launcher \
              && cmake --build build -j"$JOBS" \
              && cd build && ctest --output-on-failure'

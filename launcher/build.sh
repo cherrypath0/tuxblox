@@ -153,7 +153,7 @@ fi
 podman run --rm --userns=keep-id -e JOBS="$JOBS" -e LIBADWAITA_ARG="$LibadwaitaArg" \
     -e TUXBLOX_BUILD_VERSION="${TUXBLOX_BUILD_VERSION:-}" \
     -e TUXBLOX_CHANNEL="${TUXBLOX_CHANNEL:-}" -v "$(pwd):/src:Z" \
-    -v "$(pwd)/../LICENSE:/LICENSE:ro,z" -v "$(cd "$UiSrc" && pwd):/ui-src:ro" -v "$(cd "$UiStackDev" && pwd):/ui-dev:ro" -v "$(pwd)/../build/.artifacts/shared:/shared:ro,z" -v "$(pwd)/../shared/crypto:/shared-crypto:ro,z" -v "$CacheDir:/ccache:z" -e CCACHE_DIR=/ccache -w /src tuxblox-old-glibc-builder \
+    -v "$(pwd)/../LICENSE:/LICENSE:ro,z" -v "$(cd "$UiSrc" && pwd):/ui-src:ro" -v "$(cd "$UiStackDev" && pwd):/ui-dev:ro" -v "$(pwd)/../build/.artifacts/shared:/shared:ro,z" -v "$(pwd)/../shared/crypto:/shared-crypto:ro,z" -v "$CacheDir:/ccache:z" -e CCACHE_DIR=/ccache -e CCACHE_MAXSIZE=30G -w /src tuxblox-old-glibc-builder \
     bash -c 'cmake -B build -S . -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DTUXBLOX_UI_SRC=/ui-src -DTUXBLOX_UI_STACK_DEV=/ui-dev -DTUXBLOX_SHARED_DIR=/shared -DTUXBLOX_SHARED_CRYPTO=/shared-crypto/src ${LIBADWAITA_ARG:-} && cmake --build build -j"$JOBS"'
 
 if [[ ! -f build/TuxBloxLauncher ]]; then

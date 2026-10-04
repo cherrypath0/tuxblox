@@ -56,7 +56,7 @@ mkdir -p "$OutDir" "$ScratchDir" "$CacheDir"
 printf ':: Building the shared libraries (in podman, rootless, old-glibc baseline)\n'
 podman run --rm --userns=keep-id -e JOBS="$JOBS" "${CommitArgs[@]}" \
     -v "$Root:/src:ro,z" -v "$OutDir:/out:z" -v "$ScratchDir:/build:z" \
-    -v "$CacheDir:/ccache:z" -e CCACHE_DIR=/ccache \
+    -v "$CacheDir:/ccache:z" -e CCACHE_DIR=/ccache -e CCACHE_MAXSIZE=30G \
     tuxblox-old-glibc-builder bash /src/shared/tools/libs-build-in-container.sh
 
 printf ':: Done. %s\n' "$OutDir"
