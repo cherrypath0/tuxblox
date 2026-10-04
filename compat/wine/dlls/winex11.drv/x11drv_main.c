@@ -767,10 +767,13 @@ static NTSTATUS x11drv_init( void *arg )
     XInternAtoms( display, (char **)X11DRV_atom_names, NB_XATOMS - FIRST_XATOM, False, X11DRV_Atoms );
 
 #ifdef HAVE_X11_EXTENSIONS_SYNC_H
+    if (getenv( "TUXBLOX_WM_SYNC" ))
     {
-        /* Frame synchronisation needs the Sync extension to exist; whether the
-         * window manager actually uses it is its own decision, and costs us
-         * nothing if it does not. */
+        /* Off unless asked for. A window manager that uses this holds each resize
+         * back until we report having painted at the new size, and we only report
+         * it when a window surface is flushed -- which a window drawn through
+         * Direct3D never does, so dragging its edge stalls for seconds at a time.
+         * Needs the Sync extension to exist. */
         int event_base, error_base;
         use_frame_sync = XSyncQueryExtension( display, &event_base, &error_base );
         TRACE( "frame synchronisation %s\n", use_frame_sync ? "available" : "unavailable" );
