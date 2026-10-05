@@ -39,6 +39,7 @@ enum wv2l_opcode
     WV2L_OP_SET_USER_AGENT,
     WV2L_OP_APPLY_SETTINGS,
     WV2L_OP_EXECUTE_SCRIPT,
+    WV2L_OP_MOVE_FOCUS,
     /* Always append; never reorder or reuse a value -- these are the wire
      * opcode numbers both already-built binaries agree on. */
 };
@@ -353,6 +354,12 @@ struct wv2l_get_window_visible_params
 {
     uint64_t handle;
     int32_t visible; /* out */
+};
+
+struct wv2l_move_focus_params
+{
+    uint64_t handle;
+    int32_t is_success; /* out */
 };
 
 struct wv2l_sync_window_geometry_params

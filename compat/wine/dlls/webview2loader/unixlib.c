@@ -1701,6 +1701,23 @@ static NTSTATUS unix_execute_script_impl(void *args)
     return status;
 }
 
+/* Gives the page keyboard focus, which is what a client asks for when its own window takes focus. */
+static NTSTATUS unix_move_focus_impl(void *args)
+{
+    struct move_focus_params *params = args;
+    struct wv2l_move_focus_params wire = { .handle = params->handle };
+
+    params->is_success = FALSE;
+    if (!params->handle) return STATUS_INVALID_HANDLE;
+    if (!ipc_call_handle(WV2L_OP_MOVE_FOCUS, &wire, sizeof(wire), &wire.handle))
+    {
+        WARN("ipc_call failed -- helper not running, failing MoveFocus\n");
+        return STATUS_NOT_SUPPORTED;
+    }
+    params->is_success = wire.is_success;
+    return STATUS_SUCCESS;
+}
+
 /* Carries a line out of the PE half, whose own debug output never reaches the launcher's stderr. */
 static NTSTATUS unix_debug_log_impl(void *args)
 {
@@ -1731,4 +1748,5 @@ const unixlib_entry_t __wine_unix_call_funcs[] =
     unix_apply_settings_impl,
     unix_execute_script_impl,
     unix_debug_log_impl,
+    unix_move_focus_impl,
 };

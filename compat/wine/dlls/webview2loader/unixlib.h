@@ -322,6 +322,12 @@ struct execute_script_params
     WCHAR result[WEBVIEW2LOADER_SCRIPT_RESULT_MAX];
 };
 
+struct move_focus_params
+{
+    UINT64 handle;
+    BOOL is_success; /* out */
+};
+
 /* The PE half's own debug output never reaches the launcher's stderr, so anything it needs to report comes out through here instead. */
 struct debug_log_params
 {
@@ -349,6 +355,7 @@ enum webview2loader_unix_funcs
     unix_apply_settings,
     unix_execute_script,
     unix_debug_log,
+    unix_move_focus,
     /* Further tasks append further entries below this line -- always
      * appending, never reordering, since the enum's integer values are
      * the unix-call dispatch table's indices (see __wine_unix_call_funcs

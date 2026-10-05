@@ -565,6 +565,25 @@ static gboolean on_ipc_readable(gint fd, GIOCondition condition, gpointer user_d
         if (ipc_write_full(fd, &p, sizeof(p)) < 0) { g_main_loop_quit(g_loop); return G_SOURCE_REMOVE; }
         return G_SOURCE_CONTINUE;
     }
+    case WV2L_OP_MOVE_FOCUS:
+    {
+        struct wv2l_move_focus_params p;
+        struct native_webview *nv;
+        if (ipc_read_full(fd, &p, sizeof(p)) < 0) { g_main_loop_quit(g_loop); return G_SOURCE_REMOVE; }
+        nv = webview_lookup(p.handle);
+        /* Focus the web view itself rather than its window: the window is reparented into the
+         * client's own, so it is the widget that has to take the keystrokes. */
+        p.is_success = 0;
+        if (nv && nv->view)
+        {
+            gtk_widget_grab_focus(GTK_WIDGET(nv->view));
+            p.is_success = gtk_widget_has_focus(GTK_WIDGET(nv->view)) ? 1 : 0;
+            fprintf(stderr, "webview2loader-host: MoveFocus on nv=%p -- web view %s keyboard focus\n",
+                    (void *)nv, p.is_success ? "took" : "did NOT take");
+        }
+        if (ipc_write_full(fd, &p, sizeof(p)) < 0) { g_main_loop_quit(g_loop); return G_SOURCE_REMOVE; }
+        return G_SOURCE_CONTINUE;
+    }
     case WV2L_OP_SYNC_WINDOW_GEOMETRY:
     {
         struct wv2l_sync_window_geometry_params p;
