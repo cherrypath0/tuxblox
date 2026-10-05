@@ -220,6 +220,7 @@ static HRESULT WINAPI args_QueryInterface(ICoreWebView2NavigationCompletedEventA
 {
     if (IsEqualGUID(riid, &IID_IUnknown) || IsEqualGUID(riid, &IID_ICoreWebView2NavigationCompletedEventArgs))
     { *ppv = iface; ICoreWebView2NavigationCompletedEventArgs_AddRef(iface); return S_OK; }
+    webview2_debug_log("%s refused %s", __func__, debugstr_guid(riid));
     *ppv = NULL;
     return E_NOINTERFACE;
 }
@@ -257,6 +258,7 @@ static HRESULT WINAPI nsargs_QueryInterface(ICoreWebView2NavigationStartingEvent
 {
     if (IsEqualGUID(riid, &IID_IUnknown))
     { *ppv = iface; ICoreWebView2NavigationStartingEventArgs_AddRef(iface); return S_OK; }
+    webview2_debug_log("%s refused %s", __func__, debugstr_guid(riid));
     *ppv = NULL;
     return E_NOINTERFACE;
 }
@@ -417,6 +419,7 @@ static HRESULT WINAPI wmargs_QueryInterface(ICoreWebView2WebMessageReceivedEvent
 {
     if (IsEqualGUID(riid, &IID_IUnknown))
     { *ppv = iface; ICoreWebView2WebMessageReceivedEventArgs_AddRef(iface); return S_OK; }
+    webview2_debug_log("%s refused %s", __func__, debugstr_guid(riid));
     *ppv = NULL;
     return E_NOINTERFACE;
 }
@@ -674,6 +677,7 @@ static HRESULT WINAPI webview_Navigate(ICoreWebView2 *iface, LPCWSTR uri)
     SIZE_T len;
 
     TRACE("(%p, %s)\n", iface, debugstr_w(uri));
+    webview2_debug_log("Navigate to %s", debugstr_w(uri));
     if (!uri) return E_POINTER;
     if (!(ctx = malloc(sizeof(*ctx)))) return E_OUTOFMEMORY;
 
@@ -701,6 +705,8 @@ static HRESULT WINAPI webview_NavigateToString(ICoreWebView2 *iface, LPCWSTR htm
      * URI navigation, not an inline-HTML one); left E_NOTIMPL rather than
      * silently mis-implemented via load_uri("data:...") which real pages
      * can behave differently under (different origin semantics). */
+    webview2_debug_log("NavigateToString called (%d chars) -- NOT IMPLEMENTED, nothing will load",
+                       htmlContent ? lstrlenW(htmlContent) : -1);
     return E_NOTIMPL;
 }
 
@@ -1289,6 +1295,7 @@ static HRESULT WINAPI settings_QueryInterface(ICoreWebView2Settings *iface, REFI
     if (IsEqualGUID(riid, &IID_IUnknown) || IsEqualGUID(riid, &IID_ICoreWebView2Settings) ||
         IsEqualGUID(riid, &IID_ICoreWebView2Settings2))
     { *ppv = iface; ICoreWebView2Settings_AddRef(iface); return S_OK; }
+    webview2_debug_log("%s refused %s", __func__, debugstr_guid(riid));
     *ppv = NULL;
     return E_NOINTERFACE;
 }
@@ -1497,35 +1504,25 @@ static HRESULT WINAPI webview_get_Settings(ICoreWebView2 *iface, void **settings
  * for the same reason: these slots have mutually incompatible real signatures
  * and every entry is cast through (void *) anyway, so no stub can declare the
  * true one. Extra arguments are ignored. */
-#define WV2L_DEFINE_NOTIMPL_STUB(name)                                        \
-    static HRESULT WINAPI webview_notimpl_##name(void *iface, ...)            \
-    {                                                                         \
-        static LONG reported;                                                 \
-        (void)iface;                                                          \
-        if (!InterlockedExchange(&reported, 1))                               \
-            MESSAGE("webview2loader: ICoreWebView2::" #name " is not "        \
-                    "implemented -- returning E_NOTIMPL to Studio\n");        \
-        return E_NOTIMPL;                                                     \
-    }
 
-WV2L_DEFINE_NOTIMPL_STUB(CapturePreview)
-WV2L_DEFINE_NOTIMPL_STUB(Reload)
-WV2L_DEFINE_NOTIMPL_STUB(CallDevToolsProtocolMethod)
-WV2L_DEFINE_NOTIMPL_STUB(get_BrowserProcessId)
-WV2L_DEFINE_NOTIMPL_STUB(get_CanGoBack)
-WV2L_DEFINE_NOTIMPL_STUB(get_CanGoForward)
-WV2L_DEFINE_NOTIMPL_STUB(GoBack)
-WV2L_DEFINE_NOTIMPL_STUB(GoForward)
-WV2L_DEFINE_NOTIMPL_STUB(GetDevToolsProtocolEventReceiver)
-WV2L_DEFINE_NOTIMPL_STUB(Stop)
-WV2L_DEFINE_NOTIMPL_STUB(get_DocumentTitle)
-WV2L_DEFINE_NOTIMPL_STUB(AddHostObjectToScript)
-WV2L_DEFINE_NOTIMPL_STUB(RemoveHostObjectFromScript)
-WV2L_DEFINE_NOTIMPL_STUB(OpenDevToolsWindow)
-WV2L_DEFINE_NOTIMPL_STUB(get_ContainsFullScreenElement)
-WV2L_DEFINE_NOTIMPL_STUB(AddWebResourceRequestedFilter)
-WV2L_DEFINE_NOTIMPL_STUB(RemoveWebResourceRequestedFilter)
-WV2L_DEFINE_NOTIMPL_STUB(NavigateWithWebResourceRequest)
+WV2L_NOTIMPL_STUB(webview, ICoreWebView2, CapturePreview)
+WV2L_NOTIMPL_STUB(webview, ICoreWebView2, Reload)
+WV2L_NOTIMPL_STUB(webview, ICoreWebView2, CallDevToolsProtocolMethod)
+WV2L_NOTIMPL_STUB(webview, ICoreWebView2, get_BrowserProcessId)
+WV2L_NOTIMPL_STUB(webview, ICoreWebView2, get_CanGoBack)
+WV2L_NOTIMPL_STUB(webview, ICoreWebView2, get_CanGoForward)
+WV2L_NOTIMPL_STUB(webview, ICoreWebView2, GoBack)
+WV2L_NOTIMPL_STUB(webview, ICoreWebView2, GoForward)
+WV2L_NOTIMPL_STUB(webview, ICoreWebView2, GetDevToolsProtocolEventReceiver)
+WV2L_NOTIMPL_STUB(webview, ICoreWebView2, Stop)
+WV2L_NOTIMPL_STUB(webview, ICoreWebView2, get_DocumentTitle)
+WV2L_NOTIMPL_STUB(webview, ICoreWebView2, AddHostObjectToScript)
+WV2L_NOTIMPL_STUB(webview, ICoreWebView2, RemoveHostObjectFromScript)
+WV2L_NOTIMPL_STUB(webview, ICoreWebView2, OpenDevToolsWindow)
+WV2L_NOTIMPL_STUB(webview, ICoreWebView2, get_ContainsFullScreenElement)
+WV2L_NOTIMPL_STUB(webview, ICoreWebView2, AddWebResourceRequestedFilter)
+WV2L_NOTIMPL_STUB(webview, ICoreWebView2, RemoveWebResourceRequestedFilter)
+WV2L_NOTIMPL_STUB(webview, ICoreWebView2, NavigateWithWebResourceRequest)
 
 static const ICoreWebView2Vtbl webview_vtbl =
 {
@@ -1745,6 +1742,7 @@ HRESULT webview_query_interface_v2(ICoreWebView2 *iface, REFIID riid, void **ppv
     /* Final fallback for ICoreWebView2 -- reached once neither IUnknown,
      * ICoreWebView2, nor ICoreWebView2_2 matched riid. */
     WARN("no interface for %s\n", debugstr_guid(riid));
+    webview2_debug_log("%s refused %s", __func__, debugstr_guid(riid));
     *ppv = NULL;
     return E_NOINTERFACE;
 }

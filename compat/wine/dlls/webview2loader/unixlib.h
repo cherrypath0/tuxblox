@@ -322,6 +322,12 @@ struct execute_script_params
     WCHAR result[WEBVIEW2LOADER_SCRIPT_RESULT_MAX];
 };
 
+/* The PE half's own debug output never reaches the launcher's stderr, so anything it needs to report comes out through here instead. */
+struct debug_log_params
+{
+    const char *text; /* in; PE-side owns this, not retained past the call */
+};
+
 enum webview2loader_unix_funcs
 {
     unix_init,
@@ -342,6 +348,7 @@ enum webview2loader_unix_funcs
     unix_set_user_agent,
     unix_apply_settings,
     unix_execute_script,
+    unix_debug_log,
     /* Further tasks append further entries below this line -- always
      * appending, never reordering, since the enum's integer values are
      * the unix-call dispatch table's indices (see __wine_unix_call_funcs

@@ -761,6 +761,29 @@ void window_hook_untrack(DWORD tid, HWND hwnd, window_sync_callback callback, vo
  * vtable slot, so the mismatched declared signature is never observed. */
 HRESULT WINAPI webview2_stub_e_notimpl(void *iface, ...);
 
+/* Defined in main.c; the PE half's only route to the launcher's stderr. */
+void webview2_debug_log(const char *fmt, ...);
+
+/* Moves a completion handler onto the thread that asked for the work, where WebView2 promises it runs.
+ * webview2_dispatch_create must be called on that thread; _post hands the callback over, and returns
+ * FALSE if it could not, leaving the caller to run it inline. Both are defined in main.c. */
+typedef void (*webview2_dispatch_func)(void *ctx);
+HWND webview2_dispatch_create(void);
+BOOL webview2_dispatch_post(HWND hwnd, webview2_dispatch_func fn, void *ctx);
+
+/* Gives an unimplemented vtable slot its own function, so a refusal names the method rather than
+ * only reporting that something unimplemented was called. Reported once per slot. */
+#define WV2L_NOTIMPL_STUB(prefix, iface_name, name)                                  \
+    static HRESULT WINAPI prefix##_notimpl_##name(void *iface, ...)                  \
+    {                                                                                \
+        static LONG reported;                                                        \
+        (void)iface;                                                                 \
+        if (!InterlockedExchange(&reported, 1))                                       \
+            webview2_debug_log(#iface_name "::" #name " is NOT IMPLEMENTED"          \
+                               " -- returned E_NOTIMPL to the client");              \
+        return E_NOTIMPL;                                                            \
+    }
+
 /* Task 8: ICoreWebView2_2 / ICoreWebView2CookieManager.
  *
  * ICoreWebView2_2's vtable is a strict, identically-signatured 61-entry
