@@ -16,6 +16,7 @@
 
 #include "integrity/authenticode.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <fstream>
@@ -280,7 +281,7 @@ const char *integrityStatusName(IntegrityStatus status) {
 }
 
 IntegrityReport verifyAuthenticode(const std::filesystem::path& file,
-                                   const std::string& requiredPublisher,
+                                   const std::vector<std::string>& acceptedPublishers,
                                    std::string_view rootsPem) {
     std::error_code error;
     const std::uintmax_t size = std::filesystem::file_size(file, error);
@@ -438,10 +439,16 @@ IntegrityReport verifyAuthenticode(const std::filesystem::path& file,
 
     IntegrityReport report;
     report.publisher = organisationOf(pLeaf);
-    if (!requiredPublisher.empty() && report.publisher != requiredPublisher) {
+    if (!acceptedPublishers.empty() &&
+        std::find(acceptedPublishers.begin(), acceptedPublishers.end(), report.publisher) ==
+            acceptedPublishers.end()) {
+        std::string wanted;
+        for (const std::string& publisher : acceptedPublishers) {
+            if (!wanted.empty()) wanted += " or ";
+            wanted += "\"" + publisher + "\"";
+        }
         report.status = IntegrityStatus::WrongPublisher;
-        report.detail = file.string() + " is signed by \"" + report.publisher + "\", not \"" +
-                        requiredPublisher + "\"";
+        report.detail = file.string() + " is signed by \"" + report.publisher + "\", not " + wanted;
         return report;
     }
 

@@ -27,6 +27,7 @@
 #include <filesystem>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace tuxblox {
 
@@ -56,11 +57,12 @@ struct IntegrityReport {
     std::string publisher;
 };
 
-// Verifies file and requires it to have been signed by requiredPublisher
-// (matched against the signing certificate's organisation name). Roots is the
-// PEM text of every root certificate to trust.
+// Verifies file and requires it to have been signed by one of acceptedPublishers
+// (matched against the signing certificate's organisation name); an empty list
+// accepts any publisher that chains to a trusted root. Roots is the PEM text of
+// every root certificate to trust.
 IntegrityReport verifyAuthenticode(const std::filesystem::path& file,
-                                   const std::string& requiredPublisher,
+                                   const std::vector<std::string>& acceptedPublishers,
                                    std::string_view rootsPem);
 
 // Human-readable name for a status, for logs.

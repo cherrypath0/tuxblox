@@ -213,9 +213,11 @@ int runMain(int argc, char *argv[]) {
 
     // Authenticode verification to ensure the Roblox executables used are legitimate and not tampered with
     // TODO: Expand this to all third-party executables instead of just the one being launched (including DLLs), potentially even TuxBlox's own DLLs.
+    // TuxBlox's own publisher is accepted too, so the project can sign and run its own programs in the virtual drive.
     if (command.mode == RunMode::Run) {
         const tuxblox::IntegrityReport report = tuxblox::verifyAuthenticode(
-            command.target.front(), RobloxPublisher, tuxblox_data::find("roots.pem"));
+            command.target.front(), {RobloxPublisher, TuxBloxPublisher},
+            tuxblox_data::find("roots.pem"));
         if (report.status != tuxblox::IntegrityStatus::Verified) {
             tuxblox::log(std::string("Integrity check FAILED (") +
                          tuxblox::integrityStatusName(report.status) + "): " + report.detail);
