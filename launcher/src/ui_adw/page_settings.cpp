@@ -62,7 +62,11 @@ SettingsPage::SettingsPage(App &app) : app_(app) {
               "Send the session log and your versions when Roblox crashes. See tuxblox.net/privacy",
               &Settings::sendCrashReports);
     addToggle(pPrivacy, "Show what you are doing on Discord",
-              "Show the place you have open in Studio on your Discord profile.", &Settings::discordRpc);
+              "Show the place you have open in Studio, or the game you are playing, on your Discord profile. A game can set its own status text.",
+              &Settings::discordRpc);
+    addToggle(pPrivacy, "Show which region a server is in",
+              "Show a notification naming the region of each Roblox server you join. This asks tuxblox.net about the server's address.",
+              &Settings::serverRegionNotify);
 
     buildDangerZone();
 }

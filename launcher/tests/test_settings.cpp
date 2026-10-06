@@ -543,6 +543,34 @@ int main() {
         assert(pairs.back() == "TUXBLOX_DEBUG=0");
     }
 
+    // Naming the region a server is in means asking an outside service about that server, so it is opted into rather than noticed and turned off.
+    {
+        fs::remove_all(dir);
+        Settings s = loadSettings(dir);
+        assert(s.serverRegionNotify == false);
+    }
+
+    // It survives a round trip.
+    {
+        Settings s;
+        s.serverRegionNotify = true;
+        saveSettings(dir, s);
+        Settings loaded = loadSettings(dir);
+        assert(loaded.serverRegionNotify == true);
+    }
+
+    // A settings file written before this field existed keeps what it says and reads the new one as off. send_crash_reports is in the fixture because loadSettings reads that one strictly.
+    {
+        fs::create_directories(dir);
+        {
+            std::ofstream out(dir + "/settings.json");
+            out << "{\"send_crash_reports\": false, \"discord_rpc\": true}";
+        }
+        Settings loaded = loadSettings(dir);
+        assert(loaded.discordRpc == true);
+        assert(loaded.serverRegionNotify == false);
+    }
+
     fs::remove_all(dir);
 
     printf("settings: all tests passed\n");

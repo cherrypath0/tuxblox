@@ -68,6 +68,8 @@ struct Settings {
     std::string gpu;
     // Off by default: presence is sent to an outside service, so it is something to opt into rather than something to notice and turn off.
     bool discordRpc = false;
+    // Off by default: naming the region a server is in means asking an outside service about that server, so it is something to opt into rather than something to notice and turn off.
+    bool serverRegionNotify = false;
     // Controller vibration. On by default, and the default emits no
     // environment at all -- only turning it off does, which is what keeps a
     // launch that never touched this setting exactly as it always was.

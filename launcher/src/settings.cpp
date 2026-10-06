@@ -126,6 +126,7 @@ Settings loadSettings(const std::string& installDir) {
         settings.autoUpdateRoblox = j.value("auto_update_roblox", true);
         settings.gpu = j.value("gpu", std::string(""));
         settings.discordRpc = j.value("discord_rpc", false);
+        settings.serverRegionNotify = j.value("server_region_notify", false);
         const std::string theme = j.value("theme", std::string("system"));
         settings.theme = isKnownTheme(theme) ? theme : "system";
 
@@ -163,6 +164,7 @@ void saveSettings(const std::string& installDir, const Settings& settings) {
         j["auto_update_roblox"] = settings.autoUpdateRoblox;
         j["gpu"] = settings.gpu;
         j["discord_rpc"] = settings.discordRpc;
+        j["server_region_notify"] = settings.serverRegionNotify;
         j["theme"] = settings.theme;
         j["fast_flags"] = {{"player", fastFlagsToJson(settings.fastFlags.player)},
                             {"studio", fastFlagsToJson(settings.fastFlags.studio)}};

@@ -25,6 +25,7 @@
 #include "roblox_place_info.h"
 #include "settings.h"
 #include "player_presence.h"
+#include "server_region.h"
 #include "studio_presence.h"
 #include "system_info.h"
 #include "ui_adw/message_box.h"
@@ -109,13 +110,16 @@ int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const 
     std::map<std::string, ResolvedPlace> resolvedPlaces;
     bool everSent = false;
     std::time_t lastSentAt = 0;
+    ServerRegionWatcher regionWatcher = makeServerRegionWatcher(settings.serverRegionNotify);
+    std::string lastServerAddress;
     if (presenceWanted) {
         discord = std::make_unique<DiscordRpc>(kDiscordApplicationId);
     }
 
     while (launcher.pollIsRunning(target)) {
         std::this_thread::sleep_for(std::chrono::milliseconds(300));
-        if (!presenceWanted) {
+        // The log is read for either feature, so neither one being on is what stops the work.
+        if (!presenceWanted && !settings.serverRegionNotify) {
             continue;
         }
 
@@ -128,6 +132,17 @@ int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const 
         }
         if (logTail) {
             logTail->pump(*presenceReader);
+        }
+
+        // Each server is named once, and a reader whose target never reports one answers empty.
+        const std::string serverAddress = presenceReader->serverAddress();
+        if (!serverAddress.empty() && serverAddress != lastServerAddress) {
+            lastServerAddress = serverAddress;
+            regionWatcher.consumeServerAddress(serverAddress);
+        }
+
+        if (!presenceWanted) {
+            continue;
         }
 
         discord->poll(now);
