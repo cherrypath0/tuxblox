@@ -159,6 +159,8 @@ Session::Session(Proton& protonDist, fs::path prefix)
     // Microsoft's own loader beside an application wins, so its real runtime is what gets used.
     if (useMicrosoftWebView()) {
         dllOverrides["webview2loader"] = "n,b";
+        // The layer ships a stand-in for this one too, and Microsoft's loader asks for it by name, so without the same preference it loads TuxBlox's and crashes before anything is drawn.
+        dllOverrides["embeddedbrowserwebview"] = "n,b";
     }
 }
 
