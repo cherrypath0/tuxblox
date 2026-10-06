@@ -291,15 +291,19 @@ std::string activityJson(const PresenceActivity& activity, std::time_t startedAt
     }
     activityObject["timestamps"]["start"] = startedAt;
 
-    // Only a published place has a page to send anyone to.
-    const std::string gameUrl = placeGameUrl(activity.placeId);
+    // Only a published place has a page to send anyone to, and for the Player only the place Roblox
+    // itself reported joining -- a game writes to the same log, so a link must never come from a line
+    // it could have written.
+    const std::string gameUrl =
+        placeGameUrl(studio ? activity.placeId : activity.verifiedPlaceId);
     if (!gameUrl.empty() && studio) {
         activityObject["buttons"] = nlohmann::json::array(
             {{{"label", "Open Game Link"}, {"url", gameUrl}}});
     } else if (!gameUrl.empty()) {
         activityObject["buttons"] = nlohmann::json::array();
         // Joining needs a server as well as a place, and a player on the home screen is in neither.
-        const std::string joinUrl = placeJoinUrl(activity.placeId, activity.jobId, activity.rpc.launchData);
+        const std::string joinUrl =
+            placeJoinUrl(activity.verifiedPlaceId, activity.jobId, activity.rpc.launchData);
         if (!joinUrl.empty()) {
             activityObject["buttons"].push_back({{"label", "Join server"}, {"url", joinUrl}});
         }

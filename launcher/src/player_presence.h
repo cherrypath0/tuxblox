@@ -31,10 +31,21 @@ public:
 private:
     PresenceActivity activity_;
     std::string serverAddress_;
+    // What the join line claimed, kept only until Roblox's own report either confirms it or does not.
+    std::string claimedPlaceId_;
+    std::string claimedJobId_;
 };
 
 // The place id out of a join line, or empty when it names no published place.
 std::string placeIdFromJoinLine(const std::string& line);
+
+// What Roblox itself reported joining. Both empty unless the line is Roblox's own report, which a game cannot write because its output goes on another channel.
+struct VerifiedJoin {
+    std::string placeId;
+    std::string universeId;
+};
+
+VerifiedJoin verifiedJoinFromLine(const std::string& line);
 
 // The server's own id out of a join line, or empty unless it is the shape Roblox writes. Checked rather than trusted, because it goes into a link somebody clicks.
 std::string jobIdFromJoinLine(const std::string& line);

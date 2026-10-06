@@ -125,6 +125,10 @@ std::string creatorLine(const UniverseInfo& info) {
     return "by " + info.creatorName + (info.creatorVerified ? " \xe2\x98\x91\xef\xb8\x8f" : "");
 }
 
+bool fetchUniverseInfoById(const std::string& universeId, UniverseInfo& into) {
+    return universeInfoFromJson(httpGet(universeDetailsUrl(universeId)), into);
+}
+
 bool fetchUniverseInfo(const std::string& placeId, UniverseInfo& into) {
     const std::string universeId = universeIdFromJson(httpGet(universeLookupUrl(placeId)));
     if (universeId.empty()) {

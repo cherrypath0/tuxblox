@@ -41,6 +41,9 @@ bool universeInfoFromJson(const std::string& body, UniverseInfo& into);
 // How the author is credited, matching what players already see from other launchers. Empty when Roblox named nobody.
 std::string creatorLine(const UniverseInfo& info);
 
+// Asks Roblox about an experience it has already named, which takes one question. False on any failure.
+bool fetchUniverseInfoById(const std::string& universeId, UniverseInfo& into);
+
 // Asks Roblox about the experience a place belongs to, which takes two questions. False on any failure.
 bool fetchUniverseInfo(const std::string& placeId, UniverseInfo& into);
 

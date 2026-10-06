@@ -171,20 +171,27 @@ int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const 
         PresenceActivity current = presenceReader->activity();
 
         // Studio names a published place only by number, so the name is asked for once per place and remembered, including when Roblox has none to give.
-        if (!current.placeId.empty()) {
-            auto known = resolvedPlaces.find(current.placeId);
+        // Roblox's own report is preferred over the join line, which a game could have written.
+        const std::string describeId =
+            current.verifiedPlaceId.empty() ? current.placeId : current.verifiedPlaceId;
+        if (!describeId.empty()) {
+            auto known = resolvedPlaces.find(describeId);
             if (known == resolvedPlaces.end()) {
                 ResolvedPlace fetched;
                 // A player knows the experience by its own name and its author, which is a different question from what the place inside it is called.
                 UniverseInfo universe;
-                if (player && fetchUniverseInfo(current.placeId, universe)) {
+                const bool described =
+                    player && (!current.universeId.empty()
+                                   ? fetchUniverseInfoById(current.universeId, universe)
+                                   : fetchUniverseInfo(describeId, universe));
+                if (described) {
                     fetched.name = universe.name;
                     fetched.creatorLine = creatorLine(universe);
                 } else if (current.placeName.empty()) {
-                    fetched.name = fetchPlaceName(current.placeId);
+                    fetched.name = fetchPlaceName(describeId);
                 }
-                fetched.iconUrl = fetchPlaceIconUrl(current.placeId);
-                known = resolvedPlaces.emplace(current.placeId, fetched).first;
+                fetched.iconUrl = fetchPlaceIconUrl(describeId);
+                known = resolvedPlaces.emplace(describeId, fetched).first;
             }
             if (!known->second.name.empty()) {
                 current.placeName = known->second.name;

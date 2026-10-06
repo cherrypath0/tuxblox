@@ -119,10 +119,54 @@ int main() {
 
     tuxblox::PlayerPresenceReader ids;
     ids.consumeLine("[FLog::Output] ! Joining game '5ccfb412-0b58-47d2-b91e-321903eceb59' place 6516141723 at 10.34.6.31");
+    // The join line alone is not enough: anybody can write one, so nothing is linked until Roblox confirms it.
+    assert(ids.activity().jobId.empty());
+    ids.consumeLine("[FLog::GameJoinLoadTime] Report game_join_loadtime: placeid:6516141723, join_time:0, universeid:2440500124,");
     assert(ids.activity().jobId == "5ccfb412-0b58-47d2-b91e-321903eceb59");
     // Leaving must not leave a stale server behind for a join link to point at.
     ids.consumeLine("[FLog::SessionTransitionFSM] Tearing down");
     assert(ids.activity().jobId.empty());
+
+    // Roblox reports the place and experience it actually joined on a channel of its own, which a
+    // game's print() cannot write to -- so that, not the join line, is what a clickable link is built from.
+    assert(tuxblox::verifiedJoinFromLine(
+               "2026-10-03T09:17:22.194Z,7.194335,00ec,6 [FLog::GameJoinLoadTime] Report game_join_loadtime: placeid:6516141723, join_time:0.62, universeid:2440500124, referral_page:")
+               .placeId == "6516141723");
+    assert(tuxblox::verifiedJoinFromLine(
+               "[FLog::GameJoinLoadTime] Report game_join_loadtime: placeid:6516141723, join_time:0, universeid:2440500124,")
+               .universeId == "2440500124");
+    // A game quoting the same text on its own channel is not Roblox reporting it.
+    assert(tuxblox::verifiedJoinFromLine(
+               "[FLog::Output] [FLog::GameJoinLoadTime] Report game_join_loadtime: placeid:999, universeid:999,")
+               .placeId.empty());
+    assert(tuxblox::verifiedJoinFromLine("nothing").placeId.empty());
+
+    // A forged join line gets no link at all, because nothing confirmed it.
+    tuxblox::PlayerPresenceReader spoof;
+    spoof.consumeLine("[FLog::Output] ! Joining game '5ccfb412-0b58-47d2-b91e-321903eceb59' place 1818 at 1.1.1.1");
+    assert(spoof.activity().verifiedPlaceId.empty());
+    assert(spoof.activity().jobId.empty());
+
+    // The genuine pair is confirmed, so both the link and the experience are known.
+    tuxblox::PlayerPresenceReader real;
+    real.consumeLine("[FLog::Output] ! Joining game '5ccfb412-0b58-47d2-b91e-321903eceb59' place 6516141723 at 10.34.6.31");
+    real.consumeLine("[FLog::GameJoinLoadTime] Report game_join_loadtime: placeid:6516141723, join_time:0, universeid:2440500124,");
+    assert(real.activity().verifiedPlaceId == "6516141723");
+    assert(real.activity().universeId == "2440500124");
+    assert(real.activity().jobId == "5ccfb412-0b58-47d2-b91e-321903eceb59");
+
+    // A game naming the real place but a server of its own choosing does not get that server linked.
+    tuxblox::PlayerPresenceReader halfSpoof;
+    halfSpoof.consumeLine("[FLog::Output] ! Joining game 'aaaaaaaa-0000-0000-0000-000000000000' place 999 at 1.1.1.1");
+    halfSpoof.consumeLine("[FLog::GameJoinLoadTime] Report game_join_loadtime: placeid:6516141723, join_time:0, universeid:2440500124,");
+    assert(halfSpoof.activity().verifiedPlaceId == "6516141723");
+    assert(halfSpoof.activity().jobId.empty());
+
+    // Leaving clears what was confirmed, so no link outlives the session.
+    real.consumeLine("[FLog::SessionTransitionFSM] Tearing down");
+    assert(real.activity().verifiedPlaceId.empty());
+    assert(real.activity().universeId.empty());
+    assert(real.activity().jobId.empty());
 
     printf("player_presence: all tests passed\n");
     return 0;

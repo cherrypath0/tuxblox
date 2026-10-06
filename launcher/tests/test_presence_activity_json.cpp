@@ -85,6 +85,7 @@ int main() {
     full.kind = tuxblox::PresenceKind::Playing;
     full.placeName = "DOORS";
     full.placeId = "6516141723";
+    full.verifiedPlaceId = "6516141723";
     full.jobId = "5ccfb412-0b58-47d2-b91e-321903eceb59";
     full.creatorLine = "by LSPLASH";
     full.placeIconUrl = "https://tr.rbxcdn.com/abc/512/512/Image/Png";

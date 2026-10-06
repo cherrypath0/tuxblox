@@ -72,6 +72,36 @@ std::string placeIdFromJoinLine(const std::string& line) {
     return id;
 }
 
+namespace {
+
+// The digits following a "name:" field in Roblox's own join report.
+std::string numberField(const std::string& line, const char *pName) {
+    const std::size_t at = line.find(pName);
+    if (at == std::string::npos) {
+        return std::string();
+    }
+    std::size_t start = at + std::string(pName).size();
+    std::size_t end = start;
+    while (end < line.size() && line[end] >= '0' && line[end] <= '9') {
+        end++;
+    }
+    const std::string digits = line.substr(start, end - start);
+    return allDigits(digits) && digits.size() <= 20 && digits != "0" ? digits : std::string();
+}
+
+} // namespace
+
+VerifiedJoin verifiedJoinFromLine(const std::string& line) {
+    VerifiedJoin join;
+    if (firstChannel(line) != "[FLog::GameJoinLoadTime]" ||
+        line.find("Report game_join_loadtime") == std::string::npos) {
+        return join;
+    }
+    join.placeId = numberField(line, "placeid:");
+    join.universeId = numberField(line, "universeid:");
+    return join;
+}
+
 std::string jobIdFromJoinLine(const std::string& line) {
     const std::size_t at = line.find("Joining game ");
     if (at == std::string::npos) {
@@ -134,11 +164,21 @@ void PlayerPresenceReader::consumeLine(const std::string& line) {
             activity_.placeIconUrl.clear();
             activity_.creatorLine.clear();
         }
-        activity_.jobId = jobIdFromJoinLine(line);
+        // Held, not shown: a link is only built once Roblox's own report confirms the same place.
+        claimedPlaceId_ = placeId;
+        claimedJobId_ = jobIdFromJoinLine(line);
         // A teleport is already on its way somewhere, so the join it causes must not read as a fresh one.
         if (activity_.kind != PresenceKind::Teleporting) {
             activity_.kind = PresenceKind::Joining;
         }
+        return;
+    }
+
+    const VerifiedJoin verified = verifiedJoinFromLine(line);
+    if (!verified.placeId.empty()) {
+        activity_.verifiedPlaceId = verified.placeId;
+        activity_.universeId = verified.universeId;
+        activity_.jobId = claimedPlaceId_ == verified.placeId ? claimedJobId_ : std::string();
         return;
     }
 
@@ -159,7 +199,11 @@ void PlayerPresenceReader::consumeLine(const std::string& line) {
             activity_.placeName.clear();
             activity_.placeIconUrl.clear();
             activity_.creatorLine.clear();
+            activity_.verifiedPlaceId.clear();
+            activity_.universeId.clear();
             activity_.jobId.clear();
+            claimedPlaceId_.clear();
+            claimedJobId_.clear();
             serverAddress_.clear();
             // What the game asked to be shown belonged to that game, and must not follow the user into the next one.
             activity_.rpc = RpcOverride{};
