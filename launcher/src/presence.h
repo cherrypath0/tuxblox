@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #pragma once
+#include <ctime>
 #include <string>
 
 namespace tuxblox {
@@ -26,6 +27,43 @@ enum class PresenceKind {
     Editing,
     PlayTesting,
 };
+
+// A field a game set through the RPC protocol. Absent means keep whatever was shown before, and Reset means go back to what TuxBlox shows on its own -- the protocol distinguishes the two and so must this.
+struct RpcField {
+    enum class State { Absent, Set, Reset };
+    State state = State::Absent;
+    std::string value;
+};
+
+struct RpcImage {
+    RpcField assetId;
+    RpcField hoverText;
+    bool clear = false;
+    bool reset = false;
+};
+
+struct RpcOverride {
+    RpcField details;
+    RpcField state;
+    std::time_t timeStart = 0;
+    std::time_t timeEnd = 0;
+    RpcImage largeImage;
+    RpcImage smallImage;
+};
+
+inline bool operator==(const RpcField& a, const RpcField& b) {
+    return a.state == b.state && a.value == b.value;
+}
+
+inline bool operator==(const RpcImage& a, const RpcImage& b) {
+    return a.assetId == b.assetId && a.hoverText == b.hoverText && a.clear == b.clear &&
+           a.reset == b.reset;
+}
+
+inline bool operator==(const RpcOverride& a, const RpcOverride& b) {
+    return a.details == b.details && a.state == b.state && a.timeStart == b.timeStart &&
+           a.timeEnd == b.timeEnd && a.largeImage == b.largeImage && a.smallImage == b.smallImage;
+}
 
 struct PresenceActivity {
     PresenceKind kind = PresenceKind::None;

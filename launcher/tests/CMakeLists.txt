@@ -199,3 +199,7 @@ add_test(NAME ca_bundle COMMAND test_ca_bundle)
 add_executable(test_versions_refresh test_versions_refresh.cpp)
 target_link_libraries(test_versions_refresh PRIVATE launcher_core)
 add_test(NAME versions_refresh COMMAND test_versions_refresh)
+
+add_executable(test_bloxstrap_rpc test_bloxstrap_rpc.cpp)
+target_link_libraries(test_bloxstrap_rpc PRIVATE launcher_core)
+add_test(NAME bloxstrap_rpc COMMAND test_bloxstrap_rpc)
