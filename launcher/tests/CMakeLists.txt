@@ -211,3 +211,7 @@ add_test(NAME player_presence COMMAND test_player_presence)
 add_executable(test_presence_activity_json test_presence_activity_json.cpp)
 target_link_libraries(test_presence_activity_json PRIVATE launcher_core)
 add_test(NAME presence_activity_json COMMAND test_presence_activity_json)
+
+add_executable(test_server_region test_server_region.cpp)
+target_link_libraries(test_server_region PRIVATE launcher_core)
+add_test(NAME server_region COMMAND test_server_region)
