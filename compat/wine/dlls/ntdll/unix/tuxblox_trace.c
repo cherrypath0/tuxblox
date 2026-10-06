@@ -2695,6 +2695,22 @@ static void swatch_parse( void )
     if (!(v = tuxblox_dev_getenv( "TUXBLOX_DIAG_SWATCH" )) || !(swatch_addr = strtoull( v, NULL, 16 )))
         return;
     swatch_parsed = 1;
+    /* A value below 4 GB is a layer RVA, the way TUXBLOX_DIAG_BP takes one. The
+     * layer is not loaded at a fixed address -- two bases have been seen across
+     * runs -- so an absolute address written down from one run silently watches
+     * nothing in the next. Resolving here keeps the knob usable from a note. */
+    if (swatch_addr < 0x100000000ull)
+    {
+        ULONG64 base = roblox_dll_base();
+
+        if (!base)
+        {
+            swatch_addr = 0;        /* try again once the layer is in */
+            swatch_parsed = 0;
+            return;
+        }
+        swatch_addr += base;
+    }
     if ((v = tuxblox_dev_getenv( "TUXBLOX_DIAG_SWATCH_MAX" ))) swatch_hit_max = atoi( v );
     else swatch_hit_max = 200;
     /* with no breakpoint to start it, watch from the first syscall */
