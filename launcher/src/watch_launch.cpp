@@ -24,6 +24,7 @@
 #include "roblox_log_capture.h"
 #include "roblox_place_info.h"
 #include "settings.h"
+#include "player_presence.h"
 #include "studio_presence.h"
 #include "system_info.h"
 #include "ui_adw/message_box.h"
@@ -93,13 +94,21 @@ int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const 
     }
 
     // Presence rides the loop that was already here, so it costs no thread and no process of its own.
-    const bool presenceWanted = settings.discordRpc && target == LaunchTarget::Studio;
+    // One switch covers both programs, and a game may change what is shown whenever presence is on.
+    const bool presenceWanted = settings.discordRpc;
+    const bool player = target == LaunchTarget::Player;
     std::unique_ptr<DiscordRpc> discord;
     std::unique_ptr<SessionLogTail> logTail;
-    StudioPresenceReader presenceReader;
+    std::unique_ptr<PresenceReader> presenceReader;
+    if (player) {
+        presenceReader = std::make_unique<PlayerPresenceReader>();
+    } else {
+        presenceReader = std::make_unique<StudioPresenceReader>();
+    }
     PresenceActivity lastSent;
     std::map<std::string, ResolvedPlace> resolvedPlaces;
     bool everSent = false;
+    std::time_t lastSentAt = 0;
     if (presenceWanted) {
         discord = std::make_unique<DiscordRpc>(kDiscordApplicationId);
     }
@@ -112,17 +121,17 @@ int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const 
 
         const std::time_t now = std::time(nullptr);
         if (!logTail) {
-            const std::string logFile = findStudioSessionLog(installDir, launchStart);
+            const std::string logFile = findSessionLog(installDir, launchStart, player);
             if (!logFile.empty()) {
                 logTail = std::make_unique<SessionLogTail>(logFile);
             }
         }
         if (logTail) {
-            logTail->pump(presenceReader);
+            logTail->pump(*presenceReader);
         }
 
         discord->poll(now);
-        PresenceActivity current = presenceReader.activity();
+        PresenceActivity current = presenceReader->activity();
 
         // Studio names a published place only by number, so the name is asked for once per place and remembered, including when Roblox has none to give.
         if (!current.placeId.empty()) {
@@ -141,10 +150,11 @@ int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const 
             current.placeIconUrl = known->second.iconUrl;
         }
         // Only a delivered activity counts: recording one Discord threw away would stop this ever trying again.
-        if ((!everSent || current != lastSent) &&
+        if ((!everSent || current != lastSent) && rpcAllowsSend(lastSentAt, now) &&
             discord->send(activityJson(current, launchStart), now)) {
             lastSent = current;
             everSent = true;
+            lastSentAt = now;
         }
     }
 
