@@ -868,6 +868,8 @@ void tuxblox_diag_note_syscall( ULONG64 rip, ULONG64 rsp, ULONG64 rax )
  * failing path are `test ecx,ecx`, and the only way to know which way one went
  * is to have the value it tested. */
 static struct { ULONG64 rip, rsp, rcx, rax; } diag_steps[DIAG_STEPS];
+static ULONG64 diag_step_rspmin, diag_step_last_rsp;
+static unsigned int diag_step_slot;
 static unsigned int diag_step_pos, diag_step_start, diag_step_limit;
 static ULONG64 diag_step_stop_rsp, diag_step_stop_lo, diag_step_stop_hi, diag_step_below;
 static unsigned int diag_step_hold, diag_step_held;
@@ -1219,6 +1221,7 @@ BOOL tuxblox_diag_step_arm(void)
         if ((v = tuxblox_dev_getenv( "TUXBLOX_DIAG_STEP_HOLD" ))) diag_step_hold = atoi( v );
         if (tuxblox_dev_getenv( "TUXBLOX_DIAG_STEP_NOSTOP" )) diag_step_nostop = TRUE;
         if ((v = tuxblox_dev_getenv( "TUXBLOX_DIAG_STEP_CAP" ))) diag_step_cap = strtoul( v, NULL, 0 );
+        if ((v = tuxblox_dev_getenv( "TUXBLOX_DIAG_STEP_RSPMIN" ))) diag_step_rspmin = strtoull( v, NULL, 16 );
     }
     /* Armed once only. Re-arming after each system call was tried and is not
      * usable: the layer clears the trap flag itself -- `pushfq; and qword
@@ -1485,10 +1488,26 @@ BOOL tuxblox_diag_step_record( ULONG64 rip, ULONG64 rsp, ULONG64 rcx, ULONG64 ra
         diag_step_start = 0;
         return TRUE;
     }
-    diag_steps[diag_step_pos % DIAG_STEPS].rip = rip;
-    diag_steps[diag_step_pos % DIAG_STEPS].rsp = rsp;
-    diag_steps[diag_step_pos % DIAG_STEPS].rcx = rcx;
-    diag_steps[diag_step_pos % DIAG_STEPS].rax = rax;
+    /* TUXBLOX_DIAG_STEP_RSPMIN=<hex>: record a step only where `rsp` changed and
+     * the new value is at or above that address.
+     *
+     * The ring holds half a million entries and one syscall gap of the giant
+     * flattened function runs to nineteen million instructions, so a window that
+     * matters is overwritten long before the tail prints. Almost none of those
+     * instructions touch the stack at the function's own level: in a measured
+     * 313,371-step sample only six did. Keeping just those turns a window that
+     * cannot be held at all into a few hundred records, which is what a question
+     * about where eight bytes went actually wants. `diag_step_pos` still counts
+     * every instruction, so the cap and the step numbers keep their meaning. */
+    if (!diag_step_rspmin || (rsp != diag_step_last_rsp && rsp >= diag_step_rspmin))
+    {
+        diag_steps[diag_step_slot % DIAG_STEPS].rip = rip;
+        diag_steps[diag_step_slot % DIAG_STEPS].rsp = rsp;
+        diag_steps[diag_step_slot % DIAG_STEPS].rcx = rcx;
+        diag_steps[diag_step_slot % DIAG_STEPS].rax = rax;
+        diag_step_slot++;
+    }
+    diag_step_last_rsp = rsp;
     diag_step_pos++;
 
     /* Stop and print once the stack pointer has stayed below a watermark for a
@@ -1682,10 +1701,14 @@ static void diag_dump_steps_around( unsigned int at, unsigned int before, unsign
 
 static void diag_dump_steps(void)
 {
-    unsigned int n = diag_step_pos < DIAG_STEPS ? diag_step_pos : DIAG_STEPS, i;
+    /* With TUXBLOX_DIAG_STEP_RSPMIN set, the ring holds only the kept steps, so
+     * the count to read it back by is the slot counter and not the instruction
+     * counter -- the two differ by orders of magnitude. */
+    unsigned int kept = diag_step_rspmin ? diag_step_slot : diag_step_pos;
+    unsigned int n = kept < DIAG_STEPS ? kept : DIAG_STEPS, i;
     const char *tail;
 
-    if (!diag_step_pos) return;
+    if (!kept) return;
     /* A full ring is half a million lines, which is why printing it is opt-in.
      * TUXBLOX_DIAG_STEP_TAIL=<n> asks for the last n instead, which is what a
      * question about one short stretch actually wants. */
@@ -1695,11 +1718,11 @@ static void diag_dump_steps(void)
 
         if (want && want < n) n = want;
     }
-    ERR_(seh)( "DIAG steps total=%u, last %u:\n", diag_step_pos, n );
+    ERR_(seh)( "DIAG steps total=%u, kept=%u, last %u:\n", diag_step_pos, kept, n );
     if (tuxblox_dev_getenv( "TUXBLOX_DIAG_QUIETSTEPS" )) return;
     for (i = 0; i < n; i++)
     {
-        unsigned int at = (diag_step_pos - n + i) % DIAG_STEPS;
+        unsigned int at = (kept - n + i) % DIAG_STEPS;
 
         ERR_(seh)( "DIAG step[-%u] rip=0x%llx rsp=0x%llx rcx=0x%llx rax=0x%llx\n", n - i,
                    (unsigned long long)diag_steps[at].rip, (unsigned long long)diag_steps[at].rsp,
