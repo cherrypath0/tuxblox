@@ -2497,6 +2497,34 @@ static void fixup_effective_user_space_limit( const void **effective_user_space_
  * Create a view and mmap the corresponding memory area.
  * virtual_mutex must be held by caller.
  */
+/* TUXBLOX_TEST_HIGH_ALLOC=<hex floor>: where a bottom-up allocation starts looking.
+ *
+ * A Windows process has the whole address space below the shared user page free
+ * -- mapprobe.exe reads 0..0x7ffe0000 FREE on a bare one -- because everything it
+ * allocates is randomised high. Ours fills that range: a snapshot of the Player
+ * taken at the wall holds 24 regions and 20 MB there, the main thread's stack at
+ * 0x125000 among them. Something walking the regions sees a different shape, not
+ * just different pointers, and that is a separate thing from the PEB and TEB
+ * addresses, which were moved into Windows' band on 2026-08-25 and measured to
+ * change nothing (see virtual_alloc_first_teb).
+ *
+ * Off by default while it is measured. The search falls back to the whole range
+ * when nothing high is free, so a floor that is too high costs placement, never
+ * an allocation failure. */
+static void *high_alloc_floor(void)
+{
+    static void *cached = (void *)-1;
+
+    if (cached == (void *)-1)
+    {
+        const char *v = tuxblox_dev_getenv( "TUXBLOX_TEST_HIGH_ALLOC" );
+
+        cached = (v && *v && *v != '0') ? (void *)(ULONG_PTR)strtoull( v, NULL, 16 ) : NULL;
+    }
+    return cached;
+}
+
+
 static NTSTATUS map_view( struct file_view **view_ret, void *base, size_t size,
                           unsigned int alloc_type, unsigned int vprot,
                           ULONG_PTR limit_low, ULONG_PTR limit_high, size_t align_mask )
@@ -2559,6 +2587,10 @@ static NTSTATUS map_view( struct file_view **view_ret, void *base, size_t size,
 
         if (limit_low && (void *)limit_low > start) start = (void *)limit_low;
         if (limit_high && (void *)limit_high < end) end = (char *)limit_high + 1;
+        /* Only where the caller left the choice open -- a WoW64 process and anything
+         * that asked for a range of its own still get exactly what they asked for. */
+        if (is_win64 && !limit_low && !top_down && high_alloc_floor() > start && high_alloc_floor() < end)
+            start = high_alloc_floor();
 
         if (!(ptr = alloc_free_area( start, end, host_size, top_down, unix_prot, align_mask )))
         {
