@@ -24,6 +24,7 @@
 #include "roblox_log_capture.h"
 #include "roblox_place_info.h"
 #include "settings.h"
+#include "bloxstrap_rpc.h"
 #include "player_presence.h"
 #include "server_region.h"
 #include "studio_presence.h"
@@ -36,6 +37,7 @@
 #include <filesystem>
 #include <ctime>
 #include <map>
+#include <vector>
 #include <memory>
 #include <thread>
 
@@ -48,6 +50,21 @@ struct ResolvedPlace {
 };
 
 // The Discord application this presence is published under, registered at discord.com/developers. Public, not a secret. Empty would mean nothing is ever sent.
+// An asset a game named is described by Roblox, not served by it, so it has to be looked up before Discord can be given anything -- once per asset, failures remembered too, or a game rotating its art would mean a request every tick.
+void resolveRpcImage(RpcImage& image, std::map<std::string, std::string>& resolved) {
+    if (image.assetId.state != RpcField::State::Set || image.assetId.value.empty()) {
+        return;
+    }
+    auto known = resolved.find(image.assetId.value);
+    if (known == resolved.end()) {
+        known = resolved
+                    .emplace(image.assetId.value,
+                             fetchThumbnailImageUrl(rpcAssetLookupUrl(image.assetId.value)))
+                    .first;
+    }
+    image.resolvedUrl = known->second;
+}
+
 const char kDiscordApplicationId[] = "1554221498925973584";
 
 int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const std::string& uri,
@@ -109,7 +126,8 @@ int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const 
     PresenceActivity lastSent;
     std::map<std::string, ResolvedPlace> resolvedPlaces;
     bool everSent = false;
-    std::time_t lastSentAt = 0;
+    std::vector<std::time_t> recentSends;
+    std::map<std::string, std::string> resolvedAssets;
     ServerRegionWatcher regionWatcher = makeServerRegionWatcher(settings.serverRegionNotify);
     std::string lastServerAddress;
     if (presenceWanted) {
@@ -165,11 +183,14 @@ int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const 
             current.placeIconUrl = known->second.iconUrl;
         }
         // Only a delivered activity counts: recording one Discord threw away would stop this ever trying again.
-        if ((!everSent || current != lastSent) && rpcAllowsSend(lastSentAt, now) &&
+        resolveRpcImage(current.rpc.largeImage, resolvedAssets);
+        resolveRpcImage(current.rpc.smallImage, resolvedAssets);
+
+        if ((!everSent || current != lastSent) && rpcAllowsSend(recentSends, now) &&
             discord->send(activityJson(current, launchStart), now)) {
             lastSent = current;
             everSent = true;
-            lastSentAt = now;
+            recentSends.push_back(now);
         }
     }
 
@@ -182,7 +203,7 @@ int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const 
     // Everything that was copied is in our log now, so the file it came from is not left behind as a second log for the same session.
     const std::vector<std::string> appendedLogs =
         appendRobloxSessionLogs(installDir, launchStart, outcome.logPath);
-    removeAppendedRobloxLogs(installDir, appendedLogs, std::time(nullptr));
+    removeAppendedRobloxLogs(installDir, appendedLogs, player);
     exportPrefixShortcuts(installDir, selfExePath());
 
     if (outcome.wasBootstrapInstall && ev && !ev->stopRequested && ev->exitCode == 0) {

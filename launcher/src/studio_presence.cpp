@@ -224,24 +224,26 @@ void applyRpcImage(nlohmann::json& activityObject, const std::string& slot, cons
     const std::string key = slot + "_image";
     const std::string textKey = slot + "_text";
     // Nothing may have put art there at all, and erasing from a value that was never made throws.
-    if (image.clear) {
-        if (activityObject.contains("assets") && activityObject["assets"].is_object()) {
+    const bool haveAssets = activityObject.contains("assets") && activityObject["assets"].is_object();
+
+    if (image.assetId.state == RpcField::State::Clear) {
+        if (haveAssets) {
             activityObject["assets"].erase(key);
             activityObject["assets"].erase(textKey);
         }
         return;
     }
-    if (image.reset) {
+    if (image.assetId.state == RpcField::State::Reset) {
         return;
     }
-    if (image.assetId.state == RpcField::State::Set) {
-        const std::string url = rpcAssetImageUrl(image.assetId.value);
-        if (!url.empty()) {
-            activityObject["assets"][key] = url;
-        }
+    // An asset that has not been looked up yet, or that Roblox had no picture for, shows nothing rather than an address Discord cannot load.
+    if (image.assetId.state == RpcField::State::Set && !image.resolvedUrl.empty()) {
+        activityObject["assets"][key] = image.resolvedUrl;
     }
     if (image.hoverText.state == RpcField::State::Set) {
         activityObject["assets"][textKey] = image.hoverText.value;
+    } else if (image.hoverText.state == RpcField::State::Clear && haveAssets) {
+        activityObject["assets"].erase(textKey);
     }
 }
 
@@ -305,9 +307,13 @@ std::string activityJson(const PresenceActivity& activity, std::time_t startedAt
     // Applied last, so a game's own text and art sit on top of what TuxBlox worked out, and a reset leaves what is already above untouched.
     if (activity.rpc.details.state == RpcField::State::Set) {
         activityObject["details"] = activity.rpc.details.value;
+    } else if (activity.rpc.details.state == RpcField::State::Clear) {
+        activityObject.erase("details");
     }
     if (activity.rpc.state.state == RpcField::State::Set) {
         activityObject["state"] = activity.rpc.state.value;
+    } else if (activity.rpc.state.state == RpcField::State::Clear) {
+        activityObject.erase("state");
     }
     if (activity.rpc.timeStart > 0) {
         activityObject["timestamps"]["start"] = activity.rpc.timeStart;
@@ -326,8 +332,13 @@ std::string findStudioSessionLog(const std::string& installDir, std::time_t sess
     return findSessionLog(installDir, sessionStart, false);
 }
 
-bool rpcAllowsSend(std::time_t lastSentAt, std::time_t now) {
-    return lastSentAt == 0 || now > lastSentAt;
+bool rpcAllowsSend(std::vector<std::time_t>& recentSends, std::time_t now) {
+    const std::time_t WindowSeconds = 20;
+    const std::size_t MaxInWindow = 5;
+    recentSends.erase(std::remove_if(recentSends.begin(), recentSends.end(),
+                                     [now](std::time_t at) { return now - at >= WindowSeconds; }),
+                      recentSends.end());
+    return recentSends.size() < MaxInWindow;
 }
 
 } // namespace tuxblox

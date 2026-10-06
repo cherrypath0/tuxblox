@@ -53,8 +53,11 @@ bool streamAppendFile(std::ofstream& dest, const std::string& srcPath) {
         src.read(buf.data(), static_cast<std::streamsize>(buf.size()));
         std::streamsize got = src.gcount();
         if (got > 0) dest.write(buf.data(), got);
+        // A full disk fails every write silently, and reporting that as appended is what would let the only copy of the log be deleted.
+        if (!dest) return false;
     }
-    return true;
+    dest.flush();
+    return static_cast<bool>(dest);
 }
 
 } // namespace
@@ -93,22 +96,18 @@ std::vector<std::string> appendRobloxSessionLogs(const std::string& installDir, 
 }
 
 int removeAppendedRobloxLogs(const std::string& installDir, const std::vector<std::string>& appended,
-                             std::time_t now) {
-    // Long enough that a running client's log is never mistaken for a finished one, short enough that an ordinary session leaves nothing behind.
-    const std::time_t QuietSeconds = 10;
+                             bool player) {
+    // More than one log means another session was writing in the same folder, and there is no way
+    // from here to tell which belongs to whom, so nothing goes.
+    if (appended.size() != 1) return 0;
 
-    const std::string dir = robloxLogsDir(installDir);
-    int removed = 0;
-    for (const std::string& name : appended) {
-        const fs::path path = fs::path(dir) / name;
-        std::error_code ec;
-        if (!fs::is_regular_file(path, ec)) continue;
-        struct stat st{};
-        if (stat(path.c_str(), &st) != 0) continue;
-        if (now - st.st_mtime < QuietSeconds) continue;
-        if (fs::remove(path, ec)) removed++;
-    }
-    return removed;
+    const std::string& name = appended.front();
+    if (name.find(player ? "_Player_" : "_Studio_") == std::string::npos) return 0;
+
+    const fs::path path = fs::path(robloxLogsDir(installDir)) / name;
+    std::error_code ec;
+    if (!fs::is_regular_file(path, ec)) return 0;
+    return fs::remove(path, ec) ? 1 : 0;
 }
 
 } // namespace tuxblox

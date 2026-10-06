@@ -27,6 +27,19 @@ bool contains(const std::string& line, const char *pNeedle) {
     return line.find(pNeedle) != std::string::npos;
 }
 
+// The channel a line was actually written on, which is the first one it names. A game's own output always carries FLog::Output first, so a line that merely quotes another channel's text cannot pass for it.
+std::string firstChannel(const std::string& line) {
+    const std::size_t at = line.find("[FLog::");
+    if (at == std::string::npos) {
+        return std::string();
+    }
+    const std::size_t end = line.find(']', at);
+    if (end == std::string::npos) {
+        return std::string();
+    }
+    return line.substr(at, end - at + 1);
+}
+
 bool allDigits(const std::string& text) {
     if (text.empty()) {
         return false;
@@ -52,14 +65,17 @@ std::string placeIdFromJoinLine(const std::string& line) {
         end++;
     }
     const std::string id = line.substr(start, end - start);
-    // A local playtest reports place 0, which is not a place anybody can be sent to.
-    if (!allDigits(id) || id == "0") {
+    // A local playtest reports place 0, which is not a place anybody can be sent to, and no real place id is anywhere near twenty digits long.
+    if (!allDigits(id) || id == "0" || id.size() > 20) {
         return std::string();
     }
     return id;
 }
 
 std::string serverAddressFromLine(const std::string& line) {
+    if (firstChannel(line) != "[FLog::Network]") {
+        return std::string();
+    }
     const char marker[] = "[FLog::Network] serverId: ";
     const std::size_t at = line.find(marker);
     if (at == std::string::npos) {
@@ -79,7 +95,9 @@ void PlayerPresenceReader::consumeLine(const std::string& line) {
         return;
     }
 
-    if (contains(line, "Joining game")) {
+    const std::string channel = firstChannel(line);
+    if (contains(line, "Joining game") &&
+        (channel == "[FLog::Output]" || channel == "[FLog::TeamCreateJoinPayload]")) {
         const std::string placeId = placeIdFromJoinLine(line);
         if (!placeId.empty() && placeId != activity_.placeId) {
             activity_.placeId = placeId;
@@ -99,7 +117,7 @@ void PlayerPresenceReader::consumeLine(const std::string& line) {
         return;
     }
 
-    if (contains(line, "[FLog::SessionTransitionFSM]")) {
+    if (firstChannel(line) == "[FLog::SessionTransitionFSM]") {
         if (contains(line, "Entered play session")) {
             activity_.kind = PresenceKind::Playing;
         } else if (contains(line, "Teleported")) {
@@ -110,6 +128,8 @@ void PlayerPresenceReader::consumeLine(const std::string& line) {
             activity_.placeName.clear();
             activity_.placeIconUrl.clear();
             serverAddress_.clear();
+            // What the game asked to be shown belonged to that game, and must not follow the user into the next one.
+            activity_.rpc = RpcOverride{};
         }
     }
 }

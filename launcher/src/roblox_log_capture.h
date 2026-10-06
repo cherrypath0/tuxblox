@@ -33,8 +33,8 @@ std::string robloxLogsDir(const std::string& installDir);
 std::vector<std::string> appendRobloxSessionLogs(const std::string& installDir, std::time_t sessionStart,
                                                   const std::string& destLogPath);
 
-// Removes the logs appendRobloxSessionLogs() copied, so a session leaves one file holding both halves instead of two holding the same lines. A log written to in the last few seconds belongs to a session that is still running and is left alone, because losing somebody's log is worse than leaving a copy behind.
+// Removes the log appendRobloxSessionLogs() copied, so a session leaves one file holding both halves instead of two holding the same lines. Only one unambiguous log goes: the whole list must be a single file carrying this target's own name, because a second session running at the same time puts its log in that folder too and losing somebody else's log is far worse than leaving a copy behind.
 int removeAppendedRobloxLogs(const std::string& installDir, const std::vector<std::string>& appended,
-                             std::time_t now);
+                             bool player);
 
 } // namespace tuxblox

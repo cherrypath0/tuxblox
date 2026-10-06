@@ -35,7 +35,8 @@ enum class PresenceKind {
 
 // A field a game set through the RPC protocol. Absent means keep whatever was shown before, and Reset means go back to what TuxBlox shows on its own -- the protocol distinguishes the two and so must this.
 struct RpcField {
-    enum class State { Absent, Set, Reset };
+    // Clear is the protocol's blank string, which drops the field rather than showing an empty one, and Reset is its "<reset>", which hands the field back to TuxBlox.
+    enum class State { Absent, Set, Reset, Clear };
     State state = State::Absent;
     std::string value;
 };
@@ -43,8 +44,8 @@ struct RpcField {
 struct RpcImage {
     RpcField assetId;
     RpcField hoverText;
-    bool clear = false;
-    bool reset = false;
+    // The image behind the asset the game named, once it has been looked up. Empty until then, and an asset nobody could resolve shows nothing rather than something broken.
+    std::string resolvedUrl;
 };
 
 struct RpcOverride {
@@ -61,8 +62,7 @@ inline bool operator==(const RpcField& a, const RpcField& b) {
 }
 
 inline bool operator==(const RpcImage& a, const RpcImage& b) {
-    return a.assetId == b.assetId && a.hoverText == b.hoverText && a.clear == b.clear &&
-           a.reset == b.reset;
+    return a.assetId == b.assetId && a.hoverText == b.hoverText && a.resolvedUrl == b.resolvedUrl;
 }
 
 inline bool operator==(const RpcOverride& a, const RpcOverride& b) {

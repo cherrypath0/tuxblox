@@ -176,26 +176,46 @@ int main() {
         fs::path robloxLogs = fs::path(robloxLogsDir(installDir.string()));
         fs::create_directories(robloxLogs);
 
-        const std::string name = "0.740_20261006T185941Z_Player_9C018_last.log";
-        const fs::path copied = robloxLogs / name;
+        const std::string mine = "0.740_20261006T185941Z_Player_9C018_last.log";
         {
-            std::ofstream out(copied);
+            std::ofstream out(robloxLogs / mine);
             out << "[FLog::Output] already in our log\n";
         }
-        const std::time_t written = 1700000000;
-        setMtime(copied, written);
 
-        // Written seconds ago: a session that is still running owns it, so it stays.
-        assert(removeAppendedRobloxLogs(installDir.string(), {name}, written) == 0);
-        assert(fs::exists(copied));
+        // Exactly one log for this target, so it is unambiguously this session's.
+        assert(removeAppendedRobloxLogs(installDir.string(), {mine}, true) == 1);
+        assert(!fs::exists(robloxLogs / mine));
 
-        // Quiet for a minute: nothing is writing it any more, and our log already holds it.
-        assert(removeAppendedRobloxLogs(installDir.string(), {name}, written + 60) == 1);
-        assert(!fs::exists(copied));
+        // A second session of the same target was running, so which log belongs to whom cannot be
+        // told apart -- nothing is removed rather than taking somebody else's.
+        const std::string a = "0.740_20261006T190000Z_Player_AAAAA_last.log";
+        const std::string b = "0.740_20261006T190500Z_Player_BBBBB_last.log";
+        for (const std::string& name : {a, b}) {
+            std::ofstream out(robloxLogs / name);
+            out << "x\n";
+        }
+        assert(removeAppendedRobloxLogs(installDir.string(), {a, b}, true) == 0);
+        assert(fs::exists(robloxLogs / a) && fs::exists(robloxLogs / b));
 
-        // A name that was never appended, or no longer there, is simply not there to remove.
-        assert(removeAppendedRobloxLogs(installDir.string(), {"nothing_last.log"}, written + 60) == 0);
-        assert(removeAppendedRobloxLogs(installDir.string(), {}, written + 60) == 0);
+        // Studio's log is never this Player session's to remove, and the other way round.
+        const std::string studio = "0.740_20261006T191000Z_Studio_CCCCC_last.log";
+        {
+            std::ofstream out(robloxLogs / studio);
+            out << "x\n";
+        }
+        assert(removeAppendedRobloxLogs(installDir.string(), {studio}, true) == 0);
+        assert(fs::exists(robloxLogs / studio));
+        assert(removeAppendedRobloxLogs(installDir.string(), {studio}, false) == 1);
+        assert(!fs::exists(robloxLogs / studio));
+
+        // A name carrying no target at all is not a session log and is left where it is.
+        const std::string odd = "something-else.log";
+        {
+            std::ofstream out(robloxLogs / odd);
+            out << "x\n";
+        }
+        assert(removeAppendedRobloxLogs(installDir.string(), {odd}, true) == 0);
+        assert(fs::exists(robloxLogs / odd));
 
         // Roblox keeps its crash reports beside its logs, and a directory is never a log to remove.
         fs::create_directories(robloxLogs / "crashes");
@@ -203,9 +223,33 @@ int main() {
             std::ofstream out(robloxLogs / "crashes" / "settings.dat");
             out << "x";
         }
-        assert(removeAppendedRobloxLogs(installDir.string(), {"crashes"}, written + 60) == 0);
+        assert(removeAppendedRobloxLogs(installDir.string(), {"crashes"}, true) == 0);
         assert(fs::exists(robloxLogs / "crashes" / "settings.dat"));
 
+        assert(removeAppendedRobloxLogs(installDir.string(), {}, true) == 0);
+        fs::remove_all(installDir);
+    }
+
+    // An append that could not be written must not report success, or the only copy of the log is
+    // deleted on the strength of it. /dev/full accepts the open and fails every write.
+    {
+        fs::path installDir = fs::temp_directory_path() / "tuxblox_test_roblox_log_fulldisk";
+        fs::remove_all(installDir);
+        fs::path robloxLogs = fs::path(robloxLogsDir(installDir.string()));
+        fs::create_directories(robloxLogs);
+
+        const fs::path source = robloxLogs / "0.740_20261006T185941Z_Player_9C018_last.log";
+        {
+            std::ofstream out(source);
+            out << std::string(200000, 'x') << "\n";
+        }
+        setMtime(source, std::time(nullptr));
+
+        if (fs::exists("/dev/full")) {
+            auto appended = appendRobloxSessionLogs(installDir.string(), 0, "/dev/full");
+            assert(appended.empty());
+            assert(fs::exists(source));
+        }
         fs::remove_all(installDir);
     }
 

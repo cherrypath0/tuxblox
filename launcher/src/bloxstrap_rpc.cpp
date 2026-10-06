@@ -44,19 +44,20 @@ bool allDigits(const std::string& text) {
     return true;
 }
 
-// Control characters would reach Discord verbatim, and the cut lands on a character boundary so a trimmed name is never left half a character.
+// Control characters would reach Discord verbatim, and the limit is in characters rather than bytes because that is what Discord counts -- a status written in anything but Latin script would otherwise lose most of itself.
 std::string cleanText(const std::string& text) {
     std::string out;
     out.reserve(text.size());
+    std::size_t characters = 0;
     for (const unsigned char c : text) {
-        out.push_back(c < 0x20 || c == 0x7f ? ' ' : static_cast<char>(c));
-    }
-    if (out.size() > MaxTextLength) {
-        std::size_t cut = MaxTextLength;
-        while (cut > 0 && (static_cast<unsigned char>(out[cut]) & 0xc0) == 0x80) {
-            cut--;
+        const bool starts = (c & 0xc0) != 0x80;
+        if (starts && characters == MaxTextLength) {
+            break;
         }
-        out.resize(cut);
+        if (starts) {
+            characters++;
+        }
+        out.push_back(c < 0x20 || c == 0x7f ? ' ' : static_cast<char>(c));
     }
     return out;
 }
@@ -66,9 +67,14 @@ void readField(const nlohmann::json& data, const char *pName, RpcField& into) {
         return;
     }
     const std::string text = data[pName].get<std::string>();
+    into.value.clear();
     if (text == ResetValue) {
         into.state = RpcField::State::Reset;
-        into.value.clear();
+        return;
+    }
+    // The protocol's way of dropping a field, which is not the same as showing an empty one.
+    if (text.empty()) {
+        into.state = RpcField::State::Clear;
         return;
     }
     into.state = RpcField::State::Set;
@@ -91,17 +97,27 @@ void readImage(const nlohmann::json& data, const char *pName, RpcImage& into) {
                 id = id.substr(sizeof(AssetPrefix) - 1);
             }
         }
-        if (allDigits(id)) {
+        if (allDigits(id) && id != into.assetId.value) {
             into.assetId.state = RpcField::State::Set;
             into.assetId.value = id;
+            into.resolvedUrl.clear();
+        } else if (allDigits(id)) {
+            into.assetId.state = RpcField::State::Set;
         }
     }
     readField(image, "hoverText", into.hoverText);
-    if (image.contains("clear") && image["clear"].is_boolean()) {
-        into.clear = image["clear"].get<bool>();
+
+    // These two are commands, not state: acting on them once is what lets a game clear its art on
+    // leaving a stage and name new art on entering the next, which holding them as flags would not.
+    if (image.contains("clear") && image["clear"].is_boolean() && image["clear"].get<bool>()) {
+        into.assetId = RpcField{RpcField::State::Clear, std::string()};
+        into.hoverText = RpcField{RpcField::State::Clear, std::string()};
+        into.resolvedUrl.clear();
     }
-    if (image.contains("reset") && image["reset"].is_boolean()) {
-        into.reset = image["reset"].get<bool>();
+    if (image.contains("reset") && image["reset"].is_boolean() && image["reset"].get<bool>()) {
+        into.assetId = RpcField{RpcField::State::Reset, std::string()};
+        into.hoverText = RpcField{RpcField::State::Reset, std::string()};
+        into.resolvedUrl.clear();
     }
 }
 
@@ -147,12 +163,12 @@ bool applyBloxstrapRpcLine(const std::string& line, RpcOverride& into) {
     return true;
 }
 
-std::string rpcAssetImageUrl(const std::string& assetId) {
+std::string rpcAssetLookupUrl(const std::string& assetId) {
     if (!allDigits(assetId)) {
         return std::string();
     }
     return "https://thumbnails.roblox.com/v1/assets?assetIds=" + assetId +
-           "&size=420x420&format=Png";
+           "&size=512x512&format=Png";
 }
 
 } // namespace tuxblox

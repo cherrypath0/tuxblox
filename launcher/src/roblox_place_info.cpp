@@ -161,4 +161,9 @@ std::string fetchPlaceIconUrl(const std::string& placeId) {
     return placeIconUrlFromJson(httpGet(placeIconsUrl(placeId)));
 }
 
+std::string fetchThumbnailImageUrl(const std::string& lookupUrl) {
+    // Every thumbnail Roblox serves is described the same way, so the place icon's reader answers for an asset too.
+    return placeIconUrlFromJson(httpGet(lookupUrl));
+}
+
 } // namespace tuxblox

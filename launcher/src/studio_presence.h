@@ -17,6 +17,7 @@
 #pragma once
 #include <ctime>
 #include <string>
+#include <vector>
 
 #include "presence.h"
 
@@ -57,8 +58,8 @@ std::string findStudioSessionLog(const std::string& installDir, std::time_t sess
 // Roblox's own log for this session, or empty if it has not appeared yet. The two targets differ only in the marker their log names carry.
 std::string findSessionLog(const std::string& installDir, std::time_t sessionStart, bool player);
 
-// At most one update a second, which is the rate the message protocol itself is limited to, so a game that writes every frame cannot flood anything.
-bool rpcAllowsSend(std::time_t lastSentAt, std::time_t now);
+// May another update go out now? Discord accepts five in any twenty seconds, which is a tighter limit than the one a second the message protocol holds a game to, so this is what decides rather than the game's own rate. The caller keeps the list of when recent ones went; anything that has fallen out of the window is dropped from it here.
+bool rpcAllowsSend(std::vector<std::time_t>& recentSends, std::time_t now);
 
 // Discord's activity object. The heading above it comes from the Application ID and cannot be set here.
 std::string activityJson(const PresenceActivity& activity, std::time_t startedAt);

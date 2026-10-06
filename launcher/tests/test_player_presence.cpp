@@ -73,6 +73,36 @@ int main() {
     split.consumeLine("[FLog::SessionTransitionFSM] Entered play session.");
     assert(split.activity().kind == tuxblox::PresenceKind::Playing);
 
+    // A game's own print() lands on FLog::Output in the same log, so a line is only believed on the
+    // channel it belongs to -- otherwise four print calls forge the whole session.
+    tuxblox::PlayerPresenceReader forge;
+    forge.consumeLine("[FLog::SessionTransitionFSM] Entered play session.");
+    forge.consumeLine("2026-10-06T20:31:50Z,12.1,00d4,6 [FLog::Output] [FLog::Network] serverId: 8.8.8.8|1234");
+    assert(forge.serverAddress().empty());
+    forge.consumeLine("2026-10-06T20:31:50Z,12.1,00d4,6 [FLog::Output] print says [FLog::SessionTransitionFSM] Tearing down");
+    assert(forge.activity().kind == tuxblox::PresenceKind::Playing);
+
+    // The genuine lines still work, on their own channels.
+    forge.consumeLine("2026-10-06T20:31:50.122Z,12.122521,00d4,7 [FLog::Network] serverId: 128.116.31.33|61772");
+    assert(forge.serverAddress() == "128.116.31.33");
+
+    // A place id is bounded: a forged line carrying thousands of digits must not reach a request.
+    tuxblox::PlayerPresenceReader huge;
+    huge.consumeLine("[FLog::Output] ! Joining game 'x' place " + std::string(4000, '9') + " at 1.1.1.1");
+    assert(huge.activity().placeId.empty());
+
+    // What a game asked to be shown must not follow the user out of that game.
+    tuxblox::PlayerPresenceReader sticky;
+    sticky.consumeLine("[FLog::SessionTransitionFSM] Entered play session.");
+    sticky.consumeLine("[FLog::Output] [BloxstrapRPC] {\"command\":\"SetRichPresence\",\"data\":{\"details\":\"Floor 3\",\"state\":\"Hiding\"}}");
+    assert(sticky.activity().rpc.details.value == "Floor 3");
+    sticky.consumeLine("[FLog::SessionTransitionFSM] Entered app session.");
+    assert(sticky.activity().rpc.details.state == tuxblox::RpcField::State::Absent);
+    assert(sticky.activity().rpc.state.state == tuxblox::RpcField::State::Absent);
+    sticky.consumeLine("[FLog::Output] ! Joining game 'y' place 222 at 1.1.1.1");
+    sticky.consumeLine("[FLog::SessionTransitionFSM] Entered play session.");
+    assert(sticky.activity().rpc.details.value.empty());
+
     printf("player_presence: all tests passed\n");
     return 0;
 }

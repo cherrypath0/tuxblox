@@ -21,6 +21,7 @@
 #include <cassert>
 #include <cstdio>
 #include <string>
+#include <vector>
 
 int main() {
     const std::time_t t = 1700000000;
@@ -97,27 +98,44 @@ int main() {
     out = nlohmann::json::parse(tuxblox::activityJson(timed, t));
     assert(out["timestamps"]["start"].get<std::time_t>() == 1699999999);
 
-    // An asset the game named becomes a Roblox thumbnail, never a URL of its own.
+    // An asset the game named is shown only once it has been looked up, and only ever as the picture Roblox serves for it.
     tuxblox::PresenceActivity art = playing;
     art.rpc.largeImage.assetId.state = tuxblox::RpcField::State::Set;
     art.rpc.largeImage.assetId.value = "1234";
     art.rpc.largeImage.hoverText.state = tuxblox::RpcField::State::Set;
     art.rpc.largeImage.hoverText.value = "The Hotel";
     out = nlohmann::json::parse(tuxblox::activityJson(art, t));
-    assert(out["assets"]["large_image"].get<std::string>() ==
-           "https://thumbnails.roblox.com/v1/assets?assetIds=1234&size=420x420&format=Png");
+    assert(!out.contains("assets") || !out["assets"].contains("large_image"));
     assert(out["assets"]["large_text"].get<std::string>() == "The Hotel");
+
+    art.rpc.largeImage.resolvedUrl = "https://tr.rbxcdn.com/1234/512/512/Image/Png";
+    out = nlohmann::json::parse(tuxblox::activityJson(art, t));
+    assert(out["assets"]["large_image"].get<std::string>() == art.rpc.largeImage.resolvedUrl);
 
     // Clearing it drops the image rather than leaving the last one showing.
     tuxblox::PresenceActivity cleared = art;
-    cleared.rpc.largeImage.clear = true;
+    cleared.rpc.largeImage.assetId.state = tuxblox::RpcField::State::Clear;
     out = nlohmann::json::parse(tuxblox::activityJson(cleared, t));
     assert(!out["assets"].contains("large_image"));
 
-    // Review Focus 3: a game writing every frame cannot make us send more than once a second.
-    assert(tuxblox::rpcAllowsSend(0, t));
-    assert(!tuxblox::rpcAllowsSend(t, t));
-    assert(tuxblox::rpcAllowsSend(t, t + 1));
+    // A blank string from the game drops the field rather than showing an empty one.
+    tuxblox::PresenceActivity blanked = playing;
+    blanked.rpc.details.state = tuxblox::RpcField::State::Clear;
+    out = nlohmann::json::parse(tuxblox::activityJson(blanked, t));
+    assert(!out.contains("details"));
+
+    // Review Focus 3: a game writing every frame cannot push more at Discord than it accepts, which
+    // is five updates in any twenty seconds -- not the one a second the game itself is limited to.
+    std::vector<std::time_t> sends;
+    for (int i = 0; i < 5; i++) {
+        assert(tuxblox::rpcAllowsSend(sends, t));
+        sends.push_back(t);
+    }
+    assert(!tuxblox::rpcAllowsSend(sends, t));
+    assert(!tuxblox::rpcAllowsSend(sends, t + 19));
+    // Once the window has moved on, the oldest no longer counts.
+    assert(tuxblox::rpcAllowsSend(sends, t + 20));
+    assert(sends.size() == 0);
 
     printf("presence_activity_json: all tests passed\n");
     return 0;

@@ -37,6 +37,9 @@ std::string placeIconUrlFromJson(const std::string& body);
 // Asks Roblox for a place's icon. Empty on any failure.
 std::string fetchPlaceIconUrl(const std::string& placeId);
 
+// Reads a thumbnail description Roblox serves and answers with the picture itself. Empty on any failure, and empty for an empty address, so a caller can hand it one it did not manage to build.
+std::string fetchThumbnailImageUrl(const std::string& lookupUrl);
+
 // The place's page on roblox.com. Empty for anything that is not a plain number.
 std::string placeGameUrl(const std::string& placeId);
 
