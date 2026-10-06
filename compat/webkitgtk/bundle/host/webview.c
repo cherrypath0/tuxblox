@@ -190,9 +190,14 @@ static const char *const WV2_MESSAGE_SHIM_JS =
      * page it did not open by script once that page has navigated more than once, and real WebView2
      * never refuses it: it tells the program, which decides. Reporting it here is what makes the two
      * agree, and it is why nothing closes from this side. */
-    "  window.close = function() {\n"
-    "    send('close', '');\n"
-    "  };\n"
+    /* Only the page itself, never something embedded in it: the shim is injected into every frame,
+     * and a browser lets only the top-level window close itself -- an iframe calling close() does
+     * nothing. Without this a page embedded by Roblox, from anywhere, could take Roblox's panel down. */
+    "  if (window.top === window) {\n"
+    "    window.close = function() {\n"
+    "      send('close', '');\n"
+    "    };\n"
+    "  }\n"
     /* Host -> page delivery, called by webview_post_web_message below.
      * Non-enumerable and underscore-named because it is our transport, not
      * part of the surface a page should discover. */
