@@ -2843,6 +2843,22 @@ void tuxblox_diag_hww_start( void )
         if ((v = getenv( "TUXBLOX_HWWATCH" ))) hww_addr = strtoull( v, NULL, 16 );
     }
     if (!hww_addr) return;
+    /* A value below 4 GB is a layer RVA, as it is for a breakpoint and for
+     * SWATCH. The layer is not loaded at a fixed address, so an absolute
+     * address noted from one run watches nothing in the next. This arms late,
+     * from a breakpoint, so the base is always known by now. */
+    if (hww_addr < 0x100000000ull)
+    {
+        ULONG64 lbase = roblox_dll_base();
+
+        if (!lbase)
+        {
+            hww_parsed = 0;        /* try again once the layer is in */
+            hww_addr = 0;
+            return;
+        }
+        hww_addr += lbase;
+    }
 
     memset( &attr, 0, sizeof(attr) );
     attr.type          = PERF_TYPE_BREAKPOINT;
