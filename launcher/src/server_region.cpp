@@ -16,11 +16,10 @@
 
 #include "server_region.h"
 
-#include "ca_bundle.h"
 #include "desktop_notify.h"
 #include "json.hpp"
+#include "roblox_http.h"
 
-#include <curl/curl.h>
 
 #include <array>
 #include <string>
@@ -29,12 +28,6 @@
 namespace tuxblox {
 namespace {
 
-const long RequestTimeoutSeconds = 3;
-
-std::size_t writeToString(char *pData, std::size_t size, std::size_t count, void *pUser) {
-    static_cast<std::string *>(pUser)->append(pData, size * count);
-    return size * count;
-}
 
 bool parseOctets(const std::string& address, std::array<int, 4>& into) {
     std::size_t at = 0;
@@ -70,33 +63,6 @@ std::string textField(const nlohmann::json& body, const char *pName) {
     return body[pName].get<std::string>();
 }
 
-std::string httpGet(const std::string& url) {
-    CURL *pCurl = curl_easy_init();
-    if (pCurl == nullptr) {
-        return std::string();
-    }
-    applyCaBundle(pCurl);
-
-    std::string body;
-    curl_easy_setopt(pCurl, CURLOPT_URL, url.c_str());
-    curl_easy_setopt(pCurl, CURLOPT_USERAGENT, "TuxBlox-Client/1.0");
-    curl_easy_setopt(pCurl, CURLOPT_WRITEFUNCTION, writeToString);
-    curl_easy_setopt(pCurl, CURLOPT_WRITEDATA, &body);
-    curl_easy_setopt(pCurl, CURLOPT_FOLLOWLOCATION, 1L);
-    curl_easy_setopt(pCurl, CURLOPT_TIMEOUT, RequestTimeoutSeconds);
-    curl_easy_setopt(pCurl, CURLOPT_CONNECTTIMEOUT, RequestTimeoutSeconds);
-    curl_easy_setopt(pCurl, CURLOPT_NOSIGNAL, 1L);
-
-    const CURLcode code = curl_easy_perform(pCurl);
-    long status = 0;
-    curl_easy_getinfo(pCurl, CURLINFO_RESPONSE_CODE, &status);
-    curl_easy_cleanup(pCurl);
-
-    if (code != CURLE_OK || status != 200) {
-        return std::string();
-    }
-    return body;
-}
 
 } // namespace
 

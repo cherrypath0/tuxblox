@@ -100,7 +100,8 @@ int main() {
     const tuxblox::RpcOverride before = keep;
     assert(!tuxblox::applyBloxstrapRpcLine("[BloxstrapRPC] {\"command\":\"SetRichPresence\",\"data\":5}", keep));
     assert(!tuxblox::applyBloxstrapRpcLine("[BloxstrapRPC] {\"command\":\"SetRichPresence\",\"data\":null}", keep));
-    assert(!tuxblox::applyBloxstrapRpcLine("[BloxstrapRPC] {\"command\":\"SetLaunchData\",\"data\":{\"data\":\"x\"}}", keep));
+    assert(!tuxblox::applyBloxstrapRpcLine("[BloxstrapRPC] {\"command\":\"NotACommand\",\"data\":{\"details\":\"x\"}}", keep));
+    assert(!tuxblox::applyBloxstrapRpcLine("[BloxstrapRPC] {\"command\":\"SetLaunchData\",\"data\":{\"data\":5}}", keep));
     assert(!tuxblox::applyBloxstrapRpcLine("[BloxstrapRPC] not json at all", keep));
     assert(!tuxblox::applyBloxstrapRpcLine("[BloxstrapRPC] {\"command\":\"SetRichPresence\"}", keep));
     assert(!tuxblox::applyBloxstrapRpcLine(
@@ -132,6 +133,30 @@ int main() {
         "[BloxstrapRPC] {\"command\":\"SetRichPresence\",\"data\":{\"state\":\"a\\nb\\tc\"}}", clamped));
     assert(clamped.state.value.find('\n') == std::string::npos);
     assert(clamped.state.value.find('\t') == std::string::npos);
+
+    // The protocol's other command, which is what feeds the join link.
+    tuxblox::RpcOverride launch;
+    assert(tuxblox::applyBloxstrapRpcLine(
+        "[FLog::Output] [BloxstrapRPC] {\"command\":\"SetLaunchData\",\"data\":{\"data\":\"room=7\"}}", launch));
+    assert(launch.launchData == "room=7");
+
+    // Roblox will not carry more than 200 bytes of it, so neither will we.
+    assert(tuxblox::applyBloxstrapRpcLine(
+        "[BloxstrapRPC] {\"command\":\"SetLaunchData\",\"data\":{\"data\":\"" + std::string(400, 'd') + "\"}}", launch));
+    assert(launch.launchData.size() == 200);
+
+    // A blank one drops it, as the protocol's erase rule says.
+    assert(tuxblox::applyBloxstrapRpcLine(
+        "[BloxstrapRPC] {\"command\":\"SetLaunchData\",\"data\":{\"data\":\"\"}}", launch));
+    assert(launch.launchData.empty());
+
+    // And it never disturbs what the presence itself is showing.
+    tuxblox::RpcOverride both;
+    assert(tuxblox::applyBloxstrapRpcLine(
+        "[BloxstrapRPC] {\"command\":\"SetRichPresence\",\"data\":{\"details\":\"Floor 3\"}}", both));
+    assert(tuxblox::applyBloxstrapRpcLine(
+        "[BloxstrapRPC] {\"command\":\"SetLaunchData\",\"data\":{\"data\":\"x\"}}", both));
+    assert(both.details.value == "Floor 3" && both.launchData == "x");
 
     printf("bloxstrap_rpc: all tests passed\n");
     return 0;

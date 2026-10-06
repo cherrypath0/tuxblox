@@ -16,27 +16,20 @@
 
 #include "roblox_place_info.h"
 #include "json.hpp"
-#include "ca_bundle.h"
+#include "roblox_http.h"
 
 #include <algorithm>
 #include <cctype>
 
-#include <curl/curl.h>
 
 namespace tuxblox {
 
 namespace {
 
 // Long enough for a slow connection, short enough that presence is not held up when Roblox does not answer.
-const long RequestTimeoutSeconds = 6;
 
 // Discord truncates in its own way, and a wall of text in a status line helps nobody.
 const size_t MaxNameLength = 128;
-
-size_t writeToString(char *pData, size_t size, size_t count, void *pUser) {
-    static_cast<std::string *>(pUser)->append(pData, size * count);
-    return size * count;
-}
 
 std::string trimmed(const std::string& text) {
     const auto notSpace = [](unsigned char c) { return std::isspace(c) == 0; };
@@ -56,6 +49,33 @@ std::string placeDetailsUrl(const std::string& placeId) {
         return std::string();
     }
     return "https://economy.roblox.com/v2/assets/" + placeId + "/details";
+}
+
+std::string placeJoinUrl(const std::string& placeId, const std::string& jobId,
+                         const std::string& launchData) {
+    if (placeDetailsUrl(placeId).empty() || jobId.empty()) {
+        return std::string();
+    }
+    std::string url = "https://www.roblox.com/games/start?placeId=" + placeId +
+                      "&gameInstanceId=" + jobId;
+    if (launchData.empty()) {
+        return url;
+    }
+
+    url += "&launchData=";
+    for (const unsigned char c : launchData) {
+        const bool plain = (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') ||
+                           (c >= 'a' && c <= 'z') || c == '-' || c == '_' || c == '.' || c == '~';
+        if (plain) {
+            url.push_back(static_cast<char>(c));
+            continue;
+        }
+        static const char hex[] = "0123456789ABCDEF";
+        url.push_back('%');
+        url.push_back(hex[c >> 4]);
+        url.push_back(hex[c & 0x0f]);
+    }
+    return url;
 }
 
 std::string placeGameUrl(const std::string& placeId) {
@@ -119,51 +139,20 @@ std::string placeNameFromJson(const std::string& body) {
 
 namespace {
 
-std::string httpGet(const std::string& url) {
-    if (url.empty()) {
-        return std::string();
-    }
-
-    CURL *pCurl = curl_easy_init();
-    if (pCurl == nullptr) {
-        return std::string();
-    }
-    tuxblox::applyCaBundle(pCurl);
-
-    std::string body;
-    curl_easy_setopt(pCurl, CURLOPT_URL, url.c_str());
-    curl_easy_setopt(pCurl, CURLOPT_USERAGENT, "TuxBlox-Client/1.0");
-    curl_easy_setopt(pCurl, CURLOPT_WRITEFUNCTION, writeToString);
-    curl_easy_setopt(pCurl, CURLOPT_WRITEDATA, &body);
-    curl_easy_setopt(pCurl, CURLOPT_FOLLOWLOCATION, 1L);
-    curl_easy_setopt(pCurl, CURLOPT_TIMEOUT, RequestTimeoutSeconds);
-    curl_easy_setopt(pCurl, CURLOPT_CONNECTTIMEOUT, RequestTimeoutSeconds);
-    curl_easy_setopt(pCurl, CURLOPT_NOSIGNAL, 1L);
-
-    const CURLcode code = curl_easy_perform(pCurl);
-    long status = 0;
-    curl_easy_getinfo(pCurl, CURLINFO_RESPONSE_CODE, &status);
-    curl_easy_cleanup(pCurl);
-
-    if (code != CURLE_OK || status != 200) {
-        return std::string();
-    }
-    return body;
-}
 
 } // namespace
 
 std::string fetchPlaceName(const std::string& placeId) {
-    return placeNameFromJson(httpGet(placeDetailsUrl(placeId)));
+    return placeNameFromJson(httpGet(placeDetailsUrl(placeId), 6));
 }
 
 std::string fetchPlaceIconUrl(const std::string& placeId) {
-    return placeIconUrlFromJson(httpGet(placeIconsUrl(placeId)));
+    return placeIconUrlFromJson(httpGet(placeIconsUrl(placeId), 6));
 }
 
 std::string fetchThumbnailImageUrl(const std::string& lookupUrl) {
     // Every thumbnail Roblox serves is described the same way, so the place icon's reader answers for an asset too.
-    return placeIconUrlFromJson(httpGet(lookupUrl));
+    return placeIconUrlFromJson(httpGet(lookupUrl, 6));
 }
 
 } // namespace tuxblox

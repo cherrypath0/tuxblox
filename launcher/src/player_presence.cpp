@@ -72,6 +72,35 @@ std::string placeIdFromJoinLine(const std::string& line) {
     return id;
 }
 
+std::string jobIdFromJoinLine(const std::string& line) {
+    const std::size_t at = line.find("Joining game ");
+    if (at == std::string::npos) {
+        return std::string();
+    }
+    std::size_t start = at + 13;
+    // The Player quotes it and Studio's Team Create line does not.
+    if (start < line.size() && line[start] == '\'') {
+        start++;
+    }
+    // Every one Roblox writes is a plain 36-character id, and anything else is refused rather than put in a link.
+    const std::size_t JobIdLength = 36;
+    if (start + JobIdLength > line.size()) {
+        return std::string();
+    }
+    const std::string id = line.substr(start, JobIdLength);
+    for (std::size_t i = 0; i < JobIdLength; i++) {
+        const char c = id[i];
+        const bool dash = i == 8 || i == 13 || i == 18 || i == 23;
+        if (dash != (c == '-')) {
+            return std::string();
+        }
+        if (!dash && !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))) {
+            return std::string();
+        }
+    }
+    return id;
+}
+
 std::string serverAddressFromLine(const std::string& line) {
     if (firstChannel(line) != "[FLog::Network]") {
         return std::string();
@@ -103,7 +132,9 @@ void PlayerPresenceReader::consumeLine(const std::string& line) {
             activity_.placeId = placeId;
             activity_.placeName.clear();
             activity_.placeIconUrl.clear();
+            activity_.creatorLine.clear();
         }
+        activity_.jobId = jobIdFromJoinLine(line);
         // A teleport is already on its way somewhere, so the join it causes must not read as a fresh one.
         if (activity_.kind != PresenceKind::Teleporting) {
             activity_.kind = PresenceKind::Joining;
@@ -127,6 +158,8 @@ void PlayerPresenceReader::consumeLine(const std::string& line) {
             activity_.placeId.clear();
             activity_.placeName.clear();
             activity_.placeIconUrl.clear();
+            activity_.creatorLine.clear();
+            activity_.jobId.clear();
             serverAddress_.clear();
             // What the game asked to be shown belonged to that game, and must not follow the user into the next one.
             activity_.rpc = RpcOverride{};

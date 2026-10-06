@@ -103,6 +103,27 @@ int main() {
     sticky.consumeLine("[FLog::SessionTransitionFSM] Entered play session.");
     assert(sticky.activity().rpc.details.value.empty());
 
+    // The server's own id is on the join line, and a join link cannot be built without it.
+    assert(tuxblox::jobIdFromJoinLine(
+               "[FLog::Output] ! Joining game '5ccfb412-0b58-47d2-b91e-321903eceb59' place 6516141723 at 10.34.6.31") ==
+           "5ccfb412-0b58-47d2-b91e-321903eceb59");
+    // Studio's Team Create line carries it unquoted.
+    assert(tuxblox::jobIdFromJoinLine(
+               "[FLog::TeamCreateJoinPayload] Joining game ef503732-2947-40fb-b5a4-e54976786c83 place 74031704898313 at [10.190.0.134]:62012") ==
+           "ef503732-2947-40fb-b5a4-e54976786c83");
+    // Anything that is not one is refused, so nothing a game writes can reach the link.
+    assert(tuxblox::jobIdFromJoinLine("[FLog::Output] ! Joining game 'x' place 1 at 1.1.1.1").empty());
+    assert(tuxblox::jobIdFromJoinLine(
+               "[FLog::Output] ! Joining game '../../evil&x=1&y=2&z=333333333333' place 1 at 1.1.1.1").empty());
+    assert(tuxblox::jobIdFromJoinLine("nothing here").empty());
+
+    tuxblox::PlayerPresenceReader ids;
+    ids.consumeLine("[FLog::Output] ! Joining game '5ccfb412-0b58-47d2-b91e-321903eceb59' place 6516141723 at 10.34.6.31");
+    assert(ids.activity().jobId == "5ccfb412-0b58-47d2-b91e-321903eceb59");
+    // Leaving must not leave a stale server behind for a join link to point at.
+    ids.consumeLine("[FLog::SessionTransitionFSM] Tearing down");
+    assert(ids.activity().jobId.empty());
+
     printf("player_presence: all tests passed\n");
     return 0;
 }

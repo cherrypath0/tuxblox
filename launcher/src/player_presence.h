@@ -36,6 +36,9 @@ private:
 // The place id out of a join line, or empty when it names no published place.
 std::string placeIdFromJoinLine(const std::string& line);
 
+// The server's own id out of a join line, or empty unless it is the shape Roblox writes. Checked rather than trusted, because it goes into a link somebody clicks.
+std::string jobIdFromJoinLine(const std::string& line);
+
 // The address out of a serverId line, or empty if the line is not one.
 std::string serverAddressFromLine(const std::string& line);
 

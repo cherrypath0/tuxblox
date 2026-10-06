@@ -84,5 +84,18 @@ int main() {
     assert(tuxblox::placeGameUrl("../../evil").empty());
     assert(tuxblox::placeGameUrl("").empty());
 
+    // The join link somebody clicks to land in the same server.
+    assert(tuxblox::placeJoinUrl("6516141723", "5ccfb412-0b58-47d2-b91e-321903eceb59", "") ==
+           "https://www.roblox.com/games/start?placeId=6516141723&gameInstanceId=5ccfb412-0b58-47d2-b91e-321903eceb59");
+    assert(tuxblox::placeJoinUrl("6516141723", "5ccfb412-0b58-47d2-b91e-321903eceb59", "room=7") ==
+           "https://www.roblox.com/games/start?placeId=6516141723&gameInstanceId=5ccfb412-0b58-47d2-b91e-321903eceb59&launchData=room%3D7");
+    // What a game sets is carried, but it cannot add parameters of its own.
+    assert(tuxblox::placeJoinUrl("1", "5ccfb412-0b58-47d2-b91e-321903eceb59", "a b&c=d") ==
+           "https://www.roblox.com/games/start?placeId=1&gameInstanceId=5ccfb412-0b58-47d2-b91e-321903eceb59&launchData=a%20b%26c%3Dd");
+    // Without a place or a server there is nothing to join.
+    assert(tuxblox::placeJoinUrl("", "5ccfb412-0b58-47d2-b91e-321903eceb59", "").empty());
+    assert(tuxblox::placeJoinUrl("6516141723", "", "").empty());
+    assert(tuxblox::placeJoinUrl("not-a-place", "5ccfb412-0b58-47d2-b91e-321903eceb59", "").empty());
+
     return 0;
 }

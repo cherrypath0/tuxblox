@@ -141,8 +141,11 @@ bool applyBloxstrapRpcLine(const std::string& line, RpcOverride& into) {
     if (message.is_discarded() || !message.is_object()) {
         return false;
     }
-    if (!message.contains("command") || !message["command"].is_string() ||
-        message["command"].get<std::string>() != "SetRichPresence") {
+    if (!message.contains("command") || !message["command"].is_string()) {
+        return false;
+    }
+    const std::string command = message["command"].get<std::string>();
+    if (command != "SetRichPresence" && command != "SetLaunchData") {
         return false;
     }
     if (!message.contains("data") || !message["data"].is_object()) {
@@ -150,6 +153,18 @@ bool applyBloxstrapRpcLine(const std::string& line, RpcOverride& into) {
     }
 
     const nlohmann::json& data = message["data"];
+
+    // The other command carries what a join link should hand to the experience, and touches nothing that is on show.
+    if (command == "SetLaunchData") {
+        if (!data.contains("data") || !data["data"].is_string()) {
+            return false;
+        }
+        into.launchData = data["data"].get<std::string>();
+        if (into.launchData.size() > MaxLaunchDataLength) {
+            into.launchData.resize(MaxLaunchDataLength);
+        }
+        return true;
+    }
     readField(data, "details", into.details);
     readField(data, "state", into.state);
     if (data.contains("timeStart") && data["timeStart"].is_number()) {

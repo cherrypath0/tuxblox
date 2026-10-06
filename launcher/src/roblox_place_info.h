@@ -40,6 +40,10 @@ std::string fetchPlaceIconUrl(const std::string& placeId);
 // Reads a thumbnail description Roblox serves and answers with the picture itself. Empty on any failure, and empty for an empty address, so a caller can hand it one it did not manage to build.
 std::string fetchThumbnailImageUrl(const std::string& lookupUrl);
 
+// The link that puts somebody in the same server as the player. Empty without both a place and a server, and what a game asked to be carried is escaped so it cannot add parameters of its own.
+std::string placeJoinUrl(const std::string& placeId, const std::string& jobId,
+                         const std::string& launchData);
+
 // The place's page on roblox.com. Empty for anything that is not a plain number.
 std::string placeGameUrl(const std::string& placeId);
 

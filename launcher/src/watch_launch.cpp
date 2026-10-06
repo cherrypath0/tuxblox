@@ -23,6 +23,7 @@
 #include "roblox_autoupdate.h"
 #include "roblox_log_capture.h"
 #include "roblox_place_info.h"
+#include "roblox_universe.h"
 #include "settings.h"
 #include "bloxstrap_rpc.h"
 #include "player_presence.h"
@@ -47,9 +48,11 @@ namespace tuxblox {
 struct ResolvedPlace {
     std::string name;
     std::string iconUrl;
+    // How the experience's author is credited. Asked for only on a Player session, because Studio shows the place a builder opened rather than an experience somebody is playing.
+    std::string creatorLine;
 };
 
-// The Discord application this presence is published under, registered at discord.com/developers. Public, not a secret. Empty would mean nothing is ever sent.
+// The Discord applications this presence is published under, registered at discord.com/developers. Public, not secrets. Each program reports under its own, because Discord shows the application's own name above the activity and nothing sent over the socket can change it.
 // An asset a game named is described by Roblox, not served by it, so it has to be looked up before Discord can be given anything -- once per asset, failures remembered too, or a game rotating its art would mean a request every tick.
 void resolveRpcImage(RpcImage& image, std::map<std::string, std::string>& resolved) {
     if (image.assetId.state != RpcField::State::Set || image.assetId.value.empty()) {
@@ -65,7 +68,8 @@ void resolveRpcImage(RpcImage& image, std::map<std::string, std::string>& resolv
     image.resolvedUrl = known->second;
 }
 
-const char kDiscordApplicationId[] = "1554221498925973584";
+const char kStudioApplicationId[] = "1554221498925973584";
+const char kPlayerApplicationId[] = "1557149187102220362";
 
 int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const std::string& uri,
                        const std::string& currentVersion) {
@@ -131,7 +135,7 @@ int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const 
     ServerRegionWatcher regionWatcher = makeServerRegionWatcher(settings.serverRegionNotify);
     std::string lastServerAddress;
     if (presenceWanted) {
-        discord = std::make_unique<DiscordRpc>(kDiscordApplicationId);
+        discord = std::make_unique<DiscordRpc>(player ? kPlayerApplicationId : kStudioApplicationId);
     }
 
     while (launcher.pollIsRunning(target)) {
@@ -171,16 +175,22 @@ int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const 
             auto known = resolvedPlaces.find(current.placeId);
             if (known == resolvedPlaces.end()) {
                 ResolvedPlace fetched;
-                if (current.placeName.empty()) {
+                // A player knows the experience by its own name and its author, which is a different question from what the place inside it is called.
+                UniverseInfo universe;
+                if (player && fetchUniverseInfo(current.placeId, universe)) {
+                    fetched.name = universe.name;
+                    fetched.creatorLine = creatorLine(universe);
+                } else if (current.placeName.empty()) {
                     fetched.name = fetchPlaceName(current.placeId);
                 }
                 fetched.iconUrl = fetchPlaceIconUrl(current.placeId);
                 known = resolvedPlaces.emplace(current.placeId, fetched).first;
             }
-            if (current.placeName.empty()) {
+            if (!known->second.name.empty()) {
                 current.placeName = known->second.name;
             }
             current.placeIconUrl = known->second.iconUrl;
+            current.creatorLine = known->second.creatorLine;
         }
         // Only a delivered activity counts: recording one Discord threw away would stop this ever trying again.
         resolveRpcImage(current.rpc.largeImage, resolvedAssets);

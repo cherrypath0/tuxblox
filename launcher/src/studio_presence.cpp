@@ -42,6 +42,8 @@ const char StateMarker[] = "Setting StudioGameStateType to StudioGameStateType_"
 const char FallbackMarker[] = "Setting fallback DataModel Standalone";
 // The image uploaded against the Discord application. Discord drops it silently if it is not there, which costs only the artwork.
 const char StudioAssetKey[] = "studio";
+// The Player's own mark, uploaded to the application a Player session reports under.
+const char PlayerAssetKey[] = "robloxplayer";
 
 const char OpenPlaceMarker[] = "[FLog::StudioKeyEvents] open place (identifier = ";
 
@@ -277,31 +279,44 @@ std::string activityJson(const PresenceActivity& activity, std::time_t startedAt
             break;
     }
 
+    const bool studio = activity.kind == PresenceKind::Editing ||
+                        activity.kind == PresenceKind::PlayTesting ||
+                        activity.kind == PresenceKind::Home || activity.kind == PresenceKind::None;
+
     nlohmann::json activityObject;
-    activityObject["details"] = phrase;
+    // A Player session reads the way players already know it from other launchers: the experience's own name, and its author beneath rather than a sentence about it.
+    activityObject["details"] = studio || !named ? phrase : activity.placeName;
+    if (!studio && !activity.creatorLine.empty()) {
+        activityObject["state"] = activity.creatorLine;
+    }
     activityObject["timestamps"]["start"] = startedAt;
 
     // Only a published place has a page to send anyone to.
     const std::string gameUrl = placeGameUrl(activity.placeId);
-    if (!gameUrl.empty()) {
+    if (!gameUrl.empty() && studio) {
         activityObject["buttons"] = nlohmann::json::array(
             {{{"label", "Open Game Link"}, {"url", gameUrl}}});
+    } else if (!gameUrl.empty()) {
+        activityObject["buttons"] = nlohmann::json::array();
+        // Joining needs a server as well as a place, and a player on the home screen is in neither.
+        const std::string joinUrl = placeJoinUrl(activity.placeId, activity.jobId, activity.rpc.launchData);
+        if (!joinUrl.empty()) {
+            activityObject["buttons"].push_back({{"label", "Join server"}, {"url", joinUrl}});
+        }
+        activityObject["buttons"].push_back({{"label", "See game page"}, {"url", gameUrl}});
     }
 
-    // The place's own icon when there is one, with the Studio mark badged onto it; otherwise the Studio mark alone. A Player session wears no Studio mark, so with no icon to show it carries no art and Discord falls back to the application's own.
-    const bool studio = activity.kind == PresenceKind::Editing ||
-                        activity.kind == PresenceKind::PlayTesting ||
-                        activity.kind == PresenceKind::Home || activity.kind == PresenceKind::None;
+    // The place's own icon when there is one, with the program's mark badged onto it; otherwise the mark alone.
+    const char *pMark = studio ? StudioAssetKey : PlayerAssetKey;
+    const char *pMarkText = studio ? "Roblox Studio" : "Roblox";
     if (named && !activity.placeIconUrl.empty()) {
         activityObject["assets"]["large_image"] = activity.placeIconUrl;
         activityObject["assets"]["large_text"] = activity.placeName;
-        if (studio) {
-            activityObject["assets"]["small_image"] = StudioAssetKey;
-            activityObject["assets"]["small_text"] = "Roblox Studio";
-        }
-    } else if (studio) {
-        activityObject["assets"]["large_image"] = StudioAssetKey;
-        activityObject["assets"]["large_text"] = "Roblox Studio";
+        activityObject["assets"]["small_image"] = pMark;
+        activityObject["assets"]["small_text"] = pMarkText;
+    } else {
+        activityObject["assets"]["large_image"] = pMark;
+        activityObject["assets"]["large_text"] = pMarkText;
     }
 
     // Applied last, so a game's own text and art sit on top of what TuxBlox worked out, and a reset leaves what is already above untouched.

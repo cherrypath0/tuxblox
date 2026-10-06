@@ -31,8 +31,9 @@ int main() {
     playing.kind = tuxblox::PresenceKind::Playing;
     playing.placeName = "Doors";
     playing.placeId = "6516141723";
+    // The experience's own name, bare, which is what a player recognises.
     nlohmann::json out = nlohmann::json::parse(tuxblox::activityJson(playing, t));
-    assert(out["details"].get<std::string>() == "Playing Doors");
+    assert(out["details"].get<std::string>() == "Doors");
     assert(out["timestamps"]["start"].get<std::time_t>() == t);
 
     tuxblox::PresenceActivity joining;
@@ -50,17 +51,19 @@ int main() {
     out = nlohmann::json::parse(tuxblox::activityJson(inApp, t));
     assert(out["details"].get<std::string>() == "In the Roblox app");
 
-    // The Player must not wear the Studio mark. With no place icon known there is no image at all, so Discord falls back to the application's own.
+    // The Player wears its own mark, never Studio's, and shows it when no place icon is known.
     out = nlohmann::json::parse(tuxblox::activityJson(playing, t));
-    assert(!out.contains("assets") || !out["assets"].contains("large_image"));
+    assert(out["assets"]["large_image"].get<std::string>() == "robloxplayer");
+    assert(out["assets"]["large_text"].get<std::string>() == "Roblox");
 
-    // With the place's icon known, that is what is shown, and still no Studio badge beside it.
+    // With the place's icon known, that is what is shown, with the Player's mark badged onto it.
     tuxblox::PresenceActivity playingIcon = playing;
     playingIcon.placeIconUrl = "https://tr.rbxcdn.com/abc/512/512/Image/Png";
     out = nlohmann::json::parse(tuxblox::activityJson(playingIcon, t));
     assert(out["assets"]["large_image"].get<std::string>() == playingIcon.placeIconUrl);
     assert(out["assets"]["large_text"].get<std::string>() == "Doors");
-    assert(!out["assets"].contains("small_image"));
+    assert(out["assets"]["small_image"].get<std::string>() == "robloxplayer");
+    assert(out["assets"]["small_text"].get<std::string>() == "Roblox");
 
     // Studio's own art is untouched.
     tuxblox::PresenceActivity editing;
@@ -76,6 +79,64 @@ int main() {
     assert(out["assets"]["large_image"].get<std::string>() == editingIcon.placeIconUrl);
     assert(out["assets"]["small_image"].get<std::string>() == "studio");
 
+    // The Player's presence reads the way players already know it: the experience's own name, its
+    // author beneath, its icon, and the two buttons.
+    tuxblox::PresenceActivity full;
+    full.kind = tuxblox::PresenceKind::Playing;
+    full.placeName = "DOORS";
+    full.placeId = "6516141723";
+    full.jobId = "5ccfb412-0b58-47d2-b91e-321903eceb59";
+    full.creatorLine = "by LSPLASH";
+    full.placeIconUrl = "https://tr.rbxcdn.com/abc/512/512/Image/Png";
+    out = nlohmann::json::parse(tuxblox::activityJson(full, t));
+    assert(out["details"].get<std::string>() == "DOORS");
+    assert(out["state"].get<std::string>() == "by LSPLASH");
+    assert(out["assets"]["large_image"].get<std::string>() == full.placeIconUrl);
+    assert(out["assets"]["large_text"].get<std::string>() == "DOORS");
+    assert(out["assets"]["small_image"].get<std::string>() == "robloxplayer");
+    assert(out["assets"]["small_text"].get<std::string>() == "Roblox");
+    assert(out["buttons"].size() == 2);
+    assert(out["buttons"][0]["label"].get<std::string>() == "Join server");
+    assert(out["buttons"][0]["url"].get<std::string>() ==
+           "https://www.roblox.com/games/start?placeId=6516141723&gameInstanceId=5ccfb412-0b58-47d2-b91e-321903eceb59");
+    assert(out["buttons"][1]["label"].get<std::string>() == "See game page");
+    assert(out["buttons"][1]["url"].get<std::string>() == "https://www.roblox.com/games/6516141723");
+
+    // What the game wants carried into that link rides along on it.
+    tuxblox::PresenceActivity withLaunch = full;
+    withLaunch.rpc.launchData = "room=7";
+    out = nlohmann::json::parse(tuxblox::activityJson(withLaunch, t));
+    assert(out["buttons"][0]["url"].get<std::string>().find("&launchData=room%3D7") != std::string::npos);
+
+    // Without a server there is nothing to join, so only the game page is offered.
+    tuxblox::PresenceActivity noServer = full;
+    noServer.jobId.clear();
+    out = nlohmann::json::parse(tuxblox::activityJson(noServer, t));
+    assert(out["buttons"].size() == 1);
+    assert(out["buttons"][0]["label"].get<std::string>() == "See game page");
+
+    // With no icon known the Player's own mark stands in, and nothing is badged onto it.
+    tuxblox::PresenceActivity noIcon = full;
+    noIcon.placeIconUrl.clear();
+    out = nlohmann::json::parse(tuxblox::activityJson(noIcon, t));
+    assert(out["assets"]["large_image"].get<std::string>() == "robloxplayer");
+    assert(out["assets"]["large_text"].get<std::string>() == "Roblox");
+    assert(!out["assets"].contains("small_image"));
+    // The name still reaches the details line even with no art to hang it on.
+    assert(out["details"].get<std::string>() == "DOORS");
+
+    // Studio's own presence is untouched by any of it, buttons included.
+    tuxblox::PresenceActivity studioButtons;
+    studioButtons.kind = tuxblox::PresenceKind::Editing;
+    studioButtons.placeName = "DOORS GAME";
+    studioButtons.placeId = "6516141723";
+    studioButtons.jobId = "5ccfb412-0b58-47d2-b91e-321903eceb59";
+    out = nlohmann::json::parse(tuxblox::activityJson(studioButtons, t));
+    assert(out["details"].get<std::string>() == "Editing DOORS GAME");
+    assert(out["buttons"].size() == 1);
+    assert(out["buttons"][0]["label"].get<std::string>() == "Open Game Link");
+    assert(!out.contains("state"));
+
     // What the game asked for wins over what TuxBlox would have shown.
     tuxblox::PresenceActivity custom = playing;
     custom.rpc.details.state = tuxblox::RpcField::State::Set;
@@ -90,7 +151,7 @@ int main() {
     tuxblox::PresenceActivity reset = custom;
     reset.rpc.details.state = tuxblox::RpcField::State::Reset;
     out = nlohmann::json::parse(tuxblox::activityJson(reset, t));
-    assert(out["details"].get<std::string>() == "Playing Doors");
+    assert(out["details"].get<std::string>() == "Doors");
 
     // A time the game set is what is shown.
     tuxblox::PresenceActivity timed = playing;
@@ -105,7 +166,8 @@ int main() {
     art.rpc.largeImage.hoverText.state = tuxblox::RpcField::State::Set;
     art.rpc.largeImage.hoverText.value = "The Hotel";
     out = nlohmann::json::parse(tuxblox::activityJson(art, t));
-    assert(!out.contains("assets") || !out["assets"].contains("large_image"));
+    // Until it has been looked up, TuxBlox's own mark stays rather than an address Discord cannot load.
+    assert(out["assets"]["large_image"].get<std::string>() == "robloxplayer");
     assert(out["assets"]["large_text"].get<std::string>() == "The Hotel");
 
     art.rpc.largeImage.resolvedUrl = "https://tr.rbxcdn.com/1234/512/512/Image/Png";

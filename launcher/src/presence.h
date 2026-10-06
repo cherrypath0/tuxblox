@@ -55,6 +55,8 @@ struct RpcOverride {
     std::time_t timeEnd = 0;
     RpcImage largeImage;
     RpcImage smallImage;
+    // What the game wants carried into a join link, so somebody arriving lands where the player is rather than at the front door.
+    std::string launchData;
 };
 
 inline bool operator==(const RpcField& a, const RpcField& b) {
@@ -67,7 +69,8 @@ inline bool operator==(const RpcImage& a, const RpcImage& b) {
 
 inline bool operator==(const RpcOverride& a, const RpcOverride& b) {
     return a.details == b.details && a.state == b.state && a.timeStart == b.timeStart &&
-           a.timeEnd == b.timeEnd && a.largeImage == b.largeImage && a.smallImage == b.smallImage;
+           a.timeEnd == b.timeEnd && a.largeImage == b.largeImage &&
+           a.smallImage == b.smallImage && a.launchData == b.launchData;
 }
 
 struct PresenceActivity {
@@ -78,13 +81,18 @@ struct PresenceActivity {
     std::string placeId;
     // The place's own icon, once Roblox has been asked for it. Shown in place of the Studio mark.
     std::string placeIconUrl;
+    // The server itself, which a join link cannot be built without.
+    std::string jobId;
+    // How the experience's author is credited, shown beneath its name the way other launchers do.
+    std::string creatorLine;
     // What the game itself asked to be shown, applied over the above.
     RpcOverride rpc;
 };
 
 inline bool operator==(const PresenceActivity& a, const PresenceActivity& b) {
     return a.kind == b.kind && a.placeName == b.placeName && a.placeId == b.placeId &&
-           a.placeIconUrl == b.placeIconUrl && a.rpc == b.rpc;
+           a.placeIconUrl == b.placeIconUrl && a.jobId == b.jobId &&
+           a.creatorLine == b.creatorLine && a.rpc == b.rpc;
 }
 
 inline bool operator!=(const PresenceActivity& a, const PresenceActivity& b) {
