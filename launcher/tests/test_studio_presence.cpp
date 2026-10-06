@@ -266,7 +266,7 @@ int main() {
 
     // A local playtest reports an address too; deciding it is not worth a lookup is the watcher's job, not the reader's.
     tuxblox::StudioPresenceReader loopback;
-    loopback.consumeLine("[FLog::Network] serverId: 127.0.0.1|49276");
+    loopback.consumeLine("2026-09-16T20:41:38.441Z,33.441986,01ac,7 [FLog::Network] serverId: 127.0.0.1|49276");
     assert(loopback.serverAddress() == "127.0.0.1");
 
     return 0;

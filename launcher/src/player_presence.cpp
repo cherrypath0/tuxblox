@@ -27,8 +27,30 @@ bool contains(const std::string& line, const char *pNeedle) {
     return line.find(pNeedle) != std::string::npos;
 }
 
-// The channel a line was actually written on, which is the first one it names. A game's own output always carries FLog::Output first, so a line that merely quotes another channel's text cannot pass for it.
+// Does this line carry the stamp Roblox puts on every record it writes -- the time, then the uptime, then the thread? A game that prints a newline puts the rest of its text on a line of its own with no stamp, and such a line may claim any channel it likes, so the stamp is what separates Roblox's records from a game's output. Roblox writes a few unstamped lines of its own, such as its terms notice, and those are not records either.
+bool hasRecordStamp(const std::string& line) {
+    // 2026-10-06T20:31:49.889Z,11.889527,00d4,...
+    if (line.size() < 25 || line[4] != '-' || line[7] != '-' || line[10] != 'T' ||
+        line[13] != ':' || line[16] != ':') {
+        return false;
+    }
+    const std::size_t z = line.find("Z,");
+    if (z == std::string::npos || z > 30) {
+        return false;
+    }
+    for (std::size_t i = 0; i < 4; i++) {
+        if (line[i] < '0' || line[i] > '9') {
+            return false;
+        }
+    }
+    return true;
+}
+
+// The channel a line was actually written on, which is the first one its own record names. A game's own output always carries FLog::Output first, so a line that merely quotes another channel's text cannot pass for it.
 std::string firstChannel(const std::string& line) {
+    if (!hasRecordStamp(line)) {
+        return std::string();
+    }
     const std::size_t at = line.find("[FLog::");
     if (at == std::string::npos) {
         return std::string();
