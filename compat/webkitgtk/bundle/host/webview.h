@@ -31,6 +31,7 @@
 #include <gtk/gtk.h>
 #include <webkit/webkit.h>
 #include <stdint.h>
+#include "webview2loader_ipc_protocol.h"
 
 /* Task 7 crash fix, round 15 (original unixlib.c comment): which real X11
  * parent window (if any) nv->window has already been XReparentWindow'd
@@ -121,6 +122,15 @@ struct native_webview
      * webview_create's calloc; webview_create deliberately does NOT show the
      * window, leaving that to the first navigation. */
     gboolean has_navigated;
+
+    /* The last position, size and parent the program asked for while this webview was still hidden,
+     * waiting for its first navigation. Replayed the moment it navigates, because otherwise the
+     * window maps wherever GTK last left it -- a bare box in the corner of the screen, on top of
+     * everything, until something moves the program's window and brings a new sync round. Zero-
+     * initialized by webview_create's calloc, like every other field here. */
+    struct wv2l_rect pending_bounds;
+    uint64_t pending_parent_xid;
+    gboolean have_pending_geometry;
 };
 
 /* Creates a new native window + WebKitWebView pair, undecorated, with the

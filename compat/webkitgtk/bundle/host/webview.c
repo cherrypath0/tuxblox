@@ -706,7 +706,7 @@ static void on_load_changed_diag(WebKitWebView *view, WebKitLoadEvent load_event
     if (nv && !nv->has_navigated)
     {
         nv->has_navigated = TRUE;
-        gtk_widget_set_visible(nv->window, TRUE);
+        geometry_show_navigated(nv);
     }
 }
 

@@ -73,6 +73,9 @@
  * not narrowed or tightened. */
 gboolean geometry_sync(struct native_webview *nv, struct wv2l_rect bounds, gboolean visible, uint64_t parent_xid);
 
+/* Shows a webview's window for the first time, placed and docked -- see the definition. */
+void geometry_show_navigated(struct native_webview *nv);
+
 /* Crash fix -- a second, distinct trigger for the same fatal GDK assertion
  * watchdog.h documents (real, reproduced coredump found during this task's
  * own verification: a normal, single-webview Close()/Release() teardown

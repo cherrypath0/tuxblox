@@ -328,6 +328,23 @@ static gboolean webview_float_mode(void)
     return floating;
 }
 
+/* Shows the window for the first time, once the page has started loading in it. Goes through
+ * geometry_sync rather than showing it directly so the window is positioned and docked into the
+ * program's own window in the same breath, instead of appearing in the corner of the screen and
+ * staying there until the program's window next moves. */
+void geometry_show_navigated(struct native_webview *nv)
+{
+    if (!nv || !nv->window) return;
+
+    if (!nv->have_pending_geometry)
+    {
+        /* Nothing ever said where it goes -- show it anyway, which is all this code could ever do. */
+        gtk_widget_set_visible(nv->window, TRUE);
+        return;
+    }
+    geometry_sync(nv, nv->pending_bounds, TRUE, nv->pending_parent_xid);
+}
+
 gboolean geometry_sync(struct native_webview *nv, struct wv2l_rect bounds, gboolean visible, uint64_t parent_xid)
 {
     GtkNative *native;
@@ -372,6 +389,14 @@ gboolean geometry_sync(struct native_webview *nv, struct wv2l_rect bounds, gbool
     if (!nv->has_navigated)
     {
         gtk_widget_set_visible(nv->window, FALSE);
+        /* Kept rather than dropped: this is where the window is supposed to go, and the first
+         * navigation needs it to place the window before showing it. */
+        if (visible)
+        {
+            nv->pending_bounds = bounds;
+            nv->pending_parent_xid = parent_xid;
+            nv->have_pending_geometry = TRUE;
+        }
         return TRUE;
     }
 
