@@ -26,6 +26,11 @@ enum class PresenceKind {
     Home,
     Editing,
     PlayTesting,
+    // The Player's own states: its app screens, joining a server, in a game, and moving between servers.
+    InApp,
+    Joining,
+    Playing,
+    Teleporting,
 };
 
 // A field a game set through the RPC protocol. Absent means keep whatever was shown before, and Reset means go back to what TuxBlox shows on its own -- the protocol distinguishes the two and so must this.
@@ -73,11 +78,13 @@ struct PresenceActivity {
     std::string placeId;
     // The place's own icon, once Roblox has been asked for it. Shown in place of the Studio mark.
     std::string placeIconUrl;
+    // What the game itself asked to be shown, applied over the above.
+    RpcOverride rpc;
 };
 
 inline bool operator==(const PresenceActivity& a, const PresenceActivity& b) {
     return a.kind == b.kind && a.placeName == b.placeName && a.placeId == b.placeId &&
-           a.placeIconUrl == b.placeIconUrl;
+           a.placeIconUrl == b.placeIconUrl && a.rpc == b.rpc;
 }
 
 inline bool operator!=(const PresenceActivity& a, const PresenceActivity& b) {
@@ -90,6 +97,8 @@ public:
     virtual ~PresenceReader() = default;
     virtual void consumeLine(const std::string& line) = 0;
     virtual PresenceActivity activity() const = 0;
+    // The server this session last connected to, for the region lookup. Empty until one is known, which is also the answer for a reader whose target never reports one.
+    virtual std::string serverAddress() const { return std::string(); }
 };
 
 } // namespace tuxblox

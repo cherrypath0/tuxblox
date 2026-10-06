@@ -258,5 +258,16 @@ int main() {
         assert(home.activity().kind == tuxblox::PresenceKind::Home);
     }
 
+    // Team Create connects to a real server, and its join line is the other form of the same line.
+    tuxblox::StudioPresenceReader server;
+    server.consumeLine("2026-09-19T11:11:24.927Z,11.927903,00ec,6,Info [FLog::TeamCreateJoinPayload] Joining game ef503732-2947-40fb-b5a4-e54976786c83 place 74031704898313 at [10.190.0.134]:62012");
+    server.consumeLine("2026-09-19T11:11:25.206Z,12.206798,00ec,7 [FLog::Network] serverId: 128.116.56.33|51624");
+    assert(server.serverAddress() == "128.116.56.33");
+
+    // A local playtest reports an address too; deciding it is not worth a lookup is the watcher's job, not the reader's.
+    tuxblox::StudioPresenceReader loopback;
+    loopback.consumeLine("[FLog::Network] serverId: 127.0.0.1|49276");
+    assert(loopback.serverAddress() == "127.0.0.1");
+
     return 0;
 }

@@ -108,6 +108,7 @@ add_library(launcher_core STATIC
     src/app.cpp
     src/discord_rpc.cpp
     src/bloxstrap_rpc.cpp
+    src/player_presence.cpp
     src/roblox_place_info.cpp
     src/studio_presence.cpp
     src/install_paths.cpp
