@@ -169,6 +169,46 @@ int main() {
         fs::remove_all(installDir);
     }
 
+    // One log per session: what has been appended is not left behind where it came from.
+    {
+        fs::path installDir = fs::temp_directory_path() / "tuxblox_test_roblox_log_removal";
+        fs::remove_all(installDir);
+        fs::path robloxLogs = fs::path(robloxLogsDir(installDir.string()));
+        fs::create_directories(robloxLogs);
+
+        const std::string name = "0.740_20261006T185941Z_Player_9C018_last.log";
+        const fs::path copied = robloxLogs / name;
+        {
+            std::ofstream out(copied);
+            out << "[FLog::Output] already in our log\n";
+        }
+        const std::time_t written = 1700000000;
+        setMtime(copied, written);
+
+        // Written seconds ago: a session that is still running owns it, so it stays.
+        assert(removeAppendedRobloxLogs(installDir.string(), {name}, written) == 0);
+        assert(fs::exists(copied));
+
+        // Quiet for a minute: nothing is writing it any more, and our log already holds it.
+        assert(removeAppendedRobloxLogs(installDir.string(), {name}, written + 60) == 1);
+        assert(!fs::exists(copied));
+
+        // A name that was never appended, or no longer there, is simply not there to remove.
+        assert(removeAppendedRobloxLogs(installDir.string(), {"nothing_last.log"}, written + 60) == 0);
+        assert(removeAppendedRobloxLogs(installDir.string(), {}, written + 60) == 0);
+
+        // Roblox keeps its crash reports beside its logs, and a directory is never a log to remove.
+        fs::create_directories(robloxLogs / "crashes");
+        {
+            std::ofstream out(robloxLogs / "crashes" / "settings.dat");
+            out << "x";
+        }
+        assert(removeAppendedRobloxLogs(installDir.string(), {"crashes"}, written + 60) == 0);
+        assert(fs::exists(robloxLogs / "crashes" / "settings.dat"));
+
+        fs::remove_all(installDir);
+    }
+
     printf("roblox_log_capture: all tests passed\n");
     return 0;
 }

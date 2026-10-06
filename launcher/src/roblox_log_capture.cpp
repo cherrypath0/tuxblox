@@ -92,4 +92,23 @@ std::vector<std::string> appendRobloxSessionLogs(const std::string& installDir, 
     return appended;
 }
 
+int removeAppendedRobloxLogs(const std::string& installDir, const std::vector<std::string>& appended,
+                             std::time_t now) {
+    // Long enough that a running client's log is never mistaken for a finished one, short enough that an ordinary session leaves nothing behind.
+    const std::time_t QuietSeconds = 10;
+
+    const std::string dir = robloxLogsDir(installDir);
+    int removed = 0;
+    for (const std::string& name : appended) {
+        const fs::path path = fs::path(dir) / name;
+        std::error_code ec;
+        if (!fs::is_regular_file(path, ec)) continue;
+        struct stat st{};
+        if (stat(path.c_str(), &st) != 0) continue;
+        if (now - st.st_mtime < QuietSeconds) continue;
+        if (fs::remove(path, ec)) removed++;
+    }
+    return removed;
+}
+
 } // namespace tuxblox

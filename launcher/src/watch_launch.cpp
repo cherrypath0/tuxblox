@@ -154,7 +154,10 @@ int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const 
 
     auto ev = launcher.takeExitEvent(target);
 
-    appendRobloxSessionLogs(installDir, launchStart, outcome.logPath);
+    // Everything that was copied is in our log now, so the file it came from is not left behind as a second log for the same session.
+    const std::vector<std::string> appendedLogs =
+        appendRobloxSessionLogs(installDir, launchStart, outcome.logPath);
+    removeAppendedRobloxLogs(installDir, appendedLogs, std::time(nullptr));
     exportPrefixShortcuts(installDir, selfExePath());
 
     if (outcome.wasBootstrapInstall && ev && !ev->stopRequested && ev->exitCode == 0) {
