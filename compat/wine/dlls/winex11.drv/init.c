@@ -511,7 +511,16 @@ static void X11DRV_client_surface_present( struct client_surface *client, HDC hd
     }
     else
     {
-        region = get_dc_monitor_region( hwnd, hdc ); /* otherwise use the window region for clipping rules */
+        /* No clip region at all. This is the path for a window whose pixels nothing in Wine paints --
+         * it has no window surface, which is why the branch above did not take it -- so the only
+         * thing inside it that can own a pixel is a real X child window, and the destination's
+         * ClipByChildren already keeps the copy off those. The window's visible region would instead
+         * subtract every child window the program has created, painted or not: Roblox keeps one the
+         * size of its whole client area for an in-app panel and never draws into it, which left the
+         * copy landing in a strip along the edge of the window while the rest kept the last frame
+         * that got through. Windows shows the 3d content straight through a child window that paints
+         * nothing, and so does this. */
+        region = 0;
         if (!NtUserGetClientRect( hwnd, &rect_dst, NtUserGetWinMonitorDpi( hwnd, MDT_WINE_RAW_DPI ) )) goto done;
         NtUserMapWindowPoints( hwnd, toplevel, (POINT *)&rect_dst, 2, NtUserGetWinMonitorDpi( hwnd, MDT_WINE_RAW_DPI ) );
     }
@@ -524,9 +533,44 @@ static void X11DRV_client_surface_present( struct client_surface *client, HDC hd
         release_win_data( data );
     }
 
+    /* ClipByChildren, not IncludeInferiors: a child X window inside this one draws its own content --
+     * the page in an in-app panel is one -- and copying the 3d content across it would paint over
+     * that content every frame. A window whose children are only ever drawn by Wine has no child X
+     * windows at all, so nothing is clipped there and this costs it nothing. */
     if (get_dc_drawable( surface->hdc_dst, &rect ) != window || !EqualRect( &rect, &rect_dst ))
-        set_dc_drawable( surface->hdc_dst, window, &rect_dst, IncludeInferiors );
+        set_dc_drawable( surface->hdc_dst, window, &rect_dst, ClipByChildren );
     if (region) NtGdiExtSelectClipRgn( surface->hdc_dst, region, RGN_COPY );
+
+    /* TUXDIAG (roblox-player branch only): what the copy actually does, every 120th frame. */
+    {
+        static unsigned int count;
+        if (!(count++ % 120))
+        {
+            Window dummy_root;
+            int dummy_x, dummy_y;
+            unsigned int src_w = 0, src_h = 0, dummy_b, dummy_d;
+            RECT box = {0};
+            int type = region ? NtGdiGetRgnBox( region, &box ) : -1;
+
+            HWND child;
+
+            XGetGeometry( gdi_display, surface->window, &dummy_root, &dummy_x, &dummy_y,
+                          &src_w, &src_h, &dummy_b, &dummy_d );
+            WARN( "TUXDIAG present hwnd %p toplevel %p dst %s src_rect %s window %ux%u clip type %d %s\n",
+                  hwnd, toplevel, wine_dbgstr_rect( &rect_dst ), wine_dbgstr_rect( &surface->rect ),
+                  src_w, src_h, type, wine_dbgstr_rect( &box ) );
+            for (child = NtUserGetWindowRelative( toplevel, GW_CHILD ); child;
+                 child = NtUserGetWindowRelative( child, GW_HWNDNEXT ))
+            {
+                RECT child_rect = {0};
+                NtUserGetWindowRect( child, &child_rect, 0 );
+                WARN( "TUXDIAG   child %p style %#x exstyle %#x rect %s visible %u enabled %u\n", child,
+                      (UINT)NtUserGetWindowLongW( child, GWL_STYLE ), (UINT)NtUserGetWindowLongW( child, GWL_EXSTYLE ),
+                      wine_dbgstr_rect( &child_rect ), NtUserIsWindowVisible( child ),
+                      !(NtUserGetWindowLongW( child, GWL_STYLE ) & WS_DISABLED) );
+            }
+        }
+    }
 
     NtGdiStretchBlt( surface->hdc_dst, 0, 0, rect_dst.right - rect_dst.left, rect_dst.bottom - rect_dst.top,
                      surface->hdc_src, 0, 0, surface->rect.right, surface->rect.bottom, SRCCOPY, 0 );
