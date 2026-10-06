@@ -207,3 +207,7 @@ add_test(NAME bloxstrap_rpc COMMAND test_bloxstrap_rpc)
 add_executable(test_player_presence test_player_presence.cpp)
 target_link_libraries(test_player_presence PRIVATE launcher_core)
 add_test(NAME player_presence COMMAND test_player_presence)
+
+add_executable(test_presence_activity_json test_presence_activity_json.cpp)
+target_link_libraries(test_presence_activity_json PRIVATE launcher_core)
+add_test(NAME presence_activity_json COMMAND test_presence_activity_json)

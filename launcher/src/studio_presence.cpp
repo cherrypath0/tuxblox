@@ -16,6 +16,7 @@
 
 #include "studio_presence.h"
 
+#include "bloxstrap_rpc.h"
 #include "player_presence.h"
 #include "json.hpp"
 #include "roblox_place_info.h"
@@ -178,7 +179,7 @@ void SessionLogTail::pump(PresenceReader& reader) {
     pending_.erase(0, start);
 }
 
-std::string findStudioSessionLog(const std::string& installDir, std::time_t sessionStart) {
+std::string findSessionLog(const std::string& installDir, std::time_t sessionStart, bool player) {
     const std::string dir = robloxLogsDir(installDir);
     std::error_code error;
     std::filesystem::directory_iterator entries(dir, error);
@@ -189,7 +190,7 @@ std::string findStudioSessionLog(const std::string& installDir, std::time_t sess
     std::vector<std::pair<std::string, std::time_t>> candidates;
     for (const std::filesystem::directory_entry& entry : entries) {
         const std::string name = entry.path().filename().string();
-        if (name.find("_Studio_") == std::string::npos) {
+        if (name.find(player ? "_Player_" : "_Studio_") == std::string::npos) {
             continue;
         }
         // stat(), not last_write_time(): the file clock's epoch is unspecified in C++17, and this has to compare against a real time_t. Matches how the session log capture already reads these.
@@ -217,6 +218,35 @@ std::string findStudioSessionLog(const std::string& installDir, std::time_t sess
     return dir + "/" + newest;
 }
 
+namespace {
+
+void applyRpcImage(nlohmann::json& activityObject, const std::string& slot, const RpcImage& image) {
+    const std::string key = slot + "_image";
+    const std::string textKey = slot + "_text";
+    // Nothing may have put art there at all, and erasing from a value that was never made throws.
+    if (image.clear) {
+        if (activityObject.contains("assets") && activityObject["assets"].is_object()) {
+            activityObject["assets"].erase(key);
+            activityObject["assets"].erase(textKey);
+        }
+        return;
+    }
+    if (image.reset) {
+        return;
+    }
+    if (image.assetId.state == RpcField::State::Set) {
+        const std::string url = rpcAssetImageUrl(image.assetId.value);
+        if (!url.empty()) {
+            activityObject["assets"][key] = url;
+        }
+    }
+    if (image.hoverText.state == RpcField::State::Set) {
+        activityObject["assets"][textKey] = image.hoverText.value;
+    }
+}
+
+} // namespace
+
 std::string activityJson(const PresenceActivity& activity, std::time_t startedAt) {
     const bool named = !activity.placeName.empty();
     std::string phrase;
@@ -231,6 +261,18 @@ std::string activityJson(const PresenceActivity& activity, std::time_t startedAt
         case PresenceKind::None:
             phrase = "In the home page";
             break;
+        case PresenceKind::Playing:
+            phrase = named ? "Playing " + activity.placeName : "Playing a game";
+            break;
+        case PresenceKind::Joining:
+            phrase = named ? "Joining " + activity.placeName : "Joining a game";
+            break;
+        case PresenceKind::Teleporting:
+            phrase = "Moving to another server";
+            break;
+        case PresenceKind::InApp:
+            phrase = "In the Roblox app";
+            break;
     }
 
     nlohmann::json activityObject;
@@ -244,19 +286,48 @@ std::string activityJson(const PresenceActivity& activity, std::time_t startedAt
             {{{"label", "Open Game Link"}, {"url", gameUrl}}});
     }
 
-    // The place's own icon when there is one, with the Studio mark badged onto it; otherwise the Studio mark alone.
+    // The place's own icon when there is one, with the Studio mark badged onto it; otherwise the Studio mark alone. A Player session wears no Studio mark, so with no icon to show it carries no art and Discord falls back to the application's own.
+    const bool studio = activity.kind == PresenceKind::Editing ||
+                        activity.kind == PresenceKind::PlayTesting ||
+                        activity.kind == PresenceKind::Home || activity.kind == PresenceKind::None;
     if (named && !activity.placeIconUrl.empty()) {
         activityObject["assets"]["large_image"] = activity.placeIconUrl;
         activityObject["assets"]["large_text"] = activity.placeName;
-        activityObject["assets"]["small_image"] = StudioAssetKey;
-        activityObject["assets"]["small_text"] = "Roblox Studio";
-    } else {
+        if (studio) {
+            activityObject["assets"]["small_image"] = StudioAssetKey;
+            activityObject["assets"]["small_text"] = "Roblox Studio";
+        }
+    } else if (studio) {
         activityObject["assets"]["large_image"] = StudioAssetKey;
         activityObject["assets"]["large_text"] = "Roblox Studio";
     }
 
+    // Applied last, so a game's own text and art sit on top of what TuxBlox worked out, and a reset leaves what is already above untouched.
+    if (activity.rpc.details.state == RpcField::State::Set) {
+        activityObject["details"] = activity.rpc.details.value;
+    }
+    if (activity.rpc.state.state == RpcField::State::Set) {
+        activityObject["state"] = activity.rpc.state.value;
+    }
+    if (activity.rpc.timeStart > 0) {
+        activityObject["timestamps"]["start"] = activity.rpc.timeStart;
+    }
+    if (activity.rpc.timeEnd > 0) {
+        activityObject["timestamps"]["end"] = activity.rpc.timeEnd;
+    }
+    applyRpcImage(activityObject, "large", activity.rpc.largeImage);
+    applyRpcImage(activityObject, "small", activity.rpc.smallImage);
+
     // A name Roblox wrote in something other than UTF-8 would otherwise throw, and nothing above this catches it.
     return activityObject.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
+}
+
+std::string findStudioSessionLog(const std::string& installDir, std::time_t sessionStart) {
+    return findSessionLog(installDir, sessionStart, false);
+}
+
+bool rpcAllowsSend(std::time_t lastSentAt, std::time_t now) {
+    return lastSentAt == 0 || now > lastSentAt;
 }
 
 } // namespace tuxblox

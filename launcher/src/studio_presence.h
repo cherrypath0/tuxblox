@@ -54,6 +54,12 @@ private:
 // Studio's own log for this session, or empty if it has not appeared yet.
 std::string findStudioSessionLog(const std::string& installDir, std::time_t sessionStart);
 
+// Roblox's own log for this session, or empty if it has not appeared yet. The two targets differ only in the marker their log names carry.
+std::string findSessionLog(const std::string& installDir, std::time_t sessionStart, bool player);
+
+// At most one update a second, which is the rate the message protocol itself is limited to, so a game that writes every frame cannot flood anything.
+bool rpcAllowsSend(std::time_t lastSentAt, std::time_t now);
+
 // Discord's activity object. The heading above it comes from the Application ID and cannot be set here.
 std::string activityJson(const PresenceActivity& activity, std::time_t startedAt);
 
