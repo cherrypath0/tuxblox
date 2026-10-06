@@ -79,14 +79,47 @@ struct create_controller_ctx
 {
     ICoreWebView2CreateCoreWebView2ControllerCompletedHandler *handler;
     HWND parent_window;
+    HWND dispatch_window; /* owned by the calling thread, so the handler runs there */
+    DWORD caller_tid;
+
+    /* Filled in by the worker, read by the handler call below. */
+    ICoreWebView2Controller *controller;
+    HRESULT hr;
 };
+
+/* Runs on the thread that called CreateCoreWebView2Controller, which is the whole point: a client may
+ * only take ownership of the controller from there, so this is where it gets its chance to. */
+static void create_controller_complete(void *arg)
+{
+    struct create_controller_ctx *ctx = arg;
+    HRESULT invoked;
+    ULONG refs_after = 0;
+
+    invoked = ICoreWebView2CreateCoreWebView2ControllerCompletedHandler_Invoke(ctx->handler, ctx->hr,
+                                                                              ctx->controller);
+    if (ctx->controller)
+    {
+        refs_after = ICoreWebView2Controller_AddRef(ctx->controller) - 1;
+        ICoreWebView2Controller_Release(ctx->controller);
+    }
+    /* refs_after counts our own reference too, so 1 means the client kept none and the Release below
+     * destroys the webview it was just handed. */
+    webview2_debug_log("controller handler: hr=%08lx invoke=%08lx refs_after=%lu caller_tid=%04lx on_tid=%04lx",
+                       (unsigned long)ctx->hr, (unsigned long)invoked, (unsigned long)refs_after,
+                       (unsigned long)ctx->caller_tid, (unsigned long)GetCurrentThreadId());
+
+    ICoreWebView2CreateCoreWebView2ControllerCompletedHandler_Release(ctx->handler);
+    if (ctx->controller) ICoreWebView2Controller_Release(ctx->controller);
+    free(ctx);
+}
 
 static DWORD WINAPI create_controller_worker(void *arg)
 {
     struct create_controller_ctx *ctx = arg;
     struct create_webview_params params = { 0 };
-    ICoreWebView2Controller *controller = NULL;
-    HRESULT hr = E_FAIL;
+
+    ctx->controller = NULL;
+    ctx->hr = E_FAIL;
 
     params.is_message_only = (ctx->parent_window == HWND_MESSAGE); /* Task 2 wires this field in */
     WEBVIEW2LOADER_UNIX_CALL(create_webview, &params);
@@ -94,12 +127,12 @@ static DWORD WINAPI create_controller_worker(void *arg)
      * webview_start_event_pump. Cheap and idempotent after that. */
     if (params.handle) webview_start_event_pump();
     if (params.handle)
-        hr = controller_create(params.handle, ctx->parent_window, &controller);
+        ctx->hr = controller_create(params.handle, ctx->parent_window, &ctx->controller);
 
-    ICoreWebView2CreateCoreWebView2ControllerCompletedHandler_Invoke(ctx->handler, hr, controller);
-    ICoreWebView2CreateCoreWebView2ControllerCompletedHandler_Release(ctx->handler);
-    if (controller) ICoreWebView2Controller_Release(controller);
-    free(ctx);
+    /* Hand the callback to the calling thread. Only if that cannot be done does it run here, which is
+     * the old behaviour and better than never calling the client back at all. */
+    if (!webview2_dispatch_post(ctx->dispatch_window, create_controller_complete, ctx))
+        create_controller_complete(ctx);
     return 0;
 }
 
@@ -116,9 +149,14 @@ static HRESULT WINAPI environment_CreateCoreWebView2Controller(ICoreWebView2Envi
     ICoreWebView2CreateCoreWebView2ControllerCompletedHandler_AddRef(handler);
     ctx->handler = handler;
     ctx->parent_window = parentWindow; /* Plan 3 Task 1: previously discarded */
+    ctx->caller_tid = GetCurrentThreadId();
+    /* Must be created here rather than in the worker: the window belongs to the thread that makes it,
+     * and this thread is the one the client expects its handler on. */
+    ctx->dispatch_window = webview2_dispatch_create();
 
     if (!start_async_work(create_controller_worker, ctx))
     {
+        if (ctx->dispatch_window) DestroyWindow(ctx->dispatch_window);
         ICoreWebView2CreateCoreWebView2ControllerCompletedHandler_Release(handler);
         free(ctx);
         return E_FAIL;
@@ -247,6 +285,16 @@ static HRESULT WINAPI environment8_remove_ProcessInfosChanged(ICoreWebView2Envir
     return S_OK; /* real WebView2 tolerates removing an already-gone/unknown token */
 }
 
+WV2L_NOTIMPL_STUB(env, ICoreWebView2Environment, CreateWebResourceRequest)
+WV2L_NOTIMPL_STUB(env, ICoreWebView2Environment, CreateCoreWebView2CompositionController)
+WV2L_NOTIMPL_STUB(env, ICoreWebView2Environment, CreateCoreWebView2PointerInfo)
+WV2L_NOTIMPL_STUB(env, ICoreWebView2Environment, GetAutomationProviderForWindow)
+WV2L_NOTIMPL_STUB(env, ICoreWebView2Environment, add_BrowserProcessExited)
+WV2L_NOTIMPL_STUB(env, ICoreWebView2Environment, remove_BrowserProcessExited)
+WV2L_NOTIMPL_STUB(env, ICoreWebView2Environment, CreatePrintSettings)
+WV2L_NOTIMPL_STUB(env, ICoreWebView2Environment, get_UserDataFolder)
+WV2L_NOTIMPL_STUB(env, ICoreWebView2Environment, GetProcessInfos)
+
 static const struct webview2_environment8_vtbl_combined environment8_vtbl =
 {
     {
@@ -260,17 +308,17 @@ static const struct webview2_environment8_vtbl_combined environment8_vtbl =
         environment_remove_NewBrowserVersionAvailable,
     },
     {
-        (void *)webview2_stub_e_notimpl, /* CreateWebResourceRequest */
-        (void *)webview2_stub_e_notimpl, /* CreateCoreWebView2CompositionController */
-        (void *)webview2_stub_e_notimpl, /* CreateCoreWebView2PointerInfo */
-        (void *)webview2_stub_e_notimpl, /* GetAutomationProviderForWindow */
-        (void *)webview2_stub_e_notimpl, /* add_BrowserProcessExited */
-        (void *)webview2_stub_e_notimpl, /* remove_BrowserProcessExited */
-        (void *)webview2_stub_e_notimpl, /* CreatePrintSettings */
-        (void *)webview2_stub_e_notimpl, /* get_UserDataFolder */
+        (void *)env_notimpl_CreateWebResourceRequest,
+        (void *)env_notimpl_CreateCoreWebView2CompositionController,
+        (void *)env_notimpl_CreateCoreWebView2PointerInfo,
+        (void *)env_notimpl_GetAutomationProviderForWindow,
+        (void *)env_notimpl_add_BrowserProcessExited,
+        (void *)env_notimpl_remove_BrowserProcessExited,
+        (void *)env_notimpl_CreatePrintSettings,
+        (void *)env_notimpl_get_UserDataFolder,
         environment8_add_ProcessInfosChanged,
         environment8_remove_ProcessInfosChanged,
-        (void *)webview2_stub_e_notimpl, /* GetProcessInfos */
+        (void *)env_notimpl_GetProcessInfos,
     },
 };
 
@@ -303,6 +351,7 @@ static HRESULT WINAPI environment_QueryInterface(ICoreWebView2Environment *iface
      * 3/... to probe runtime capability before doing anything else with
      * it -- rejecting anything not explicitly handled above is correct. */
     WARN("no interface for %s\n", debugstr_guid(riid));
+    webview2_debug_log("%s refused %s", __func__, debugstr_guid(riid));
     *ppv = NULL;
     return E_NOINTERFACE;
 }

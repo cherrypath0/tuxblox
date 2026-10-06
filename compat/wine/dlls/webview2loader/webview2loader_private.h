@@ -317,6 +317,22 @@ typedef struct ICoreWebView2NavigationStartingEventArgsVtbl
 } ICoreWebView2NavigationStartingEventArgsVtbl;
 struct ICoreWebView2NavigationStartingEventArgs { const ICoreWebView2NavigationStartingEventArgsVtbl *lpVtbl; };
 
+/* Raised when the page asks to close itself. Real WebView2 passes no args object, so `args` is only
+ * ever NULL here -- declared as IUnknown* to keep the slot the right shape. */
+typedef struct ICoreWebView2WindowCloseRequestedEventHandler ICoreWebView2WindowCloseRequestedEventHandler;
+typedef struct ICoreWebView2WindowCloseRequestedEventHandlerVtbl
+{
+    HRESULT (WINAPI *QueryInterface)(ICoreWebView2WindowCloseRequestedEventHandler *This, REFIID riid, void **ppv);
+    ULONG   (WINAPI *AddRef)(ICoreWebView2WindowCloseRequestedEventHandler *This);
+    ULONG   (WINAPI *Release)(ICoreWebView2WindowCloseRequestedEventHandler *This);
+    HRESULT (WINAPI *Invoke)(ICoreWebView2WindowCloseRequestedEventHandler *This, ICoreWebView2 *sender,
+                              IUnknown *args);
+} ICoreWebView2WindowCloseRequestedEventHandlerVtbl;
+struct ICoreWebView2WindowCloseRequestedEventHandler { const ICoreWebView2WindowCloseRequestedEventHandlerVtbl *lpVtbl; };
+
+/* Defined in webview.c; called by the event pump when the helper reports the page asked to close. */
+void webview_fire_window_close_requested(ICoreWebView2 *iface);
+
 typedef struct ICoreWebView2NavigationStartingEventHandlerVtbl
 {
     HRESULT (WINAPI *QueryInterface)(ICoreWebView2NavigationStartingEventHandler *This, REFIID riid, void **ppv);
@@ -761,6 +777,29 @@ void window_hook_untrack(DWORD tid, HWND hwnd, window_sync_callback callback, vo
  * vtable slot, so the mismatched declared signature is never observed. */
 HRESULT WINAPI webview2_stub_e_notimpl(void *iface, ...);
 
+/* Defined in main.c; the PE half's only route to the launcher's stderr. */
+void webview2_debug_log(const char *fmt, ...);
+
+/* Moves a completion handler onto the thread that asked for the work, where WebView2 promises it runs.
+ * webview2_dispatch_create must be called on that thread; _post hands the callback over, and returns
+ * FALSE if it could not, leaving the caller to run it inline. Both are defined in main.c. */
+typedef void (*webview2_dispatch_func)(void *ctx);
+HWND webview2_dispatch_create(void);
+BOOL webview2_dispatch_post(HWND hwnd, webview2_dispatch_func fn, void *ctx);
+
+/* Gives an unimplemented vtable slot its own function, so a refusal names the method rather than
+ * only reporting that something unimplemented was called. Reported once per slot. */
+#define WV2L_NOTIMPL_STUB(prefix, iface_name, name)                                  \
+    static HRESULT WINAPI prefix##_notimpl_##name(void *iface, ...)                  \
+    {                                                                                \
+        static LONG reported;                                                        \
+        (void)iface;                                                                 \
+        if (!InterlockedExchange(&reported, 1))                                       \
+            webview2_debug_log(#iface_name "::" #name " is NOT IMPLEMENTED"          \
+                               " -- returned E_NOTIMPL to the client");              \
+        return E_NOTIMPL;                                                            \
+    }
+
 /* Task 8: ICoreWebView2_2 / ICoreWebView2CookieManager.
  *
  * ICoreWebView2_2's vtable is a strict, identically-signatured 61-entry
@@ -889,6 +928,32 @@ struct webview2_2_vtbl_combined
     ICoreWebView2Vtbl base;
     webview2_2_extension_vtbl ext;
 };
+
+/* ICoreWebView2_22's vtable: the 61 base entries, then ICoreWebView2_2's 7, then 57 more that this
+ * module does not implement -- 125 slots in the order Microsoft's own WebView2.h lays them out, which
+ * is what makes the slots a client already uses still resolve to the same functions.
+ *
+ * The Roblox Player asks for this interface inside its controller-completed handler, and on being
+ * refused it returns E_NOINTERFACE and never navigates -- which is why its webview came up correctly
+ * sized and positioned but blank. It wants AddWebResourceRequestedFilterWithRequestSourceKinds, so it
+ * intercepts resource requests rather than relying on the user agent it sets.
+ *
+ * The 57 are kept as opaque pointers on purpose: modelling 57 signatures this module never calls
+ * would be 57 chances to get one wrong, and only the slot ORDER has to be right. Each one is a named
+ * stub that reports itself, so the first a client actually needs will say so by name. */
+typedef struct
+{
+    void *slot[57];
+} webview2_22_extension_vtbl;
+
+struct webview2_22_vtbl_combined
+{
+    ICoreWebView2Vtbl base;
+    webview2_2_extension_vtbl ext2;
+    webview2_22_extension_vtbl ext22;
+};
+
+DEFINE_GUID(IID_ICoreWebView2_22, 0xdb75dfc7, 0xa857, 0x4632, 0xa3, 0x98, 0x69, 0x69, 0xdd, 0xe2, 0x6c, 0x0a);
 
 /* Constructs an ICoreWebView2CookieManager (refcount 1) bound to the given
  * webview (see webview2_get_CookieManager in webview.c). Final-review fix

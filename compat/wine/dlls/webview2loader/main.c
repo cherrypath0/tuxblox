@@ -39,6 +39,20 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(webview2loader);
 
+/* Hands a line to the unix half, which is the only side of this module whose output reaches the launcher's stderr. */
+void webview2_debug_log(const char *fmt, ...)
+{
+    struct debug_log_params params;
+    char text[512];
+    va_list args;
+
+    va_start(args, fmt);
+    vsnprintf(text, sizeof(text), fmt, args);
+    va_end(args);
+    params.text = text;
+    WEBVIEW2LOADER_UNIX_CALL(debug_log, &params);
+}
+
 HINSTANCE webview2loader_instance;
 
 BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID reserved)
@@ -165,6 +179,20 @@ static DWORD WINAPI event_pump_proc(void *arg)
             ICoreWebView2_Release(webview);
             break;
         }
+        case WEBVIEW2LOADER_EVENT_WINDOW_CLOSE_REQUESTED:
+        {
+            ICoreWebView2 *webview = webview_find_by_handle(params->handle);
+            if (!webview)
+            {
+                TRACE("WindowCloseRequested for an unknown/closed handle -- dropping\n");
+                break;
+            }
+            /* Invoked here rather than handed to a worker: unlike WebMessageReceived this carries no
+             * reply the helper is waiting on, so a handler calling back in cannot deadlock the pump. */
+            webview_fire_window_close_requested(webview);
+            ICoreWebView2_Release(webview);
+            break;
+        }
         case WEBVIEW2LOADER_EVENT_WEB_MESSAGE:
         {
             /* Handed to a worker, NOT invoked here.
@@ -227,6 +255,83 @@ BOOL start_async_work(LPTHREAD_START_ROUTINE proc, void *ctx)
     return TRUE;
 }
 
+/* --- Running a completion handler on the thread that asked for the work ---
+ *
+ * WebView2 is single-threaded-apartment: a client creates it on a UI thread with a message pump and
+ * every callback is delivered back on that same thread. Clients rely on that. A handler invoked
+ * anywhere else is handed an object it cannot take ownership of from there, so it returns without
+ * retaining it -- and the controller we just built dies on the next Release, which is how the Roblox
+ * Player ended up with a webview that was created and destroyed in the same breath.
+ *
+ * The work itself still happens on a worker thread, because creating a webview is slow and the real
+ * API is asynchronous too. Only the final callback is moved: the calling thread gets a message-only
+ * window, and the worker posts to it, so the client's own message pump runs the handler. */
+#define WV2L_WM_DISPATCH (WM_APP + 0)
+
+struct dispatch_call
+{
+    webview2_dispatch_func fn;
+    void *ctx;
+};
+
+static LRESULT CALLBACK dispatch_wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
+{
+    if (msg == WV2L_WM_DISPATCH)
+    {
+        struct dispatch_call *call = (struct dispatch_call *)lp;
+
+        call->fn(call->ctx);
+        free(call);
+        /* The window exists for exactly one callback, and this runs on the thread that owns it. */
+        DestroyWindow(hwnd);
+        return 0;
+    }
+    return DefWindowProcW(hwnd, msg, wp, lp);
+}
+
+static const WCHAR dispatch_class_name[] = L"TuxBloxWebView2Dispatch";
+
+HWND webview2_dispatch_create(void)
+{
+    static LONG registered;
+
+    if (InterlockedCompareExchange(&registered, 1, 0) == 0)
+    {
+        WNDCLASSEXW cls = { sizeof(cls) };
+
+        cls.lpfnWndProc = dispatch_wndproc;
+        cls.hInstance = webview2loader_instance;
+        cls.lpszClassName = dispatch_class_name;
+        if (!RegisterClassExW(&cls))
+        {
+            WARN("could not register the dispatch window class -- completion handlers will run on "
+                 "the worker thread instead\n");
+            InterlockedExchange(&registered, 0); /* let a later attempt retry */
+            return NULL;
+        }
+    }
+    /* Belongs to whichever thread calls this, which is the point -- its messages run there. */
+    return CreateWindowExW(0, dispatch_class_name, NULL, 0, 0, 0, 0, 0,
+                           HWND_MESSAGE, NULL, webview2loader_instance, NULL);
+}
+
+BOOL webview2_dispatch_post(HWND hwnd, webview2_dispatch_func fn, void *ctx)
+{
+    struct dispatch_call *call;
+
+    if (!hwnd) return FALSE;
+    if (!(call = malloc(sizeof(*call)))) return FALSE;
+    call->fn = fn;
+    call->ctx = ctx;
+    if (PostMessageW(hwnd, WV2L_WM_DISPATCH, 0, (LPARAM)call)) return TRUE;
+
+    /* The owning thread is gone or has no queue left; the caller runs the handler itself instead. */
+    WARN("could not post to the dispatch window -- running the completion handler inline\n");
+    free(call);
+    DestroyWindow(hwnd);
+    return FALSE;
+}
+
 /* Not exported. Called from CreateCoreWebView2EnvironmentWithOptions's
  * worker thread below (and still directly reachable for the unix-side
  * dlopen/GTK-thread tests that predate that wiring). */
@@ -240,23 +345,37 @@ BOOL webview2loader_unix_init(void)
 struct create_environment_ctx
 {
     ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler *handler;
+    HWND dispatch_window; /* owned by the calling thread, so the handler runs there */
+
+    /* Filled in by the worker, read by the handler call below. */
+    ICoreWebView2Environment *env;
+    HRESULT hr;
 };
+
+/* Runs on the thread that called CreateCoreWebView2EnvironmentWithOptions, for the same reason
+ * create_controller_complete does: a client can only take the environment from there. */
+static void create_environment_complete(void *arg)
+{
+    struct create_environment_ctx *ctx = arg;
+
+    ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler_Invoke(ctx->handler, ctx->hr, ctx->env);
+    ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler_Release(ctx->handler);
+    if (ctx->env) ICoreWebView2Environment_Release(ctx->env);
+    free(ctx);
+}
 
 static DWORD WINAPI create_environment_worker(void *arg)
 {
     struct create_environment_ctx *ctx = arg;
-    ICoreWebView2Environment *env = NULL;
-    HRESULT hr;
 
+    ctx->env = NULL;
     if (!webview2loader_unix_init())
-        hr = E_FAIL;
+        ctx->hr = E_FAIL;
     else
-        hr = environment_create(&env);
+        ctx->hr = environment_create(&ctx->env);
 
-    ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler_Invoke(ctx->handler, hr, env);
-    ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler_Release(ctx->handler);
-    if (env) ICoreWebView2Environment_Release(env);
-    free(ctx);
+    if (!webview2_dispatch_post(ctx->dispatch_window, create_environment_complete, ctx))
+        create_environment_complete(ctx);
     return 0;
 }
 
@@ -274,9 +393,12 @@ HRESULT WINAPI CreateCoreWebView2EnvironmentWithOptions(PCWSTR browserExecutable
 
     ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler_AddRef(handler);
     ctx->handler = handler;
+    /* Created on this thread on purpose -- see webview2_dispatch_create. */
+    ctx->dispatch_window = webview2_dispatch_create();
 
     if (!start_async_work(create_environment_worker, ctx))
     {
+        if (ctx->dispatch_window) DestroyWindow(ctx->dispatch_window);
         ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler_Release(handler);
         free(ctx);
         return E_FAIL;
@@ -400,5 +522,7 @@ HRESULT WINAPI CompareBrowserVersions(PCWSTR version1, PCWSTR version2, int *res
 
 HRESULT WINAPI webview2_stub_e_notimpl(void *iface, ...)
 {
+    /* Every unimplemented method lands here, so this says whether a client is walking into one. */
+    webview2_debug_log("an unimplemented method was called on %p, returned E_NOTIMPL", iface);
     return E_NOTIMPL;
 }

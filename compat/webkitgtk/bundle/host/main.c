@@ -565,6 +565,31 @@ static gboolean on_ipc_readable(gint fd, GIOCondition condition, gpointer user_d
         if (ipc_write_full(fd, &p, sizeof(p)) < 0) { g_main_loop_quit(g_loop); return G_SOURCE_REMOVE; }
         return G_SOURCE_CONTINUE;
     }
+    case WV2L_OP_MOVE_FOCUS:
+    {
+        struct wv2l_move_focus_params p;
+        struct native_webview *nv;
+        if (ipc_read_full(fd, &p, sizeof(p)) < 0) { g_main_loop_quit(g_loop); return G_SOURCE_REMOVE; }
+        nv = webview_lookup(p.handle);
+        /* Two halves, and the page needs both: the web view has to be the focus widget inside its own
+         * window -- it, rather than the window, is what the keystrokes are for -- and the X11 keyboard
+         * focus has to move to that window, or every key keeps going to the program it sits in. */
+        p.is_success = 0;
+        if (nv && nv->view)
+        {
+            gboolean took, focused;
+
+            gtk_widget_grab_focus(GTK_WIDGET(nv->view));
+            took = gtk_widget_is_focus(GTK_WIDGET(nv->view)) || gtk_widget_has_focus(GTK_WIDGET(nv->view));
+            focused = geometry_focus(nv);
+            p.is_success = took ? 1 : 0;
+            fprintf(stderr, "webview2loader-host: MoveFocus on nv=%p -- web view %s the focus inside its "
+                            "window, X11 keyboard focus %s\n", (void *)nv, took ? "is" : "is NOT",
+                    focused ? "moved to it" : "NOT moved");
+        }
+        if (ipc_write_full(fd, &p, sizeof(p)) < 0) { g_main_loop_quit(g_loop); return G_SOURCE_REMOVE; }
+        return G_SOURCE_CONTINUE;
+    }
     case WV2L_OP_SYNC_WINDOW_GEOMETRY:
     {
         struct wv2l_sync_window_geometry_params p;

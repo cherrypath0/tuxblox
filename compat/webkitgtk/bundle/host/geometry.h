@@ -73,6 +73,9 @@
  * not narrowed or tightened. */
 gboolean geometry_sync(struct native_webview *nv, struct wv2l_rect bounds, gboolean visible, uint64_t parent_xid);
 
+/* Shows a webview's window for the first time, placed and docked -- see the definition. */
+void geometry_show_navigated(struct native_webview *nv);
+
 /* Crash fix -- a second, distinct trigger for the same fatal GDK assertion
  * watchdog.h documents (real, reproduced coredump found during this task's
  * own verification: a normal, single-webview Close()/Release() teardown
@@ -97,6 +100,10 @@ gboolean geometry_unreparent(struct native_webview *nv);
  * Returns FALSE for a stale/unregistered nv (NULL) or if no GdkSurface
  * exists yet for the window. */
 gboolean geometry_get(struct native_webview *nv, struct wv2l_rect *out);
+
+/* Hands the X11 keyboard focus to the page's window -- see the definition for why GTK's own focus is
+ * not enough on its own. */
+gboolean geometry_focus(struct native_webview *nv);
 
 /* Task 7 crash fix, round 17/18 (original unixlib.c comment): a real,
  * reproducible crash -- XReparentWindow (round 15) against a stale/invalid

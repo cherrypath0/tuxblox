@@ -104,6 +104,7 @@
 #include "navigate.h"
 #include "ipc.h"
 #include "errorpage.h"
+#include "geometry.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -231,7 +232,7 @@ void navigate_and_wait(struct native_webview *nv, const char *uri_utf8, gboolean
     if (!nv->has_navigated)
     {
         nv->has_navigated = TRUE;
-        gtk_widget_set_visible(nv->window, TRUE);
+        geometry_show_navigated(nv);
     }
 
     ctx.handler_id = g_signal_connect_data(nv->view, "load-changed", (GCallback)on_load_changed, &ctx, NULL, 0);

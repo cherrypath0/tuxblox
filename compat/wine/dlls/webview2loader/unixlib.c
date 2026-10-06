@@ -996,6 +996,9 @@ static BOOL ipc_call_locked(enum wv2l_opcode op, void *req_resp, size_t size)
     uint32_t wire_op = (uint32_t)op;
     BOOL ok;
 
+    /* Logged before the write so a request that never comes back still names itself. */
+    WARN("opcode %u -> helper\n", (unsigned)op);
+
     ok = g_helper_fd >= 0
         && ipc_write_full(g_helper_fd, &wire_op, sizeof(wire_op)) == (ssize_t)sizeof(wire_op)
         && ipc_write_full(g_helper_fd, req_resp, size) == (ssize_t)size
@@ -1158,6 +1161,9 @@ static NTSTATUS unix_create_webview_impl(void *args)
     struct create_webview_params *params = args;
     struct wv2l_create_webview_params wire = { .is_message_only = params->is_message_only };
     UINT64 tagged = 0;
+
+    /* A message-only webview is never meant to be seen, so this decides whether an invisible window is the bug or the design. */
+    WARN("creating webview, is_message_only=%d\n", params->is_message_only);
 
     if (!ipc_call_create(&wire, &tagged))
     {
@@ -1351,6 +1357,18 @@ static NTSTATUS unix_wait_event_impl(void *args)
 
     switch (wire_type)
     {
+    case WV2L_EV_WINDOW_CLOSE_REQUESTED:
+    {
+        struct wv2l_ev_window_close_requested ev;
+
+        if (ipc_read_full(fd, &ev, sizeof(ev)) != (ssize_t)sizeof(ev))
+            return STATUS_NOT_SUPPORTED;
+        params->type = WEBVIEW2LOADER_EVENT_WINDOW_CLOSE_REQUESTED;
+        pthread_mutex_lock(&g_ipc_mutex);
+        params->handle = handle_tag_locked(ev.handle);
+        pthread_mutex_unlock(&g_ipc_mutex);
+        return STATUS_SUCCESS;
+    }
     case WV2L_EV_WEB_MESSAGE:
     {
         /* Header then exactly message_len UTF-16 units -- see
@@ -1695,6 +1713,32 @@ static NTSTATUS unix_execute_script_impl(void *args)
     return status;
 }
 
+/* Gives the page keyboard focus, which is what a client asks for when its own window takes focus. */
+static NTSTATUS unix_move_focus_impl(void *args)
+{
+    struct move_focus_params *params = args;
+    struct wv2l_move_focus_params wire = { .handle = params->handle };
+
+    params->is_success = FALSE;
+    if (!params->handle) return STATUS_INVALID_HANDLE;
+    if (!ipc_call_handle(WV2L_OP_MOVE_FOCUS, &wire, sizeof(wire), &wire.handle))
+    {
+        WARN("ipc_call failed -- helper not running, failing MoveFocus\n");
+        return STATUS_NOT_SUPPORTED;
+    }
+    params->is_success = wire.is_success;
+    return STATUS_SUCCESS;
+}
+
+/* Carries a line out of the PE half, whose own debug output never reaches the launcher's stderr. */
+static NTSTATUS unix_debug_log_impl(void *args)
+{
+    struct debug_log_params *params = args;
+
+    if (params->text) WARN("PE: %s\n", params->text);
+    return STATUS_SUCCESS;
+}
+
 const unixlib_entry_t __wine_unix_call_funcs[] =
 {
     unix_init_impl,
@@ -1715,4 +1759,6 @@ const unixlib_entry_t __wine_unix_call_funcs[] =
     unix_set_user_agent_impl,
     unix_apply_settings_impl,
     unix_execute_script_impl,
+    unix_debug_log_impl,
+    unix_move_focus_impl,
 };

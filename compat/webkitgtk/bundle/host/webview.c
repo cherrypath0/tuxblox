@@ -61,6 +61,7 @@
 #include "navigate.h"
 #include "watchdog.h"
 #include "geometry.h"
+#include "ipc.h"
 #include <gdk/x11/gdkx.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -128,6 +129,26 @@ static gboolean on_close_request(GtkWindow *window, void *user_data)
                   * which would otherwise destroy the window itself. */
 }
 
+/* The page asked to close itself. Pass that on and nothing more: whether anything actually closes is
+ * the host program's decision, exactly as it is on Windows, so the webview is deliberately left
+ * alone here. */
+static void webview_report_close_requested(struct native_webview *nv, const char *how)
+{
+    struct wv2l_ev_window_close_requested ev;
+
+    if (!nv) return;
+    ev.handle = (uint64_t)(uintptr_t)nv;
+    fprintf(stderr, "webview2loader-host: page asked to close nv=%p (%s) -- %s\n", (void *)nv, how,
+            ipc_send_event(WV2L_EV_WINDOW_CLOSE_REQUESTED, &ev, sizeof(ev)) == 0
+                ? "WindowCloseRequested sent" : "no event channel, nothing was told");
+}
+
+static void on_webview_close(WebKitWebView *view, void *user_data)
+{
+    (void)view;
+    webview_report_close_requested(user_data, "the engine closed the page");
+}
+
 /* --- F-08 spike: does the page actually use window.chrome.webview? ---
  *
  * See webview_create's own call-site comment for why this exists. Diagnostic
@@ -165,6 +186,18 @@ static const char *const WV2_MESSAGE_SHIM_JS =
     "      var i = listeners.indexOf(f); if (i >= 0) listeners.splice(i, 1);\n"
     "    }\n"
     "  };\n"
+    /* Reports the close instead of letting the engine handle it. WebKit refuses window.close() on a
+     * page it did not open by script once that page has navigated more than once, and real WebView2
+     * never refuses it: it tells the program, which decides. Reporting it here is what makes the two
+     * agree, and it is why nothing closes from this side. */
+    /* Only the page itself, never something embedded in it: the shim is injected into every frame,
+     * and a browser lets only the top-level window close itself -- an iframe calling close() does
+     * nothing. Without this a page embedded by Roblox, from anywhere, could take Roblox's panel down. */
+    "  if (window.top === window) {\n"
+    "    window.close = function() {\n"
+    "      send('close', '');\n"
+    "    };\n"
+    "  }\n"
     /* Host -> page delivery, called by webview_post_web_message below.
      * Non-enumerable and underscore-named because it is our transport, not
      * part of the surface a page should discover. */
@@ -211,6 +244,16 @@ static void on_script_message(WebKitUserContentManager *manager, JSCValue *value
     payload_v = jsc_value_object_get_property(value, "payload");
     if (kind_v) kind = jsc_value_to_string(kind_v);
     if (payload_v) payload = jsc_value_to_string(payload_v);
+
+    if (kind && !strcmp(kind, "close"))
+    {
+        webview_report_close_requested(nv, "the page called window.close");
+        g_free(kind);
+        g_free(payload);
+        if (kind_v) g_object_unref(kind_v);
+        if (payload_v) g_object_unref(payload_v);
+        return;
+    }
 
     if (payload)
     {
@@ -663,7 +706,7 @@ static void on_load_changed_diag(WebKitWebView *view, WebKitLoadEvent load_event
     if (nv && !nv->has_navigated)
     {
         nv->has_navigated = TRUE;
-        gtk_widget_set_visible(nv->window, TRUE);
+        geometry_show_navigated(nv);
     }
 }
 
@@ -742,6 +785,10 @@ struct native_webview *webview_create(int is_message_only)
     g_signal_connect_data(nv->window, "close-request", (GCallback)on_close_request,
                            NULL, NULL, 0);
     nv->view = WEBKIT_WEB_VIEW(webkit_web_view_new());
+    /* A page that calls window.close() -- which is what the close button on Roblox's own pages does --
+     * makes WebKit raise this. Nobody listened before, so the host program was never told and left its
+     * panel open forever with nothing drawing in it. */
+    g_signal_connect_data(nv->view, "close", (GCallback)on_webview_close, nv, NULL, 0);
     {
         /* Before anything navigates -- see WV2L_DEFAULT_USER_AGENT's comment. */
         WebKitSettings *st = webkit_web_view_get_settings(nv->view);

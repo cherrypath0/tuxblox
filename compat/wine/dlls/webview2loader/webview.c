@@ -86,6 +86,15 @@ struct nav_starting_listener
     UINT64 token;
 };
 
+/* Its own list for the same reason nav_starting_listener has one: these handlers take different
+ * argument interfaces, so one shared list cannot be walked without calling some through the wrong one. */
+struct close_listener
+{
+    struct close_listener *next;
+    ICoreWebView2WindowCloseRequestedEventHandler *handler;
+    UINT64 token;
+};
+
 struct webview_impl
 {
     ICoreWebView2 ICoreWebView2_iface;
@@ -94,6 +103,7 @@ struct webview_impl
     LPWSTR source;
     struct nav_listener *listeners;
     struct nav_starting_listener *nav_starting_listeners;
+    struct close_listener *close_listeners;
     struct wm_listener *wm_listeners;
     struct generic_listener *generic_listeners;
     UINT64 next_token;
@@ -220,6 +230,7 @@ static HRESULT WINAPI args_QueryInterface(ICoreWebView2NavigationCompletedEventA
 {
     if (IsEqualGUID(riid, &IID_IUnknown) || IsEqualGUID(riid, &IID_ICoreWebView2NavigationCompletedEventArgs))
     { *ppv = iface; ICoreWebView2NavigationCompletedEventArgs_AddRef(iface); return S_OK; }
+    webview2_debug_log("%s refused %s", __func__, debugstr_guid(riid));
     *ppv = NULL;
     return E_NOINTERFACE;
 }
@@ -257,6 +268,7 @@ static HRESULT WINAPI nsargs_QueryInterface(ICoreWebView2NavigationStartingEvent
 {
     if (IsEqualGUID(riid, &IID_IUnknown))
     { *ppv = iface; ICoreWebView2NavigationStartingEventArgs_AddRef(iface); return S_OK; }
+    webview2_debug_log("%s refused %s", __func__, debugstr_guid(riid));
     *ppv = NULL;
     return E_NOINTERFACE;
 }
@@ -361,6 +373,82 @@ static const ICoreWebView2NavigationStartingEventArgsVtbl nsargs_vtbl =
  * the lock races remove_NavigationStarting freeing a node. AddRef'ing each
  * handler under the lock keeps it alive even if its node is unlinked the
  * instant the lock drops. */
+static HRESULT WINAPI webview_add_WindowCloseRequested(ICoreWebView2 *iface, void *eventHandler_raw, void *token_raw)
+{
+    struct webview_impl *wv = impl_from_ICoreWebView2(iface);
+    ICoreWebView2WindowCloseRequestedEventHandler *handler = eventHandler_raw;
+    UINT64 *token = token_raw;
+    struct close_listener *l;
+
+    if (!handler || !token) return E_POINTER;
+    if (!(l = malloc(sizeof(*l)))) return E_OUTOFMEMORY;
+
+    handler->lpVtbl->AddRef(handler);
+    l->handler = handler;
+
+    EnterCriticalSection(&wv->cs);
+    l->token = ++wv->next_token;
+    l->next = wv->close_listeners;
+    wv->close_listeners = l;
+    LeaveCriticalSection(&wv->cs);
+
+    *token = l->token;
+    return S_OK;
+}
+
+static HRESULT WINAPI webview_remove_WindowCloseRequested(ICoreWebView2 *iface, void *token_raw)
+{
+    struct webview_impl *wv = impl_from_ICoreWebView2(iface);
+    UINT64 token = (UINT64)(ULONG_PTR)token_raw;
+    struct close_listener **cur;
+
+    EnterCriticalSection(&wv->cs);
+    for (cur = &wv->close_listeners; *cur; cur = &(*cur)->next)
+    {
+        if ((*cur)->token == token)
+        {
+            struct close_listener *dead = *cur;
+            *cur = dead->next;
+            LeaveCriticalSection(&wv->cs);
+            dead->handler->lpVtbl->Release(dead->handler);
+            free(dead);
+            return S_OK;
+        }
+    }
+    LeaveCriticalSection(&wv->cs);
+    return S_OK; /* real WebView2 tolerates removing an already-gone token */
+}
+
+/* Same snapshot-then-invoke discipline as webview_fire_navigation_starting, for the same reason. */
+void webview_fire_window_close_requested(ICoreWebView2 *iface)
+{
+    struct webview_impl *wv = impl_from_ICoreWebView2(iface);
+    ICoreWebView2WindowCloseRequestedEventHandler **snapshot = NULL;
+    struct close_listener *l;
+    SIZE_T count = 0, i;
+
+    EnterCriticalSection(&wv->cs);
+    for (l = wv->close_listeners; l; l = l->next) count++;
+    if (count && (snapshot = malloc(count * sizeof(*snapshot))))
+    {
+        for (l = wv->close_listeners, i = 0; l; l = l->next, i++)
+        {
+            l->handler->lpVtbl->AddRef(l->handler);
+            snapshot[i] = l->handler;
+        }
+    }
+    else count = 0;
+    LeaveCriticalSection(&wv->cs);
+
+    for (i = 0; i < count; i++)
+    {
+        /* Real WebView2 passes no args object for this event. */
+        snapshot[i]->lpVtbl->Invoke(snapshot[i], &wv->ICoreWebView2_iface, NULL);
+        snapshot[i]->lpVtbl->Release(snapshot[i]);
+    }
+    free(snapshot);
+}
+
 void webview_fire_navigation_starting(ICoreWebView2 *iface, const WCHAR *uri, BOOL is_redirect)
 {
     struct webview_impl *wv = impl_from_ICoreWebView2(iface);
@@ -417,6 +505,7 @@ static HRESULT WINAPI wmargs_QueryInterface(ICoreWebView2WebMessageReceivedEvent
 {
     if (IsEqualGUID(riid, &IID_IUnknown))
     { *ppv = iface; ICoreWebView2WebMessageReceivedEventArgs_AddRef(iface); return S_OK; }
+    webview2_debug_log("%s refused %s", __func__, debugstr_guid(riid));
     *ppv = NULL;
     return E_NOINTERFACE;
 }
@@ -567,6 +656,10 @@ static ULONG WINAPI webview_Release(ICoreWebView2 *iface)
         webview_untrack(iface);
         while (l) { struct nav_listener *next = l->next; ICoreWebView2NavigationCompletedEventHandler_Release(l->handler); free(l); l = next; }
         while (nsl) { struct nav_starting_listener *next = nsl->next; ICoreWebView2NavigationStartingEventHandler_Release(nsl->handler); free(nsl); nsl = next; }
+        {
+            struct close_listener *cl = wv->close_listeners;
+            while (cl) { struct close_listener *next = cl->next; cl->handler->lpVtbl->Release(cl->handler); free(cl); cl = next; }
+        }
         while (wml) { struct wm_listener *next = wml->next; wml->handler->lpVtbl->Release(wml->handler); free(wml); wml = next; }
         while (gl) { struct generic_listener *next = gl->next; gl->handler->lpVtbl->Release(gl->handler); free(gl); gl = next; }
         if (wv->settings) ICoreWebView2Settings_Release(wv->settings);
@@ -674,6 +767,7 @@ static HRESULT WINAPI webview_Navigate(ICoreWebView2 *iface, LPCWSTR uri)
     SIZE_T len;
 
     TRACE("(%p, %s)\n", iface, debugstr_w(uri));
+    webview2_debug_log("Navigate to %s", debugstr_w(uri));
     if (!uri) return E_POINTER;
     if (!(ctx = malloc(sizeof(*ctx)))) return E_OUTOFMEMORY;
 
@@ -701,6 +795,8 @@ static HRESULT WINAPI webview_NavigateToString(ICoreWebView2 *iface, LPCWSTR htm
      * URI navigation, not an inline-HTML one); left E_NOTIMPL rather than
      * silently mis-implemented via load_uri("data:...") which real pages
      * can behave differently under (different origin semantics). */
+    webview2_debug_log("NavigateToString called (%d chars) -- NOT IMPLEMENTED, nothing will load",
+                       htmlContent ? lstrlenW(htmlContent) : -1);
     return E_NOTIMPL;
 }
 
@@ -1289,6 +1385,7 @@ static HRESULT WINAPI settings_QueryInterface(ICoreWebView2Settings *iface, REFI
     if (IsEqualGUID(riid, &IID_IUnknown) || IsEqualGUID(riid, &IID_ICoreWebView2Settings) ||
         IsEqualGUID(riid, &IID_ICoreWebView2Settings2))
     { *ppv = iface; ICoreWebView2Settings_AddRef(iface); return S_OK; }
+    webview2_debug_log("%s refused %s", __func__, debugstr_guid(riid));
     *ppv = NULL;
     return E_NOINTERFACE;
 }
@@ -1497,35 +1594,25 @@ static HRESULT WINAPI webview_get_Settings(ICoreWebView2 *iface, void **settings
  * for the same reason: these slots have mutually incompatible real signatures
  * and every entry is cast through (void *) anyway, so no stub can declare the
  * true one. Extra arguments are ignored. */
-#define WV2L_DEFINE_NOTIMPL_STUB(name)                                        \
-    static HRESULT WINAPI webview_notimpl_##name(void *iface, ...)            \
-    {                                                                         \
-        static LONG reported;                                                 \
-        (void)iface;                                                          \
-        if (!InterlockedExchange(&reported, 1))                               \
-            MESSAGE("webview2loader: ICoreWebView2::" #name " is not "        \
-                    "implemented -- returning E_NOTIMPL to Studio\n");        \
-        return E_NOTIMPL;                                                     \
-    }
 
-WV2L_DEFINE_NOTIMPL_STUB(CapturePreview)
-WV2L_DEFINE_NOTIMPL_STUB(Reload)
-WV2L_DEFINE_NOTIMPL_STUB(CallDevToolsProtocolMethod)
-WV2L_DEFINE_NOTIMPL_STUB(get_BrowserProcessId)
-WV2L_DEFINE_NOTIMPL_STUB(get_CanGoBack)
-WV2L_DEFINE_NOTIMPL_STUB(get_CanGoForward)
-WV2L_DEFINE_NOTIMPL_STUB(GoBack)
-WV2L_DEFINE_NOTIMPL_STUB(GoForward)
-WV2L_DEFINE_NOTIMPL_STUB(GetDevToolsProtocolEventReceiver)
-WV2L_DEFINE_NOTIMPL_STUB(Stop)
-WV2L_DEFINE_NOTIMPL_STUB(get_DocumentTitle)
-WV2L_DEFINE_NOTIMPL_STUB(AddHostObjectToScript)
-WV2L_DEFINE_NOTIMPL_STUB(RemoveHostObjectFromScript)
-WV2L_DEFINE_NOTIMPL_STUB(OpenDevToolsWindow)
-WV2L_DEFINE_NOTIMPL_STUB(get_ContainsFullScreenElement)
-WV2L_DEFINE_NOTIMPL_STUB(AddWebResourceRequestedFilter)
-WV2L_DEFINE_NOTIMPL_STUB(RemoveWebResourceRequestedFilter)
-WV2L_DEFINE_NOTIMPL_STUB(NavigateWithWebResourceRequest)
+WV2L_NOTIMPL_STUB(webview, ICoreWebView2, CapturePreview)
+WV2L_NOTIMPL_STUB(webview, ICoreWebView2, Reload)
+WV2L_NOTIMPL_STUB(webview, ICoreWebView2, CallDevToolsProtocolMethod)
+WV2L_NOTIMPL_STUB(webview, ICoreWebView2, get_BrowserProcessId)
+WV2L_NOTIMPL_STUB(webview, ICoreWebView2, get_CanGoBack)
+WV2L_NOTIMPL_STUB(webview, ICoreWebView2, get_CanGoForward)
+WV2L_NOTIMPL_STUB(webview, ICoreWebView2, GoBack)
+WV2L_NOTIMPL_STUB(webview, ICoreWebView2, GoForward)
+WV2L_NOTIMPL_STUB(webview, ICoreWebView2, GetDevToolsProtocolEventReceiver)
+WV2L_NOTIMPL_STUB(webview, ICoreWebView2, Stop)
+WV2L_NOTIMPL_STUB(webview, ICoreWebView2, get_DocumentTitle)
+WV2L_NOTIMPL_STUB(webview, ICoreWebView2, AddHostObjectToScript)
+WV2L_NOTIMPL_STUB(webview, ICoreWebView2, RemoveHostObjectFromScript)
+WV2L_NOTIMPL_STUB(webview, ICoreWebView2, OpenDevToolsWindow)
+WV2L_NOTIMPL_STUB(webview, ICoreWebView2, get_ContainsFullScreenElement)
+WV2L_NOTIMPL_STUB(webview, ICoreWebView2, AddWebResourceRequestedFilter)
+WV2L_NOTIMPL_STUB(webview, ICoreWebView2, RemoveWebResourceRequestedFilter)
+WV2L_NOTIMPL_STUB(webview, ICoreWebView2, NavigateWithWebResourceRequest)
 
 static const ICoreWebView2Vtbl webview_vtbl =
 {
@@ -1588,8 +1675,8 @@ static const ICoreWebView2Vtbl webview_vtbl =
     webview_generic_remove_event, /* remove_WebResourceRequested */
     (void *)webview_notimpl_AddWebResourceRequestedFilter, /* AddWebResourceRequestedFilter */
     (void *)webview_notimpl_RemoveWebResourceRequestedFilter, /* RemoveWebResourceRequestedFilter */
-    webview_generic_add_event, /* add_WindowCloseRequested */
-    webview_generic_remove_event, /* remove_WindowCloseRequested */
+    webview_add_WindowCloseRequested,
+    webview_remove_WindowCloseRequested,
 };
 
 HRESULT webview_create(UINT64 native_handle, ICoreWebView2 **out)
@@ -1705,8 +1792,8 @@ static const struct webview2_2_vtbl_combined webview2_2_vtbl =
         webview_generic_remove_event, /* remove_WebResourceRequested */
         (void *)webview_notimpl_AddWebResourceRequestedFilter, /* AddWebResourceRequestedFilter */
         (void *)webview_notimpl_RemoveWebResourceRequestedFilter, /* RemoveWebResourceRequestedFilter */
-        webview_generic_add_event, /* add_WindowCloseRequested */
-        webview_generic_remove_event, /* remove_WindowCloseRequested */
+        webview_add_WindowCloseRequested,
+        webview_remove_WindowCloseRequested,
     },
     {
         webview_generic_add_event, /* add_WebResourceResponseReceived */
@@ -1717,6 +1804,118 @@ static const struct webview2_2_vtbl_combined webview2_2_vtbl =
         webview2_get_CookieManager,
         webview2_get_Environment,
     },
+};
+
+
+/* Records the filter and reports success, without raising WebResourceRequested for it yet.
+ *
+ * The Roblox Player registers one of these inside its controller-completed handler and abandons the
+ * whole webview on a failure, so refusing it means the page never loads at all; accepting it costs
+ * only the interception itself, which no page needs in order to render. Implementing the event is the
+ * next step, and until it exists a client that depends on rewriting its own requests will see them go
+ * out untouched. */
+static HRESULT WINAPI webview22_AddWebResourceRequestedFilterWithRequestSourceKinds(void *iface, ...)
+{
+    static LONG reported;
+
+    (void)iface;
+    if (!InterlockedExchange(&reported, 1))
+        webview2_debug_log("ICoreWebView2_22::AddWebResourceRequestedFilterWithRequestSourceKinds"
+                           " accepted -- WebResourceRequested is not raised for it yet");
+    return S_OK;
+}
+
+static HRESULT WINAPI webview22_RemoveWebResourceRequestedFilterWithRequestSourceKinds(void *iface, ...)
+{
+    (void)iface;
+    return S_OK;
+}
+
+/* The 57 ICoreWebView2_22 slots this module does not implement, named one per slot so the first
+ * one a client actually needs reports itself by name rather than failing anonymously. */
+WV2L_NOTIMPL_STUB(wv22, ICoreWebView2_22, TrySuspend)
+WV2L_NOTIMPL_STUB(wv22, ICoreWebView2_22, Resume)
+WV2L_NOTIMPL_STUB(wv22, ICoreWebView2_22, get_IsSuspended)
+WV2L_NOTIMPL_STUB(wv22, ICoreWebView2_22, SetVirtualHostNameToFolderMapping)
+WV2L_NOTIMPL_STUB(wv22, ICoreWebView2_22, ClearVirtualHostNameToFolderMapping)
+WV2L_NOTIMPL_STUB(wv22, ICoreWebView2_22, add_FrameCreated)
+WV2L_NOTIMPL_STUB(wv22, ICoreWebView2_22, remove_FrameCreated)
+WV2L_NOTIMPL_STUB(wv22, ICoreWebView2_22, add_DownloadStarting)
+WV2L_NOTIMPL_STUB(wv22, ICoreWebView2_22, remove_DownloadStarting)
+WV2L_NOTIMPL_STUB(wv22, ICoreWebView2_22, add_ClientCertificateRequested)
+WV2L_NOTIMPL_STUB(wv22, ICoreWebView2_22, remove_ClientCertificateRequested)
+WV2L_NOTIMPL_STUB(wv22, ICoreWebView2_22, OpenTaskManagerWindow)
+WV2L_NOTIMPL_STUB(wv22, ICoreWebView2_22, PrintToPdf)
+WV2L_NOTIMPL_STUB(wv22, ICoreWebView2_22, add_IsMutedChanged)
+WV2L_NOTIMPL_STUB(wv22, ICoreWebView2_22, remove_IsMutedChanged)
+WV2L_NOTIMPL_STUB(wv22, ICoreWebView2_22, get_IsMuted)
+WV2L_NOTIMPL_STUB(wv22, ICoreWebView2_22, put_IsMuted)
+WV2L_NOTIMPL_STUB(wv22, ICoreWebView2_22, add_IsDocumentPlayingAudioChanged)
+WV2L_NOTIMPL_STUB(wv22, ICoreWebView2_22, remove_IsDocumentPlayingAudioChanged)
+WV2L_NOTIMPL_STUB(wv22, ICoreWebView2_22, get_IsDocumentPlayingAudio)
+WV2L_NOTIMPL_STUB(wv22, ICoreWebView2_22, add_IsDefaultDownloadDialogOpenChanged)
+WV2L_NOTIMPL_STUB(wv22, ICoreWebView2_22, remove_IsDefaultDownloadDialogOpenChanged)
+WV2L_NOTIMPL_STUB(wv22, ICoreWebView2_22, get_IsDefaultDownloadDialogOpen)
+WV2L_NOTIMPL_STUB(wv22, ICoreWebView2_22, OpenDefaultDownloadDialog)
+WV2L_NOTIMPL_STUB(wv22, ICoreWebView2_22, CloseDefaultDownloadDialog)
+WV2L_NOTIMPL_STUB(wv22, ICoreWebView2_22, get_DefaultDownloadDialogCornerAlignment)
+WV2L_NOTIMPL_STUB(wv22, ICoreWebView2_22, put_DefaultDownloadDialogCornerAlignment)
+WV2L_NOTIMPL_STUB(wv22, ICoreWebView2_22, get_DefaultDownloadDialogMargin)
+WV2L_NOTIMPL_STUB(wv22, ICoreWebView2_22, put_DefaultDownloadDialogMargin)
+WV2L_NOTIMPL_STUB(wv22, ICoreWebView2_22, add_BasicAuthenticationRequested)
+WV2L_NOTIMPL_STUB(wv22, ICoreWebView2_22, remove_BasicAuthenticationRequested)
+WV2L_NOTIMPL_STUB(wv22, ICoreWebView2_22, CallDevToolsProtocolMethodForSession)
+WV2L_NOTIMPL_STUB(wv22, ICoreWebView2_22, add_ContextMenuRequested)
+WV2L_NOTIMPL_STUB(wv22, ICoreWebView2_22, remove_ContextMenuRequested)
+WV2L_NOTIMPL_STUB(wv22, ICoreWebView2_22, add_StatusBarTextChanged)
+WV2L_NOTIMPL_STUB(wv22, ICoreWebView2_22, remove_StatusBarTextChanged)
+WV2L_NOTIMPL_STUB(wv22, ICoreWebView2_22, get_StatusBarText)
+WV2L_NOTIMPL_STUB(wv22, ICoreWebView2_22, get_Profile)
+WV2L_NOTIMPL_STUB(wv22, ICoreWebView2_22, add_ServerCertificateErrorDetected)
+WV2L_NOTIMPL_STUB(wv22, ICoreWebView2_22, remove_ServerCertificateErrorDetected)
+WV2L_NOTIMPL_STUB(wv22, ICoreWebView2_22, ClearServerCertificateErrorActions)
+WV2L_NOTIMPL_STUB(wv22, ICoreWebView2_22, add_FaviconChanged)
+WV2L_NOTIMPL_STUB(wv22, ICoreWebView2_22, remove_FaviconChanged)
+WV2L_NOTIMPL_STUB(wv22, ICoreWebView2_22, get_FaviconUri)
+WV2L_NOTIMPL_STUB(wv22, ICoreWebView2_22, GetFavicon)
+WV2L_NOTIMPL_STUB(wv22, ICoreWebView2_22, Print)
+WV2L_NOTIMPL_STUB(wv22, ICoreWebView2_22, ShowPrintUI)
+WV2L_NOTIMPL_STUB(wv22, ICoreWebView2_22, PrintToPdfStream)
+WV2L_NOTIMPL_STUB(wv22, ICoreWebView2_22, PostSharedBufferToScript)
+WV2L_NOTIMPL_STUB(wv22, ICoreWebView2_22, add_LaunchingExternalUriScheme)
+WV2L_NOTIMPL_STUB(wv22, ICoreWebView2_22, remove_LaunchingExternalUriScheme)
+WV2L_NOTIMPL_STUB(wv22, ICoreWebView2_22, get_MemoryUsageTargetLevel)
+WV2L_NOTIMPL_STUB(wv22, ICoreWebView2_22, put_MemoryUsageTargetLevel)
+WV2L_NOTIMPL_STUB(wv22, ICoreWebView2_22, get_FrameId)
+WV2L_NOTIMPL_STUB(wv22, ICoreWebView2_22, ExecuteScriptWithResult)
+
+/* ICoreWebView2_22: the base 61 and ICoreWebView2_2's 7 are the same functions the narrower
+ * tables already use, so a slot a client resolved earlier still lands on the same code. */
+static const struct webview2_22_vtbl_combined webview2_22_vtbl =
+{
+    webview2_2_vtbl.base,
+    webview2_2_vtbl.ext,
+    { {
+        (void *)wv22_notimpl_TrySuspend, (void *)wv22_notimpl_Resume, (void *)wv22_notimpl_get_IsSuspended,
+        (void *)wv22_notimpl_SetVirtualHostNameToFolderMapping, (void *)wv22_notimpl_ClearVirtualHostNameToFolderMapping, (void *)wv22_notimpl_add_FrameCreated,
+        (void *)wv22_notimpl_remove_FrameCreated, (void *)wv22_notimpl_add_DownloadStarting, (void *)wv22_notimpl_remove_DownloadStarting,
+        (void *)wv22_notimpl_add_ClientCertificateRequested, (void *)wv22_notimpl_remove_ClientCertificateRequested, (void *)wv22_notimpl_OpenTaskManagerWindow,
+        (void *)wv22_notimpl_PrintToPdf, (void *)wv22_notimpl_add_IsMutedChanged, (void *)wv22_notimpl_remove_IsMutedChanged,
+        (void *)wv22_notimpl_get_IsMuted, (void *)wv22_notimpl_put_IsMuted, (void *)wv22_notimpl_add_IsDocumentPlayingAudioChanged,
+        (void *)wv22_notimpl_remove_IsDocumentPlayingAudioChanged, (void *)wv22_notimpl_get_IsDocumentPlayingAudio, (void *)wv22_notimpl_add_IsDefaultDownloadDialogOpenChanged,
+        (void *)wv22_notimpl_remove_IsDefaultDownloadDialogOpenChanged, (void *)wv22_notimpl_get_IsDefaultDownloadDialogOpen, (void *)wv22_notimpl_OpenDefaultDownloadDialog,
+        (void *)wv22_notimpl_CloseDefaultDownloadDialog, (void *)wv22_notimpl_get_DefaultDownloadDialogCornerAlignment, (void *)wv22_notimpl_put_DefaultDownloadDialogCornerAlignment,
+        (void *)wv22_notimpl_get_DefaultDownloadDialogMargin, (void *)wv22_notimpl_put_DefaultDownloadDialogMargin, (void *)wv22_notimpl_add_BasicAuthenticationRequested,
+        (void *)wv22_notimpl_remove_BasicAuthenticationRequested, (void *)wv22_notimpl_CallDevToolsProtocolMethodForSession, (void *)wv22_notimpl_add_ContextMenuRequested,
+        (void *)wv22_notimpl_remove_ContextMenuRequested, (void *)wv22_notimpl_add_StatusBarTextChanged, (void *)wv22_notimpl_remove_StatusBarTextChanged,
+        (void *)wv22_notimpl_get_StatusBarText, (void *)wv22_notimpl_get_Profile, (void *)wv22_notimpl_add_ServerCertificateErrorDetected,
+        (void *)wv22_notimpl_remove_ServerCertificateErrorDetected, (void *)wv22_notimpl_ClearServerCertificateErrorActions, (void *)wv22_notimpl_add_FaviconChanged,
+        (void *)wv22_notimpl_remove_FaviconChanged, (void *)wv22_notimpl_get_FaviconUri, (void *)wv22_notimpl_GetFavicon,
+        (void *)wv22_notimpl_Print, (void *)wv22_notimpl_ShowPrintUI, (void *)wv22_notimpl_PrintToPdfStream,
+        (void *)wv22_notimpl_PostSharedBufferToScript, (void *)wv22_notimpl_add_LaunchingExternalUriScheme, (void *)wv22_notimpl_remove_LaunchingExternalUriScheme,
+        (void *)wv22_notimpl_get_MemoryUsageTargetLevel, (void *)wv22_notimpl_put_MemoryUsageTargetLevel, (void *)wv22_notimpl_get_FrameId,
+        (void *)wv22_notimpl_ExecuteScriptWithResult, (void *)webview22_AddWebResourceRequestedFilterWithRequestSourceKinds, (void *)webview22_RemoveWebResourceRequestedFilterWithRequestSourceKinds,
+    } },
 };
 
 HRESULT webview_query_interface_v2(ICoreWebView2 *iface, REFIID riid, void **ppv)
@@ -1742,9 +1941,20 @@ HRESULT webview_query_interface_v2(ICoreWebView2 *iface, REFIID riid, void **ppv
         ICoreWebView2_AddRef(iface);
         return S_OK;
     }
-    /* Final fallback for ICoreWebView2 -- reached once neither IUnknown,
-     * ICoreWebView2, nor ICoreWebView2_2 matched riid. */
+    if (IsEqualGUID(riid, &IID_ICoreWebView2_22))
+    {
+        /* Same safe widening as the ICoreWebView2_2 branch above: the first 68 slots are the very
+         * same function pointers, so re-pointing lpVtbl cannot change a call that already resolved. */
+        struct webview_impl *wv = impl_from_ICoreWebView2(iface);
+        wv->ICoreWebView2_iface.lpVtbl = (const ICoreWebView2Vtbl *)&webview2_22_vtbl;
+        *ppv = iface;
+        ICoreWebView2_AddRef(iface);
+        return S_OK;
+    }
+    /* Final fallback for ICoreWebView2 -- reached once neither IUnknown, ICoreWebView2,
+     * ICoreWebView2_2 nor ICoreWebView2_22 matched riid. */
     WARN("no interface for %s\n", debugstr_guid(riid));
+    webview2_debug_log("%s refused %s", __func__, debugstr_guid(riid));
     *ppv = NULL;
     return E_NOINTERFACE;
 }

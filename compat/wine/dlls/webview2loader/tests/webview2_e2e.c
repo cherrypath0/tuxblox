@@ -10,8 +10,10 @@
  *
  * Expected: a GTK window appears showing the fixture's green page and
  * "webview2loader e2e: rendering OK", and this program prints
- * "NavigationCompleted: IsSuccess=1" then waits for Enter before exiting
- * (keeping the window up for visual inspection). */
+ * "NavigationCompleted: IsSuccess=1", "MoveFocus: S_OK" and
+ * "WindowCloseRequested: fired", then keeps the window up for ten seconds of
+ * visual inspection (WV2L_E2E_SECONDS changes that). Everything but the drag
+ * behaviour it decides on its own, so it doubles as a plain pass/fail check. */
 #include <stdio.h>
 #include <windows.h>
 
@@ -49,6 +51,60 @@ static HRESULT WINAPI nav_Invoke(ICoreWebView2NavigationCompletedEventHandler *i
 }
 static ICoreWebView2NavigationCompletedEventHandlerVtbl nav_vtbl = { nav_QI, nav_AddRef, nav_Release, nav_Invoke };
 
+static HANDLE close_fired;
+typedef struct { ICoreWebView2WindowCloseRequestedEventHandlerVtbl *vtbl; } close_handler_t;
+static HRESULT WINAPI close_QI(ICoreWebView2WindowCloseRequestedEventHandler *i, REFIID r, void **p) { *p = i; return S_OK; }
+static ULONG WINAPI close_AddRef(ICoreWebView2WindowCloseRequestedEventHandler *i) { return 2; }
+static ULONG WINAPI close_Release(ICoreWebView2WindowCloseRequestedEventHandler *i) { return 1; }
+static HRESULT WINAPI close_Invoke(ICoreWebView2WindowCloseRequestedEventHandler *i, ICoreWebView2 *sender, IUnknown *args)
+{ printf("WindowCloseRequested: fired\n"); SetEvent(close_fired); return S_OK; }
+static ICoreWebView2WindowCloseRequestedEventHandlerVtbl close_vtbl = { close_QI, close_AddRef, close_Release, close_Invoke };
+
+static HANDLE script_done;
+typedef struct { ICoreWebView2ExecuteScriptCompletedHandlerVtbl *vtbl; } script_handler_t;
+static HRESULT WINAPI script_QI(ICoreWebView2ExecuteScriptCompletedHandler *i, REFIID r, void **p) { *p = i; return S_OK; }
+static ULONG WINAPI script_AddRef(ICoreWebView2ExecuteScriptCompletedHandler *i) { return 2; }
+static ULONG WINAPI script_Release(ICoreWebView2ExecuteScriptCompletedHandler *i) { return 1; }
+static HRESULT WINAPI script_Invoke(ICoreWebView2ExecuteScriptCompletedHandler *i, HRESULT hr, LPCWSTR result)
+{ printf("ExecuteScript completed: hr=%#lx\n", hr); SetEvent(script_done); return S_OK; }
+static ICoreWebView2ExecuteScriptCompletedHandlerVtbl script_vtbl = { script_QI, script_AddRef, script_Release, script_Invoke };
+
+/* Every completion handler this harness waits for is invoked on the thread that asked for the work,
+ * through its message queue -- WebView2 is single-threaded-apartment and real hosts all run a message
+ * loop. A plain WaitForSingleObject blocks that queue and the completion never arrives, so each wait
+ * here pumps. */
+static void pump_once(void)
+{
+    MSG msg;
+    while (PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE)) { TranslateMessage(&msg); DispatchMessageW(&msg); }
+}
+
+static BOOL wait_pumping(HANDLE h, DWORD timeout_ms)
+{
+    DWORD start = GetTickCount();
+
+    for (;;)
+    {
+        DWORD elapsed = GetTickCount() - start;
+        DWORD r = MsgWaitForMultipleObjects(1, &h, FALSE, timeout_ms > elapsed ? timeout_ms - elapsed : 0,
+                                             QS_ALLINPUT);
+        if (r == WAIT_OBJECT_0) return TRUE;
+        if (r != WAIT_OBJECT_0 + 1) return FALSE;
+        pump_once();
+    }
+}
+
+static void pump_for(DWORD ms)
+{
+    DWORD start = GetTickCount();
+
+    while (GetTickCount() - start < ms)
+    {
+        MsgWaitForMultipleObjects(0, NULL, FALSE, 100, QS_ALLINPUT);
+        pump_once();
+    }
+}
+
 int main(int argc, char **argv)
 {
     HMODULE mod;
@@ -56,6 +112,9 @@ int main(int argc, char **argv)
     env_handler_t env_h = { &env_vtbl };
     ctrl_handler_t ctrl_h = { &ctrl_vtbl };
     nav_handler_t nav_h = { &nav_vtbl };
+    close_handler_t close_h = { &close_vtbl };
+    script_handler_t script_h = { &script_vtbl };
+    BOOL close_ok, focus_ok;
     ICoreWebView2 *webview;
     WCHAR uri[MAX_PATH + 8] = L"file://";
     WNDCLASSA wc = { 0 };
@@ -83,12 +142,12 @@ int main(int argc, char **argv)
 
     env_h.ev = CreateEventW(NULL, FALSE, FALSE, NULL);
     pCreate(NULL, NULL, NULL, &env_h);
-    WaitForSingleObject(env_h.ev, 10000);
+    wait_pumping(env_h.ev, 10000);
     if (!env_h.env) { fprintf(stderr, "environment creation failed\n"); return 1; }
 
     ctrl_h.ev = CreateEventW(NULL, FALSE, FALSE, NULL);
     ICoreWebView2Environment_CreateCoreWebView2Controller(env_h.env, parent, &ctrl_h);
-    WaitForSingleObject(ctrl_h.ev, 10000);
+    wait_pumping(ctrl_h.ev, 10000);
     if (!ctrl_h.ctrl) { fprintf(stderr, "controller creation failed\n"); return 1; }
 
     ICoreWebView2Controller_put_Bounds(ctrl_h.ctrl, bounds);
@@ -101,17 +160,41 @@ int main(int argc, char **argv)
         UINT64 token;
         ICoreWebView2_add_NavigationCompleted(webview, &nav_h, &token);
     }
+    close_fired = CreateEventW(NULL, FALSE, FALSE, NULL);
+    {
+        UINT64 token;
+        ICoreWebView2_add_WindowCloseRequested(webview, &close_h, &token);
+    }
     ICoreWebView2_Navigate(webview, uri);
-    WaitForSingleObject(nav_done, 30000);
+    wait_pumping(nav_done, 30000);
 
-    printf("Drag/move/minimize/restore the 'webview2loader e2e -- drag me' window -- "
-           "the WebKitGTK window should visually track it. Press Enter to exit.\n");
-    getchar();
+    /* Both of these the harness can decide by itself, unlike the drag check below: a page asking to
+     * close itself has to reach the program as WindowCloseRequested, and MoveFocus has to hand the
+     * page the keyboard. Each used to be a silent E_NOTIMPL, so each is checked here. */
+    focus_ok = ICoreWebView2Controller_MoveFocus(ctrl_h.ctrl, 0) == S_OK;
+    printf("MoveFocus: %s\n", focus_ok ? "S_OK" : "FAILED");
+
+    script_done = CreateEventW(NULL, FALSE, FALSE, NULL);
+    ICoreWebView2_ExecuteScript(webview, L"window.close()", &script_h);
+    wait_pumping(script_done, 10000);
+    close_ok = wait_pumping(close_fired, 10000);
+    printf("WindowCloseRequested: %s\n", close_ok ? "fired" : "NEVER FIRED");
+
+    {
+        /* Pumped rather than waiting on stdin: the window only tracks the one it is docked to while
+         * this thread keeps dispatching, and a run with no human at it should finish on its own. */
+        const char *secs_env = getenv("WV2L_E2E_SECONDS");
+        DWORD secs = secs_env ? (DWORD)atoi(secs_env) : 10;
+
+        printf("Drag/move/minimize/restore the 'webview2loader e2e -- drag me' window for the next "
+               "%lu seconds -- the page's window should visually track it.\n", secs);
+        pump_for(secs * 1000);
+    }
 
     ICoreWebView2_Release(webview);
     ICoreWebView2Controller_Release(ctrl_h.ctrl);
     ICoreWebView2Environment_Release(env_h.env);
     DestroyWindow(parent);
     FreeLibrary(mod);
-    return nav_success ? 0 : 1;
+    return (nav_success && close_ok && focus_ok) ? 0 : 1;
 }

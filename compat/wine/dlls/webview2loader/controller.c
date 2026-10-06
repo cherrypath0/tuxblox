@@ -328,6 +328,27 @@ static HRESULT WINAPI controller_put_Bounds(ICoreWebView2Controller *iface, RECT
     return S_OK;
 }
 
+/* Hands the page keyboard focus, which is what makes a form inside it typeable. Real WebView2 reads
+ * the reason to decide where inside the page the focus lands; the helper can only focus the view as a
+ * whole, so all three reasons do the same thing here. */
+static HRESULT WINAPI controller_MoveFocus(ICoreWebView2Controller *iface, int reason)
+{
+    struct controller_impl *ctrl = impl_from_ICoreWebView2Controller(iface);
+    struct move_focus_params params;
+
+    TRACE("(%p, %d)\n", iface, reason);
+    if (!ctrl->native_handle) return RO_E_CLOSED;
+
+    params.handle = ctrl->native_handle;
+    params.is_success = FALSE;
+    if (WEBVIEW2LOADER_UNIX_CALL(move_focus, &params) || !params.is_success)
+    {
+        WARN("the page did not take keyboard focus\n");
+        return E_FAIL;
+    }
+    return S_OK;
+}
+
 static HRESULT WINAPI controller_get_ParentWindow(ICoreWebView2Controller *iface, HWND *parentWindow)
 {
     if (!parentWindow) return E_POINTER;
@@ -356,6 +377,27 @@ static HRESULT WINAPI controller_get_CoreWebView2(ICoreWebView2Controller *iface
     return S_OK;
 }
 
+
+/* Named one per slot so the log says which method a client was refused; the shared stub could
+ * only report that something unimplemented had been called. */
+WV2L_NOTIMPL_STUB(ctrl, ICoreWebView2Controller, get_ZoomFactor)
+WV2L_NOTIMPL_STUB(ctrl, ICoreWebView2Controller, put_ZoomFactor)
+WV2L_NOTIMPL_STUB(ctrl, ICoreWebView2Controller, add_ZoomFactorChanged)
+WV2L_NOTIMPL_STUB(ctrl, ICoreWebView2Controller, remove_ZoomFactorChanged)
+WV2L_NOTIMPL_STUB(ctrl, ICoreWebView2Controller, SetBoundsAndZoomFactor)
+WV2L_NOTIMPL_STUB(ctrl, ICoreWebView2Controller, add_MoveFocusRequested)
+WV2L_NOTIMPL_STUB(ctrl, ICoreWebView2Controller, remove_MoveFocusRequested)
+WV2L_NOTIMPL_STUB(ctrl, ICoreWebView2Controller, add_GotFocus)
+WV2L_NOTIMPL_STUB(ctrl, ICoreWebView2Controller, remove_GotFocus)
+WV2L_NOTIMPL_STUB(ctrl, ICoreWebView2Controller, add_LostFocus)
+WV2L_NOTIMPL_STUB(ctrl, ICoreWebView2Controller, remove_LostFocus)
+WV2L_NOTIMPL_STUB(ctrl, ICoreWebView2Controller, add_AcceleratorKeyPressed)
+WV2L_NOTIMPL_STUB(ctrl, ICoreWebView2Controller, remove_AcceleratorKeyPressed)
+WV2L_NOTIMPL_STUB(ctrl, ICoreWebView2Controller, put_ParentWindow)
+WV2L_NOTIMPL_STUB(ctrl, ICoreWebView2Controller, NotifyParentWindowPositionChanged)
+WV2L_NOTIMPL_STUB(ctrl, ICoreWebView2Controller, add_RasterizationScaleChanged)
+WV2L_NOTIMPL_STUB(ctrl, ICoreWebView2Controller, remove_RasterizationScaleChanged)
+
 static const ICoreWebView2ControllerVtbl controller_vtbl =
 {
     controller_QueryInterface,
@@ -365,23 +407,23 @@ static const ICoreWebView2ControllerVtbl controller_vtbl =
     controller_put_IsVisible,
     controller_get_Bounds,
     controller_put_Bounds,
-    (void *)webview2_stub_e_notimpl, /* get_ZoomFactor */
-    (void *)webview2_stub_e_notimpl, /* put_ZoomFactor */
-    (void *)webview2_stub_e_notimpl, /* add_ZoomFactorChanged */
-    (void *)webview2_stub_e_notimpl, /* remove_ZoomFactorChanged */
-    (void *)webview2_stub_e_notimpl, /* SetBoundsAndZoomFactor */
-    (void *)webview2_stub_e_notimpl, /* MoveFocus */
-    (void *)webview2_stub_e_notimpl, /* add_MoveFocusRequested */
-    (void *)webview2_stub_e_notimpl, /* remove_MoveFocusRequested */
-    (void *)webview2_stub_e_notimpl, /* add_GotFocus */
-    (void *)webview2_stub_e_notimpl, /* remove_GotFocus */
-    (void *)webview2_stub_e_notimpl, /* add_LostFocus */
-    (void *)webview2_stub_e_notimpl, /* remove_LostFocus */
-    (void *)webview2_stub_e_notimpl, /* add_AcceleratorKeyPressed */
-    (void *)webview2_stub_e_notimpl, /* remove_AcceleratorKeyPressed */
+    (void *)ctrl_notimpl_get_ZoomFactor,
+    (void *)ctrl_notimpl_put_ZoomFactor,
+    (void *)ctrl_notimpl_add_ZoomFactorChanged,
+    (void *)ctrl_notimpl_remove_ZoomFactorChanged,
+    (void *)ctrl_notimpl_SetBoundsAndZoomFactor,
+    controller_MoveFocus,
+    (void *)ctrl_notimpl_add_MoveFocusRequested,
+    (void *)ctrl_notimpl_remove_MoveFocusRequested,
+    (void *)ctrl_notimpl_add_GotFocus,
+    (void *)ctrl_notimpl_remove_GotFocus,
+    (void *)ctrl_notimpl_add_LostFocus,
+    (void *)ctrl_notimpl_remove_LostFocus,
+    (void *)ctrl_notimpl_add_AcceleratorKeyPressed,
+    (void *)ctrl_notimpl_remove_AcceleratorKeyPressed,
     controller_get_ParentWindow, /* was: (void *)webview2_stub_e_notimpl */
-    (void *)webview2_stub_e_notimpl, /* put_ParentWindow */
-    (void *)webview2_stub_e_notimpl, /* NotifyParentWindowPositionChanged */
+    (void *)ctrl_notimpl_put_ParentWindow,
+    (void *)ctrl_notimpl_NotifyParentWindowPositionChanged,
     controller_Close,
     controller_get_CoreWebView2,
 };
@@ -466,23 +508,23 @@ static const struct webview2_controller4_vtbl_combined controller4_vtbl =
         controller_put_IsVisible,
         controller_get_Bounds,
         controller_put_Bounds,
-        (void *)webview2_stub_e_notimpl, /* get_ZoomFactor */
-        (void *)webview2_stub_e_notimpl, /* put_ZoomFactor */
-        (void *)webview2_stub_e_notimpl, /* add_ZoomFactorChanged */
-        (void *)webview2_stub_e_notimpl, /* remove_ZoomFactorChanged */
-        (void *)webview2_stub_e_notimpl, /* SetBoundsAndZoomFactor */
-        (void *)webview2_stub_e_notimpl, /* MoveFocus */
-        (void *)webview2_stub_e_notimpl, /* add_MoveFocusRequested */
-        (void *)webview2_stub_e_notimpl, /* remove_MoveFocusRequested */
-        (void *)webview2_stub_e_notimpl, /* add_GotFocus */
-        (void *)webview2_stub_e_notimpl, /* remove_GotFocus */
-        (void *)webview2_stub_e_notimpl, /* add_LostFocus */
-        (void *)webview2_stub_e_notimpl, /* remove_LostFocus */
-        (void *)webview2_stub_e_notimpl, /* add_AcceleratorKeyPressed */
-        (void *)webview2_stub_e_notimpl, /* remove_AcceleratorKeyPressed */
+        (void *)ctrl_notimpl_get_ZoomFactor,
+        (void *)ctrl_notimpl_put_ZoomFactor,
+        (void *)ctrl_notimpl_add_ZoomFactorChanged,
+        (void *)ctrl_notimpl_remove_ZoomFactorChanged,
+        (void *)ctrl_notimpl_SetBoundsAndZoomFactor,
+        controller_MoveFocus,
+        (void *)ctrl_notimpl_add_MoveFocusRequested,
+        (void *)ctrl_notimpl_remove_MoveFocusRequested,
+        (void *)ctrl_notimpl_add_GotFocus,
+        (void *)ctrl_notimpl_remove_GotFocus,
+        (void *)ctrl_notimpl_add_LostFocus,
+        (void *)ctrl_notimpl_remove_LostFocus,
+        (void *)ctrl_notimpl_add_AcceleratorKeyPressed,
+        (void *)ctrl_notimpl_remove_AcceleratorKeyPressed,
         controller_get_ParentWindow, /* was: (void *)webview2_stub_e_notimpl */
-        (void *)webview2_stub_e_notimpl, /* put_ParentWindow */
-        (void *)webview2_stub_e_notimpl, /* NotifyParentWindowPositionChanged */
+        (void *)ctrl_notimpl_put_ParentWindow,
+        (void *)ctrl_notimpl_NotifyParentWindowPositionChanged,
         controller_Close,
         controller_get_CoreWebView2,
     },
@@ -493,8 +535,8 @@ static const struct webview2_controller4_vtbl_combined controller4_vtbl =
         controller4_put_RasterizationScale,
         controller4_get_ShouldDetectMonitorScaleChanges,
         controller4_put_ShouldDetectMonitorScaleChanges,
-        (void *)webview2_stub_e_notimpl, /* add_RasterizationScaleChanged */
-        (void *)webview2_stub_e_notimpl, /* remove_RasterizationScaleChanged */
+        (void *)ctrl_notimpl_add_RasterizationScaleChanged,
+        (void *)ctrl_notimpl_remove_RasterizationScaleChanged,
         controller4_get_BoundsMode,
         controller4_put_BoundsMode,
         controller4_get_AllowExternalDrop,
@@ -526,6 +568,7 @@ static HRESULT WINAPI controller_QueryInterface(ICoreWebView2Controller *iface, 
         return S_OK;
     }
     WARN("no interface for %s\n", debugstr_guid(riid));
+    webview2_debug_log("%s refused %s", __func__, debugstr_guid(riid));
     *ppv = NULL;
     return E_NOINTERFACE;
 }

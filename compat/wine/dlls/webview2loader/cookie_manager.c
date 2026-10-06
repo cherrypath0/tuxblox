@@ -38,6 +38,7 @@ static HRESULT WINAPI cm_QueryInterface(ICoreWebView2CookieManager *iface, REFII
 {
     if (IsEqualGUID(riid, &IID_IUnknown) || IsEqualGUID(riid, &IID_ICoreWebView2CookieManager))
     { *ppv = iface; ICoreWebView2CookieManager_AddRef(iface); return S_OK; }
+    webview2_debug_log("%s refused %s", __func__, debugstr_guid(riid));
     *ppv = NULL;
     return E_NOINTERFACE;
 }
@@ -81,6 +82,7 @@ static HRESULT WINAPI cookie_QueryInterface(ICoreWebView2Cookie *iface, REFIID r
 {
     if (IsEqualGUID(riid, &IID_IUnknown) || IsEqualGUID(riid, &IID_ICoreWebView2Cookie))
     { *ppv = iface; ICoreWebView2Cookie_AddRef(iface); return S_OK; }
+    webview2_debug_log("%s refused %s", __func__, debugstr_guid(riid));
     *ppv = NULL;
     return E_NOINTERFACE;
 }
@@ -164,6 +166,13 @@ static HRESULT WINAPI cookie_put_IsSecure(ICoreWebView2Cookie *iface, BOOL isSec
 static HRESULT WINAPI cookie_get_IsSession(ICoreWebView2Cookie *iface, BOOL *isSession)
 { if (!isSession) return E_POINTER; *isSession = impl_from_ICoreWebView2Cookie(iface)->is_session; return S_OK; }
 
+
+/* Named one per slot so the log says which method a client was refused; the shared stub could
+ * only report that something unimplemented had been called. */
+WV2L_NOTIMPL_STUB(cm, ICoreWebView2CookieManager, CopyCookie)
+WV2L_NOTIMPL_STUB(cm, ICoreWebView2CookieManager, DeleteCookies)
+WV2L_NOTIMPL_STUB(cm, ICoreWebView2CookieManager, DeleteCookiesWithDomainAndPath)
+
 static const ICoreWebView2CookieVtbl cookie_vtbl =
 {
     cookie_QueryInterface, cookie_AddRef, cookie_Release,
@@ -222,6 +231,7 @@ static HRESULT WINAPI cookie_list_QueryInterface(ICoreWebView2CookieList *iface,
 {
     if (IsEqualGUID(riid, &IID_IUnknown) || IsEqualGUID(riid, &IID_ICoreWebView2CookieList))
     { *ppv = iface; ICoreWebView2CookieList_AddRef(iface); return S_OK; }
+    webview2_debug_log("%s refused %s", __func__, debugstr_guid(riid));
     *ppv = NULL;
     return E_NOINTERFACE;
 }
@@ -596,12 +606,12 @@ static const ICoreWebView2CookieManagerVtbl cm_vtbl =
     cm_AddRef,
     cm_Release,
     cm_CreateCookie,
-    (void *)webview2_stub_e_notimpl, /* CopyCookie */
+    (void *)cm_notimpl_CopyCookie,
     cm_GetCookies,
     cm_AddOrUpdateCookie,
     cm_DeleteCookie,
-    (void *)webview2_stub_e_notimpl, /* DeleteCookies */
-    (void *)webview2_stub_e_notimpl, /* DeleteCookiesWithDomainAndPath */
+    (void *)cm_notimpl_DeleteCookies,
+    (void *)cm_notimpl_DeleteCookiesWithDomainAndPath,
     cm_DeleteAllCookies,
 };
 
