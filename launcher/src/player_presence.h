@@ -39,13 +39,13 @@ private:
 // The place id out of a join line, or empty when it names no published place.
 std::string placeIdFromJoinLine(const std::string& line);
 
-// What Roblox itself reported joining. Both empty unless the line is Roblox's own report, which a game cannot write because its output goes on another channel.
-struct VerifiedJoin {
+// What the log reported joining. Both empty unless the line looks like Roblox's own report, which raises the bar a game has to clear but does not stop it: anything a game can print, it can print convincingly.
+struct ReportedJoin {
     std::string placeId;
     std::string universeId;
 };
 
-VerifiedJoin verifiedJoinFromLine(const std::string& line);
+ReportedJoin reportedJoinFromLine(const std::string& line);
 
 // The server's own id out of a join line, or empty unless it is the shape Roblox writes. Checked rather than trusted, because it goes into a link somebody clicks.
 std::string jobIdFromJoinLine(const std::string& line);

@@ -134,29 +134,29 @@ int main() {
 
     // Roblox reports the place and experience it actually joined on a channel of its own, which a
     // game's print() cannot write to -- so that, not the join line, is what a clickable link is built from.
-    assert(tuxblox::verifiedJoinFromLine(
+    assert(tuxblox::reportedJoinFromLine(
                "2026-10-03T09:17:22.194Z,7.194335,00ec,6 [FLog::GameJoinLoadTime] Report game_join_loadtime: placeid:6516141723, join_time:0.62, universeid:2440500124, referral_page:")
                .placeId == "6516141723");
-    assert(tuxblox::verifiedJoinFromLine(
+    assert(tuxblox::reportedJoinFromLine(
                kRec "[FLog::GameJoinLoadTime] Report game_join_loadtime: placeid:6516141723, join_time:0, universeid:2440500124,")
                .universeId == "2440500124");
     // A game quoting the same text on its own channel is not Roblox reporting it.
-    assert(tuxblox::verifiedJoinFromLine(
+    assert(tuxblox::reportedJoinFromLine(
                kRec "[FLog::Output] [FLog::GameJoinLoadTime] Report game_join_loadtime: placeid:999, universeid:999,")
                .placeId.empty());
-    assert(tuxblox::verifiedJoinFromLine(kRec "nothing").placeId.empty());
+    assert(tuxblox::reportedJoinFromLine(kRec "nothing").placeId.empty());
 
     // A forged join line gets no link at all, because nothing confirmed it.
     tuxblox::PlayerPresenceReader spoof;
     spoof.consumeLine(kRec "[FLog::Output] ! Joining game '5ccfb412-0b58-47d2-b91e-321903eceb59' place 1818 at 1.1.1.1");
-    assert(spoof.activity().verifiedPlaceId.empty());
+    assert(spoof.activity().reportedPlaceId.empty());
     assert(spoof.activity().jobId.empty());
 
     // The genuine pair is confirmed, so both the link and the experience are known.
     tuxblox::PlayerPresenceReader real;
     real.consumeLine(kRec "[FLog::Output] ! Joining game '5ccfb412-0b58-47d2-b91e-321903eceb59' place 6516141723 at 10.34.6.31");
     real.consumeLine(kRec "[FLog::GameJoinLoadTime] Report game_join_loadtime: placeid:6516141723, join_time:0, universeid:2440500124,");
-    assert(real.activity().verifiedPlaceId == "6516141723");
+    assert(real.activity().reportedPlaceId == "6516141723");
     assert(real.activity().universeId == "2440500124");
     assert(real.activity().jobId == "5ccfb412-0b58-47d2-b91e-321903eceb59");
 
@@ -164,12 +164,12 @@ int main() {
     tuxblox::PlayerPresenceReader halfSpoof;
     halfSpoof.consumeLine(kRec "[FLog::Output] ! Joining game 'aaaaaaaa-0000-0000-0000-000000000000' place 999 at 1.1.1.1");
     halfSpoof.consumeLine(kRec "[FLog::GameJoinLoadTime] Report game_join_loadtime: placeid:6516141723, join_time:0, universeid:2440500124,");
-    assert(halfSpoof.activity().verifiedPlaceId == "6516141723");
+    assert(halfSpoof.activity().reportedPlaceId == "6516141723");
     assert(halfSpoof.activity().jobId.empty());
 
     // Leaving clears what was confirmed, so no link outlives the session.
     real.consumeLine(kRec "[FLog::SessionTransitionFSM] Tearing down");
-    assert(real.activity().verifiedPlaceId.empty());
+    assert(real.activity().reportedPlaceId.empty());
     assert(real.activity().universeId.empty());
     assert(real.activity().jobId.empty());
 
@@ -181,7 +181,7 @@ int main() {
     assert(unstamped.serverAddress().empty());
     unstamped.consumeLine("[FLog::SessionTransitionFSM] Tearing down");
     assert(unstamped.activity().kind == tuxblox::PresenceKind::Playing);
-    assert(tuxblox::verifiedJoinFromLine(
+    assert(tuxblox::reportedJoinFromLine(
                "[FLog::GameJoinLoadTime] Report game_join_loadtime: placeid:1818, universeid:13058,")
                .placeId.empty());
 

@@ -81,8 +81,8 @@ struct PresenceActivity {
     std::string placeId;
     // The place's own icon, once Roblox has been asked for it. Shown in place of the Studio mark.
     std::string placeIconUrl;
-    // The place and experience Roblox reported joining, on a channel only Roblox writes to. Every link somebody can click is built from these rather than from the line a game could have written itself.
-    std::string verifiedPlaceId;
+    // The place and experience the log reported joining. NOT trustworthy: a game can print any bytes into that log, newlines and a convincing stamp included, so these are only a better-corroborated reading of it and never proof.
+    std::string reportedPlaceId;
     std::string universeId;
     // The server itself, which a join link cannot be built without. Only kept when Roblox's own report named the same place, so a game cannot point the link at a server of its choosing.
     std::string jobId;
@@ -94,7 +94,7 @@ struct PresenceActivity {
 
 inline bool operator==(const PresenceActivity& a, const PresenceActivity& b) {
     return a.kind == b.kind && a.placeName == b.placeName && a.placeId == b.placeId &&
-           a.placeIconUrl == b.placeIconUrl && a.verifiedPlaceId == b.verifiedPlaceId &&
+           a.placeIconUrl == b.placeIconUrl && a.reportedPlaceId == b.reportedPlaceId &&
            a.universeId == b.universeId && a.jobId == b.jobId &&
            a.creatorLine == b.creatorLine && a.rpc == b.rpc;
 }

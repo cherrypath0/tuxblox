@@ -295,7 +295,7 @@ std::string activityJson(const PresenceActivity& activity, std::time_t startedAt
     // itself reported joining -- a game writes to the same log, so a link must never come from a line
     // it could have written.
     const std::string gameUrl =
-        placeGameUrl(studio ? activity.placeId : activity.verifiedPlaceId);
+        placeGameUrl(studio ? activity.placeId : activity.reportedPlaceId);
     if (!gameUrl.empty() && studio) {
         activityObject["buttons"] = nlohmann::json::array(
             {{{"label", "Open Game Link"}, {"url", gameUrl}}});
@@ -303,7 +303,7 @@ std::string activityJson(const PresenceActivity& activity, std::time_t startedAt
         activityObject["buttons"] = nlohmann::json::array();
         // Joining needs a server as well as a place, and a player on the home screen is in neither.
         const std::string joinUrl =
-            placeJoinUrl(activity.verifiedPlaceId, activity.jobId, activity.rpc.launchData);
+            placeJoinUrl(activity.reportedPlaceId, activity.jobId, activity.rpc.launchData);
         if (!joinUrl.empty()) {
             activityObject["buttons"].push_back({{"label", "Join server"}, {"url", joinUrl}});
         }

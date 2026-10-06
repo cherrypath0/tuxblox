@@ -173,7 +173,7 @@ int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const 
         // Studio names a published place only by number, so the name is asked for once per place and remembered, including when Roblox has none to give.
         // Roblox's own report is preferred over the join line, which a game could have written.
         const std::string describeId =
-            current.verifiedPlaceId.empty() ? current.placeId : current.verifiedPlaceId;
+            current.reportedPlaceId.empty() ? current.placeId : current.reportedPlaceId;
         if (!describeId.empty()) {
             auto known = resolvedPlaces.find(describeId);
             if (known == resolvedPlaces.end()) {

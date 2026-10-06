@@ -27,7 +27,7 @@ bool contains(const std::string& line, const char *pNeedle) {
     return line.find(pNeedle) != std::string::npos;
 }
 
-// Does this line carry the stamp Roblox puts on every record it writes -- the time, then the uptime, then the thread? A game that prints a newline puts the rest of its text on a line of its own with no stamp, and such a line may claim any channel it likes, so the stamp is what separates Roblox's records from a game's output. Roblox writes a few unstamped lines of its own, such as its terms notice, and those are not records either.
+// Does this line look like one of Roblox's own records, stamped with the time, the uptime and the thread before the channel? This raises the bar a game's output has to clear rather than settling anything: a game can print a stamp of its own just as easily, so nothing read out of this log is ever proof of what happened.
 bool hasRecordStamp(const std::string& line) {
     // 2026-10-06T20:31:49.889Z,11.889527,00d4,...
     if (line.size() < 25 || line[4] != '-' || line[7] != '-' || line[10] != 'T' ||
@@ -113,8 +113,8 @@ std::string numberField(const std::string& line, const char *pName) {
 
 } // namespace
 
-VerifiedJoin verifiedJoinFromLine(const std::string& line) {
-    VerifiedJoin join;
+ReportedJoin reportedJoinFromLine(const std::string& line) {
+    ReportedJoin join;
     if (firstChannel(line) != "[FLog::GameJoinLoadTime]" ||
         line.find("Report game_join_loadtime") == std::string::npos) {
         return join;
@@ -196,11 +196,11 @@ void PlayerPresenceReader::consumeLine(const std::string& line) {
         return;
     }
 
-    const VerifiedJoin verified = verifiedJoinFromLine(line);
-    if (!verified.placeId.empty()) {
-        activity_.verifiedPlaceId = verified.placeId;
-        activity_.universeId = verified.universeId;
-        activity_.jobId = claimedPlaceId_ == verified.placeId ? claimedJobId_ : std::string();
+    const ReportedJoin reported = reportedJoinFromLine(line);
+    if (!reported.placeId.empty()) {
+        activity_.reportedPlaceId = reported.placeId;
+        activity_.universeId = reported.universeId;
+        activity_.jobId = claimedPlaceId_ == reported.placeId ? claimedJobId_ : std::string();
         return;
     }
 
@@ -221,7 +221,7 @@ void PlayerPresenceReader::consumeLine(const std::string& line) {
             activity_.placeName.clear();
             activity_.placeIconUrl.clear();
             activity_.creatorLine.clear();
-            activity_.verifiedPlaceId.clear();
+            activity_.reportedPlaceId.clear();
             activity_.universeId.clear();
             activity_.jobId.clear();
             claimedPlaceId_.clear();
