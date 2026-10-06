@@ -98,6 +98,10 @@ gboolean geometry_unreparent(struct native_webview *nv);
  * exists yet for the window. */
 gboolean geometry_get(struct native_webview *nv, struct wv2l_rect *out);
 
+/* Hands the X11 keyboard focus to the page's window -- see the definition for why GTK's own focus is
+ * not enough on its own. */
+gboolean geometry_focus(struct native_webview *nv);
+
 /* Task 7 crash fix, round 17/18 (original unixlib.c comment): a real,
  * reproducible crash -- XReparentWindow (round 15) against a stale/invalid
  * parent_xid produces a genuine X11 protocol error (BadWindow), and Xlib's

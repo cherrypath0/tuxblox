@@ -86,6 +86,15 @@ struct nav_starting_listener
     UINT64 token;
 };
 
+/* Its own list for the same reason nav_starting_listener has one: these handlers take different
+ * argument interfaces, so one shared list cannot be walked without calling some through the wrong one. */
+struct close_listener
+{
+    struct close_listener *next;
+    ICoreWebView2WindowCloseRequestedEventHandler *handler;
+    UINT64 token;
+};
+
 struct webview_impl
 {
     ICoreWebView2 ICoreWebView2_iface;
@@ -94,6 +103,7 @@ struct webview_impl
     LPWSTR source;
     struct nav_listener *listeners;
     struct nav_starting_listener *nav_starting_listeners;
+    struct close_listener *close_listeners;
     struct wm_listener *wm_listeners;
     struct generic_listener *generic_listeners;
     UINT64 next_token;
@@ -363,6 +373,82 @@ static const ICoreWebView2NavigationStartingEventArgsVtbl nsargs_vtbl =
  * the lock races remove_NavigationStarting freeing a node. AddRef'ing each
  * handler under the lock keeps it alive even if its node is unlinked the
  * instant the lock drops. */
+static HRESULT WINAPI webview_add_WindowCloseRequested(ICoreWebView2 *iface, void *eventHandler_raw, void *token_raw)
+{
+    struct webview_impl *wv = impl_from_ICoreWebView2(iface);
+    ICoreWebView2WindowCloseRequestedEventHandler *handler = eventHandler_raw;
+    UINT64 *token = token_raw;
+    struct close_listener *l;
+
+    if (!handler || !token) return E_POINTER;
+    if (!(l = malloc(sizeof(*l)))) return E_OUTOFMEMORY;
+
+    handler->lpVtbl->AddRef(handler);
+    l->handler = handler;
+
+    EnterCriticalSection(&wv->cs);
+    l->token = ++wv->next_token;
+    l->next = wv->close_listeners;
+    wv->close_listeners = l;
+    LeaveCriticalSection(&wv->cs);
+
+    *token = l->token;
+    return S_OK;
+}
+
+static HRESULT WINAPI webview_remove_WindowCloseRequested(ICoreWebView2 *iface, void *token_raw)
+{
+    struct webview_impl *wv = impl_from_ICoreWebView2(iface);
+    UINT64 token = (UINT64)(ULONG_PTR)token_raw;
+    struct close_listener **cur;
+
+    EnterCriticalSection(&wv->cs);
+    for (cur = &wv->close_listeners; *cur; cur = &(*cur)->next)
+    {
+        if ((*cur)->token == token)
+        {
+            struct close_listener *dead = *cur;
+            *cur = dead->next;
+            LeaveCriticalSection(&wv->cs);
+            dead->handler->lpVtbl->Release(dead->handler);
+            free(dead);
+            return S_OK;
+        }
+    }
+    LeaveCriticalSection(&wv->cs);
+    return S_OK; /* real WebView2 tolerates removing an already-gone token */
+}
+
+/* Same snapshot-then-invoke discipline as webview_fire_navigation_starting, for the same reason. */
+void webview_fire_window_close_requested(ICoreWebView2 *iface)
+{
+    struct webview_impl *wv = impl_from_ICoreWebView2(iface);
+    ICoreWebView2WindowCloseRequestedEventHandler **snapshot = NULL;
+    struct close_listener *l;
+    SIZE_T count = 0, i;
+
+    EnterCriticalSection(&wv->cs);
+    for (l = wv->close_listeners; l; l = l->next) count++;
+    if (count && (snapshot = malloc(count * sizeof(*snapshot))))
+    {
+        for (l = wv->close_listeners, i = 0; l; l = l->next, i++)
+        {
+            l->handler->lpVtbl->AddRef(l->handler);
+            snapshot[i] = l->handler;
+        }
+    }
+    else count = 0;
+    LeaveCriticalSection(&wv->cs);
+
+    for (i = 0; i < count; i++)
+    {
+        /* Real WebView2 passes no args object for this event. */
+        snapshot[i]->lpVtbl->Invoke(snapshot[i], &wv->ICoreWebView2_iface, NULL);
+        snapshot[i]->lpVtbl->Release(snapshot[i]);
+    }
+    free(snapshot);
+}
+
 void webview_fire_navigation_starting(ICoreWebView2 *iface, const WCHAR *uri, BOOL is_redirect)
 {
     struct webview_impl *wv = impl_from_ICoreWebView2(iface);
@@ -570,6 +656,10 @@ static ULONG WINAPI webview_Release(ICoreWebView2 *iface)
         webview_untrack(iface);
         while (l) { struct nav_listener *next = l->next; ICoreWebView2NavigationCompletedEventHandler_Release(l->handler); free(l); l = next; }
         while (nsl) { struct nav_starting_listener *next = nsl->next; ICoreWebView2NavigationStartingEventHandler_Release(nsl->handler); free(nsl); nsl = next; }
+        {
+            struct close_listener *cl = wv->close_listeners;
+            while (cl) { struct close_listener *next = cl->next; cl->handler->lpVtbl->Release(cl->handler); free(cl); cl = next; }
+        }
         while (wml) { struct wm_listener *next = wml->next; wml->handler->lpVtbl->Release(wml->handler); free(wml); wml = next; }
         while (gl) { struct generic_listener *next = gl->next; gl->handler->lpVtbl->Release(gl->handler); free(gl); gl = next; }
         if (wv->settings) ICoreWebView2Settings_Release(wv->settings);
@@ -1585,8 +1675,8 @@ static const ICoreWebView2Vtbl webview_vtbl =
     webview_generic_remove_event, /* remove_WebResourceRequested */
     (void *)webview_notimpl_AddWebResourceRequestedFilter, /* AddWebResourceRequestedFilter */
     (void *)webview_notimpl_RemoveWebResourceRequestedFilter, /* RemoveWebResourceRequestedFilter */
-    webview_generic_add_event, /* add_WindowCloseRequested */
-    webview_generic_remove_event, /* remove_WindowCloseRequested */
+    webview_add_WindowCloseRequested,
+    webview_remove_WindowCloseRequested,
 };
 
 HRESULT webview_create(UINT64 native_handle, ICoreWebView2 **out)
@@ -1702,8 +1792,8 @@ static const struct webview2_2_vtbl_combined webview2_2_vtbl =
         webview_generic_remove_event, /* remove_WebResourceRequested */
         (void *)webview_notimpl_AddWebResourceRequestedFilter, /* AddWebResourceRequestedFilter */
         (void *)webview_notimpl_RemoveWebResourceRequestedFilter, /* RemoveWebResourceRequestedFilter */
-        webview_generic_add_event, /* add_WindowCloseRequested */
-        webview_generic_remove_event, /* remove_WindowCloseRequested */
+        webview_add_WindowCloseRequested,
+        webview_remove_WindowCloseRequested,
     },
     {
         webview_generic_add_event, /* add_WebResourceResponseReceived */

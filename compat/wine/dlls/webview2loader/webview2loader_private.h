@@ -317,6 +317,22 @@ typedef struct ICoreWebView2NavigationStartingEventArgsVtbl
 } ICoreWebView2NavigationStartingEventArgsVtbl;
 struct ICoreWebView2NavigationStartingEventArgs { const ICoreWebView2NavigationStartingEventArgsVtbl *lpVtbl; };
 
+/* Raised when the page asks to close itself. Real WebView2 passes no args object, so `args` is only
+ * ever NULL here -- declared as IUnknown* to keep the slot the right shape. */
+typedef struct ICoreWebView2WindowCloseRequestedEventHandler ICoreWebView2WindowCloseRequestedEventHandler;
+typedef struct ICoreWebView2WindowCloseRequestedEventHandlerVtbl
+{
+    HRESULT (WINAPI *QueryInterface)(ICoreWebView2WindowCloseRequestedEventHandler *This, REFIID riid, void **ppv);
+    ULONG   (WINAPI *AddRef)(ICoreWebView2WindowCloseRequestedEventHandler *This);
+    ULONG   (WINAPI *Release)(ICoreWebView2WindowCloseRequestedEventHandler *This);
+    HRESULT (WINAPI *Invoke)(ICoreWebView2WindowCloseRequestedEventHandler *This, ICoreWebView2 *sender,
+                              IUnknown *args);
+} ICoreWebView2WindowCloseRequestedEventHandlerVtbl;
+struct ICoreWebView2WindowCloseRequestedEventHandler { const ICoreWebView2WindowCloseRequestedEventHandlerVtbl *lpVtbl; };
+
+/* Defined in webview.c; called by the event pump when the helper reports the page asked to close. */
+void webview_fire_window_close_requested(ICoreWebView2 *iface);
+
 typedef struct ICoreWebView2NavigationStartingEventHandlerVtbl
 {
     HRESULT (WINAPI *QueryInterface)(ICoreWebView2NavigationStartingEventHandler *This, REFIID riid, void **ppv);

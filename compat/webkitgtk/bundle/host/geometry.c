@@ -312,6 +312,22 @@ static void wv2l_schedule_paint_probe(Display *display, Window xid, void *nv, in
     g_timeout_add_seconds(seconds, wv2l_paint_probe_cb, p);
 }
 
+/* Whether the page's window stands beside the program's window instead of inside it. Inside is what
+ * Windows does and what the programs expect, so it is the default; TUXBLOX_WEBVIEW_REPARENT=0 stands
+ * it beside instead, which is a diagnostic rather than a mode to run in -- the page is then its own
+ * window, clipped by nothing and always on top of the program it belongs to. */
+static gboolean webview_float_mode(void)
+{
+    static int floating = -1;
+
+    if (floating == -1)
+    {
+        const char *e = getenv("TUXBLOX_WEBVIEW_REPARENT");
+        floating = (e && !strcmp(e, "0")) ? 1 : 0;
+    }
+    return floating;
+}
+
 gboolean geometry_sync(struct native_webview *nv, struct wv2l_rect bounds, gboolean visible, uint64_t parent_xid)
 {
     GtkNative *native;
@@ -615,6 +631,31 @@ gboolean geometry_sync(struct native_webview *nv, struct wv2l_rect bounds, gbool
          * gated off. This makes all of that directly observable on every
          * run, not just debug-flagged ones -- cheap enough (once per
          * put_Bounds call, not per frame) to always pay for. */
+        /* Standing the page's window beside the program's own instead of inside it, held over the
+         * right part of the screen. Only for telling apart a fault in the embedding from a fault in
+         * the program, measured by running the same thing both ways. */
+        if (webview_float_mode())
+        {
+            if (nv->reparented_into)
+            {
+                fprintf(stderr, "webview2loader-host: float mode: taking nv=%p (xid=0x%lx) back out of "
+                                "0x%lx -- it stands beside that window from now on\n",
+                        (void *)nv, xid, nv->reparented_into);
+                XReparentWindow(display, xid, XDefaultRootWindow(display), bounds.left, bounds.top);
+                nv->reparented_into = 0;
+            }
+            /* Absolute screen position: these bounds already are the screen rectangle the program
+             * asked for, which is why nothing has to be translated here. */
+            XMoveResizeWindow(display, xid, bounds.left, bounds.top,
+                              (unsigned int)width, (unsigned int)height);
+            XRaiseWindow(display, xid);
+            if (geometry_debug_on())
+                fprintf(stderr, "webview2loader-host: float mode: nv=%p at %d,%d %dx%d\n",
+                        (void *)nv, bounds.left, bounds.top, width, height);
+            XFlush(display);
+            goto position_done;
+        }
+
         fprintf(stderr, "webview2loader-host: reparent check: call #%lu parent_xid=0x%lx "
                         "reparented_into=0x%lx (will reparent: %s)\n",
                         xmove_call_count, (unsigned long)parent_xid, nv->reparented_into,
@@ -895,6 +936,7 @@ gboolean geometry_sync(struct native_webview *nv, struct wv2l_rect bounds, gbool
         if (geometry_debug_on())
             fprintf(stderr, "webview2loader-host: after XMoveResizeWindow: call #%lu returned "
                             "successfully\n", xmove_call_count);
+position_done:
         XUnlockDisplay(display);
         if (geometry_debug_on())
             fprintf(stderr, "webview2loader-host: after XUnlockDisplay: call #%lu (unlocked ok)\n",
@@ -1051,6 +1093,79 @@ gboolean geometry_unreparent(struct native_webview *nv)
     g_object_unref(gdisplay);
     g_object_unref(surface);
     return TRUE;
+}
+
+/* Puts the X11 keyboard focus on the page's own window, which is what actually decides where a
+ * keystroke is delivered. GTK's own focus is per-window and says nothing about that: the page sits in
+ * a window reparented into the program's, and until the server is told, every key keeps going to the
+ * program instead -- which is why a form inside the page could not be typed into. Best-effort, like
+ * every other raw X11 call here: an unmapped or already-gone window is reported and ignored. */
+gboolean geometry_focus(struct native_webview *nv)
+{
+    GtkNative *native;
+    GdkSurface *surface;
+    GdkDisplay *gdisplay;
+    Display *display;
+    unsigned long xid;
+    XWindowAttributes attrs;
+    gboolean ok = FALSE;
+
+    if (!nv) return FALSE;
+
+    native = gtk_widget_get_native(nv->window);
+    surface = native ? gtk_native_get_surface(native) : NULL;
+    if (!surface || gdk_surface_is_destroyed(surface)) return FALSE;
+
+    /* Same TOCTOU-closing ref pattern geometry_sync's own comment documents in detail. */
+    g_object_ref(surface);
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+    xid = gdk_x11_surface_get_xid(surface);
+#pragma GCC diagnostic pop
+    if (!xid || xid > 0xffffffffUL)
+    {
+        g_object_unref(surface);
+        return FALSE;
+    }
+
+    gdisplay = gdk_surface_get_display(surface);
+    if (!gdisplay || gdk_display_is_closed(gdisplay))
+    {
+        g_object_unref(surface);
+        return FALSE;
+    }
+    g_object_ref(gdisplay);
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+    display = gdk_x11_display_get_xdisplay(gdisplay);
+#pragma GCC diagnostic pop
+    if (!display)
+    {
+        g_object_unref(gdisplay);
+        g_object_unref(surface);
+        return FALSE;
+    }
+
+    XLockDisplay(display); /* same shared-connection locking rationale as geometry_sync's own XLockDisplay */
+    x11_error_seen_during_call = FALSE;
+    /* Focusing a window that is not viewable is a BadMatch, which is a request we should never send
+     * rather than one to swallow afterwards. */
+    if (XGetWindowAttributes(display, (Window)xid, &attrs) && attrs.map_state == IsViewable)
+    {
+        XSetInputFocus(display, (Window)xid, RevertToParent, CurrentTime);
+        XSync(display, 0);
+        ok = !x11_error_seen_during_call;
+    }
+    else
+        fprintf(stderr, "webview2loader-host: not focusing nv=%p (xid=0x%lx) -- its window is not on "
+                        "screen yet\n", (void *)nv, xid);
+    XUnlockDisplay(display);
+
+    g_object_unref(gdisplay);
+    g_object_unref(surface);
+    return ok;
 }
 
 /* Test-support only (Plan 3 Task 3, original comment): real GdkSurface

@@ -231,6 +231,7 @@ enum webview2loader_event_type
 {
     WEBVIEW2LOADER_EVENT_NAVIGATION_STARTING,
     WEBVIEW2LOADER_EVENT_WEB_MESSAGE,
+    WEBVIEW2LOADER_EVENT_WINDOW_CLOSE_REQUESTED,
 };
 
 /* Big enough that callers must heap-allocate it -- the web-message field alone

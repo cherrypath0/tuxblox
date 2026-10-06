@@ -67,6 +67,7 @@ enum wv2l_event
 {
     WV2L_EV_NAVIGATION_STARTING,
     WV2L_EV_WEB_MESSAGE,
+    WV2L_EV_WINDOW_CLOSE_REQUESTED,
     /* Always append; never reorder or reuse a value -- same wire-compatibility
      * rule as enum wv2l_opcode. */
 };
@@ -108,6 +109,13 @@ enum wv2l_event
  *
  * A real message is a few hundred bytes; paying 132 KB for it was never
  * justified. */
+/* Raised when the page itself asks to be closed (window.close()); the host program decides what to
+ * do about it, which for Roblox means taking its own panel down. */
+struct wv2l_ev_window_close_requested
+{
+    uint64_t handle;
+};
+
 struct wv2l_ev_web_message_header
 {
     uint64_t handle;

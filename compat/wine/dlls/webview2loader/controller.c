@@ -328,6 +328,27 @@ static HRESULT WINAPI controller_put_Bounds(ICoreWebView2Controller *iface, RECT
     return S_OK;
 }
 
+/* Hands the page keyboard focus, which is what makes a form inside it typeable. Real WebView2 reads
+ * the reason to decide where inside the page the focus lands; the helper can only focus the view as a
+ * whole, so all three reasons do the same thing here. */
+static HRESULT WINAPI controller_MoveFocus(ICoreWebView2Controller *iface, int reason)
+{
+    struct controller_impl *ctrl = impl_from_ICoreWebView2Controller(iface);
+    struct move_focus_params params;
+
+    TRACE("(%p, %d)\n", iface, reason);
+    if (!ctrl->native_handle) return RO_E_CLOSED;
+
+    params.handle = ctrl->native_handle;
+    params.is_success = FALSE;
+    if (WEBVIEW2LOADER_UNIX_CALL(move_focus, &params) || !params.is_success)
+    {
+        WARN("the page did not take keyboard focus\n");
+        return E_FAIL;
+    }
+    return S_OK;
+}
+
 static HRESULT WINAPI controller_get_ParentWindow(ICoreWebView2Controller *iface, HWND *parentWindow)
 {
     if (!parentWindow) return E_POINTER;
@@ -364,7 +385,6 @@ WV2L_NOTIMPL_STUB(ctrl, ICoreWebView2Controller, put_ZoomFactor)
 WV2L_NOTIMPL_STUB(ctrl, ICoreWebView2Controller, add_ZoomFactorChanged)
 WV2L_NOTIMPL_STUB(ctrl, ICoreWebView2Controller, remove_ZoomFactorChanged)
 WV2L_NOTIMPL_STUB(ctrl, ICoreWebView2Controller, SetBoundsAndZoomFactor)
-WV2L_NOTIMPL_STUB(ctrl, ICoreWebView2Controller, MoveFocus)
 WV2L_NOTIMPL_STUB(ctrl, ICoreWebView2Controller, add_MoveFocusRequested)
 WV2L_NOTIMPL_STUB(ctrl, ICoreWebView2Controller, remove_MoveFocusRequested)
 WV2L_NOTIMPL_STUB(ctrl, ICoreWebView2Controller, add_GotFocus)
@@ -392,7 +412,7 @@ static const ICoreWebView2ControllerVtbl controller_vtbl =
     (void *)ctrl_notimpl_add_ZoomFactorChanged,
     (void *)ctrl_notimpl_remove_ZoomFactorChanged,
     (void *)ctrl_notimpl_SetBoundsAndZoomFactor,
-    (void *)ctrl_notimpl_MoveFocus,
+    controller_MoveFocus,
     (void *)ctrl_notimpl_add_MoveFocusRequested,
     (void *)ctrl_notimpl_remove_MoveFocusRequested,
     (void *)ctrl_notimpl_add_GotFocus,
@@ -493,7 +513,7 @@ static const struct webview2_controller4_vtbl_combined controller4_vtbl =
         (void *)ctrl_notimpl_add_ZoomFactorChanged,
         (void *)ctrl_notimpl_remove_ZoomFactorChanged,
         (void *)ctrl_notimpl_SetBoundsAndZoomFactor,
-        (void *)ctrl_notimpl_MoveFocus,
+        controller_MoveFocus,
         (void *)ctrl_notimpl_add_MoveFocusRequested,
         (void *)ctrl_notimpl_remove_MoveFocusRequested,
         (void *)ctrl_notimpl_add_GotFocus,

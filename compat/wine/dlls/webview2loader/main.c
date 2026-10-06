@@ -179,6 +179,20 @@ static DWORD WINAPI event_pump_proc(void *arg)
             ICoreWebView2_Release(webview);
             break;
         }
+        case WEBVIEW2LOADER_EVENT_WINDOW_CLOSE_REQUESTED:
+        {
+            ICoreWebView2 *webview = webview_find_by_handle(params->handle);
+            if (!webview)
+            {
+                TRACE("WindowCloseRequested for an unknown/closed handle -- dropping\n");
+                break;
+            }
+            /* Invoked here rather than handed to a worker: unlike WebMessageReceived this carries no
+             * reply the helper is waiting on, so a handler calling back in cannot deadlock the pump. */
+            webview_fire_window_close_requested(webview);
+            ICoreWebView2_Release(webview);
+            break;
+        }
         case WEBVIEW2LOADER_EVENT_WEB_MESSAGE:
         {
             /* Handed to a worker, NOT invoked here.

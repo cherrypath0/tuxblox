@@ -1357,6 +1357,18 @@ static NTSTATUS unix_wait_event_impl(void *args)
 
     switch (wire_type)
     {
+    case WV2L_EV_WINDOW_CLOSE_REQUESTED:
+    {
+        struct wv2l_ev_window_close_requested ev;
+
+        if (ipc_read_full(fd, &ev, sizeof(ev)) != (ssize_t)sizeof(ev))
+            return STATUS_NOT_SUPPORTED;
+        params->type = WEBVIEW2LOADER_EVENT_WINDOW_CLOSE_REQUESTED;
+        pthread_mutex_lock(&g_ipc_mutex);
+        params->handle = handle_tag_locked(ev.handle);
+        pthread_mutex_unlock(&g_ipc_mutex);
+        return STATUS_SUCCESS;
+    }
     case WV2L_EV_WEB_MESSAGE:
     {
         /* Header then exactly message_len UTF-16 units -- see
