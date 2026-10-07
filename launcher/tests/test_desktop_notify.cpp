@@ -17,6 +17,7 @@
 #include "desktop_notify.h"
 
 #include <atomic>
+#include <algorithm>
 #include <cassert>
 #include <chrono>
 #include <cstdio>
@@ -158,5 +159,18 @@ int main() {
     setenv("PATH", oldPath.c_str(), 1);
     fs::remove_all(work);
     printf("desktop_notify: all tests passed\n");
+    // A notification that says everything in its title passes no body at all, or notify-send draws
+    // an empty line under it.
+    {
+        const std::vector<std::string> args =
+            tuxblox::notifySendArguments("Connected to a server in London", "", "tuxblox-roblox-player");
+        assert(args.back() == "Connected to a server in London");
+        assert(std::find(args.begin(), args.end(), "tuxblox-roblox-player") != args.end());
+    }
+    {
+        const std::vector<std::string> args = tuxblox::notifySendArguments("Title", "Body", "icon");
+        assert(args.back() == "Body");
+    }
+
     return 0;
 }

@@ -26,7 +26,12 @@ namespace tuxblox {
 
 std::vector<std::string> notifySendArguments(const std::string& title, const std::string& body,
                                              const std::string& icon) {
-    return {"notify-send", "-a", "TuxBlox", "-i", icon, "--", title, body};
+    std::vector<std::string> arguments = {"notify-send", "-a", "TuxBlox", "-i", icon, "--", title};
+    // A notification that says everything in its title passes no body, or an empty line is drawn under it.
+    if (!body.empty()) {
+        arguments.push_back(body);
+    }
+    return arguments;
 }
 
 std::vector<std::string> notifySendActionArguments(const std::string& title, const std::string& body,

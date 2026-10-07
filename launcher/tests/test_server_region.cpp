@@ -53,7 +53,7 @@ int main() {
     assert(region.owner == "Roblox");
     assert(tuxblox::regionNotificationTitle(region) ==
            "Connected to a server in London, England, United Kingdom");
-    assert(tuxblox::regionNotificationBody(region) == "Roblox (AS22697)");
+    // No network line: the name of the place is the whole of what anybody wants from this.
 
     tuxblox::ServerRegion aws;
     assert(tuxblox::serverRegionFromJson(
@@ -83,7 +83,7 @@ int main() {
     tuxblox::ServerRegionWatcher watcher(
         true,
         [&lookups, &answer](const std::string&) { lookups++; return answer; },
-        [&notices](const std::string&, const std::string&) { notices++; });
+        [&notices](const std::string&) { notices++; });
     watcher.consumeServerAddress("128.116.31.33");
     watcher.consumeServerAddress("128.116.31.33");
     assert(lookups == 1);
@@ -96,7 +96,7 @@ int main() {
     tuxblox::ServerRegionWatcher failing(
         true,
         [&failed](const std::string&) { failed++; return std::string(); },
-        [](const std::string&, const std::string&) { assert(false); });
+        [](const std::string&) { assert(false); });
     failing.consumeServerAddress("128.116.31.33");
     failing.consumeServerAddress("128.116.31.33");
     assert(failed == 1);
@@ -106,7 +106,7 @@ int main() {
     tuxblox::ServerRegionWatcher off(
         false,
         [&offLookups](const std::string&) { offLookups++; return std::string(); },
-        [](const std::string&, const std::string&) {});
+        [](const std::string&) {});
     off.consumeServerAddress("128.116.31.33");
     assert(offLookups == 0);
 
@@ -115,7 +115,7 @@ int main() {
     tuxblox::ServerRegionWatcher onLocal(
         true,
         [&localLookups](const std::string&) { localLookups++; return std::string(); },
-        [](const std::string&, const std::string&) {});
+        [](const std::string&) {});
     onLocal.consumeServerAddress("127.0.0.1");
     assert(localLookups == 0);
 

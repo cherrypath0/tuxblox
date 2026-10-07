@@ -38,14 +38,14 @@ std::string geoLookupUrl(const std::string& ip);
 // The region out of that answer. False for anything that is not one. Never throws: this runs in the presence loop.
 bool serverRegionFromJson(const std::string& body, ServerRegion& into);
 
+// The whole of what the notification says. There is deliberately nothing under it: the network a server belongs to is of no use to somebody who just wants to know where it is.
 std::string regionNotificationTitle(const ServerRegion& region);
-std::string regionNotificationBody(const ServerRegion& region);
 
 // Tells the user which region a server is in. The lookup and the notification are passed in so this is testable without a network or a desktop.
 class ServerRegionWatcher {
 public:
     using LookupFn = std::function<std::string(const std::string& url)>;
-    using NotifyFn = std::function<void(const std::string& title, const std::string& body)>;
+    using NotifyFn = std::function<void(const std::string& title)>;
 
     ServerRegionWatcher(bool enabled, LookupFn lookup, NotifyFn notify);
 
@@ -59,7 +59,7 @@ private:
     std::map<std::string, std::optional<ServerRegion>> seen_;
 };
 
-// The watcher the launcher uses: a real request with a short timeout, and a desktop notification.
-ServerRegionWatcher makeServerRegionWatcher(bool enabled);
+// The watcher the launcher uses: a real request with a short timeout, and a desktop notification wearing the icon of the program that is running.
+ServerRegionWatcher makeServerRegionWatcher(bool enabled, const std::string& icon);
 
 } // namespace tuxblox

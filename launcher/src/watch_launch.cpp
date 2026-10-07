@@ -136,7 +136,9 @@ int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const 
     bool everSent = false;
     std::vector<std::time_t> recentSends;
     std::map<std::string, std::string> resolvedAssets;
-    ServerRegionWatcher regionWatcher = makeServerRegionWatcher(settings.serverRegionNotify);
+    // The same icon the desktop shortcuts carry, so the notification looks like it came from Roblox rather than from the network.
+    ServerRegionWatcher regionWatcher = makeServerRegionWatcher(
+        settings.serverRegionNotify, player ? "tuxblox-roblox-player" : "tuxblox-roblox-studio");
     std::string lastServerAddress;
     std::time_t lastPeerCheck = 0;
     if (presenceWanted) {

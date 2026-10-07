@@ -122,16 +122,6 @@ std::string regionNotificationTitle(const ServerRegion& region) {
     return "Connected to a server in " + where;
 }
 
-std::string regionNotificationBody(const ServerRegion& region) {
-    if (region.owner.empty()) {
-        return region.asn;
-    }
-    if (region.asn.empty()) {
-        return region.owner;
-    }
-    return region.owner + " (" + region.asn + ")";
-}
-
 ServerRegionWatcher::ServerRegionWatcher(bool enabled, LookupFn lookup, NotifyFn notify)
     : enabled_(enabled), lookup_(std::move(lookup)), notify_(std::move(notify)) {}
 
@@ -154,17 +144,15 @@ void ServerRegionWatcher::consumeServerAddress(const std::string& address) {
         known = seen_.emplace(address, answer).first;
     }
     if (known->second.has_value()) {
-        notify_(regionNotificationTitle(*known->second), regionNotificationBody(*known->second));
+        notify_(regionNotificationTitle(*known->second));
     }
 }
 
-ServerRegionWatcher makeServerRegionWatcher(bool enabled) {
+ServerRegionWatcher makeServerRegionWatcher(bool enabled, const std::string& icon) {
     return ServerRegionWatcher(
         enabled,
         [](const std::string& url) { return httpGet(url); },
-        [](const std::string& title, const std::string& body) {
-            showDesktopNotification(title, body, "network-server");
-        });
+        [icon](const std::string& title) { showDesktopNotification(title, std::string(), icon); });
 }
 
 } // namespace tuxblox
