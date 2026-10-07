@@ -109,8 +109,6 @@ public:
     virtual ~PresenceReader() = default;
     virtual void consumeLine(const std::string& line) = 0;
     virtual PresenceActivity activity() const = 0;
-    // The server this session last connected to, for the region lookup. Empty until one is known, which is also the answer for a reader whose target never reports one.
-    virtual std::string serverAddress() const { return std::string(); }
 };
 
 } // namespace tuxblox

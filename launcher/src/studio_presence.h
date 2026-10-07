@@ -27,11 +27,9 @@ class StudioPresenceReader : public PresenceReader {
 public:
     void consumeLine(const std::string& line) override;
     PresenceActivity activity() const override;
-    std::string serverAddress() const override;
 
 private:
     PresenceActivity activity_;
-    std::string serverAddress_;
 };
 
 // Follows a file that is still being written, handing over only whole lines. The offset is held so each tick costs one read of whatever is new.

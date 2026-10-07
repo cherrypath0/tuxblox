@@ -26,11 +26,9 @@ class PlayerPresenceReader : public PresenceReader {
 public:
     void consumeLine(const std::string& line) override;
     PresenceActivity activity() const override;
-    std::string serverAddress() const override;
 
 private:
     PresenceActivity activity_;
-    std::string serverAddress_;
     // What the join line claimed, kept only until Roblox's own report either confirms it or does not.
     std::string claimedPlaceId_;
     std::string claimedJobId_;
@@ -49,8 +47,5 @@ ReportedJoin reportedJoinFromLine(const std::string& line);
 
 // The server's own id out of a join line, or empty unless it is the shape Roblox writes. Checked rather than trusted, because it goes into a link somebody clicks.
 std::string jobIdFromJoinLine(const std::string& line);
-
-// The address out of a serverId line, or empty if the line is not one.
-std::string serverAddressFromLine(const std::string& line);
 
 } // namespace tuxblox

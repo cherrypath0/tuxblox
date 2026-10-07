@@ -153,23 +153,6 @@ std::string jobIdFromJoinLine(const std::string& line) {
     return id;
 }
 
-std::string serverAddressFromLine(const std::string& line) {
-    if (firstChannel(line) != "[FLog::Network]") {
-        return std::string();
-    }
-    const char marker[] = "[FLog::Network] serverId: ";
-    const std::size_t at = line.find(marker);
-    if (at == std::string::npos) {
-        return std::string();
-    }
-    const std::size_t start = at + sizeof(marker) - 1;
-    const std::size_t bar = line.find('|', start);
-    if (bar == std::string::npos) {
-        return std::string();
-    }
-    return line.substr(start, bar - start);
-}
-
 void PlayerPresenceReader::consumeLine(const std::string& line) {
     if (isBloxstrapRpcLine(line)) {
         applyBloxstrapRpcLine(line, activity_.rpc);
@@ -204,12 +187,6 @@ void PlayerPresenceReader::consumeLine(const std::string& line) {
         return;
     }
 
-    const std::string address = serverAddressFromLine(line);
-    if (!address.empty()) {
-        serverAddress_ = address;
-        return;
-    }
-
     if (firstChannel(line) == "[FLog::SessionTransitionFSM]") {
         if (contains(line, "Entered play session")) {
             activity_.kind = PresenceKind::Playing;
@@ -226,7 +203,6 @@ void PlayerPresenceReader::consumeLine(const std::string& line) {
             activity_.jobId.clear();
             claimedPlaceId_.clear();
             claimedJobId_.clear();
-            serverAddress_.clear();
             // What the game asked to be shown belonged to that game, and must not follow the user into the next one.
             activity_.rpc = RpcOverride{};
         }
@@ -235,10 +211,6 @@ void PlayerPresenceReader::consumeLine(const std::string& line) {
 
 PresenceActivity PlayerPresenceReader::activity() const {
     return activity_;
-}
-
-std::string PlayerPresenceReader::serverAddress() const {
-    return serverAddress_;
 }
 
 } // namespace tuxblox

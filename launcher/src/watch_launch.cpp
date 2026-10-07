@@ -26,6 +26,7 @@
 #include "roblox_universe.h"
 #include "settings.h"
 #include "bloxstrap_rpc.h"
+#include "client_peer.h"
 #include "player_presence.h"
 #include "server_region.h"
 #include "studio_presence.h"
@@ -67,6 +68,9 @@ void resolveRpcImage(RpcImage& image, std::map<std::string, std::string>& resolv
     }
     image.resolvedUrl = known->second;
 }
+
+// Often enough that a player is told which region they are in soon after joining, seldom enough that walking /proc costs nothing anybody can feel.
+const std::time_t PeerCheckSeconds = 5;
 
 const char kStudioApplicationId[] = "1554221498925973584";
 const char kPlayerApplicationId[] = "1557149187102220362";
@@ -134,6 +138,7 @@ int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const 
     std::map<std::string, std::string> resolvedAssets;
     ServerRegionWatcher regionWatcher = makeServerRegionWatcher(settings.serverRegionNotify);
     std::string lastServerAddress;
+    std::time_t lastPeerCheck = 0;
     if (presenceWanted) {
         discord = std::make_unique<DiscordRpc>(player ? kPlayerApplicationId : kStudioApplicationId);
     }
@@ -156,11 +161,16 @@ int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const 
             logTail->pump(*presenceReader);
         }
 
-        // Each server is named once, and a reader whose target never reports one answers empty.
-        const std::string serverAddress = presenceReader->serverAddress();
-        if (!serverAddress.empty() && serverAddress != lastServerAddress) {
-            lastServerAddress = serverAddress;
-            regionWatcher.consumeServerAddress(serverAddress);
+        // Which server this is comes from the system rather than from Roblox's log, because a game can
+        // print anything it likes into that log and this notification states something as fact. Walking
+        // /proc is not free, so it is asked a few seconds apart rather than every tick.
+        if (settings.serverRegionNotify && now - lastPeerCheck >= PeerCheckSeconds) {
+            lastPeerCheck = now;
+            const std::string peer = clientPeerAddress(installDir + "/runtime/pfx");
+            if (!peer.empty() && peer != lastServerAddress) {
+                lastServerAddress = peer;
+                regionWatcher.consumeServerAddress(peer);
+            }
         }
 
         if (!presenceWanted) {
