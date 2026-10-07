@@ -228,7 +228,13 @@ int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const 
     exportPrefixShortcuts(installDir, selfExePath());
 
     if (outcome.wasBootstrapInstall && ev && !ev->stopRequested && ev->exitCode == 0) {
+        // Only the first version of this program counts as installing it. An update brings another
+        // one, and putting the icon back then would overrule somebody who had deleted it.
+        const bool firstInstall = scanPrefixVersions(installDir, target).size() <= 1;
         registerBootstrappedVersion(installDir, target);
+        if (firstInstall) {
+            writeClientDesktopShortcut(installDir, selfExePath(), target);
+        }
     }
 
     if (!ev || ev->stopRequested || ev->exitCode == 0) {

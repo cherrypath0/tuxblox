@@ -251,6 +251,57 @@ int main() {
         assert(!fs::exists(renamedApps / "tuxblox-roblox-studio.desktop"));
     }
 
+    // The icon a client installs on the desktop. It carries a mark of its own, because the file is
+    // named the way a Roblox shortcut would be and nothing else could tell it apart from one
+    // somebody wrote themselves.
+    {
+        const std::string entry = tuxblox::clientDesktopEntry(
+            tuxblox::LaunchTarget::Player, "/home/a/.tuxblox/TuxBloxLauncher", true);
+        assert(entry.find("Name=Roblox Player\n") != std::string::npos);
+        // The flag, not a recorded path, so it opens whichever version is installed at the time.
+        assert(entry.find("Exec=\"/home/a/.tuxblox/TuxBloxLauncher\" --launch-player\n") !=
+               std::string::npos);
+        assert(entry.find("Icon=tuxblox-roblox-player\n") != std::string::npos);
+        assert(entry.find("StartupWMClass=robloxplayerbeta.exe\n") != std::string::npos);
+        // The menu entry is what feeds search; this one would only duplicate it there.
+        assert(entry.find("NoDisplay=true\n") != std::string::npos);
+        assert(entry.find("X-TuxBlox-Generated=true\n") != std::string::npos);
+
+        const std::string studio = tuxblox::clientDesktopEntry(
+            tuxblox::LaunchTarget::Studio, "/home/a/.tuxblox/TuxBloxLauncher", false);
+        assert(studio.find("Name=Roblox Studio\n") != std::string::npos);
+        assert(studio.find("--launch-studio\n") != std::string::npos);
+        // Roblox's own icon is only there once a session has exported it.
+        assert(studio.find("Icon=tuxblox\n") != std::string::npos);
+    }
+
+    // Only a file TuxBlox wrote is ever removed, however it is named.
+    {
+        const fs::path desktop = fs::temp_directory_path() / "tuxblox_test_desktop_icons";
+        fs::remove_all(desktop);
+        fs::create_directories(desktop);
+
+        const fs::path ours = desktop / "Roblox Player.desktop";
+        {
+            std::ofstream out(ours);
+            out << tuxblox::clientDesktopEntry(tuxblox::LaunchTarget::Player,
+                                               "/home/a/.tuxblox/TuxBloxLauncher", true);
+        }
+        const fs::path theirs = desktop / "My Own Shortcut.desktop";
+        { std::ofstream out(theirs); out << "[Desktop Entry]\nType=Application\nName=Mine\n"; }
+        const fs::path lookalike = desktop / "Roblox Studio.desktop";
+        { std::ofstream out(lookalike); out << "[Desktop Entry]\nName=Roblox Studio\n"; }
+
+        assert(tuxblox::removeGeneratedDesktopShortcuts(desktop.string()) == 1);
+        assert(!fs::exists(ours));
+        assert(fs::exists(theirs));
+        // Named exactly as ours would be, but we did not write it, so it stays.
+        assert(fs::exists(lookalike));
+
+        assert(tuxblox::removeGeneratedDesktopShortcuts((desktop / "nothing").string()) == 0);
+        fs::remove_all(desktop);
+    }
+
     fs::remove_all(tmp);
     std::printf("wine_shortcut_export: all tests passed\n");
     return 0;

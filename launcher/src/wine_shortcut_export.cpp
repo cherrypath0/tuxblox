@@ -225,6 +225,84 @@ std::string builtinEntry(const ExportTarget& target, const std::string& launcher
     return out.str();
 }
 
+// The line that says TuxBlox wrote this file, and the only thing that authorises removing it.
+const char GeneratedMarker[] = "X-TuxBlox-Generated=true";
+
+std::string clientDesktopEntry(LaunchTarget target, const std::string& launcherExePath,
+                               bool haveIcon) {
+    const ExportTarget *pTarget = nullptr;
+    for (const auto& candidate : exportTargets()) {
+        const bool player = std::string(candidate.slug) == "player";
+        if (player == (target == LaunchTarget::Player)) pTarget = &candidate;
+    }
+    if (pTarget == nullptr) return std::string();
+
+    const std::string icon = haveIcon ? std::string("tuxblox-roblox-") + pTarget->slug : "tuxblox";
+    std::ostringstream out;
+    out << "[Desktop Entry]\n"
+           "Type=Application\n"
+           "Name=" << pTarget->name << "\n"
+           "Comment=via TuxBlox\n"
+           "Exec=\"" << launcherExePath << "\" " << pTarget->launchFlag << "\n"
+           "Icon=" << icon << "\n"
+           "Terminal=false\n"
+           "StartupNotify=true\n"
+           "StartupWMClass=" << pTarget->exeLeaf << "\n"
+           "Categories=Game;\n"
+           // The menu entry beside this one is what application searches read. Without this the
+           // desktop copy is indexed too and the same program is offered twice.
+           "NoDisplay=true\n"
+        << GeneratedMarker << "\n";
+    return out.str();
+}
+
+bool writeClientDesktopShortcut(const std::string& installDir, const std::string& launcherExePath,
+                                LaunchTarget target) {
+    const ExportTarget *pTarget = nullptr;
+    for (const auto& candidate : exportTargets()) {
+        const bool player = std::string(candidate.slug) == "player";
+        if (player == (target == LaunchTarget::Player)) pTarget = &candidate;
+    }
+    if (pTarget == nullptr) return false;
+
+    const std::string driveC = installDir + "/runtime/pfx/drive_c";
+    const fs::path desktop =
+        fs::path(driveC) / "users" / prefixUserName(driveC) / "Desktop";
+    std::error_code ec;
+    if (!fs::is_directory(desktop, ec)) return false;
+
+    const char *pHome = std::getenv("HOME");
+    const std::string iconsDir =
+        pHome == nullptr ? std::string() : std::string(pHome) + "/.local/share/icons/hicolor";
+    const bool haveIcon =
+        !iconsDir.empty() &&
+        fs::exists(fs::path(iconsDir) / "256x256" / "apps" /
+                       (std::string("tuxblox-roblox-") + pTarget->slug + ".png"), ec);
+
+    const fs::path file = desktop / (std::string(pTarget->name) + ".desktop");
+    if (!writeFileAtomic(file, clientDesktopEntry(target, launcherExePath, haveIcon))) return false;
+    // A desktop entry that is not executable is refused with a warning rather than launched.
+    fs::permissions(file,
+                    fs::perms::owner_exec | fs::perms::group_exec | fs::perms::others_exec,
+                    fs::perm_options::add, ec);
+    return true;
+}
+
+int removeGeneratedDesktopShortcuts(const std::string& desktopDir) {
+    std::error_code ec;
+    if (!fs::is_directory(desktopDir, ec)) return 0;
+
+    int removed = 0;
+    for (const auto& entry : fs::directory_iterator(desktopDir, ec)) {
+        if (ec) break;
+        if (entry.path().extension() != ".desktop") continue;
+        if (readWholeFile(entry.path()).find(GeneratedMarker) == std::string::npos) continue;
+        std::error_code removeEc;
+        if (fs::remove(entry.path(), removeEc)) removed++;
+    }
+    return removed;
+}
+
 void exportPrefixShortcutsTo(const std::string& installDir, const std::string& launcherExePath,
                              const std::string& appsDir, const std::string& iconsDir) {
     try {

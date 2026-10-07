@@ -17,6 +17,8 @@
 #pragma once
 #include <string>
 
+#include "lnk_resolver.h"
+
 namespace tuxblox {
 
 void exportPrefixShortcuts(const std::string& installDir, const std::string& launcherExePath);
@@ -24,6 +26,16 @@ void exportPrefixShortcuts(const std::string& installDir, const std::string& lau
 // Same, against explicit output directories. Exposed for tests.
 void exportPrefixShortcutsTo(const std::string& installDir, const std::string& launcherExePath,
                              const std::string& appsDir, const std::string& iconsDir);
+
+// The icon a client puts on the desktop when it is first installed. Written through the virtual drive's own Desktop folder, which Wine points at the real one. It carries X-TuxBlox-Generated so it can be taken away again: the file is named the way a Roblox shortcut would be, and nothing else could tell it apart from one somebody wrote themselves.
+std::string clientDesktopEntry(LaunchTarget target, const std::string& launcherExePath, bool haveIcon);
+
+// Puts that icon on the desktop for the client just installed. Does nothing if the folder is not there. False means nothing was written.
+bool writeClientDesktopShortcut(const std::string& installDir, const std::string& launcherExePath,
+                                LaunchTarget target);
+
+// Removes the icons TuxBlox put on the desktop, and only those: a file it did not write is left alone however it is named. Returns how many went.
+int removeGeneratedDesktopShortcuts(const std::string& desktopDir);
 
 // Testable seams.
 

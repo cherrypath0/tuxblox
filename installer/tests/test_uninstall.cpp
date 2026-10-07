@@ -158,6 +158,26 @@ int main() {
         fs::remove_all(tmp);
     }
 
+    // The icons TuxBlox put on the desktop go with it, and nothing else does. The file is named the
+    // way a Roblox shortcut would be, so only the mark inside it can tell them apart.
+    {
+        const fs::path desktop = fs::temp_directory_path() / "tuxblox_test_uninstall_desktop";
+        fs::remove_all(desktop);
+        fs::create_directories(desktop);
+        {
+            std::ofstream out(desktop / "Roblox Player.desktop");
+            out << "[Desktop Entry]\nName=Roblox Player\nX-TuxBlox-Generated=true\n";
+        }
+        {
+            std::ofstream out(desktop / "Roblox Studio.desktop");
+            out << "[Desktop Entry]\nName=Roblox Studio\n";  // somebody else's, same name
+        }
+        assert(tuxblox::removeGeneratedDesktopShortcuts(desktop.string()) == 1);
+        assert(!fs::exists(desktop / "Roblox Player.desktop"));
+        assert(fs::exists(desktop / "Roblox Studio.desktop"));
+        fs::remove_all(desktop);
+    }
+
     printf("uninstall: all tests passed\n");
     return 0;
 }

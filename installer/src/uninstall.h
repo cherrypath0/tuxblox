@@ -33,6 +33,9 @@ void removeDesktopFiles(const std::string& appsDir);
 // same machine, and deleting those would be destroying someone else's data.
 void removeTuxBloxIcons(const std::string& hicolorDir);
 
+// Removes the icons TuxBlox put on the desktop when a Roblox program was installed, and only those. They are named the way a Roblox shortcut would be, so the only thing that authorises removing one is the X-TuxBlox-Generated line the launcher writes inside it -- a file somebody wrote themselves, under the same name, is left alone. Returns how many went.
+int removeGeneratedDesktopShortcuts(const std::string& desktopDir);
+
 // Removes the shared-mime-info package TuxBlox wrote for .rbxl/.rbxlx.
 void removeMimePackage(const std::string& xmlPath);
 

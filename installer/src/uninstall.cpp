@@ -71,6 +71,30 @@ void removeDesktopFiles(const std::string& appsDir) {
     }
 }
 
+int removeGeneratedDesktopShortcuts(const std::string& desktopDir) {
+    // Written by wine_shortcut_export.cpp in the launcher; the two must agree on it.
+    const std::string marker = "X-TuxBlox-Generated=true";
+
+    std::error_code ec;
+    if (!fs::is_directory(desktopDir, ec)) return 0;
+
+    int removed = 0;
+    for (const auto& entry : fs::directory_iterator(desktopDir, ec)) {
+        if (ec) break;
+        if (entry.path().extension() != ".desktop") continue;
+
+        std::ifstream in(entry.path(), std::ios::binary);
+        if (!in) continue;
+        const std::string contents((std::istreambuf_iterator<char>(in)),
+                                   std::istreambuf_iterator<char>());
+        if (contents.find(marker) == std::string::npos) continue;
+
+        std::error_code removeEc;
+        if (fs::remove(entry.path(), removeEc)) removed++;
+    }
+    return removed;
+}
+
 void removeTuxBloxIcons(const std::string& hicolorDir) {
     // Same buckets desktop_integration.cpp's writeDesktopEntries() and
     // wine_shortcut_export.cpp's copyIcons() populate.
@@ -174,6 +198,7 @@ bool performUninstall(const std::string& installDir) {
     // Was a single 256x256 removal, which left the other seven size buckets
     // writeDesktopEntries() populates behind on every uninstall.
     removeTuxBloxIcons(std::string(home) + "/.local/share/icons/hicolor");
+    removeGeneratedDesktopShortcuts(std::string(home) + "/Desktop");
     removeMimePackage(std::string(home) + "/.local/share/mime/packages/tuxblox-roblox-place.xml");
 
     if (!std::getenv("TUXBLOX_SKIP_XDG_MIME")) { // escape hatch for sandboxed test/CI runs
