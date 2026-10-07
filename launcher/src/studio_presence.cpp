@@ -75,6 +75,12 @@ std::string StudioPresenceReader::serverAddress() const {
 }
 
 void StudioPresenceReader::consumeLine(const std::string& line) {
+    // A Studio plugin asks for a status exactly as a game does, through the same messages.
+    if (isBloxstrapRpcLine(line)) {
+        applyBloxstrapRpcLine(line, activity_.rpc);
+        return;
+    }
+
     // Team Create reaches a real server, which is worth knowing the region of just as much as a game is.
     const std::string address = serverAddressFromLine(line);
     if (!address.empty()) {
@@ -286,7 +292,7 @@ std::string activityJson(const PresenceActivity& activity, std::time_t startedAt
     nlohmann::json activityObject;
     // A Player session reads the way players already know it from other launchers: the experience's own name, and its author beneath rather than a sentence about it.
     activityObject["details"] = studio || !named ? phrase : activity.placeName;
-    if (!studio && !activity.creatorLine.empty()) {
+    if (!activity.creatorLine.empty()) {
         activityObject["state"] = activity.creatorLine;
     }
     activityObject["timestamps"]["start"] = startedAt;
@@ -296,14 +302,12 @@ std::string activityJson(const PresenceActivity& activity, std::time_t startedAt
     // it could have written.
     const std::string gameUrl =
         placeGameUrl(studio ? activity.placeId : activity.reportedPlaceId);
-    if (!gameUrl.empty() && studio) {
-        activityObject["buttons"] = nlohmann::json::array(
-            {{{"label", "Open Game Link"}, {"url", gameUrl}}});
-    } else if (!gameUrl.empty()) {
+    if (!gameUrl.empty()) {
         activityObject["buttons"] = nlohmann::json::array();
-        // Joining needs a server as well as a place, and a player on the home screen is in neither.
+        // Joining needs a server as well as a place, and nobody joins a place somebody is building.
         const std::string joinUrl =
-            placeJoinUrl(activity.reportedPlaceId, activity.jobId, activity.rpc.launchData);
+            studio ? std::string()
+                   : placeJoinUrl(activity.reportedPlaceId, activity.jobId, activity.rpc.launchData);
         if (!joinUrl.empty()) {
             activityObject["buttons"].push_back({{"label", "Join server"}, {"url", joinUrl}});
         }

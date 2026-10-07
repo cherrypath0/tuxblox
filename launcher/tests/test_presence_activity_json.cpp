@@ -135,8 +135,43 @@ int main() {
     out = nlohmann::json::parse(tuxblox::activityJson(studioButtons, t));
     assert(out["details"].get<std::string>() == "Editing DOORS GAME");
     assert(out["buttons"].size() == 1);
-    assert(out["buttons"][0]["label"].get<std::string>() == "Open Game Link");
+    assert(out["buttons"][0]["label"].get<std::string>() == "See game page");
+    // Nobody joins a place somebody is building, so Studio never offers it even with a server known.
+    assert(out["buttons"].size() == 1);
     assert(!out.contains("state"));
+
+    // Studio reads like the Player, except that what a builder is doing is the point of its line.
+    tuxblox::PresenceActivity studioFull;
+    studioFull.kind = tuxblox::PresenceKind::Editing;
+    studioFull.placeName = "DOORS";
+    studioFull.placeId = "6516141723";
+    studioFull.reportedPlaceId = "6516141723";
+    studioFull.jobId = "5ccfb412-0b58-47d2-b91e-321903eceb59";
+    studioFull.creatorLine = "by LSPLASH";
+    studioFull.placeIconUrl = "https://tr.rbxcdn.com/abc/512/512/Image/Png";
+    out = nlohmann::json::parse(tuxblox::activityJson(studioFull, t));
+    assert(out["details"].get<std::string>() == "Editing DOORS");
+    assert(out["state"].get<std::string>() == "by LSPLASH");
+    assert(out["assets"]["large_image"].get<std::string>() == studioFull.placeIconUrl);
+    assert(out["assets"]["small_image"].get<std::string>() == "studio");
+    assert(out["assets"]["small_text"].get<std::string>() == "Roblox Studio");
+    // Nobody can join a place somebody is building, so only the page is offered -- even with a server.
+    assert(out["buttons"].size() == 1);
+    assert(out["buttons"][0]["label"].get<std::string>() == "See game page");
+    assert(out["buttons"][0]["url"].get<std::string>() == "https://www.roblox.com/games/6516141723");
+
+    tuxblox::PresenceActivity studioTesting = studioFull;
+    studioTesting.kind = tuxblox::PresenceKind::PlayTesting;
+    out = nlohmann::json::parse(tuxblox::activityJson(studioTesting, t));
+    assert(out["details"].get<std::string>() == "Playtesting DOORS");
+    assert(out["state"].get<std::string>() == "by LSPLASH");
+
+    // A plugin can set Studio's status the same way a game sets the Player's.
+    tuxblox::PresenceActivity studioRpc = studioFull;
+    studioRpc.rpc.details.state = tuxblox::RpcField::State::Set;
+    studioRpc.rpc.details.value = "Building the lobby";
+    out = nlohmann::json::parse(tuxblox::activityJson(studioRpc, t));
+    assert(out["details"].get<std::string>() == "Building the lobby");
 
     // What the game asked for wins over what TuxBlox would have shown.
     tuxblox::PresenceActivity custom = playing;

@@ -182,10 +182,9 @@ int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const 
                 ResolvedPlace fetched;
                 // A player knows the experience by its own name and its author, which is a different question from what the place inside it is called.
                 UniverseInfo universe;
-                const bool described =
-                    player && (!current.universeId.empty()
-                                   ? fetchUniverseInfoById(current.universeId, universe)
-                                   : fetchUniverseInfo(describeId, universe));
+                const bool described = !current.universeId.empty()
+                                           ? fetchUniverseInfoById(current.universeId, universe)
+                                           : fetchUniverseInfo(describeId, universe);
                 if (described) {
                     fetched.name = universe.name;
                     fetched.creatorLine = creatorLine(universe);

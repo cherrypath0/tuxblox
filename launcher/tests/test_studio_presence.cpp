@@ -191,7 +191,7 @@ int main() {
         tuxblox::PresenceActivity published = editing;
         published.placeId = "121959868194179";
         const std::string linked = tuxblox::activityJson(published, 1);
-        assert(linked.find("\"label\":\"Open Game Link\"") != std::string::npos);
+        assert(linked.find("\"label\":\"See game page\"") != std::string::npos);
         assert(linked.find("\"url\":\"https://www.roblox.com/games/121959868194179\"") !=
                std::string::npos);
         assert(tuxblox::activityJson(editing, 1).find("buttons") == std::string::npos);
@@ -268,6 +268,11 @@ int main() {
     tuxblox::StudioPresenceReader loopback;
     loopback.consumeLine("2026-09-16T20:41:38.441Z,33.441986,01ac,7 [FLog::Network] serverId: 127.0.0.1|49276");
     assert(loopback.serverAddress() == "127.0.0.1");
+
+    // Studio honours what a plugin asks for, exactly as the Player honours a game.
+    tuxblox::StudioPresenceReader rpc;
+    rpc.consumeLine("2026-10-07T14:35:34.174Z,8.174593,00d0,6 [FLog::Output] [BloxstrapRPC] {\"command\":\"SetRichPresence\",\"data\":{\"details\":\"Building the lobby\"}}");
+    assert(rpc.activity().rpc.details.value == "Building the lobby");
 
     return 0;
 }
