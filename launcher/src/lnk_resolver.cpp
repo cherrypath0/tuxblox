@@ -18,6 +18,7 @@
 #include "prefix_user.h"
 #include <cctype>
 #include <filesystem>
+#include <sys/stat.h>
 #include <fstream>
 #include <iterator>
 
@@ -166,19 +167,32 @@ std::string resolveExePath(LaunchTarget target, const std::string& driveCRoot) {
         }
     }
 
+    // Roblox leaves every version it has installed in the drive, and TuxBlox puts its files there
+    // directly rather than running Roblox's installer, so nothing in the drive says which one is
+    // current. Taking whichever the directory yielded first launched an arbitrary build -- on a
+    // machine with four Studios installed, one three weeks old. The newest file is the one Roblox
+    // most recently put there, which is the one to run.
     std::error_code ec;
     fs::recursive_directory_iterator it(
         driveCRoot, fs::directory_options::skip_permission_denied, ec);
     fs::recursive_directory_iterator end;
+    std::string newest;
+    std::time_t newestWritten = 0;
     for (; !ec && it != end; it.increment(ec)) {
         std::error_code fileEc;
         if (!it->is_regular_file(fileEc) || fileEc) continue;
         if (it->path().filename() != exeName) continue;
         if (it->path().string().find("Installer") != std::string::npos) continue;
-        return it->path().string();
-    }
 
-    return "";
+        // stat(), not last_write_time(): the file clock's epoch is unspecified in C++17.
+        struct stat status {};
+        if (::stat(it->path().c_str(), &status) != 0) continue;
+        if (newest.empty() || status.st_mtime > newestWritten) {
+            newest = it->path().string();
+            newestWritten = status.st_mtime;
+        }
+    }
+    return newest;
 }
 
 } // namespace tuxblox

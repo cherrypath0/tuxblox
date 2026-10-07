@@ -19,6 +19,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <utime.h>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -144,6 +145,43 @@ int main() {
         fs::create_directories(root / "drive_c");
         std::string resolved = resolveExePath(LaunchTarget::Player, (root / "drive_c").string());
         assert(resolved.empty());
+        fs::remove_all(root);
+    }
+
+    // Roblox leaves every version it has ever installed in the drive, and TuxBlox installs its files
+    // directly so there is no shortcut naming the current one. Without a rule, the search returned
+    // whichever the directory happened to yield first, which is how a three-week-old Studio got
+    // launched on a machine with four installed.
+    {
+        const fs::path root = fs::temp_directory_path() / "tuxblox_test_newest_version";
+        fs::remove_all(root);
+        const fs::path versions = root / "users" / "cherry" / "AppData" / "Local" / "Roblox" / "Versions";
+
+        const std::pair<const char *, std::time_t> builds[] = {
+            {"version-aaaaaaaaaaaaaaaa", 1757000000},  // oldest
+            {"version-cccccccccccccccc", 1759000000},  // newest
+            {"version-bbbbbbbbbbbbbbbb", 1758000000},
+        };
+        for (const auto& [folder, when] : builds) {
+            fs::create_directories(versions / folder);
+            const fs::path exe = versions / folder / "RobloxStudioBeta.exe";
+            { std::ofstream out(exe); out << "x"; }
+            struct utimbuf times{when, when};
+            utime(exe.c_str(), &times);
+        }
+
+        const std::string found = tuxblox::resolveExePath(tuxblox::LaunchTarget::Studio, root.string());
+        assert(found.find("version-cccccccccccccccc") != std::string::npos);
+
+        // An installer that happens to carry the same name is not the program.
+        fs::create_directories(versions / "Installer");
+        const fs::path fake = versions / "Installer" / "RobloxStudioBeta.exe";
+        { std::ofstream out(fake); out << "x"; }
+        struct utimbuf later{1760000000, 1760000000};
+        utime(fake.c_str(), &later);
+        assert(tuxblox::resolveExePath(tuxblox::LaunchTarget::Studio, root.string())
+                   .find("version-cccccccccccccccc") != std::string::npos);
+
         fs::remove_all(root);
     }
 
