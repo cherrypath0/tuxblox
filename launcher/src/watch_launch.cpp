@@ -171,6 +171,10 @@ int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const 
 
         discord->poll(now);
         PresenceActivity current = presenceReader->activity();
+        // Dropped here rather than further down, so a game that asks for a status nobody wanted cannot make this fetch its art, or spend one of the few updates Discord allows on a presence that would read the same.
+        if (!settings.discordGameStatus) {
+            current.rpc = RpcOverride{};
+        }
 
         // Studio names a published place only by number, so the name is asked for once per place and remembered, including when Roblox has none to give.
         // Roblox's own report is preferred over the join line, which a game could have written.

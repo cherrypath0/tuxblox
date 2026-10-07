@@ -128,6 +128,7 @@ Settings loadSettings(const std::string& installDir) {
         settings.discordRpc = j.value("discord_rpc", false);
         settings.serverRegionNotify = j.value("server_region_notify", false);
         settings.discordJoinButton = j.value("discord_join_button", true);
+        settings.discordGameStatus = j.value("discord_game_status", true);
         const std::string theme = j.value("theme", std::string("system"));
         settings.theme = isKnownTheme(theme) ? theme : "system";
 
@@ -167,6 +168,7 @@ void saveSettings(const std::string& installDir, const Settings& settings) {
         j["discord_rpc"] = settings.discordRpc;
         j["server_region_notify"] = settings.serverRegionNotify;
         j["discord_join_button"] = settings.discordJoinButton;
+        j["discord_game_status"] = settings.discordGameStatus;
         j["theme"] = settings.theme;
         j["fast_flags"] = {{"player", fastFlagsToJson(settings.fastFlags.player)},
                             {"studio", fastFlagsToJson(settings.fastFlags.studio)}};

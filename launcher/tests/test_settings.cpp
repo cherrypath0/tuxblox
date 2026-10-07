@@ -593,6 +593,26 @@ int main() {
         assert(loadSettings(dir).discordJoinButton == true);
     }
 
+    // Honouring what a game asks for is on unless somebody turns it off.
+    {
+        fs::remove_all(dir);
+        assert(loadSettings(dir).discordGameStatus == true);
+    }
+    {
+        Settings s;
+        s.discordGameStatus = false;
+        saveSettings(dir, s);
+        assert(loadSettings(dir).discordGameStatus == false);
+    }
+    {
+        fs::create_directories(dir);
+        {
+            std::ofstream out(dir + "/settings.json");
+            out << "{\"send_crash_reports\": false, \"discord_rpc\": true}";
+        }
+        assert(loadSettings(dir).discordGameStatus == true);
+    }
+
     fs::remove_all(dir);
 
     printf("settings: all tests passed\n");

@@ -201,6 +201,32 @@ int main() {
     assert(out["buttons"].size() == 1);
     assert(out["buttons"][0]["label"].get<std::string>() == "See game page");
 
+    // Somebody who would rather a game could not write on their profile has what the game sent dropped before it gets here, and what is left is TuxBlox's own presence, whole.
+    tuxblox::PresenceActivity loud = full;  // has a reported place and a server, so it has buttons
+    loud.rpc.details.state = tuxblox::RpcField::State::Set;
+    loud.rpc.details.value = "Floor 3";
+    loud.rpc.state.state = tuxblox::RpcField::State::Set;
+    loud.rpc.state.value = "Hiding";
+    loud.rpc.largeImage.assetId.state = tuxblox::RpcField::State::Set;
+    loud.rpc.largeImage.assetId.value = "1234";
+    loud.rpc.largeImage.resolvedUrl = "https://tr.rbxcdn.com/1234/512/512/Image/Png";
+    loud.rpc.launchData = "room=7";
+
+    out = nlohmann::json::parse(tuxblox::activityJson(loud, t));
+    assert(out["details"].get<std::string>() == "Floor 3");
+    assert(out["assets"]["large_image"].get<std::string>() == loud.rpc.largeImage.resolvedUrl);
+    assert(out["buttons"][0]["url"].get<std::string>().find("launchData=room%3D7") !=
+           std::string::npos);
+
+    loud.rpc = tuxblox::RpcOverride{};
+    out = nlohmann::json::parse(tuxblox::activityJson(loud, t));
+    assert(out["details"].get<std::string>() == "DOORS");
+    // TuxBlox's own line stays: turning a game off does not turn TuxBlox off.
+    assert(out["state"].get<std::string>() == "by LSPLASH");
+    assert(out["assets"]["large_image"].get<std::string>() == full.placeIconUrl);
+    // Not even the launch data a game set rides along on the link.
+    assert(out["buttons"][0]["url"].get<std::string>().find("launchData") == std::string::npos);
+
     // What the game asked for wins over what TuxBlox would have shown.
     tuxblox::PresenceActivity custom = playing;
     custom.rpc.details.state = tuxblox::RpcField::State::Set;

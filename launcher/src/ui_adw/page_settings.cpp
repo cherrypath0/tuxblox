@@ -62,15 +62,12 @@ SettingsPage::SettingsPage(App &app) : app_(app) {
               "Send the session log and your versions when Roblox crashes. See tuxblox.net/privacy",
               &Settings::sendCrashReports);
     AdwExpanderRow *pDiscord =
-        addExpander(pPrivacy, "Show what you are doing on Discord",
-                    "Show the place you have open in Studio, or the game you are playing, on your Discord profile. A game can set its own status text.",
-                    &Settings::discordRpc);
-    addNestedToggle(pDiscord, "Let people join your server",
-                    "Put a button on your profile that takes somebody into the same server you are in.",
-                    &Settings::discordJoinButton);
-    addToggle(pPrivacy, "Show which region a server is in",
-              "Show a notification naming the region of each Roblox server you join. This asks tuxblox.net about the server's address.",
-              &Settings::serverRegionNotify);
+        addExpander(pPrivacy, "Show what you are doing on Discord", "", &Settings::discordRpc);
+    addNestedToggle(pDiscord, "Let people join your server", "", &Settings::discordJoinButton);
+    addNestedToggle(pDiscord, "Let games set their own status",
+                    "Show what a game says you are doing, such as which floor or room you are on. With this off, only what TuxBlox works out itself is shown.",
+                    &Settings::discordGameStatus);
+    addToggle(pPrivacy, "Notify server location", "", &Settings::serverRegionNotify);
 
     buildDangerZone();
 }

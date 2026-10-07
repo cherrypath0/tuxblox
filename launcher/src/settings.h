@@ -72,6 +72,8 @@ struct Settings {
     bool serverRegionNotify = false;
     // On by default, because being able to join a friend is what the button is for. It puts the server somebody is in on their Discord profile, so anybody who would rather not be followed there can take it off without giving up the rest of the presence.
     bool discordJoinButton = true;
+    // On by default, because a game saying which floor you are on is the interesting part. Turning it off ignores every message a game sends and shows only what TuxBlox worked out itself, for somebody who would rather a game could not write on their profile at all.
+    bool discordGameStatus = true;
     // Controller vibration. On by default, and the default emits no
     // environment at all -- only turning it off does, which is what keeps a
     // launch that never touched this setting exactly as it always was.
