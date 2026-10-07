@@ -3753,16 +3753,18 @@ void X11DRV_WindowPosChanged( HWND hwnd, HWND insert_after, HWND owner_hint, UIN
     struct x11drv_win_data *data;
     UINT ex_style = NtUserGetWindowLongW( hwnd, GWL_EXSTYLE ), new_style = NtUserGetWindowLongW( hwnd, GWL_STYLE );
     struct window_rects old_rects;
-    BOOL is_managed, was_fullscreen, activate = !(swp_flags & SWP_NOACTIVATE), fullscreen = !!(swp_flags & WINE_SWP_FULLSCREEN);
+    BOOL is_managed, was_managed, became_managed, was_fullscreen, activate = !(swp_flags & SWP_NOACTIVATE), fullscreen = !!(swp_flags & WINE_SWP_FULLSCREEN);
 
     if ((is_managed = is_window_managed( hwnd, swp_flags, fullscreen ))) make_owner_managed( hwnd );
     set_surface_window_rects( surface, new_rects );
 
     if (!(data = get_win_data( hwnd ))) return;
+    was_managed = data->managed;
     if (is_managed) window_set_managed( data, TRUE );
     /* A toolkit that applies its window flags after creating the window leaves one managed that
      * never should have been. Drop it again while the window is still withdrawn. */
     else if (is_bare_tool_window( new_style, ex_style )) window_set_managed( data, FALSE );
+    became_managed = !was_managed && data->managed;
 
     old_rects = data->rects;
     was_fullscreen = data->is_fullscreen;
@@ -3849,6 +3851,14 @@ void X11DRV_WindowPosChanged( HWND hwnd, HWND insert_after, HWND owner_hint, UIN
     release_win_data( data );
 
     if (was_fullscreen) NtUserClipCursor( NULL );
+
+    /* A window created as a child and promoted to a top-level one afterwards had its frame worked
+     * out while it still counted as unmanaged, which leaves no room for the title bar and makes us
+     * draw a second one of our own over the program's content. Ask for the frame once more now that
+     * the window is managed; the repeat pass finds it already managed and asks for nothing further. */
+    if (became_managed)
+        NtUserSetWindowPos( hwnd, 0, 0, 0, 0, 0, SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE |
+                            SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER );
 }
 
 /* check if the window icon should be hidden (i.e. moved off-screen) */
