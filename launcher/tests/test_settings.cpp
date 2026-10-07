@@ -571,6 +571,28 @@ int main() {
         assert(loaded.serverRegionNotify == false);
     }
 
+    // The join button is on unless somebody turns it off, which is how other launchers behave.
+    {
+        fs::remove_all(dir);
+        Settings s = loadSettings(dir);
+        assert(s.discordJoinButton == true);
+    }
+    {
+        Settings s;
+        s.discordJoinButton = false;
+        saveSettings(dir, s);
+        assert(loadSettings(dir).discordJoinButton == false);
+    }
+    // A file written before the setting existed keeps the button, rather than silently losing it.
+    {
+        fs::create_directories(dir);
+        {
+            std::ofstream out(dir + "/settings.json");
+            out << "{\"send_crash_reports\": false, \"discord_rpc\": true}";
+        }
+        assert(loadSettings(dir).discordJoinButton == true);
+    }
+
     fs::remove_all(dir);
 
     printf("settings: all tests passed\n");

@@ -191,7 +191,10 @@ int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const 
                 } else if (current.placeName.empty()) {
                     fetched.name = fetchPlaceName(describeId);
                 }
-                fetched.iconUrl = fetchPlaceIconUrl(describeId);
+                // The experience's own icon, which belongs to its root place -- teleporting into a lobby inside it must not change the picture on somebody's profile.
+                const std::string iconPlaceId =
+                    described && !universe.rootPlaceId.empty() ? universe.rootPlaceId : describeId;
+                fetched.iconUrl = fetchPlaceIconUrl(iconPlaceId);
                 known = resolvedPlaces.emplace(describeId, fetched).first;
             }
             if (!known->second.name.empty()) {
@@ -205,7 +208,7 @@ int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const 
         resolveRpcImage(current.rpc.smallImage, resolvedAssets);
 
         if ((!everSent || current != lastSent) && rpcAllowsSend(recentSends, now) &&
-            discord->send(activityJson(current, launchStart), now)) {
+            discord->send(activityJson(current, launchStart, settings.discordJoinButton), now)) {
             lastSent = current;
             everSent = true;
             recentSends.push_back(now);

@@ -24,6 +24,8 @@ struct UniverseInfo {
     std::string name;
     std::string creatorName;
     bool creatorVerified = false;
+    // The experience's own place, which is the one its icon belongs to. A lobby or any other place inside it has an icon of its own that nobody would recognise.
+    std::string rootPlaceId;
 };
 
 // Where Roblox says which experience a place belongs to. Empty for anything that is not a plain number, so a log line can never steer the request somewhere else.

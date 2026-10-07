@@ -61,9 +61,13 @@ SettingsPage::SettingsPage(App &app) : app_(app) {
     addToggle(pPrivacy, "Always send crash reports",
               "Send the session log and your versions when Roblox crashes. See tuxblox.net/privacy",
               &Settings::sendCrashReports);
-    addToggle(pPrivacy, "Show what you are doing on Discord",
-              "Show the place you have open in Studio, or the game you are playing, on your Discord profile. A game can set its own status text, and people can use it to join the server you are in.",
-              &Settings::discordRpc);
+    AdwExpanderRow *pDiscord =
+        addExpander(pPrivacy, "Show what you are doing on Discord",
+                    "Show the place you have open in Studio, or the game you are playing, on your Discord profile. A game can set its own status text.",
+                    &Settings::discordRpc);
+    addNestedToggle(pDiscord, "Let people join your server",
+                    "Put a button on your profile that takes somebody into the same server you are in.",
+                    &Settings::discordJoinButton);
     addToggle(pPrivacy, "Show which region a server is in",
               "Show a notification naming the region of each Roblox server you join. This asks tuxblox.net about the server's address.",
               &Settings::serverRegionNotify);
@@ -88,6 +92,35 @@ void SettingsPage::addToggle(AdwPreferencesGroup *pGroup, const char *pTitle, co
     toggles_.push_back(std::make_unique<Toggle>(Toggle{this, pField, ADW_SWITCH_ROW(pRow)}));
     g_signal_connect(pRow, "notify::active", G_CALLBACK(onToggle), toggles_.back().get());
     adw_preferences_group_add(pGroup, pRow);
+}
+
+AdwExpanderRow *SettingsPage::addExpander(AdwPreferencesGroup *pGroup, const char *pTitle,
+                                          const char *pSubtitle, bool Settings::*pField) {
+    GtkWidget *pRow = adw_expander_row_new();
+    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(pRow), pTitle);
+    adw_expander_row_set_subtitle(ADW_EXPANDER_ROW(pRow), pSubtitle);
+    adw_expander_row_set_show_enable_switch(ADW_EXPANDER_ROW(pRow), TRUE);
+    expanders_.push_back(std::make_unique<Expander>(Expander{this, pField, ADW_EXPANDER_ROW(pRow)}));
+    g_signal_connect(pRow, "notify::enable-expansion", G_CALLBACK(onExpander), expanders_.back().get());
+    adw_preferences_group_add(pGroup, pRow);
+    return ADW_EXPANDER_ROW(pRow);
+}
+
+void SettingsPage::addNestedToggle(AdwExpanderRow *pExpander, const char *pTitle,
+                                   const char *pSubtitle, bool Settings::*pField) {
+    GtkWidget *pRow = plainSwitchRow(pTitle, pSubtitle);
+    toggles_.push_back(std::make_unique<Toggle>(Toggle{this, pField, ADW_SWITCH_ROW(pRow)}));
+    g_signal_connect(pRow, "notify::active", G_CALLBACK(onToggle), toggles_.back().get());
+    adw_expander_row_add_row(pExpander, pRow);
+}
+
+void SettingsPage::onExpander(GObject *pRow, GParamSpec *, gpointer data) {
+    auto *pExpander = static_cast<Expander *>(data);
+    SettingsPage &self = *pExpander->pOwner;
+    if (self.seeding_) return;
+    Settings updated = self.app_.snapshot().settings;
+    updated.*(pExpander->pField) = adw_expander_row_get_enable_expansion(ADW_EXPANDER_ROW(pRow));
+    self.app_.updateSettings(updated);
 }
 
 void SettingsPage::buildTheme(AdwPreferencesGroup *pGroup) {
@@ -287,6 +320,9 @@ void SettingsPage::seed(const Settings &settings) {
     adw_combo_row_set_selected(pGpu_, gpuIndex);
     gtk_editable_set_text(GTK_EDITABLE(pEnvironment_), settings.envVars.c_str());
     for (const auto &toggle : toggles_) adw_switch_row_set_active(toggle->pRow, settings.*(toggle->pField));
+    for (const auto &expander : expanders_) {
+        adw_expander_row_set_enable_expansion(expander->pRow, settings.*(expander->pField));
+    }
     seeding_ = false;
     seeded_ = true;
 }

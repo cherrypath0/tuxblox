@@ -62,6 +62,7 @@ std::string findSessionLog(const std::string& installDir, std::time_t sessionSta
 bool rpcAllowsSend(std::vector<std::time_t>& recentSends, std::time_t now);
 
 // Discord's activity object. The heading above it comes from the Application ID and cannot be set here.
-std::string activityJson(const PresenceActivity& activity, std::time_t startedAt);
+std::string activityJson(const PresenceActivity& activity, std::time_t startedAt,
+                         bool joinButton = true);
 
 } // namespace tuxblox

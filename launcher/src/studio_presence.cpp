@@ -257,15 +257,19 @@ void applyRpcImage(nlohmann::json& activityObject, const std::string& slot, cons
 
 } // namespace
 
-std::string activityJson(const PresenceActivity& activity, std::time_t startedAt) {
+std::string activityJson(const PresenceActivity& activity, std::time_t startedAt, bool joinButton) {
     const bool named = !activity.placeName.empty();
+    // A place with no number is a file on this machine and nothing else: there is no page for it, nobody to credit, and its name could be a project nobody has released.
+    const bool published = !activity.placeId.empty();
     std::string phrase;
     switch (activity.kind) {
         case PresenceKind::Editing:
-            phrase = named ? "Editing " + activity.placeName : "Editing a place";
+            phrase = published ? (named ? "Editing " + activity.placeName : "Editing a place")
+                               : "Editing a local place";
             break;
         case PresenceKind::PlayTesting:
-            phrase = named ? "Playtesting " + activity.placeName : "Playtesting a place";
+            phrase = published ? (named ? "Playtesting " + activity.placeName : "Playtesting a place")
+                               : "Playtesting a local place";
             break;
         case PresenceKind::Home:
         case PresenceKind::None:
@@ -306,8 +310,9 @@ std::string activityJson(const PresenceActivity& activity, std::time_t startedAt
         activityObject["buttons"] = nlohmann::json::array();
         // Joining needs a server as well as a place, and nobody joins a place somebody is building.
         const std::string joinUrl =
-            studio ? std::string()
-                   : placeJoinUrl(activity.reportedPlaceId, activity.jobId, activity.rpc.launchData);
+            studio || !joinButton
+                ? std::string()
+                : placeJoinUrl(activity.reportedPlaceId, activity.jobId, activity.rpc.launchData);
         if (!joinUrl.empty()) {
             activityObject["buttons"].push_back({{"label", "Join server"}, {"url", joinUrl}});
         }
@@ -317,7 +322,7 @@ std::string activityJson(const PresenceActivity& activity, std::time_t startedAt
     // The place's own icon when there is one, with the program's mark badged onto it; otherwise the mark alone.
     const char *pMark = studio ? StudioAssetKey : PlayerAssetKey;
     const char *pMarkText = studio ? "Roblox Studio" : "Roblox";
-    if (named && !activity.placeIconUrl.empty()) {
+    if (published && named && !activity.placeIconUrl.empty()) {
         activityObject["assets"]["large_image"] = activity.placeIconUrl;
         activityObject["assets"]["large_text"] = activity.placeName;
         activityObject["assets"]["small_image"] = pMark;

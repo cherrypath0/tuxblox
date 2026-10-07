@@ -38,9 +38,11 @@ int main() {
 
     // The live shape, measured 2026-10-07.
     const std::string body =
-        "{\"data\":[{\"name\":\"DOORS \xf0\x9f\x9a\xa8\",\"creator\":{\"name\":\"LSPLASH\",\"hasVerifiedBadge\":true}}]}";
+        "{\"data\":[{\"rootPlaceId\":6516141723,\"name\":\"DOORS \xf0\x9f\x9a\xa8\",\"creator\":{\"name\":\"LSPLASH\",\"hasVerifiedBadge\":true}}]}";
     tuxblox::UniverseInfo info;
     assert(tuxblox::universeInfoFromJson(body, info));
+    // The experience's own place, which is what its icon belongs to -- a lobby or a sub-place inside it has an icon of its own that nobody recognises.
+    assert(info.rootPlaceId == "6516141723");
     assert(info.name == "DOORS \xf0\x9f\x9a\xa8");
     assert(info.creatorName == "LSPLASH");
     assert(info.creatorVerified);
@@ -66,6 +68,7 @@ int main() {
     // A universe with no creator still has a usable name, and then there is no line to show.
     tuxblox::UniverseInfo nameOnly;
     assert(tuxblox::universeInfoFromJson("{\"data\":[{\"name\":\"Just A Name\"}]}", nameOnly));
+    assert(nameOnly.rootPlaceId.empty());
     assert(nameOnly.name == "Just A Name");
     assert(tuxblox::creatorLine(nameOnly).empty());
 

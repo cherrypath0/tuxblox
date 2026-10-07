@@ -39,8 +39,17 @@ private:
         AdwSwitchRow *pRow;
     };
 
+    // A setting with more underneath it: the row carries its own switch and opens to show the rest.
+    struct Expander {
+        SettingsPage *pOwner;
+        bool Settings::*pField;
+        AdwExpanderRow *pRow;
+    };
+
     AdwPreferencesGroup *addGroup(const char *pTitle);
     void addToggle(AdwPreferencesGroup *pGroup, const char *pTitle, const char *pSubtitle, bool Settings::*pField);
+    AdwExpanderRow *addExpander(AdwPreferencesGroup *pGroup, const char *pTitle, const char *pSubtitle, bool Settings::*pField);
+    void addNestedToggle(AdwExpanderRow *pExpander, const char *pTitle, const char *pSubtitle, bool Settings::*pField);
     void buildTheme(AdwPreferencesGroup *pGroup);
     void buildUpdates();
     void buildEnvironment();
@@ -50,6 +59,7 @@ private:
     GtkButton *dangerButton(GtkWidget *pRow, const char *pLabel, GCallback onClicked);
 
     static void onToggle(GObject *pRow, GParamSpec *, gpointer data);
+    static void onExpander(GObject *pRow, GParamSpec *, gpointer data);
     static void onChannel(GObject *pRow, GParamSpec *, gpointer data);
     static void onTheme(GObject *pRow, GParamSpec *, gpointer data);
     static void onGpu(GObject *pRow, GParamSpec *, gpointer data);
@@ -63,6 +73,7 @@ private:
     App &app_;
     GtkWidget *pRoot_ = nullptr;
     std::vector<std::unique_ptr<Toggle>> toggles_;
+    std::vector<std::unique_ptr<Expander>> expanders_;
     // Read once when the page is built: the list cannot change without a reboot or a hotplug, neither of which happens while the window is open
     std::vector<GpuDevice> gpus_;
     AdwComboRow *pTheme_ = nullptr;

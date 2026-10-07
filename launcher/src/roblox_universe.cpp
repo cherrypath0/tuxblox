@@ -95,6 +95,12 @@ bool universeInfoFromJson(const std::string& body, UniverseInfo& into) {
         info.name.resize(MaxNameLength);
     }
 
+    const auto rootPlace = first.find("rootPlaceId");
+    if (rootPlace != first.end() && rootPlace->is_number_unsigned() &&
+        rootPlace->get<std::uint64_t>() != 0) {
+        info.rootPlaceId = std::to_string(rootPlace->get<std::uint64_t>());
+    }
+
     const auto creator = first.find("creator");
     if (creator != first.end() && creator->is_object()) {
         const auto creatorName = creator->find("name");

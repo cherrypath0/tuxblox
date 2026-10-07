@@ -69,6 +69,7 @@ int main() {
     tuxblox::PresenceActivity editing;
     editing.kind = tuxblox::PresenceKind::Editing;
     editing.placeName = "DOORS GAME";
+    editing.placeId = "6516141723";
     out = nlohmann::json::parse(tuxblox::activityJson(editing, t));
     assert(out["details"].get<std::string>() == "Editing DOORS GAME");
     assert(out["assets"]["large_image"].get<std::string>() == "studio");
@@ -172,6 +173,33 @@ int main() {
     studioRpc.rpc.details.value = "Building the lobby";
     out = nlohmann::json::parse(tuxblox::activityJson(studioRpc, t));
     assert(out["details"].get<std::string>() == "Building the lobby");
+
+    // A place that is only a file on this machine is not named: the file could be an unreleased
+    // project, and there is no page to link to, no author to credit and no icon to show.
+    tuxblox::PresenceActivity local;
+    local.kind = tuxblox::PresenceKind::Editing;
+    local.placeName = "doors-wip";
+    out = nlohmann::json::parse(tuxblox::activityJson(local, t));
+    assert(out["details"].get<std::string>() == "Editing a local place");
+    assert(!out.contains("state"));
+    assert(!out.contains("buttons"));
+    assert(out["assets"]["large_image"].get<std::string>() == "studio");
+
+    local.kind = tuxblox::PresenceKind::PlayTesting;
+    out = nlohmann::json::parse(tuxblox::activityJson(local, t));
+    assert(out["details"].get<std::string>() == "Playtesting a local place");
+
+    // A published place that has not been looked up yet is still a published place.
+    tuxblox::PresenceActivity pending;
+    pending.kind = tuxblox::PresenceKind::Editing;
+    pending.placeId = "6516141723";
+    out = nlohmann::json::parse(tuxblox::activityJson(pending, t));
+    assert(out["details"].get<std::string>() == "Editing a place");
+
+    // Somebody who would rather not be followed into their server can turn that button off.
+    out = nlohmann::json::parse(tuxblox::activityJson(full, t, false));
+    assert(out["buttons"].size() == 1);
+    assert(out["buttons"][0]["label"].get<std::string>() == "See game page");
 
     // What the game asked for wins over what TuxBlox would have shown.
     tuxblox::PresenceActivity custom = playing;

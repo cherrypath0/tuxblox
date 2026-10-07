@@ -160,6 +160,7 @@ int main() {
         tuxblox::PresenceActivity editing;
         editing.kind = tuxblox::PresenceKind::Editing;
         editing.placeName = "DOORS GAME";
+        editing.placeId = "6516141723";
 
         // One phrase, with the place named whenever Studio gave a name.
         const std::string shown = tuxblox::activityJson(editing, 1700000000);
@@ -167,10 +168,16 @@ int main() {
         assert(shown.find("\"start\":1700000000") != std::string::npos);
         assert(shown.find("TuxBlox") == std::string::npos);
 
-        // A place Studio never named still reads as a place.
+        // With no number it is a file on this machine, and its name is nobody else's business.
         tuxblox::PresenceActivity unnamed;
         unnamed.kind = tuxblox::PresenceKind::Editing;
-        assert(tuxblox::activityJson(unnamed, 1).find("\"details\":\"Editing a place\"") !=
+        assert(tuxblox::activityJson(unnamed, 1).find("\"details\":\"Editing a local place\"") !=
+               std::string::npos);
+
+        // A published place Studio has not named yet is still a published place.
+        tuxblox::PresenceActivity pending = unnamed;
+        pending.placeId = "6516141723";
+        assert(tuxblox::activityJson(pending, 1).find("\"details\":\"Editing a place\"") !=
                std::string::npos);
 
         // With an icon the place leads and Studio becomes the badge; without
@@ -194,7 +201,10 @@ int main() {
         assert(linked.find("\"label\":\"See game page\"") != std::string::npos);
         assert(linked.find("\"url\":\"https://www.roblox.com/games/121959868194179\"") !=
                std::string::npos);
-        assert(tuxblox::activityJson(editing, 1).find("buttons") == std::string::npos);
+        tuxblox::PresenceActivity localFile;
+        localFile.kind = tuxblox::PresenceKind::Editing;
+        localFile.placeName = "doors-wip";
+        assert(tuxblox::activityJson(localFile, 1).find("buttons") == std::string::npos);
 
         tuxblox::PresenceActivity home;
         home.kind = tuxblox::PresenceKind::Home;
@@ -203,6 +213,9 @@ int main() {
 
         tuxblox::PresenceActivity playing;
         playing.kind = tuxblox::PresenceKind::PlayTesting;
+        assert(tuxblox::activityJson(playing, 1).find("\"details\":\"Playtesting a local place\"") !=
+               std::string::npos);
+        playing.placeId = "6516141723";
         assert(tuxblox::activityJson(playing, 1).find("\"details\":\"Playtesting a place\"") !=
                std::string::npos);
         playing.placeName = "DOORS GAME";
@@ -213,6 +226,7 @@ int main() {
         tuxblox::PresenceActivity awkward;
         awkward.kind = tuxblox::PresenceKind::Editing;
         awkward.placeName = "My \"Best\" \\ Game";
+        awkward.placeId = "6516141723";
         const std::string escaped = tuxblox::activityJson(awkward, 1);
         assert(escaped.find("\\\"Best\\\"") != std::string::npos);
 
@@ -221,6 +235,7 @@ int main() {
         tuxblox::PresenceActivity latin1;
         latin1.kind = tuxblox::PresenceKind::Editing;
         latin1.placeName = "Caf\xE9 Game";
+        latin1.placeId = "6516141723";
         assert(!tuxblox::activityJson(latin1, 1).empty());
     }
 
