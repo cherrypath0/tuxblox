@@ -18,6 +18,7 @@
 
 #include <cassert>
 #include <cstdio>
+#include <initializer_list>
 #include <set>
 #include <string>
 
@@ -62,13 +63,29 @@ int main() {
     assert(tuxblox::socketInodeFromLink("socket:[abc]").empty());
     assert(tuxblox::socketInodeFromLink("").empty());
 
-    // Which processes count: Roblox's own, in this install's virtual drive and no other.
-    assert(tuxblox::isRobloxClientComm("RobloxPlayerBet"));
-    // The kernel cuts a name to fifteen characters, so these are exactly what it reports.
-    assert(tuxblox::isRobloxClientComm("RobloxStudioBet"));
-    assert(!tuxblox::isRobloxClientComm("RobloxStudioBe"));
-    assert(!tuxblox::isRobloxClientComm("wineserver"));
-    assert(!tuxblox::isRobloxClientComm(""));
+    // Which processes count. NOT the name the kernel reports: Roblox renames its own main thread, so
+    // /proc/<pid>/comm reads "Main" for a running client -- measured live 2026-10-07. The command
+    // line is what names the program, and its first argument is the exe that was started.
+    // Arguments are separated by a zero byte, so they are joined here rather than counted by hand.
+    const auto argv = [](std::initializer_list<const char *> parts) {
+        std::string out;
+        for (const char *pPart : parts) {
+            out += pPart;
+            out.push_back('\0');
+        }
+        return out;
+    };
+
+    // Exactly what a running client reports, copied from /proc on 2026-10-07.
+    assert(tuxblox::cmdlineNamesRobloxClient(argv(
+        {"/home/cherry/.tuxblox/runtime/pfx/drive_c/users/cherry/AppData/Local/Roblox/Versions/"
+         "version-2366ba214ec740ca/RobloxPlayerBeta.exe"})));
+    assert(tuxblox::cmdlineNamesRobloxClient(argv({"C:\\x\\RobloxStudioBeta.exe", "--args"})));
+    // Only the first argument counts, or TuxBlox's own wrapper would answer for the client.
+    assert(!tuxblox::cmdlineNamesRobloxClient(
+        argv({"/home/cherry/.tuxblox/compat/main", "run", "/x/RobloxPlayerBeta.exe"})));
+    assert(!tuxblox::cmdlineNamesRobloxClient(argv({"/usr/bin/wineserver"})));
+    assert(!tuxblox::cmdlineNamesRobloxClient(std::string()));
 
     assert(tuxblox::environNamesPrefix(std::string("WINEPREFIX=/home/a/.tuxblox/runtime/pfx\0OTHER=1", 46),
                                        "/home/a/.tuxblox/runtime/pfx"));

@@ -18,6 +18,7 @@
 
 #include "server_region.h"
 
+#include <cctype>
 #include <dirent.h>
 #include <fstream>
 #include <sstream>
@@ -27,9 +28,8 @@
 namespace tuxblox {
 namespace {
 
-// The kernel cuts a process name to this, so both clients are matched on what is left.
-const char PlayerComm[] = "RobloxPlayerBet";
-const char StudioComm[] = "RobloxStudioBet";
+const char PlayerExe[] = "robloxplayerbeta.exe";
+const char StudioExe[] = "robloxstudiobeta.exe";
 
 bool allHexDigits(const std::string& text) {
     for (const char c : text) {
@@ -145,8 +145,20 @@ std::string socketInodeFromLink(const std::string& target) {
     return inode;
 }
 
-bool isRobloxClientComm(const std::string& comm) {
-    return comm == PlayerComm || comm == StudioComm;
+bool cmdlineNamesRobloxClient(const std::string& cmdline) {
+    const std::size_t end = cmdline.find('\0');
+    std::string first = cmdline.substr(0, end);
+    for (char& c : first) {
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    }
+    for (const char *pExe : {PlayerExe, StudioExe}) {
+        const std::string name = pExe;
+        if (first.size() >= name.size() &&
+            first.compare(first.size() - name.size(), name.size(), name) == 0) {
+            return true;
+        }
+    }
+    return false;
 }
 
 bool environNamesPrefix(const std::string& environ, const std::string& prefixDir) {
@@ -181,7 +193,7 @@ std::string clientPeerAddress(const std::string& prefixDir) {
         if (pid.empty() || pid.front() < '0' || pid.front() > '9') {
             continue;
         }
-        if (!isRobloxClientComm(trimmed(readWholeFile("/proc/" + pid + "/comm")))) {
+        if (!cmdlineNamesRobloxClient(readWholeFile("/proc/" + pid + "/cmdline"))) {
             continue;
         }
         // Another session of the same program, in another virtual drive, is not ours to report.

@@ -34,8 +34,8 @@ std::vector<std::string> routablePeersFromProcNet(const std::string& table,
 // The socket a /proc/<pid>/fd entry points at, or empty when it points at something else.
 std::string socketInodeFromLink(const std::string& target);
 
-// Is this the name the kernel gives a Roblox client? Both are cut to fifteen characters there.
-bool isRobloxClientComm(const std::string& comm);
+// Does this process's command line say it is a Roblox client? The name the kernel reports is no use here: Roblox renames its own main thread, so a running client reads as "Main". Only the first argument counts, so TuxBlox's own wrapper -- which carries the exe as an argument of its own -- does not answer for the client.
+bool cmdlineNamesRobloxClient(const std::string& cmdline);
 
 // Does this process's environment say it belongs to the virtual drive we launched, rather than to another session of the same program?
 bool environNamesPrefix(const std::string& environ, const std::string& prefixDir);
