@@ -336,6 +336,9 @@ void geometry_show_navigated(struct native_webview *nv)
 {
     if (!nv || !nv->window) return;
 
+    /* The program asked for no window at all on this one -- it is the invisible controller behind the cookie flow, so showing it puts a bare empty box on screen and a blank button in the taskbar beside the program's own. */
+    if (nv->message_only) return;
+
     if (!nv->have_pending_geometry)
     {
         /* Nothing ever said where it goes -- show it anyway, which is all this code could ever do. */
