@@ -31,7 +31,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxcursor-dev libxdamage-dev libxfixes-dev libxinerama-dev \
     libxcb1-dev libx11-xcb-dev libxcb-render0-dev libxcb-shm0-dev \
     libegl1-mesa-dev libgl1-mesa-dev \
-    gettext bison flex shared-mime-info sassc \
+    gettext bison flex shared-mime-info sassc librsvg2-bin \
     && rm -rf /var/lib/apt/lists/*
 
 RUN pip3 install --upgrade 'meson>=1.4.0'

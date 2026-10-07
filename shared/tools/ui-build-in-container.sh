@@ -315,6 +315,28 @@ cp -a /build/gtk4/gtk/icons/. "$themeDir/"
 cp -a /build/libadwaita/src/icons/. "$themeDir/"
 rm -f "$themeDir/hicolor.index.theme"
 
+# The stack carries no image loader for SVG, so an icon that exists only as one is found and then drawn as the missing-image square -- libadwaita's own internals, the expander arrow among them, are all in that state. Rendering a PNG twin beside each one is what GTK itself ships for every other symbolic icon in this theme.
+printf ':: Rasterising the icons that exist only as SVG\n'
+rasterised=0
+while IFS= read -r svg; do
+    name="$(basename "$svg" .svg)"
+    if find "$themeDir" -name "$name.png" -o -name "$name.symbolic.png" | grep -q .; then
+        continue
+    fi
+    category="$(basename "$(dirname "$svg")")"
+    case "$name" in
+        *-symbolic | *-symbolic-rtl | *-symbolic-ltr) twin="$themeDir/16x16/$category/$name.symbolic.png" ;;
+        *) twin="$themeDir/16x16/$category/$name.png" ;;
+    esac
+    mkdir -p "$(dirname "$twin")"
+    if ! rsvg-convert -w 16 -h 16 -o "$twin" "$svg" || [ ! -s "$twin" ]; then
+        printf 'ERROR: %s could not be rendered, so that icon would draw as a missing image\n' "$svg" >&2
+        exit 1
+    fi
+    rasterised=$((rasterised + 1))
+done < <(find "$themeDir/scalable" -name '*.svg' | sort)
+printf ':: %s icons rendered\n' "$rasterised"
+
 # Only the folders that are actually here. GTK's own index names every folder the icon standard allows, and the interface stats each one against every search path at startup, so listing the hundreds TuxBlox does not ship would cost real time on every launch and find nothing. Each description is still copied from that index, which already has these folders right; inheriting keeps the host's icons available for anything TuxBlox does not carry.
 iconDirs="$(cd "$themeDir" && find . -mindepth 2 -type d | sed 's#^\./##' | sort)"
 {
@@ -345,6 +367,14 @@ while IFS= read -r iconDir; do
         themeFailed=1
     fi
 done < <(find "$themeDir" -mindepth 2 -type d)
+# An icon that is only an SVG cannot be drawn at all, so the rasterising above has to have covered every one of them
+while IFS= read -r svg; do
+    name="$(basename "$svg" .svg)"
+    if ! find "$themeDir" -name "$name.png" -o -name "$name.symbolic.png" | grep -q .; then
+        printf 'ERROR: %s has no rendered twin, so that icon would draw as a missing image\n' "$svg" >&2
+        themeFailed=1
+    fi
+done < <(find "$themeDir/scalable" -name '*.svg')
 # The icon drawn in place of one that is missing; without it the interface searches for it forever and dies
 if [ ! -e "$themeDir/16x16/status/image-missing.png" ]; then
     printf 'ERROR: the icon theme has no image-missing\n' >&2
