@@ -36,11 +36,13 @@ int main() {
     assert(reader.activity().kind == tuxblox::PresenceKind::Joining);
     assert(reader.activity().placeId == "6516141723");
     // The address on the join line is private in this session and public in others, so it is never used.
+    assert(reader.serverAddress().empty());
 
     reader.consumeLine("2026-10-06T20:31:49.892Z,11.892516,00d4,6 [FLog::SessionTransitionFSM] Entered play session.");
     assert(reader.activity().kind == tuxblox::PresenceKind::Playing);
 
     reader.consumeLine("2026-10-06T20:31:50.122Z,12.122521,00d4,7 [FLog::Network] serverId: 128.116.31.33|61772");
+    assert(reader.serverAddress() == "128.116.31.33");
 
     // A real teleport, captured 2026-10-06: disconnect, Teleported., the new join, then play again.
     reader.consumeLine("2026-10-06T20:31:59.248Z,21.248669,0190,7 [FLog::Network] Time to disconnect replication data: 0.401000");
@@ -51,6 +53,7 @@ int main() {
     reader.consumeLine("2026-10-06T20:31:59.318Z,21.318447,00d4,6 [FLog::SessionTransitionFSM] Entered play session.");
     assert(reader.activity().kind == tuxblox::PresenceKind::Playing);
     reader.consumeLine("2026-10-06T20:31:59.725Z,21.725744,017c,7 [FLog::Network] serverId: 75.45.133.91|62152");
+    assert(reader.serverAddress() == "75.45.133.91");
 
     // Leaving must not leave the last place showing.
     reader.consumeLine("2026-10-06T20:33:00.000Z,82.0,00d4,6 [FLog::SessionTransitionFSM] Tearing down");
@@ -80,11 +83,13 @@ int main() {
     tuxblox::PlayerPresenceReader forge;
     forge.consumeLine(kRec "[FLog::SessionTransitionFSM] Entered play session.");
     forge.consumeLine("2026-10-06T20:31:50Z,12.1,00d4,6 [FLog::Output] [FLog::Network] serverId: 8.8.8.8|1234");
+    assert(forge.serverAddress().empty());
     forge.consumeLine("2026-10-06T20:31:50Z,12.1,00d4,6 [FLog::Output] print says [FLog::SessionTransitionFSM] Tearing down");
     assert(forge.activity().kind == tuxblox::PresenceKind::Playing);
 
     // The genuine lines still work, on their own channels.
     forge.consumeLine("2026-10-06T20:31:50.122Z,12.122521,00d4,7 [FLog::Network] serverId: 128.116.31.33|61772");
+    assert(forge.serverAddress() == "128.116.31.33");
 
     // A place id is bounded: a forged line carrying thousands of digits must not reach a request.
     tuxblox::PlayerPresenceReader huge;
@@ -173,11 +178,17 @@ int main() {
     tuxblox::PlayerPresenceReader unstamped;
     unstamped.consumeLine(kRec "[FLog::SessionTransitionFSM] Entered play session.");
     unstamped.consumeLine("[FLog::Network] serverId: 8.8.8.8|1234");
+    assert(unstamped.serverAddress().empty());
     unstamped.consumeLine("[FLog::SessionTransitionFSM] Tearing down");
     assert(unstamped.activity().kind == tuxblox::PresenceKind::Playing);
     assert(tuxblox::reportedJoinFromLine(
                "[FLog::GameJoinLoadTime] Report game_join_loadtime: placeid:1818, universeid:13058,")
                .placeId.empty());
+
+    // Roblox's own unstamped lines exist too -- its terms notice is one -- and are simply not records.
+    assert(tuxblox::serverAddressFromLine(
+               "[FLog::Output] All use of Roblox services must comply with Roblox's Terms of Use")
+               .empty());
 
     printf("player_presence: all tests passed\n");
     return 0;

@@ -70,7 +70,17 @@ std::string placeNameFromIdentifier(const std::string& identifier) {
 
 } // namespace
 
+std::string StudioPresenceReader::serverAddress() const {
+    return serverAddress_;
+}
+
 void StudioPresenceReader::consumeLine(const std::string& line) {
+    // Team Create reaches a real server, which is worth knowing the region of just as much as a game is.
+    const std::string address = serverAddressFromLine(line);
+    if (!address.empty()) {
+        serverAddress_ = address;
+        return;
+    }
 
     // Only this one line means the session is over. "close IDE doc" closes a tab and the scope exits fire in ordinary use.
     if (contains(line, "exit LifecycleManager UserSession scope")) {
