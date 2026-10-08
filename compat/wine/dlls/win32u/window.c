@@ -2031,6 +2031,10 @@ static RECT get_visible_rect( HWND hwnd, BOOL shaped, UINT style, UINT ex_style,
     if (IsRectEmpty( &rects->window ) || EqualRect( &rects->window, &rects->client ) || shaped || !decorated_mode) return rects->window;
     if (!user_driver->pGetWindowStyleMasks( hwnd, style, ex_style, &style_mask, &ex_style_mask )) return rects->window;
     if (!NtUserAdjustWindowRect( &rect, style & style_mask, FALSE, ex_style & ex_style_mask, dpi )) return rects->window;
+    /* A program that draws its own title bar keeps WS_CAPTION but leaves less room above its content
+     * than a title bar needs, and while maximised it leaves only the few pixels of border that hang
+     * off the screen. Framing it anyway stacks the desktop's title bar on top of the program's own. */
+    if (rects->client.top - rects->window.top < -rect.top) return rects->window;
 
     visible_rect = rects->window;
     visible_rect.left   -= rect.left;
