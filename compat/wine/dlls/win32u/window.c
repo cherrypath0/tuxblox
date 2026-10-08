@@ -2028,11 +2028,6 @@ static RECT get_visible_rect( HWND hwnd, BOOL shaped, UINT style, UINT ex_style,
     RECT visible_rect, rect = {0};
 
     if (get_present_rect( hwnd, &rect, get_thread_dpi() )) return rect;
-    /* A window region is how a program rounds off its own corners, and on Windows that clips the
-     * title bar rather than doing away with it. Leaving the window undecorated here would take the
-     * desktop's title bar away while the window still asks for one, so we draw a second one of our
-     * own over the program's content. Only a window that asked for no title bar is left alone. */
-    if (shaped && (style & WS_CAPTION) == WS_CAPTION) shaped = FALSE;
     if (IsRectEmpty( &rects->window ) || EqualRect( &rects->window, &rects->client ) || shaped || !decorated_mode) return rects->window;
     if (!user_driver->pGetWindowStyleMasks( hwnd, style, ex_style, &style_mask, &ex_style_mask )) return rects->window;
     if (!NtUserAdjustWindowRect( &rect, style & style_mask, FALSE, ex_style & ex_style_mask, dpi )) return rects->window;
