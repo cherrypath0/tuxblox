@@ -110,6 +110,44 @@ std::filesystem::path installDir(const char *pArgv0) {
     return std::filesystem::absolute(std::filesystem::path(pArgv0).parent_path(), error);
 }
 
+// True when the program being launched is one TuxBlox installed itself, rather than
+// something that arrived from outside. The folder the layer is installed in is already
+// the boundary that matters: anything able to write a file next to the layer could
+// replace the layer itself, so requiring a signature in there protects nothing the
+// install's own permissions do not. The path is taken from the running binary and not
+// from the environment or argv[0], both of which whoever starts the process chooses.
+bool isLayerOwnProgram(const std::filesystem::path& target) {
+    std::error_code error;
+    const std::filesystem::path self =
+        std::filesystem::read_symlink("/proc/self/exe", error);
+    if (error || self.empty()) {
+        return false;
+    }
+    const std::filesystem::path own =
+        std::filesystem::weakly_canonical(self.parent_path() / "files", error);
+    if (error || own.empty()) {
+        return false;
+    }
+
+    // The real file has to be inside, so a link pointing out of the folder does not
+    // count as being in it.
+    const std::filesystem::path real = std::filesystem::canonical(target, error);
+    if (error) {
+        return false;
+    }
+
+    // Compared a component at a time, so a sibling whose name merely starts the same
+    // is not mistaken for a child.
+    auto mine = own.begin();
+    auto theirs = real.begin();
+    for (; mine != own.end(); ++mine, ++theirs) {
+        if (theirs == real.end() || *theirs != *mine) {
+            return false;
+        }
+    }
+    return true;
+}
+
 void printHelp() {
     for (const std::string& line : HelpOutput) {
         std::cout << line << std::endl;
@@ -214,7 +252,10 @@ int runMain(int argc, char *argv[]) {
     // Authenticode verification to ensure the Roblox executables used are legitimate and not tampered with
     // TODO: Expand this to all third-party executables instead of just the one being launched (including DLLs), potentially even TuxBlox's own DLLs.
     // TuxBlox's own publisher is accepted too, so the project can sign and run its own programs in the virtual drive.
-    if (command.mode == RunMode::Run) {
+    if (command.mode == RunMode::Run && isLayerOwnProgram(command.target.front())) {
+        tuxblox::log("Integrity check skipped: " + command.target.front() +
+                     " is part of this TuxBlox installation.");
+    } else if (command.mode == RunMode::Run) {
         const tuxblox::IntegrityReport report = tuxblox::verifyAuthenticode(
             command.target.front(), {RobloxPublisher, TuxBloxPublisher},
             tuxblox_data::find("roots.pem"));
