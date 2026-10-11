@@ -3809,17 +3809,15 @@ BOOL tuxblox_diag_bp_hit( ULONG64 rip, ULONG64 *regs, LONG64 *rsp_delta, const v
     diag_bp_poke_parse();
     diag_bp_setreg_parse();
 
-    /* Any breakpoint hit starts the stack-slot watch and the hardware
-     * write-watch, so they run only near the write. */
-    tuxblox_diag_swatch_start();
-    tuxblox_diag_hww_start();
-
     for (i = 0; i < diag_bp_count; i++)
     {
         char line[1024];
         unsigned int k, n = 0;
 
         if (!diag_bp_resolved[i] || diag_bp_addr[i] != rip - 1) continue;
+        /* Start the watches here rather than on entry: this runs for every trap in the process, and the layer plants int3s of its own long before the chosen breakpoint, so starting on entry armed them at the first of those and left a protected stack page for the whole run. */
+        tuxblox_diag_swatch_start();
+        tuxblox_diag_hww_start();
         if (rsp_delta) *rsp_delta = diag_bp_rsp_delta[i];
         /* TUXBLOX_DIAG_BP_FROM=<n> holds the poke and the register write back
          * until the n-th hit. A per-item loop's interesting pass is rarely its
