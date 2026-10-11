@@ -572,7 +572,15 @@ static unsigned long get_mwm_decorations_for_style( DWORD style, DWORD ex_style 
  */
 static unsigned long get_mwm_decorations( struct x11drv_win_data *data, DWORD style, DWORD ex_style )
 {
+    RECT rect = {0};
+
     if (EqualRect( &data->rects.window, &data->rects.visible )) return 0;
+    /* A program that draws its own title bar leaves less room above its content than a title bar
+     * needs. Framing it stacks the desktop's title bar on top of the program's own, and it still
+     * has a frame elsewhere -- the few pixels a maximised window hangs off the screen by. */
+    if (NtUserAdjustWindowRect( &rect, style, FALSE, ex_style, NtUserGetDpiForWindow( data->hwnd ) ) &&
+        data->rects.client.top - data->rects.window.top < -rect.top)
+        return 0;
     return get_mwm_decorations_for_style( style, ex_style );
 }
 
@@ -1737,7 +1745,34 @@ static void window_set_config( struct x11drv_win_data *data, RECT rect, BOOL abo
     data->configure_serial = NextRequest( data->display );
     TRACE( "window %p/%lx, requesting config %s mask %#x above %u, serial %lu\n", data->hwnd, data->whole_window,
            wine_dbgstr_rect(new_rect), mask, above, data->configure_serial );
+
     XReconfigureWMWindow( data->display, data->whole_window, data->vis.screen, mask, &changes );
+
+    /* A window manager is free to clamp a plain configure request so the window stays on screen,
+     * and KWin does: an application that drags its own title bar can then never reach the edge.
+     * Windows puts a window exactly where the application asks, so ask again through EWMH, which
+     * is honoured unclamped. Position only -- the size went through the request above, and asking
+     * for it here as well makes the window take the window manager's frame into its own rect. */
+    if ((mask & (CWX | CWY)) && data->managed && !is_maximized &&
+        is_net_supported( x11drv_atom(_NET_MOVERESIZE_WINDOW) ))
+    {
+        XEvent xev = {0};
+
+        xev.xclient.type = ClientMessage;
+        xev.xclient.window = data->whole_window;
+        xev.xclient.message_type = x11drv_atom(_NET_MOVERESIZE_WINDOW);
+        xev.xclient.serial = 0;
+        xev.xclient.display = data->display;
+        xev.xclient.send_event = True;
+        xev.xclient.format = 32;
+        xev.xclient.data.l[0] = StaticGravity | (1 << 8) | (1 << 9) | (1 << 12);
+        xev.xclient.data.l[1] = changes.x;
+        xev.xclient.data.l[2] = changes.y;
+        XSendEvent( data->display, root_window, False,
+                    SubstructureNotifyMask | SubstructureRedirectMask, &xev );
+        XFlush( data->display );
+    }
+
     if (mask & (CWWidth | CWHeight)) clear_emulated_fullscreen_padding( data );
 
     if (net_wm_state != -1) window_set_net_wm_state( data, net_wm_state );
@@ -4130,18 +4165,14 @@ LRESULT X11DRV_SysCommand( HWND hwnd, WPARAM wparam, LPARAM lparam, const POINT 
     switch (wparam & 0xfff0)
     {
     case SC_MOVE:
+        /* Hand the drag to the window manager even when the application asked for it by hit-test --
+         * a program that draws its own title bar asks that way for every drag of its own bar. Only
+         * the WM can show the tiling previews at the screen edges, restore a maximised window that
+         * is dragged off the top, or place the window past the edge of the screen; doing it
+         * ourselves gets none of that. move_resize_window() keeps GetCursorPos() live across the
+         * drag, which is what doing it ourselves was for. */
         if (!hittest) dir = _NET_WM_MOVERESIZE_MOVE_KEYBOARD;
-        /* An SC_MOVE with a hit-test can only come from the application itself:
-         * the window manager owns the frame of a managed window and never asks
-         * us to move it. Hand those back to win32u's own size/move loop rather
-         * than to the WM. The WM takes the pointer for the whole drag, and
-         * while it holds it neither X events nor XQueryPointer report any
-         * motion, so GetCursorPos() is frozen at the point the drag started.
-         * Studio polls it to resolve the drop target, so its dock guides stay
-         * wherever they first appeared. The internal loop keeps the cursor
-         * position live, which is also what happens on Windows -- a size/move
-         * loop stops the app's mouse messages, not its cursor queries. */
-        else goto failed;
+        else dir = _NET_WM_MOVERESIZE_MOVE;
         break;
     case SC_SIZE:
         /* windows without WS_THICKFRAME are not resizable through the window manager */
@@ -4162,6 +4193,35 @@ LRESULT X11DRV_SysCommand( HWND hwnd, WPARAM wparam, LPARAM lparam, const POINT 
         }
         break;
 
+    case SC_MOUSEMENU:
+    {
+        /* The menu for a window belongs to the desktop, which draws the rest of that window's
+         * frame, so let it put up its own rather than ours -- ours offers Restore and Maximize
+         * for a state the desktop owns, and names Wine in front of the user. */
+        XEvent xev = {0};
+        POINT root_pos;
+
+        if (hittest != HTCAPTION && hittest != HTSYSMENU) goto failed;
+        if (!is_net_supported( x11drv_atom(_GTK_SHOW_WINDOW_MENU) )) goto failed;
+
+        root_pos = virtual_screen_to_root( pos->x, pos->y );
+        xev.xclient.type = ClientMessage;
+        xev.xclient.window = data->whole_window;
+        xev.xclient.message_type = x11drv_atom(_GTK_SHOW_WINDOW_MENU);
+        xev.xclient.display = data->display;
+        xev.xclient.send_event = True;
+        xev.xclient.format = 32;
+        xev.xclient.data.l[0] = 0; /* device id, 0 for the core pointer */
+        xev.xclient.data.l[1] = root_pos.x;
+        xev.xclient.data.l[2] = root_pos.y;
+        release_win_data( data );
+        XSendEvent( thread_display(), root_window, False,
+                    SubstructureNotifyMask | SubstructureRedirectMask, &xev );
+        /* nothing follows this to flush the connection, and the menu is the user waiting on it */
+        XFlush( thread_display() );
+        return 0;
+    }
+
     case SC_KEYMENU:
         /* prevent a simple ALT press+release from activating the system menu,
          * as that can get confusing on managed windows */
@@ -4176,7 +4236,9 @@ LRESULT X11DRV_SysCommand( HWND hwnd, WPARAM wparam, LPARAM lparam, const POINT 
         goto failed;
     }
 
-    if (NtUserGetWindowLongW( hwnd, GWL_STYLE ) & WS_MAXIMIZE) goto failed;
+    /* A maximised window cannot be resized, but dragging its title bar has to reach the window
+     * manager: that is what restores it and carries on the drag, as Windows does. */
+    if ((NtUserGetWindowLongW( hwnd, GWL_STYLE ) & WS_MAXIMIZE) && (wparam & 0xfff0) != SC_MOVE) goto failed;
 
     if (!is_net_supported( x11drv_atom(_NET_WM_MOVERESIZE) ))
     {

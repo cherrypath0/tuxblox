@@ -2556,9 +2556,23 @@ LRESULT default_window_proc( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, 
 
             /* Track system popup if click was in the caption area. */
             if (hitcode == HTCAPTION || hitcode == HTSYSMENU)
-                NtUserTrackPopupMenuEx( NtUserGetSystemMenu( hwnd, FALSE ),
-                                        TPM_LEFTBUTTON | TPM_RIGHTBUTTON,
-                                        pt.x, pt.y, hwnd, NULL );
+            {
+                POINT pos = pt;
+                RECT rect;
+
+                /* offer it to the driver first, so a desktop that draws this window's frame can
+                 * put up the menu it draws everywhere else instead of ours */
+                NtUserLogicalToPerMonitorDPIPhysicalPoint( hwnd, &pos );
+                SetRect( &rect, pos.x, pos.y, pos.x, pos.y );
+                rect = map_rect_virt_to_raw( rect, 0 );
+                pos.x = rect.left;
+                pos.y = rect.top;
+
+                if (user_driver->pSysCommand( hwnd, SC_MOUSEMENU + hitcode, lparam, &pos ))
+                    NtUserTrackPopupMenuEx( NtUserGetSystemMenu( hwnd, FALSE ),
+                                            TPM_LEFTBUTTON | TPM_RIGHTBUTTON,
+                                            pt.x, pt.y, hwnd, NULL );
+            }
         }
         break;
 

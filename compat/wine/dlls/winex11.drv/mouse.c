@@ -1556,6 +1556,7 @@ BOOL X11DRV_ClipCursor( const RECT *clip, BOOL reset )
 void move_resize_window( HWND hwnd, int dir, POINT pos )
 {
     Display *display = thread_display();
+    POINT start_pos = {0}, start_win = {0};
     int button = 0;
     XEvent xev;
     Window win, root, child;
@@ -1594,13 +1595,37 @@ void move_resize_window( HWND hwnd, int dir, POINT pos )
     if (!button) return;
     send_message( hwnd, WM_ENTERSIZEMOVE, 0, 0 );
 
+    /* The window manager takes the pointer for the whole drag, and while it holds it neither X
+     * events nor XQueryPointer report any motion, so a program that polls GetCursorPos to work out
+     * where it is being dropped -- Studio does, for its dock guides -- would see it frozen where the
+     * drag began. The window travels with the pointer, so move the cursor by whatever the window
+     * moved and the position stays true without the pointer itself being readable. */
+    XTranslateCoordinates( display, win, root_window, 0, 0, &start_win.x, &start_win.y, &child );
+    start_pos = pos;
+
     for (;;)
     {
         MSG msg;
         INPUT input;
         int x, y, rootX, rootY;
+        POINT win_pos;
 
         if (!XQueryPointer( display, root_window, &root, &child, &rootX, &rootY, &x, &y, &xstate )) break;
+
+        XTranslateCoordinates( display, win, root_window, 0, 0, (int *)&win_pos.x, (int *)&win_pos.y, &child );
+        if (win_pos.x != start_win.x || win_pos.y != start_win.y)
+        {
+            POINT moved = root_to_virtual_screen( start_pos.x + win_pos.x - start_win.x,
+                                                  start_pos.y + win_pos.y - start_win.y );
+            input.type = INPUT_MOUSE;
+            input.mi.dx          = moved.x;
+            input.mi.dy          = moved.y;
+            input.mi.mouseData   = 0;
+            input.mi.dwFlags     = MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_MOVE;
+            input.mi.time        = NtGetTickCount();
+            input.mi.dwExtraInfo = 0;
+            NtUserSendHardwareInput( hwnd, SEND_HWMSG_NO_RAW, &input, 0 );
+        }
 
         if (!(xstate & (Button1Mask << (button - 1))))
         {

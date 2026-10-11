@@ -32,6 +32,10 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(dwmapi);
 
+/* Size of one Windows 11 caption button at 100% scale, measured off a window of a known width. */
+#define CAPTION_BUTTON_CX 49
+#define CAPTION_BUTTON_CY 32
+
 
 /**********************************************************************
  *           DwmIsCompositionEnabled         (DWMAPI.@)
@@ -224,6 +228,41 @@ HRESULT WINAPI DwmGetWindowAttribute(HWND hwnd, DWORD attribute, PVOID pv_attrib
             hr = HRESULT_FROM_WIN32(GetLastError());
 
         SetThreadDpiAwarenessContext(context);
+        break;
+    }
+    case DWMWA_CAPTION_BUTTON_BOUNDS:
+    {
+        RECT *rect = (RECT *)pv_attribute;
+        DWORD style;
+        RECT window;
+        UINT dpi;
+
+        if (size < sizeof(*rect))
+            return E_NOT_SUFFICIENT_BUFFER;
+
+        style = GetWindowLongW(hwnd, GWL_STYLE);
+        if (style & WS_CHILD)
+            return E_HANDLE;
+        if (!GetWindowRect(hwnd, &window))
+            return HRESULT_FROM_WIN32(GetLastError());
+
+        /* We draw no caption buttons of our own, but an application that replaces its whole frame
+         * still lays its own buttons out inside the area this reports, so report where Windows
+         * would have put them: a row of CAPTION_BUTTON_CX-wide buttons ending at the window's
+         * right edge, in window-relative coords. */
+        SetRectEmpty(rect);
+        if ((style & WS_CAPTION) == WS_CAPTION && (style & WS_SYSMENU))
+        {
+            UINT count = (style & (WS_MINIMIZEBOX | WS_MAXIMIZEBOX)) ? 3 : 1;
+
+            dpi = GetDpiForWindow(hwnd);
+            if (!dpi) dpi = USER_DEFAULT_SCREEN_DPI;
+
+            rect->right = window.right - window.left;
+            rect->left = rect->right - count * MulDiv(CAPTION_BUTTON_CX, dpi, USER_DEFAULT_SCREEN_DPI);
+            rect->bottom = MulDiv(CAPTION_BUTTON_CY, dpi, USER_DEFAULT_SCREEN_DPI);
+        }
+        hr = S_OK;
         break;
     }
     case DWMWA_CLOAKED:
