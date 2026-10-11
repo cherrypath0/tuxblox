@@ -1190,7 +1190,7 @@ LPVOID WINAPI DECLSPEC_HOTPATCH ConvertThreadToFiberEx( LPVOID param, DWORD flag
         return NULL;
     }
     fiber->param            = param;
-    fiber->except           = NtCurrentTeb()->Tib.ExceptionList;
+    fiber->except           = __wine_get_frame();
     fiber->stack_base       = NtCurrentTeb()->Tib.StackBase;
     fiber->stack_limit      = NtCurrentTeb()->Tib.StackLimit;
     fiber->stack_allocation = NtCurrentTeb()->DeallocationStack;
@@ -1241,7 +1241,7 @@ void WINAPI DECLSPEC_HOTPATCH SwitchToFiber( LPVOID fiber )
     struct fiber_data *new_fiber = fiber;
     struct fiber_data *current_fiber = NtCurrentTeb()->Tib.FiberData;
 
-    current_fiber->except      = NtCurrentTeb()->Tib.ExceptionList;
+    current_fiber->except      = __wine_get_frame();
     current_fiber->stack_limit = NtCurrentTeb()->Tib.StackLimit;
     current_fiber->fls_slots   = NtCurrentTeb()->FlsSlots;
     current_fiber->actctx.stack_ptr = NtCurrentTeb()->ActivationContextStackPointer;
@@ -1249,7 +1249,7 @@ void WINAPI DECLSPEC_HOTPATCH SwitchToFiber( LPVOID fiber )
 
     /* FIXME: should save floating point context if requested in fiber->flags */
     NtCurrentTeb()->Tib.FiberData     = new_fiber;
-    NtCurrentTeb()->Tib.ExceptionList = new_fiber->except;
+    __wine_set_frame( new_fiber->except );
     NtCurrentTeb()->Tib.StackBase     = new_fiber->stack_base;
     NtCurrentTeb()->Tib.StackLimit    = new_fiber->stack_limit;
     NtCurrentTeb()->DeallocationStack = new_fiber->stack_allocation;
