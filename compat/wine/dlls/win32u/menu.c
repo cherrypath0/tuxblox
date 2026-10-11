@@ -4517,6 +4517,23 @@ BOOL WINAPI NtUserTrackPopupMenuEx( HMENU handle, UINT flags, INT x, INT y, HWND
         return FALSE;
     }
 
+    /* A program that draws its own title bar puts up the window's own system menu when its bar is
+     * right-clicked. That menu belongs to the desktop, which draws it for every other window on the
+     * screen, so let the desktop put up its own instead of ours. */
+    if (menu->hSysMenuOwner && menu->hSysMenuOwner == get_win_sys_menu( hwnd ))
+    {
+        POINT pos = { x, y };
+        RECT rect;
+
+        SetRect( &rect, pos.x, pos.y, pos.x, pos.y );
+        rect = map_rect_virt_to_raw( rect, 0 );
+        pos.x = rect.left;
+        pos.y = rect.top;
+
+        if (!user_driver->pSysCommand( hwnd, SC_MOUSEMENU + HTCAPTION, MAKELPARAM( x, y ), &pos ))
+            return TRUE;
+    }
+
     if (init_popup( hwnd, handle, flags ))
     {
         init_tracking( hwnd, handle, TRUE, flags );
