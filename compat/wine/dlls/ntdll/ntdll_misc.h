@@ -74,12 +74,12 @@ static inline BOOL is_valid_frame( ULONG_PTR frame )
             (void *)frame <= NtCurrentTeb()->Tib.StackBase);
 }
 
-/* 64-bit Windows never dispatches exceptions through Tib.ExceptionList, so a
- * program may keep its own data there. Wine still walks the list for the frames
- * its own builtin modules push, and those always name a real function -- never
- * null, never somewhere on the stack. Anything else is foreign or stale, and
- * calling it faults inside the same walk, which then recurses until the process
- * dies. */
+/* Wine's own frame list holds only frames its builtin modules pushed, and those always name a
+ * real function -- never null, never somewhere on the stack. Anything else is stale, left by a
+ * jump out of a __TRY block, and calling it faults inside the same walk, which then recurses
+ * until the process dies. The list used to live in Tib.ExceptionList, where the program could
+ * put its own data too; it no longer does, so this is now only a guard against our own stale
+ * frames. */
 static inline BOOL is_valid_frame_handler( const EXCEPTION_REGISTRATION_RECORD *frame )
 {
     const void *handler = (const void *)frame->Handler;

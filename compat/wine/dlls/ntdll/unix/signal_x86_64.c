@@ -611,6 +611,11 @@ C_ASSERT( offsetof( TEB, GdiTebBatch ) + offsetof( struct amd64_thread_data, fra
 C_ASSERT( offsetof( TEB, GdiTebBatch ) + offsetof( struct amd64_thread_data, instrumentation_callback ) == 0x330 );
 C_ASSERT( offsetof( TEB, GdiTebBatch ) + offsetof( struct amd64_thread_data, fs ) == 0x338 );
 C_ASSERT( offsetof( TEB, GdiTebBatch ) + offsetof( struct amd64_thread_data, mxcsr ) == 0x33c );
+/* Wine keeps its exception frame list head in the last pointer of the private per-thread area
+ * inside the TEB, not in NT_TIB.ExceptionList, which x86-64 leaves to the application.  The
+ * user-mode callback asm below saves and restores it by offset, so pin that offset to the one
+ * __wine_frame_list_head() computes in include/wine/exception.h. */
+C_ASSERT( offsetof( TEB, GdiTebBatch ) + sizeof(((TEB *)0)->GdiTebBatch) - sizeof(void *) == 0x7d0 );
 
 static inline struct amd64_thread_data *amd64_thread_data(void)
 {
@@ -2123,7 +2128,7 @@ __ASM_GLOBAL_FUNC( call_user_mode_callback,
                    "movq %r8,%r13\n\t"         /* teb */
                    "movq %rsi,-0x38(%rbp)\n\t" /* ret_ptr */
                    "movq %rdx,-0x40(%rbp)\n\t" /* ret_len */
-                   "movq (%r13),%rax\n\t"      /* NtCurrentTeb()->Tib.ExceptionList */
+                   "movq 0x7d0(%r13),%rax\n\t" /* Wine's own frame list head */
                    "movq %rax,-0x48(%rbp)\n\t"
                    "subq 0x328(%r13),%rsp\n\t" /* amd64_thread_data()->frame_size */
                    "andq $~63,%rsp\n\t"
@@ -2194,7 +2199,7 @@ __ASM_GLOBAL_FUNC( user_mode_callback_return,
                    __ASM_CFI(".cfi_rel_offset %r14,-0x20\n\t")
                    __ASM_CFI(".cfi_rel_offset %r15,-0x28\n\t")
                    "movq -0x48(%rbp),%rax\n\t"
-                   "movq %rax,(%rcx)\n\t"      /* teb->Tib.ExceptionList */
+                   "movq %rax,0x7d0(%rcx)\n\t" /* Wine's own frame list head */
                    "movq -0x38(%rbp),%r10\n\t" /* ret_ptr */
                    "movq -0x40(%rbp),%r11\n\t" /* ret_len */
                    "movq %rdi,(%r10)\n\t"

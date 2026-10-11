@@ -121,6 +121,9 @@ struct ntdll_thread_data
 };
 
 C_ASSERT( sizeof(struct ntdll_thread_data) <= sizeof(((TEB *)0)->GdiTebBatch) );
+/* The last pointer of the area is Wine's exception frame list head on x86-64, so this data must
+ * not grow into it.  See __wine_frame_list_head() in include/wine/exception.h. */
+C_ASSERT( sizeof(struct ntdll_thread_data) <= sizeof(((TEB *)0)->GdiTebBatch) - sizeof(void *) );
 #ifdef _WIN64
 C_ASSERT( offsetof( TEB, GdiTebBatch ) + offsetof( struct ntdll_thread_data, syscall_table ) == 0x370 );
 C_ASSERT( offsetof( TEB, GdiTebBatch ) + offsetof( struct ntdll_thread_data, syscall_frame ) == 0x378 );

@@ -249,6 +249,23 @@ typedef struct __tagWINE_FRAME
 
 #endif /* USE_COMPILER_EXCEPTIONS */
 
+#ifdef __x86_64__
+/* On x86-64 the OS never dispatches exceptions through NT_TIB.ExceptionList: the slot belongs
+ * to the application, and a Windows process reads zero there unless it put something there
+ * itself.  Wine still needs a list head for the frames its own builtin modules push, so it
+ * keeps one in the private per-thread area it already owns inside the TEB instead of writing a
+ * slot the application can see and reason about.  i386 is deliberately untouched, because there
+ * the TIB list is the real Windows mechanism and the application expects Wine to use it.
+ * The unix side saves and restores this slot around user-mode callbacks, so its offset is
+ * asserted in dlls/ntdll/unix/unix_private.h and in dlls/ntdll/unix/signal_x86_64.c. */
+static inline EXCEPTION_REGISTRATION_RECORD **__wine_frame_list_head(void)
+{
+    TEB *teb = NtCurrentTeb();
+    return (EXCEPTION_REGISTRATION_RECORD **)((char *)&teb->GdiTebBatch +
+                                              sizeof(teb->GdiTebBatch) - sizeof(void *));
+}
+#endif
+
 static inline EXCEPTION_REGISTRATION_RECORD *__wine_push_frame( EXCEPTION_REGISTRATION_RECORD *frame )
 {
 #if (defined(__GNUC__) || defined(__clang__)) && defined(__i386__)
@@ -258,6 +275,11 @@ static inline EXCEPTION_REGISTRATION_RECORD *__wine_push_frame( EXCEPTION_REGIST
                          "\n\tmovl %1,%%fs:0"
                          : "=&r" (prev) : "r" (frame) : "memory" );
     return prev;
+#elif defined(__x86_64__)
+    EXCEPTION_REGISTRATION_RECORD **head = __wine_frame_list_head();
+    frame->Prev = *head;
+    *head = frame;
+    return frame->Prev;
 #else
     NT_TIB *teb = (NT_TIB *)NtCurrentTeb();
     frame->Prev = teb->ExceptionList;
@@ -273,6 +295,9 @@ static inline EXCEPTION_REGISTRATION_RECORD *__wine_pop_frame( EXCEPTION_REGISTR
                          : : "r" (frame->Prev) : "memory" );
     return frame->Prev;
 
+#elif defined(__x86_64__)
+    *__wine_frame_list_head() = frame->Prev;
+    return frame->Prev;
 #else
     NT_TIB *teb = (NT_TIB *)NtCurrentTeb();
     teb->ExceptionList = frame->Prev;
@@ -286,9 +311,25 @@ static inline EXCEPTION_REGISTRATION_RECORD *__wine_get_frame(void)
     EXCEPTION_REGISTRATION_RECORD *ret;
     __asm__ __volatile__("movl %%fs:0,%0" : "=r" (ret) );
     return ret;
+#elif defined(__x86_64__)
+    return *__wine_frame_list_head();
 #else
     NT_TIB *teb = (NT_TIB *)NtCurrentTeb();
     return teb->ExceptionList;
+#endif
+}
+
+/* Replace the whole list, for a fiber switch.  Not for leaving a __TRY block: use
+ * __wine_pop_frame() there, so a frame can only ever pop itself. */
+static inline void __wine_set_frame( EXCEPTION_REGISTRATION_RECORD *frame )
+{
+#if (defined(__GNUC__) || defined(__clang__)) && defined(__i386__)
+    __asm__ __volatile__("movl %0,%%fs:0" : : "r" (frame) : "memory" );
+#elif defined(__x86_64__)
+    *__wine_frame_list_head() = frame;
+#else
+    NT_TIB *teb = (NT_TIB *)NtCurrentTeb();
+    teb->ExceptionList = frame;
 #endif
 }
 

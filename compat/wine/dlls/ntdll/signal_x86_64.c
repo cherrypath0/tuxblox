@@ -278,7 +278,7 @@ static DWORD call_seh_handler( EXCEPTION_RECORD *rec, ULONG_PTR frame,
  */
 NTSTATUS call_seh_handlers( EXCEPTION_RECORD *rec, CONTEXT *orig_context )
 {
-    EXCEPTION_REGISTRATION_RECORD *teb_frame = NtCurrentTeb()->Tib.ExceptionList;
+    EXCEPTION_REGISTRATION_RECORD *teb_frame = __wine_get_frame();
     UNWIND_HISTORY_TABLE table;
     DISPATCHER_CONTEXT dispatch;
     CONTEXT context;
@@ -353,7 +353,7 @@ NTSTATUS call_seh_handlers( EXCEPTION_RECORD *rec, CONTEXT *orig_context )
                 return STATUS_INVALID_DISPOSITION;
             }
         }
-        /* hack: call wine handlers registered in the tib list */
+        /* hack: call wine handlers registered in Wine's own frame list */
         else while (is_valid_frame( (ULONG_PTR)teb_frame ) && (ULONG64)teb_frame < context.Rsp)
         {
             if (!is_valid_frame_handler( teb_frame ))
@@ -709,7 +709,7 @@ __ASM_GLOBAL_FUNC( call_consolidate_callback,
  */
 void CDECL RtlRestoreContext( CONTEXT *context, EXCEPTION_RECORD *rec )
 {
-    EXCEPTION_REGISTRATION_RECORD *teb_frame = NtCurrentTeb()->Tib.ExceptionList;
+    EXCEPTION_REGISTRATION_RECORD *teb_frame = __wine_get_frame();
 
     if (rec && rec->ExceptionCode == STATUS_LONGJUMP && rec->NumberParameters >= 1)
     {
@@ -736,7 +736,7 @@ void CDECL RtlRestoreContext( CONTEXT *context, EXCEPTION_RECORD *rec )
         context->Rip = (ULONG64)call_consolidate_callback( context, consolidate, rec );
     }
 
-    /* hack: remove no longer accessible TEB frames */
+    /* hack: remove no longer accessible builtin frames */
     while (is_valid_frame( (ULONG_PTR)teb_frame ) && (ULONG64)teb_frame < context->Rsp)
     {
         TRACE( "removing TEB frame: %p\n", teb_frame );
@@ -754,7 +754,7 @@ void CDECL RtlRestoreContext( CONTEXT *context, EXCEPTION_RECORD *rec )
 void WINAPI RtlUnwindEx( PVOID end_frame, PVOID target_ip, EXCEPTION_RECORD *rec,
                          PVOID retval, CONTEXT *context, UNWIND_HISTORY_TABLE *table )
 {
-    EXCEPTION_REGISTRATION_RECORD *teb_frame = NtCurrentTeb()->Tib.ExceptionList;
+    EXCEPTION_REGISTRATION_RECORD *teb_frame = __wine_get_frame();
     EXCEPTION_RECORD record;
     DISPATCHER_CONTEXT dispatch;
     CONTEXT new_context;
@@ -838,7 +838,7 @@ void WINAPI RtlUnwindEx( PVOID end_frame, PVOID target_ip, EXCEPTION_RECORD *rec
                 break;
             }
         }
-        else  /* hack: call builtin handlers registered in the tib list */
+        else  /* hack: call builtin handlers registered in Wine's own frame list */
         {
             while (is_valid_frame( (ULONG_PTR)teb_frame ) &&
                    (ULONG64)teb_frame < new_context.Rsp &&
