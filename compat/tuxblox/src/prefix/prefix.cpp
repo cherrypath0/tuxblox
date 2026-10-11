@@ -896,15 +896,59 @@ std::string detectHostSubpixel() {
     return "";
 }
 
+// An unscaled desktop, in the units Windows counts interface scale in.
+constexpr int kUnscaledDpi = 96;
+
+// The desktop's interface scale as a DPI. 0 means the desktop never said, which
+// is not the same as 96: it leaves the drive's own default alone.
+int detectHostDpi() {
+    // Xft.dpi is what an X11 desktop writes when the user picks a scale, and it
+    // arrives in the same resource dump the subpixel layout is read from.
+    const std::string resources = runHostCmd({"xrdb", "-query"});
+    std::istringstream lines(resources);
+    std::string line;
+    while (std::getline(lines, line)) {
+        if (line.rfind("Xft.dpi:", 0) == 0) {
+            const int dpi = std::atoi(trimmed(line.substr(line.find(':') + 1)).c_str());
+            if (dpi > 0) {
+                return dpi;
+            }
+        }
+    }
+
+    // A Wayland session leaves the X resources alone, so ask GNOME itself. It
+    // keeps a multiple of the unscaled size rather than a DPI.
+    const std::string factor = trimmed(runHostCmd({"gsettings", "get",
+            "org.gnome.desktop.interface", "text-scaling-factor"}));
+    if (!factor.empty()) {
+        const double scale = std::atof(factor.c_str());
+        if (scale > 0.0) {
+            return static_cast<int>(kUnscaledDpi * scale + 0.5);
+        }
+    }
+
+    // A session that scales by whole numbers says so here and nowhere else.
+    const char* gdkScale = std::getenv("GDK_SCALE");
+    if (gdkScale != nullptr) {
+        const int scale = std::atoi(gdkScale);
+        if (scale > 0) {
+            return kUnscaledDpi * scale;
+        }
+    }
+    return 0;
+}
+
 // A LOGFONTW for the registry: five LONGs, eight bytes of flags, then the
 // face name as 32 UTF-16 characters. Wine reads these back for the fonts it
 // reports through SystemParametersInfo.
-std::string logFontValue(const std::string& family, int points) {
+std::string logFontValue(const std::string& family, int points, int dpi) {
     std::array<unsigned char, 92> blob{};
 
-    // Negative asks for a character height rather than a cell height, which
-    // is what a point size means. 96 is the prefix's own LogPixels.
-    const int height = -((points * 96 + 36) / 72);
+    // Negative asks for a character height rather than a cell height, which is
+    // what a point size means. The height is in the drive's own pixels, so it
+    // has to follow the LogPixels the drive reports or the text comes out the
+    // wrong size against everything sized from it.
+    const int height = -((points * dpi + 36) / 72);
     const unsigned int cellHeight = static_cast<unsigned int>(height);
     const unsigned int weight = 400;
     for (int byte = 0; byte < 4; byte++) {
@@ -929,13 +973,39 @@ std::string logFontValue(const std::string& family, int points) {
     return hex;
 }
 
+void Prefix::syncHostDpi() {
+    const int detected = detectHostDpi();
+
+    // An unscaled desktop, or one that never said: the drive's own 96 is already
+    // right, and writing it would only leave a value behind to go stale.
+    if (detected <= kUnscaledDpi) {
+        return;
+    }
+
+    // Studio's Qt reads this once at startup and sizes its whole interface from
+    // it, so a drive left at 96 draws it a quarter of the area the same desktop
+    // gives everything else on a 4K screen. Clamped because a desktop can report
+    // a scale nothing would fit on.
+    const int dpi = detected > 480 ? 480 : detected;
+    char value[24];
+    std::snprintf(value, sizeof(value), "dword:%08x", static_cast<unsigned int>(dpi));
+
+    const bool changed = setRegKeyValues(prefixDir / "user.reg",
+            "Control Panel\\\\Desktop", {{"LogPixels", value}});
+
+    if (changed) {
+        log("Synced prefix to host interface scale, " + std::to_string(dpi) + " DPI");
+    }
+}
+
 void Prefix::syncHostFont() {
     const auto [family, points] = detectHostFont();
     if (family.empty() || points <= 0) {
         return;
     }
 
-    const std::string font = logFontValue(family, points);
+    const int detected = detectHostDpi();
+    const std::string font = logFontValue(family, points, detected > 0 ? detected : kUnscaledDpi);
     const fs::path userReg = prefixDir / "user.reg";
 
     // Only the fonts Wine reports for dialogs and menus. The caption font is
@@ -1109,6 +1179,7 @@ void Prefix::setup(Session& session) {
     linkRobloxData();
     linkTempDir();
     syncHostTheme();
+    syncHostDpi();
     syncHostFont();
     syncFontSmoothing();
     syncHaptics();

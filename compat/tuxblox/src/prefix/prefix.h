@@ -77,6 +77,7 @@ private:
     void linkRobloxData();
     void linkTempDir();
     void syncHostTheme();
+    void syncHostDpi();
     void syncHostFont();
     void syncFontSmoothing();
     void syncHaptics();
