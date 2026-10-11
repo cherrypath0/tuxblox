@@ -2032,9 +2032,18 @@ static RECT get_visible_rect( HWND hwnd, BOOL shaped, UINT style, UINT ex_style,
     if (!user_driver->pGetWindowStyleMasks( hwnd, style, ex_style, &style_mask, &ex_style_mask )) return rects->window;
     if (!NtUserAdjustWindowRect( &rect, style & style_mask, FALSE, ex_style & ex_style_mask, dpi )) return rects->window;
     /* A program that draws its own title bar keeps WS_CAPTION but leaves less room above its content
-     * than a title bar needs, and while maximised it leaves only the few pixels of border that hang
-     * off the screen. Framing it anyway stacks the desktop's title bar on top of the program's own. */
-    if (rects->client.top - rects->window.top < -rect.top) return rects->window;
+     * than a title bar needs. What it does leave is a frame the desktop never draws, so hand back the
+     * client rect and let that frame fall outside the window: while maximised the frame is the few
+     * pixels Windows hangs off the screen, and showing it instead puts a border around the program.
+     * Only when the client area is inside the window -- Studio's undocked panels report one reaching
+     * seven pixels above their own window, and that strip is not ours to show. */
+    if (rects->client.top - rects->window.top < -rect.top)
+    {
+        if (rects->client.left >= rects->window.left && rects->client.top >= rects->window.top &&
+            rects->client.right <= rects->window.right && rects->client.bottom <= rects->window.bottom)
+            return rects->client;
+        return rects->window;
+    }
 
     visible_rect = rects->window;
     visible_rect.left   -= rect.left;
