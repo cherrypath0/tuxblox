@@ -40,6 +40,10 @@ g++ -std=c++17 -O0 -g -Wall -Wextra -UNDEBUG -I../src \
 "$out/test_sessions"
 
 g++ -std=c++17 -O0 -g -Wall -Wextra -UNDEBUG -I../src \
+    -o "$out/test_graphics" test_graphics.cpp ../src/launch/graphics.cpp
+"$out/test_graphics"
+
+g++ -std=c++17 -O0 -g -Wall -Wextra -UNDEBUG -I../src \
     -o "$out/test_registry" test_registry.cpp ../src/prefix/registry.cpp ../src/support/util.cpp
 "$out/test_registry"
 

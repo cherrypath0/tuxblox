@@ -524,28 +524,9 @@ void Prefix::createFontSymlinks() {
     }
 }
 
-void Prefix::installGraphicsFiles(Session& session) {
-    const GraphicsConfig& graphics = session.graphics;
-
-    std::vector<std::string> dxvkFiles;
-    std::vector<std::string> wined3dFiles;
-
-    // Roblox picks its renderer at runtime and does not always land on
-    // Vulkan, so whichever Direct3D implementation is selected has to be
-    // installed and working even if a given session never touches it.
-    if (graphics.useWineD3D) {
-        wined3dFiles = {"d3d12", "d3d11", "d3d10", "d3d10core", "d3d10_1", "d3d9"};
-    } else {
-        // No d3d12 here: vkd3d-proton is not shipped, so the prefix keeps the
-        // builtin d3d12 it was created with. Roblox never asks for it anyway.
-        dxvkFiles = {"d3d11", "d3d10core", "d3d9"};
-    }
-
-    if (graphics.useDxvkDxgi) {
-        dxvkFiles.push_back("dxgi");
-    } else {
-        wined3dFiles.push_back("dxgi");
-    }
+// Lays the chosen Direct3D libraries into the drive. Which ones those are is graphicsFiles()' answer, and asking Roblox to actually use them is Session::applyDllOverrides()' job -- that part is not drive state and has to happen on every launch, including the ones that never come through here.
+void Prefix::installGraphicsFiles(const GraphicsConfig& graphics) {
+    const GraphicsFiles files = graphicsFiles(graphics);
 
     std::ofstream tracked(trackedFilesFile, std::ios::app);
 
@@ -554,28 +535,25 @@ void Prefix::installGraphicsFiles(Session& session) {
     options.pTrackFile = &tracked;
     options.linkDebug = true;
 
-    for (const std::string& name : wined3dFiles) {
+    for (const std::string& name : files.wined3d) {
         copyPath(proton.defaultPfxDir / "drive_c/windows/system32" / (name + ".dll"),
                  "drive_c/windows/system32", options);
         copyPath(proton.defaultPfxDir / "drive_c/windows/syswow64" / (name + ".dll"),
                  "drive_c/windows/syswow64", options);
     }
 
-    for (const std::string& name : dxvkFiles) {
+    for (const std::string& name : files.dxvk) {
         copyPath(proton.archPeDir("wine/dxvk", false) / (name + ".dll"),
                  "drive_c/windows/system32", options);
         copyPath(proton.archPeDir("wine/dxvk", true) / (name + ".dll"),
                  "drive_c/windows/syswow64", options);
-        session.dllOverrides[name] = "n";
     }
 
-    if (graphics.useNvapi) {
+    if (files.nvapi) {
         copyPath(proton.archPeDir("wine/nvapi", false) / "nvapi64.dll",
                  "drive_c/windows/system32", options);
         copyPath(proton.archPeDir("wine/nvapi", true) / "nvapi.dll",
                  "drive_c/windows/syswow64", options);
-        session.dllOverrides["nvapi64"] = "n";
-        session.dllOverrides["nvapi"] = "n";
     } else {
         std::error_code error;
         fs::remove(prefixDir / "drive_c/windows/system32/nvapi64.dll", error);
@@ -1236,7 +1214,7 @@ void Prefix::setup(Session& session) {
 
     writeVersion();
     createFontSymlinks();
-    installGraphicsFiles(session);
+    installGraphicsFiles(session.graphics);
 }
 
 } // namespace tuxblox

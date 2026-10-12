@@ -23,6 +23,7 @@
 #include <string>
 #include <vector>
 
+#include "launch/graphics.h"
 #include "launch/proton.h"
 #include "support/sessions.h"
 #include "support/util.h"
@@ -31,21 +32,6 @@ namespace tuxblox {
 
 // How long the virtual drive may stay busy after the last Roblox process has gone before it is closed anyway.
 const int PrefixDrainTimeoutSeconds = 15;
-
-// Which graphics backend the prefix should be set up for. Roblox usually
-// renders through its own Vulkan backend, but it can fall back to Direct3D or
-// OpenGL, so both paths have to keep working.
-struct GraphicsConfig {
-    // Use Wine's OpenGL-based wined3d instead of Vulkan-based DXVK.
-    bool useWineD3D = false;
-    // Let DXVK provide dxgi. Turned off when wined3d is in use, or when the
-    // user overrode dxgi by hand.
-    bool useDxvkDxgi = true;
-    // Disable d3d11 entirely.
-    bool noD3D11 = false;
-    // Provide NVAPI to the Direct3D path on NVIDIA hardware.
-    bool useNvapi = true;
-};
 
 // One launch: the environment Wine runs under, the process itself, and the
 // wait for the prefix to empty afterwards.

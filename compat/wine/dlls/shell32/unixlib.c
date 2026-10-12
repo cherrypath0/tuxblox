@@ -277,12 +277,45 @@ static BOOL portal_open_file(const char *title, const char *initial_dir_path, BO
     return TRUE;
 }
 
+static int uri_hex_digit(char c)
+{
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+/* The portal answers with URIs, so anything a URI cannot hold arrives
+ * percent-escaped: a space as %20, a non-ASCII character as its UTF-8 bytes.
+ * Without this the escapes reach the application as part of the name. Decoding
+ * in place is safe because an escape is always longer than the byte it stands
+ * for. A truncated or invalid escape is copied through verbatim, as is %00 - a
+ * nul would cut the path short. */
+static void unescape_uri_path(char *path)
+{
+    char *out = path;
+
+    while (*path)
+    {
+        int high, low;
+
+        if (*path == '%' && (high = uri_hex_digit(path[1])) >= 0 &&
+            (low = uri_hex_digit(path[2])) >= 0 && (high || low))
+        {
+            *out++ = high * 16 + low;
+            path += 3;
+        }
+        else *out++ = *path++;
+    }
+    *out = 0;
+}
+
 NTSTATUS portal_pick_folder(void *args)
 {
     struct portal_pick_folder_params *params = args;
     char *initial_dir_unix = NULL, *uri = NULL;
     WCHAR *dos_path;
-    const char *path;
+    char *path;
     char title_utf8[256] = "Select Folder";
 
     params->cancelled = TRUE;
@@ -300,7 +333,11 @@ NTSTATUS portal_pick_folder(void *args)
     if (!uri) return STATUS_SUCCESS; /* reachable, user cancelled */
 
     path = uri;
-    if (!strncmp(path, "file://", 7)) path += 7;
+    if (!strncmp(path, "file://", 7))
+    {
+        path += 7;
+        unescape_uri_path(path);
+    }
 
     /* ntdll_get_dos_file_name returns STATUS_NO_SUCH_FILE (nonzero) but still
      * fills in a usable buffer when the leaf component doesn't exist yet with

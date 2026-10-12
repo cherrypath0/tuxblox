@@ -332,6 +332,11 @@ void Session::initSession() {
 }
 
 void Session::applyDllOverrides() {
+    // Applied here because this is the one point every launch passes through. A launch that joins a virtual drive somebody else already set up skips the drive's setup entirely, and when these lived in there it skipped them along with it -- leaving that session on the builtin Direct3D, at a fraction of the frame rate the first one gets.
+    for (const auto& [dll, setting] : graphicsDllOverrides(graphics)) {
+        dllOverrides[dll] = setting;
+    }
+
     std::string overrides;
     for (const auto& [dll, setting] : dllOverrides) {
         overrides += (overrides.empty() ? "" : ";") + dll + "=" + setting;

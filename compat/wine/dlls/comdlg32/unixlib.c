@@ -476,6 +476,39 @@ static BOOL write_open_result(WCHAR * const *paths, UINT count, WCHAR *out_buf, 
     return TRUE;
 }
 
+static int uri_hex_digit(char c)
+{
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+/* The portal answers with URIs, so anything a URI cannot hold arrives
+ * percent-escaped: a space as %20, a non-ASCII character as its UTF-8 bytes.
+ * Without this the escapes reach the application as part of the name and it
+ * saves to "My%20Place.rbxl". Decoding in place is safe because an escape is
+ * always longer than the byte it stands for. A truncated or invalid escape is
+ * copied through verbatim, as is %00 - a nul would cut the path short. */
+static void unescape_uri_path(char *path)
+{
+    char *out = path;
+
+    while (*path)
+    {
+        int high, low;
+
+        if (*path == '%' && (high = uri_hex_digit(path[1])) >= 0 &&
+            (low = uri_hex_digit(path[2])) >= 0 && (high || low))
+        {
+            *out++ = high * 16 + low;
+            path += 3;
+        }
+        else *out++ = *path++;
+    }
+    *out = 0;
+}
+
 NTSTATUS portal_open_file(void *args)
 {
     struct portal_open_save_params *params = args;
@@ -502,10 +535,14 @@ NTSTATUS portal_open_file(void *args)
     {
         for (i = 0; i < uri_count; i++)
         {
-            const char *path = uris[i];
+            char *path = uris[i];
             WCHAR *dos_path = NULL, *localized;
 
-            if (!strncmp(path, "file://", 7)) path += 7;
+            if (!strncmp(path, "file://", 7))
+            {
+                path += 7;
+                unescape_uri_path(path);
+            }
             /* ntdll_get_dos_file_name returns STATUS_NO_SUCH_FILE (nonzero)
              * but still fills in a usable buffer when the leaf component
              * doesn't exist yet with disposition FILE_SUPERSEDE (0) - check
@@ -561,10 +598,14 @@ NTSTATUS portal_save_file(void *args)
 
     if (uri_count)
     {
-        const char *path = uris[0];
+        char *path = uris[0];
         WCHAR *dos_path = NULL, *localized;
 
-        if (!strncmp(path, "file://", 7)) path += 7;
+        if (!strncmp(path, "file://", 7))
+        {
+            path += 7;
+            unescape_uri_path(path);
+        }
         /* See the comment in portal_open_file: check the output pointer,
          * not the NTSTATUS - a save target normally doesn't exist yet, and
          * that alone must not be treated as a hard failure here. */

@@ -66,7 +66,7 @@ private:
                            const std::filesystem::path& dst, bool dllCopy);
     void updateBuiltinLibs(const std::string& copyPatterns);
     void createFontSymlinks();
-    void installGraphicsFiles(Session& session);
+    void installGraphicsFiles(const GraphicsConfig& graphics);
     std::string accountFolder() const;
     void migrateAccountFolder();
     void recordWebViewMode();
