@@ -109,6 +109,7 @@ add_library(launcher_core STATIC
     src/discord_rpc.cpp
     src/bloxstrap_rpc.cpp
     src/player_presence.cpp
+    src/presence_loop.cpp
     src/server_region.cpp
     src/roblox_http.cpp
     src/roblox_universe.cpp

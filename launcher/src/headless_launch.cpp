@@ -18,13 +18,17 @@
 #include "root_guard.h"
 #include "install_paths.h"
 #include "prefix_session.h"
+#include "presence_loop.h"
 #include "process_launcher.h"
+#include "process_name.h"
 #include "roblox_autoupdate.h"
+#include "server_region.h"
 #include "wine_shortcut_export.h"
 #include <cstdio>
 #include "settings.h"
 
 #include <cstdlib>
+#include <ctime>
 #include <unistd.h>
 #include <vector>
 
@@ -48,6 +52,26 @@ int runHeadlessQuickLaunch(const std::string& installDir, LaunchTarget target, c
     if (exePath.empty()) {
         fprintf(stderr, "TuxBlox: could not resolve or download the Roblox executable\n");
         return 1;
+    }
+
+    // Both features are driven by reading the session log as it is written, which needs a process that outlives the launch, so when either is on the launch is tracked here rather than handed this process by the exec below -- exactly as the launcher's own window does it.
+    // With both off nothing has to be watched and the exec is reached as before, which is what a default install does.
+    if (presenceWatchWanted(settings)) {
+        // Same reason the watched launch does it: this process now lives for the whole session, and without a name of its own anything looking for the launcher would find a running Roblox session instead.
+        setProcessName("tuxbloxWatcher");
+
+        ProcessLauncher launcher(installDir);
+        const std::time_t launchStart = std::time(nullptr);
+        const LaunchOutcome outcome = launcher.launch(target, uri);
+        if (!outcome.ok) {
+            fprintf(stderr, "TuxBlox: %s\n", outcome.errorMessage.c_str());
+            return 1;
+        }
+        runPresenceLoop(installDir, target, settings, launchStart,
+                        [&] { return launcher.pollIsRunning(target); },
+                        makeServerRegionWatcher(settings.serverRegionNotify,
+                                                presenceNotificationIcon(target)));
+        return 0;
     }
 
     for (const auto& kv : launchEnvVars(installDir, target)) {

@@ -219,3 +219,7 @@ add_test(NAME server_region COMMAND test_server_region)
 add_executable(test_roblox_universe test_roblox_universe.cpp)
 target_link_libraries(test_roblox_universe PRIVATE launcher_core)
 add_test(NAME roblox_universe COMMAND test_roblox_universe)
+
+add_executable(test_presence_loop test_presence_loop.cpp)
+target_link_libraries(test_presence_loop PRIVATE launcher_core)
+add_test(NAME presence_loop COMMAND test_presence_loop)
