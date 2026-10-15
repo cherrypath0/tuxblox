@@ -1219,6 +1219,46 @@ void *get_wow_context( CONTEXT *context )
     return get_cpu_area( IMAGE_FILE_MACHINE_I386 );
 }
 
+/* Roblox's anti-tamper layer hands control to its next stage by setting a
+ * context on its own thread rather than by jumping, so the Rip it installs
+ * is the branch it decided to take and the Rax it installs is whatever it
+ * is passing along. Neither shows up anywhere else -- to a syscall trace
+ * this looks like an ordinary call that returns a strange value, because
+ * what comes back in Rax is simply the Rax being restored.
+ *
+ * The layer reaches its own thread through a handle it opens with NtOpenThread
+ * rather than through the pseudo-handle, so a check against GetCurrentThread()
+ * never recognises it and this never fired on the call that matters. The caller
+ * reports the real-handle case separately, once the server has confirmed that
+ * the handle named this thread. */
+static void trace_setcontext_self( const CONTEXT *context, DWORD flags, const char *how )
+{
+    char detail[256];
+
+    /* A call that asks only for the debug registers leaves the rest of the
+     * CONTEXT uninitialised, so printing Rip and Rsp for one reports garbage as
+     * though it were a branch target. The layer arms hardware breakpoints on
+     * itself and then relies on them firing to steer, so these are the values
+     * that matter -- Dr7's low bits say which of Dr0-3 are enabled and whether
+     * each one breaks on execute, write or read. */
+    if (flags & CONTEXT_DEBUG_REGISTERS)
+        snprintf( detail, sizeof(detail),
+                  "via=%s flags=%#x dr0=%#llx dr1=%#llx dr2=%#llx dr3=%#llx dr6=%#llx dr7=%#llx",
+                  how, (unsigned)flags,
+                  (unsigned long long)context->Dr0, (unsigned long long)context->Dr1,
+                  (unsigned long long)context->Dr2, (unsigned long long)context->Dr3,
+                  (unsigned long long)context->Dr6, (unsigned long long)context->Dr7 );
+    else
+        snprintf( detail, sizeof(detail),
+                  "via=%s flags=%#x cs=%#x rip=%#llx rsp=%#llx rsi=%#llx rbx=%#llx rbp=%#llx r12=%#llx r8=%#llx r9=%#llx",
+                  how, (unsigned)flags, context->SegCs,
+                  (unsigned long long)context->Rip, (unsigned long long)context->Rsp,
+                  (unsigned long long)context->Rsi, (unsigned long long)context->Rbx,
+                  (unsigned long long)context->Rbp, (unsigned long long)context->R12,
+                  (unsigned long long)context->R8, (unsigned long long)context->R9 );
+    tuxblox_trace_record( "NtSetContextThread.self", detail );
+}
+
 /***********************************************************************
  *              NtSetContextThread  (NTDLL.@)
  *              ZwSetContextThread  (NTDLL.@)
@@ -1228,26 +1268,13 @@ NTSTATUS WINAPI NtSetContextThread( HANDLE handle, const CONTEXT *context )
     NTSTATUS ret = STATUS_SUCCESS;
     DWORD flags = context->ContextFlags & ~CONTEXT_AMD64;
     BOOL self = (handle == GetCurrentThread());
+    BOOL traced = FALSE;
     struct syscall_frame *frame = get_syscall_frame();
 
-    /* Roblox's anti-tamper layer hands control to its next stage by setting a
-     * context on its own thread rather than by jumping, so the Rip it installs
-     * is the branch it decided to take and the Rax it installs is whatever it
-     * is passing along. Neither shows up anywhere else -- to a syscall trace
-     * this looks like an ordinary call that returns a strange value, because
-     * what comes back in Rax is simply the Rax being restored. */
     if (tuxblox_trace_enabled() && self)
     {
-        char detail[256];
-
-        snprintf( detail, sizeof(detail),
-                  "flags=%#x cs=%#x rip=%#llx rsp=%#llx rsi=%#llx rbx=%#llx rbp=%#llx r12=%#llx r8=%#llx r9=%#llx",
-                  (unsigned)flags, context->SegCs,
-                  (unsigned long long)context->Rip, (unsigned long long)context->Rsp,
-                  (unsigned long long)context->Rsi, (unsigned long long)context->Rbx,
-                  (unsigned long long)context->Rbp, (unsigned long long)context->R12,
-                  (unsigned long long)context->R8, (unsigned long long)context->R9 );
-        tuxblox_trace_record( "NtSetContextThread.self", detail );
+        trace_setcontext_self( context, flags, "pseudo" );
+        traced = TRUE;
 
         /* The first few of these are where the layer resumes itself after a
          * fault it caused on purpose, and the only way to read that code is
@@ -1296,6 +1323,7 @@ NTSTATUS WINAPI NtSetContextThread( HANDLE handle, const CONTEXT *context )
             WARN_(seh)( "Setting debug registers is not supported under Rosetta\n" );
 #endif
         if (ret || !self) return ret;
+        if (tuxblox_trace_enabled() && !traced) trace_setcontext_self( context, flags, "handle" );
         if (flags & CONTEXT_DEBUG_REGISTERS)
         {
             amd64_thread_data()->dr0 = context->Dr0;

@@ -7154,6 +7154,21 @@ static BOOL notify_desktop( const UNICODE_STRING *text, const UNICODE_STRING *ca
      * then gone, so put it in the log too. */
     ERR( "hard error: %s: %s\n", title, body );
 
+    /* TUXBLOX_QUIET_DIALOGS=1: report the error to the log and nowhere else.
+     *
+     * A hard error box takes the keyboard focus the moment it appears, which is
+     * unwelcome when the program is being started over and over by a test and
+     * somebody is working in another window. The line above is the same text the
+     * box would have carried, so nothing is lost by not drawing it; the caller
+     * simply sees the unanswered case, as it already does on a machine with no
+     * display. Off by default -- a person running Roblox normally should be told
+     * what went wrong. */
+    {
+        const char *quiet = getenv( "TUXBLOX_QUIET_DIALOGS" );
+
+        if (quiet && *quiet && *quiet != '0') return FALSE;
+    }
+
     /* Our own message box, as Windows shows one; the notification is what is
      * left for a session with no display to draw it on. */
     {
