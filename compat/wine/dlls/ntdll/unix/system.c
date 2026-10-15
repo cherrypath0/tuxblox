@@ -7164,7 +7164,7 @@ static BOOL notify_desktop( const UNICODE_STRING *text, const UNICODE_STRING *ca
      * display. Off by default -- a person running Roblox normally should be told
      * what went wrong. */
     {
-        const char *quiet = getenv( "TUXBLOX_QUIET_DIALOGS" );
+        const char *quiet = tuxblox_dev_getenv( "TUXBLOX_QUIET_DIALOGS" );
 
         if (quiet && *quiet && *quiet != '0') return FALSE;
     }
