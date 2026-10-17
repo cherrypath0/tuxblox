@@ -398,7 +398,7 @@ stage_release() {
     local required=(compat/main
                     libtuxblox/lib/x86_64-linux-gnu
                     libtuxblox/share/icons/TuxBlox/index.theme
-                    TuxBloxLauncher TuxBloxInstaller TuxBloxBootstrapper studio-mcp)
+                    TuxBloxLauncher TuxBloxInstaller studio-mcp)
     local entry
     for entry in "${required[@]}"; do
         if [[ ! -e "$ROOT/build/$entry" ]]; then
@@ -440,7 +440,6 @@ stage_release() {
     # to find on disk.
     cp "$ROOT/build/TuxBloxLauncher" "$release_dir/launcher"
     cp "$ROOT/build/TuxBloxInstaller" "$release_dir/installer"
-    cp "$ROOT/build/TuxBloxBootstrapper" "$release_dir/bootstrapper"
     cp "$ROOT/build/studio-mcp" "$release_dir/studio-mcp"
 
     echo ":: Writing manifest.json and latest.json"
@@ -463,7 +462,6 @@ source_commit, source_dirty = sys.argv[6:8]
 artifacts = [
     ("launcher",   "launcher",                    "Launcher",             "TuxBloxLauncher"),
     ("installer",  "installer",                   "Updater",              "TuxBloxInstaller"),
-    ("bootstrapper", "bootstrapper",              "Roblox bootstrapper",  "TuxBloxBootstrapper"),
     # Published as "proton" until the layer was renamed. The launcher reads
     # either spelling, so emitting the new one is safe for older installs.
     ("compat",     f"compat-{slug}.tar.zst",      "Compatibility layer",  "compat"),
@@ -750,15 +748,6 @@ step "Staging installer output into build/"
 rm -f build/TuxBloxInstaller
 mv installer/build build/.artifacts/installer
 mv build/.artifacts/installer/TuxBloxInstaller build/TuxBloxInstaller
-
-step "Building TuxBlox Bootstrapper (podman, old-glibc baseline)"
-run_step "build_bootstrapper" strict logged env TUXBLOX_SKIP_DEPS=1 ./bootstrapper/build.sh
-
-step "Staging bootstrapper output into build/"
-
-rm -f build/TuxBloxBootstrapper
-mv bootstrapper/build build/.artifacts/bootstrapper
-mv build/.artifacts/bootstrapper/TuxBloxBootstrapper build/TuxBloxBootstrapper
 
 # Before the launcher, which is the slowest of the four: studio-mcp compiles
 # launcher sources, so a mistake in them surfaces here in seconds rather than

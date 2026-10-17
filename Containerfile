@@ -14,7 +14,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # libarchive needs cmake 3.17 or newer and this baseline ships 3.16, so a current cmake goes in
-# here deliberately OFF the default PATH -- the launcher, installer, bootstrapper and Studio MCP
+# here deliberately OFF the default PATH -- the launcher, installer and Studio MCP
 # builds keep using /usr/bin/cmake exactly as before, and only shared/tools/libs-build.sh reaches for this one.
 RUN mkdir -p /opt/cmake \
     && curl -fsSL https://github.com/Kitware/CMake/releases/download/v3.31.12/cmake-3.31.12-linux-x86_64.tar.gz \

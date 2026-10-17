@@ -107,7 +107,7 @@ echo ":: Configuring + Building (in podman, rootless, old-glibc baseline)"
 # from inside the container at all. So a standalone run of this script (no root
 # build.sh, hence no env var) reads VERSION here on the HOST and passes the
 # value in through the same variable, which is why one number reaches the
-# launcher, the bootstrapper and the compatibility layer either way.
+# launcher and the compatibility layer either way.
 if [[ -z "${TUXBLOX_BUILD_VERSION:-}" && -r "$(pwd)/../VERSION" ]]; then
     TUXBLOX_BUILD_VERSION="$(sed -n '1p' "$(pwd)/../VERSION" | tr -d '[:space:]')"
 fi

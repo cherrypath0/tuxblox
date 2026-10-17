@@ -35,7 +35,6 @@ Binaries=(
     "studio-mcp:no"
     "compat/main:no"
     "TuxBloxLauncher:yes"
-    "TuxBloxBootstrapper:yes"
 )
 
 Failures=0

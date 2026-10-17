@@ -16,9 +16,7 @@ __pycache__/
 
 installer/build/
 installer/third_party/
-bootstrapper/build/
 studio-mcp/build/
-bootstrapper/third_party/
 
 *.log
 *.pyc
