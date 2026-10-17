@@ -34,6 +34,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <string>
 #include <system_error>
@@ -48,10 +49,57 @@ bool startsWith(const std::string& s, const char* prefix) {
     return s.rfind(prefix, 0) == 0;
 }
 
+// --message-box [--cancel] [--default-cancel] [--answer-fd N] [--icon-fd N] <title> <message>, which the layer
+// runs to put a message from Roblox itself on screen. The exit code is the answer -- 0 for OK, 1 for dismissed,
+// 2 for nothing drawn -- and with --answer-fd the same answer is written to that file as well, because a
+// crashing program's own handler can reap this process and take its exit code with it. Flags stop at the title,
+// so a message starting with "--" still arrives whole.
+int runMessageBoxCommand(int argc, char** argv) {
+    bool withCancel = false;
+    bool cancelIsDefault = false;
+    int iconFd = -1;
+    int answerFd = -1;
+    int at = 0;
+
+    for (; at < argc; ++at) {
+        const std::string arg = argv[at];
+        if (arg == "--cancel") withCancel = true;
+        else if (arg == "--default-cancel") cancelIsDefault = true;
+        else if (arg == "--answer-fd" && at + 1 < argc) answerFd = atoi(argv[++at]);
+        else if (arg == "--icon-fd" && at + 1 < argc) iconFd = atoi(argv[++at]);
+        else break;
+    }
+    if (argc - at != 2) {
+        fprintf(stderr, "TuxBlox: --message-box takes a title and a message\n");
+        return 2;
+    }
+
+    const tuxblox::MessageBoxAnswer answer =
+        tuxblox::showRequestedMessageBox(argv[at], argv[at + 1], withCancel, cancelIsDefault, iconFd);
+    if (answerFd >= 0 && answer != tuxblox::MessageBoxAnswer::NoDisplay) {
+        // Only ever written by a box that reached the screen, so the caller can tell a dismissed message from one it still has to deliver some other way.
+        const char byte = answer == tuxblox::MessageBoxAnswer::Pressed ? '1' : '0';
+        const ssize_t wrote = write(answerFd, &byte, 1);
+        (void)wrote;
+        close(answerFd);
+    }
+
+    switch (answer) {
+        case tuxblox::MessageBoxAnswer::Pressed: return 0;
+        case tuxblox::MessageBoxAnswer::Dismissed: return 1;
+        case tuxblox::MessageBoxAnswer::NoDisplay: break;
+    }
+    return 2;
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
     using namespace tuxblox;
+
+    // Ahead of everything, the root guard included: this draws a message for another program and reports the
+    // answer as its exit code, so nothing else may reach a return before it and be read as that answer.
+    if (argc > 1 && std::string(argv[1]) == "--message-box") return runMessageBoxCommand(argc - 2, argv + 2);
 
     // Before the scope is joined and before any argument is read: a root run
     // builds a virtual drive the real user cannot write to afterwards.

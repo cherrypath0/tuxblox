@@ -201,6 +201,7 @@ if(TUXBLOX_UI_STACK_DEV)
 
     add_library(launcher_ui_adw STATIC
         src/ui_adw/widgets.cpp
+        src/ui_adw/dialog.cpp
         src/ui_adw/message_box.cpp
         src/ui_adw/launcher_window.cpp
         src/ui_adw/page_home.cpp

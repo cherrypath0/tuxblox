@@ -16,6 +16,7 @@
 
 #include "widgets.h"
 #include "adw_look.h"
+#include "dialog.h"
 
 #include <cstring>
 #include <utility>
@@ -96,18 +97,6 @@ static void tb_symbolic_icon_init(TbSymbolicIcon *pSelf) {
 namespace tuxblox {
 
 namespace {
-
-struct Confirmation {
-    std::function<void()> onConfirm;
-};
-
-void onConfirmResponse(AdwAlertDialog *, const char *pResponse, gpointer data) {
-    if (g_strcmp0(pResponse, "confirm") == 0) static_cast<Confirmation *>(data)->onConfirm();
-}
-
-void freeConfirmation(gpointer data, GClosure *) {
-    delete static_cast<Confirmation *>(data);
-}
 
 const char LauncherStyles[] =
     // libadwaita puts a pencil on every editable row, from an icon theme TuxBlox does not ship, so it drew as a broken-image box
@@ -196,23 +185,16 @@ void applyLauncherTheme(const std::string &theme) {
 }
 
 void showNotice(GtkWidget *pParent, const std::string &heading, const std::string &body) {
-    AdwDialog *pDialog = adw_alert_dialog_new(heading.c_str(), body.c_str());
-    adw_alert_dialog_add_response(ADW_ALERT_DIALOG(pDialog), "ok", "OK");
-    adw_dialog_present(pDialog, pParent);
+    adw_dialog_present(buildDialog(heading, body, {{"OK", nullptr, nullptr}}), pParent);
 }
 
 void confirmDestructive(GtkWidget *pParent, const std::string &heading, const std::string &body,
                         const std::string &confirmLabel, std::function<void()> onConfirm) {
-    AdwDialog *pDialog = adw_alert_dialog_new(heading.c_str(), body.c_str());
-    AdwAlertDialog *pAlert = ADW_ALERT_DIALOG(pDialog);
-    adw_alert_dialog_add_response(pAlert, "cancel", "Cancel");
-    adw_alert_dialog_add_response(pAlert, "confirm", confirmLabel.c_str());
-    adw_alert_dialog_set_response_appearance(pAlert, "confirm", ADW_RESPONSE_DESTRUCTIVE);
-    adw_alert_dialog_set_default_response(pAlert, "cancel");
-    adw_alert_dialog_set_close_response(pAlert, "cancel");
-    g_signal_connect_data(pDialog, "response", G_CALLBACK(onConfirmResponse), new Confirmation{std::move(onConfirm)},
-                          freeConfirmation, static_cast<GConnectFlags>(0));
-    adw_dialog_present(pDialog, pParent);
+    // Escape and the close both leave onConfirm unrun, which is what makes them count as cancelling.
+    adw_dialog_present(buildDialog(heading, body,
+                                   {{"Cancel", nullptr, nullptr},
+                                    {confirmLabel, "destructive-action", std::move(onConfirm)}}),
+                       pParent);
 }
 
 } // namespace tuxblox

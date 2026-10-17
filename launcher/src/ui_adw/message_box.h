@@ -25,4 +25,16 @@ void showErrorMessageBox(const std::string &title, const std::string &message);
 // The same popup with a second button beside OK, labelled actionLabel. True only if that button was pressed, so with no display it is always false.
 bool showErrorMessageBoxWithAction(const std::string &title, const std::string &message, const std::string &actionLabel);
 
+// How a message shown for another program ended.
+enum class MessageBoxAnswer {
+    Pressed,   // OK
+    Dismissed, // Cancel, Escape, or the window closed
+    NoDisplay  // nothing was drawn, so the caller still has to reach the person another way
+};
+
+// Shows a message another TuxBlox program asked for and says how it ended. The compatibility layer asks for these: a message from Roblox itself is drawn here because that side cannot link the interface stack, so it would otherwise look like a different program.
+// iconFd, when not -1, is an open file holding the icon for the window: width and height as 32-bit numbers, then rows of red, green, blue and alpha from the top down. It is the raising program's own icon, so the window is its window wherever the desktop shows one. It is read and closed here.
+MessageBoxAnswer showRequestedMessageBox(const std::string &title, const std::string &message, bool withCancel,
+                                         bool cancelIsDefault, int iconFd);
+
 } // namespace tuxblox

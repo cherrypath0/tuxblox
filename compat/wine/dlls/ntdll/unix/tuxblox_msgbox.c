@@ -54,6 +54,13 @@
 #include "winternl.h"
 #include "unix_private.h"
 
+#if defined(__has_include)
+#if __has_include(<png.h>)
+#include <png.h>
+#define MSGBOX_HAVE_PNG
+#endif
+#endif
+
 /* X11 last: its headers define Status, ControlMask and other names the Windows
  * ones use as ordinary identifiers. */
 #ifdef SONAME_LIBX11
@@ -61,12 +68,6 @@
 #include <X11/Xutil.h>
 #include <X11/Xatom.h>
 #include <X11/keysym.h>
-#if defined(__has_include)
-#if __has_include(<png.h>)
-#include <png.h>
-#define MSGBOX_HAVE_PNG
-#endif
-#endif
 #endif
 
 /* The running program's file name, without its path or extension. */
@@ -107,22 +108,375 @@ BOOL tuxblox_program_name( char *buffer, size_t size )
 #define MSGBOX_DISMISSED        1
 #define MSGBOX_CANNOT_DRAW      2
 
+/* Where the launcher writes its answer, and where it reads the window's icon, each as a number and as the argument that says so. */
+#define MSGBOX_ANSWER_FD        3
+#define MSGBOX_ANSWER_FD_ARG    "3"
+#define MSGBOX_ICON_FD          4
+#define MSGBOX_ICON_FD_ARG      "4"
+
+
+/* The program's own icon, which is PE resources and a PNG decoder and has
+ * nothing to do with how the box is drawn -- the launcher wants it as much as
+ * the drawn box does, and a machine with no X11 on it can still have both. */
+#ifdef MSGBOX_HAVE_PNG
+static void *png_handle;
+static int (*p_png_image_begin_read_from_memory)( png_imagep, const void *, size_t );
+static int (*p_png_image_finish_read)( png_imagep, png_const_colorp, void *, png_int_32, void * );
+static void (*p_png_image_free)( png_imagep );
+#endif
+
+/* The size an icon is picked and scaled for, and the largest one worth reading. */
+#define MSGBOX_ICON_WANTED       48
+#define MSGBOX_ICON_MAX         512
+
+/* Loaded here and not in the child: dlopen takes the loader's lock, and a
+ * process that forked while another thread held it would never get it back. */
+static void load_png(void)
+{
+#ifdef MSGBOX_HAVE_PNG
+    /* Modern programs, Roblox among them, keep their icons as PNG rather than
+     * as the bitmap an icon used to be. */
+    if (png_handle || !(png_handle = dlopen( "libpng16.so.16", RTLD_NOW ))) return;
+
+    p_png_image_begin_read_from_memory = dlsym( png_handle, "png_image_begin_read_from_memory" );
+    p_png_image_finish_read = dlsym( png_handle, "png_image_finish_read" );
+    p_png_image_free = dlsym( png_handle, "png_image_free" );
+
+    if (!p_png_image_begin_read_from_memory || !p_png_image_finish_read || !p_png_image_free)
+        p_png_image_begin_read_from_memory = NULL;
+#endif
+}
+
+/*
+ * The icon the window manager shows for the box is the one belonging to the
+ * program that raised the error, read out of the copy of it already mapped
+ * into this process. When there is none, no icon is set and the window manager
+ * falls back on the class hint, which is TuxBlox's own.
+ */
+
+/* BITMAPINFOHEADER, as an icon stores it. */
+struct icon_header
+{
+    DWORD size;
+    LONG width, height;
+    WORD planes, bpp;
+    DWORD compression, image_size;
+    LONG x_ppm, y_ppm;
+    DWORD used, important;
+};
+
+#include "pshpack1.h"
+struct icon_group_entry
+{
+    BYTE width, height, colors, reserved;
+    WORD planes, bpp;
+    DWORD size;
+    WORD id;
+};
+#include "poppack.h"
+
+struct resources
+{
+    const BYTE *base;
+    const IMAGE_RESOURCE_DIRECTORY *root;
+    DWORD size;
+};
+
+static BOOL find_resources( struct resources *res )
+{
+    const IMAGE_DOS_HEADER *dos = (const IMAGE_DOS_HEADER *)NtCurrentTeb()->Peb->ImageBaseAddress;
+    const IMAGE_NT_HEADERS32 *nt;
+    const IMAGE_DATA_DIRECTORY *dir;
+
+    if (!dos || dos->e_magic != IMAGE_DOS_SIGNATURE) return FALSE;
+    nt = (const IMAGE_NT_HEADERS32 *)((const BYTE *)dos + dos->e_lfanew);
+    if (nt->Signature != IMAGE_NT_SIGNATURE) return FALSE;
+
+    if (nt->OptionalHeader.Magic == IMAGE_NT_OPTIONAL_HDR32_MAGIC)
+    {
+        if (nt->OptionalHeader.NumberOfRvaAndSizes <= IMAGE_DIRECTORY_ENTRY_RESOURCE) return FALSE;
+        dir = &nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_RESOURCE];
+    }
+    else
+    {
+        const IMAGE_NT_HEADERS64 *nt64 = (const IMAGE_NT_HEADERS64 *)nt;
+
+        if (nt64->OptionalHeader.Magic != IMAGE_NT_OPTIONAL_HDR64_MAGIC) return FALSE;
+        if (nt64->OptionalHeader.NumberOfRvaAndSizes <= IMAGE_DIRECTORY_ENTRY_RESOURCE) return FALSE;
+        dir = &nt64->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_RESOURCE];
+    }
+    if (!dir->VirtualAddress || dir->Size < sizeof(IMAGE_RESOURCE_DIRECTORY)) return FALSE;
+
+    res->base = (const BYTE *)dos;
+    res->root = (const IMAGE_RESOURCE_DIRECTORY *)(res->base + dir->VirtualAddress);
+    res->size = dir->Size;
+    return TRUE;
+}
+
+static BOOL resource_holds( const struct resources *res, const void *ptr, size_t len )
+{
+    const BYTE *start = (const BYTE *)res->root;
+
+    return (const BYTE *)ptr >= start && (const BYTE *)ptr + len <= start + res->size;
+}
+
+/* Walks the three levels a resource directory always has: type, then name,
+ * then language. A name below -1 takes whichever comes first. */
+static const void *find_resource( const struct resources *res, WORD type, int name, DWORD *size )
+{
+    const IMAGE_RESOURCE_DIRECTORY *dir = res->root;
+    const IMAGE_RESOURCE_DATA_ENTRY *data;
+    int level;
+
+    for (level = 0; level < 3; level++)
+    {
+        const IMAGE_RESOURCE_DIRECTORY_ENTRY *entry = (const IMAGE_RESOURCE_DIRECTORY_ENTRY *)(dir + 1);
+        const int count = dir->NumberOfNamedEntries + dir->NumberOfIdEntries;
+        const int wanted = level == 0 ? type : (level == 1 ? name : -1);
+        int i;
+
+        if (!resource_holds( res, dir, sizeof(*dir) )) return NULL;
+        if (!resource_holds( res, entry, count * sizeof(*entry) )) return NULL;
+
+        for (i = 0; i < count; i++)
+        {
+            if (wanted >= 0 && (entry[i].NameIsString || entry[i].Id != wanted)) continue;
+            if (level < 2)
+            {
+                if (!entry[i].DataIsDirectory) return NULL;
+                dir = (const IMAGE_RESOURCE_DIRECTORY *)((const BYTE *)res->root + entry[i].OffsetToDirectory);
+                break;
+            }
+            if (entry[i].DataIsDirectory) return NULL;
+            data = (const IMAGE_RESOURCE_DATA_ENTRY *)((const BYTE *)res->root + entry[i].OffsetToData);
+            if (!resource_holds( res, data, sizeof(*data) )) return NULL;
+            *size = data->Size;
+            return res->base + data->OffsetToData;
+        }
+        if (i == count) return NULL;
+    }
+    return NULL;
+}
+
+/* The one closest to the size a title bar wants, out of those not tried yet. */
+static int pick_icon( const struct icon_group_entry *entries, int count, unsigned int tried )
+{
+    int best = -1, best_size = 0, i;
+
+    for (i = 0; i < count && i < 32; i++)
+    {
+        const int size = entries[i].width ? entries[i].width : 256;
+
+        if (tried & (1u << i)) continue;
+        if (best < 0 || abs( size - MSGBOX_ICON_WANTED ) < abs( best_size - MSGBOX_ICON_WANTED ))
+        {
+            best = i;
+            best_size = size;
+        }
+    }
+    return best;
+}
+
+/* Both kinds of icon end up as rows of blue, green, red and alpha. */
+static unsigned char *decode_png_icon( const void *data, DWORD size, int *width, int *height )
+{
+#ifdef MSGBOX_HAVE_PNG
+    unsigned char *pixels;
+    png_image image;
+
+    if (!p_png_image_begin_read_from_memory) return NULL;
+
+    memset( &image, 0, sizeof(image) );
+    image.version = PNG_IMAGE_VERSION;
+    if (!p_png_image_begin_read_from_memory( &image, data, size )) return NULL;
+
+    image.format = PNG_FORMAT_BGRA;
+    if (image.width > MSGBOX_ICON_MAX || image.height > MSGBOX_ICON_MAX || !image.width ||
+        !image.height || !(pixels = malloc( PNG_IMAGE_SIZE( image ) )))
+    {
+        p_png_image_free( &image );
+        return NULL;
+    }
+    if (!p_png_image_finish_read( &image, NULL, pixels, 0, NULL ))
+    {
+        p_png_image_free( &image );
+        free( pixels );
+        return NULL;
+    }
+    *width = image.width;
+    *height = image.height;
+    return pixels;
+#else
+    return NULL;
+#endif
+}
+
+/* A plain box filter, which is all an icon on its way down to title bar size
+ * needs, and keeps the property the window manager is handed small. */
+static unsigned char *scale_icon( unsigned char *pixels, int *width, int *height )
+{
+    const int source_width = *width, source_height = *height;
+    unsigned char *scaled;
+    int x, y, channel;
+
+    if (source_width <= MSGBOX_ICON_WANTED && source_height <= MSGBOX_ICON_WANTED) return pixels;
+    if (!(scaled = malloc( (size_t)MSGBOX_ICON_WANTED * MSGBOX_ICON_WANTED * 4 ))) return pixels;
+
+    for (y = 0; y < MSGBOX_ICON_WANTED; y++)
+    {
+        const int top = y * source_height / MSGBOX_ICON_WANTED;
+        const int bottom = (y + 1) * source_height / MSGBOX_ICON_WANTED;
+
+        for (x = 0; x < MSGBOX_ICON_WANTED; x++)
+        {
+            const int left = x * source_width / MSGBOX_ICON_WANTED;
+            const int right = (x + 1) * source_width / MSGBOX_ICON_WANTED;
+
+            for (channel = 0; channel < 4; channel++)
+            {
+                int total = 0, count = 0, sx, sy;
+
+                for (sy = top; sy < bottom || sy == top; sy++)
+                {
+                    for (sx = left; sx < right || sx == left; sx++)
+                    {
+                        total += pixels[((size_t)sy * source_width + sx) * 4 + channel];
+                        count++;
+                    }
+                }
+                scaled[((size_t)y * MSGBOX_ICON_WANTED + x) * 4 + channel] = total / count;
+            }
+        }
+    }
+
+    free( pixels );
+    *width = *height = MSGBOX_ICON_WANTED;
+    return scaled;
+}
+
+static unsigned char *load_icon_pixels( const struct resources *res, WORD id, int *width,
+                                        int *height, BOOL *bottom_up )
+{
+    static const unsigned char png_signature[] = { 0x89, 'P', 'N', 'G' };
+    const struct icon_header *icon;
+    unsigned char *pixels;
+    DWORD size = 0;
+
+    if (!(icon = find_resource( res, 3, id, &size ))) return NULL;
+
+    if (size > sizeof(png_signature) && !memcmp( icon, png_signature, sizeof(png_signature) ))
+    {
+        *bottom_up = FALSE;
+        return decode_png_icon( icon, size, width, height );
+    }
+
+    if (size < sizeof(*icon) || icon->size < sizeof(*icon) || icon->bpp != 32) return NULL;
+    *width = icon->width;
+    *height = icon->height / 2;
+    if (*width <= 0 || *height <= 0 || *width > MSGBOX_ICON_MAX || *height > MSGBOX_ICON_MAX) return NULL;
+    if (size < icon->size + (DWORD)*width * *height * 4) return NULL;
+
+    if (!(pixels = malloc( (size_t)*width * *height * 4 ))) return NULL;
+    memcpy( pixels, (const unsigned char *)icon + icon->size, (size_t)*width * *height * 4 );
+    *bottom_up = TRUE;
+    return pixels;
+}
+
+/* The program's best icon, as the launcher wants it: width, height, then rows
+ * of red, green, blue and alpha from the top down. Handed over as an open file
+ * that has already been unlinked, so there is nothing left behind to tidy up
+ * if this process is killed while the box is still on screen.
+ * Returns -1 when the program carries no icon this can read. */
+static int open_program_icon(void)
+{
+    const struct icon_group_entry *entries;
+    char path[PATH_MAX];
+    unsigned char *pixels = NULL;
+    BOOL bottom_up = FALSE;
+    struct resources res;
+    unsigned int tried = 0;
+    const void *group;
+    DWORD group_size = 0;
+    int count, chosen, width = 0, height = 0, y;
+    unsigned char header[8];
+    int fd;
+
+    /* Needed before any of this can be read: a modern program keeps its icon as a PNG. */
+    load_png();
+
+    if (!find_resources( &res )) return -1;
+    if (!(group = find_resource( &res, 14, -1, &group_size )) || group_size < 6 + sizeof(*entries))
+        return -1;
+
+    count = ((const WORD *)group)[2];
+    entries = (const struct icon_group_entry *)((const BYTE *)group + 6);
+    if (group_size < 6 + count * sizeof(*entries)) return -1;
+
+    /* The best size first, then the next best if that one cannot be read. */
+    while (!pixels && (chosen = pick_icon( entries, count, tried )) >= 0)
+    {
+        tried |= 1u << chosen;
+        pixels = load_icon_pixels( &res, entries[chosen].id, &width, &height, &bottom_up );
+    }
+    if (!pixels) return -1;
+
+    if (snprintf( path, sizeof(path), "%s/tuxblox-icon-XXXXXX",
+                  getenv( "XDG_RUNTIME_DIR" ) ? getenv( "XDG_RUNTIME_DIR" ) : "/tmp" ) >= (int)sizeof(path) ||
+        (fd = mkstemp( path )) == -1)
+    {
+        free( pixels );
+        return -1;
+    }
+    unlink( path );
+
+    header[0] = width; header[1] = width >> 8; header[2] = width >> 16; header[3] = width >> 24;
+    header[4] = height; header[5] = height >> 8; header[6] = height >> 16; header[7] = height >> 24;
+    if (write( fd, header, sizeof(header) ) != sizeof(header)) height = 0;
+
+    /* Blue and red the other way round from how an icon stores them, and the
+     * rows the other way up when it came from a bitmap rather than a PNG. */
+    for (y = 0; y < height; y++)
+    {
+        unsigned char *row = pixels + (size_t)(bottom_up ? height - 1 - y : y) * width * 4;
+        int x;
+
+        for (x = 0; x < width; x++)
+        {
+            const unsigned char blue = row[x * 4];
+
+            row[x * 4] = row[x * 4 + 2];
+            row[x * 4 + 2] = blue;
+        }
+        if (write( fd, row, (size_t)width * 4 ) != (ssize_t)width * 4) break;
+    }
+
+    free( pixels );
+    if (y == height && height > 0 && lseek( fd, 0, SEEK_SET ) == 0) return fd;
+    close( fd );
+    return -1;
+}
+
 #ifdef SONAME_LIBX11
 
 /* The same metrics user32 lays a message box out with, so the two look alike. */
-#define MSGBOX_MARGIN            20
+/* The installer's window and the launcher's popups, measured off them, so a
+ * message from the compatibility layer looks like the rest of TuxBlox rather
+ * than like a second program. 24 + 72 + 20 + 380 + 24 is the 520 they use. */
+#define MSGBOX_MARGIN            24
 #define MSGBOX_ICON_SIZE         32
-#define MSGBOX_ICON_GAP          16
+#define MSGBOX_LOGO_SIZE         72
+#define MSGBOX_ICON_GAP          20
+#define MSGBOX_HEADING_GAP        6
 #define MSGBOX_CONTENT_GAP       16
-#define MSGBOX_BUTTON_GAP         6
-#define MSGBOX_BUTTON_HEIGHT     32
+#define MSGBOX_BUTTON_GAP         8
+#define MSGBOX_BUTTON_HEIGHT     34
 #define MSGBOX_BUTTON_MIN_WIDTH  80
 #define MSGBOX_BUTTON_PADDING    16
-#define MSGBOX_BUTTON_RADIUS      3
+#define MSGBOX_BUTTON_RADIUS      6
+#define MSGBOX_BUTTON_EDGE       18
+#define MSGBOX_BUTTON_BOTTOM     14
 #define MSGBOX_SUPERSAMPLE        4
-#define MSGBOX_ICON_WANTED       48
-#define MSGBOX_ICON_MAX         512
-#define MSGBOX_TEXT_MAX_WIDTH   420
+#define MSGBOX_TEXT_MAX_WIDTH   380
 #define MSGBOX_MAX_LINES         64
 
 /* Xft is declared here rather than included: ntdll builds against X11 alone,
@@ -166,6 +520,11 @@ struct msgbox
     int width, height;
     struct msgbox_colors colors;
     msgbox_xft_font *font;
+    msgbox_xft_font *body_font;
+    msgbox_xft_font *bold_font;
+    const char *heading;
+    int heading_len;
+    int icon_size;
     void *xft_draw;
     XFontStruct *core_font;
     struct msgbox_line lines[MSGBOX_MAX_LINES];
@@ -237,13 +596,6 @@ static int (*p_XftColorAllocValue)( Display *, Visual *, Colormap,
                                     const msgbox_render_color *, msgbox_xft_color * );
 static void (*p_XftColorFree)( Display *, Visual *, Colormap, msgbox_xft_color * );
 
-#ifdef MSGBOX_HAVE_PNG
-static void *png_handle;
-static int (*p_png_image_begin_read_from_memory)( png_imagep, const void *, size_t );
-static int (*p_png_image_finish_read)( png_imagep, png_const_colorp, void *, png_int_32, void * );
-static void (*p_png_image_free)( png_imagep );
-#endif
-
 /* Loaded here and not in the child: dlopen takes the loader's lock, and a
  * process that forked while another thread held it would never get it back. */
 static BOOL load_libraries(void)
@@ -312,19 +664,7 @@ static BOOL load_libraries(void)
             p_XftFontOpenName = NULL;
     }
 
-#ifdef MSGBOX_HAVE_PNG
-    /* Modern programs, Roblox among them, keep their icons as PNG rather than
-     * as the bitmap an icon used to be. */
-    if ((png_handle = dlopen( "libpng16.so.16", RTLD_NOW )))
-    {
-        p_png_image_begin_read_from_memory = dlsym( png_handle, "png_image_begin_read_from_memory" );
-        p_png_image_finish_read = dlsym( png_handle, "png_image_finish_read" );
-        p_png_image_free = dlsym( png_handle, "png_image_free" );
-
-        if (!p_png_image_begin_read_from_memory || !p_png_image_finish_read || !p_png_image_free)
-            p_png_image_begin_read_from_memory = NULL;
-    }
-#endif
+    load_png();
     return TRUE;
 }
 
@@ -610,6 +950,125 @@ static int wrap_text( struct msgbox *box, const char *text, int max_width )
 /* The four Windows draws, in the colours a current desktop uses for them: a
  * cross for an error, an exclamation for a warning, and a letter for the two
  * that are only telling you something. */
+/* The drawing helpers take their face from box->font, so the heading swaps the
+ * bold one in and puts the body one back. */
+static void use_font( struct msgbox *box, msgbox_xft_font *font )
+{
+    if (font) box->font = font;
+}
+
+static unsigned char *load_tuxblox_icon( int *width, int *height );
+
+/* The logo at the size the box draws it, scaled once and kept: a box repaints
+ * on every expose, and the source is a 256-pixel image. Averaging the source
+ * pixels that fall inside each destination one is what keeps it from looking
+ * ragged the way picking a single pixel would. */
+static const unsigned char *logo_pixels( int size )
+{
+    static unsigned char *cached;
+    static int cached_size;
+    unsigned char *source, *scaled;
+    int width = 0, height = 0, x, y;
+
+    if (cached_size == size) return cached;
+    if (cached) { free( cached ); cached = NULL; cached_size = 0; }
+    if (!(source = load_tuxblox_icon( &width, &height ))) return NULL;
+    if (!(scaled = malloc( (size_t)size * size * 4 )))
+    {
+        free( source );
+        return NULL;
+    }
+
+    for (y = 0; y < size; y++)
+    {
+        for (x = 0; x < size; x++)
+        {
+            const int x0 = x * width / size, x1 = (x + 1) * width / size;
+            const int y0 = y * height / size, y1 = (y + 1) * height / size;
+            int sx, sy, channel, count = 0, total[4] = { 0, 0, 0, 0 };
+
+            for (sy = y0; sy < (y1 > y0 ? y1 : y0 + 1); sy++)
+            {
+                for (sx = x0; sx < (x1 > x0 ? x1 : x0 + 1); sx++)
+                {
+                    const unsigned char *pixel = source + ((size_t)sy * width + sx) * 4;
+
+                    /* Weighted by alpha, so the transparent edge does not drag
+                     * whatever colour sits behind it into the visible part. */
+                    for (channel = 0; channel < 3; channel++) total[channel] += pixel[channel] * pixel[3];
+                    total[3] += pixel[3];
+                    count++;
+                }
+            }
+            for (channel = 0; channel < 3; channel++)
+                scaled[((size_t)y * size + x) * 4 + channel] = total[3] ? total[channel] / total[3] : 0;
+            scaled[((size_t)y * size + x) * 4 + 3] = count ? total[3] / count : 0;
+        }
+    }
+
+    free( source );
+    cached = scaled;
+    cached_size = size;
+    return cached;
+}
+
+/* TRUE once the logo is on the canvas, FALSE when there is none to draw and the
+ * caller should fall back on the message icon Windows would have shown. */
+static BOOL draw_logo( struct msgbox *box, int x, int y, int size )
+{
+    const unsigned char *pixels = logo_pixels( size );
+    const unsigned int back = box->colors.back;
+    XImage *image;
+    char *data;
+    int px, py;
+
+    if (!pixels) return FALSE;
+    if (!(data = malloc( (size_t)size * size * 4 ))) return FALSE;
+    if (!(image = p_XCreateImage( box->display, box->visual, box->depth, ZPixmap, 0, data,
+                                  size, size, 32, 0 )))
+    {
+        free( data );
+        return FALSE;
+    }
+
+    for (py = 0; py < size; py++)
+    {
+        for (px = 0; px < size; px++)
+        {
+            const unsigned char *pixel = pixels + ((size_t)py * size + px) * 4;
+            const int alpha = pixel[3];
+            unsigned int color = 0;
+            int channel;
+
+            /* The source is blue, green, red, alpha; the canvas wants 0xRRGGBB. */
+            for (channel = 0; channel < 3; channel++)
+            {
+                const int b = (back >> (channel * 8)) & 0xff;
+                const int value = (pixel[channel] * alpha + b * (255 - alpha)) / 255;
+
+                color |= (unsigned int)value << (channel * 8);
+            }
+            XPutPixel( image, px, py, x_pixel( box, color ) );
+        }
+    }
+
+    p_XPutImage( box->display, box->canvas, box->gc, image, 0, 0, x, y, size, size );
+    image->data = NULL;
+    XDestroyImage( image );
+    free( data );
+    return TRUE;
+}
+
+static void draw_message_icon( struct msgbox *box, int x, int y );
+
+/* The TuxBlox logo, or the mark Windows would have drawn when there is no logo
+ * on this machine to load. */
+static void draw_message_icon_at( struct msgbox *box, int x, int y )
+{
+    if (box->icon_size == MSGBOX_LOGO_SIZE && draw_logo( box, x, y, MSGBOX_LOGO_SIZE )) return;
+    draw_message_icon( box, x, y );
+}
+
 static void draw_message_icon( struct msgbox *box, int x, int y )
 {
     const int inset = MSGBOX_ICON_SIZE / 4;
@@ -740,12 +1199,33 @@ static void draw_button( struct msgbox *box, int index, int y )
 
 static void draw_box( struct msgbox *box )
 {
-    const int text_left = MSGBOX_MARGIN + MSGBOX_ICON_SIZE + MSGBOX_ICON_GAP;
-    const int buttons_top = box->height - MSGBOX_MARGIN - MSGBOX_BUTTON_HEIGHT;
-    int i, y = MSGBOX_MARGIN;
+    const int text_left = MSGBOX_MARGIN + box->icon_size + MSGBOX_ICON_GAP;
+    const int buttons_top = box->height - MSGBOX_BUTTON_BOTTOM - MSGBOX_BUTTON_HEIGHT;
+    int i, y, content_top, content_height = 0;
 
     fill_rect( box, box->colors.back, 0, 0, box->width, box->height );
-    draw_message_icon( box, MSGBOX_MARGIN, MSGBOX_MARGIN );
+
+    /* Heading and body together, centred against the logo beside them. */
+    use_font( box, box->bold_font );
+    if (box->heading) content_height += text_height( box ) + MSGBOX_HEADING_GAP;
+    use_font( box, box->body_font );
+    content_height += box->line_count * text_height( box );
+
+    content_top = MSGBOX_MARGIN;
+    if (content_height < box->icon_size) content_top += (box->icon_size - content_height) / 2;
+    if (box->icon_size < content_height)
+        draw_message_icon_at( box, MSGBOX_MARGIN, MSGBOX_MARGIN + (content_height - box->icon_size) / 2 );
+    else
+        draw_message_icon_at( box, MSGBOX_MARGIN, MSGBOX_MARGIN );
+
+    y = content_top;
+    if (box->heading)
+    {
+        use_font( box, box->bold_font );
+        draw_text( box, text_left, y, box->heading, box->heading_len, box->colors.text );
+        y += text_height( box ) + MSGBOX_HEADING_GAP;
+        use_font( box, box->body_font );
+    }
 
     for (i = 0; i < box->line_count; i++)
     {
@@ -763,7 +1243,7 @@ static void draw_box( struct msgbox *box )
 
 static int button_at( struct msgbox *box, int x, int y )
 {
-    const int top = box->height - MSGBOX_MARGIN - MSGBOX_BUTTON_HEIGHT;
+    const int top = box->height - MSGBOX_BUTTON_BOTTOM - MSGBOX_BUTTON_HEIGHT;
     int i;
 
     if (y < top || y > top + MSGBOX_BUTTON_HEIGHT) return -1;
@@ -790,7 +1270,7 @@ static int measure_buttons( struct msgbox *box )
 
 static void place_buttons( struct msgbox *box )
 {
-    int i, x = box->width - MSGBOX_MARGIN;
+    int i, x = box->width - MSGBOX_BUTTON_EDGE;
 
     for (i = box->button_count - 1; i >= 0; i--)
     {
@@ -798,241 +1278,6 @@ static void place_buttons( struct msgbox *box )
         box->buttons[i].x = x;
         x -= MSGBOX_BUTTON_GAP;
     }
-}
-
-/*
- * The icon the window manager shows for the box is the one belonging to the
- * program that raised the error, read out of the copy of it already mapped
- * into this process. When there is none, no icon is set and the window manager
- * falls back on the class hint, which is TuxBlox's own.
- */
-
-/* BITMAPINFOHEADER, as an icon stores it. */
-struct icon_header
-{
-    DWORD size;
-    LONG width, height;
-    WORD planes, bpp;
-    DWORD compression, image_size;
-    LONG x_ppm, y_ppm;
-    DWORD used, important;
-};
-
-#include "pshpack1.h"
-struct icon_group_entry
-{
-    BYTE width, height, colors, reserved;
-    WORD planes, bpp;
-    DWORD size;
-    WORD id;
-};
-#include "poppack.h"
-
-struct resources
-{
-    const BYTE *base;
-    const IMAGE_RESOURCE_DIRECTORY *root;
-    DWORD size;
-};
-
-static BOOL find_resources( struct resources *res )
-{
-    const IMAGE_DOS_HEADER *dos = (const IMAGE_DOS_HEADER *)NtCurrentTeb()->Peb->ImageBaseAddress;
-    const IMAGE_NT_HEADERS32 *nt;
-    const IMAGE_DATA_DIRECTORY *dir;
-
-    if (!dos || dos->e_magic != IMAGE_DOS_SIGNATURE) return FALSE;
-    nt = (const IMAGE_NT_HEADERS32 *)((const BYTE *)dos + dos->e_lfanew);
-    if (nt->Signature != IMAGE_NT_SIGNATURE) return FALSE;
-
-    if (nt->OptionalHeader.Magic == IMAGE_NT_OPTIONAL_HDR32_MAGIC)
-    {
-        if (nt->OptionalHeader.NumberOfRvaAndSizes <= IMAGE_DIRECTORY_ENTRY_RESOURCE) return FALSE;
-        dir = &nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_RESOURCE];
-    }
-    else
-    {
-        const IMAGE_NT_HEADERS64 *nt64 = (const IMAGE_NT_HEADERS64 *)nt;
-
-        if (nt64->OptionalHeader.Magic != IMAGE_NT_OPTIONAL_HDR64_MAGIC) return FALSE;
-        if (nt64->OptionalHeader.NumberOfRvaAndSizes <= IMAGE_DIRECTORY_ENTRY_RESOURCE) return FALSE;
-        dir = &nt64->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_RESOURCE];
-    }
-    if (!dir->VirtualAddress || dir->Size < sizeof(IMAGE_RESOURCE_DIRECTORY)) return FALSE;
-
-    res->base = (const BYTE *)dos;
-    res->root = (const IMAGE_RESOURCE_DIRECTORY *)(res->base + dir->VirtualAddress);
-    res->size = dir->Size;
-    return TRUE;
-}
-
-static BOOL resource_holds( const struct resources *res, const void *ptr, size_t len )
-{
-    const BYTE *start = (const BYTE *)res->root;
-
-    return (const BYTE *)ptr >= start && (const BYTE *)ptr + len <= start + res->size;
-}
-
-/* Walks the three levels a resource directory always has: type, then name,
- * then language. A name below -1 takes whichever comes first. */
-static const void *find_resource( const struct resources *res, WORD type, int name, DWORD *size )
-{
-    const IMAGE_RESOURCE_DIRECTORY *dir = res->root;
-    const IMAGE_RESOURCE_DATA_ENTRY *data;
-    int level;
-
-    for (level = 0; level < 3; level++)
-    {
-        const IMAGE_RESOURCE_DIRECTORY_ENTRY *entry = (const IMAGE_RESOURCE_DIRECTORY_ENTRY *)(dir + 1);
-        const int count = dir->NumberOfNamedEntries + dir->NumberOfIdEntries;
-        const int wanted = level == 0 ? type : (level == 1 ? name : -1);
-        int i;
-
-        if (!resource_holds( res, dir, sizeof(*dir) )) return NULL;
-        if (!resource_holds( res, entry, count * sizeof(*entry) )) return NULL;
-
-        for (i = 0; i < count; i++)
-        {
-            if (wanted >= 0 && (entry[i].NameIsString || entry[i].Id != wanted)) continue;
-            if (level < 2)
-            {
-                if (!entry[i].DataIsDirectory) return NULL;
-                dir = (const IMAGE_RESOURCE_DIRECTORY *)((const BYTE *)res->root + entry[i].OffsetToDirectory);
-                break;
-            }
-            if (entry[i].DataIsDirectory) return NULL;
-            data = (const IMAGE_RESOURCE_DATA_ENTRY *)((const BYTE *)res->root + entry[i].OffsetToData);
-            if (!resource_holds( res, data, sizeof(*data) )) return NULL;
-            *size = data->Size;
-            return res->base + data->OffsetToData;
-        }
-        if (i == count) return NULL;
-    }
-    return NULL;
-}
-
-/* The one closest to the size a title bar wants, out of those not tried yet. */
-static int pick_icon( const struct icon_group_entry *entries, int count, unsigned int tried )
-{
-    int best = -1, best_size = 0, i;
-
-    for (i = 0; i < count && i < 32; i++)
-    {
-        const int size = entries[i].width ? entries[i].width : 256;
-
-        if (tried & (1u << i)) continue;
-        if (best < 0 || abs( size - MSGBOX_ICON_WANTED ) < abs( best_size - MSGBOX_ICON_WANTED ))
-        {
-            best = i;
-            best_size = size;
-        }
-    }
-    return best;
-}
-
-/* Both kinds of icon end up as rows of blue, green, red and alpha. */
-static unsigned char *decode_png_icon( const void *data, DWORD size, int *width, int *height )
-{
-#ifdef MSGBOX_HAVE_PNG
-    unsigned char *pixels;
-    png_image image;
-
-    if (!p_png_image_begin_read_from_memory) return NULL;
-
-    memset( &image, 0, sizeof(image) );
-    image.version = PNG_IMAGE_VERSION;
-    if (!p_png_image_begin_read_from_memory( &image, data, size )) return NULL;
-
-    image.format = PNG_FORMAT_BGRA;
-    if (image.width > MSGBOX_ICON_MAX || image.height > MSGBOX_ICON_MAX || !image.width ||
-        !image.height || !(pixels = malloc( PNG_IMAGE_SIZE( image ) )))
-    {
-        p_png_image_free( &image );
-        return NULL;
-    }
-    if (!p_png_image_finish_read( &image, NULL, pixels, 0, NULL ))
-    {
-        p_png_image_free( &image );
-        free( pixels );
-        return NULL;
-    }
-    *width = image.width;
-    *height = image.height;
-    return pixels;
-#else
-    return NULL;
-#endif
-}
-
-/* A plain box filter, which is all an icon on its way down to title bar size
- * needs, and keeps the property the window manager is handed small. */
-static unsigned char *scale_icon( unsigned char *pixels, int *width, int *height )
-{
-    const int source_width = *width, source_height = *height;
-    unsigned char *scaled;
-    int x, y, channel;
-
-    if (source_width <= MSGBOX_ICON_WANTED && source_height <= MSGBOX_ICON_WANTED) return pixels;
-    if (!(scaled = malloc( (size_t)MSGBOX_ICON_WANTED * MSGBOX_ICON_WANTED * 4 ))) return pixels;
-
-    for (y = 0; y < MSGBOX_ICON_WANTED; y++)
-    {
-        const int top = y * source_height / MSGBOX_ICON_WANTED;
-        const int bottom = (y + 1) * source_height / MSGBOX_ICON_WANTED;
-
-        for (x = 0; x < MSGBOX_ICON_WANTED; x++)
-        {
-            const int left = x * source_width / MSGBOX_ICON_WANTED;
-            const int right = (x + 1) * source_width / MSGBOX_ICON_WANTED;
-
-            for (channel = 0; channel < 4; channel++)
-            {
-                int total = 0, count = 0, sx, sy;
-
-                for (sy = top; sy < bottom || sy == top; sy++)
-                {
-                    for (sx = left; sx < right || sx == left; sx++)
-                    {
-                        total += pixels[((size_t)sy * source_width + sx) * 4 + channel];
-                        count++;
-                    }
-                }
-                scaled[((size_t)y * MSGBOX_ICON_WANTED + x) * 4 + channel] = total / count;
-            }
-        }
-    }
-
-    free( pixels );
-    *width = *height = MSGBOX_ICON_WANTED;
-    return scaled;
-}
-
-static unsigned char *load_icon_pixels( const struct resources *res, WORD id, int *width,
-                                        int *height, BOOL *bottom_up )
-{
-    static const unsigned char png_signature[] = { 0x89, 'P', 'N', 'G' };
-    const struct icon_header *icon;
-    unsigned char *pixels;
-    DWORD size = 0;
-
-    if (!(icon = find_resource( res, 3, id, &size ))) return NULL;
-
-    if (size > sizeof(png_signature) && !memcmp( icon, png_signature, sizeof(png_signature) ))
-    {
-        *bottom_up = FALSE;
-        return decode_png_icon( icon, size, width, height );
-    }
-
-    if (size < sizeof(*icon) || icon->size < sizeof(*icon) || icon->bpp != 32) return NULL;
-    *width = icon->width;
-    *height = icon->height / 2;
-    if (*width <= 0 || *height <= 0 || *width > MSGBOX_ICON_MAX || *height > MSGBOX_ICON_MAX) return NULL;
-    if (size < icon->size + (DWORD)*width * *height * 4) return NULL;
-
-    if (!(pixels = malloc( (size_t)*width * *height * 4 ))) return NULL;
-    memcpy( pixels, (const unsigned char *)icon + icon->size, (size_t)*width * *height * 4 );
-    *bottom_up = TRUE;
-    return pixels;
 }
 
 /* The icon TuxBlox installs for itself, which the desktop already has a copy
@@ -1187,13 +1432,43 @@ static int run_dialog( const char *title, const char *body, unsigned int flags, 
     read_colors( &box.colors );
 
     read_font_name( font_name, sizeof(font_name) );
-    if (p_XftFontOpenName) box.font = p_XftFontOpenName( box.display, box.screen, font_name );
+    if (p_XftFontOpenName)
+    {
+        char bold_name[sizeof(font_name) + 8];
+
+        box.font = p_XftFontOpenName( box.display, box.screen, font_name );
+        snprintf( bold_name, sizeof(bold_name), "%s:bold", font_name );
+        box.bold_font = p_XftFontOpenName( box.display, box.screen, bold_name );
+    }
     if (!box.font) box.core_font = p_XLoadQueryFont( box.display, "fixed" );
+    box.body_font = box.font;
+    if (!box.bold_font) box.bold_font = box.font;
+
+    /* The caption leads the message, the way the launcher's own popups read it.
+     * It is also the window title, which a box with no title bar never shows. */
+    if (title && *title)
+    {
+        box.heading = title;
+        box.heading_len = strlen( title );
+    }
+
+    /* Scaled here rather than at the first repaint, since the size it comes out
+     * at decides how wide the box has to be. */
+    box.icon_size = logo_pixels( MSGBOX_LOGO_SIZE ) ? MSGBOX_LOGO_SIZE : MSGBOX_ICON_SIZE;
 
     box.line_count = wrap_text( &box, body, MSGBOX_TEXT_MAX_WIDTH );
     for (i = 0; i < box.line_count; i++)
     {
         int width = text_width( &box, box.lines[i].text, box.lines[i].len );
+        if (width > text_width_used) text_width_used = width;
+    }
+    if (box.heading)
+    {
+        int width;
+
+        use_font( &box, box.bold_font );
+        width = text_width( &box, box.heading, box.heading_len );
+        use_font( &box, box.body_font );
         if (width > text_width_used) text_width_used = width;
     }
 
@@ -1208,12 +1483,19 @@ static int run_dialog( const char *title, const char *body, unsigned int flags, 
     box.hot = -1;
 
     content_height = box.line_count * text_height( &box );
-    if (content_height < MSGBOX_ICON_SIZE) content_height = MSGBOX_ICON_SIZE;
+    if (box.heading)
+    {
+        use_font( &box, box.bold_font );
+        content_height += text_height( &box ) + MSGBOX_HEADING_GAP;
+        use_font( &box, box.body_font );
+    }
+    if (content_height < box.icon_size) content_height = box.icon_size;
 
-    buttons_width = MSGBOX_MARGIN * 2 + measure_buttons( &box );
-    box.width = MSGBOX_MARGIN * 2 + MSGBOX_ICON_SIZE + MSGBOX_ICON_GAP + text_width_used;
+    buttons_width = MSGBOX_BUTTON_EDGE * 2 + measure_buttons( &box );
+    box.width = MSGBOX_MARGIN * 2 + box.icon_size + MSGBOX_ICON_GAP + text_width_used;
     if (box.width < buttons_width) box.width = buttons_width;
-    box.height = MSGBOX_MARGIN * 2 + content_height + MSGBOX_CONTENT_GAP + MSGBOX_BUTTON_HEIGHT;
+    box.height = MSGBOX_MARGIN + content_height + MSGBOX_CONTENT_GAP + MSGBOX_BUTTON_HEIGHT +
+                 MSGBOX_BUTTON_BOTTOM;
     place_buttons( &box );
 
     x = (p_XDisplayWidth( box.display, box.screen ) - box.width) / 2;
@@ -1319,33 +1601,216 @@ closed:
 #endif /* SONAME_LIBX11 */
 
 
-BOOL tuxblox_show_message_box( const char *title, const char *body, ULONG flags, BOOL want_answer,
-                               BOOL *ran )
+/* What became of the program drawing the box. A timeout is told apart from the
+ * rest because by then it has been on screen for two minutes: the message was
+ * delivered even though nobody answered it, so it must not be shown again. */
+enum dialog_wait { DIALOG_ANSWERED, DIALOG_TIMED_OUT, DIALOG_LOST };
+
+/* Waits for the box, but not for ever: this runs on the thread reporting the
+ * error and there may be nobody in front of the machine to answer it. */
+static enum dialog_wait wait_for_dialog( pid_t pid, int *status )
 {
+    ULONGLONG deadline = monotonic_counter() + 120000 * (ULONGLONG)10000;
+
+    for (;;)
+    {
+        pid_t reaped = waitpid( pid, status, WNOHANG );
+
+        if (reaped == pid) return DIALOG_ANSWERED;
+        if (reaped == -1 && errno != EINTR) return DIALOG_LOST;
+        if (monotonic_counter() >= deadline)
+        {
+            kill( pid, SIGTERM );
+            waitpid( pid, status, 0 );
+            return DIALOG_TIMED_OUT;
+        }
+        usleep( 50000 );
+    }
+}
+
+/* The answer comes back down a pipe rather than as an exit code, because the
+ * exit code can be lost -- a crashing program's own handler may reap the child
+ * first -- and a lost answer would put the fallback box on screen underneath a
+ * dialog that is already there. A byte can only come from a box that ran. */
+static enum dialog_wait read_dialog_answer( int fd, pid_t pid, int *pressed )
+{
+    ULONGLONG deadline = monotonic_counter() + 120000 * (ULONGLONG)10000;
+
+    for (;;)
+    {
+        struct pollfd waiting;
+        int ready;
+
+        waiting.fd = fd;
+        waiting.events = POLLIN;
+        waiting.revents = 0;
+        ready = poll( &waiting, 1, 500 );
+        if (ready == 1)
+        {
+            char answer;
+
+            if (read( fd, &answer, 1 ) != 1) return DIALOG_LOST;
+            *pressed = answer == '1';
+            return DIALOG_ANSWERED;
+        }
+        if (ready == -1 && errno != EINTR) return DIALOG_LOST;
+        if (monotonic_counter() >= deadline)
+        {
+            kill( pid, SIGTERM );
+            return DIALOG_TIMED_OUT;
+        }
+    }
+}
+
+static BOOL launcher_at( char *path, size_t size, const char *dir )
+{
+    if (!dir || !*dir) return FALSE;
+    if (snprintf( path, size, "%s/TuxBloxLauncher", dir ) >= (int)size) return FALSE;
+    return access( path, X_OK ) == 0;
+}
+
+/* The install this library was loaded out of, which holds the launcher beside
+ * the interface stack it draws with. Walked up to rather than counted back
+ * from, so moving the libraries inside the install does not break it. */
+static BOOL find_launcher( char *path, size_t size )
+{
+    const char *root = getenv( "TUXBLOX_ROOT" );
+    const char *home = getenv( "HOME" );
+    char dir[PATH_MAX];
+    Dl_info info;
+    int i;
+
+    if (root && *root == '/' && launcher_at( path, size, root )) return TRUE;
+
+    if (dladdr( tuxblox_show_message_box, &info ) && info.dli_fname &&
+        realpath( info.dli_fname, dir ))
+    {
+        for (i = 0; i < 8; i++)
+        {
+            char *cut = strrchr( dir, '/' );
+
+            if (!cut || cut == dir) break;
+            *cut = 0;
+            if (launcher_at( path, size, dir )) return TRUE;
+        }
+    }
+
+    if (home && *home)
+    {
+        char fallback[PATH_MAX];
+
+        if (snprintf( fallback, sizeof(fallback), "%s/.tuxblox", home ) < (int)sizeof(fallback) &&
+            launcher_at( path, size, fallback )) return TRUE;
+    }
+    return FALSE;
+}
+
+/* The launcher draws every other window TuxBlox puts on screen, with the
+ * interface libraries that ship beside it -- which this side cannot link
+ * against -- so it is asked to draw this one too and to report the answer. */
+static int run_launcher_dialog( const char *title, const char *body, unsigned int flags, BOOL want_answer )
+{
+    const char *args[11];
+    char path[PATH_MAX];
+    int fds[2], icon_fd, status = 0, count = 0, pressed = 0, answer;
+    enum dialog_wait waited;
+    pid_t pid;
+
+    if (!find_launcher( path, sizeof(path) )) return MSGBOX_CANNOT_DRAW;
+    if (pipe( fds ) == -1) return MSGBOX_CANNOT_DRAW;
+
+    /* The window carries the icon of the program that raised the error, the
+     * way the box Windows draws does. */
+    icon_fd = open_program_icon();
+
+    args[count++] = path;
+    args[count++] = "--message-box";
+    args[count++] = "--answer-fd";
+    args[count++] = MSGBOX_ANSWER_FD_ARG;
+    if (icon_fd != -1)
+    {
+        args[count++] = "--icon-fd";
+        args[count++] = MSGBOX_ICON_FD_ARG;
+    }
+    if ((flags & MSGBOX_BUTTONS) == MSGBOX_OKCANCEL || (!(flags & MSGBOX_BUTTONS) && want_answer))
+    {
+        args[count++] = "--cancel";
+        if (flags & MSGBOX_DEFBUTTON2) args[count++] = "--default-cancel";
+    }
+    args[count++] = title ? title : "";
+    args[count++] = body ? body : "";
+    args[count] = NULL;
+
+    if ((pid = fork()) == -1)
+    {
+        close( fds[0] );
+        close( fds[1] );
+        if (icon_fd != -1) close( icon_fd );
+        return MSGBOX_CANNOT_DRAW;
+    }
+    if (!pid)
+    {
+        /* The launcher is a host program, and a loader path pointing at the
+         * layer's own libraries would have it load those over the ones it was
+         * built against. Wine puts the original back the same way for the
+         * programs it starts on the desktop's behalf. */
+        const char *original = getenv( "ORIG_LD_LIBRARY_PATH" );
+
+        close( fds[0] );
+        if (fds[1] != MSGBOX_ANSWER_FD)
+        {
+            if (dup2( fds[1], MSGBOX_ANSWER_FD ) == -1) _exit( MSGBOX_CANNOT_DRAW );
+            close( fds[1] );
+        }
+        if (icon_fd != -1 && icon_fd != MSGBOX_ICON_FD)
+        {
+            if (dup2( icon_fd, MSGBOX_ICON_FD ) == -1) _exit( MSGBOX_CANNOT_DRAW );
+            close( icon_fd );
+        }
+        if (original) setenv( "LD_LIBRARY_PATH", original, 1 );
+        else unsetenv( "LD_LIBRARY_PATH" );
+        unsetenv( "LD_PRELOAD" );
+        execv( path, (char **)args );
+        _exit( MSGBOX_CANNOT_DRAW );
+    }
+
+    close( fds[1] );
+    if (icon_fd != -1) close( icon_fd );
+    waited = read_dialog_answer( fds[0], pid, &pressed );
+    close( fds[0] );
+
+    if (waited == DIALOG_ANSWERED) answer = pressed ? MSGBOX_PRESSED_OK : MSGBOX_DISMISSED;
+    else answer = waited == DIALOG_TIMED_OUT ? MSGBOX_DISMISSED : MSGBOX_CANNOT_DRAW;
+
+    /* Reaped however it went, so nothing is left behind. Its exit code is read
+     * only when it never answered, which is where it says whether it had a
+     * screen to draw on at all. */
+    if (wait_for_dialog( pid, &status ) == DIALOG_ANSWERED && waited == DIALOG_LOST &&
+        WIFEXITED(status) && WEXITSTATUS(status) <= MSGBOX_CANNOT_DRAW)
+        answer = WEXITSTATUS(status);
+
+    return answer;
+}
+
 #ifdef SONAME_LIBX11
-    static int reentered;
+
+/* Drawn here instead, for an install the launcher is missing from. */
+static int run_x11_dialog( const char *title, const char *body, unsigned int flags, BOOL want_answer )
+{
     int fds[2], status = 0;
+    BOOL exited;
     char shown = 0;
     pid_t pid, parent;
+    int code;
 
-    *ran = FALSE;
-    /* A second hard error while one is on screen: the user is already being
-     * asked about the first, and answers for both would pile up. */
-    if (reentered)
-    {
-        *ran = TRUE;
-        return FALSE;
-    }
-    if (!load_libraries()) return FALSE;
+    if (!load_libraries()) return MSGBOX_CANNOT_DRAW;
     if (pipe( fds ) == -1) fds[0] = fds[1] = -1;
 
-    reentered = 1;
     parent = getpid();
     if ((pid = fork()) == -1)
     {
         if (fds[0] != -1) { close( fds[0] ); close( fds[1] ); }
-        reentered = 0;
-        return FALSE;
+        return MSGBOX_CANNOT_DRAW;
     }
     if (!pid)
     {
@@ -1360,30 +1825,7 @@ BOOL tuxblox_show_message_box( const char *title, const char *body, ULONG flags,
     }
     if (fds[1] != -1) close( fds[1] );
 
-    /* It waits for the user, as a message box should, but this runs on the
-     * thread that is reporting a crash and must not wait for ever on a machine
-     * with nobody in front of it. */
-    {
-        ULONGLONG deadline = monotonic_counter() + 120000 * (ULONGLONG)10000;
-
-        for (;;)
-        {
-            pid_t reaped = waitpid( pid, &status, WNOHANG );
-
-            if (reaped == pid) break;
-            if (reaped == -1 && errno != EINTR) { status = -1; break; }
-            if (monotonic_counter() >= deadline)
-            {
-                kill( pid, SIGTERM );
-                waitpid( pid, &status, 0 );
-                status = -1;
-                break;
-            }
-            usleep( 50000 );
-        }
-    }
-    reentered = 0;
-
+    if (wait_for_dialog( pid, &status ) != DIALOG_ANSWERED) status = -1;
     if (fds[0] != -1)
     {
         ssize_t got = read( fds[0], &shown, 1 );
@@ -1392,12 +1834,40 @@ BOOL tuxblox_show_message_box( const char *title, const char *body, ULONG flags,
         close( fds[0] );
     }
 
-    if (!shown && (status == -1 || !WIFEXITED(status) || WEXITSTATUS(status) == MSGBOX_CANNOT_DRAW))
-        return FALSE;
-    *ran = TRUE;
-    return status != -1 && WIFEXITED(status) && WEXITSTATUS(status) == MSGBOX_PRESSED_OK;
-#else
+    /* The byte is written once the box is up, so a child that was killed
+     * afterwards still counts as having asked the question. */
+    exited = status != -1 && WIFEXITED(status);
+    code = exited ? WEXITSTATUS(status) : MSGBOX_CANNOT_DRAW;
+    if (!shown && code == MSGBOX_CANNOT_DRAW) return MSGBOX_CANNOT_DRAW;
+    return code == MSGBOX_PRESSED_OK ? MSGBOX_PRESSED_OK : MSGBOX_DISMISSED;
+}
+
+#endif /* SONAME_LIBX11 */
+
+
+BOOL tuxblox_show_message_box( const char *title, const char *body, ULONG flags, BOOL want_answer,
+                               BOOL *ran )
+{
+    static int reentered;
+    int answer;
+
     *ran = FALSE;
-    return FALSE;
+    /* A second hard error while one is on screen: the user is already being
+     * asked about the first, and answers for both would pile up. */
+    if (reentered)
+    {
+        *ran = TRUE;
+        return FALSE;
+    }
+
+    reentered = 1;
+    answer = run_launcher_dialog( title, body, flags, want_answer );
+#ifdef SONAME_LIBX11
+    if (answer == MSGBOX_CANNOT_DRAW) answer = run_x11_dialog( title, body, flags, want_answer );
 #endif
+    reentered = 0;
+
+    if (answer == MSGBOX_CANNOT_DRAW) return FALSE;
+    *ran = TRUE;
+    return answer == MSGBOX_PRESSED_OK;
 }
