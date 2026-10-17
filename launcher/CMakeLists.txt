@@ -150,6 +150,11 @@ add_library(launcher_core STATIC
     src/prefix_file_bridge.cpp
     src/wine_shortcut_export.cpp
     src/open_url.cpp
+    src/bootstrap/cli.cpp
+    src/bootstrap/config.cpp
+    src/bootstrap/progress.cpp
+    src/bootstrap/install_plan.cpp
+    src/bootstrap/app.cpp
     ${TUXBLOX_UI_SRC}/adw_env.cpp
 )
 if(TUXBLOX_LIBADWAITA_COMMIT)

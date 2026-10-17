@@ -223,3 +223,27 @@ add_test(NAME roblox_universe COMMAND test_roblox_universe)
 add_executable(test_presence_loop test_presence_loop.cpp)
 target_link_libraries(test_presence_loop PRIVATE launcher_core)
 add_test(NAME presence_loop COMMAND test_presence_loop)
+
+add_executable(test_bootstrap_app test_bootstrap_app.cpp)
+target_link_libraries(test_bootstrap_app PRIVATE launcher_core)
+add_test(NAME bootstrap_app COMMAND test_bootstrap_app)
+
+add_executable(test_bootstrap_cli test_bootstrap_cli.cpp)
+target_link_libraries(test_bootstrap_cli PRIVATE launcher_core)
+add_test(NAME bootstrap_cli COMMAND test_bootstrap_cli)
+
+add_executable(test_bootstrap_config test_bootstrap_config.cpp)
+target_link_libraries(test_bootstrap_config PRIVATE launcher_core)
+add_test(NAME bootstrap_config COMMAND test_bootstrap_config)
+
+add_executable(test_bootstrap_progress test_bootstrap_progress.cpp)
+target_link_libraries(test_bootstrap_progress PRIVATE launcher_core)
+add_test(NAME bootstrap_progress COMMAND test_bootstrap_progress)
+
+add_executable(test_bootstrap_install_plan test_bootstrap_install_plan.cpp)
+target_link_libraries(test_bootstrap_install_plan PRIVATE launcher_core)
+add_test(NAME bootstrap_install_plan COMMAND test_bootstrap_install_plan)
+
+add_executable(test_adw_env test_adw_env.cpp ${TUXBLOX_UI_SRC}/adw_env.cpp)
+target_include_directories(test_adw_env PRIVATE ${TUXBLOX_UI_SRC})
+add_test(NAME adw_env COMMAND test_adw_env)
