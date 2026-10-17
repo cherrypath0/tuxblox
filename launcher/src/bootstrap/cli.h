@@ -38,6 +38,10 @@ struct CliOptions {
 // ignored, so a typo cannot quietly change what the bootstrapper does.
 CliOptions parseArgs(int argc, const char* const* argv);
 
+// True for the three flags that belong to this half of the launcher, so main() can
+// hand them over before it does anything else.
+bool isCommandFlag(const std::string& arg);
+
 // Human-readable usage block, printed for --help and for any usage error.
 const char* usageText();
 

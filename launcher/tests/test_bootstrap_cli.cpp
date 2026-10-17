@@ -42,10 +42,16 @@ int main() {
     }
 
     // The three real modes.
-    assert(parse({"--preview"}).mode == Mode::Preview);
-    assert(parse({"--install"}).mode == Mode::Install);
-    assert(parse({"--update"}).mode == Mode::Update);
-    assert(parse({"--preview"}).error.empty());
+    assert(parse({"--preview-rbxinstaller"}).mode == Mode::Preview);
+    assert(parse({"--install-roblox"}).mode == Mode::Install);
+    assert(parse({"--update-roblox"}).mode == Mode::Update);
+    assert(parse({"--preview-rbxinstaller"}).error.empty());
+
+    // The old names are not aliases: a caller still passing one is told so
+    // rather than quietly getting the mode it used to mean.
+    assert(!parse({"--preview"}).error.empty());
+    assert(!parse({"--install"}).error.empty());
+    assert(!parse({"--update"}).error.empty());
 
     // Help and version short-circuit, and neither is a mode.
     {
@@ -59,14 +65,14 @@ int main() {
 
     // Two modes at once is a usage error, not a silent last-one-wins.
     {
-        CliOptions o = parse({"--install", "--update"});
+        CliOptions o = parse({"--install-roblox", "--update-roblox"});
         assert(!o.error.empty());
     }
 
     // Unknown flags and stray positionals are reported, never ignored.
-    assert(!parse({"--instal"}).error.empty());
+    assert(!parse({"--instal-roblox"}).error.empty());
     assert(!parse({"version-abc123"}).error.empty());
-    assert(!parse({"--preview", "--nonsense"}).error.empty());
+    assert(!parse({"--preview-rbxinstaller", "--nonsense"}).error.empty());
 
     assert(usageText() != nullptr);
 

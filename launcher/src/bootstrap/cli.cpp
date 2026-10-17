@@ -30,17 +30,25 @@ bool setMode(CliOptions& options, Mode mode) {
     return true;
 }
 
+const char* const kPreviewFlag = "--preview-rbxinstaller";
+const char* const kInstallFlag = "--install-roblox";
+const char* const kUpdateFlag = "--update-roblox";
+
 } // namespace
+
+bool isCommandFlag(const std::string& arg) {
+    return arg == kPreviewFlag || arg == kInstallFlag || arg == kUpdateFlag;
+}
 
 CliOptions parseArgs(int argc, const char* const* argv) {
     CliOptions options;
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
-        if (arg == "--preview") {
+        if (arg == kPreviewFlag) {
             if (!setMode(options, Mode::Preview)) return options;
-        } else if (arg == "--install") {
+        } else if (arg == kInstallFlag) {
             if (!setMode(options, Mode::Install)) return options;
-        } else if (arg == "--update") {
+        } else if (arg == kUpdateFlag) {
             if (!setMode(options, Mode::Update)) return options;
         } else if (arg == "--help" || arg == "-h") {
             options.help = true;
@@ -54,20 +62,21 @@ CliOptions parseArgs(int argc, const char* const* argv) {
 
     if (options.help || options.version) return options;
     if (options.mode == Mode::None) {
-        options.error = "Nothing to do: pass --preview, --install or --update.";
+        options.error =
+            "Nothing to do: pass --update-roblox, --install-roblox or --preview-rbxinstaller.";
     }
     return options;
 }
 
 const char* usageText() {
-    return "Usage: TuxBloxBootstrapper [--preview | --install | --update]\n"
+    return "Usage: TuxBloxLauncher [--update-roblox | --install-roblox | --preview-rbxinstaller]\n"
            "\n"
-           "  --preview   Show the window without downloading or writing anything.\n"
-           "  --install   Install the Roblox version the environment describes.\n"
-           "  --update    Install the channel's newest version if it is missing.\n"
-           "              Shows no window unless there is something to download.\n"
-           "  --help      Show this message.\n"
-           "  --version   Print the TuxBlox version and exit.\n"
+           "  --update-roblox         Install the channel's newest version if it is missing.\n"
+           "                          Shows no window unless there is something to download.\n"
+           "  --install-roblox        Install the Roblox version the environment describes.\n"
+           "  --preview-rbxinstaller  Show the window without downloading or writing anything.\n"
+           "  --help                  Show this message.\n"
+           "  --version               Print the TuxBlox version and exit.\n"
            "\n"
            "Environment:\n"
            "  TUXBLOX_BOOTSTRAPPER_DOWNLOAD_SERVER      Mirror to download from.\n"

@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "app.h"
+#include "bootstrap/command.h"
 #include "adw_env.h"
 #include "ui_adw/launcher_window.h"
 #include "ui_adw/message_box.h"
@@ -36,6 +37,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <system_error>
 #include <unistd.h>
@@ -100,6 +102,9 @@ int main(int argc, char** argv) {
     // Ahead of everything, the root guard included: this draws a message for another program and reports the
     // answer as its exit code, so nothing else may reach a return before it and be read as that answer.
     if (argc > 1 && std::string(argv[1]) == "--message-box") return runMessageBoxCommand(argc - 2, argv + 2);
+
+    // Above the root guard and the requirements check: the launcher that started this one has already passed both, and the root guard's answer does not survive a fork, so a root install would refuse its own Roblox download here.
+    if (const std::optional<int> code = bootstrap::runCommand(argc, argv)) return *code;
 
     // Before the scope is joined and before any argument is read: a root run
     // builds a virtual drive the real user cannot write to afterwards.

@@ -247,3 +247,7 @@ add_test(NAME bootstrap_install_plan COMMAND test_bootstrap_install_plan)
 add_executable(test_adw_env test_adw_env.cpp ${TUXBLOX_UI_SRC}/adw_env.cpp)
 target_include_directories(test_adw_env PRIVATE ${TUXBLOX_UI_SRC})
 add_test(NAME adw_env COMMAND test_adw_env)
+
+add_executable(test_bootstrap_dispatch test_bootstrap_dispatch.cpp)
+target_link_libraries(test_bootstrap_dispatch PRIVATE launcher_core)
+add_test(NAME bootstrap_dispatch COMMAND test_bootstrap_dispatch)

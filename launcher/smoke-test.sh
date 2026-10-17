@@ -114,6 +114,40 @@ wmClass="$(xprop -id "$window" WM_CLASS)"
 grep -q '"tuxblox-launcher"' <<<"$wmClass" || fail "the window's WM_CLASS is $wmClass, not tuxblox-launcher"
 printf 'OK: WM_CLASS is tuxblox-launcher\n'
 
+# Case E: the Roblox progress window with no display. It cannot open, the worker must carry on, and a preview must still finish and exit cleanly.
+status=0
+run env -u DISPLAY -u WAYLAND_DISPLAY timeout 120 "$root/TuxBloxLauncher" --preview-rbxinstaller >/tmp/nodisplay-rbx.txt 2>&1 || status=$?
+test "$status" -eq 0 || { cat /tmp/nodisplay-rbx.txt; fail "--preview-rbxinstaller with no display exited $status"; }
+printf 'OK: --preview-rbxinstaller with no display finishes and exits 0\n'
+
+# Case F: a failing Roblox install with no display. The error has to reach stderr, because a launch captures that into the session log.
+status=0
+run env -u DISPLAY -u WAYLAND_DISPLAY \
+    TUXBLOX_BOOTSTRAPPER_DOWNLOAD_SERVER=http://127.0.0.1:9 \
+    TUXBLOX_BOOTSTRAPPER_DOWNLOAD_RBXHASH=version-0000000000000000 \
+    TUXBLOX_BOOTSTRAPPER_INSTALL_DIR=/tmp/rbx-install \
+    timeout 120 "$root/TuxBloxLauncher" --install-roblox >/tmp/err-rbx.txt 2>&1 || status=$?
+test "$status" -eq 1 || { cat /tmp/err-rbx.txt; fail "--install-roblox with no display and no server exited $status, not 1"; }
+grep -q '^TuxBlox: ' /tmp/err-rbx.txt || { cat /tmp/err-rbx.txt; fail 'the failed Roblox install was not reported on stderr'; }
+printf 'OK: a failed Roblox install with no window reports on stderr and exits 1\n'
+
+# Case G: the Roblox progress window on a display. The launcher's own window from Case D is closed first, so only this one can match.
+pkill -u tester -f "^$root/TuxBloxLauncher$" || true
+sleep 1
+run env DISPLAY=:99 "$root/TuxBloxLauncher" --preview-rbxinstaller >/tmp/rbxwindow.log 2>&1 &
+
+pid=""
+for _ in $(seq 1 30); do
+    pid="$(pgrep -u tester -f 'preview-rbxinstaller' | head -n 1 || true)"
+    if [[ -n "$pid" ]] && xwininfo -root -tree 2>/dev/null | grep -qE '"TuxBlox".*[0-9]+x[0-9]+\+'; then break; fi
+    sleep 1
+done
+test -n "$pid" || { cat /tmp/rbxwindow.log; fail 'the Roblox progress window did not start'; }
+xwininfo -root -tree | tee /tmp/rbxtree.txt
+grep -qE '"TuxBlox".*[0-9]+x[0-9]+\+' /tmp/rbxtree.txt || { cat /tmp/rbxwindow.log; fail 'the Roblox progress window is not on the display'; }
+printf 'OK: the Roblox progress window is on the display (pid %s)\n' "$pid"
+pkill -u tester -f 'preview-rbxinstaller' || true
+
 ldd "$root/TuxBloxLauncher" | tee /tmp/deps.txt
 if grep -q 'not found' /tmp/deps.txt; then fail 'unresolved libraries'; fi
 
