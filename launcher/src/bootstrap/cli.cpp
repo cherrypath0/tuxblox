@@ -15,26 +15,36 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "cli.h"
+#include <string>
 
 namespace tuxblox {
 namespace bootstrap {
 
 namespace {
 
+const char* const kPreviewFlag = "--preview-rbxinstaller";
+const char* const kInstallFlag = "--install-roblox";
+const char* const kUpdateFlag = "--update-roblox";
+
 bool setMode(CliOptions& options, Mode mode) {
     if (options.mode != Mode::None) {
-        options.error = "Choose one of --preview, --install or --update.";
+        options.error = std::string("Choose one of ") + kUpdateFlag + ", " + kInstallFlag +
+                        " or " + kPreviewFlag + ".";
         return false;
     }
     options.mode = mode;
     return true;
 }
 
-const char* const kPreviewFlag = "--preview-rbxinstaller";
-const char* const kInstallFlag = "--install-roblox";
-const char* const kUpdateFlag = "--update-roblox";
-
 } // namespace
+
+CommandAction commandAction(const CliOptions& options) {
+    // Version before help, and both before the error, exactly as the separate program answered them.
+    if (options.version) return CommandAction::Version;
+    if (options.help) return CommandAction::Usage;
+    if (!options.error.empty()) return CommandAction::Error;
+    return CommandAction::Run;
+}
 
 bool isCommandFlag(const std::string& arg) {
     return arg == kPreviewFlag || arg == kInstallFlag || arg == kUpdateFlag;

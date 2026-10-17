@@ -38,6 +38,13 @@ struct CliOptions {
 // ignored, so a typo cannot quietly change what the bootstrapper does.
 CliOptions parseArgs(int argc, const char* const* argv);
 
+// What a parsed command line asks for. Answering help or the version is not running
+// anything, and must not be mistaken for it: --help beside a real mode would otherwise
+// start a multi-gigabyte download.
+enum class CommandAction { Run, Usage, Version, Error };
+
+CommandAction commandAction(const CliOptions& options);
+
 // True for the three flags that belong to this half of the launcher, so main() can
 // hand them over before it does anything else.
 bool isCommandFlag(const std::string& arg);

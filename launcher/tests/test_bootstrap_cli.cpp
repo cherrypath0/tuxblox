@@ -29,6 +29,24 @@ tuxblox::bootstrap::CliOptions parse(const std::vector<std::string>& args) {
 }
 } // namespace
 
+// "--update" is a prefix of "--update-roblox", so a plain find() cannot tell a retired
+// spelling from a current one. Counting both and comparing can.
+static size_t occurrences(const std::string& haystack, const std::string& needle) {
+    size_t count = 0;
+    for (size_t at = haystack.find(needle); at != std::string::npos;
+         at = haystack.find(needle, at + 1)) {
+        ++count;
+    }
+    return count;
+}
+
+// Every mention of a mode in `text` uses the current spelling.
+static void assertNoRetiredSpellings(const std::string& text) {
+    assert(occurrences(text, "--update") == occurrences(text, "--update-roblox"));
+    assert(occurrences(text, "--install") == occurrences(text, "--install-roblox"));
+    assert(occurrences(text, "--preview") == occurrences(text, "--preview-rbxinstaller"));
+}
+
 int main() {
     using namespace tuxblox;
     using namespace tuxblox::bootstrap;
@@ -63,11 +81,32 @@ int main() {
         assert(o.version && o.error.empty());
     }
 
-    // Two modes at once is a usage error, not a silent last-one-wins.
+    // Two modes at once is a usage error, not a silent last-one-wins -- and what it
+    // tells the user to do instead must name flags that still exist.
     {
         CliOptions o = parse({"--install-roblox", "--update-roblox"});
         assert(!o.error.empty());
+        assertNoRetiredSpellings(o.error);
     }
+
+    // Same for the two other pieces of text a mistake can put on screen.
+    assertNoRetiredSpellings(parse({}).error);
+    assertNoRetiredSpellings(usageText());
+
+    // Asking for help or the version must do that and nothing else. The old separate
+    // program checked both before it built anything; passing --help beside a real mode
+    // must not start a multi-gigabyte download.
+    assert(commandAction(parse({"--update-roblox"})) == CommandAction::Run);
+    assert(commandAction(parse({"--install-roblox"})) == CommandAction::Run);
+    assert(commandAction(parse({"--help"})) == CommandAction::Usage);
+    assert(commandAction(parse({"--update-roblox", "--help"})) == CommandAction::Usage);
+    assert(commandAction(parse({"--install-roblox", "--help"})) == CommandAction::Usage);
+    assert(commandAction(parse({"--version"})) == CommandAction::Version);
+    assert(commandAction(parse({"--preview-rbxinstaller", "--version"})) == CommandAction::Version);
+    // Version is answered ahead of help, as the old program answered it.
+    assert(commandAction(parse({"--version", "--help"})) == CommandAction::Version);
+    assert(commandAction(parse({"--install-roblox", "--update-roblox"})) == CommandAction::Error);
+    assert(commandAction(parse({})) == CommandAction::Error);
 
     // Unknown flags and stray positionals are reported, never ignored.
     assert(!parse({"--instal-roblox"}).error.empty());

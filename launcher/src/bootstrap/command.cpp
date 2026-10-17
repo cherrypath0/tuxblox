@@ -17,6 +17,7 @@
 #include "command.h"
 #include "config.h"
 #include "ui_adw.h"
+#include "version.h"
 
 #include <chrono>
 #include <cstdio>
@@ -30,9 +31,18 @@ std::optional<int> runCommand(int argc, char** argv) {
     if (argc < 2 || !isCommandFlag(argv[1])) return std::nullopt;
 
     const CliOptions options = parseArgs(argc, argv);
-    if (!options.error.empty()) {
-        fprintf(stderr, "%s\n\n%s", options.error.c_str(), usageText());
-        return 2;
+    switch (commandAction(options)) {
+        case CommandAction::Version:
+            printf("%s\n", kTuxBloxBuildId);
+            return 0;
+        case CommandAction::Usage:
+            printf("%s", usageText());
+            return 0;
+        case CommandAction::Error:
+            fprintf(stderr, "%s\n\n%s", options.error.c_str(), usageText());
+            return 2;
+        case CommandAction::Run:
+            break;
     }
 
     // getenv returns char*; the config reader takes a const char* function so
