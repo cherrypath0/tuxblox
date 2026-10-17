@@ -180,6 +180,17 @@ InstallOutcome runInstall(const Manifest& manifest,
         report(0, 0.0);
         if (isCancelled()) return {false, true, "", ""};
         fs::create_directories(dir + "/runtime");
+
+        // Left over from an install made before 3.4.0, when a separate TuxBloxBootstrapper downloaded Roblox; the launcher does that itself now, so nothing runs this file any more.
+        // Outside the artifact loop on purpose: no manifest lists a bootstrapper to hang it off, and best-effort because failing to delete a file nobody runs must not fail an upgrade.
+        {
+            std::error_code leftoverEc;
+            const std::string leftoverBootstrapper = dir + "/TuxBloxBootstrapper";
+            if (fs::is_regular_file(leftoverBootstrapper, leftoverEc)) {
+                fs::remove(leftoverBootstrapper, leftoverEc);
+            }
+        }
+
         report(0, 1.0);
 
         std::string launcherFinalPath;

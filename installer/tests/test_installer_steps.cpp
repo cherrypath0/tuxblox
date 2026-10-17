@@ -97,7 +97,7 @@ int main() {
     fs::path launcherSrc = work / "TuxBloxLauncherSrc";
     fs::path installerSrc = work / "TuxBloxInstallerSrc";
     fs::path widgetSrc = work / "WidgetSrc"; // a non-launcher/installer/proton artifact, to prove genericness
-    fs::path bootstrapperSrc = work / "BootstrapperSrc";
+    fs::path mcpSrc = work / "McpSrc";
     fs::path robloxPlayerSrc = work / "RobloxPlayerInstallerSrc.exe";
     fs::path robloxStudioSrc = work / "RobloxStudioInstallerSrc.exe";
     fs::path installDirPath = work / "install";
@@ -112,8 +112,8 @@ int main() {
         out << "fake installer binary";
     }
     {
-        std::ofstream out(bootstrapperSrc, std::ios::binary);
-        out << "fake bootstrapper contents";
+        std::ofstream out(mcpSrc, std::ios::binary);
+        out << "fake studio-mcp contents";
     }
     {
         std::ofstream out(widgetSrc, std::ios::binary);
@@ -178,14 +178,14 @@ int main() {
         m.artifacts["widget"] = widget;
 
         // Shaped exactly as stage_release() emits it.
-        Artifact bootstrapper;
-        bootstrapper.url = "file://" + bootstrapperSrc.string();
-        bootstrapper.sha256 = sha256File(bootstrapperSrc.string());
-        bootstrapper.sizeBytes = fs::file_size(bootstrapperSrc);
-        bootstrapper.displayname = "Roblox bootstrapper";
-        bootstrapper.filename = "TuxBloxBootstrapper";
-        bootstrapper.path = "/";
-        m.artifacts["bootstrapper"] = bootstrapper;
+        Artifact mcp;
+        mcp.url = "file://" + mcpSrc.string();
+        mcp.sha256 = sha256File(mcpSrc.string());
+        mcp.sizeBytes = fs::file_size(mcpSrc);
+        mcp.displayname = "Studio MCP";
+        mcp.filename = "studio-mcp";
+        mcp.path = "/";
+        m.artifacts["mcp"] = mcp;
 
         return m;
     };
@@ -214,11 +214,11 @@ int main() {
         // whatever the manifest lists, not a fixed trio -- and that
         // artifact.path ("/extras") actually places it in a subfolder.
         assert(fs::exists(installDirPath / "extras" / "widget.txt"));
-        // The bootstrapper ships exactly as stage_release() publishes it: a
-        // flat file at the install root. It must arrive executable, since
-        // the launcher runs it before every launch.
-        assert(fs::exists(installDirPath / "TuxBloxBootstrapper"));
-        assert((fs::status(installDirPath / "TuxBloxBootstrapper").permissions() &
+        // Studio MCP ships exactly as stage_release() publishes it: a flat
+        // file at the install root. It must arrive executable, since it is run
+        // as a program rather than read.
+        assert(fs::exists(installDirPath / "studio-mcp"));
+        assert((fs::status(installDirPath / "studio-mcp").permissions() &
                 fs::perms::owner_exec) != fs::perms::none);
 
         {
@@ -549,6 +549,36 @@ int main() {
         assert(labels.size() >= 3);
         assert(labels.back() == "Upgrading Launcher");
         assert(labels[labels.size() - 2] == "Upgrading Libraries");
+    }
+
+    // A TuxBloxBootstrapper left behind by an install made before the launcher
+    // carried the Roblox download itself. No release ships that file any more,
+    // so an upgrade has to take it away rather than leave it sitting there.
+    {
+        fs::path installDir13 = work / "install_leftover_bootstrapper";
+        fs::create_directories(installDir13);
+        { std::ofstream out(installDir13 / "TuxBloxBootstrapper"); out << "old bootstrapper binary"; }
+        assert(fs::exists(installDir13 / "TuxBloxBootstrapper"));
+
+        auto outcome = runInstall(manifest, [](const std::string&, double) {}, nullptr,
+            /*isUpgrade=*/true, installDir13.string(), robloxPlayerUrl, robloxStudioUrl);
+
+        assert(outcome.ok);
+        assert(!fs::exists(installDir13 / "TuxBloxBootstrapper"));
+        // And the upgrade still did everything else it was there to do.
+        assert(fs::exists(installDir13 / "TuxBloxLauncher"));
+        assert(fs::exists(installDir13 / "proton" / "main"));
+    }
+
+    // Having nothing to remove is the ordinary case and must not be an error.
+    {
+        fs::path installDir14 = work / "install_no_leftover";
+        auto outcome = runInstall(manifest, [](const std::string&, double) {}, nullptr,
+            /*isUpgrade=*/true, installDir14.string(), robloxPlayerUrl, robloxStudioUrl);
+
+        assert(outcome.ok);
+        assert(!fs::exists(installDir14 / "TuxBloxBootstrapper"));
+        assert(fs::exists(installDir14 / "TuxBloxLauncher"));
     }
 
     fs::remove_all(work);
