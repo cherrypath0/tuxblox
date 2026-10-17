@@ -233,22 +233,41 @@ std::string settingsTheme() {
 
 GdkTexture *iconTexture(const unsigned char *pPng, size_t length, int pixelSize) {
     GBytes *pBytes = g_bytes_new_static(pPng, length);
-    GInputStream *pStream = g_memory_input_stream_new_from_bytes(pBytes);
-    GdkPixbuf *pFullSize = gdk_pixbuf_new_from_stream(pStream, nullptr, nullptr);
-    g_object_unref(pStream);
+    // Decoded by the interface's own loader. The image library hands some formats to a helper process it sandboxes, and inside the compatibility layer that helper is killed before it can answer, which left the dialog with a hole where the logo belongs.
+    GdkTexture *pFullSize = gdk_texture_new_from_bytes(pBytes, nullptr);
     g_bytes_unref(pBytes);
     if (pFullSize == nullptr) return nullptr;
 
     // Twice the size it is drawn at, so it is already sharp on a high-resolution screen and halves cleanly on an ordinary one
     const int target = pixelSize * 2;
-    const int width = gdk_pixbuf_get_width(pFullSize);
-    const int height = gdk_pixbuf_get_height(pFullSize);
-    GdkPixbuf *pSized = pFullSize;
-    if (pixelSize > 0 && width > target && height > target) {
-        pSized = gdk_pixbuf_scale_simple(pFullSize, target, target, GDK_INTERP_BILINEAR);
-        g_object_unref(pFullSize);
-        if (pSized == nullptr) return nullptr;
+    if (pixelSize <= 0 || gdk_texture_get_width(pFullSize) <= target ||
+        gdk_texture_get_height(pFullSize) <= target) {
+        return pFullSize;
     }
+
+    // Only the resizing goes through the image library, and it is handed pixels rather than a file, so nothing is decoded a second time
+    const int width = gdk_texture_get_width(pFullSize);
+    const int height = gdk_texture_get_height(pFullSize);
+    GdkTextureDownloader *pDownloader = gdk_texture_downloader_new(pFullSize);
+    gdk_texture_downloader_set_format(pDownloader, GDK_MEMORY_R8G8B8A8);
+    gsize stride = 0;
+    GBytes *pRows = gdk_texture_downloader_download_bytes(pDownloader, &stride);
+    gdk_texture_downloader_free(pDownloader);
+    g_object_unref(pFullSize);
+    if (pRows == nullptr) return nullptr;
+
+    GdkPixbuf *pFull = gdk_pixbuf_new_from_data(
+        static_cast<const guchar *>(g_bytes_get_data(pRows, nullptr)), GDK_COLORSPACE_RGB, TRUE, 8, width, height,
+        static_cast<int>(stride), [](guchar *, gpointer pTaken) { g_bytes_unref(static_cast<GBytes *>(pTaken)); },
+        pRows);
+    if (pFull == nullptr) {
+        g_bytes_unref(pRows);
+        return nullptr;
+    }
+
+    GdkPixbuf *pSized = gdk_pixbuf_scale_simple(pFull, target, target, GDK_INTERP_BILINEAR);
+    g_object_unref(pFull);
+    if (pSized == nullptr) return nullptr;
 
     GdkTexture *pTexture = gdk_texture_new_for_pixbuf(pSized);
     g_object_unref(pSized);
