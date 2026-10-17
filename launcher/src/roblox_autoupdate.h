@@ -17,28 +17,34 @@
 #pragma once
 #include "lnk_resolver.h"
 #include "settings.h"
+#include <optional>
 #include <string>
 #include <vector>
 
 namespace tuxblox {
 
-// installDir + "/TuxBloxBootstrapper".
-std::string bootstrapperPath(const std::string& installDir);
+// This launcher's own path, read from /proc/self/exe, which is the program the
+// update check runs. Nothing is returned when that cannot be read -- there is
+// deliberately no guessed-path fallback, since an installed launcher may sit at
+// either installDir/TuxBloxLauncher or installDir/launcher/TuxBloxLauncher.
+std::optional<std::string> ownExePath();
 
 // Where Roblox keeps its installed versions inside the virtual drive.
 std::string robloxVersionsDir(const std::string& installDir);
 
-// True only when the user has the setting on and a bootstrapper is actually
-// there. An install upgraded from a release that predates the bootstrapper
-// has none, which is not an error -- the launch simply goes ahead.
-bool shouldRunUpdateCheck(const Settings& settings, bool bootstrapperExists);
+// True when the user has the setting on. The program the check runs is this
+// one, so there is nothing else left to be missing.
+bool shouldRunUpdateCheck(const Settings& settings);
 
-// The "NAME=VALUE" pairs the bootstrapper is run with.
+// True when the check should run and there is an executable to run it with. An
+// unreadable /proc/self/exe is not an error: the launch simply goes ahead.
+bool canRunUpdateCheck(const Settings& settings, const std::optional<std::string>& exe);
+
+// The "NAME=VALUE" pairs the check is run with.
 std::vector<std::string> updateEnvironment(const std::string& installDir, LaunchTarget target);
 
-// Runs the bootstrapper's update check and waits for it, so Roblox is
-// current before it starts. Does nothing when the setting is off or no
-// bootstrapper is installed.
+// Runs the Roblox update check and waits for it, so Roblox is current before
+// it starts. Does nothing when the setting is off.
 //
 // A failure here never stops the launch. Roblox one version behind still
 // runs; a Roblox that refuses to start because an update check failed is

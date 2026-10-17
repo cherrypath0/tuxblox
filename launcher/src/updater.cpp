@@ -164,7 +164,6 @@ std::vector<ComponentVersion> readComponentVersions(const std::string& installDi
     std::vector<ComponentVersion> components = {
         {"compatibility layer", compatDirUnder(installDir) + "/main", ""},
         {"updater",             installDir + "/TuxBloxInstaller",     ""},
-        {"Roblox bootstrapper", installDir + "/TuxBloxBootstrapper",  ""},
         {"Studio MCP",          installDir + "/studio-mcp",           ""},
     };
     for (ComponentVersion& component : components) {

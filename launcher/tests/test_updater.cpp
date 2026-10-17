@@ -104,9 +104,28 @@ int main() {
     auto writeWholeInstall = [&](const fs::path& installDirPath, const std::string& buildId) {
         writeProtonMain(installDirPath, buildId);
         writeVersionStub(installDirPath / "TuxBloxInstaller", buildId);
-        writeVersionStub(installDirPath / "TuxBloxBootstrapper", buildId);
+        // Deliberately a different version: this file is a leftover from an install
+        // made before the launcher carried the bootstrapper itself, and nothing ships it
+        // any more, so it must never read as part of the install.
+        writeVersionStub(installDirPath / "TuxBloxBootstrapper", "0.0.1-leftover");
         writeVersionStub(installDirPath / "studio-mcp", buildId);
     };
+
+    // --- A leftover TuxBloxBootstrapper beside an otherwise-matching install is
+    // not a mixed install. No release ships that file any more, so counting it
+    // would hand off to a repair that could never fix it -- on every launch. ---
+    {
+        fs::path installDirPath = work / "install_leftover_bootstrapper";
+        writeWholeInstall(installDirPath, "0.3.0-ch-leftover");
+
+        const std::vector<ComponentVersion> components =
+            readComponentVersions(installDirPath.string());
+        for (const ComponentVersion& component : components) {
+            assert(component.name.find("bootstrapper") == std::string::npos);
+            assert(component.path.find("TuxBloxBootstrapper") == std::string::npos);
+        }
+        assert(mismatchedComponents(components, "0.3.0-ch-leftover", /*absentCounts=*/true).empty());
+    }
 
     // --- Up-to-date path: both launcher and Proton versions match
     // requiredVersion, no installer fetch happens, needsHandoff stays false. ---

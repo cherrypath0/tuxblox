@@ -21,22 +21,30 @@
 #include "versions_manifest.h"
 
 #include <cstdio>
-#include <filesystem>
+#include <optional>
 #include <sys/wait.h>
 #include <unistd.h>
 
 namespace tuxblox {
 
-std::string bootstrapperPath(const std::string& installDir) {
-    return installDir + "/TuxBloxBootstrapper";
+std::optional<std::string> ownExePath() {
+    char buf[4096];
+    const ssize_t length = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
+    if (length <= 0) return std::nullopt;
+    buf[length] = '\0';
+    return std::string(buf);
 }
 
 std::string robloxVersionsDir(const std::string& installDir) {
     return prefixUserDir(installDir) + "/AppData/Local/Roblox/Versions";
 }
 
-bool shouldRunUpdateCheck(const Settings& settings, bool bootstrapperExists) {
-    return settings.autoUpdateRoblox && bootstrapperExists;
+bool shouldRunUpdateCheck(const Settings& settings) {
+    return settings.autoUpdateRoblox;
+}
+
+bool canRunUpdateCheck(const Settings& settings, const std::optional<std::string>& exe) {
+    return shouldRunUpdateCheck(settings) && exe.has_value();
 }
 
 std::vector<std::string> updateEnvironment(const std::string& installDir, LaunchTarget target) {
@@ -49,9 +57,15 @@ std::vector<std::string> updateEnvironment(const std::string& installDir, Launch
 
 void runRobloxUpdateCheck(const std::string& installDir, LaunchTarget target,
                            const Settings& settings) {
-    const std::string bootstrapper = bootstrapperPath(installDir);
-    std::error_code error;
-    if (!shouldRunUpdateCheck(settings, std::filesystem::exists(bootstrapper, error))) return;
+    const std::optional<std::string> exe = ownExePath();
+    if (!canRunUpdateCheck(settings, exe)) {
+        // Only worth a word when the setting asked for a check that cannot be run at all.
+        if (shouldRunUpdateCheck(settings)) {
+            fprintf(stderr, "TuxBlox: could not find this launcher's own path, skipping the "
+                             "Roblox update check\n");
+        }
+        return;
+    }
 
     // Taken before the update so the version it installs can be told apart from the ones already there.
     const std::vector<std::string> versionsBefore = scanPrefixVersions(installDir, target);
@@ -66,8 +80,9 @@ void runRobloxUpdateCheck(const std::string& installDir, LaunchTarget target,
             const auto split = pair.find('=');
             setenv(pair.substr(0, split).c_str(), pair.substr(split + 1).c_str(), 1);
         }
-        const char* argv[] = {bootstrapper.c_str(), "--update", nullptr};
-        execv(bootstrapper.c_str(), const_cast<char* const*>(argv));
+        // No --allow-root: main() hands these flags over above the root guard, so the child never asks.
+        const char* argv[] = {exe->c_str(), "--update-roblox", nullptr};
+        execv(exe->c_str(), const_cast<char* const*>(argv));
         _exit(127); // only reached if execv failed
     }
 
@@ -96,8 +111,8 @@ void activateNewlyUpdatedVersion(const std::string& installDir, LaunchTarget tar
     // Nothing new means the update had nothing to do, and whichever version is active stays active.
     if (installed.empty()) return;
 
-    // Re-read rather than reuse anything held earlier: the bootstrapper has just changed the prefix,
-    // and the launcher may be running and holding its own copy.
+    // Re-read rather than reuse anything held earlier: the update has just changed the prefix from
+    // another process, and the launcher may be running and holding its own copy.
     VersionsManifest manifest = loadInstalledVersions(installDir);
     AppVersions& versions = appVersionsFor(manifest, target);
     if (versions.activeHash == installed) return;

@@ -18,6 +18,7 @@
 #include <cassert>
 #include <filesystem>
 #include <cstdio>
+#include <optional>
 #include <string>
 
 namespace fs = std::filesystem;
@@ -25,8 +26,6 @@ namespace fs = std::filesystem;
 int main() {
     using namespace tuxblox;
 
-    // Where the launcher expects the bootstrapper and the versions folder.
-    assert(bootstrapperPath("/home/a/.tuxblox") == "/home/a/.tuxblox/TuxBloxBootstrapper");
     // With a drive on disk, the paths follow the account folder that is in it.
     {
         const fs::path base = fs::temp_directory_path() / "tuxblox_test_autoupdate_account";
@@ -40,23 +39,31 @@ int main() {
     assert(robloxVersionsDir("/home/a/.tuxblox") ==
            "/home/a/.tuxblox/runtime/pfx/drive_c/users/user/AppData/Local/Roblox/Versions");
 
-    // The setting decides, but a missing bootstrapper is not an error: an
-    // install upgraded from a release that predates it simply has none, and
-    // the launch must go ahead anyway.
+    // The setting is now the only thing that decides: the program it runs is this one.
     {
         Settings on;
         on.autoUpdateRoblox = true;
-        assert(shouldRunUpdateCheck(on, /*bootstrapperExists=*/true));
-        assert(!shouldRunUpdateCheck(on, /*bootstrapperExists=*/false));
-
         Settings off;
         off.autoUpdateRoblox = false;
-        assert(!shouldRunUpdateCheck(off, /*bootstrapperExists=*/true));
-        assert(!shouldRunUpdateCheck(off, /*bootstrapperExists=*/false));
+        assert(shouldRunUpdateCheck(on));
+        assert(!shouldRunUpdateCheck(off));
+
+        // Resolution is /proc/self/exe and nothing else; a readable one is this test binary.
+        assert(ownExePath().has_value());
+        assert(!ownExePath()->empty());
+        assert(ownExePath()->front() == '/');
+
+        // An unresolvable executable skips the check rather than blocking the launch.
+        const std::optional<std::string> none;
+        const std::optional<std::string> some{"/usr/bin/true"};
+        assert(canRunUpdateCheck(on, some));
+        assert(!canRunUpdateCheck(on, none));
+        assert(!canRunUpdateCheck(off, some));
+        assert(!canRunUpdateCheck(off, none));
     }
 
-    // The environment handed to the bootstrapper names the app being
-    // launched, so --update resolves the right binaryType.
+    // The environment handed to the child names the app being launched, so
+    // --update-roblox resolves the right binaryType.
     {
         const auto player = updateEnvironment("/home/a/.tuxblox", LaunchTarget::Player);
         bool sawApp = false, sawDir = false;
