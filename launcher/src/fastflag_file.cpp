@@ -16,6 +16,7 @@
 
 #include "fastflag_file.h"
 #include "json.hpp"
+#include "versions_manifest.h"
 #include <filesystem>
 #include <fstream>
 
@@ -59,6 +60,15 @@ bool writeClientAppSettings(const std::string& versionDir, const std::vector<Fas
     if (!file) return false;
     file << renderClientAppSettings(flags);
     return static_cast<bool>(file);
+}
+
+void applyFastFlags(const std::string& installDir, LaunchTarget target, const Settings& settings) {
+    const std::vector<FastFlag>& flags =
+        target == LaunchTarget::Player ? settings.fastFlags.player : settings.fastFlags.studio;
+    const std::string versionsDir = prefixVersionsDir(installDir);
+    for (const std::string& hash : scanPrefixVersions(installDir, target)) {
+        writeClientAppSettings(versionsDir + "/" + hash, flags);
+    }
 }
 
 } // namespace tuxblox

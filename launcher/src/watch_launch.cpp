@@ -29,7 +29,6 @@
 #include "fastflag_file.h"
 #include "versions_manifest.h"
 #include "wine_shortcut_export.h"
-#include <filesystem>
 #include <ctime>
 #include <vector>
 
@@ -54,20 +53,8 @@ int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const 
     // and this is the path that does not go through the running launcher.
     auto extraEnv = launchEnvPairs(settings);
 
-    // Roblox reads FastFlags from a folder inside the version directory, and
-    // every install produces a new one, so the file is rewritten here on each
-    // launch rather than when the user edits a flag. Nothing is written on
-    // the very first launch of a fresh prefix -- there is no version
-    // directory until the official installer has produced one -- so flags
-    // start applying from the launch after that.
-    const std::string activeExe = resolveActiveVersionExePath(target, installDir);
-    if (!activeExe.empty()) {
-        const auto& flags = target == LaunchTarget::Player ? settings.fastFlags.player
-                                                            : settings.fastFlags.studio;
-        // A failure here is not worth refusing to start Roblox over: launching
-        // without the overrides beats not launching at all.
-        writeClientAppSettings(std::filesystem::path(activeExe).parent_path().string(), flags);
-    }
+    // Roblox reads FastFlags from a folder inside the version directory and every install makes a new one, so the file is rewritten on each launch rather than when the user edits a flag. A fresh prefix has no version directory until the official installer has made one, so flags start applying from the launch after that.
+    applyFastFlags(installDir, target, settings);
 
     ProcessLauncher launcher(installDir);
     std::time_t launchStart = std::time(nullptr);

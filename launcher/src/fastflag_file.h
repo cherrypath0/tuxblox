@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #pragma once
+#include "lnk_resolver.h"
 #include "settings.h"
 #include <string>
 #include <vector>
@@ -42,5 +43,9 @@ std::string renderClientAppSettings(const std::vector<FastFlag>& flags);
 // every flag restores stock behaviour rather than leaving an empty override
 // behind. Returns false if the folder or file could not be written.
 bool writeClientAppSettings(const std::string& versionDir, const std::vector<FastFlag>& flags);
+
+// writeClientAppSettings() for every installed version of `target`, not only the one about to start: a deleted flag is only really deleted once no version directory still carries it, and the launcher can start a version other than the pinned one. Call it on every path that launches Roblox.
+// A version directory that cannot be written is skipped, since launching without the overrides beats not launching at all.
+void applyFastFlags(const std::string& installDir, LaunchTarget target, const Settings& settings);
 
 } // namespace tuxblox

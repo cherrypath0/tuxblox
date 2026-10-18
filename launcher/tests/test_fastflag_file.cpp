@@ -122,6 +122,53 @@ int main() {
         assert(!writeClientAppSettings(notADir.string(), {{"AFlag", "1"}}));
     }
 
+    // applyFastFlags() reaches every installed version of the target, so a
+    // flag the user deleted stops applying in all of them rather than only
+    // in whichever one happens to be pinned active.
+    {
+        const fs::path install = tmp / "install";
+        const fs::path versions =
+            install / "runtime/pfx/drive_c/users/tester/AppData/Local/Roblox/Versions";
+        const fs::path playerA = versions / "version-playerA";
+        const fs::path playerB = versions / "version-playerB";
+        const fs::path studio = versions / "version-studio";
+        for (const fs::path& dir : {playerA, playerB, studio}) fs::create_directories(dir);
+        std::ofstream(playerA / targetExeName(LaunchTarget::Player), std::ios::binary) << "exe";
+        std::ofstream(playerB / targetExeName(LaunchTarget::Player), std::ios::binary) << "exe";
+        std::ofstream(studio / targetExeName(LaunchTarget::Studio), std::ios::binary) << "exe";
+
+        const fs::path playerAFile = playerA / "ClientSettings" / "ClientAppSettings.json";
+        const fs::path playerBFile = playerB / "ClientSettings" / "ClientAppSettings.json";
+        const fs::path studioFile = studio / "ClientSettings" / "ClientAppSettings.json";
+
+        Settings settings;
+        settings.fastFlags.player = {{"PlayerFlag", "1"}};
+        settings.fastFlags.studio = {{"StudioFlag", "2"}};
+
+        applyFastFlags(install.string(), LaunchTarget::Player, settings);
+        assert(nlohmann::json::parse(readFile(playerAFile))["PlayerFlag"] == "1");
+        assert(nlohmann::json::parse(readFile(playerBFile))["PlayerFlag"] == "1");
+        // Player and Studio share one Versions directory, so the Player's
+        // flags must not land in a Studio version.
+        assert(!fs::exists(studioFile));
+
+        applyFastFlags(install.string(), LaunchTarget::Studio, settings);
+        assert(nlohmann::json::parse(readFile(studioFile))["StudioFlag"] == "2");
+        assert(!nlohmann::json::parse(readFile(playerAFile)).contains("StudioFlag"));
+
+        // The point of the whole thing: deleting the last flag has to clear
+        // every version, not just the active one.
+        settings.fastFlags.player.clear();
+        applyFastFlags(install.string(), LaunchTarget::Player, settings);
+        assert(!fs::exists(playerAFile));
+        assert(!fs::exists(playerBFile));
+        assert(fs::exists(studioFile));
+    }
+
+    // A prefix with no Versions directory at all (a fresh install) is not an
+    // error -- there is simply nothing to write to yet.
+    applyFastFlags((tmp / "empty-install").string(), LaunchTarget::Player, Settings{});
+
     fs::remove_all(tmp);
     std::printf("fastflag_file: all tests passed\n");
     return 0;

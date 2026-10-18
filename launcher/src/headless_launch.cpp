@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "headless_launch.h"
+#include "fastflag_file.h"
 #include "root_guard.h"
 #include "install_paths.h"
 #include "prefix_session.h"
@@ -40,6 +41,8 @@ int runHeadlessQuickLaunch(const std::string& installDir, LaunchTarget target, c
     // Before the exe is resolved, so a version installed by this check is the
     // one that starts.
     runRobloxUpdateCheck(installDir, target, settings);
+    // Needed here as much as on the watched path: a link in a web browser, a menu entry and a desktop icon all come through here, and without it the file keeps whatever the last launch from the TuxBlox window put in it, so a flag deleted since then goes on applying.
+    applyFastFlags(installDir, target, settings);
     // This process execs into the game below, so the menu entry has to be
     // written here rather than after the session, as the watched path does.
     exportPrefixShortcuts(installDir, selfExePath());
