@@ -21,6 +21,7 @@
 #include "asset_github.h"
 #include "asset_globe.h"
 #include "asset_privacy.h"
+#include "asset_scale.h"
 #include "open_url.h"
 #include "tuxblox_logo_png.h"
 #include "version.h"
@@ -45,6 +46,7 @@ const Link Links[] = {
     {"GitHub", "https://tuxblox.net/github", kAssetGithub, kAssetGithubLen},
     {"Discord", "https://tuxblox.net/discord", kAssetDiscord, kAssetDiscordLen},
     {"Privacy Policy", "https://tuxblox.net/privacy", kAssetPrivacy, kAssetPrivacyLen},
+    {"Terms of Use", "https://tuxblox.net/terms", kAssetScale, kAssetScaleLen},
 };
 
 GtkWidget *centredLabel(const std::string &text, const char *pStyleClass) {
