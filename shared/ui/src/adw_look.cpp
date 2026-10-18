@@ -19,7 +19,9 @@
 #include "adw_env.h"
 #include "host_icons.h"
 
+#include <algorithm>
 #include <climits>
+#include <cmath>
 #include <cstdlib>
 #include <fstream>
 #include <string>
@@ -198,6 +200,24 @@ void useBundledIcons() {
     addIconResourceDirs(pTheme, "/org/gnome/Adwaita/icons/");
 }
 
+// How many screen dots the sharpest monitor attached puts into one interface size. An icon becomes pixels before it is known which screen will show it, so the sharpest one is what it has to be ready for; two is the floor every icon was built for before, and four the ceiling, past which the extra pixels cost more than anybody can see.
+int displayPixelScale() {
+    GdkDisplay *pDisplay = gdk_display_get_default();
+    GListModel *pMonitors = pDisplay ? gdk_display_get_monitors(pDisplay) : nullptr;
+    if (pMonitors == nullptr) return 2;
+
+    double sharpest = 2.0;
+    const guint count = g_list_model_get_n_items(pMonitors);
+    for (guint i = 0; i < count; ++i) {
+        auto *pMonitor = static_cast<GdkMonitor *>(g_list_model_get_item(pMonitors, i));
+        if (pMonitor == nullptr) continue;
+        sharpest = std::max(sharpest, gdk_monitor_get_scale(pMonitor));
+        g_object_unref(pMonitor);
+    }
+    // Rounded up, since a desktop set to 150% still draws the icon into one and a half times the dots
+    return static_cast<int>(std::min(std::ceil(sharpest), 4.0));
+}
+
 } // namespace
 
 void applyLook() {
@@ -244,8 +264,8 @@ GdkTexture *iconTexture(const unsigned char *pPng, size_t length, int pixelSize)
     g_bytes_unref(pBytes);
     if (pFullSize == nullptr) return nullptr;
 
-    // Twice the size it is drawn at, so it is already sharp on a high-resolution screen and halves cleanly on an ordinary one
-    const int target = pixelSize * 2;
+    // As many dots as the sharpest screen attached will actually draw it with, so it is already sharp there and reduces cleanly everywhere else
+    const int target = pixelSize * displayPixelScale();
     if (pixelSize <= 0 || gdk_texture_get_width(pFullSize) <= target ||
         gdk_texture_get_height(pFullSize) <= target) {
         return pFullSize;
