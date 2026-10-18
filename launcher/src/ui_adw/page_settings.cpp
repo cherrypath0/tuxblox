@@ -170,7 +170,7 @@ void SettingsPage::buildEnvironment() {
     adw_preferences_group_add(pGroup, pGraphics);
 
     GtkWidget *pGpu = adw_combo_row_new();
-    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(pGpu), "Graphics card");
+    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(pGpu), "Preferred graphics card");
     GtkStringList *pGpus = gtk_string_list_new(nullptr);
     gtk_string_list_append(pGpus, automaticGpuLabel(gpus_).c_str());
     for (size_t i = 0; i < gpus_.size(); ++i) {
