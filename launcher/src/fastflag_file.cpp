@@ -24,6 +24,49 @@ namespace fs = std::filesystem;
 
 namespace tuxblox {
 
+namespace {
+
+// The flag that asks Roblox for each renderer. "automatic" is deliberately absent: it forces nothing.
+const struct {
+    const char* choice;
+    const char* flag;
+} GraphicsFlags[] = {
+    {"d3d11", "FFlagDebugGraphicsPreferD3D11"},
+    {"vulkan", "FFlagDebugGraphicsPreferVulkan"},
+    {"opengl", "FFlagDebugGraphicsPreferOpenGL"},
+};
+
+} // namespace
+
+std::vector<FastFlag> graphicsFlags(const std::string& graphics) {
+    bool chooses = false;
+    for (const auto& entry : GraphicsFlags) {
+        if (graphics == entry.choice) chooses = true;
+    }
+    if (!chooses) return {};
+
+    std::vector<FastFlag> flags;
+    for (const auto& entry : GraphicsFlags) {
+        flags.push_back({entry.flag, graphics == entry.choice ? "True" : "False"});
+    }
+    return flags;
+}
+
+std::vector<FastFlag> withGraphicsChoice(const std::vector<FastFlag>& flags, const std::string& graphics) {
+    std::vector<FastFlag> merged = flags;
+    for (const FastFlag& forced : graphicsFlags(graphics)) {
+        bool replaced = false;
+        // Every row of that name, not just the first: the editor lets a half-typed duplicate sit in the list, and leaving one behind would let it win instead
+        for (FastFlag& flag : merged) {
+            if (flag.name != forced.name) continue;
+            flag.value = forced.value;
+            replaced = true;
+        }
+        if (!replaced) merged.push_back(forced);
+    }
+    return merged;
+}
+
 std::string renderClientAppSettings(const std::vector<FastFlag>& flags) {
     // ordered_json, not json: the plain type sorts its keys, which would
     // reshuffle the file every time the user reorders rows in the editor.
@@ -63,8 +106,8 @@ bool writeClientAppSettings(const std::string& versionDir, const std::vector<Fas
 }
 
 void applyFastFlags(const std::string& installDir, LaunchTarget target, const Settings& settings) {
-    const std::vector<FastFlag>& flags =
-        target == LaunchTarget::Player ? settings.fastFlags.player : settings.fastFlags.studio;
+    const std::vector<FastFlag> flags = withGraphicsChoice(
+        target == LaunchTarget::Player ? settings.fastFlags.player : settings.fastFlags.studio, settings.graphics);
     const std::string versionsDir = prefixVersionsDir(installDir);
     for (const std::string& hash : scanPrefixVersions(installDir, target)) {
         writeClientAppSettings(versionsDir + "/" + hash, flags);

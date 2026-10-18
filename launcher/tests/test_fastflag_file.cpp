@@ -169,6 +169,84 @@ int main() {
     // error -- there is simply nothing to write to yet.
     applyFastFlags((tmp / "empty-install").string(), LaunchTarget::Player, Settings{});
 
+    // "automatic" is the default and must write nothing at all, so the engine
+    // and the FastFlags page are left to decide between them.
+    {
+        assert(graphicsFlags("automatic").empty());
+        assert(graphicsFlags("").empty());
+        assert(graphicsFlags("nonsense").empty());
+        assert(withGraphicsChoice({{"AFlag", "1"}}, "automatic").size() == 1);
+    }
+
+    // Choosing a renderer asks for it AND rules the other two out, rather than
+    // only naming the one wanted.
+    {
+        auto j = nlohmann::json::parse(renderClientAppSettings(graphicsFlags("vulkan")));
+        assert(j.size() == 3);
+        assert(j["FFlagDebugGraphicsPreferVulkan"] == "True");
+        assert(j["FFlagDebugGraphicsPreferD3D11"] == "False");
+        assert(j["FFlagDebugGraphicsPreferOpenGL"] == "False");
+
+        assert(nlohmann::json::parse(renderClientAppSettings(graphicsFlags("d3d11")))
+                   ["FFlagDebugGraphicsPreferD3D11"] == "True");
+        assert(nlohmann::json::parse(renderClientAppSettings(graphicsFlags("opengl")))
+                   ["FFlagDebugGraphicsPreferOpenGL"] == "True");
+    }
+
+    // The setting beats the FastFlags page wherever the two name the same flag,
+    // and leaves every other row the user wrote alone.
+    {
+        const std::vector<FastFlag> typed = {{"FFlagDebugGraphicsPreferOpenGL", "True"},
+                                              {"DFIntTaskSchedulerTargetFps", "60"}};
+        auto j = nlohmann::json::parse(renderClientAppSettings(withGraphicsChoice(typed, "vulkan")));
+        assert(j["FFlagDebugGraphicsPreferOpenGL"] == "False");
+        assert(j["FFlagDebugGraphicsPreferVulkan"] == "True");
+        assert(j["DFIntTaskSchedulerTargetFps"] == "60");
+    }
+
+    // A name the user typed twice has to be overwritten in both rows: the last
+    // one wins when the file is written, so leaving one behind would let it win.
+    {
+        const std::vector<FastFlag> typed = {{"FFlagDebugGraphicsPreferVulkan", "True"},
+                                              {"FFlagDebugGraphicsPreferVulkan", "True"}};
+        for (const FastFlag& flag : withGraphicsChoice(typed, "opengl")) {
+            if (flag.name == "FFlagDebugGraphicsPreferVulkan") assert(flag.value == "False");
+        }
+        auto j = nlohmann::json::parse(renderClientAppSettings(withGraphicsChoice(typed, "opengl")));
+        assert(j["FFlagDebugGraphicsPreferVulkan"] == "False");
+        assert(j["FFlagDebugGraphicsPreferOpenGL"] == "True");
+    }
+
+    // applyFastFlags() carries the setting through to the file on disk, for both
+    // apps, since the renderer is one choice rather than one per app.
+    {
+        const fs::path install = tmp / "graphics-install";
+        const fs::path versions =
+            install / "runtime/pfx/drive_c/users/tester/AppData/Local/Roblox/Versions";
+        const fs::path player = versions / "version-p";
+        const fs::path studio = versions / "version-s";
+        fs::create_directories(player);
+        fs::create_directories(studio);
+        std::ofstream(player / targetExeName(LaunchTarget::Player), std::ios::binary) << "exe";
+        std::ofstream(studio / targetExeName(LaunchTarget::Studio), std::ios::binary) << "exe";
+
+        Settings settings;
+        settings.graphics = "d3d11";
+        applyFastFlags(install.string(), LaunchTarget::Player, settings);
+        applyFastFlags(install.string(), LaunchTarget::Studio, settings);
+        for (const fs::path& dir : {player, studio}) {
+            auto j = nlohmann::json::parse(readFile(dir / "ClientSettings" / "ClientAppSettings.json"));
+            assert(j["FFlagDebugGraphicsPreferD3D11"] == "True");
+            assert(j["FFlagDebugGraphicsPreferVulkan"] == "False");
+        }
+
+        // Back to automatic with no flags of the user's own: the override file
+        // goes away entirely rather than being left saying False three times.
+        settings.graphics = "automatic";
+        applyFastFlags(install.string(), LaunchTarget::Player, settings);
+        assert(!fs::exists(player / "ClientSettings" / "ClientAppSettings.json"));
+    }
+
     fs::remove_all(tmp);
     std::printf("fastflag_file: all tests passed\n");
     return 0;

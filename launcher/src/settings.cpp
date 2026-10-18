@@ -35,6 +35,13 @@ bool isKnownTheme(const std::string& theme) {
     return theme == "system" || theme == "dark" || theme == "grey" || theme == "light";
 }
 
+bool isKnownGraphics(const std::string& graphics) {
+    for (const char* choice : kGraphicsChoices) {
+        if (graphics == choice) return true;
+    }
+    return false;
+}
+
 bool isKnownChannel(const std::string& channel) {
     return channel == "stable" || channel == "canary" || channel == "experimental";
 }
@@ -131,6 +138,8 @@ Settings loadSettings(const std::string& installDir) {
         settings.discordGameStatus = j.value("discord_game_status", true);
         const std::string theme = j.value("theme", std::string("system"));
         settings.theme = isKnownTheme(theme) ? theme : "system";
+        const std::string graphics = j.value("graphics", std::string("automatic"));
+        settings.graphics = isKnownGraphics(graphics) ? graphics : "automatic";
 
         const auto fastFlags = j.find("fast_flags");
         if (fastFlags != j.end()) {
@@ -170,6 +179,7 @@ void saveSettings(const std::string& installDir, const Settings& settings) {
         j["discord_join_button"] = settings.discordJoinButton;
         j["discord_game_status"] = settings.discordGameStatus;
         j["theme"] = settings.theme;
+        j["graphics"] = settings.graphics;
         j["fast_flags"] = {{"player", fastFlagsToJson(settings.fastFlags.player)},
                             {"studio", fastFlagsToJson(settings.fastFlags.studio)}};
 

@@ -44,6 +44,13 @@ std::string renderClientAppSettings(const std::vector<FastFlag>& flags);
 // behind. Returns false if the folder or file could not be written.
 bool writeClientAppSettings(const std::string& versionDir, const std::vector<FastFlag>& flags);
 
+// The flags the Graphics setting forces for `graphics`: the chosen renderer's flag True and the other two False, so a renderer is asked for rather than merely not ruled out.
+// Empty for "automatic" and for anything unrecognised, which writes nothing and leaves the choice to Roblox and to the FastFlags page.
+std::vector<FastFlag> graphicsFlags(const std::string& graphics);
+
+// `flags` with graphicsFlags() written over it. The setting wins wherever the two name the same flag, including over a row the user typed, since a renderer chosen in Settings is meant to be the one that applies.
+std::vector<FastFlag> withGraphicsChoice(const std::vector<FastFlag>& flags, const std::string& graphics);
+
 // writeClientAppSettings() for every installed version of `target`, not only the one about to start: a deleted flag is only really deleted once no version directory still carries it, and the launcher can start a version other than the pinned one. Call it on every path that launches Roblox.
 // A version directory that cannot be written is skipped, since launching without the overrides beats not launching at all.
 void applyFastFlags(const std::string& installDir, LaunchTarget target, const Settings& settings);

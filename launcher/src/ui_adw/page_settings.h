@@ -63,6 +63,7 @@ private:
     static void onChannel(GObject *pRow, GParamSpec *, gpointer data);
     static void onTheme(GObject *pRow, GParamSpec *, gpointer data);
     static void onGpu(GObject *pRow, GParamSpec *, gpointer data);
+    static void onGraphics(GObject *pRow, GParamSpec *, gpointer data);
     static void onEnvironmentActivate(GtkEntry *, gpointer data);
     static void onEnvironmentFocusLeft(GtkEventControllerFocus *, gpointer data);
     static void onTerminate(GtkButton *pButton, gpointer data);
@@ -79,6 +80,7 @@ private:
     AdwComboRow *pTheme_ = nullptr;
     AdwComboRow *pChannel_ = nullptr;
     AdwComboRow *pGpu_ = nullptr;
+    AdwComboRow *pGraphics_ = nullptr;
     GtkEntry *pEnvironment_ = nullptr;
     GtkButton *pTerminate_ = nullptr;
     // True from a Terminate click until its result has been shown on the button.

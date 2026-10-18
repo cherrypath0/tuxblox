@@ -29,6 +29,11 @@ const char *const Channels[] = {"stable", "canary", "experimental", nullptr};
 const char *const Themes[] = {"system", "dark", "grey", "light", nullptr};
 const char *const ThemeLabels[] = {"System theme", "Dark", "Grey", "Light", nullptr};
 
+// One label per kGraphicsChoices entry, in the same order
+const char *const GraphicsLabels[] = {"Automatic", "DirectX 11", "Vulkan", "OpenGL", nullptr};
+static_assert(G_N_ELEMENTS(GraphicsLabels) == G_N_ELEMENTS(kGraphicsChoices) + 1,
+              "every renderer the setting stores needs a label, and the two lists are read by index");
+
 std::string automaticGpuLabel(const std::vector<GpuDevice> &gpus) {
     if (gpus.empty()) return "Automatic";
     return "Automatic (1: " + gpus.front().label + ")";
@@ -155,6 +160,15 @@ void SettingsPage::buildUpdates() {
 void SettingsPage::buildEnvironment() {
     AdwPreferencesGroup *pGroup = addGroup("Environment");
 
+    GtkWidget *pGraphics = adw_combo_row_new();
+    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(pGraphics), "Graphics");
+    GtkStringList *pGraphicsChoices = gtk_string_list_new(GraphicsLabels);
+    adw_combo_row_set_model(ADW_COMBO_ROW(pGraphics), G_LIST_MODEL(pGraphicsChoices));
+    g_object_unref(pGraphicsChoices);
+    pGraphics_ = ADW_COMBO_ROW(pGraphics);
+    g_signal_connect(pGraphics, "notify::selected", G_CALLBACK(onGraphics), this);
+    adw_preferences_group_add(pGroup, pGraphics);
+
     GtkWidget *pGpu = adw_combo_row_new();
     adw_preferences_row_set_title(ADW_PREFERENCES_ROW(pGpu), "Graphics card");
     GtkStringList *pGpus = gtk_string_list_new(nullptr);
@@ -260,6 +274,16 @@ void SettingsPage::onGpu(GObject *pRow, GParamSpec *, gpointer data) {
     pSelf->app_.updateSettings(updated);
 }
 
+void SettingsPage::onGraphics(GObject *pRow, GParamSpec *, gpointer data) {
+    auto *pSelf = static_cast<SettingsPage *>(data);
+    if (pSelf->seeding_) return;
+    const guint selected = adw_combo_row_get_selected(ADW_COMBO_ROW(pRow));
+    if (selected >= G_N_ELEMENTS(kGraphicsChoices)) return;
+    Settings updated = pSelf->app_.snapshot().settings;
+    updated.graphics = kGraphicsChoices[selected];
+    pSelf->app_.updateSettings(updated);
+}
+
 void SettingsPage::commitEnvironmentVariables() {
     if (seeding_) return;
     const std::string text = gtk_editable_get_text(GTK_EDITABLE(pEnvironment_));
@@ -313,6 +337,9 @@ void SettingsPage::seed(const Settings &settings) {
     }
     for (guint i = 0; Themes[i] != nullptr; ++i) {
         if (settings.theme == Themes[i]) adw_combo_row_set_selected(pTheme_, i);
+    }
+    for (guint i = 0; i < G_N_ELEMENTS(kGraphicsChoices); ++i) {
+        if (settings.graphics == kGraphicsChoices[i]) adw_combo_row_set_selected(pGraphics_, i);
     }
     guint gpuIndex = 0;
     for (size_t i = 0; i < gpus_.size(); ++i) {

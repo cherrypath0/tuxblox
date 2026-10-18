@@ -36,6 +36,9 @@ struct FastFlagSet {
     std::vector<FastFlag> studio;
 };
 
+// The renderer Roblox is asked to use, in the order the setting offers them. "automatic" is the default and asks for nothing.
+inline constexpr const char* kGraphicsChoices[] = {"automatic", "d3d11", "vulkan", "opengl"};
+
 struct Settings {
     // Space-separated "VAR=VALUE" pairs.
     // Applied two ways, which together cover every process TuxBlox starts:
@@ -126,6 +129,8 @@ struct Settings {
     // Written into the active Roblox version's ClientSettings folder at every
     // launch -- see fastflag_file.h for why it can't just be written once.
     FastFlagSet fastFlags;
+    // One of kGraphicsChoices. It is written as FastFlags like the set above, and it wins wherever the two name the same flag, so the renderer chosen here is the one that applies however the FastFlags page is filled in.
+    std::string graphics = "automatic";
 };
 
 // installDir + "/settings.json". Never throws: a missing file,
