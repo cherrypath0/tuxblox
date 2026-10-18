@@ -17,6 +17,7 @@
 #include "adw_look.h"
 
 #include "adw_env.h"
+#include "host_icons.h"
 
 #include <climits>
 #include <cstdlib>
@@ -182,8 +183,13 @@ void useBundledIcons() {
 
     if (!icons.empty()) {
         gtk_icon_theme_add_search_path(pTheme, icons.c_str());
+        // Offered in the same breath as the icons above, before either folder is read, because changing where the interface looks once it has already looked costs a rescan of every theme on the machine
+        gtk_icon_theme_add_search_path(pTheme, hostWindowControlsDir().c_str());
+        // Asked for before the name is set below, since it reads the name the desktop chose and setting ours would overwrite the answer
+        std::string name = buildHostWindowControls("TuxBlox");
+        if (name.empty()) name = "TuxBlox";
         // Through the settings rather than gtk_icon_theme_set_theme_name(), which refuses the theme a display hands out
-        g_object_set(gtk_settings_get_default(), "gtk-icon-theme-name", "TuxBlox", nullptr);
+        g_object_set(gtk_settings_get_default(), "gtk-icon-theme-name", name.c_str(), nullptr);
         return;
     }
 

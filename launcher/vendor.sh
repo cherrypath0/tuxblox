@@ -37,4 +37,13 @@ if [ ! -f third_party/stb_image.h ]; then
         https://raw.githubusercontent.com/nothings/stb/31c1ad37456438565541f4919958214b6e762fb4/stb_image.h
 fi
 
+if [ ! -f third_party/nanosvg.h ] || [ ! -f third_party/nanosvgrast.h ]; then
+    # nanosvg publishes no release tags, so pin an exact commit SHA rather than floating on master.
+    echo ":: Vendoring nanosvg (pinned 239e102)"
+    curl -fsSL -o third_party/nanosvg.h \
+        https://raw.githubusercontent.com/memononen/nanosvg/239e102ec2c691f2902e20ace2ed36ee4a35cfe6/src/nanosvg.h
+    curl -fsSL -o third_party/nanosvgrast.h \
+        https://raw.githubusercontent.com/memononen/nanosvg/239e102ec2c691f2902e20ace2ed36ee4a35cfe6/src/nanosvgrast.h
+fi
+
 echo ":: Vendoring complete"

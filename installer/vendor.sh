@@ -30,4 +30,13 @@ if [ ! -f third_party/json.hpp ]; then
         https://raw.githubusercontent.com/nlohmann/json/v3.11.3/single_include/nlohmann/json.hpp
 fi
 
+if [ ! -f third_party/nanosvg.h ] || [ ! -f third_party/nanosvgrast.h ]; then
+    # nanosvg publishes no release tags, so pin an exact commit SHA rather than floating on master.
+    echo ":: Vendoring nanosvg (pinned 239e102)"
+    curl -fsSL -o third_party/nanosvg.h \
+        https://raw.githubusercontent.com/memononen/nanosvg/239e102ec2c691f2902e20ace2ed36ee4a35cfe6/src/nanosvg.h
+    curl -fsSL -o third_party/nanosvgrast.h \
+        https://raw.githubusercontent.com/memononen/nanosvg/239e102ec2c691f2902e20ace2ed36ee4a35cfe6/src/nanosvgrast.h
+fi
+
 echo ":: Vendoring complete"

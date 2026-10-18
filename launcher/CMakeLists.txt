@@ -219,6 +219,7 @@ if(TUXBLOX_UI_STACK_DEV)
         src/bootstrap/ui_adw.cpp
         src/bootstrap/command.cpp
         ${TUXBLOX_UI_SRC}/adw_look.cpp
+        ${TUXBLOX_UI_SRC}/host_icons.cpp
     )
     target_include_directories(launcher_ui_adw PUBLIC
         src src/ui_adw ${CMAKE_BINARY_DIR}/generated ${ADWAITA_INCLUDE_DIRS})

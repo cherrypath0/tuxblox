@@ -91,6 +91,28 @@ constexpr const char* kStbLicenseTxt =
     "ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION\n"
     "WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.\n";
 
+constexpr const char* kNanosvgHeading = "nanosvg (SVG parser and rasteriser)\nhttps://github.com/memononen/nanosvg\n\n";
+
+// Short enough to keep here rather than fetch, the way stb_image.h's is, which also keeps one more download out of the build
+constexpr const char* kNanosvgLicenseTxt =
+    "Copyright (c) 2013-14 Mikko Mononen memon@inside.org\n"
+    "\n"
+    "This software is provided 'as-is', without any express or implied\n"
+    "warranty.  In no event will the authors be held liable for any damages\n"
+    "arising from the use of this software.\n"
+    "\n"
+    "Permission is granted to anyone to use this software for any purpose,\n"
+    "including commercial applications, and to alter it and redistribute it\n"
+    "freely, subject to the following restrictions:\n"
+    "\n"
+    "1. The origin of this software must not be misrepresented; you must not\n"
+    "claim that you wrote the original software. If you use this software\n"
+    "in a product, an acknowledgment in the product documentation would be\n"
+    "appreciated but is not required.\n"
+    "2. Altered source versions must be plainly marked as such, and must not be\n"
+    "misrepresented as being the original software.\n"
+    "3. This notice may not be removed or altered from any source distribution.\n";
+
 constexpr const char* kSimpleIconsHeading =
     "Simple Icons (GitHub, Discord brand marks, Roblox logo)\n"
     "Source: https://simpleicons.org\n\n";
@@ -223,6 +245,7 @@ void writeCopyrightFile(const std::string& installDir) {
         writeEntry(file, kInterHeading, kInterOflLicenseTxt, kInterOflLicenseTxtLen);
         writeEntry(file, kJsonHeading, kJsonLicenseTxt, kJsonLicenseTxtLen);
         writeEntry(file, kStbHeading, kStbLicenseTxt);
+        writeEntry(file, kNanosvgHeading, kNanosvgLicenseTxt);
         writeEntry(file, kSimpleIconsHeading, kSimpleIconsLicenseTxt);
 #ifdef TUXBLOX_LIBADWAITA_COMMIT
         writeEntry(file, kGtkHeading, kGtkLicenseTxt);
