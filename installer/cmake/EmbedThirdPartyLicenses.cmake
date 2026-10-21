@@ -29,7 +29,8 @@
 # which pinned commit it was copied from.
 
 set(JSON_LICENSE_URL "https://raw.githubusercontent.com/nlohmann/json/v3.11.3/LICENSE.MIT")
-set(LGPL21_LICENSE_URL "https://www.gnu.org/licenses/old-licenses/lgpl-2.1.txt")
+# The LGPLv2.1 text is kept in the tree rather than fetched: a build must not fail because gnu.org is unreachable, and the bytes shipped must not change under us.
+set(LGPL21_LICENSE_SRC "${CMAKE_SOURCE_DIR}/licenses/lgpl-2.1.txt")
 set(GENERATED_DIR "${CMAKE_BINARY_DIR}/generated")
 set(JSON_LICENSE_TXT_PATH "${GENERATED_DIR}/json-LICENSE.MIT")
 set(LGPL21_LICENSE_TXT_PATH "${GENERATED_DIR}/lgpl-2.1.txt")
@@ -51,12 +52,12 @@ add_custom_command(
 
 add_custom_command(
     OUTPUT ${LGPL21_LICENSE_HEADER_PATH}
-    COMMAND ${CMAKE_COMMAND} -DURL=${LGPL21_LICENSE_URL} -DDEST=${LGPL21_LICENSE_TXT_PATH}
-            -P ${CMAKE_SOURCE_DIR}/cmake/DownloadFile.cmake
+    COMMAND ${CMAKE_COMMAND} -E copy ${LGPL21_LICENSE_SRC} ${LGPL21_LICENSE_TXT_PATH}
     COMMAND ${CMAKE_COMMAND} -DINPUT=${LGPL21_LICENSE_TXT_PATH} -DOUTPUT=${LGPL21_LICENSE_HEADER_PATH}
             -DSYMBOL=kLgpl21LicenseTxt
             -P ${CMAKE_SOURCE_DIR}/cmake/BinToHeader.cmake
-    COMMENT "Fetching and embedding LGPLv2.1 license text (bundled GTK stack)"
+    DEPENDS ${LGPL21_LICENSE_SRC}
+    COMMENT "Embedding LGPLv2.1 license text (bundled GTK stack)"
     VERBATIM
 )
 
