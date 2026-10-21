@@ -96,17 +96,70 @@ BOOL tuxblox_program_name( char *buffer, size_t size )
 /* The same flags MessageBox takes: the low nibble picks the buttons, the next
  * one picks the icon, and 0x100 makes the second button the one Enter presses. */
 #define MSGBOX_BUTTONS          0x0000000f
+#define MSGBOX_OK               0x00000000
 #define MSGBOX_OKCANCEL         0x00000001
+#define MSGBOX_ABORTRETRYIGNORE 0x00000002
+#define MSGBOX_YESNOCANCEL      0x00000003
+#define MSGBOX_YESNO            0x00000004
+#define MSGBOX_RETRYCANCEL      0x00000005
+#define MSGBOX_CANCELTRYCONTINUE 0x00000006
 #define MSGBOX_ICON             0x000000f0
 #define MSGBOX_ICON_ERROR       0x00000010
 #define MSGBOX_ICON_QUESTION    0x00000020
 #define MSGBOX_ICON_WARNING     0x00000030
 #define MSGBOX_ICON_INFO        0x00000040
+#define MSGBOX_DEFBUTTON        0x00000f00
 #define MSGBOX_DEFBUTTON2       0x00000100
 
-#define MSGBOX_PRESSED_OK       0
-#define MSGBOX_DISMISSED        1
-#define MSGBOX_CANNOT_DRAW      2
+#define MSGBOX_NOT_SHOWN        (-1)
+#define MSGBOX_DISMISSED        (-2)
+/* The same two, as a drawn box's child has to report them through an exit code. */
+#define MSGBOX_EXIT_DISMISSED   8
+#define MSGBOX_EXIT_NOT_SHOWN   9
+#define MSGBOX_MAX_BUTTONS      3
+
+/* What a message box offers and what each answer is called back to the caller.
+ * The order is the order they are read in, which puts the one that carries on
+ * last, as every other TuxBlox window does -- Windows reads them the other way
+ * round, and nothing outside this table depends on which way that is. */
+struct msgbox_choice
+{
+    const char *label;
+    unsigned int response;
+};
+
+struct msgbox_choices
+{
+    struct msgbox_choice choice[MSGBOX_MAX_BUTTONS];
+    int count;
+    int preferred;      /* pressed by Enter unless the caller names another */
+    BOOL can_dismiss;   /* false where Windows would grey out the window's close button */
+};
+
+/* Chooses the set from the same flags MessageBox takes. */
+static void msgbox_set( unsigned int flags, struct msgbox_choices *set )
+{
+    static const struct msgbox_choices sets[] =
+    {
+        { { { "OK", ResponseOk } }, 1, 0, TRUE },
+        { { { "Cancel", ResponseCancel }, { "OK", ResponseOk } }, 2, 1, TRUE },
+        { { { "Abort", ResponseAbort }, { "Ignore", ResponseIgnore }, { "Retry", ResponseRetry } }, 3, 2, FALSE },
+        { { { "Cancel", ResponseCancel }, { "No", ResponseNo }, { "Yes", ResponseYes } }, 3, 2, TRUE },
+        { { { "No", ResponseNo }, { "Yes", ResponseYes } }, 2, 1, FALSE },
+        { { { "Cancel", ResponseCancel }, { "Retry", ResponseRetry } }, 2, 1, TRUE },
+        { { { "Cancel", ResponseCancel }, { "Continue", ResponseIgnore }, { "Try Again", ResponseRetry } }, 3, 2, TRUE },
+    };
+    unsigned int which = flags & MSGBOX_BUTTONS;
+    unsigned int chosen;
+
+    if (which >= ARRAY_SIZE(sets)) which = MSGBOX_OK;
+    *set = sets[which];
+
+    /* MB_DEFBUTTON2 and its neighbours count from the left as Windows reads
+     * them, so they are counted back from the right as this table reads them. */
+    chosen = (flags & MSGBOX_DEFBUTTON) >> 8;
+    if (chosen < (unsigned int)set->count) set->preferred = set->count - 1 - chosen;
+}
 
 /* Where the launcher writes its answer, and where it reads the window's icon, each as a number and as the argument that says so. */
 #define MSGBOX_ANSWER_FD        3
@@ -529,7 +582,7 @@ struct msgbox
     XFontStruct *core_font;
     struct msgbox_line lines[MSGBOX_MAX_LINES];
     int line_count;
-    struct msgbox_button buttons[2];
+    struct msgbox_button buttons[MSGBOX_MAX_BUTTONS];
     int button_count;
     unsigned int flags;
     int focused;
@@ -1412,8 +1465,8 @@ static void set_window_hints( struct msgbox *box, const char *title )
     p_XSetWMProtocols( box->display, box->window, &box->delete_window, 1 );
 }
 
-static int run_dialog( const char *title, const char *body, unsigned int flags, BOOL want_answer,
-                       int shown_fd, pid_t parent )
+static int run_dialog( const char *title, const char *body, unsigned int flags,
+                       const struct msgbox_choices *set, int shown_fd, pid_t parent )
 {
     struct msgbox box;
     char font_name[128];
@@ -1421,9 +1474,9 @@ static int run_dialog( const char *title, const char *body, unsigned int flags, 
     Window root;
 
     memset( &box, 0, sizeof(box) );
-    box.pressed = MSGBOX_DISMISSED;
+    box.pressed = MSGBOX_EXIT_DISMISSED;
 
-    if (!(box.display = p_XOpenDisplay( NULL ))) return MSGBOX_CANNOT_DRAW;
+    if (!(box.display = p_XOpenDisplay( NULL ))) return MSGBOX_EXIT_NOT_SHOWN;
 
     box.screen = p_XDefaultScreen( box.display );
     box.visual = p_XDefaultVisual( box.display, box.screen );
@@ -1473,13 +1526,8 @@ static int run_dialog( const char *title, const char *body, unsigned int flags, 
     }
 
     box.flags = flags;
-    box.buttons[box.button_count].label = "OK";
-    box.buttons[box.button_count++].affirmative = TRUE;
-    /* A second button when the caller asked for one, or when it is waiting for
-     * an answer and so has something to tell apart. */
-    if ((flags & MSGBOX_BUTTONS) == MSGBOX_OKCANCEL || (!(flags & MSGBOX_BUTTONS) && want_answer))
-        box.buttons[box.button_count++].label = "Cancel";
-    if ((flags & MSGBOX_DEFBUTTON2) && box.button_count > 1) box.focused = 1;
+    for (i = 0; i < set->count; i++) box.buttons[box.button_count++].label = set->choice[i].label;
+    box.focused = set->preferred;
     box.hot = -1;
 
     content_height = box.line_count * text_height( &box );
@@ -1551,7 +1599,7 @@ static int run_dialog( const char *title, const char *body, unsigned int flags, 
 
             if (index >= 0)
             {
-                box.pressed = box.buttons[index].affirmative ? MSGBOX_PRESSED_OK : MSGBOX_DISMISSED;
+                box.pressed = index;
                 break;
             }
         }
@@ -1572,11 +1620,10 @@ static int run_dialog( const char *title, const char *body, unsigned int flags, 
 
             if (key == XK_Return || key == XK_KP_Enter || key == XK_space)
             {
-                box.pressed = box.buttons[box.focused].affirmative ? MSGBOX_PRESSED_OK
-                                                                   : MSGBOX_DISMISSED;
+                box.pressed = box.focused;
                 break;
             }
-            if (key == XK_Escape) break;
+            if (key == XK_Escape && set->can_dismiss) break;
             /* The arrows walk the buttons, as they do in a Windows dialog. */
             if (key == XK_Left || key == XK_Right || key == XK_Tab)
             {
@@ -1632,7 +1679,7 @@ static enum dialog_wait wait_for_dialog( pid_t pid, int *status )
  * exit code can be lost -- a crashing program's own handler may reap the child
  * first -- and a lost answer would put the fallback box on screen underneath a
  * dialog that is already there. A byte can only come from a box that ran. */
-static enum dialog_wait read_dialog_answer( int fd, pid_t pid, int *pressed )
+static enum dialog_wait read_dialog_answer( int fd, pid_t pid, int *chosen )
 {
     ULONGLONG deadline = monotonic_counter() + 120000 * (ULONGLONG)10000;
 
@@ -1650,7 +1697,7 @@ static enum dialog_wait read_dialog_answer( int fd, pid_t pid, int *pressed )
             char answer;
 
             if (read( fd, &answer, 1 ) != 1) return DIALOG_LOST;
-            *pressed = answer == '1';
+            *chosen = answer >= '0' && answer <= '9' ? answer - '0' : MSGBOX_DISMISSED;
             return DIALOG_ANSWERED;
         }
         if (ready == -1 && errno != EINTR) return DIALOG_LOST;
@@ -1708,34 +1755,39 @@ static BOOL find_launcher( char *path, size_t size )
 /* The launcher draws every other window TuxBlox puts on screen, with the
  * interface libraries that ship beside it -- which this side cannot link
  * against -- so it is asked to draw this one too and to report the answer. */
-static int run_launcher_dialog( const char *title, const char *body, unsigned int flags, BOOL want_answer )
+static int run_launcher_dialog( const char *title, const char *body, const struct msgbox_choices *set )
 {
-    const char *args[11];
-    char path[PATH_MAX];
-    int fds[2], icon_fd, status = 0, count = 0, pressed = 0, answer;
+    const char *args[16];
+    char path[PATH_MAX], labels[128], preferred[8];
+    int fds[2], icon_fd, status = 0, count = 0, chosen = MSGBOX_DISMISSED, answer, i, at = 0;
     enum dialog_wait waited;
     pid_t pid;
 
-    if (!find_launcher( path, sizeof(path) )) return MSGBOX_CANNOT_DRAW;
-    if (pipe( fds ) == -1) return MSGBOX_CANNOT_DRAW;
+    if (!find_launcher( path, sizeof(path) )) return MSGBOX_NOT_SHOWN;
+    if (pipe( fds ) == -1) return MSGBOX_NOT_SHOWN;
 
     /* The window carries the icon of the program that raised the error, the
      * way the box Windows draws does. */
     icon_fd = open_program_icon();
 
+    for (i = 0; i < set->count && at < (int)sizeof(labels) - 1; i++)
+        at += snprintf( labels + at, sizeof(labels) - at, "%s%s", i ? "," : "", set->choice[i].label );
+    snprintf( preferred, sizeof(preferred), "%d", set->preferred );
+
     args[count++] = path;
     args[count++] = "--message-box";
     args[count++] = "--answer-fd";
     args[count++] = MSGBOX_ANSWER_FD_ARG;
+    args[count++] = "--buttons";
+    args[count++] = labels;
+    args[count++] = "--default";
+    args[count++] = preferred;
+    /* Windows greys out the close button for a question with no way to say no, and this box is shut in the same cases. */
+    if (!set->can_dismiss) args[count++] = "--no-dismiss";
     if (icon_fd != -1)
     {
         args[count++] = "--icon-fd";
         args[count++] = MSGBOX_ICON_FD_ARG;
-    }
-    if ((flags & MSGBOX_BUTTONS) == MSGBOX_OKCANCEL || (!(flags & MSGBOX_BUTTONS) && want_answer))
-    {
-        args[count++] = "--cancel";
-        if (flags & MSGBOX_DEFBUTTON2) args[count++] = "--default-cancel";
     }
     args[count++] = title ? title : "";
     args[count++] = body ? body : "";
@@ -1746,7 +1798,7 @@ static int run_launcher_dialog( const char *title, const char *body, unsigned in
         close( fds[0] );
         close( fds[1] );
         if (icon_fd != -1) close( icon_fd );
-        return MSGBOX_CANNOT_DRAW;
+        return MSGBOX_NOT_SHOWN;
     }
     if (!pid)
     {
@@ -1759,35 +1811,35 @@ static int run_launcher_dialog( const char *title, const char *body, unsigned in
         close( fds[0] );
         if (fds[1] != MSGBOX_ANSWER_FD)
         {
-            if (dup2( fds[1], MSGBOX_ANSWER_FD ) == -1) _exit( MSGBOX_CANNOT_DRAW );
+            if (dup2( fds[1], MSGBOX_ANSWER_FD ) == -1) _exit( MSGBOX_NOT_SHOWN );
             close( fds[1] );
         }
         if (icon_fd != -1 && icon_fd != MSGBOX_ICON_FD)
         {
-            if (dup2( icon_fd, MSGBOX_ICON_FD ) == -1) _exit( MSGBOX_CANNOT_DRAW );
+            if (dup2( icon_fd, MSGBOX_ICON_FD ) == -1) _exit( MSGBOX_NOT_SHOWN );
             close( icon_fd );
         }
         if (original) setenv( "LD_LIBRARY_PATH", original, 1 );
         else unsetenv( "LD_LIBRARY_PATH" );
         unsetenv( "LD_PRELOAD" );
         execv( path, (char **)args );
-        _exit( MSGBOX_CANNOT_DRAW );
+        _exit( MSGBOX_NOT_SHOWN );
     }
 
     close( fds[1] );
     if (icon_fd != -1) close( icon_fd );
-    waited = read_dialog_answer( fds[0], pid, &pressed );
+    waited = read_dialog_answer( fds[0], pid, &chosen );
     close( fds[0] );
 
-    if (waited == DIALOG_ANSWERED) answer = pressed ? MSGBOX_PRESSED_OK : MSGBOX_DISMISSED;
-    else answer = waited == DIALOG_TIMED_OUT ? MSGBOX_DISMISSED : MSGBOX_CANNOT_DRAW;
+    if (waited == DIALOG_ANSWERED) answer = chosen;
+    else answer = waited == DIALOG_TIMED_OUT ? MSGBOX_DISMISSED : MSGBOX_NOT_SHOWN;
 
-    /* Reaped however it went, so nothing is left behind. Its exit code is read
-     * only when it never answered, which is where it says whether it had a
-     * screen to draw on at all. */
+    /* Reaped however it went, so nothing is left behind. Its exit code says
+     * only whether it had a screen to draw on, which is all there is left to
+     * learn once no answer has come back. */
     if (wait_for_dialog( pid, &status ) == DIALOG_ANSWERED && waited == DIALOG_LOST &&
-        WIFEXITED(status) && WEXITSTATUS(status) <= MSGBOX_CANNOT_DRAW)
-        answer = WEXITSTATUS(status);
+        WIFEXITED(status) && WEXITSTATUS(status) < 2)
+        answer = MSGBOX_DISMISSED;
 
     return answer;
 }
@@ -1795,7 +1847,8 @@ static int run_launcher_dialog( const char *title, const char *body, unsigned in
 #ifdef SONAME_LIBX11
 
 /* Drawn here instead, for an install the launcher is missing from. */
-static int run_x11_dialog( const char *title, const char *body, unsigned int flags, BOOL want_answer )
+static int run_x11_dialog( const char *title, const char *body, unsigned int flags,
+                           const struct msgbox_choices *set )
 {
     int fds[2], status = 0;
     BOOL exited;
@@ -1803,14 +1856,14 @@ static int run_x11_dialog( const char *title, const char *body, unsigned int fla
     pid_t pid, parent;
     int code;
 
-    if (!load_libraries()) return MSGBOX_CANNOT_DRAW;
+    if (!load_libraries()) return MSGBOX_NOT_SHOWN;
     if (pipe( fds ) == -1) fds[0] = fds[1] = -1;
 
     parent = getpid();
     if ((pid = fork()) == -1)
     {
         if (fds[0] != -1) { close( fds[0] ); close( fds[1] ); }
-        return MSGBOX_CANNOT_DRAW;
+        return MSGBOX_NOT_SHOWN;
     }
     if (!pid)
     {
@@ -1821,7 +1874,7 @@ static int run_x11_dialog( const char *title, const char *body, unsigned int fla
         prctl( PR_SET_NAME, "TuxBloxDialog" );
 #endif
 
-        _exit( run_dialog( title, body, flags, want_answer, fds[1], parent ) );
+        _exit( run_dialog( title, body, flags, set, fds[1], parent ) );
     }
     if (fds[1] != -1) close( fds[1] );
 
@@ -1837,37 +1890,37 @@ static int run_x11_dialog( const char *title, const char *body, unsigned int fla
     /* The byte is written once the box is up, so a child that was killed
      * afterwards still counts as having asked the question. */
     exited = status != -1 && WIFEXITED(status);
-    code = exited ? WEXITSTATUS(status) : MSGBOX_CANNOT_DRAW;
-    if (!shown && code == MSGBOX_CANNOT_DRAW) return MSGBOX_CANNOT_DRAW;
-    return code == MSGBOX_PRESSED_OK ? MSGBOX_PRESSED_OK : MSGBOX_DISMISSED;
+    code = exited ? WEXITSTATUS(status) : MSGBOX_EXIT_NOT_SHOWN;
+    if (!shown && code == MSGBOX_EXIT_NOT_SHOWN) return MSGBOX_NOT_SHOWN;
+    return code < set->count ? code : MSGBOX_DISMISSED;
 }
 
 #endif /* SONAME_LIBX11 */
 
 
-BOOL tuxblox_show_message_box( const char *title, const char *body, ULONG flags, BOOL want_answer,
-                               BOOL *ran )
+BOOL tuxblox_show_message_box( const char *title, const char *body, ULONG flags, ULONG *response )
 {
     static int reentered;
+    struct msgbox_choices set;
     int answer;
 
-    *ran = FALSE;
-    /* A second hard error while one is on screen: the user is already being
-     * asked about the first, and answers for both would pile up. */
-    if (reentered)
-    {
-        *ran = TRUE;
-        return FALSE;
-    }
+    /* A second message while one is on screen: the user is already being asked
+     * about the first, and answers for both would pile up. */
+    if (reentered) return FALSE;
 
+    msgbox_set( flags, &set );
     reentered = 1;
-    answer = run_launcher_dialog( title, body, flags, want_answer );
+    answer = run_launcher_dialog( title, body, &set );
 #ifdef SONAME_LIBX11
-    if (answer == MSGBOX_CANNOT_DRAW) answer = run_x11_dialog( title, body, flags, want_answer );
+    if (answer == MSGBOX_NOT_SHOWN) answer = run_x11_dialog( title, body, flags, &set );
 #endif
     reentered = 0;
 
-    if (answer == MSGBOX_CANNOT_DRAW) return FALSE;
-    *ran = TRUE;
-    return answer == MSGBOX_PRESSED_OK;
+    if (answer == MSGBOX_NOT_SHOWN) return FALSE;
+    /* Dismissed means the box was read and waved away, which is the same thing
+     * the cancelling button says, and every set that can be dismissed has one. */
+    if (response)
+        *response = answer >= 0 && answer < set.count ? set.choice[answer].response
+                                                      : set.choice[0].response;
+    return TRUE;
 }

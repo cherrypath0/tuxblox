@@ -758,6 +758,55 @@ INT WINAPI MessageBoxIndirectA( LPMSGBOXPARAMSA msgbox )
     return ret;
 }
 
+/* The box TuxBlox draws for the rest of its windows, which is another program
+ * and so is asked for through the one call that reaches it. It answers with
+ * the response a hard error uses; each set of buttons gives every answer a
+ * different one, so which button was pressed comes back unambiguously.
+ * Returns 0 when there was no way to draw it and the dialog below must do it. */
+static INT MSGBOX_TuxBloxBox( LPMSGBOXPARAMSW msgbox )
+{
+    static const struct { HARDERROR_RESPONSE response; INT id; } answers[] =
+    {
+        { ResponseAbort,  IDABORT },
+        { ResponseCancel, IDCANCEL },
+        { ResponseIgnore, IDIGNORE },
+        { ResponseNo,     IDNO },
+        { ResponseOk,     IDOK },
+        { ResponseRetry,  IDRETRY },
+        { ResponseYes,    IDYES },
+    };
+    UNICODE_STRING text, caption;
+    HARDERROR_RESPONSE response = ResponseNotHandled;
+    PVOID params[3];
+    UINT i;
+
+    if (MSGBOX_ClassicStyle()) return 0;
+
+    RtlInitUnicodeString( &text, msgbox->lpszText ? msgbox->lpszText : L"" );
+    RtlInitUnicodeString( &caption, msgbox->lpszCaption ? msgbox->lpszCaption : L"" );
+    params[0] = &text;
+    params[1] = &caption;
+    params[2] = (PVOID)(ULONG_PTR)msgbox->dwStyle;
+
+    /* 0x40000018 is the status a program uses to say "show this to the user",
+     * and 3 marks the two strings among the parameters as strings. */
+    if (NtRaiseHardError( 0x40000018, 3, 3, params, 0, &response )) return 0;
+
+    for (i = 0; i < ARRAY_SIZE(answers); i++)
+    {
+        if (answers[i].response != response) continue;
+        /* The two answers Windows added later share a response with an older
+         * one, and only the set that was asked for tells them apart. */
+        if ((msgbox->dwStyle & MB_TYPEMASK) == MB_CANCELTRYCONTINUE)
+        {
+            if (answers[i].id == IDRETRY) return IDTRYAGAIN;
+            if (answers[i].id == IDIGNORE) return IDCONTINUE;
+        }
+        return answers[i].id;
+    }
+    return 0;
+}
+
 /**************************************************************************
  *		MessageBoxIndirectW (USER32.@)
  */
@@ -768,6 +817,20 @@ INT WINAPI MessageBoxIndirectW( LPMSGBOXPARAMSW msgbox )
     int ret;
     UINT i;
     struct ThreadWindows threadWindows;
+
+    /* Drawn by TuxBlox where it can be, so that every window the user is shown
+     * is the same window. The owner is disabled for as long as it is up, which
+     * is what makes it modal -- a box drawn by another program cannot belong to
+     * this one's window the way the dialog below does. */
+    {
+        HWND owner = msgbox->hwndOwner;
+        BOOL held = owner && IsWindow( owner ) && IsWindowEnabled( owner );
+
+        if (held) NtUserEnableWindow( owner, FALSE );
+        ret = MSGBOX_TuxBloxBox( msgbox );
+        if (held) NtUserEnableWindow( owner, TRUE );
+        if (ret) return ret;
+    }
 
     if (!(hRes = FindResourceExW(user32_module, (LPWSTR)RT_DIALOG, L"MSGBOX", msgbox->dwLanguageId)))
     {

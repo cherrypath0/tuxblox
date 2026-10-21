@@ -435,6 +435,16 @@ static BOOL diag_enabled(void)
 
 static void diag_bp_arm(void);
 
+/* The snapshot anchor env vars, read at init before the Unix environ is curated.
+ * diag_snap_sysret parses lazily on the first system-call return, but by then the
+ * TUXBLOX_* vars have been scrubbed from the environ (so Roblox cannot read the
+ * host environment), so the anchor never armed. diag_snap_parse_env() is called
+ * from the early diag path (beside diag_bp_arm) where getenv still sees them. */
+static void diag_snap_parse_env(void);
+static ULONG64 snap_want_rva;
+static int snap_want_nth = 1, snap_want_n = -1, snap_stop_after = -1, snap_parsed;
+static unsigned int snap_want_id;
+
 BOOL tuxblox_diag_enabled(void)
 {
     return diag_enabled();
@@ -810,6 +820,7 @@ void tuxblox_diag_note_syscall( ULONG64 rip, ULONG64 rsp, ULONG64 rax )
 
     if (!diag_enabled()) return;
     diag_bp_arm();
+    diag_snap_parse_env();
     tuxblox_diag_dump_ldr();
     tuxblox_diag_dump_keys( rip, rsp );
     tuxblox_diag_xpage_arm();
@@ -4597,37 +4608,42 @@ void tuxblox_diag_snap_note_map( ULONG64 size )
 }
 
 
+/* Read the snapshot-anchor env vars once. Called from the early diag path (beside
+ * diag_bp_arm) before the Unix environ is curated, so the TUXBLOX_* vars are still
+ * visible to getenv; a lazy read on the first system-call return saw them already
+ * scrubbed and never armed. */
+static void diag_snap_parse_env(void)
+{
+    const char *v;
+    char *end;
+
+    if (snap_parsed) return;
+    snap_parsed = 1;
+    if ((v = tuxblox_dev_getenv( "TUXBLOX_DIAG_SNAP_SYSRVA" )) && *v)
+    {
+        snap_want_rva = strtoull( v, &end, 16 );
+        if (*end == ',') snap_want_nth = atoi( end + 1 );
+    }
+    if ((v = tuxblox_dev_getenv( "TUXBLOX_DIAG_SNAP_SYSN" )) && *v) snap_want_n = atoi( v );
+    if ((v = tuxblox_dev_getenv( "TUXBLOX_DIAG_SNAP_SYSID" )) && *v)
+    {
+        snap_want_id = strtoul( v, &end, 0 );
+        if (*end == ',') snap_want_nth = atoi( end + 1 );
+    }
+    if ((v = tuxblox_dev_getenv( "TUXBLOX_DIAG_SNAP_STOP" ))) snap_stop_after = atoi( v );
+}
+
 static void diag_snap_sysret( unsigned int id, ULONG_PTR retval )
 {
 #ifdef __x86_64__
-    static ULONG64 want_rva;
-    static int want_nth = 1, want_n = -1, stop_after = -1, parsed, seen, fired, left;
-    static unsigned int want_id;
+    static int seen, fired, left = -2;
     static __thread unsigned int calls;
     ULONG64 regs[16], rip = 0, eflags = 0, base;
     char xmm[16 * 16];
 
-    if (!parsed)
-    {
-        const char *v;
-        char *end;
-
-        parsed = 1;
-        if ((v = tuxblox_dev_getenv( "TUXBLOX_DIAG_SNAP_SYSRVA" )) && *v)
-        {
-            want_rva = strtoull( v, &end, 16 );
-            if (*end == ',') want_nth = atoi( end + 1 );
-        }
-        if ((v = tuxblox_dev_getenv( "TUXBLOX_DIAG_SNAP_SYSN" )) && *v) want_n = atoi( v );
-        if ((v = tuxblox_dev_getenv( "TUXBLOX_DIAG_SNAP_SYSID" )) && *v)
-        {
-            want_id = strtoul( v, &end, 0 );
-            if (*end == ',') want_nth = atoi( end + 1 );
-        }
-        if ((v = tuxblox_dev_getenv( "TUXBLOX_DIAG_SNAP_STOP" ))) stop_after = atoi( v );
-        left = stop_after;
-    }
-    if (!want_rva && want_n < 0 && !want_id) return;
+    diag_snap_parse_env();
+    if (left == -2) left = snap_stop_after;
+    if (!snap_want_rva && snap_want_n < 0 && !snap_want_id) return;
     /* Nothing counts until the gate opens, so the ordinal is counted within the
      * iteration the caller asked for rather than across the whole walk. */
     if (snap_gate_size && !snap_gate_open) return;
@@ -4638,7 +4654,7 @@ static void diag_snap_sysret( unsigned int id, ULONG_PTR retval )
      * without the cap one snapshotted run left a 25 GB log. */
     if (fired)
     {
-        if (stop_after >= 0 && !left--)
+        if (snap_stop_after >= 0 && !left--)
         {
             ERR_(seh)( "DIAG snapshot: window captured, exiting\n" );
             fflush( NULL );                          /* _exit drops buffered output */
@@ -4651,15 +4667,15 @@ static void diag_snap_sysret( unsigned int id, ULONG_PTR retval )
      * so a site RVA read off an old log can simply never come up. The ceiling
      * has to sit past the whole run: the main thread passed 7,400 calls once
      * the relocation fix landed, and a 6,000 one cut every anchor after it. */
-    if (stop_after >= 0 &&
-        calls > (unsigned)(want_n >= 0 ? want_n + stop_after + 64 : 40000))
+    if (snap_stop_after >= 0 &&
+        calls > (unsigned)(snap_want_n >= 0 ? snap_want_n + snap_stop_after + 64 : 40000))
     {
         ERR_(seh)( "DIAG snapshot: anchor never matched by call %u, exiting\n", calls );
         fflush( NULL );
         _exit( 0 );
     }
 
-    if (want_id)
+    if (snap_want_id)
     {
         /* TUXBLOX_DIAG_SNAP_SYSID=<id>[,<nth>]: the nth call of one system call
          * on this thread. The steadiest anchor there is -- a call index shifts a
@@ -4669,20 +4685,20 @@ static void diag_snap_sysret( unsigned int id, ULONG_PTR retval )
          * Only the low 12 bits identify the call: the layer randomises the rest
          * of the number every run (the same NtSystemDebugControl came through as
          * 122175952 and then 261112272, both 0x1d0 in the bottom twelve bits). */
-        if ((id & 0xfff) != (want_id & 0xfff)) return;
-        if (++seen != want_nth) return;
+        if ((id & 0xfff) != (snap_want_id & 0xfff)) return;
+        if (++seen != snap_want_nth) return;
     }
-    else if (want_n >= 0)
+    else if (snap_want_n >= 0)
     {
         /* TUXBLOX_DIAG_SNAP_SYSN=<n>: the n-th traced call on this thread, which
          * is what the run log numbers and, unlike a site address, is stable. */
-        if (calls != (unsigned)want_n) return;
+        if (calls != (unsigned)snap_want_n) return;
     }
     else
     {
         if (!(base = tuxblox_roblox_dll_base())) return;
-        if (get_syscall_caller_pc() != base + want_rva) return;
-        if (++seen != want_nth) return;
+        if (get_syscall_caller_pc() != base + snap_want_rva) return;
+        if (++seen != snap_want_nth) return;
     }
     if (!get_syscall_caller_regs( regs, &rip, &eflags, xmm )) return;
 

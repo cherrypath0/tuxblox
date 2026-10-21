@@ -51,24 +51,28 @@ bool startsWith(const std::string& s, const char* prefix) {
     return s.rfind(prefix, 0) == 0;
 }
 
-// --message-box [--cancel] [--default-cancel] [--answer-fd N] [--icon-fd N] <title> <message>, which the layer
-// runs to put a message from Roblox itself on screen. The exit code is the answer -- 0 for OK, 1 for dismissed,
-// 2 for nothing drawn -- and with --answer-fd the same answer is written to that file as well, because a
-// crashing program's own handler can reap this process and take its exit code with it. Flags stop at the title,
-// so a message starting with "--" still arrives whole.
+// --message-box [--buttons L,L,...] [--default N] [--no-dismiss] [--answer-fd N] [--icon-fd N] <title> <body>,
+// layer runs to put a message from a Windows program on screen. --buttons names them in the order they are to
+// be read, and the answer is which one was pressed, counting from the left -- the caller chose the set, so it
+// already knows what each position means. The answer is written to --answer-fd as that number, or "x" when the
+// box was dismissed without one, because a crashing program's own handler can reap this process and take its
+// exit code with it. The exit code says the same thing more roughly: 0 pressed, 1 dismissed, 2 nothing drawn.
+// Flags stop at the title, so a message starting with "--" still arrives whole.
 int runMessageBoxCommand(int argc, char** argv) {
-    bool withCancel = false;
-    bool cancelIsDefault = false;
+    std::string buttons = "OK";
+    int defaultButton = -1;
+    bool canDismiss = true;
     int iconFd = -1;
     int answerFd = -1;
     int at = 0;
 
     for (; at < argc; ++at) {
         const std::string arg = argv[at];
-        if (arg == "--cancel") withCancel = true;
-        else if (arg == "--default-cancel") cancelIsDefault = true;
+        if (arg == "--buttons" && at + 1 < argc) buttons = argv[++at];
+        else if (arg == "--default" && at + 1 < argc) defaultButton = atoi(argv[++at]);
         else if (arg == "--answer-fd" && at + 1 < argc) answerFd = atoi(argv[++at]);
         else if (arg == "--icon-fd" && at + 1 < argc) iconFd = atoi(argv[++at]);
+        else if (arg == "--no-dismiss") canDismiss = false;
         else break;
     }
     if (argc - at != 2) {
@@ -76,20 +80,22 @@ int runMessageBoxCommand(int argc, char** argv) {
         return 2;
     }
 
-    const tuxblox::MessageBoxAnswer answer =
-        tuxblox::showRequestedMessageBox(argv[at], argv[at + 1], withCancel, cancelIsDefault, iconFd);
-    if (answerFd >= 0 && answer != tuxblox::MessageBoxAnswer::NoDisplay) {
+    const tuxblox::MessageBoxOutcome outcome =
+        tuxblox::showRequestedMessageBox(argv[at], argv[at + 1], buttons, defaultButton, canDismiss, iconFd);
+    if (answerFd >= 0 && outcome.how != tuxblox::MessageBoxOutcome::NoDisplay) {
         // Only ever written by a box that reached the screen, so the caller can tell a dismissed message from one it still has to deliver some other way.
-        const char byte = answer == tuxblox::MessageBoxAnswer::Pressed ? '1' : '0';
+        const char byte = outcome.how == tuxblox::MessageBoxOutcome::Pressed
+                              ? static_cast<char>('0' + outcome.button)
+                              : 'x';
         const ssize_t wrote = write(answerFd, &byte, 1);
         (void)wrote;
         close(answerFd);
     }
 
-    switch (answer) {
-        case tuxblox::MessageBoxAnswer::Pressed: return 0;
-        case tuxblox::MessageBoxAnswer::Dismissed: return 1;
-        case tuxblox::MessageBoxAnswer::NoDisplay: break;
+    switch (outcome.how) {
+        case tuxblox::MessageBoxOutcome::Pressed: return 0;
+        case tuxblox::MessageBoxOutcome::Dismissed: return 1;
+        case tuxblox::MessageBoxOutcome::NoDisplay: break;
     }
     return 2;
 }

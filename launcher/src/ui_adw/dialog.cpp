@@ -34,7 +34,8 @@ void onPressed(GtkButton *, gpointer data) {
     auto *pPress = static_cast<Press *>(data);
     // Closing the dialog can take the button, and this closure with it, so the callback is held onto first.
     const std::function<void()> callback = pPress->onPress;
-    adw_dialog_close(pPress->pDialog);
+    // Forced, because a dialog that may not be waved away still has to go when one of its own buttons is the answer.
+    adw_dialog_force_close(pPress->pDialog);
     if (callback) callback();
 }
 

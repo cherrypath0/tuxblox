@@ -214,8 +214,7 @@ extern NTSTATUS reject_foreign_object( HANDLE handle );
 
 extern const char *tuxblox_dev_getenv( const char *name );
 extern BOOL tuxblox_program_name( char *buffer, size_t size );
-extern BOOL tuxblox_show_message_box( const char *title, const char *body, ULONG flags, BOOL want_answer,
-                                      BOOL *ran );
+extern BOOL tuxblox_show_message_box( const char *title, const char *body, ULONG flags, ULONG *response );
 extern BOOL tuxblox_trace_enabled(void);
 extern void tuxblox_diag_snap_note_map( ULONG64 size );
 extern void tuxblox_trace_record( const char *surface, const char *detail );

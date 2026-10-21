@@ -151,23 +151,46 @@ void showErrorMessageBox(const std::string &title, const std::string &message) {
     showErrorMessageBoxWithAction(title, message, "");
 }
 
-MessageBoxAnswer showRequestedMessageBox(const std::string &title, const std::string &message, bool withCancel,
-                                         bool cancelIsDefault, int iconFd) {
-    bool startedGtk = false;
-    if (!startInterface(&startedGtk)) return MessageBoxAnswer::NoDisplay;
+MessageBoxOutcome showRequestedMessageBox(const std::string &title, const std::string &message,
+                                          const std::string &buttons, int defaultButton, bool canDismiss,
+                                          int iconFd) {
+    MessageBoxOutcome outcome;
 
-    bool pressed = false;
-    std::vector<DialogButton> buttons;
-    // Cancel first, so the button that goes on with whatever the message is about is the rightmost one, as it is everywhere else in TuxBlox
-    if (withCancel) buttons.push_back({"Cancel", nullptr, nullptr, cancelIsDefault});
-    buttons.push_back({"OK", "suggested-action", [&pressed] { pressed = true; }, false});
+    bool startedGtk = false;
+    if (!startInterface(&startedGtk)) return outcome;
+
+    // The caller sent them in the order they are to be read, so the one that carries on with whatever the message is about is the rightmost, as it is everywhere else in TuxBlox
+    std::vector<std::string> labels;
+    for (size_t at = 0; at <= buttons.size();) {
+        const size_t comma = buttons.find(',', at);
+        const size_t end = comma == std::string::npos ? buttons.size() : comma;
+        if (end > at) labels.push_back(buttons.substr(at, end - at));
+        if (comma == std::string::npos) break;
+        at = comma + 1;
+    }
+    if (labels.empty()) labels.push_back("OK");
+
+    std::vector<DialogButton> made;
+    for (size_t at = 0; at < labels.size(); ++at) {
+        const bool last = at + 1 == labels.size();
+        const int which = static_cast<int>(at);
+        made.push_back({labels[at], last ? "suggested-action" : nullptr,
+                        [&outcome, which] {
+                            outcome.how = MessageBoxOutcome::Pressed;
+                            outcome.button = which;
+                        },
+                        defaultButton < 0 ? last : which == defaultButton});
+    }
 
     GdkTexture *pIcon = readIconFd(iconFd);
-    runDialog(buildDialog(title, message, std::move(buttons)), pIcon);
+    outcome.how = MessageBoxOutcome::Dismissed;
+    AdwDialog *pDialog = buildDialog(title, message, std::move(made));
+    adw_dialog_set_can_close(pDialog, canDismiss);
+    runDialog(pDialog, pIcon);
     if (pIcon != nullptr) g_object_unref(pIcon);
 
     if (startedGtk) restoreBundledEnvironment();
-    return pressed ? MessageBoxAnswer::Pressed : MessageBoxAnswer::Dismissed;
+    return outcome;
 }
 
 } // namespace tuxblox

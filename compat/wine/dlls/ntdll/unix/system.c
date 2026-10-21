@@ -7131,7 +7131,7 @@ static BOOL notifier_has_actions(void)
  * answers or the notification expires, and this runs on the thread that is
  * reporting a crash, so it must not be able to hang the process for good. */
 static BOOL notify_desktop( const UNICODE_STRING *text, const UNICODE_STRING *caption, ULONG flags,
-                            BOOL want_answer )
+                            BOOL want_answer, ULONG *response )
 {
     char body[1024], title[256];
     BOOL pressed = FALSE;
@@ -7171,12 +7171,7 @@ static BOOL notify_desktop( const UNICODE_STRING *text, const UNICODE_STRING *ca
 
     /* Our own message box, as Windows shows one; the notification is what is
      * left for a session with no display to draw it on. */
-    {
-        BOOL ran = FALSE;
-        BOOL ok = tuxblox_show_message_box( title, body, flags, want_answer, &ran );
-
-        if (ran) return ok;
-    }
+    if (tuxblox_show_message_box( title, body, flags, response )) return TRUE;
 
     if (want_answer && !notifier_has_actions()) want_answer = FALSE;
     if (want_answer && pipe( fds ) == -1) want_answer = FALSE;
@@ -7243,6 +7238,8 @@ static BOOL notify_desktop( const UNICODE_STRING *text, const UNICODE_STRING *ca
     }
 
     while (waitpid( pid, NULL, 0 ) == -1 && errno == EINTR) ;
+    /* The notification only ever carries the one action, so pressing it says OK. */
+    if (pressed && response) *response = ResponseOk;
     return pressed;
 }
 
@@ -7252,6 +7249,7 @@ NTSTATUS WINAPI NtRaiseHardError( NTSTATUS status, ULONG count,
                                   HARDERROR_RESPONSE_OPTION option, HARDERROR_RESPONSE *response )
 {
     BOOL answered = FALSE;
+    ULONG answer = ResponseOk;
 
     tuxblox_diag_note_hard_error( (unsigned int)status );
 
@@ -7308,7 +7306,7 @@ NTSTATUS WINAPI NtRaiseHardError( NTSTATUS status, ULONG count,
         ULONG flags = (count >= 3 && !(params_mask & 4)) ? (ULONG)(ULONG_PTR)params[2] : 0;
 
         answered = notify_desktop( params[0], params[1], flags,
-                                   response && !getenv( "TUXBLOX_HARDERROR_RESPONSE" ) );
+                                   response && !getenv( "TUXBLOX_HARDERROR_RESPONSE" ), &answer );
     }
 
 
@@ -7333,7 +7331,7 @@ NTSTATUS WINAPI NtRaiseHardError( NTSTATUS status, ULONG count,
          * "no" it never heard. */
         if (answered)
         {
-            *response = ResponseOk;
+            *response = answer;
             return STATUS_SUCCESS;
         }
     }

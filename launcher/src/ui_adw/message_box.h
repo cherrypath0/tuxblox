@@ -25,16 +25,18 @@ void showErrorMessageBox(const std::string &title, const std::string &message);
 // The same popup with a second button beside OK, labelled actionLabel. True only if that button was pressed, so with no display it is always false.
 bool showErrorMessageBoxWithAction(const std::string &title, const std::string &message, const std::string &actionLabel);
 
-// How a message shown for another program ended.
-enum class MessageBoxAnswer {
-    Pressed,   // OK
-    Dismissed, // Cancel, Escape, or the window closed
-    NoDisplay  // nothing was drawn, so the caller still has to reach the person another way
+// How a message shown for another program ended. A button is named by where it sat, counting from the left, because the caller chose the set and so already knows what that position means.
+struct MessageBoxOutcome {
+    enum { Pressed, Dismissed, NoDisplay } how = NoDisplay;
+    int button = -1;
 };
 
 // Shows a message another TuxBlox program asked for and says how it ended. The compatibility layer asks for these: a message from Roblox itself is drawn here because that side cannot link the interface stack, so it would otherwise look like a different program.
+// buttons names one of the sets a Windows message box can offer, as its labels in order, separated by commas -- "OK", or "Cancel,OK", or "No,Yes". defaultButton is the one Enter presses, or -1 for the last.
 // iconFd, when not -1, is an open file holding the icon for the window: width and height as 32-bit numbers, then rows of red, green, blue and alpha from the top down. It is the raising program's own icon, so the window is its window wherever the desktop shows one. It is read and closed here.
-MessageBoxAnswer showRequestedMessageBox(const std::string &title, const std::string &message, bool withCancel,
-                                         bool cancelIsDefault, int iconFd);
+// canDismiss false leaves the box no way out but its buttons, which is what Windows does for a question that has no cancelling answer.
+MessageBoxOutcome showRequestedMessageBox(const std::string &title, const std::string &message,
+                                          const std::string &buttons, int defaultButton, bool canDismiss,
+                                          int iconFd);
 
 } // namespace tuxblox
