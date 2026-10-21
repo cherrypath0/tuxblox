@@ -240,6 +240,16 @@ buildWaylandprotocols() {
     mesonBuild wayland-protocols -Dtests=false
 }
 
+buildLibxml2() {
+    # GTK 4.20 requires librsvg, and its meson fallback subproject links libxml2; the builder's own copy is not ours to ship, so the stack carries one
+    # 2.13 is the last series whose soname is libxml2.so.2, which is what librsvg links against -- 2.14 installs libxml2.so.16 instead
+    fetchAndExtract "https://download.gnome.org/sources/libxml2/${LIBXML2_VERSION%.*}/libxml2-${LIBXML2_VERSION}.tar.xz" /build/libxml2
+    cd /build/libxml2
+    ./configure --prefix="$Prefix" --libdir="$LibDir" --disable-static --without-python --without-lzma --without-zlib --without-http --without-modules --without-readline
+    make -j"$JOBS"
+    make install
+    cd /build
+}
 buildGtk4() {
     fetchAndExtract "https://download.gnome.org/sources/gtk/${GTK4_VERSION%.*}/gtk-${GTK4_VERSION}.tar.xz" /build/gtk4
     # Both backends, and no Mesa: glvnd resolves the host's GL driver, which is what we want here
@@ -291,6 +301,7 @@ runStep libepoxy "$EPOXY_VERSION" buildLibepoxy
 runStep libxkbcommon "$XKBCOMMON_VERSION" buildLibxkbcommon
 runStep wayland "$WAYLAND_VERSION" buildWayland
 runStep wayland-protocols "$WAYLAND_PROTOCOLS_VERSION" buildWaylandprotocols
+runStep libxml2 "$LIBXML2_VERSION" buildLibxml2
 runStep gtk4 "$GTK4_VERSION" buildGtk4
 # The marker carries the submodule's commit, and an uncommitted edit always rebuilds; every other libadwaita marker goes, since the install in the prefix is about to be replaced
 case "${LIBADWAITA_SOURCE:?build.sh passes the submodule commit}" in
