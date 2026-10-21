@@ -22,7 +22,7 @@ set -euo pipefail
 BuildDir="${1:-build}"
 StackDirName="libtuxblox"
 # The C library version TuxBlox tells users it needs; raising it is a decision, not a build detail.
-GlibcFloor="GLIBC_2.25"
+GlibcFloor="GLIBC_2.29"
 
 # Libraries that have to come from the machine: the C library and the loader.
 GlibcNames='^(libc|libm|libdl|libpthread|librt|libresolv|libutil|libanl)\.so\.[0-9]+$'
