@@ -376,6 +376,8 @@ apply_patches() {
 #
 # build/.artifacts/ (build scratch) and build/runtime/ (the virtual drive, which
 # can hold a logged-in Roblox session) are deliberately never copied here.
+# TODO: possibly maybe a build "identifier" or "architecture", planning for ARM support soon next to x86_64, and the CDN would register it too: setup.tuxblox.net/{x86_64,arm64}/{version}/{channel}
+
 stage_release() {
     local version="$TUXBLOX_BUILD_VERSION"
     local channel="$TUXBLOX_CHANNEL"
