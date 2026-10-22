@@ -149,6 +149,26 @@ void test_a_partial_last_line_is_held_until_it_is_complete(const fs::path& dir) 
 }
 
 // A wrong timing match has to be visible, so the pane can name what it is actually following.
+// The page draws what it is handed and keeps it, so a file that starts over has to be announced --
+// otherwise everything already on screen arrives a second time underneath itself.
+void test_starting_over_is_announced(const fs::path& dir) {
+    const fs::path captured = dir / "n-captured.log";
+    append(captured, "TuxBlox: before\n");
+    SessionLogReader reader(captured.string(), "");
+    assert(reader.pump().size() == 1);
+    assert(!reader.startedOver());
+
+    std::ofstream(captured, std::ios::trunc).close();
+    append(captured, "TuxBlox: after\n");
+    assert(reader.pump().size() == 1);
+    assert(reader.startedOver());
+
+    // And it is only true for the pump it happened on.
+    append(captured, "TuxBlox: more\n");
+    reader.pump();
+    assert(!reader.startedOver());
+}
+
 void test_describe_sources_names_both_files(const fs::path& dir) {
     SessionLogReader reader((dir / "j-captured.log").string(), (dir / "j-roblox.log").string());
     const std::string described = reader.describeSources();
@@ -173,6 +193,7 @@ int main() {
     test_a_deleted_file_stops_producing_without_throwing(dir);
     test_a_replaced_file_is_reread_from_the_start(dir);
     test_a_partial_last_line_is_held_until_it_is_complete(dir);
+    test_starting_over_is_announced(dir);
     test_describe_sources_names_both_files(dir);
 
     fs::remove_all(dir);

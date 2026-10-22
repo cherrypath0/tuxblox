@@ -44,7 +44,7 @@ void installPageStyles() {
     done = true;
     GtkCssProvider *pProvider = gtk_css_provider_new();
     gtk_css_provider_load_from_string(pProvider,
-        "textview.sessionlog, textview.sessionlog text { font-family: \"Adwaita Mono\", monospace; font-size: 11px; }\n"
+        "textview.sessionlog, textview.sessionlog text { font-family: \"Adwaita Mono\", monospace; font-size: 12.5px; }\n"
         ".session-meta { font-family: \"Adwaita Mono\", monospace; font-size: 10px; }\n"
         ".session-tile { background: alpha(currentColor, 0.09); border-radius: 7px; min-width: 26px; min-height: 26px; }\n"
         ".session-dot { border-radius: 6px; min-width: 9px; min-height: 9px; border: 2px solid @sidebar_bg_color; }\n"
@@ -101,7 +101,7 @@ GtkWidget *SessionsPage::widget() const {
 GtkWidget *SessionsPage::buildList() {
     GtkWidget *pColumn = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
     // A floor, not a fixed width: the window can be taken down to 640 across and the list has to give way rather than hold it open.
-    gtk_widget_set_size_request(pColumn, 208, -1);
+    gtk_widget_set_size_request(pColumn, 240, -1);
 
     pSearch_ = gtk_search_entry_new();
     gtk_widget_set_margin_start(pSearch_, 8);
@@ -156,9 +156,9 @@ GtkWidget *SessionsPage::buildControls() {
     gtk_widget_set_margin_top(pStrip, 4);
     gtk_widget_set_margin_bottom(pStrip, 4);
 
-    gtk_box_append(GTK_BOX(pStrip), toggleButton(follow_, "Follow the tail", true));
-    gtk_box_append(GTK_BOX(pStrip), toggleButton(wrap_, "Wrap lines", true));
-    gtk_box_append(GTK_BOX(pStrip), toggleButton(tidy_, "Tidy", true));
+    follow_.on = true;
+    wrap_.on = true;
+    tidy_.on = true;
     gtk_box_append(GTK_BOX(pStrip), toggleButton(errorsOnly_, "Errors only", false));
 
     GtkWidget *pSpacer = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
@@ -304,6 +304,9 @@ GtkWidget *SessionsPage::buildLogPane() {
     gtk_text_view_set_left_margin(pLog_, 10);
     gtk_text_view_set_right_margin(pLog_, 10);
     gtk_text_view_set_top_margin(pLog_, 6);
+    // A log read as columns needs air between the rows, or it reads as a block rather than as lines.
+    gtk_text_view_set_pixels_above_lines(pLog_, 1);
+    gtk_text_view_set_pixels_below_lines(pLog_, 2);
     gtk_text_view_set_bottom_margin(pLog_, 6);
     pBuffer_ = gtk_text_view_get_buffer(pLog_);
 
@@ -438,19 +441,38 @@ void SessionsPage::selectSession(int pid) {
     matches_.clear();
     currentMatch_ = 0;
     pReader_.reset();
+    readerCaptured_.clear();
+    readerRoblox_.clear();
     readerScrolledAway_ = false;
     gtk_text_buffer_set_text(pBuffer_, "", 0);
-
-    for (const Session &session : app_.snapshot().sessionList) {
-        if (session.pid != pid) continue;
-        pReader_ = std::make_unique<SessionLogReader>(session.capturedLogPath, session.robloxLogPath);
-        break;
-    }
     gtk_label_set_text(pSources_, "");
     gtk_widget_set_visible(GTK_WIDGET(pSources_), FALSE);
     // Which file is being read is not something to spend a line on, but it is what somebody filing a bug report needs, so it stays within reach.
     gtk_widget_set_tooltip_text(GTK_WIDGET(pName_),
                                 pReader_ == nullptr ? nullptr : pReader_->describeSources().c_str());
+}
+
+void SessionsPage::reconcileReader(const AppSnapshot &snap) {
+    const Session *pSession = nullptr;
+    for (const Session &session : snap.sessionList) {
+        if (session.pid == selectedPid_) pSession = &session;
+    }
+    if (pSession == nullptr) return;
+
+    // Once a session is over, TuxBlox appends Roblox's log onto the end of its own and deletes the original -- so the capture alone is the whole thing, and going on reading both would show Roblox's half a second time.
+    const bool ended = !pSession->running;
+    const std::string wantCaptured = pSession->capturedLogPath;
+    const std::string wantRoblox = ended ? std::string() : pSession->robloxLogPath;
+
+    const bool sameFiles = pReader_ != nullptr && wantCaptured == readerCaptured_ && wantRoblox == readerRoblox_;
+    if (sameFiles && ended == !readerSessionRunning_) return;
+
+    pReader_ = std::make_unique<SessionLogReader>(wantCaptured, wantRoblox);
+    readerCaptured_ = wantCaptured;
+    readerRoblox_ = wantRoblox;
+    readerSessionRunning_ = !ended;
+    entries_.clear();
+    gtk_text_buffer_set_text(pBuffer_, "", 0);
 }
 
 void SessionsPage::appendEntry(const LogEntry &entry) {
@@ -490,6 +512,8 @@ void SessionsPage::showEntries() {
     gtk_text_buffer_set_text(pBuffer_, "", 0);
     for (const LogEntry &entry : entries_) appendEntry(entry);
     applyFind();
+    // Redrawing puts the view back at the top, which is not where anybody pressing a button in the toolbar was reading.
+    if (!readerScrolledAway_) scrollToTail();
 }
 
 void SessionsPage::applyFind() {
@@ -589,6 +613,7 @@ void SessionsPage::update(const AppSnapshot &snap) {
     // Nothing is selected yet, so the newest running session is a better first thing to look at than an empty pane.
     if (selectedPid_ == 0 && !shown.running.empty()) selectSession(shown.running.back().pid);
     refreshHeader(snap);
+    if (selectedPid_ != 0) reconcileReader(snap);
 
     // Reading two files is only worth doing while somebody is looking at them; this runs on the window's own tick, which fires for every page whether it is on screen or not.
     if (snap.activeTab != Tab::Sessions || pReader_ == nullptr) return;
@@ -601,6 +626,11 @@ void SessionsPage::update(const AppSnapshot &snap) {
     }
 
     std::vector<LogEntry> fresh = pReader_->pump();
+    // A file that was cleared or replaced is about to hand back everything already on screen.
+    if (pReader_->startedOver()) {
+        entries_.clear();
+        gtk_text_buffer_set_text(pBuffer_, "", 0);
+    }
     if (fresh.empty()) return;
 
     for (const LogEntry &entry : fresh) {

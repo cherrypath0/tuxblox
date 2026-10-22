@@ -84,6 +84,27 @@ void test_selected_sidebar_row_is_visible() {
     }
 }
 
+// The log is text on the view's own background, so each colour has to clear 4.5:1 against it in
+// both palettes. Hardcoded hex read fine on the dark one and was close to invisible on the light.
+void test_log_colours_are_readable_in_both_palettes() {
+    const char* const palettes[][3] = {{darkPaletteCss(), "dark", "#0e1117"},
+                                       {lightPaletteCss(), "light", "#ffffff"}};
+    const char* const names[] = {"log_time_color", "log_warning_color", "log_error_color", "log_ours_color"};
+    for (const auto& palette : palettes) {
+        for (const char* pName : names) {
+            const std::string colour = paletteColour(palette[0], pName);
+            assert(!colour.empty());
+            const double ratio = contrastRatio(colour, palette[2]);
+            if (ratio < 4.5) {
+                std::printf("%s palette: %s is %s on %s, which measures %.2f:1\n",
+                            palette[1], pName, colour.c_str(), palette[2], ratio);
+                std::fflush(stdout);
+            }
+            assert(ratio >= 4.5);
+        }
+    }
+}
+
 void test_dark_button_colours_pass_contrast() {
     checkWhiteTextPasses(darkPaletteCss(), "dark");
 }
@@ -100,6 +121,7 @@ int main() {
     test_extracts_a_colour();
     test_missing_colour_is_empty();
     test_selected_sidebar_row_is_visible();
+    test_log_colours_are_readable_in_both_palettes();
     test_dark_button_colours_pass_contrast();
     test_light_button_colours_pass_contrast();
     return 0;

@@ -97,6 +97,20 @@ void test_tidy_drops_the_uptime_and_thread_id() {
     assert(tidy.find("2026-10-22") == std::string::npos);
 }
 
+// Tidy is a view, not a transformation: the line as written has to survive for Raw to show it.
+void test_an_entry_keeps_the_line_as_written() {
+    const std::vector<LogEntry> entries = groupLogEntries({kPlainRoblox});
+    assert(entries[0].raw == kPlainRoblox);
+    assert(entries[0].raw.find("399.334290") != std::string::npos);
+    assert(entries[0].text.find("399.334290") == std::string::npos);
+}
+
+void test_continuations_keep_their_raw_lines_too() {
+    const std::vector<LogEntry> entries = groupLogEntries(kTraceback);
+    assert(entries[0].rawContinuation.size() == entries[0].continuation.size());
+    assert(entries[0].rawContinuation[2] == kTraceback[3]);
+}
+
 void test_tidy_leaves_a_tuxblox_line_alone() {
     assert(tidyLine(kTuxBloxLine) == kTuxBloxLine);
     assert(tidyLine(kWineFixme) == kWineFixme);
@@ -128,6 +142,36 @@ void test_invalid_utf8_becomes_replacement_characters() {
     assert(shown.find("ok") == 0);
     assert(shown.find("end") != std::string::npos);
     assert(shown.find("\xEF\xBF\xBD") != std::string::npos);
+}
+
+// GTK validates with g_utf8_validate and refuses the whole insert, so anything it calls invalid has
+// to be replaced here. Lead-byte shape alone is not enough: these all have valid-looking shapes.
+void test_overlong_encodings_are_rejected() {
+    const char* const overlong[] = {"\xC0\x80", "\xC1\xBF", "\xE0\x80\x80", "\xF0\x80\x80\x80"};
+    for (const char* bad : overlong) {
+        const std::string shown = toDisplayableText(std::string("a") + bad + "b");
+        assert(shown.find("\xEF\xBF\xBD") != std::string::npos);
+        assert(shown.find(bad) == std::string::npos);
+    }
+}
+
+void test_surrogates_are_rejected() {
+    const std::string shown = toDisplayableText(std::string("a\xED\xA0\x80z"));
+    assert(shown.find("\xEF\xBF\xBD") != std::string::npos);
+    assert(shown.find("\xED\xA0\x80") == std::string::npos);
+}
+
+void test_values_past_the_last_code_point_are_rejected() {
+    for (const std::string bad : {std::string("\xF4\x90\x80\x80"), std::string("\xF5\x80\x80\x80")}) {
+        const std::string shown = toDisplayableText("a" + bad + "z");
+        assert(shown.find("\xEF\xBF\xBD") != std::string::npos);
+        assert(shown.find(bad) == std::string::npos);
+    }
+}
+
+void test_the_highest_valid_code_point_survives() {
+    const std::string highest = "\xF4\x8F\xBF\xBF";
+    assert(toDisplayableText(highest) == highest);
 }
 
 void test_valid_utf8_is_untouched() {
@@ -176,11 +220,17 @@ int main() {
     test_the_level_covers_the_whole_entry();
     test_error_and_warning_levels_are_read();
     test_tidy_drops_the_uptime_and_thread_id();
+    test_an_entry_keeps_the_line_as_written();
+    test_continuations_keep_their_raw_lines_too();
     test_tidy_leaves_a_tuxblox_line_alone();
     test_a_tuxblox_line_is_tagged_as_ours();
     test_a_wine_fixme_line_is_tagged_as_ours();
     test_a_roblox_line_is_tagged_as_roblox();
     test_invalid_utf8_becomes_replacement_characters();
+    test_overlong_encodings_are_rejected();
+    test_surrogates_are_rejected();
+    test_values_past_the_last_code_point_are_rejected();
+    test_the_highest_valid_code_point_survives();
     test_valid_utf8_is_untouched();
     test_find_counts_matches_across_continuations();
     test_find_is_case_insensitive();

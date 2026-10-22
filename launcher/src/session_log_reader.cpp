@@ -61,7 +61,11 @@ std::vector<std::string> SessionLogReader::drain(Stream& stream) {
     describeFile(stream.path, size, inode);
     // A file that shrank was cleared, and one with a new identity was replaced. Either way the follower's place in it is meaningless now -- it is holding an offset past the end, or an open handle on a file nobody can see any more -- and it would never produce another line. Size alone misses a replacement that is already longer than what it replaced.
     const bool replaced = stream.inode != 0 && inode != 0 && inode != stream.inode;
-    if (size < stream.seen || replaced) stream.tail.reset();
+    if (size < stream.seen || replaced) {
+        stream.tail.reset();
+        // Only counts as starting over if there was something to start over from.
+        if (stream.produced) startedOver_ = true;
+    }
     stream.seen = size;
     stream.inode = inode;
 
@@ -81,6 +85,7 @@ std::vector<std::string> SessionLogReader::drain(Stream& stream) {
 }
 
 std::vector<LogEntry> SessionLogReader::pump() {
+    startedOver_ = false;
     std::vector<std::string> lines = drain(captured_);
     const std::vector<std::string> fromRoblox = drain(roblox_);
     lines.insert(lines.end(), fromRoblox.begin(), fromRoblox.end());
@@ -102,6 +107,10 @@ std::string SessionLogReader::describeSources() const {
     if (roblox_.path.empty()) return nameOnly(captured_.path);
     if (captured_.path.empty()) return nameOnly(roblox_.path);
     return nameOnly(captured_.path) + " and " + nameOnly(roblox_.path);
+}
+
+bool SessionLogReader::startedOver() const {
+    return startedOver_;
 }
 
 bool SessionLogReader::robloxLogAppeared() const {

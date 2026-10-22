@@ -59,6 +59,8 @@ private:
     void rebuildList(const SessionsView &view);
     void updateMetaInPlace(const SessionsView &view);
     void selectSession(int pid);
+    // Keeps the reader pointed at what the session actually has now: Roblox writes its log a moment after its process exists, and when a session ends TuxBlox folds that log into its own, so the files a reader was built with go stale underneath it.
+    void reconcileReader(const AppSnapshot &snap);
     void showEntries();
     void appendEntry(const LogEntry &entry);
     void applyFind();
@@ -110,6 +112,9 @@ private:
     Toggle errorsOnly_;
 
     std::unique_ptr<SessionLogReader> pReader_;
+    std::string readerCaptured_;
+    std::string readerRoblox_;
+    bool readerSessionRunning_ = true;
     std::vector<LogEntry> entries_;
     int selectedPid_ = 0;
     // Set only when the reader actually scrolls. Working it out from the scrollbar instead latches: the scroll the page asks for is carried out later, so the next tick reads a stale position, decides the reader moved away, and then never scrolls again.

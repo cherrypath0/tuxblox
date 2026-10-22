@@ -42,6 +42,9 @@ public:
     // The files being followed, so a session matched to the wrong log is something a reader can see rather than something they are quietly misled by.
     std::string describeSources() const;
 
+    // True when the last pump started a file over from the beginning, because it was cleared or replaced. Everything already shown is about to arrive again, so the caller has to throw its copy away rather than append to it.
+    bool startedOver() const;
+
     // Whether Roblox's own log has produced anything yet. False means the pane says so instead of looking like a session with nothing to report.
     bool robloxLogAppeared() const;
 
@@ -58,6 +61,7 @@ private:
 
     Stream captured_;
     Stream roblox_;
+    bool startedOver_ = false;
 };
 
 } // namespace tuxblox
