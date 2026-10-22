@@ -45,18 +45,18 @@ void installPageStyles() {
     GtkCssProvider *pProvider = gtk_css_provider_new();
     gtk_css_provider_load_from_string(pProvider,
         "textview.sessionlog, textview.sessionlog text { font-family: \"Adwaita Mono\", monospace; font-size: 12.5px; }\n"
-        ".session-meta { font-family: \"Adwaita Mono\", monospace; font-size: 10px; }\n"
-        ".session-tile { background: alpha(currentColor, 0.09); border-radius: 7px; min-width: 26px; min-height: 26px; }\n"
-        ".session-dot { border-radius: 6px; min-width: 9px; min-height: 9px; border: 2px solid @sidebar_bg_color; }\n"
+        ".session-meta { font-family: \"Adwaita Mono\", monospace; font-size: 11.5px; opacity: 0.92; }\n"
+        ".session-tile { background: alpha(currentColor, 0.1); border-radius: 8px; min-width: 30px; min-height: 30px; }\n"
+        ".session-dot { border-radius: 6px; min-width: 10px; min-height: 10px; border: 2px solid @sidebar_bg_color; }\n"
         ".session-dot.running { background: #34d399; }\n"
         ".session-dot.ended { background: #4b5563; }\n"
         ".session-dot.crashed { background: #b45252; }\n"
-        ".session-chip { border-radius: 5px; padding: 1px 7px; font-size: 9.5px; font-weight: 700; }\n"
+        ".session-chip { border-radius: 6px; padding: 2px 9px; font-size: 11px; font-weight: 700; }\n"
         ".session-chip.running { background: alpha(#34d399, 0.16); color: #34d399; }\n"
         ".session-chip.ended { background: alpha(currentColor, 0.1); }\n"
-        ".log-toggle { font-size: 11px; padding: 2px 9px; min-height: 22px; }\n"
+        ".log-toggle { font-size: 12px; padding: 3px 12px; min-height: 26px; box-shadow: inset 0 0 0 1px alpha(currentColor, 0.22); }\n"
         ".log-toggle:checked { background: alpha(#4aa8db, 0.28); color: #bfe3f7; font-weight: 700; box-shadow: inset 0 0 0 1px alpha(#4aa8db, 0.55); }\n"
-        ".log-count { font-family: \"Adwaita Mono\", monospace; font-size: 10px; }\n");
+        ".log-count { font-family: \"Adwaita Mono\", monospace; font-size: 11.5px; opacity: 0.92; }\n");
     gtk_style_context_add_provider_for_display(gdk_display_get_default(), GTK_STYLE_PROVIDER(pProvider),
                                                GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
     g_object_unref(pProvider);
@@ -75,7 +75,7 @@ GtkWidget *sectionLabel(const char *pText) {
 
 GtkWidget *iconButton(const unsigned char *pIcon, size_t length, const char *pTooltip) {
     GtkWidget *pButton = gtk_button_new();
-    gtk_button_set_child(GTK_BUTTON(pButton), iconImage(pIcon, length, 16));
+    gtk_button_set_child(GTK_BUTTON(pButton), iconImage(pIcon, length, 18));
     gtk_widget_add_css_class(pButton, "flat");
     gtk_widget_set_tooltip_text(pButton, pTooltip);
     return pButton;
@@ -381,11 +381,13 @@ void SessionsPage::rebuildList(const SessionsView &view) {
             GtkWidget *pDot = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
             gtk_widget_add_css_class(pDot, "session-dot");
             gtk_widget_add_css_class(pDot, entry.running ? "running" : (entry.crashed ? "crashed" : "ended"));
+            gtk_widget_set_size_request(pDot, 10, 10);
             gtk_widget_set_halign(pDot, GTK_ALIGN_END);
             gtk_widget_set_valign(pDot, GTK_ALIGN_END);
 
             GtkWidget *pTile = gtk_overlay_new();
             gtk_widget_add_css_class(pTile, "session-tile");
+            gtk_widget_set_size_request(pTile, 30, 30);
             gtk_widget_set_valign(pTile, GTK_ALIGN_CENTER);
             gtk_overlay_set_child(GTK_OVERLAY(pTile), pIcon);
             gtk_overlay_add_overlay(GTK_OVERLAY(pTile), pDot);
@@ -512,8 +514,15 @@ void SessionsPage::showEntries() {
     gtk_text_buffer_set_text(pBuffer_, "", 0);
     for (const LogEntry &entry : entries_) appendEntry(entry);
     applyFind();
-    // Redrawing puts the view back at the top, which is not where anybody pressing a button in the toolbar was reading.
-    if (!readerScrolledAway_) scrollToTail();
+    // Redrawing puts the view back at the top, which is nowhere anybody wants to be. The scroll is
+    // queued rather than done here, because the lines just inserted have not been laid out yet.
+    readerScrolledAway_ = false;
+    g_idle_add(scrollToTailWhenDrawn, this);
+}
+
+gboolean SessionsPage::scrollToTailWhenDrawn(gpointer data) {
+    static_cast<SessionsPage *>(data)->scrollToTail();
+    return G_SOURCE_REMOVE;
 }
 
 void SessionsPage::applyFind() {

@@ -89,8 +89,28 @@ std::vector<LogEntry> SessionLogReader::pump() {
     std::vector<std::string> lines = drain(captured_);
     const std::vector<std::string> fromRoblox = drain(roblox_);
     lines.insert(lines.end(), fromRoblox.begin(), fromRoblox.end());
-    if (lines.empty()) return {};
-    return groupLogEntries(lines);
+    if (startedOver_) held_.clear();
+
+    // Nothing new means the writer has paused, so whatever was being held is as finished as it is going to get.
+    if (lines.empty()) {
+        if (held_.empty()) return {};
+        std::vector<std::string> complete;
+        complete.swap(held_);
+        return groupLogEntries(complete);
+    }
+
+    std::vector<std::string> all;
+    all.swap(held_);
+    all.insert(all.end(), lines.begin(), lines.end());
+
+    std::vector<LogEntry> entries = groupLogEntries(all);
+    if (entries.empty()) return entries;
+
+    // The last one stays behind: the very next line read could belong to it.
+    held_.push_back(entries.back().raw);
+    for (const std::string& more : entries.back().rawContinuation) held_.push_back(more);
+    entries.pop_back();
+    return entries;
 }
 
 namespace {

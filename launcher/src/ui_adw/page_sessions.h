@@ -65,6 +65,7 @@ private:
     void appendEntry(const LogEntry &entry);
     void applyFind();
     void scrollToTail();
+    static gboolean scrollToTailWhenDrawn(gpointer data);
     void refreshHeader(const AppSnapshot &snap);
 
     static void onSearchChanged(GtkEditable *pEditable, gpointer data);

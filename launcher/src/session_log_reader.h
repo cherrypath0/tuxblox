@@ -61,6 +61,8 @@ private:
 
     Stream captured_;
     Stream roblox_;
+    // The newest entry, held until something proves it finished. A message that runs over several lines can straddle two reads, and half a traceback handed over as its own entry loses the warning it belongs to and is hidden outright by "Errors only".
+    std::vector<std::string> held_;
     bool startedOver_ = false;
 };
 
