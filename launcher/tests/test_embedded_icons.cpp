@@ -29,7 +29,17 @@
 #include "asset_roblox_player.h"
 #include "asset_roblox_rdd.h"
 #include "asset_roblox_studio.h"
+#include "asset_chevron_down.h"
+#include "asset_chevron_up.h"
+#include "asset_close.h"
+#include "asset_copy.h"
+#include "asset_folder.h"
+#include "asset_follow.h"
+#include "asset_save.h"
 #include "asset_scale.h"
+#include "asset_search.h"
+#include "asset_sessions.h"
+#include "asset_wrap.h"
 #include "asset_settings.h"
 #include "asset_stop.h"
 #include "asset_tuxblox_icon.h"
@@ -67,6 +77,16 @@ const Icon kSymbolics[] = {
     {"roblox-player", kAssetRobloxPlayer, kAssetRobloxPlayerLen},
     {"roblox-studio", kAssetRobloxStudio, kAssetRobloxStudioLen},
     {"roblox-rdd", kAssetRobloxRdd, kAssetRobloxRddLen},
+    {"sessions", kAssetSessions, kAssetSessionsLen},
+    {"follow", kAssetFollow, kAssetFollowLen},
+    {"wrap", kAssetWrap, kAssetWrapLen},
+    {"copy", kAssetCopy, kAssetCopyLen},
+    {"save", kAssetSave, kAssetSaveLen},
+    {"folder", kAssetFolder, kAssetFolderLen},
+    {"search", kAssetSearch, kAssetSearchLen},
+    {"close", kAssetClose, kAssetCloseLen},
+    {"chevron-up", kAssetChevronUp, kAssetChevronUpLen},
+    {"chevron-down", kAssetChevronDown, kAssetChevronDownLen},
 };
 
 void drawsSomethingAt(const Icon& icon, int size) {

@@ -41,4 +41,11 @@ std::time_t robloxLogStartTime(const std::string& filename);
 std::vector<std::string> matchSessionLogs(const std::vector<LogCandidate>& candidates,
                                           const std::vector<Session>& sessions);
 
+// How far before a session its own capture may have been created. The file is opened, then the compatibility layer starts, and on a drive it has to build first that can take minutes before Roblox itself exists.
+const std::time_t kCaptureLeadSeconds = 600;
+
+// One capture for each session, the same way, but bounded the other way round: TuxBlox opens its own log just BEFORE the session it wraps, where Roblox writes its log just after.
+std::vector<std::string> matchCapturedLogs(const std::vector<LogCandidate>& candidates,
+                                           const std::vector<Session>& sessions);
+
 } // namespace tuxblox

@@ -86,4 +86,28 @@ std::vector<std::string> matchSessionLogs(const std::vector<LogCandidate>& candi
     return matched;
 }
 
+std::vector<std::string> matchCapturedLogs(const std::vector<LogCandidate>& candidates,
+                                           const std::vector<Session>& sessions) {
+    std::vector<std::string> matched(sessions.size());
+    std::vector<bool> claimed(candidates.size(), false);
+
+    for (size_t s = 0; s < sessions.size(); ++s) {
+        const Session& session = sessions[s];
+        size_t best = candidates.size();
+        for (size_t c = 0; c < candidates.size(); ++c) {
+            if (claimed[c]) continue;
+            const LogCandidate& candidate = candidates[c];
+            if (candidate.target != session.target) continue;
+            if (candidate.startedAt > session.startedAt) continue;
+            if (session.startedAt - candidate.startedAt > kCaptureLeadSeconds) continue;
+            // The closest one before the session, since an older one belongs to an earlier run.
+            if (best == candidates.size() || candidate.startedAt > candidates[best].startedAt) best = c;
+        }
+        if (best == candidates.size()) continue;
+        claimed[best] = true;
+        matched[s] = candidates[best].path;
+    }
+    return matched;
+}
+
 } // namespace tuxblox

@@ -1,0 +1,102 @@
+// TuxBlox - Linux Compatibility Layer for the Roblox Engine
+// Copyright (C) 2026 TuxBlox Developers
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+#pragma once
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "app.h"
+#include "log_entry.h"
+#include "page.h"
+#include "session_log_reader.h"
+#include "sessions_page_state.h"
+
+// Third Parties
+#include <adwaita.h>
+
+namespace tuxblox {
+
+class SessionsPage : public Page {
+public:
+    explicit SessionsPage(App &app);
+    GtkWidget *widget() const override;
+    void update(const AppSnapshot &snap) override;
+
+private:
+    struct Toggle {
+        GtkWidget *pButton = nullptr;
+        bool on = false;
+    };
+
+    GtkWidget *buildList();
+    GtkWidget *buildLogPane();
+    GtkWidget *buildControls();
+    GtkWidget *buildFindBar();
+    GtkWidget *toggleButton(Toggle &toggle, const char *pLabel, bool on);
+
+    void rebuildList(const SessionsView &view);
+    void selectSession(int pid);
+    void showEntries();
+    void appendEntry(const LogEntry &entry);
+    void applyFind();
+    void refreshHeader(const AppSnapshot &snap);
+
+    static void onSearchChanged(GtkEditable *pEditable, gpointer data);
+    static void onRowActivated(GtkListBox *pList, GtkListBoxRow *pRow, gpointer data);
+    static void onToggle(GtkButton *pButton, gpointer data);
+    static void onStopClicked(GtkButton *pButton, gpointer data);
+    static void onRowStopClicked(GtkButton *pButton, gpointer data);
+    static void onCopyClicked(GtkButton *pButton, gpointer data);
+    static void onSaveClicked(GtkButton *pButton, gpointer data);
+    static void onFolderClicked(GtkButton *pButton, gpointer data);
+    static void onFindChanged(GtkEditable *pEditable, gpointer data);
+    static void onFindStep(GtkButton *pButton, gpointer data);
+
+    App &app_;
+    GtkWidget *pRoot_ = nullptr;
+
+    GtkWidget *pSearch_ = nullptr;
+    GtkWidget *pListBox_ = nullptr;
+    GtkWidget *pEmpty_ = nullptr;
+    std::vector<GtkWidget *> rows_;
+
+    GtkLabel *pName_ = nullptr;
+    GtkLabel *pState_ = nullptr;
+    GtkLabel *pMeta_ = nullptr;
+    GtkLabel *pSources_ = nullptr;
+    GtkWidget *pStop_ = nullptr;
+
+    GtkTextView *pLog_ = nullptr;
+    GtkTextBuffer *pBuffer_ = nullptr;
+    GtkWidget *pLogScroll_ = nullptr;
+    GtkWidget *pFind_ = nullptr;
+    GtkLabel *pFindCount_ = nullptr;
+
+    Toggle follow_;
+    Toggle wrap_;
+    Toggle tidy_;
+    Toggle errorsOnly_;
+
+    std::unique_ptr<SessionLogReader> pReader_;
+    std::vector<LogEntry> entries_;
+    int selectedPid_ = 0;
+    std::string renderedQuery_;
+    size_t currentMatch_ = 0;
+    std::vector<LogMatch> matches_;
+};
+
+} // namespace tuxblox

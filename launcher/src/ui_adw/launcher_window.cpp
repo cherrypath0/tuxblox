@@ -21,6 +21,7 @@
 #include "asset_info.h"
 #include "asset_roblox_rdd.h"
 #include "asset_tuxblox_icon.h"
+#include "asset_sessions.h"
 #include "asset_settings.h"
 #include "desktop_integration.h"
 #include "desktop_notify.h"
@@ -28,6 +29,7 @@
 #include "page_about.h"
 #include "page_fastflags.h"
 #include "page_home.h"
+#include "page_sessions.h"
 #include "page_settings.h"
 #include "page_versions.h"
 #include "widgets.h"
@@ -264,6 +266,7 @@ void onActivate(GtkApplication *pGtkApp, gpointer data) {
     app.startUpdateCheck();
 
     addPage(*pUi, Tab::Start, "Home", kAssetHome, kAssetHomeLen, false, std::make_unique<HomePage>(app));
+    addPage(*pUi, Tab::Sessions, "Sessions", kAssetSessions, kAssetSessionsLen, false, std::make_unique<SessionsPage>(app));
     addPage(*pUi, Tab::Versions, "Versions", kAssetRobloxRdd, kAssetRobloxRddLen, false, std::make_unique<VersionsPage>(app));
     addPage(*pUi, Tab::FastFlags, "FastFlags", kAssetFastflags, kAssetFastflagsLen, false, std::make_unique<FastFlagsPage>(app));
     addPage(*pUi, Tab::Settings, "Settings", kAssetSettings, kAssetSettingsLen, false, std::make_unique<SettingsPage>(app));

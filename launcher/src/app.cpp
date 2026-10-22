@@ -15,6 +15,9 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "app.h"
+#include "roblox_log_capture.h"
+#include "process_launcher.h"
+#include "session_log_match.h"
 #include "child_environment.h"
 #include "prefix_user.h"
 #include "root_guard.h"
@@ -31,6 +34,7 @@
 #include <filesystem>
 #include <fstream>
 #include <optional>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
 #include <vector>
@@ -111,6 +115,7 @@ App::~App() {
     versionInstallCancel_.store(true);
     sessionPollStop_.store(true);
     if (sessionPollThread_.joinable()) sessionPollThread_.join();
+    if (stopOneThread_.joinable()) stopOneThread_.join();
     if (stopPlayerThread_.joinable()) stopPlayerThread_.join();
     if (stopStudioThread_.joinable()) stopStudioThread_.join();
     if (terminateThread_.joinable()) terminateThread_.join();
@@ -372,9 +377,20 @@ void App::sessionPollThreadMain() {
         if (sessionPollStop_.load()) return;
 
         PrefixSessions sessions = prefixSessions(installDir_ + "/runtime/pfx");
+        std::vector<Session> live = liveSessionsIn("/proc", installDir_ + "/runtime/pfx");
+
+        std::vector<Session> previous;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            previous = snapshot_.sessionList;
+        }
+        std::vector<Session> merged = mergeSessions(previous, live);
+        resolveSessionLogs(merged);
+
         {
             std::lock_guard<std::mutex> lock(mutex_);
             snapshot_.sessions = sessions;
+            snapshot_.sessionList = merged;
             if (sessions.player == 0) snapshot_.stoppingPlayer = false;
             if (sessions.studio == 0) snapshot_.stoppingStudio = false;
         }
@@ -427,6 +443,100 @@ void App::requestStopSessions(LaunchTarget target) {
         }
     }
     thread = std::thread(&App::stopSessionsThreadMain, this, target);
+}
+
+namespace {
+
+// The logs in one folder that could belong to a session, with when each says it began.
+std::vector<LogCandidate> logCandidatesIn(const std::string& dir, bool fromNameOnly) {
+    std::vector<LogCandidate> candidates;
+    std::error_code error;
+    std::filesystem::directory_iterator entries(dir, error);
+    if (error) return candidates;
+
+    for (const std::filesystem::directory_entry& entry : entries) {
+        const std::string name = entry.path().filename().string();
+        LogCandidate candidate;
+        if (name.find("_Player_") != std::string::npos || name.rfind("Player-", 0) == 0) {
+            candidate.target = LaunchTarget::Player;
+        } else if (name.find("_Studio_") != std::string::npos || name.rfind("Studio-", 0) == 0) {
+            candidate.target = LaunchTarget::Studio;
+        } else {
+            continue;
+        }
+        candidate.path = entry.path().string();
+        candidate.startedAt = robloxLogStartTime(name);
+        // A name with no stamp in it falls back on when the file was last written, which is the best the file itself can say.
+        if (candidate.startedAt == 0 && !fromNameOnly) {
+            struct stat status {};
+            if (::stat(entry.path().c_str(), &status) == 0) candidate.startedAt = status.st_mtime;
+        }
+        if (candidate.startedAt == 0) continue;
+        candidates.push_back(std::move(candidate));
+    }
+    return candidates;
+}
+
+} // namespace
+
+void App::resolveSessionLogs(std::vector<Session>& sessions) {
+    const bool wantRoblox = std::any_of(sessions.begin(), sessions.end(),
+                                        [](const Session& s) { return s.robloxLogPath.empty(); });
+    const bool wantCaptured = std::any_of(sessions.begin(), sessions.end(),
+                                          [](const Session& s) { return s.capturedLogPath.empty(); });
+
+    // Walking two folders is far too much work for a session whose files are already known, so it only happens while something is still unmatched.
+    if (wantRoblox) {
+        const std::vector<std::string> matched =
+            matchSessionLogs(logCandidatesIn(robloxLogsDir(installDir_), true), sessions);
+        for (size_t i = 0; i < sessions.size(); ++i) {
+            if (sessions[i].robloxLogPath.empty()) sessions[i].robloxLogPath = matched[i];
+        }
+    }
+    if (wantCaptured) {
+        const std::vector<std::string> matched =
+            matchCapturedLogs(logCandidatesIn(installDir_ + "/logs", false), sessions);
+        for (size_t i = 0; i < sessions.size(); ++i) {
+            if (sessions[i].capturedLogPath.empty()) sessions[i].capturedLogPath = matched[i];
+        }
+    }
+
+    std::vector<int> stopped;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        stopped = stoppedByUs_;
+    }
+    for (Session& session : sessions) {
+        if (session.running || !session.endedReason.empty()) continue;
+        const bool weStoppedIt = std::find(stopped.begin(), stopped.end(), session.pid) != stopped.end();
+        std::optional<int> marker;
+        // Proton writes the real exit code into the capture on any non-zero exit, so the reason is already in a file the page is reading anyway.
+        if (!session.capturedLogPath.empty()) marker = findRealExitCodeInLog(session.capturedLogPath);
+        session.endedReason = describeExit(weStoppedIt, marker);
+    }
+}
+
+void App::requestStopSession(int pid) {
+    LaunchTarget target = LaunchTarget::Studio;
+    bool known = false;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        for (const Session& session : snapshot_.sessionList) {
+            if (session.pid != pid || !session.running) continue;
+            target = session.target;
+            known = true;
+            break;
+        }
+        if (!known) return;
+        if (std::find(stoppedByUs_.begin(), stoppedByUs_.end(), pid) != stoppedByUs_.end()) return;
+        stoppedByUs_.push_back(pid);
+    }
+    if (stopOneThread_.joinable()) stopOneThread_.join();
+    stopOneThread_ = std::thread(&App::stopOneSessionThreadMain, this, pid, target);
+}
+
+void App::stopOneSessionThreadMain(int pid, LaunchTarget target) {
+    stopPrefixSession(installDir_, target, pid);
 }
 
 void App::stopSessionsThreadMain(LaunchTarget target) {

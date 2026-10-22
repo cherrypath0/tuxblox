@@ -277,6 +277,12 @@ buildAdwaitaFonts() {
         printf 'ERROR: no AdwaitaSans fonts in the adwaita-fonts archive\n' >&2
         exit 1
     fi
+    # The session log is read as columns, so it needs a face whose characters are all one width. Without this the window falls back on whatever the machine has, which on some is a font that draws a 7 as a bare slash.
+    find /build/adwaita-fonts -name 'AdwaitaMono-*.ttf' -exec cp -f {} "$Prefix/fonts/" \;
+    if ! ls "$Prefix"/fonts/AdwaitaMono-*.ttf >/dev/null 2>&1; then
+        printf 'ERROR: no AdwaitaMono fonts in the adwaita-fonts archive\n' >&2
+        exit 1
+    fi
 }
 
 runStep zlib "$ZLIB_VERSION" buildZlib

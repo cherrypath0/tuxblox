@@ -129,6 +129,42 @@ void test_a_claimed_file_is_not_offered_twice() {
     assert(matched[1].empty());
 }
 
+// TuxBlox's own capture is created just BEFORE the session it wraps, so the bound runs the other
+// way from Roblox's log. It carries the exit-code marker, which is how an ended row says why.
+void test_the_capture_is_matched_backwards_in_time() {
+    const std::vector<LogCandidate> candidates{
+        candidate("/logs/Studio-20261022T183000Z-11.log", LaunchTarget::Studio, 900),
+        candidate("/logs/Studio-20261022T184000Z-12.log", LaunchTarget::Studio, 1500)};
+    const std::vector<Session> sessions{startedAt(LaunchTarget::Studio, 200, 1000)};
+    // The one just before the session, not the one after it.
+    assert(matchCapturedLogs(candidates, sessions) == std::vector<std::string>{"/logs/Studio-20261022T183000Z-11.log"});
+}
+
+void test_the_capture_takes_the_closest_one_before() {
+    const std::vector<LogCandidate> candidates{
+        candidate("/logs/old.log", LaunchTarget::Studio, 100),
+        candidate("/logs/near.log", LaunchTarget::Studio, 990)};
+    const std::vector<Session> sessions{startedAt(LaunchTarget::Studio, 200, 1000)};
+    assert(matchCapturedLogs(candidates, sessions) == std::vector<std::string>{"/logs/near.log"});
+}
+
+void test_two_sessions_do_not_share_a_capture() {
+    const std::vector<LogCandidate> candidates{
+        candidate("/logs/first.log", LaunchTarget::Studio, 900),
+        candidate("/logs/second.log", LaunchTarget::Studio, 1900)};
+    const std::vector<Session> sessions{startedAt(LaunchTarget::Studio, 200, 1000),
+                                        startedAt(LaunchTarget::Studio, 201, 2000)};
+    const std::vector<std::string> matched = matchCapturedLogs(candidates, sessions);
+    assert(matched[0] == "/logs/first.log");
+    assert(matched[1] == "/logs/second.log");
+}
+
+void test_a_capture_far_before_the_session_is_not_matched() {
+    const std::vector<LogCandidate> candidates{candidate("/logs/ancient.log", LaunchTarget::Studio, 0)};
+    const std::vector<Session> sessions{startedAt(LaunchTarget::Studio, 200, 100000)};
+    assert(matchCapturedLogs(candidates, sessions) == std::vector<std::string>{""});
+}
+
 void test_an_ended_session_still_keeps_its_log() {
     Session ended = startedAt(LaunchTarget::Studio, 200, 1000);
     ended.running = false;
@@ -151,6 +187,10 @@ int main() {
     test_a_session_started_before_the_launcher_opened_still_matches();
     test_the_target_must_agree();
     test_a_claimed_file_is_not_offered_twice();
+    test_the_capture_is_matched_backwards_in_time();
+    test_the_capture_takes_the_closest_one_before();
+    test_two_sessions_do_not_share_a_capture();
+    test_a_capture_far_before_the_session_is_not_matched();
     test_an_ended_session_still_keeps_its_log();
     std::printf("session_log_match: all tests passed\n");
     return 0;

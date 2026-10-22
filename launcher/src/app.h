@@ -23,13 +23,14 @@
 #include <thread>
 #include "lnk_resolver.h"
 #include "prefix_session.h"
+#include "session_list.h"
 #include "settings.h"
 #include "updater.h"
 #include "versions_manifest.h"
 
 namespace tuxblox {
 
-enum class Tab { Start, About, Settings, Versions, FastFlags };
+enum class Tab { Start, About, Settings, Versions, FastFlags, Sessions };
 
 enum class VersionSelectMode { Latest, Previous, ManualHash };
 
@@ -92,6 +93,8 @@ struct AppSnapshot {
     // App's own thread. The Home cards read it to decide whether their button
     // launches or stops.
     PrefixSessions sessions;
+    // What the Sessions page lists: every session alive in the drive, plus the ones this run watched end. Richer than the census above, which only counts.
+    std::vector<Session> sessionList;
     // True from a Stop click until that app's sessions are actually gone. The
     // census is up to a second old, so without this the button would go on
     // offering Stop for a moment after being clicked.
@@ -171,6 +174,9 @@ public:
     // second request while one is still running is ignored.
     void requestStopSessions(LaunchTarget target);
 
+    // Closes one session, leaving the others of the same app alone. Ignored if that session is not in the current list.
+    void requestStopSession(int pid);
+
     // Stops everything running inside the prefix -- Roblox, wineserver and
     // the Wine services -- without touching the launcher itself. Runs on its own
     // thread, because closing the sessions properly first can take several
@@ -223,6 +229,9 @@ private:
     void sessionPollThreadMain();
     void refreshVersionsIfChanged();
     void stopSessionsThreadMain(LaunchTarget target);
+    void stopOneSessionThreadMain(int pid, LaunchTarget target);
+    // Fills in which log files belong to which session, and why an ended one ended.
+    void resolveSessionLogs(std::vector<Session>& sessions);
     void terminateThreadMain();
     void versionInstallThreadMain(LaunchTarget target, VersionSelectMode mode, std::string channel,
                                    std::string manualHash);
@@ -259,6 +268,9 @@ private:
     std::atomic<bool> terminateBusy_{false};
 
     std::thread sessionPollThread_;
+    std::thread stopOneThread_;
+    // Sessions this launcher asked to stop, so an exit it caused is not reported as a crash.
+    std::vector<int> stoppedByUs_;
     std::thread stopPlayerThread_;
     std::thread stopStudioThread_;
     std::thread terminateThread_;
