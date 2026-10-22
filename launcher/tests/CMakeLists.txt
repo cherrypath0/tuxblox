@@ -269,3 +269,7 @@ add_test(NAME embedded_icons COMMAND test_embedded_icons)
 add_executable(test_session_facts test_session_facts.cpp)
 target_link_libraries(test_session_facts PRIVATE launcher_core)
 add_test(NAME session_facts COMMAND test_session_facts)
+
+add_executable(test_session_list test_session_list.cpp)
+target_link_libraries(test_session_list PRIVATE launcher_core)
+add_test(NAME session_list COMMAND test_session_list)

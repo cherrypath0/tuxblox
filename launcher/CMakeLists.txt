@@ -159,6 +159,7 @@ add_library(launcher_core STATIC
     ${TUXBLOX_UI_SRC}/svg_raster.cpp
     ${TUXBLOX_UI_SRC}/palette.cpp
     src/session_facts.cpp
+    src/session_list.cpp
 )
 if(TUXBLOX_LIBADWAITA_COMMIT)
     target_compile_definitions(launcher_core PRIVATE TUXBLOX_LIBADWAITA_COMMIT="${TUXBLOX_LIBADWAITA_COMMIT}")
