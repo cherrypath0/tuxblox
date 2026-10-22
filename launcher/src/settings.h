@@ -114,7 +114,7 @@ struct Settings {
     // process either way, so nothing is lost by the window going. Turning it
     // off keeps the window open and usable instead, for anyone who wants to
     // start Studio and the Player, or change a setting, without reopening it.
-    bool minimizeToBackground = true;
+    bool minimizeToBackground = false;
     // Runs the bootstrapper's update check before every launch, so Roblox is
     // current without the user thinking about it. On by default: that is what
     // Roblox itself does on Windows. A check that cannot run never blocks the

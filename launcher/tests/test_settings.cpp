@@ -453,28 +453,38 @@ int main() {
         assert(s.channel == "canary");
     }
 
-    // Closing the launcher when Roblox starts defaults to on -- that is what TuxBlox has always done,
-    // so an install that never touched this setting behaves exactly as it did before it existed.
+    // Closing the launcher when Roblox starts now defaults to OFF, so a launch lands on that
+    // session's log instead of on nothing. It used to default to on, when there was nothing to
+    // stay open for.
     {
         Settings s;
-        assert(s.minimizeToBackground == true);
+        assert(s.minimizeToBackground == false);
     }
 
-    // It loads leniently and keeps defaulting to on, so a settings.json written before this field
-    // existed does not suddenly start leaving the window open.
+    // Still read leniently: a settings.json written before this field existed takes the new
+    // default, like any other key it does not carry.
     {
         std::ofstream out(dir + "/settings.json", std::ios::binary);
         out << R"({"send_crash_reports": false})";
         out.close();
+        assert(loadSettings(dir).minimizeToBackground == false);
+    }
+
+    // A file that states it keeps what it states. Nothing migrates an existing install, so somebody
+    // who wants the window to close goes on getting that until they change it themselves.
+    {
+        std::ofstream out(dir + "/settings.json", std::ios::binary);
+        out << R"({"send_crash_reports": false, "minimize_to_background": true})";
+        out.close();
         assert(loadSettings(dir).minimizeToBackground == true);
     }
 
-    // Turning it off round-trips -- a user who wants the window kept must not find it closing again.
+    // Turning it on round-trips -- a user who wants the window closed must not find it staying open.
     {
         Settings s;
-        s.minimizeToBackground = false;
+        s.minimizeToBackground = true;
         saveSettings(dir, s);
-        assert(loadSettings(dir).minimizeToBackground == false);
+        assert(loadSettings(dir).minimizeToBackground == true);
     }
 
     // Detailed logging defaults to off. It costs frame time and log size, so

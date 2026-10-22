@@ -32,6 +32,12 @@ namespace tuxblox {
 
 enum class Tab { Start, About, Settings, Versions, FastFlags, Sessions };
 
+// What the window does once a launch is on its way.
+enum class LaunchFollowUp { CloseWindow, ShowSessions };
+
+// A launch started from the window's own buttons takes you to that session's log, unless Minimise to background is on, in which case the window is going away and there is nothing to take you to. A launch from a link or a shortcut opens no window in the first place.
+LaunchFollowUp launchFollowUp(bool minimizeToBackground, bool startedFromTheWindow);
+
 enum class VersionSelectMode { Latest, Previous, ManualHash };
 
 enum class VersionInstallPhase { Idle, ResolvingVersion, DownloadingManifest, DownloadingPackages, Extracting, Done, Error };

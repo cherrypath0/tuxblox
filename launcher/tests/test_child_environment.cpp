@@ -94,7 +94,8 @@ void watcherDoesNotInheritTheBundledEnvironment(const fs::path &work) {
     const std::string arguments = waitFor(record.string() + ".args");
     tuxblox::restoreBundledEnvironment();
 
-    assert(app.shouldQuit());
+    // Minimise to background defaults to off now, so the window stays open and goes to the session.
+    assert(!app.shouldQuit());
     assert(hasLine(environment, "FONTCONFIG_FILE=/host/fonts.conf"));
     assert(!setsVariable(environment, "GSETTINGS_SCHEMA_DIR"));
     assert(hasLine(arguments, "--watch-launch"));

@@ -166,6 +166,11 @@ std::string App::installerHandoffPath() const {
     return installerHandoffPath_;
 }
 
+LaunchFollowUp launchFollowUp(bool minimizeToBackground, bool startedFromTheWindow) {
+    if (!startedFromTheWindow || minimizeToBackground) return LaunchFollowUp::CloseWindow;
+    return LaunchFollowUp::ShowSessions;
+}
+
 void App::setActiveTab(Tab tab) {
     std::lock_guard<std::mutex> lock(mutex_);
     snapshot_.activeTab = tab;
@@ -177,7 +182,10 @@ void App::requestLaunch(LaunchTarget target) {
     bool closeWindow;
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        closeWindow = snapshot_.settings.minimizeToBackground;
+        closeWindow = launchFollowUp(snapshot_.settings.minimizeToBackground, true) ==
+                      LaunchFollowUp::CloseWindow;
+        // Staying open means landing on the session that was just started, rather than on the button that started it.
+        if (!closeWindow) snapshot_.activeTab = Tab::Sessions;
     }
 
     const char* targetArg = (target == LaunchTarget::Player) ? "player" : "studio";
