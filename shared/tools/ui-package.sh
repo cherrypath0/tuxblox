@@ -76,6 +76,11 @@ FONTS
         printf 'ERROR: the icon theme is missing from the stack\n' >&2
         exit 1
     fi
+    # The session log is read as columns and needs a face whose characters are all one width. The build step insists on these, so the packaging step has to as well, or a stack that passed the build ships without them and the window quietly falls back on whatever the machine has.
+    if ! ls "$StageDir"/fonts/AdwaitaSans-*.ttf >/dev/null 2>&1 || ! ls "$StageDir"/fonts/AdwaitaMono-*.ttf >/dev/null 2>&1; then
+        printf 'ERROR: the stack is missing AdwaitaSans or AdwaitaMono\n' >&2
+        exit 1
+    fi
     find "$StageDir" \( -name '*.a' -o -name '*.la' \) -delete
 }
 
