@@ -48,7 +48,16 @@ private:
     GtkWidget *buildFindBar();
     GtkWidget *toggleButton(Toggle &toggle, const char *pLabel, bool on);
 
+    // What the list is showing now, so a census that says the same thing does not throw the rows away -- rebuilding them ten times a second destroys the row under the pointer before a click can land on it.
+    struct RenderedRow {
+        int pid = 0;
+        bool running = false;
+        bool crashed = false;
+    };
+    static std::vector<RenderedRow> shapeOf(const SessionsView &view);
+
     void rebuildList(const SessionsView &view);
+    void updateMetaInPlace(const SessionsView &view);
     void selectSession(int pid);
     void showEntries();
     void appendEntry(const LogEntry &entry);
@@ -65,6 +74,7 @@ private:
     static void onFolderClicked(GtkButton *pButton, gpointer data);
     static void onFindChanged(GtkEditable *pEditable, gpointer data);
     static void onFindStep(GtkButton *pButton, gpointer data);
+    static void onJumpToEnd(GtkButton *pButton, gpointer data);
 
     App &app_;
     GtkWidget *pRoot_ = nullptr;
@@ -73,11 +83,17 @@ private:
     GtkWidget *pListBox_ = nullptr;
     GtkWidget *pEmpty_ = nullptr;
     std::vector<GtkWidget *> rows_;
+    std::vector<RenderedRow> renderedShape_;
+    std::vector<GtkLabel *> renderedMetas_;
+    std::string renderedEmpty_;
 
     GtkLabel *pName_ = nullptr;
     GtkLabel *pState_ = nullptr;
     GtkLabel *pMeta_ = nullptr;
     GtkLabel *pSources_ = nullptr;
+    GtkLabel *pSize_ = nullptr;
+    GtkLabel *pFollowState_ = nullptr;
+    GtkWidget *pJumpToEnd_ = nullptr;
     GtkWidget *pStop_ = nullptr;
 
     GtkTextView *pLog_ = nullptr;

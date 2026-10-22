@@ -184,8 +184,12 @@ void App::requestLaunch(LaunchTarget target) {
         std::lock_guard<std::mutex> lock(mutex_);
         closeWindow = launchFollowUp(snapshot_.settings.minimizeToBackground, true) ==
                       LaunchFollowUp::CloseWindow;
-        // Staying open means landing on the session that was just started, rather than on the button that started it.
-        if (!closeWindow) snapshot_.activeTab = Tab::Sessions;
+        // Not moved yet: a first launch installs Roblox before anything runs, and being thrown at an empty log for the minutes that takes is worse than staying where the button was.
+        if (!closeWindow) {
+            snapshot_.launchPending = true;
+            showSessionWhenItStarts_.store(true);
+            launchRequestedAt_.store(static_cast<long long>(std::time(nullptr)));
+        }
     }
 
     const char* targetArg = (target == LaunchTarget::Player) ? "player" : "studio";
@@ -394,6 +398,24 @@ void App::sessionPollThreadMain() {
         }
         std::vector<Session> merged = mergeSessions(previous, live);
         resolveSessionLogs(merged);
+
+        // The jump waits for a session to exist rather than firing on the click, so an install lands on the finished thing instead of on nothing.
+        bool arrived = false;
+        for (const Session& fresh : live) {
+            const bool knownAlready = std::any_of(previous.begin(), previous.end(), [&fresh](const Session& old) {
+                return old.pid == fresh.pid && old.startedAt == fresh.startedAt;
+            });
+            if (!knownAlready) arrived = true;
+        }
+        // Giving up after a while, so a launch that never starts does not leave the button saying "Starting" for the rest of the run.
+        const long long waited = static_cast<long long>(std::time(nullptr)) - launchRequestedAt_.load();
+        const bool wanted = showSessionWhenItStarts_.load();
+        if (wanted && (arrived || waited > 900)) {
+            showSessionWhenItStarts_.store(false);
+            std::lock_guard<std::mutex> lock(mutex_);
+            snapshot_.launchPending = false;
+            if (arrived) snapshot_.activeTab = Tab::Sessions;
+        }
 
         {
             std::lock_guard<std::mutex> lock(mutex_);

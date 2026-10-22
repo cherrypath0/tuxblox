@@ -32,9 +32,11 @@ struct CardState {
     std::string stopLabel;
     // "2 sessions running" on Studio, always empty on the Player, which runs one session at a time.
     std::string sessionLabel;
+    // A launch is on its way but has no session yet, which is most of an install. The button says so and refuses further clicks rather than looking like it did nothing.
+    bool launchDisabled = false;
 };
 
 // Kept apart from the Home page so it can be tested without a display.
-CardState cardState(LaunchTarget target, bool installed, int sessions, bool stopping);
+CardState cardState(LaunchTarget target, bool installed, int sessions, bool stopping, bool launchPending);
 
 } // namespace tuxblox

@@ -106,6 +106,8 @@ struct AppSnapshot {
     // offering Stop for a moment after being clicked.
     bool stoppingPlayer = false;
     bool stoppingStudio = false;
+    // A launch started from the window that has not produced a session yet. Most of an install looks like this, since Roblox has to be fetched before anything can run.
+    bool launchPending = false;
 };
 
 class App {
@@ -269,6 +271,9 @@ private:
     std::atomic<bool> uninstallCancel_{false};
     std::atomic<bool> versionInstallCancel_{false};
     std::atomic<bool> sessionPollStop_{false};
+    // Set when a launch from the window should land on its session once one exists, cleared when it does or when waiting any longer stops being reasonable.
+    std::atomic<bool> showSessionWhenItStarts_{false};
+    std::atomic<long long> launchRequestedAt_{0};
     std::atomic<bool> stopPlayerBusy_{false};
     std::atomic<bool> stopStudioBusy_{false};
     std::atomic<bool> terminateBusy_{false};

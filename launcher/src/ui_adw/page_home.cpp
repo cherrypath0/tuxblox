@@ -252,10 +252,10 @@ void HomePage::onUpdateClicked(GtkButton *, gpointer data) {
 }
 
 void HomePage::setCard(Card &card, bool installed, const std::string &versionLabel, int sessions,
-                       bool stopping) {
+                       bool stopping, bool launchPending) {
     setLabelText(card.pMeta, installed ? versionLabel : "Not installed yet");
 
-    const CardState state = cardState(card.target, installed, sessions, stopping);
+    const CardState state = cardState(card.target, installed, sessions, stopping, launchPending);
     setLabelText(card.pSessions, state.sessionLabel);
     gtk_widget_set_visible(GTK_WIDGET(card.pSessions), !state.sessionLabel.empty());
 
@@ -300,7 +300,7 @@ void HomePage::setCard(Card &card, bool installed, const std::string &versionLab
             gtk_widget_remove_css_class(GTK_WIDGET(card.pButton), "launch-green");
         }
     }
-    gtk_widget_set_sensitive(GTK_WIDGET(card.pButton), !(state.launchStops && stopping));
+    gtk_widget_set_sensitive(GTK_WIDGET(card.pButton), !(state.launchStops && stopping) && !state.launchDisabled);
 }
 
 void HomePage::setUpdateState(const std::string &text, const std::string &styleClass) {
@@ -313,9 +313,9 @@ void HomePage::setUpdateState(const std::string &text, const std::string &styleC
 
 void HomePage::update(const AppSnapshot &snap) {
     setCard(player_, !snap.versions.player.activeHash.empty(), versionLabel(snap.versions.player),
-            snap.sessions.player, snap.stoppingPlayer);
+            snap.sessions.player, snap.stoppingPlayer, snap.launchPending);
     setCard(studio_, !snap.versions.studio.activeHash.empty(), versionLabel(snap.versions.studio),
-            snap.sessions.studio, snap.stoppingStudio);
+            snap.sessions.studio, snap.stoppingStudio, snap.launchPending);
 
     // Only an update actually being applied takes the screen over. Merely checking leaves the cards
     // there and says so in the strip at the bottom, so nothing flickers in and out on startup.

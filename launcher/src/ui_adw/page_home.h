@@ -47,7 +47,7 @@ private:
     };
 
     GtkWidget *buildCard(Card &card, const char *pTitle, const unsigned char *pIcon, size_t iconLength);
-    void setCard(Card &card, bool installed, const std::string &versionLabel, int sessions, bool stopping);
+    void setCard(Card &card, bool installed, const std::string &versionLabel, int sessions, bool stopping, bool launchPending);
     void showUpdateButton(bool shown);
     void setUpdateState(const std::string &text, const std::string &styleClass);
     static void onLaunchClicked(GtkButton *pButton, gpointer data);

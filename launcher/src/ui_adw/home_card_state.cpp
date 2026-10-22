@@ -29,7 +29,7 @@ std::string sessionCount(int sessions) {
 
 } // namespace
 
-CardState cardState(LaunchTarget target, bool installed, int sessions, bool stopping) {
+CardState cardState(LaunchTarget target, bool installed, int sessions, bool stopping, bool launchPending) {
     CardState state;
     // Studio only: the Player runs one session at a time, so a count says nothing its Stop button does not.
     state.sessionLabel = target == LaunchTarget::Studio ? sessionCount(sessions) : "";
@@ -54,6 +54,11 @@ CardState cardState(LaunchTarget target, bool installed, int sessions, bool stop
             // No app name: it sits beside Launch under a heading that already says which app this is, and the room it saves is room the Launch label would otherwise lose.
             state.stopLabel = sessions == 1 ? "Stop" : "Stop " + std::to_string(sessions);
         }
+    }
+    // Nothing has started yet, so there is nothing to stop and no point offering another go.
+    if (launchPending && !state.launchStops) {
+        state.launchLabel = "Starting\xE2\x80\xA6";
+        state.launchDisabled = true;
     }
     return state;
 }
