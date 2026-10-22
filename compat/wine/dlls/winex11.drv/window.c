@@ -4172,6 +4172,13 @@ LRESULT X11DRV_SysCommand( HWND hwnd, WPARAM wparam, LPARAM lparam, const POINT 
          * ourselves gets none of that. move_resize_window() keeps GetCursorPos() live across the
          * drag, which is what doing it ourselves was for. */
         if (!hittest) dir = _NET_WM_MOVERESIZE_MOVE_KEYBOARD;
+        /* An owned window is a panel or a palette, and a program that has those tracks the drag
+         * itself: Studio places its dock guides from the position updates a move sends it, and the
+         * WM running the drag sends none of them, so the panel never docks. Windows runs its own
+         * modal loop for every one of these, so win32u's loop is the faithful path and handing the
+         * drag over is the deviation -- take it only for a program's own top-level window, which is
+         * the one the tiling previews and the off-screen placement are wanted for. */
+        else if (NtUserGetWindowRelative( hwnd, GW_OWNER )) goto failed;
         else dir = _NET_WM_MOVERESIZE_MOVE;
         break;
     case SC_SIZE:
