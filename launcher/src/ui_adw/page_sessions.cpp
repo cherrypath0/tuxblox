@@ -46,7 +46,7 @@ void installPageStyles() {
     gtk_css_provider_load_from_string(pProvider,
         "textview.sessionlog, textview.sessionlog text { font-family: \"Adwaita Mono\", monospace; font-size: 12.5px; }\n"
         ".session-meta { font-size: 12px; opacity: 0.95; }\n"".log-count { font-size: 12px; opacity: 0.95; }\n"".session-stop { color: #f08b8b; }\n"".session-stop:hover { background: alpha(#dc2626, 0.22); color: #ffd7d7; }\n"
-        ".session-tile { background: alpha(currentColor, 0.1); border-radius: 8px; min-width: 30px; min-height: 30px; }\n"
+        ".session-tile { background: alpha(currentColor, 0.1); border-radius: 9px; min-width: 34px; min-height: 34px; }\n"
         ".session-dot { border-radius: 6px; min-width: 10px; min-height: 10px; border: 2px solid @sidebar_bg_color; }\n"
         ".session-dot.running { background: #34d399; }\n"
         ".session-dot.ended { background: #4b5563; }\n"
@@ -372,7 +372,7 @@ void SessionsPage::rebuildList(const SessionsView &view) {
         for (const SessionRow &entry : group) {
             const bool player = entry.name == "Roblox Player";
             GtkWidget *pIcon = iconImage(player ? kAssetRobloxPlayer : kAssetRobloxStudio,
-                                         player ? kAssetRobloxPlayerLen : kAssetRobloxStudioLen, 16);
+                                         player ? kAssetRobloxPlayerLen : kAssetRobloxStudioLen, 19);
             gtk_widget_set_halign(pIcon, GTK_ALIGN_CENTER);
             gtk_widget_set_valign(pIcon, GTK_ALIGN_CENTER);
             if (!entry.running) gtk_widget_set_opacity(pIcon, 0.6);
@@ -387,7 +387,7 @@ void SessionsPage::rebuildList(const SessionsView &view) {
 
             GtkWidget *pTile = gtk_overlay_new();
             gtk_widget_add_css_class(pTile, "session-tile");
-            gtk_widget_set_size_request(pTile, 30, 30);
+            gtk_widget_set_size_request(pTile, 34, 34);
             gtk_widget_set_valign(pTile, GTK_ALIGN_CENTER);
             gtk_overlay_set_child(GTK_OVERLAY(pTile), pIcon);
             gtk_overlay_add_overlay(GTK_OVERLAY(pTile), pDot);
@@ -403,12 +403,15 @@ void SessionsPage::rebuildList(const SessionsView &view) {
             gtk_widget_add_css_class(pMeta, entry.crashed ? "error" : "dim-label");
             renderedMetas_.push_back(GTK_LABEL(pMeta));
 
-            GtkWidget *pText = gtk_box_new(GTK_ORIENTATION_VERTICAL, 1);
+            GtkWidget *pText = gtk_box_new(GTK_ORIENTATION_VERTICAL, 3);
             gtk_widget_set_hexpand(pText, TRUE);
             gtk_box_append(GTK_BOX(pText), pName);
             gtk_box_append(GTK_BOX(pText), pMeta);
 
-            GtkWidget *pBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 9);
+            GtkWidget *pBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
+            // Room above and below, so a row reads as its own thing rather than as a line of a table.
+            gtk_widget_set_margin_top(pBox, 7);
+            gtk_widget_set_margin_bottom(pBox, 7);
             gtk_box_append(GTK_BOX(pBox), pTile);
             gtk_box_append(GTK_BOX(pBox), pText);
 
