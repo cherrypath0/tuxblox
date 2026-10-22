@@ -25,6 +25,7 @@
 #include <filesystem>
 #include <string>
 #include <system_error>
+#include <vector>
 
 namespace fs = std::filesystem;
 
@@ -55,6 +56,16 @@ constexpr uint64_t kHeadroomBytes = 500ULL * 1024 * 1024; // 500MB
 void cleanupBestEffort(const std::string& dir) {
     std::error_code ec;
     fs::remove_all(dir, ec);
+}
+
+// Session logs describe runs of the version being replaced, nothing reads them back, and one per
+// launch is how an install quietly reaches hundreds of files. Best effort throughout: losing a log
+// is not worth failing an upgrade over.
+void clearSessionLogs(const std::string& dir) {
+    std::error_code ec;
+    std::vector<fs::path> entries;
+    for (const auto& entry : fs::directory_iterator(dir + "/logs", ec)) entries.push_back(entry.path());
+    for (const auto& entry : entries) fs::remove_all(entry, ec);
 }
 } // namespace
 
@@ -206,6 +217,10 @@ void App::run() {
         createDesktopShortcut(outcome.launcherPath); // best-effort -- see desktop_shortcut.h
         refreshUrlHandlers(outcome.launcherPath);    // best-effort -- see desktop_shortcut.h
         writeCopyrightFile(dir);    // best-effort -- see copyright_file.h
+        // Only on an upgrade: a fresh install has no logs, and this is the one moment at which every
+        // log present belongs to a version that is no longer installed.
+        if (isUpgrade) clearSessionLogs(dir);
+
         readyToLaunch_.store(true);
         setPhase(AppPhase::Done);
     } catch (const std::exception& e) {
