@@ -59,6 +59,8 @@ private:
     void rebuildList(const SessionsView &view);
     void updateMetaInPlace(const SessionsView &view);
     void selectSession(int pid);
+    // The row and the log have to agree about which session is being looked at, and the list is built before the first one is picked.
+    void highlightSelectedRow();
     // Keeps the reader pointed at what the session actually has now: Roblox writes its log a moment after its process exists, and when a session ends TuxBlox folds that log into its own, so the files a reader was built with go stale underneath it.
     void reconcileReader(const AppSnapshot &snap);
     void showEntries();

@@ -440,9 +440,18 @@ void SessionsPage::rebuildList(const SessionsView &view) {
     if (!view.emptyMessage.empty()) gtk_label_set_text(GTK_LABEL(pEmpty_), view.emptyMessage.c_str());
 }
 
+void SessionsPage::highlightSelectedRow() {
+    for (GtkWidget *pRow : rows_) {
+        if (GPOINTER_TO_INT(g_object_get_data(G_OBJECT(pRow), "tuxblox-pid")) != selectedPid_) continue;
+        gtk_list_box_select_row(GTK_LIST_BOX(pListBox_), GTK_LIST_BOX_ROW(pRow));
+        return;
+    }
+}
+
 void SessionsPage::selectSession(int pid) {
     if (pid == selectedPid_) return;
     selectedPid_ = pid;
+    highlightSelectedRow();
     entries_.clear();
     matches_.clear();
     currentMatch_ = 0;
@@ -625,6 +634,7 @@ void SessionsPage::update(const AppSnapshot &snap) {
 
     // Nothing is selected yet, so the newest running session is a better first thing to look at than an empty pane.
     if (selectedPid_ == 0 && !shown.running.empty()) selectSession(shown.running.back().pid);
+    if (!sameShape) highlightSelectedRow();
     refreshHeader(snap);
     if (selectedPid_ != 0) reconcileReader(snap);
 
