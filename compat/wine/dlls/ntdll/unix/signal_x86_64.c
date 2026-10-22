@@ -1948,6 +1948,58 @@ static void setup_raise_exception( ucontext_t *sigcontext, EXCEPTION_RECORD *rec
         }
     }
 
+    /* TuxBlox experiment (TUXBLOX_TEST_CALLSKIP=<rva>[,<max>]): the Player's wall
+     * is an indirect call whose target is garbage, made from a loop that walks
+     * 0x30-byte records. The pushed return address names the site, so skipping
+     * the call and resuming there censuses every target the loop would have
+     * called instead of stopping at the first. Diagnostic only. */
+    if (rec->ExceptionCode == EXCEPTION_ACCESS_VIOLATION && rec->NumberParameters > 1 &&
+        rec->ExceptionInformation[0] == EXCEPTION_EXECUTE_FAULT)
+    {
+        const char *cs = tuxblox_dev_getenv( "TUXBLOX_TEST_CALLSKIP" );
+
+        if (cs && *cs)
+        {
+            static int skipped;
+            char *end;
+            ULONG64 rva = strtoull( cs, &end, 16 );
+            int max = (*end == ',') ? atoi( end + 1 ) : 1;
+            ULONG64 rsp = context->Rsp, lay = tuxblox_roblox_dll_base();
+
+            if (max <= 0) max = 1;
+            if (skipped < max && lay && rsp > 0x10000 && !(rsp & 7) &&
+                *(ULONG64 *)(ULONG_PTR)rsp == lay + rva)
+            {
+                char hex[320];
+                unsigned int k, o;
+                const unsigned char *code = (const unsigned char *)(ULONG_PTR)(lay + rva - 16);
+
+                skipped++;
+                ERR_(seh)( "tuxblox: callskip #%d target=%llx rax=%llx rbx=%llx r12=%llx rsp=%llx\n",
+                           skipped, (unsigned long long)context->Rip,
+                           (unsigned long long)context->Rax, (unsigned long long)context->Rbx,
+                           (unsigned long long)context->R12, (unsigned long long)rsp );
+                /* The sixteen bytes ending at the pushed return address contain
+                 * the call itself, which names where the target came from. */
+                for (k = 0, o = 0; k < 16 && o + 4 < sizeof(hex); k++)
+                    o += snprintf( hex + o, sizeof(hex) - o, "%02x ", code[k] );
+                ERR_(seh)( "tuxblox: callskip #%d site[-16..0] %s\n", skipped, hex );
+                for (k = 0, o = 0; k < 10 && o + 20 < sizeof(hex); k++)
+                    o += snprintf( hex + o, sizeof(hex) - o, "%llx ", (unsigned long long)
+                                   ((ULONG64 *)(ULONG_PTR)context->R12)[k] );
+                ERR_(seh)( "tuxblox: callskip #%d r12[0..9] %s\n", skipped, hex );
+                for (k = 0, o = 0; k < 6 && o + 20 < sizeof(hex); k++)
+                    o += snprintf( hex + o, sizeof(hex) - o, "%llx ", (unsigned long long)
+                                   ((ULONG64 *)(ULONG_PTR)context->Rbx)[k] );
+                ERR_(seh)( "tuxblox: callskip #%d rbx[0..5] %s\n", skipped, hex );
+                context->Rip = lay + rva;
+                context->Rsp = rsp + 8;
+                restore_context( xcontext, sigcontext );
+                return;
+            }
+        }
+    }
+
     status = send_debug_event( rec, context, TRUE, TRUE );
     if (status == DBG_CONTINUE || status == DBG_EXCEPTION_HANDLED)
     {
