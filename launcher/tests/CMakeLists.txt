@@ -177,6 +177,8 @@ add_test(NAME child_environment COMMAND test_child_environment)
 if(TARGET launcher_ui_adw)
     add_executable(test_widgets test_widgets.cpp)
     target_link_libraries(test_widgets PRIVATE launcher_ui_adw)
+    target_include_directories(test_widgets PRIVATE ${CMAKE_BINARY_DIR}/generated)
+    add_dependencies(test_widgets generate_asset_headers)
     add_test(NAME widgets COMMAND test_widgets)
 
     add_executable(test_message_box test_message_box.cpp)

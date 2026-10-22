@@ -36,6 +36,8 @@ function(embedAsset name headerName symbol)
         VERBATIM
     )
     set_property(GLOBAL APPEND PROPERTY LAUNCHER_ASSET_HEADERS ${output})
+    # Recorded so the guard that checks every icon can be built from this list rather than kept in step with it by hand
+    set_property(GLOBAL APPEND PROPERTY LAUNCHER_ASSET_TABLE "${name}|${headerName}|${symbol}|${extension}")
 endfunction()
 
 embedAsset(home asset_home.h kAssetHome svg)
@@ -67,4 +69,31 @@ embedAsset(chevron-up asset_chevron_up.h kAssetChevronUp svg)
 embedAsset(chevron-down asset_chevron_down.h kAssetChevronDown svg)
 
 get_property(LAUNCHER_ASSET_HEADERS GLOBAL PROPERTY LAUNCHER_ASSET_HEADERS)
+
+# One table naming every asset above, so adding an embedAsset() line is all it takes for the tests to cover it.
+get_property(LAUNCHER_ASSET_TABLE GLOBAL PROPERTY LAUNCHER_ASSET_TABLE)
+set(TABLE_PATH "${GENERATED_DIR}/asset_table.h")
+set(tableIncludes "")
+set(tableRows "")
+foreach(entry IN LISTS LAUNCHER_ASSET_TABLE)
+    string(REPLACE "|" ";" parts "${entry}")
+    list(GET parts 0 entryName)
+    list(GET parts 1 entryHeader)
+    list(GET parts 2 entrySymbol)
+    list(GET parts 3 entryExtension)
+    set(isSvg "false")
+    if(entryExtension STREQUAL "svg")
+        set(isSvg "true")
+    endif()
+    string(APPEND tableIncludes "#include \"${entryHeader}\"\n")
+    string(APPEND tableRows "    {\"${entryName}\", ${entrySymbol}, ${entrySymbol}Len, ${isSvg}},\n")
+endforeach()
+list(LENGTH LAUNCHER_ASSET_TABLE tableCount)
+
+file(WRITE  "${TABLE_PATH}" "// Generated at build time. Do not edit or commit.\n#pragma once\n#include <cstddef>\n\n")
+file(APPEND "${TABLE_PATH}" "${tableIncludes}\n")
+file(APPEND "${TABLE_PATH}" "struct EmbeddedAsset {\n    const char* pName;\n    const unsigned char* pBytes;\n    size_t length;\n    bool isSvg;\n};\n\n")
+file(APPEND "${TABLE_PATH}" "static const EmbeddedAsset kEmbeddedAssets[] = {\n${tableRows}};\n")
+file(APPEND "${TABLE_PATH}" "static const size_t kEmbeddedAssetCount = ${tableCount};\n")
+
 add_custom_target(generate_asset_headers DEPENDS ${LAUNCHER_ASSET_HEADERS})

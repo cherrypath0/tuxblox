@@ -15,53 +15,17 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "widgets.h"
-#include "asset_discord.h"
-#include "asset_docs.h"
-#include "asset_download.h"
-#include "asset_fastflags.h"
-#include "asset_github.h"
-#include "asset_globe.h"
-#include "asset_home.h"
-#include "asset_info.h"
-#include "asset_play.h"
-#include "asset_privacy.h"
-#include "asset_roblox_player.h"
-#include "asset_roblox_rdd.h"
-#include "asset_roblox_studio.h"
-#include "asset_settings.h"
-#include "asset_stop.h"
-#include "asset_tuxblox_icon.h"
+#include "asset_table.h"
 
 #include <cassert>
 #include <cstdio>
 
 int main() {
-    struct Asset {
-        const char *pName;
-        const unsigned char *pPng;
-        size_t length;
-    };
-    const Asset assets[] = {
-        {"discord", kAssetDiscord, kAssetDiscordLen},
-        {"docs", kAssetDocs, kAssetDocsLen},
-        {"download", kAssetDownload, kAssetDownloadLen},
-        {"fastflags", kAssetFastflags, kAssetFastflagsLen},
-        {"github", kAssetGithub, kAssetGithubLen},
-        {"globe", kAssetGlobe, kAssetGlobeLen},
-        {"home", kAssetHome, kAssetHomeLen},
-        {"info", kAssetInfo, kAssetInfoLen},
-        {"play", kAssetPlay, kAssetPlayLen},
-        {"privacy", kAssetPrivacy, kAssetPrivacyLen},
-        {"roblox-player", kAssetRobloxPlayer, kAssetRobloxPlayerLen},
-        {"roblox-rdd", kAssetRobloxRdd, kAssetRobloxRddLen},
-        {"roblox-studio", kAssetRobloxStudio, kAssetRobloxStudioLen},
-        {"settings", kAssetSettings, kAssetSettingsLen},
-        {"stop", kAssetStop, kAssetStopLen},
-        {"tuxblox-icon", kAssetTuxbloxIcon, kAssetTuxbloxIconLen},
-    };
+    // Every asset the build embeds, from EmbedAssets.cmake, so a new icon is covered here the moment it is added there.
 
-    for (const Asset &asset : assets) {
-        GdkPaintable *pIcon = tuxblox::symbolicIcon(asset.pPng, asset.length, 16);
+    for (size_t index = 0; index < kEmbeddedAssetCount; ++index) {
+        const EmbeddedAsset &asset = kEmbeddedAssets[index];
+        GdkPaintable *pIcon = tuxblox::symbolicIcon(asset.pBytes, asset.length, 16);
         // The PNGs are white, so anything but a symbolic paintable disappears in light mode
         assert(GTK_IS_SYMBOLIC_PAINTABLE(pIcon));
         const int width = gdk_paintable_get_intrinsic_width(pIcon);

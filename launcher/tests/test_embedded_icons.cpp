@@ -29,67 +29,19 @@
 #include "asset_roblox_player.h"
 #include "asset_roblox_rdd.h"
 #include "asset_roblox_studio.h"
-#include "asset_chevron_down.h"
-#include "asset_chevron_up.h"
-#include "asset_close.h"
-#include "asset_copy.h"
-#include "asset_folder.h"
-#include "asset_follow.h"
-#include "asset_save.h"
-#include "asset_scale.h"
-#include "asset_search.h"
-#include "asset_sessions.h"
-#include "asset_wrap.h"
-#include "asset_settings.h"
-#include "asset_stop.h"
-#include "asset_tuxblox_icon.h"
+#include "asset_table.h"
 #include "tuxblox_logo_png.h"
 
 #include <cassert>
 #include <cstdio>
+#include <string>
 #include <vector>
 
 using namespace tuxblox;
 
 namespace {
 
-struct Icon {
-    const char* pName;
-    const unsigned char* pBytes;
-    size_t length;
-};
-
-// Every asset drawn as a tinted symbolic. The logo is deliberately absent -- see below.
-const Icon kSymbolics[] = {
-    {"home", kAssetHome, kAssetHomeLen},
-    {"info", kAssetInfo, kAssetInfoLen},
-    {"settings", kAssetSettings, kAssetSettingsLen},
-    {"fastflags", kAssetFastflags, kAssetFastflagsLen},
-    {"download", kAssetDownload, kAssetDownloadLen},
-    {"play", kAssetPlay, kAssetPlayLen},
-    {"stop", kAssetStop, kAssetStopLen},
-    {"docs", kAssetDocs, kAssetDocsLen},
-    {"privacy", kAssetPrivacy, kAssetPrivacyLen},
-    {"scale", kAssetScale, kAssetScaleLen},
-    {"globe", kAssetGlobe, kAssetGlobeLen},
-    {"github", kAssetGithub, kAssetGithubLen},
-    {"discord", kAssetDiscord, kAssetDiscordLen},
-    {"roblox-player", kAssetRobloxPlayer, kAssetRobloxPlayerLen},
-    {"roblox-studio", kAssetRobloxStudio, kAssetRobloxStudioLen},
-    {"roblox-rdd", kAssetRobloxRdd, kAssetRobloxRddLen},
-    {"sessions", kAssetSessions, kAssetSessionsLen},
-    {"follow", kAssetFollow, kAssetFollowLen},
-    {"wrap", kAssetWrap, kAssetWrapLen},
-    {"copy", kAssetCopy, kAssetCopyLen},
-    {"save", kAssetSave, kAssetSaveLen},
-    {"folder", kAssetFolder, kAssetFolderLen},
-    {"search", kAssetSearch, kAssetSearchLen},
-    {"close", kAssetClose, kAssetCloseLen},
-    {"chevron-up", kAssetChevronUp, kAssetChevronUpLen},
-    {"chevron-down", kAssetChevronDown, kAssetChevronDownLen},
-};
-
-void drawsSomethingAt(const Icon& icon, int size) {
+void drawsSomethingAt(const EmbeddedAsset& icon, int size) {
     std::vector<unsigned char> out;
     if (!rasteriseSvgMask(reinterpret_cast<const char*>(icon.pBytes), icon.length, size, out)) {
         std::printf("%s did not rasterise at %dpx -- empty, or markup nanosvg cannot read\n", icon.pName, size);
@@ -107,25 +59,44 @@ void drawsSomethingAt(const Icon& icon, int size) {
     assert(anyCoverage);
 }
 
+// The table comes from EmbedAssets.cmake, so an icon added there is covered here without anybody
+// remembering to add it in two more places.
+void test_the_table_is_generated_from_the_build() {
+    assert(kEmbeddedAssetCount > 0);
+    bool sawSessions = false;
+    for (size_t i = 0; i < kEmbeddedAssetCount; ++i) {
+        assert(kEmbeddedAssets[i].pName != nullptr);
+        assert(kEmbeddedAssets[i].length > 0);
+        if (std::string(kEmbeddedAssets[i].pName) == "sessions") sawSessions = true;
+    }
+    assert(sawSessions);
+}
+
 void test_every_icon_rasterises_at_16() {
-    for (const Icon& icon : kSymbolics) drawsSomethingAt(icon, 16);
+    for (size_t i = 0; i < kEmbeddedAssetCount; ++i) {
+        if (kEmbeddedAssets[i].isSvg) drawsSomethingAt(kEmbeddedAssets[i], 16);
+    }
 }
 
 // Four times the smallest size they ship at, which is what the sharpest screen asks for.
 void test_every_icon_rasterises_at_64() {
-    for (const Icon& icon : kSymbolics) drawsSomethingAt(icon, 64);
+    for (size_t i = 0; i < kEmbeddedAssetCount; ++i) {
+        if (kEmbeddedAssets[i].isSvg) drawsSomethingAt(kEmbeddedAssets[i], 64);
+    }
+}
+
+// Anything still shipped as a picture has to actually be one.
+void test_every_png_asset_has_the_png_signature() {
+    for (size_t i = 0; i < kEmbeddedAssetCount; ++i) {
+        if (kEmbeddedAssets[i].isSvg) continue;
+        assert(kEmbeddedAssets[i].length > 4);
+        assert(kEmbeddedAssets[i].pBytes[0] == 0x89);
+        assert(kEmbeddedAssets[i].pBytes[1] == 0x50);
+    }
 }
 
 // The in-window brand image. It is not the one written to disk, so this only pins the format the
 // window's own logo is decoded as.
-void test_window_logo_is_still_a_png() {
-    assert(kAssetTuxbloxIconLen > 4);
-    assert(kAssetTuxbloxIcon[0] == 0x89);
-    assert(kAssetTuxbloxIcon[1] == 0x50);
-    assert(kAssetTuxbloxIcon[2] == 0x4E);
-    assert(kAssetTuxbloxIcon[3] == 0x47);
-}
-
 // THIS is the one whose bytes become a file on disk: desktop_integration.cpp and
 // desktop_shortcut.cpp write them out verbatim as the desktop icon, named .png. Changing its
 // format there is a missing desktop icon with no build error and nothing else to catch it.
@@ -140,9 +111,10 @@ void test_desktop_icon_is_still_a_png() {
 } // namespace
 
 int main() {
+    test_the_table_is_generated_from_the_build();
     test_every_icon_rasterises_at_16();
     test_every_icon_rasterises_at_64();
-    test_window_logo_is_still_a_png();
+    test_every_png_asset_has_the_png_signature();
     test_desktop_icon_is_still_a_png();
     return 0;
 }
