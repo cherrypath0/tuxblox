@@ -84,7 +84,7 @@ AboutPage::AboutPage() {
     adw_preferences_group_set_title(ADW_PREFERENCES_GROUP(pLinks), "Links");
     for (const Link &link : Links) {
         GtkWidget *pRow = plainActionRow(link.pLabel, "");
-        adw_action_row_add_prefix(ADW_ACTION_ROW(pRow), iconImage(link.pIcon, link.iconLength, 16));
+        adw_action_row_add_prefix(ADW_ACTION_ROW(pRow), iconImage(link.pIcon, link.iconLength, 18));
         gtk_list_box_row_set_activatable(GTK_LIST_BOX_ROW(pRow), TRUE);
         g_object_set_data(G_OBJECT(pRow), "tuxblox-url", const_cast<char *>(link.pUrl));
         g_signal_connect(pRow, "activated", G_CALLBACK(onLinkActivated), nullptr);

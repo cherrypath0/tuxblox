@@ -101,7 +101,7 @@ void onRowActivated(GtkListBox *, GtkListBoxRow *pRow, gpointer data) {
 void addPage(WindowUi &ui, Tab tab, const char *pTitle, const unsigned char *pIcon, size_t iconLength, bool footer,
              std::unique_ptr<Page> page) {
     GtkWidget *pBox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
-    gtk_box_append(GTK_BOX(pBox), iconImage(pIcon, iconLength, 16));
+    gtk_box_append(GTK_BOX(pBox), iconImage(pIcon, iconLength, 18));
     GtkWidget *pLabel = gtk_label_new(pTitle);
     gtk_label_set_xalign(GTK_LABEL(pLabel), 0.0f);
     gtk_box_append(GTK_BOX(pBox), pLabel);
