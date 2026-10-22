@@ -20,36 +20,41 @@ set(GENERATED_DIR "${CMAKE_BINARY_DIR}/generated")
 file(MAKE_DIRECTORY ${GENERATED_DIR})
 
 function(embedAsset name headerName symbol)
-    set(input "${CMAKE_SOURCE_DIR}/assets/${name}.png")
+    # Defaults to png so anything that must stay a bitmap -- the logo, which is written to disk as a file -- needs nothing said about it
+    set(extension "png")
+    if(ARGC GREATER 3)
+        set(extension "${ARGV3}")
+    endif()
+    set(input "${CMAKE_SOURCE_DIR}/assets/${name}.${extension}")
     set(output "${GENERATED_DIR}/${headerName}")
     add_custom_command(
         OUTPUT ${output}
         COMMAND ${CMAKE_COMMAND} -DINPUT=${input} -DOUTPUT=${output} -DSYMBOL=${symbol}
                 -P ${CMAKE_SOURCE_DIR}/cmake/BinToHeader.cmake
         DEPENDS ${input}
-        COMMENT "Embedding ${name}.png"
+        COMMENT "Embedding ${name}.${extension}"
         VERBATIM
     )
     set_property(GLOBAL APPEND PROPERTY LAUNCHER_ASSET_HEADERS ${output})
 endfunction()
 
-embedAsset(home asset_home.h kAssetHome)
-embedAsset(info asset_info.h kAssetInfo)
-embedAsset(globe asset_globe.h kAssetGlobe)
-embedAsset(docs asset_docs.h kAssetDocs)
-embedAsset(github asset_github.h kAssetGithub)
-embedAsset(discord asset_discord.h kAssetDiscord)
-embedAsset(settings asset_settings.h kAssetSettings)
-embedAsset(privacy asset_privacy.h kAssetPrivacy)
-embedAsset(scale asset_scale.h kAssetScale)
-embedAsset(download asset_download.h kAssetDownload)
-embedAsset(play asset_play.h kAssetPlay)
-embedAsset(stop asset_stop.h kAssetStop)
+embedAsset(home asset_home.h kAssetHome svg)
+embedAsset(info asset_info.h kAssetInfo svg)
+embedAsset(globe asset_globe.h kAssetGlobe svg)
+embedAsset(docs asset_docs.h kAssetDocs svg)
+embedAsset(github asset_github.h kAssetGithub svg)
+embedAsset(discord asset_discord.h kAssetDiscord svg)
+embedAsset(settings asset_settings.h kAssetSettings svg)
+embedAsset(privacy asset_privacy.h kAssetPrivacy svg)
+embedAsset(scale asset_scale.h kAssetScale svg)
+embedAsset(download asset_download.h kAssetDownload svg)
+embedAsset(play asset_play.h kAssetPlay svg)
+embedAsset(stop asset_stop.h kAssetStop svg)
 embedAsset(tuxblox-icon asset_tuxblox_icon.h kAssetTuxbloxIcon)
-embedAsset(fastflags asset_fastflags.h kAssetFastflags)
-embedAsset(roblox-rdd asset_roblox_rdd.h kAssetRobloxRdd)
-embedAsset(roblox-player asset_roblox_player.h kAssetRobloxPlayer)
-embedAsset(roblox-studio asset_roblox_studio.h kAssetRobloxStudio)
+embedAsset(fastflags asset_fastflags.h kAssetFastflags svg)
+embedAsset(roblox-rdd asset_roblox_rdd.h kAssetRobloxRdd svg)
+embedAsset(roblox-player asset_roblox_player.h kAssetRobloxPlayer svg)
+embedAsset(roblox-studio asset_roblox_studio.h kAssetRobloxStudio svg)
 
 get_property(LAUNCHER_ASSET_HEADERS GLOBAL PROPERTY LAUNCHER_ASSET_HEADERS)
 add_custom_target(generate_asset_headers DEPENDS ${LAUNCHER_ASSET_HEADERS})
