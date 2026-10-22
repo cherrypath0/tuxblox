@@ -723,6 +723,7 @@ struct x11drv_win_data
     struct window_state current_state; /* window state tracking the current X11 state */
     unsigned long wm_state_serial;     /* serial of last pending WM_STATE request */
     unsigned long net_wm_state_serial; /* serial of last pending _NET_WM_STATE request */
+    DWORD         net_wm_state_time;   /* when that request went out, to give up waiting on a window manager that never answers */
     unsigned long monitors_serial;     /* serial of last pending _NET_WM_FULLSCREEN_MONITORS request */
     unsigned long wm_hints_serial;     /* serial of last pending WM_HINTS request */
     unsigned long mwm_hints_serial;    /* serial of last pending _MOTIF_WM_HINTS request */

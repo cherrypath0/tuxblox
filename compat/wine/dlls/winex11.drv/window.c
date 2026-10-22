@@ -1560,6 +1560,18 @@ static void window_set_net_wm_state( struct x11drv_win_data *data, UINT new_stat
     /* we ignore and override previous _NET_WM_STATE update requests */
     if (old_state == new_state) return; /* states are the same, nothing to update */
 
+    /* The serial is cleared only by the matching _NET_WM_STATE notification, and while it is set
+     * the request loop below sends nothing at all. A window manager that never answers therefore
+     * wedges the window in whatever state it is in, permanently -- which is what left a window that
+     * asked to leave fullscreen stuck in it, spinning, until the program gave up on itself. A reply
+     * that has not come in a second is not coming, so stop waiting for it and ask again. */
+    if (data->net_wm_state_serial && NtGetTickCount() - data->net_wm_state_time >= 1000)
+    {
+        WARN( "window %p/%lx got no _NET_WM_STATE reply for serial %lu, asking again\n", data->hwnd,
+              data->whole_window, data->net_wm_state_serial );
+        data->net_wm_state_serial = 0;
+    }
+
     if (window_needs_net_wm_state_change_delay( data ))
     {
         TRACE( "window %p/%lx is updating config/_MOTIF_WM_HINTS, delaying request\n", data->hwnd, data->whole_window );
@@ -1589,6 +1601,7 @@ static void window_set_net_wm_state( struct x11drv_win_data *data, UINT new_stat
 
         data->pending_state.net_wm_state = new_state;
         data->net_wm_state_serial = NextRequest( data->display );
+        data->net_wm_state_time = NtGetTickCount();
         TRACE( "window %p/%lx, requesting _NET_WM_STATE %#x serial %lu\n", data->hwnd, data->whole_window,
                data->pending_state.net_wm_state, data->net_wm_state_serial );
         XChangeProperty( data->display, data->whole_window, x11drv_atom(_NET_WM_STATE), XA_ATOM,
@@ -1627,6 +1640,7 @@ static void window_set_net_wm_state( struct x11drv_win_data *data, UINT new_stat
 
             data->pending_state.net_wm_state ^= (1 << i);
             data->net_wm_state_serial = NextRequest( data->display );
+            data->net_wm_state_time = NtGetTickCount();
             TRACE( "window %p/%lx, requesting _NET_WM_STATE %#x serial %lu\n", data->hwnd, data->whole_window,
                    data->pending_state.net_wm_state, data->net_wm_state_serial );
             XSendEvent( data->display, DefaultRootWindow( data->display ), False,
