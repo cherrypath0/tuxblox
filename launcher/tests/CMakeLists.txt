@@ -285,3 +285,7 @@ add_test(NAME log_entry COMMAND test_log_entry)
 add_executable(test_session_log_reader test_session_log_reader.cpp)
 target_link_libraries(test_session_log_reader PRIVATE launcher_core)
 add_test(NAME session_log_reader COMMAND test_session_log_reader)
+
+add_executable(test_sessions_page_state test_sessions_page_state.cpp ../src/ui_adw/sessions_page_state.cpp)
+target_link_libraries(test_sessions_page_state PRIVATE launcher_core)
+add_test(NAME sessions_page_state COMMAND test_sessions_page_state)
