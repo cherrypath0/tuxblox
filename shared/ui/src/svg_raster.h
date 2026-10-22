@@ -24,4 +24,10 @@ namespace tuxblox {
 // False, leaving `outRgba` alone, for empty or unparseable markup and for a size that is not positive.
 bool rasteriseSvgMask(const char* pSvg, size_t length, int pixelSize, std::vector<unsigned char>& outRgba);
 
+// How many dots the sharpest screen attached will actually draw `pixelSize` with. Zero for a size that is not positive, so a caller cannot ask for an empty picture by accident.
+int iconTargetPixels(int pixelSize, int scale);
+
+// True when these bytes are drawing instructions rather than a picture, which is what decides how an icon gets turned into dots.
+bool looksLikeSvg(const unsigned char* pBytes, size_t length);
+
 } // namespace tuxblox

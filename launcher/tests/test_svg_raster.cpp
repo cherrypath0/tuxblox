@@ -93,6 +93,39 @@ void test_non_square_viewbox_fills_height() {
     assert(bottomRowDrawn);
 }
 
+void test_target_pixels_multiplies() {
+    assert(iconTargetPixels(16, 2) == 32);
+    assert(iconTargetPixels(34, 4) == 136);
+}
+
+// A machine with no monitors attached hands back a degenerate scale; the result still has to be drawable.
+void test_target_pixels_floors_scale() {
+    assert(iconTargetPixels(16, 0) == 16);
+    assert(iconTargetPixels(16, -1) == 16);
+}
+
+void test_target_pixels_caps_scale() {
+    assert(iconTargetPixels(16, 8) == 64);
+}
+
+void test_target_pixels_rejects_bad_size() {
+    assert(iconTargetPixels(0, 2) == 0);
+    assert(iconTargetPixels(-5, 2) == 0);
+}
+
+void test_looks_like_svg() {
+    const unsigned char plain[] = "<svg viewBox=\"0 0 24 24\"></svg>";
+    assert(looksLikeSvg(plain, sizeof(plain) - 1));
+    const unsigned char declared[] = "<?xml version=\"1.0\"?>\n<svg viewBox=\"0 0 24 24\"></svg>";
+    assert(looksLikeSvg(declared, sizeof(declared) - 1));
+}
+
+void test_png_is_not_svg() {
+    const unsigned char png[] = {0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A};
+    assert(!looksLikeSvg(png, sizeof(png)));
+    assert(!looksLikeSvg(nullptr, 0));
+}
+
 } // namespace
 
 int main() {
@@ -104,5 +137,11 @@ int main() {
     test_rejects_nonpositive_size();
     test_does_not_mutate_caller_buffer();
     test_non_square_viewbox_fills_height();
+    test_target_pixels_multiplies();
+    test_target_pixels_floors_scale();
+    test_target_pixels_caps_scale();
+    test_target_pixels_rejects_bad_size();
+    test_looks_like_svg();
+    test_png_is_not_svg();
     return 0;
 }

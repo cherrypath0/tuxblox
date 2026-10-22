@@ -65,4 +65,18 @@ bool rasteriseSvgMask(const char* pSvg, size_t length, int pixelSize, std::vecto
     return true;
 }
 
+int iconTargetPixels(int pixelSize, int scale) {
+    if (pixelSize <= 0) return 0;
+    // Four is the ceiling past which the extra dots cost more than anybody can see, and one the floor a screen can report when there is no screen at all.
+    const int usable = std::min(std::max(scale, 1), 4);
+    return pixelSize * usable;
+}
+
+bool looksLikeSvg(const unsigned char* pBytes, size_t length) {
+    if (pBytes == nullptr || length == 0) return false;
+    // Only the opening of the file is read, which is as far as an XML declaration or a comment can push the root element down.
+    const std::string head(reinterpret_cast<const char*>(pBytes), std::min<size_t>(length, 512));
+    return head.find("<svg") != std::string::npos;
+}
+
 } // namespace tuxblox

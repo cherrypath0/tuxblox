@@ -19,6 +19,7 @@
 #include "adw_env.h"
 #include "host_icons.h"
 #include "palette.h"
+#include "svg_raster.h"
 
 #include <algorithm>
 #include <climits>
@@ -26,6 +27,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <string>
+#include <vector>
 #include <unistd.h>
 
 // Third Parties
@@ -182,6 +184,19 @@ std::string settingsTheme() {
 }
 
 GdkTexture *iconTexture(const unsigned char *pPng, size_t length, int pixelSize) {
+    // A drawing is made into dots at the size it will actually be shown at, so it is sharp on any screen rather than a picture being stretched to fit.
+    if (looksLikeSvg(pPng, length)) {
+        const int target = iconTargetPixels(pixelSize, displayPixelScale());
+        std::vector<unsigned char> mask;
+        if (target <= 0 || !rasteriseSvgMask(reinterpret_cast<const char *>(pPng), length, target, mask)) {
+            return nullptr;
+        }
+        GBytes *pPixels = g_bytes_new(mask.data(), mask.size());
+        GdkTexture *pDrawn = gdk_memory_texture_new(target, target, GDK_MEMORY_R8G8B8A8, pPixels, target * 4);
+        g_bytes_unref(pPixels);
+        return pDrawn;
+    }
+
     GBytes *pBytes = g_bytes_new_static(pPng, length);
     // Decoded by the interface's own loader. The image library hands some formats to a helper process it sandboxes, and inside the compatibility layer that helper is killed before it can answer, which left the dialog with a hole where the logo belongs.
     GdkTexture *pFullSize = gdk_texture_new_from_bytes(pBytes, nullptr);
