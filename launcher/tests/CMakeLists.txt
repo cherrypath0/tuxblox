@@ -281,3 +281,7 @@ add_test(NAME session_log_match COMMAND test_session_log_match)
 add_executable(test_log_entry test_log_entry.cpp)
 target_link_libraries(test_log_entry PRIVATE launcher_core)
 add_test(NAME log_entry COMMAND test_log_entry)
+
+add_executable(test_session_log_reader test_session_log_reader.cpp)
+target_link_libraries(test_session_log_reader PRIVATE launcher_core)
+add_test(NAME session_log_reader COMMAND test_session_log_reader)
