@@ -33,6 +33,7 @@
 #include "asset_settings.h"
 #include "asset_stop.h"
 #include "asset_tuxblox_icon.h"
+#include "tuxblox_logo_png.h"
 
 #include <cassert>
 #include <cstdio>
@@ -95,9 +96,9 @@ void test_every_icon_rasterises_at_64() {
     for (const Icon& icon : kSymbolics) drawsSomethingAt(icon, 64);
 }
 
-// The logo's embedded bytes are written straight to a .png on disk for the desktop icon, by both
-// the launcher and the installer. Converting it would break that silently, with no build error.
-void test_logo_is_still_a_png() {
+// The in-window brand image. It is not the one written to disk, so this only pins the format the
+// window's own logo is decoded as.
+void test_window_logo_is_still_a_png() {
     assert(kAssetTuxbloxIconLen > 4);
     assert(kAssetTuxbloxIcon[0] == 0x89);
     assert(kAssetTuxbloxIcon[1] == 0x50);
@@ -105,11 +106,23 @@ void test_logo_is_still_a_png() {
     assert(kAssetTuxbloxIcon[3] == 0x47);
 }
 
+// THIS is the one whose bytes become a file on disk: desktop_integration.cpp and
+// desktop_shortcut.cpp write them out verbatim as the desktop icon, named .png. Changing its
+// format there is a missing desktop icon with no build error and nothing else to catch it.
+void test_desktop_icon_is_still_a_png() {
+    assert(kTuxbloxLogoPngLen > 8);
+    assert(kTuxbloxLogoPng[0] == 0x89);
+    assert(kTuxbloxLogoPng[1] == 0x50);
+    assert(kTuxbloxLogoPng[2] == 0x4E);
+    assert(kTuxbloxLogoPng[3] == 0x47);
+}
+
 } // namespace
 
 int main() {
     test_every_icon_rasterises_at_16();
     test_every_icon_rasterises_at_64();
-    test_logo_is_still_a_png();
+    test_window_logo_is_still_a_png();
+    test_desktop_icon_is_still_a_png();
     return 0;
 }

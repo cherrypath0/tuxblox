@@ -17,7 +17,9 @@
 #include "svg_raster.h"
 
 #include <algorithm>
+#include <cstring>
 #include <string>
+#include <string_view>
 
 // Third Parties
 // The drawing library is compiled in here and nowhere else: a second file that asks for its implementation is a duplicate-symbol error at link time.
@@ -35,7 +37,8 @@ bool rasteriseSvgMask(const char* pSvg, size_t length, int pixelSize, std::vecto
     std::string source(pSvg, length);
     NSVGimage* pImage = nsvgParse(source.data(), "px", 96.0f);
     if (pImage == nullptr) return false;
-    if (pImage->width <= 0.0f || pImage->height <= 0.0f) {
+    // A drawing with no shapes in it, which is what a truncated or empty file parses to, would come out a fully transparent square -- a gap on the screen rather than anything anybody could see was wrong.
+    if (pImage->width <= 0.0f || pImage->height <= 0.0f || pImage->shapes == nullptr) {
         nsvgDelete(pImage);
         return false;
     }
@@ -74,9 +77,12 @@ int iconTargetPixels(int pixelSize, int scale) {
 
 bool looksLikeSvg(const unsigned char* pBytes, size_t length) {
     if (pBytes == nullptr || length == 0) return false;
-    // Only the opening of the file is read, which is as far as an XML declaration or a comment can push the root element down.
-    const std::string head(reinterpret_cast<const char*>(pBytes), std::min<size_t>(length, 512));
-    return head.find("<svg") != std::string::npos;
+    // A compressed picture can hold any run of bytes at all, so its own signature settles the question before anything is searched for.
+    static const unsigned char pngSignature[] = {0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n'};
+    if (length >= sizeof(pngSignature) && std::memcmp(pBytes, pngSignature, sizeof(pngSignature)) == 0) return false;
+    // The whole file is searched rather than its opening, because a licence notice carried as a comment pushes the root element past any fixed window.
+    const std::string_view markup(reinterpret_cast<const char*>(pBytes), length);
+    return markup.find("<svg") != std::string_view::npos;
 }
 
 } // namespace tuxblox

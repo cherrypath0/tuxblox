@@ -93,6 +93,32 @@ void test_non_square_viewbox_fills_height() {
     assert(bottomRowDrawn);
 }
 
+// Markup that parses but draws nothing rasterises to a fully transparent square, which reaches the
+// screen as a gap rather than as an error. A file truncated by a bad merge looks exactly like this.
+void test_rejects_markup_that_draws_nothing() {
+    std::vector<unsigned char> out;
+    const char empty[] = "<svg viewBox=\"0 0 24 24\"></svg>";
+    assert(!rasteriseSvgMask(empty, sizeof(empty) - 1, 16, out));
+    const char truncated[] = "<svg viewBox=\"0 0 24 24\"><rect x=\"0\" y=\"0\" wid";
+    assert(!rasteriseSvgMask(truncated, sizeof(truncated) - 1, 16, out));
+}
+
+// The project's own copyright notice, wrapped as a comment, pushes the root element further down
+// than any fixed window a sniffer might look through.
+void test_looks_like_svg_past_a_long_preamble() {
+    std::string markup = "<!--\n";
+    for (int i = 0; i < 40; ++i) markup += "TuxBlox - Linux Compatibility Layer for the Roblox Engine\n";
+    markup += "-->\n<svg viewBox=\"0 0 24 24\"><rect width=\"24\" height=\"24\"/></svg>";
+    assert(markup.size() > 1024);
+    assert(looksLikeSvg(reinterpret_cast<const unsigned char*>(markup.data()), markup.size()));
+}
+
+// A compressed image can hold any byte sequence at all, so the bitmap signature has to decide first.
+void test_png_magic_is_never_svg() {
+    const unsigned char png[] = {0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n', '<', 's', 'v', 'g', ' '};
+    assert(!looksLikeSvg(png, sizeof(png)));
+}
+
 void test_target_pixels_multiplies() {
     assert(iconTargetPixels(16, 2) == 32);
     assert(iconTargetPixels(34, 4) == 136);
@@ -137,6 +163,9 @@ int main() {
     test_rejects_nonpositive_size();
     test_does_not_mutate_caller_buffer();
     test_non_square_viewbox_fills_height();
+    test_rejects_markup_that_draws_nothing();
+    test_looks_like_svg_past_a_long_preamble();
+    test_png_magic_is_never_svg();
     test_target_pixels_multiplies();
     test_target_pixels_floors_scale();
     test_target_pixels_caps_scale();

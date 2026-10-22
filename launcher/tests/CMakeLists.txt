@@ -263,5 +263,5 @@ add_test(NAME palette COMMAND test_palette)
 add_executable(test_embedded_icons test_embedded_icons.cpp ${TUXBLOX_UI_SRC}/svg_raster.cpp)
 target_include_directories(test_embedded_icons PRIVATE
     ${TUXBLOX_UI_SRC} ${CMAKE_SOURCE_DIR}/third_party ${CMAKE_BINARY_DIR}/generated)
-add_dependencies(test_embedded_icons generate_asset_headers)
+add_dependencies(test_embedded_icons generate_asset_headers generate_logo_header)
 add_test(NAME embedded_icons COMMAND test_embedded_icons)

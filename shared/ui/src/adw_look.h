@@ -32,10 +32,11 @@ void applyTheme(const std::string &theme);
 // The theme chosen in the launcher's settings, for the programs that have no settings of their own to hand. "system" whenever there is nothing readable to go on, which is what a fresh install looks like.
 std::string settingsTheme();
 
-// The PNG resized to the size it will actually be drawn at. A renderer shrinking a 440-pixel image into a 72-pixel box in one step is what makes an icon look soft, so the resizing is done properly here instead. Pass 0 to keep the image as it is; the caller owns the returned reference.
+// An icon turned into dots at the size it will actually be drawn at, which is what keeps it from looking soft. A drawing is rendered straight at that size; a picture is resized properly here rather than left to the renderer to shrink in one step.
+// A drawing has no size of its own, so a `pixelSize` of 0 gets nothing back from one, where a picture is handed over as it is. The caller owns the returned reference.
 GdkTexture *iconTexture(const unsigned char *pPng, size_t length, int pixelSize);
 
-// The PNG as a paintable, which also keeps the window free of any icon theme. The caller owns the returned reference.
+// The same, as a paintable, which also keeps the window free of any icon theme. The caller owns the returned reference.
 GdkPaintable *logoPaintable(const unsigned char *pPng, size_t length, int pixelSize);
 
 } // namespace tuxblox
