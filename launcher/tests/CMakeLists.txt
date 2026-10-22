@@ -273,3 +273,7 @@ add_test(NAME session_facts COMMAND test_session_facts)
 add_executable(test_session_list test_session_list.cpp)
 target_link_libraries(test_session_list PRIVATE launcher_core)
 add_test(NAME session_list COMMAND test_session_list)
+
+add_executable(test_session_log_match test_session_log_match.cpp)
+target_link_libraries(test_session_log_match PRIVATE launcher_core)
+add_test(NAME session_log_match COMMAND test_session_log_match)
