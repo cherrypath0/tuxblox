@@ -265,3 +265,7 @@ target_include_directories(test_embedded_icons PRIVATE
     ${TUXBLOX_UI_SRC} ${CMAKE_SOURCE_DIR}/third_party ${CMAKE_BINARY_DIR}/generated)
 add_dependencies(test_embedded_icons generate_asset_headers generate_logo_header)
 add_test(NAME embedded_icons COMMAND test_embedded_icons)
+
+add_executable(test_session_facts test_session_facts.cpp)
+target_link_libraries(test_session_facts PRIVATE launcher_core)
+add_test(NAME session_facts COMMAND test_session_facts)
