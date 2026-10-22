@@ -56,4 +56,11 @@ void runRobloxUpdateCheck(const std::string& installDir, LaunchTarget target,
 void activateNewlyUpdatedVersion(const std::string& installDir, LaunchTarget target,
                                   const std::vector<std::string>& versionsBefore);
 
+// Deletes every other installed version of `target`, plus the archive the download left beside it.
+// Only reached on the auto-update path: with that setting on the older builds are not ones the user
+// chose to keep, and one a week fills a disk. A version something is still running from is left
+// alone, and so is the other app -- Player and Studio share one directory.
+void removeSupersededVersions(const std::string& installDir, LaunchTarget target,
+                               const std::string& keepHash);
+
 } // namespace tuxblox

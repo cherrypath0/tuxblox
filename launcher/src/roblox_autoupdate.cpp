@@ -20,12 +20,33 @@
 #include "desktop_notify.h"
 #include "versions_manifest.h"
 
+#include <cctype>
 #include <cstdio>
+#include <filesystem>
 #include <optional>
 #include <sys/wait.h>
 #include <unistd.h>
 
 namespace tuxblox {
+
+namespace {
+
+// Roblox runs from inside its own version directory, so removing one still in use would pull the
+// exe out from under a window the user has open -- a second Studio, most often.
+bool versionInUse(const std::string& versionDir) {
+    std::error_code error;
+    const std::string prefix = versionDir + "/";
+    for (const auto& entry : std::filesystem::directory_iterator("/proc", error)) {
+        const std::string pid = entry.path().filename().string();
+        if (pid.empty() || !std::isdigit(static_cast<unsigned char>(pid[0]))) continue;
+        const std::string exe = std::filesystem::read_symlink(entry.path() / "exe", error).string();
+        if (error) { error.clear(); continue; }
+        if (exe.rfind(prefix, 0) == 0) return true;
+    }
+    return false;
+}
+
+} // namespace
 
 std::optional<std::string> ownExePath() {
     char buf[4096];
@@ -102,6 +123,11 @@ void runRobloxUpdateCheck(const std::string& installDir, LaunchTarget target,
     }
 
     activateNewlyUpdatedVersion(installDir, target, versionsBefore);
+
+    // Whatever the update installed is the one to keep; empty means it installed nothing.
+    const std::string installed =
+        newestAddedVersion(installDir, versionsBefore, scanPrefixVersions(installDir, target));
+    removeSupersededVersions(installDir, target, installed);
 }
 
 void activateNewlyUpdatedVersion(const std::string& installDir, LaunchTarget target,
@@ -119,6 +145,33 @@ void activateNewlyUpdatedVersion(const std::string& installDir, LaunchTarget tar
 
     versions.activeHash = installed;
     saveVersionsManifest(installDir, manifest);
+}
+
+void removeSupersededVersions(const std::string& installDir, LaunchTarget target,
+                               const std::string& keepHash) {
+    // Nothing was installed, so nothing here is superseded and the user's own choice stands.
+    if (keepHash.empty()) return;
+
+    const std::string versionsDir = robloxVersionsDir(installDir);
+    bool removedAny = false;
+
+    for (const std::string& hash : scanPrefixVersions(installDir, target)) {
+        if (hash == keepHash) continue;
+
+        const std::string dir = versionsDir + "/" + hash;
+        if (versionInUse(dir)) continue;
+
+        std::error_code error;
+        std::filesystem::remove_all(dir, error);
+        if (error) continue;
+        // The download is extracted in place and its archive is left behind, so it goes too.
+        std::filesystem::remove(dir + ".zip", error);
+        removedAny = true;
+    }
+
+    // Re-reading reconciles versions.json against the prefix, which is what drops the entries whose
+    // directories have just gone and re-pins the active one if it was among them.
+    if (removedAny) saveVersionsManifest(installDir, loadInstalledVersions(installDir));
 }
 
 } // namespace tuxblox

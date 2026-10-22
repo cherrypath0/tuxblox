@@ -82,6 +82,50 @@ int main() {
         assert(sawStudio);
     }
 
+    // removeSupersededVersions() deletes the other builds of ONE app, and nothing else.
+    {
+        const fs::path base = fs::temp_directory_path() / "tuxblox_test_autoupdate_prune";
+        fs::remove_all(base);
+        const fs::path versions = fs::path(robloxVersionsDir(base.string()));
+        fs::create_directories(versions);
+
+        auto makeVersion = [&](const char* hash, const char* exe) {
+            fs::create_directories(versions / hash);
+            FILE* f = fopen((versions / hash / exe).string().c_str(), "w");
+            assert(f);
+            fclose(f);
+        };
+        auto makeArchive = [&](const char* hash) {
+            FILE* f = fopen((versions / (std::string(hash) + ".zip")).string().c_str(), "w");
+            assert(f);
+            fclose(f);
+        };
+
+        makeVersion("version-keep", "RobloxPlayerBeta.exe");
+        makeVersion("version-old", "RobloxPlayerBeta.exe");
+        makeVersion("version-studio", "RobloxStudioBeta.exe");
+        makeArchive("version-old");
+        makeArchive("version-studio");
+
+        removeSupersededVersions(base.string(), LaunchTarget::Player, "version-keep");
+
+        assert(fs::exists(versions / "version-keep"));          // the one just installed stays
+        assert(!fs::exists(versions / "version-old"));          // the superseded Player build goes
+        assert(!fs::exists(versions / "version-old.zip"));      // and so does its leftover archive
+        assert(fs::exists(versions / "version-studio"));        // the other app is never touched
+        assert(fs::exists(versions / "version-studio.zip"));
+
+        // An update that installed nothing must not delete anything: the active version is then
+        // one the user chose on purpose.
+        makeVersion("version-second", "RobloxPlayerBeta.exe");
+        removeSupersededVersions(base.string(), LaunchTarget::Player, "");
+        assert(fs::exists(versions / "version-keep"));
+        assert(fs::exists(versions / "version-second"));
+
+        fs::remove_all(base);
+    }
+
+
     printf("roblox_autoupdate: all tests passed\n");
     return 0;
 }
