@@ -305,6 +305,57 @@ int main() {
         assert(stopPrefixSessions(quietInstall.string(), LaunchTarget::Studio) == 0);
     }
 
+    // layerProcessForSessionIn(): which layer process owns ONE session, so Stop can
+    // close that session and leave the others alone. Found by walking /proc parentage
+    // up from the Roblox process, because the layer's child is not always Roblox
+    // itself -- in virtual-desktop mode it is explorer, which then starts Roblox.
+    {
+        const fs::path sessRoot = tmp / "proc_session";
+        const fs::path installDir = tmp / "install";
+        const fs::path layerBinary = installDir / "compat" / "main";
+        const fs::path otherInstall = tmp / "install2";
+        const fs::path otherBinary = otherInstall / "compat" / "main";
+        const std::string prefixEnv = (installDir / "runtime").string();
+
+        auto makeLayer = [&](const std::string& pid, const fs::path& exe,
+                             const std::string& targetExe, const std::string& tuxbloxPrefix) {
+            fs::create_directories(sessRoot / pid);
+            writeNulJoined(sessRoot / pid / "cmdline", {exe.string(), "run", "--immediate", targetExe});
+            std::vector<std::string> env = {"PATH=/usr/bin", "TUXBLOX_PREFIX=" + tuxbloxPrefix};
+            writeNulJoined(sessRoot / pid / "environ", env);
+            fs::create_symlink(exe, sessRoot / pid / "exe");
+        };
+        auto makeChild = [&](const std::string& pid, const std::string& ppid) {
+            fs::create_directories(sessRoot / pid);
+            std::ofstream(sessRoot / pid / "status")
+                << "Name:\tsomething\nPid:\t" << pid << "\nPPid:\t" << ppid << "\n";
+        };
+
+        makeLayer("100", layerBinary, "/v/RobloxStudioBeta.exe", prefixEnv);
+        makeLayer("101", layerBinary, "/v/RobloxStudioBeta.exe", prefixEnv);
+        makeLayer("102", otherBinary, "/v/RobloxStudioBeta.exe", (otherInstall / "runtime").string());
+
+        makeChild("200", "100");   // Roblox straight under its layer
+        makeChild("300", "101");   // an intermediate, e.g. explorer in virtual-desktop mode
+        makeChild("201", "300");   // Roblox under the intermediate
+        makeChild("202", "102");   // belongs to another install
+        makeChild("203", "1");     // orphaned, parented to init
+
+        const std::string install = installDir.string();
+
+        assert(layerProcessForSessionIn(sessRoot.string(), install, LaunchTarget::Studio, 200) == 100);
+        assert(layerProcessForSessionIn(sessRoot.string(), install, LaunchTarget::Studio, 201) == 101);
+        // The whole point of the page: two Studio sessions must not resolve to one layer.
+        assert(layerProcessForSessionIn(sessRoot.string(), install, LaunchTarget::Studio, 200) !=
+               layerProcessForSessionIn(sessRoot.string(), install, LaunchTarget::Studio, 201));
+        assert(layerProcessForSessionIn(sessRoot.string(), install, LaunchTarget::Studio, 999) == -1);
+        assert(layerProcessForSessionIn(sessRoot.string(), install, LaunchTarget::Studio, 202) == -1);
+        // Walking up from an orphan terminates rather than looping.
+        assert(layerProcessForSessionIn(sessRoot.string(), install, LaunchTarget::Studio, 203) == -1);
+        // A Player session is never matched to a Studio layer.
+        assert(layerProcessForSessionIn(sessRoot.string(), install, LaunchTarget::Player, 200) == -1);
+    }
+
     fs::remove_all(tmp);
     std::printf("prefix_session: all tests passed\n");
     return 0;

@@ -51,6 +51,13 @@ bool launchJoinsPrefix(LaunchTarget target, const PrefixSessions& sessions);
 // processes and another drive's are both left out.
 std::vector<int> layerProcessesFor(const std::string& installDir, LaunchTarget target);
 
+// The compatibility-layer process that owns `robloxPid`, or -1 when none does. Walks /proc parentage upwards, because the layer's own child is not always Roblox -- in virtual-desktop mode it is explorer, which then starts Roblox.
+int layerProcessForSessionIn(const std::string& procRoot, const std::string& installDir,
+                             LaunchTarget target, int robloxPid);
+
+// Closes one session, leaving the others of the same app alone. False when its layer process cannot be identified, in which case nothing is signalled.
+bool stopPrefixSession(const std::string& installDir, LaunchTarget target, int robloxPid);
+
 // Closes every live `target` session: asks each one's compatibility-layer
 // process to stand down, which ends it cleanly and reports no error, then
 // insists on the Roblox process itself if it is still there. Returns how many

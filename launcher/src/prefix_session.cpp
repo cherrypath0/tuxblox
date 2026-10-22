@@ -16,6 +16,7 @@
 
 #include "prefix_session.h"
 #include "launch_paths.h"
+#include <algorithm>
 #include <cctype>
 #include <chrono>
 #include <cstdlib>
@@ -100,6 +101,20 @@ std::string resolvedPath(const std::string& p) {
     std::error_code ec;
     const fs::path resolved = fs::weakly_canonical(p, ec);
     return normalizePath(ec ? p : resolved.string());
+}
+
+// The PPid line of /proc/<pid>/status, or -1. Read from status rather than stat because stat's second field is the executable name, which may itself contain spaces and brackets.
+int parentPidIn(const std::string& procRoot, int pid) {
+    std::ifstream file(procRoot + "/" + std::to_string(pid) + "/status");
+    if (!file) return -1;
+    std::string line;
+    while (std::getline(file, line)) {
+        if (line.rfind("PPid:", 0) != 0) continue;
+        const size_t at = line.find_first_not_of(" \t", 5);
+        if (at == std::string::npos) return -1;
+        return std::atoi(line.c_str() + at);
+    }
+    return -1;
 }
 
 bool anyAlive(const std::vector<int>& pids) {
@@ -272,6 +287,42 @@ std::vector<int> layerProcessesForIn(const std::string& procRoot, const std::str
 
 std::vector<int> layerProcessesFor(const std::string& installDir, LaunchTarget target) {
     return layerProcessesForIn("/proc", installDir, target);
+}
+
+int layerProcessForSessionIn(const std::string& procRoot, const std::string& installDir,
+                             LaunchTarget target, int robloxPid) {
+    if (robloxPid <= 0) return -1;
+    const std::vector<int> layers = layerProcessesForIn(procRoot, installDir, target);
+    if (layers.empty()) return -1;
+
+    // Bounded rather than "until pid 1", so a /proc that disagrees with itself cannot spin here.
+    int pid = robloxPid;
+    for (int step = 0; step < 32 && pid > 1; ++step) {
+        if (std::find(layers.begin(), layers.end(), pid) != layers.end()) return pid;
+        pid = parentPidIn(procRoot, pid);
+        if (pid <= 0) break;
+    }
+    return -1;
+}
+
+bool stopPrefixSession(const std::string& installDir, LaunchTarget target, int robloxPid) {
+    const int layer = layerProcessForSessionIn("/proc", installDir, target, robloxPid);
+    if (layer <= 0) return false;
+
+    // The same stand-down the whole-app Stop uses, aimed at one session's layer process.
+    const std::vector<int> client{robloxPid};
+    ::kill(layer, SIGUSR1);
+    for (int waited = 0; waited < 5000; waited += 100) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        if (!anyAlive(client)) return true;
+    }
+    ::kill(robloxPid, SIGTERM);
+    for (int waited = 0; waited < 3000; waited += 100) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        if (!anyAlive(client)) return true;
+    }
+    ::kill(robloxPid, SIGKILL);
+    return true;
 }
 
 int stopPrefixSessions(const std::string& installDir, LaunchTarget target) {
