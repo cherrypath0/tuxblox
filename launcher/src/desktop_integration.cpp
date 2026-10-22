@@ -17,6 +17,7 @@
 #include "desktop_integration.h"
 #include "tuxblox_logo_png.h" // generated at build time: kTuxbloxLogoPng[], kTuxbloxLogoPngLen
 #include "container_env.h"
+#include "install_paths.h"
 #include "wine_shortcut_export.h"
 #include <cctype>
 #include <chrono>
@@ -253,7 +254,30 @@ bool shouldClaimAssociation(const std::string& currentDefault, bool currentDefau
     return false;
 }
 
+// A launcher running from somewhere other than the install it was pointed at -- a build tree, most
+// often -- is not the one the shortcuts should start. Writing its own path into them repoints every
+// shortcut at a binary that is no part of the install, and they break the moment it moves, so it
+// leaves the whole of the desktop integration alone instead.
+static bool runningFromInstall(const std::string& launcherExePath) {
+    if (launcherExePath.empty()) return true; // nothing to compare against, behave as before
+
+    try {
+        std::error_code error;
+        const std::filesystem::path own = std::filesystem::path(launcherExePath).parent_path();
+        const std::filesystem::path root = installDir(); // throws only if it can read neither /proc/self/exe nor HOME
+        if (own.empty() || root.empty()) return true;
+        if (own == root) return true;
+
+        // Same place reached by a different path -- a symlinked install directory, say.
+        const bool same = std::filesystem::equivalent(own, root, error);
+        return !error && same;
+    } catch (const std::exception&) {
+        return true; // this step is best-effort, and an unanswerable question is not a reason to skip it
+    }
+}
+
 void writeDesktopEntries(const std::string& launcherExePath) {
+    if (!runningFromInstall(launcherExePath)) return;
     try {
         const char* home = std::getenv("HOME");
         if (!home || home[0] == '\0') return;
@@ -371,6 +395,7 @@ void writeDesktopEntries(const std::string& launcherExePath) {
 }
 
 void ensureDesktopIntegration(const std::string& launcherExePath, const std::string& installDir) {
+    if (!runningFromInstall(launcherExePath)) return;
     writeDesktopEntries(launcherExePath);
 
     try {
