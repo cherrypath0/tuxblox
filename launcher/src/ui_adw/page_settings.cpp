@@ -161,7 +161,7 @@ void SettingsPage::buildEnvironment() {
     AdwPreferencesGroup *pGroup = addGroup("Environment");
 
     GtkWidget *pGraphics = adw_combo_row_new();
-    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(pGraphics), "Graphics");
+    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(pGraphics), "Graphics API");
     GtkStringList *pGraphicsChoices = gtk_string_list_new(GraphicsLabels);
     adw_combo_row_set_model(ADW_COMBO_ROW(pGraphics), G_LIST_MODEL(pGraphicsChoices));
     g_object_unref(pGraphicsChoices);
