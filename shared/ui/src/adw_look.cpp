@@ -18,6 +18,7 @@
 
 #include "adw_env.h"
 #include "host_icons.h"
+#include "palette.h"
 
 #include <algorithm>
 #include <climits>
@@ -35,83 +36,6 @@
 namespace tuxblox {
 
 namespace {
-
-// The colours of tuxblox.net, so the launcher and the website read as one product rather than two
-const char DarkPalette[] =
-    "@define-color window_bg_color #0a0c11;\n"
-    "@define-color window_fg_color #e9ecf1;\n"
-    "@define-color view_bg_color #0e1117;\n"
-    "@define-color view_fg_color #e9ecf1;\n"
-    "@define-color headerbar_bg_color #0e1117;\n"
-    "@define-color headerbar_fg_color #e9ecf1;\n"
-    "@define-color headerbar_backdrop_color #0a0c11;\n"
-    "@define-color sidebar_bg_color #0e1117;\n"
-    "@define-color sidebar_fg_color #e9ecf1;\n"
-    "@define-color sidebar_backdrop_color #0a0c11;\n"
-    "@define-color sidebar_border_color #232833;\n"
-    "@define-color secondary_sidebar_bg_color #0e1117;\n"
-    "@define-color secondary_sidebar_fg_color #e9ecf1;\n"
-    "@define-color secondary_sidebar_backdrop_color #0a0c11;\n"
-    "@define-color secondary_sidebar_border_color #232833;\n"
-    "@define-color card_bg_color #13171f;\n"
-    "@define-color card_fg_color #e9ecf1;\n"
-    "@define-color card_shade_color #232833;\n"
-    "@define-color dialog_bg_color #13171f;\n"
-    "@define-color dialog_fg_color #e9ecf1;\n"
-    "@define-color popover_bg_color #1a1f29;\n"
-    "@define-color popover_fg_color #e9ecf1;\n"
-    "@define-color thumbnail_bg_color #1a1f29;\n"
-    "@define-color thumbnail_fg_color #e9ecf1;\n"
-    "@define-color accent_bg_color #0273ae;\n"
-    "@define-color accent_fg_color #ffffff;\n"
-    "@define-color success_bg_color #059669;\n"
-    "@define-color success_fg_color #ffffff;\n"
-    "@define-color warning_bg_color #f59e0b;\n"
-    "@define-color warning_fg_color rgb(0 0 6 / 80%);\n"
-    "@define-color error_bg_color #dc2626;\n"
-    "@define-color error_fg_color #ffffff;\n"
-    "@define-color destructive_bg_color #dc2626;\n"
-    "@define-color destructive_fg_color #ffffff;\n";
-
-const char LightPalette[] =
-    "@define-color window_bg_color #f5f6f8;\n"
-    "@define-color window_fg_color #15181d;\n"
-    "@define-color view_bg_color #ffffff;\n"
-    "@define-color view_fg_color #15181d;\n"
-    "@define-color headerbar_bg_color #ffffff;\n"
-    "@define-color headerbar_fg_color #15181d;\n"
-    "@define-color headerbar_backdrop_color #f5f6f8;\n"
-    "@define-color sidebar_bg_color #ffffff;\n"
-    "@define-color sidebar_fg_color #15181d;\n"
-    "@define-color sidebar_backdrop_color #f5f6f8;\n"
-    "@define-color sidebar_border_color #e1e4e9;\n"
-    "@define-color secondary_sidebar_bg_color #ffffff;\n"
-    "@define-color secondary_sidebar_fg_color #15181d;\n"
-    "@define-color secondary_sidebar_backdrop_color #f5f6f8;\n"
-    "@define-color secondary_sidebar_border_color #e1e4e9;\n"
-    "@define-color card_bg_color #ffffff;\n"
-    "@define-color card_fg_color #15181d;\n"
-    "@define-color card_shade_color #e1e4e9;\n"
-    "@define-color dialog_bg_color #ffffff;\n"
-    "@define-color dialog_fg_color #15181d;\n"
-    "@define-color popover_bg_color #ffffff;\n"
-    "@define-color popover_fg_color #15181d;\n"
-    "@define-color thumbnail_bg_color #ffffff;\n"
-    "@define-color thumbnail_fg_color #15181d;\n"
-    "@define-color accent_bg_color #0273ae;\n"
-    "@define-color accent_fg_color #ffffff;\n"
-    "@define-color success_bg_color #047857;\n"
-    "@define-color success_fg_color #ffffff;\n"
-    "@define-color warning_bg_color #b45309;\n"
-    "@define-color warning_fg_color #ffffff;\n"
-    "@define-color error_bg_color #dc2626;\n"
-    "@define-color error_fg_color #ffffff;\n"
-    "@define-color destructive_bg_color #dc2626;\n"
-    "@define-color destructive_fg_color #ffffff;\n";
-
-// A flat hairline in place of libadwaita's drop shadow, the way the website draws the same surfaces
-const char PaletteStyles[] =
-    ".card, list.boxed-list, list.boxed-list-separate > row { box-shadow: 0 0 0 1px @card_shade_color; }\n";
 
 // Grey is libadwaita's own colours, which is what TuxBlox looked like before the website palette existed
 bool isKnownTheme(const std::string &theme) {
@@ -134,7 +58,7 @@ void loadPalette() {
     if (CurrentTheme != "grey") {
         const bool dark = CurrentTheme == "dark" ||
                           (CurrentTheme == "system" && adw_style_manager_get_dark(adw_style_manager_get_default()));
-        css = std::string(dark ? DarkPalette : LightPalette) + PaletteStyles;
+        css = std::string(dark ? darkPaletteCss() : lightPaletteCss()) + paletteStylesCss();
     }
     gtk_css_provider_load_from_string(pPalette, css.c_str());
 }
