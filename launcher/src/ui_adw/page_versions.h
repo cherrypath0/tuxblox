@@ -44,6 +44,7 @@ private:
         std::string hash;
     };
 
+    void applyReadOnly(bool readOnly);
     void buildInstallGroup();
     AdwPreferencesGroup *buildList(List &list, const char *pTitle);
     void rebuild(List &list, const AppVersions &versions);
@@ -72,6 +73,7 @@ private:
     List player_{LaunchTarget::Player};
     List studio_{LaunchTarget::Studio};
     VersionsManifest rendered_;
+    bool readOnly_ = false;
     bool renderedOnce_ = false;
 };
 

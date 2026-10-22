@@ -159,6 +159,7 @@ GtkWidget *VersionsPage::versionRow(LaunchTarget target, const AppVersions &vers
     } else {
         GtkWidget *pSetActive = gtk_button_new_with_label("Set active");
         gtk_widget_set_valign(pSetActive, GTK_ALIGN_CENTER);
+        gtk_widget_set_sensitive(pSetActive, !readOnly_);
         connectRowAction(pSetActive, G_CALLBACK(onSetActive), target, version.hash);
         adw_action_row_add_suffix(ADW_ACTION_ROW(pRow), pSetActive);
     }
@@ -166,10 +167,22 @@ GtkWidget *VersionsPage::versionRow(LaunchTarget target, const AppVersions &vers
     GtkWidget *pDelete = gtk_button_new_with_label("Delete");
     gtk_widget_add_css_class(pDelete, "destructive-action");
     gtk_widget_set_valign(pDelete, GTK_ALIGN_CENTER);
-    gtk_widget_set_sensitive(pDelete, canDeleteVersion(versions, version.hash));
+    gtk_widget_set_sensitive(pDelete, !readOnly_ && canDeleteVersion(versions, version.hash));
     connectRowAction(pDelete, G_CALLBACK(onDelete), target, version.hash);
     adw_action_row_add_suffix(ADW_ACTION_ROW(pRow), pDelete);
     return pRow;
+}
+
+void VersionsPage::applyReadOnly(bool readOnly) {
+    adw_preferences_page_set_description(
+        ADW_PREFERENCES_PAGE(pRoot_),
+        readOnly ? "Auto-Update Roblox keeps these up to date. Turn it off in Settings to pick a build yourself."
+                 : "Choose which build of Roblox you play on, install an older one, or remove the ones you no "
+                   "longer need.");
+
+    gtk_widget_set_sensitive(GTK_WIDGET(pTarget_), !readOnly);
+    gtk_widget_set_sensitive(GTK_WIDGET(pChannel_), !readOnly);
+    gtk_widget_set_sensitive(GTK_WIDGET(pHash_), !readOnly);
 }
 
 void VersionsPage::rebuild(List &list, const AppVersions &versions) {
@@ -252,8 +265,12 @@ void VersionsPage::update(const AppSnapshot &snap) {
 
     gtk_widget_set_visible(pProgressLabel_, running && forSelected);
     gtk_widget_set_visible(pProgress_, running && forSelected);
-    gtk_widget_set_sensitive(pInstall_, !running);
-    gtk_widget_set_sensitive(pPrevious_, !running);
+    const bool readOnlyChanged = snap.settings.autoUpdateRoblox != readOnly_;
+    readOnly_ = snap.settings.autoUpdateRoblox;
+    if (readOnlyChanged || !renderedOnce_) applyReadOnly(readOnly_);
+
+    gtk_widget_set_sensitive(pInstall_, !running && !readOnly_);
+    gtk_widget_set_sensitive(pPrevious_, !running && !readOnly_);
     if (running && forSelected) {
         static const char *const PhaseLabels[] = {"", "Resolving version", "Fetching package manifest",
                                                   "Downloading packages", "Extracting", "", ""};
@@ -263,7 +280,7 @@ void VersionsPage::update(const AppSnapshot &snap) {
     showError(pError_, progress.phase == VersionInstallPhase::Error && forSelected ? progress.errorMessage : "");
 
     // Only when the installed versions change, or a confirm dialog opened from a row would lose that row every tick
-    if (renderedOnce_ && sameVersions(snap.versions.player, rendered_.player) &&
+    if (renderedOnce_ && !readOnlyChanged && sameVersions(snap.versions.player, rendered_.player) &&
         sameVersions(snap.versions.studio, rendered_.studio)) {
         return;
     }
