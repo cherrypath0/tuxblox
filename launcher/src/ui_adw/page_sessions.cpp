@@ -55,7 +55,7 @@ void installPageStyles() {
         ".session-chip.running { background: alpha(#34d399, 0.16); color: #34d399; }\n"
         ".session-chip.ended { background: alpha(currentColor, 0.1); }\n"
         ".log-toggle { font-size: 11px; padding: 2px 9px; min-height: 22px; }\n"
-        ".log-toggle:checked { background: alpha(#4aa8db, 0.2); color: #9ed4f0; box-shadow: inset 0 0 0 1px alpha(#4aa8db, 0.38); }\n"
+        ".log-toggle:checked { background: alpha(#4aa8db, 0.28); color: #bfe3f7; font-weight: 700; box-shadow: inset 0 0 0 1px alpha(#4aa8db, 0.55); }\n"
         ".log-count { font-family: \"Adwaita Mono\", monospace; font-size: 10px; }\n");
     gtk_style_context_add_provider_for_display(gdk_display_get_default(), GTK_STYLE_PROVIDER(pProvider),
                                                GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
@@ -313,6 +313,11 @@ GtkWidget *SessionsPage::buildLogPane() {
     gtk_text_buffer_create_tag(pBuffer_, "ours", "foreground", "#7fd1a8", nullptr);
     gtk_text_buffer_create_tag(pBuffer_, "match", "background", "#f59e0b", "foreground", "#0a0c11", nullptr);
 
+    GtkTextIter start;
+    gtk_text_buffer_get_end_iter(pBuffer_, &start);
+    // Left gravity off, so it stays at the end as text arrives rather than being pushed along in front of it.
+    gtk_text_buffer_create_mark(pBuffer_, "tail", &start, FALSE);
+
     pLogScroll_ = gtk_scrolled_window_new();
     gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(pLogScroll_), pView);
     gtk_widget_set_vexpand(pLogScroll_, TRUE);
@@ -436,11 +441,11 @@ void SessionsPage::selectSession(int pid) {
         pReader_ = std::make_unique<SessionLogReader>(session.capturedLogPath, session.robloxLogPath);
         break;
     }
-    if (pReader_ != nullptr) {
-        gtk_label_set_text(pSources_, ("Reading " + pReader_->describeSources()).c_str());
-    } else {
-        gtk_label_set_text(pSources_, "");
-    }
+    gtk_label_set_text(pSources_, "");
+    gtk_widget_set_visible(GTK_WIDGET(pSources_), FALSE);
+    // Which file is being read is not something to spend a line on, but it is what somebody filing a bug report needs, so it stays within reach.
+    gtk_widget_set_tooltip_text(GTK_WIDGET(pName_),
+                                pReader_ == nullptr ? nullptr : pReader_->describeSources().c_str());
 }
 
 void SessionsPage::appendEntry(const LogEntry &entry) {
@@ -530,9 +535,21 @@ void SessionsPage::refreshHeader(const AppSnapshot &snap) {
 
         const SessionsView view = sessionsView({session}, std::time(nullptr));
         const std::vector<SessionRow> &group = session.running ? view.running : view.ended;
-        if (!group.empty()) gtk_label_set_text(pMeta_, group.front().meta.c_str());
+        if (!group.empty()) {
+            std::string meta = group.front().meta;
+            const AppVersions &versions =
+                session.target == LaunchTarget::Player ? snap.versions.player : snap.versions.studio;
+            for (const InstalledVersion &installed : versions.installed) {
+                if (installed.hash != versions.activeHash || installed.versionString.empty()) continue;
+                meta += " \xC2\xB7 " + installed.versionString;
+                break;
+            }
+            gtk_label_set_text(pMeta_, meta.c_str());
+        }
 
-        if (pReader_ != nullptr && !pReader_->robloxLogAppeared() && session.robloxLogPath.empty()) {
+        const bool waitingOnRoblox = pReader_ != nullptr && !pReader_->robloxLogAppeared();
+        gtk_widget_set_visible(GTK_WIDGET(pSources_), waitingOnRoblox);
+        if (waitingOnRoblox) {
             gtk_label_set_text(pSources_, "Roblox has not written a log for this session yet.");
         }
         return;
@@ -593,11 +610,7 @@ void SessionsPage::update(const AppSnapshot &snap) {
     gtk_label_set_text(pSize_, (std::to_string(entries_.size()) + " entries \xC2\xB7 " +
                                 std::to_string(gtk_text_buffer_get_char_count(pBuffer_) / 1024) + " KB").c_str());
 
-    if (follow_.on && !scrolledUp) {
-        GtkTextIter end;
-        gtk_text_buffer_get_end_iter(pBuffer_, &end);
-        gtk_text_view_scroll_to_iter(pLog_, &end, 0.0, FALSE, 0.0, 0.0);
-    }
+    if (follow_.on && !scrolledUp) scrollToTail();
 }
 
 void SessionsPage::onSearchChanged(GtkEditable *, gpointer data) {
@@ -672,13 +685,20 @@ void SessionsPage::onFindChanged(GtkEditable *pEditable, gpointer data) {
     pSelf->applyFind();
 }
 
+void SessionsPage::scrollToTail() {
+    GtkTextIter end;
+    gtk_text_buffer_get_end_iter(pBuffer_, &end);
+    GtkTextMark *pTail = gtk_text_buffer_get_mark(pBuffer_, "tail");
+    if (pTail == nullptr) return;
+    gtk_text_buffer_move_mark(pBuffer_, pTail, &end);
+    gtk_text_view_scroll_to_mark(pLog_, pTail, 0.0, FALSE, 0.0, 0.0);
+}
+
 void SessionsPage::onJumpToEnd(GtkButton *, gpointer data) {
     auto *pSelf = static_cast<SessionsPage *>(data);
     pSelf->follow_.on = true;
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(pSelf->follow_.pButton), TRUE);
-    GtkTextIter end;
-    gtk_text_buffer_get_end_iter(pSelf->pBuffer_, &end);
-    gtk_text_view_scroll_to_iter(pSelf->pLog_, &end, 0.0, FALSE, 0.0, 0.0);
+    pSelf->scrollToTail();
 }
 
 void SessionsPage::onFindStep(GtkButton *pButton, gpointer data) {

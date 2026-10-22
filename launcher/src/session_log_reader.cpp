@@ -88,9 +88,20 @@ std::vector<LogEntry> SessionLogReader::pump() {
     return groupLogEntries(lines);
 }
 
+namespace {
+
+// Just the file's own name. Which file is being read is the point; where the virtual drive keeps it is not something a reader should have to look at.
+std::string nameOnly(const std::string& path) {
+    const size_t slash = path.rfind('/');
+    return slash == std::string::npos ? path : path.substr(slash + 1);
+}
+
+} // namespace
+
 std::string SessionLogReader::describeSources() const {
-    if (roblox_.path.empty()) return captured_.path;
-    return captured_.path + " and " + roblox_.path;
+    if (roblox_.path.empty()) return nameOnly(captured_.path);
+    if (captured_.path.empty()) return nameOnly(roblox_.path);
+    return nameOnly(captured_.path) + " and " + nameOnly(roblox_.path);
 }
 
 bool SessionLogReader::robloxLogAppeared() const {

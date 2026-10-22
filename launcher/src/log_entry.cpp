@@ -66,10 +66,21 @@ std::string lowered(const std::string& text) {
 // How many bytes the sequence opening with `lead` should run to, or 0 when it opens nothing valid.
 int sequenceLength(unsigned char lead) {
     if (lead < 0x80) return 1;
-    if ((lead & 0xE0) == 0xC0) return 2;
-    if ((lead & 0xF0) == 0xE0) return 3;
-    if ((lead & 0xF8) == 0xF0) return 4;
+    // C0 and C1 could only ever spell something already spellable in one byte.
+    if (lead >= 0xC2 && lead <= 0xDF) return 2;
+    if (lead >= 0xE0 && lead <= 0xEF) return 3;
+    // Past F4 is beyond the last code point there is.
+    if (lead >= 0xF0 && lead <= 0xF4) return 4;
     return 0;
+}
+
+// The second byte is what separates a sequence that is merely the right shape from one that means anything: a shorter spelling of a character that already has one, half of a surrogate pair, or a number past the last code point.
+bool secondByteIsInRange(unsigned char lead, unsigned char second) {
+    if (lead == 0xE0) return second >= 0xA0 && second <= 0xBF;
+    if (lead == 0xED) return second >= 0x80 && second <= 0x9F;
+    if (lead == 0xF0) return second >= 0x90 && second <= 0xBF;
+    if (lead == 0xF4) return second >= 0x80 && second <= 0x8F;
+    return second >= 0x80 && second <= 0xBF;
 }
 
 LogLevel levelOf(const std::string& line) {
@@ -108,7 +119,11 @@ std::string toDisplayableText(const std::string& raw) {
     for (size_t at = 0; at < raw.size();) {
         const int length = sequenceLength(static_cast<unsigned char>(raw[at]));
         bool valid = length > 0 && at + static_cast<size_t>(length) <= raw.size();
-        for (int i = 1; valid && i < length; ++i) {
+        if (valid && length > 1) {
+            valid = secondByteIsInRange(static_cast<unsigned char>(raw[at]),
+                                        static_cast<unsigned char>(raw[at + 1]));
+        }
+        for (int i = 2; valid && i < length; ++i) {
             if ((static_cast<unsigned char>(raw[at + i]) & 0xC0) != 0x80) valid = false;
         }
         if (!valid) {
@@ -128,12 +143,14 @@ std::vector<LogEntry> groupLogEntries(const std::vector<std::string>& lines) {
         const std::string line = toDisplayableText(raw);
         if (!entries.empty() && !opensAnEntry(line)) {
             entries.back().continuation.push_back(line);
+            entries.back().rawContinuation.push_back(line);
             continue;
         }
         LogEntry entry;
         entry.source = isOurOwnLine(line) ? LogSource::TuxBlox : LogSource::Roblox;
         entry.level = levelOf(line);
         if (hasRobloxStamp(line)) entry.time = line.substr(11, 12);
+        entry.raw = line;
         entry.text = tidyLine(line);
         // The time is shown in its own column, so it is not repeated in the text beside it.
         if (!entry.time.empty() && entry.text.rfind(entry.time, 0) == 0) {

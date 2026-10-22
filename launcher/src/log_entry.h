@@ -31,6 +31,9 @@ struct LogEntry {
     std::string time;
     std::string text;
     std::vector<std::string> continuation;
+    // The lines exactly as written. Tidy is a way of looking at an entry, not something done to it, so what it hides has to still be here.
+    std::string raw;
+    std::vector<std::string> rawContinuation;
     LogLevel level = LogLevel::Plain;
     LogSource source = LogSource::Roblox;
 };
