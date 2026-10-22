@@ -65,6 +65,25 @@ void test_missing_colour_is_empty() {
     assert(paletteColour(darkPaletteCss(), "nope").empty());
 }
 
+// The row for the page you are on has to be visible against the sidebar behind it. Reaching for a
+// shared surface colour here picks white on white in the light palette, and the selection vanishes.
+void test_selected_sidebar_row_is_visible() {
+    const char* const palettes[][2] = {{darkPaletteCss(), "dark"}, {lightPaletteCss(), "light"}};
+    for (const auto& palette : palettes) {
+        const std::string selected = paletteColour(palette[0], "sidebar_selected_color");
+        const std::string background = paletteColour(palette[0], "sidebar_bg_color");
+        assert(!selected.empty());
+        assert(!background.empty());
+        const double step = contrastRatio(selected, background);
+        if (step < 1.1) {
+            std::printf("%s palette: selected row %s against sidebar %s is only %.3f:1 apart\n",
+                        palette[1], selected.c_str(), background.c_str(), step);
+            std::fflush(stdout);
+        }
+        assert(step >= 1.1);
+    }
+}
+
 void test_dark_button_colours_pass_contrast() {
     checkWhiteTextPasses(darkPaletteCss(), "dark");
 }
@@ -80,6 +99,7 @@ int main() {
     test_rejects_bad_hex();
     test_extracts_a_colour();
     test_missing_colour_is_empty();
+    test_selected_sidebar_row_is_visible();
     test_dark_button_colours_pass_contrast();
     test_light_button_colours_pass_contrast();
     return 0;

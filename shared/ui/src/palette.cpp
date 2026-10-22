@@ -38,6 +38,7 @@ const char DarkPalette[] =
     "@define-color sidebar_fg_color #e9ecf1;\n"
     "@define-color sidebar_backdrop_color #0a0c11;\n"
     "@define-color sidebar_border_color #232833;\n"
+    "@define-color sidebar_selected_color #1a1f29;\n"
     "@define-color secondary_sidebar_bg_color #0e1117;\n"
     "@define-color secondary_sidebar_fg_color #e9ecf1;\n"
     "@define-color secondary_sidebar_backdrop_color #0a0c11;\n"
@@ -74,6 +75,7 @@ const char LightPalette[] =
     "@define-color sidebar_fg_color #15181d;\n"
     "@define-color sidebar_backdrop_color #f5f6f8;\n"
     "@define-color sidebar_border_color #e1e4e9;\n"
+    "@define-color sidebar_selected_color #e9ebef;\n"
     "@define-color secondary_sidebar_bg_color #ffffff;\n"
     "@define-color secondary_sidebar_fg_color #15181d;\n"
     "@define-color secondary_sidebar_backdrop_color #f5f6f8;\n"
@@ -100,7 +102,9 @@ const char LightPalette[] =
 
 // A flat hairline in place of libadwaita's drop shadow, the way the website draws the same surfaces
 const char PaletteStyles[] =
-    ".card, list.boxed-list, list.boxed-list-separate > row { box-shadow: 0 0 0 1px @card_shade_color; }\n";
+    ".card, list.boxed-list, list.boxed-list-separate > row { box-shadow: 0 0 0 1px @card_shade_color; }\n"
+    // The interface picks a grey out of the text colour for the page you are on; this is the website's own raised surface instead, so the sidebar reads as one family with the cards beside it
+    "list.navigation-sidebar row:selected { background-color: @sidebar_selected_color; }\n";
 
 // One channel of a colour, straightened out of the curve a screen applies to it, which is what the eye's reading of brightness is built from.
 double linearChannel(int value) {
