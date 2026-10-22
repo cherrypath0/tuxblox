@@ -171,6 +171,7 @@ if(TUXBLOX_UI_STACK_DEV)
         ${TUXBLOX_UI_SRC}/adw_env.cpp
         ${TUXBLOX_UI_SRC}/adw_look.cpp
         ${TUXBLOX_UI_SRC}/host_icons.cpp
+        ${TUXBLOX_UI_SRC}/svg_raster.cpp
     )
     target_include_directories(TuxBloxInstaller-ui PRIVATE
         ${CMAKE_BINARY_DIR}/generated ${TUXBLOX_UI_SRC} ${ADWAITA_INCLUDE_DIRS})

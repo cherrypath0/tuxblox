@@ -16,7 +16,11 @@
 
 #include "host_icons.h"
 
+#include "svg_raster.h"
+
 #include <algorithm>
+#include <fstream>
+#include <iterator>
 #include <cstdlib>
 #include <cstring>
 #include <string>
@@ -24,10 +28,6 @@
 
 // Third Parties
 #include <gtk/gtk.h>
-#define NANOSVG_IMPLEMENTATION
-#include <nanosvg.h>
-#define NANOSVGRAST_IMPLEMENTATION
-#include <nanosvgrast.h>
 
 namespace tuxblox {
 
@@ -167,31 +167,16 @@ GdkPixbuf *toMask(GdkPixbuf *pSource) {
 }
 
 GdkPixbuf *renderSvg(const std::string &path, int size) {
-    NSVGimage *pImage = nsvgParseFromFile(path.c_str(), "px", 96.0f);
-    if (pImage == nullptr) return nullptr;
-    if (pImage->width <= 0.0f || pImage->height <= 0.0f) {
-        nsvgDelete(pImage);
-        return nullptr;
-    }
+    std::ifstream file(path, std::ios::binary);
+    if (!file) return nullptr;
+    const std::string markup((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
 
-    NSVGrasterizer *pRasterizer = nsvgCreateRasterizer();
-    if (pRasterizer == nullptr) {
-        nsvgDelete(pImage);
-        return nullptr;
-    }
+    std::vector<unsigned char> mask;
+    if (!rasteriseSvgMask(markup.data(), markup.size(), size, mask)) return nullptr;
 
-    auto *pPixels = static_cast<guchar *>(g_malloc0(static_cast<gsize>(size) * size * 4));
-    nsvgRasterize(pRasterizer, pImage, 0.0f, 0.0f, static_cast<float>(size) / pImage->width, pPixels, size, size,
-                  size * 4);
-    nsvgDeleteRasterizer(pRasterizer);
-    nsvgDelete(pImage);
-
-    // The colour the drawing came out is thrown away with the rest -- only how opaque each dot is survives into the icon
-    for (int i = 0; i < size * size; ++i) {
-        pPixels[i * 4 + 0] = 0;
-        pPixels[i * 4 + 1] = 0;
-        pPixels[i * 4 + 2] = 0;
-    }
+    // Handed to the picture, which frees it through the callback below
+    auto *pPixels = static_cast<guchar *>(g_malloc(mask.size()));
+    std::memcpy(pPixels, mask.data(), mask.size());
     return gdk_pixbuf_new_from_data(pPixels, GDK_COLORSPACE_RGB, TRUE, 8, size, size, size * 4,
                                     [](guchar *pTaken, gpointer) { g_free(pTaken); }, nullptr);
 }

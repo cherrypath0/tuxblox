@@ -251,3 +251,7 @@ add_test(NAME adw_env COMMAND test_adw_env)
 add_executable(test_bootstrap_dispatch test_bootstrap_dispatch.cpp)
 target_link_libraries(test_bootstrap_dispatch PRIVATE launcher_core)
 add_test(NAME bootstrap_dispatch COMMAND test_bootstrap_dispatch)
+
+add_executable(test_svg_raster test_svg_raster.cpp ${TUXBLOX_UI_SRC}/svg_raster.cpp)
+target_include_directories(test_svg_raster PRIVATE ${TUXBLOX_UI_SRC} ${CMAKE_SOURCE_DIR}/third_party)
+add_test(NAME svg_raster COMMAND test_svg_raster)

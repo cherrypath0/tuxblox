@@ -156,6 +156,7 @@ add_library(launcher_core STATIC
     src/bootstrap/install_plan.cpp
     src/bootstrap/app.cpp
     ${TUXBLOX_UI_SRC}/adw_env.cpp
+    ${TUXBLOX_UI_SRC}/svg_raster.cpp
 )
 if(TUXBLOX_LIBADWAITA_COMMIT)
     target_compile_definitions(launcher_core PRIVATE TUXBLOX_LIBADWAITA_COMMIT="${TUXBLOX_LIBADWAITA_COMMIT}")
