@@ -101,7 +101,7 @@ GtkWidget *SessionsPage::widget() const {
 GtkWidget *SessionsPage::buildList() {
     GtkWidget *pColumn = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
     // A floor, not a fixed width: the window can be taken down to 640 across and the list has to give way rather than hold it open.
-    gtk_widget_set_size_request(pColumn, 240, -1);
+    gtk_widget_set_size_request(pColumn, 292, -1);
 
     pSearch_ = gtk_search_entry_new();
     gtk_widget_set_margin_start(pSearch_, 8);
@@ -188,7 +188,7 @@ GtkWidget *SessionsPage::buildControls() {
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(pScroll), GTK_POLICY_AUTOMATIC, GTK_POLICY_NEVER);
     gtk_scrolled_window_set_propagate_natural_width(GTK_SCROLLED_WINDOW(pScroll), FALSE);
     gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(pScroll), pStrip);
-    gtk_widget_set_size_request(pScroll, 120, -1);
+    gtk_widget_set_size_request(pScroll, 80, -1);
     return pScroll;
 }
 
