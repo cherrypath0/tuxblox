@@ -318,6 +318,10 @@ GtkWidget *SessionsPage::buildLogPane() {
     // Left gravity off, so it stays at the end as text arrives rather than being pushed along in front of it.
     gtk_text_buffer_create_mark(pBuffer_, "tail", &start, FALSE);
 
+    GtkEventController *pScrollWatch = gtk_event_controller_scroll_new(GTK_EVENT_CONTROLLER_SCROLL_VERTICAL);
+    g_signal_connect(pScrollWatch, "scroll", G_CALLBACK(onLogScrolled), this);
+    gtk_widget_add_controller(pView, pScrollWatch);
+
     pLogScroll_ = gtk_scrolled_window_new();
     gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(pLogScroll_), pView);
     gtk_widget_set_vexpand(pLogScroll_, TRUE);
@@ -434,6 +438,7 @@ void SessionsPage::selectSession(int pid) {
     matches_.clear();
     currentMatch_ = 0;
     pReader_.reset();
+    readerScrolledAway_ = false;
     gtk_text_buffer_set_text(pBuffer_, "", 0);
 
     for (const Session &session : app_.snapshot().sessionList) {
@@ -453,7 +458,8 @@ void SessionsPage::appendEntry(const LogEntry &entry) {
 
     GtkTextIter end;
     gtk_text_buffer_get_end_iter(pBuffer_, &end);
-    if (!entry.time.empty()) {
+    // Raw shows the line as written, stamp and all, so there is no separate column to put the time in.
+    if (tidy_.on && !entry.time.empty()) {
         gtk_text_buffer_insert_with_tags_by_name(pBuffer_, &end, (entry.time + "  ").c_str(), -1, "time", nullptr);
         gtk_text_buffer_get_end_iter(pBuffer_, &end);
     }
@@ -467,9 +473,10 @@ void SessionsPage::appendEntry(const LogEntry &entry) {
         pTag = "ours";
     }
 
-    std::string body = entry.text;
+    std::string body = tidy_.on ? entry.text : entry.raw;
     // The lines that continue a message are indented under it, so a traceback reads as one thing.
-    for (const std::string &more : entry.continuation) body += "\n    " + more;
+    const std::vector<std::string> &more = tidy_.on ? entry.continuation : entry.rawContinuation;
+    for (const std::string &line : more) body += "\n    " + line;
     body += "\n";
 
     if (pTag != nullptr) {
@@ -587,14 +594,9 @@ void SessionsPage::update(const AppSnapshot &snap) {
     if (snap.activeTab != Tab::Sessions || pReader_ == nullptr) return;
 
     // Reading back through a log that is still growing should stay where it was put.
-    GtkAdjustment *pScrollPosition = gtk_scrolled_window_get_vadjustment(GTK_SCROLLED_WINDOW(pLogScroll_));
-    const double distanceFromEnd = gtk_adjustment_get_upper(pScrollPosition) -
-                                   gtk_adjustment_get_page_size(pScrollPosition) -
-                                   gtk_adjustment_get_value(pScrollPosition);
-    const bool scrolledUp = distanceFromEnd > 8.0;
-    gtk_widget_set_visible(GTK_WIDGET(pFollowState_), follow_.on && scrolledUp);
-    gtk_widget_set_visible(pJumpToEnd_, follow_.on && scrolledUp);
-    if (follow_.on && scrolledUp) {
+    gtk_widget_set_visible(GTK_WIDGET(pFollowState_), follow_.on && readerScrolledAway_);
+    gtk_widget_set_visible(pJumpToEnd_, follow_.on && readerScrolledAway_);
+    if (follow_.on && readerScrolledAway_) {
         gtk_label_set_text(pFollowState_, "Scrolled up \xE2\x80\x94 following paused");
     }
 
@@ -610,7 +612,7 @@ void SessionsPage::update(const AppSnapshot &snap) {
     gtk_label_set_text(pSize_, (std::to_string(entries_.size()) + " entries \xC2\xB7 " +
                                 std::to_string(gtk_text_buffer_get_char_count(pBuffer_) / 1024) + " KB").c_str());
 
-    if (follow_.on && !scrolledUp) scrollToTail();
+    if (follow_.on && !readerScrolledAway_) scrollToTail();
 }
 
 void SessionsPage::onSearchChanged(GtkEditable *, gpointer data) {
@@ -694,8 +696,25 @@ void SessionsPage::scrollToTail() {
     gtk_text_view_scroll_to_mark(pLog_, pTail, 0.0, FALSE, 0.0, 0.0);
 }
 
+gboolean SessionsPage::onLogScrolled(GtkEventControllerScroll *, double, double dy, gpointer data) {
+    auto *pSelf = static_cast<SessionsPage *>(data);
+    if (dy < 0.0) {
+        pSelf->readerScrolledAway_ = true;
+    } else if (dy > 0.0) {
+        // Back at the bottom means they want to be carried along again.
+        GtkAdjustment *pPosition =
+            gtk_scrolled_window_get_vadjustment(GTK_SCROLLED_WINDOW(pSelf->pLogScroll_));
+        const double remaining = gtk_adjustment_get_upper(pPosition) -
+                                 gtk_adjustment_get_page_size(pPosition) -
+                                 gtk_adjustment_get_value(pPosition);
+        if (remaining < 48.0) pSelf->readerScrolledAway_ = false;
+    }
+    return GDK_EVENT_PROPAGATE;
+}
+
 void SessionsPage::onJumpToEnd(GtkButton *, gpointer data) {
     auto *pSelf = static_cast<SessionsPage *>(data);
+    pSelf->readerScrolledAway_ = false;
     pSelf->follow_.on = true;
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(pSelf->follow_.pButton), TRUE);
     pSelf->scrollToTail();

@@ -557,16 +557,28 @@ void App::requestStopSession(int pid) {
             known = true;
             break;
         }
-        if (!known) return;
-        if (std::find(stoppedByUs_.begin(), stoppedByUs_.end(), pid) != stoppedByUs_.end()) return;
-        stoppedByUs_.push_back(pid);
     }
+    if (!known) return;
+
+    // Closing a session waits several seconds for it to go. Joining a thread still doing that would
+    // hold the window still, so a second Stop while one is under way is ignored rather than queued.
+    bool idle = false;
+    if (!stopOneBusy_.compare_exchange_strong(idle, true)) return;
     if (stopOneThread_.joinable()) stopOneThread_.join();
     stopOneThread_ = std::thread(&App::stopOneSessionThreadMain, this, pid, target);
 }
 
 void App::stopOneSessionThreadMain(int pid, LaunchTarget target) {
-    stopPrefixSession(installDir_, target, pid);
+    // Only a stop that actually happened is recorded. One that could not find what to ask leaves the
+    // session alone, says so, and stays clickable -- the Player can re-parent itself out of the
+    // layer's tree, and a Stop that silently did nothing for ever would be worse than one that failed.
+    if (stopPrefixSession(installDir_, target, pid)) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        stoppedByUs_.push_back(pid);
+    } else {
+        fprintf(stderr, "TuxBlox: could not work out what is running session %d, so it was left alone\n", pid);
+    }
+    stopOneBusy_.store(false);
 }
 
 void App::stopSessionsThreadMain(LaunchTarget target) {

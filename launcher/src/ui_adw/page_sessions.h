@@ -76,6 +76,7 @@ private:
     static void onFindChanged(GtkEditable *pEditable, gpointer data);
     static void onFindStep(GtkButton *pButton, gpointer data);
     static void onJumpToEnd(GtkButton *pButton, gpointer data);
+    static gboolean onLogScrolled(GtkEventControllerScroll *pController, double dx, double dy, gpointer data);
 
     App &app_;
     GtkWidget *pRoot_ = nullptr;
@@ -111,6 +112,8 @@ private:
     std::unique_ptr<SessionLogReader> pReader_;
     std::vector<LogEntry> entries_;
     int selectedPid_ = 0;
+    // Set only when the reader actually scrolls. Working it out from the scrollbar instead latches: the scroll the page asks for is carried out later, so the next tick reads a stale position, decides the reader moved away, and then never scrolls again.
+    bool readerScrolledAway_ = false;
     std::string renderedQuery_;
     size_t currentMatch_ = 0;
     std::vector<LogMatch> matches_;

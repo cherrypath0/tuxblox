@@ -272,6 +272,7 @@ private:
     std::atomic<bool> versionInstallCancel_{false};
     std::atomic<bool> sessionPollStop_{false};
     // Set when a launch from the window should land on its session once one exists, cleared when it does or when waiting any longer stops being reasonable.
+    std::atomic<bool> stopOneBusy_{false};
     std::atomic<bool> showSessionWhenItStarts_{false};
     std::atomic<long long> launchRequestedAt_{0};
     std::atomic<bool> stopPlayerBusy_{false};
@@ -280,7 +281,7 @@ private:
 
     std::thread sessionPollThread_;
     std::thread stopOneThread_;
-    // Sessions this launcher asked to stop, so an exit it caused is not reported as a crash.
+    // Sessions this launcher asked to stop, so an exit it caused is not reported as a crash. Only ever added to once a stop has actually been carried out, so a stop that could not be carried out does not claim one that was.
     std::vector<int> stoppedByUs_;
     std::thread stopPlayerThread_;
     std::thread stopStudioThread_;
