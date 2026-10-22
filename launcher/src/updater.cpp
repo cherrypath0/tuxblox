@@ -227,8 +227,11 @@ UpdateResult runUpdateCheck(const std::string& currentLauncherBuildId,
     // the channel is a reason to move, not a reason to stay.
     // "norollback" in settings.json is the way out for an install that is
     // deliberately ahead -- a build made on this machine rather than downloaded.
+    // Read once: two reads could disagree if the file changed in between, and this decides whether
+    // the install is replaced.
+    const Settings settings = loadSettings(dir);
     const bool launcherIsAhead = versionIsAhead(currentLauncherBuildId, requiredBuildId) &&
-                                 !loadSettings(dir).noRollback;
+                                 !settings.noRollback;
 
     // Picking a channel is an explicit instruction, so it is honoured even
     // when that channel's current release is a LOWER version number than what
@@ -257,7 +260,24 @@ UpdateResult runUpdateCheck(const std::string& currentLauncherBuildId,
 
     const std::vector<ComponentVersion> mismatched =
         mismatchedComponents(components, currentLauncherBuildId, !compatMissing);
-    const bool mixed = !mismatched.empty();
+    // "norollback" covers a disagreement between the pieces too. On an install built on this machine
+    // they are replaced one at a time, so they disagree by construction, and "repairing" that means
+    // fetching the published release over the top of the local build -- which is the rollback the
+    // setting exists to refuse. The cost is that a genuinely half-applied update is left alone as
+    // well, which is why this is off by default and has no switch in the window.
+    const bool mixed = !mismatched.empty() && !settings.noRollback;
+
+    // Still says what it saw, so an install standing still on purpose does not look like one that
+    // failed to notice.
+    if (!mismatched.empty() && !mixed) {
+        for (const ComponentVersion& component : mismatched) {
+            fprintf(stderr, "TuxBlox: the %s is %s and the launcher is %s, but norollback is set -- "
+                             "not treating the install as broken\n",
+                    component.name.c_str(),
+                    component.buildId.empty() ? "not installed" : component.buildId.c_str(),
+                    currentLauncherBuildId.c_str());
+        }
+    }
 
     if (!launcherNeedsUpdate && !launcherIsAhead && !channelChanged && !mixed && !compatMissing) {
         report(UpdatePhase::UpToDate, 1.0);
