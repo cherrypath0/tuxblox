@@ -47,7 +47,7 @@ const char* exitCodeTitle(int exitCode) {
         case 127: return "Not Executable";
         case 132: return "Illegal CPU instruction";
         case 134: return "Aborted";
-        case 137: return "Out of Memory";
+        case 137: return "Killed";
         case 139: return "Segmentation Fault";
         case 143: return "Terminated";
         default:  return nullptr; // not in the table -- caller shows the bare code, no made-up description
