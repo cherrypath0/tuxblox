@@ -70,6 +70,9 @@ struct WindowUi {
     std::string notifiedVersion;
     ActionNotification updateNotice;
     std::string appliedTheme;
+    // How many sessions are open, shown on the Sessions row so it is answerable without going there.
+    GtkLabel *pSessionCount = nullptr;
+    int shownSessionCount = -1;
     bool containerWarningShown = false;
     bool backgroundWorkStarted = false;
     guint tickId = 0;
@@ -108,6 +111,17 @@ void addPage(WindowUi &ui, Tab tab, const char *pTitle, const unsigned char *pIc
     gtk_label_set_xalign(GTK_LABEL(pLabel), 0.0f);
     gtk_box_append(GTK_BOX(pBox), pLabel);
 
+    if (tab == Tab::Sessions) {
+        GtkWidget *pCount = gtk_label_new("");
+        gtk_widget_add_css_class(pCount, "session-count");
+        gtk_widget_set_halign(pCount, GTK_ALIGN_END);
+        gtk_widget_set_valign(pCount, GTK_ALIGN_CENTER);
+        gtk_widget_set_hexpand(pCount, TRUE);
+        gtk_widget_set_visible(pCount, FALSE);
+        gtk_box_append(GTK_BOX(pBox), pCount);
+        ui.pSessionCount = GTK_LABEL(pCount);
+    }
+
     GtkWidget *pRow = gtk_list_box_row_new();
     gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(pRow), pBox);
     g_object_set_data(G_OBJECT(pRow), "tuxblox-tab", GINT_TO_POINTER(static_cast<int>(tab)));
@@ -135,6 +149,17 @@ gboolean onTick(gpointer data) {
     if (pUi->appliedTheme != snap.settings.theme) {
         pUi->appliedTheme = snap.settings.theme;
         applyLauncherTheme(pUi->appliedTheme);
+    }
+    if (pUi->pSessionCount != nullptr) {
+        int running = 0;
+        for (const Session &session : snap.sessionList) {
+            if (session.running) ++running;
+        }
+        if (running != pUi->shownSessionCount) {
+            pUi->shownSessionCount = running;
+            gtk_label_set_text(pUi->pSessionCount, std::to_string(running).c_str());
+            gtk_widget_set_visible(GTK_WIDGET(pUi->pSessionCount), running > 0);
+        }
     }
     for (PageEntry &entry : pUi->pages) entry.page->update(snap);
     notifyUpdate(*pUi, snap);

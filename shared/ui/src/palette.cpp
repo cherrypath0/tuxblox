@@ -112,7 +112,9 @@ const char LightPalette[] =
 const char PaletteStyles[] =
     ".card, list.boxed-list, list.boxed-list-separate > row { box-shadow: 0 0 0 1px @card_shade_color; }\n"
     // The interface picks a grey out of the text colour for the page you are on; this is the website's own raised surface instead, so the sidebar reads as one family with the cards beside it
-    "list.navigation-sidebar row:selected { background-color: @sidebar_selected_color; }\n";
+    "list.navigation-sidebar row:selected { background-color: @sidebar_selected_color; }\n"
+    // How many sessions are open, beside the row that leads to them
+    "label.session-count { background: @success_bg_color; color: @success_fg_color; border-radius: 9px; padding: 1px 8px; font-size: 11px; font-weight: 700; }\n";
 
 // One channel of a colour, straightened out of the curve a screen applies to it, which is what the eye's reading of brightness is built from.
 double linearChannel(int value) {

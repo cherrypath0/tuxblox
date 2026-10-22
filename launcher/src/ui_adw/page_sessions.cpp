@@ -45,7 +45,7 @@ void installPageStyles() {
     GtkCssProvider *pProvider = gtk_css_provider_new();
     gtk_css_provider_load_from_string(pProvider,
         "textview.sessionlog, textview.sessionlog text { font-family: \"Adwaita Mono\", monospace; font-size: 12.5px; }\n"
-        ".session-meta { font-family: \"Adwaita Mono\", monospace; font-size: 11.5px; opacity: 0.92; }\n"
+        ".session-meta { font-size: 12px; opacity: 0.95; }\n"".log-count { font-size: 12px; opacity: 0.95; }\n"".session-stop { color: #f08b8b; }\n"".session-stop:hover { background: alpha(#dc2626, 0.22); color: #ffd7d7; }\n"
         ".session-tile { background: alpha(currentColor, 0.1); border-radius: 8px; min-width: 30px; min-height: 30px; }\n"
         ".session-dot { border-radius: 6px; min-width: 10px; min-height: 10px; border: 2px solid @sidebar_bg_color; }\n"
         ".session-dot.running { background: #34d399; }\n"
@@ -56,7 +56,7 @@ void installPageStyles() {
         ".session-chip.ended { background: alpha(currentColor, 0.1); }\n"
         ".log-toggle { font-size: 12px; padding: 3px 12px; min-height: 26px; box-shadow: inset 0 0 0 1px alpha(currentColor, 0.22); }\n"
         ".log-toggle:checked { background: alpha(#4aa8db, 0.28); color: #bfe3f7; font-weight: 700; box-shadow: inset 0 0 0 1px alpha(#4aa8db, 0.55); }\n"
-        ".log-count { font-family: \"Adwaita Mono\", monospace; font-size: 11.5px; opacity: 0.92; }\n");
+        );
     gtk_style_context_add_provider_for_display(gdk_display_get_default(), GTK_STYLE_PROVIDER(pProvider),
                                                GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
     g_object_unref(pProvider);
@@ -414,6 +414,7 @@ void SessionsPage::rebuildList(const SessionsView &view) {
 
             if (entry.running) {
                 GtkWidget *pStop = iconButton(kAssetStop, kAssetStopLen, "Stop this session");
+                gtk_widget_add_css_class(pStop, "session-stop");
                 gtk_widget_set_valign(pStop, GTK_ALIGN_CENTER);
                 g_object_set_data(G_OBJECT(pStop), "tuxblox-pid", GINT_TO_POINTER(entry.pid));
                 g_signal_connect(pStop, "clicked", G_CALLBACK(onRowStopClicked), this);
