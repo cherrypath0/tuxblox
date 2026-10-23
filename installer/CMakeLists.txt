@@ -89,6 +89,9 @@ include(${TUXBLOX_SHARED_CRYPTO}/EmbedCaBundle.cmake)
 
 target_include_directories(installer_core PUBLIC
     src third_party ${TUXBLOX_SHARED_INCLUDE} ${TUXBLOX_SHARED_CRYPTO} ${TUXBLOX_SHARED_RELEASE} ${CMAKE_BINARY_DIR}/generated)
+if(TUXBLOX_TEST_SETUP_URL)
+    target_compile_definitions(installer_core PUBLIC TUXBLOX_TEST_SETUP_URL)
+endif()
 target_link_libraries(installer_core PUBLIC
     ${TUXBLOX_SHARED_LIBS} ${CMAKE_DL_LIBS} Threads::Threads)
 # --exclude-libs keeps these archives' symbols out of the binary's dynamic symbol table. They are
@@ -194,6 +197,10 @@ if(TUXBLOX_UI_STACK_DEV)
         target_compile_definitions(TuxBloxInstaller-ui PRIVATE TUXBLOX_LIBADWAITA_COMMIT="${TUXBLOX_LIBADWAITA_COMMIT}")
     endif()
 endif()
+
+# Lets the end-to-end test point the binaries at a local server. Never set for a shipped build:
+# see setupBaseUrl() for why an environment variable that redirects downloads must not exist there.
+option(TUXBLOX_TEST_SETUP_URL "Honour $TUXBLOX_SETUP_URL (testing only)" OFF)
 
 enable_testing()
 add_subdirectory(tests)

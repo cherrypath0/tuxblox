@@ -48,7 +48,20 @@ std::string readWholeFile(const std::string& path) {
 
 namespace {
 constexpr uint64_t kMinFreeBytes = 3ULL * 1024 * 1024 * 1024; // 3GB, per README
-constexpr const char* kSetupBaseUrl = "https://setup.tuxblox.net";
+// Where TuxBlox downloads itself from.
+//
+// Overridable ONLY in a build configured with -DTUXBLOX_TEST_SETUP_URL=ON, which nothing shipped
+// ever is. An environment variable that redirects this in a released binary would let anything
+// able to set one -- a planted .desktop entry, a modified shell profile -- serve its own "update"
+// and have TuxBlox install and run it. The end-to-end test needs the seam; a user must not have it.
+#ifdef TUXBLOX_TEST_SETUP_URL
+const char* setupBaseUrl() {
+    const char* override = std::getenv("TUXBLOX_SETUP_URL");
+    return (override && *override) ? override : "https://setup.tuxblox.net";
+}
+#else
+const char* setupBaseUrl() { return "https://setup.tuxblox.net"; }
+#endif
 
 // Peak disk usage during install is roughly (compressed download + fully
 // extracted tree) coexisting until the tarball is deleted post-extraction.
@@ -167,7 +180,7 @@ void App::run() {
             } else {
                 std::string release = source_.release;
                 if (release.empty()) {
-                    auto named = fetchLatestRelease(kSetupBaseUrl, channel_, &cancelRequested_);
+                    auto named = fetchLatestRelease(setupBaseUrl(), channel_, &cancelRequested_);
                     if (cancelRequested_.load()) return;
                     if (!named.has_value()) {
                         setError("No releases available for the '" + channel_ + "' channel yet.");
@@ -176,7 +189,7 @@ void App::run() {
                     release = *named;
                 }
                 releaseJson = fetchManifestJson(
-                    releaseFileUrl(kSetupBaseUrl, channel_, release), &cancelRequested_);
+                    releaseFileUrl(setupBaseUrl(), channel_, release), &cancelRequested_);
             }
         } catch (const std::exception& e) {
             // A named release that is not published reads as a raw 404, which tells the user
@@ -225,13 +238,17 @@ void App::run() {
         }
 
         setPhase(AppPhase::Installing);
-        auto outcome = runInstall(release, kSetupBaseUrl,
+        auto outcome = runInstall(release, setupBaseUrl(),
             [&](const std::string& label, double percent) {
                 std::lock_guard<std::mutex> lock(mutex_);
                 snapshot_.currentStepLabel = label;
                 snapshot_.overallPercent = percent;
             },
-            &cancelRequested_, isUpgrade, installDirOverride_);
+            &cancelRequested_, isUpgrade, installDirOverride_,
+            "https://setup.rbxcdn.com/RobloxPlayerInstaller.exe",
+            "https://setup.rbxcdn.com/RobloxStudioInstaller.exe",
+            // The bytes this run installed from, recorded last as the install's identity.
+            releaseJson);
 
         if (outcome.cancelled) {
             if (!isUpgrade) cleanupBestEffort(dir);

@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "app.h"
+#include <cstdlib>
 #include "roblox_log_capture.h"
 #include "process_launcher.h"
 #include "session_log_match.h"
@@ -44,7 +45,20 @@ namespace tuxblox {
 namespace fs = std::filesystem;
 
 namespace {
-constexpr const char* kSetupBaseUrl = "https://setup.tuxblox.net";
+// Where TuxBlox downloads itself from.
+//
+// Overridable ONLY in a build configured with -DTUXBLOX_TEST_SETUP_URL=ON, which nothing shipped
+// ever is. An environment variable that redirects this in a released binary would let anything
+// able to set one -- a planted .desktop entry, a modified shell profile -- serve its own "update"
+// and have TuxBlox install and run it. The end-to-end test needs the seam; a user must not have it.
+#ifdef TUXBLOX_TEST_SETUP_URL
+const char* setupBaseUrl() {
+    const char* override = std::getenv("TUXBLOX_SETUP_URL");
+    return (override && *override) ? override : "https://setup.tuxblox.net";
+}
+#else
+const char* setupBaseUrl() { return "https://setup.tuxblox.net"; }
+#endif
 
 // "%Y-%m-%dT%H:%M:%SZ" -- same strftime/gmtime_r pattern as
 // process_launcher.cpp's logTimestamp(), but UTC and ISO-8601 for
@@ -284,7 +298,7 @@ void App::uninstallThreadMain() {
     // ensureInstallerBinary).
     std::optional<std::string> latestRelease;
     try {
-        latestRelease = fetchLatestRelease(kSetupBaseUrl, channel, &uninstallCancel_);
+        latestRelease = fetchLatestRelease(setupBaseUrl(), channel, &uninstallCancel_);
     } catch (const std::exception& e) {
         fail(std::string("Couldn't reach tuxblox.net to prepare the uninstaller: ") + e.what());
         return;
@@ -297,14 +311,14 @@ void App::uninstallThreadMain() {
     ReleaseFile release;
     try {
         release = parseReleaseFile(fetchManifestJson(
-            releaseFileUrl(kSetupBaseUrl, channel, *latestRelease), &uninstallCancel_));
+            releaseFileUrl(setupBaseUrl(), channel, *latestRelease), &uninstallCancel_));
     } catch (const std::exception& e) {
         fail(std::string("Couldn't fetch the release: ") + e.what());
         return;
     }
 
     EnsureInstallerResult ensured =
-        ensureInstallerBinary(release, kSetupBaseUrl, installDir_, &uninstallCancel_, nullptr);
+        ensureInstallerBinary(release, setupBaseUrl(), installDir_, &uninstallCancel_, nullptr);
     if (!ensured.ok) {
         fail(ensured.errorMessage.empty() ? "Failed to prepare the uninstaller." : ensured.errorMessage);
         return;
@@ -649,7 +663,7 @@ std::string App::releaseHandoffPath() const {
 }
 
 bool App::prepareInstallerHandoff(const ReleaseFile& release, const std::string& releaseJson) {
-    EnsureInstallerResult ensured = ensureInstallerBinary(release, kSetupBaseUrl, installDir_, &updateCancel_,
+    EnsureInstallerResult ensured = ensureInstallerBinary(release, setupBaseUrl(), installDir_, &updateCancel_,
         [this](UpdateProgress p) {
             std::lock_guard<std::mutex> lock(mutex_);
             snapshot_.update = p;
@@ -715,7 +729,7 @@ void App::updateCheckThreadMain() {
 
     std::optional<std::string> namedRelease;
     try {
-        namedRelease = fetchLatestRelease(kSetupBaseUrl, channel, &updateCancel_);
+        namedRelease = fetchLatestRelease(setupBaseUrl(), channel, &updateCancel_);
     } catch (const std::exception& e) {
         report({UpdatePhase::Error, 0.0, e.what()});
         return;
@@ -727,7 +741,7 @@ void App::updateCheckThreadMain() {
         return;
     }
 
-    auto result = runUpdateCheck(kSetupBaseUrl, channel, *namedRelease,
+    auto result = runUpdateCheck(setupBaseUrl(), channel, *namedRelease,
         [&](UpdateProgress p) { report(p); },
         &updateCancel_, installDir_);
     if (result.needsHandoff) {
