@@ -25,6 +25,10 @@
 # outside this directory's scope).
 add_compile_options(-UNDEBUG)
 
+add_executable(test_release_file ${TUXBLOX_SHARED_RELEASE}/../tests/test_release_file.cpp)
+target_link_libraries(test_release_file PRIVATE installer_core)
+add_test(NAME release_file COMMAND test_release_file)
+
 add_executable(test_cli test_cli.cpp)
 target_link_libraries(test_cli PRIVATE installer_core)
 add_test(NAME cli COMMAND test_cli)

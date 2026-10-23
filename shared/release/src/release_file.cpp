@@ -1,0 +1,264 @@
+// TuxBlox - Linux Compatibility Layer for the Roblox Engine
+// Copyright (C) 2026 TuxBlox Developers
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+#include "release_file.h"
+
+#include "json.hpp"
+
+#include <cctype>
+#include <filesystem>
+#include <fstream>
+#include <sstream>
+#include <stdexcept>
+
+namespace fs = std::filesystem;
+
+namespace tuxblox {
+
+namespace {
+
+const char* kArches[] = {"x86_64", "arm64"};
+
+struct LayoutEntry {
+    const char* name;
+    ComponentLayout layout;
+};
+
+// The order is the order componentNames() reports and the order an install is written in.
+const LayoutEntry kLayouts[] = {
+    {"launcher",   {"TuxBloxLauncher",     "TuxBloxLauncher",  "/", "Launcher",            false}},
+    {"installer",  {"TuxBloxInstaller",    "TuxBloxInstaller", "/", "Updater",             false}},
+    {"studio-mcp", {"studio-mcp",          "studio-mcp",       "/", "Studio MCP",          false}},
+    {"compat",     {"compat.tar.zst",      "compat",           "/", "Compatibility layer", true}},
+    {"libtuxblox", {"libtuxblox.tar.zst",  "libtuxblox",       "/", "Libraries",           true}},
+};
+
+bool hasDottedFields(const std::string& value, int fields) {
+    if (value.empty()) return false;
+    int seen = 1;
+    size_t digits = 0;
+    for (char c : value) {
+        if (c == '.') {
+            if (digits == 0) return false;
+            digits = 0;
+            seen++;
+        } else if (std::isdigit(static_cast<unsigned char>(c))) {
+            digits++;
+        } else {
+            return false;
+        }
+    }
+    return digits > 0 && seen == fields;
+}
+
+std::string trimmed(const std::string& value) {
+    const size_t first = value.find_first_not_of(" \t\r\n");
+    if (first == std::string::npos) return "";
+    return value.substr(first, value.find_last_not_of(" \t\r\n") - first + 1);
+}
+
+std::string readWholeFile(const fs::path& path) {
+    std::ifstream in(path, std::ios::binary);
+    if (!in) throw std::runtime_error("cannot read " + path.string());
+    std::ostringstream body;
+    body << in.rdbuf();
+    return body.str();
+}
+
+// A component's entry, once the file as a whole has been shown to be a release. Every message names
+// the component, because a release has five of them and "has no version" alone says nothing.
+ReleaseComponent parseComponent(const std::string& name, const nlohmann::json& entry) {
+    const std::string prefix = "component \"" + name + "\" ";
+    if (!componentLayout(name).has_value()) {
+        throw std::runtime_error("release names \"" + name + "\", which is not a component of TuxBlox");
+    }
+    if (!entry.is_object()) throw std::runtime_error(prefix + "is not an object");
+
+    ReleaseComponent component;
+    if (!entry.contains("version") || !entry["version"].is_string()) {
+        throw std::runtime_error(prefix + "has no version");
+    }
+    component.version = entry["version"].get<std::string>();
+    if (!hasDottedFields(component.version, 3)) {
+        throw std::runtime_error(prefix + "has version \"" + component.version +
+                                  "\", which is not three numbers");
+    }
+    if (!entry.contains("arch") || !entry["arch"].is_object()) {
+        throw std::runtime_error(prefix + "names no architectures");
+    }
+
+    const nlohmann::json& arch = entry["arch"];
+    int published = 0;
+    for (const char* name_of_arch : kArches) {
+        if (!arch.contains(name_of_arch) || arch[name_of_arch].is_null()) continue;
+        const nlohmann::json& bytes = arch[name_of_arch];
+        const std::string where = prefix + "(" + name_of_arch + ") ";
+        if (!bytes.is_object()) throw std::runtime_error(where + "is not an object");
+        if (!bytes.contains("sha256") || !bytes["sha256"].is_string()) {
+            throw std::runtime_error(where + "has no sha256");
+        }
+        if (!bytes.contains("size") || !bytes["size"].is_number_unsigned()) {
+            throw std::runtime_error(where + "has no size");
+        }
+        ComponentBytes value{bytes["sha256"].get<std::string>(), bytes["size"].get<uint64_t>()};
+        if (std::string(name_of_arch) == "x86_64") {
+            component.x86_64 = value;
+        } else {
+            component.arm64 = value;
+        }
+        published++;
+    }
+    if (published == 0) {
+        throw std::runtime_error(prefix + "is published for no architecture");
+    }
+    return component;
+}
+
+} // namespace
+
+const std::vector<std::string>& componentNames() {
+    static const std::vector<std::string> names = [] {
+        std::vector<std::string> all;
+        for (const LayoutEntry& entry : kLayouts) all.push_back(entry.name);
+        return all;
+    }();
+    return names;
+}
+
+std::optional<ComponentLayout> componentLayout(const std::string& name) {
+    for (const LayoutEntry& entry : kLayouts) {
+        if (name == entry.name) return entry.layout;
+    }
+    return std::nullopt;
+}
+
+ReleaseFile parseReleaseFile(const std::string& jsonText) {
+    nlohmann::json body;
+    try {
+        body = nlohmann::json::parse(jsonText);
+    } catch (const std::exception& e) {
+        throw std::runtime_error(std::string("release file does not parse: ") + e.what());
+    }
+    if (!body.is_object()) throw std::runtime_error("release file is not an object");
+
+    ReleaseFile release;
+    if (!body.contains("release") || !body["release"].is_string()) {
+        throw std::runtime_error("release file states no release version");
+    }
+    release.release = body["release"].get<std::string>();
+    if (!hasDottedFields(release.release, 4)) {
+        throw std::runtime_error("\"" + release.release + "\" is not a four-field release version");
+    }
+    if (!body.contains("channel") || !body["channel"].is_string()) {
+        throw std::runtime_error("release file states no channel");
+    }
+    release.channel = body["channel"].get<std::string>();
+    if (release.channel != "stable" && release.channel != "canary" && release.channel != "experimental") {
+        throw std::runtime_error("release file names channel \"" + release.channel +
+                                  "\", which is not one TuxBlox publishes");
+    }
+    if (!body.contains("components") || !body["components"].is_object() || body["components"].empty()) {
+        throw std::runtime_error("release file lists no components");
+    }
+
+    if (body.contains("changelog") && body["changelog"].is_string()) {
+        release.changelog = body["changelog"].get<std::string>();
+    }
+    if (body.contains("source_commit") && body["source_commit"].is_string()) {
+        release.sourceCommit = body["source_commit"].get<std::string>();
+    }
+    // Unknown reads as dirty, so a release whose source cannot be attributed is never taken for a
+    // clean one -- the same direction the staging side errs in.
+    release.sourceDirty = !body.contains("source_dirty") || !body["source_dirty"].is_boolean() ||
+                           body["source_dirty"].get<bool>();
+
+    for (const auto& [name, entry] : body["components"].items()) {
+        release.components[name] = parseComponent(name, entry);
+    }
+    return release;
+}
+
+std::string componentUrl(const std::string& baseUrl, const std::string& name,
+                          const std::string& version, const std::string& arch) {
+    const std::optional<ComponentLayout> layout = componentLayout(name);
+    if (!layout.has_value()) {
+        throw std::runtime_error("\"" + name + "\" is not a component of TuxBlox");
+    }
+    return baseUrl + "/client/components/" + name + "/" + version + "/" + arch + "/" + layout->publishedAs;
+}
+
+std::string latestPointerUrl(const std::string& baseUrl, const std::string& channel) {
+    return baseUrl + "/client/releases/" + channel + "/latest";
+}
+
+std::string releaseFileUrl(const std::string& baseUrl, const std::string& channel,
+                            const std::string& release) {
+    return baseUrl + "/client/releases/" + channel + "/" + release + ".json";
+}
+
+std::string recordedReleasePath(const std::string& installDir) {
+    return installDir + "/release.json";
+}
+
+RecordedRelease readRecordedRelease(const std::string& installDir) {
+    try {
+        RecordedRelease recorded;
+        recorded.file = parseReleaseFile(readWholeFile(recordedReleasePath(installDir)));
+        recorded.present = true;
+        return recorded;
+    } catch (const std::exception&) {
+        // Every failure is the same answer to the caller: this install does not say what it is.
+        return {};
+    }
+}
+
+bool writeRecordedRelease(const std::string& installDir, const std::string& publishedJson) {
+    const std::string target = recordedReleasePath(installDir);
+    const std::string incoming = target + ".incoming";
+    try {
+        {
+            std::ofstream out(incoming, std::ios::binary | std::ios::trunc);
+            if (!out) return false;
+            out << publishedJson;
+            if (!out) return false;
+        }
+        // Renamed into place, so a launcher reading it while an update writes it never sees half a
+        // release -- which would read as an install that does not know what it is.
+        std::error_code ec;
+        fs::rename(incoming, target, ec);
+        if (ec) {
+            fs::remove(incoming, ec);
+            return false;
+        }
+        return true;
+    } catch (const std::exception&) {
+        std::error_code ec;
+        fs::remove(incoming, ec);
+        return false;
+    }
+}
+
+std::optional<std::string> readStackVersion(const std::string& installDir) {
+    try {
+        const std::string version = trimmed(readWholeFile(fs::path(installDir) / "libtuxblox" / "VERSION"));
+        if (version.empty()) return std::nullopt;
+        return version;
+    } catch (const std::exception&) {
+        return std::nullopt;
+    }
+}
+
+} // namespace tuxblox

@@ -37,6 +37,12 @@ if(NOT TUXBLOX_SHARED_CRYPTO)
     set(TUXBLOX_SHARED_CRYPTO "${CMAKE_SOURCE_DIR}/../shared/crypto/src")
 endif()
 
+# What a release consists of, parsed the same way by the launcher and the installer -- they have to
+# agree on it exactly, because the launcher resolves a release and hands it to the installer.
+if(NOT TUXBLOX_SHARED_RELEASE)
+    set(TUXBLOX_SHARED_RELEASE "${CMAKE_SOURCE_DIR}/../shared/release/src")
+endif()
+
 # The libraries TuxBlox ships rather than taking from the machine, built by shared/tools/libs-build.sh and mounted read-only by build.sh.
 if(NOT TUXBLOX_SHARED_DIR)
     set(TUXBLOX_SHARED_DIR "${CMAKE_SOURCE_DIR}/../build/.artifacts/shared")
@@ -64,6 +70,7 @@ find_package(Threads REQUIRED)
 
 add_library(installer_core STATIC
     ${TUXBLOX_SHARED_CRYPTO}/ca_bundle.cpp
+    ${TUXBLOX_SHARED_RELEASE}/release_file.cpp
     src/cli.cpp
     src/manifest.cpp
     src/downloader.cpp
@@ -81,7 +88,7 @@ add_library(installer_core STATIC
 include(${TUXBLOX_SHARED_CRYPTO}/EmbedCaBundle.cmake)
 
 target_include_directories(installer_core PUBLIC
-    src third_party ${TUXBLOX_SHARED_INCLUDE} ${TUXBLOX_SHARED_CRYPTO} ${CMAKE_BINARY_DIR}/generated)
+    src third_party ${TUXBLOX_SHARED_INCLUDE} ${TUXBLOX_SHARED_CRYPTO} ${TUXBLOX_SHARED_RELEASE} ${CMAKE_BINARY_DIR}/generated)
 target_link_libraries(installer_core PUBLIC
     ${TUXBLOX_SHARED_LIBS} ${CMAKE_DL_LIBS} Threads::Threads)
 # --exclude-libs keeps these archives' symbols out of the binary's dynamic symbol table. They are
