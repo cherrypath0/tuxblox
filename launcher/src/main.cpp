@@ -304,7 +304,7 @@ int main(int argc, char** argv) {
     // 07-28 final review) was about. That concern is specifically about
     // ensureDesktopIntegration()'s up-to-~12s xdg-mime/update-desktop-
     // database calls, which stays after window.show() below, same as before.
-    App app(dir, kTuxBloxBuildId, exePath);
+    App app(dir, exePath);
 
     // With Auto-Update on the answer decides whether a window is wanted at all, so it is worth waiting
     // for one, and an update about to install never flashes the Home screen up first. With it off the

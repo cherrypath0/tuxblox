@@ -61,7 +61,7 @@ int main() {
 
     installVersion(installDir, "version-first");
 
-    tuxblox::App app(installDir.string(), "0.0.0-test", (work / "launcher").string());
+    tuxblox::App app(installDir.string(), (work / "launcher").string());
 
     // What the launcher knew when its window opened.
     assert(app.snapshot().versions.studio.installed.size() == 1);

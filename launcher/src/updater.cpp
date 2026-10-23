@@ -19,6 +19,9 @@
 #include "downloader.h"
 #include "install_paths.h"
 #include "manifest.h"
+#include "release_file.h"
+#include "update_decision.h"
+#include "version.h"
 #include "settings.h"
 #include <algorithm>
 #include <cstdio>
@@ -38,59 +41,30 @@ std::string resolveInstallDir(const std::string& override) {
     return override.empty() ? installDir() : override;
 }
 
-// Splits a dot-separated numeric version ("1.0.0") into its components for
-// ordered comparison. atoi(), not stoi(), so a non-numeric component reads
-// as 0 instead of throwing -- this is fed by a remote-controlled manifest
-// field, not one this codebase's own build produces malformed.
-std::vector<int> parseVersionParts(const std::string& version) {
-    std::vector<int> parts;
-    std::stringstream ss(version);
-    std::string part;
-    while (std::getline(ss, part, '.')) {
-        parts.push_back(std::atoi(part.c_str()));
-    }
-    return parts;
-}
-
 } // namespace
-
-namespace {
-
-// Negative when the installed version is behind, positive when it is ahead,
-// zero when they are the same release.
-int compareVersions(const std::string& installed, const std::string& required) {
-    std::vector<int> installedParts = parseVersionParts(installed);
-    std::vector<int> requiredParts = parseVersionParts(required);
-    size_t count = std::max(installedParts.size(), requiredParts.size());
-    for (size_t i = 0; i < count; i++) {
-        int requiredPart = i < requiredParts.size() ? requiredParts[i] : 0;
-        int installedPart = i < installedParts.size() ? installedParts[i] : 0;
-        if (requiredPart != installedPart) return installedPart < requiredPart ? -1 : 1;
-    }
-    return 0;
-}
-
-} // namespace
-
-bool versionNeedsUpdate(const std::string& installed, const std::string& required) {
-    return compareVersions(installed, required) < 0;
-}
-
-bool versionIsAhead(const std::string& installed, const std::string& required) {
-    return compareVersions(installed, required) > 0;
-}
 
 double downloadProgressFraction(uint64_t now, uint64_t total, uint64_t manifestSize) {
     uint64_t effectiveTotal = total > 0 ? total : manifestSize;
     return effectiveTotal > 0 ? static_cast<double>(now) / static_cast<double>(effectiveTotal) : 0.0;
 }
 
-EnsureInstallerResult ensureInstallerBinary(const Manifest& manifest, const std::string& dir,
+EnsureInstallerResult ensureInstallerBinary(const ReleaseFile& release, const std::string& baseUrl,
+                                             const std::string& dir,
                                              const std::atomic<bool>* cancel,
                                              const UpdateProgressFn& onProgress) {
     auto report = [&](UpdatePhase phase, double fraction, const std::string& err = "") {
         if (onProgress) onProgress({phase, fraction, err});
     };
+
+    const auto entry = release.components.find("installer");
+    if (entry == release.components.end() || !entry->second.x86_64.has_value()) {
+        const std::string err = "Release " + release.release + " publishes no updater to hand over to.";
+        report(UpdatePhase::Error, 0.0, err);
+        return {false, "", err};
+    }
+    const ComponentBytes& wanted = *entry->second.x86_64;
+    const std::string installerUrl =
+        componentUrl(baseUrl, "installer", entry->second.version, hostArch());
 
     report(UpdatePhase::PreparingUpdater, 0.0);
     const std::string installerPath = dir + "/TuxBloxInstaller";
@@ -102,7 +76,7 @@ EnsureInstallerResult ensureInstallerBinary(const Manifest& manifest, const std:
     bool needsFetch = true;
     if (fs::exists(installerPath)) {
         try {
-            needsFetch = (sha256File(installerPath) != manifest.installer.sha256);
+            needsFetch = (sha256File(installerPath) != wanted.sha256);
         } catch (const std::exception&) {
             needsFetch = true; // unreadable/corrupt -- treat as missing
         }
@@ -110,7 +84,7 @@ EnsureInstallerResult ensureInstallerBinary(const Manifest& manifest, const std:
 
     if (needsFetch) {
         const std::string newPath = installerPath + ".new";
-        auto dlOutcome = downloadFile(manifest.installer.url, newPath,
+        auto dlOutcome = downloadFile(installerUrl, newPath,
             [&](uint64_t now, uint64_t total) {
                 // Some CDN configurations (chunked responses) don't report a
                 // Content-Length, leaving curl's `total` at 0 for the whole
@@ -118,7 +92,7 @@ EnsureInstallerResult ensureInstallerBinary(const Manifest& manifest, const std:
                 // (fetched and verified before this step runs) so the bar
                 // still advances instead of sitting at 0% until it jumps to
                 // 100%.
-                report(UpdatePhase::PreparingUpdater, downloadProgressFraction(now, total, manifest.installer.sizeBytes));
+                report(UpdatePhase::PreparingUpdater, downloadProgressFraction(now, total, wanted.size));
             }, cancel);
 
         if (dlOutcome.result == DownloadResult::Cancelled) {
@@ -132,7 +106,7 @@ EnsureInstallerResult ensureInstallerBinary(const Manifest& manifest, const std:
         }
 
         std::string actualSha = sha256File(newPath);
-        if (actualSha != manifest.installer.sha256) {
+        if (actualSha != wanted.sha256) {
             fs::remove(newPath);
             report(UpdatePhase::Error, 0.0, "Updater checksum mismatch");
             return {false, "", "Updater checksum mismatch"};
@@ -154,42 +128,25 @@ EnsureInstallerResult ensureInstallerBinary(const Manifest& manifest, const std:
     return {true, installerPath, ""};
 }
 
-std::string buildChannel(const std::string& buildId) {
-    // Version numbers carry no '-', so the first one starts the channel.
-    const size_t dash = buildId.find('-');
-    return dash == std::string::npos ? std::string() : buildId.substr(dash + 1);
-}
-
 std::vector<ComponentVersion> readComponentVersions(const std::string& installDir) {
     std::vector<ComponentVersion> components = {
-        {"compatibility layer", compatDirUnder(installDir) + "/main", ""},
-        {"updater",             installDir + "/TuxBloxInstaller",     ""},
-        {"Studio MCP",          installDir + "/studio-mcp",           ""},
+        {"compat",     "compatibility layer", compatDirUnder(installDir) + "/main", ""},
+        {"installer",  "updater",             installDir + "/TuxBloxInstaller",     ""},
+        {"studio-mcp", "Studio MCP",          installDir + "/studio-mcp",           ""},
     };
     for (ComponentVersion& component : components) {
-        component.buildId = readBinaryVersion(component.path).value_or("");
+        component.version = readBinaryVersion(component.path).value_or("");
     }
+    // Read, never run: the interface stack is a set of libraries, so it ships its version as a file
+    // inside its own tarball.
+    components.push_back({"libtuxblox", "libraries", "",
+                           readStackVersion(installDir).value_or("")});
     return components;
 }
 
-std::vector<ComponentVersion> mismatchedComponents(const std::vector<ComponentVersion>& components,
-                                                    const std::string& requiredBuildId,
-                                                    bool absentCounts) {
-    std::vector<ComponentVersion> mismatched;
-    for (const ComponentVersion& component : components) {
-        if (component.buildId.empty()) {
-            if (absentCounts) mismatched.push_back(component);
-            continue;
-        }
-        if (component.buildId != requiredBuildId) mismatched.push_back(component);
-    }
-    return mismatched;
-}
-
-UpdateResult runUpdateCheck(const std::string& currentLauncherBuildId,
-                             const std::string& baseUrl,
+UpdateResult runUpdateCheck(const std::string& baseUrl,
                              const std::string& channel,
-                             const std::string& requiredVersion,
+                             const std::string& namedRelease,
                              const UpdateProgressFn& onProgress,
                              const std::atomic<bool>* cancel,
                              const std::string& installDirOverride) {
@@ -199,113 +156,59 @@ UpdateResult runUpdateCheck(const std::string& currentLauncherBuildId,
 
     report(UpdatePhase::CheckingManifest, 0.0);
 
-    const std::string manifestUrl = baseUrl + "/v1/" + channel + "/" + requiredVersion + "/manifest.json";
-
-    Manifest manifest;
+    UpdateResult result;
     try {
-        std::string json = fetchManifestJson(manifestUrl, cancel);
-        manifest = parseManifest(json, baseUrl);
+        result.releaseJson = fetchManifestJson(releaseFileUrl(baseUrl, channel, namedRelease), cancel);
+        result.release = parseReleaseFile(result.releaseJson);
     } catch (const std::exception& e) {
+        // A pointer naming a release whose file is not there is a broken CDN, not a reason to
+        // replace a working install.
         report(UpdatePhase::Error, 0.0, e.what());
         return {};
     }
 
     const std::string dir = resolveInstallDir(installDirOverride);
-
-    // One release covers every binary, so they all answer to one build id.
-    // Used for the agreement check below and in the message; versionNeedsUpdate
-    // ignores the channel suffix, so it does not affect "is a newer release
-    // out" either way.
-    const std::string requiredBuildId = requiredVersion + "-" + channel;
-
-    const bool launcherNeedsUpdate = versionNeedsUpdate(currentLauncherBuildId, requiredBuildId);
-
-    // The version a channel publishes is the one to be on, in both directions.
-    // A release that turns out to be broken is taken back by pointing the
-    // channel at the release before it, and the installs that already took the
-    // broken one are the ones that have to follow it back -- so being ahead of
-    // the channel is a reason to move, not a reason to stay.
-    // "norollback" in settings.json is the way out for an install that is
-    // deliberately ahead -- a build made on this machine rather than downloaded.
     // Read once: two reads could disagree if the file changed in between, and this decides whether
     // the install is replaced.
     const Settings settings = loadSettings(dir);
-    const bool launcherIsAhead = versionIsAhead(currentLauncherBuildId, requiredBuildId) &&
-                                 !settings.noRollback;
 
-    // Picking a channel is an explicit instruction, so it is honoured even
-    // when that channel's current release is a LOWER version number than what
-    // is installed. versionNeedsUpdate only ever moves forward, so without
-    // this, selecting a channel that happens to be behind leaves the user
-    // exactly where they were with no sign anything was ignored.
-    //
-    // Deliberately not counted as a mixed install: the pieces still agree with
-    // each other, so this waits for the Auto-Update setting like any ordinary
-    // update. A build from before 2.7.0 reports no channel at all, and an
-    // unknown channel is not a mismatch.
-    const std::string ownChannel = buildChannel(currentLauncherBuildId);
-    const bool channelChanged = !ownChannel.empty() && ownChannel != channel;
-
-    // Measured against the RUNNING launcher, not against the latest release:
-    // an install where everything agrees on an older build is out of date,
-    // which is ordinary, while one where the pieces disagree with each other
-    // is broken, which is not. Only the second bypasses the Auto-Update
-    // setting, so a plain "new version available" still waits to be asked.
-    const std::vector<ComponentVersion> components = readComponentVersions(dir);
-
-    // Nothing installed at all is the first run, not a broken install -- and
-    // it is the layer being there that makes the rest of the pieces overdue,
-    // since one release places them all together.
-    const bool compatMissing = components.front().buildId.empty();
-
-    const std::vector<ComponentVersion> mismatched =
-        mismatchedComponents(components, currentLauncherBuildId, !compatMissing);
-    // "norollback" covers a disagreement between the pieces too. On an install built on this machine
-    // they are replaced one at a time, so they disagree by construction, and "repairing" that means
-    // fetching the published release over the top of the local build -- which is the rollback the
-    // setting exists to refuse. The cost is that a genuinely half-applied update is left alone as
-    // well, which is why this is off by default and has no switch in the window.
-    const bool mixed = !mismatched.empty() && !settings.noRollback;
-
-    // Still says what it saw, so an install standing still on purpose does not look like one that
-    // failed to notice.
-    if (!mismatched.empty() && !mixed) {
-        for (const ComponentVersion& component : mismatched) {
-            fprintf(stderr, "TuxBlox: the %s is %s and the launcher is %s, but norollback is set -- "
-                             "not treating the install as broken\n",
-                    component.name.c_str(),
-                    component.buildId.empty() ? "not installed" : component.buildId.c_str(),
-                    currentLauncherBuildId.c_str());
+    InstallState state;
+    const RecordedRelease recorded = readRecordedRelease(dir);
+    state.releaseRecorded = recorded.present;
+    if (recorded.present) {
+        state.recordedRelease = recorded.file.release;
+        for (const auto& [name, component] : recorded.file.components) {
+            state.recordedVersions[name] = component.version;
         }
     }
+    const std::vector<ComponentVersion> installed = readComponentVersions(dir);
+    for (const ComponentVersion& component : installed) {
+        if (!component.version.empty()) state.installedVersions[component.component] = component.version;
+    }
+    // The launcher is the one asking, so it is not among the components read off disk -- it knows
+    // its own answer, and running itself to find it out would be absurd.
+    state.installedVersions["launcher"] = kTuxBloxVersion;
 
-    if (!launcherNeedsUpdate && !launcherIsAhead && !channelChanged && !mixed && !compatMissing) {
+    // Nothing installed at all is a first run, not a broken install -- and it is the layer being
+    // there that makes the rest of the pieces overdue, since one release places them all together.
+    const bool compatMissing = state.installedVersions.count("compat") == 0;
+
+    const UpdateDecision decision = decideUpdate(state, namedRelease, settings.noRollback);
+
+    // Says what it saw either way, so an install standing still on purpose does not look like one
+    // that failed to notice.
+    if (!decision.reason.empty()) {
+        fprintf(stderr, "TuxBlox: %s\n", decision.reason.c_str());
+    }
+
+    if (!decision.update && !compatMissing) {
         report(UpdatePhase::UpToDate, 1.0);
         return {};
     }
 
-    if (launcherIsAhead && !channelChanged) {
-        fprintf(stderr, "TuxBlox: this build is %s but %s is on %s -- moving back to it\n",
-                currentLauncherBuildId.c_str(), channel.c_str(), requiredBuildId.c_str());
-    }
-
-    if (channelChanged) {
-        fprintf(stderr, "TuxBlox: this build is from the %s channel but %s is selected -- moving to %s\n",
-                ownChannel.c_str(), channel.c_str(), requiredBuildId.c_str());
-    }
-
-    for (const ComponentVersion& component : mismatched) {
-        fprintf(stderr, "TuxBlox: the %s is %s but the launcher is %s -- updating to %s\n",
-                component.name.c_str(),
-                component.buildId.empty() ? "not installed" : component.buildId.c_str(),
-                currentLauncherBuildId.c_str(), requiredBuildId.c_str());
-    }
-
-    UpdateResult result;
     result.needsHandoff = true;
-    result.manifest = manifest;
-    result.mixedInstall = mixed;
-    result.protonMissing = compatMissing;
+    result.forced = decision.forced;
+    result.compatMissing = compatMissing;
     return result;
 }
 

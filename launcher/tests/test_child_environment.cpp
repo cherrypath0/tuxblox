@@ -87,7 +87,7 @@ void watcherDoesNotInheritTheBundledEnvironment(const fs::path &work) {
     setenv("RECORD_OUT", record.c_str(), 1);
     fs::create_directories(work / "install");
 
-    tuxblox::App app((work / "install").string(), "0.0.0-test", recorder.string());
+    tuxblox::App app((work / "install").string(), recorder.string());
     tuxblox::useBundledEnvironment((work / "libtuxblox").string());
     app.requestLaunch(tuxblox::LaunchTarget::Studio);
     const std::string environment = waitFor(record);

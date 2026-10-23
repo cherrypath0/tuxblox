@@ -191,6 +191,14 @@ ReleaseFile parseReleaseFile(const std::string& jsonText) {
     return release;
 }
 
+const char* hostArch() {
+#if defined(__aarch64__)
+    return "arm64";
+#else
+    return "x86_64";
+#endif
+}
+
 std::string componentUrl(const std::string& baseUrl, const std::string& name,
                           const std::string& version, const std::string& arch) {
     const std::optional<ComponentLayout> layout = componentLayout(name);

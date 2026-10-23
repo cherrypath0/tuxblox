@@ -72,6 +72,10 @@ const std::vector<std::string>& componentNames();
 // std::nullopt for a name that is not one of ours, rather than a guess at where it would go.
 std::optional<ComponentLayout> componentLayout(const std::string& name);
 
+// The architecture this build runs on, and the one its downloads come from. Only x86_64 is built
+// today; arm64 is reserved in the layout, which is why a release names both and publishes one.
+const char* hostArch();
+
 // A component version's bytes are shared by every channel, so its URL carries no channel. A release
 // belongs to one channel, so both of the release URLs do.
 std::string componentUrl(const std::string& baseUrl, const std::string& name,

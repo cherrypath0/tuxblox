@@ -52,9 +52,9 @@ struct Settings {
     // in loadSettings, so an install that already has a settings.json keeps
     // whatever it says -- only a fresh install gets this default.
     bool sendCrashReports = false;
-    // One of "stable"/"canary"/"experimental" -- which /v1/<channel>/... the update
+    // One of "stable"/"canary"/"experimental" -- which client/releases/<channel>/ the update
     // checker resolves against. Defaults to "stable" even though it may
-    // have no releases published yet (see manifest.h's fetchLatestVersion):
+    // have no releases published yet (see manifest.h's fetchLatestRelease):
     // that's the correct long-term default for a public installer, not a
     // reflection of what's actually shipped today.
     std::string channel = "stable";

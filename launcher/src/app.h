@@ -112,7 +112,7 @@ struct AppSnapshot {
 
 class App {
 public:
-    App(std::string installDir, std::string currentVersion, std::string launcherExePath);
+    App(std::string installDir, std::string launcherExePath);
     ~App();
 
     void startUpdateCheck();
@@ -231,7 +231,7 @@ private:
     void updateCheckThreadMain();
     void updateApplyThreadMain();
     // Fetches and verifies the installer for `manifest` and records it as the handoff target. False means it could not be prepared, and the reason is already in the snapshot.
-    bool prepareInstallerHandoff(const Manifest& manifest);
+    bool prepareInstallerHandoff(const ReleaseFile& release);
     void uninstallThreadMain();
     void wipePrefixThreadMain();
     void sessionPollThreadMain();
@@ -248,7 +248,6 @@ private:
     std::string installDir_;
     // "x.y.z-channel" -- what this build answers --version with, and what
     // every other binary in the install is checked against.
-    std::string currentVersion_;
     std::string launcherExePath_;
 
     mutable std::mutex mutex_;
@@ -265,7 +264,10 @@ private:
     // a single shared field is fine without extra synchronization.
     std::string installerHandoffPath_;
     // The release updateCheckThreadMain() offered without applying, kept so requestUpdateNow() can fetch its installer if the user does ask for it.
-    Manifest pendingUpdateManifest_;
+    // The release an offered update would apply, and its published bytes -- held rather than
+    // re-fetched, because the pointer can move between the check and the user saying yes.
+    ReleaseFile pendingRelease_;
+    std::string pendingReleaseJson_;
     std::atomic<bool> updateApplyStarted_{false};
     std::atomic<bool> updateCancel_{false};
     std::atomic<bool> uninstallCancel_{false};

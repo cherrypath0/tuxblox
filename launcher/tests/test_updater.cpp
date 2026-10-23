@@ -15,435 +15,275 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "updater.h"
-#include "checksum.h"
-#include "install_paths.h"
+#include "manifest.h"
+#include "release_file.h"
+
 #include <cassert>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <sstream>
+#include <string>
 #include <vector>
 
 namespace fs = std::filesystem;
+using namespace tuxblox;
+
+namespace {
+
+fs::path gWork;
+
+void writeFile(const fs::path& path, const std::string& body) {
+    fs::create_directories(path.parent_path());
+    std::ofstream out(path, std::ios::binary);
+    out << body;
+}
+
+// A TuxBlox binary answers `--version` with its own bare "x.y.z" -- no channel suffix any more,
+// because one component build serves every channel.
+void writeVersionStub(const fs::path& path, const std::string& version) {
+    writeFile(path, "#!/bin/sh\necho " + version + "\n");
+    fs::permissions(path, fs::perms::owner_all);
+}
+
+void makeExecutable(const fs::path& path, const std::string& body) {
+    writeFile(path, body);
+    fs::permissions(path, fs::perms::owner_all);
+}
+
+std::vector<std::string> namesOf(const std::vector<ComponentVersion>& components) {
+    std::vector<std::string> names;
+    for (const ComponentVersion& c : components) names.push_back(c.component);
+    return names;
+}
+
+std::string versionOf(const std::vector<ComponentVersion>& components, const std::string& name) {
+    for (const ComponentVersion& c : components) {
+        if (c.component == name) return c.version;
+    }
+    return "<absent from the list entirely>";
+}
+
+// Every path under `dir` with its size, so a check that must touch nothing can be proved to have
+// touched nothing.
+std::map<std::string, uintmax_t> snapshotDir(const fs::path& dir) {
+    std::map<std::string, uintmax_t> seen;
+    if (!fs::exists(dir)) return seen;
+    for (const auto& entry : fs::recursive_directory_iterator(dir)) {
+        seen[entry.path().string()] = entry.is_regular_file() ? fs::file_size(entry.path()) : 0;
+    }
+    return seen;
+}
+
+const std::map<std::string, std::string> kFullSet = {
+    {"launcher", "3.5.0"}, {"installer", "3.1.0"}, {"studio-mcp", "2.0.1"},
+    {"compat", "3.3.0"}, {"libtuxblox", "3.1.0"},
+};
+
+std::string releaseBody(const std::string& release, const std::string& channel,
+                         const std::map<std::string, std::string>& versions) {
+    std::ostringstream body;
+    body << "{\n  \"release\": \"" << release << "\",\n  \"channel\": \"" << channel
+         << "\",\n  \"changelog\": \"components\",\n  \"source_commit\": \"abc123\",\n"
+            "  \"source_dirty\": false,\n  \"components\": {\n";
+    bool first = true;
+    for (const auto& [name, version] : versions) {
+        if (!first) body << ",\n";
+        first = false;
+        body << "    \"" << name << "\": {\"version\": \"" << version
+             << "\", \"arch\": {\"x86_64\": {\"sha256\": \"aa\", \"size\": 1}, \"arm64\": null}}";
+    }
+    body << "\n  }\n}\n";
+    return body.str();
+}
+
+// A published channel: the release file, then the pointer at it.
+void publish(const std::string& channel, const std::string& release,
+             const std::map<std::string, std::string>& versions) {
+    writeFile(gWork / "client" / "releases" / channel / (release + ".json"),
+              releaseBody(release, channel, versions));
+    writeFile(gWork / "client" / "releases" / channel / "latest", release + "\n");
+}
+
+// An install: the four components that can be asked, plus the record of which release it is.
+// `installed` and `recorded` are separate on purpose -- an install whose components do not match
+// the release it claims to be is the whole incoherent case, and a fixture that writes the record
+// from the installed versions can never produce one.
+void writeInstall(const fs::path& dir, const std::map<std::string, std::string>& installed,
+                  const std::string& recordedRelease,
+                  const std::map<std::string, std::string>& recorded) {
+    writeVersionStub(dir / "compat" / "main", installed.at("compat"));
+    writeVersionStub(dir / "TuxBloxInstaller", installed.at("installer"));
+    writeVersionStub(dir / "studio-mcp", installed.at("studio-mcp"));
+    writeFile(dir / "libtuxblox" / "VERSION", installed.at("libtuxblox") + "\n");
+    // Deliberately a leftover: nothing ships TuxBloxBootstrapper since 3.4.0, so it must never
+    // read as part of the install -- counting it would hand off to a repair that cannot fix it.
+    writeVersionStub(dir / "TuxBloxBootstrapper", "0.0.1");
+    if (!recordedRelease.empty()) {
+        writeFile(dir / "release.json", releaseBody(recordedRelease, "stable", recorded));
+    }
+}
+
+const std::string& baseUrl() {
+    static const std::string url = "file://" + gWork.string();
+    return url;
+}
+
+void test_download_progress_fraction() {
+    assert(downloadProgressFraction(50, 100, 999) == 0.5);   // total known -- ignores the fallback
+    assert(downloadProgressFraction(50, 0, 200) == 0.25);    // total unknown -- falls back
+    assert(downloadProgressFraction(0, 0, 0) == 0.0);        // neither known -- not a divide by zero
+    assert(downloadProgressFraction(0, 100, 999) == 0.0);
+    printf("  download progress fraction\n");
+}
+
+void test_reads_the_four_components_it_can_ask() {
+    // libtuxblox is new here, and it is read from its VERSION file rather than run. The launcher
+    // is still absent: it is the one asking. A bare "x.y.z" now, with no channel suffix.
+    const fs::path dir = gWork / "install_reads_four";
+    writeInstall(dir, kFullSet, "3.6.0.0", kFullSet);
+    auto v = readComponentVersions(dir.string());
+    assert(v.size() == 4);
+    assert((namesOf(v) == std::vector<std::string>{"compat", "installer", "studio-mcp", "libtuxblox"}));
+    assert(versionOf(v, "compat") == "3.3.0");
+    assert(versionOf(v, "libtuxblox") == "3.1.0");
+    for (const ComponentVersion& c : v) assert(c.component != "bootstrapper");
+    printf("  reads the four components it can ask\n");
+}
+
+// Review Focus 3: a binary that exists but cannot be asked is ABSENT, not a version of "".
+// An empty string would compare unequal to every recorded version and force a repair forever.
+void test_a_component_that_cannot_be_asked_counts_as_absent() {
+    const fs::path dir = gWork / "install_unaskable";
+    writeFile(dir / "studio-mcp", "not an executable");            // present, not executable
+    assert(versionOf(readComponentVersions(dir.string()), "studio-mcp").empty());
+    makeExecutable(dir / "studio-mcp", "#!/bin/sh\nexit 1\n");     // runs, exits nonzero
+    assert(versionOf(readComponentVersions(dir.string()), "studio-mcp").empty());
+    makeExecutable(dir / "studio-mcp", "#!/bin/sh\n");             // runs, prints nothing
+    assert(versionOf(readComponentVersions(dir.string()), "studio-mcp").empty());
+    printf("  a component that cannot be asked counts as absent\n");
+}
+
+// Review Focus 2: a channel with nothing published, and a pointer that is not a release version.
+void test_an_unpublished_or_malformed_pointer_is_nothing_to_update_to() {
+    for (const char* body : {"", "   ", "\n", "not-a-version", "3.6.0", "../../etc/passwd",
+                              "3.6.0.0 extra", "3.6.0.0.0"}) {
+        writeFile(gWork / "client" / "releases" / "canary" / "latest", body);
+        assert(!fetchLatestRelease(baseUrl(), "canary").has_value());
+    }
+    printf("  an unpublished or malformed pointer is nothing to update to\n");
+}
+
+void test_a_pointer_is_trimmed() {
+    writeFile(gWork / "client" / "releases" / "experimental" / "latest", "3.6.0.0\n");
+    assert(*fetchLatestRelease(baseUrl(), "experimental") == "3.6.0.0");
+    printf("  a pointer is trimmed\n");
+}
+
+void test_a_coherent_install_on_the_named_release_needs_no_handoff() {
+    publish("stable", "3.6.0.0", kFullSet);
+    const fs::path dir = gWork / "install_uptodate";
+    writeInstall(dir, kFullSet, "3.6.0.0", kFullSet);
+    auto r = runUpdateCheck(baseUrl(), "stable", "3.6.0.0", nullptr, nullptr, dir.string());
+    assert(!r.needsHandoff);
+    assert(!r.forced);
+    printf("  a coherent install on the named release needs no handoff\n");
+}
+
+void test_an_incoherent_install_is_forced_and_carries_the_release_bytes() {
+    publish("stable", "3.6.0.0", kFullSet);
+    auto broken = kFullSet;
+    broken["compat"] = "3.2.0";                 // an update that died midway
+    const fs::path dir = gWork / "install_mixed";
+    // Records 3.6.0.0 (compat 3.3.0) but HAS compat 3.2.0: the pieces do not match the release
+    // this install says it is.
+    writeInstall(dir, broken, "3.6.0.0", kFullSet);
+    auto r = runUpdateCheck(baseUrl(), "stable", "3.6.0.0", nullptr, nullptr, dir.string());
+    assert(r.needsHandoff);
+    assert(r.forced);
+    // The bytes as published, so what the installer is handed is what the launcher read --
+    // not a second fetch that could straddle a pointer move.
+    assert(parseReleaseFile(r.releaseJson).release == r.release.release);
+    assert(r.release.release == "3.6.0.0");
+    printf("  an incoherent install is forced and carries the release bytes\n");
+}
+
+void test_a_stale_install_hands_off_without_being_forced() {
+    publish("stable", "3.6.0.1", kFullSet);
+    const fs::path dir = gWork / "install_stale";
+    writeInstall(dir, kFullSet, "3.6.0.0", kFullSet);
+    auto r = runUpdateCheck(baseUrl(), "stable", "3.6.0.1", nullptr, nullptr, dir.string());
+    assert(r.needsHandoff);
+    assert(!r.forced);
+    printf("  a stale install hands off without being forced\n");
+}
+
+void test_a_release_file_the_pointer_names_but_that_is_missing_is_an_error_not_a_handoff() {
+    const fs::path dir = gWork / "install_dangling";
+    writeInstall(dir, kFullSet, "3.6.0.0", kFullSet);
+    auto r = runUpdateCheck(baseUrl(), "stable", "9.9.9.9", nullptr, nullptr, dir.string());
+    assert(!r.needsHandoff);
+    printf("  a dangling pointer is an error, not a handoff\n");
+}
+
+// Nothing is fetched and nothing on disk is touched by a check that only offers an update: an
+// install left with its pieces disagreeing would read as broken on the next check and be repaired
+// without asking.
+void test_an_offered_update_changes_nothing_on_disk() {
+    publish("stable", "3.6.0.1", kFullSet);
+    const fs::path dir = gWork / "install_untouched";
+    writeInstall(dir, kFullSet, "3.6.0.0", kFullSet);
+    auto before = snapshotDir(dir);
+    auto r = runUpdateCheck(baseUrl(), "stable", "3.6.0.1", nullptr, nullptr, dir.string());
+    assert(r.needsHandoff);
+    assert(snapshotDir(dir) == before);
+    printf("  an offered update changes nothing on disk\n");
+}
+
+// The repo owner's decision, 2026-10-23: offered, not forced.
+void test_an_install_with_no_record_is_offered_an_update() {
+    publish("stable", "3.6.0.0", kFullSet);
+    const fs::path dir = gWork / "install_norecord";
+    writeInstall(dir, kFullSet, "", kFullSet);           // no release.json at all
+    auto r = runUpdateCheck(baseUrl(), "stable", "3.6.0.0", nullptr, nullptr, dir.string());
+    assert(r.needsHandoff);
+    assert(!r.forced);
+    printf("  an install with no record is offered an update\n");
+}
+
+// Nothing installed at all is a first run, not a broken install.
+void test_an_empty_install_reports_the_layer_missing() {
+    publish("stable", "3.6.0.0", kFullSet);
+    const fs::path dir = gWork / "install_fresh";
+    fs::create_directories(dir);
+    auto r = runUpdateCheck(baseUrl(), "stable", "3.6.0.0", nullptr, nullptr, dir.string());
+    assert(r.needsHandoff);
+    assert(r.compatMissing);
+    printf("  an empty install reports the layer missing\n");
+}
+
+} // namespace
 
 int main() {
-    using namespace tuxblox;
-
-    assert(versionNeedsUpdate("0.1.0", "0.1.0") == false);
-    assert(versionNeedsUpdate("0.1.0", "0.2.0") == true);
-    assert(versionNeedsUpdate("0.2.0", "0.1.0") == false); // "needs update" is forward only
-    // The other direction, which is what takes a channel's rollback to the
-    // installs that already took the release being taken back.
-    assert(versionIsAhead("0.2.0", "0.1.0") == true);
-    assert(versionIsAhead("0.1.0", "0.2.0") == false);
-    assert(versionIsAhead("0.1.0", "0.1.0") == false);
-    assert(versionIsAhead("2.7.1-stable", "2.7.0-stable") == true);  // the channel suffix is not part of it
-    assert(versionIsAhead("2.7.1-stable", "2.6.0-stable") == true);
-    assert(versionIsAhead("1.10.0", "1.9.0") == true);               // numeric, not lexicographic
-    assert(versionNeedsUpdate("1.0.0", "0.2.0") == false); // e.g. installed 1.0.0, manifest still serving 0.2.0
-    assert(versionNeedsUpdate("1.0", "1.0.0") == false);   // differing component counts, same value
-    assert(versionNeedsUpdate("1.9.0", "1.10.0") == true); // numeric, not lexicographic, comparison
-
-    // downloadProgressFraction: the manifest-size fallback this task adds.
-    // Deterministic and independent of any real download/curl timing --
-    // see updater.h's doc comment for why this is exposed.
-    assert(downloadProgressFraction(50, 100, 999) == 0.5);   // total known -- ignores manifestSize entirely
-    assert(downloadProgressFraction(50, 0, 200) == 0.25);    // total unknown -- falls back to manifestSize
-    assert(downloadProgressFraction(0, 0, 0) == 0.0);        // neither known -- 0.0, not a divide-by-zero
-    assert(downloadProgressFraction(0, 100, 999) == 0.0);    // total known, now=0 -- 0.0 fraction, not the fallback
-
-    fs::path work = fs::temp_directory_path() / "tuxblox_test_updater";
-    fs::remove_all(work);
-    fs::create_directories(work);
-
-    fs::path installerSrc = work / "TuxBloxInstaller_new_src";
-    { std::ofstream out(installerSrc, std::ios::binary); out << "new installer binary"; }
-    const std::string installerSha = sha256File(installerSrc.string());
-    const uint64_t installerSize = fs::file_size(installerSrc);
-
-    const std::string fileBaseUrl = "file://" + work.string();
-
-    // Writes a manifest fixture at <work>/v1/<channel>/<version>/manifest.json
-    // -- runUpdateCheck constructs exactly this path from (baseUrl, channel,
-    // requiredVersion), so exercising it through the real path-construction
-    // logic (not a flat file it can be pointed at directly) is deliberate.
-    auto writeManifest = [&](const std::string& channel, const std::string& version,
-                              const std::string& installerUrl, const std::string& installerSha256) {
-        fs::path dir = work / "v1" / channel / version;
-        fs::create_directories(dir);
-        std::ostringstream body;
-        body << "{\n"
-                "  \"channel\": \"" << channel << "\",\n"
-                "  \"manifest_version\": 2,\n"
-                "  \"artifacts\": {\n"
-                "    \"proton\": {\"url\": \"file:///nonexistent\", \"sha256\": \"x\", \"size\": 1},\n"
-                "    \"launcher\": {\"url\": \"file:///nonexistent\", \"sha256\": \"x\", \"size\": 1},\n"
-                "    \"installer\": {\"url\": \"" << installerUrl << "\", "
-                "\"sha256\": \"" << installerSha256 << "\", \"size\": " << installerSize << "}\n"
-                "  }\n"
-                "}\n";
-        std::ofstream out(dir / "manifest.json");
-        out << body.str();
-    };
-    const std::string installerFileUrl = "file://" + installerSrc.string();
-
-    // Fakes an installed compatibility layer: an executable proton/main whose
-    // --version output is `buildId` (readBinaryVersion execs it). Every TuxBlox
-    // binary answers "x.y.z-channel", which is what the check compares.
-    auto writeVersionStub = [](const fs::path& path, const std::string& buildId) {
-        fs::create_directories(path.parent_path());
-        { std::ofstream out(path); out << "#!/bin/sh\necho " << buildId << "\n"; }
-        fs::permissions(path, fs::perms::owner_all);
-    };
-    auto writeProtonMain = [&](const fs::path& installDirPath, const std::string& buildId) {
-        writeVersionStub(installDirPath / "proton" / "main", buildId);
-    };
-    // A whole install: the layer plus the three binaries beside it. An absent
-    // one counts as a mismatch once the layer is there, so a case that means
-    // to test something else has to write all of them.
-    auto writeWholeInstall = [&](const fs::path& installDirPath, const std::string& buildId) {
-        writeProtonMain(installDirPath, buildId);
-        writeVersionStub(installDirPath / "TuxBloxInstaller", buildId);
-        // Deliberately a different version: this file is a leftover from an install
-        // made before the launcher carried the bootstrapper itself, and nothing ships it
-        // any more, so it must never read as part of the install.
-        writeVersionStub(installDirPath / "TuxBloxBootstrapper", "0.0.1-leftover");
-        writeVersionStub(installDirPath / "studio-mcp", buildId);
-    };
-
-    // --- A leftover TuxBloxBootstrapper beside an otherwise-matching install is
-    // not a mixed install. No release ships that file any more, so counting it
-    // would hand off to a repair that could never fix it -- on every launch. ---
-    {
-        fs::path installDirPath = work / "install_leftover_bootstrapper";
-        writeWholeInstall(installDirPath, "0.3.0-ch-leftover");
-
-        const std::vector<ComponentVersion> components =
-            readComponentVersions(installDirPath.string());
-        for (const ComponentVersion& component : components) {
-            assert(component.name.find("bootstrapper") == std::string::npos);
-            assert(component.path.find("TuxBloxBootstrapper") == std::string::npos);
-        }
-        assert(mismatchedComponents(components, "0.3.0-ch-leftover", /*absentCounts=*/true).empty());
-    }
-
-    // --- Up-to-date path: both launcher and Proton versions match
-    // requiredVersion, no installer fetch happens, needsHandoff stays false. ---
-    {
-        fs::path installDirPath = work / "install_uptodate";
-        writeWholeInstall(installDirPath, "0.1.0-ch-uptodate");
-
-        writeManifest("ch-uptodate", "0.1.0", installerFileUrl, installerSha);
-
-        std::vector<UpdatePhase> phases;
-        auto result = runUpdateCheck("0.1.0-ch-uptodate", fileBaseUrl, "ch-uptodate", "0.1.0",
-            [&](UpdateProgress p) { phases.push_back(p.phase); }, nullptr, installDirPath.string());
-
-        assert(!result.needsHandoff);
-        assert(!phases.empty());
-        assert(phases.back() == UpdatePhase::UpToDate);
-        // Never fetched -- nothing needed it. The stub written above is still
-        // exactly what is on disk, rather than the manifest's installer.
-        std::ifstream untouched(installDirPath / "TuxBloxInstaller");
-        std::string content((std::istreambuf_iterator<char>(untouched)), std::istreambuf_iterator<char>());
-        assert(content.find("new installer binary") == std::string::npos);
-    }
-
-    // --- Compatibility layer a build behind the launcher: a half-applied
-    // update, so it is reported as mixed and the installer gets fetched,
-    // verified and handed off. The launcher itself does no downloading or
-    // extracting of the layer. ---
-    {
-        fs::path installDirPath = work / "install_proton_stale";
-        writeWholeInstall(installDirPath, "0.2.0-ch-protonstale");
-        writeProtonMain(installDirPath, "0.1.0-ch-protonstale");
-
-        writeManifest("ch-protonstale", "0.2.0", installerFileUrl, installerSha);
-
-        std::vector<UpdatePhase> phases;
-        auto result = runUpdateCheck("0.2.0-ch-protonstale", fileBaseUrl, "ch-protonstale", "0.2.0",
-            [&](UpdateProgress p) { phases.push_back(p.phase); }, nullptr, installDirPath.string());
-
-        assert(result.needsHandoff);
-        // The release to hand off to comes back for the caller to fetch the installer from, rather than the check having fetched it.
-        assert(result.manifest.installer.sha256 == installerSha);
-        assert(result.manifest.installer.url == installerFileUrl);
-        assert(!phases.empty());
-        assert(phases.back() != UpdatePhase::Error);
-        // The launcher must never touch Proton itself -- that's the
-        // installer's job once handed off to.
-        assert(fs::exists(installDirPath / "proton" / "main"));
-        // An outdated-but-present layer is not the same as no install at
-        // all -- App::updateCheckThreadMain() treats the two differently.
-        assert(!result.protonMissing);
-        // The pieces disagree, so the update applies without consulting the
-        // Auto-Update setting.
-        assert(result.mixedInstall);
-    }
-
-    // --- No Proton install recorded at all (first run, or a launcher
-    // binary run standalone without ever going through the installer):
-    // needsHandoff is true same as an outdated install, but protonMissing
-    // distinguishes it so App::updateCheckThreadMain() can hand off
-    // immediately regardless of the Auto-Update setting -- nothing can be
-    // launched yet, so there's nothing to opt out of. ---
-    {
-        fs::path installDirPath = work / "install_proton_missing";
-        // Deliberately no writeProtonMain() call -- installDirPath/proton
-        // never gets created. The real launcher always creates installDir()
-        // itself before App/runUpdateCheck ever runs (see main.cpp), so
-        // this directory-creation call stands in for that, not for
-        // anything Proton-related.
-        fs::create_directories(installDirPath);
-
-        writeManifest("ch-protonmissing", "0.1.0", installerFileUrl, installerSha);
-
-        auto result = runUpdateCheck("0.1.0-ch-protonmissing", fileBaseUrl, "ch-protonmissing", "0.1.0",
-            [](UpdateProgress) {}, nullptr, installDirPath.string());
-
-        assert(result.needsHandoff);
-        assert(result.protonMissing);
-        // Absent is not mismatched: there is no disagreement to report when
-        // nothing is installed yet.
-        assert(!result.mixedInstall);
-        assert(result.manifest.installer.sha256 == installerSha);
-    }
-
-    // --- A new release is out and this install is consistently on the old
-    // one: the ordinary update. needsHandoff, but NOT mixed -- so the
-    // Auto-Update setting still decides whether it is applied now. ---
-    {
-        fs::path installDirPath = work / "install_launcher_stale";
-        writeWholeInstall(installDirPath, "0.1.0-ch-launcherstale");
-
-        writeManifest("ch-launcherstale", "0.2.0", installerFileUrl, installerSha);
-
-        auto result = runUpdateCheck("0.1.0-ch-launcherstale", fileBaseUrl, "ch-launcherstale", "0.2.0",
-            [](UpdateProgress) {}, nullptr, installDirPath.string());
-
-        assert(result.needsHandoff);
-        assert(result.manifest.installer.sha256 == installerSha);
-        assert(!result.protonMissing);
-        assert(!result.mixedInstall);
-    }
-
-    // --- The same ordinary update, checked twice. Offering an update must
-    // leave the install exactly as it was: replacing the installer here put a
-    // build the launcher does not agree with into the install, so the next
-    // check read a broken install and repaired it without asking, closing the
-    // launcher on the launch after the one that declined the update. ---
-    {
-        fs::path installDirPath = work / "install_offer_twice";
-        writeWholeInstall(installDirPath, "0.1.0-ch-offertwice");
-
-        writeManifest("ch-offertwice", "0.2.0", installerFileUrl, installerSha);
-
-        auto first = runUpdateCheck("0.1.0-ch-offertwice", fileBaseUrl, "ch-offertwice", "0.2.0",
-            [](UpdateProgress) {}, nullptr, installDirPath.string());
-
-        assert(first.needsHandoff);
-        assert(!first.mixedInstall);
-
-        std::ifstream kept(installDirPath / "TuxBloxInstaller");
-        std::string content((std::istreambuf_iterator<char>(kept)), std::istreambuf_iterator<char>());
-        assert(content.find("new installer binary") == std::string::npos);
-
-        auto second = runUpdateCheck("0.1.0-ch-offertwice", fileBaseUrl, "ch-offertwice", "0.2.0",
-            [](UpdateProgress) {}, nullptr, installDirPath.string());
-
-        assert(second.needsHandoff);
-        assert(!second.mixedInstall);
-    }
-
-    // --- Nothing new published, but the install disagrees with itself: the
-    // layer is on another channel's build of the same number. Caught, and
-    // forced, even though there is no newer release to move to. ---
-    {
-        fs::path installDirPath = work / "install_mixed_channel";
-        writeWholeInstall(installDirPath, "0.1.0-ch-mixed");
-        writeProtonMain(installDirPath, "0.1.0-other");
-
-        writeManifest("ch-mixed", "0.1.0", installerFileUrl, installerSha);
-
-        auto result = runUpdateCheck("0.1.0-ch-mixed", fileBaseUrl, "ch-mixed", "0.1.0",
-            [](UpdateProgress) {}, nullptr, installDirPath.string());
-
-        assert(result.needsHandoff);
-        assert(result.mixedInstall);
-        assert(result.manifest.installer.sha256 == installerSha);
-    }
-
-    // --- buildChannel() ---
-    assert(buildChannel("2.7.0-stable") == "stable");
-    assert(buildChannel("2.7.0-experimental") == "experimental");
-    // Builds before 2.7.0 report a bare number. That is "cannot tell", and
-    // must not read as a channel change.
-    assert(buildChannel("2.6.0").empty());
-    assert(buildChannel("").empty());
-
-    // --- The selected channel is behind the installed version. versionNeedsUpdate
-    // only ever moves forward, so nothing but the channel change can trigger
-    // this -- and it must, or picking a channel silently does nothing. Not
-    // mixed: the pieces agree with each other, so Auto-Update still decides. ---
-    {
-        fs::path installDirPath = work / "install_channel_switch";
-        writeWholeInstall(installDirPath, "0.9.0-ch-other");
-
-        writeManifest("ch-switch", "0.1.0", installerFileUrl, installerSha);
-
-        auto result = runUpdateCheck("0.9.0-ch-other", fileBaseUrl, "ch-switch", "0.1.0",
-            [](UpdateProgress) {}, nullptr, installDirPath.string());
-
-        assert(result.needsHandoff);
-        assert(!result.mixedInstall);
-        assert(result.manifest.installer.sha256 == installerSha);
-    }
-
-    // --- Same channel, installed version ahead of what the channel publishes:
-    // moved back to it. This is how a release that turns out to be broken is
-    // taken away again -- the channel is pointed at the release before it, and
-    // the installs that took the broken one have to follow. Not mixed: the
-    // pieces agree with each other, so Auto-Update still decides. ---
-    {
-        fs::path installDirPath = work / "install_ahead_same_channel";
-        writeWholeInstall(installDirPath, "0.9.0-ch-ahead");
-
-        writeManifest("ch-ahead", "0.1.0", installerFileUrl, installerSha);
-
-        auto result = runUpdateCheck("0.9.0-ch-ahead", fileBaseUrl, "ch-ahead", "0.1.0",
-            [](UpdateProgress) {}, nullptr, installDirPath.string());
-
-        assert(result.needsHandoff);
-        assert(!result.mixedInstall);
-        assert(result.manifest.installer.sha256 == installerSha);
-    }
-
-    // --- Ahead of the channel, but the settings file says not to roll back:
-    // left where it is. This is the escape for a build made on this machine. ---
-    {
-        fs::path installDirPath = work / "install_ahead_norollback";
-        writeWholeInstall(installDirPath, "0.9.0-ch-norollback");
-        {
-            std::ofstream out(installDirPath / "settings.json", std::ios::binary);
-            out << R"({"norollback": true, "send_crash_reports": true})";
-        }
-
-        writeManifest("ch-norollback", "0.1.0", installerFileUrl, installerSha);
-
-        std::vector<UpdatePhase> phases;
-        auto result = runUpdateCheck("0.9.0-ch-norollback", fileBaseUrl, "ch-norollback", "0.1.0",
-            [&](UpdateProgress p) { phases.push_back(p.phase); }, nullptr, installDirPath.string());
-
-        assert(!result.needsHandoff);
-        assert(phases.back() == UpdatePhase::UpToDate);
-    }
-
-    // --- A pre-2.7.0 install reports no channel. Unknown is not a mismatch,
-    // so it must not be dragged sideways on every check. On the version the
-    // channel publishes, so that the channel question is the only one being
-    // asked here. ---
-    {
-        fs::path installDirPath = work / "install_no_channel";
-        writeWholeInstall(installDirPath, "0.1.0");
-
-        writeManifest("ch-nochannel", "0.1.0", installerFileUrl, installerSha);
-
-        std::vector<UpdatePhase> phases;
-        auto result = runUpdateCheck("0.1.0", fileBaseUrl, "ch-nochannel", "0.1.0",
-            [&](UpdateProgress p) { phases.push_back(p.phase); }, nullptr, installDirPath.string());
-
-        assert(!result.needsHandoff);
-        assert(phases.back() == UpdatePhase::UpToDate);
-    }
-
-    // --- A binary is simply gone from an otherwise-current install. Nothing
-    // is out of date and nothing disagrees, but the install is incomplete,
-    // which is the same kind of broken and gets the same forced repair. ---
-    {
-        fs::path installDirPath = work / "install_missing_piece";
-        writeWholeInstall(installDirPath, "0.1.0-ch-missing");
-        fs::remove(installDirPath / "studio-mcp");
-
-        writeManifest("ch-missing", "0.1.0", installerFileUrl, installerSha);
-
-        auto result = runUpdateCheck("0.1.0-ch-missing", fileBaseUrl, "ch-missing", "0.1.0",
-            [](UpdateProgress) {}, nullptr, installDirPath.string());
-
-        assert(result.needsHandoff);
-        assert(result.mixedInstall);
-        assert(!result.protonMissing);
-    }
-
-    // --- ensureInstallerBinary, the step the caller takes once it knows it is
-    // handing off. Nothing there yet, so it fetches, verifies and installs. ---
-    {
-        fs::path installDirPath = work / "install_installer_fetch";
-        fs::create_directories(installDirPath);
-
-        Manifest manifest;
-        manifest.installer = {installerFileUrl, installerSha, installerSize};
-
-        auto ensured = ensureInstallerBinary(manifest, installDirPath.string(), nullptr,
-            [](UpdateProgress) {});
-
-        assert(ensured.ok);
-        assert(ensured.installerPath == (installDirPath / "TuxBloxInstaller").string());
-        assert(sha256File(ensured.installerPath) == installerSha);
-    }
-
-    // --- Installer already present and matching the manifest checksum:
-    // must not be re-downloaded (its mtime/content stays exactly as-is). ---
-    {
-        fs::path installDirPath = work / "install_installer_cached";
-        fs::create_directories(installDirPath);
-        fs::path cachedInstaller = installDirPath / "TuxBloxInstaller";
-        { std::ofstream out(cachedInstaller, std::ios::binary); out << "new installer binary"; }
-        // Sanity: the pre-placed file's checksum already matches the
-        // manifest (both are "new installer binary"), so a correct
-        // implementation should skip the download entirely.
-        assert(sha256File(cachedInstaller.string()) == installerSha);
-
-        // Point the manifest's installer URL at a nonexistent file -- if the
-        // implementation incorrectly tries to re-fetch, this would fail
-        // instead of silently succeeding.
-        Manifest manifest;
-        manifest.installer = {"file:///nonexistent/should_not_be_fetched", installerSha, installerSize};
-
-        auto ensured = ensureInstallerBinary(manifest, installDirPath.string(), nullptr,
-            [](UpdateProgress) {});
-
-        assert(ensured.ok);
-        assert(ensured.installerPath == cachedInstaller.string());
-    }
-
-    // --- Checksum mismatch on the freshly-downloaded installer: Error
-    // phase, not ok, no leftover .new temp file. ---
-    {
-        fs::path installDirPath = work / "install_bad_checksum";
-        fs::create_directories(installDirPath);
-        { std::ofstream out(installDirPath / "TuxBloxInstaller", std::ios::binary); out << "the copy already there"; }
-
-        Manifest manifest;
-        manifest.installer = {installerFileUrl,
-            "0000000000000000000000000000000000000000000000000000000000000", installerSize};
-
-        std::vector<UpdatePhase> phases;
-        auto ensured = ensureInstallerBinary(manifest, installDirPath.string(), nullptr,
-            [&](UpdateProgress p) { phases.push_back(p.phase); });
-
-        assert(!ensured.ok);
-        assert(!phases.empty());
-        assert(phases.back() == UpdatePhase::Error);
-        // A download that failed its checksum is never installed over the copy
-        // already there, and leaves no half-written temp file behind.
-        std::ifstream kept(installDirPath / "TuxBloxInstaller");
-        std::string content((std::istreambuf_iterator<char>(kept)), std::istreambuf_iterator<char>());
-        assert(content.find("new installer binary") == std::string::npos);
-        assert(!fs::exists(installDirPath / "TuxBloxInstaller.new"));
-    }
-
-    fs::remove_all(work);
-
+    gWork = fs::temp_directory_path() / "tuxblox_test_updater";
+    fs::remove_all(gWork);
+    fs::create_directories(gWork);
+
+    test_download_progress_fraction();
+    test_reads_the_four_components_it_can_ask();
+    test_a_component_that_cannot_be_asked_counts_as_absent();
+    test_an_unpublished_or_malformed_pointer_is_nothing_to_update_to();
+    test_a_pointer_is_trimmed();
+    test_a_coherent_install_on_the_named_release_needs_no_handoff();
+    test_an_incoherent_install_is_forced_and_carries_the_release_bytes();
+    test_a_stale_install_hands_off_without_being_forced();
+    test_a_release_file_the_pointer_names_but_that_is_missing_is_an_error_not_a_handoff();
+    test_an_offered_update_changes_nothing_on_disk();
+    test_an_install_with_no_record_is_offered_an_update();
+    test_an_empty_install_reports_the_layer_missing();
+
+    fs::remove_all(gWork);
     printf("updater: all tests passed\n");
     return 0;
 }

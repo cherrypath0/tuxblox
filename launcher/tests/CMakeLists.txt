@@ -41,10 +41,6 @@ add_executable(test_tar_extract test_tar_extract.cpp)
 target_link_libraries(test_tar_extract PRIVATE launcher_core)
 add_test(NAME tar_extract COMMAND test_tar_extract)
 
-add_executable(test_manifest test_manifest.cpp)
-target_link_libraries(test_manifest PRIVATE launcher_core)
-add_test(NAME manifest COMMAND test_manifest)
-
 add_executable(test_lnk_resolver test_lnk_resolver.cpp)
 target_link_libraries(test_lnk_resolver PRIVATE launcher_core)
 add_test(NAME lnk_resolver COMMAND test_lnk_resolver)

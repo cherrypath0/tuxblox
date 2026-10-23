@@ -16,6 +16,7 @@
 
 #include "manifest.h"
 #include "downloader.h"
+#include "release_file.h"
 #include "json.hpp"
 #include "ca_bundle.h"
 #include <curl/curl.h>
@@ -38,80 +39,7 @@ int curlCancelCallback(void* clientp, curl_off_t /*dltotal*/, curl_off_t /*dlnow
     return shouldAbortTransfer(cancel) ? 1 : 0;
 }
 
-// A manifest artifact's "url" is always a path relative to the setup
-// origin ("/v1/canary/0.2.0/launcher"), never a full URL -- resolving it
-// here (once, at parse time) means every other artifact.url use site just
-// gets something curl can fetch directly, same as before this schema
-// change.
-std::string resolveUrl(const std::string& baseUrl, const std::string& maybeRelative) {
-    if (maybeRelative.rfind("http://", 0) == 0 || maybeRelative.rfind("https://", 0) == 0 ||
-        maybeRelative.rfind("file://", 0) == 0) {
-        return maybeRelative; // already absolute -- defensive, the server never emits this today
-    }
-    return baseUrl + maybeRelative;
-}
-
-Artifact parseArtifact(const nlohmann::json& artifacts, const char* name, const std::string& baseUrl) {
-    if (!artifacts.contains(name)) {
-        throw std::runtime_error(std::string("manifest missing artifact: ") + name);
-    }
-    try {
-        const auto& a = artifacts.at(name);
-        Artifact artifact;
-        artifact.url = resolveUrl(baseUrl, a.at("url").get<std::string>());
-        artifact.sha256 = a.at("sha256").get<std::string>();
-        artifact.sizeBytes = a.at("size").get<uint64_t>();
-        return artifact;
-    } catch (const nlohmann::json::exception& e) {
-        throw std::runtime_error(std::string("manifest artifact '") + name + "' field error: " + e.what());
-    }
-}
-
-// The manifest.json schema version this launcher understands. Bump this
-// (and re-verify every field access below still matches) when the schema
-// changes -- kept as a single named constant rather than a bare literal so
-// it's the one obvious place to change, not a magic number buried in a
-// comparison.
-constexpr int kSupportedManifestVersion = 2;
-
 } // namespace
-
-Manifest parseManifest(const std::string& jsonText, const std::string& baseUrl) {
-    nlohmann::json j;
-    try {
-        j = nlohmann::json::parse(jsonText);
-    } catch (const nlohmann::json::parse_error& e) {
-        throw std::runtime_error(std::string("manifest is not valid JSON: ") + e.what());
-    }
-
-    try {
-        if (!j.contains("artifacts")) {
-            throw std::runtime_error("manifest missing 'artifacts' object");
-        }
-
-        Manifest m;
-        m.manifestVersion = j.at("manifest_version").get<int>();
-        if (m.manifestVersion != kSupportedManifestVersion) {
-            throw std::runtime_error("unsupported manifest_version: " +
-                                     std::to_string(m.manifestVersion) +
-                                     " (this launcher supports version " +
-                                     std::to_string(kSupportedManifestVersion) + ")");
-        }
-        m.channel = j.at("channel").get<std::string>();
-        // The compatibility layer was published as "proton" before it was
-        // renamed, so a manifest that predates the rename still names it that.
-        const auto& artifacts = j.at("artifacts");
-        m.compat = parseArtifact(artifacts, artifacts.contains("compat") ? "compat" : "proton",
-                                 baseUrl);
-        m.launcher = parseArtifact(j.at("artifacts"), "launcher", baseUrl);
-        m.installer = parseArtifact(j.at("artifacts"), "installer", baseUrl);
-        return m;
-    } catch (const std::runtime_error&) {
-        throw;
-    } catch (const nlohmann::json::exception& e) {
-        throw std::runtime_error(std::string("manifest field error: ") + e.what());
-    }
-}
 
 std::string fetchManifestJson(const std::string& url, const std::atomic<bool>* cancel) {
     CURL* curl = curl_easy_init();
@@ -154,18 +82,32 @@ std::string fetchManifestJson(const std::string& url, const std::atomic<bool>* c
     return body;
 }
 
-std::optional<std::string> fetchLatestVersion(const std::string& baseUrl, const std::string& channel,
+std::optional<std::string> fetchLatestRelease(const std::string& baseUrl, const std::string& channel,
                                                const std::atomic<bool>* cancel) {
-    std::string json = fetchManifestJson(baseUrl + "/v2/latest.json", cancel);
+    std::string body = fetchManifestJson(latestPointerUrl(baseUrl, channel), cancel);
 
-    nlohmann::json j;
-    try {
-        j = nlohmann::json::parse(json);
-        const std::string version = j.at("channels").at(channel).get<std::string>();
-        return version.empty() ? std::nullopt : std::make_optional(version);
-    } catch (const nlohmann::json::exception& e) {
-        throw std::runtime_error(std::string("latest.json field error: ") + e.what());
+    const size_t first = body.find_first_not_of(" \t\r\n");
+    if (first == std::string::npos) return std::nullopt;
+    const std::string release = body.substr(first, body.find_last_not_of(" \t\r\n") - first + 1);
+
+    // Four dot-separated numbers and nothing else. The pointer is a few bytes of plain text from
+    // the network, and anything that is not a release version is "nothing to update to" rather
+    // than something to go and ask for.
+    int fields = 1;
+    size_t digits = 0;
+    for (char c : release) {
+        if (c == '.') {
+            if (digits == 0) return std::nullopt;
+            digits = 0;
+            fields++;
+        } else if (c >= '0' && c <= '9') {
+            digits++;
+        } else {
+            return std::nullopt;
+        }
     }
+    if (digits == 0 || fields != 4) return std::nullopt;
+    return release;
 }
 
 } // namespace tuxblox

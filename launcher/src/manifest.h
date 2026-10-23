@@ -22,33 +22,16 @@
 
 namespace tuxblox {
 
-struct Artifact {
-    std::string url; // always absolute -- resolved against baseUrl at parse time
-    std::string sha256;
-    uint64_t sizeBytes = 0;
-};
-
-struct Manifest {
-    int manifestVersion = 0;
-    std::string channel;
-    Artifact compat;
-    Artifact launcher;
-    Artifact installer;
-};
-
-// `baseUrl` (e.g. "https://setup.tuxblox.net", no trailing slash) resolves
-// each artifact's manifest-relative url ("/v1/canary/0.2.0/launcher") to an
-// absolute one -- the per-version manifest schema no longer embeds a
-// tuxblox_version/proton_version of its own; the single version this
-// manifest represents is implied by which /v1/<channel>/<version>/
-// manifest.json was fetched, not repeated inside the JSON body.
-Manifest parseManifest(const std::string& jsonText, const std::string& baseUrl);
+// Fetches a URL and returns its body. Named for the manifest it was written to fetch; it is the
+// plain text fetcher now, used for the release pointer and the release file too.
 std::string fetchManifestJson(const std::string& url, const std::atomic<bool>* cancel = nullptr);
 
-// Fetches baseUrl + "/v2/latest.json" and returns the currently-latest
-// version for `channel`, or std::nullopt if that channel has no releases
-// published yet (an empty string in latest.json).
-std::optional<std::string> fetchLatestVersion(const std::string& baseUrl, const std::string& channel,
+// The release `channel` currently publishes, from client/releases/<channel>/latest.
+//
+// std::nullopt covers every way there is nothing to update to: a channel with nothing published
+// yet, and a pointer that is not a release version. Those are the same answer to a caller, and
+// treating a malformed pointer as a release would send it on to build a URL that cannot resolve.
+std::optional<std::string> fetchLatestRelease(const std::string& baseUrl, const std::string& channel,
                                                const std::atomic<bool>* cancel = nullptr);
 
 } // namespace tuxblox

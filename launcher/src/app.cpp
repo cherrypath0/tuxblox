@@ -60,9 +60,8 @@ std::string isoNowUtc() {
 
 } // namespace
 
-App::App(std::string installDir, std::string currentVersion, std::string launcherExePath)
+App::App(std::string installDir, std::string launcherExePath)
     : installDir_(std::move(installDir)),
-      currentVersion_(std::move(currentVersion)),
       launcherExePath_(std::move(launcherExePath)) {
     // Desktop integration (ensureDesktopIntegration) is deliberately NOT
     // called here -- it's a bounded-but-blocking call (up to ~12s worst
@@ -283,30 +282,29 @@ void App::uninstallThreadMain() {
     // one -- simpler than threading a version through, and this path is
     // only reached at all when nothing's cached locally yet (see
     // ensureInstallerBinary).
-    std::optional<std::string> latestVersion;
+    std::optional<std::string> latestRelease;
     try {
-        latestVersion = fetchLatestVersion(kSetupBaseUrl, channel, &uninstallCancel_);
+        latestRelease = fetchLatestRelease(kSetupBaseUrl, channel, &uninstallCancel_);
     } catch (const std::exception& e) {
         fail(std::string("Couldn't reach tuxblox.net to prepare the uninstaller: ") + e.what());
         return;
     }
-    if (!latestVersion.has_value()) {
+    if (!latestRelease.has_value()) {
         fail("No published release found for the current channel -- can't fetch an uninstaller.");
         return;
     }
 
-    const std::string manifestUrl =
-        std::string(kSetupBaseUrl) + "/v1/" + channel + "/" + *latestVersion + "/manifest.json";
-    Manifest manifest;
+    ReleaseFile release;
     try {
-        std::string json = fetchManifestJson(manifestUrl, &uninstallCancel_);
-        manifest = parseManifest(json, kSetupBaseUrl);
+        release = parseReleaseFile(fetchManifestJson(
+            releaseFileUrl(kSetupBaseUrl, channel, *latestRelease), &uninstallCancel_));
     } catch (const std::exception& e) {
-        fail(std::string("Couldn't fetch the release manifest: ") + e.what());
+        fail(std::string("Couldn't fetch the release: ") + e.what());
         return;
     }
 
-    EnsureInstallerResult ensured = ensureInstallerBinary(manifest, installDir_, &uninstallCancel_, nullptr);
+    EnsureInstallerResult ensured =
+        ensureInstallerBinary(release, kSetupBaseUrl, installDir_, &uninstallCancel_, nullptr);
     if (!ensured.ok) {
         fail(ensured.errorMessage.empty() ? "Failed to prepare the uninstaller." : ensured.errorMessage);
         return;
@@ -631,20 +629,20 @@ void App::requestUpdateNow() {
 }
 
 void App::updateApplyThreadMain() {
-    Manifest manifest;
+    ReleaseFile release;
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        manifest = pendingUpdateManifest_;
+        release = pendingRelease_;
     }
-    if (!prepareInstallerHandoff(manifest)) {
+    if (!prepareInstallerHandoff(release)) {
         updateApplyStarted_.store(false);
         return;
     }
     needsInstallerHandoff_.store(true);
 }
 
-bool App::prepareInstallerHandoff(const Manifest& manifest) {
-    EnsureInstallerResult ensured = ensureInstallerBinary(manifest, installDir_, &updateCancel_,
+bool App::prepareInstallerHandoff(const ReleaseFile& release) {
+    EnsureInstallerResult ensured = ensureInstallerBinary(release, kSetupBaseUrl, installDir_, &updateCancel_,
         [this](UpdateProgress p) {
             std::lock_guard<std::mutex> lock(mutex_);
             snapshot_.update = p;
@@ -693,21 +691,21 @@ void App::updateCheckThreadMain() {
 
     report({UpdatePhase::CheckingManifest, 0.0});
 
-    std::optional<std::string> latestVersion;
+    std::optional<std::string> namedRelease;
     try {
-        latestVersion = fetchLatestVersion(kSetupBaseUrl, channel, &updateCancel_);
+        namedRelease = fetchLatestRelease(kSetupBaseUrl, channel, &updateCancel_);
     } catch (const std::exception& e) {
         report({UpdatePhase::Error, 0.0, e.what()});
         return;
     }
-    if (!latestVersion.has_value()) {
+    if (!namedRelease.has_value()) {
         // No releases published for this channel yet -- there's nothing to
         // update to, so this isn't an error, just nothing further to do.
         report({UpdatePhase::UpToDate, 1.0});
         return;
     }
 
-    auto result = runUpdateCheck(currentVersion_, kSetupBaseUrl, channel, *latestVersion,
+    auto result = runUpdateCheck(kSetupBaseUrl, channel, *namedRelease,
         [&](UpdateProgress p) { report(p); },
         &updateCancel_, installDir_);
     if (result.needsHandoff) {
@@ -730,15 +728,16 @@ void App::updateCheckThreadMain() {
         // agree on one build, which is broken rather than out of date, and
         // leaving it running is not a state the user chose. An ordinary
         // available update still waits to be asked for, below.
-        if (autoUpdate || result.mixedInstall) {
-            if (!prepareInstallerHandoff(result.manifest)) return;
+        if (autoUpdate || result.forced) {
+            if (!prepareInstallerHandoff(result.release)) return;
             needsInstallerHandoff_.store(true);
         } else {
             // Nothing is fetched and nothing on disk is touched on this path: an update that is only being offered has to leave the install exactly as it was, or the next check reads it as broken and repairs it without asking.
             // pendingUpdateManifest_ is written under mutex_, in the same critical section as updateAvailableVersion -- a UI-thread caller that has observed updateAvailableVersion through snapshot() is guaranteed to see it too, so requestUpdateNow() needs nothing but mutex_ to pick it up.
             std::lock_guard<std::mutex> lock(mutex_);
-            pendingUpdateManifest_ = result.manifest;
-            snapshot_.updateAvailableVersion = *latestVersion;
+            pendingRelease_ = result.release;
+            pendingReleaseJson_ = result.releaseJson;
+            snapshot_.updateAvailableVersion = *namedRelease;
             // Without this the phase stays where runUpdateCheck()'s last report() left it -- CheckingManifest -- forever, since nothing else in this function reports again on this branch. StartTab::updateFromSnapshot() treats that as "updating" and hides the Launch buttons in favour of the progress bar for as long as it is true, so the Home tab would sit there with no way to launch anything. The branch above needs no such reset: it sets needsInstallerHandoff_, which MainWindow::poll() acts on by closing the window within one tick.
             snapshot_.update = {UpdatePhase::UpToDate, 1.0};
         }
