@@ -43,18 +43,26 @@ def _read_file(root, name):
         raise ValueError("%s: cannot read %s (%s)" % (name, path, e))
 
 
-def _read_ui_env(root):
-    path = os.path.join(root, _UI_ENV)
+def read_ui_env_value(repo_root, key):
+    """One value out of the interface stack's env file, which is shell-sourced elsewhere and so is parsed rather than imported."""
+    path = os.path.join(repo_root, _UI_ENV)
     try:
         with open(path) as f:
             lines = f.readlines()
     except OSError as e:
-        raise ValueError("libtuxblox: cannot read %s (%s)" % (path, e))
+        raise ValueError("cannot read %s (%s)" % (path, e))
     for line in lines:
-        key, _, value = line.partition("=")
-        if key.strip() == _UI_KEY:
-            return value
-    raise ValueError("libtuxblox: %s does not set %s" % (path, _UI_KEY))
+        name, _, value = line.partition("=")
+        if name.strip() == key:
+            return value.strip()
+    raise ValueError("%s does not set %s" % (path, key))
+
+
+def _read_ui_env(root):
+    try:
+        return read_ui_env_value(root, _UI_KEY)
+    except ValueError as e:
+        raise ValueError("libtuxblox: %s" % e)
 
 
 def read_component_versions(repo_root):
