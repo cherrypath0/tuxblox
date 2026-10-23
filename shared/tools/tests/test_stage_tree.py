@@ -150,6 +150,69 @@ class StageTree(unittest.TestCase):
             self.assertFalse(any(bad in root for root, _, _ in os.walk(self.out)))
 
 
+class Changelogs(StageTree):
+    def test_the_release_file_says_which_changelog_kind_it_carries(self):
+        # The site renders a merged per-component view for new releases and a single {release}.md
+        # for backfilled historical ones, and cannot tell which without being told. Adding the field
+        # later would mean migrating files that are immutable by then.
+        self.assertEqual(self.stage()["changelog"], "components")
+
+    def test_a_given_changelog_is_written_beside_its_component(self):
+        src = os.path.join(self.tmp, "launcher-changelog.md")
+        with open(src, "w") as f:
+            f.write("- Fixed a thing\n")
+        stage(self.build, self.out, "stable", "3.6.0.0", VERSIONS, {},
+              ui_tarball=self.ui_tarball, changelogs={"launcher": src})
+        with open(self.path("components", "launcher", "3.5.0", "changelogs.md")) as f:
+            self.assertEqual(f.read(), "- Fixed a thing\n")
+
+    def test_a_component_with_no_changelog_gets_no_file(self):
+        self.stage()
+        self.assertFalse(os.path.exists(self.path("components", "compat", "3.3.0", "changelogs.md")))
+
+    # A reused component is not written at all, so a changelog for it would have nowhere to go.
+    def test_a_changelog_for_a_reused_component_is_not_written(self):
+        src = os.path.join(self.tmp, "compat-changelog.md")
+        with open(src, "w") as f:
+            f.write("- Layer change\n")
+        stage(self.build, self.out, "stable", "3.6.0.1", VERSIONS,
+              {("compat", "3.3.0"): {"sha256": "de" * 32, "size": 1}},
+              ui_tarball=self.ui_tarball, changelogs={"compat": src})
+        self.assertFalse(os.path.exists(self.path("components", "compat", "3.3.0", "changelogs.md")))
+
+
+class StackVersionMatch(StageTree):
+    """The stack tarball is COPIED, not repacked, so its contents are whatever the last hour-long
+    stack build produced. If its own VERSION disagrees with LIBTUXBLOX_VERSION the copy is published
+    under a version it does not contain -- and component bytes are immutable at a published version,
+    so that version is then unfixable forever."""
+
+    def repack(self, files):
+        stagedir = os.path.join(self.tmp, "stack2")
+        os.makedirs(os.path.join(stagedir, "lib"), exist_ok=True)
+        for name, text in files.items():
+            with open(os.path.join(stagedir, name), "w") as f:
+                f.write(text)
+        subprocess.run("tar -C %s -cf - lib %s | zstd -1 -q -o %s -f"
+                       % (stagedir, " ".join(files), self.ui_tarball),
+                       shell=True, check=True)
+
+    def test_a_tarball_whose_version_disagrees_is_refused(self):
+        self.repack({"LIBADWAITA_COMMIT": COMMIT + "\n", "VERSION": "3.0.0\n"})
+        with self.assertRaisesRegex(RuntimeError, "3.0.0"):
+            self.stage()
+
+    # The state the tree is actually in right now: the stack predates the VERSION file.
+    def test_a_tarball_with_no_version_at_all_is_refused(self):
+        self.repack({"LIBADWAITA_COMMIT": COMMIT + "\n"})
+        with self.assertRaisesRegex(RuntimeError, "VERSION"):
+            self.stage()
+
+    def test_a_matching_tarball_is_accepted(self):
+        self.repack({"LIBADWAITA_COMMIT": COMMIT + "\n", "VERSION": "3.1.0\n"})
+        self.assertEqual(self.stage()["components"]["libtuxblox"]["version"], "3.1.0")
+
+
 class Provenance(StageTree):
     """deploy.sh's licensing gate refuses a release whose source is not clean, equal to HEAD and
     pushed, so the release file has to carry the commit it was built from. The bump guard needs it

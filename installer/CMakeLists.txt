@@ -98,12 +98,11 @@ target_link_options(installer_core PUBLIC
 target_link_options(installer_core PUBLIC -static-libstdc++ -static-libgcc)
 add_dependencies(installer_core generate_ca_bundle_header)
 
-# Same version resolution as launcher/CMakeLists.txt: TUXBLOX_BUILD_VERSION (set
-# by the root build.sh, or by installer/build.sh from the repo-root VERSION when
-# run standalone, and forwarded into this build container either way) wins, so
-# one release build stamps the launcher, the installer and the compatibility
-# layer with the same number. The repo-root VERSION is the fallback for a bare
-# host cmake run, where it is reachable; it is not, from inside the container.
+# Same version resolution as launcher/CMakeLists.txt: TUXBLOX_BUILD_VERSION wins, and
+# installer/build.sh sets it from installer/VERSION on the host, because cmake runs inside a
+# container where only this directory is mounted. This is the INSTALLER's own version now, not a
+# number shared with the launcher and the layer. installer/VERSION is the fallback for a bare host
+# cmake run, which is the one case that reaches it.
 # ${CMAKE_BINARY_DIR}/generated is already on TuxBloxInstaller's include path
 # below, alongside the logo/font/license headers.
 file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/generated)
@@ -114,9 +113,10 @@ elseif(EXISTS "${CMAKE_SOURCE_DIR}/VERSION")
 else()
     set(TUXBLOX_INSTALLER_VERSION "0.0.0-dev")
 endif()
-# The channel is resolved the same way and for the same reason: the installer
-# defaults to installing its own version, which only exists on the channel it
-# was built for.
+# The channel is still a property of the release rather than of this component, so it comes from
+# line 2 of the repo-root VERSION. It decides which channel a bare installer run installs from.
+# TODO: the installer still defaults to installing its own component version as though it were a
+# release, which it is not -- the client plan makes "latest" the default.
 if(NOT "$ENV{TUXBLOX_CHANNEL}" STREQUAL "")
     set(TUXBLOX_INSTALLER_CHANNEL "$ENV{TUXBLOX_CHANNEL}")
 elseif(EXISTS "${CMAKE_SOURCE_DIR}/../VERSION")

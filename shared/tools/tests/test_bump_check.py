@@ -20,7 +20,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
-from bump_check import components_touched, guard
+from bump_check import components_touched, guard, scope_of_check
 
 
 class ComponentsTouched(unittest.TestCase):
@@ -70,6 +70,28 @@ class Guard(unittest.TestCase):
 
     def test_ok_when_nothing_changed_and_nothing_moved(self):
         self.assertEqual(guard(set(), set(), dirty=False, branch="main"), ("ok", []))
+
+
+class ScopeOfCheck(unittest.TestCase):
+    """Nothing published and "the base commit is not in this clone" look identical to the guard but
+    are not the same: the second silently reuses CDN bytes for a component that changed without a
+    version bump, which is the quiet failure the spec names as an anti-goal."""
+
+    def test_nothing_published_is_a_first_release(self):
+        scope, note = scope_of_check(None, base_is_local=False)
+        self.assertEqual(scope, "first-release")
+        self.assertIsNone(note)
+
+    def test_a_reachable_base_is_measured(self):
+        scope, note = scope_of_check("abc123", base_is_local=True)
+        self.assertEqual(scope, "measured")
+        self.assertIsNone(note)
+
+    def test_an_unreachable_base_says_so_instead_of_passing_quietly(self):
+        scope, note = scope_of_check("abc123", base_is_local=False)
+        self.assertEqual(scope, "unknown-base")
+        self.assertIsNotNone(note)
+        self.assertIn("abc123", note)
 
 
 if __name__ == "__main__":

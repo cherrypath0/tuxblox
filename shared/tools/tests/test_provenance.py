@@ -23,6 +23,7 @@ import unittest
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
 from provenance import read_provenance, write_provenance
+from stage_release import build_source
 
 
 class Provenance(unittest.TestCase):
@@ -49,6 +50,33 @@ class Provenance(unittest.TestCase):
     # the deploy gate refuses it rather than publishing an unattributable build.
     def test_a_missing_file_is_unknown_and_dirty(self):
         self.assertEqual(read_provenance(self.path), ("", True, None))
+
+
+class BuildSource(unittest.TestCase):
+    """Staging must attribute a release to the commit the BUILD was made from, never to HEAD at
+    stage time: --stage-only republishes an older build/, and deploy.sh's licensing gate exists to
+    stop a stale build/ being published as though it came from HEAD."""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp(prefix="tuxblox-src-")
+        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+        os.makedirs(os.path.join(self.root, "build"))
+
+    def test_uses_the_commit_recorded_at_build_time(self):
+        write_provenance(os.path.join(self.root, "build", ".provenance"),
+                         "buildtime0000000000000000000000000000000", False, "3.6.0.0")
+        self.assertEqual(build_source(self.root),
+                         ("buildtime0000000000000000000000000000000", False))
+
+    # A build older than this change recorded no release but did record its commit.
+    def test_reads_a_two_line_provenance(self):
+        with open(os.path.join(self.root, "build", ".provenance"), "w") as f:
+            f.write("oldbuild\ntrue\n")
+        self.assertEqual(build_source(self.root), ("oldbuild", True))
+
+    # No provenance at all means the build predates the file: unknown, and dirty so the gate refuses it.
+    def test_no_provenance_is_unknown_and_dirty(self):
+        self.assertEqual(build_source(self.root), ("", True))
 
 
 if __name__ == "__main__":

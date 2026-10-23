@@ -24,9 +24,9 @@ import sys
 import urllib.error
 import urllib.request
 
-from bump_check import components_touched, guard
+from bump_check import components_touched, guard, scope_of_check
 from component_versions import read_component_versions
-from provenance import write_provenance
+from provenance import read_provenance, write_provenance
 from release_resolve import NotFound, Unreachable, resolve
 from stage_tree import stage
 
@@ -51,6 +51,14 @@ def http_fetch(base_url):
 def git(root, *args):
     done = subprocess.run(("git", "-C", root) + args, capture_output=True, text=True)
     return done.stdout.strip() if done.returncode == 0 else ""
+
+
+def build_source(root):
+    """(commit, dirty) as recorded when the build STARTED, not as HEAD looks now. --stage-only
+    republishes an older build/, so reading HEAD here would attribute a release to source that
+    build never saw -- which is exactly what deploy.sh's licensing gate exists to catch."""
+    commit, dirty, _ = read_provenance(os.path.join(root, "build", ".provenance"))
+    return commit, dirty
 
 
 def main():
@@ -89,13 +97,17 @@ def main():
     base = resolved["base_commit"]
 
     # Which components really changed, measured from the commit the previous release was built from.
-    # With nothing published there is no earlier commit, so every component counts as new.
-    if base and git(root, "cat-file", "-t", base) == "commit":
-        changed = git(root, "diff", "--name-only", "%s..HEAD" % base).split()
+    scope, note = scope_of_check(base, git(root, "cat-file", "-t", base or "") == "commit")
+    if scope == "measured":
+        # -z and a NUL split, so a path containing a space is not two paths.
+        changed = [p for p in git(root, "diff", "--name-only", "-z", "%s..HEAD" % base).split("\0") if p]
         touched = components_touched(changed)
         # A component whose version is not already published is one whose VERSION moved.
         moved = {c for c, v in versions.items() if (c, v) not in resolved["published"]}
     else:
+        if note:
+            print(".. %s" % note, file=sys.stderr)
+        # Nothing to diff against, so nothing can be reported as a missed bump.
         touched = set(versions)
         moved = set(versions)
 
@@ -111,11 +123,13 @@ def main():
             print("!! Bump the VERSION files above, or set TUXBLOX_SKIP_BUMP_CHECK=1.", file=sys.stderr)
             return 1
 
-    commit = git(root, "rev-parse", "HEAD")
+    # The build's own record, not HEAD: see build_source().
+    commit, build_dirty = build_source(root)
     content = stage(os.path.join(root, "build"), os.path.join(root, "releases", "client"),
                     args.channel, release, versions, resolved["published"],
-                    source_commit=commit or None, source_dirty=dirty)
-    write_provenance(os.path.join(root, "build", ".provenance"), commit, dirty, release)
+                    source_commit=commit or None, source_dirty=build_dirty)
+    # Only the release line is added; the commit and dirty flag stay as the build wrote them.
+    write_provenance(os.path.join(root, "build", ".provenance"), commit, build_dirty, release)
 
     reused = [c for c, v in versions.items() if (c, v) in resolved["published"]]
     print(":: Release %s (%s)" % (release, args.channel), file=sys.stderr)
@@ -127,4 +141,10 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    # Every other failure in a build reads as "!! <what went wrong>". A traceback at the end of a
+    # multi-hour build buries the one line that says which file to fix.
+    try:
+        sys.exit(main())
+    except (ValueError, RuntimeError) as error:
+        print("!! %s" % error, file=sys.stderr)
+        sys.exit(1)

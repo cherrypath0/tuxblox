@@ -56,15 +56,30 @@ def _require(build_dir, rel, component):
     return path
 
 
-def _check_stack_source(build_dir, ui_tarball):
-    """The stack tarball must be the one build/libtuxblox was unpacked from, or the licence notice would name source for a different build."""
-    inside = subprocess.run(["tar", "--zstd", "-xOf", ui_tarball, "LIBADWAITA_COMMIT"],
-                            capture_output=True, text=True)
+def _from_tarball(ui_tarball, name):
+    done = subprocess.run(["tar", "--zstd", "-xOf", ui_tarball, name], capture_output=True, text=True)
+    return done.stdout.strip() if done.returncode == 0 else None
+
+
+def _check_stack_source(build_dir, ui_tarball, version):
+    """The stack tarball must be the one build/libtuxblox was unpacked from, and must contain the version it is about to be published under."""
     unpacked = _require(build_dir, "libtuxblox/LIBADWAITA_COMMIT", "libtuxblox")
     with open(unpacked) as f:
-        if inside.returncode != 0 or inside.stdout.strip() != f.read().strip():
+        if _from_tarball(ui_tarball, "LIBADWAITA_COMMIT") != f.read().strip():
             raise RuntimeError("libtuxblox: the stack tarball's LIBADWAITA_COMMIT is not the one "
                                "build/libtuxblox was unpacked from, so this build cannot be published")
+
+    # The tarball is copied rather than repacked, so its contents are whatever the last stack build
+    # produced. Publishing it under a version it does not itself contain cannot be undone: component
+    # bytes are immutable at a published version, so that version would be unfixable.
+    inside = _from_tarball(ui_tarball, "VERSION")
+    if inside is None:
+        raise RuntimeError("libtuxblox: the stack tarball carries no VERSION, so it predates "
+                           "per-component versions -- rebuild the interface stack before publishing")
+    if inside != version:
+        raise RuntimeError("libtuxblox: the stack tarball says it is %s but it would be published "
+                           "as %s -- rebuild the interface stack, or put LIBTUXBLOX_VERSION back to %s"
+                           % (inside, version, inside))
 
 
 def _pack_layer(build_dir, dest):
@@ -74,7 +89,7 @@ def _pack_layer(build_dir, dest):
 
 
 def stage(build_dir, out_dir, channel, release, versions, published, ui_tarball=None,
-          source_commit=None, source_dirty=True):
+          source_commit=None, source_dirty=True, changelogs=None):
     """Writes the release file, `latest`, and every component the release does not already have published. Returns the release file's content."""
     if ui_tarball is None:
         # build/ sits beside shared/ in the repo, and the stack is an input to the build rather than output of it.
@@ -90,7 +105,7 @@ def stage(build_dir, out_dir, channel, release, versions, published, ui_tarball=
     _require(build_dir, "studio-mcp", "studio-mcp")
     _require(build_dir, "libtuxblox/lib/" + _LIB_TRIPLET["x86_64"], "libtuxblox")
     _require(build_dir, "libtuxblox/share/icons/TuxBlox/index.theme", "libtuxblox")
-    _check_stack_source(build_dir, ui_tarball)
+    _check_stack_source(build_dir, ui_tarball, versions["libtuxblox"])
 
     components = {}
     for component, (filename, _) in _ARTIFACTS.items():
@@ -115,6 +130,11 @@ def stage(build_dir, out_dir, channel, release, versions, published, ui_tarball=
             else:
                 shutil.copy2(os.path.join(build_dir, filename), dest)
             arches["x86_64"] = {"sha256": _digest(dest), "size": os.path.getsize(dest)}
+            # Beside the component rather than inside the arch folder: the account of what changed
+            # is the same whichever architecture you downloaded.
+            changelog = (changelogs or {}).get(component)
+            if changelog:
+                shutil.copy2(changelog, os.path.join(os.path.dirname(dest_dir), "changelogs.md"))
 
         components[component] = {"version": version, "arch": arches}
 
@@ -122,6 +142,9 @@ def stage(build_dir, out_dir, channel, release, versions, published, ui_tarball=
     # remote, because a published binary whose source nobody can fetch is a licence violation.
     # Unknown reads as dirty so an unattributable build is refused rather than published.
     content = {"release": release, "channel": channel, "components": components,
+               # Which changelog the site should render: a merged per-component view, or the single
+               # {release}.md that backfilled historical releases carry instead.
+               "changelog": "components",
                "source_commit": source_commit or None, "source_dirty": bool(source_dirty)}
 
     release_dir = os.path.join(out_dir, "releases", channel)

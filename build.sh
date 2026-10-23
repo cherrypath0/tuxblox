@@ -72,14 +72,11 @@ if [[ "$stage_only" -eq 0 ]]; then
     warn_unpublishable
 fi
 
-# The one version file for the whole repo: line 1 the version, line 2 the
-# channel. The launcher, the installer and the compatibility layer all take
-# their version from here (via TUXBLOX_BUILD_VERSION, which their own build.sh
-# forwards into the build container), so one build cannot stamp three different
-# numbers into the three halves of one release.
+# The repo's RELEASE file: line 1 the release, line 2 the channel. It no longer feeds the
+# components -- each of those carries its own VERSION beside its sources -- and line 1 is now the
+# floor the derived release must beat rather than a number anything is built with.
 #
-# It is also rewritten at the end of this block with whatever this build used,
-# so it stays current on its own and never needs editing by hand.
+# stage_release() rewrites it with the release this build became, so it stays current on its own.
 version_file="$ROOT/VERSION"
 file_version=""
 file_channel=""
@@ -88,19 +85,9 @@ if [[ -r "$version_file" ]]; then
     file_channel="$(sed -n '2p' "$version_file" | tr -d '[:space:]')"
 fi
 
-# An explicit TUXBLOX_BUILD_VERSION means "build exactly this" and is never
-# second-guessed. Otherwise the prompt offers what VERSION already holds, so
-# bumping is a matter of typing the new number rather than editing a file, and
-# pressing Enter rebuilds the same version. -t 0 keeps a non-interactive run
-# (CI, a pipe, nohup) on the file's value instead of blocking on a prompt it
-# cannot answer.
-# A --stage-only run publishes what is ALREADY in build/, so the version has
-# to come from the artifact itself: the compiled layer reports the number that
-# was baked into it, while VERSION may have been bumped since that build.
-# Publishing binaries under a version they do not themselves report is exactly
-# the mismatch this avoids -- and it is why this run neither prompts nor writes
-# VERSION back. An explicit TUXBLOX_BUILD_VERSION still wins, for the case
-# where you really do mean to publish under a different number.
+# An explicit TUXBLOX_BUILD_VERSION means "publish exactly this release" and overrides the derived
+# number; it is the escape hatch for an offline stage and for a number the server reports as taken.
+#
 # No binary reports the release any more: one component build appears in several releases, which is
 # the point of not redistributing what did not change. So --stage-only reads the release out of the
 # provenance of the build it is publishing, which is what that build actually became.
@@ -164,36 +151,20 @@ case "$TUXBLOX_CHANNEL" in
         ;;
 esac
 
-# Written back before anything is built, not after: a build that fails halfway
-# still leaves VERSION agreeing with what was attempted, and a re-run then
-# offers that same number as its default rather than silently reverting to the
-# last one that happened to succeed.
-#
-# Not done for --stage-only: that run publishes an existing build rather than
-# deciding what to build, so it has no business changing what the next build
-# will be.
-if [[ $stage_only -eq 0 ]] &&
-   [[ "$file_version" != "$TUXBLOX_BUILD_VERSION" || "$file_channel" != "$TUXBLOX_CHANNEL" ]]; then
-    printf '%s\n%s\n' "$TUXBLOX_BUILD_VERSION" "$TUXBLOX_CHANNEL" > "$version_file"
-    echo ":: Updated VERSION to $TUXBLOX_BUILD_VERSION $TUXBLOX_CHANNEL"
+# Checked before anything is built. Each component is stamped with its own VERSION by its own
+# build, and an unreadable or malformed one would otherwise reach a binary as an empty string and
+# only be caught by the staging step at the very end of the build.
+if ! component_versions="$(python3 "$ROOT/shared/tools/check_versions.py" "$ROOT" 2>&1)"; then
+    echo "$component_versions" >&2
+    exit 1
 fi
+echo ":: Component versions: $component_versions"
 
-# And committed, so the number a build was published under is recorded rather
-# than left as a stray modification for someone to notice later. Only VERSION
-# is committed -- "git commit -- <path>" takes that path alone and ignores
-# whatever else is staged -- and nothing is ever pushed. Checked against HEAD
-# rather than against the write above, so a VERSION that was edited by hand
-# before the build gets committed too. Set TUXBLOX_NO_VERSION_COMMIT=1 to skip.
-if [[ $stage_only -eq 0 && -z "${TUXBLOX_NO_VERSION_COMMIT:-}" ]] &&
-   git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 &&
-   ! git -C "$ROOT" diff --quiet HEAD -- "$version_file" 2>/dev/null; then
-    if git -C "$ROOT" commit -q -m "Change version to $TUXBLOX_BUILD_VERSION" \
-            -- "$version_file" 2>/dev/null; then
-        echo ":: Committed VERSION as $TUXBLOX_BUILD_VERSION $TUXBLOX_CHANNEL"
-    else
-        echo "!! Could not commit VERSION -- left it modified for you to commit." >&2
-    fi
-fi
+# VERSION is NOT written here any more. The release is derived at staging time
+# from what the channels already publish, so before the build there is no number
+# to record -- and writing the empty one blanks line 1, which is the seed the
+# derivation needs. stage_release() writes both lines once it knows the release,
+# and commits them there.
 
 if [[ $stage_only -eq 1 ]]; then
     # Checked before anything is announced, so a run with nothing to publish
@@ -370,14 +341,14 @@ apply_patches() {
     echo ":: $count patch file(s) queued, applied by the Proton build into build/.artifacts/"
 }
 
-# Publishes what this build produced into releases/<channel>/<version>/, in the
-# shape setup.tuxblox.net serves it, so the server can sync straight from this
-# folder. It is TWO sync paths, not one: releases/<channel>/ mirrors
-# /v1/<channel>/, while releases/latest.json is published at /v2/latest.json.
+# Publishes what this build produced into releases/client/, in the shape setup.tuxblox.net serves,
+# so the server can sync straight from that folder. One sync path, not two: releases/client/ mirrors
+# /client/. The work is done by shared/tools/stage_release.py, which resolves the release version
+# from what the channels already publish, checks the component version bumps, and writes the tree.
 #
-# build/.artifacts/ (build scratch) and build/runtime/ (the virtual drive, which
-# can hold a logged-in Roblox session) are deliberately never copied here.
-# TODO: possibly maybe a build "identifier" or "architecture", planning for ARM support soon next to x86_64, and the CDN would register it too: setup.tuxblox.net/{x86_64,arm64}/{version}/{channel}
+# build/.artifacts/ (build scratch) and build/runtime/ (the virtual drive, which can hold a logged-in
+# Roblox session) are deliberately never copied here.
+# TODO: arm64 is reserved in the layout but nothing builds it yet -- every component's arm64 entry is null.
 
 stage_release() {
     local channel="$TUXBLOX_CHANNEL"
@@ -400,18 +371,31 @@ stage_release() {
     # The release the build actually became, so the file maintains itself and the next build
     # derives from the right number even if this one is never deployed. A --stage-only run
     # republishes an existing build and deliberately leaves VERSION alone.
+    #
+    # Committed here rather than before the build, which is the only place the release is known:
+    # only VERSION is committed -- "git commit -- <path>" takes that path alone and ignores
+    # whatever else is staged -- and nothing is ever pushed. Set TUXBLOX_NO_VERSION_COMMIT=1 to skip.
     if [[ $stage_only -eq 0 ]]; then
         printf '%s\n%s\n' "$release" "$channel" > "$ROOT/VERSION"
+        echo ":: Updated VERSION to $release $channel"
+        if [[ -z "${TUXBLOX_NO_VERSION_COMMIT:-}" ]] &&
+           git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 &&
+           ! git -C "$ROOT" diff --quiet HEAD -- "$ROOT/VERSION" 2>/dev/null; then
+            if git -C "$ROOT" commit -q -m "Change version to $release" -- "$ROOT/VERSION" 2>/dev/null; then
+                echo ":: Committed VERSION as $release $channel"
+            else
+                echo "!! Could not commit VERSION -- left it modified for you to commit." >&2
+            fi
+        fi
     fi
 
     echo ":: Published to releases/client/releases/$channel/$release.json"
     du -sh "$ROOT/releases/client" | sed 's/^/   /'
 }
 
-# Records the commit this build is made from. stage_release() stamps it into
-# manifest.json, which is what lets the deploy step refuse to publish a binary whose
-# source is not public -- an LGPL obligation, and it also tells anyone holding
-# a download exactly which source built it.
+# Records the commit this build is made from. stage_release() stamps it into the release file,
+# which is what lets the deploy step refuse to publish a binary whose source is not public -- an
+# LGPL obligation, and it also tells anyone holding a download exactly which source built it.
 #
 # Written at build time, not stage time: --stage-only republishes an older
 # build/, so reading HEAD then would describe a commit that build never saw.
@@ -733,7 +717,7 @@ copy_include
 # Last, so it only ever describes a build that got all the way here. build/ is
 # left exactly as it is either way -- this publishes a copy, it does not move
 # anything out.
-step "Publishing to releases/$TUXBLOX_CHANNEL/$TUXBLOX_BUILD_VERSION/"
+step "Publishing to releases/client/ for the $TUXBLOX_CHANNEL channel"
 run_step "stage_release" strict stage_release
 
 echo -e "Successfully built TuxBlox!"

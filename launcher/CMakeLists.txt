@@ -66,10 +66,10 @@ set(TUXBLOX_SHARED_LIBS
 find_package(Threads REQUIRED)
 
 file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/generated)
-# TUXBLOX_BUILD_VERSION is the version the root build.sh resolved; it wins so
-# that one release build stamps the same number into the launcher, the installer
-# and the compatibility layer. launcher/build.sh sets it from the repo-root
-# VERSION file when run standalone, so in practice it is always set.
+# TUXBLOX_BUILD_VERSION carries the LAUNCHER's own version, which launcher/build.sh reads from
+# launcher/VERSION on the host and forwards in, because cmake runs inside a container where only
+# this directory is mounted. It is no longer a number shared with the installer and the layer:
+# each component carries its own, and the release is derived from their bump levels at staging.
 #
 # launcher/VERSION is only the second choice because build.sh reads it on the
 # host and passes it in. It still resolves for a bare `cmake -B build -S .` run,

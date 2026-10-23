@@ -20,7 +20,8 @@ namespace tuxblox {
 constexpr const char* kTuxBloxVersion = "@TUXBLOX_MCP_VERSION@";
 constexpr const char* kTuxBloxChannel = "@TUXBLOX_MCP_CHANNEL@";
 
-// "x.y.z-channel", the form every TuxBlox binary answers --version with, so
-// the launcher can spot a half-updated install with one comparison.
+// "x.y.z", this component's own version and what it answers --version with.
+// It carries no channel: the same component build serves every channel, and
+// which channel an install follows is the install's setting, not the binary's.
 constexpr const char* kTuxBloxBuildId = "@TUXBLOX_MCP_VERSION@";
 } // namespace tuxblox

@@ -52,6 +52,21 @@ def components_touched(paths):
     return touched
 
 
+def scope_of_check(base_commit, base_is_local):
+    """Whether the bump check can be measured at all, and the line to print when it cannot.
+
+    "nothing published" and "the previous release's commit is not in this clone" both leave nothing
+    to diff against, but only the first is harmless: in the second, a component that changed without
+    a version bump still has its old bytes reused from the CDN, and the release ships them.
+    """
+    if not base_commit:
+        return "first-release", None
+    if base_is_local:
+        return "measured", None
+    return "unknown-base", ("the previous release was built from %s, which is not in this clone, so "
+                            "no component could be checked for a missed version bump" % base_commit)
+
+
 def guard(touched, versions_moved, dirty, branch):
     """A verdict of "ok", "warn" or "refuse", and the lines to print."""
     lines = []
