@@ -365,16 +365,24 @@ int main(int argc, char** argv) {
         // Settings.
         std::string channel = app.snapshot().settings.channel;
         std::string dir = installDir();
-        char* installerArgv[] = {
+        // The release this launcher resolved, as a file. Without it the installer would resolve the
+        // channel's pointer itself, and a pointer that moved in between would leave the install
+        // recording a release this launcher never decided on.
+        std::string releaseFile = app.releaseHandoffPath();
+        std::vector<char*> installerArgv = {
             const_cast<char*>(installerPath.c_str()),
             const_cast<char*>("--channel"),
             const_cast<char*>(channel.c_str()),
             const_cast<char*>("--dir"),
             const_cast<char*>(dir.c_str()),
-            allowRoot() ? const_cast<char*>("--allow-root") : nullptr,
-            nullptr
         };
-        execv(installerPath.c_str(), installerArgv);
+        if (!releaseFile.empty()) {
+            installerArgv.push_back(const_cast<char*>("--release-file"));
+            installerArgv.push_back(const_cast<char*>(releaseFile.c_str()));
+        }
+        if (allowRoot()) installerArgv.push_back(const_cast<char*>("--allow-root"));
+        installerArgv.push_back(nullptr);
+        execv(installerPath.c_str(), installerArgv.data());
         // Only reached if execv() itself failed -- the installer binary is
         // in place on disk either way, so the next manual launch (or a
         // user manually running TuxBloxInstaller) still picks up the update.

@@ -96,6 +96,16 @@ double downloadProgressFraction(uint64_t now, uint64_t total, uint64_t manifestS
 // (for testing against a temp directory instead of the real $HOME).
 // `robloxPlayerInstallerUrl`/`robloxStudioInstallerUrl` default to the
 // real Roblox CDN, overridable so tests can point them at local fixtures.
+// The components of `release` this install does not already hold at the release's version, in the
+// layout's own order. A hybrid release ships only what changed, so re-downloading a component the
+// install already has at that exact version is the one thing the layout exists to avoid.
+//
+// A component that cannot be asked -- absent, not executable, exits nonzero, prints nothing --
+// counts as needing installation: there is no version to compare, and reinstalling is the answer
+// that converges.
+std::vector<std::string> componentsToInstall(const ReleaseFile& release,
+                                              const std::string& installDir);
+
 InstallOutcome runInstall(const ReleaseFile& release,
                            const std::string& baseUrl,
                            const StepProgressFn& onProgress,
@@ -103,6 +113,10 @@ InstallOutcome runInstall(const ReleaseFile& release,
                            bool isUpgrade,
                            const std::string& installDirOverride = "",
                            const std::string& robloxPlayerInstallerUrl = "https://setup.rbxcdn.com/RobloxPlayerInstaller.exe",
-                           const std::string& robloxStudioInstallerUrl = "https://setup.rbxcdn.com/RobloxStudioInstaller.exe");
+                           const std::string& robloxStudioInstallerUrl = "https://setup.rbxcdn.com/RobloxStudioInstaller.exe",
+                           // The release's bytes exactly as published. Written to the install as
+                           // its identity once every component has landed, which makes it the
+                           // "update completed" marker too. Empty records nothing.
+                           const std::string& releaseJson = "");
 
 } // namespace tuxblox

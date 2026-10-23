@@ -59,6 +59,10 @@ struct ComponentLayout {
     std::string filename;      // its name in the install; an archive extracts to a folder of this name
     std::string path;          // relative to the install root, "/" for the top level
     std::string displayName;   // shown while it installs, e.g. "Compatibility layer"
+    // What to ask for its version, relative to the install root. Not always `filename`: the layer
+    // installs as a folder and the program inside it is what answers. Empty for the one component
+    // that has no binary at all.
+    std::string versionPath;
     bool isArchive = false;
 };
 
@@ -105,5 +109,15 @@ bool writeRecordedRelease(const std::string& installDir, const std::string& publ
 
 // The interface stack has no binary to ask, so it carries its version as a file inside its tarball.
 std::optional<std::string> readStackVersion(const std::string& installDir);
+
+// What version of `name` this install holds, or std::nullopt when it holds none. One rule, shared,
+// because the launcher deciding "this install is coherent" and the installer deciding "this one is
+// already current" must not be able to reach different answers about the same install.
+//
+// A component that is present but cannot be asked -- not executable, exits nonzero, prints nothing
+// -- answers std::nullopt, the same as one that is absent. There is no version to compare, and a
+// placeholder would differ from every real version forever.
+std::optional<std::string> readComponentVersion(const std::string& installDir,
+                                                 const std::string& name);
 
 } // namespace tuxblox

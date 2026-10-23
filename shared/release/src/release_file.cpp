@@ -20,6 +20,8 @@
 
 #include <cctype>
 #include <filesystem>
+#include <unistd.h>
+#include <sys/wait.h>
 #include <fstream>
 #include <sstream>
 #include <stdexcept>
@@ -39,11 +41,11 @@ struct LayoutEntry {
 
 // The order is the order componentNames() reports and the order an install is written in.
 const LayoutEntry kLayouts[] = {
-    {"launcher",   {"TuxBloxLauncher",     "TuxBloxLauncher",  "/", "Launcher",            false}},
-    {"installer",  {"TuxBloxInstaller",    "TuxBloxInstaller", "/", "Updater",             false}},
-    {"studio-mcp", {"studio-mcp",          "studio-mcp",       "/", "Studio MCP",          false}},
-    {"compat",     {"compat.tar.zst",      "compat",           "/", "Compatibility layer", true}},
-    {"libtuxblox", {"libtuxblox.tar.zst",  "libtuxblox",       "/", "Libraries",           true}},
+    {"launcher",   {"TuxBloxLauncher",    "TuxBloxLauncher",  "/", "Launcher",            "TuxBloxLauncher",  false}},
+    {"installer",  {"TuxBloxInstaller",   "TuxBloxInstaller", "/", "Updater",             "TuxBloxInstaller", false}},
+    {"studio-mcp", {"studio-mcp",         "studio-mcp",       "/", "Studio MCP",          "studio-mcp",       false}},
+    {"compat",     {"compat.tar.zst",     "compat",           "/", "Compatibility layer", "compat/main",      true}},
+    {"libtuxblox", {"libtuxblox.tar.zst", "libtuxblox",       "/", "Libraries",           "",                 true}},
 };
 
 bool hasDottedFields(const std::string& value, int fields) {
@@ -257,6 +259,55 @@ bool writeRecordedRelease(const std::string& installDir, const std::string& publ
         fs::remove(incoming, ec);
         return false;
     }
+}
+
+// fork/exec rather than popen: no shell is involved, so an install path needs no quoting.
+std::optional<std::string> askBinaryVersion(const std::string& bin) {
+    if (access(bin.c_str(), X_OK) != 0) return std::nullopt;
+
+    int fds[2];
+    if (pipe(fds) != 0) return std::nullopt;
+    const pid_t pid = fork();
+    if (pid < 0) {
+        close(fds[0]);
+        close(fds[1]);
+        return std::nullopt;
+    }
+    if (pid == 0) {
+        dup2(fds[1], STDOUT_FILENO);
+        close(fds[0]);
+        close(fds[1]);
+        execl(bin.c_str(), bin.c_str(), "--version", static_cast<char*>(nullptr));
+        _exit(127);
+    }
+    close(fds[1]);
+
+    std::string out;
+    char buf[256];
+    ssize_t n;
+    while ((n = read(fds[0], buf, sizeof buf)) > 0) out.append(buf, static_cast<size_t>(n));
+    close(fds[0]);
+
+    int status = 0;
+    if (waitpid(pid, &status, 0) < 0) return std::nullopt;
+    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) return std::nullopt;
+
+    const std::string version = trimmed(out.substr(0, out.find('\n')));
+    if (version.empty()) return std::nullopt;
+    return version;
+}
+
+std::optional<std::string> readComponentVersion(const std::string& installDir,
+                                                 const std::string& name) {
+    const std::optional<ComponentLayout> layout = componentLayout(name);
+    if (!layout.has_value()) return std::nullopt;
+    if (layout->versionPath.empty()) return readStackVersion(installDir);
+
+    const std::optional<std::string> version =
+        askBinaryVersion(installDir + "/" + layout->versionPath);
+    if (version.has_value() || name != "compat") return version;
+    // An install made before the layer's folder was renamed still has it under the old name.
+    return askBinaryVersion(installDir + "/proton/main");
 }
 
 std::optional<std::string> readStackVersion(const std::string& installDir) {

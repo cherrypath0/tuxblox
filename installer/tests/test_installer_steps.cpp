@@ -18,6 +18,7 @@
 #include "checksum.h"
 #include <archive.h>
 #include <archive_entry.h>
+#include <algorithm>
 #include <cassert>
 #include <cstdio>
 #include <cstring>
@@ -28,6 +29,12 @@
 #include <vector>
 
 namespace fs = std::filesystem;
+
+static void writeVersionStub(const fs::path& path, const std::string& version) {
+    fs::create_directories(path.parent_path());
+    { std::ofstream out(path); out << "#!/bin/sh\necho " << version << "\n"; }
+    fs::permissions(path, fs::perms::owner_all);
+}
 
 static void makeFixtureTarZst(const std::string& path, const char* fileContent) {
     struct archive* a = archive_write_new();
@@ -101,18 +108,18 @@ int main() {
     fs::path robloxStudioSrc = work / "RobloxStudioInstallerSrc.exe";
     fs::path installDirPath = work / "install";
 
-    makeFixtureTarZst(tarballSrc.string(), "fake proton dist");
+    makeFixtureTarZst(tarballSrc.string(), "#!/bin/sh\necho 3.3.0\n");
     {
         std::ofstream out(launcherSrc, std::ios::binary);
-        out << "fake launcher binary";
+        out << "#!/bin/sh\necho 3.5.0\n";
     }
     {
         std::ofstream out(installerSrc, std::ios::binary);
-        out << "fake installer binary";
+        out << "#!/bin/sh\necho 3.1.0\n";
     }
     {
         std::ofstream out(mcpSrc, std::ios::binary);
-        out << "fake studio-mcp contents";
+        out << "#!/bin/sh\necho 2.0.1\n";
     }
     {
         std::ofstream out(robloxPlayerSrc, std::ios::binary);
@@ -151,7 +158,9 @@ int main() {
     publishFrom("installer", installerSrc);
     publishFrom("studio-mcp", mcpSrc);
     fs::create_directories(publishedPath("libtuxblox").parent_path());
-    makeFixtureTarZst(publishedPath("libtuxblox").string(), "fake libtuxblox dist");
+    // The libraries carry their version as a file, since there is no binary to ask.
+    makeFixtureBundleTarZst(publishedPath("libtuxblox").string(),
+                             {{"VERSION", "3.1.0\n"}, {"lib/libgtk-4.so", "fake gtk"}}, "");
 
     // Publishes `src` as a NEW version of `name` and points `r` at it, leaving every other
     // release's bytes alone.
@@ -534,6 +543,103 @@ int main() {
         assert(outcome.ok);
         assert(!fs::exists(installDir14 / "TuxBloxBootstrapper"));
         assert(fs::exists(installDir14 / "TuxBloxLauncher"));
+    }
+
+    // --- what an install still needs, and what it records ------------------
+    // A hybrid release ships only what changed, so an install already holding a component at the
+    // release's version must not download it again -- that is the whole point of the layout.
+    {
+        fs::path dir = work / "install_skipping";
+        fs::create_directories(dir);
+        // Nothing installed: everything is needed.
+        assert(componentsToInstall(release, dir.string()).size() == release.components.size());
+
+        // A component already at the release's version is skipped; one at another version is not.
+        writeVersionStub(dir / "studio-mcp", "2.0.1");
+        auto todo = componentsToInstall(release, dir.string());
+        assert(std::find(todo.begin(), todo.end(), "studio-mcp") == todo.end());
+        writeVersionStub(dir / "studio-mcp", "1.0.0");
+        todo = componentsToInstall(release, dir.string());
+        assert(std::find(todo.begin(), todo.end(), "studio-mcp") != todo.end());
+
+        // The libraries are read from their VERSION file, never run.
+        fs::create_directories(dir / "libtuxblox");
+        { std::ofstream out(dir / "libtuxblox" / "VERSION"); out << "3.1.0\n"; }
+        todo = componentsToInstall(release, dir.string());
+        assert(std::find(todo.begin(), todo.end(), "libtuxblox") == todo.end());
+
+        // Reported in the layout's order, so the list reads the same way every time.
+        writeVersionStub(dir / "studio-mcp", "2.0.1");
+        writeVersionStub(dir / "TuxBloxInstaller", "3.1.0");
+        todo = componentsToInstall(release, dir.string());
+        assert((todo == std::vector<std::string>{"launcher", "compat"}));
+        printf("  components already at the release's version are skipped\n");
+    }
+
+    // The record is the install's identity AND its "update completed" marker, so it must not exist
+    // until every component has landed.
+    {
+        fs::path dir = work / "install_records";
+        auto outcome = runInstall(release, releaseBaseUrl, [](const std::string&, double) {}, nullptr,
+            false, dir.string(), robloxPlayerUrl, robloxStudioUrl, releaseJson);
+        assert(outcome.ok);
+        std::ifstream in(dir / "release.json", std::ios::binary);
+        std::string recorded((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        // Byte for byte what was published, not a re-serialisation: the coherence check the
+        // launcher runs compares against exactly what the release said.
+        assert(recorded == releaseJson);
+        printf("  the record holds the published bytes verbatim\n");
+    }
+
+    {
+        fs::path dir = work / "install_records_failed";
+        ReleaseFile broken = release;
+        broken.components["compat"].x86_64->sha256 =
+            "0000000000000000000000000000000000000000000000000000000000000";
+        auto outcome = runInstall(broken, releaseBaseUrl, [](const std::string&, double) {}, nullptr,
+            false, dir.string(), robloxPlayerUrl, robloxStudioUrl, releaseJson);
+        assert(!outcome.ok);
+        assert(!fs::exists(dir / "release.json"));
+        printf("  a failed install records nothing\n");
+    }
+
+    // The point of the whole layout, end to end: a release that changes one component installs
+    // ONE component and leaves the others exactly as they were, byte for byte and untouched.
+    {
+        fs::path dir = work / "install_hybrid";
+        auto first = runInstall(release, releaseBaseUrl, [](const std::string&, double) {}, nullptr,
+            false, dir.string(), robloxPlayerUrl, robloxStudioUrl, releaseJson);
+        assert(first.ok);
+
+        const fs::path layer = dir / "compat" / "main";
+        const fs::path mcp = dir / "studio-mcp";
+        const auto layerBefore = fs::last_write_time(layer);
+        const auto mcpBefore = fs::last_write_time(mcp);
+
+        // A new release in which only the launcher moved.
+        fs::path newLauncherSrc = work / "TuxBloxLauncherSrc2";
+        { std::ofstream out(newLauncherSrc, std::ios::binary); out << "#!/bin/sh\necho 3.5.1\n"; }
+        ReleaseFile next = release;
+        next.release = "3.6.0.1";
+        republish(next, "launcher", "3.5.1", newLauncherSrc);
+
+        std::vector<std::string> downloaded;
+        auto second = runInstall(next, releaseBaseUrl,
+            [&](const std::string& label, double) {
+                if (label.rfind("Upgrading ", 0) == 0 &&
+                    (downloaded.empty() || downloaded.back() != label)) downloaded.push_back(label);
+            }, nullptr, /*isUpgrade=*/true, dir.string(), robloxPlayerUrl, robloxStudioUrl, releaseJson);
+        assert(second.ok);
+
+        assert((downloaded == std::vector<std::string>{"Upgrading Launcher"}));
+        assert(fs::last_write_time(layer) == layerBefore);   // the 334MB component, untouched
+        assert(fs::last_write_time(mcp) == mcpBefore);
+        {
+            std::ifstream in(dir / "TuxBloxLauncher", std::ios::binary);
+            std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+            assert(content == "#!/bin/sh\necho 3.5.1\n");
+        }
+        printf("  a release that changes one component installs one component\n");
     }
 
     fs::remove_all(work);

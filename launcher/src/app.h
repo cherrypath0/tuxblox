@@ -132,6 +132,10 @@ public:
     bool needsInstallerHandoff() const;
     std::string installerHandoffPath() const;
 
+    // The file the installer is told to read the release from, written just before the handoff.
+    // Empty when there is no release to hand over, which is the uninstall path.
+    std::string releaseHandoffPath() const;
+
     void setActiveTab(Tab tab);
 
     // Spawns a fully detached "--watch-launch" process (see watch_launch.h)
@@ -231,7 +235,7 @@ private:
     void updateCheckThreadMain();
     void updateApplyThreadMain();
     // Fetches and verifies the installer for `manifest` and records it as the handoff target. False means it could not be prepared, and the reason is already in the snapshot.
-    bool prepareInstallerHandoff(const ReleaseFile& release);
+    bool prepareInstallerHandoff(const ReleaseFile& release, const std::string& releaseJson);
     void uninstallThreadMain();
     void wipePrefixThreadMain();
     void sessionPollThreadMain();
@@ -263,6 +267,7 @@ private:
     // one of which ends this process; update-check runs once at startup), so
     // a single shared field is fine without extra synchronization.
     std::string installerHandoffPath_;
+    std::string releaseHandoffPath_;
     // The release updateCheckThreadMain() offered without applying, kept so requestUpdateNow() can fetch its installer if the user does ask for it.
     // The release an offered update would apply, and its published bytes -- held rather than
     // re-fetched, because the pointer can move between the check and the user saying yes.

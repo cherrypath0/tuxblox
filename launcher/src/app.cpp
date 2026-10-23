@@ -630,24 +630,46 @@ void App::requestUpdateNow() {
 
 void App::updateApplyThreadMain() {
     ReleaseFile release;
+    std::string releaseJson;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         release = pendingRelease_;
+        releaseJson = pendingReleaseJson_;
     }
-    if (!prepareInstallerHandoff(release)) {
+    if (!prepareInstallerHandoff(release, releaseJson)) {
         updateApplyStarted_.store(false);
         return;
     }
     needsInstallerHandoff_.store(true);
 }
 
-bool App::prepareInstallerHandoff(const ReleaseFile& release) {
+std::string App::releaseHandoffPath() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return releaseHandoffPath_;
+}
+
+bool App::prepareInstallerHandoff(const ReleaseFile& release, const std::string& releaseJson) {
     EnsureInstallerResult ensured = ensureInstallerBinary(release, kSetupBaseUrl, installDir_, &updateCancel_,
         [this](UpdateProgress p) {
             std::lock_guard<std::mutex> lock(mutex_);
             snapshot_.update = p;
         });
     if (!ensured.ok) return false;
+
+    // The bytes this launcher actually read, handed over rather than a release number for the
+    // installer to resolve again: the channel's pointer can move between the two reads, and the
+    // record written at the end of that install would then name a release nobody decided on.
+    const std::string handoff = installDir_ + "/.release-incoming.json";
+    {
+        std::ofstream out(handoff, std::ios::binary | std::ios::trunc);
+        if (!out) return false;
+        out << releaseJson;
+        if (!out) return false;
+    }
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        releaseHandoffPath_ = handoff;
+    }
 
     installerHandoffPath_ = ensured.installerPath; // see its declaration comment on write-before-flag ordering
     return true;
@@ -729,7 +751,7 @@ void App::updateCheckThreadMain() {
         // leaving it running is not a state the user chose. An ordinary
         // available update still waits to be asked for, below.
         if (autoUpdate || result.forced) {
-            if (!prepareInstallerHandoff(result.release)) return;
+            if (!prepareInstallerHandoff(result.release, result.releaseJson)) return;
             needsInstallerHandoff_.store(true);
         } else {
             // Nothing is fetched and nothing on disk is touched on this path: an update that is only being offered has to leave the install exactly as it was, or the next check reads it as broken and repairs it without asking.

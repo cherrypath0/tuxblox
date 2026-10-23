@@ -100,6 +100,18 @@ double downloadProgressFraction(uint64_t now, uint64_t total, uint64_t manifestS
     return effectiveTotal > 0 ? static_cast<double>(now) / static_cast<double>(effectiveTotal) : 0.0;
 }
 
+std::vector<std::string> componentsToInstall(const ReleaseFile& release,
+                                              const std::string& installDir) {
+    std::vector<std::string> needed;
+    for (const std::string& name : componentNames()) {
+        const auto entry = release.components.find(name);
+        if (entry == release.components.end()) continue;
+        const std::optional<std::string> have = readComponentVersion(installDir, name);
+        if (!have.has_value() || *have != entry->second.version) needed.push_back(name);
+    }
+    return needed;
+}
+
 InstallOutcome runInstall(const ReleaseFile& release,
                            const std::string& baseUrl,
                            const StepProgressFn& onProgress,
@@ -107,7 +119,8 @@ InstallOutcome runInstall(const ReleaseFile& release,
                            bool isUpgrade,
                            const std::string& installDirOverride,
                            const std::string& robloxPlayerInstallerUrl,
-                           const std::string& robloxStudioInstallerUrl) {
+                           const std::string& robloxStudioInstallerUrl,
+                           const std::string& releaseJson) {
     const std::string dir = resolveInstallDir(installDirOverride);
 
     // A plan per artifact, built up front -- lets total download bytes (and
@@ -117,10 +130,14 @@ InstallOutcome runInstall(const ReleaseFile& release,
     // A plan per component the release names, in the layout's own order. Where it goes and what
     // it is called while it lands come from the layout table, not from the release -- the release
     // file describes what a release IS, not what an install looks like.
+    // Only what this install does not already hold at the release's version. A hybrid release
+    // ships what changed; downloading a component the install already has, byte for byte, is the
+    // cost the whole layout exists to remove.
+    const std::vector<std::string> needed = componentsToInstall(release, dir);
+
     std::vector<ArtifactPlan> plans;
     uint64_t totalArtifactBytes = 0;
-    bool hasLauncher = false;
-    for (const std::string& name : componentNames()) {
+    for (const std::string& name : needed) {
         const auto entry = release.components.find(name);
         if (entry == release.components.end()) continue;
         const std::optional<ComponentBytes>& bytes =
@@ -145,16 +162,15 @@ InstallOutcome runInstall(const ReleaseFile& release,
         p.targetPath = resolveTargetPath(dir, p.artifact);
         p.tmpPath = dir + "/." + name + (p.isArchive ? ".tar.part" : ".part");
         totalArtifactBytes += p.artifact.sizeBytes;
-        if (name == "launcher") hasLauncher = true;
         plans.push_back(std::move(p));
-    }
-    if (plans.empty()) {
-        return {false, false, "this release names no components to install", ""};
     }
     // Everything else first, then the libraries, then the launcher: a download that fails part-way leaves the old launcher beside the libraries it needs, and the two only differ for the length of one small download
     auto installRank = [](const ArtifactPlan& plan) { return plan.name == "launcher" ? 2 : plan.name == "libtuxblox" ? 1 : 0; };
     std::stable_sort(plans.begin(), plans.end(), [&](const ArtifactPlan& a, const ArtifactPlan& b) { return installRank(a) < installRank(b); });
-    if (!hasLauncher) {
+    // Measured against the RELEASE, not against what is being installed: a release with no
+    // launcher names nothing to hand off to, while a release whose launcher the install already
+    // holds is the ordinary hybrid case and hands off to the one already there.
+    if (release.components.find("launcher") == release.components.end()) {
         return {false, false, "this release names no launcher -- nothing to hand off to", ""};
     }
 
@@ -214,7 +230,9 @@ InstallOutcome runInstall(const ReleaseFile& release,
 
         report(0, 1.0);
 
-        std::string launcherFinalPath;
+        // Where the launcher is, whether or not this run installs one. A release that does not
+        // change the launcher skips it, and the install still has to say what to exec.
+        std::string launcherFinalPath = dir + "/" + componentLayout("launcher")->filename;
 
         for (size_t i = 0; i < plans.size(); ++i) {
             const auto& plan = plans[i];
@@ -414,6 +432,13 @@ InstallOutcome runInstall(const ReleaseFile& release,
             }
         }
         report(robloxStudioPhase, 1.0);
+
+        // Last, and only here: this file is the install's identity AND its "update completed"
+        // marker, so it must not exist until every component is in place. A failure anywhere above
+        // leaves an install that says it is still the release it was, which is true.
+        if (!releaseJson.empty() && !writeRecordedRelease(dir, releaseJson)) {
+            return {false, false, "Installed, but could not record which release this is", ""};
+        }
 
         return {true, false, "", launcherFinalPath};
     } catch (const std::exception& e) {
