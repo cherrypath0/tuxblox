@@ -146,9 +146,15 @@ export TUXBLOX_SETUP_URL=http://127.0.0.1:18099
 
 # The pre-warm fetches Roblox's own installers from the real CDN and is explicitly allowed to fail,
 # so an offline run still exercises everything this is about.
+# HOME is redirected, and that is not optional. A real install writes desktop entries and URL
+# handlers into $HOME/.local/share/applications -- the installer builds that path from HOME itself
+# and does NOT honour XDG_DATA_HOME, so without this a test run rewrites the real desktop shortcuts
+# to point inside $Work, and the trap then deletes $Work. The result is a machine whose Roblox
+# shortcuts all point at nothing. It happened; this is why.
 run_install() {   # $1 names the log only; it is not passed to the installer
     local label=$1; shift
-    "$Installer" --headless --nolaunch --dir "$Install" --channel stable "$@" \
+    mkdir -p "$Work/home"
+    HOME="$Work/home" "$Installer" --headless --nolaunch --dir "$Install" --channel stable "$@" \
         > "$Work/install-$label.log" 2>&1
 }
 
