@@ -101,36 +101,29 @@ fi
 # the mismatch this avoids -- and it is why this run neither prompts nor writes
 # VERSION back. An explicit TUXBLOX_BUILD_VERSION still wins, for the case
 # where you really do mean to publish under a different number.
-if [[ $stage_only -eq 1 && -z "$TUXBLOX_BUILD_VERSION" && -x "$ROOT/build/compat/main" ]]; then
-    # --version answers "x.y.z-channel" now; the release folder is named after
-    # the number alone, so the channel suffix comes off here.
-    built_version="$("$ROOT/build/compat/main" --version 2>/dev/null | head -1 | tr -d '[:space:]')"
-    built_version="${built_version%%-*}"
-    if [[ -n "$built_version" ]]; then
-        if [[ -n "$file_version" && "$file_version" != "$built_version" ]]; then
-            echo "!! VERSION says $file_version, but build/ was built as $built_version." >&2
-            echo "!! Staging as $built_version, which is what these binaries report." >&2
+# No binary reports the release any more: one component build appears in several releases, which is
+# the point of not redistributing what did not change. So --stage-only reads the release out of the
+# provenance of the build it is publishing, which is what that build actually became.
+if [[ $stage_only -eq 1 && -z "$TUXBLOX_BUILD_VERSION" && -r "$ROOT/build/.provenance" ]]; then
+    built_release="$(sed -n '3p' "$ROOT/build/.provenance" | tr -d '[:space:]')"
+    if [[ -n "$built_release" ]]; then
+        if [[ -n "$file_version" && "$file_version" != "$built_release" ]]; then
+            echo "!! VERSION says $file_version, but build/ was staged as $built_release." >&2
+            echo "!! Staging as $built_release, which is what that build became." >&2
         fi
-        TUXBLOX_BUILD_VERSION="$built_version"
+        TUXBLOX_BUILD_VERSION="$built_release"
     fi
 fi
 
-if [[ -z "$TUXBLOX_BUILD_VERSION" ]]; then
-    if [[ -t 0 && $stage_only -eq 0 ]]; then
-        read -rp "Enter version for this build${file_version:+ ($file_version)}: " TUXBLOX_BUILD_VERSION
-        TUXBLOX_BUILD_VERSION="${TUXBLOX_BUILD_VERSION:-$file_version}"
-        while [[ -z "$TUXBLOX_BUILD_VERSION" ]]; do
-            read -rp "Version cannot be empty. Enter version for this build: " TUXBLOX_BUILD_VERSION
-        done
-    else
-        TUXBLOX_BUILD_VERSION="$file_version"
-    fi
-fi
-
-if [[ -z "$TUXBLOX_BUILD_VERSION" ]]; then
-    echo "!! No version to build: set TUXBLOX_BUILD_VERSION or put one on line 1 of VERSION." >&2
+if [[ $stage_only -eq 1 && -z "$TUXBLOX_BUILD_VERSION" ]]; then
+    echo "!! build/.provenance records no release, so there is nothing to re-stage." >&2
+    echo "!! Set TUXBLOX_BUILD_VERSION to publish this build under a release of your choosing." >&2
     exit 1
 fi
+
+# A normal build leaves it empty on purpose: the release is derived at staging time from what the
+# channels already publish, so there is nothing to prompt for. Line 1 of VERSION is the floor it
+# must beat, not the answer.
 
 # The "dev" channel was renamed to "experimental". Accepted as an alias rather
 # than rejected, so an old VERSION file, an old TUXBLOX_CHANNEL in someone's
@@ -213,7 +206,7 @@ if [[ $stage_only -eq 1 ]]; then
     fi
     echo ":: Staging TuxBlox $TUXBLOX_BUILD_VERSION ($TUXBLOX_CHANNEL) from build/"
 else
-    echo ":: Building TuxBlox $TUXBLOX_BUILD_VERSION ($TUXBLOX_CHANNEL)"
+    echo ":: Building TuxBlox for the $TUXBLOX_CHANNEL channel (release resolved when it is staged)"
 fi
 # The layer's own version, which the compile step stamps in rather than the release's.
 if [[ -r "$ROOT/compat/VERSION" ]]; then
@@ -387,167 +380,32 @@ apply_patches() {
 # TODO: possibly maybe a build "identifier" or "architecture", planning for ARM support soon next to x86_64, and the CDN would register it too: setup.tuxblox.net/{x86_64,arm64}/{version}/{channel}
 
 stage_release() {
-    local version="$TUXBLOX_BUILD_VERSION"
     local channel="$TUXBLOX_CHANNEL"
-    # Dots are legal in a URL path, but every published artifact has used the
-    # dashed form since the first release -- keep it, so an existing mirror
-    # does not end up holding both spellings of the same file.
-    local slug="${version//./-}"
-    local release_dir="$ROOT/releases/$channel/$version"
-    local url_prefix="/v1/$channel/$version"
+    local seed
+    seed="$(sed -n '1p' "$ROOT/VERSION" | tr -d '[:space:]')"
 
-    # Absent means the build predates this file; recorded as unknown-and-dirty
-    # so the deploy step refuses it rather than publishing an unattributable build.
-    local source_commit="" source_dirty="true"
-    if [[ -r "$ROOT/build/.provenance" ]]; then
-        { read -r source_commit || true; read -r source_dirty || true; } < "$ROOT/build/.provenance"
+    # An explicit TUXBLOX_BUILD_VERSION skips resolution entirely, which is the escape hatch for an
+    # offline stage and for a release number the server reports as already taken.
+    local explicit=""
+    if [[ -n "${TUXBLOX_BUILD_VERSION:-}" ]]; then
+        explicit="--release $TUXBLOX_BUILD_VERSION"
     fi
 
-    # The interface libraries' real directory is one level down, not just a directory that happens to exist -- an empty libtuxblox/ would tar up fine and fail at the
-    # user's machine instead.
-    local required=(compat/main
-                    libtuxblox/lib/x86_64-linux-gnu
-                    libtuxblox/share/icons/TuxBlox/index.theme
-                    TuxBloxLauncher TuxBloxInstaller studio-mcp)
-    local entry
-    for entry in "${required[@]}"; do
-        if [[ ! -e "$ROOT/build/$entry" ]]; then
-            echo "!! build/$entry is missing, so this build cannot be published." >&2
-            return 1
-        fi
-    done
-
-    # Rebuilding a version replaces its folder outright. Merging into it would
-    # leave the previous run's tarball sitting next to a manifest that no
-    # longer describes it, which the installer would reject as a checksum
-    # mismatch only after the user had downloaded the whole thing.
-    rm -rf "$release_dir"
-    mkdir -p "$release_dir"
-
-    # The archive is packed with its contents at the ROOT, no wrapper
-    # directory: the installer extracts an archive artifact into
-    # installDir/<path>/<filename>, so a wrapper would nest the payload one
-    # level too deep (compat/compat/main).
-    echo ":: Packing the compatibility layer"
-    tar --zstd -cf "$release_dir/compat-$slug.tar.zst" -C "$ROOT/build/compat" .
-
-    # The interface libraries ship as the tarball shared/tools/ui-build.sh already packed, copied rather than repacked, so its checksum does not change when a release is re-staged. The libadwaita commit inside it must be the one build/ui was unpacked from, or the notice would name source for a different build.
-    local uiTarballs=("$ROOT"/shared/ui/dist/ui-stack-*.tar.zst)
-    if [[ ${#uiTarballs[@]} -ne 1 || ! -f "${uiTarballs[0]}" ]]; then
-        echo "!! Expected exactly one shared/ui/dist/ui-stack-*.tar.zst, found ${#uiTarballs[@]}." >&2
+    local release
+    if ! release="$(python3 "$ROOT/shared/tools/stage_release.py" \
+            --root "$ROOT" --channel "$channel" --seed "$seed" $explicit)"; then
         return 1
     fi
-    if ! tar --zstd -xOf "${uiTarballs[0]}" LIBADWAITA_COMMIT | cmp -s - "$ROOT/build/libtuxblox/LIBADWAITA_COMMIT"; then
-        echo "!! shared/ui/dist's stack is not the one build/libtuxblox was unpacked from, so this build cannot be published." >&2
-        return 1
+
+    # The release the build actually became, so the file maintains itself and the next build
+    # derives from the right number even if this one is never deployed. A --stage-only run
+    # republishes an existing build and deliberately leaves VERSION alone.
+    if [[ $stage_only -eq 0 ]]; then
+        printf '%s\n%s\n' "$release" "$channel" > "$ROOT/VERSION"
     fi
-    echo ":: Copying the interface libraries"
-    cp "${uiTarballs[0]}" "$release_dir/libtuxblox-$slug.tar.zst"
 
-    # The launcher, installer and MCP helper ship unpacked. They are copied
-    # under the basename the manifest's url gives them, which is how the
-    # server serves them and therefore what a plain rsync of this folder has
-    # to find on disk.
-    cp "$ROOT/build/TuxBloxLauncher" "$release_dir/launcher"
-    cp "$ROOT/build/TuxBloxInstaller" "$release_dir/installer"
-    cp "$ROOT/build/studio-mcp" "$release_dir/studio-mcp"
-
-    echo ":: Writing manifest.json and latest.json"
-    # Written by python rather than assembled from shell heredocs: it hashes
-    # and stats the files it is describing, so a size or checksum cannot drift
-    # from the artifact it belongs to, and latest.json is a read-modify-write
-    # of a file the other channels also have entries in.
-    python3 - "$release_dir" "$ROOT/releases/latest.json" "$channel" "$url_prefix" "$slug" \
-             "$source_commit" "$source_dirty" <<'PY'
-import hashlib, json, os, sys
-from datetime import datetime, timezone
-
-release_dir, latest_path, channel, url_prefix, slug = sys.argv[1:6]
-source_commit, source_dirty = sys.argv[6:8]
-
-# key -> (file on disk, displayname, filename the installer installs it as).
-# "filename" is extension-less by convention: for an archive it names the
-# directory the archive is extracted into, for a flat file it is the name the
-# download is saved under.
-artifacts = [
-    ("launcher",   "launcher",                    "Launcher",             "TuxBloxLauncher"),
-    ("installer",  "installer",                   "Updater",              "TuxBloxInstaller"),
-    # Published as "proton" until the layer was renamed. The launcher reads
-    # either spelling, so emitting the new one is safe for older installs.
-    ("compat",     f"compat-{slug}.tar.zst",      "Compatibility layer",  "compat"),
-    ("libtuxblox", f"libtuxblox-{slug}.tar.zst",  "Libraries",            "libtuxblox"),
-    # Was the mcp.sh shell script through 2.6.0. The key is unchanged, so an
-    # older installer still finds it; what it downloads is now a binary.
-    ("mcp",        "studio-mcp",                  "Studio MCP",           "studio-mcp"),
-]
-
-def digest(path):
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(1 << 20), b""):
-            h.update(chunk)
-    return h.hexdigest()
-
-stamp = datetime.now(timezone.utc).strftime("%m/%d/%y %H:%M:%S")
-
-entries = {}
-for key, filename, displayname, install_as in artifacts:
-    path = os.path.join(release_dir, filename)
-    # The size and hash are of the file that is actually downloaded, which for
-    # the two archives means the compressed tarball, not the tree inside it.
-    entries[key] = {
-        "size": os.path.getsize(path),
-        "sha256": digest(path),
-        "url": f"{url_prefix}/{filename}",
-        "displayname": displayname,
-        "filename": install_as,
-        "path": "/",
-    }
-
-manifest = {
-    "channel": channel,
-    "uploadDate": stamp,
-    "data": {"hasPlayer": False, "hasStudio": True, "isLatest": True},
-    "manifest_version": 2,
-    # The commit this build was made from. Unknown keys are ignored by the
-    # launcher's parser, so this needs no manifest_version bump.
-    "source_commit": source_commit or None,
-    "source_dirty": source_dirty == "true",
-    "artifacts": entries,
-}
-
-with open(os.path.join(release_dir, "manifest.json"), "w") as f:
-    json.dump(manifest, f, indent=2)
-    f.write("\n")
-
-# Only this build's channel moves. Building canary must not disturb which
-# version stable points at, so the other entries are read back and kept.
-latest = {"channels": {"stable": "", "canary": "", "experimental": ""}}
-try:
-    with open(latest_path) as f:
-        existing = json.load(f)
-    if isinstance(existing.get("channels"), dict):
-        channels = dict(existing["channels"])
-        # "dev" was renamed to "experimental". Carry the old key's version over
-        # rather than leaving a dead entry beside an empty new one.
-        if "dev" in channels:
-            if not channels.get("experimental"):
-                channels["experimental"] = channels["dev"]
-            del channels["dev"]
-        latest["channels"].update(channels)
-except (FileNotFoundError, ValueError):
-    pass
-
-latest["channels"][channel] = os.path.basename(release_dir)
-latest["lastUpdate"] = stamp
-
-with open(latest_path, "w") as f:
-    json.dump(latest, f, indent=2)
-    f.write("\n")
-PY
-
-    echo ":: Published to releases/$channel/$version/"
-    du -h "$release_dir"/* | sed 's/^/   /'
+    echo ":: Published to releases/client/releases/$channel/$release.json"
+    du -sh "$ROOT/releases/client" | sed 's/^/   /'
 }
 
 # Records the commit this build is made from. stage_release() stamps it into

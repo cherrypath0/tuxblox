@@ -73,7 +73,8 @@ def _pack_layer(build_dir, dest):
     subprocess.run(["tar", "--zstd", "-cf", dest, "-C", os.path.join(build_dir, "compat"), "."], check=True)
 
 
-def stage(build_dir, out_dir, channel, release, versions, published, ui_tarball=None):
+def stage(build_dir, out_dir, channel, release, versions, published, ui_tarball=None,
+          source_commit=None, source_dirty=True):
     """Writes the release file, `latest`, and every component the release does not already have published. Returns the release file's content."""
     if ui_tarball is None:
         # build/ sits beside shared/ in the repo, and the stack is an input to the build rather than output of it.
@@ -117,7 +118,11 @@ def stage(build_dir, out_dir, channel, release, versions, published, ui_tarball=
 
         components[component] = {"version": version, "arch": arches}
 
-    content = {"release": release, "channel": channel, "components": components}
+    # deploy.sh refuses a release whose source is not clean, equal to HEAD and pushed to every
+    # remote, because a published binary whose source nobody can fetch is a licence violation.
+    # Unknown reads as dirty so an unattributable build is refused rather than published.
+    content = {"release": release, "channel": channel, "components": components,
+               "source_commit": source_commit or None, "source_dirty": bool(source_dirty)}
 
     release_dir = os.path.join(out_dir, "releases", channel)
     os.makedirs(release_dir, exist_ok=True)

@@ -150,6 +150,25 @@ class StageTree(unittest.TestCase):
             self.assertFalse(any(bad in root for root, _, _ in os.walk(self.out)))
 
 
+class Provenance(StageTree):
+    """deploy.sh's licensing gate refuses a release whose source is not clean, equal to HEAD and
+    pushed, so the release file has to carry the commit it was built from. The bump guard needs it
+    too, to know what "changed since this component was last published" is measured against."""
+
+    def test_the_release_file_records_its_source(self):
+        out = stage(self.build, self.out, "stable", "3.6.0.0", VERSIONS, {},
+                    ui_tarball=self.ui_tarball, source_commit="abc123", source_dirty=False)
+        self.assertEqual(out["source_commit"], "abc123")
+        self.assertIs(out["source_dirty"], False)
+
+    # Unknown source must read as dirty, so the gate refuses it rather than publishing an
+    # unattributable build.
+    def test_an_unknown_source_is_recorded_as_dirty(self):
+        out = self.stage()
+        self.assertIsNone(out["source_commit"])
+        self.assertIs(out["source_dirty"], True)
+
+
 class AlreadyPublished(StageTree):
     """A component version's bytes are packed exactly once, ever: tar records mtimes, so a repack
     of identical contents hashes differently and would defeat the client's "skip what I have"."""
