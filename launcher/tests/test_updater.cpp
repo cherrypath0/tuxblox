@@ -17,6 +17,7 @@
 #include "updater.h"
 #include "manifest.h"
 #include "release_file.h"
+#include "version.h"
 
 #include <cassert>
 #include <cstdio>
@@ -26,6 +27,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <unistd.h>
 
 namespace fs = std::filesystem;
 using namespace tuxblox;
@@ -76,8 +78,11 @@ std::map<std::string, uintmax_t> snapshotDir(const fs::path& dir) {
     return seen;
 }
 
+// The launcher's entry is whatever this build reports, not a literal: a fixture pinned to a
+// number that `launcher/VERSION` happens to hold turns red the day that file is bumped, for a
+// reason that has nothing to do with what these tests are about.
 const std::map<std::string, std::string> kFullSet = {
-    {"launcher", "3.5.0"}, {"installer", "3.1.0"}, {"studio-mcp", "2.0.1"},
+    {"launcher", kTuxBloxVersion}, {"installer", "3.1.0"}, {"studio-mcp", "2.0.1"},
     {"compat", "3.3.0"}, {"libtuxblox", "3.1.0"},
 };
 
@@ -113,6 +118,7 @@ void publish(const std::string& channel, const std::string& release,
 void writeInstall(const fs::path& dir, const std::map<std::string, std::string>& installed,
                   const std::string& recordedRelease,
                   const std::map<std::string, std::string>& recorded) {
+    writeVersionStub(dir / "TuxBloxLauncher", installed.at("launcher"));
     writeVersionStub(dir / "compat" / "main", installed.at("compat"));
     writeVersionStub(dir / "TuxBloxInstaller", installed.at("installer"));
     writeVersionStub(dir / "studio-mcp", installed.at("studio-mcp"));
@@ -145,7 +151,8 @@ void test_reads_the_four_components_it_can_ask() {
     writeInstall(dir, kFullSet, "3.6.0.0", kFullSet);
     auto v = readComponentVersions(dir.string());
     assert(v.size() == 4);
-    assert((namesOf(v) == std::vector<std::string>{"compat", "installer", "studio-mcp", "libtuxblox"}));
+    // The layout's order, the same one the installer and the About screen use.
+    assert((namesOf(v) == std::vector<std::string>{"installer", "studio-mcp", "compat", "libtuxblox"}));
     assert(versionOf(v, "compat") == "3.3.0");
     assert(versionOf(v, "libtuxblox") == "3.1.0");
     for (const ComponentVersion& c : v) assert(c.component != "bootstrapper");
@@ -263,6 +270,62 @@ void test_an_empty_install_reports_the_layer_missing() {
     printf("  an empty install reports the layer missing\n");
 }
 
+// Finding 3: the install being judged is the one at `dir`, which is not always the one running.
+// $TUXBLOX_ROOT points the launcher at another install -- the workflow the repo's own notes
+// document for test launches -- and reading its own version from the running binary instead of
+// from that install made every such launch look incoherent, forcing a repair that repaired
+// nothing and re-exec'd a different binary. Every launch, silently.
+void test_the_launcher_judged_is_the_one_in_the_install_directory() {
+    publish("stable", "3.6.0.0", kFullSet);
+    const fs::path dir = gWork / "install_other_root";
+    auto other = kFullSet;
+    other["launcher"] = "9.9.9";            // the install holds a launcher this build is not
+    writeInstall(dir, other, "3.6.0.0", kFullSet);
+    auto r = runUpdateCheck(baseUrl(), "stable", "3.6.0.0", nullptr, nullptr, dir.string());
+    assert(r.needsHandoff);
+    assert(r.forced);                       // it disagrees with the release this install records
+    printf("  the launcher judged is the one in the install directory\n");
+}
+
+// And the other way: an install whose launcher on disk matches its record is coherent even when
+// the binary doing the asking is a different build entirely.
+void test_a_matching_install_is_coherent_whatever_is_running() {
+    auto set = kFullSet;
+    set["launcher"] = "9.9.9";
+    publish("stable", "3.9.0.0", set);
+    const fs::path dir = gWork / "install_matching_other";
+    writeInstall(dir, set, "3.9.0.0", set);
+    auto r = runUpdateCheck(baseUrl(), "stable", "3.9.0.0", nullptr, nullptr, dir.string());
+    assert(!r.needsHandoff);
+    printf("  a matching install is coherent whatever is running\n");
+}
+
+// A handoff the launcher cannot write must say so. The caller has already reported
+// PreparingUpdater, so a silent failure hides the Launch buttons behind a progress bar that
+// nothing advances, forever, with no message.
+void test_a_handoff_that_cannot_be_written_says_why() {
+    const fs::path dir = gWork / "handoff_ok";
+    fs::create_directories(dir);
+    assert(writeReleaseHandoff(dir.string(), "{\"release\":\"3.6.0.0\"}").empty());
+    {
+        std::ifstream in(dir / ".release-incoming.json", std::ios::binary);
+        std::string body((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        assert(body == "{\"release\":\"3.6.0.0\"}");
+    }
+
+    // root can write anywhere, so there is nothing to observe.
+    if (geteuid() != 0) {
+        const fs::path readOnly = gWork / "handoff_readonly";
+        fs::create_directories(readOnly);
+        fs::permissions(readOnly, fs::perms::owner_read | fs::perms::owner_exec);
+        const std::string problem = writeReleaseHandoff(readOnly.string(), "{}");
+        assert(!problem.empty());
+        assert(problem.find("folder") != std::string::npos);
+        fs::permissions(readOnly, fs::perms::owner_all);
+    }
+    printf("  a handoff that cannot be written says why\n");
+}
+
 } // namespace
 
 int main() {
@@ -282,6 +345,12 @@ int main() {
     test_an_offered_update_changes_nothing_on_disk();
     test_an_install_with_no_record_is_offered_an_update();
     test_an_empty_install_reports_the_layer_missing();
+
+    test_the_launcher_judged_is_the_one_in_the_install_directory();
+
+    test_a_matching_install_is_coherent_whatever_is_running();
+
+    test_a_handoff_that_cannot_be_written_says_why();
 
     fs::remove_all(gWork);
     printf("updater: all tests passed\n");

@@ -24,11 +24,14 @@ namespace tuxblox {
 
 namespace {
 
+// By the names TuxBlox uses everywhere else, not by the keys the release file happens to use:
+// this ends up on a terminal and in bug reports.
 std::string listed(const std::vector<std::string>& names) {
     std::string out;
     for (size_t i = 0; i < names.size(); i++) {
         if (i > 0) out += i + 1 == names.size() ? " and " : ", ";
-        out += names[i];
+        const std::optional<ComponentLayout> layout = componentLayout(names[i]);
+        out += layout.has_value() ? layout->displayName : names[i];
     }
     return out;
 }
@@ -77,19 +80,25 @@ UpdateDecision decideUpdate(const InstallState& state, const std::string& namedR
     }
 
     if (!decision.incoherent.empty()) {
+        const std::string agrees = decision.incoherent.size() == 1 ? " does not" : " do not";
         if (noRollback) {
             // An install built on this machine has its components replaced one at a time, so it is
             // incoherent by construction, and "repairing" it means fetching the published release
             // over the top of the local build. The cost is that a genuinely half-applied update is
             // left alone too, which is why this is off by default and has no switch in the window.
-            decision.reason = "the " + listed(decision.incoherent) + " does not match release " +
-                               state.recordedRelease + ", but norollback is set";
+            decision.reason = "the " + listed(decision.incoherent) + agrees +
+                               " match release " + state.recordedRelease + ", but norollback is set";
+            // Deciding the repair first means an ordinary update is not reached either, so say so
+            // rather than leaving someone who set this by hand wondering why a release never comes.
+            if (state.recordedRelease != namedRelease) {
+                decision.reason += " -- release " + namedRelease + " is published and is not being taken";
+            }
             return decision;
         }
         decision.update = true;
         decision.forced = true;
-        decision.reason = "the " + listed(decision.incoherent) + " does not match release " +
-                           state.recordedRelease + ", so this install is being repaired";
+        decision.reason = "the " + listed(decision.incoherent) + agrees +
+                           " match release " + state.recordedRelease + ", so this install is being repaired";
         return decision;
     }
 

@@ -27,6 +27,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <sstream>
 #include <sys/stat.h>
 #include <vector>
@@ -129,19 +130,25 @@ EnsureInstallerResult ensureInstallerBinary(const ReleaseFile& release, const st
 }
 
 std::vector<ComponentVersion> readComponentVersions(const std::string& installDir) {
-    std::vector<ComponentVersion> components = {
-        {"compat",     "compatibility layer", compatDirUnder(installDir) + "/main", ""},
-        {"installer",  "updater",             installDir + "/TuxBloxInstaller",     ""},
-        {"studio-mcp", "Studio MCP",          installDir + "/studio-mcp",           ""},
-    };
-    for (ComponentVersion& component : components) {
-        component.version = readBinaryVersion(component.path).value_or("");
+    std::vector<ComponentVersion> components;
+    for (const std::string& name : componentNames()) {
+        // The launcher is the one asking; runUpdateCheck() supplies its entry, because which
+        // binary answers for it depends on which install is being judged.
+        if (name == "launcher") continue;
+        components.push_back({name, componentLayout(name)->displayName, "",
+                               readComponentVersion(installDir, name).value_or("")});
     }
-    // Read, never run: the interface stack is a set of libraries, so it ships its version as a file
-    // inside its own tarball.
-    components.push_back({"libtuxblox", "libraries", "",
-                           readStackVersion(installDir).value_or("")});
     return components;
+}
+
+std::string writeReleaseHandoff(const std::string& installDir, const std::string& releaseJson) {
+    const std::string path = installDir + "/.release-incoming.json";
+    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    if (!out) return "TuxBlox could not write to its own folder";
+    out << releaseJson;
+    out.flush();
+    if (!out) return "writing the update details failed, which usually means the disk is full";
+    return "";
 }
 
 UpdateResult runUpdateCheck(const std::string& baseUrl,
@@ -185,9 +192,19 @@ UpdateResult runUpdateCheck(const std::string& baseUrl,
     for (const ComponentVersion& component : installed) {
         if (!component.version.empty()) state.installedVersions[component.component] = component.version;
     }
-    // The launcher is the one asking, so it is not among the components read off disk -- it knows
-    // its own answer, and running itself to find it out would be absurd.
-    state.installedVersions["launcher"] = kTuxBloxVersion;
+    // The install being judged is the one at `dir`, which is not always the one running:
+    // $TUXBLOX_ROOT points this launcher at another install, and judging that install by the
+    // version of the binary that happens to be executing made every such launch read as
+    // incoherent -- a forced repair that repaired nothing and re-exec'd a different binary, on
+    // every launch. Asking the running binary is only a shortcut for the case where it IS the
+    // one installed there.
+    const std::string self = selfExePath();
+    const bool runningFromThisInstall =
+        !self.empty() && fs::path(self).parent_path() == fs::path(dir);
+    const std::optional<std::string> launcherVersion =
+        runningFromThisInstall ? std::optional<std::string>(kTuxBloxVersion)
+                                : readComponentVersion(dir, "launcher");
+    if (launcherVersion.has_value()) state.installedVersions["launcher"] = *launcherVersion;
 
     // Nothing installed at all is a first run, not a broken install -- and it is the layer being
     // there that makes the rest of the pieces overdue, since one release places them all together.

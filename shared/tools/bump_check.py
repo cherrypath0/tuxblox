@@ -24,8 +24,12 @@ _MCP_SHARED_STEMS = ("install_paths", "launch_paths", "lnk_resolver",
 # A component's inputs are not just its own directory: the interface stack is linked by the two
 # graphical programs, and studio-mcp borrows from the launcher.
 COMPONENT_INPUTS = {
-    "launcher":   ("launcher/", "shared/ui/"),
-    "installer":  ("installer/", "shared/ui/"),
+    # shared/release/ is compiled into both launcher_core and installer_core, so a change there
+    # changes both binaries. Missing from this map it would change them silently: neither VERSION
+    # gets bumped, and a component version's published bytes are written once ever, so the CDN
+    # would keep serving the old ones and the fix would never reach anybody.
+    "launcher":   ("launcher/", "shared/ui/", "shared/release/"),
+    "installer":  ("installer/", "shared/ui/", "shared/release/"),
     "studio-mcp": ("studio-mcp/",),
     "libtuxblox": ("shared/ui/", "shared/tools/ui-"),
     "compat":     ("compat/",),

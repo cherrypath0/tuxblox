@@ -17,6 +17,7 @@
 #include "release_file.h"
 
 #include <cassert>
+#include <chrono>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -97,7 +98,10 @@ void test_refuses_a_structurally_wrong_release() {
         {R"({"release": "3.6.0.0", "channel": "stable", "components": {"launcher": {"arch": {"x86_64": {"sha256": "a", "size": 1}}}}})", "launcher"},
         {R"({"release": "3.6.0.0", "channel": "stable", "components": {"launcher": {"version": "3.5", "arch": {"x86_64": {"sha256": "a", "size": 1}}}}})", "launcher"},
         {R"({"release": "3.6.0.0", "channel": "stable", "components": {"launcher": {"version": "3.5.0"}}})", "launcher"},
-        {R"({"release": "3.6.0.0", "channel": "stable", "components": {"nonesuch": {"version": "1.0.0", "arch": {"x86_64": {"sha256": "a", "size": 1}}}}})", "nonesuch"},
+        // A component this build does not know is carried (see below), but the shape still has to
+        // be a release's shape -- a malformed one is refused by name whether we recognise it or not.
+        {R"({"release": "3.6.0.0", "channel": "stable", "components": {"nonesuch": {"arch": {"x86_64": {"sha256": "a", "size": 1}}}}})", "nonesuch"},
+        {R"({"release": "3.6.0.0", "channel": "stable", "components": {"nonesuch": {"version": "1.0.0", "arch": {"x86_64": null, "arm64": null}}}})", "nonesuch"},
         {"not json", "parse"},
     };
     for (const auto& [body, word] : cases) {
@@ -191,6 +195,77 @@ void test_a_written_record_reads_back() {
     printf("  a written record reads back\n");
 }
 
+// --------------------------------------------- asking a component its version
+// One rule, shared: the launcher deciding "this install is coherent" and the installer deciding
+// "this one is already current" must not be able to reach different answers about one install.
+
+void writeStub(const std::string& path, const std::string& body) {
+    fs::create_directories(fs::path(path).parent_path());
+    writeFile(path, body);
+    fs::permissions(path, fs::perms::owner_all);
+}
+
+void test_a_component_that_cannot_be_asked_has_no_version() {
+    TempDir d;
+    assert(!readComponentVersion(d.path(), "studio-mcp").has_value());        // absent
+    writeFile(d.path() + "/studio-mcp", "not an executable");                 // present, not runnable
+    assert(!readComponentVersion(d.path(), "studio-mcp").has_value());
+    writeStub(d.path() + "/studio-mcp", "#!/bin/sh\nexit 1\n");               // runs, fails
+    assert(!readComponentVersion(d.path(), "studio-mcp").has_value());
+    writeStub(d.path() + "/studio-mcp", "#!/bin/sh\n");                       // runs, says nothing
+    assert(!readComponentVersion(d.path(), "studio-mcp").has_value());
+    writeStub(d.path() + "/studio-mcp", "#!/bin/sh\necho 2.0.1\n");
+    assert(*readComponentVersion(d.path(), "studio-mcp") == "2.0.1");
+    printf("  a component that cannot be asked has no version\n");
+}
+
+// Leading whitespace too, not only trailing: a version read one way here and another way elsewhere
+// is an install that reads as incoherent forever and is repaired by nothing.
+void test_a_version_is_trimmed_at_both_ends() {
+    TempDir d;
+    writeStub(d.path() + "/studio-mcp", "#!/bin/sh\nprintf '  2.0.1 \\n'\n");
+    assert(*readComponentVersion(d.path(), "studio-mcp") == "2.0.1");
+    printf("  a version is trimmed at both ends\n");
+}
+
+// An install made before the layer's folder was renamed still has it under the old name.
+void test_the_layer_is_found_under_either_name() {
+    TempDir d;
+    writeStub(d.path() + "/proton/main", "#!/bin/sh\necho 3.3.0\n");
+    assert(*readComponentVersion(d.path(), "compat") == "3.3.0");
+    writeStub(d.path() + "/compat/main", "#!/bin/sh\necho 3.4.0\n");
+    assert(*readComponentVersion(d.path(), "compat") == "3.4.0");   // the new name wins
+    printf("  the layer is found under either name\n");
+}
+
+// A component present but unusable must not hang the program that asks it. The installer execs the
+// LAUNCHER here, a GTK binary whose loader runs before main(), and the launcher's update check has
+// no cancel on this path.
+void test_a_component_that_never_exits_is_given_up_on() {
+    TempDir d;
+    writeStub(d.path() + "/studio-mcp", "#!/bin/sh\nsleep 60\n");
+    const auto start = std::chrono::steady_clock::now();
+    assert(!readComponentVersion(d.path(), "studio-mcp").has_value());
+    const auto elapsed = std::chrono::steady_clock::now() - start;
+    assert(std::chrono::duration_cast<std::chrono::seconds>(elapsed).count() < 15);
+    printf("  a component that never exits is given up on\n");
+}
+
+// A release naming a component this build has never heard of must not wall the client off: the day
+// a sixth component ships, every deployed launcher would otherwise refuse the release file outright
+// and never update again, with no way back but a manual reinstall.
+void test_an_unknown_component_is_carried_not_refused() {
+    const char* body = R"({"release": "3.7.0.0", "channel": "stable", "components": {
+        "launcher": {"version": "3.5.0", "arch": {"x86_64": {"sha256": "aa", "size": 1}, "arm64": null}},
+        "something-new": {"version": "1.0.0", "arch": {"x86_64": {"sha256": "bb", "size": 2}, "arm64": null}}
+    }})";
+    ReleaseFile r = parseReleaseFile(body);
+    assert(r.components.count("launcher") == 1);
+    assert(r.components.count("something-new") == 1);
+    assert(!componentLayout("something-new").has_value());   // still not one this build can place
+    printf("  an unknown component is carried, not refused\n");
+}
+
 } // namespace
 
 int main() {
@@ -202,6 +277,11 @@ int main() {
     test_a_damaged_record_reads_as_no_record();
     test_the_stack_version_is_read_from_its_file();
     test_a_written_record_reads_back();
+    test_a_component_that_cannot_be_asked_has_no_version();
+    test_a_version_is_trimmed_at_both_ends();
+    test_the_layer_is_found_under_either_name();
+    test_a_component_that_never_exits_is_given_up_on();
+    test_an_unknown_component_is_carried_not_refused();
     printf("release_file: all tests passed\n");
     return 0;
 }

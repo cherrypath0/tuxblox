@@ -17,6 +17,11 @@
 cmake_minimum_required(VERSION 3.16)
 project(TuxBloxLauncher CXX)
 
+# Lets the end-to-end test point the binaries at a local server. Never set for a shipped build:
+# see setupBaseUrl() for why an environment variable that redirects downloads must not exist there.
+option(TUXBLOX_TEST_SETUP_URL "Honour $TUXBLOX_SETUP_URL (testing only)" OFF)
+
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -259,10 +264,6 @@ if(TUXBLOX_UI_STACK_DEV)
         INSTALL_RPATH "$ORIGIN/libtuxblox/lib/x86_64-linux-gnu:$ORIGIN/libtuxblox/lib")
     add_dependencies(TuxBloxLauncher generate_thirdparty_license_headers generate_license_header generate_font_header)
 endif()
-
-# Lets the end-to-end test point the binaries at a local server. Never set for a shipped build:
-# see setupBaseUrl() for why an environment variable that redirects downloads must not exist there.
-option(TUXBLOX_TEST_SETUP_URL "Honour $TUXBLOX_SETUP_URL (testing only)" OFF)
 
 enable_testing()
 add_subdirectory(tests)

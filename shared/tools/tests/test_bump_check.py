@@ -31,6 +31,16 @@ class ComponentsTouched(unittest.TestCase):
     # studio-mcp compiles six of the launcher's sources rather than copying them.
     def test_a_shared_launcher_source_touches_studio_mcp(self):
         self.assertIn("studio-mcp", components_touched(["launcher/src/launch_paths.cpp"]))
+
+    def test_the_shared_release_code_is_an_input_to_both_programs(self):
+        # release_file.cpp is compiled into launcher_core AND installer_core, so a change touching
+        # only shared/release/ changes both binaries' bytes. Unseen here, neither VERSION is bumped
+        # -- and a component version's published bytes are written once, ever, so the CDN keeps
+        # serving the old ones and the fix silently never ships.
+        touched = components_touched(["shared/release/src/release_file.cpp"])
+        self.assertIn("launcher", touched)
+        self.assertIn("installer", touched)
+        self.assertNotIn("compat", touched)
         self.assertIn("studio-mcp", components_touched(["launcher/src/versions_manifest.h"]))
         self.assertNotIn("studio-mcp", components_touched(["launcher/src/ui_adw/page_home.cpp"]))
 

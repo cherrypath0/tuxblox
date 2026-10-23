@@ -145,6 +145,36 @@ void test_several_incoherent_components_are_reported_in_component_order() {
     printf("  several incoherent components are reported in component order\n");
 }
 
+// The reason is printed to a person and pasted into bug reports, so it names components the way
+// the rest of TuxBlox names them -- not by the keys the release file happens to use.
+void test_the_reason_names_components_the_way_a_person_reads_them() {
+    InstallState s = coherent();
+    s.installedVersions["compat"] = "3.2.0";
+    const std::string one = decideUpdate(s, "3.6.0.0", false).reason;
+    assert(one.find("Compatibility layer") != std::string::npos);
+    assert(one.find("compat ") == std::string::npos);
+    assert(one.find(" does not match") != std::string::npos);
+
+    s.installedVersions["libtuxblox"] = "3.0.0";
+    const std::string two = decideUpdate(s, "3.6.0.0", false).reason;
+    assert(two.find("Compatibility layer and Libraries") != std::string::npos);
+    assert(two.find(" do not match") != std::string::npos);   // plural, not "does"
+    printf("  the reason names components the way a person reads them\n");
+}
+
+// noRollback stops the repair AND, because the repair is decided first, any ordinary update too.
+// That protects a locally built install, which is what the setting is for -- but the line it
+// prints has to say both things, or someone who set it by hand is left wondering why a published
+// release never arrives.
+void test_norollback_says_it_is_also_holding_back_a_newer_release() {
+    InstallState s = coherent();
+    s.installedVersions["compat"] = "3.2.0";
+    const std::string held = decideUpdate(s, "3.6.0.1", true).reason;
+    assert(held.find("norollback") != std::string::npos);
+    assert(held.find("3.6.0.1") != std::string::npos);
+    printf("  norollback says it is also holding back a newer release\n");
+}
+
 } // namespace
 
 int main() {
@@ -159,6 +189,8 @@ int main() {
     test_an_install_with_no_record_and_nothing_published_does_nothing();
     test_a_component_the_release_does_not_name_is_ignored();
     test_several_incoherent_components_are_reported_in_component_order();
+    test_the_reason_names_components_the_way_a_person_reads_them();
+    test_norollback_says_it_is_also_holding_back_a_newer_release();
     printf("update_decision: all tests passed\n");
     return 0;
 }

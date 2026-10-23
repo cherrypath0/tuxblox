@@ -67,6 +67,12 @@ struct ComponentLayout {
 };
 
 // Throws std::runtime_error with a sentence naming what is wrong and which component it is wrong in.
+//
+// A component this build does not know is CARRIED, not refused. Releases gain components; a client
+// that rejects the whole release file on meeting one it has never heard of would stop updating the
+// day that happens, permanently and with no way to reach it. Callers skip what componentLayout()
+// does not recognise -- an old client then still takes the update, and the launcher and installer
+// it receives know the rest.
 ReleaseFile parseReleaseFile(const std::string& jsonText);
 
 // The five components a release consists of, in a fixed order. There is no bootstrapper: it was

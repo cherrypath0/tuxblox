@@ -20,6 +20,10 @@
 
 #include <cctype>
 #include <filesystem>
+#include <chrono>
+#include <cerrno>
+#include <csignal>
+#include <poll.h>
 #include <unistd.h>
 #include <sys/wait.h>
 #include <fstream>
@@ -84,9 +88,6 @@ std::string readWholeFile(const fs::path& path) {
 // the component, because a release has five of them and "has no version" alone says nothing.
 ReleaseComponent parseComponent(const std::string& name, const nlohmann::json& entry) {
     const std::string prefix = "component \"" + name + "\" ";
-    if (!componentLayout(name).has_value()) {
-        throw std::runtime_error("release names \"" + name + "\", which is not a component of TuxBlox");
-    }
     if (!entry.is_object()) throw std::runtime_error(prefix + "is not an object");
 
     ReleaseComponent component;
@@ -274,6 +275,9 @@ std::optional<std::string> askBinaryVersion(const std::string& bin) {
         return std::nullopt;
     }
     if (pid == 0) {
+        // Its own process group, so a component that spawns something is cleaned up with it rather
+        // than leaving a descendant holding the inherited handles of whatever asked.
+        setpgid(0, 0);
         dup2(fds[1], STDOUT_FILENO);
         close(fds[0]);
         close(fds[1]);
@@ -282,14 +286,50 @@ std::optional<std::string> askBinaryVersion(const std::string& bin) {
     }
     close(fds[1]);
 
+    // Bounded, because this is on the launcher's startup path and the installer's critical path,
+    // and the installer asks the LAUNCHER here -- a graphical binary whose loader runs before
+    // main(). A component that never exits, or one that reads the stdin it inherited, would
+    // otherwise hang the program asking with no timeout and nothing to cancel.
+    constexpr int kVersionTimeoutMs = 5000;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(kVersionTimeoutMs);
+
     std::string out;
     char buf[256];
-    ssize_t n;
-    while ((n = read(fds[0], buf, sizeof buf)) > 0) out.append(buf, static_cast<size_t>(n));
+    bool timedOut = false;
+    for (;;) {
+        const auto left = std::chrono::duration_cast<std::chrono::milliseconds>(
+            deadline - std::chrono::steady_clock::now()).count();
+        if (left <= 0) { timedOut = true; break; }
+
+        struct pollfd pfd{fds[0], POLLIN, 0};
+        const int ready = poll(&pfd, 1, static_cast<int>(left));
+        if (ready < 0) {
+            if (errno == EINTR) continue;
+            timedOut = true;
+            break;
+        }
+        if (ready == 0) { timedOut = true; break; }
+
+        const ssize_t n = read(fds[0], buf, sizeof buf);
+        if (n < 0) {
+            if (errno == EINTR) continue;
+            break;
+        }
+        if (n == 0) break;                       // the child closed its end
+        out.append(buf, static_cast<size_t>(n));
+        // One line is all that is wanted, and a component that prints without end must not be
+        // allowed to fill this process's memory.
+        if (out.find('\n') != std::string::npos || out.size() > 4096) break;
+    }
     close(fds[0]);
 
+    if (timedOut) kill(-pid, SIGKILL);   // the group, so nothing it started outlives it
+
     int status = 0;
-    if (waitpid(pid, &status, 0) < 0) return std::nullopt;
+    while (waitpid(pid, &status, 0) < 0) {
+        if (errno != EINTR) return std::nullopt;
+    }
+    if (timedOut) return std::nullopt;
     if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) return std::nullopt;
 
     const std::string version = trimmed(out.substr(0, out.find('\n')));

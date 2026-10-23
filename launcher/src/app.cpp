@@ -673,13 +673,17 @@ bool App::prepareInstallerHandoff(const ReleaseFile& release, const std::string&
     // The bytes this launcher actually read, handed over rather than a release number for the
     // installer to resolve again: the channel's pointer can move between the two reads, and the
     // record written at the end of that install would then name a release nobody decided on.
-    const std::string handoff = installDir_ + "/.release-incoming.json";
-    {
-        std::ofstream out(handoff, std::ios::binary | std::ios::trunc);
-        if (!out) return false;
-        out << releaseJson;
-        if (!out) return false;
+    // Reported, never silent. The snapshot was last told PreparingUpdater, which the Home tab
+    // reads as "an update is being applied": it hides both Launch buttons for a progress bar
+    // nothing will advance again. A failure that says nothing leaves the window in that state
+    // permanently -- no error, no way to start Roblox, nothing to do but kill the process.
+    const std::string problem = writeReleaseHandoff(installDir_, releaseJson);
+    if (!problem.empty()) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        snapshot_.update = {UpdatePhase::Error, 0.0, "Could not prepare the update: " + problem + "."};
+        return false;
     }
+    const std::string handoff = installDir_ + "/.release-incoming.json";
     {
         std::lock_guard<std::mutex> lock(mutex_);
         releaseHandoffPath_ = handoff;

@@ -17,6 +17,11 @@
 cmake_minimum_required(VERSION 3.16)
 project(TuxBloxInstaller CXX)
 
+# Lets the end-to-end test point the binaries at a local server. Never set for a shipped build:
+# see setupBaseUrl() for why an environment variable that redirects downloads must not exist there.
+option(TUXBLOX_TEST_SETUP_URL "Honour $TUXBLOX_SETUP_URL (testing only)" OFF)
+
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -197,10 +202,6 @@ if(TUXBLOX_UI_STACK_DEV)
         target_compile_definitions(TuxBloxInstaller-ui PRIVATE TUXBLOX_LIBADWAITA_COMMIT="${TUXBLOX_LIBADWAITA_COMMIT}")
     endif()
 endif()
-
-# Lets the end-to-end test point the binaries at a local server. Never set for a shipped build:
-# see setupBaseUrl() for why an environment variable that redirects downloads must not exist there.
-option(TUXBLOX_TEST_SETUP_URL "Honour $TUXBLOX_SETUP_URL (testing only)" OFF)
 
 enable_testing()
 add_subdirectory(tests)

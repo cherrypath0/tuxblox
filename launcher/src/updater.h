@@ -94,6 +94,14 @@ EnsureInstallerResult ensureInstallerBinary(const ReleaseFile& release, const st
                                              const std::atomic<bool>* cancel,
                                              const UpdateProgressFn& onProgress);
 
+// Writes the release bytes the installer is handed, at <installDir>/.release-incoming.json.
+//
+// Returns an empty string on success, or a sentence to show the user. It cannot be a bool: the
+// caller has already reported PreparingUpdater, which the window reads as "an update is being
+// applied" and which hides the Launch buttons, so a failure that says nothing leaves the user
+// with no way to start Roblox and nothing on screen explaining why.
+std::string writeReleaseHandoff(const std::string& installDir, const std::string& releaseJson);
+
 // Exposed for unit testing: computes the download-progress fraction
 // (0.0-1.0), falling back to `manifestSize` when curl doesn't report a
 // total (`total == 0`, e.g. a chunked response with no Content-Length).

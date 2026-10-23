@@ -142,11 +142,11 @@ InstallOutcome runInstall(const ReleaseFile& release,
         if (entry == release.components.end()) continue;
         const std::optional<ComponentBytes>& bytes =
             std::string(hostArch()) == "arm64" ? entry->second.arm64 : entry->second.x86_64;
+        const ComponentLayout layout = *componentLayout(name);
         if (!bytes.has_value()) {
-            return {false, false, "release " + release.release + " publishes no " + name +
+            return {false, false, "Release " + release.release + " has no " + layout.displayName +
                                    " for this computer's processor", ""};
         }
-        const ComponentLayout layout = *componentLayout(name);
 
         ArtifactPlan p;
         p.name = name;
@@ -211,6 +211,11 @@ InstallOutcome runInstall(const ReleaseFile& release,
         // path seen so far is safe regardless of which one is actually
         // still there.
         for (const auto& p : tmpPathsInFlight) fs::remove(p);
+        // An extraction that threw leaves its staging directory behind, and for the layer that is
+        // around 350MB of nothing.
+        for (const auto& plan : plans) {
+            if (plan.isArchive) fs::remove_all(plan.targetPath + ".incoming");
+        }
     };
 
     try {
@@ -266,18 +271,37 @@ InstallOutcome runInstall(const ReleaseFile& release,
             if (isCancelled()) { cleanupTmpPaths(); return {false, true, "", ""}; }
 
             if (plan.isArchive) {
-                // Only wipe the extraction target now that the replacement
-                // has been downloaded *and* checksum-verified -- and only
-                // that artifact's own directory, never anything else under
-                // installDir (runtime/, other artifacts, etc.).
-                if (isUpgrade) {
-                    fs::remove_all(plan.targetPath);
-                }
-                extractTarZst(plan.tmpPath, plan.targetPath,
+                // Extracted BESIDE the target and renamed into place, never over it.
+                //
+                // An extraction that dies partway -- power loss, a full disk, an OOM kill -- used
+                // to leave a half-extracted component behind. If the program inside it had already
+                // landed, it would answer --version with the version that failed to install, while
+                // the install still recorded the old release. The launcher reads that as
+                // incoherent and forces a repair; the repair asks what is installed, sees the new
+                // version, and skips the one component that is broken. It then writes the record,
+                // and every launch afterwards reads the install as healthy. Roblox never starts
+                // and nothing ever fixes it.
+                //
+                // Renaming makes it all-or-nothing: what is at targetPath is the old component or
+                // the new one, and a crash at worst leaves it absent, which repairs itself.
+                const std::string staging = plan.targetPath + ".incoming";
+                fs::remove_all(staging);
+                extractTarZst(plan.tmpPath, staging,
                     [&](uint64_t now, uint64_t total) {
                         double frac = total > 0 ? static_cast<double>(now) / static_cast<double>(total) : 0.0;
                         report(phaseIndex, 0.95 + 0.05 * frac);
                     });
+                // Only now is the previous copy touched, and only this component's own directory --
+                // never anything else under installDir (runtime/, the other components).
+                fs::remove_all(plan.targetPath);
+                std::error_code renameEc;
+                fs::rename(staging, plan.targetPath, renameEc);
+                if (renameEc) {
+                    fs::remove_all(staging);
+                    cleanupTmpPaths();
+                    return {false, false, "Failed to install " + plan.artifact.displayname + ": " +
+                                           renameEc.message(), ""};
+                }
                 fs::remove(plan.tmpPath);
 
                 // The packing convention, enforced for every archive rather than only the one that

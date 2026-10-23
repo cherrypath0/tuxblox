@@ -642,6 +642,55 @@ int main() {
         printf("  a release that changes one component installs one component\n");
     }
 
+    // An extraction that dies partway must not leave something that can answer --version.
+    //
+    // The archive is extracted entry by entry. If the program inside it lands and then the run
+    // dies -- power loss, a full disk, an OOM kill -- the half-extracted component reports the NEW
+    // version while the install still records the OLD release. The launcher reads that as
+    // incoherent and forces a repair; the repair asks what is installed, sees the new version, and
+    // SKIPS the very component that is broken. It then writes the record, and every launch after
+    // that reads the install as healthy. Roblox never starts and nothing ever repairs it.
+    //
+    // Before the skip existed this healed on the next update, because every artifact was
+    // re-downloaded every time. The skip is what makes it permanent, so the extraction has to be
+    // all-or-nothing.
+    {
+        fs::path dir = work / "install_torn_extract";
+        auto first = runInstall(release, releaseBaseUrl, [](const std::string&, double) {}, nullptr,
+            false, dir.string(), robloxPlayerUrl, robloxStudioUrl, releaseJson);
+        assert(first.ok);
+
+        // An archive whose program comes FIRST and which is then truncated: extraction writes
+        // ./main, reaches the cut, and throws. That is the state that matters -- a layer that can
+        // answer --version with a version it does not actually have.
+        fs::path wholeSrc = work / "torn_compat_whole.tar.zst";
+        {
+            std::vector<std::pair<std::string, std::string>> entries;
+            entries.push_back({"main", "#!/bin/sh\necho 9.1.0\n"});
+            for (int i = 0; i < 40; i++) {
+                entries.push_back({"filler/" + std::to_string(i),
+                                    std::string(40000, static_cast<char>('a' + i % 26))});
+            }
+            makeFixtureBundleTarZst(wholeSrc.string(), entries, "main");
+        }
+        fs::path tornSrc = work / "torn_compat.tar.zst";
+        fs::copy_file(wholeSrc, tornSrc, fs::copy_options::overwrite_existing);
+        fs::resize_file(tornSrc, fs::file_size(tornSrc) * 3 / 5);
+        ReleaseFile torn = release;
+        republish(torn, "compat", "9.1.0", tornSrc);
+
+        auto second = runInstall(torn, releaseBaseUrl, [](const std::string&, double) {}, nullptr,
+            /*isUpgrade=*/true, dir.string(), robloxPlayerUrl, robloxStudioUrl, releaseJson);
+        assert(!second.ok);
+
+        // Whatever is left must not claim to be the version that failed to install. Either the old
+        // layer is still there, or there is no layer -- never a partial one wearing the new number.
+        const std::optional<std::string> after = readComponentVersion(dir.string(), "compat");
+        assert(!after.has_value() || *after == "3.3.0");
+        assert(!fs::exists(dir / "compat.incoming"));   // and ~350MB of nothing is not left behind
+        printf("  a torn extraction never leaves something claiming the new version\n");
+    }
+
     fs::remove_all(work);
 
     printf("installer_steps: all tests passed\n");
