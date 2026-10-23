@@ -19,7 +19,8 @@ if [ -z "$choice" ]; then
 fi
 
 protocolUri="$2"
-userAgent="TuxBlox-Client/1.0" # maybe update the version in the user agent some day? has been 1.0 since day 1 lol
+# The same shape the launcher and installer send; this script is not a component, so it carries no version
+userAgent="TuxBloxClient ($(uname -m))"
 
 stageInPrefix() {
     local srcPath="$1"

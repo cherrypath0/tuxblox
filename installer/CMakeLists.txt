@@ -76,6 +76,7 @@ find_package(Threads REQUIRED)
 add_library(installer_core STATIC
     ${TUXBLOX_SHARED_CRYPTO}/ca_bundle.cpp
     ${TUXBLOX_SHARED_RELEASE}/release_file.cpp
+    ${TUXBLOX_SHARED_RELEASE}/user_agent.cpp
     src/cli.cpp
     src/manifest.cpp
     src/downloader.cpp

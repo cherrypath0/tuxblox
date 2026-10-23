@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 #include "adw_env.h"
+#include "user_agent.h"
 #include "app.h"
 #include "cli.h"
 #include "ui_adw.h"
@@ -74,6 +75,7 @@ int main(int argc, char **argv) {
         fflush(stdout);
     }
 
+    setUserAgent(UserAgentProduct::Installer, kTuxBloxVersion, options.channel);
     App app(options.channel, releaseSourceFor(options), options.dir);
     app.start();
     const int result = runAdwInstall(app, options);

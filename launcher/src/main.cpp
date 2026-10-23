@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "app.h"
+#include "user_agent.h"
 #include "bootstrap/command.h"
 #include "adw_env.h"
 #include "ui_adw/launcher_window.h"
@@ -297,6 +298,10 @@ int main(int argc, char** argv) {
 
     writeCopyrightFile(dir);
     ensureLicenseFile(dir);
+
+    // Set before anything can make a request. Every call site reads it rather than building its
+    // own, so the seven places TuxBlox talks to a server cannot come to disagree about what it is.
+    setUserAgent(UserAgentProduct::Client, kTuxBloxVersion, loadSettings(dir).channel);
 
     // App's constructor is cheap (just a JSON load + a filesystem::exists
     // check) -- constructing it before the window is shown doesn't

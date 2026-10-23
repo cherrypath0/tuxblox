@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "crash_report.h"
+#include "user_agent.h"
 #include "ca_bundle.h"
 #include <cstdio>
 #include <ctime>
@@ -100,7 +101,7 @@ void uploadCrashReport(const CrashReport& report) {
     curl_mime_data(logPart, logTail.c_str(), logTail.size());
 
     curl_easy_setopt(curl, CURLOPT_URL, kTelemetryUrl);
-    curl_easy_setopt(curl, CURLOPT_USERAGENT, "TuxBlox-Client/1.0");
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, userAgent().c_str());
     curl_easy_setopt(curl, CURLOPT_MIMEPOST, mime);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curlDiscardResponse);
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 5L);

@@ -120,10 +120,23 @@ if ss -ltn 2>/dev/null | grep -q ':18099 '; then
     fail "port 18099 is already in use"
     printf ':: %d failure(s)\n' "$fails"; exit 1
 fi
+# A handler of our own rather than `python3 -m http.server`, because that one logs the request
+# line and nothing else -- and the User-Agent is precisely what cannot be checked any other way.
+cat > "$Work/serve.py" <<'PYEOF'
+import sys
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+
+class Handler(SimpleHTTPRequestHandler):
+    def log_message(self, fmt, *args):
+        sys.stderr.write("%s ua=%s\n" % (fmt % args, self.headers.get("User-Agent", "-")))
+        sys.stderr.flush()
+
+ThreadingHTTPServer(("127.0.0.1", 18099), Handler).serve_forever()
+PYEOF
 # `exec` so the subshell is REPLACED by the server: without it $! is the subshell, the trap kills
 # that, and the server keeps the port -- which makes the next run fail on a port already in use
 # rather than on anything it is testing.
-(cd "$Cdn" && exec python3 -m http.server 18099 --bind 127.0.0.1 > "$Work/server.log" 2>&1) &
+(cd "$Cdn" && exec python3 "$Work/serve.py" > "$Work/server.log" 2>&1) &
 ServerPid=$!
 for _ in $(seq 1 50); do
     curl -fs -o /dev/null "http://127.0.0.1:18099/client/releases/stable/latest" && break
@@ -156,6 +169,20 @@ if cmp -s "$Install/release.json" "$Cdn/client/releases/stable/3.6.0.0.json"; th
     pass "the install records the release, byte for byte"
 else
     fail "release.json is absent or differs from what was published"
+fi
+
+# What TuxBlox calls itself on the wire. Only a real request can show this -- every unit test can
+# do is check the string that was built.
+agent=$(grep -aoE 'TuxBlox[A-Za-z]+/[0-9.]+ \([^)]*\)' "$Work/server.log" | sort -u)
+if [ "$agent" = "TuxBloxInstaller/3.1.0 ($(uname -m); stable)" ]; then
+    pass "it identifies itself as $agent"
+else
+    fail "unexpected user agent: ${agent:-none}"
+fi
+if grep -aq 'TuxBlox-Client/1.0' "$Work/server.log"; then
+    fail "the old hardcoded user agent is still being sent"
+else
+    pass "nothing sends the old agent any more"
 fi
 
 echo ":: A release in which only the launcher moved"

@@ -116,6 +116,7 @@ configure_file(${CMAKE_SOURCE_DIR}/cmake/version.h.in ${CMAKE_BINARY_DIR}/genera
 add_library(launcher_core STATIC
     ${TUXBLOX_SHARED_CRYPTO}/ca_bundle.cpp
     ${TUXBLOX_SHARED_RELEASE}/release_file.cpp
+    ${TUXBLOX_SHARED_RELEASE}/user_agent.cpp
     src/app.cpp
     src/discord_rpc.cpp
     src/about_versions.cpp

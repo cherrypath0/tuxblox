@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "roblox_http.h"
+#include "user_agent.h"
 
 #include "ca_bundle.h"
 
@@ -45,7 +46,7 @@ std::string httpGet(const std::string& url, long timeoutSeconds) {
 
     std::string body;
     curl_easy_setopt(pCurl, CURLOPT_URL, url.c_str());
-    curl_easy_setopt(pCurl, CURLOPT_USERAGENT, "TuxBlox-Client/1.0");
+    curl_easy_setopt(pCurl, CURLOPT_USERAGENT, userAgent().c_str());
     curl_easy_setopt(pCurl, CURLOPT_WRITEFUNCTION, writeToString);
     curl_easy_setopt(pCurl, CURLOPT_WRITEDATA, &body);
     curl_easy_setopt(pCurl, CURLOPT_FOLLOWLOCATION, 1L);

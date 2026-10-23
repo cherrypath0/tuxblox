@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "app.h"
+#include "user_agent.h"
 #include "cli.h"
 #include "install_paths.h"
 #include "console_ui.h"
@@ -216,6 +217,7 @@ int main(int argc, char** argv) {
         return ok ? 0 : 1;
     }
 
+    setUserAgent(UserAgentProduct::Installer, kTuxBloxVersion, options.channel);
     App app(options.channel, releaseSourceFor(options), options.dir);
     app.start();
 

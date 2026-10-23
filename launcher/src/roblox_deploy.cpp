@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "roblox_deploy.h"
+#include "user_agent.h"
 #include "downloader.h"
 #include "json.hpp"
 #include "ca_bundle.h"
@@ -51,7 +52,7 @@ std::string httpGet(const std::string& url, const std::atomic<bool>* cancel) {
     char errBuf[CURL_ERROR_SIZE] = {0};
 
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-    curl_easy_setopt(curl, CURLOPT_USERAGENT, "TuxBlox-Client/1.0");
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, userAgent().c_str());
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curlWriteToString);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &body);
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);

@@ -198,6 +198,10 @@ add_executable(test_fastflag_import test_fastflag_import.cpp)
 target_link_libraries(test_fastflag_import PRIVATE launcher_core)
 add_test(NAME fastflag_import COMMAND test_fastflag_import)
 
+add_executable(test_user_agent ${TUXBLOX_SHARED_RELEASE}/../tests/test_user_agent.cpp)
+target_link_libraries(test_user_agent PRIVATE launcher_core)
+add_test(NAME user_agent COMMAND test_user_agent)
+
 add_executable(test_release_file ${TUXBLOX_SHARED_RELEASE}/../tests/test_release_file.cpp)
 target_link_libraries(test_release_file PRIVATE launcher_core)
 add_test(NAME release_file COMMAND test_release_file)
