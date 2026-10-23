@@ -150,6 +150,39 @@ class StageTree(unittest.TestCase):
             self.assertFalse(any(bad in root for root, _, _ in os.walk(self.out)))
 
 
+class AlreadyPublished(StageTree):
+    """A component version's bytes are packed exactly once, ever: tar records mtimes, so a repack
+    of identical contents hashes differently and would defeat the client's "skip what I have"."""
+
+    PUBLISHED = {("compat", "3.3.0"): {"sha256": "de" * 32, "size": 349829060}}
+
+    def test_already_published_component_is_not_repacked(self):
+        out = self.stage(release="3.6.0.1", published=self.PUBLISHED)
+        entry = out["components"]["compat"]["arch"]["x86_64"]
+        self.assertEqual(entry["sha256"], "de" * 32)
+        self.assertEqual(entry["size"], 349829060)
+        self.assertFalse(os.path.exists(
+            self.path("components", "compat", "3.3.0", "x86_64", "compat.tar.zst")))
+
+    def test_a_changed_component_is_still_packed(self):
+        versions = dict(VERSIONS, launcher="3.6.0")
+        self.stage(release="3.6.0.1", versions=versions, published=self.PUBLISHED)
+        self.assertTrue(os.path.exists(
+            self.path("components", "launcher", "3.6.0", "x86_64", "TuxBloxLauncher")))
+
+    # A published entry is matched on version too, not just component name.
+    def test_a_different_version_of_a_published_component_is_packed(self):
+        versions = dict(VERSIONS, compat="3.4.0")
+        self.stage(release="3.6.0.1", versions=versions, published=self.PUBLISHED)
+        self.assertTrue(os.path.exists(
+            self.path("components", "compat", "3.4.0", "x86_64", "compat.tar.zst")))
+
+    # Skipping must not leave an empty directory behind that a sync would publish as a 0-byte artifact.
+    def test_no_empty_directory_is_left_for_a_skipped_component(self):
+        self.stage(release="3.6.0.1", published=self.PUBLISHED)
+        self.assertFalse(os.path.isdir(self.path("components", "compat")))
+
+
 class StackTarballSelection(StageTree):
     """With no explicit tarball, stage() must find it by UI_STACK_VERSION rather than by a fixed name."""
 

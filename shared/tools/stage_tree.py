@@ -98,8 +98,10 @@ def stage(build_dir, out_dir, channel, release, versions, published, ui_tarball=
 
         known = published.get((component, version))
         if known is not None:
-            # Already published at this version, so its bytes exist and must not be packed a second
-            # time: tar records mtimes, so a repack of identical contents hashes differently.
+            # Its bytes are already published at this version, and a component version's bytes are
+            # packed exactly once, ever: tar records mtimes, so repacking identical contents would
+            # change the sha256 and defeat the client's "skip what I already have". Nothing is
+            # written, not even the directory, so a sync cannot publish an empty artifact.
             arches["x86_64"] = dict(known)
         else:
             dest_dir = os.path.join(out_dir, "components", component, version, "x86_64")
