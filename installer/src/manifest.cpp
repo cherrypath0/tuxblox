@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "manifest.h"
+#include "release_file.h"
 #include "downloader.h"
 #include "json.hpp"
 #include "ca_bundle.h"
@@ -158,18 +159,32 @@ std::string fetchManifestJson(const std::string& url, const std::atomic<bool>* c
     return body;
 }
 
-std::optional<std::string> fetchLatestVersion(const std::string& baseUrl, const std::string& channel,
+std::optional<std::string> fetchLatestRelease(const std::string& baseUrl, const std::string& channel,
                                                const std::atomic<bool>* cancel) {
-    std::string json = fetchManifestJson(baseUrl + "/v2/latest.json", cancel);
+    std::string body = fetchManifestJson(latestPointerUrl(baseUrl, channel), cancel);
 
-    nlohmann::json j;
-    try {
-        j = nlohmann::json::parse(json);
-        const std::string version = j.at("channels").at(channel).get<std::string>();
-        return version.empty() ? std::nullopt : std::make_optional(version);
-    } catch (const nlohmann::json::exception& e) {
-        throw std::runtime_error(std::string("latest.json field error: ") + e.what());
+    const size_t first = body.find_first_not_of(" \t\r\n");
+    if (first == std::string::npos) return std::nullopt;
+    const std::string release = body.substr(first, body.find_last_not_of(" \t\r\n") - first + 1);
+
+    // Four dot-separated numbers and nothing else. The pointer is a few bytes of plain text from
+    // the network, and anything that is not a release version is "nothing to install" rather than
+    // something to go and ask for.
+    int fields = 1;
+    size_t digits = 0;
+    for (char c : release) {
+        if (c == '.') {
+            if (digits == 0) return std::nullopt;
+            digits = 0;
+            fields++;
+        } else if (c >= '0' && c <= '9') {
+            digits++;
+        } else {
+            return std::nullopt;
+        }
     }
+    if (digits == 0 || fields != 4) return std::nullopt;
+    return release;
 }
 
 } // namespace tuxblox

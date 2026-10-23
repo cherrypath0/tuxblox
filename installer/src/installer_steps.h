@@ -20,6 +20,7 @@
 #include <functional>
 #include <string>
 #include "manifest.h"
+#include "release_file.h"
 #include "progress.h"
 
 namespace tuxblox {
@@ -95,7 +96,8 @@ double downloadProgressFraction(uint64_t now, uint64_t total, uint64_t manifestS
 // (for testing against a temp directory instead of the real $HOME).
 // `robloxPlayerInstallerUrl`/`robloxStudioInstallerUrl` default to the
 // real Roblox CDN, overridable so tests can point them at local fixtures.
-InstallOutcome runInstall(const Manifest& manifest,
+InstallOutcome runInstall(const ReleaseFile& release,
+                           const std::string& baseUrl,
                            const StepProgressFn& onProgress,
                            const std::atomic<bool>* cancel,
                            bool isUpgrade,

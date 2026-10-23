@@ -16,6 +16,9 @@
 
 #include "app.h"
 #include "manifest.h"
+#include "release_file.h"
+#include <sstream>
+#include <fstream>
 #include "install_paths.h"
 #include "installer_steps.h"
 #include "desktop_shortcut.h"
@@ -30,6 +33,18 @@
 namespace fs = std::filesystem;
 
 namespace tuxblox {
+
+namespace {
+
+std::string readWholeFile(const std::string& path) {
+    std::ifstream in(path, std::ios::binary);
+    if (!in) throw std::runtime_error("cannot read " + path);
+    std::ostringstream body;
+    body << in.rdbuf();
+    return body.str();
+}
+
+} // namespace
 
 namespace {
 constexpr uint64_t kMinFreeBytes = 3ULL * 1024 * 1024 * 1024; // 3GB, per README
@@ -69,8 +84,8 @@ void clearSessionLogs(const std::string& dir) {
 }
 } // namespace
 
-App::App(std::string channel, bool useLatest, std::string installDirOverride)
-    : channel_(std::move(channel)), useLatest_(useLatest),
+App::App(std::string channel, ReleaseSource source, std::string installDirOverride)
+    : channel_(std::move(channel)), source_(std::move(source)),
       installDirOverride_(std::move(installDirOverride)) {}
 
 App::~App() {
@@ -138,49 +153,67 @@ void App::run() {
         if (cancelRequested_.load()) return;
 
         setPhase(AppPhase::FetchingManifest);
-        // Default: install the version this binary was built for, so the
-        // launcher, installer and compatibility layer of one release always
-        // land together and a downloaded installer keeps installing the same
-        // thing. --latest asks the channel for its newest release instead,
-        // which costs the extra /v2/latest.json round trip.
-        std::string version = kTuxBloxVersion;
-        if (useLatest_) {
-            auto latestVersion = fetchLatestVersion(kSetupBaseUrl, channel_, &cancelRequested_);
-            if (cancelRequested_.load()) return;
-            if (!latestVersion.has_value()) {
-                setError("No releases available for the '" + channel_ + "' channel yet.");
-                return;
-            }
-            version = *latestVersion;
-        }
-        const std::string manifestUrl =
-            std::string(kSetupBaseUrl) + "/v1/" + channel_ + "/" + version + "/manifest.json";
-        std::string json;
+        // Three ways in, and which one is in play was decided by the command line. The default is
+        // the channel's newest release: this binary's own version is its COMPONENT version now, not
+        // a release, so installing "the version it was built for" would ask for something that was
+        // never published.
+        std::string releaseJson;
         try {
-            json = fetchManifestJson(manifestUrl, &cancelRequested_);
+            if (source_.kind == ReleaseSource::Kind::File) {
+                // The launcher resolved this and wrote the bytes it read. Taking them rather than
+                // re-fetching is the point: two reads can straddle a pointer move, and the record
+                // written at the end of this install would then name a release nobody decided on.
+                releaseJson = readWholeFile(source_.path);
+            } else {
+                std::string release = source_.release;
+                if (release.empty()) {
+                    auto named = fetchLatestRelease(kSetupBaseUrl, channel_, &cancelRequested_);
+                    if (cancelRequested_.load()) return;
+                    if (!named.has_value()) {
+                        setError("No releases available for the '" + channel_ + "' channel yet.");
+                        return;
+                    }
+                    release = *named;
+                }
+                releaseJson = fetchManifestJson(
+                    releaseFileUrl(kSetupBaseUrl, channel_, release), &cancelRequested_);
+            }
         } catch (const std::exception& e) {
-            // A pinned version that isn't published reads as a raw 404 here,
-            // which tells the user nothing. Name the version and the way out.
-            // --latest has no version of its own to be missing: latest.json
-            // just named it, so any failure there is a genuine one.
-            // A cancel mid-transfer also arrives as an exception; it is not a
-            // missing version and must stay silent.
-            if (useLatest_ || cancelRequested_.load()) throw;
-            setError(std::string("TuxBlox ") + kTuxBloxVersion + " is not published on the '" +
-                     channel_ + "' channel. Re-run with --latest to install the newest "
-                     "release instead. (" + e.what() + ")");
+            // A named release that is not published reads as a raw 404, which tells the user
+            // nothing. The newest-release path has no number of its own to be missing -- the
+            // pointer just named it -- so a failure there is a genuine one. A cancel mid-transfer
+            // also arrives as an exception and must stay silent.
+            if (source_.kind != ReleaseSource::Kind::Named || cancelRequested_.load()) throw;
+            setError("Release " + source_.release + " is not published on the '" + channel_ +
+                     "' channel. Leave --release off to install the newest release instead. (" +
+                     e.what() + ")");
             return;
         }
-        Manifest manifest = parseManifest(json, kSetupBaseUrl);
         if (cancelRequested_.load()) return;
+
+        ReleaseFile release;
+        try {
+            release = parseReleaseFile(releaseJson);
+        } catch (const std::exception& e) {
+            setError(std::string("That release cannot be read: ") + e.what());
+            return;
+        }
+        // The handoff file has been read; it is scratch the launcher wrote for this one run.
+        if (source_.kind == ReleaseSource::Kind::File) {
+            std::error_code ec;
+            fs::remove(source_.path, ec);
+        }
+
 
         // Second, precise disk-space check now that the manifest gives us the
         // real artifact sizes. (The flat kMinFreeBytes check above still runs
         // first as a cheap pre-network rejection.) Sums every artifact the
         // manifest lists, not a fixed set -- see runInstall's own comment.
         uint64_t artifactBytes = 0;
-        for (const auto& [name, art] : manifest.artifacts) {
-            artifactBytes += art.sizeBytes;
+        for (const auto& [name, component] : release.components) {
+            const std::optional<ComponentBytes>& bytes =
+                std::string(hostArch()) == "arm64" ? component.arm64 : component.x86_64;
+            if (bytes.has_value()) artifactBytes += bytes->size;
         }
         const uint64_t requiredBytes =
             static_cast<uint64_t>(static_cast<double>(artifactBytes) * kPeakUsageFactor) +
@@ -192,7 +225,7 @@ void App::run() {
         }
 
         setPhase(AppPhase::Installing);
-        auto outcome = runInstall(manifest,
+        auto outcome = runInstall(release, kSetupBaseUrl,
             [&](const std::string& label, double percent) {
                 std::lock_guard<std::mutex> lock(mutex_);
                 snapshot_.currentStepLabel = label;

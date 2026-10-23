@@ -25,7 +25,7 @@
 namespace fs = std::filesystem;
 
 int main() {
-    using tuxblox::fetchLatestVersion;
+    using tuxblox::fetchLatestRelease;
     using tuxblox::parseManifest;
 
     const std::string baseUrl = "https://setup.tuxblox.net";
@@ -265,39 +265,30 @@ int main() {
 
     printf("manifest: parseManifest tests passed\n");
 
-    // --- fetchLatestVersion ---
+    // --- fetchLatestRelease ---
+    // The pointer is plain text now, not a field in a JSON object: one release version and
+    // nothing else. Everything that is not one reads as "nothing to install".
     {
         fs::path work = fs::temp_directory_path() / "tuxblox_test_installer_manifest_latest";
         fs::remove_all(work);
-        fs::create_directories(work / "v2");
-
-        {
-            std::ofstream out(work / "v2" / "latest.json");
-            out << R"({"channels": {"stable": "", "canary": "0.2.0", "experimental": ""}, "lastUpdate": "08/08/26 15:35:55"})";
-        }
+        fs::create_directories(work / "client" / "releases" / "canary");
+        fs::create_directories(work / "client" / "releases" / "stable");
         const std::string fileBaseUrl = "file://" + work.string();
 
-        auto canaryVersion = fetchLatestVersion(fileBaseUrl, "canary");
-        assert(canaryVersion.has_value());
-        assert(*canaryVersion == "0.2.0");
+        { std::ofstream out(work / "client" / "releases" / "canary" / "latest"); out << "3.6.0.1\n"; }
+        auto canary = fetchLatestRelease(fileBaseUrl, "canary");
+        assert(canary.has_value());
+        assert(*canary == "3.6.0.1");
 
-        // Empty string in latest.json -- no releases for this channel yet.
-        auto stableVersion = fetchLatestVersion(fileBaseUrl, "stable");
-        assert(!stableVersion.has_value());
-
-        // Channel key not present at all in latest.json's "channels" object.
-        threw = false;
-        try {
-            fetchLatestVersion(fileBaseUrl, "nonexistent-channel");
-        } catch (const std::runtime_error&) {
-            threw = true;
+        for (const char* body : {"", "   ", "3.6.0", "not-a-version"}) {
+            { std::ofstream out(work / "client" / "releases" / "stable" / "latest"); out << body; }
+            assert(!fetchLatestRelease(fileBaseUrl, "stable").has_value());
         }
-        assert(threw);
 
         fs::remove_all(work);
     }
 
-    printf("manifest: fetchLatestVersion tests passed\n");
+    printf("manifest: fetchLatestRelease tests passed\n");
     printf("manifest: all tests passed\n");
     return 0;
 }

@@ -18,6 +18,7 @@
 
 #include "version.h"
 #include <string>
+#include "release_file.h"
 
 namespace tuxblox {
 
@@ -42,13 +43,13 @@ struct CliOptions {
     // passes --channel during an upgrade handoff. "dev" is accepted on the
     // command line and stored as its new name, "experimental".
     std::string channel = kTuxBloxChannel;
-    // Install the newest release on the channel instead of the version this
-    // installer binary was built for. Off by default: an installer normally
-    // installs its own version, so the three halves of a release always match
-    // and a downloaded installer can't change what it installs over time.
-    // The launcher's upgrade handoff doesn't need it -- it downloads the new
-    // release's own installer and execs that.
-    bool latest = false;
+    // A specific release, for support: "3.6.0.1". Validated here rather than left to 404 later,
+    // because the likely slip is a three-field version, which is a COMPONENT version now.
+    std::string release;
+    // A release file already on disk, which is how the launcher hands one over. It passes the
+    // bytes it read rather than the release's number: two independent reads can straddle a pointer
+    // move, and the record this installer writes last would then name something nobody decided.
+    std::string releaseFile;
     // Where to install, for a manual install outside the home folder. Empty
     // means the default, which installDir() resolves. The launcher passes
     // this on a handoff so the installer cannot act on a different install
@@ -67,6 +68,18 @@ struct CliOptions {
 // stray positional arguments are reported through CliOptions::error rather
 // than ignored, so a typo can't silently change what the installer does.
 CliOptions parseArgs(int argc, const char* const* argv);
+
+// Where a run learns which release to install. The handoff file wins, then an explicitly named
+// release, and otherwise the channel's newest -- which is what a bare installer someone downloaded
+// does, because the version it was built for is its own component version and not a release at all.
+struct ReleaseSource {
+    enum class Kind { Latest, Named, File };
+    Kind kind = Kind::Latest;
+    std::string release;  // valid iff kind == Named
+    std::string path;     // valid iff kind == File
+};
+
+ReleaseSource releaseSourceFor(const CliOptions& options);
 
 // Human-readable usage block, printed for --help and for any usage error.
 const char* usageText();

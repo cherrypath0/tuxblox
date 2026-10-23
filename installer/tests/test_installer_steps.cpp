@@ -96,7 +96,6 @@ int main() {
     fs::path tarballSrc = work / "protonbuild.tar.zst";
     fs::path launcherSrc = work / "TuxBloxLauncherSrc";
     fs::path installerSrc = work / "TuxBloxInstallerSrc";
-    fs::path widgetSrc = work / "WidgetSrc"; // a non-launcher/installer/proton artifact, to prove genericness
     fs::path mcpSrc = work / "McpSrc";
     fs::path robloxPlayerSrc = work / "RobloxPlayerInstallerSrc.exe";
     fs::path robloxStudioSrc = work / "RobloxStudioInstallerSrc.exe";
@@ -116,10 +115,6 @@ int main() {
         out << "fake studio-mcp contents";
     }
     {
-        std::ofstream out(widgetSrc, std::ios::binary);
-        out << "fake widget contents";
-    }
-    {
         std::ofstream out(robloxPlayerSrc, std::ios::binary);
         out << "fake roblox player installer";
     }
@@ -130,66 +125,62 @@ int main() {
     const std::string robloxPlayerUrl = "file://" + robloxPlayerSrc.string();
     const std::string robloxStudioUrl = "file://" + robloxStudioSrc.string();
 
-    // Builds a manifest with the standard proton/launcher/installer trio
-    // PLUS a 4th, arbitrary "widget" artifact installed under a subfolder
-    // (path: "/extras") -- installer_steps.cpp hardcodes nothing about any
-    // of these names beyond "launcher" (needed to know what to exec at the
-    // end), so this is what actually exercises "installs everything inside
-    // artifacts" rather than just the historically-fixed three.
-    auto buildManifest = [&]() {
-        Manifest m;
-        m.manifestVersion = 2;
-        m.channel = "canary";
-
-        Artifact proton;
-        proton.url = "file://" + tarballSrc.string();
-        proton.sha256 = sha256File(tarballSrc.string());
-        proton.sizeBytes = fs::file_size(tarballSrc);
-        proton.displayname = "Proton";
-        proton.filename = "proton";
-        proton.path = "/";
-        m.artifacts["proton"] = proton;
-
-        Artifact launcher;
-        launcher.url = "file://" + launcherSrc.string();
-        launcher.sha256 = sha256File(launcherSrc.string());
-        launcher.sizeBytes = fs::file_size(launcherSrc);
-        launcher.displayname = "Launcher";
-        launcher.filename = "TuxBloxLauncher";
-        launcher.path = "/";
-        m.artifacts["launcher"] = launcher;
-
-        Artifact installer;
-        installer.url = "file://" + installerSrc.string();
-        installer.sha256 = sha256File(installerSrc.string());
-        installer.sizeBytes = fs::file_size(installerSrc);
-        installer.displayname = "Updater";
-        installer.filename = "TuxBloxInstaller";
-        installer.path = "/";
-        m.artifacts["installer"] = installer;
-
-        Artifact widget;
-        widget.url = "file://" + widgetSrc.string();
-        widget.sha256 = sha256File(widgetSrc.string());
-        widget.sizeBytes = fs::file_size(widgetSrc);
-        widget.displayname = "Widget";
-        widget.filename = "widget.txt";
-        widget.path = "/extras";
-        m.artifacts["widget"] = widget;
-
-        // Shaped exactly as stage_release() emits it.
-        Artifact mcp;
-        mcp.url = "file://" + mcpSrc.string();
-        mcp.sha256 = sha256File(mcpSrc.string());
-        mcp.sizeBytes = fs::file_size(mcpSrc);
-        mcp.displayname = "Studio MCP";
-        mcp.filename = "studio-mcp";
-        mcp.path = "/";
-        m.artifacts["mcp"] = mcp;
-
-        return m;
+    // A published tree, exactly as the CDN serves one:
+    //   client/components/<component>/<version>/x86_64/<published name>
+    // runInstall builds every URL from the release and the layout table, so an artifact cannot be
+    // pointed at an arbitrary file any more -- which means this exercises the real path
+    // construction rather than stepping around it.
+    const std::string releaseBaseUrl = "file://" + work.string();
+    const std::map<std::string, std::string> kVersions = {
+        {"compat", "3.3.0"}, {"launcher", "3.5.0"}, {"installer", "3.1.0"},
+        {"studio-mcp", "2.0.1"}, {"libtuxblox", "3.1.0"},
     };
-    const Manifest manifest = buildManifest();
+
+    auto publishedPath = [&](const std::string& name) {
+        return work / "client" / "components" / name / kVersions.at(name) / "x86_64" /
+               componentLayout(name)->publishedAs;
+    };
+    auto publishFrom = [&](const std::string& name, const fs::path& src) {
+        const fs::path dest = publishedPath(name);
+        fs::create_directories(dest.parent_path());
+        fs::copy_file(src, dest, fs::copy_options::overwrite_existing);
+    };
+
+    publishFrom("compat", tarballSrc);
+    publishFrom("launcher", launcherSrc);
+    publishFrom("installer", installerSrc);
+    publishFrom("studio-mcp", mcpSrc);
+    fs::create_directories(publishedPath("libtuxblox").parent_path());
+    makeFixtureTarZst(publishedPath("libtuxblox").string(), "fake libtuxblox dist");
+
+    // Publishes `src` as a NEW version of `name` and points `r` at it, leaving every other
+    // release's bytes alone.
+    auto republish = [&](ReleaseFile& r, const std::string& name, const std::string& version,
+                          const fs::path& src) {
+        const fs::path dest = work / "client" / "components" / name / version / "x86_64" /
+                               componentLayout(name)->publishedAs;
+        fs::create_directories(dest.parent_path());
+        fs::copy_file(src, dest, fs::copy_options::overwrite_existing);
+        r.components[name].version = version;
+        r.components[name].x86_64 = ComponentBytes{sha256File(dest.string()), fs::file_size(dest)};
+    };
+
+    auto buildRelease = [&]() {
+        ReleaseFile r;
+        r.release = "3.6.0.0";
+        r.channel = "canary";
+        r.changelog = "components";
+        for (const auto& [name, version] : kVersions) {
+            ReleaseComponent c;
+            c.version = version;
+            const fs::path file = publishedPath(name);
+            c.x86_64 = ComponentBytes{sha256File(file.string()), fs::file_size(file)};
+            r.components[name] = c;
+        }
+        return r;
+    };
+    const ReleaseFile release = buildRelease();
+    const std::string releaseJson = R"({"release":"3.6.0.0","channel":"canary"})";
 
     // Happy path: fresh install. Also pre-warms the Roblox Player/Studio
     // installer cache -- never runs them, only downloads and caches them
@@ -197,7 +188,7 @@ int main() {
     {
         std::string lastLabel;
         double lastPercent = -1.0;
-        auto outcome = runInstall(manifest,
+        auto outcome = runInstall(release, releaseBaseUrl,
             [&](const std::string& label, double percent) { lastLabel = label; lastPercent = percent; },
             nullptr, /*isUpgrade=*/false, installDirPath.string(),
             robloxPlayerUrl, robloxStudioUrl);
@@ -207,13 +198,11 @@ int main() {
         assert(lastLabel == "Downloading Roblox Studio"); // chronologically the final phase
         assert(lastPercent > 99.9);
         assert(fs::exists(installDirPath / "runtime"));
-        assert(fs::exists(installDirPath / "proton" / "main"));
+        assert(fs::exists(installDirPath / "compat" / "main"));
         assert(fs::exists(installDirPath / "TuxBloxLauncher"));
         assert(fs::exists(installDirPath / "TuxBloxInstaller"));
-        // The 4th, non-hardcoded artifact: proves the pipeline installs
-        // whatever the manifest lists, not a fixed trio -- and that
-        // artifact.path ("/extras") actually places it in a subfolder.
-        assert(fs::exists(installDirPath / "extras" / "widget.txt"));
+        // The interface libraries, which are an archive like the layer is.
+        assert(fs::exists(installDirPath / "libtuxblox"));
         // Studio MCP ships exactly as stage_release() publishes it: a flat
         // file at the install root. It must arrive executable, since it is run
         // as a program rather than read.
@@ -221,11 +210,6 @@ int main() {
         assert((fs::status(installDirPath / "studio-mcp").permissions() &
                 fs::perms::owner_exec) != fs::perms::none);
 
-        {
-            std::ifstream in(installDirPath / "extras" / "widget.txt", std::ios::binary);
-            std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-            assert(content == "fake widget contents");
-        }
         // The launcher's resolved install path comes back from the
         // pipeline itself, not assumed by the caller.
         assert(outcome.launcherPath == (installDirPath / "TuxBloxLauncher").string());
@@ -242,54 +226,35 @@ int main() {
     }
 
     // Archive-shaped launcher artifact: a "launcher" artifact whose URL ends
-    // in .tar.zst, whose manifest "filename" therefore names the DIRECTORY it
-    // extracts into rather than the executable. Not the shape currently
-    // shipped (the launcher is a flat file, with its interface libraries in
-    // the separate "libtuxblox" archive), but the shape is still fully supported and chosen from
-    // the URL, so it stays covered: this is what the flat-file case above
-    // cannot reach, and it's what InstallOutcome::launcherPath has to keep
-    // resolving to a runnable binary for -- main.cpp execs it and both
-    // .desktop Exec= lines name it.
+    // An archive component lands as a FOLDER named by its layout entry, with the archive root's
+    // entries directly inside it -- not nested one extra level. Whether a component is an archive
+    // comes from the layout table now rather than from its URL's extension, so the two that are
+    // archives (the layer and the libraries) are where this shape lives.
     {
-        fs::path launcherBundleSrc = work / "launcher.tar.zst";
-        makeFixtureBundleTarZst(launcherBundleSrc.string(), {
-            {"TuxBloxLauncher", "fake bundled launcher binary"},
-            {"qt.conf", "[Paths]\nPrefix = .\nPlugins = plugins\n"},
-            {"lib/libQt6Core.so.6", "fake bundled qt library"},
-            {"plugins/platforms/libqxcb.so", "fake bundled xcb plugin"},
-        }, "TuxBloxLauncher");
+        fs::path stackSrc = work / "libtuxblox_bundle.tar.zst";
+        makeFixtureBundleTarZst(stackSrc.string(), {
+            {"lib/libgtk-4.so", "fake gtk"},
+            {"share/icons/TuxBlox/index.theme", "[Icon Theme]\n"},
+            {"VERSION", "3.1.0\n"},
+        }, "lib/libgtk-4.so");
 
-        fs::path installDir8 = work / "install_launcher_bundle";
-        Manifest bundleManifest = manifest;
-        bundleManifest.artifacts["launcher"].url = "file://" + launcherBundleSrc.string();
-        bundleManifest.artifacts["launcher"].sha256 = sha256File(launcherBundleSrc.string());
-        bundleManifest.artifacts["launcher"].sizeBytes = fs::file_size(launcherBundleSrc);
-        bundleManifest.artifacts["launcher"].filename = "launcher"; // a directory now
+        fs::path installDir8 = work / "install_stack_bundle";
+        ReleaseFile bundled = release;
+        republish(bundled, "libtuxblox", "9.0.0", stackSrc);
 
-        auto outcome = runInstall(bundleManifest, [](const std::string&, double) {}, nullptr, false,
-            installDir8.string(), robloxPlayerUrl, robloxStudioUrl);
+        auto outcome = runInstall(bundled, releaseBaseUrl, [](const std::string&, double) {}, nullptr,
+            false, installDir8.string(), robloxPlayerUrl, robloxStudioUrl);
 
         assert(outcome.ok);
         assert(!outcome.cancelled);
-
-        // The whole bundle lands under installDir/launcher/, with the archive
-        // root's entries directly there -- NOT nested one extra level. A
-        // tarball packed with a top-level wrapper directory would instead
-        // produce installDir/launcher/launcher/TuxBloxLauncher, which is
-        // exactly what the packing convention exists to prevent.
-        assert(fs::exists(installDir8 / "launcher" / "TuxBloxLauncher"));
-        assert(fs::exists(installDir8 / "launcher" / "qt.conf"));
-        assert(fs::exists(installDir8 / "launcher" / "lib" / "libQt6Core.so.6"));
-        assert(fs::exists(installDir8 / "launcher" / "plugins" / "platforms" / "libqxcb.so"));
-        assert(!fs::exists(installDir8 / "launcher" / "launcher"));
-
-        // The regression this guards: launcherPath must be the executable,
-        // not the extraction directory. A directory here would give main.cpp
-        // an EACCES on execl() and write an unlaunchable Exec= into every
-        // .desktop entry createDesktopShortcut/refreshUrlHandlers produce.
-        assert(outcome.launcherPath == (installDir8 / "launcher" / "TuxBloxLauncher").string());
+        assert(fs::exists(installDir8 / "libtuxblox" / "lib" / "libgtk-4.so"));
+        assert(fs::exists(installDir8 / "libtuxblox" / "VERSION"));
+        // A tarball packed with a top-level wrapper directory would produce
+        // installDir/libtuxblox/libtuxblox/..., which is what the convention exists to prevent.
+        assert(!fs::exists(installDir8 / "libtuxblox" / "libtuxblox"));
+        // The launcher is a flat file and still the thing handed back to exec.
+        assert(outcome.launcherPath == (installDir8 / "TuxBloxLauncher").string());
         assert(fs::is_regular_file(outcome.launcherPath));
-        assert((fs::status(outcome.launcherPath).permissions() & fs::perms::owner_exec) != fs::perms::none);
     }
 
     // The packing convention, enforced: a launcher bundle packed WITH a
@@ -297,27 +262,24 @@ int main() {
     // PACKING CONVENTION comment warns about) must fail the install loudly
     // rather than "succeed" with a launcherPath pointing at nothing.
     {
-        fs::path badBundleSrc = work / "launcher_wrapped.tar.zst";
+        fs::path badBundleSrc = work / "libtuxblox_wrapped.tar.zst";
         makeFixtureBundleTarZst(badBundleSrc.string(), {
-            {"launcher/TuxBloxLauncher", "wrongly nested launcher binary"},
-            {"launcher/qt.conf", "[Paths]\n"},
-        }, "launcher/TuxBloxLauncher");
+            {"libtuxblox/lib/libgtk-4.so", "wrongly nested library"},
+            {"libtuxblox/VERSION", "3.1.0\n"},
+        }, "libtuxblox/lib/libgtk-4.so");
 
-        fs::path installDirWrapped = work / "install_launcher_wrapped";
-        Manifest wrappedManifest = manifest;
-        wrappedManifest.artifacts["launcher"].url = "file://" + badBundleSrc.string();
-        wrappedManifest.artifacts["launcher"].sha256 = sha256File(badBundleSrc.string());
-        wrappedManifest.artifacts["launcher"].sizeBytes = fs::file_size(badBundleSrc);
-        wrappedManifest.artifacts["launcher"].filename = "launcher";
+        fs::path installDirWrapped = work / "install_stack_wrapped";
+        ReleaseFile wrapped = release;
+        republish(wrapped, "libtuxblox", "9.0.1", badBundleSrc);
 
-        auto outcome = runInstall(wrappedManifest, [](const std::string&, double) {}, nullptr, false,
-            installDirWrapped.string(), robloxPlayerUrl, robloxStudioUrl);
+        auto outcome = runInstall(wrapped, releaseBaseUrl, [](const std::string&, double) {}, nullptr,
+            false, installDirWrapped.string(), robloxPlayerUrl, robloxStudioUrl);
 
         assert(!outcome.ok);
         assert(!outcome.cancelled);
         assert(outcome.errorMessage.find("wrapper directory") != std::string::npos);
         // The double nesting the convention exists to prevent, for the record.
-        assert(fs::exists(installDirWrapped / "launcher" / "launcher" / "TuxBloxLauncher"));
+        assert(fs::exists(installDirWrapped / "libtuxblox" / "libtuxblox"));
     }
 
     // A manifest with no "launcher" artifact fails fast, before any
@@ -325,11 +287,11 @@ int main() {
     // exec, so this is the one case installer_steps.cpp still hardcodes a
     // check for.
     {
-        Manifest noLauncher = manifest;
-        noLauncher.artifacts.erase("launcher");
+        ReleaseFile noLauncher = release;
+        noLauncher.components.erase("launcher");
         fs::path installDirNoLauncher = work / "install_no_launcher";
-        auto outcome = runInstall(noLauncher, [](const std::string&, double) {}, nullptr, false,
-            installDirNoLauncher.string(), robloxPlayerUrl, robloxStudioUrl);
+        auto outcome = runInstall(noLauncher, releaseBaseUrl, [](const std::string&, double) {},
+            nullptr, false, installDirNoLauncher.string(), robloxPlayerUrl, robloxStudioUrl);
         assert(!outcome.ok);
         assert(!outcome.cancelled);
         assert(outcome.errorMessage.find("launcher") != std::string::npos);
@@ -343,9 +305,9 @@ int main() {
     {
         fs::path installDir9 = work / "install_extract_progress";
         std::vector<double> protonPercents;
-        auto outcome = runInstall(manifest,
+        auto outcome = runInstall(release, releaseBaseUrl,
             [&](const std::string& label, double percent) {
-                if (label == "Downloading Proton") protonPercents.push_back(percent);
+                if (label == "Downloading Compatibility layer") protonPercents.push_back(percent);
             },
             nullptr, /*isUpgrade=*/false, installDir9.string(),
             robloxPlayerUrl, robloxStudioUrl);
@@ -367,7 +329,7 @@ int main() {
         fs::create_directories(playerCached.parent_path());
         { std::ofstream out(playerCached, std::ios::binary); out << "already cached, must survive"; }
 
-        auto outcome = runInstall(manifest, [](const std::string&, double) {}, nullptr, false, installDir2.string(),
+        auto outcome = runInstall(release, releaseBaseUrl, [](const std::string&, double) {}, nullptr, false, installDir2.string(),
             "file:///nonexistent/should_not_be_fetched_player.exe", robloxStudioUrl);
 
         assert(outcome.ok);
@@ -381,7 +343,7 @@ int main() {
     // covers it later, when the user actually launches).
     {
         fs::path installDir3 = work / "install_roblox_fetch_failed";
-        auto outcome = runInstall(manifest, [](const std::string&, double) {}, nullptr, false, installDir3.string(),
+        auto outcome = runInstall(release, releaseBaseUrl, [](const std::string&, double) {}, nullptr, false, installDir3.string(),
             "file:///nonexistent/should_fail_but_not_abort_install.exe", robloxStudioUrl);
 
         assert(outcome.ok);
@@ -393,11 +355,11 @@ int main() {
     // Checksum-mismatch path.
     {
         fs::path installDir4 = work / "install_bad_checksum";
-        Manifest badManifest = manifest;
-        badManifest.artifacts["proton"].sha256 =
+        ReleaseFile badRelease = release;
+        badRelease.components["compat"].x86_64->sha256 =
             "0000000000000000000000000000000000000000000000000000000000000";
-        auto badOutcome = runInstall(badManifest, [](const std::string&, double) {}, nullptr, false, installDir4.string(),
-            robloxPlayerUrl, robloxStudioUrl);
+        auto badOutcome = runInstall(badRelease, releaseBaseUrl, [](const std::string&, double) {},
+            nullptr, false, installDir4.string(), robloxPlayerUrl, robloxStudioUrl);
         assert(!badOutcome.ok);
         assert(!badOutcome.cancelled);
         assert(badOutcome.errorMessage.find("checksum mismatch") != std::string::npos);
@@ -407,7 +369,7 @@ int main() {
     // artifact. Downloads successfully, passes checksum verification, then
     // throws inside extractTarZst -- exercising the catch-all handler. The
     // partially-downloaded temp file (named after the component key, e.g.
-    // ".proton.tar.part") must be cleaned up rather than left orphaned in
+    // ".compat.tar.part") must be cleaned up rather than left orphaned in
     // the install directory.
     {
         fs::path corruptSrc = work / "corrupt_protonbuild.tar.zst";
@@ -417,67 +379,68 @@ int main() {
         }
 
         fs::path installDir5 = work / "install_extract_failure";
-        Manifest corruptManifest = manifest;
-        corruptManifest.artifacts["proton"].url = "file://" + corruptSrc.string();
-        corruptManifest.artifacts["proton"].sha256 = sha256File(corruptSrc.string());
-        corruptManifest.artifacts["proton"].sizeBytes = fs::file_size(corruptSrc);
+        ReleaseFile corruptRelease = release;
+        republish(corruptRelease, "compat", "9.0.2", corruptSrc);
 
-        auto corruptOutcome = runInstall(corruptManifest, [](const std::string&, double) {}, nullptr, false,
-            installDir5.string(), robloxPlayerUrl, robloxStudioUrl);
+        auto corruptOutcome = runInstall(corruptRelease, releaseBaseUrl,
+            [](const std::string&, double) {}, nullptr, false, installDir5.string(),
+            robloxPlayerUrl, robloxStudioUrl);
         assert(!corruptOutcome.ok);
         assert(!corruptOutcome.cancelled);
 
-        fs::path leftoverTarPart = installDir5 / ".proton.tar.part";
+        fs::path leftoverTarPart = installDir5 / ".compat.tar.part";
         assert(!fs::exists(leftoverTarPart));
     }
 
     // Upgrade path: an existing install (simulated: pre-populate the same
     // directory structure a prior install would have left) gets its
-    // proton/ replaced and its launcher/installer/widget files
+    // compat/ replaced and its launcher/installer files
     // replaced, while runtime/ and other pre-existing content survive
     // untouched.
     {
         fs::path installDir6 = work / "install_upgrade";
         fs::create_directories(installDir6 / "runtime");
-        fs::create_directories(installDir6 / "proton");
+        fs::create_directories(installDir6 / "compat");
         {
-            std::ofstream out(installDir6 / "proton" / "main");
-            out << "old proton binary";
+            std::ofstream out(installDir6 / "compat" / "main");
+            out << "old layer binary";
         }
         {
-            std::ofstream out(installDir6 / "proton" / "stale_file_removed_in_new_build.txt");
+            std::ofstream out(installDir6 / "compat" / "stale_file_removed_in_new_build.txt");
             out << "should be gone after upgrade";
         }
         fs::path runtimeMarker = installDir6 / "runtime" / "session_cookie.txt";
         { std::ofstream out(runtimeMarker); out << "must survive the upgrade"; }
 
-        auto upgradeOutcome = runInstall(manifest, [](const std::string&, double) {}, nullptr, /*isUpgrade=*/true,
+        auto upgradeOutcome = runInstall(release, releaseBaseUrl, [](const std::string&, double) {}, nullptr, /*isUpgrade=*/true,
             installDir6.string(), robloxPlayerUrl, robloxStudioUrl);
 
         assert(upgradeOutcome.ok);
         assert(!upgradeOutcome.cancelled);
         assert(fs::exists(runtimeMarker));                          // runtime/ untouched
-        assert(fs::exists(installDir6 / "proton" / "main"));        // new proton/ present
-        assert(!fs::exists(installDir6 / "proton" / "stale_file_removed_in_new_build.txt")); // old proton/ wiped
+        assert(fs::exists(installDir6 / "compat" / "main"));        // the new layer is present
+        assert(!fs::exists(installDir6 / "compat" / "stale_file_removed_in_new_build.txt")); // the old one is gone
         assert(fs::exists(installDir6 / "TuxBloxLauncher"));
         assert(fs::exists(installDir6 / "TuxBloxInstaller"));
-        assert(fs::exists(installDir6 / "extras" / "widget.txt"));
+        assert(fs::exists(installDir6 / "studio-mcp"));
+        assert(fs::exists(installDir6 / "libtuxblox"));
     }
 
     // Upgrade + checksum-mismatch path: a failed upgrade must not touch
-    // the pre-existing proton/ (never deleted until the replacement is
+    // the pre-existing compat/ (never deleted until the replacement is
     // verified) or anything else in the directory.
     {
         fs::path installDir7 = work / "install_upgrade_bad_checksum";
-        fs::create_directories(installDir7 / "proton");
-        fs::path survivorMarker = installDir7 / "proton" / "main";
+        fs::create_directories(installDir7 / "compat");
+        fs::path survivorMarker = installDir7 / "compat" / "main";
         { std::ofstream out(survivorMarker); out << "must survive a failed upgrade"; }
 
-        Manifest badUpgradeManifest = manifest;
-        badUpgradeManifest.artifacts["proton"].sha256 =
+        ReleaseFile badUpgrade = release;
+        badUpgrade.components["compat"].x86_64->sha256 =
             "0000000000000000000000000000000000000000000000000000000000000";
-        auto badUpgradeOutcome = runInstall(badUpgradeManifest, [](const std::string&, double) {}, nullptr, true,
-            installDir7.string(), robloxPlayerUrl, robloxStudioUrl);
+        auto badUpgradeOutcome = runInstall(badUpgrade, releaseBaseUrl,
+            [](const std::string&, double) {}, nullptr, true, installDir7.string(),
+            robloxPlayerUrl, robloxStudioUrl);
 
         assert(!badUpgradeOutcome.ok);
         assert(!badUpgradeOutcome.cancelled);
@@ -485,20 +448,11 @@ int main() {
         assert(fs::exists(installDir7)); // the directory itself must never be wiped on an upgrade failure
     }
 
-    // The shared libraries are one more artifact, extracted into libtuxblox/, and a package built for the new launcher
-    fs::path librariesSrc = work / "libtuxblox.tar.zst";
+    // The shared libraries are one more component, extracted into libtuxblox/
+    fs::path librariesSrc = work / "libtuxblox_new.tar.zst";
     makeFixtureBundleTarZst(librariesSrc.string(), {{"lib/x86_64-linux-gnu/libgtk-4.so.1", "new gtk library"}}, "");
-    Manifest withLibraries = manifest;
-    {
-        Artifact libraries;
-        libraries.url = "file://" + librariesSrc.string();
-        libraries.sha256 = sha256File(librariesSrc.string());
-        libraries.sizeBytes = fs::file_size(librariesSrc);
-        libraries.displayname = "Libraries";
-        libraries.filename = "libtuxblox";
-        libraries.path = "/";
-        withLibraries.artifacts["libtuxblox"] = libraries;
-    }
+    ReleaseFile withLibraries = release;
+    republish(withLibraries, "libtuxblox", "9.0.3", librariesSrc);
 
     // An install upgraded from a Qt launcher has Qt's libraries in the same folder, and upgrading replaces them as it replaces any other artifact
     {
@@ -509,8 +463,8 @@ int main() {
         fs::create_directories(runtimeMarker.parent_path());
         { std::ofstream out(runtimeMarker); out << "must survive the upgrade"; }
 
-        auto outcome = runInstall(withLibraries, [](const std::string&, double) {}, nullptr, /*isUpgrade=*/true,
-            installDir9.string(), robloxPlayerUrl, robloxStudioUrl);
+        auto outcome = runInstall(withLibraries, releaseBaseUrl, [](const std::string&, double) {},
+            nullptr, /*isUpgrade=*/true, installDir9.string(), robloxPlayerUrl, robloxStudioUrl);
 
         assert(outcome.ok);
         assert(!fs::exists(installDir9 / "libtuxblox" / "lib" / "libQt6Core.so.6"));
@@ -525,10 +479,11 @@ int main() {
         { std::ofstream out(installDir10 / "libtuxblox" / "lib" / "libQt6Core.so.6"); out << "old qt library"; }
         { std::ofstream out(installDir10 / "TuxBloxLauncher"); out << "old launcher binary"; }
 
-        Manifest badWidgetManifest = withLibraries;
-        badWidgetManifest.artifacts["widget"].sha256 = "0000000000000000000000000000000000000000000000000000000000000";
-        auto outcome = runInstall(badWidgetManifest, [](const std::string&, double) {}, nullptr, /*isUpgrade=*/true,
-            installDir10.string(), robloxPlayerUrl, robloxStudioUrl);
+        ReleaseFile badComponent = withLibraries;
+        badComponent.components["studio-mcp"].x86_64->sha256 =
+            "0000000000000000000000000000000000000000000000000000000000000";
+        auto outcome = runInstall(badComponent, releaseBaseUrl, [](const std::string&, double) {},
+            nullptr, /*isUpgrade=*/true, installDir10.string(), robloxPlayerUrl, robloxStudioUrl);
 
         assert(!outcome.ok);
         assert(fs::exists(installDir10 / "libtuxblox" / "lib" / "libQt6Core.so.6"));
@@ -541,7 +496,7 @@ int main() {
     {
         fs::path installDir12 = work / "install_order";
         std::vector<std::string> labels;
-        auto outcome = runInstall(withLibraries, [&](const std::string& label, double) {
+        auto outcome = runInstall(withLibraries, releaseBaseUrl, [&](const std::string& label, double) {
             if (label.rfind("Upgrading ", 0) == 0 && (labels.empty() || labels.back() != label)) labels.push_back(label);
         }, nullptr, /*isUpgrade=*/true, installDir12.string(), robloxPlayerUrl, robloxStudioUrl);
 
@@ -560,20 +515,20 @@ int main() {
         { std::ofstream out(installDir13 / "TuxBloxBootstrapper"); out << "old bootstrapper binary"; }
         assert(fs::exists(installDir13 / "TuxBloxBootstrapper"));
 
-        auto outcome = runInstall(manifest, [](const std::string&, double) {}, nullptr,
+        auto outcome = runInstall(release, releaseBaseUrl, [](const std::string&, double) {}, nullptr,
             /*isUpgrade=*/true, installDir13.string(), robloxPlayerUrl, robloxStudioUrl);
 
         assert(outcome.ok);
         assert(!fs::exists(installDir13 / "TuxBloxBootstrapper"));
         // And the upgrade still did everything else it was there to do.
         assert(fs::exists(installDir13 / "TuxBloxLauncher"));
-        assert(fs::exists(installDir13 / "proton" / "main"));
+        assert(fs::exists(installDir13 / "compat" / "main"));
     }
 
     // Having nothing to remove is the ordinary case and must not be an error.
     {
         fs::path installDir14 = work / "install_no_leftover";
-        auto outcome = runInstall(manifest, [](const std::string&, double) {}, nullptr,
+        auto outcome = runInstall(release, releaseBaseUrl, [](const std::string&, double) {}, nullptr,
             /*isUpgrade=*/true, installDir14.string(), robloxPlayerUrl, robloxStudioUrl);
 
         assert(outcome.ok);

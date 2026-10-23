@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #pragma once
+#include "cli.h"
 #include "version.h"
 
 #include <atomic>
@@ -57,13 +58,12 @@ public:
     // the launcher passed via --channel when handing off an upgrade.
     //
     // `useLatest` (the --latest flag) picks the newest version on that
-    // channel. Without it the version this binary was built for is installed,
-    // which is what keeps the launcher, installer and compatibility layer of
-    // one release together.
+    // `source` says which release to install: the newest on the channel, one named explicitly, or
+    // one described by a file the launcher already resolved and wrote.
     //
     // `installDirOverride` (the --dir flag) names the folder to install
     // into. Empty means installDir() decides.
-    explicit App(std::string channel = kTuxBloxChannel, bool useLatest = false,
+    explicit App(std::string channel = kTuxBloxChannel, ReleaseSource source = {},
                  std::string installDirOverride = "");
     ~App();
 
@@ -89,7 +89,7 @@ private:
     void run(); // background thread entry point
 
     std::string channel_;
-    bool useLatest_ = false;
+    ReleaseSource source_;
     std::string installDirOverride_;
     mutable std::mutex mutex_;
     AppSnapshot snapshot_;

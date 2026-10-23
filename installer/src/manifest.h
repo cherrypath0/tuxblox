@@ -68,10 +68,12 @@ Manifest parseManifest(const std::string& jsonText, const std::string& baseUrl);
 std::string fetchManifestJson(const std::string& url,
                                const std::atomic<bool>* cancel = nullptr);
 
-// Fetches baseUrl + "/v2/latest.json" and returns the currently-latest
-// version for `channel`, or std::nullopt if that channel has no releases
-// published yet (an empty string in latest.json).
-std::optional<std::string> fetchLatestVersion(const std::string& baseUrl, const std::string& channel,
+// The release `channel` currently publishes, from client/releases/<channel>/latest.
+//
+// std::nullopt covers every way there is nothing to install: a channel with nothing published yet,
+// and a pointer that is not a release version. Those are the same answer to a caller, and treating
+// a malformed pointer as a release would send it on to build a URL that cannot resolve.
+std::optional<std::string> fetchLatestRelease(const std::string& baseUrl, const std::string& channel,
                                                const std::atomic<bool>* cancel = nullptr);
 
 } // namespace tuxblox

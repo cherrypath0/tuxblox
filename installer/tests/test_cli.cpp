@@ -42,9 +42,9 @@ int main() {
         assert(!o.uninstall && !o.headless && !o.noLaunch && !o.help);
         // The channel this installer was built for, not a fixed one.
         assert(o.channel == tuxblox::kTuxBloxChannel);
-        // Off by default: a plain run installs the version this installer was
-        // built for, not whatever the channel happens to point at.
-        assert(!o.latest);
+        // Neither flag given: the newest release on the channel, which releaseSourceFor()
+        // reports and test_release_source.cpp pins.
+        assert(o.release.empty() && o.releaseFile.empty());
         assert(o.error.empty());
     }
 
@@ -69,7 +69,7 @@ int main() {
     }
     {
         CliOptions o = parse({"--latest"});
-        assert(o.latest && o.error.empty());
+        assert(o.error.empty());
     }
 
     // --channel consumes the following argument as its value.
@@ -84,15 +84,14 @@ int main() {
         CliOptions o = parse({"--nolaunch", "--channel", "beta", "--headless"});
         assert(o.headless && o.noLaunch);
         assert(o.channel == "beta");
-        assert(!o.latest);
         assert(o.error.empty());
     }
 
-    // --latest and --channel are independent: --latest picks which version on
+    // --release and --channel are independent: --release picks which version on
     // the channel, --channel picks which channel to take it from.
     {
-        CliOptions o = parse({"--latest", "--channel", "canary"});
-        assert(o.latest);
+        CliOptions o = parse({"--release", "3.6.0.1", "--channel", "canary"});
+        assert(o.release == "3.6.0.1");
         assert(o.channel == "canary");
         assert(o.error.empty());
     }

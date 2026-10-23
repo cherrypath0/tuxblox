@@ -74,7 +74,7 @@ int main(int argc, char **argv) {
         fflush(stdout);
     }
 
-    App app(options.channel, options.latest, options.dir);
+    App app(options.channel, releaseSourceFor(options), options.dir);
     app.start();
     const int result = runAdwInstall(app, options);
     if (result != 0) {

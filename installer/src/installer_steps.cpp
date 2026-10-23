@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "installer_steps.h"
+#include "release_file.h"
 #include <algorithm>
 #include "install_paths.h"
 #include "downloader.h"
@@ -99,7 +100,8 @@ double downloadProgressFraction(uint64_t now, uint64_t total, uint64_t manifestS
     return effectiveTotal > 0 ? static_cast<double>(now) / static_cast<double>(effectiveTotal) : 0.0;
 }
 
-InstallOutcome runInstall(const Manifest& manifest,
+InstallOutcome runInstall(const ReleaseFile& release,
+                           const std::string& baseUrl,
                            const StepProgressFn& onProgress,
                            const std::atomic<bool>* cancel,
                            bool isUpgrade,
@@ -112,29 +114,48 @@ InstallOutcome runInstall(const Manifest& manifest,
     // therefore each phase's progress weight) be known before any network
     // activity starts, and lets a missing "launcher" artifact fail fast
     // instead of only after downloading everything else.
+    // A plan per component the release names, in the layout's own order. Where it goes and what
+    // it is called while it lands come from the layout table, not from the release -- the release
+    // file describes what a release IS, not what an install looks like.
     std::vector<ArtifactPlan> plans;
-    plans.reserve(manifest.artifacts.size());
     uint64_t totalArtifactBytes = 0;
     bool hasLauncher = false;
-    for (const auto& [name, art] : manifest.artifacts) {
+    for (const std::string& name : componentNames()) {
+        const auto entry = release.components.find(name);
+        if (entry == release.components.end()) continue;
+        const std::optional<ComponentBytes>& bytes =
+            std::string(hostArch()) == "arm64" ? entry->second.arm64 : entry->second.x86_64;
+        if (!bytes.has_value()) {
+            return {false, false, "release " + release.release + " publishes no " + name +
+                                   " for this computer's processor", ""};
+        }
+        const ComponentLayout layout = *componentLayout(name);
+
         ArtifactPlan p;
         p.name = name;
-        p.artifact = art;
-        p.isArchive = isArchiveUrl(art.url);
-        p.targetPath = resolveTargetPath(dir, art);
+        p.artifact.url = componentUrl(baseUrl, name, entry->second.version, hostArch());
+        p.artifact.sha256 = bytes->sha256;
+        p.artifact.sizeBytes = bytes->size;
+        p.artifact.displayname = layout.displayName;
+        p.artifact.filename = layout.filename;
+        p.artifact.path = layout.path;
+        // From the layout rather than the URL's extension: what a component IS does not depend on
+        // how its published file happens to be named.
+        p.isArchive = layout.isArchive;
+        p.targetPath = resolveTargetPath(dir, p.artifact);
         p.tmpPath = dir + "/." + name + (p.isArchive ? ".tar.part" : ".part");
-        totalArtifactBytes += art.sizeBytes;
+        totalArtifactBytes += p.artifact.sizeBytes;
         if (name == "launcher") hasLauncher = true;
         plans.push_back(std::move(p));
     }
     if (plans.empty()) {
-        return {false, false, "manifest has no artifacts to install", ""};
+        return {false, false, "this release names no components to install", ""};
     }
     // Everything else first, then the libraries, then the launcher: a download that fails part-way leaves the old launcher beside the libraries it needs, and the two only differ for the length of one small download
     auto installRank = [](const ArtifactPlan& plan) { return plan.name == "launcher" ? 2 : plan.name == "libtuxblox" ? 1 : 0; };
     std::stable_sort(plans.begin(), plans.end(), [&](const ArtifactPlan& a, const ArtifactPlan& b) { return installRank(a) < installRank(b); });
     if (!hasLauncher) {
-        return {false, false, "manifest has no 'launcher' artifact -- nothing to hand off to", ""};
+        return {false, false, "this release names no launcher -- nothing to hand off to", ""};
     }
 
     // Phase budget: a small fixed slice for creating the directory and each
@@ -240,6 +261,18 @@ InstallOutcome runInstall(const Manifest& manifest,
                         report(phaseIndex, 0.95 + 0.05 * frac);
                     });
                 fs::remove(plan.tmpPath);
+
+                // The packing convention, enforced for every archive rather than only the one that
+                // used to be one. An archive packed WITH a top-level wrapper directory extracts to
+                // <target>/<name>/..., so nothing lands where the install expects it and every
+                // downstream consumer silently points at a path that does not exist. The signature
+                // is unmistakable: a directory inside the target with the target's own name.
+                if (fs::is_directory(fs::path(plan.targetPath) / plan.artifact.filename)) {
+                    cleanupTmpPaths();
+                    return {false, false,
+                            plan.artifact.displayname + " was packed with a wrapper directory, "
+                            "which breaks the install layout", ""};
+                }
             } else {
                 fs::create_directories(fs::path(plan.targetPath).parent_path());
                 std::error_code renameEc;

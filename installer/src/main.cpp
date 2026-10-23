@@ -216,7 +216,7 @@ int main(int argc, char** argv) {
         return ok ? 0 : 1;
     }
 
-    App app(options.channel, options.latest, options.dir);
+    App app(options.channel, releaseSourceFor(options), options.dir);
     app.start();
 
     if (options.headless) {
