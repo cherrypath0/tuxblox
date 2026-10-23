@@ -113,6 +113,7 @@ add_library(launcher_core STATIC
     ${TUXBLOX_SHARED_RELEASE}/release_file.cpp
     src/app.cpp
     src/discord_rpc.cpp
+    src/about_versions.cpp
     src/update_decision.cpp
     src/bloxstrap_rpc.cpp
     src/player_presence.cpp

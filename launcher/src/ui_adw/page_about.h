@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #pragma once
+#include <string>
 #include "page.h"
 
 // Third Parties
@@ -24,7 +25,7 @@ namespace tuxblox {
 
 class AboutPage : public Page {
 public:
-    AboutPage();
+    explicit AboutPage(std::string installDir);
     GtkWidget *widget() const override;
     void update(const AppSnapshot &) override {}
 

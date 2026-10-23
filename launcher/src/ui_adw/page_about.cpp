@@ -25,6 +25,7 @@
 #include "open_url.h"
 #include "tuxblox_logo_png.h"
 #include "version.h"
+#include "about_versions.h"
 #include "widgets.h"
 
 #include <string>
@@ -59,8 +60,10 @@ GtkWidget *centredLabel(const std::string &text, const char *pStyleClass) {
 
 } // namespace
 
-AboutPage::AboutPage() {
+AboutPage::AboutPage(std::string installDir) {
     pRoot_ = adw_preferences_page_new();
+
+    const AboutVersions versions = aboutVersions(installDir, kTuxBloxVersion);
 
     GdkPaintable *pLogo = logoPaintable(kTuxbloxLogoPng, kTuxbloxLogoPngLen, 96);
     GtkWidget *pLogoImage = gtk_image_new_from_paintable(pLogo);
@@ -70,15 +73,30 @@ AboutPage::AboutPage() {
     GtkWidget *pHeader = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
     gtk_box_append(GTK_BOX(pHeader), pLogoImage);
     gtk_box_append(GTK_BOX(pHeader), centredLabel("TuxBlox", "title-1"));
-    gtk_box_append(GTK_BOX(pHeader),
-                   centredLabel(std::string("Version ") + kTuxBloxVersion + " \xC2\xB7 " + kTuxBloxChannel + " channel",
-                                "dim-label"));
+    // The release, which is what identifies this install. A component version appears in several
+    // releases, so no binary can name the one it belongs to -- it is read from what the install
+    // recorded. An install made before that was recorded falls back to naming this program.
+    const std::string identity = versions.release.empty()
+        ? std::string("Launcher ") + kTuxBloxVersion
+        : "Release " + versions.release + " \xC2\xB7 " + versions.channel + " channel";
+    gtk_box_append(GTK_BOX(pHeader), centredLabel(identity, "dim-label"));
     gtk_box_append(GTK_BOX(pHeader),
                    centredLabel("A free, open source launcher and compatibility layer for running Roblox on Linux.",
                                 nullptr));
     GtkWidget *pHeaderGroup = adw_preferences_group_new();
     adw_preferences_group_add(ADW_PREFERENCES_GROUP(pHeaderGroup), pHeader);
     adw_preferences_page_add(ADW_PREFERENCES_PAGE(pRoot_), ADW_PREFERENCES_GROUP(pHeaderGroup));
+
+    // Behind an expander rather than beside the release: the five numbers are worth showing for a
+    // bug report, and two version numbers side by side read as an install at odds with itself.
+    GtkWidget *pComponents = adw_preferences_group_new();
+    GtkWidget *pExpander = adw_expander_row_new();
+    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(pExpander), "Component versions");
+    for (const auto &[name, version] : versions.components) {
+        adw_expander_row_add_row(ADW_EXPANDER_ROW(pExpander), plainActionRow(name.c_str(), version.c_str()));
+    }
+    adw_preferences_group_add(ADW_PREFERENCES_GROUP(pComponents), pExpander);
+    adw_preferences_page_add(ADW_PREFERENCES_PAGE(pRoot_), ADW_PREFERENCES_GROUP(pComponents));
 
     GtkWidget *pLinks = adw_preferences_group_new();
     adw_preferences_group_set_title(ADW_PREFERENCES_GROUP(pLinks), "Links");

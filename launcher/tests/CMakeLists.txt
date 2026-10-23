@@ -49,6 +49,10 @@ add_executable(test_process_launcher test_process_launcher.cpp)
 target_link_libraries(test_process_launcher PRIVATE launcher_core)
 add_test(NAME process_launcher COMMAND test_process_launcher)
 
+add_executable(test_about_versions test_about_versions.cpp)
+target_link_libraries(test_about_versions PRIVATE launcher_core)
+add_test(NAME about_versions COMMAND test_about_versions)
+
 add_executable(test_update_decision test_update_decision.cpp)
 target_link_libraries(test_update_decision PRIVATE launcher_core)
 add_test(NAME update_decision COMMAND test_update_decision)
