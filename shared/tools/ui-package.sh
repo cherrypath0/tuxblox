@@ -157,7 +157,9 @@ writeTarball() {
     mkdir -p "$OutDir"
     # The commit rides inside the tarball so the copyright notice names the libadwaita that was actually built, however old the tarball is
     printf '%s\n' "${LIBADWAITA_COMMIT:?build.sh passes the full submodule commit}" > "$StageDir/LIBADWAITA_COMMIT"
-    tar -C "$StageDir" -cf - lib share fonts LIBADWAITA_COMMIT | zstd -19 -T0 -q -o "$OutDir/$Tarball" -f
+    # The launcher cannot run a directory of shared libraries to ask its version, so the stack carries it as a file.
+    printf '%s\n' "${LIBTUXBLOX_VERSION:?ui-versions.env sets the component version}" > "$StageDir/VERSION"
+    tar -C "$StageDir" -cf - lib share fonts LIBADWAITA_COMMIT VERSION | zstd -19 -T0 -q -o "$OutDir/$Tarball" -f
 }
 
 writeDevTree() {

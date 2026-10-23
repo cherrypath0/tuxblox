@@ -215,7 +215,15 @@ if [[ $stage_only -eq 1 ]]; then
 else
     echo ":: Building TuxBlox $TUXBLOX_BUILD_VERSION ($TUXBLOX_CHANNEL)"
 fi
-export TUXBLOX_BUILD_VERSION TUXBLOX_CHANNEL
+# The layer's own version, which the compile step stamps in rather than the release's.
+if [[ -r "$ROOT/compat/VERSION" ]]; then
+    TUXBLOX_COMPAT_VERSION="$(sed -n '1p' "$ROOT/compat/VERSION" | tr -d '[:space:]')"
+else
+    echo "!! compat/VERSION is missing, so the layer cannot be stamped with a version." >&2
+    exit 1
+fi
+
+export TUXBLOX_BUILD_VERSION TUXBLOX_CHANNEL TUXBLOX_COMPAT_VERSION
 
 packages=(
     python3
@@ -825,10 +833,10 @@ run_step "compile_proton_native" strict bash -c '
     # Run through sh so the find runs inside the container.
     podman run --rm --userns=keep-id -v "$workdir:/work:Z" -w /work/src \
         -v "$ROOT/build/.artifacts/shared:/shared:ro,z" \
-        -e TUXBLOX_BUILD_VERSION -e TUXBLOX_CHANNEL \
+        -e TUXBLOX_COMPAT_VERSION -e TUXBLOX_CHANNEL \
         tuxblox-old-glibc-builder sh -c \
         '"'"'g++ -std=c++17 -O2 -Wall -Wextra -static-libstdc++ -static-libgcc -I. -I/shared/include \
-            -DTUXBLOX_VERSION="\"$TUXBLOX_BUILD_VERSION\"" \
+            -DTUXBLOX_VERSION="\"$TUXBLOX_COMPAT_VERSION\"" \
             -DTUXBLOX_CHANNEL="\"$TUXBLOX_CHANNEL\"" \
             -o /work/out/main $(find . -name "*.cpp") \
             /shared/lib/libcrypto.a -ldl -lpthread'"'"'

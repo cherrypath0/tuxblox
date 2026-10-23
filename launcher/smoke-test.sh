@@ -78,9 +78,10 @@ test "$status" -ne 0 || fail 'it ran without its interface libraries'
 grep -q 'error while loading shared libraries' /tmp/missing.txt || { cat /tmp/missing.txt; fail 'the failure does not name the loader'; }
 printf 'OK: a missing libtuxblox folder fails to load (exit %s)\n' "$status"
 
-# Case B: with them, the version is the x.y.z-channel string every component is compared by.
+# Case B: with them, the version is this component's own bare x.y.z -- no channel, because one
+# component build serves every channel and which channel an install follows is the install's setting.
 version="$(run "$root/TuxBloxLauncher" --version)"
-[[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+-(stable|canary|experimental)$ ]] || fail "unexpected --version output: $version"
+[[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "unexpected --version output: $version"
 printf 'OK: --version prints %s\n' "$version"
 
 # Case C: no display. The window cannot open, and the launcher must say so and exit 1 rather than let GTK exit for it.

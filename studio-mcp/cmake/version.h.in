@@ -22,5 +22,5 @@ constexpr const char* kTuxBloxChannel = "@TUXBLOX_MCP_CHANNEL@";
 
 // "x.y.z-channel", the form every TuxBlox binary answers --version with, so
 // the launcher can spot a half-updated install with one comparison.
-constexpr const char* kTuxBloxBuildId = "@TUXBLOX_MCP_VERSION@-@TUXBLOX_MCP_CHANNEL@";
+constexpr const char* kTuxBloxBuildId = "@TUXBLOX_MCP_VERSION@";
 } // namespace tuxblox

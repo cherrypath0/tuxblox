@@ -59,7 +59,7 @@ int main(int argc, char **argv) {
         return 0;
     }
     if (options.version) {
-        printf("%s-%s\n", kTuxBloxVersion, kTuxBloxChannel);
+        printf("%s\n", kTuxBloxVersion);
         return 0;
     }
 

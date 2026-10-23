@@ -54,7 +54,6 @@ namespace {
 // Version variables
 const std::string TuxBloxVersion = TUXBLOX_VERSION;
 const std::string TuxBloxChannel = TUXBLOX_CHANNEL;
-const std::string PrefixVersion = TuxBloxVersion + "-" + TuxBloxChannel;
 
 const std::array<std::string, 6> RobloxProcesses = {
     // Clients
@@ -168,7 +167,7 @@ CommandLine parseCommandLine(int argc, char *argv[]) {
         }
 
         if (argument == "--version") {
-            std::cout << PrefixVersion << std::endl;
+            std::cout << TuxBloxVersion << std::endl;
             parsed.handled = true;
             return parsed;
         }
@@ -246,7 +245,7 @@ int runMain(int argc, char *argv[]) {
 
     const std::string invocation = tuxblox::joinCommandLine({argv, argv + argc});
 
-    tuxblox::log("Running TuxBlox version " + TuxBloxVersion + "-" + TuxBloxChannel);
+    tuxblox::log("Running TuxBlox version " + TuxBloxVersion + " on the " + TuxBloxChannel + " channel");
     tuxblox::log("Commandline: " + invocation);
 
     // Authenticode verification to ensure the Roblox executables used are legitimate and not tampered with
@@ -273,12 +272,12 @@ int runMain(int argc, char *argv[]) {
     const std::filesystem::path prefixDir = std::filesystem::path(pPrefixDir) / "pfx";
 
     tuxblox::Session session(proton, prefixDir);
-    session.buildVersion = TuxBloxVersion + "-" + TuxBloxChannel;
+    session.buildVersion = TuxBloxVersion;
     session.invocation = invocation;
     session.ownsPrefix = !command.runImmediately;
     session.initWine();
 
-    tuxblox::Prefix prefix(proton, std::filesystem::path(pPrefixDir), PrefixVersion);
+    tuxblox::Prefix prefix(proton, std::filesystem::path(pPrefixDir), TuxBloxVersion);
 
     if (command.mode == RunMode::Destroy) {
         prefix.removeTrackedFiles();

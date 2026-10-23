@@ -71,15 +71,14 @@ file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/generated)
 # and the compatibility layer. launcher/build.sh sets it from the repo-root
 # VERSION file when run standalone, so in practice it is always set.
 #
-# The repo-root VERSION is only the second choice because it is not reachable
-# from inside the build container -- only launcher/ is mounted there. It still
-# resolves for a bare `cmake -B build -S .` run on the host, which is the one
-# case that reaches it. Anything else gets a version that is obviously a
-# placeholder rather than a plausible-looking wrong number.
+# launcher/VERSION is only the second choice because build.sh reads it on the
+# host and passes it in. It still resolves for a bare `cmake -B build -S .` run,
+# which is the one case that reaches it. Anything else gets a version that is
+# obviously a placeholder rather than a plausible-looking wrong number.
 if(NOT "$ENV{TUXBLOX_BUILD_VERSION}" STREQUAL "")
     set(TUXBLOX_LAUNCHER_VERSION "$ENV{TUXBLOX_BUILD_VERSION}")
-elseif(EXISTS "${CMAKE_SOURCE_DIR}/../VERSION")
-    file(STRINGS "${CMAKE_SOURCE_DIR}/../VERSION" TUXBLOX_LAUNCHER_VERSION LIMIT_COUNT 1)
+elseif(EXISTS "${CMAKE_SOURCE_DIR}/VERSION")
+    file(STRINGS "${CMAKE_SOURCE_DIR}/VERSION" TUXBLOX_LAUNCHER_VERSION LIMIT_COUNT 1)
 else()
     set(TUXBLOX_LAUNCHER_VERSION "0.0.0-dev")
 endif()

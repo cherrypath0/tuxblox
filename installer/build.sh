@@ -105,17 +105,17 @@ echo ":: Configuring + Building (in podman, rootless, old-glibc baseline)"
 # container, so an env var exported by the root build.sh on the host is invisible
 # to it otherwise.
 #
-# The repo-root VERSION file cannot cover that fallback by itself, because only
-# installer/ is mounted at /src -- the root of the repo is not reachable from
-# inside the container at all. So a standalone run of this script (no root
-# build.sh, hence no env var) reads VERSION here on the HOST and passes the
-# value in through the same variable, which is why one number reaches the
-# launcher, the installer and the compatibility layer either way.
-if [[ -z "${TUXBLOX_BUILD_VERSION:-}" && -r "$(pwd)/../VERSION" ]]; then
-    TUXBLOX_BUILD_VERSION="$(sed -n '1p' "$(pwd)/../VERSION" | tr -d '[:space:]')"
+# The version comes from this component's own VERSION file, read here on the
+# HOST: only installer/ is mounted at /src, so cmake inside the container cannot
+# reach anything else, and each component now carries its own number rather
+# than sharing the repo-root one.
+# Unconditional, not a fallback: the root build.sh exports the RELEASE version in this variable, and
+# that is not this component's version, so the file has to win rather than fill in a gap.
+if [[ -r "$(pwd)/VERSION" ]]; then
+    TUXBLOX_BUILD_VERSION="$(sed -n '1p' "$(pwd)/VERSION" | tr -d '[:space:]')"
 fi
 
-# The channel rides along for the same reason, from line 2 of the same file.
+# The channel is still a property of the release rather than of this component, so it comes from line 2 of the repo-root VERSION.
 if [[ -z "${TUXBLOX_CHANNEL:-}" && -r "$(pwd)/../VERSION" ]]; then
     TUXBLOX_CHANNEL="$(sed -n '2p' "$(pwd)/../VERSION" | tr -d '[:space:]')"
 fi

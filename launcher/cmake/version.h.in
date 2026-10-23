@@ -24,7 +24,8 @@ constexpr const char* kTuxBloxVersion = "@TUXBLOX_LAUNCHER_VERSION@";
 // the update lands. Anything describing what is running reads this one.
 constexpr const char* kTuxBloxChannel = "@TUXBLOX_LAUNCHER_CHANNEL@";
 
-// "x.y.z-channel", the form every TuxBlox binary answers --version with, so
-// one string comparison decides whether an install is of a piece.
-constexpr const char* kTuxBloxBuildId = "@TUXBLOX_LAUNCHER_VERSION@-@TUXBLOX_LAUNCHER_CHANNEL@";
+// "x.y.z", this component's own version and what it answers --version with.
+// It carries no channel: the same component build serves every channel, and
+// which channel an install follows is the install's setting, not the binary's.
+constexpr const char* kTuxBloxBuildId = "@TUXBLOX_LAUNCHER_VERSION@";
 } // namespace tuxblox
