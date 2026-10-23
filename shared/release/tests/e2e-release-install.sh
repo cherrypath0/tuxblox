@@ -120,7 +120,10 @@ if ss -ltn 2>/dev/null | grep -q ':18099 '; then
     fail "port 18099 is already in use"
     printf ':: %d failure(s)\n' "$fails"; exit 1
 fi
-(cd "$Cdn" && python3 -m http.server 18099 --bind 127.0.0.1 > "$Work/server.log" 2>&1) &
+# `exec` so the subshell is REPLACED by the server: without it $! is the subshell, the trap kills
+# that, and the server keeps the port -- which makes the next run fail on a port already in use
+# rather than on anything it is testing.
+(cd "$Cdn" && exec python3 -m http.server 18099 --bind 127.0.0.1 > "$Work/server.log" 2>&1) &
 ServerPid=$!
 for _ in $(seq 1 50); do
     curl -fs -o /dev/null "http://127.0.0.1:18099/client/releases/stable/latest" && break
