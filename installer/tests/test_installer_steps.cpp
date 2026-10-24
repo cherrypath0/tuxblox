@@ -133,7 +133,7 @@ int main() {
     const std::string robloxStudioUrl = "file://" + robloxStudioSrc.string();
 
     // A published tree, exactly as the CDN serves one:
-    //   client/components/<component>/<version>/x86_64/<published name>
+    //   client/<component>/<version>/x86_64/<published name>
     // runInstall builds every URL from the release and the layout table, so an artifact cannot be
     // pointed at an arbitrary file any more -- which means this exercises the real path
     // construction rather than stepping around it.
@@ -144,7 +144,7 @@ int main() {
     };
 
     auto publishedPath = [&](const std::string& name) {
-        return work / "client" / "components" / name / kVersions.at(name) / "x86_64" /
+        return work / "client" / name / kVersions.at(name) / "x86_64" /
                componentLayout(name)->publishedAs;
     };
     auto publishFrom = [&](const std::string& name, const fs::path& src) {
@@ -166,7 +166,7 @@ int main() {
     // release's bytes alone.
     auto republish = [&](ReleaseFile& r, const std::string& name, const std::string& version,
                           const fs::path& src) {
-        const fs::path dest = work / "client" / "components" / name / version / "x86_64" /
+        const fs::path dest = work / "client" / name / version / "x86_64" /
                                componentLayout(name)->publishedAs;
         fs::create_directories(dest.parent_path());
         fs::copy_file(src, dest, fs::copy_options::overwrite_existing);

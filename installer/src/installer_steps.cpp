@@ -16,6 +16,7 @@
 
 #include "installer_steps.h"
 #include "release_file.h"
+#include <cstdio>
 #include <algorithm>
 #include "install_paths.h"
 #include "downloader.h"
@@ -245,15 +246,27 @@ InstallOutcome runInstall(const ReleaseFile& release,
 
             report(phaseIndex, 0.0);
             tmpPathsInFlight.push_back(plan.tmpPath);
-            auto dlOutcome = downloadFile(plan.artifact.url, plan.tmpPath,
-                [&](uint64_t now, uint64_t total) {
-                    // Some CDN configurations (chunked responses) don't
-                    // report a Content-Length, leaving curl's `total` at 0
-                    // for the whole transfer -- fall back to the
-                    // manifest's declared size so the bar still advances
-                    // instead of sitting at 0% until it jumps to 100%.
-                    report(phaseIndex, downloadProgressFraction(now, total, plan.artifact.sizeBytes) * 0.9);
-                }, cancel);
+            auto attempt = [&](const std::string& from) {
+                return downloadFile(from, plan.tmpPath,
+                    [&](uint64_t now, uint64_t total) {
+                        // Some CDN configurations (chunked responses) don't
+                        // report a Content-Length, leaving curl's `total` at 0
+                        // for the whole transfer -- fall back to the
+                        // manifest's declared size so the bar still advances
+                        // instead of sitting at 0% until it jumps to 100%.
+                        report(phaseIndex, downloadProgressFraction(now, total, plan.artifact.sizeBytes) * 0.9);
+                    }, cancel);
+            };
+            auto dlOutcome = attempt(plan.artifact.url);
+            // The edge is an optimisation; the origin behind it is the truth. Without this an
+            // update is detected and then cannot be installed, which is a worse place to stop
+            // than never having noticed it.
+            if (dlOutcome.result == DownloadResult::Failed && baseUrl == releasesEdgeUrl()) {
+                fprintf(stderr, "TuxBlox: %s did not serve %s; asking %s instead\n",
+                        baseUrl.c_str(), plan.name.c_str(), releasesOriginUrl().c_str());
+                dlOutcome = attempt(componentUrl(releasesOriginUrl(), plan.name,
+                                                  release.components.at(plan.name).version, hostArch()));
+            }
             if (dlOutcome.result == DownloadResult::Cancelled) { cleanupTmpPaths(); return {false, true, "", ""}; }
             if (dlOutcome.result == DownloadResult::Failed) {
                 cleanupTmpPaths();

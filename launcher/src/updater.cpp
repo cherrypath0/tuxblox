@@ -165,7 +165,17 @@ UpdateResult runUpdateCheck(const std::string& baseUrl,
 
     UpdateResult result;
     try {
-        result.releaseJson = fetchManifestJson(releaseFileUrl(baseUrl, channel, namedRelease), cancel);
+        try {
+            result.releaseJson = fetchManifestJson(releaseFileUrl(baseUrl, channel, namedRelease), cancel);
+        } catch (const std::exception&) {
+            // Including a 404: the edge not having a release file is not evidence the release does
+            // not exist, only that the edge could not produce it.
+            if (baseUrl != releasesEdgeUrl()) throw;
+            fprintf(stderr, "TuxBlox: %s did not serve release %s; asking %s instead\n",
+                    baseUrl.c_str(), namedRelease.c_str(), releasesOriginUrl().c_str());
+            result.releaseJson = fetchManifestJson(
+                releaseFileUrl(releasesOriginUrl(), channel, namedRelease), cancel);
+        }
         result.release = parseReleaseFile(result.releaseJson);
     } catch (const std::exception& e) {
         // A pointer naming a release whose file is not there is a broken CDN, not a reason to

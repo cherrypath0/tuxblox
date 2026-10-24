@@ -54,10 +54,10 @@ namespace {
 #ifdef TUXBLOX_TEST_SETUP_URL
 const char* setupBaseUrl() {
     const char* override = std::getenv("TUXBLOX_SETUP_URL");
-    return (override && *override) ? override : "https://setup.tuxblox.net";
+    return (override && *override) ? override : releasesBaseUrl().c_str();
 }
 #else
-const char* setupBaseUrl() { return "https://setup.tuxblox.net"; }
+const char* setupBaseUrl() { return releasesBaseUrl().c_str(); }
 #endif
 
 // "%Y-%m-%dT%H:%M:%SZ" -- same strftime/gmtime_r pattern as

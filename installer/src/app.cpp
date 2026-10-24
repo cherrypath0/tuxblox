@@ -57,10 +57,10 @@ constexpr uint64_t kMinFreeBytes = 3ULL * 1024 * 1024 * 1024; // 3GB, per README
 #ifdef TUXBLOX_TEST_SETUP_URL
 const char* setupBaseUrl() {
     const char* override = std::getenv("TUXBLOX_SETUP_URL");
-    return (override && *override) ? override : "https://setup.tuxblox.net";
+    return (override && *override) ? override : releasesBaseUrl().c_str();
 }
 #else
-const char* setupBaseUrl() { return "https://setup.tuxblox.net"; }
+const char* setupBaseUrl() { return releasesBaseUrl().c_str(); }
 #endif
 
 // Peak disk usage during install is roughly (compressed download + fully
@@ -188,8 +188,14 @@ void App::run() {
                     }
                     release = *named;
                 }
-                releaseJson = fetchManifestJson(
-                    releaseFileUrl(setupBaseUrl(), channel_, release), &cancelRequested_);
+                try {
+                    releaseJson = fetchManifestJson(
+                        releaseFileUrl(setupBaseUrl(), channel_, release), &cancelRequested_);
+                } catch (const std::exception&) {
+                    if (std::string(setupBaseUrl()) != releasesEdgeUrl()) throw;
+                    releaseJson = fetchManifestJson(
+                        releaseFileUrl(releasesOriginUrl(), channel_, release), &cancelRequested_);
+                }
             }
         } catch (const std::exception& e) {
             // A named release that is not published reads as a raw 404, which tells the user

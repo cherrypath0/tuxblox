@@ -82,6 +82,50 @@ const std::vector<std::string>& componentNames();
 // std::nullopt for a name that is not one of ours, rather than a guess at where it would go.
 std::optional<ComponentLayout> componentLayout(const std::string& name);
 
+// --- where downloads come from -------------------------------------------
+
+// A syntactically valid name under tuxblox.net: the name itself, or any subdomain of it. Case is
+// ignored. Anything carrying a scheme, a port, credentials, a path, a trailing dot or an empty
+// label is not a host and is refused.
+bool isTuxbloxHost(const std::string& host);
+
+// True if the name resolves. Only ever asked about an override, never about the default, so an
+// ordinary launch makes no DNS query it would not otherwise make.
+bool hostResolves(const std::string& host);
+
+// "https://" + host when `host` is a tuxblox.net name, and the real CDN otherwise. Syntax only --
+// the resolve check lives in releasesBaseUrl(), so this stays pure and testable. The scheme is
+// never the caller's to choose: an override that could say http:// would turn a redirect into a
+// downgrade.
+std::string releasesBaseUrlFor(const char* host);
+
+// The edge TuxBlox uses by default. A base equal to this one falls back to the origin when it
+// cannot answer; a base somebody asked for explicitly does NOT, because an explicit redirect means
+// "use this, I mean it" -- quietly reaching production instead would make a test against a local
+// server pass for the wrong reason.
+const std::string& releasesEdgeUrl();
+
+// The origin, always. Bunny sits in front of this, so when the edge cannot answer, this still can.
+const std::string& releasesOriginUrl();
+
+// Where this process downloads TuxBlox from, decided once.
+//
+// By default the edge (setup-bunny.tuxblox.net), which caches component bytes close to whoever is
+// downloading them while still asking the origin for the pointer that decides whether an update
+// exists. releasesOriginUrl() is what every fetch falls back to when the edge cannot answer, so the
+// edge being down delays an update rather than making one impossible.
+//
+// $TUXBLOX_RELEASES_CDN_HOST redirects it, for trying a CDN layout against a real server before it
+// reaches the name every installed TuxBlox asks. It falls back to the origin when the name is not a
+// tuxblox.net one and when it does not resolve -- a bad value in the environment must never stop
+// TuxBlox updating itself from the right place.
+//
+// Anything able to set this can usually also replace the binary it redirects, so the allow-list is
+// what carries the weight: an attacker who can set it still cannot point it anywhere they control,
+// short of owning a tuxblox.net subdomain. It says so on stderr whenever it is honoured, so it can
+// never quietly redirect somebody's updates.
+const std::string& releasesBaseUrl();
+
 // The architecture this build runs on, and the one its downloads come from. Only x86_64 is built
 // today; arm64 is reserved in the layout, which is why a release names both and publishes one.
 const char* hostArch();

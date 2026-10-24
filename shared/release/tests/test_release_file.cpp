@@ -19,6 +19,7 @@
 #include <cassert>
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -132,6 +133,16 @@ void test_refuses_a_component_published_nowhere() {
     printf("  refuses a component published for no architecture\n");
 }
 
+// client/{component}/ sits beside client/releases/, so a component named "releases" would shadow
+// every release file on the CDN. Nothing stops someone adding one except this.
+void test_no_component_shadows_the_releases_path() {
+    for (const std::string& name : componentNames()) {
+        assert(name != "releases");
+        assert(name != "v1" && name != "v2");
+    }
+    printf("  no component shadows the releases path\n");
+}
+
 void test_the_layout_table() {
     assert(componentNames().size() == 5);
     assert(componentLayout("compat")->publishedAs == "compat.tar.zst");
@@ -148,7 +159,7 @@ void test_the_layout_table() {
 
 void test_urls() {
     assert(componentUrl("https://setup.tuxblox.net", "compat", "3.3.0", "x86_64") ==
-           "https://setup.tuxblox.net/client/components/compat/3.3.0/x86_64/compat.tar.zst");
+           "https://setup.tuxblox.net/client/compat/3.3.0/x86_64/compat.tar.zst");
     assert(latestPointerUrl("https://setup.tuxblox.net", "canary") ==
            "https://setup.tuxblox.net/client/releases/canary/latest");
     assert(releaseFileUrl("https://setup.tuxblox.net", "stable", "3.6.0.0") ==
@@ -266,12 +277,79 @@ void test_an_unknown_component_is_carried_not_refused() {
     printf("  an unknown component is carried, not refused\n");
 }
 
+// ------------------------------------------------- where downloads come from
+// TUXBLOX_RELEASES_CDN_HOST redirects them, and only ever to a tuxblox.net name. Anything that can
+// set it can usually also replace the binary it is redirecting, so the allow-list is what carries
+// the weight here -- an attacker who can set the variable still cannot point it anywhere they
+// control, short of owning a tuxblox.net subdomain.
+void test_only_tuxblox_hosts_are_accepted() {
+    for (const char* ok : {"setup.tuxblox.net", "setupcdn.devtest1.tuxblox.net", "tuxblox.net",
+                            "a.b.c.tuxblox.net", "SETUP.TUXBLOX.NET"}) {
+        assert(isTuxbloxHost(ok));
+    }
+    for (const char* bad : {
+            "",
+            "evil.com",
+            "tuxblox.net.evil.com",          // the suffix is not at the end
+            "eviltuxblox.net",               // ends with the name but is not a subdomain of it
+            "nottuxblox.net",
+            "setup.tuxblox.net.",            // trailing dot
+            "setup.tuxblox.net/path",        // not a host at all
+            "setup.tuxblox.net:8080",        // a port is not a host
+            "user@setup.tuxblox.net",        // credentials
+            "https://setup.tuxblox.net",     // a URL, not a host
+            "setup..tuxblox.net",            // empty label
+            ".tuxblox.net",
+            "-setup.tuxblox.net",            // a label may not start with a dash
+            "setup-.tuxblox.net",
+            "setup .tuxblox.net",
+            "setup\t.tuxblox.net",
+            "127.0.0.1",
+            "localhost",
+        }) {
+        assert(!isTuxbloxHost(bad));
+    }
+    printf("  only tuxblox hosts are accepted\n");
+}
+
+void test_the_default_is_the_real_cdn() {
+    unsetenv("TUXBLOX_RELEASES_CDN_HOST");
+    // The edge by default: it caches component bytes close to whoever is downloading them, while
+    // the pointer that decides whether an update exists still reaches the origin on every request.
+    assert(releasesBaseUrlFor(std::getenv("TUXBLOX_RELEASES_CDN_HOST")) ==
+           "https://setup-bunny.tuxblox.net");
+    // And the origin is what every fetch falls back to, so the edge being down delays an update
+    // rather than making one impossible. It is never the edge.
+    assert(releasesOriginUrl() == "https://setup.tuxblox.net");
+    assert(releasesOriginUrl() != releasesBaseUrlFor(nullptr));
+    // Always https, never a scheme the caller could choose: an override that could say http://
+    // would turn a redirect into a downgrade.
+    assert(releasesBaseUrlFor("setupcdn.devtest1.tuxblox.net") ==
+           "https://setupcdn.devtest1.tuxblox.net");
+    // Anything that does not pass falls back rather than failing, because a bad value in the
+    // environment must not stop TuxBlox from updating itself from the right place.
+    for (const char* bad : {"", "evil.com", "http://setup.tuxblox.net", "tuxblox.net.evil.com"}) {
+        assert(releasesBaseUrlFor(bad) == "https://setup-bunny.tuxblox.net");
+    }
+    printf("  the default is the real CDN, and a bad override falls back to it\n");
+}
+
+// A name that passes the allow-list but does not exist must not be used either -- otherwise every
+// request fails and the launcher reports a network error instead of quietly doing the right thing.
+// Negative only: asserting that a real name resolves would make this test need the network.
+void test_a_name_that_does_not_resolve_is_not_used() {
+    assert(!hostResolves("nothing-here.devtest1.tuxblox.net"));
+    assert(isTuxbloxHost("nothing-here.devtest1.tuxblox.net"));   // it passes the allow-list...
+    printf("  a name that does not resolve is rejected on its own merits\n");
+}
+
 } // namespace
 
 int main() {
     test_parses_a_release();
     test_refuses_a_structurally_wrong_release();
     test_refuses_a_component_published_nowhere();
+    test_no_component_shadows_the_releases_path();
     test_the_layout_table();
     test_urls();
     test_a_damaged_record_reads_as_no_record();
@@ -282,6 +360,9 @@ int main() {
     test_the_layer_is_found_under_either_name();
     test_a_component_that_never_exits_is_given_up_on();
     test_an_unknown_component_is_carried_not_refused();
+    test_only_tuxblox_hosts_are_accepted();
+    test_the_default_is_the_real_cdn();
+    test_a_name_that_does_not_resolve_is_not_used();
     printf("release_file: all tests passed\n");
     return 0;
 }

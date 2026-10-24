@@ -18,6 +18,7 @@
 #include "user_agent.h"
 #include "downloader.h"
 #include "release_file.h"
+#include <cstdio>
 #include "json.hpp"
 #include "ca_bundle.h"
 #include <curl/curl.h>
@@ -42,10 +43,11 @@ int curlCancelCallback(void* clientp, curl_off_t /*dltotal*/, curl_off_t /*dlnow
 
 } // namespace
 
-std::string fetchManifestJson(const std::string& url, const std::atomic<bool>* cancel) {
+std::string fetchManifestJson(const std::string& url, const std::atomic<bool>* cancel,
+                               long* httpStatus) {
     CURL* curl = curl_easy_init();
     if (!curl) {
-        throw std::runtime_error("fetchManifestJson: curl_easy_init failed");
+        throw std::runtime_error("could not start the download");
     }
     tuxblox::applyCaBundle(curl);
 
@@ -69,23 +71,49 @@ std::string fetchManifestJson(const std::string& url, const std::atomic<bool>* c
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &httpCode);
     curl_easy_cleanup(curl);
 
+    if (httpStatus != nullptr) *httpStatus = httpCode;
+
     if (res == CURLE_ABORTED_BY_CALLBACK) {
-        throw std::runtime_error("fetchManifestJson: cancelled");
+        throw std::runtime_error("the download was cancelled");
     }
     if (res != CURLE_OK) {
-        throw std::runtime_error(std::string("fetchManifestJson: ") +
+        throw std::runtime_error(std::string("could not reach tuxblox.net: ") +
                                   (errBuf[0] ? errBuf : curl_easy_strerror(res)));
     }
     // For file:// URLs, httpCode is 0 (not an HTTP request), so skip the check
     if (httpCode != 0 && (httpCode < 200 || httpCode >= 300)) {
-        throw std::runtime_error("fetchManifestJson: HTTP " + std::to_string(httpCode));
+        throw std::runtime_error("tuxblox.net answered " + std::to_string(httpCode));
     }
     return body;
 }
 
 std::optional<std::string> fetchLatestRelease(const std::string& baseUrl, const std::string& channel,
                                                const std::atomic<bool>* cancel) {
-    std::string body = fetchManifestJson(latestPointerUrl(baseUrl, channel), cancel);
+    // A channel that has never been published has no pointer at all. In the old layout that was
+    // an empty string in latest.json and read as "nothing to update to"; here the file simply is
+    // not there, and a 404 means exactly the same thing. Treating it as a failure turned a normal
+    // state into a red error on the Home screen.
+    std::string body;
+    long httpStatus = 0;
+    // Only the default edge has somewhere to fall back to; see releasesEdgeUrl().
+    const bool mayFallBack = baseUrl == releasesEdgeUrl();
+    try {
+        body = fetchManifestJson(latestPointerUrl(baseUrl, channel), cancel, &httpStatus);
+    } catch (const std::exception&) {
+        // A 404 means "this channel has nothing published" only when the ORIGIN says it. From the
+        // edge it is indistinguishable from a misrouted pull zone, and taking it at face value
+        // would report "no updates" forever while the origin had them all along.
+        if (httpStatus == 404 && !mayFallBack) return std::nullopt;
+        // The edge could not answer. The origin is behind it and still can, so an edge that is
+        // down delays an update rather than making one impossible -- and this is the request that
+        // decides whether there IS an update, so failing it quietly stops them altogether.
+        if (!mayFallBack) throw;
+        fprintf(stderr, "TuxBlox: %s did not serve the release pointer; asking %s instead\n",
+                baseUrl.c_str(), releasesOriginUrl().c_str());
+        httpStatus = 0;
+        body = fetchManifestJson(latestPointerUrl(releasesOriginUrl(), channel), cancel, &httpStatus);
+        if (httpStatus == 404) return std::nullopt;
+    }
 
     const size_t first = body.find_first_not_of(" \t\r\n");
     if (first == std::string::npos) return std::nullopt;

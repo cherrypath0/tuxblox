@@ -104,12 +104,12 @@ class StageTree(unittest.TestCase):
 
     def test_component_paths_carry_no_channel(self):
         self.stage(channel="canary")
-        self.assertTrue(os.path.exists(self.path("components", "compat", "3.3.0", "x86_64", "compat.tar.zst")))
-        self.assertFalse(os.path.exists(self.path("components", "canary")))
+        self.assertTrue(os.path.exists(self.path("compat", "3.3.0", "x86_64", "compat.tar.zst")))
+        self.assertFalse(os.path.exists(self.path("canary")))
 
     def test_hash_describes_the_downloaded_file(self):
         out = self.stage()
-        tarball = self.path("components", "compat", "3.3.0", "x86_64", "compat.tar.zst")
+        tarball = self.path("compat", "3.3.0", "x86_64", "compat.tar.zst")
         entry = out["components"]["compat"]["arch"]["x86_64"]
         self.assertEqual(entry["sha256"], sha256_of(tarball))
         self.assertEqual(entry["size"], os.path.getsize(tarball))
@@ -119,7 +119,7 @@ class StageTree(unittest.TestCase):
     def test_the_layer_archive_has_no_wrapper_directory(self):
         self.stage()
         names = subprocess.run(["tar", "--zstd", "-tf",
-                                self.path("components", "compat", "3.3.0", "x86_64", "compat.tar.zst")],
+                                self.path("compat", "3.3.0", "x86_64", "compat.tar.zst")],
                                capture_output=True, text=True, check=True).stdout.split()
         self.assertIn("./main", names)
         self.assertNotIn("./compat/main", names)
@@ -127,7 +127,7 @@ class StageTree(unittest.TestCase):
     # The stack tarball is copied, never repacked, so its checksum does not change on a re-stage.
     def test_the_stack_tarball_is_copied_byte_for_byte(self):
         out = self.stage()
-        copied = self.path("components", "libtuxblox", "3.1.0", "x86_64", "libtuxblox.tar.zst")
+        copied = self.path("libtuxblox", "3.1.0", "x86_64", "libtuxblox.tar.zst")
         self.assertEqual(sha256_of(copied), sha256_of(self.ui_tarball))
         self.assertEqual(out["components"]["libtuxblox"]["arch"]["x86_64"]["sha256"], sha256_of(self.ui_tarball))
 
@@ -163,12 +163,12 @@ class Changelogs(StageTree):
             f.write("- Fixed a thing\n")
         stage(self.build, self.out, "stable", "3.6.0.0", VERSIONS, {},
               ui_tarball=self.ui_tarball, changelogs={"launcher": src})
-        with open(self.path("components", "launcher", "3.5.0", "changelogs.md")) as f:
+        with open(self.path("launcher", "3.5.0", "changelogs.md")) as f:
             self.assertEqual(f.read(), "- Fixed a thing\n")
 
     def test_a_component_with_no_changelog_gets_no_file(self):
         self.stage()
-        self.assertFalse(os.path.exists(self.path("components", "compat", "3.3.0", "changelogs.md")))
+        self.assertFalse(os.path.exists(self.path("compat", "3.3.0", "changelogs.md")))
 
     # A reused component is not written at all, so a changelog for it would have nowhere to go.
     def test_a_changelog_for_a_reused_component_is_not_written(self):
@@ -178,7 +178,7 @@ class Changelogs(StageTree):
         stage(self.build, self.out, "stable", "3.6.0.1", VERSIONS,
               {("compat", "3.3.0"): {"sha256": "de" * 32, "size": 1}},
               ui_tarball=self.ui_tarball, changelogs={"compat": src})
-        self.assertFalse(os.path.exists(self.path("components", "compat", "3.3.0", "changelogs.md")))
+        self.assertFalse(os.path.exists(self.path("compat", "3.3.0", "changelogs.md")))
 
 
 class StackVersionMatch(StageTree):
@@ -244,25 +244,25 @@ class AlreadyPublished(StageTree):
         self.assertEqual(entry["sha256"], "de" * 32)
         self.assertEqual(entry["size"], 349829060)
         self.assertFalse(os.path.exists(
-            self.path("components", "compat", "3.3.0", "x86_64", "compat.tar.zst")))
+            self.path("compat", "3.3.0", "x86_64", "compat.tar.zst")))
 
     def test_a_changed_component_is_still_packed(self):
         versions = dict(VERSIONS, launcher="3.6.0")
         self.stage(release="3.6.0.1", versions=versions, published=self.PUBLISHED)
         self.assertTrue(os.path.exists(
-            self.path("components", "launcher", "3.6.0", "x86_64", "TuxBloxLauncher")))
+            self.path("launcher", "3.6.0", "x86_64", "TuxBloxLauncher")))
 
     # A published entry is matched on version too, not just component name.
     def test_a_different_version_of_a_published_component_is_packed(self):
         versions = dict(VERSIONS, compat="3.4.0")
         self.stage(release="3.6.0.1", versions=versions, published=self.PUBLISHED)
         self.assertTrue(os.path.exists(
-            self.path("components", "compat", "3.4.0", "x86_64", "compat.tar.zst")))
+            self.path("compat", "3.4.0", "x86_64", "compat.tar.zst")))
 
     # Skipping must not leave an empty directory behind that a sync would publish as a 0-byte artifact.
     def test_no_empty_directory_is_left_for_a_skipped_component(self):
         self.stage(release="3.6.0.1", published=self.PUBLISHED)
-        self.assertFalse(os.path.isdir(self.path("components", "compat")))
+        self.assertFalse(os.path.isdir(self.path("compat")))
 
 
 class StackTarballSelection(StageTree):
@@ -281,7 +281,7 @@ class StackTarballSelection(StageTree):
             f.write("stale, and not a valid archive\n")
         out = os.path.join(self.tmp, "out7")
         content = stage(os.path.join(root, "build"), out, "stable", "3.6.0.0", VERSIONS, {})
-        copied = os.path.join(out, "components", "libtuxblox", "3.1.0", "x86_64", "libtuxblox.tar.zst")
+        copied = os.path.join(out, "libtuxblox", "3.1.0", "x86_64", "libtuxblox.tar.zst")
         self.assertEqual(sha256_of(copied), sha256_of(self.ui_tarball))
         self.assertEqual(content["components"]["libtuxblox"]["arch"]["x86_64"]["sha256"],
                          sha256_of(self.ui_tarball))

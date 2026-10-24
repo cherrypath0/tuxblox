@@ -64,15 +64,15 @@ Installer=$Build/TuxBloxInstaller
 [ -x "$Installer" ] || { fail "no installer at $Installer"; printf ':: %d failure(s)\n' "$fails"; exit 1; }
 
 # --- the published tree ---------------------------------------------------
-# client/components/<name>/<version>/x86_64/<published name>, exactly as the server lays it out.
+# client/<name>/<version>/x86_64/<published name>, exactly as the server lays it out.
 publish_flat() {   # name version content
-    local dir="$Cdn/client/components/$1/$2/x86_64"
+    local dir="$Cdn/client/$1/$2/x86_64"
     mkdir -p "$dir"
     printf '#!/bin/sh\necho %s\n' "$2" > "$dir/$3"
     chmod 0755 "$dir/$3"
 }
 publish_archive() { # name version rootfile content
-    local dir="$Cdn/client/components/$1/$2/x86_64" stage="$Work/stage-$1-$2"
+    local dir="$Cdn/client/$1/$2/x86_64" stage="$Work/stage-$1-$2"
     mkdir -p "$dir" "$stage/$(dirname "$3")"
     printf '%s' "$4" > "$stage/$3"
     [ "$3" = "main" ] && chmod 0755 "$stage/$3"
@@ -83,7 +83,7 @@ size_of() { stat -c %s "$1"; }
 
 entry() {  # name version
     local file
-    file=$(find "$Cdn/client/components/$1/$2/x86_64" -type f | head -1)
+    file=$(find "$Cdn/client/$1/$2/x86_64" -type f | head -1)
     printf '"%s": {"version": "%s", "arch": {"x86_64": {"sha256": "%s", "size": %s}, "arm64": null}}' \
         "$1" "$2" "$(sha_of "$file")" "$(size_of "$file")"
 }
@@ -197,7 +197,7 @@ publish_flat launcher 3.5.1 TuxBloxLauncher
 write_release 3.6.0.1 3.5.1
 run_install second
 
-fetched=$(grep -ao 'GET /client/components/[^/]*' "$Work/server.log" | sed 's|.*/||' | sort -u | tr '\n' ' ')
+fetched=$(grep -ao 'GET /client/[^/]*' "$Work/server.log" | sed 's|.*/||' | grep -v '^releases$' | sort -u | tr '\n' ' ')
 if [ "$fetched" = "launcher " ]; then
     pass "one component changed, one component was fetched (${fetched% })"
 else
@@ -215,10 +215,28 @@ else
     fail "the record was not updated to 3.6.0.1"
 fi
 
+# A channel that has never been published has no pointer file at all, so the request 404s. That is
+# "nothing to update to", not a failure: the old layout said the same thing with an empty string in
+# latest.json, and showing it as an error puts a red message on the Home screen of every install on
+# a channel nobody has shipped to yet.
+echo ":: A channel with nothing published"
+missing=$("$Installer" --headless --nolaunch --dir "$Work/never" --channel experimental 2>&1 \
+    || true)
+if printf '%s' "$missing" | grep -q "No releases available for the 'experimental' channel yet"; then
+    pass "a channel with nothing published says so"
+else
+    fail "expected 'no releases available', got: $(printf '%s' "$missing" | tail -1)"
+fi
+if printf '%s' "$missing" | grep -qE '404|fetchManifestJson'; then
+    fail "an unpublished channel still reports a raw HTTP error"
+else
+    pass "it does not show an HTTP code or an internal function name"
+fi
+
 echo ":: A release naming a component whose bytes are not served"
 publish_flat launcher 9.9.9 TuxBloxLauncher
 write_release 3.6.0.2 9.9.9
-rm -rf "$Cdn/client/components/launcher/9.9.9"
+rm -rf "$Cdn/client/launcher/9.9.9"
 if run_install missing; then
     fail "a release naming an unpublished component installed anyway"
 else

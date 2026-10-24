@@ -19,6 +19,11 @@
 #include "json.hpp"
 
 #include <cctype>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <netdb.h>
+#include <sys/socket.h>
 #include <filesystem>
 #include <chrono>
 #include <cerrno>
@@ -194,6 +199,98 @@ ReleaseFile parseReleaseFile(const std::string& jsonText) {
     return release;
 }
 
+namespace {
+
+// The edge by default; the origin is what everything falls back to.
+const char* kReleasesEdgeBaseUrl = "https://setup-bunny.tuxblox.net";
+const char* kReleasesOriginBaseUrl = "https://setup.tuxblox.net";
+const char* kTuxbloxSuffix = ".tuxblox.net";
+
+} // namespace
+
+bool isTuxbloxHost(const std::string& host) {
+    if (host.empty() || host.size() > 253) return false;
+
+    std::string lower;
+    lower.reserve(host.size());
+    for (char c : host) lower += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+
+    // Every label is letters, digits and inner dashes. This rejects a scheme, a port, credentials,
+    // a path and a trailing dot in one pass, because none of them are made of those characters.
+    size_t labelLength = 0;
+    for (size_t i = 0; i < lower.size(); i++) {
+        const char c = lower[i];
+        if (c == '.') {
+            if (labelLength == 0 || lower[i - 1] == '-') return false;
+            labelLength = 0;
+            continue;
+        }
+        const bool alnum = (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9');
+        if (!alnum && c != '-') return false;
+        if (c == '-' && labelLength == 0) return false;     // a label may not start with a dash
+        labelLength++;
+    }
+    if (labelLength == 0 || lower.back() == '-') return false;
+
+    if (lower == "tuxblox.net") return true;
+    // Not endsWith("tuxblox.net"): that accepts "eviltuxblox.net". The dot has to be there.
+    return lower.size() > strlen(kTuxbloxSuffix) &&
+           lower.compare(lower.size() - strlen(kTuxbloxSuffix), strlen(kTuxbloxSuffix),
+                          kTuxbloxSuffix) == 0;
+}
+
+bool hostResolves(const std::string& host) {
+    struct addrinfo hints {};
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    struct addrinfo* found = nullptr;
+    if (getaddrinfo(host.c_str(), nullptr, &hints, &found) != 0) return false;
+    freeaddrinfo(found);
+    return true;
+}
+
+std::string releasesBaseUrlFor(const char* host) {
+    if (host == nullptr || host[0] == '\0') return kReleasesEdgeBaseUrl;
+    const std::string name = host;
+    if (!isTuxbloxHost(name)) return kReleasesEdgeBaseUrl;
+    return "https://" + name;
+}
+
+const std::string& releasesBaseUrl() {
+    static const std::string resolved = [] {
+        const char* host = std::getenv("TUXBLOX_RELEASES_CDN_HOST");
+        const std::string chosen = releasesBaseUrlFor(host);
+        if (chosen == kReleasesEdgeBaseUrl) {
+            // Say why, but only when something was actually asked for and ignored.
+            if (host != nullptr && host[0] != '\0') {
+                fprintf(stderr, "TuxBlox: ignoring TUXBLOX_RELEASES_CDN_HOST=\"%s\" -- not a "
+                                 "tuxblox.net address; using %s\n", host, kReleasesEdgeBaseUrl);
+            }
+            return std::string(kReleasesEdgeBaseUrl);
+        }
+        // Only an override is ever resolved, so an ordinary launch makes no extra query.
+        if (!hostResolves(host)) {
+            fprintf(stderr, "TuxBlox: TUXBLOX_RELEASES_CDN_HOST=\"%s\" does not resolve; using %s\n",
+                     host, kReleasesEdgeBaseUrl);
+            return std::string(kReleasesEdgeBaseUrl);
+        }
+        // Never silent: this decides where TuxBlox downloads itself from.
+        fprintf(stderr, "TuxBlox: downloading from %s (TUXBLOX_RELEASES_CDN_HOST)\n", chosen.c_str());
+        return chosen;
+    }();
+    return resolved;
+}
+
+const std::string& releasesEdgeUrl() {
+    static const std::string edge = kReleasesEdgeBaseUrl;
+    return edge;
+}
+
+const std::string& releasesOriginUrl() {
+    static const std::string origin = kReleasesOriginBaseUrl;
+    return origin;
+}
+
 const char* hostArch() {
 #if defined(__aarch64__)
     return "arm64";
@@ -208,7 +305,7 @@ std::string componentUrl(const std::string& baseUrl, const std::string& name,
     if (!layout.has_value()) {
         throw std::runtime_error("\"" + name + "\" is not a component of TuxBlox");
     }
-    return baseUrl + "/client/components/" + name + "/" + version + "/" + arch + "/" + layout->publishedAs;
+    return baseUrl + "/client/" + name + "/" + version + "/" + arch + "/" + layout->publishedAs;
 }
 
 std::string latestPointerUrl(const std::string& baseUrl, const std::string& channel) {

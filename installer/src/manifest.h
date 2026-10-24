@@ -65,8 +65,12 @@ Manifest parseManifest(const std::string& jsonText, const std::string& baseUrl);
 // If `cancel` is non-null and becomes true mid-transfer, the request is
 // aborted promptly (rather than blocking until CURLOPT_TIMEOUT) and a
 // "cancelled" std::runtime_error is thrown.
+// `httpStatus`, when given, receives the HTTP status before any exception is thrown -- 0 for a
+// transport failure that never got one. It is what lets a caller tell "this is not published" from
+// "something went wrong", which are different things to show a person.
 std::string fetchManifestJson(const std::string& url,
-                               const std::atomic<bool>* cancel = nullptr);
+                               const std::atomic<bool>* cancel = nullptr,
+                               long* httpStatus = nullptr);
 
 // The release `channel` currently publishes, from client/releases/<channel>/latest.
 //

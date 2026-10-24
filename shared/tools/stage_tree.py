@@ -120,7 +120,7 @@ def stage(build_dir, out_dir, channel, release, versions, published, ui_tarball=
             # written, not even the directory, so a sync cannot publish an empty artifact.
             arches["x86_64"] = dict(known)
         else:
-            dest_dir = os.path.join(out_dir, "components", component, version, "x86_64")
+            dest_dir = os.path.join(out_dir, component, version, "x86_64")
             os.makedirs(dest_dir, exist_ok=True)
             dest = os.path.join(dest_dir, filename)
             if component == "compat":

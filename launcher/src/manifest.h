@@ -24,7 +24,11 @@ namespace tuxblox {
 
 // Fetches a URL and returns its body. Named for the manifest it was written to fetch; it is the
 // plain text fetcher now, used for the release pointer and the release file too.
-std::string fetchManifestJson(const std::string& url, const std::atomic<bool>* cancel = nullptr);
+// `httpStatus`, when given, receives the HTTP status before any exception is thrown -- 0 for a
+// transport failure that never got one. It is what lets a caller tell "this is not published" from
+// "something went wrong", which are different things to show a person.
+std::string fetchManifestJson(const std::string& url, const std::atomic<bool>* cancel = nullptr,
+                               long* httpStatus = nullptr);
 
 // The release `channel` currently publishes, from client/releases/<channel>/latest.
 //
