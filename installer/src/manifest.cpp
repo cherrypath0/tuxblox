@@ -188,8 +188,15 @@ std::optional<std::string> fetchLatestRelease(const std::string& baseUrl, const 
         fprintf(stderr, "TuxBlox: %s did not serve the release pointer; asking %s instead\n",
                 baseUrl.c_str(), releasesOriginUrl().c_str());
         httpStatus = 0;
-        body = fetchManifestJson(latestPointerUrl(releasesOriginUrl(), channel), cancel, &httpStatus);
-        if (httpStatus == 404) return std::nullopt;
+        try {
+            body = fetchManifestJson(latestPointerUrl(releasesOriginUrl(), channel), cancel, &httpStatus);
+        } catch (const std::exception&) {
+            // Its own try, because fetchManifestJson THROWS on a 404 -- a bare check after the call
+            // never runs, and a channel with genuinely nothing published reported a raw HTTP error
+            // instead of saying so. Now the origin has spoken, so a 404 means what it says.
+            if (httpStatus == 404) return std::nullopt;
+            throw;
+        }
     }
 
     const size_t first = body.find_first_not_of(" \t\r\n");
