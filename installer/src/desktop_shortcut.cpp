@@ -104,13 +104,26 @@ const std::vector<SchemeHandler>& installedHandlers() {
     return handlers;
 }
 
+// Where this user's own desktop entries and icons live. XDG_DATA_HOME wins, as it does for the
+// launcher: building "$HOME/.local/share" directly meant nothing could redirect the installer, so a
+// test run against a scratch directory still rewrote the real entries -- and then deleted what they
+// pointed at.
+std::string userDataHome() {
+    if (const char* dataHome = std::getenv("XDG_DATA_HOME"); dataHome != nullptr && dataHome[0] != '\0') {
+        return dataHome;
+    }
+    const char* home = std::getenv("HOME");
+    if (home == nullptr || home[0] == '\0') return "";
+    return std::string(home) + "/.local/share";
+}
+
 } // namespace
 
 void createDesktopShortcut(const std::string& launcherExePath) {
     try {
-        const char* home = std::getenv("HOME");
-        if (!home || home[0] == '\0') return;
-        const std::string appsDir = std::string(home) + "/.local/share/applications";
+        const std::string dataHome = userDataHome();
+        if (dataHome.empty()) return;
+        const std::string appsDir = dataHome + "/applications";
 
         // kTuxbloxLogoPng is already a complete, valid .png file's raw bytes
         // (FetchLogo.cmake downloads the icon PNG, then BinToHeader.cmake
@@ -124,7 +137,7 @@ void createDesktopShortcut(const std::string& launcherExePath) {
         // match for this bucket; icon-theme lookup scales it down, and
         // staying in 256x256/apps keeps the path uninstall.cpp removes (and
         // the one prior installs already wrote) unchanged.
-        const std::string iconThemeDir = std::string(home) + "/.local/share/icons/hicolor/256x256/apps";
+        const std::string iconThemeDir = dataHome + "/icons/hicolor/256x256/apps";
         std::error_code ec;
         fs::create_directories(iconThemeDir, ec);
         if (ec) return;
@@ -162,7 +175,7 @@ void createDesktopShortcut(const std::string& launcherExePath) {
         // call -- not every desktop environment needs this to pick up a
         // newly added icon-theme file, but GTK-based ones can otherwise
         // keep showing a generic icon until the theme cache is rebuilt.
-        runCommandBestEffort({"gtk-update-icon-cache", std::string(home) + "/.local/share/icons/hicolor"});
+        runCommandBestEffort({"gtk-update-icon-cache", dataHome + "/icons/hicolor"});
 
         // Inside a Distrobox container, ~/.local/share/applications is
         // shared with the host (Distrobox bind-mounts $HOME by default),
@@ -188,9 +201,9 @@ void createDesktopShortcut(const std::string& launcherExePath) {
 
 void refreshUrlHandlers(const std::string& launcherExePath) {
     try {
-        const char* home = std::getenv("HOME");
-        if (!home || home[0] == '\0') return;
-        const std::string appsDir = std::string(home) + "/.local/share/applications";
+        const std::string dataHome = userDataHome();
+        if (dataHome.empty()) return;
+        const std::string appsDir = dataHome + "/applications";
         std::error_code ec;
         fs::create_directories(appsDir, ec);
         if (ec) return;

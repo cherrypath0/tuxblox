@@ -121,6 +121,21 @@ int main() {
 
     fs::remove_all(work);
 
+    // XDG_DATA_HOME decides where these go, as it does everywhere else. The launcher already
+    // honours it; the installer building "$HOME/.local/share" itself meant TUXBLOX_ROOT isolated
+    // the launcher while nothing isolated the installer -- which is how a test run came to rewrite
+    // the real desktop entries to point inside a directory it then deleted.
+    {
+        const fs::path dataHome = fakeHome / "elsewhere";
+        setenv("XDG_DATA_HOME", dataHome.c_str(), 1);
+        createDesktopShortcut((fakeHome / "TuxBloxLauncher").string());
+        refreshUrlHandlers((fakeHome / "TuxBloxLauncher").string());
+        assert(fs::exists(dataHome / "applications" / "tuxblox-launcher.desktop"));
+        assert(fs::exists(dataHome / "applications" / "tuxblox-player-handler.desktop"));
+        unsetenv("XDG_DATA_HOME");
+        printf("  XDG_DATA_HOME decides where the entries go\n");
+    }
+
     printf("desktop_shortcut: all tests passed\n");
     return 0;
 }
