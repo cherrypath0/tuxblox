@@ -76,7 +76,6 @@ void test_parses_a_release() {
     ReleaseFile r = parseReleaseFile(kRelease);
     assert(r.release == "3.6.0.0");
     assert(r.channel == "stable");
-    assert(r.changelog == "components");
     assert(r.sourceCommit == "abc123");
     assert(r.sourceDirty == false);
     assert(r.components.size() == 2);

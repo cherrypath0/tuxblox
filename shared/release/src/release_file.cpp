@@ -182,9 +182,6 @@ ReleaseFile parseReleaseFile(const std::string& jsonText) {
         throw std::runtime_error("release file lists no components");
     }
 
-    if (body.contains("changelog") && body["changelog"].is_string()) {
-        release.changelog = body["changelog"].get<std::string>();
-    }
     if (body.contains("source_commit") && body["source_commit"].is_string()) {
         release.sourceCommit = body["source_commit"].get<std::string>();
     }

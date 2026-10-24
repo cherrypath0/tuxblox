@@ -151,11 +151,11 @@ class StageTree(unittest.TestCase):
 
 
 class Changelogs(StageTree):
-    def test_the_release_file_says_which_changelog_kind_it_carries(self):
-        # The site renders a merged per-component view for new releases and a single {release}.md
-        # for backfilled historical ones, and cannot tell which without being told. Adding the field
-        # later would mean migrating files that are immutable by then.
-        self.assertEqual(self.stage()["changelog"], "components")
+    def test_the_release_file_carries_no_changelog_kind(self):
+        # It only ever had one value, so it told a reader nothing -- and it claimed per-component
+        # changelogs that do not exist yet. A site asks for the release-level .md and merges the
+        # per-component ones when there is none.
+        self.assertNotIn("changelog", self.stage())
 
     def test_a_given_changelog_is_written_beside_its_component(self):
         src = os.path.join(self.tmp, "launcher-changelog.md")

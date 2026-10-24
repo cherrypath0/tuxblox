@@ -142,9 +142,6 @@ def stage(build_dir, out_dir, channel, release, versions, published, ui_tarball=
     # remote, because a published binary whose source nobody can fetch is a licence violation.
     # Unknown reads as dirty so an unattributable build is refused rather than published.
     content = {"release": release, "channel": channel, "components": components,
-               # Which changelog the site should render: a merged per-component view, or the single
-               # {release}.md that backfilled historical releases carry instead.
-               "changelog": "components",
                "source_commit": source_commit or None, "source_dirty": bool(source_dirty)}
 
     release_dir = os.path.join(out_dir, "releases", channel)

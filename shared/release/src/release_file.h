@@ -44,9 +44,6 @@ struct ReleaseComponent {
 struct ReleaseFile {
     std::string release;   // "MAJOR.MINOR.PATCH.BUILD"
     std::string channel;
-    // "components" when each component version carries its own changelog, "release" for a backfilled
-    // historical release that has one document for the whole thing.
-    std::string changelog;
     std::string sourceCommit;
     bool sourceDirty = false;
     std::map<std::string, ReleaseComponent> components;

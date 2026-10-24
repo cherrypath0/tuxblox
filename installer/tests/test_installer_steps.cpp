@@ -178,7 +178,6 @@ int main() {
         ReleaseFile r;
         r.release = "3.6.0.0";
         r.channel = "canary";
-        r.changelog = "components";
         for (const auto& [name, version] : kVersions) {
             ReleaseComponent c;
             c.version = version;
