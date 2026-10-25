@@ -1213,6 +1213,27 @@ DWORD WINAPI DECLSPEC_HOTPATCH GetProcessId( HANDLE process )
 BOOL WINAPI /* DECLSPEC_HOTPATCH */ GetProcessMitigationPolicy( HANDLE process, PROCESS_MITIGATION_POLICY policy,
                                                           void *buffer, SIZE_T length )
 {
+    if (policy == ProcessControlFlowGuardPolicy)
+    {
+        PROCESS_MITIGATION_CONTROL_FLOW_GUARD_POLICY *cfg = buffer;
+        SECTION_IMAGE_INFORMATION info;
+
+        TRACE( "(%p, %u, %p, %Iu)\n", process, policy, buffer, length );
+
+        if (!buffer || length < sizeof(*cfg))
+        {
+            SetLastError( ERROR_INVALID_PARAMETER );
+            return FALSE;
+        }
+        if (!set_ntstatus( NtQueryInformationProcess( process, ProcessImageInformation,
+                                                      &info, sizeof(info), NULL )))
+            return FALSE;
+
+        cfg->Flags = 0;
+        cfg->EnableControlFlowGuard = !!(info.DllCharacteristics & IMAGE_DLLCHARACTERISTICS_GUARD_CF);
+        return TRUE;
+    }
+
     FIXME( "(%p, %u, %p, %Iu): stub\n", process, policy, buffer, length );
     return TRUE;
 }

@@ -6618,6 +6618,34 @@ static ULONG mhz_from_cpuinfo(void)
     return cmz;
 }
 
+/* The processor's rated speed, which is what Windows reports as MaxMhz. The kernel's
+ * cpuinfo_max_freq is the ceiling it can boost to, a higher number than any Windows
+ * machine reports and one that overflows a program multiplying it out in 32 bits. */
+static ULONG nominal_mhz_from_sysfs(unsigned int cpu)
+{
+    char filename[128];
+    unsigned int val;
+    FILE *f;
+
+    snprintf(filename, sizeof(filename), "/sys/devices/system/cpu/cpu%u/acpi_cppc/nominal_freq", cpu);
+    if ((f = fopen(filename, "r")))
+    {
+        int got = fscanf(f, "%u", &val);
+        fclose(f);
+        if (got == 1 && val) return val;
+    }
+
+    snprintf(filename, sizeof(filename), "/sys/devices/system/cpu/cpu%u/cpufreq/base_frequency", cpu);
+    if ((f = fopen(filename, "r")))
+    {
+        int got = fscanf(f, "%u", &val);
+        fclose(f);
+        if (got == 1 && val) return val / 1000;
+    }
+
+    return 0;
+}
+
 static const char * get_sys_str(const char *dirname, const char *basename, char *s)
 {
     char path[64];
@@ -6942,21 +6970,23 @@ NTSTATUS WINAPI NtPowerInformation( POWER_INFORMATION_LEVEL level, void *input, 
             FILE* f;
 
             for(i = 0; i < out_cpus; i++) {
+                ULONG nominal = nominal_mhz_from_sysfs(i);
+
                 snprintf(filename, sizeof(filename), "/sys/devices/system/cpu/cpu%d/cpufreq/cpuinfo_max_freq", i);
                 f = fopen(filename, "r");
                 if (f && (fscanf(f, "%u", &val) == 1)) {
-                    cpu_power[i].MaxMhz = val / 1000;
+                    cpu_power[i].MaxMhz = nominal ? nominal : val / 1000;
                     fclose(f);
                     cpu_power[i].CurrentMhz = cpu_power[i].MaxMhz;
                 }
                 else {
                     if(i == 0) {
-                        cpu_power[0].CurrentMhz = mhz_from_cpuinfo();
+                        cpu_power[0].CurrentMhz = nominal ? nominal : mhz_from_cpuinfo();
                         if(cpu_power[0].CurrentMhz == 0)
                             cpu_power[0].CurrentMhz = cannedMHz;
                     }
                     else
-                        cpu_power[i].CurrentMhz = cpu_power[0].CurrentMhz;
+                        cpu_power[i].CurrentMhz = nominal ? nominal : cpu_power[0].CurrentMhz;
                     cpu_power[i].MaxMhz = cpu_power[i].CurrentMhz;
                     if(f) fclose(f);
                 }
@@ -6972,6 +7002,9 @@ NTSTATUS WINAPI NtPowerInformation( POWER_INFORMATION_LEVEL level, void *input, 
                     cpu_power[i].MhzLimit = cpu_power[i].MaxMhz;
                     if(f) fclose(f);
                 }
+                /* Windows never reports a limit above the rated speed, so the boost ceiling cannot stand here either. */
+                if (cpu_power[i].MhzLimit > cpu_power[i].MaxMhz)
+                    cpu_power[i].MhzLimit = cpu_power[i].MaxMhz;
 
                 cpu_power[i].Number = i;
                 cpu_power[i].MaxIdleState = 0;     /* FIXME */

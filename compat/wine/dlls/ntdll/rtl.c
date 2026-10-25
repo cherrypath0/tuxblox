@@ -1772,14 +1772,46 @@ char WINAPI RtlQueryProcessPlaceholderCompatibilityMode(void)
     return PHCM_APPLICATION_DEFAULT;
 }
 
+/* The update build revision, the fourth part of the version this reports. AnalyticsInfo reads the
+ * same value, so a program that asks both gets one answer. */
+static DWORD get_update_build_revision(void)
+{
+    char buffer[64];
+    KEY_VALUE_PARTIAL_INFORMATION *info = (KEY_VALUE_PARTIAL_INFORMATION *)buffer;
+    OBJECT_ATTRIBUTES attr;
+    UNICODE_STRING nameW, valueW;
+    DWORD count, ret = 0;
+    HANDLE hkey;
+
+    InitializeObjectAttributes( &attr, &nameW, OBJ_CASE_INSENSITIVE, 0, NULL );
+    RtlInitUnicodeString( &nameW, L"\\Registry\\Machine\\Software\\Microsoft\\Windows NT\\CurrentVersion" );
+    if (NtOpenKey( &hkey, KEY_QUERY_VALUE, &attr )) return 0;
+
+    RtlInitUnicodeString( &valueW, L"UBR" );
+    if (!NtQueryValueKey( hkey, &valueW, KeyValuePartialInformation, buffer, sizeof(buffer), &count ) &&
+        info->Type == REG_DWORD)
+        ret = *(DWORD *)info->Data;
+
+    NtClose( hkey );
+    return ret;
+}
+
 /*********************************************************************
  *           RtlGetDeviceFamilyInfoEnum [NTDLL.@]
  */
 void WINAPI RtlGetDeviceFamilyInfoEnum(ULONGLONG *version, DWORD *family, DWORD *form)
 {
-    FIXME("%p %p %p: stub\n", version, family, form);
+    TRACE("%p %p %p\n", version, family, form);
 
-    if (version) *version = 0;
+    if (version)
+    {
+        PEB *peb = NtCurrentTeb()->Peb;
+
+        *version = ((ULONGLONG)(peb->OSMajorVersion & 0xffff) << 48) |
+                   ((ULONGLONG)(peb->OSMinorVersion & 0xffff) << 32) |
+                   ((ULONGLONG)(peb->OSBuildNumber & 0xffff) << 16) |
+                   get_update_build_revision();
+    }
     if (family) *family = DEVICEFAMILYINFOENUM_DESKTOP;
     if (form) *form = DEVICEFAMILYDEVICEFORM_UNKNOWN;
 }
