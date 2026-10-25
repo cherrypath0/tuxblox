@@ -252,16 +252,18 @@ void Session::initSession() {
     if (debug) {
         // Chosen for a problem report rather than for an investigation: the
         // channels that explain a crash or a hang, and none that fire per
-        // frame. +seh and +unwind name an exception that would otherwise take
-        // Roblox down in silence, and +tuxbloxwebkit keeps the output of the
-        // panels that are web pages instead of discarding it.
+        // frame. err+seh and err+unwind name an exception that would otherwise
+        // take Roblox down in silence, at error level only: the trace level of
+        // those two prints every unwind and every syscall, which buries the one
+        // line a report is for. +tuxbloxwebkit keeps the output of the panels
+        // that are web pages instead of discarding it.
         //
         // Deliberately absent: +tuxblox, which is the fingerprint tracer and
         // arms hardware breakpoints Roblox itself needs, and +d3d, +vulkan and
         // +winex11, which each produce more per second than a session log can
         // usefully hold.
         if (env.find("WINEDEBUG") == env.end()) {
-            env["WINEDEBUG"] = "+timestamp,+pid,+tid,+threadname,+seh,+unwind,"
+            env["WINEDEBUG"] = "+timestamp,+pid,+tid,+threadname,err+seh,err+unwind,"
                                "+debugstr,+loaddll,+winediag,+tuxbloxwebkit";
         }
         env.emplace("DXVK_LOG_LEVEL", "info");
