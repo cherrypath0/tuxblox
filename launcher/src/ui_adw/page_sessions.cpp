@@ -63,17 +63,6 @@ void installPageStyles() {
     g_object_unref(pProvider);
 }
 
-const char *categoryTag(LogCategory category) {
-    switch (category) {
-        case LogCategory::TuxBlox: return "kind-tuxblox";
-        case LogCategory::GameOutput: return "kind-game";
-        case LogCategory::Error: return "kind-errors";
-        case LogCategory::Warning: return "kind-warnings";
-        case LogCategory::Info: return "kind-info";
-    }
-    return "kind-info";
-}
-
 GtkWidget *sectionLabel(const char *pText) {
     GtkWidget *pLabel = gtk_label_new(pText);
     gtk_label_set_xalign(GTK_LABEL(pLabel), 0.0f);
@@ -352,12 +341,6 @@ GtkWidget *SessionsPage::buildLogPane() {
     gtk_text_buffer_create_tag(pBuffer_, "error", "foreground", "#f87171", nullptr);
     gtk_text_buffer_create_tag(pBuffer_, "ours", "foreground", "#7fd1a8", nullptr);
     gtk_text_buffer_create_tag(pBuffer_, "match", "background", "#f59e0b", "foreground", "#0a0c11", nullptr);
-    // One tag per kind, so the filter hides lines by making them invisible rather than by building the log again. A buffer of several megabytes takes many frames to lay out, and the view visibly walks back down to the end while it does.
-    for (const LogCategory category : {LogCategory::TuxBlox, LogCategory::GameOutput, LogCategory::Error,
-                                       LogCategory::Warning, LogCategory::Info}) {
-        gtk_text_buffer_create_tag(pBuffer_, categoryTag(category), nullptr);
-    }
-
     GtkTextIter start;
     gtk_text_buffer_get_end_iter(pBuffer_, &start);
     // Left gravity off, so it stays at the end as text arrives rather than being pushed along in front of it.
@@ -542,11 +525,12 @@ void SessionsPage::reconcileReader(const AppSnapshot &snap) {
 }
 
 void SessionsPage::appendEntry(const LogEntry &entry) {
-    if (filter_.shows(entry.category)) ++shownEntries_;
+    // Left out of the buffer rather than made invisible, because a GtkTextView aborts the program when it turns a click inside an invisible paragraph back into a position.
+    if (!filter_.shows(entry.category)) return;
+    ++shownEntries_;
 
     GtkTextIter end;
     gtk_text_buffer_get_end_iter(pBuffer_, &end);
-    const int from = gtk_text_iter_get_offset(&end);
     // Raw shows the line as written, stamp and all, so there is no separate column to put the time in.
     if (tidy_.on && !entry.time.empty()) {
         gtk_text_buffer_insert_with_tags_by_name(pBuffer_, &end, (entry.time + "  ").c_str(), -1, "time", nullptr);
@@ -573,25 +557,10 @@ void SessionsPage::appendEntry(const LogEntry &entry) {
     } else {
         gtk_text_buffer_insert(pBuffer_, &end, body.c_str(), -1);
     }
-
-    GtkTextIter start;
-    gtk_text_buffer_get_iter_at_offset(pBuffer_, &start, from);
-    gtk_text_buffer_get_end_iter(pBuffer_, &end);
-    gtk_text_buffer_apply_tag_by_name(pBuffer_, categoryTag(entry.category), &start, &end);
 }
 
 void SessionsPage::applyFilter() {
-    GtkTextTagTable *pTags = gtk_text_buffer_get_tag_table(pBuffer_);
-    for (const LogCategory category : {LogCategory::TuxBlox, LogCategory::GameOutput, LogCategory::Error,
-                                       LogCategory::Warning, LogCategory::Info}) {
-        GtkTextTag *pTag = gtk_text_tag_table_lookup(pTags, categoryTag(category));
-        if (pTag != nullptr) g_object_set(pTag, "invisible", !filter_.shows(category), nullptr);
-    }
-
-    shownEntries_ = 0;
-    for (const LogEntry &entry : entries_) {
-        if (filter_.shows(entry.category)) ++shownEntries_;
-    }
+    showEntries();
     refreshCount();
 }
 
