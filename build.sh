@@ -27,6 +27,7 @@ debug=1
 force_deps=0
 log_enabled=0
 stage_only=0
+local_only=0
 for arg in "$@"; do
     case "$arg" in
         --nodebug) debug=0 ;;
@@ -37,6 +38,10 @@ for arg in "$@"; do
         # everything under releases/ is derived from build/, so it can always
         # be regenerated as long as build/ is intact.
         --stage-only) stage_only=1 ;;
+        # Keep this build to this machine: stage it into releases/ as usual and upload it nowhere.
+        # Without it a build is synced to the development CDN, so an install following that CDN
+        # updates to its own builds instead of being pulled back to the public release.
+        --local) local_only=1 ;;
     esac
 done
 
@@ -728,6 +733,26 @@ step "Publishing to releases/client/ for the $TUXBLOX_CHANNEL channel"
 run_step "stage_release" strict stage_release
 
 echo -e "Successfully built TuxBlox!"
+
+# Every build that is not --local goes to the development CDN, so a working install follows its own
+# builds. It is a separate host, a separate key and a separate directory from production: deploy.sh
+# refuses --sync-server rather than falling back, so a build can never reach users from here.
+#
+# deploy.sh is a maintainer helper and is not in the repository, so a clone that does not have it
+# simply builds -- its absence is the normal case, not a failure.
+if [[ $local_only -eq 1 ]]; then
+    step "Not syncing: --local"
+elif [[ ! -x "$ROOT/deploy.sh" ]]; then
+    step "Not syncing: no deploy.sh here"
+else
+    step "Syncing to the development CDN"
+    # Allowed to fail without failing the build: the build itself succeeded and is staged, and a dev
+    # CDN that is down or a key that has been revoked is not a reason to throw an hour of work away.
+    if ! "$ROOT/deploy.sh" --sync-server; then
+        echo "!! Syncing to the development CDN failed. The build is fine and is staged in releases/." >&2
+        echo "!! Re-run ./deploy.sh --sync-server when the host is back." >&2
+    fi
+fi
 
 # Repeated at the end because the start of a long build has scrolled away by
 # now, and this is the line that decides whether the release can go out.
