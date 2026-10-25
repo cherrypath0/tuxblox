@@ -17,6 +17,7 @@
 #pragma once
 #include "manifest.h"
 #include "release_file.h"
+#include "update_changes.h"
 #include <atomic>
 #include <cstdint>
 #include <functional>
@@ -77,6 +78,9 @@ struct UpdateResult {
     // True iff there is no compatibility layer at all, as opposed to an outdated one -- nothing can
     // be launched yet, which App::updateCheckThreadMain() treats differently from an ordinary update.
     bool compatMissing = false;
+    // What the update changes, for the dialog that offers it. Worked out here because this is where
+    // both release files are already open.
+    std::vector<ComponentChange> changes;
 };
 
 struct EnsureInstallerResult {

@@ -315,7 +315,7 @@ int main() {
         std::vector<double> protonPercents;
         auto outcome = runInstall(release, releaseBaseUrl,
             [&](const std::string& label, double percent) {
-                if (label == "Downloading Compatibility layer") protonPercents.push_back(percent);
+                if (label == "Downloading Runtime") protonPercents.push_back(percent);
             },
             nullptr, /*isUpgrade=*/false, installDir9.string(),
             robloxPlayerUrl, robloxStudioUrl);

@@ -93,24 +93,7 @@ elseif(EXISTS "${CMAKE_SOURCE_DIR}/VERSION")
 else()
     set(TUXBLOX_LAUNCHER_VERSION "0.0.0-dev")
 endif()
-# The channel is resolved the same way, from line 2 of the same file. It is
-# baked in because "which channel is this build from" has to survive the user
-# switching channels in Settings, which changes what they want, not what runs.
-if(NOT "$ENV{TUXBLOX_CHANNEL}" STREQUAL "")
-    set(TUXBLOX_LAUNCHER_CHANNEL "$ENV{TUXBLOX_CHANNEL}")
-elseif(EXISTS "${CMAKE_SOURCE_DIR}/../VERSION")
-    file(STRINGS "${CMAKE_SOURCE_DIR}/../VERSION" TUXBLOX_VERSION_LINES LIMIT_COUNT 2)
-    list(LENGTH TUXBLOX_VERSION_LINES TUXBLOX_VERSION_LINE_COUNT)
-    if(TUXBLOX_VERSION_LINE_COUNT GREATER 1)
-        list(GET TUXBLOX_VERSION_LINES 1 TUXBLOX_LAUNCHER_CHANNEL)
-    else()
-        set(TUXBLOX_LAUNCHER_CHANNEL "stable")
-    endif()
-else()
-    set(TUXBLOX_LAUNCHER_CHANNEL "stable")
-endif()
 message(STATUS "TuxBlox launcher version: ${TUXBLOX_LAUNCHER_VERSION}")
-message(STATUS "TuxBlox launcher channel: ${TUXBLOX_LAUNCHER_CHANNEL}")
 configure_file(${CMAKE_SOURCE_DIR}/cmake/version.h.in ${CMAKE_BINARY_DIR}/generated/version.h @ONLY)
 
 add_library(launcher_core STATIC
@@ -120,7 +103,9 @@ add_library(launcher_core STATIC
     src/app.cpp
     src/discord_rpc.cpp
     src/about_versions.cpp
+    src/install_identity.cpp
     src/update_decision.cpp
+    src/update_changes.cpp
     src/bloxstrap_rpc.cpp
     src/player_presence.cpp
     src/presence_loop.cpp

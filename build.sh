@@ -675,11 +675,10 @@ run_step "compile_proton_native" strict bash -c '
     # Run through sh so the find runs inside the container.
     podman run --rm --userns=keep-id -v "$workdir:/work:Z" -w /work/src \
         -v "$ROOT/build/.artifacts/shared:/shared:ro,z" \
-        -e TUXBLOX_COMPAT_VERSION -e TUXBLOX_CHANNEL \
+        -e TUXBLOX_COMPAT_VERSION \
         tuxblox-old-glibc-builder sh -c \
         '"'"'g++ -std=c++17 -O2 -Wall -Wextra -static-libstdc++ -static-libgcc -I. -I/shared/include \
             -DTUXBLOX_VERSION="\"$TUXBLOX_COMPAT_VERSION\"" \
-            -DTUXBLOX_CHANNEL="\"$TUXBLOX_CHANNEL\"" \
             -o /work/out/main $(find . -name "*.cpp") \
             /shared/lib/libcrypto.a -ldl -lpthread'"'"'
 

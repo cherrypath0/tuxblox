@@ -86,7 +86,8 @@ int main() {
     assert(proton.url == "https://setup.tuxblox.net/v1/canary/0.2.0/proton.tar.zst");
     assert(proton.sha256 == "deadbeef");
     assert(proton.sizeBytes == 123456789ULL);
-    assert(proton.displayname == "Proton");
+    // The manifest says "Proton"; TuxBlox calls it the Runtime now, and shows that.
+    assert(proton.displayname == "Runtime");
     assert(proton.filename == "proton");
     assert(proton.path == "/");
 
@@ -101,10 +102,10 @@ int main() {
     assert(installer.url == "https://setup.tuxblox.net/v1/canary/0.2.0/installer");
     assert(installer.sha256 == "12345678");
     assert(installer.sizeBytes == 23456789ULL);
-    assert(installer.displayname == "Updater");
+    assert(installer.displayname == "Installer");
 
     const auto& mcp = m.artifacts.at("mcp");
-    assert(mcp.displayname == "Studio MCP Server");
+    assert(mcp.displayname == "Studio MCP");
     assert(mcp.filename == "mcp");
 
     assert(m.artifacts.find("nonexistent") == m.artifacts.end());

@@ -33,6 +33,8 @@ struct Session {
     bool running = true;
     std::time_t endedAt = 0;
     std::string endedReason;
+    // Whether how this session ended has already been settled. An ordinary close has nothing to say, so without this its log would be re-read on every pass.
+    bool exitDescribed = false;
     std::string capturedLogPath;
     std::string robloxLogPath;
 };
@@ -40,10 +42,16 @@ struct Session {
 // Every Roblox process alive in the drive, oldest first, whoever started it -- a session started from a link before the launcher opened is as real as one started from its buttons.
 std::vector<Session> liveSessionsIn(const std::string& procRoot, const std::string& prefixDir);
 
-// How a session that is over ended, in words for the row underneath its name.
+// How a session that is over ended, in words for the row underneath its name. Empty for anything that ended the way it was meant to.
 std::string describeExit(bool stopRequested, std::optional<int> markerExitCode);
 
 // Carries what was known forward over a fresh census: a session still there keeps everything already learned about it, one that has gone becomes an ended entry, and one that already ended is left exactly as it was. Running first, oldest first; then ended, most recent first.
+// The session a launch just produced: the newest one in `live` that `previous` had not seen, preferring
+// the app that was asked for, since an unrelated session can turn up in the same pass. Zero when nothing
+// new arrived. Kept here rather than in the poll loop so the choice can be tested without /proc.
+int arrivedSession(const std::vector<Session>& previous, const std::vector<Session>& live,
+                   LaunchTarget wanted);
+
 std::vector<Session> mergeSessions(const std::vector<Session>& previous,
                                    const std::vector<Session>& live);
 

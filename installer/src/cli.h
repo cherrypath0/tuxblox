@@ -35,14 +35,13 @@ struct CliOptions {
     // Print the build version and exit. Matches `proton/main --version` and the
     // launcher's footer -- all three come from the same TUXBLOX_BUILD_VERSION.
     bool version = false;
-    // Which /v1/<channel>/... release to install. Defaults to the channel this
-    // installer was BUILT for, not to "stable": an installer installs its own
-    // version, and that version only exists on its own channel, so a 2.5.0
-    // experimental installer defaulting to stable asks for a release that was
-    // never published there and fails with a 404. Overridden when the launcher
-    // passes --channel during an upgrade handoff. "dev" is accepted on the
-    // command line and stored as its new name, "experimental".
-    std::string channel = kTuxBloxChannel;
+    // Which channel's newest release to install. It defaults to stable rather than to anything
+    // about this binary: one copy of the installer is served to every channel, so "the channel this
+    // was built for" is only whichever channel happened to be building. The launcher passes
+    // --channel on every handoff, so this default is reached by a bare installer somebody
+    // downloaded, where stable is the right answer. "dev" is accepted on the command line and
+    // stored as its new name, "experimental".
+    std::string channel = "stable";
     // A specific release, for support: "3.6.0.1". Validated here rather than left to 404 later,
     // because the likely slip is a three-field version, which is a COMPONENT version now.
     std::string release;

@@ -236,6 +236,9 @@ UpdateResult runUpdateCheck(const std::string& baseUrl,
     result.needsHandoff = true;
     result.forced = decision.forced;
     result.compatMissing = compatMissing;
+    std::map<std::string, std::string> namedVersions;
+    for (const auto& [name, component] : result.release.components) namedVersions[name] = component.version;
+    result.changes = updateChanges(state.recordedVersions, namedVersions);
     return result;
 }
 

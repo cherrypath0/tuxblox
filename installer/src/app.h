@@ -63,7 +63,7 @@ public:
     //
     // `installDirOverride` (the --dir flag) names the folder to install
     // into. Empty means installDir() decides.
-    explicit App(std::string channel = kTuxBloxChannel, ReleaseSource source = {},
+    explicit App(std::string channel = "stable", ReleaseSource source = {},
                  std::string installDirOverride = "");
     ~App();
 

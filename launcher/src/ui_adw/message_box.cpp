@@ -151,6 +151,29 @@ void showErrorMessageBox(const std::string &title, const std::string &message) {
     showErrorMessageBoxWithAction(title, message, "");
 }
 
+void showErrorMessageBoxWithCopy(const std::string &title, const std::string &message, const std::string &copyText) {
+    bool startedGtk = false;
+    if (!startInterface(&startedGtk)) {
+        fprintf(stderr, "TuxBlox: %s\n%s\n", title.c_str(), message.c_str());
+        return;
+    }
+
+    std::vector<DialogButton> buttons;
+    if (!copyText.empty()) {
+        buttons.push_back({"Copy", nullptr,
+                           [copyText] {
+                               GdkDisplay *pDisplay = gdk_display_get_default();
+                               if (pDisplay != nullptr) gdk_clipboard_set_text(gdk_display_get_clipboard(pDisplay), copyText.c_str());
+                           },
+                           false});
+    }
+    buttons.push_back({"OK", nullptr, nullptr, false});
+
+    runDialog(buildDialog(title, message, std::move(buttons)), nullptr);
+
+    if (startedGtk) restoreBundledEnvironment();
+}
+
 MessageBoxOutcome showRequestedMessageBox(const std::string &title, const std::string &message,
                                           const std::string &buttons, int defaultButton, bool canDismiss,
                                           int iconFd) {

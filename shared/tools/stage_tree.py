@@ -16,6 +16,7 @@
 
 """Writes a release into the shape setup.tuxblox.net serves."""
 
+import datetime
 import hashlib
 import json
 import os
@@ -141,7 +142,12 @@ def stage(build_dir, out_dir, channel, release, versions, published, ui_tarball=
     # deploy.sh refuses a release whose source is not clean, equal to HEAD and pushed to every
     # remote, because a published binary whose source nobody can fetch is a licence violation.
     # Unknown reads as dirty so an unattributable build is refused rather than published.
-    content = {"release": release, "channel": channel, "components": components,
+    # When this release was published, which is the one date it has that never changes. UTC, so it
+    # reads the same for whoever opens it, and written here rather than left to a file's mtime --
+    # restoring a backup or re-syncing the tree would silently rewrite every release date.
+    published_at = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    content = {"release": release, "channel": channel, "published": published_at,
+               "components": components,
                "source_commit": source_commit or None, "source_dirty": bool(source_dirty)}
 
     release_dir = os.path.join(out_dir, "releases", channel)

@@ -26,6 +26,9 @@ enum class LogLevel { Plain, Warning, Error };
 // Whether a line came from TuxBlox itself or from Roblox. One session's log holds both, and telling them apart is what lets a reader see which half a problem is in.
 enum class LogSource { TuxBlox, Roblox };
 
+// Which of the log's five kinds of line this is. Every entry is exactly one of them, so a kind turned off in the filter can never leave a line with nowhere to go.
+enum class LogCategory { TuxBlox, GameOutput, Error, Warning, Info };
+
 // One thing the log has to say. A message that runs over several lines -- a script's traceback, most often -- is one entry, because reading half of one tells you nothing.
 struct LogEntry {
     std::string time;
@@ -36,6 +39,21 @@ struct LogEntry {
     std::vector<std::string> rawContinuation;
     LogLevel level = LogLevel::Plain;
     LogSource source = LogSource::Roblox;
+    LogCategory category = LogCategory::Info;
+};
+
+// Which kind a line is. A game's own output wins over its level, so turning game output off takes a game's errors with it rather than leaving them behind under Errors.
+LogCategory categoryOf(const std::string& line);
+
+// Which kinds the log shows. Everything to begin with: a filter is for narrowing down, so it starts out hiding nothing.
+struct LogFilter {
+    bool errors = true;
+    bool warnings = true;
+    bool gameOutput = true;
+    bool info = true;
+    bool tuxblox = true;
+
+    bool shows(LogCategory category) const;
 };
 
 // Whether this line begins something new. Roblox stamps the time on the first line of a message and nothing on the rest, and TuxBlox's own lines each stand alone, so anything that is neither continues what came before it.

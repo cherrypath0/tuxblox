@@ -114,11 +114,6 @@ if [[ -r "$(pwd)/VERSION" ]]; then
     TUXBLOX_BUILD_VERSION="$(sed -n '1p' "$(pwd)/VERSION" | tr -d '[:space:]')"
 fi
 
-# The channel is still a property of the release rather than of this component, so it comes from line 2 of the repo-root VERSION.
-if [[ -z "${TUXBLOX_CHANNEL:-}" && -r "$(pwd)/../VERSION" ]]; then
-    TUXBLOX_CHANNEL="$(sed -n '2p' "$(pwd)/../VERSION" | tr -d '[:space:]')"
-fi
-
 # The notice names the libadwaita commit the interface was built from, because TuxBlox ships a modified fork and a recipient has to be able to fetch that exact source. git is not usable inside the container, so it is read here. Every release installs the stack, so even a headless installer names it; it names none only when there is no stack to name.
 # The empty default is deliberate: CMake caches the variable, so a build without an interface must clear a commit left by an earlier one.
 LibadwaitaArg="-DTUXBLOX_LIBADWAITA_COMMIT="
@@ -149,7 +144,7 @@ fi
 
 podman run --rm --userns=keep-id -e JOBS="$JOBS" -e LIBADWAITA_ARG="$LibadwaitaArg" \
     -e TUXBLOX_BUILD_VERSION="${TUXBLOX_BUILD_VERSION:-}" \
-    -e TUXBLOX_CHANNEL="${TUXBLOX_CHANNEL:-}" -v "$(pwd):/src:Z" \
+ -v "$(pwd):/src:Z" \
     -v "$(pwd)/../LICENSE:/LICENSE:ro,z" -v "$(cd "$UiSrc" && pwd):/ui-src:ro" -v "$(cd "$UiStackDev" && pwd):/ui-dev:ro" -v "$(pwd)/../build/.artifacts/shared:/shared:ro,z" -v "$(pwd)/../shared/crypto:/shared-crypto:ro,z" -v "$(pwd)/../shared/release:/shared-release:ro,z" -v "$CacheDir:/ccache:z" -e CCACHE_DIR=/ccache -e CCACHE_MAXSIZE=30G -w /src tuxblox-old-glibc-builder \
     bash -c 'cmake -B build -S . -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DTUXBLOX_UI_SRC=/ui-src -DTUXBLOX_UI_STACK_DEV=/ui-dev -DTUXBLOX_SHARED_DIR=/shared -DTUXBLOX_SHARED_CRYPTO=/shared-crypto/src -DTUXBLOX_SHARED_RELEASE=/shared-release/src ${LIBADWAITA_ARG:-} && cmake --build build -j"$JOBS"'
 

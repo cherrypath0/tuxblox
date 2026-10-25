@@ -76,11 +76,11 @@ int main() {
         assert(migrateAccountFolder(base, "cherry") == AccountFolderMigration::NotNeeded);
     }
 
-    // Both folders present: say so and change nothing, rather than picking one.
+    // Both folders present: change nothing, rather than picking one.
     {
         makeOldPrefix(base);
         fs::create_directories(base / "drive_c/users/cherry");
-        assert(migrateAccountFolder(base, "cherry") == AccountFolderMigration::Ambiguous);
+        assert(migrateAccountFolder(base, "cherry") == AccountFolderMigration::NotNeeded);
         assert(fs::exists(base / "drive_c/users/user"));
         assert(fs::exists(base / "drive_c/users/cherry"));
         assert(readFile(base / "user.reg").find("C:\\\\users\\\\user") != std::string::npos);

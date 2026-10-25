@@ -30,6 +30,10 @@ AboutVersions aboutVersions(const std::string& installDir, const std::string& la
     }
 
     for (const std::string& name : componentNames()) {
+        // Left out on purpose: the interface stack is GTK and libadwaita built from source, so its
+        // version tracks theirs and says nothing a reader of this screen can act on. It is still a
+        // component, still downloaded and still named while it installs -- just not listed here.
+        if (name == "libtuxblox") continue;
         const std::string display = componentLayout(name)->displayName;
         // The launcher is the one asking, so it answers from the binary that is running rather
         // than from a copy on disk, which may not be the one that was started.

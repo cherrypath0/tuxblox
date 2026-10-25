@@ -51,9 +51,9 @@ struct LayoutEntry {
 // The order is the order componentNames() reports and the order an install is written in.
 const LayoutEntry kLayouts[] = {
     {"launcher",   {"TuxBloxLauncher",    "TuxBloxLauncher",  "/", "Launcher",            "TuxBloxLauncher",  false}},
-    {"installer",  {"TuxBloxInstaller",   "TuxBloxInstaller", "/", "Updater",             "TuxBloxInstaller", false}},
+    {"installer",  {"TuxBloxInstaller",   "TuxBloxInstaller", "/", "Installer",           "TuxBloxInstaller", false}},
     {"studio-mcp", {"studio-mcp",         "studio-mcp",       "/", "Studio MCP",          "studio-mcp",       false}},
-    {"compat",     {"compat.tar.zst",     "compat",           "/", "Compatibility layer", "compat/main",      true}},
+    {"compat",     {"compat.tar.zst",     "compat",           "/", "Runtime", "compat/main",      true}},
     {"libtuxblox", {"libtuxblox.tar.zst", "libtuxblox",       "/", "Libraries",           "",                 true}},
 };
 

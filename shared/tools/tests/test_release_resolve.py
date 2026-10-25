@@ -62,6 +62,48 @@ class NothingPublished(unittest.TestCase):
             resolve(SEEDS, "stable", fetch, seed="3.5.0")
 
 
+class BuildsBetweenPublishes(unittest.TestCase):
+    """Nothing is published between two local builds, so the floor does not move -- but BUILD does."""
+
+    def test_a_run_of_local_builds_each_get_their_own_number(self):
+        pages = {"client/releases/stable/latest": "3.6.0.0\n",
+                 "client/releases/stable/3.6.0.0.json": release_file("3.6.0.0", "stable", SEEDS)}
+        # Each run reads back the VERSION the run before it wrote.
+        seen, version = [], "3.6.0.0"
+        for _ in range(3):
+            version = resolve(SEEDS, "stable", fetcher(pages), seed=version)["release"]
+            seen.append(version)
+        self.assertEqual(seen, ["3.6.0.1", "3.6.0.2", "3.6.0.3"])
+
+    # Before anything is published there is no floor to derive from either, so a four-field seed is
+    # the only record that an earlier build of this tree already took a number.
+    def test_a_run_of_local_builds_on_a_tree_that_has_published_nothing(self):
+        seen, version = [], "3.5.0"
+        for _ in range(3):
+            version = resolve(SEEDS, "stable", fetcher({}), seed=version)["release"]
+            seen.append(version)
+        self.assertEqual(seen, ["3.6.0.0", "3.6.0.1", "3.6.0.2"])
+
+    # The seed only ever carries BUILD. If it carried the rest, a component change rebuilt twice
+    # would read as two component changes and walk MINOR up on its own.
+    def test_rebuilding_a_change_does_not_walk_the_fields_above_build(self):
+        versions = dict(SEEDS, launcher="3.6.0")
+        pages = {"client/releases/stable/latest": "3.6.0.0\n",
+                 "client/releases/stable/3.6.0.0.json": release_file("3.6.0.0", "stable", SEEDS)}
+        first = resolve(versions, "stable", fetcher(pages), seed="3.6.0.4")["release"]
+        self.assertEqual(first, "3.7.0.0")
+        self.assertEqual(resolve(versions, "stable", fetcher(pages), seed=first)["release"], "3.7.0.1")
+
+    # The reuse map and the base commit describe the PUBLISHED release, and the seed is local, so it
+    # must not reach either of them.
+    def test_the_seed_does_not_touch_what_is_already_published(self):
+        pages = {"client/releases/stable/latest": "3.6.0.0\n",
+                 "client/releases/stable/3.6.0.0.json": release_file("3.6.0.0", "stable", SEEDS)}
+        got = resolve(SEEDS, "stable", fetcher(pages), seed="3.6.0.9")
+        self.assertEqual(got["base_commit"], "base1234")
+        self.assertEqual(got["published"][("launcher", "3.5.0")]["size"], 10)
+
+
 class Derives(unittest.TestCase):
     def test_takes_the_maximum_across_channels_not_this_channel_only(self):
         pages = {

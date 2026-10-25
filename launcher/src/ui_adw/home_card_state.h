@@ -21,17 +21,14 @@
 
 namespace tuxblox {
 
-// What one Home card's buttons say. The Player's single button turns into Stop
-// because only one Player session runs at a time; Studio keeps Launch and gains
-// a second button, since several Studio sessions can be open at once.
+// What one Home card's button says. The Player's turns into Stop because only one
+// Player session runs at a time; Studio's stays a Launch button, since another
+// session can start while others are open. What is open, and stopping one of
+// them, belongs to the list below the cards rather than to the cards.
 struct CardState {
     std::string launchLabel;
     // The main button stops the session rather than starting one, so it is red.
     bool launchStops = false;
-    // Studio's separate Stop button, hidden while this is empty.
-    std::string stopLabel;
-    // "2 sessions running" on Studio, always empty on the Player, which runs one session at a time.
-    std::string sessionLabel;
     // A launch is on its way but has no session yet, which is most of an install. The button says so and refuses further clicks rather than looking like it did nothing.
     bool launchDisabled = false;
 };

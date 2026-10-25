@@ -41,7 +41,7 @@ int main() {
         CliOptions o = parse({});
         assert(!o.uninstall && !o.headless && !o.noLaunch && !o.help);
         // The channel this installer was built for, not a fixed one.
-        assert(o.channel == tuxblox::kTuxBloxChannel);
+        assert(o.channel == "stable");
         // Neither flag given: the newest release on the channel, which releaseSourceFor()
         // reports and test_release_source.cpp pins.
         assert(o.release.empty() && o.releaseFile.empty());

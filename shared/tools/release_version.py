@@ -49,6 +49,24 @@ def largest_bump(old, new):
     return _BUMPS[biggest]
 
 
+def advance_build(candidate, previous):
+    """`candidate`, with BUILD carried past `previous` when the two name the same MAJOR.MINOR.PATCH.
+
+    A release is derived from what the channels publish, so every build between two publishes
+    derives the same number: nothing was published in between, so the floor never moved. BUILD is
+    the field that counts builds, so it is the one carried forward -- the three above it describe
+    what changed, and between those builds nothing did.
+    """
+    if not previous:
+        return candidate
+    cmajor, cminor, cpatch, cbuild = release_sort_key(candidate)
+    pmajor, pminor, ppatch, pbuild = release_sort_key(previous)
+    if (cmajor, cminor, cpatch) != (pmajor, pminor, ppatch):
+        # A component moved, so the derived number is a different release line and BUILD starts over.
+        return candidate
+    return "%d.%d.%d.%d" % (cmajor, cminor, cpatch, max(cbuild, pbuild + 1))
+
+
 def derive_release(previous_max, bump, major):
     """The next release version, advancing from `previous_max` by `bump` under the component `major`."""
     if bump not in _BUMPS:

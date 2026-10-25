@@ -43,8 +43,6 @@ enum class AccountFolderMigration {
     // Already on the wanted name, or there is no old folder to move.
     NotNeeded,
     Renamed,
-    // Both the old and the wanted folder are there; nothing was touched.
-    Ambiguous,
     // The rename was refused; the drive still works under the old name.
     Failed,
     // The folder moved but a registry file could not be rewritten, so the

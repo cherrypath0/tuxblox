@@ -60,29 +60,29 @@ void test_a_running_row_reads_uptime_pid_and_memory() {
     assert(row.meta.find("1.41 GB") != std::string::npos);
 }
 
-void test_an_ended_row_reads_how_long_ago_and_why() {
-    const SessionsView view = sessionsView({finished(LaunchTarget::Player, 11, 360, "closed normally")}, kNow);
+// A session that ended the way it was meant to has nothing to say beyond when it did.
+void test_an_ended_row_reads_how_long_ago() {
+    const SessionsView view = sessionsView({finished(LaunchTarget::Player, 11, 360, "")}, kNow);
     assert(view.ended.size() == 1);
     const SessionRow& row = view.ended[0];
     assert(row.name == "Roblox Player");
     assert(!row.running);
-    assert(row.meta.find("6m") != std::string::npos);
-    assert(row.meta.find("closed normally") != std::string::npos);
+    assert(row.meta == "ended 6m ago");
 }
 
 void test_a_crashed_row_is_marked_crashed() {
     const SessionsView view = sessionsView(
-        {finished(LaunchTarget::Player, 11, 60, "crashed (Segmentation Fault, 139)"),
-         finished(LaunchTarget::Studio, 12, 60, "closed normally")},
+        {finished(LaunchTarget::Player, 11, 60, "crashed"), finished(LaunchTarget::Studio, 12, 60, "")},
         kNow);
     assert(view.ended.size() == 2);
     assert(view.ended[0].crashed);
+    assert(view.ended[0].meta.find("crashed") != std::string::npos);
     assert(!view.ended[1].crashed);
 }
 
 void test_running_and_ended_are_separated() {
     const SessionsView view = sessionsView(
-        {alive(LaunchTarget::Studio, 1, 60, 1024), finished(LaunchTarget::Player, 2, 60, "closed normally")},
+        {alive(LaunchTarget::Studio, 1, 60, 1024), finished(LaunchTarget::Player, 2, 60, "")},
         kNow);
     assert(view.running.size() == 1);
     assert(view.ended.size() == 1);
@@ -92,13 +92,13 @@ void test_running_and_ended_are_separated() {
 void test_the_empty_message_appears_only_with_no_sessions_at_all() {
     assert(!sessionsView({}, kNow).emptyMessage.empty());
     assert(sessionsView({alive(LaunchTarget::Studio, 1, 60, 1024)}, kNow).emptyMessage.empty());
-    assert(sessionsView({finished(LaunchTarget::Studio, 1, 60, "closed normally")}, kNow).emptyMessage.empty());
+    assert(sessionsView({finished(LaunchTarget::Studio, 1, 60, "")}, kNow).emptyMessage.empty());
 }
 
 // Nothing in the window may require knowing what any of this is made of.
 void test_no_row_mentions_a_layer_process_or_the_drive() {
     const SessionsView view = sessionsView(
-        {alive(LaunchTarget::Studio, 1, 60, 1024), finished(LaunchTarget::Player, 2, 60, "closed normally")},
+        {alive(LaunchTarget::Studio, 1, 60, 1024), finished(LaunchTarget::Player, 2, 60, "")},
         kNow);
     // "layer" on its own is not a usable guard -- "Roblox Player" contains it.
     const char* const forbidden[] = {"wine", "Wine", "prefix", "proton", "Proton", "pfx",
@@ -132,7 +132,7 @@ void test_filter_matches_the_pid() {
 
 void test_filter_with_an_empty_query_keeps_everything() {
     const SessionsView view = sessionsView(
-        {alive(LaunchTarget::Studio, 1, 60, 1024), finished(LaunchTarget::Player, 2, 60, "closed normally")},
+        {alive(LaunchTarget::Studio, 1, 60, 1024), finished(LaunchTarget::Player, 2, 60, "")},
         kNow);
     const SessionsView all = filterSessions(view, "");
     assert(all.running.size() == 1);
@@ -151,7 +151,7 @@ void test_filter_that_matches_nothing_says_so() {
 
 int main() {
     test_a_running_row_reads_uptime_pid_and_memory();
-    test_an_ended_row_reads_how_long_ago_and_why();
+    test_an_ended_row_reads_how_long_ago();
     test_a_crashed_row_is_marked_crashed();
     test_running_and_ended_are_separated();
     test_the_empty_message_appears_only_with_no_sessions_at_all();

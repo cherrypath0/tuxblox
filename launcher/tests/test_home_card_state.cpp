@@ -46,61 +46,43 @@ int main() {
     CardState fresh = cardState(LaunchTarget::Player, false, 0, false, false);
     assert(fresh.launchLabel == "Install & Launch");
     assert(!fresh.launchStops);
-    assert(fresh.stopLabel.empty());
-    assert(fresh.sessionLabel.empty());
 
     // Installed and idle.
     CardState idlePlayer = cardState(LaunchTarget::Player, true, 0, false, false);
     assert(idlePlayer.launchLabel == "Launch Player");
     assert(!idlePlayer.launchStops);
-    assert(idlePlayer.stopLabel.empty());
-    assert(idlePlayer.sessionLabel.empty());
 
     CardState idleStudio = cardState(LaunchTarget::Studio, true, 0, false, false);
     assert(idleStudio.launchLabel == "Launch Studio");
-    assert(idleStudio.stopLabel.empty());
+    assert(!idleStudio.launchStops);
 
-    // The Player's one button flips: one session at a time, so there is nothing
-    // for a second button to do.
+    // The Player's one button flips: one session at a time, so starting another is not on offer.
     CardState livePlayer = cardState(LaunchTarget::Player, true, 1, false, false);
     assert(livePlayer.launchLabel == "Stop Player");
     assert(livePlayer.launchStops);
-    assert(livePlayer.stopLabel.empty());
-    assert(livePlayer.sessionLabel.empty());
 
     CardState stoppingPlayer = cardState(LaunchTarget::Player, true, 1, true, false);
     assert(stoppingPlayer.launchLabel == "Stopping\xE2\x80\xA6");
     assert(stoppingPlayer.launchStops);
 
-    // Studio keeps its Launch button and gains a second one.
-    CardState oneStudio = cardState(LaunchTarget::Studio, true, 1, false, false);
-    assert(oneStudio.launchLabel == "Launch Studio");
-    assert(!oneStudio.launchStops);
-    assert(oneStudio.stopLabel == "Stop");
-    assert(oneStudio.sessionLabel == "1 session running");
-
-    // The button sits beside Launch on the same card, under a heading that
-    // already says Roblox Studio, so it does not repeat the name -- that is the
-    // room the Launch label would otherwise have to give up.
-    // The singular/plural and count boundaries.
-    CardState twoStudio = cardState(LaunchTarget::Studio, true, 2, false, false);
-    assert(twoStudio.stopLabel == "Stop 2");
-    assert(twoStudio.sessionLabel == "2 sessions running");
-
-    CardState manyStudio = cardState(LaunchTarget::Studio, true, 12, false, false);
-    assert(manyStudio.stopLabel == "Stop 12");
-    assert(manyStudio.sessionLabel == "12 sessions running");
+    // Studio's card says the same thing however many are open: what is open, and
+    // stopping one of them, is the list below the cards rather than the card.
+    for (int sessions : {1, 2, 12}) {
+        CardState studio = cardState(LaunchTarget::Studio, true, sessions, false, false);
+        assert(studio.launchLabel == "Launch Studio");
+        assert(!studio.launchStops);
+        assert(!studio.launchDisabled);
+    }
 
     CardState stoppingStudio = cardState(LaunchTarget::Studio, true, 3, true, false);
-    assert(stoppingStudio.stopLabel == "Stopping\xE2\x80\xA6");
     assert(stoppingStudio.launchLabel == "Launch Studio");
+    assert(!stoppingStudio.launchStops);
 
-    // A session running against a card that is somehow not installed still
-    // offers to stop it -- the version could have been deleted mid-session.
+    // A session running against a card that is somehow not installed still offers
+    // the install -- the version could have been deleted mid-session.
     CardState orphan = cardState(LaunchTarget::Studio, false, 1, false, false);
     assert(orphan.launchLabel == "Install & Launch");
-    assert(orphan.stopLabel == "Stop");
-    assert(orphan.sessionLabel == "1 session running");
+    assert(!orphan.launchStops);
 
     std::printf("home_card_state: all tests passed\n");
     return 0;

@@ -189,6 +189,19 @@ void App::setActiveTab(Tab tab) {
     snapshot_.activeTab = tab;
 }
 
+void App::showSession(int pid) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    sessionToShow_ = pid;
+    snapshot_.activeTab = Tab::Sessions;
+}
+
+int App::takeSessionToShow() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const int pid = sessionToShow_;
+    sessionToShow_ = 0;
+    return pid;
+}
+
 void App::requestLaunch(LaunchTarget target) {
     if (shouldQuit_.load()) return; // already spawned one -- ignore further clicks
 
@@ -202,6 +215,7 @@ void App::requestLaunch(LaunchTarget target) {
             snapshot_.launchPending = true;
             showSessionWhenItStarts_.store(true);
             launchRequestedAt_.store(static_cast<long long>(std::time(nullptr)));
+            launchRequestedTarget_.store(static_cast<int>(target));
         }
     }
 
@@ -412,27 +426,24 @@ void App::sessionPollThreadMain() {
         resolveSessionLogs(merged);
 
         // The jump waits for a session to exist rather than firing on the click, so an install lands on the finished thing instead of on nothing.
-        bool arrived = false;
-        for (const Session& fresh : live) {
-            const bool knownAlready = std::any_of(previous.begin(), previous.end(), [&fresh](const Session& old) {
-                return old.pid == fresh.pid && old.startedAt == fresh.startedAt;
-            });
-            if (!knownAlready) arrived = true;
-        }
+        const int arrived = arrivedSession(previous, live,
+                                           static_cast<LaunchTarget>(launchRequestedTarget_.load()));
         // Giving up after a while, so a launch that never starts does not leave the button saying "Starting" for the rest of the run.
         const long long waited = static_cast<long long>(std::time(nullptr)) - launchRequestedAt_.load();
         const bool wanted = showSessionWhenItStarts_.load();
-        if (wanted && (arrived || waited > 900)) {
-            showSessionWhenItStarts_.store(false);
-            std::lock_guard<std::mutex> lock(mutex_);
-            snapshot_.launchPending = false;
-            if (arrived) snapshot_.activeTab = Tab::Sessions;
-        }
+        const bool settled = wanted && (arrived != 0 || waited > 900);
+        if (settled) showSessionWhenItStarts_.store(false);
 
+        // One lock for all of it: the page takes the request as soon as it is set, and asking it to show a session the list does not hold yet would land it on an empty pane for a tick.
         {
             std::lock_guard<std::mutex> lock(mutex_);
             snapshot_.sessions = sessions;
             snapshot_.sessionList = merged;
+            if (settled) snapshot_.launchPending = false;
+            if (wanted && arrived != 0) {
+                snapshot_.activeTab = Tab::Sessions;
+                sessionToShow_ = arrived;
+            }
             if (sessions.player == 0) snapshot_.stoppingPlayer = false;
             if (sessions.studio == 0) snapshot_.stoppingStudio = false;
         }
@@ -549,12 +560,13 @@ void App::resolveSessionLogs(std::vector<Session>& sessions) {
         stopped = stoppedByUs_;
     }
     for (Session& session : sessions) {
-        if (session.running || !session.endedReason.empty()) continue;
+        if (session.running || session.exitDescribed) continue;
         const bool weStoppedIt = std::find(stopped.begin(), stopped.end(), session.pid) != stopped.end();
         std::optional<int> marker;
         // Proton writes the real exit code into the capture on any non-zero exit, so the reason is already in a file the page is reading anyway.
         if (!session.capturedLogPath.empty()) marker = findRealExitCodeInLog(session.capturedLogPath);
         session.endedReason = describeExit(weStoppedIt, marker);
+        session.exitDescribed = true;
     }
 }
 
@@ -778,6 +790,7 @@ void App::updateCheckThreadMain() {
             pendingRelease_ = result.release;
             pendingReleaseJson_ = result.releaseJson;
             snapshot_.updateAvailableVersion = *namedRelease;
+            snapshot_.updateChanges = result.changes;
             // Without this the phase stays where runUpdateCheck()'s last report() left it -- CheckingManifest -- forever, since nothing else in this function reports again on this branch. StartTab::updateFromSnapshot() treats that as "updating" and hides the Launch buttons in favour of the progress bar for as long as it is true, so the Home tab would sit there with no way to launch anything. The branch above needs no such reset: it sets needsInstallerHandoff_, which MainWindow::poll() acts on by closing the window within one tick.
             snapshot_.update = {UpdatePhase::UpToDate, 1.0};
         }

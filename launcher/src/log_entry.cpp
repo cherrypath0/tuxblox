@@ -83,6 +83,21 @@ bool secondByteIsInRange(unsigned char lead, unsigned char second) {
     return second >= 0x80 && second <= 0xBF;
 }
 
+// A game's own print(), warn() and error() reach the log under these three categories; everything else Roblox writes is the engine talking about the game rather than the game talking.
+bool isGameOutput(const std::string& line) {
+    return line.find(" [FLog::CreatorOutput]") != std::string::npos ||
+           line.find(" [FLog::CreatorWarning]") != std::string::npos ||
+           line.find(" [FLog::CreatorError]") != std::string::npos;
+}
+
+LogCategory categorise(const std::string& line, LogSource source, LogLevel level) {
+    if (source == LogSource::TuxBlox) return LogCategory::TuxBlox;
+    if (isGameOutput(line)) return LogCategory::GameOutput;
+    if (level == LogLevel::Error) return LogCategory::Error;
+    if (level == LogLevel::Warning) return LogCategory::Warning;
+    return LogCategory::Info;
+}
+
 LogLevel levelOf(const std::string& line) {
     if (isOurOwnLine(line)) {
         const size_t firstColon = line.find(':');
@@ -103,6 +118,22 @@ LogLevel levelOf(const std::string& line) {
 
 bool opensAnEntry(const std::string& line) {
     return hasRobloxStamp(line) || isOurOwnLine(line);
+}
+
+LogCategory categoryOf(const std::string& line) {
+    const LogSource source = isOurOwnLine(line) ? LogSource::TuxBlox : LogSource::Roblox;
+    return categorise(line, source, levelOf(line));
+}
+
+bool LogFilter::shows(LogCategory category) const {
+    switch (category) {
+        case LogCategory::TuxBlox: return tuxblox;
+        case LogCategory::GameOutput: return gameOutput;
+        case LogCategory::Error: return errors;
+        case LogCategory::Warning: return warnings;
+        case LogCategory::Info: return info;
+    }
+    return true;
 }
 
 std::string tidyLine(const std::string& line) {
@@ -149,6 +180,7 @@ std::vector<LogEntry> groupLogEntries(const std::vector<std::string>& lines) {
         LogEntry entry;
         entry.source = isOurOwnLine(line) ? LogSource::TuxBlox : LogSource::Roblox;
         entry.level = levelOf(line);
+        entry.category = categorise(line, entry.source, entry.level);
         if (hasRobloxStamp(line)) entry.time = line.substr(11, 12);
         entry.raw = line;
         entry.text = tidyLine(line);

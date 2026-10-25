@@ -115,11 +115,6 @@ if [[ -r "$(pwd)/VERSION" ]]; then
     TUXBLOX_BUILD_VERSION="$(sed -n '1p' "$(pwd)/VERSION" | tr -d '[:space:]')"
 fi
 
-# The channel is still a property of the release rather than of this component, so it comes from line 2 of the repo-root VERSION.
-if [[ -z "${TUXBLOX_CHANNEL:-}" && -r "$(pwd)/../VERSION" ]]; then
-    TUXBLOX_CHANNEL="$(sed -n '2p' "$(pwd)/../VERSION" | tr -d '[:space:]')"
-fi
-
 # The interface stack lives in shared/ui, outside this script's /src mount, so it gets a mount of its own -- the same way studio-mcp/build.sh reaches launcher/. Without it the interface binary is not built.
 UiStackArg=""
 UiStackMount=()
@@ -144,7 +139,7 @@ fi
 
 podman run --rm --userns=keep-id -e JOBS="$JOBS" -e UI_STACK_ARG="$UiStackArg" -e LIBADWAITA_ARG="$LibadwaitaArg" \
     -e TUXBLOX_BUILD_VERSION="${TUXBLOX_BUILD_VERSION:-}" \
-    -e TUXBLOX_CHANNEL="${TUXBLOX_CHANNEL:-}" -v "$(pwd):/src:Z" -v "$(pwd)/../build/.artifacts/shared:/shared:ro,z" -v "$(pwd)/../shared/crypto:/shared-crypto:ro,z" -v "$(pwd)/../shared/release:/shared-release:ro,z" "${UiStackMount[@]}" -v "$CacheDir:/ccache:z" -e CCACHE_DIR=/ccache -e CCACHE_MAXSIZE=30G -w /src tuxblox-old-glibc-builder \
+ -v "$(pwd):/src:Z" -v "$(pwd)/../build/.artifacts/shared:/shared:ro,z" -v "$(pwd)/../shared/crypto:/shared-crypto:ro,z" -v "$(pwd)/../shared/release:/shared-release:ro,z" "${UiStackMount[@]}" -v "$CacheDir:/ccache:z" -e CCACHE_DIR=/ccache -e CCACHE_MAXSIZE=30G -w /src tuxblox-old-glibc-builder \
     bash -c 'cmake -B build -S . -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DTUXBLOX_SHARED_DIR=/shared -DTUXBLOX_SHARED_CRYPTO=/shared-crypto/src -DTUXBLOX_SHARED_RELEASE=/shared-release/src ${UI_STACK_ARG:-} ${LIBADWAITA_ARG:-} && cmake --build build -j"$JOBS"'
 
 if [[ "${TUXBLOX_HEADLESS_ONLY:-}" == "1" ]]; then

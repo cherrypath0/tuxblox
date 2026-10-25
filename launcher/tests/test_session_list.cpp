@@ -140,26 +140,68 @@ void test_running_before_ended_in_the_result() {
     assert(!merged[1].running);
 }
 
-void test_describe_exit_stopped_by_you() {
-    assert(describeExit(true, std::nullopt) == "stopped by you");
+// Stopping a session yourself is what was meant to happen, so the row says nothing about it.
+void test_describe_exit_says_nothing_about_a_stop() {
+    assert(describeExit(true, std::nullopt).empty());
 }
 
-void test_describe_exit_closed_normally() {
-    assert(describeExit(false, std::nullopt) == "closed normally");
+void test_describe_exit_says_nothing_about_an_ordinary_close() {
+    assert(describeExit(false, std::nullopt).empty());
+    assert(describeExit(false, 0).empty());
 }
 
-void test_describe_exit_names_the_code() {
-    const std::string named = describeExit(false, 139);
-    assert(named.find("139") != std::string::npos);
-    assert(named.find("Segmentation Fault") != std::string::npos);
-    // A code with no entry in the table shows the bare number rather than an invented description.
-    const std::string bare = describeExit(false, 4242);
-    assert(bare.find("4242") != std::string::npos);
+void test_describe_exit_reports_a_crash() {
+    assert(describeExit(false, 139) == "crashed");
+    assert(describeExit(false, 4242) == "crashed");
 }
 
 // Stopping a session produces a non-zero code of its own; that is not a crash.
 void test_describe_exit_stop_wins_over_a_code() {
-    assert(describeExit(true, 143) == "stopped by you");
+    assert(describeExit(true, 143).empty());
+}
+
+void test_nothing_new_means_no_arrival() {
+    const std::vector<Session> both = {running(LaunchTarget::Studio, 10, 100),
+                                       running(LaunchTarget::Player, 11, 200)};
+    assert(arrivedSession(both, both, LaunchTarget::Studio) == 0);
+}
+
+void test_the_one_that_turned_up_is_the_arrival() {
+    const std::vector<Session> before = {running(LaunchTarget::Studio, 10, 100)};
+    const std::vector<Session> after = {running(LaunchTarget::Studio, 10, 100),
+                                        running(LaunchTarget::Studio, 12, 300)};
+    assert(arrivedSession(before, after, LaunchTarget::Studio) == 12);
+}
+
+void test_the_app_that_was_asked_for_wins() {
+    // A Player session of somebody else's starting in the same pass must not steal a Studio launch's jump.
+    const std::vector<Session> before = {running(LaunchTarget::Studio, 10, 100)};
+    const std::vector<Session> after = {running(LaunchTarget::Studio, 10, 100),
+                                        running(LaunchTarget::Studio, 12, 300),
+                                        running(LaunchTarget::Player, 13, 400)};
+    assert(arrivedSession(before, after, LaunchTarget::Studio) == 12);
+    assert(arrivedSession(before, after, LaunchTarget::Player) == 13);
+}
+
+void test_a_session_of_another_app_still_counts_when_nothing_matches() {
+    const std::vector<Session> before = {running(LaunchTarget::Studio, 10, 100)};
+    const std::vector<Session> after = {running(LaunchTarget::Studio, 10, 100),
+                                        running(LaunchTarget::Player, 13, 400)};
+    assert(arrivedSession(before, after, LaunchTarget::Studio) == 13);
+}
+
+void test_the_newest_of_several_arrivals_wins() {
+    const std::vector<Session> before = {};
+    const std::vector<Session> after = {running(LaunchTarget::Studio, 10, 100),
+                                        running(LaunchTarget::Studio, 12, 300)};
+    assert(arrivedSession(before, after, LaunchTarget::Studio) == 12);
+}
+
+void test_a_reused_pid_counts_as_an_arrival() {
+    // Same number, different session: the one being read is gone and the new one is what a launch produced.
+    const std::vector<Session> before = {running(LaunchTarget::Studio, 10, 100)};
+    const std::vector<Session> after = {running(LaunchTarget::Studio, 10, 500)};
+    assert(arrivedSession(before, after, LaunchTarget::Studio) == 10);
 }
 
 } // namespace
@@ -186,10 +228,16 @@ int main() {
     test_an_ended_session_stays_ended_and_does_not_flicker();
     test_a_reused_pid_is_a_new_session();
     test_running_before_ended_in_the_result();
-    test_describe_exit_stopped_by_you();
-    test_describe_exit_closed_normally();
-    test_describe_exit_names_the_code();
+    test_describe_exit_says_nothing_about_a_stop();
+    test_describe_exit_says_nothing_about_an_ordinary_close();
+    test_describe_exit_reports_a_crash();
     test_describe_exit_stop_wins_over_a_code();
+    test_nothing_new_means_no_arrival();
+    test_the_one_that_turned_up_is_the_arrival();
+    test_the_app_that_was_asked_for_wins();
+    test_a_session_of_another_app_still_counts_when_nothing_matches();
+    test_the_newest_of_several_arrivals_wins();
+    test_a_reused_pid_counts_as_an_arrival();
 
     fs::remove_all(tmp);
     std::printf("session_list: all tests passed\n");

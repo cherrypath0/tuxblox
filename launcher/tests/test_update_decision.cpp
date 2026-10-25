@@ -151,13 +151,13 @@ void test_the_reason_names_components_the_way_a_person_reads_them() {
     InstallState s = coherent();
     s.installedVersions["compat"] = "3.2.0";
     const std::string one = decideUpdate(s, "3.6.0.0", false).reason;
-    assert(one.find("Compatibility layer") != std::string::npos);
+    assert(one.find("Runtime") != std::string::npos);
     assert(one.find("compat ") == std::string::npos);
     assert(one.find(" does not match") != std::string::npos);
 
     s.installedVersions["libtuxblox"] = "3.0.0";
     const std::string two = decideUpdate(s, "3.6.0.0", false).reason;
-    assert(two.find("Compatibility layer and Libraries") != std::string::npos);
+    assert(two.find("Runtime and Libraries") != std::string::npos);
     assert(two.find(" do not match") != std::string::npos);   // plural, not "does"
     printf("  the reason names components the way a person reads them\n");
 }

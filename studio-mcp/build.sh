@@ -112,11 +112,6 @@ if [[ -r "$(pwd)/VERSION" ]]; then
     TUXBLOX_BUILD_VERSION="$(sed -n '1p' "$(pwd)/VERSION" | tr -d '[:space:]')"
 fi
 
-# The channel is still a property of the release rather than of this component, so it comes from line 2 of the repo-root VERSION.
-if [[ -z "${TUXBLOX_CHANNEL:-}" && -r "$(pwd)/../VERSION" ]]; then
-    TUXBLOX_CHANNEL="$(sed -n '2p' "$(pwd)/../VERSION" | tr -d '[:space:]')"
-fi
-
 # launcher/ is mounted read-only alongside: studio-mcp shares the launcher's
 # path-resolution code rather than keeping a second copy of it, and only /src
 # is reachable from inside the container otherwise. Read-only because this
@@ -128,7 +123,6 @@ fi
 # and exits 0 -- a test gate that passes without running anything.
 podman run --rm --userns=keep-id -e JOBS="$JOBS" \
     -e TUXBLOX_BUILD_VERSION="${TUXBLOX_BUILD_VERSION:-}" \
-    -e TUXBLOX_CHANNEL="${TUXBLOX_CHANNEL:-}" \
     -v "$(pwd):/src:Z" -v "$(pwd)/../launcher:/launcher:ro,z" \
     -v "$CacheDir:/ccache:z" -e CCACHE_DIR=/ccache -e CCACHE_MAXSIZE=30G -w /src tuxblox-old-glibc-builder \
     bash -c 'cmake -B build -S . -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DTUXBLOX_LAUNCHER_DIR=/launcher \

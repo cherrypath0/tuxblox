@@ -25,6 +25,7 @@
 #include "asset_settings.h"
 #include "desktop_integration.h"
 #include "desktop_notify.h"
+#include "dialog.h"
 #include "page.h"
 #include "page_about.h"
 #include "page_fastflags.h"
@@ -131,13 +132,43 @@ void addPage(WindowUi &ui, Tab tab, const char *pTitle, const unsigned char *pIc
     ui.pages.push_back({tab, pTitle, footer, std::move(page), GTK_LIST_BOX_ROW(pRow)});
 }
 
-// Once per offered version, so the notice does not repeat on every poll; its Update button, like the one on the Home page, starts the update
+// The release being offered and the parts of it that move, under the body of the dialog.
+GtkWidget *updateDetails(const std::string &release, const std::vector<ComponentChange> &changes) {
+    GtkWidget *pBox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+    gtk_widget_set_margin_top(pBox, 8);
+
+    GtkWidget *pRelease = gtk_label_new(("Release " + release).c_str());
+    gtk_label_set_xalign(GTK_LABEL(pRelease), 0.0);
+    gtk_widget_add_css_class(pRelease, "heading");
+    gtk_box_append(GTK_BOX(pBox), pRelease);
+
+    for (const ComponentChange &change : changes) {
+        GtkWidget *pLine = gtk_label_new(changeLine(change).c_str());
+        gtk_label_set_xalign(GTK_LABEL(pLine), 0.0);
+        gtk_label_set_wrap(GTK_LABEL(pLine), TRUE);
+        gtk_widget_add_css_class(pLine, "dim-label");
+        gtk_box_append(GTK_BOX(pBox), pLine);
+    }
+
+    GtkWidget *pQuestion = gtk_label_new("Would you like to update?");
+    gtk_label_set_xalign(GTK_LABEL(pQuestion), 0.0);
+    gtk_label_set_wrap(GTK_LABEL(pQuestion), TRUE);
+    gtk_widget_set_margin_top(pQuestion, 10);
+    gtk_box_append(GTK_BOX(pBox), pQuestion);
+    return pBox;
+}
+
+// Once per offered version, so it does not reappear on every poll. "Not now" leaves the Home page's
+// own Update button, which is what makes dismissing it something other than a dead end.
 void notifyUpdate(WindowUi &ui, const AppSnapshot &snap) {
     if (!snap.updateAvailableVersion || *snap.updateAvailableVersion == ui.notifiedVersion) return;
     ui.notifiedVersion = *snap.updateAvailableVersion;
     App *pApp = ui.pApp;
-    ui.updateNotice.show("TuxBlox", "TuxBlox " + ui.notifiedVersion + " is available", "tuxblox", "Update",
-                         [pApp] { pApp->requestUpdateNow(); });
+    AdwDialog *pDialog = buildDialog("Update available", "A new update is available",
+                                      {{"Not now", nullptr, nullptr},
+                                       {"Update", "suggested-action", [pApp] { pApp->requestUpdateNow(); }, true}},
+                                      updateDetails(ui.notifiedVersion, snap.updateChanges));
+    adw_dialog_present(pDialog, GTK_WIDGET(ui.pStack));
 }
 
 gboolean onTick(gpointer data) {
@@ -274,8 +305,9 @@ void onActivate(GtkApplication *pGtkApp, gpointer data) {
     GtkWidget *pWindow = adw_application_window_new(pGtkApp);
     pUi->pWindow = GTK_WINDOW(pWindow);
     gtk_window_set_title(pUi->pWindow, "TuxBlox");
-    gtk_window_set_default_size(pUi->pWindow, 760, 480);
-    gtk_widget_set_size_request(pWindow, 640, 420);
+    // The size it opens at is also the smallest it goes: the Sessions tab's list and its log pane sit side by side, and narrower than this one of them stops being readable rather than merely getting tight.
+    gtk_window_set_default_size(pUi->pWindow, 988, 549);
+    gtk_widget_set_size_request(pWindow, 988, 549);
     g_signal_connect(pWindow, "close-request", G_CALLBACK(onCloseRequest), pUi);
     g_signal_connect(pWindow, "realize", G_CALLBACK(onRealize), pUi);
 
@@ -290,7 +322,7 @@ void onActivate(GtkApplication *pGtkApp, gpointer data) {
     // desktop integration. A no-op when main() already started it, which it does with Auto-Update on.
     app.startUpdateCheck();
 
-    addPage(*pUi, Tab::Start, "Home", kAssetHome, kAssetHomeLen, false, std::make_unique<HomePage>(app));
+    addPage(*pUi, Tab::Start, "Home", kAssetHome, kAssetHomeLen, false, std::make_unique<HomePage>(app, pUi->installDir));
     addPage(*pUi, Tab::Sessions, "Sessions", kAssetSessions, kAssetSessionsLen, false, std::make_unique<SessionsPage>(app));
     addPage(*pUi, Tab::Versions, "Versions", kAssetRobloxRdd, kAssetRobloxRddLen, false, std::make_unique<VersionsPage>(app));
     addPage(*pUi, Tab::FastFlags, "FastFlags", kAssetFastflags, kAssetFastflagsLen, false, std::make_unique<FastFlagsPage>(app));

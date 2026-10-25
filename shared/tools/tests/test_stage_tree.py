@@ -16,6 +16,7 @@
 
 import hashlib
 import json
+import datetime
 import os
 import shutil
 import subprocess
@@ -151,6 +152,15 @@ class StageTree(unittest.TestCase):
 
 
 class Changelogs(StageTree):
+    def test_the_release_file_records_when_it_was_published(self):
+        # The one date a release has that never changes. Written here rather than read off the
+        # filesystem later, because restoring a backup or re-syncing the tree would silently
+        # rewrite every release date if it came from an mtime.
+        published = self.stage()["published"]
+        parsed = datetime.datetime.strptime(published, "%Y-%m-%dT%H:%M:%SZ")
+        self.assertLess(abs((datetime.datetime.utcnow() - parsed).total_seconds()), 300)
+        self.assertTrue(published.endswith("Z"), "the timestamp has to say it is UTC")
+
     def test_the_release_file_carries_no_changelog_kind(self):
         # It only ever had one value, so it told a reader nothing -- and it claimed per-component
         # changelogs that do not exist yet. A site asks for the release-level .md and merges the

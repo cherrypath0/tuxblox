@@ -50,12 +50,16 @@ GtkWidget *bodyLabel(const std::string &text) {
     // Arbitrary text from a failure, so it breaks inside a long path and can be selected into a bug report.
     gtk_label_set_wrap_mode(GTK_LABEL(pLabel), PANGO_WRAP_WORD_CHAR);
     gtk_label_set_selectable(GTK_LABEL(pLabel), TRUE);
+    // Out of the focus chain, because a selectable label selects all of its text the moment it is
+    // focused -- the dialog would open with its own message highlighted. The mouse still selects it.
+    gtk_widget_set_focusable(pLabel, FALSE);
     return pLabel;
 }
 
 } // namespace
 
-AdwDialog *buildDialog(const std::string &heading, const std::string &body, std::vector<DialogButton> buttons) {
+AdwDialog *buildDialog(const std::string &heading, const std::string &body, std::vector<DialogButton> buttons,
+                        GtkWidget *pExtra) {
     AdwDialog *pDialog = adw_dialog_new();
 
     GdkPaintable *pLogo = logoPaintable(kTuxbloxLogoPng, kTuxbloxLogoPngLen, 72);
@@ -80,6 +84,7 @@ AdwDialog *buildDialog(const std::string &heading, const std::string &body, std:
     gtk_widget_set_hexpand(pText, TRUE);
     gtk_box_append(GTK_BOX(pText), pHeading);
     if (!body.empty()) gtk_box_append(GTK_BOX(pText), bodyLabel(body));
+    if (pExtra != nullptr) gtk_box_append(GTK_BOX(pText), pExtra);
 
     GtkWidget *pRow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 20);
     gtk_widget_set_margin_start(pRow, 24);

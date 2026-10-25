@@ -209,6 +209,58 @@ void test_find_reports_offsets_into_the_displayed_text() {
     assert(entries[0].text.compare(hits[0].offset, hits[0].length, "Connection") == 0);
 }
 
+void test_a_game_output_line_is_its_own_kind() {
+    assert(categoryOf("2026-10-22T17:52:19.001Z,306.001000,03e8,6 [FLog::CreatorOutput] hello") ==
+           LogCategory::GameOutput);
+}
+
+void test_game_output_outranks_the_level_it_carries() {
+    // What a game printed belongs with the rest of that game's output, not among the engine's own warnings and errors.
+    assert(categoryOf(kTraceback[0]) == LogCategory::GameOutput);
+    assert(categoryOf("2026-10-22T17:52:19.001Z,306.001000,03e8,6,Error [FLog::CreatorError] boom") ==
+           LogCategory::GameOutput);
+}
+
+void test_the_engine_keeps_its_own_errors_and_warnings_apart() {
+    assert(categoryOf("2026-10-22T18:30:08.334Z,399.334290,e9d9,12,Error [FLog::Network] gone") ==
+           LogCategory::Error);
+    assert(categoryOf("2026-10-22T18:30:08.334Z,399.334290,e9d9,12,Warning [FLog::Network] slow") ==
+           LogCategory::Warning);
+}
+
+void test_an_ordinary_roblox_line_is_info() {
+    assert(categoryOf(kPlainRoblox) == LogCategory::Info);
+}
+
+void test_our_own_line_is_ours_whatever_it_says() {
+    assert(categoryOf(kTuxBloxLine) == LogCategory::TuxBlox);
+    assert(categoryOf("0024:err:ntdll:something went wrong") == LogCategory::TuxBlox);
+}
+
+void test_an_entry_carries_its_category() {
+    const std::vector<LogEntry> entries = groupLogEntries(kTraceback);
+    assert(entries.size() == 2);
+    assert(entries[0].category == LogCategory::GameOutput);
+    assert(entries[1].category == LogCategory::Info);
+}
+
+void test_the_filter_starts_hiding_nothing() {
+    const LogFilter filter;
+    assert(filter.shows(LogCategory::TuxBlox));
+    assert(filter.shows(LogCategory::GameOutput));
+    assert(filter.shows(LogCategory::Error));
+    assert(filter.shows(LogCategory::Warning));
+    assert(filter.shows(LogCategory::Info));
+}
+
+void test_turning_errors_off_leaves_warnings_alone() {
+    LogFilter filter;
+    filter.errors = false;
+    assert(!filter.shows(LogCategory::Error));
+    assert(filter.shows(LogCategory::Warning));
+    assert(filter.shows(LogCategory::GameOutput));
+}
+
 } // namespace
 
 int main() {
@@ -236,6 +288,14 @@ int main() {
     test_find_is_case_insensitive();
     test_find_with_an_empty_query_matches_nothing();
     test_find_reports_offsets_into_the_displayed_text();
+    test_a_game_output_line_is_its_own_kind();
+    test_game_output_outranks_the_level_it_carries();
+    test_the_engine_keeps_its_own_errors_and_warnings_apart();
+    test_an_ordinary_roblox_line_is_info();
+    test_our_own_line_is_ours_whatever_it_says();
+    test_an_entry_carries_its_category();
+    test_the_filter_starts_hiding_nothing();
+    test_turning_errors_off_leaves_warnings_alone();
     std::printf("log_entry: all tests passed\n");
     return 0;
 }

@@ -133,8 +133,4 @@ bool SessionLogReader::startedOver() const {
     return startedOver_;
 }
 
-bool SessionLogReader::robloxLogAppeared() const {
-    return roblox_.produced;
-}
-
 } // namespace tuxblox

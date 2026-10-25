@@ -161,7 +161,7 @@ AccountFolderMigration migrateAccountFolder(const std::filesystem::path& prefixD
     const bool haveOld = fs::exists(oldDir, error);
     const bool haveNew = fs::exists(newDir, error);
 
-    if (haveNew) return haveOld ? AccountFolderMigration::Ambiguous : AccountFolderMigration::NotNeeded;
+    if (haveNew) return AccountFolderMigration::NotNeeded;
     if (!haveOld) return AccountFolderMigration::NotNeeded;
 
     fs::rename(oldDir, newDir, error);

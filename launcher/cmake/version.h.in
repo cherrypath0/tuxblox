@@ -19,11 +19,6 @@
 namespace tuxblox {
 constexpr const char* kTuxBloxVersion = "@TUXBLOX_LAUNCHER_VERSION@";
 
-// The channel this launcher was BUILT for, which is not the channel the user
-// has selected in Settings -- those differ from the moment they switch until
-// the update lands. Anything describing what is running reads this one.
-constexpr const char* kTuxBloxChannel = "@TUXBLOX_LAUNCHER_CHANNEL@";
-
 // "x.y.z", this component's own version and what it answers --version with.
 // It carries no channel: the same component build serves every channel, and
 // which channel an install follows is the install's setting, not the binary's.

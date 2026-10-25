@@ -67,7 +67,7 @@ SessionsView sessionsView(const std::vector<Session>& sessions, std::time_t now)
         row.meta = "ended " + formatUptime(since) + " ago";
         if (!session.endedReason.empty()) row.meta += std::string(kSeparator) + session.endedReason;
         // Anything that did not close cleanly reads differently, so a crash is not something to go hunting for.
-        row.crashed = session.endedReason.rfind("crashed", 0) == 0;
+        row.crashed = session.endedReason == "crashed";
         view.ended.push_back(std::move(row));
     }
 

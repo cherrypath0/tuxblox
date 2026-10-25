@@ -34,6 +34,8 @@ struct DialogButton {
 };
 
 // A dialog shaped like the installer's window: the TuxBlox logo beside a heading and a body, the buttons along the bottom right, and no header bar of its own. Enter presses the one marked isDefault, or the last one when none is. Present it with adw_dialog_present(), where a null parent gives it a window of its own.
-AdwDialog *buildDialog(const std::string &heading, const std::string &body, std::vector<DialogButton> buttons);
+// `pExtra` is appended under the body, for a dialog that has to show more than a sentence -- a list, say. Ownership passes to the dialog.
+AdwDialog *buildDialog(const std::string &heading, const std::string &body, std::vector<DialogButton> buttons,
+                        GtkWidget *pExtra = nullptr);
 
 } // namespace tuxblox

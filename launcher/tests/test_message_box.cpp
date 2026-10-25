@@ -50,6 +50,7 @@ int main() {
         tuxblox::showErrorMessageBox("Test title", "Test message body");
         // With nowhere to show the question, the optional action is never taken on the user's behalf
         if (tuxblox::showErrorMessageBoxWithAction("Action title", "Action body", "Report")) _exit(4);
+        tuxblox::showErrorMessageBoxWithCopy("Copy title", "Copy body", "the whole log would go here");
         const char *pAfter = getenv("FONTCONFIG_FILE");
         _exit(pAfter != nullptr && std::string(pAfter) == "/host/fonts.conf" ? 0 : 3);
     }
@@ -68,6 +69,10 @@ int main() {
     assert(output.find("Test message body") != std::string::npos);
     assert(output.find("Action title") != std::string::npos);
     assert(output.find("Action body") != std::string::npos);
+    assert(output.find("Copy title") != std::string::npos);
+    assert(output.find("Copy body") != std::string::npos);
+    // What the Copy button would have handed over is a whole session log, and the point of the button is that it goes to the clipboard rather than into another log
+    assert(output.find("the whole log would go here") == std::string::npos);
     printf("message_box: all tests passed\n");
     return 0;
 }

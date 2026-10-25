@@ -705,10 +705,6 @@ void Prefix::migrateAccountFolder() {
     case AccountFolderMigration::Renamed:
         log("Renamed the virtual drive's account folder from \"user\" to \"" + wanted + "\".");
         break;
-    case AccountFolderMigration::Ambiguous:
-        log("The virtual drive has both a \"user\" and a \"" + wanted +
-            "\" account folder; leaving both alone.");
-        break;
     case AccountFolderMigration::Failed:
         log("Could not rename the account folder to \"" + wanted + "\", keeping \"user\".");
         break;

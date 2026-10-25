@@ -90,23 +90,12 @@ void test_reads_both_files(const fs::path& dir) {
     assert(anyTextContains(got, "from roblox"));
 }
 
-// A launch that died before Roblox wrote anything. Not an error -- the pane says so instead.
+// A launch that died before Roblox wrote anything is not an error -- what the layer captured is still the session.
 void test_a_missing_roblox_log_is_not_an_error(const fs::path& dir) {
     const fs::path captured = dir / "e-captured.log";
     append(captured, "TuxBlox: only ours\n");
     SessionLogReader reader(captured.string(), "");
     assert(drainAll(reader).size() == 1);
-    assert(!reader.robloxLogAppeared());
-}
-
-void test_roblox_log_appeared_flips_once_it_has_lines(const fs::path& dir) {
-    const fs::path roblox = dir / "f-roblox.log";
-    SessionLogReader reader((dir / "f-captured.log").string(), roblox.string());
-    drainAll(reader);
-    assert(!reader.robloxLogAppeared());
-    append(roblox, "2026-10-22T18:00:00.000Z,1.0,03e8,6 [FLog::Output] hello\n");
-    drainAll(reader);
-    assert(reader.robloxLogAppeared());
 }
 
 // Clearing the log, or a rebuild wiping the folder, leaves the reader's position past the end.
@@ -217,7 +206,6 @@ int main() {
     test_a_second_pump_returns_only_what_is_new(dir);
     test_reads_both_files(dir);
     test_a_missing_roblox_log_is_not_an_error(dir);
-    test_roblox_log_appeared_flips_once_it_has_lines(dir);
     test_a_truncated_file_is_reread_from_the_start(dir);
     test_a_deleted_file_stops_producing_without_throwing(dir);
     test_a_replaced_file_is_reread_from_the_start(dir);

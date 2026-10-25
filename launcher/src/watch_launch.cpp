@@ -34,6 +34,9 @@
 
 namespace tuxblox {
 
+// The tail, not the whole file, because a long session writes a log that no clipboard is going to carry and nobody is going to paste.
+constexpr long kMaxLogCopyBytes = 4 * 1024 * 1024;
+
 int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const std::string& uri,
                        const std::string& currentVersion) {
     // The launcher and this watcher are the same binary, so without this they are the same name in
@@ -105,7 +108,6 @@ int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const 
     const char* title = exitCodeTitle(displayCode);
     std::string exitCodeLine = "Exit Code: " + std::to_string(displayCode);
     if (title) exitCodeLine += std::string(" (") + title + ")";
-    exitCodeLine += "\n";
 
     std::string popupTitle, message;
     if (ev->exitCode == 3) {
@@ -119,16 +121,13 @@ int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const 
 
     if (ev->exitCode == 1) {
         popupTitle = "TuxBlox Error";
-        message = "TuxBlox has encountered an error and has quit!\n"
-            "Full log has been written to " + outcome.logPath;
+        message = "TuxBlox has encountered an error and has quit!";
     } else if (ev->exitCode == 2) {
         popupTitle = "Roblox Error";
-        message = "Roblox has exited with a non-zero exit code.\n" +
-            exitCodeLine + "Full log has been written to " + outcome.logPath;
+        message = "Roblox has exited with a non-zero exit code.\n" + exitCodeLine;
     } else {
         popupTitle = "Something went wrong";
-        message = "An unknown error has occurred which has crashed TuxBlox.\n" +
-            exitCodeLine + "Full log has been written to " + outcome.logPath;
+        message = "An unknown error has occurred which has crashed TuxBlox.\n" + exitCodeLine;
     }
 
     auto sendReport = [&] {
@@ -145,7 +144,8 @@ int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const 
 
     if (settings.sendCrashReports) {
         sendReport();
-        showErrorMessageBox(popupTitle, message);
+        // The log is already on its way, so what is left to offer is the copy somebody attaches to a bug report themselves.
+        showErrorMessageBoxWithCopy(popupTitle, message, readLogTail(outcome.logPath, kMaxLogCopyBytes));
     } else if (showErrorMessageBoxWithAction(popupTitle, message, "Report")) {
         sendReport();
     }

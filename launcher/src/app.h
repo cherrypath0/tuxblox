@@ -91,6 +91,9 @@ struct AppSnapshot {
     // directly instead -- see updateCheckThreadMain()'s comment). Cleared
     // by dismissUpdateNotification().
     std::optional<std::string> updateAvailableVersion;
+    // The components that move, filled in the same critical section as the version above, so a
+    // reader that has seen one has seen the other. Empty until an update is offered.
+    std::vector<ComponentChange> updateChanges;
 
     VersionsManifest versions;
     VersionInstallProgress versionInstall;
@@ -137,6 +140,10 @@ public:
     std::string releaseHandoffPath() const;
 
     void setActiveTab(Tab tab);
+    // Asks for one session to be shown: the Sessions tab opens and that session's log is the one in it.
+    void showSession(int pid);
+    // The session asked for since the last call, or 0. Taking it is what marks it answered, so a request cannot keep overriding what the reader clicks on afterwards.
+    int takeSessionToShow();
 
     // Spawns a fully detached "--watch-launch" process (see watch_launch.h)
     // that starts `target` via Proton and, from that point on, is the only
@@ -281,7 +288,10 @@ private:
     // Set when a launch from the window should land on its session once one exists, cleared when it does or when waiting any longer stops being reasonable.
     std::atomic<bool> stopOneBusy_{false};
     std::atomic<bool> showSessionWhenItStarts_{false};
+    int sessionToShow_ = 0;
     std::atomic<long long> launchRequestedAt_{0};
+    // Which app the pending launch was for, so an unrelated session starting in the same pass is not mistaken for it.
+    std::atomic<int> launchRequestedTarget_{0};
     std::atomic<bool> stopPlayerBusy_{false};
     std::atomic<bool> stopStudioBusy_{false};
     std::atomic<bool> terminateBusy_{false};

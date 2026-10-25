@@ -79,7 +79,7 @@ void test_the_release_and_its_components() {
     // The launcher first, and its version is the one the running binary knows rather than one read
     // off disk -- it is the thing doing the asking.
     assert(a.components.front() == std::make_pair(std::string("Launcher"), std::string("3.5.0")));
-    assert(contains(a.components, {"Compatibility layer", "3.3.0"}));
+    assert(contains(a.components, {"Runtime", "3.3.0"}));
     printf("  the release and its components\n");
 }
 
@@ -97,22 +97,25 @@ void test_a_component_that_is_not_installed_is_named_as_such() {
     TempDir d;
     writeRecordedRelease(d.path(), kRelease);
     AboutVersions a = aboutVersions(d.path(), "3.5.0");
-    // Named rather than omitted: the list is always the same five rows, so an absence is something
-    // a person can see instead of something they have to notice is missing.
+    // Named rather than omitted: the list is always the same rows, so an absence is something a
+    // person can see instead of something they have to notice is missing.
     assert(contains(a.components, {"Studio MCP", "not installed"}));
-    assert(a.components.size() == componentNames().size());
+    // Every component but the interface stack, which this screen leaves out.
+    assert(a.components.size() == componentNames().size() - 1);
     printf("  a component that is not installed is named as such\n");
 }
 
 // The order is the layout's, so two bug reports list the same things in the same order.
-void test_the_rows_are_always_the_same_five_in_the_same_order() {
+// The interface stack is left out: its version tracks GTK's and libadwaita's, which is nothing a
+// reader of this screen can act on. It stays a component everywhere else -- it is still downloaded,
+// still named while it installs, and still in the release file.
+void test_the_rows_are_the_components_a_person_can_act_on() {
     TempDir d;
     AboutVersions a = aboutVersions(d.path(), "3.5.0");
     std::vector<std::string> names;
     for (const auto& [name, version] : a.components) names.push_back(name);
-    assert((names == std::vector<std::string>{"Launcher", "Updater", "Studio MCP",
-                                               "Compatibility layer", "Libraries"}));
-    printf("  the rows are always the same five in the same order\n");
+    assert((names == std::vector<std::string>{"Launcher", "Installer", "Studio MCP", "Runtime"}));
+    printf("  the rows are the components a person can act on\n");
 }
 
 } // namespace
@@ -121,7 +124,7 @@ int main() {
     test_the_release_and_its_components();
     test_an_install_with_no_record_says_so_rather_than_showing_nothing();
     test_a_component_that_is_not_installed_is_named_as_such();
-    test_the_rows_are_always_the_same_five_in_the_same_order();
+    test_the_rows_are_the_components_a_person_can_act_on();
     printf("about_versions: all tests passed\n");
     return 0;
 }

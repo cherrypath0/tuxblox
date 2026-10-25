@@ -53,9 +53,17 @@ add_executable(test_about_versions test_about_versions.cpp)
 target_link_libraries(test_about_versions PRIVATE launcher_core)
 add_test(NAME about_versions COMMAND test_about_versions)
 
+add_executable(test_install_identity test_install_identity.cpp)
+target_link_libraries(test_install_identity PRIVATE launcher_core)
+add_test(NAME install_identity COMMAND test_install_identity)
+
 add_executable(test_update_decision test_update_decision.cpp)
 target_link_libraries(test_update_decision PRIVATE launcher_core)
 add_test(NAME update_decision COMMAND test_update_decision)
+
+add_executable(test_update_changes test_update_changes.cpp)
+target_link_libraries(test_update_changes PRIVATE launcher_core)
+add_test(NAME update_changes COMMAND test_update_changes)
 
 add_executable(test_updater test_updater.cpp)
 target_link_libraries(test_updater PRIVATE launcher_core)
@@ -213,6 +221,10 @@ add_test(NAME ca_bundle COMMAND test_ca_bundle)
 add_executable(test_versions_refresh test_versions_refresh.cpp)
 target_link_libraries(test_versions_refresh PRIVATE launcher_core)
 add_test(NAME versions_refresh COMMAND test_versions_refresh)
+
+add_executable(test_show_session test_show_session.cpp)
+target_link_libraries(test_show_session PRIVATE launcher_core)
+add_test(NAME show_session COMMAND test_show_session)
 
 add_executable(test_bloxstrap_rpc test_bloxstrap_rpc.cpp)
 target_link_libraries(test_bloxstrap_rpc PRIVATE launcher_core)

@@ -20,6 +20,7 @@
 #include "asset_chevron_up.h"
 #include "asset_close.h"
 #include "asset_copy.h"
+#include "asset_filter.h"
 #include "asset_folder.h"
 #include "asset_roblox_player.h"
 #include "asset_roblox_studio.h"
@@ -62,6 +63,17 @@ void installPageStyles() {
     g_object_unref(pProvider);
 }
 
+const char *categoryTag(LogCategory category) {
+    switch (category) {
+        case LogCategory::TuxBlox: return "kind-tuxblox";
+        case LogCategory::GameOutput: return "kind-game";
+        case LogCategory::Error: return "kind-errors";
+        case LogCategory::Warning: return "kind-warnings";
+        case LogCategory::Info: return "kind-info";
+    }
+    return "kind-info";
+}
+
 GtkWidget *sectionLabel(const char *pText) {
     GtkWidget *pLabel = gtk_label_new(pText);
     gtk_label_set_xalign(GTK_LABEL(pLabel), 0.0f);
@@ -86,12 +98,16 @@ GtkWidget *iconButton(const unsigned char *pIcon, size_t length, const char *pTo
 SessionsPage::SessionsPage(App &app) : app_(app) {
     installPageStyles();
 
-    pRoot_ = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-    gtk_box_append(GTK_BOX(pRoot_), buildList());
+    GtkWidget *pColumns = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+    gtk_widget_set_vexpand(pColumns, TRUE);
+    gtk_box_append(GTK_BOX(pColumns), buildList());
+    gtk_box_append(GTK_BOX(pColumns), gtk_separator_new(GTK_ORIENTATION_VERTICAL));
+    gtk_box_append(GTK_BOX(pColumns), buildLogPane());
 
-    GtkWidget *pSeparator = gtk_separator_new(GTK_ORIENTATION_VERTICAL);
-    gtk_box_append(GTK_BOX(pRoot_), pSeparator);
-    gtk_box_append(GTK_BOX(pRoot_), buildLogPane());
+    // The page carries a bar of its own, which runs straight into the window's without a line between them.
+    pRoot_ = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    gtk_box_append(GTK_BOX(pRoot_), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
+    gtk_box_append(GTK_BOX(pRoot_), pColumns);
 }
 
 GtkWidget *SessionsPage::widget() const {
@@ -149,6 +165,33 @@ GtkWidget *SessionsPage::toggleButton(Toggle &toggle, const char *pLabel, bool o
     return toggle.pButton;
 }
 
+GtkWidget *SessionsPage::filterCheck(const char *pLabel, bool &flag) {
+    GtkWidget *pCheck = gtk_check_button_new_with_label(pLabel);
+    gtk_check_button_set_active(GTK_CHECK_BUTTON(pCheck), flag);
+    g_object_set_data(G_OBJECT(pCheck), "tuxblox-filter", &flag);
+    g_signal_connect(pCheck, "toggled", G_CALLBACK(onFilterToggled), this);
+    return pCheck;
+}
+
+GtkWidget *SessionsPage::buildFilterButton() {
+    GtkWidget *pList = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
+    gtk_box_append(GTK_BOX(pList), filterCheck("Errors", filter_.errors));
+    gtk_box_append(GTK_BOX(pList), filterCheck("Warnings", filter_.warnings));
+    gtk_box_append(GTK_BOX(pList), filterCheck("Game output", filter_.gameOutput));
+    gtk_box_append(GTK_BOX(pList), filterCheck("Info", filter_.info));
+    gtk_box_append(GTK_BOX(pList), filterCheck("TuxBlox", filter_.tuxblox));
+
+    GtkWidget *pPopover = gtk_popover_new();
+    gtk_popover_set_child(GTK_POPOVER(pPopover), pList);
+
+    GtkWidget *pButton = gtk_menu_button_new();
+    gtk_menu_button_set_child(GTK_MENU_BUTTON(pButton), iconImage(kAssetFilter, kAssetFilterLen, 18));
+    gtk_menu_button_set_popover(GTK_MENU_BUTTON(pButton), pPopover);
+    gtk_widget_add_css_class(pButton, "flat");
+    gtk_widget_set_tooltip_text(pButton, "Choose which lines the log shows");
+    return pButton;
+}
+
 GtkWidget *SessionsPage::buildControls() {
     GtkWidget *pStrip = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
     gtk_widget_set_margin_start(pStrip, 12);
@@ -159,7 +202,7 @@ GtkWidget *SessionsPage::buildControls() {
     follow_.on = true;
     wrap_.on = true;
     tidy_.on = true;
-    gtk_box_append(GTK_BOX(pStrip), toggleButton(errorsOnly_, "Errors only", false));
+    gtk_box_append(GTK_BOX(pStrip), buildFilterButton());
 
     GtkWidget *pSpacer = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
     gtk_widget_set_hexpand(pSpacer, TRUE);
@@ -225,14 +268,7 @@ GtkWidget *SessionsPage::buildFindBar() {
     gtk_widget_set_hexpand(pSpacer, TRUE);
     gtk_box_append(GTK_BOX(pBar), pSpacer);
 
-    // Reading back through a log that is still being written should not keep yanking you to the bottom, so following stops and says so until you ask for it again.
-    GtkWidget *pFollowState = gtk_label_new("");
-    pFollowState_ = GTK_LABEL(pFollowState);
-    gtk_widget_add_css_class(pFollowState, "caption");
-    gtk_widget_add_css_class(pFollowState, "dim-label");
-    gtk_widget_set_visible(pFollowState, FALSE);
-    gtk_box_append(GTK_BOX(pBar), pFollowState);
-
+    // Reading back through a log that is still being written should not keep yanking you to the bottom, so following stops until you ask for it again.
     pJumpToEnd_ = gtk_button_new_with_label("Jump to the end");
     gtk_widget_add_css_class(pJumpToEnd_, "flat");
     gtk_widget_add_css_class(pJumpToEnd_, "log-toggle");
@@ -281,10 +317,11 @@ GtkWidget *SessionsPage::buildLogPane() {
     gtk_box_append(GTK_BOX(pTitleRow), pStop_);
     gtk_box_append(GTK_BOX(pHeader), pTitleRow);
 
-    // Naming the file makes a session matched to the wrong log visible rather than quietly misleading.
+    // Where a saved log went, which is only worth a line once there is one.
     GtkWidget *pSources = gtk_label_new("");
     pSources_ = GTK_LABEL(pSources);
     gtk_label_set_xalign(GTK_LABEL(pSources), 0.0f);
+    gtk_widget_set_visible(pSources, FALSE);
     gtk_widget_add_css_class(pSources, "caption");
     gtk_widget_add_css_class(pSources, "dim-label");
     gtk_label_set_ellipsize(GTK_LABEL(pSources), PANGO_ELLIPSIZE_MIDDLE);
@@ -315,6 +352,11 @@ GtkWidget *SessionsPage::buildLogPane() {
     gtk_text_buffer_create_tag(pBuffer_, "error", "foreground", "#f87171", nullptr);
     gtk_text_buffer_create_tag(pBuffer_, "ours", "foreground", "#7fd1a8", nullptr);
     gtk_text_buffer_create_tag(pBuffer_, "match", "background", "#f59e0b", "foreground", "#0a0c11", nullptr);
+    // One tag per kind, so the filter hides lines by making them invisible rather than by building the log again. A buffer of several megabytes takes many frames to lay out, and the view visibly walks back down to the end while it does.
+    for (const LogCategory category : {LogCategory::TuxBlox, LogCategory::GameOutput, LogCategory::Error,
+                                       LogCategory::Warning, LogCategory::Info}) {
+        gtk_text_buffer_create_tag(pBuffer_, categoryTag(category), nullptr);
+    }
 
     GtkTextIter start;
     gtk_text_buffer_get_end_iter(pBuffer_, &start);
@@ -433,8 +475,8 @@ void SessionsPage::rebuildList(const SessionsView &view) {
         }
     };
 
-    addGroup("RUNNING", view.running);
-    addGroup("ENDED THIS RUN", view.ended);
+    addGroup("ACTIVE", view.running);
+    addGroup("ENDED", view.ended);
 
     gtk_widget_set_visible(pEmpty_, !view.emptyMessage.empty());
     if (!view.emptyMessage.empty()) gtk_label_set_text(GTK_LABEL(pEmpty_), view.emptyMessage.c_str());
@@ -453,18 +495,18 @@ void SessionsPage::selectSession(int pid) {
     selectedPid_ = pid;
     highlightSelectedRow();
     entries_.clear();
+    shownEntries_ = 0;
     matches_.clear();
     currentMatch_ = 0;
     pReader_.reset();
     readerCaptured_.clear();
     readerRoblox_.clear();
     readerScrolledAway_ = false;
+    replacingText_ = false;
     gtk_text_buffer_set_text(pBuffer_, "", 0);
     gtk_label_set_text(pSources_, "");
     gtk_widget_set_visible(GTK_WIDGET(pSources_), FALSE);
-    // Which file is being read is not something to spend a line on, but it is what somebody filing a bug report needs, so it stays within reach.
-    gtk_widget_set_tooltip_text(GTK_WIDGET(pName_),
-                                pReader_ == nullptr ? nullptr : pReader_->describeSources().c_str());
+    gtk_widget_set_tooltip_text(GTK_WIDGET(pName_), nullptr);
 }
 
 void SessionsPage::reconcileReader(const AppSnapshot &snap) {
@@ -483,18 +525,28 @@ void SessionsPage::reconcileReader(const AppSnapshot &snap) {
     if (sameFiles && ended == !readerSessionRunning_) return;
 
     pReader_ = std::make_unique<SessionLogReader>(wantCaptured, wantRoblox);
+    // Which file is being read is not something to spend a line on, but it is what somebody filing a bug report needs, so it stays within reach.
+    gtk_widget_set_tooltip_text(GTK_WIDGET(pName_), pReader_->describeSources().c_str());
     readerCaptured_ = wantCaptured;
     readerRoblox_ = wantRoblox;
     readerSessionRunning_ = !ended;
-    entries_.clear();
-    gtk_text_buffer_set_text(pBuffer_, "", 0);
+    // Emptying the pane here would leave it blank until the new reader produces something, which reads as the log vanishing and coming back. A reader with no files to read has nothing coming, so that one is emptied at once.
+    if (wantCaptured.empty() && wantRoblox.empty()) {
+        entries_.clear();
+        shownEntries_ = 0;
+        gtk_text_buffer_set_text(pBuffer_, "", 0);
+        replacingText_ = false;
+    } else {
+        replacingText_ = true;
+    }
 }
 
 void SessionsPage::appendEntry(const LogEntry &entry) {
-    if (errorsOnly_.on && entry.level == LogLevel::Plain) return;
+    if (filter_.shows(entry.category)) ++shownEntries_;
 
     GtkTextIter end;
     gtk_text_buffer_get_end_iter(pBuffer_, &end);
+    const int from = gtk_text_iter_get_offset(&end);
     // Raw shows the line as written, stamp and all, so there is no separate column to put the time in.
     if (tidy_.on && !entry.time.empty()) {
         gtk_text_buffer_insert_with_tags_by_name(pBuffer_, &end, (entry.time + "  ").c_str(), -1, "time", nullptr);
@@ -521,21 +573,47 @@ void SessionsPage::appendEntry(const LogEntry &entry) {
     } else {
         gtk_text_buffer_insert(pBuffer_, &end, body.c_str(), -1);
     }
+
+    GtkTextIter start;
+    gtk_text_buffer_get_iter_at_offset(pBuffer_, &start, from);
+    gtk_text_buffer_get_end_iter(pBuffer_, &end);
+    gtk_text_buffer_apply_tag_by_name(pBuffer_, categoryTag(entry.category), &start, &end);
+}
+
+void SessionsPage::applyFilter() {
+    GtkTextTagTable *pTags = gtk_text_buffer_get_tag_table(pBuffer_);
+    for (const LogCategory category : {LogCategory::TuxBlox, LogCategory::GameOutput, LogCategory::Error,
+                                       LogCategory::Warning, LogCategory::Info}) {
+        GtkTextTag *pTag = gtk_text_tag_table_lookup(pTags, categoryTag(category));
+        if (pTag != nullptr) g_object_set(pTag, "invisible", !filter_.shows(category), nullptr);
+    }
+
+    shownEntries_ = 0;
+    for (const LogEntry &entry : entries_) {
+        if (filter_.shows(entry.category)) ++shownEntries_;
+    }
+    refreshCount();
+}
+
+void SessionsPage::refreshCount() {
+    // Saying only what got through would read as a log that is missing lines, so when the filter hides any it says so.
+    const std::string count = shownEntries_ == entries_.size()
+                                  ? std::to_string(entries_.size()) + " entries"
+                                  : std::to_string(shownEntries_) + " of " + std::to_string(entries_.size()) + " entries";
+    gtk_label_set_text(pSize_, (count + " \xC2\xB7 " +
+                                std::to_string(gtk_text_buffer_get_char_count(pBuffer_) / 1024) + " KB").c_str());
 }
 
 void SessionsPage::showEntries() {
     gtk_text_buffer_set_text(pBuffer_, "", 0);
+    shownEntries_ = 0;
     for (const LogEntry &entry : entries_) appendEntry(entry);
     applyFind();
-    // Redrawing puts the view back at the top, which is nowhere anybody wants to be. The scroll is
-    // queued rather than done here, because the lines just inserted have not been laid out yet.
+    // Rebuilding puts the view back at the top, which is nowhere anybody wants to be. Scrolling here
+    // rather than from an idle callback keeps it in the same frame as the rebuild, so the top is
+    // never drawn; scroll_to_mark is made for this and completes once the new lines are laid out.
     readerScrolledAway_ = false;
-    g_idle_add(scrollToTailWhenDrawn, this);
-}
-
-gboolean SessionsPage::scrollToTailWhenDrawn(gpointer data) {
-    static_cast<SessionsPage *>(data)->scrollToTail();
-    return G_SOURCE_REMOVE;
+    scrollToTail();
 }
 
 void SessionsPage::applyFind() {
@@ -556,8 +634,10 @@ void SessionsPage::applyFind() {
     for (;;) {
         GtkTextIter hitStart;
         GtkTextIter hitEnd;
-        if (!gtk_text_iter_forward_search(&from, query.c_str(), GTK_TEXT_SEARCH_CASE_INSENSITIVE,
-                                          &hitStart, &hitEnd, nullptr)) {
+        if (!gtk_text_iter_forward_search(
+                &from, query.c_str(),
+                static_cast<GtkTextSearchFlags>(GTK_TEXT_SEARCH_CASE_INSENSITIVE | GTK_TEXT_SEARCH_VISIBLE_ONLY),
+                &hitStart, &hitEnd, nullptr)) {
             break;
         }
         gtk_text_buffer_apply_tag_by_name(pBuffer_, "match", &hitStart, &hitEnd);
@@ -581,30 +661,26 @@ void SessionsPage::refreshHeader(const AppSnapshot &snap) {
     for (const Session &session : snap.sessionList) {
         if (session.pid != selectedPid_) continue;
         gtk_label_set_text(pName_, session.target == LaunchTarget::Player ? "Roblox Player" : "Roblox Studio");
-        gtk_label_set_text(pState_, session.running ? "RUNNING" : "ENDED");
+        gtk_label_set_text(pState_, session.running ? "ACTIVE" : "ENDED");
         gtk_widget_remove_css_class(GTK_WIDGET(pState_), session.running ? "ended" : "running");
         gtk_widget_add_css_class(GTK_WIDGET(pState_), session.running ? "running" : "ended");
         gtk_widget_set_visible(pStop_, session.running);
 
-        const SessionsView view = sessionsView({session}, std::time(nullptr));
-        const std::vector<SessionRow> &group = session.running ? view.running : view.ended;
-        if (!group.empty()) {
-            std::string meta = group.front().meta;
-            const AppVersions &versions =
-                session.target == LaunchTarget::Player ? snap.versions.player : snap.versions.studio;
-            for (const InstalledVersion &installed : versions.installed) {
-                if (installed.hash != versions.activeHash || installed.versionString.empty()) continue;
-                meta += " \xC2\xB7 " + installed.versionString;
-                break;
-            }
-            gtk_label_set_text(pMeta_, meta.c_str());
+        // The row beside it already says when a session ended, so the header keeps the version it ran and calls out only a crash.
+        std::string meta = session.endedReason;
+        if (session.running) {
+            const SessionsView view = sessionsView({session}, std::time(nullptr));
+            if (!view.running.empty()) meta = view.running.front().meta;
         }
-
-        const bool waitingOnRoblox = pReader_ != nullptr && !pReader_->robloxLogAppeared();
-        gtk_widget_set_visible(GTK_WIDGET(pSources_), waitingOnRoblox);
-        if (waitingOnRoblox) {
-            gtk_label_set_text(pSources_, "Roblox has not written a log for this session yet.");
+        const AppVersions &versions =
+            session.target == LaunchTarget::Player ? snap.versions.player : snap.versions.studio;
+        for (const InstalledVersion &installed : versions.installed) {
+            if (installed.hash != versions.activeHash || installed.versionString.empty()) continue;
+            if (!meta.empty()) meta += " \xC2\xB7 ";
+            meta += installed.versionString;
+            break;
         }
+        gtk_label_set_text(pMeta_, meta.c_str());
         return;
     }
     gtk_label_set_text(pName_, "No session selected");
@@ -632,6 +708,10 @@ void SessionsPage::update(const AppSnapshot &snap) {
         renderedEmpty_ = shown.emptyMessage;
     }
 
+    // Somebody asked for a particular session, from Home or from a launch; that outranks whatever was being read.
+    const int requested = app_.takeSessionToShow();
+    if (requested != 0) selectSession(requested);
+
     // Nothing is selected yet, so the newest running session is a better first thing to look at than an empty pane.
     if (selectedPid_ == 0 && !shown.running.empty()) selectSession(shown.running.back().pid);
     if (!sameShape) highlightSelectedRow();
@@ -641,18 +721,17 @@ void SessionsPage::update(const AppSnapshot &snap) {
     // Reading two files is only worth doing while somebody is looking at them; this runs on the window's own tick, which fires for every page whether it is on screen or not.
     if (snap.activeTab != Tab::Sessions || pReader_ == nullptr) return;
 
-    // Reading back through a log that is still growing should stay where it was put.
-    gtk_widget_set_visible(GTK_WIDGET(pFollowState_), follow_.on && readerScrolledAway_);
+    // The button is the whole of it: offering the way back says more plainly than a line of text that following has stopped.
     gtk_widget_set_visible(pJumpToEnd_, follow_.on && readerScrolledAway_);
-    if (follow_.on && readerScrolledAway_) {
-        gtk_label_set_text(pFollowState_, "Scrolled up \xE2\x80\x94 following paused");
-    }
 
     std::vector<LogEntry> fresh = pReader_->pump();
-    // A file that was cleared or replaced is about to hand back everything already on screen.
-    if (pReader_->startedOver()) {
+    // A file that was cleared or replaced is about to hand back everything already on screen, and a
+    // reader swapped for another replaces it the moment that one has something to show.
+    if (pReader_->startedOver() || (replacingText_ && !fresh.empty())) {
         entries_.clear();
+        shownEntries_ = 0;
         gtk_text_buffer_set_text(pBuffer_, "", 0);
+        replacingText_ = false;
     }
     if (fresh.empty()) return;
 
@@ -662,8 +741,7 @@ void SessionsPage::update(const AppSnapshot &snap) {
     }
     if (!renderedQuery_.empty()) applyFind();
 
-    gtk_label_set_text(pSize_, (std::to_string(entries_.size()) + " entries \xC2\xB7 " +
-                                std::to_string(gtk_text_buffer_get_char_count(pBuffer_) / 1024) + " KB").c_str());
+    refreshCount();
 
     if (follow_.on && !readerScrolledAway_) scrollToTail();
 }
@@ -685,7 +763,15 @@ void SessionsPage::onToggle(GtkButton *pButton, gpointer data) {
     pToggle->on = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(pButton));
 
     gtk_text_view_set_wrap_mode(pSelf->pLog_, pSelf->wrap_.on ? GTK_WRAP_WORD_CHAR : GTK_WRAP_NONE);
-    if (pToggle == &pSelf->errorsOnly_ || pToggle == &pSelf->tidy_) pSelf->showEntries();
+    if (pToggle == &pSelf->tidy_) pSelf->showEntries();
+}
+
+void SessionsPage::onFilterToggled(GtkCheckButton *pCheck, gpointer data) {
+    auto *pSelf = static_cast<SessionsPage *>(data);
+    auto *pFlag = static_cast<bool *>(g_object_get_data(G_OBJECT(pCheck), "tuxblox-filter"));
+    if (pFlag == nullptr) return;
+    *pFlag = gtk_check_button_get_active(pCheck) != FALSE;
+    pSelf->applyFilter();
 }
 
 void SessionsPage::onStopClicked(GtkButton *, gpointer data) {
@@ -720,6 +806,7 @@ void SessionsPage::onSaveClicked(GtkButton *, gpointer data) {
     std::ofstream(target) << pText;
     g_free(pText);
     gtk_label_set_text(pSelf->pSources_, ("Saved to " + target).c_str());
+    gtk_widget_set_visible(GTK_WIDGET(pSelf->pSources_), TRUE);
 }
 
 void SessionsPage::onFolderClicked(GtkButton *, gpointer data) {

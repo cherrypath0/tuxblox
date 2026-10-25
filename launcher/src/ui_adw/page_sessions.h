@@ -47,6 +47,8 @@ private:
     GtkWidget *buildControls();
     GtkWidget *buildFindBar();
     GtkWidget *toggleButton(Toggle &toggle, const char *pLabel, bool on);
+    GtkWidget *buildFilterButton();
+    GtkWidget *filterCheck(const char *pLabel, bool &flag);
 
     // What the list is showing now, so a census that says the same thing does not throw the rows away -- rebuilding them ten times a second destroys the row under the pointer before a click can land on it.
     struct RenderedRow {
@@ -65,14 +67,17 @@ private:
     void reconcileReader(const AppSnapshot &snap);
     void showEntries();
     void appendEntry(const LogEntry &entry);
+    // Hides and shows whole kinds by tag, which costs nothing however long the log is.
+    void applyFilter();
+    void refreshCount();
     void applyFind();
     void scrollToTail();
-    static gboolean scrollToTailWhenDrawn(gpointer data);
     void refreshHeader(const AppSnapshot &snap);
 
     static void onSearchChanged(GtkEditable *pEditable, gpointer data);
     static void onRowActivated(GtkListBox *pList, GtkListBoxRow *pRow, gpointer data);
     static void onToggle(GtkButton *pButton, gpointer data);
+    static void onFilterToggled(GtkCheckButton *pCheck, gpointer data);
     static void onStopClicked(GtkButton *pButton, gpointer data);
     static void onRowStopClicked(GtkButton *pButton, gpointer data);
     static void onCopyClicked(GtkButton *pButton, gpointer data);
@@ -99,7 +104,6 @@ private:
     GtkLabel *pMeta_ = nullptr;
     GtkLabel *pSources_ = nullptr;
     GtkLabel *pSize_ = nullptr;
-    GtkLabel *pFollowState_ = nullptr;
     GtkWidget *pJumpToEnd_ = nullptr;
     GtkWidget *pStop_ = nullptr;
 
@@ -112,16 +116,21 @@ private:
     Toggle follow_;
     Toggle wrap_;
     Toggle tidy_;
-    Toggle errorsOnly_;
+    // Kept here rather than in the settings file: which lines you want to see while reading one log is not a preference worth carrying to the next run, but it does have to survive moving between sessions.
+    LogFilter filter_;
 
     std::unique_ptr<SessionLogReader> pReader_;
     std::string readerCaptured_;
     std::string readerRoblox_;
     bool readerSessionRunning_ = true;
     std::vector<LogEntry> entries_;
+    // How many of them the filter let through, so the count can say what is being hidden.
+    size_t shownEntries_ = 0;
     int selectedPid_ = 0;
     // Set only when the reader actually scrolls. Working it out from the scrollbar instead latches: the scroll the page asks for is carried out later, so the next tick reads a stale position, decides the reader moved away, and then never scrolls again.
     bool readerScrolledAway_ = false;
+    // The reader was swapped and what is on screen belongs to the old one, so it is replaced rather than cleared the moment the new one produces anything.
+    bool replacingText_ = false;
     std::string renderedQuery_;
     size_t currentMatch_ = 0;
     std::vector<LogMatch> matches_;

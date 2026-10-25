@@ -25,6 +25,9 @@ void showErrorMessageBox(const std::string &title, const std::string &message);
 // The same popup with a second button beside OK, labelled actionLabel. True only if that button was pressed, so with no display it is always false.
 bool showErrorMessageBoxWithAction(const std::string &title, const std::string &message, const std::string &actionLabel);
 
+// The same popup with a Copy button left of OK, which puts copyText on the clipboard and closes the popup like OK does. Empty copyText leaves the button out, since there would be nothing to hand over.
+void showErrorMessageBoxWithCopy(const std::string &title, const std::string &message, const std::string &copyText);
+
 // How a message shown for another program ended. A button is named by where it sat, counting from the left, because the caller chose the set and so already knows what that position means.
 struct MessageBoxOutcome {
     enum { Pressed, Dismissed, NoDisplay } how = NoDisplay;

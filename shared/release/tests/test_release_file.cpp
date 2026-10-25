@@ -148,7 +148,7 @@ void test_the_layout_table() {
     assert(componentLayout("compat")->filename == "compat");
     assert(componentLayout("compat")->isArchive == true);
     assert(componentLayout("launcher")->displayName == "Launcher");
-    assert(componentLayout("installer")->displayName == "Updater");
+    assert(componentLayout("installer")->displayName == "Installer");
     assert(componentLayout("studio-mcp")->filename == "studio-mcp");
     assert(componentLayout("libtuxblox")->isArchive == true);
     assert(!componentLayout("bootstrapper").has_value());   // folded into the launcher in 3.4.0

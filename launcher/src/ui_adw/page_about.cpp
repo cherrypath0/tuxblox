@@ -26,6 +26,7 @@
 #include "tuxblox_logo_png.h"
 #include "version.h"
 #include "about_versions.h"
+#include "install_identity.h"
 #include "widgets.h"
 
 #include <string>
@@ -73,13 +74,11 @@ AboutPage::AboutPage(std::string installDir) {
     GtkWidget *pHeader = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
     gtk_box_append(GTK_BOX(pHeader), pLogoImage);
     gtk_box_append(GTK_BOX(pHeader), centredLabel("TuxBlox", "title-1"));
-    // The release, which is what identifies this install. A component version appears in several
-    // releases, so no binary can name the one it belongs to -- it is read from what the install
-    // recorded. An install made before that was recorded falls back to naming this program.
-    const std::string identity = versions.release.empty()
-        ? std::string("Launcher ") + kTuxBloxVersion
-        : "Release " + versions.release + " \xC2\xB7 " + versions.channel + " channel";
-    gtk_box_append(GTK_BOX(pHeader), centredLabel(identity, "dim-label"));
+    const InstallIdentity identity = installIdentity(versions.release, versions.channel, kTuxBloxVersion);
+    const std::string identityLine = identity.isRelease
+        ? "Release " + identity.version + " \xC2\xB7 " + identity.channel + " channel"
+        : "Launcher " + identity.version;
+    gtk_box_append(GTK_BOX(pHeader), centredLabel(identityLine, "dim-label"));
     gtk_box_append(GTK_BOX(pHeader),
                    centredLabel("A free, open source launcher and compatibility layer for running Roblox on Linux.",
                                 nullptr));

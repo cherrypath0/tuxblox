@@ -18,7 +18,7 @@
 
 import json
 
-from release_version import derive_release, largest_bump, release_sort_key
+from release_version import advance_build, derive_release, largest_bump, release_sort_key
 
 CHANNELS = ("stable", "canary", "experimental")
 
@@ -46,9 +46,14 @@ def resolve(versions, channel, fetch, seed):
 
     if not published_releases:
         # Nothing published anywhere: the first v3 release is seeded from the floor, not derived,
-        # because its component versions are being assigned rather than bumped.
+        # because its component versions are being assigned rather than bumped. A seed already
+        # carrying four fields is one an earlier build of this tree derived and wrote back, and
+        # there is still nothing published to derive from, so the next build advances its BUILD
+        # rather than assigning a second first release.
         major = max(release_sort_key(v)[0] for v in versions.values())
-        return {"release": derive_release(seed, "minor", major), "published": {}, "base_commit": None}
+        derived_already = len(str(seed).split(".")) == 4
+        return {"release": derive_release(seed, "none" if derived_already else "minor", major),
+                "published": {}, "base_commit": None}
 
     maximum = max(published_releases, key=release_sort_key)
     maximum_channel = next(ch for ch, r in latest.items() if r == maximum)
@@ -64,6 +69,9 @@ def resolve(versions, channel, fetch, seed):
                                                          "size": bytes_for_arch["size"]}
 
     major = max(release_sort_key(v)[0] for v in versions.values())
-    return {"release": derive_release(maximum, largest_bump(old_versions, versions), major),
+    # The floor is what the channels publish; the seed only carries BUILD, so a run of local builds
+    # that publishes none of them still gets a number each rather than all sharing one.
+    candidate = derive_release(maximum, largest_bump(old_versions, versions), major)
+    return {"release": advance_build(candidate, seed),
             "published": published,
             "base_commit": body.get("source_commit")}

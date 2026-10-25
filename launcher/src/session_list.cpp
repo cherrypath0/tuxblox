@@ -17,7 +17,6 @@
 #include "session_list.h"
 
 #include "prefix_session.h"
-#include "process_launcher.h"
 #include "session_facts.h"
 
 #include <algorithm>
@@ -59,15 +58,25 @@ std::vector<Session> liveSessionsIn(const std::string& procRoot, const std::stri
 }
 
 std::string describeExit(bool stopRequested, std::optional<int> markerExitCode) {
-    // A stop produces a non-zero code of its own, so what the user did outranks what the code says.
-    if (stopRequested) return "stopped by you";
-    if (!markerExitCode.has_value()) return "closed normally";
+    // Closing Roblox and stopping it yourself are both what was meant to happen, so neither is worth a line; only a crash is.
+    if (stopRequested) return "";
+    if (!markerExitCode.has_value() || *markerExitCode == 0) return "";
+    return "crashed";
+}
 
-    const int code = *markerExitCode;
-    if (code == 0) return "closed normally";
-    const char* pTitle = exitCodeTitle(code);
-    if (pTitle != nullptr) return std::string("crashed (") + pTitle + ", " + std::to_string(code) + ")";
-    return "crashed (code " + std::to_string(code) + ")";
+int arrivedSession(const std::vector<Session>& previous, const std::vector<Session>& live,
+                   LaunchTarget wanted) {
+    int anyNew = 0;
+    int matching = 0;
+    for (const Session& fresh : live) {
+        const bool knownAlready = std::any_of(previous.begin(), previous.end(),
+                                              [&fresh](const Session& old) { return sameSession(old, fresh); });
+        if (knownAlready) continue;
+        // The list runs oldest first, so a later one replaces an earlier: the newest arrival wins.
+        anyNew = fresh.pid;
+        if (fresh.target == wanted) matching = fresh.pid;
+    }
+    return matching != 0 ? matching : anyNew;
 }
 
 std::vector<Session> mergeSessions(const std::vector<Session>& previous,

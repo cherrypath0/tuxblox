@@ -19,12 +19,13 @@
 
 #include <cstddef>
 #include <string>
+#include <vector>
 
 namespace tuxblox {
 
 class HomePage : public Page {
 public:
-    explicit HomePage(App &app);
+    HomePage(App &app, std::string installDir);
     GtkWidget *widget() const override;
     void update(const AppSnapshot &snap) override;
 
@@ -32,13 +33,9 @@ private:
     struct Card {
         LaunchTarget target;
         GtkLabel *pMeta = nullptr;
-        GtkLabel *pSessions = nullptr;
         GtkButton *pButton = nullptr;
         GtkLabel *pButtonLabel = nullptr;
         GtkWidget *pButtonIcon = nullptr;
-        // Studio only: a second button, since a new session can start while others are open.
-        GtkButton *pStopButton = nullptr;
-        GtkLabel *pStopLabel = nullptr;
         // What was last applied, so the icon and the style classes are only touched when they change.
         std::string appliedLaunchLabel;
         bool appliedStops = false;
@@ -48,10 +45,12 @@ private:
 
     GtkWidget *buildCard(Card &card, const char *pTitle, const unsigned char *pIcon, size_t iconLength);
     void setCard(Card &card, bool installed, const std::string &versionLabel, int sessions, bool stopping, bool launchPending);
+    GtkWidget *buildSessions();
+    void setSessions(const std::vector<Session> &sessions);
     void showUpdateButton(bool shown);
     void setUpdateState(const std::string &text, const std::string &styleClass);
     static void onLaunchClicked(GtkButton *pButton, gpointer data);
-    static void onStopClicked(GtkButton *pButton, gpointer data);
+    static void onOpenSessionClicked(GtkButton *pButton, gpointer data);
     static void onUpdateClicked(GtkButton *, gpointer data);
     // Both buttons go quiet for a moment after a launch. With "Minimize to background" off the window
     // stays open, so without this a double click would start Roblox twice.
@@ -61,8 +60,13 @@ private:
     App &app_;
     GtkWidget *pRoot_ = nullptr;
     GtkLabel *pTitle_ = nullptr;
-    GtkWidget *pSubtitle_ = nullptr;
     GtkWidget *pCards_ = nullptr;
+    GtkWidget *pSessions_ = nullptr;
+    GtkWidget *pSessionRows_ = nullptr;
+    GtkWidget *pSessionEmpty_ = nullptr;
+    // One per row shown, in the order they are shown. Only the ages and sizes change on a poll, so the rows themselves are built again only when a session starts or ends.
+    std::vector<GtkLabel *> pSessionMetas_;
+    std::vector<int> sessionShape_;
     GtkWidget *pUpdateStatus_ = nullptr;
     GtkWidget *pUpdateBar_ = nullptr;
     GtkWidget *pError_ = nullptr;

@@ -18,7 +18,6 @@
 
 namespace tuxblox {
 constexpr const char* kTuxBloxVersion = "@TUXBLOX_MCP_VERSION@";
-constexpr const char* kTuxBloxChannel = "@TUXBLOX_MCP_CHANNEL@";
 
 // "x.y.z", this component's own version and what it answers --version with.
 // It carries no channel: the same component build serves every channel, and

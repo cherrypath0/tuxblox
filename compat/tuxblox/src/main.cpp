@@ -22,6 +22,7 @@
 #include <array>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <string>
 #include <stdexcept>
@@ -38,6 +39,7 @@
 #include "launch/session.h"
 #include "support/log_limit.h"
 #include "support/util.h"
+#include "third_party/json.hpp"
 
 #include "embedded_data.h"
 
@@ -45,15 +47,10 @@
 #define TUXBLOX_VERSION "unknown"
 #endif
 
-#ifndef TUXBLOX_CHANNEL
-#define TUXBLOX_CHANNEL "stable"
-#endif
-
 namespace {
 
 // Version variables
 const std::string TuxBloxVersion = TUXBLOX_VERSION;
-const std::string TuxBloxChannel = TUXBLOX_CHANNEL;
 
 const std::array<std::string, 6> RobloxProcesses = {
     // Clients
@@ -107,6 +104,21 @@ std::filesystem::path installDir(const char *pArgv0) {
         return self.parent_path();
     }
     return std::filesystem::absolute(std::filesystem::path(pArgv0).parent_path(), error);
+}
+
+// Which release this install belongs to, or empty when it does not say. One build of the runtime is published in several releases, so the number cannot be compiled in; the installer records it beside the programs instead, and an install made before it started doing that simply has nothing to report.
+std::string recordedRelease(const std::filesystem::path& layerDir) {
+    std::error_code error;
+    const std::filesystem::path path = layerDir.parent_path() / "release.json";
+    if (!std::filesystem::is_regular_file(path, error) || error) {
+        return std::string();
+    }
+    try {
+        std::ifstream file(path);
+        return nlohmann::json::parse(file).at("release").get<std::string>();
+    } catch (const std::exception&) {
+        return std::string();
+    }
 }
 
 // True when the program being launched is one TuxBlox installed itself, rather than
@@ -245,8 +257,9 @@ int runMain(int argc, char *argv[]) {
 
     const std::string invocation = tuxblox::joinCommandLine({argv, argv + argc});
 
-    tuxblox::log("Running TuxBlox version " + TuxBloxVersion + " on the " + TuxBloxChannel + " channel");
-    tuxblox::log("Commandline: " + invocation);
+    const std::string release = recordedRelease(installDir(argv[0]));
+    tuxblox::log("Runtime version " + TuxBloxVersion +
+                 (release.empty() ? "" : " (release " + release + ")"));
 
     // Authenticode verification to ensure the Roblox executables used are legitimate and not tampered with
     // TODO: Expand this to all third-party executables instead of just the one being launched (including DLLs), potentially even TuxBlox's own DLLs.

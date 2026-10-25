@@ -111,6 +111,7 @@ const char LauncherStyles[] =
     "button.update-button:hover { background-image: image(alpha(white, 0.15)); }\n"
     "button.update-button:active { background-image: image(alpha(black, 0.1)); }\n"
     // Deliberately not the monospace family: TuxBlox ships no monospace font, so that family is whatever the machine happens to have, and a version number needs no fixed width anyway
+    "button.session-open { font-size: 0.8rem; min-height: 0; padding: 2px 11px; }\n"
     "label.version-meta { font-size: 0.75rem; line-height: 1.0; }\n";
 
 } // namespace

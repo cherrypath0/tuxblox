@@ -55,7 +55,7 @@ struct ComponentLayout {
     std::string publishedAs;   // its name on the CDN, extension included
     std::string filename;      // its name in the install; an archive extracts to a folder of this name
     std::string path;          // relative to the install root, "/" for the top level
-    std::string displayName;   // shown while it installs, e.g. "Compatibility layer"
+    std::string displayName;   // shown while it installs, e.g. "Runtime"
     // What to ask for its version, relative to the install root. Not always `filename`: the layer
     // installs as a folder and the program inside it is what answers. Empty for the one component
     // that has no binary at all.

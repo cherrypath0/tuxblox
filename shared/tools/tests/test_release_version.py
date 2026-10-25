@@ -20,7 +20,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
-from release_version import largest_bump, derive_release, release_sort_key
+from release_version import advance_build, largest_bump, derive_release, release_sort_key
 
 
 class LargestBump(unittest.TestCase):
@@ -72,6 +72,40 @@ class DeriveRelease(unittest.TestCase):
     def test_a_regressing_major_is_rejected(self):
         with self.assertRaises(ValueError):
             derive_release("4.1.0.0", "patch", 3)
+
+
+class AdvanceBuild(unittest.TestCase):
+    """BUILD counts builds, so a run of them between two publishes does not collapse onto one number."""
+
+    # Every build derives from the same published floor, so without this they would all be 3.6.0.1.
+    def test_a_run_of_builds_that_change_nothing_each_get_a_number(self):
+        seen, previous = [], "3.6.0.0"
+        for _ in range(3):
+            previous = advance_build(derive_release("3.6.0.0", "none", 3), previous)
+            seen.append(previous)
+        self.assertEqual(seen, ["3.6.0.1", "3.6.0.2", "3.6.0.3"])
+
+    # The fields above BUILD say what changed. Carrying them forward too would read as a component
+    # moving on every rebuild, and would walk MINOR up on its own: 3.7.0.0, 3.8.0.0, 3.9.0.0.
+    def test_rebuilding_a_changed_component_set_does_not_inflate_the_fields_above_build(self):
+        first = advance_build(derive_release("3.6.0.0", "minor", 3), "3.6.1.2")
+        self.assertEqual(first, "3.7.0.0")
+        self.assertEqual(advance_build(derive_release("3.6.0.0", "minor", 3), first), "3.7.0.1")
+
+    def test_a_component_moving_starts_build_over(self):
+        self.assertEqual(advance_build(derive_release("3.6.0.0", "patch", 3), "3.6.0.9"), "3.6.1.0")
+
+    # The pre-v3 shape is a floor, not a release this tree derived, so it carries no BUILD to keep.
+    def test_a_three_field_seed_is_not_carried_forward(self):
+        self.assertEqual(advance_build("3.6.0.1", "3.5.0"), "3.6.0.1")
+
+    def test_no_seed_at_all_leaves_the_candidate_alone(self):
+        self.assertEqual(advance_build("3.6.0.1", None), "3.6.0.1")
+        self.assertEqual(advance_build("3.6.0.1", ""), "3.6.0.1")
+
+    # A VERSION behind the published floor must never drag the release backwards.
+    def test_a_seed_behind_the_floor_cannot_lower_the_release(self):
+        self.assertEqual(advance_build("3.6.0.5", "3.6.0.1"), "3.6.0.5")
 
 
 class Parsing(unittest.TestCase):

@@ -57,13 +57,34 @@ std::string resolveUrl(const std::string& baseUrl, const std::string& maybeRelat
     return baseUrl + maybeRelative;
 }
 
+// A v1 manifest carries the names TuxBlox used when it was published -- "Updater" for the
+// installer, "Proton" for the runtime -- and published bytes are never rewritten, so what a person
+// is shown is mapped from the artifact's key here instead. An array rather than a map: four entries
+// scanned a handful of times per install.
+const std::pair<const char*, const char*> kV1Components[] = {
+    {"launcher", "launcher"},
+    {"installer", "installer"},
+    {"mcp", "studio-mcp"},
+    {"proton", "compat"},
+};
+
+// Whatever the server sent, for a key this build does not recognise.
+std::string displayNameFor(const std::string& key, std::string published) {
+    for (const auto& [v1, component] : kV1Components) {
+        if (key != v1) continue;
+        if (const auto layout = componentLayout(component)) return layout->displayName;
+        break;
+    }
+    return published;
+}
+
 Artifact parseArtifact(const nlohmann::json& a, const std::string& name, const std::string& baseUrl) {
     try {
         Artifact artifact;
         artifact.url = resolveUrl(baseUrl, a.at("url").get<std::string>());
         artifact.sha256 = a.at("sha256").get<std::string>();
         artifact.sizeBytes = a.at("size").get<uint64_t>();
-        artifact.displayname = a.at("displayname").get<std::string>();
+        artifact.displayname = displayNameFor(name, a.at("displayname").get<std::string>());
         artifact.filename = a.at("filename").get<std::string>();
         artifact.path = a.at("path").get<std::string>();
         return artifact;
