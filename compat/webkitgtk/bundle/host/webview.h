@@ -33,6 +33,10 @@
 #include <stdint.h>
 #include "webview2loader_ipc_protocol.h"
 
+/* Answered in main.c by asking the renderer its own name once at startup, rather than by reading an environment variable, which is what made the GPU acceleration setting look broken. */
+/* Declared here because webview_create's compositing decision is the only thing that acts on it. */
+int gl_is_software(void);
+
 /* Task 7 crash fix, round 15 (original unixlib.c comment): which real X11
  * parent window (if any) nv->window has already been XReparentWindow'd
  * into. 0 means "not reparented yet" (still an independent top-level, or

@@ -66,6 +66,16 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+/* Set by the compatibility layer when WINEDEBUG names the tuxbloxwebkit channel, which this separate program cannot read for itself. */
+/* It gates the contents of the messages a page and Studio exchange, because those carry whatever the page sends -- during a sign-in, the sign-in -- and the session log is the file people attach to a bug report. */
+static int message_tracing(void)
+{
+    static int enabled = -1;
+
+    if (enabled < 0) enabled = getenv("WEBVIEW2LOADER_TRACE") != NULL;
+    return enabled;
+}
+
 /* Task 7 crash fix, round 14 (original unixlib.c comment, preserved
  * verbatim below on on_close_request itself): a small live-handle registry
  * is enough here -- unlike the original unixlib.c, every dispatch handler
@@ -258,9 +268,14 @@ static void on_script_message(WebKitUserContentManager *manager, JSCValue *value
     if (payload)
     {
         is_string = (kind && !strcmp(kind, "string"));
-        fprintf(stderr, "webview2loader-host: page called window.chrome.webview.postMessage on "
-                        "nv=%p (%s) -- payload: %s\n",
-                (void *)nv, is_string ? "string" : "json", payload);
+        if (message_tracing())
+            fprintf(stderr, "webview2loader-host: page called window.chrome.webview.postMessage on "
+                            "nv=%p (%s) -- payload: %s\n",
+                    (void *)nv, is_string ? "string" : "json", payload);
+        else
+            fprintf(stderr, "webview2loader-host: page called window.chrome.webview.postMessage on "
+                            "nv=%p (%s) -- %zu bytes\n",
+                    (void *)nv, is_string ? "string" : "json", strlen(payload));
         webview_send_web_message_event(nv, payload, is_string);
     }
     else fprintf(stderr, "webview2loader-host: postMessage had no payload field -- dropping\n");
@@ -340,9 +355,17 @@ gboolean webview_post_web_message(struct native_webview *nv, const char *message
     /* Logged on SUCCESS, not only on failure. Without this, "Studio replied and
      * we delivered it" and "Studio never replied at all" produce identical
      * logs -- which is exactly the ambiguity blocking the Toolbox, where the
-     * page sends internal:init and waits for an answer. */
-    fprintf(stderr, "webview2loader-host: Studio -> page message on nv=%p (%s): %.160s\n",
-            (void *)nv, is_string ? "string" : "json", message_utf8);
+     * page sends internal:init and waits for an answer.
+     *
+     * What was said is the half that only the tuxbloxwebkit channel gets; that
+     * it was said at all is the half the ambiguity above actually needed, and it
+     * is still written every time. */
+    if (message_tracing())
+        fprintf(stderr, "webview2loader-host: Studio -> page message on nv=%p (%s): %.160s\n",
+                (void *)nv, is_string ? "string" : "json", message_utf8);
+    else
+        fprintf(stderr, "webview2loader-host: Studio -> page message on nv=%p (%s): %zu bytes\n",
+                (void *)nv, is_string ? "string" : "json", strlen(message_utf8));
 
     /* Fire-and-forget: real WebView2's PostWebMessage* has no completion, and a
      * page that throws inside its own listener is not our failure to report. */
@@ -794,45 +817,29 @@ struct native_webview *webview_create(int is_message_only)
         WebKitSettings *st = webkit_web_view_get_settings(nv->view);
         if (st) webkit_settings_set_user_agent(st, WV2L_DEFAULT_USER_AGENT);
 
-        /* Turn WebKit's accelerated compositing OFF, because the "acceleration"
-         * here is software.
+        /* Whether WebKit composites the page through GL, which is worth doing
+         * only when there is a graphics card behind that GL.
          *
-         * unixlib.c forces this process onto the bundle's llvmpipe
-         * (WV2L_ALWAYS_USE_BUNDLE_GL, a permanent workaround for a real NVIDIA
-         * driver crash), so there is no GPU anywhere in this pipeline. Left at
-         * WebKit's default, the page is composited through GL that is itself
-         * being emulated on the CPU -- texture uploads, shader emulation and
-         * context switches, all to reach a rasteriser that could have been
-         * called directly. The result is paid on every repaint, which is what
-         * input latency in a webview actually is: the delay before the frame
-         * that reflects your keystroke appears.
+         * Composited on a rasteriser that is itself running on the processor,
+         * every repaint pays for texture uploads, emulated shaders and context
+         * switches to reach something that could have been called directly --
+         * and a repaint's cost is what input latency in a webview actually is,
+         * the delay before the frame that reflects your keystroke appears.
+         * POLICY_NEVER has WebKit rasterise on the processor itself and hand GTK
+         * a finished buffer, which for a login form or the Toolbox is strictly
+         * less work.
          *
-         * POLICY_NEVER makes WebKit rasterise on the CPU itself and hand GTK a
-         * finished buffer, skipping the emulated-GL round trip entirely. For a
-         * login form or the Toolbox -- 2D content, no WebGL, no video -- that is
-         * strictly less work. It is not a free win for every page: heavy canvas
-         * or video content genuinely benefits from compositing even on llvmpipe,
-         * which is why the escape hatch below exists.
-         *
-         * TUXBLOX_WEBVIEW_GPU=1 restores the old behaviour for A/B testing
-         * without a rebuild, matching the overwrite=0 convention main.c uses for
-         * GSK_RENDERER. Revisit this whole decision if the bundle ever gets real
-         * hardware GL back. */
+         * So two things have to be true, and both are asked rather than assumed:
+         * the person turned "GPU acceleration for web pages" on, and the GL this
+         * process actually resolved is a graphics driver. The second is the
+         * renderer's own name, measured at startup -- not an environment
+         * variable, which is how this came to say yes on machines that had
+         * nothing to accelerate with. */
         if (st)
         {
             const char *want_gpu = getenv("TUXBLOX_WEBVIEW_GPU");
-            const char *software = getenv("LIBGL_ALWAYS_SOFTWARE");
             const int asked = want_gpu && *want_gpu && strcmp(want_gpu, "0");
-            /* There is no graphics card in this process to ask for. unixlib.c
-             * sets LIBGL_ALWAYS_SOFTWARE before starting this program and points
-             * the driver search at the bundle, which ships swrast and nothing
-             * else, so the request cannot be honoured however it was made --
-             * acting on it composites the page through a GL that is itself being
-             * drawn on the processor, which is slower everywhere and leaves the
-             * panel blank on some machines. The setting is left alone and simply
-             * has nothing to do here; it takes effect again the day this process
-             * gets a real driver back (see WV2L_ALWAYS_USE_BUNDLE_GL). */
-            const int have_gpu = !(software && *software && strcmp(software, "0"));
+            const int have_gpu = !gl_is_software();
             WebKitHardwareAccelerationPolicy policy =
                 (asked && have_gpu)
                     ? WEBKIT_HARDWARE_ACCELERATION_POLICY_ALWAYS
@@ -842,10 +849,10 @@ struct native_webview *webview_create(int is_message_only)
             fprintf(stderr, "webview2loader-host: hardware acceleration policy = %s for nv=%p -- %s\n",
                     policy == WEBKIT_HARDWARE_ACCELERATION_POLICY_NEVER ? "NEVER (CPU raster)" : "ALWAYS",
                     (void *)nv,
-                    !asked ? "not asked for"
-                           : (have_gpu ? "asked for by TUXBLOX_WEBVIEW_GPU, and there is a driver to use"
-                                       : "asked for by TUXBLOX_WEBVIEW_GPU, but the GL in this process is "
-                                         "software only, so the page is drawn on the processor instead"));
+                    !asked ? "GPU acceleration for web pages is off"
+                           : (have_gpu ? "asked for, and this process has a graphics driver to use"
+                                       : "asked for, but the GL this process resolved draws on the "
+                                         "processor, so the page is rasterised there directly instead"));
         }
     }
     /* Real WebView2's default is TRUE; Studio turns it off explicitly, and that

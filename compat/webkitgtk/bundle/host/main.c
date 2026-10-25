@@ -102,23 +102,8 @@ static GMainLoop *g_loop = NULL;
 #define WV2L_EGL_VENDOR  0x3053
 #define WV2L_EGL_VERSION 0x3054
 
-/* 2026-08-15 (software-only-llvmpipe plan) update: unixlib.c's spawn_helper()
- * no longer conditionally chooses host-vs-bundled EGL at all -- it now
- * ALWAYS sets LD_LIBRARY_PATH to this bundle's own gl-fallback/ directory
- * before exec'ing this process (see spawn_helper()'s WV2L_ALWAYS_USE_BUNDLE_GL,
- * a permanent workaround for a confirmed upstream WebKitGTK/NVIDIA driver
- * crash, not the host-preference logic this comment originally described).
- * That means this function's output is no longer just an informational log
- * of "which EGL got picked" -- it is now the real, positive verification that
- * the fix actually took effect on a given launch: EGL_VENDOR should always
- * read as Mesa's own vendor string ("Mesa Project" for llvmpipe -- there is
- * no other Mesa gallium software driver left in this bundle as of the
- * softpipe->llvmpipe switch, see build-in-container.sh's Mesa comment) and
- * should NEVER show an NVIDIA-identifying vendor string on any launch, on any
- * host, regardless of what GPU driver that host has installed. A real relaunch
- * showing an NVIDIA vendor string here would mean WV2L_ALWAYS_USE_BUNDLE_GL
- * somehow isn't taking effect -- a regression, not an expected outcome on any
- * machine. */
+/* This block is what says whether the "GPU acceleration for web pages" setting took effect, so read it before believing anything else about a slow or blank panel. */
+/* With it off the stack is pinned to this bundle's own Mesa and should read "Mesa Project" and llvmpipe on every machine alike; with it on the vendor is whichever one the person has installed, and NVIDIA here is the setting working, not a regression. */
 /* Logs WHICH GL implementation actually got loaded, not just what it calls
  * itself.
  *
@@ -180,6 +165,33 @@ static void log_gl_provenance(void *egl_sym)
         fprintf(stderr, "webview2loader-host: GL provenance: no gallium/DRI/vendor GL module mapped yet\n");
 }
 
+/* Starts at yes, so a run where EGL never came up at all is treated as having no graphics card rather than as having one nobody measured. */
+static int gl_software = 1;
+
+int gl_is_software(void)
+{
+    return gl_software;
+}
+
+/* The names a rasteriser running on the processor reports itself under. */
+static int renderer_is_software(const char *renderer)
+{
+    static const char *const names[] = {
+        "llvmpipe",
+        "softpipe",
+        "swrast",
+        "SWR",
+        "SwiftShader",
+        "Software Rasterizer",
+    };
+    size_t i;
+
+    if (!renderer || !*renderer) return 1;
+    for (i = 0; i < sizeof(names) / sizeof(names[0]); i++)
+        if (strstr(renderer, names[i])) return 1;
+    return 0;
+}
+
 /* Which renderer that EGL actually hands out -- the one thing a bug report
  * needs and the vendor string does not say. "Mesa Project" is what the vendor
  * reads whether the frames are drawn by a graphics card or by the processor,
@@ -201,6 +213,7 @@ static void log_gl_renderer(void *h, void *dpy)
     static const int config_attrs[] = { 0x3033, 0x0001, 0x3040, 0x0004, 0x3038 };
     static const int context_attrs[] = { 0x3098, 2, 0x3038 };
     void *config = NULL, *context;
+    const char *renderer;
     int count = 0;
 
     if (!p_eglBindAPI || !p_eglChooseConfig || !p_eglCreateContext || !p_eglMakeCurrent || !p_glGetString)
@@ -219,9 +232,11 @@ static void log_gl_renderer(void *h, void *dpy)
         return;
     }
 
+    renderer = (const char *)p_glGetString(0x1F01 /* GL_RENDERER */);
+    gl_software = renderer_is_software(renderer);
     fprintf(stderr, "webview2loader-host: GL renderer: \"%s\" (%s)\n",
-            (const char *)p_glGetString(0x1F01 /* GL_RENDERER */),
-            getenv("LIBGL_ALWAYS_SOFTWARE") ? "drawn on the processor" : "a graphics driver");
+            renderer ? renderer : "unknown",
+            gl_software ? "drawn on the processor" : "a graphics driver");
 
     p_eglMakeCurrent(dpy, NULL, NULL, NULL);
     if (p_eglDestroyContext) p_eglDestroyContext(dpy, context);

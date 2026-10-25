@@ -37,6 +37,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
@@ -235,6 +236,64 @@ static void prepend_env(const char *name, const char *value)
     free(joined);
 }
 
+/* The mirror of prepend_env above, for a search list whose existing entries
+ * have to keep winning: this bundle's own copy stays first and the appended
+ * directory is only consulted when the bundle has nothing to offer. */
+static void append_env(const char *name, const char *value)
+{
+    const char *existing = getenv(name);
+    char *joined;
+    size_t len;
+
+    if (!existing || !existing[0])
+    {
+        setenv(name, value, 1);
+        return;
+    }
+
+    len = strlen(existing) + 1 + strlen(value) + 1;
+    if (!(joined = malloc(len)))
+    {
+        WARN("out of memory appending %s to %s -- leaving existing value in place\n", value, name);
+        return;
+    }
+    snprintf(joined, len, "%s:%s", existing, value);
+    setenv(name, joined, 1);
+    free(joined);
+}
+
+/* "GPU acceleration for web pages" in the launcher's own settings, which sends
+ * this with every launch in both states. An absent value is off, which is what
+ * a launch that never went through the launcher gets -- the deliberately quiet
+ * choice, since the software path is the one that behaves the same everywhere. */
+static BOOL webview_gpu_enabled(void)
+{
+    const char *value = getenv("TUXBLOX_WEBVIEW_GPU");
+    return value && value[0] && strcmp(value, "0") != 0;
+}
+
+/* Where a graphics driver other than Mesa keeps its own GBM backend.
+ *
+ * This matters more than it looks. A proprietary NVIDIA install's EGL opens its
+ * display THROUGH GBM, and the backend it needs (nvidia-drm_gbm.so) ships in the
+ * system directory, never in this bundle. With GBM_BACKENDS_PATH naming only the
+ * bundle, Mesa's own backend is the only one findable, it is asked to open an
+ * NVIDIA device, it reports "nouveau: driver missing", and eglGetDisplay returns
+ * nothing at all -- so glvnd falls through to Mesa and the page is drawn on the
+ * processor on a machine with a perfectly good graphics card in it. Measured
+ * directly on such a machine: appending these is the single change that turns
+ * the helper's own GL log from "Mesa Project"/llvmpipe into the card's own name.
+ *
+ * Three spellings because distributions disagree and none of them is wrong;
+ * only the ones that exist are appended, so the list costs three stat() calls
+ * at launch and says nothing untrue about a machine that has none of them. */
+static const char *const host_gbm_backend_dirs[] =
+{
+    "/usr/lib/gbm",
+    "/usr/lib64/gbm",
+    "/usr/lib/x86_64-linux-gnu/gbm",
+};
+
 /* Part B (Task 7): ported from the pre-Task-3 unixlib.c's
  * set_webkit_relocation_env(), deleted by Task 3's rewrite along with the
  * dlmopen/pthread machinery it used to run alongside. That deletion was
@@ -254,6 +313,9 @@ static void prepend_env(const char *name, const char *value)
 static void set_webkit_relocation_env(const char *dir)
 {
     char path[PATH_MAX];
+    BOOL use_gpu = webview_gpu_enabled();
+    struct stat st;
+    unsigned int i;
 
     snprintf(path, sizeof(path), "%s/libexec/webkitgtk-6.0", dir);
     setenv("WEBKIT_EXEC_PATH", path, 1);
@@ -266,6 +328,18 @@ static void set_webkit_relocation_env(const char *dir)
 
     snprintf(path, sizeof(path), "%s/lib/x86_64-linux-gnu/gbm", dir);
     setenv("GBM_BACKENDS_PATH", path, 1);
+    /* Appended, never prepended: the bundle's own Mesa backend has to stay the
+     * first answer, and these only come into play for a driver whose backend is
+     * not in here at all -- see host_gbm_backend_dirs' own comment. Only when
+     * the person asked for the graphics card, because without that nothing in
+     * this process ever looks outside the bundle for GL and there is no reason
+     * to start. */
+    if (use_gpu)
+    {
+        for (i = 0; i < ARRAY_SIZE(host_gbm_backend_dirs); i++)
+            if (!stat(host_gbm_backend_dirs[i], &st))
+                append_env("GBM_BACKENDS_PATH", host_gbm_backend_dirs[i]);
+    }
 
     snprintf(path, sizeof(path), "%s/libexec/gstreamer-1.0/gst-plugin-scanner", dir);
     setenv("GST_PLUGIN_SCANNER", path, 1);
@@ -339,48 +413,44 @@ static void set_webkit_relocation_env(const char *dir)
     snprintf(path, sizeof(path), "%s/lib/x86_64-linux-gnu/gdk-pixbuf-2.0/2.10.0/loaders", dir);
     setenv("GDK_PIXBUF_MODULEDIR", path, 1);
 
-    /* WV2L_ALWAYS_USE_BUNDLE_GL forces the bundled llvmpipe copy, and the bundle
-     * only ships swrast/kms_swrast DRI drivers. Without this, Mesa still probes
-     * the real GPU first and tries to load a hardware driver by the kernel
-     * module's name -- "radeonsi: driver missing" / "nouveau: driver missing"
-     * followed by several "failed to create dri2 screen" warnings on every
-     * launch, before it gives up and lands on swrast anyway. Telling it up front
-     * skips the probe and the noise; the end result was already software. */
-    snprintf(path, sizeof(path), "%s/lib/x86_64-linux-gnu/dri", dir);
-    setenv("LIBGL_DRIVERS_PATH", path, 1);
-    setenv("LIBGL_ALWAYS_SOFTWARE", "1", 1);
+    /* Which graphics driver this process renders through, and the one thing the
+     * "GPU acceleration for web pages" setting actually decides.
+     *
+     * The helper links libEGL.so.1/libGLX.so.0, which belong to libglvnd and are
+     * never shipped here: they are dispatchers, and the driver behind them is
+     * chosen from the ICD descriptions in the HOST's /usr/share/glvnd/egl_vendor.d.
+     * That is deliberate. Everybody's own vendor is the one that can drive their
+     * own card, so a proprietary NVIDIA install must reach libEGL_nvidia and a
+     * Mesa install must reach Mesa -- naming a vendor here would hand one of
+     * those two somebody else's driver.
+     *
+     * Turned off, every variable below pins the whole stack to this bundle's own
+     * Mesa and tells it up front to stay on llvmpipe. Without the DRI path Mesa
+     * probes the real card first and tries to load a hardware driver by the
+     * kernel module's name -- "radeonsi: driver missing" / "nouveau: driver
+     * missing" and a few "failed to create dri2 screen" warnings -- before
+     * landing on swrast anyway, so this skips a probe whose answer was already
+     * known. That is the predictable path, identical on every machine, and it is
+     * where somebody whose card misbehaves here should end up.
+     *
+     * Turned on, none of it is set, and whatever the person has installed
+     * decides. LIBGL_ALWAYS_SOFTWARE in particular is the variable that made the
+     * setting look broken: set unconditionally, it forced the page onto the
+     * processor whichever driver had been resolved, so turning the setting on
+     * changed nothing a user could see.
+     *
+     * Nothing is cleared here when it is on. A person who exported one of these
+     * for their whole session meant it, and this is not the place to argue. */
+    if (!use_gpu)
+    {
+        snprintf(path, sizeof(path), "%s/lib/x86_64-linux-gnu/dri", dir);
+        setenv("LIBGL_DRIVERS_PATH", path, 1);
+        setenv("LIBGL_ALWAYS_SOFTWARE", "1", 1);
 
-    /* Pin glvnd to this bundle's own Mesa, which is what actually makes the
-     * software-only decision above stick.
-     *
-     * The helper links libEGL.so.1/libGLX.so.0, and no bundle has ever shipped
-     * those two: they belong to libglvnd, which only dispatches to a vendor
-     * library chosen from the ICD descriptions in the HOST's
-     * /usr/share/glvnd/egl_vendor.d. So without the two variables below, which
-     * driver WebKit ends up rendering through is decided entirely by what the
-     * user happens to have installed -- and glvnd reads that directory in
-     * filename order, where a proprietary NVIDIA install's 10_nvidia.json sorts
-     * ahead of Mesa's 50_mesa.json and wins. That is the one configuration this
-     * bundle deliberately does not run in: it is the upstream WebKitGTK/NVIDIA
-     * crash (WebKitWebProcess SIGSEGV inside libnvidia-eglcore, five confirmed
-     * coredumps) that the software-only decision was made to avoid in the first
-     * place. LIBGL_ALWAYS_SOFTWARE above cannot prevent it, because that
-     * variable only ever binds Mesa.
-     *
-     * Measured, not assumed: with these unset the helper's own GL provenance
-     * log reports libEGL resolving to /usr/lib/libEGL.so.1, i.e. the host's.
-     * Distributions differ in whether a proprietary driver is installed by
-     * default at all, which is exactly why this reached users as "the webview
-     * renders on one machine and not the next" rather than as a clean failure.
-     *
-     * Both values name the bundle's own copies. The ICD description carries the
-     * bare soname libEGL_mesa.so.0 rather than a path, and __GLX_VENDOR_LIBRARY_NAME
-     * likewise only names "mesa" -- both resolve through the helper binary's own
-     * DT_RPATH, which reaches this bundle's lib directory and which the dynamic
-     * loader consults for a dlopen() from anywhere in the process. */
-    snprintf(path, sizeof(path), "%s/share/glvnd/egl_vendor.d/50_mesa.json", dir);
-    setenv("__EGL_VENDOR_LIBRARY_FILENAMES", path, 1);
-    setenv("__GLX_VENDOR_LIBRARY_NAME", "mesa", 1);
+        snprintf(path, sizeof(path), "%s/share/glvnd/egl_vendor.d/50_mesa.json", dir);
+        setenv("__EGL_VENDOR_LIBRARY_FILENAMES", path, 1);
+        setenv("__GLX_VENDOR_LIBRARY_NAME", "mesa", 1);
+    }
 
     /* Pin EGL's platform to X11, for the same reason main.c pins
      * GDK_BACKEND=x11: this helper is X11-only by construction (it
@@ -466,7 +536,19 @@ static void set_webkit_relocation_env(const char *dir)
  * `!host_egl_ok`-gated by reverting this one constant, not have to
  * reconstruct the whole host_has_usable_egl()-gating mechanism from git
  * history. host_has_usable_egl() itself is intentionally left in place (not
- * deleted) for exactly that future flip -- see its own comment. */
+ * deleted) for exactly that future flip -- see its own comment.
+ *
+ * Status, and read this before trusting the paragraphs above: this constant
+ * does not do what they say any more, and has not for some time. All it
+ * actually does is put bundle_gl_fallback_dir() on the child's LD_LIBRARY_PATH,
+ * and that directory has been EMPTY in every shipped bundle since this bundle's
+ * Mesa began building against libglvnd -- Mesa then installs libEGL_mesa.so.0
+ * rather than a libEGL.so.1 of its own, so package.sh's relocation step finds
+ * nothing to move. Which driver this process renders through is decided
+ * entirely by set_webkit_relocation_env() above, and as of the per-vendor
+ * change there it is decided by the person's own "GPU acceleration for web
+ * pages" setting. The NVIDIA teardown race described above is real and is not
+ * fixed by anything here; turning the setting off is what avoids it now. */
 #define WV2L_ALWAYS_USE_BUNDLE_GL TRUE
 
 /* Everything the helper has to say about a failure arrives as plain text on the
@@ -764,6 +846,16 @@ static BOOL spawn_helper(const char *bundle_dir)
          * before execl() below, same as the LD_LIBRARY_PATH decision that
          * follows. */
         set_webkit_relocation_env(bundle_dir);
+
+        /* The helper is a separate program and cannot read a Wine debug channel,
+         * so the answer is worked out above, on this side, and handed over as a
+         * plain variable. What it gates is the contents of the messages the page
+         * and Studio exchange: those carry whatever the page sends, which during
+         * a sign-in is the sign-in, and the session log is the file a person
+         * attaches to a bug report. That a message was exchanged is still logged
+         * either way -- only what it said waits for WINEDEBUG=+tuxbloxwebkit. */
+        if (keep_helper_stderr) setenv("WEBVIEW2LOADER_TRACE", "1", 1);
+        else unsetenv("WEBVIEW2LOADER_TRACE");
 
         /* WEBVIEW2LOADER_FORCE_GL_FALLBACK: test-only hook, originally added
          * alongside the PARENT-computed host_egl_ok above so the bundle's
