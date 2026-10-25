@@ -1,0 +1,7 @@
+- Fixed a security vulnerability that could leak account credentials in logs when logging in to Studio on a very rare scenario (it is very unlikely anybody has been affected, but just in case, the server's telemetry logs have been cleared)
+- Fixed docking issues with Studio
+- Fixed annoying visual bugs happening when rescaling docked windows
+- Fixed some WebKit output not being filtered to the correct debug channel
+- Fixed the runtime reporting a wrong max CPU frequency
+- Fixed an issue where Roblox would freeze and crash after exiting fullscreen
+- Removed the "Command line" log of the runtime from TuxBlox logs

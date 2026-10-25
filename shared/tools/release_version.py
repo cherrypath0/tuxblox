@@ -49,39 +49,33 @@ def largest_bump(old, new):
     return _BUMPS[biggest]
 
 
-def advance_build(candidate, previous):
-    """`candidate`, with BUILD carried past `previous` when the two name the same MAJOR.MINOR.PATCH.
+def next_build(previous_build, major_changed):
+    """The BUILD field for a new release: one past the last, or 0 when MAJOR moved.
 
-    A release is derived from what the channels publish, so every build between two publishes
-    derives the same number: nothing was published in between, so the floor never moved. BUILD is
-    the field that counts builds, so it is the one carried forward -- the three above it describe
-    what changed, and between those builds nothing did.
+    BUILD counts how many times this has been built, so it is not derived from anything the server
+    publishes -- every build advances it, including the ones that are never released. Only a MAJOR
+    rise starts it over, because that is the one event the number below it is not continuous across.
     """
-    if not previous:
-        return candidate
-    cmajor, cminor, cpatch, cbuild = release_sort_key(candidate)
-    pmajor, pminor, ppatch, pbuild = release_sort_key(previous)
-    if (cmajor, cminor, cpatch) != (pmajor, pminor, ppatch):
-        # A component moved, so the derived number is a different release line and BUILD starts over.
-        return candidate
-    return "%d.%d.%d.%d" % (cmajor, cminor, cpatch, max(cbuild, pbuild + 1))
+    if major_changed:
+        return 0
+    return int(previous_build) + 1
 
 
-def derive_release(previous_max, bump, major):
-    """The next release version, advancing from `previous_max` by `bump` under the component `major`."""
+def derive_line(previous_max, bump, major):
+    """The next MAJOR.MINOR.PATCH, advancing from `previous_max` by `bump` under the component `major`."""
     if bump not in _BUMPS:
         raise ValueError("not a bump level: %r" % (bump,))
     if previous_max is None:
-        return "%d.0.0.0" % major
-    pmajor, pminor, ppatch, pbuild = release_sort_key(previous_max)
+        return "%d.0.0" % major
+    pmajor, pminor, ppatch, _ = release_sort_key(previous_max)
     if major < pmajor:
         # Component majors only ever rise, so a lower one means the caller computed it wrong.
         raise ValueError("major %d regresses from %s" % (major, previous_max))
     if major > pmajor:
-        return "%d.0.0.0" % major
+        return "%d.0.0" % major
     if bump in ("major", "minor"):
         # A major bump on a component that does not hold the maximum lands here, and still has to advance.
-        return "%d.%d.0.0" % (pmajor, pminor + 1)
+        return "%d.%d.0" % (pmajor, pminor + 1)
     if bump == "patch":
-        return "%d.%d.%d.0" % (pmajor, pminor, ppatch + 1)
-    return "%d.%d.%d.%d" % (pmajor, pminor, ppatch, pbuild + 1)
+        return "%d.%d.%d" % (pmajor, pminor, ppatch + 1)
+    return "%d.%d.%d" % (pmajor, pminor, ppatch)

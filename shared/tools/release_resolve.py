@@ -18,7 +18,7 @@
 
 import json
 
-from release_version import advance_build, derive_release, largest_bump, release_sort_key
+from release_version import derive_line, largest_bump, next_build, release_sort_key
 
 CHANNELS = ("stable", "canary", "experimental")
 
@@ -38,7 +38,13 @@ def _latest_of(channel, fetch):
         return None
 
 
-def resolve(versions, channel, fetch, seed):
+def _release(line, seed, build):
+    """`line` with its BUILD field, which advances unless MAJOR moved."""
+    seed_major = release_sort_key(seed)[0] if seed else None
+    return "%s.%d" % (line, next_build(build, release_sort_key(line)[0] != seed_major))
+
+
+def resolve(versions, channel, fetch, seed, build):
     """{release, published, base_commit}: the next release version, the component versions whose bytes are already published, and the commit the previous release was built from. Raises Unreachable rather than guessing, and NotFound when a channel's pointer names a release file that is not there."""
     # The release number is shared across channels, so the maximum is taken over all of them.
     latest = {ch: _latest_of(ch, fetch) for ch in CHANNELS}
@@ -50,9 +56,10 @@ def resolve(versions, channel, fetch, seed):
         # carrying four fields is one an earlier build of this tree derived and wrote back, and
         # there is still nothing published to derive from, so the next build advances its BUILD
         # rather than assigning a second first release.
+        # Nothing published is nothing to compare against, so the line cannot be said to have moved
+        # and only BUILD advances. A component MAJOR above the seed's still takes the line with it.
         major = max(release_sort_key(v)[0] for v in versions.values())
-        derived_already = len(str(seed).split(".")) == 4
-        return {"release": derive_release(seed, "none" if derived_already else "minor", major),
+        return {"release": _release(derive_line(seed, "none", major), seed, build),
                 "published": {}, "base_commit": None}
 
     maximum = max(published_releases, key=release_sort_key)
@@ -71,7 +78,7 @@ def resolve(versions, channel, fetch, seed):
     major = max(release_sort_key(v)[0] for v in versions.values())
     # The floor is what the channels publish; the seed only carries BUILD, so a run of local builds
     # that publishes none of them still gets a number each rather than all sharing one.
-    candidate = derive_release(maximum, largest_bump(old_versions, versions), major)
-    return {"release": advance_build(candidate, seed),
+    line = derive_line(maximum, largest_bump(old_versions, versions), major)
+    return {"release": _release(line, seed, build),
             "published": published,
             "base_commit": body.get("source_commit")}

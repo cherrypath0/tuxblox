@@ -1,0 +1,8 @@
+- Added a NEW sessions tab, allowing viewing logs of an instance, log filters, seeing system resource usage of an instance, and controlling instances!
+- Added a session(s) overview at the Home screen
+- Added extra functionality to the "Auto-Update Roblox" setting that deletes old versions from your drive (to save storage space)
+- Changed the launcher icons
+- Changed the minimum and default window size of the launcher
+- Fixed the launcher icons rendering in a very low-quality way on higher resolutions
+- Fixed the launcher describing force-kills as an Out-of-Memory crash
+- Renamed the "Graphics" setting to "Graphics API"

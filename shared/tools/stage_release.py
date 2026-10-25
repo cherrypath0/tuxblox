@@ -61,11 +61,27 @@ def build_source(root):
     return commit, dirty
 
 
+def component_changelogs(root):
+    """Each component's own changelogs.md, for the ones that keep one beside their sources.
+
+    The file says what changed in the version being published and nothing else, so it is published as
+    it stands. It is the repo owner's own writing, so nothing here ever edits it, and a component
+    without one publishes no changelog rather than an invented one.
+    """
+    found = {}
+    for component in ("launcher", "installer", "studio-mcp", "compat"):
+        path = os.path.join(root, component, "changelogs.md")
+        if os.path.isfile(path) and os.path.getsize(path) > 0:
+            found[component] = path
+    return found
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", required=True)
     parser.add_argument("--channel", required=True)
-    parser.add_argument("--seed", required=True, help="the release floor, from the root VERSION file")
+    parser.add_argument("--seed", required=True, help="MAJOR.MINOR.PATCH, from line 1 of the root VERSION file")
+    parser.add_argument("--build", default="0", help="the BUILD counter, from line 2 of the root VERSION file")
     parser.add_argument("--release", default="", help="an explicit release, skipping resolution")
     args = parser.parse_args()
 
@@ -77,7 +93,8 @@ def main():
     # component version's bytes are published once and must never be packed again: tar records
     # mtimes, so repacking identical contents changes the sha256 and the server rejects it.
     try:
-        resolved = resolve(versions, args.channel, http_fetch(base_url), args.seed)
+        resolved = resolve(versions, args.channel, http_fetch(base_url), args.seed,
+                           int(args.build) if str(args.build).isdigit() else 0)
     except Unreachable as e:
         if not args.release:
             print("!! Cannot reach %s, so the release version cannot be resolved: %s" % (base_url, e),
@@ -127,7 +144,8 @@ def main():
     commit, build_dirty = build_source(root)
     content = stage(os.path.join(root, "build"), os.path.join(root, "releases", "client"),
                     args.channel, release, versions, resolved["published"],
-                    source_commit=commit or None, source_dirty=build_dirty)
+                    source_commit=commit or None, source_dirty=build_dirty,
+                    changelogs=component_changelogs(root))
     # Only the release line is added; the commit and dirty flag stay as the build wrote them.
     write_provenance(os.path.join(root, "build", ".provenance"), commit, build_dirty, release)
 

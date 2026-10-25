@@ -72,18 +72,24 @@ if [[ "$stage_only" -eq 0 ]]; then
     warn_unpublishable
 fi
 
-# The repo's RELEASE file: line 1 the release, line 2 the channel. It no longer feeds the
-# components -- each of those carries its own VERSION beside its sources -- and line 1 is now the
-# floor the derived release must beat rather than a number anything is built with.
+# The repo's RELEASE file, three lines: line 1 MAJOR.MINOR.PATCH, line 2 BUILD, line 3 the channel.
+# It no longer feeds the components -- each of those carries its own VERSION beside its sources --
+# and line 1 is the floor the derived release must beat rather than a number anything is built with.
 #
-# stage_release() rewrites it with the release this build became, so it stays current on its own.
+# BUILD is on its own line because it counts builds rather than describing what changed: every build
+# advances it, released or not, and only a MAJOR rise starts it over.
+#
+# stage_release() rewrites all three with the release this build became, so it stays current on its own.
 version_file="$ROOT/VERSION"
 file_version=""
+file_build=""
 file_channel=""
 if [[ -r "$version_file" ]]; then
     file_version="$(sed -n '1p' "$version_file" | tr -d '[:space:]')"
-    file_channel="$(sed -n '2p' "$version_file" | tr -d '[:space:]')"
+    file_build="$(sed -n '2p' "$version_file" | tr -d '[:space:]')"
+    file_channel="$(sed -n '3p' "$version_file" | tr -d '[:space:]')"
 fi
+[[ "$file_build" =~ ^[0-9]+$ ]] || file_build=0
 
 # An explicit TUXBLOX_BUILD_VERSION means "publish exactly this release" and overrides the derived
 # number; it is the escape hatch for an offline stage and for a number the server reports as taken.
@@ -94,8 +100,8 @@ fi
 if [[ $stage_only -eq 1 && -z "$TUXBLOX_BUILD_VERSION" && -r "$ROOT/build/.provenance" ]]; then
     built_release="$(sed -n '3p' "$ROOT/build/.provenance" | tr -d '[:space:]')"
     if [[ -n "$built_release" ]]; then
-        if [[ -n "$file_version" && "$file_version" != "$built_release" ]]; then
-            echo "!! VERSION says $file_version, but build/ was staged as $built_release." >&2
+        if [[ -n "$file_version" && "$file_version.$file_build" != "$built_release" ]]; then
+            echo "!! VERSION says $file_version.$file_build, but build/ was staged as $built_release." >&2
             echo "!! Staging as $built_release, which is what that build became." >&2
         fi
         TUXBLOX_BUILD_VERSION="$built_release"
@@ -352,8 +358,10 @@ apply_patches() {
 
 stage_release() {
     local channel="$TUXBLOX_CHANNEL"
-    local seed
+    local seed build
     seed="$(sed -n '1p' "$ROOT/VERSION" | tr -d '[:space:]')"
+    build="$(sed -n '2p' "$ROOT/VERSION" | tr -d '[:space:]')"
+    [[ "$build" =~ ^[0-9]+$ ]] || build=0
 
     # An explicit TUXBLOX_BUILD_VERSION skips resolution entirely, which is the escape hatch for an
     # offline stage and for a release number the server reports as already taken.
@@ -364,7 +372,7 @@ stage_release() {
 
     local release
     if ! release="$(python3 "$ROOT/shared/tools/stage_release.py" \
-            --root "$ROOT" --channel "$channel" --seed "$seed" $explicit)"; then
+            --root "$ROOT" --channel "$channel" --seed "$seed" --build "$build" $explicit)"; then
         return 1
     fi
 
@@ -376,7 +384,7 @@ stage_release() {
     # only VERSION is committed -- "git commit -- <path>" takes that path alone and ignores
     # whatever else is staged -- and nothing is ever pushed. Set TUXBLOX_NO_VERSION_COMMIT=1 to skip.
     if [[ $stage_only -eq 0 ]]; then
-        printf '%s\n%s\n' "$release" "$channel" > "$ROOT/VERSION"
+        printf '%s\n%s\n%s\n' "${release%.*}" "${release##*.}" "$channel" > "$ROOT/VERSION"
         echo ":: Updated VERSION to $release $channel"
         if [[ -z "${TUXBLOX_NO_VERSION_COMMIT:-}" ]] &&
            git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 &&

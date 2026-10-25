@@ -20,7 +20,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
-from release_version import advance_build, largest_bump, derive_release, release_sort_key
+from release_version import derive_line, largest_bump, next_build, release_sort_key
 
 
 class LargestBump(unittest.TestCase):
@@ -31,7 +31,7 @@ class LargestBump(unittest.TestCase):
                "studio-mcp": "1.0.4", "compat": "4.0.0"}
         new = dict(old, installer="4.0.0")
         self.assertEqual(largest_bump(old, new), "major")
-        self.assertGreater(release_sort_key(derive_release("4.3.5.0", "major", 4)),
+        self.assertGreater(release_sort_key(derive_line("4.3.5.0", "major", 4)),
                            release_sort_key("4.3.5.0"))
 
     def test_largest_bump_takes_the_largest_not_the_sum(self):
@@ -46,66 +46,55 @@ class LargestBump(unittest.TestCase):
             "minor")
 
 
-class DeriveRelease(unittest.TestCase):
-    def test_build_increments_within_one_mmp_and_resets_across(self):
-        self.assertEqual(derive_release("3.6.0.2", "none", 3), "3.6.0.3")
-        self.assertEqual(derive_release("3.6.0.9", "patch", 3), "3.6.1.0")
-        self.assertEqual(derive_release("3.6.1.4", "minor", 3), "3.7.0.0")
+class DeriveLine(unittest.TestCase):
+    """The line is MAJOR.MINOR.PATCH only -- BUILD is counted separately, not derived."""
+
+    def test_the_line_advances_by_the_bump_it_is_given(self):
+        self.assertEqual(derive_line("3.6.0.2", "none", 3), "3.6.0")
+        self.assertEqual(derive_line("3.6.0.9", "patch", 3), "3.6.1")
+        self.assertEqual(derive_line("3.6.1.4", "minor", 3), "3.7.0")
 
     def test_major_comes_from_the_highest_component_major(self):
-        self.assertEqual(derive_release("3.6.1.4", "major", 4), "4.0.0.0")
+        self.assertEqual(derive_line("3.6.1.4", "major", 4), "4.0.0")
 
     def test_major_rise_resets_the_lower_fields(self):
-        self.assertEqual(derive_release("3.9.2.7", "patch", 4), "4.0.0.0")
-        self.assertEqual(derive_release("3.9.2.7", "none", 4), "4.0.0.0")
+        self.assertEqual(derive_line("3.9.2.7", "patch", 4), "4.0.0")
+        self.assertEqual(derive_line("3.9.2.7", "none", 4), "4.0.0")
 
     def test_seeding_advances_past_the_three_field_floor(self):
-        self.assertGreater(release_sort_key(derive_release("3.5.0", "patch", 3)),
+        self.assertGreater(release_sort_key(derive_line("3.5.0", "patch", 3)),
                            release_sort_key("3.5.0"))
 
     # Nothing published yet: start the major's line rather than inventing a
     # floor here, so the repo's seed stays the caller's policy.
     def test_nothing_published_starts_the_majors_line(self):
-        self.assertEqual(derive_release(None, "minor", 3), "3.0.0.0")
+        self.assertEqual(derive_line(None, "minor", 3), "3.0.0")
 
     # The spec's monotonicity guarantee rests on component majors only rising.
     def test_a_regressing_major_is_rejected(self):
         with self.assertRaises(ValueError):
-            derive_release("4.1.0.0", "patch", 3)
+            derive_line("4.1.0.0", "patch", 3)
 
 
-class AdvanceBuild(unittest.TestCase):
-    """BUILD counts builds, so a run of them between two publishes does not collapse onto one number."""
+class NextBuild(unittest.TestCase):
+    """BUILD counts how many times this has been built, so every build advances it."""
 
-    # Every build derives from the same published floor, so without this they would all be 3.6.0.1.
-    def test_a_run_of_builds_that_change_nothing_each_get_a_number(self):
-        seen, previous = [], "3.6.0.0"
+    def test_every_build_gets_its_own_number(self):
+        seen, build = [], 0
         for _ in range(3):
-            previous = advance_build(derive_release("3.6.0.0", "none", 3), previous)
-            seen.append(previous)
-        self.assertEqual(seen, ["3.6.0.1", "3.6.0.2", "3.6.0.3"])
+            build = next_build(build, False)
+            seen.append(build)
+        self.assertEqual(seen, [1, 2, 3])
 
-    # The fields above BUILD say what changed. Carrying them forward too would read as a component
-    # moving on every rebuild, and would walk MINOR up on its own: 3.7.0.0, 3.8.0.0, 3.9.0.0.
-    def test_rebuilding_a_changed_component_set_does_not_inflate_the_fields_above_build(self):
-        first = advance_build(derive_release("3.6.0.0", "minor", 3), "3.6.1.2")
-        self.assertEqual(first, "3.7.0.0")
-        self.assertEqual(advance_build(derive_release("3.6.0.0", "minor", 3), first), "3.7.0.1")
+    # The field is a count of builds, not a description of what changed, so a component moving no
+    # longer sends it back to zero -- that is the whole difference from the scheme before it.
+    def test_a_component_moving_does_not_start_it_over(self):
+        self.assertEqual(next_build(9, False), 10)
 
-    def test_a_component_moving_starts_build_over(self):
-        self.assertEqual(advance_build(derive_release("3.6.0.0", "patch", 3), "3.6.0.9"), "3.6.1.0")
-
-    # The pre-v3 shape is a floor, not a release this tree derived, so it carries no BUILD to keep.
-    def test_a_three_field_seed_is_not_carried_forward(self):
-        self.assertEqual(advance_build("3.6.0.1", "3.5.0"), "3.6.0.1")
-
-    def test_no_seed_at_all_leaves_the_candidate_alone(self):
-        self.assertEqual(advance_build("3.6.0.1", None), "3.6.0.1")
-        self.assertEqual(advance_build("3.6.0.1", ""), "3.6.0.1")
-
-    # A VERSION behind the published floor must never drag the release backwards.
-    def test_a_seed_behind_the_floor_cannot_lower_the_release(self):
-        self.assertEqual(advance_build("3.6.0.5", "3.6.0.1"), "3.6.0.5")
+    # A MAJOR rise is the one break in continuity the number below it cannot span.
+    def test_a_major_rise_starts_it_over(self):
+        self.assertEqual(next_build(42, True), 0)
+        self.assertEqual(next_build(0, True), 0)
 
 
 class Parsing(unittest.TestCase):

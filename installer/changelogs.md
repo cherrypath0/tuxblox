@@ -1,0 +1,5 @@
+- Added a feature that clears your logs folder when you upgrade TuxBlox (to save storage space)
+- Added an environment variable to choose which TuxBlox CDN to use when installing/updating TuxBlox
+- Changed the installer to no longer download components that have not been changed (which is the reason why you're seeing different versions for each component and the release)
+- Changed the default download server
+- Heavily improved download speeds across multiple regions in the world

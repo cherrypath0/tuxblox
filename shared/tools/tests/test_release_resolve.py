@@ -46,11 +46,12 @@ def fetcher(pages):
 
 
 class NothingPublished(unittest.TestCase):
-    # The first v3 release: every channel 404s, so the release is seeded rather than derived.
-    def test_all_channels_absent_seeds_from_the_floor(self):
-        got = resolve(SEEDS, "stable", fetcher({}), seed="3.5.0")
+    # The first v3 release: every channel 404s, so there is nothing to compare the components
+    # against and the line cannot be said to have moved. Only BUILD advances.
+    def test_all_channels_absent_keeps_the_line_and_counts_the_build(self):
+        got = resolve(SEEDS, "stable", fetcher({}), seed="3.5.0", build=0)
         self.assertEqual(got["published"], {})
-        self.assertEqual(got["release"], "3.6.0.0")
+        self.assertEqual(got["release"], "3.5.0.1")
         # Nothing published, so there is no earlier commit to measure changes from.
         self.assertIsNone(got["base_commit"])
 
@@ -59,47 +60,55 @@ class NothingPublished(unittest.TestCase):
         def fetch(path):
             raise Unreachable(path)
         with self.assertRaises(Unreachable):
-            resolve(SEEDS, "stable", fetch, seed="3.5.0")
+            resolve(SEEDS, "stable", fetch, seed="3.5.0", build=0)
 
 
 class BuildsBetweenPublishes(unittest.TestCase):
-    """Nothing is published between two local builds, so the floor does not move -- but BUILD does."""
+    """BUILD counts builds, so a run of them between two publishes does not collapse onto one number."""
 
     def test_a_run_of_local_builds_each_get_their_own_number(self):
         pages = {"client/releases/stable/latest": "3.6.0.0\n",
                  "client/releases/stable/3.6.0.0.json": release_file("3.6.0.0", "stable", SEEDS)}
-        # Each run reads back the VERSION the run before it wrote.
-        seen, version = [], "3.6.0.0"
+        # Each run reads back the two lines the run before it wrote.
+        seen, line, build = [], "3.6.0", 0
         for _ in range(3):
-            version = resolve(SEEDS, "stable", fetcher(pages), seed=version)["release"]
-            seen.append(version)
+            release = resolve(SEEDS, "stable", fetcher(pages), seed=line, build=build)["release"]
+            line, build = release.rsplit(".", 1)[0], int(release.rsplit(".", 1)[1])
+            seen.append(release)
         self.assertEqual(seen, ["3.6.0.1", "3.6.0.2", "3.6.0.3"])
 
-    # Before anything is published there is no floor to derive from either, so a four-field seed is
-    # the only record that an earlier build of this tree already took a number.
     def test_a_run_of_local_builds_on_a_tree_that_has_published_nothing(self):
-        seen, version = [], "3.5.0"
+        seen, line, build = [], "3.5.0", 0
         for _ in range(3):
-            version = resolve(SEEDS, "stable", fetcher({}), seed=version)["release"]
-            seen.append(version)
-        self.assertEqual(seen, ["3.6.0.0", "3.6.0.1", "3.6.0.2"])
+            release = resolve(SEEDS, "stable", fetcher({}), seed=line, build=build)["release"]
+            line, build = release.rsplit(".", 1)[0], int(release.rsplit(".", 1)[1])
+            seen.append(release)
+        self.assertEqual(seen, ["3.5.0.1", "3.5.0.2", "3.5.0.3"])
 
-    # The seed only ever carries BUILD. If it carried the rest, a component change rebuilt twice
-    # would read as two component changes and walk MINOR up on its own.
-    def test_rebuilding_a_change_does_not_walk_the_fields_above_build(self):
+    # BUILD counts builds rather than describing what changed, so a component moving carries it
+    # along instead of sending it back to zero. Only a MAJOR rise starts it over.
+    def test_a_component_moving_carries_the_build_count_with_it(self):
         versions = dict(SEEDS, launcher="3.6.0")
         pages = {"client/releases/stable/latest": "3.6.0.0\n",
                  "client/releases/stable/3.6.0.0.json": release_file("3.6.0.0", "stable", SEEDS)}
-        first = resolve(versions, "stable", fetcher(pages), seed="3.6.0.4")["release"]
-        self.assertEqual(first, "3.7.0.0")
-        self.assertEqual(resolve(versions, "stable", fetcher(pages), seed=first)["release"], "3.7.0.1")
+        first = resolve(versions, "stable", fetcher(pages), seed="3.6.0", build=4)["release"]
+        self.assertEqual(first, "3.7.0.5")
+        self.assertEqual(
+            resolve(versions, "stable", fetcher(pages), seed="3.7.0", build=5)["release"], "3.7.0.6")
+
+    def test_a_major_rise_starts_the_build_count_over(self):
+        versions = dict(SEEDS, launcher="4.0.0")
+        pages = {"client/releases/stable/latest": "3.6.0.0\n",
+                 "client/releases/stable/3.6.0.0.json": release_file("3.6.0.0", "stable", SEEDS)}
+        self.assertEqual(
+            resolve(versions, "stable", fetcher(pages), seed="3.6.0", build=31)["release"], "4.0.0.0")
 
     # The reuse map and the base commit describe the PUBLISHED release, and the seed is local, so it
     # must not reach either of them.
     def test_the_seed_does_not_touch_what_is_already_published(self):
         pages = {"client/releases/stable/latest": "3.6.0.0\n",
                  "client/releases/stable/3.6.0.0.json": release_file("3.6.0.0", "stable", SEEDS)}
-        got = resolve(SEEDS, "stable", fetcher(pages), seed="3.6.0.9")
+        got = resolve(SEEDS, "stable", fetcher(pages), seed="3.6.0", build=9)
         self.assertEqual(got["base_commit"], "base1234")
         self.assertEqual(got["published"][("launcher", "3.5.0")]["size"], 10)
 
@@ -112,23 +121,25 @@ class Derives(unittest.TestCase):
             "client/releases/stable/3.6.0.0.json": release_file("3.6.0.0", "stable", SEEDS),
             "client/releases/canary/3.7.0.2.json": release_file("3.7.0.2", "canary", SEEDS),
         }
-        got = resolve(SEEDS, "stable", fetcher(pages), seed="3.5.0")
-        # Nothing changed against the maximum, so it is a rebuild of it.
-        self.assertEqual(got["release"], "3.7.0.3")
+        got = resolve(SEEDS, "stable", fetcher(pages), seed="3.5.0", build=0)
+        # Nothing changed against the maximum, so the line is a rebuild of it -- canary's, not this
+        # channel's. BUILD is this tree's own count and owes nothing to the number canary reached.
+        self.assertEqual(got["release"], "3.7.0.1")
 
     def test_a_patch_against_the_maximum_advances_patch(self):
         versions = dict(SEEDS, launcher="3.5.1")
         pages = {"client/releases/stable/latest": "3.6.0.0\n",
                  "client/releases/stable/3.6.0.0.json": release_file("3.6.0.0", "stable", SEEDS)}
-        got = resolve(versions, "stable", fetcher(pages), seed="3.5.0")
-        self.assertEqual(got["release"], "3.6.1.0")
+        got = resolve(versions, "stable", fetcher(pages), seed="3.5.0", build=0)
+        # PATCH advances off the published maximum; BUILD keeps counting rather than resetting.
+        self.assertEqual(got["release"], "3.6.1.1")
         # The commit the maximum release was built from: what "changed since" is measured against.
         self.assertEqual(got["base_commit"], "base1234")
 
     def test_published_map_comes_from_the_maximum_release(self):
         pages = {"client/releases/stable/latest": "3.6.0.0\n",
                  "client/releases/stable/3.6.0.0.json": release_file("3.6.0.0", "stable", SEEDS)}
-        published = resolve(SEEDS, "stable", fetcher(pages), seed="3.5.0")["published"]
+        published = resolve(SEEDS, "stable", fetcher(pages), seed="3.5.0", build=0)["published"]
         self.assertEqual(published[("compat", "3.3.0")], {"sha256": "c" * 64, "size": 10})
         self.assertEqual(set(published), {(c, v) for c, v in SEEDS.items()})
 
@@ -136,14 +147,14 @@ class Derives(unittest.TestCase):
     def test_a_null_arch_contributes_nothing_to_the_published_map(self):
         pages = {"client/releases/stable/latest": "3.6.0.0\n",
                  "client/releases/stable/3.6.0.0.json": release_file("3.6.0.0", "stable", SEEDS)}
-        published = resolve(SEEDS, "stable", fetcher(pages), seed="3.5.0")["published"]
+        published = resolve(SEEDS, "stable", fetcher(pages), seed="3.5.0", build=0)["published"]
         self.assertTrue(all("sha256" in e for e in published.values()))
 
     # The pointer exists but the file it names does not: that is a broken channel, not an empty one.
     def test_a_latest_naming_a_missing_release_file_raises(self):
         pages = {"client/releases/stable/latest": "3.6.0.0\n"}
         with self.assertRaises(NotFound):
-            resolve(SEEDS, "stable", fetcher(pages), seed="3.5.0")
+            resolve(SEEDS, "stable", fetcher(pages), seed="3.5.0", build=0)
 
 
 if __name__ == "__main__":
