@@ -750,7 +750,8 @@ else
     # CDN that is down or a key that has been revoked is not a reason to throw an hour of work away.
     if ! "$ROOT/deploy.sh" --sync-server; then
         echo "!! Syncing to the development CDN failed. The build is fine and is staged in releases/." >&2
-        echo "!! Re-run ./deploy.sh --sync-server when the host is back." >&2
+        echo "!! The reason is printed above -- a build made on a dirty tree cannot be synced, and" >&2
+        echo "!! neither can one whose source is not committed. Otherwise re-run ./deploy.sh --sync-server." >&2
     fi
 fi
 
