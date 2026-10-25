@@ -30,6 +30,7 @@
 #include <X11/Xlib.h>
 #include <X11/cursorfont.h>
 #include <stdarg.h>
+#include <stdlib.h>
 #ifdef HAVE_X11_EXTENSIONS_XINPUT_H
 #include <X11/extensions/XInput.h>
 #endif
@@ -141,6 +142,15 @@ static BOOL display_is_xwayland( Display *display )
 
     if (cached == -1) cached = XQueryExtension( display, "XWAYLAND", &opcode, &event, &error );
     return cached;
+}
+
+/* TUXBLOX_DISABLE_XWAYLAND_FIXES turns these off, so an XWayland that no longer needs them can be tested. */
+static BOOL xwayland_fixes_enabled( Display *display )
+{
+    static int disabled = -1;
+
+    if (disabled == -1) disabled = getenv( "TUXBLOX_DISABLE_XWAYLAND_FIXES" ) != NULL;
+    return !disabled && display_is_xwayland( display );
 }
 
 #ifdef HAVE_X11_EXTENSIONS_XINPUT2_H
@@ -521,7 +531,7 @@ static BOOL grab_clipping_window( const RECT *clip )
         clipping_cursor = TRUE;
 
     /* A clip this small is a mouse lock rather than a region to drag in. */
-    clipping_mouse_lock = clipping_cursor && display_is_xwayland( data->display ) &&
+    clipping_mouse_lock = clipping_cursor && xwayland_fixes_enabled( data->display ) &&
                           clip->right - clip->left <= 2 && clip->bottom - clip->top <= 2;
 
     SERVER_START_REQ( set_cursor )
