@@ -90,6 +90,8 @@ typedef struct tagWND
 #define WIN_CHILDREN_MOVED        0x0040 /* children may have moved, ignore stored positions */
 #define WIN_HAS_IME_WIN           0x0080 /* the window has been registered with imm32 */
 #define WIN_IS_TOUCH              0x0100 /* the window has been registered for touch input */
+#define WIN_IN_NCCREATE           0x0200 /* WM_NCCREATE is being sent for the window */
+#define WIN_NC_DPI_SCALING        0x0400 /* non-client area scales with the window dpi (EnableNonClientDpiScaling) */
 
 #define WND_OTHER_PROCESS ((WND *)1)  /* returned by get_win_ptr on unknown window handles */
 #define WND_DESKTOP       ((WND *)2)  /* returned by get_win_ptr on the desktop window */

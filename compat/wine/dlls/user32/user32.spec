@@ -453,7 +453,7 @@
 @ stdcall EmptyClipboard() NtUserEmptyClipboard
 @ stdcall EnableMenuItem(long long long) NtUserEnableMenuItem
 @ stdcall EnableMouseInPointer(long) NtUserEnableMouseInPointer
-@ stdcall EnableNonClientDpiScaling(long)
+@ stdcall EnableNonClientDpiScaling(long) NtUserEnableNonClientDpiScaling
 # @ stub EnableOneCoreTransformMode
 @ stdcall -import EnableScrollBar(long long long) NtUserEnableScrollBar
 # @ stub EnableSessionForMMCSS

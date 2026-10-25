@@ -2177,6 +2177,13 @@ NTSTATUS WINAPI wow64_NtUserEnableMouseInPointerForThread( UINT *args )
     return NtUserEnableMouseInPointerForThread();
 }
 
+NTSTATUS WINAPI wow64_NtUserEnableNonClientDpiScaling( UINT *args )
+{
+    HWND hwnd = get_handle( &args );
+
+    return NtUserEnableNonClientDpiScaling( hwnd );
+}
+
 NTSTATUS WINAPI wow64_NtUserEnableScrollBar( UINT *args )
 {
     HWND hwnd = get_handle( &args );

@@ -7448,7 +7448,7 @@ int get_system_metrics( int index )
     }
 }
 
-static int get_system_metrics_for_dpi( int index, unsigned int dpi )
+int get_system_metrics_for_dpi( int index, unsigned int dpi )
 {
     NONCLIENTMETRICSW ncm;
     ICONMETRICSW im;

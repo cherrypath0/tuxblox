@@ -1111,6 +1111,38 @@ UINT get_dpi_for_window( HWND hwnd )
     return NTUSER_DPI_CONTEXT_GET_DPI( context );
 }
 
+/* dpi the system sizes the non-client area with, see EnableNonClientDpiScaling */
+UINT get_nc_dpi_for_window( HWND hwnd )
+{
+    UINT context = get_window_dpi_awareness_context( hwnd );
+
+    if (!NTUSER_DPI_CONTEXT_IS_MONITOR_AWARE( context )) return get_system_dpi();
+    /* per-monitor v2 scales the non-client area on its own, v1 has to ask for it */
+    if (NTUSER_DPI_CONTEXT_GET_VERSION( context ) < 2 && !(win_get_flags( hwnd ) & WIN_NC_DPI_SCALING))
+        return get_system_dpi();
+    return get_dpi_for_window( hwnd );
+}
+
+/*****************************************************************
+ *           NtUserEnableNonClientDpiScaling (win32u.@)
+ */
+BOOL WINAPI NtUserEnableNonClientDpiScaling( HWND hwnd )
+{
+    TRACE( "hwnd %p\n", hwnd );
+
+    /* only a per-monitor aware top-level window, and only from its own WM_NCCREATE handler */
+    if (!(hwnd = is_current_thread_window( hwnd )) || !(win_get_flags( hwnd ) & WIN_IN_NCCREATE) ||
+        NtUserGetAncestor( hwnd, GA_PARENT ) != get_desktop_window() ||
+        !NTUSER_DPI_CONTEXT_IS_MONITOR_AWARE( get_window_dpi_awareness_context( hwnd ) ))
+    {
+        RtlSetLastWin32Error( ERROR_ACCESS_DENIED );
+        return FALSE;
+    }
+
+    win_set_flags( hwnd, WIN_NC_DPI_SCALING, 0 );
+    return TRUE;
+}
+
 /* see GetLastActivePopup */
 static HWND get_last_active_popup( HWND hwnd )
 {
@@ -6242,11 +6274,13 @@ HWND WINAPI NtUserCreateWindowEx( DWORD ex_style, UNICODE_STRING *class_name,
     /* send WM_NCCREATE */
 
     TRACE( "hwnd %p cs %d,%d %dx%d %s\n", hwnd, cs.x, cs.y, cs.cx, cs.cy, debugstr_window_rects(&new_rects) );
+    win_set_flags( hwnd, WIN_IN_NCCREATE, 0 );
     if (!send_message_timeout( hwnd, WM_NCCREATE, 0, (LPARAM)&cs, SMTO_NORMAL, 0, ansi ))
     {
         WARN( "%p: aborted by WM_NCCREATE\n", hwnd );
         goto failed;
     }
+    win_set_flags( hwnd, 0, WIN_IN_NCCREATE );
 
     /* create default IME window */
 

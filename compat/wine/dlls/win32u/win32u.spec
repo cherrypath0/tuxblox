@@ -940,7 +940,7 @@
 @ stdcall -syscall=0x1409 NtUserEnableMouseInPointerForThread()
 @ stub -syscall=0x140a NtUserEnableMouseInPointerForWindow
 @ stub -syscall=0x140b NtUserEnableMouseInputForCursorSuppression
-@ stub -syscall=0x140c NtUserEnableNonClientDpiScaling
+@ stdcall -syscall=0x140c NtUserEnableNonClientDpiScaling(long)
 @ stub -syscall NtUserEnablePerMonitorMenuScaling
 @ stub -syscall=0x140d NtUserEnableResizeLayoutSynchronization
 @ stdcall -syscall=0x10a9 NtUserEnableScrollBar(long long long)

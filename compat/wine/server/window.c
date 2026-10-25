@@ -2290,12 +2290,12 @@ DECL_HANDLER(create_window)
 
     if (!(win = create_window( parent, owner, atom, req->class_instance, req->instance ))) return;
 
+    /* top-level windows keep the requested context as-is, including its awareness version,
+     * otherwise a per-monitor v2 window would be reported as v1 */
     if (parent && !is_desktop_window( parent ))
         dpi_context = parent->shared->dpi_context;
-    else if (!parent || !NTUSER_DPI_CONTEXT_IS_MONITOR_AWARE( req->dpi_context ))
-        dpi_context = req->dpi_context;
     else
-        dpi_context = win->shared->dpi_context;
+        dpi_context = req->dpi_context;
 
     SHARED_WRITE_BEGIN( win->shared, window_shm_t )
     {
