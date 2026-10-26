@@ -219,9 +219,14 @@ int main(int argc, char** argv) {
 
     setUserAgent(UserAgentProduct::Installer, kTuxBloxVersion, options.channel);
     App app(options.channel, releaseSourceFor(options), options.dir);
-    app.start();
 
+    // Started only where the install actually runs. A graphical run hands over to the interface
+    // and never installs anything itself, and starting the pipeline here would race it: the
+    // pipeline reads the handoff file the launcher wrote and deletes it as scratch within
+    // microseconds, while this thread is still unpacking the interface. The interface then starts
+    // with --release-file naming a file that is already gone, and an update dies on "cannot read".
     if (options.headless) {
+        app.start();
         if (!runConsoleInstall(app)) {
             app.cancel(); // no-op if it already finished; unblocks a cancelled run
             return 1;
