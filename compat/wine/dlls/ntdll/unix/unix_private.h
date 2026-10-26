@@ -212,6 +212,8 @@ extern BOOL get_thread_last_syscall( TEB *teb, UINT *id, ULONG64 *first_arg );
 extern void get_random( void *buf, ULONG len );
 extern NTSTATUS reject_foreign_object( HANDLE handle );
 
+extern void tuxblox_canonical_dir_name( WCHAR *name, int under_windows );
+extern void tuxblox_canonical_path_case( WCHAR *path );
 extern const char *tuxblox_dev_getenv( const char *name );
 extern BOOL tuxblox_program_name( char *buffer, size_t size );
 extern BOOL tuxblox_show_message_box( const char *title, const char *body, ULONG flags, ULONG *response );

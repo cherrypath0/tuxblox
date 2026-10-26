@@ -2767,6 +2767,74 @@ static int name_compare( const void *a, const void *b )
  *
  * Initialize the cached directory contents.
  */
+/* Identity of the windows directory on every drive that has one, cached like the drives are */
+static void get_windows_dir_info( const struct file_identity *drives,
+                                  struct file_identity info[MAX_DOS_DRIVES] )
+{
+    static pthread_mutex_t cache_mutex = PTHREAD_MUTEX_INITIALIZER;
+    static struct file_identity cache[MAX_DOS_DRIVES];
+    static time_t last_update;
+    time_t now = time(NULL);
+    unsigned int i;
+
+    mutex_lock( &cache_mutex );
+    if (now != last_update)
+    {
+        for (i = 0; i < MAX_DOS_DRIVES; i++)
+        {
+            struct stat st;
+            char *buffer;
+
+            cache[i].dev = 0;
+            cache[i].ino = 0;
+            if (!drives[i].dev && !drives[i].ino) continue;
+            if (asprintf( &buffer, "%s/dosdevices/%c:/windows", config_dir, 'a' + i ) == -1) continue;
+            if (!stat( buffer, &st ))
+            {
+                cache[i].dev = st.st_dev;
+                cache[i].ino = st.st_ino;
+            }
+            free( buffer );
+        }
+        last_update = now;
+    }
+    memcpy( info, cache, sizeof(cache) );
+    mutex_unlock( &cache_mutex );
+}
+
+static int identity_matches( const struct file_identity *list, const struct file_identity *id )
+{
+    unsigned int i;
+
+    for (i = 0; i < MAX_DOS_DRIVES; i++)
+    {
+        if (!list[i].dev && !list[i].ino) continue;
+        if (list[i].dev == id->dev && list[i].ino == id->ino) return 1;
+    }
+    return 0;
+}
+
+/* A listing of a drive root or of its windows directory names them the way Windows names them */
+static void tuxblox_canonical_dir_names( struct dir_data *data )
+{
+    struct file_identity drives[MAX_DOS_DRIVES], windows_dirs[MAX_DOS_DRIVES];
+    int under_windows;
+    unsigned int i;
+
+    if (!get_drives_info( drives )) return;
+
+    if (identity_matches( drives, &data->id )) under_windows = 0;
+    else
+    {
+        get_windows_dir_info( drives, windows_dirs );
+        if (!identity_matches( windows_dirs, &data->id )) return;
+        under_windows = 1;
+    }
+
+    for (i = 0; i < data->count; i++)
+        tuxblox_canonical_dir_name( (WCHAR *)data->names[i].long_name, under_windows );
+}
+
 static NTSTATUS init_cached_dir_data( struct dir_data **data_ret, int fd, const UNICODE_STRING *mask )
 {
     struct dir_data *data;
@@ -2804,6 +2872,7 @@ static NTSTATUS init_cached_dir_data( struct dir_data **data_ret, int fd, const 
         fstat( fd, &st );
         data->id.dev = st.st_dev;
         data->id.ino = st.st_ino;
+        tuxblox_canonical_dir_names( data );
     }
 
     TRACE( "mask %s found %u files\n", debugstr_us( mask ), data->count );
@@ -4542,6 +4611,7 @@ static NTSTATUS find_drive_nt_root( char *unix_name, unsigned int len,
             lenW += ntdll_umbstowcs( unix_name + pos, len, buffer + lenW, len );
             buffer[lenW] = 0;
             *nt_name = collapse_path( buffer );
+            tuxblox_canonical_path_case( *nt_name );
             return status;
         }
         if (pos <= 1) break;

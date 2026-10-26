@@ -35,6 +35,10 @@ g++ -std=c++17 -O0 -g -Wall -Wextra -UNDEBUG \
     -o "$out/test_host_folders" test_host_folders.cpp ../src/support/host_folders.cpp
 "$out/test_host_folders"
 
+g++ -std=c++17 -O0 -g -Wall -Wextra -UNDEBUG \
+    -o "$out/test_windows_paths" test_windows_paths.cpp ../src/support/windows_paths.cpp
+"$out/test_windows_paths"
+
 g++ -std=c++17 -O0 -g -Wall -Wextra -UNDEBUG -I../src \
     -o "$out/test_sessions" test_sessions.cpp ../src/support/sessions.cpp ../src/support/util.cpp
 "$out/test_sessions"
@@ -62,6 +66,16 @@ done
 g++ -std=c++17 -O0 -g -Wall -Wextra -UNDEBUG -I../src \
     -o "$out/test_authenticode" test_authenticode.cpp ../src/integrity/authenticode.cpp -lcrypto
 "$out/test_authenticode" ../data/roots.pem "$signedExe"
+
+# The layer's Wine-side units. Compiled and run as separate binaries, never
+# linked into the tests above, because that half carries a different licence.
+gcc -std=gnu11 -O0 -g -Wall -Wextra -fshort-wchar \
+    -o "$out/test_path_case" ../../wine/dlls/ntdll/unix/tuxblox_path_case_test.c
+"$out/test_path_case"
+
+gcc -std=gnu11 -O0 -g -Wall -Wextra \
+    -o "$out/test_device_name" ../../wine/dlls/winepulse.drv/tuxblox_device_name_test.c
+"$out/test_device_name"
 
 ./check-rule-parity.py
 

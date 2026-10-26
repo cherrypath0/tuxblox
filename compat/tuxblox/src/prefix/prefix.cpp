@@ -24,6 +24,7 @@
 #include "prefix/webview_mode.h"
 #include "support/account_name.h"
 #include "support/host_folders.h"
+#include "support/windows_paths.h"
 #include "embedded_data.h"
 
 #include <array>
@@ -785,6 +786,20 @@ void Prefix::migrateUserPaths() {
     }
 }
 
+void Prefix::canonicaliseRegistryPaths() {
+    // Roblox builds its paths by pasting onto %LOCALAPPDATA%, so the drive is
+    // only as capitalised as the strings the registry hands out. The folders
+    // themselves stay lower case: this drive cannot open a capitalised name.
+    bool changed = false;
+    for (const char* file : {"user.reg", "system.reg", "userdef.reg"}) {
+        changed |= canonicaliseRegFile(prefixDir / file);
+    }
+
+    if (changed) {
+        log("Corrected the capitalisation of the virtual drive's Windows folders");
+    }
+}
+
 // PlayStation pads Wine routes to its own hidraw implementation. Sony's vendor
 // id with the pads Wine names in is_dualshock4_gamepad/is_dualsense_gamepad.
 const char *const kPlayStationPads[] = {
@@ -1149,6 +1164,7 @@ void Prefix::setup(Session& session) {
 
     migrateAccountFolder();
     migrateUserPaths();
+    canonicaliseRegistryPaths();
     linkHostUserFolders();
     linkRobloxData();
     linkTempDir();

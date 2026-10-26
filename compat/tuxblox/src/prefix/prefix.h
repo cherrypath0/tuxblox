@@ -73,6 +73,7 @@ private:
     void restoreWebViewRuntime();
     void syncWebViewVersionKeys(bool microsoft);
     void migrateUserPaths();
+    void canonicaliseRegistryPaths();
     void linkHostUserFolders();
     void linkRobloxData();
     void linkTempDir();

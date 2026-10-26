@@ -519,6 +519,10 @@ static UINT pulse_channel_map_to_channel_mask(const pa_channel_map *map)
 
 #define MAX_DEVICE_NAME_LEN 62
 
+extern void tuxblox_windows_device_name(char *buffer, unsigned int size, const char *desc,
+                                        const char *profile, const char *bus,
+                                        const char *vendor, int monitor);
+
 static WCHAR *get_device_name(const char *desc, pa_proplist *proplist)
 {
     /*
@@ -527,14 +531,24 @@ static WCHAR *get_device_name(const char *desc, pa_proplist *proplist)
        we'll attempt to incrementally build it to try to stay under the limit.
        ( + 1 is to check against truncated buffer after ntdll_umbstowcs )
     */
-    WCHAR buf[MAX_DEVICE_NAME_LEN + 1];
-
-    /* For monitors of sinks; this does not seem to be localized in PA either */
-    static const WCHAR monitor_of[] = {'M','o','n','i','t','o','r',' ','o','f',' '};
-
-    size_t len = strlen(desc);
+    char reshaped[512];
+    const char *profile = NULL, *bus = NULL, *vendor = NULL;
+    int monitor = 0;
+    size_t len;
     WCHAR *name, *tmp;
 
+    if (proplist) {
+        const char *device_class = pa_proplist_gets(proplist, PA_PROP_DEVICE_CLASS);
+
+        monitor = device_class && !strcmp(device_class, "monitor");
+        profile = pa_proplist_gets(proplist, PA_PROP_DEVICE_PROFILE_DESCRIPTION);
+        bus = pa_proplist_gets(proplist, PA_PROP_DEVICE_BUS);
+        vendor = pa_proplist_gets(proplist, PA_PROP_DEVICE_VENDOR_ID);
+    }
+    tuxblox_windows_device_name(reshaped, sizeof(reshaped), desc, profile, bus, vendor, monitor);
+    desc = reshaped;
+
+    len = strlen(desc);
     if (!(name = malloc((len + 1) * sizeof(WCHAR))))
         return NULL;
     if (!(len = ntdll_umbstowcs(desc, len, name, len))) {
@@ -543,46 +557,15 @@ static WCHAR *get_device_name(const char *desc, pa_proplist *proplist)
     }
 
     if (len > MAX_DEVICE_NAME_LEN && proplist) {
-        const char *prop = pa_proplist_gets(proplist, PA_PROP_DEVICE_CLASS);
-        unsigned prop_len, rem = ARRAY_SIZE(buf);
-        BOOL monitor = FALSE;
+        const char *prop = pa_proplist_gets(proplist, PA_PROP_DEVICE_PRODUCT_NAME);
 
-        if (prop && !strcmp(prop, "monitor")) {
-            rem -= ARRAY_SIZE(monitor_of);
-            monitor = TRUE;
-        }
-
-        prop = pa_proplist_gets(proplist, PA_PROP_DEVICE_PRODUCT_NAME);
-        if (!prop || !prop[0] ||
-            !(prop_len = ntdll_umbstowcs(prop, strlen(prop), buf, rem)) || prop_len == rem) {
+        if (!prop || !prop[0])
             prop = pa_proplist_gets(proplist, "alsa.card_name");
-            if (!prop || !prop[0] ||
-                !(prop_len = ntdll_umbstowcs(prop, strlen(prop), buf, rem)) || prop_len == rem)
-                prop = NULL;
-        }
 
-        if (prop) {
-            /* We know we have a name that fits within the limit now */
-            WCHAR *p = name;
-
-            if (monitor) {
-                memcpy(p, monitor_of, sizeof(monitor_of));
-                p += ARRAY_SIZE(monitor_of);
-            }
-            len = ntdll_umbstowcs(prop, strlen(prop), p, rem);
-            rem -= len;
-            p += len;
-
-            if (rem > 2) {
-                rem--;  /* space */
-
-                prop = pa_proplist_gets(proplist, PA_PROP_DEVICE_PROFILE_DESCRIPTION);
-                if (prop && prop[0] && (len = ntdll_umbstowcs(prop, strlen(prop), p + 1, rem)) && len != rem) {
-                    *p++ = ' ';
-                    p += len;
-                }
-            }
-            len = p - name;
+        /* The product name alone, reshaped the same way, is the short form */
+        if (prop && prop[0]) {
+            tuxblox_windows_device_name(reshaped, sizeof(reshaped), prop, NULL, bus, vendor, monitor);
+            len = ntdll_umbstowcs(reshaped, strlen(reshaped), name, MAX_DEVICE_NAME_LEN);
         }
     }
     name[len] = '\0';

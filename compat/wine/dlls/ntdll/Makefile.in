@@ -68,6 +68,7 @@ SOURCES = \
 	unix/tape.c \
 	unix/thread.c \
 	unix/tuxblox_msgbox.c \
+	unix/tuxblox_path_case.c \
 	unix/tuxblox_trace.c \
 	unix/virtual.c \
 	unwind.c \
