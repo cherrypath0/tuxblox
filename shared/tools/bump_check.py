@@ -35,6 +35,14 @@ COMPONENT_INPUTS = {
     "compat":     ("compat/",),
 }
 
+# Paths that sit inside a component's directory without being built into it. installer/bridge/
+# holds the standalone stub for the 3.5.0.1 bridge release, which no build script reads, so a
+# change there cannot move the installer's bytes -- and flagging it demands a bump that would
+# publish an identical binary under a new version.
+COMPONENT_EXCLUDES = (
+    "installer/bridge/",
+)
+
 
 def _is_mcp_shared(path):
     for stem in _MCP_SHARED_STEMS:
@@ -48,6 +56,8 @@ def components_touched(paths):
     """Every component whose inputs include at least one of `paths`."""
     touched = set()
     for path in paths:
+        if any(path.startswith(prefix) for prefix in COMPONENT_EXCLUDES):
+            continue
         for component, prefixes in COMPONENT_INPUTS.items():
             if any(path.startswith(prefix) for prefix in prefixes):
                 touched.add(component)

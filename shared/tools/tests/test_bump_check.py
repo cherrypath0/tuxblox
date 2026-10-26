@@ -54,6 +54,14 @@ class ComponentsTouched(unittest.TestCase):
     def test_ui_tooling_touches_libtuxblox(self):
         self.assertIn("libtuxblox", components_touched(["shared/tools/ui-package.sh"]))
 
+    # installer/bridge/ holds the standalone stub shipped for the 3.5.0.1 bridge release. No
+    # CMakeLists or build script reads it, so it cannot change the installer binary's bytes --
+    # and flagging it makes every build demand a version bump that would publish an identical
+    # installer under a new number.
+    def test_the_bridge_stub_is_not_an_installer_input(self):
+        self.assertEqual(components_touched(["installer/bridge/installer-stub.sh"]), set())
+        self.assertEqual(components_touched(["installer/src/manifest.cpp"]), {"installer"})
+
     def test_an_unrelated_path_touches_nothing(self):
         self.assertEqual(components_touched(["README.md", "workspace/notes.md"]), set())
 
