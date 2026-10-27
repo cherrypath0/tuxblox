@@ -210,24 +210,37 @@ void controller_push_geometry_to_native(ICoreWebView2Controller *iface)
      * IsWindowVisible (not GetWindowLong/WS_VISIBLE) because it is FALSE when
      * ANY ancestor is hidden, which is exactly the case here -- the hidden
      * window is the dock panel above us, not parent_window itself. */
-    /* Latched, NOT a plain IsWindowVisible() test.
+    /* A hidden parent means a hidden webview, the same as it would for a real
+     * child control -- but only where something will tell us when the parent
+     * appears.
      *
-     * The plain test was wrong and blanked the login dialog: Studio creates the
-     * controller and pushes geometry BEFORE it shows the dialog, so the parent
-     * is not visible yet, the webview was hidden immediately, and nothing ever
-     * un-hid it. "Not shown yet" is not the same state as "deliberately
-     * hidden", and only the second one should hide us.
+     * A plain IsWindowVisible() test on its own was wrong and blanked the
+     * login dialog: Studio creates the controller and pushes geometry BEFORE
+     * it shows the dialog, so the parent was not visible yet, the webview was
+     * hidden immediately, and nothing ever un-hid it. "Not shown yet" is not
+     * the same state as "deliberately hidden".
      *
-     * So the parent's visibility only starts gating once it has actually been
-     * seen visible at least once. Before that we defer to ctrl->visible alone,
-     * which is the pre-existing behaviour that worked. After that, a parent
-     * that goes invisible means the panel really was hidden -- the playtest
-     * case, where Studio hides the Toolbox dock without calling put_IsVisible
-     * and our foreign X window would otherwise keep painting over the
-     * viewport. */
+     * The show/hide hook is what settles it. parent_thread_id is the thread
+     * window_hook_track installed that hook on, and 0 when it never got
+     * installed, so a non-zero value means this push re-runs by itself the
+     * moment the parent is shown or hidden -- "not shown yet" resolves on its
+     * own and needs no latch. Where there is no hook, nothing would ever
+     * un-hide us, so the old defer-to-put_IsVisible behaviour stays as the
+     * fallback.
+     *
+     * Honouring the parent for real is what the in-experience ad webview
+     * needs. Roblox parents it to a window it never shows, calls
+     * put_IsVisible(TRUE), and passes the whole client area as its bounds;
+     * deferring to put_IsVisible mapped a full-screen foreign X window over
+     * the running game, which painted nothing -- so it looked invisible --
+     * while swallowing every click and keypress in the window. It still
+     * covers the playtest case the latch was also carrying: a parent that
+     * goes invisible means the panel really was hidden, and our foreign X
+     * window would otherwise keep painting over the viewport. */
     if (IsWindowVisible(ctrl->parent_window)) ctrl->parent_seen_visible = TRUE;
     params.visible = ctrl->visible &&
-                     (!ctrl->parent_seen_visible || IsWindowVisible(ctrl->parent_window));
+                     (IsWindowVisible(ctrl->parent_window) ||
+                      (!ctrl->parent_seen_visible && !ctrl->parent_thread_id));
 
     /* Inputs travel to the helper, which logs them -- see
      * wv2l_sync_window_geometry_params for why they are not logged here. */

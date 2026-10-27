@@ -339,12 +339,14 @@ void geometry_show_navigated(struct native_webview *nv)
     /* The program asked for no window at all on this one -- it is the invisible controller behind the cookie flow, so showing it puts a bare empty box on screen and a blank button in the taskbar beside the program's own. */
     if (nv->message_only) return;
 
-    if (!nv->have_pending_geometry)
-    {
-        /* Nothing ever said where it goes -- show it anyway, which is all this code could ever do. */
-        gtk_widget_set_visible(nv->window, TRUE);
-        return;
-    }
+    /* Loading is not a reason to appear. Showing it anyway put an unplaced black box in the corner
+     * of the screen for every page that loads into a window the program is keeping hidden, until the
+     * next sync round took it away again -- and with nothing ever saying where it goes, the corner is
+     * the only place this code could have put it. Staying hidden costs nothing: the moment the program
+     * does want it, its next sync both places and shows it, which is no longer short-circuited now
+     * that this webview has navigated. */
+    if (!nv->have_pending_geometry || !nv->pending_visible) return;
+
     geometry_sync(nv, nv->pending_bounds, TRUE, nv->pending_parent_xid);
 }
 
@@ -393,13 +395,13 @@ gboolean geometry_sync(struct native_webview *nv, struct wv2l_rect bounds, gbool
     {
         gtk_widget_set_visible(nv->window, FALSE);
         /* Kept rather than dropped: this is where the window is supposed to go, and the first
-         * navigation needs it to place the window before showing it. */
-        if (visible)
-        {
-            nv->pending_bounds = bounds;
-            nv->pending_parent_xid = parent_xid;
-            nv->have_pending_geometry = TRUE;
-        }
+         * navigation needs it to place the window before showing it. Recorded whether or not the
+         * program wants it on screen yet, so that the answer to "where does it go" never depends on
+         * the answer to "is it wanted" -- a hidden webview that navigates still has to know both. */
+        nv->pending_bounds = bounds;
+        nv->pending_parent_xid = parent_xid;
+        nv->pending_visible = visible;
+        nv->have_pending_geometry = TRUE;
         return TRUE;
     }
 
@@ -428,14 +430,17 @@ gboolean geometry_sync(struct native_webview *nv, struct wv2l_rect bounds, gbool
         }
     }
 
-    /* Visibility is applied unconditionally, before the `visible` guard
-     * below, so a transition to hidden actually hides the window on this
-     * same call rather than requiring a separate one -- the guard right
-     * after only short-circuits the size/position work that's meaningless
-     * once the window is (or is becoming) invisible. */
-    gtk_widget_set_visible(nv->window, visible);
+    /* Hiding happens here, because a window on its way out has nothing left to place. Showing does
+     * NOT: GTK maps the toplevel the instant it is told to be visible, wherever it happens to sit,
+     * and the reparent and move that give it a real position come further down -- which left an
+     * unpainted window on screen in the wrong place for the frames in between. It is shown at the
+     * end instead, once it has somewhere to be. Every path that gives up before then shows it on
+     * the way out, so a webview can never be left permanently invisible by this. */
     if (!visible)
+    {
+        gtk_widget_set_visible(nv->window, FALSE);
         return TRUE; /* nothing more to sync while hidden */
+    }
 
     if (width > 0 && height > 0)
         gtk_window_set_default_size(GTK_WINDOW(nv->window), width, height);
@@ -452,6 +457,7 @@ gboolean geometry_sync(struct native_webview *nv, struct wv2l_rect bounds, gbool
     {
         fprintf(stderr, "webview2loader-host: no GdkSurface yet for native window %p -- skipping position sync\n",
                 (void *)nv->window);
+        gtk_widget_set_visible(nv->window, TRUE);
         return TRUE;
     }
 
@@ -470,6 +476,7 @@ gboolean geometry_sync(struct native_webview *nv, struct wv2l_rect bounds, gbool
     {
         fprintf(stderr, "webview2loader-host: GdkSurface already destroyed for nv=%p -- skipping "
                         "position sync (stale XID would target a freed window)\n", (void *)nv);
+        gtk_widget_set_visible(nv->window, TRUE);
         return TRUE;
     }
 
@@ -515,6 +522,7 @@ gboolean geometry_sync(struct native_webview *nv, struct wv2l_rect bounds, gbool
     {
         /* Not an X11 surface (Wayland) -- gdk_x11_surface_get_xid already
          * logged GLib's own non-fatal CRITICAL. */
+        gtk_widget_set_visible(nv->window, TRUE);
         g_object_unref(surface);
         return TRUE;
     }
@@ -534,6 +542,7 @@ gboolean geometry_sync(struct native_webview *nv, struct wv2l_rect bounds, gbool
         fprintf(stderr, "webview2loader-host: xid %lu (0x%lx) for native window %p exceeds the 32-bit X11 "
                         "resource ID range -- not a real XID, skipping position sync\n",
                         xid, xid, (void *)nv->window);
+        gtk_widget_set_visible(nv->window, TRUE);
         g_object_unref(surface);
         return TRUE;
     }
@@ -971,6 +980,10 @@ position_done:
                             xmove_call_count);
         g_object_unref(gdisplay);
     }
+
+    /* Placed by now, on whichever path above ran, so it is finally safe to put on screen. */
+    gtk_widget_set_visible(nv->window, TRUE);
+
     g_object_unref(surface);
     return TRUE;
 }

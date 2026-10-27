@@ -135,6 +135,11 @@ struct native_webview
     struct wv2l_rect pending_bounds;
     uint64_t pending_parent_xid;
     gboolean have_pending_geometry;
+
+    /* Whether that last request wanted the window on screen at all. A page can finish loading in a
+     * window the program is deliberately keeping hidden -- Roblox's in-experience ad loads into one
+     * parented to a window it never shows -- and only the program decides when its page appears. */
+    gboolean pending_visible;
 };
 
 /* Creates a new native window + WebKitWebView pair, undecorated, with the
