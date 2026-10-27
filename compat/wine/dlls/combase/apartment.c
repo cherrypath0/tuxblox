@@ -1112,8 +1112,20 @@ static LRESULT CALLBACK apartment_wndproc(HWND hWnd, UINT msg, WPARAM wParam, LP
     switch (msg)
     {
     case DM_EXECUTERPC:
-        rpc_execute_call((struct dispatch_params *)lParam);
+    {
+        struct dispatch_params *params = rpc_dispatch_lookup(lParam);
+
+        /* The call this message belonged to can have been abandoned and freed while the message
+         * waited in the queue, in which case there is nothing left to execute. */
+        if (!params)
+        {
+            ERR("no outstanding dispatch %#Ix\n", (ULONG_PTR)lParam);
+            return 0;
+        }
+        rpc_execute_call(params);
+        rpc_dispatch_unregister(lParam);
         return 0;
+    }
     case DM_HOSTOBJECT:
         return apartment_hostobject(com_get_current_apt(), (const struct host_object_params *)lParam);
     default:

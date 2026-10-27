@@ -57,7 +57,7 @@ HRESULT open_key_for_clsid(REFCLSID clsid, const WCHAR *keyname, REGSAM access, 
 HRESULT open_appidkey_from_clsid(REFCLSID clsid, REGSAM access, HKEY *subkey);
 
 /* DCOM messages used by the apartment window (not compatible with native) */
-#define DM_EXECUTERPC   (WM_USER + 0) /* WPARAM = 0, LPARAM = (struct dispatch_params *) */
+#define DM_EXECUTERPC   (WM_USER + 0) /* WPARAM = 0, LPARAM = dispatch id, resolved by rpc_dispatch_lookup */
 #define DM_HOSTOBJECT   (WM_USER + 1) /* WPARAM = 0, LPARAM = (struct host_object_params *) */
 
 #define CHARS_IN_GUID 39
@@ -135,6 +135,8 @@ void rpc_unregister_channel_hooks(void);
 
 struct dispatch_params;
 void rpc_execute_call(struct dispatch_params *params);
+struct dispatch_params *rpc_dispatch_lookup(ULONG_PTR id);
+void rpc_dispatch_unregister(ULONG_PTR id);
 
 enum class_reg_data_origin
 {

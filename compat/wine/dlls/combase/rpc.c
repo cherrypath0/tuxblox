@@ -122,8 +122,82 @@ struct message_state
     /* client only */
     HWND target_hwnd;
     DWORD target_tid;
+    ULONG_PTR dispatch_id;
     struct dispatch_params params;
 };
+
+static struct list outstanding_dispatches = LIST_INIT(outstanding_dispatches); /* (CS csDispatch) */
+static CRITICAL_SECTION csDispatch;
+static CRITICAL_SECTION_DEBUG csDispatch_debug =
+{
+    0, 0, &csDispatch,
+    { &csDispatch_debug.ProcessLocksList, &csDispatch_debug.ProcessLocksList },
+      0, 0, { (DWORD_PTR)(__FILE__ ": outstanding dispatches") }
+};
+static CRITICAL_SECTION csDispatch = { &csDispatch_debug, -1, 0, 0, 0, 0 };
+
+struct outstanding_dispatch
+{
+    struct list entry;
+    ULONG_PTR id;
+    struct dispatch_params *params;
+};
+
+/* A posted DM_EXECUTERPC outlives its call whenever the caller gives up before the target thread
+ * pumps, so the message carries an id looked up here instead of a pointer that may already be freed. */
+static ULONG_PTR rpc_dispatch_register(struct dispatch_params *params)
+{
+    static ULONG_PTR last_id;
+    struct outstanding_dispatch *dispatch;
+
+    if (!(dispatch = malloc(sizeof(*dispatch))))
+        return 0;
+
+    dispatch->params = params;
+
+    EnterCriticalSection(&csDispatch);
+    dispatch->id = ++last_id;
+    list_add_tail(&outstanding_dispatches, &dispatch->entry);
+    LeaveCriticalSection(&csDispatch);
+
+    return dispatch->id;
+}
+
+struct dispatch_params *rpc_dispatch_lookup(ULONG_PTR id)
+{
+    struct dispatch_params *params = NULL;
+    struct outstanding_dispatch *dispatch;
+
+    EnterCriticalSection(&csDispatch);
+    LIST_FOR_EACH_ENTRY(dispatch, &outstanding_dispatches, struct outstanding_dispatch, entry)
+    {
+        if (dispatch->id == id)
+        {
+            params = dispatch->params;
+            break;
+        }
+    }
+    LeaveCriticalSection(&csDispatch);
+
+    return params;
+}
+
+void rpc_dispatch_unregister(ULONG_PTR id)
+{
+    struct outstanding_dispatch *dispatch, *next;
+
+    EnterCriticalSection(&csDispatch);
+    LIST_FOR_EACH_ENTRY_SAFE(dispatch, next, &outstanding_dispatches, struct outstanding_dispatch, entry)
+    {
+        if (dispatch->id == id)
+        {
+            list_remove(&dispatch->entry);
+            free(dispatch);
+            break;
+        }
+    }
+    LeaveCriticalSection(&csDispatch);
+}
 
 typedef struct
 {
@@ -1206,6 +1280,7 @@ static HRESULT WINAPI ClientRpcChannelBuffer_GetBuffer(LPRPCCHANNELBUFFER iface,
     msg->RpcInterfaceInformation = cif;
 
     message_state->prefix_data_len = 0;
+    message_state->dispatch_id = 0;
     message_state->binding_handle = This->bind;
 
     message_state->channel_hook_info.iid = *riid;
@@ -1426,8 +1501,11 @@ static HRESULT WINAPI ClientRpcChannelBuffer_SendReceive(LPRPCCHANNELBUFFER ifac
 
         msg->ProcNum &= ~RPC_FLAGS_VALID_BIT;
 
-        if (!PostMessageW(message_state->target_hwnd, DM_EXECUTERPC, 0,
-                          (LPARAM)&message_state->params))
+        message_state->dispatch_id = rpc_dispatch_register(&message_state->params);
+        if (!message_state->dispatch_id)
+            hr = E_OUTOFMEMORY;
+        else if (!PostMessageW(message_state->target_hwnd, DM_EXECUTERPC, 0,
+                               (LPARAM)message_state->dispatch_id))
         {
             ERR("PostMessage failed with error %lu\n", GetLastError());
 
@@ -1583,6 +1661,7 @@ static HRESULT WINAPI ClientRpcChannelBuffer_FreeBuffer(LPRPCCHANNELBUFFER iface
         IRpcStubBuffer_Release(message_state->params.stub);
     if (message_state->params.chan)
         IRpcChannelBuffer_Release(message_state->params.chan);
+    rpc_dispatch_unregister(message_state->dispatch_id);
     free(message_state);
 
     TRACE("-- %ld\n", status);
@@ -1912,6 +1991,7 @@ void rpc_execute_call(struct dispatch_params *params)
     }
 
     message_state->prefix_data_len = (char *)msg->Buffer - original_buffer;
+    message_state->dispatch_id = 0;
     message_state->binding_handle = msg->Handle;
     message_state->bypass_rpcrt = params->bypass_rpcrt;
 
@@ -2004,6 +2084,7 @@ static void __RPC_STUB dispatch_rpc(RPC_MESSAGE *msg)
 {
     struct dispatch_params *params;
     struct stub_manager *stub_manager;
+    ULONG_PTR dispatch_id = 0;
     struct apartment *apt;
     IPID ipid;
     HRESULT hr;
@@ -2044,7 +2125,13 @@ static void __RPC_STUB dispatch_rpc(RPC_MESSAGE *msg)
 
         TRACE("Calling apartment thread %#lx...\n", apt->tid);
 
-        if (PostMessageW(apartment_getwindow(apt), DM_EXECUTERPC, 0, (LPARAM)params))
+        if (!(dispatch_id = rpc_dispatch_register(params)))
+        {
+            ERR("could not register the dispatch\n");
+            IRpcChannelBuffer_Release(params->chan);
+            IRpcStubBuffer_Release(params->stub);
+        }
+        else if (PostMessageW(apartment_getwindow(apt), DM_EXECUTERPC, 0, (LPARAM)dispatch_id))
             WaitForSingleObject(params->handle, INFINITE);
         else
         {
@@ -2052,6 +2139,7 @@ static void __RPC_STUB dispatch_rpc(RPC_MESSAGE *msg)
             IRpcChannelBuffer_Release(params->chan);
             IRpcStubBuffer_Release(params->stub);
         }
+        rpc_dispatch_unregister(dispatch_id);
         CloseHandle(params->handle);
     }
     else
