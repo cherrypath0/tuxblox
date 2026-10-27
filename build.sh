@@ -683,6 +683,8 @@ run_step "compile_proton_native" strict bash -c '
     workdir="$(mktemp -d)"
     mkdir -p "$workdir/src" "$workdir/out"
     cp -a "$ROOT"/compat/tuxblox/src/. "$workdir/src/"
+    mkdir -p "$workdir/src/shared_paths"
+    cp -a "$ROOT"/shared/paths/src/. "$workdir/src/shared_paths/"
     "$ROOT/compat/tuxblox/tools/embed-data.py" "$ROOT/compat/tuxblox/data" "$workdir/src/embedded_data.h"
 
     # Run through sh so the find runs inside the container.

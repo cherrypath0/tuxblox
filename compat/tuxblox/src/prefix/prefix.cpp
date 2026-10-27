@@ -24,7 +24,7 @@
 #include "prefix/webview_mode.h"
 #include "support/account_name.h"
 #include "support/host_folders.h"
-#include "support/windows_paths.h"
+#include "shared_paths/windows_paths.h"
 #include "embedded_data.h"
 
 #include <array>

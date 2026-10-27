@@ -31,9 +31,11 @@ struct NameCase {
     const char* Canonical;
 };
 
-// The same folders the compatibility layer capitalises in the paths it hands
-// back, kept in step by tests/check-rule-parity.py. Longer names come first so
-// that "program files (x86)" is not taken for "program files".
+// The same folders the compatibility layer capitalises in the paths it hands back.
+// Wine keeps its own C copy of this table, which cannot share a source file with
+// this one because the two halves carry different licences, so the two must be
+// changed together. Longer names come first so that "program files (x86)" is not
+// taken for "program files".
 const std::array<NameCase, 5> RootNames = {{
     {"program files (x86)", "Program Files (x86)"},
     {"program files",       "Program Files"},
@@ -80,22 +82,24 @@ size_t rewriteComponent(std::string& value, size_t at,
     return std::string::npos;
 }
 
-} // namespace
-
 bool isWordCharacter(char character) {
     const char lower = lowerAscii(character);
     return (lower >= 'a' && lower <= 'z') || (character >= '0' && character <= '9');
 }
 
-std::string canonicalWindowsPath(const std::string& value) {
+// Registry values double their backslashes and plain paths do not, so the one
+// separator length is all that differs between the two forms.
+std::string canonicalise(const std::string& value, size_t separator) {
+    const std::string slashes(separator, '\\');
+    const std::string root = ":" + slashes;
     std::string result = value;
     size_t at = 0;
 
     // A value holds its paths anywhere: after @=, inside str(2):, or quoted
     // again inside a command line, so every drive root in the text is taken.
-    while ((at = result.find(":\\\\", at)) != std::string::npos) {
+    while ((at = result.find(root, at)) != std::string::npos) {
         const size_t letter = at;
-        at += 3;
+        at += root.size();
         if (letter == 0) {
             continue;
         }
@@ -116,12 +120,22 @@ std::string canonicalWindowsPath(const std::string& value) {
 
         // system32 and syswow64 are canonical under windows and nowhere else
         if (result.compare(at, after - at, "Windows") == 0 &&
-                result.compare(after, 2, "\\\\") == 0) {
-            rewriteComponent(result, after + 2, WindowsNames.data(), WindowsNames.size());
+                result.compare(after, separator, slashes) == 0) {
+            rewriteComponent(result, after + separator, WindowsNames.data(), WindowsNames.size());
         }
         at = after;
     }
     return result;
+}
+
+} // namespace
+
+std::string canonicalWindowsPath(const std::string& value) {
+    return canonicalise(value, 2);
+}
+
+std::string canonicalWindowsPathLiteral(const std::string& path) {
+    return canonicalise(path, 1);
 }
 
 bool canonicaliseRegFile(const fs::path& file) {

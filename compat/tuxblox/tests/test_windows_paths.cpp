@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-#include "../src/support/windows_paths.h"
+#include "../../../shared/paths/src/windows_paths.h"
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -34,6 +34,16 @@ void expect(const std::string& value, const std::string& want) {
     }
     Failures++;
     std::printf("  FAIL: %s\n     got: %s\n    want: %s\n",
+            value.c_str(), got.c_str(), want.c_str());
+}
+
+void expectLiteral(const std::string& value, const std::string& want) {
+    const std::string got = tuxblox::canonicalWindowsPathLiteral(value);
+    if (got == want) {
+        return;
+    }
+    Failures++;
+    std::printf("  FAIL (literal): %s\n     got: %s\n    want: %s\n",
             value.c_str(), got.c_str(), want.c_str());
 }
 
@@ -57,6 +67,24 @@ int main() {
     // Already correct, and a drive other than C
     expect("\"C:\\\\Users\\\\cherry\"", "\"C:\\\\Users\\\\cherry\"");
     expect("\"D:\\\\windows\"", "\"D:\\\\Windows\"");
+
+    // An ordinary path, single backslashes and no quotes, as handed to a program
+    expectLiteral("C:\\users\\cherry", "C:\\Users\\cherry");
+    expectLiteral("C:\\users\\cherry\\files\\Desktop\\a.rbxl",
+            "C:\\Users\\cherry\\files\\Desktop\\a.rbxl");
+    expectLiteral("C:\\windows\\system32", "C:\\Windows\\System32");
+    expectLiteral("C:\\windows\\syswow64", "C:\\Windows\\SysWOW64");
+    expectLiteral("C:\\programdata\\Roblox", "C:\\ProgramData\\Roblox");
+    expectLiteral("C:\\program files (x86)\\Roblox", "C:\\Program Files (x86)\\Roblox");
+    expectLiteral("C:\\Users\\cherry", "C:\\Users\\cherry");
+    expectLiteral("C:\\users", "C:\\Users");
+    // The same limits as the registry form: own level only, whole component only
+    expectLiteral("C:\\users\\cherry\\windows\\system32",
+            "C:\\Users\\cherry\\windows\\system32");
+    expectLiteral("C:\\usersdata\\x", "C:\\usersdata\\x");
+    expectLiteral("C:\\windowsapps", "C:\\windowsapps");
+    // A doubled-backslash value must NOT be touched by the literal form
+    expectLiteral("C:\\\\users\\\\cherry", "C:\\\\users\\\\cherry");
 
     // Only the component under the drive root, and only at its own level
     expect("\"C:\\\\users\\\\cherry\\\\windows\\\\system32\"",

@@ -51,6 +51,12 @@ if(NOT TUXBLOX_SHARED_RELEASE)
     set(TUXBLOX_SHARED_RELEASE "${CMAKE_SOURCE_DIR}/../shared/release/src")
 endif()
 
+# The capitalisation Windows uses for the folders on the virtual drive, shared with the
+# compatibility layer so a path built here is spelled the way the layer spells one.
+if(NOT TUXBLOX_SHARED_PATHS)
+    set(TUXBLOX_SHARED_PATHS "${CMAKE_SOURCE_DIR}/../shared/paths/src")
+endif()
+
 # The libraries TuxBlox ships rather than taking from the machine, built by shared/tools/libs-build.sh and mounted read-only by build.sh.
 if(NOT TUXBLOX_SHARED_DIR)
     set(TUXBLOX_SHARED_DIR "${CMAKE_SOURCE_DIR}/../build/.artifacts/shared")
@@ -99,6 +105,7 @@ configure_file(${CMAKE_SOURCE_DIR}/cmake/version.h.in ${CMAKE_BINARY_DIR}/genera
 add_library(launcher_core STATIC
     ${TUXBLOX_SHARED_CRYPTO}/ca_bundle.cpp
     ${TUXBLOX_SHARED_RELEASE}/release_file.cpp
+    ${TUXBLOX_SHARED_PATHS}/windows_paths.cpp
     ${TUXBLOX_SHARED_RELEASE}/user_agent.cpp
     src/app.cpp
     src/discord_rpc.cpp
@@ -171,7 +178,8 @@ include(${TUXBLOX_SHARED_CRYPTO}/EmbedCaBundle.cmake)
 
 target_include_directories(launcher_core PUBLIC
     src third_party ${CMAKE_BINARY_DIR}/generated ${TUXBLOX_UI_SRC}
-    ${TUXBLOX_SHARED_INCLUDE} ${TUXBLOX_SHARED_CRYPTO} ${TUXBLOX_SHARED_RELEASE} ${CMAKE_BINARY_DIR}/generated)
+    ${TUXBLOX_SHARED_INCLUDE} ${TUXBLOX_SHARED_CRYPTO} ${TUXBLOX_SHARED_RELEASE}
+    ${TUXBLOX_SHARED_PATHS} ${CMAKE_BINARY_DIR}/generated)
 if(TUXBLOX_TEST_SETUP_URL)
     target_compile_definitions(launcher_core PUBLIC TUXBLOX_TEST_SETUP_URL)
 endif()

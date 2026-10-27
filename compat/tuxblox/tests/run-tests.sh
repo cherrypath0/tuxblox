@@ -36,7 +36,7 @@ g++ -std=c++17 -O0 -g -Wall -Wextra -UNDEBUG \
 "$out/test_host_folders"
 
 g++ -std=c++17 -O0 -g -Wall -Wextra -UNDEBUG \
-    -o "$out/test_windows_paths" test_windows_paths.cpp ../src/support/windows_paths.cpp
+    -o "$out/test_windows_paths" test_windows_paths.cpp ../../../shared/paths/src/windows_paths.cpp
 "$out/test_windows_paths"
 
 g++ -std=c++17 -O0 -g -Wall -Wextra -UNDEBUG -I../src \

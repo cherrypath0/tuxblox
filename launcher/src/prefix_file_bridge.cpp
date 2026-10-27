@@ -17,6 +17,8 @@
 #include "prefix_file_bridge.h"
 #include "prefix_user.h"
 #include <filesystem>
+#include "windows_paths.h"
+
 #include <string>
 #include <system_error>
 
@@ -25,7 +27,8 @@ namespace fs = std::filesystem;
 namespace tuxblox {
 
 std::string bridgeWindowsRoot(const std::string& installDir) {
-    return "C:\\users\\" + prefixUserName(driveCDir(installDir)) + "\\files";
+    return canonicalWindowsPathLiteral("C:\\users\\" + prefixUserName(driveCDir(installDir)) +
+                                       "\\files");
 }
 
 namespace {
@@ -57,7 +60,7 @@ std::string windowsPathUnderLinkedFolder(const std::string& installDir, const fs
         std::string win = "C:\\users\\" + account + "\\" +
                           entry.path().filename().string() + "\\" + relStr;
         for (char& c : win) if (c == '/') c = '\\';
-        return win;
+        return canonicalWindowsPathLiteral(win);
     }
     return "";
 }
@@ -71,7 +74,7 @@ std::string windowsPathUnderDriveC(const fs::path& driveC, const fs::path& hostP
     if (relStr == "." || relStr.rfind("..", 0) == 0) return "";
     std::string win = "C:\\" + relStr;
     for (char& c : win) if (c == '/') c = '\\';
-    return win;
+    return canonicalWindowsPathLiteral(win);
 }
 
 // Removes symlinks in the bridge root whose target no longer exists. Live links

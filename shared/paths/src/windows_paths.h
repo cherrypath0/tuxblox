@@ -27,6 +27,11 @@ namespace tuxblox {
 // comes back untouched, and the folders on the drive are never renamed.
 std::string canonicalWindowsPath(const std::string& value);
 
+// The same correction for an ordinary path with single backslashes, such as one
+// built to hand to a program on its command line. The registry form above only
+// sees paths whose backslashes are doubled, so a plain path needs this instead.
+std::string canonicalWindowsPathLiteral(const std::string& path);
+
 // Corrects every path in a Wine .reg file the same way, in place. The file is
 // left alone when there is nothing to correct, so a drive that is already right
 // is not rewritten on every launch. Returns true when the file changed.

@@ -91,7 +91,7 @@ int main() {
     writeAll(inPrefix / "inside.rbxl", "inside");
     const std::string winInside =
         bridgeHostPathIntoPrefix(installDir.string(), (inPrefix / "inside.rbxl").string());
-    assert(winInside == "C:\\users\\user\\Documents\\inside.rbxl");
+    assert(winInside == "C:\\Users\\user\\Documents\\inside.rbxl");
 
     // Dangling links get pruned; live ones do not.
     const fs::path doomed = tmp / "doomed";
@@ -174,7 +174,7 @@ int main() {
 
         const std::string win = bridgeHostPathIntoPrefix(
             linkedInstall.string(), (hostDownloads / "maps" / "town.rbxl").string());
-        assert(win == "C:\\users\\cherry\\Downloads\\maps\\town.rbxl");
+        assert(win == "C:\\Users\\cherry\\Downloads\\maps\\town.rbxl");
         // Nothing was bridged: no files folder was even created.
         assert(!fs::exists(account / "files"));
 
