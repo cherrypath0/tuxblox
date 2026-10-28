@@ -30,6 +30,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/types.h>
+#ifdef HAVE_SYS_RANDOM_H
+# include <sys/random.h>
+#endif
 #include <sys/time.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -488,19 +491,75 @@ static void kill_all_processes(void);
 
 #define PTID_OFFSET 8  /* offset for first ptid value */
 
-static unsigned int index_from_ptid(unsigned int id) { return id / 4; }
-static unsigned int ptid_from_index(unsigned int index) { return index * 4; }
+/* Windows draws process and thread ids from one machine-wide pool that every other process on
+ * the machine is drawing from at the same time. A process therefore starts at a high id and
+ * its threads sit at uneven distances from one another. Counting up from a fixed small base
+ * instead gives the first thread of the first process a recognisable constant -- 0x20, where a
+ * Windows desktop is four or five digits in -- and puts every later thread exactly four behind
+ * the one before it. A process reads its own ids without a syscall, and anything that writes a
+ * thread id to a log carries them off the machine, so both the base and the spacing are chosen
+ * at random here. The spacing stands in for other processes drawing from the pool; it is not a
+ * model of them, since the skipped entries cost memory that is never reclaimed. */
+static unsigned int ptid_bias = ~0u;  /* random base for the id space, a multiple of 4 */
+
+static void init_ptid_bias(void)
+{
+    unsigned int v = 0;
+#ifdef HAVE_GETRANDOM
+    int ret;
+
+    do
+    {
+        ret = getrandom( &v, sizeof(v), 0 );
+    }
+    while (ret == -1 && errno == EINTR);
+    if (ret == -1)
+#endif
+    {
+        int fd = open( "/dev/urandom", O_RDONLY );
+
+        if (fd != -1)
+        {
+            if (read( fd, &v, sizeof(v) ) != sizeof(v)) v = 0;
+            close( fd );
+        }
+    }
+    if (!v) v = (unsigned int)getpid() * 2654435761u;
+
+    /* lands the first id where a Windows desktop sits a short while into its session */
+    ptid_bias = (0x300 + v % 0x1d00) * 4;
+}
+
+/* how many ids to pass over before the next one, so the gaps are uneven */
+static unsigned int ptid_skip(void)
+{
+    static unsigned int state;
+
+    if (!state) state = ptid_bias | 1;
+    state ^= state << 13;
+    state ^= state >> 17;
+    state ^= state << 5;
+    return 1 + state % 16;
+}
+
+static unsigned int index_from_ptid(unsigned int id) { return (id - ptid_bias) / 4; }
+static unsigned int ptid_from_index(unsigned int index) { return index * 4 + ptid_bias; }
 
 /* allocate a new process or thread id */
 unsigned int alloc_ptid( void *ptr )
 {
     struct ptid_entry *entry;
-    unsigned int index;
+    unsigned int index, skip, clear = 0;
 
-    if (used_ptid_entries < alloc_ptid_entries)
+    if (ptid_bias == ~0u) init_ptid_bias();
+    skip = ptid_skip();
+
+    if (used_ptid_entries + skip <= alloc_ptid_entries)
     {
         index = used_ptid_entries + PTID_OFFSET;
-        entry = &ptid_entries[used_ptid_entries++];
+        entry = &ptid_entries[used_ptid_entries];
+        used_ptid_entries += skip;
+        clear = skip;
     }
     else if (next_free_ptid && num_free_ptids >= 256)
     {
@@ -512,7 +571,8 @@ unsigned int alloc_ptid( void *ptr )
     else  /* need to grow the array */
     {
         unsigned int count = alloc_ptid_entries + (alloc_ptid_entries / 2);
-        if (!count) count = 512;
+        if (count < used_ptid_entries + skip) count = used_ptid_entries + skip;
+        if (count < 512) count = 512;
         if (!(entry = realloc( ptid_entries, count * sizeof(*entry) )))
         {
             set_error( STATUS_NO_MEMORY );
@@ -521,9 +581,14 @@ unsigned int alloc_ptid( void *ptr )
         ptid_entries = entry;
         alloc_ptid_entries = count;
         index = used_ptid_entries + PTID_OFFSET;
-        entry = &ptid_entries[used_ptid_entries++];
+        entry = &ptid_entries[used_ptid_entries];
+        used_ptid_entries += skip;
+        clear = skip;
     }
 
+    /* realloc does not clear, and the entries passed over to space this id out are never
+     * written otherwise, so get_ptid_entry would hand back whatever they happened to hold */
+    if (clear) memset( entry, 0, clear * sizeof(*entry) );
     entry->ptr = ptr;
     return ptid_from_index( index );
 }
@@ -547,7 +612,10 @@ void free_ptid( unsigned int id )
 /* retrieve the pointer corresponding to a process or thread id */
 void *get_ptid_entry( unsigned int id )
 {
-    unsigned int index = index_from_ptid( id );
+    unsigned int index;
+
+    if (id < ptid_bias) return NULL;
+    index = index_from_ptid( id );
     if (index < PTID_OFFSET) return NULL;
     if (index - PTID_OFFSET >= used_ptid_entries) return NULL;
     return ptid_entries[index - PTID_OFFSET].ptr;
