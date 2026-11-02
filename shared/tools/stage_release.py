@@ -80,8 +80,10 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", required=True)
     parser.add_argument("--channel", required=True)
-    parser.add_argument("--seed", required=True, help="MAJOR.MINOR.PATCH, from line 1 of the root VERSION file")
-    parser.add_argument("--build", default="0", help="the BUILD counter, from line 2 of the root VERSION file")
+    parser.add_argument("--seed", required=True,
+                        help="the floor, MAJOR.MINOR.PATCH, from line 1 of the root VERSION file")
+    parser.add_argument("--build", default="0",
+                        help="the BUILD counter, from line 2; it is the THIRD field of a release")
     parser.add_argument("--release", default="", help="an explicit release, skipping resolution")
     args = parser.parse_args()
 

@@ -14,13 +14,15 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
+
 import os
 import sys
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
-from release_version import derive_line, largest_bump, next_build, release_sort_key
+from release_version import (component_fields, derive_release, format_release, largest_bump,
+                             next_build, parse_release, release_sort_key)
 
 
 class LargestBump(unittest.TestCase):
@@ -31,7 +33,7 @@ class LargestBump(unittest.TestCase):
                "studio-mcp": "1.0.4", "compat": "4.0.0"}
         new = dict(old, installer="4.0.0")
         self.assertEqual(largest_bump(old, new), "major")
-        self.assertGreater(release_sort_key(derive_line("4.3.5.0", "major", 4)),
+        self.assertGreater(release_sort_key(derive_release("4.3.5.0", "major", 4, 5, "experimental")),
                            release_sort_key("4.3.5.0"))
 
     def test_largest_bump_takes_the_largest_not_the_sum(self):
@@ -46,66 +48,118 @@ class LargestBump(unittest.TestCase):
             "minor")
 
 
-class DeriveLine(unittest.TestCase):
-    """The line is MAJOR.MINOR.PATCH only -- BUILD is counted separately, not derived."""
+class DeriveRelease(unittest.TestCase):
+    """MAJOR.MINOR.BUILD.PATCH, worked out together because PATCH depends on whether BUILD moved."""
 
-    def test_the_line_advances_by_the_bump_it_is_given(self):
-        self.assertEqual(derive_line("3.6.0.2", "none", 3), "3.6.0")
-        self.assertEqual(derive_line("3.6.0.9", "patch", 3), "3.6.1")
-        self.assertEqual(derive_line("3.6.1.4", "minor", 3), "3.7.0")
+    def test_a_patch_only_release_holds_build_and_advances_patch(self):
+        # The case the whole field order exists for: patches land under the build they apply to.
+        self.assertEqual(derive_release("3.7.7.0", "patch", 3, 7, "experimental"), "3.7.7.1")
+        self.assertEqual(derive_release("3.7.7.1", "patch", 3, 7, "experimental"), "3.7.7.2")
 
-    def test_major_comes_from_the_highest_component_major(self):
-        self.assertEqual(derive_line("3.6.1.4", "major", 4), "4.0.0")
+    def test_anything_more_than_a_patch_advances_build_and_resets_patch(self):
+        self.assertEqual(derive_release("3.7.7.2", "minor", 3, 7, "experimental"), "3.8.8.0")
+        self.assertEqual(derive_release("3.7.7.2", "none", 3, 7, "experimental"), "3.7.8.0")
 
-    def test_major_rise_resets_the_lower_fields(self):
-        self.assertEqual(derive_line("3.9.2.7", "patch", 4), "4.0.0")
-        self.assertEqual(derive_line("3.9.2.7", "none", 4), "4.0.0")
+    def test_major_resets_minor_and_patch_but_never_build(self):
+        self.assertEqual(derive_release("3.9.2.7", "major", 4, 9, "experimental"), "4.0.10.0")
+        # Even with nothing else moving, BUILD carries straight on across a MAJOR rise.
+        self.assertEqual(derive_release("3.9.2.7", "none", 4, 9, "experimental"), "4.0.10.0")
 
-    def test_seeding_advances_past_the_three_field_floor(self):
-        self.assertGreater(release_sort_key(derive_line("3.5.0", "patch", 3)),
-                           release_sort_key("3.5.0"))
+    def test_only_experimental_advances_build(self):
+        for channel in ("stable", "canary"):
+            self.assertEqual(derive_release("3.7.7.0", "minor", 3, 7, channel), "3.8.7.0")
+            self.assertEqual(derive_release("3.7.7.0", "patch", 3, 7, channel), "3.7.7.1")
 
-    # Nothing published yet: start the major's line rather than inventing a
-    # floor here, so the repo's seed stays the caller's policy.
     def test_nothing_published_starts_the_majors_line(self):
-        self.assertEqual(derive_line(None, "minor", 3), "3.0.0")
+        self.assertEqual(derive_release(None, "minor", 3, 0, "experimental"), "3.0.1.0")
 
-    # The spec's monotonicity guarantee rests on component majors only rising.
+    # The monotonicity guarantee rests on component majors only rising.
     def test_a_regressing_major_is_rejected(self):
         with self.assertRaises(ValueError):
-            derive_line("4.1.0.0", "patch", 3)
+            derive_release("4.1.0.0", "patch", 3, 0, "experimental")
+
+    def test_a_three_field_floor_is_advanced_past(self):
+        self.assertGreater(release_sort_key(derive_release("3.5.0", "patch", 3, 1, "experimental")),
+                           release_sort_key("3.5.0"))
 
 
 class NextBuild(unittest.TestCase):
-    """BUILD counts how many times this has been built, so every build advances it."""
+    """BUILD counts builds, only ever rises, and nothing resets it."""
 
-    def test_every_build_gets_its_own_number(self):
+    def test_every_experimental_build_gets_its_own_number(self):
         seen, build = [], 0
         for _ in range(3):
-            build = next_build(build, False)
+            build = next_build(build, "minor", "experimental")
             seen.append(build)
         self.assertEqual(seen, [1, 2, 3])
 
-    # The field is a count of builds, not a description of what changed, so a component moving no
-    # longer sends it back to zero -- that is the whole difference from the scheme before it.
-    def test_a_component_moving_does_not_start_it_over(self):
-        self.assertEqual(next_build(9, False), 10)
+    def test_a_patch_only_release_does_not_count_as_a_build(self):
+        self.assertEqual(next_build(9, "patch", "experimental"), 9)
 
-    # A MAJOR rise is the one break in continuity the number below it cannot span.
-    def test_a_major_rise_starts_it_over(self):
-        self.assertEqual(next_build(42, True), 0)
-        self.assertEqual(next_build(0, True), 0)
+    def test_promoting_to_another_channel_does_not_count_as_a_build(self):
+        for channel in ("stable", "canary"):
+            self.assertEqual(next_build(9, "minor", channel), 9)
+            self.assertEqual(next_build(9, "major", channel), 9)
+
+    # This is the difference from the scheme before it: a MAJOR rise used to send BUILD to zero.
+    def test_nothing_resets_it(self):
+        self.assertEqual(next_build(42, "major", "experimental"), 43)
+        self.assertEqual(next_build(0, "major", "experimental"), 1)
+
+    def test_a_bad_bump_level_is_rejected(self):
+        with self.assertRaises(ValueError):
+            next_build(1, "enormous", "experimental")
+
+
+class NeverGoesBackwards(unittest.TestCase):
+    """The invariant the whole scheme rests on: a derived release never sorts below the one it was
+    derived from. It is easy to break, and it was broken once -- "nothing changed" on a channel
+    that does not advance BUILD used to reset PATCH as well and derive a LOWER release."""
+
+    def test_no_combination_derives_a_lower_release(self):
+        channels = ("experimental", "canary", "stable")
+        maxima = ("3.0.0.0", "3.7.0.2", "3.7.7.0", "3.7.7.9", "3.9.2.7", "4.0.10.0")
+        for maximum in maxima:
+            pmajor, _pminor, pbuild, _ppatch = parse_release(maximum)
+            for bump in ("none", "patch", "minor", "major"):
+                for channel in channels:
+                    for major in (pmajor, pmajor + 1):
+                        for build in (0, pbuild, pbuild + 5):
+                            got = derive_release(maximum, bump, major, build, channel)
+                            self.assertGreaterEqual(
+                                release_sort_key(got), release_sort_key(maximum),
+                                "%s + %s on %s (major %d, build %d) derived %s"
+                                % (maximum, bump, channel, major, build, got))
+
+    def test_nothing_changed_on_a_held_channel_repeats_the_maximum(self):
+        # Not a lower number and not a new one: the same work, published again.
+        self.assertEqual(derive_release("3.7.7.3", "none", 3, 7, "stable"), "3.7.7.3")
 
 
 class Parsing(unittest.TestCase):
+    """A release and a component disagree about the third field, so they parse separately."""
+
     def test_malformed_version_raises(self):
         for bad in ("", "3.5", "3.5.x", "3.5.0-stable"):
             with self.assertRaises(ValueError):
-                release_sort_key(bad)
+                parse_release(bad)
 
-    def test_three_and_four_fields_both_parse(self):
-        self.assertEqual(release_sort_key("3.5.0"), (3, 5, 0, 0))
-        self.assertEqual(release_sort_key("3.5.0.2"), (3, 5, 0, 2))
+    def test_release_names_build_then_patch(self):
+        self.assertEqual(parse_release("3.7.7.1"), (3, 7, 7, 1))
+        self.assertEqual(parse_release("3.5.0"), (3, 5, 0, 0))
+
+    def test_component_is_three_fields_and_rejects_a_release(self):
+        self.assertEqual(component_fields("3.5.2"), (3, 5, 2))
+        with self.assertRaises(ValueError):
+            component_fields("3.5.2.1")
+
+    def test_sort_key_orders_field_by_field(self):
+        self.assertGreater(release_sort_key("3.7.8.0"), release_sort_key("3.7.7.9"))
+        self.assertGreater(release_sort_key("3.7.7.1"), release_sort_key("3.7.7.0"))
+        self.assertGreater(release_sort_key("3.8.0.0"), release_sort_key("3.7.99.99"))
+
+    def test_format_round_trips(self):
+        self.assertEqual(format_release(*parse_release("3.7.7.1")), "3.7.7.1")
 
 
 if __name__ == "__main__":

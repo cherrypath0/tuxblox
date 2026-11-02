@@ -81,8 +81,10 @@ fi
 # It no longer feeds the components -- each of those carries its own VERSION beside its sources --
 # and line 1 is the floor the derived release must beat rather than a number anything is built with.
 #
-# BUILD is on its own line because it counts builds rather than describing what changed: every build
-# advances it, released or not, and only a MAJOR rise starts it over.
+# A release is MAJOR.MINOR.BUILD.PATCH, so BUILD is the THIRD field of the number and not the last.
+# It is on its own line here because it counts builds rather than describing what changed: an
+# experimental build advances it whether or not it is ever released, nothing resets it, and a
+# release carrying only component patches leaves it alone and moves PATCH instead.
 #
 # stage_release() rewrites all three with the release this build became, so it stays current on its own.
 version_file="$ROOT/VERSION"
@@ -134,11 +136,22 @@ migrate_channel() {
     fi
 }
 
-# Same three-way resolution as the version above. An empty answer takes
-# whatever VERSION holds, falling back to stable, since the channel picks which
-# releases/ folder this build is published under.
+# Same three-way resolution as the version above. The channel picks which releases/ folder this
+# build is published under, and it also decides whether BUILD advances -- only experimental counts
+# a build, because that is where work is built until it has been tested. So experimental is the
+# default for a tree that does not say otherwise: anything else is a deliberate promotion.
 if [[ -z "$TUXBLOX_CHANNEL" ]]; then
-    default_channel="${file_channel:-stable}"
+    # A fresh build defaults to experimental whatever VERSION happens to say, because work is built
+    # there until it has been tested -- stable and canary are always asked for deliberately.
+    #
+    # A --stage-only run is exempt: it is not a new build, it republishes what build/ already holds,
+    # so it keeps the channel that build was staged under. Defaulting it to experimental as well
+    # would quietly move an existing build to another channel on a re-stage.
+    if [[ $stage_only -eq 1 ]]; then
+        default_channel="${file_channel:-experimental}"
+    else
+        default_channel="experimental"
+    fi
     if [[ -t 0 && $stage_only -eq 0 ]]; then
         read -rp "Enter channel for this build [stable/canary/experimental] ($default_channel): " TUXBLOX_CHANNEL
         TUXBLOX_CHANNEL="${TUXBLOX_CHANNEL:-$default_channel}"
@@ -389,7 +402,11 @@ stage_release() {
     # only VERSION is committed -- "git commit -- <path>" takes that path alone and ignores
     # whatever else is staged -- and nothing is ever pushed. Set TUXBLOX_NO_VERSION_COMMIT=1 to skip.
     if [[ $stage_only -eq 0 ]]; then
-        printf '%s\n%s\n%s\n' "${release%.*}" "${release##*.}" "$channel" > "$ROOT/VERSION"
+        # A release is MAJOR.MINOR.BUILD.PATCH, so the counter is the third field and the floor on
+        # line 1 is MAJOR.MINOR.PATCH -- the fields have to be split by name rather than by
+        # trimming the last one off, which would write PATCH onto the counter's line.
+        IFS=. read -r r_major r_minor r_build r_patch <<< "$release"
+        printf '%s\n%s\n%s\n' "$r_major.$r_minor.$r_patch" "$r_build" "$channel" > "$ROOT/VERSION"
         echo ":: Updated VERSION to $release $channel"
         if [[ -z "${TUXBLOX_NO_VERSION_COMMIT:-}" ]] &&
            git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 &&
