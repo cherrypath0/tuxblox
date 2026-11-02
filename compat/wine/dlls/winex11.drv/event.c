@@ -519,6 +519,11 @@ BOOL X11DRV_ProcessEvents( DWORD mask )
     if (!data) return FALSE;
     if (data->current_event) mask = 0;  /* don't process nested events */
 
+    /* The program is servicing its message loop, so this is the moment to show anything whose
+     * first map was held back and which has now waited long enough. Guarded on the count so a
+     * normal pump pays one load for it. */
+    if (window_has_deferred_map()) window_flush_deferred_maps();
+
     prev_event.type = 0;
     for (;;)
     {
