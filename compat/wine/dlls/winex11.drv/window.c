@@ -29,6 +29,7 @@
 #include <stdarg.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <time.h>
 #include <unistd.h>
 
 #include <X11/Xlib.h>
@@ -109,6 +110,49 @@ static const WCHAR clip_window_prop[] =
     {'_','_','w','i','n','e','_','x','1','1','_','c','l','i','p','_','w','i','n','d','o','w',0};
 static const WCHAR focus_time_prop[] =
     {'_','_','w','i','n','e','_','x','1','1','_','f','o','c','u','s','_','t','i','m','e',0};
+
+/* The longest a first map is held back without the program reading a message. Reading messages is
+ * what normally releases it; this is only the second chance, for a program that keeps moving its
+ * windows about without ever going back to its message loop. */
+#define FIRST_MAP_DEFER_MS 16
+
+/* Non-zero while any window is holding its first map back, so the check on the event path costs a
+ * single load in the normal case. */
+static LONG deferred_map_count;
+
+/* A millisecond clock fine enough to measure one frame. NtGetTickCount reads the shared tick
+ * count, which only advances about every 15.6 ms, so it cannot time a 16 ms hold at all: the
+ * deadline would read as passed within a millisecond of being set, whenever a tick boundary
+ * happened to fall just after it. */
+static DWORD monotonic_ms( void )
+{
+    struct timespec ts;
+
+    clock_gettime( CLOCK_MONOTONIC, &ts );
+    return (DWORD)(ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
+}
+
+BOOL window_has_deferred_map( void )
+{
+    return !!deferred_map_count;
+}
+
+/* Stop holding a map back without recording that one was ever shown, so if the program shows the
+ * window again later it is held back again. This is the path a window takes when it is hidden
+ * while its map is still being held. */
+static void abandon_deferred_map( struct x11drv_win_data *data )
+{
+    if (!data->map_deferred) return;
+    data->map_deferred = 0;
+    InterlockedDecrement( &deferred_map_count );
+}
+
+/* The map is going out now, and no later show of this window is held back. */
+static void release_deferred_map( struct x11drv_win_data *data )
+{
+    data->map_released = 1;
+    abandon_deferred_map( data );
+}
 
 static const char *debugstr_mwm_hints( const MwmHints *hints )
 {
@@ -992,7 +1036,7 @@ static void window_set_wm_normal_hints( struct x11drv_win_data *data, XSizeHints
 static void set_size_hints( struct x11drv_win_data *data, DWORD style )
 {
     XSizeHints *size_hints;
-    SIZE min_size;
+    SIZE min_size, max_size;
 
     if (!(size_hints = XAllocSizeHints())) return;
 
@@ -1021,15 +1065,32 @@ static void set_size_hints( struct x11drv_win_data *data, DWORD style )
             size_hints->min_height = size_hints->max_height;
             size_hints->flags |= PMinSize | PMaxSize;
         }
-        else if (window_get_min_track_size( data->hwnd, &min_size ))
+        else
         {
-            RECT min_rect = {0, 0, min_size.cx, min_size.cy};
-
             /* the window manager performs the interactive resize itself, so it is the one that has to refuse going any smaller */
-            min_rect = visible_rect_from_window( &data->rects, min_rect );
-            size_hints->min_width = max( min_rect.right - min_rect.left, 0 );
-            size_hints->min_height = max( min_rect.bottom - min_rect.top, 0 );
-            size_hints->flags |= PMinSize;
+            if (window_get_min_track_size( data->hwnd, &min_size ))
+            {
+                RECT min_rect = {0, 0, min_size.cx, min_size.cy};
+
+                min_rect = visible_rect_from_window( &data->rects, min_rect );
+                size_hints->min_width = max( min_rect.right - min_rect.left, 0 );
+                size_hints->min_height = max( min_rect.bottom - min_rect.top, 0 );
+                size_hints->flags |= PMinSize;
+            }
+            /* and the one that has to refuse going any larger. Only a limit the program asked for
+             * reaches here; left at the system default it is reported as none at all, so an
+             * ordinary window stays as resizable as it was. A program that asks for the same size
+             * both ways gets a window the desktop will not resize at all, which is what asking for
+             * it means. */
+            if (window_get_max_track_size( data->hwnd, &max_size ))
+            {
+                RECT max_rect = {0, 0, max_size.cx, max_size.cy};
+
+                max_rect = visible_rect_from_window( &data->rects, max_rect );
+                size_hints->max_width = max( max_rect.right - max_rect.left, 1 );
+                size_hints->max_height = max( max_rect.bottom - max_rect.top, 1 );
+                size_hints->flags |= PMaxSize;
+            }
         }
     }
 
@@ -3135,6 +3196,7 @@ void X11DRV_DestroyWindow( HWND hwnd )
 
     if (!(data = get_win_data( hwnd ))) return;
 
+    abandon_deferred_map( data );
     destroy_whole_window( data, FALSE );
     if (thread_data->last_focus == hwnd) thread_data->last_focus = 0;
     if (thread_data->last_xic_hwnd == hwnd) thread_data->last_xic_hwnd = 0;
@@ -3793,6 +3855,84 @@ static BOOL get_desired_wm_state( DWORD style, const struct window_rects *rects 
 }
 
 
+/* A compositor puts a newly shown window on screen at its next frame, so a window the program
+ * shows and hides again inside one frame is never seen on Windows. X has no such step: the map
+ * takes effect at once, the contents of a window nothing has drawn into are undefined, and the
+ * background is black -- so the same window puts a black rectangle on screen, and asking the
+ * window manager to frame it puts a second one up while the frame is built and torn down. Three
+ * of Qt's helper windows do exactly this on every Roblox Studio startup, giving six black
+ * squares. So hold a window's first map back until the program next reads its messages, which is
+ * window_flush_deferred_maps; if it hides the window before then, the map is never sent and the
+ * window manager is never asked to frame it.
+ *
+ * Reading messages is the signal because it is the one that actually separates the two cases: a
+ * window meant to be seen is still shown when the program goes back to its message loop, and
+ * Studio does not read a single message between showing these helpers and hiding them again.
+ *
+ * Painting is NOT the signal, though it looks like the obvious one. It was tried and measured:
+ * these windows are drawn into and hidden again before the program reads a message, so a paint
+ * says nothing about whether a window is meant to be seen, and releasing on it put the window
+ * manager's frame straight back on screen. */
+static BOOL defer_first_map( struct x11drv_win_data *data, BOOL activate )
+{
+    if (data->map_released) return FALSE;
+    if (data->embedded) return FALSE;  /* an embedder decides when its client appears */
+    if (!data->map_deferred)
+    {
+        data->map_deferred = 1;
+        data->map_defer_activate = !!activate;
+        data->map_defer_time = monotonic_ms();
+        InterlockedIncrement( &deferred_map_count );
+        return TRUE;
+    }
+    if (monotonic_ms() - data->map_defer_time < FIRST_MAP_DEFER_MS) return TRUE;
+    /* The frame has passed, so the window really is meant to be seen. */
+    release_deferred_map( data );
+    return FALSE;
+}
+
+/* Send a map that was held back, now the frame it was waiting for has passed. The style is read
+ * again rather than remembered, because a window hidden while its map was held must stay hidden. */
+static void send_deferred_map( struct x11drv_win_data *data )
+{
+    UINT activate = data->map_defer_activate;
+    DWORD style = NtUserGetWindowLongW( data->hwnd, GWL_STYLE );
+
+    TRACE( "win %p/%lx held %u ms, mapping now (style %08x)\n", data->hwnd, data->whole_window,
+           (UINT)(monotonic_ms() - data->map_defer_time), (UINT)style );
+    release_deferred_map( data );
+    window_set_wm_state( data, get_desired_wm_state( style, &data->rects ), activate );
+    if (!data->wm_state_serial && data->pending_state.wm_state != WithdrawnState) update_net_wm_states( data );
+}
+
+/* Called when the program is about to read its messages, which is what releases a held-back map.
+ * A window the program means to show is still there when it goes back to its message loop; one it
+ * shows and hides again without reading a message in between -- which is what Qt's helper windows
+ * do -- never gets here while it is visible, so it is never mapped at all.
+ *
+ * This must not be gated on the deadline as well. An idle program calls this once and then blocks
+ * in GetMessage, so nothing would come back later to check the time, and the window would stay
+ * invisible for as long as the program had nothing to do. That was measured: a probe that shows a
+ * window and waits for input was left permanently unmapped. The deadline in defer_first_map stays
+ * as a second chance for a program that keeps moving its windows without reading messages. */
+void window_flush_deferred_maps( void )
+{
+    HWND *list;
+    UINT i;
+
+    if (!(list = build_hwnd_list())) return;
+    for (i = 0; list[i] != HWND_BOTTOM; i++)
+    {
+        struct x11drv_win_data *data;
+
+        if (!(data = get_win_data( list[i] ))) continue;
+        if (data->map_deferred) send_deferred_map( data );
+        release_win_data( data );
+    }
+    free( list );
+}
+
+
 /***********************************************************************
  *		WindowPosChanged   (X11DRV.@)
  */
@@ -3845,6 +3985,16 @@ void X11DRV_WindowPosChanged( HWND hwnd, HWND insert_after, HWND owner_hint, UIN
         WARN( "win %p/%lx is layered, delaying mapping\n", hwnd, data->whole_window );
         new_style &= ~WS_VISIBLE;
     }
+
+    /* hold a window's first map back by a frame, see defer_first_map */
+    if (data->whole_window && data->pending_state.wm_state == WithdrawnState &&
+        data->current_state.wm_state == WithdrawnState && (new_style & WS_VISIBLE) &&
+        !IsRectEmpty( &new_rects->window ) && defer_first_map( data, activate ))
+    {
+        WARN( "win %p/%lx was only just shown, delaying mapping\n", hwnd, data->whole_window );
+        new_style &= ~WS_VISIBLE;
+    }
+    else abandon_deferred_map( data );
 
     XFlush( gdi_display );  /* make sure painting is done before we move the window */
 

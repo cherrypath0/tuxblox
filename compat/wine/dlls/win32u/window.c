@@ -4671,6 +4671,7 @@ MINMAXINFO get_min_max_info( HWND hwnd )
     RECT rc_max, rc_primary;
     DWORD adjusted_style;
     MINMAXINFO minmax;
+    POINT max_track_default;
     INT xinc, yinc;
     RECT rc;
     WND *win;
@@ -4706,8 +4707,8 @@ MINMAXINFO get_min_max_info( HWND hwnd )
         minmax.ptMinTrackSize.x = 2 * xinc;
         minmax.ptMinTrackSize.y = 2 * yinc;
     }
-    minmax.ptMaxTrackSize.x = get_system_metrics( SM_CXMAXTRACK );
-    minmax.ptMaxTrackSize.y = get_system_metrics( SM_CYMAXTRACK );
+    minmax.ptMaxTrackSize.x = max_track_default.x = get_system_metrics( SM_CXMAXTRACK );
+    minmax.ptMaxTrackSize.y = max_track_default.y = get_system_metrics( SM_CYMAXTRACK );
     minmax.ptMaxPosition.x = -xinc;
     minmax.ptMaxPosition.y = -yinc;
 
@@ -4750,6 +4751,14 @@ MINMAXINFO get_min_max_info( HWND hwnd )
     if ((win = get_win_ptr( hwnd )) && win != WND_DESKTOP && win != WND_OTHER_PROCESS)
     {
         win->min_track_size = minmax.ptMinTrackSize;
+        /* Only a limit the program actually asked for is worth passing on. Left at the default it
+         * is the largest window the system allows, and handing the window manager that as a
+         * maximum would cap every window at it for no reason. */
+        if (minmax.ptMaxTrackSize.x < max_track_default.x ||
+            minmax.ptMaxTrackSize.y < max_track_default.y)
+            win->max_track_size = minmax.ptMaxTrackSize;
+        else
+            win->max_track_size.x = win->max_track_size.y = 0;
         release_win_ptr( win );
     }
 
@@ -4777,6 +4786,30 @@ BOOL window_get_min_track_size( HWND hwnd, SIZE *size )
     min_track = map_dpi_point( min_track, get_dpi_for_window( hwnd ), raw_dpi );
     size->cx = min_track.x;
     size->cy = min_track.y;
+    return TRUE;
+}
+
+/*******************************************************************
+ *           window_get_max_track_size
+ *
+ * Get the largest size a window accepts, in raw dpi, as reported by its last WM_GETMINMAXINFO.
+ * FALSE when the program asked for no limit of its own, which is the usual case.
+ */
+BOOL window_get_max_track_size( HWND hwnd, SIZE *size )
+{
+    POINT max_track;
+    UINT raw_dpi;
+    WND *win;
+
+    if (!(win = get_win_ptr( hwnd )) || win == WND_DESKTOP || win == WND_OTHER_PROCESS) return FALSE;
+    max_track = win->max_track_size;
+    release_win_ptr( win );
+    if (max_track.x <= 0 || max_track.y <= 0) return FALSE;
+
+    get_win_monitor_dpi( hwnd, &raw_dpi );
+    max_track = map_dpi_point( max_track, get_dpi_for_window( hwnd ), raw_dpi );
+    size->cx = max_track.x;
+    size->cy = max_track.y;
     return TRUE;
 }
 
