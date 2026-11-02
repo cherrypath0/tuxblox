@@ -14,20 +14,84 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-"""Derives a release version from the component versions that make it up."""
+
+"""Derives a release version from the component versions that make it up.
+
+A release is MAJOR.MINOR.BUILD.PATCH; a component is MAJOR.MINOR.PATCH and is not affected by any
+of this. The two therefore disagree about what the third field means, which is why nothing here
+takes a field by position across both -- `component_fields` and `parse_release` each name their
+own.
+
+  MAJOR  the highest MAJOR of any component. A rise resets MINOR and PATCH, but never BUILD.
+  MINOR  advances when any component took a minor-or-bigger bump. Resets PATCH.
+  BUILD  a running count of builds. It only ever rises, it is never reset by anything, only an
+         experimental build advances it, and a release that carries nothing but component patches
+         does not advance it either -- which is what lets a build keep its number while patches
+         land on top of it.
+  PATCH  patches released against the BUILD above it, so it starts again at 0 whenever BUILD
+         moves.
+"""
 
 # Ranked so the largest bump across the components wins; "minor-or-bigger" is one comparison against this.
 _BUMPS = ("none", "patch", "minor", "major")
 
+EXPERIMENTAL = "experimental"
 
-def release_sort_key(release):
-    """The four fields as integers, for ordering and for taking a maximum across channels."""
-    parts = str(release).split(".")
+
+def _fields(version):
+    parts = str(version).split(".")
     if len(parts) not in (3, 4) or not all(p.isdigit() for p in parts):
-        raise ValueError("not a version: %r" % (release,))
-    fields = [int(p) for p in parts]
-    # A three-field version is the pre-v3 shape, and a release is ordered against it as if BUILD were 0.
+        raise ValueError("not a version: %r" % (version,))
+    return [int(p) for p in parts]
+
+
+def component_fields(version):
+    """(MAJOR, MINOR, PATCH) of a component version, which is always three fields."""
+    fields = _fields(version)
+    if len(fields) != 3:
+        raise ValueError("not a component version: %r" % (version,))
+    return tuple(fields)
+
+
+def parse_release(release):
+    """(MAJOR, MINOR, BUILD, PATCH) of a release version.
+
+    A three-field version is the pre-v3 shape and reads as BUILD 0, PATCH 0. A four-field version
+    written under the older MAJOR.MINOR.PATCH.BUILD order reads its last two fields the other way
+    round, so the first release derived across that change has to be given explicitly rather than
+    derived -- that is what TUXBLOX_BUILD_VERSION is for.
+    """
+    fields = _fields(release)
     return tuple(fields + [0] * (4 - len(fields)))
+
+
+def format_release(major, minor, build, patch):
+    return "%d.%d.%d.%d" % (major, minor, build, patch)
+
+
+def seed_release(seed, build):
+    """The repo's own floor, as a release.
+
+    Line 1 of the root VERSION file is MAJOR.MINOR.PATCH and line 2 is the BUILD counter, because
+    BUILD counts builds rather than describing what changed. A release puts BUILD third, so the two
+    cannot simply be joined -- that would read the floor's PATCH as its BUILD. A seed already
+    carrying four fields is one an earlier build of this tree derived, and is taken as it stands.
+    """
+    fields = _fields(seed)
+    if len(fields) == 4:
+        return format_release(*fields)
+    major, minor, patch = fields
+    return format_release(major, minor, int(build), patch)
+
+
+def release_sort_key(version):
+    """For ordering releases against each other and taking a maximum across the channels.
+
+    This compares the fields left to right, which orders correctly whatever each one happens to
+    mean, so it is deliberately the one function that does not care. Do not unpack it to name
+    fields -- `parse_release` is for that.
+    """
+    return parse_release(version)
 
 
 def largest_bump(old, new):
@@ -38,8 +102,8 @@ def largest_bump(old, new):
             # A component that did not exist before is at least a minor event for the release.
             biggest = max(biggest, _BUMPS.index("minor"))
             continue
-        was = release_sort_key(old[name])
-        now = release_sort_key(version)
+        was = component_fields(old[name])
+        now = component_fields(version)
         if was[0] != now[0]:
             return "major"
         if was[1] != now[1]:
@@ -49,33 +113,61 @@ def largest_bump(old, new):
     return _BUMPS[biggest]
 
 
-def next_build(previous_build, major_changed):
-    """The BUILD field for a new release: one past the last, or 0 when MAJOR moved.
+def next_build(previous_build, bump, channel):
+    """The BUILD field for a new release.
 
-    BUILD counts how many times this has been built, so it is not derived from anything the server
-    publishes -- every build advances it, including the ones that are never released. Only a MAJOR
-    rise starts it over, because that is the one event the number below it is not continuous across.
+    BUILD counts builds, so it is not derived from anything the server publishes, and it only ever
+    rises -- nothing resets it, a MAJOR rise included, because a number that counts builds is
+    continuous across every other field moving.
+
+    Two things hold it still. Only an experimental build advances it, since that is where work is
+    built until it has been tested; promoting the same work to canary or stable is not another
+    build of it. And a release carrying nothing but component patches does not advance it either,
+    because those are counted in PATCH instead, which is what keeps a build's number while patches
+    land on top of it.
     """
-    if major_changed:
-        return 0
-    return int(previous_build) + 1
-
-
-def derive_line(previous_max, bump, major):
-    """The next MAJOR.MINOR.PATCH, advancing from `previous_max` by `bump` under the component `major`."""
     if bump not in _BUMPS:
         raise ValueError("not a bump level: %r" % (bump,))
+    previous_build = int(previous_build)
+    if channel != EXPERIMENTAL:
+        return previous_build
+    if bump == "patch":
+        return previous_build
+    return previous_build + 1
+
+
+def derive_release(previous_max, bump, major, previous_build, channel):
+    """The next release version, advancing from `previous_max` by `bump` under component `major`.
+
+    All four fields are worked out together because they are not independent: whether PATCH starts
+    again depends on whether BUILD moved.
+    """
     if previous_max is None:
-        return "%d.0.0" % major
-    pmajor, pminor, ppatch, _ = release_sort_key(previous_max)
+        # Nothing published anywhere, so there is no line to advance -- start this major's.
+        return format_release(major, 0, next_build(previous_build, bump, channel), 0)
+
+    pmajor, pminor, pbuild, ppatch = parse_release(previous_max)
+
+    # BUILD is counted locally rather than derived, so the counter can legitimately run ahead of
+    # what is published -- it counts builds that were never released. It must not run BEHIND,
+    # though: now that BUILD is the third field, a counter lower than the published one would drag
+    # the whole release below it. A fresh clone, or a counter that got rolled back, does exactly
+    # that. So the published BUILD is a floor under the local count.
+    build = next_build(max(int(previous_build), pbuild), bump, channel)
     if major < pmajor:
         # Component majors only ever rise, so a lower one means the caller computed it wrong.
         raise ValueError("major %d regresses from %s" % (major, previous_max))
     if major > pmajor:
-        return "%d.0.0" % major
+        return format_release(major, 0, build, 0)
     if bump in ("major", "minor"):
         # A major bump on a component that does not hold the maximum lands here, and still has to advance.
-        return "%d.%d.0" % (pmajor, pminor + 1)
+        return format_release(major, pminor + 1, build, 0)
     if bump == "patch":
-        return "%d.%d.%d" % (pmajor, pminor, ppatch + 1)
-    return "%d.%d.%d" % (pmajor, pminor, ppatch)
+        # BUILD stayed where it was, so this is another patch against the same build.
+        return format_release(major, pminor, build, ppatch + 1)
+
+    # Nothing changed. PATCH starts again only if BUILD moved under it, which is what keeps the
+    # number rising: on a channel that does not advance BUILD, resetting PATCH as well would
+    # derive a release BELOW the one already published, and the whole scheme rests on it only ever
+    # going up. Holding both is the right answer there anyway -- the same work, published again.
+    return format_release(major, pminor, build, 0 if build != pbuild else ppatch)
