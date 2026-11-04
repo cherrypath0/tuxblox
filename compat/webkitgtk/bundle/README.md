@@ -313,6 +313,38 @@ anyway). This boundary has grown twice since the plan's original Global Constrai
   `-DBWRAP_EXECUTABLE`/`-DDBUS_PROXY_EXECUTABLE` string literals from this
   container's own `/usr/bin`, worth knowing about if that sandbox is ever
   re-enabled in a future build.
+- **Largely reversed in 3.7.1.** The boundary above kept growing because each entry
+  looked individually harmless, and the result was a bundle that borrowed 36
+  libraries on its core startup path from whatever the user's distro happened to
+  ship -- inheriting that distro's SONAMEs and build options, which is precisely the
+  shape of the `libtiff.so.6` and `libffi.so.7`-vs-`.so.8` failures. Three of those
+  36 (`libpcre2-8`, `libthai`, `libfribidi`) were never on this list at all and were
+  load-bearing: absent, nothing in the bundle starts. All of it is now built from
+  source in `build-in-container.sh` -- the compression and text libraries, pcre2,
+  gcrypt, epoxy, pixman, png, expat, idn2, the whole X11 client stack, xkbcommon,
+  and libglvnd. What is deliberately left on the host is now only:
+  - **glibc** -- `libc`, `ld-linux`, `libm`, `libpthread`, `librt`, `libresolv`.
+  - **The device and init layer** -- `libudev` (speaks to the udev daemon socket and
+    reads `/run/udev`'s on-disk format; eudev provides it on non-systemd distros),
+    `libmount`, `libatomic`.
+  - **The driver loaders** -- `libvulkan`, `libva`, `libva-drm`. These dispatch to
+    the user's own GPU driver, so bundling them would break acceleration everywhere
+    rather than fix it anywhere. Note this is *not* true of EGL/GLX: the bundle
+    already shipped its own Mesa and pinned it via `__EGL_VENDOR_LIBRARY_FILENAMES`,
+    so vendoring glvnd puts the dispatch layer and the driver behind it both under
+    our control.
+  - **The audio daemons and their codecs** -- `libasound`, `libpulse`, `libmpg123`,
+    `libsndfile`, `libogg`/`libvorbis`/`libopus`/`libspeex`/`libtheora`, `libv4l2`,
+    `libusb`. All reachable only through GStreamer plugins; absent, they cost sound
+    or video rather than the webview.
+  - **fontconfig and freetype**, which arrive as a cairo meson subproject rather
+    than from the host -- listed here only because the entries above describe them
+    as system-provided and that is no longer accurate.
+
+  `libsystemd` is gone rather than vendored: it came from WebKit's
+  `ENABLE_JOURNALD_LOG`, now `OFF`. `libgtk-3` and `libcups` are gone the same way,
+  with the two plugins that pulled them in (`libgstgtk.so`, the GTK CUPS print
+  backend), neither of which this bundle uses.
 
 Deliberately vendored instead of relying on this boundary, despite being common
 system libraries elsewhere, because a real WebKitGTK requirement made them

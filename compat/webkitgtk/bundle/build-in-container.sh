@@ -24,7 +24,12 @@ source "$(dirname "$0")/versions.env"
 
 PREFIX=/opt/tuxblox-webview
 mkdir -p "$PREFIX"
-export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig:$PREFIX/lib/x86_64-linux-gnu/pkgconfig"
+# share/pkgconfig is where the X11 protocol packages put their .pc files -- xorgproto
+# and xcb-proto install headers and protocol descriptions rather than a library, so
+# they follow datarootdir rather than libdir. Without it on this path libxcb's
+# configure fails with "No package 'xcb-proto' found" immediately after xcb-proto
+# installed successfully, and the whole X11 chain below it stops.
+export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig:$PREFIX/lib/x86_64-linux-gnu/pkgconfig:$PREFIX/share/pkgconfig"
 # meson defaults to Debian's multiarch libdir (lib/x86_64-linux-gnu) for its own
 # installs, while the autotools/cmake builds earlier in this script (icu, libtasn1,
 # sqlite, lcms2, libwebp, openjpeg) land in plain lib -- so both directories need to
@@ -110,6 +115,277 @@ fetch_and_extract() {
     echo "ERROR: every download source failed for $url" >&2
     return 1
 }
+
+# --- Vendored host dependencies ---------------------------------------------------
+# Everything in this section used to be taken from whatever the user's distro shipped.
+# Borrowing a library brings the host's SONAME and build options with it, which is how
+# the libtiff.so.6 and libffi.so.7-vs-.so.8 breakages happened -- fine on this machine,
+# unloadable on the distros most users run. After this section the only libraries left
+# on the host boundary are glibc, libudev, the Vulkan/VA-API driver loaders and the
+# audio daemons; README.md's "System-provided libraries" section is the current list.
+#
+# Order matters here and is not alphabetical: pcre2 must precede glib, fribidi and
+# libthai must precede pango, pixman must precede cairo, and the X11 chain builds
+# bottom-up from xorgproto. Anything inserted into this section needs placing against
+# those, not appended to the end.
+
+echo ":: Building zlib $ZLIB_VERSION"
+fetch_and_extract "https://zlib.net/fossils/zlib-${ZLIB_VERSION}.tar.gz" /build/zlib \
+    "https://github.com/madler/zlib/releases/download/v${ZLIB_VERSION}/zlib-${ZLIB_VERSION}.tar.gz"
+cd /build/zlib
+./configure --prefix="$PREFIX"
+make -j"$JOBS"
+make install
+cd /build
+
+echo ":: Building bzip2 $BZIP2_VERSION"
+fetch_and_extract "https://sourceware.org/pub/bzip2/bzip2-${BZIP2_VERSION}.tar.gz" /build/bzip2
+# bzip2 ships no configure, and its default target builds only the static archive.
+# Makefile-libbz2_so is the one that produces the shared object; it installs nothing,
+# so the library, its SONAME links and the header are placed by hand. The SONAME it
+# records is libbz2.so.1.0, which is the name everything else here links against.
+cd /build/bzip2
+make -f Makefile-libbz2_so -j"$JOBS"
+mkdir -p "$PREFIX/lib" "$PREFIX/include"
+cp -a "libbz2.so.${BZIP2_VERSION}" "$PREFIX/lib/"
+ln -sf "libbz2.so.${BZIP2_VERSION}" "$PREFIX/lib/libbz2.so.1.0"
+ln -sf "libbz2.so.${BZIP2_VERSION}" "$PREFIX/lib/libbz2.so.1"
+ln -sf "libbz2.so.${BZIP2_VERSION}" "$PREFIX/lib/libbz2.so"
+cp -a bzlib.h "$PREFIX/include/"
+cd /build
+
+echo ":: Building zstd $ZSTD_VERSION"
+fetch_and_extract \
+    "https://github.com/facebook/zstd/releases/download/v${ZSTD_VERSION}/zstd-${ZSTD_VERSION}.tar.gz" \
+    /build/zstd
+cd /build/zstd
+make -j"$JOBS" PREFIX="$PREFIX"
+make PREFIX="$PREFIX" install
+cd /build
+
+echo ":: Building brotli $BROTLI_VERSION"
+fetch_and_extract \
+    "https://github.com/google/brotli/archive/refs/tags/v${BROTLI_VERSION}.tar.gz" /build/brotli
+cmake -B /build/brotli/_build -S /build/brotli -GNinja -DCMAKE_INSTALL_PREFIX="$PREFIX" \
+    -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DBROTLI_DISABLE_TESTS=ON
+ninja -C /build/brotli/_build -j"$JOBS" install
+cd /build
+
+echo ":: Building expat $EXPAT_VERSION"
+fetch_and_extract \
+    "https://github.com/libexpat/libexpat/releases/download/R_${EXPAT_VERSION//./_}/expat-${EXPAT_VERSION}.tar.xz" \
+    /build/expat
+cd /build/expat
+./configure --prefix="$PREFIX" --disable-static --without-docbook --without-examples --without-tests
+make -j"$JOBS"
+make install
+cd /build
+
+echo ":: Building libpng $LIBPNG_VERSION"
+fetch_and_extract "https://download.sourceforge.net/libpng/libpng-${LIBPNG_VERSION}.tar.xz" /build/libpng
+cd /build/libpng
+./configure --prefix="$PREFIX" --disable-static
+make -j"$JOBS"
+make install
+cd /build
+
+echo ":: Building pcre2 $PCRE2_VERSION"
+# glib links pcre2 unconditionally for GRegex; without this the bundle's own glib
+# resolves libpcre2-8 against the host, which is the single most load-bearing
+# unvendored dependency the bundle had -- nothing starts if it is absent.
+fetch_and_extract \
+    "https://github.com/PCRE2Project/pcre2/releases/download/pcre2-${PCRE2_VERSION}/pcre2-${PCRE2_VERSION}.tar.gz" \
+    /build/pcre2
+cd /build/pcre2
+./configure --prefix="$PREFIX" --disable-static --enable-unicode --enable-jit
+make -j"$JOBS"
+make install
+cd /build
+
+echo ":: Building libgpg-error $LIBGPG_ERROR_VERSION"
+fetch_and_extract \
+    "https://gnupg.org/ftp/gcrypt/libgpg-error/libgpg-error-${LIBGPG_ERROR_VERSION}.tar.bz2" \
+    /build/libgpg-error
+cd /build/libgpg-error
+./configure --prefix="$PREFIX" --disable-static --disable-doc --disable-tests
+make -j"$JOBS"
+make install
+cd /build
+
+echo ":: Building libgcrypt $LIBGCRYPT_VERSION"
+fetch_and_extract \
+    "https://gnupg.org/ftp/gcrypt/libgcrypt/libgcrypt-${LIBGCRYPT_VERSION}.tar.bz2" /build/libgcrypt
+cd /build/libgcrypt
+./configure --prefix="$PREFIX" --disable-static --disable-doc \
+    --with-libgpg-error-prefix="$PREFIX"
+make -j"$JOBS"
+make install
+cd /build
+
+echo ":: Building libidn2 $LIBIDN2_VERSION"
+fetch_and_extract "https://ftp.gnu.org/gnu/libidn/libidn2-${LIBIDN2_VERSION}.tar.gz" /build/libidn2
+cd /build/libidn2
+./configure --prefix="$PREFIX" --disable-static --disable-doc --disable-gcc-warnings
+make -j"$JOBS"
+make install
+cd /build
+
+echo ":: Building fribidi $FRIBIDI_VERSION"
+fetch_and_extract \
+    "https://github.com/fribidi/fribidi/releases/download/v${FRIBIDI_VERSION}/fribidi-${FRIBIDI_VERSION}.tar.xz" \
+    /build/fribidi
+meson setup /build/fribidi/_build /build/fribidi --prefix="$PREFIX" \
+    -Ddocs=false -Dbin=false -Dtests=false
+ninja -C /build/fribidi/_build -j"$JOBS" install
+
+echo ":: Building libdatrie $LIBDATRIE_VERSION"
+fetch_and_extract \
+    "https://github.com/tlwg/libdatrie/releases/download/v${LIBDATRIE_VERSION}/libdatrie-${LIBDATRIE_VERSION}.tar.xz" \
+    /build/libdatrie
+cd /build/libdatrie
+./configure --prefix="$PREFIX" --disable-static --disable-doxygen-doc
+make -j"$JOBS"
+make install
+cd /build
+
+echo ":: Building libthai $LIBTHAI_VERSION"
+# pango links libthai for Thai line breaking whether or not anybody types Thai, so an
+# absent libthai.so.0 stops pango loading at all -- and with it GTK and the whole host.
+fetch_and_extract \
+    "https://github.com/tlwg/libthai/releases/download/v${LIBTHAI_VERSION}/libthai-${LIBTHAI_VERSION}.tar.xz" \
+    /build/libthai
+cd /build/libthai
+./configure --prefix="$PREFIX" --disable-static --disable-doxygen-doc
+make -j"$JOBS"
+make install
+cd /build
+
+echo ":: Building pixman $PIXMAN_VERSION"
+fetch_and_extract "https://www.cairographics.org/releases/pixman-${PIXMAN_VERSION}.tar.gz" /build/pixman
+meson setup /build/pixman/_build /build/pixman --prefix="$PREFIX" \
+    -Dtests=disabled -Ddemos=disabled
+ninja -C /build/pixman/_build -j"$JOBS" install
+
+# --- X11 client libraries ---------------------------------------------------------
+# Built bottom-up: protocol headers, then the authentication helpers libxcb needs,
+# then libxcb, then Xlib, then the extension libraries on top of it. These are client
+# libraries speaking a stable wire protocol to whatever X server is already running,
+# so vendoring them pins our ABI without pinning the user's display server.
+
+echo ":: Building xorgproto $XORGPROTO_VERSION"
+fetch_and_extract \
+    "https://xorg.freedesktop.org/releases/individual/proto/xorgproto-${XORGPROTO_VERSION}.tar.xz" \
+    /build/xorgproto
+cd /build/xorgproto
+./configure --prefix="$PREFIX"
+make -j"$JOBS"
+make install
+cd /build
+
+echo ":: Building libXau $LIBXAU_VERSION"
+fetch_and_extract \
+    "https://xorg.freedesktop.org/releases/individual/lib/libXau-${LIBXAU_VERSION}.tar.xz" /build/libXau
+cd /build/libXau
+./configure --prefix="$PREFIX" --disable-static
+make -j"$JOBS"
+make install
+cd /build
+
+echo ":: Building libXdmcp $LIBXDMCP_VERSION"
+fetch_and_extract \
+    "https://xorg.freedesktop.org/releases/individual/lib/libXdmcp-${LIBXDMCP_VERSION}.tar.xz" \
+    /build/libXdmcp
+cd /build/libXdmcp
+./configure --prefix="$PREFIX" --disable-static --without-docs
+make -j"$JOBS"
+make install
+cd /build
+
+echo ":: Building xcb-proto $XCBPROTO_VERSION"
+fetch_and_extract \
+    "https://xorg.freedesktop.org/releases/individual/proto/xcb-proto-${XCBPROTO_VERSION}.tar.xz" \
+    /build/xcb-proto
+cd /build/xcb-proto
+./configure --prefix="$PREFIX"
+make -j"$JOBS"
+make install
+cd /build
+# libxcb's build imports xcbgen, the Python package xcb-proto just installed into this
+# prefix rather than into the container's own site-packages. Without this on PYTHONPATH
+# libxcb's configure fails with "xcbgen not found" even though xcb-proto is installed.
+export PYTHONPATH="$(echo "$PREFIX"/lib/python3*/site-packages):${PYTHONPATH:-}"
+
+echo ":: Building libxcb $LIBXCB_VERSION"
+fetch_and_extract \
+    "https://xorg.freedesktop.org/releases/individual/lib/libxcb-${LIBXCB_VERSION}.tar.xz" /build/libxcb
+cd /build/libxcb
+./configure --prefix="$PREFIX" --disable-static --without-doxygen
+make -j"$JOBS"
+make install
+cd /build
+
+echo ":: Building libX11 $LIBX11_VERSION"
+fetch_and_extract \
+    "https://xorg.freedesktop.org/releases/individual/lib/libX11-${LIBX11_VERSION}.tar.xz" /build/libX11
+cd /build/libX11
+./configure --prefix="$PREFIX" --disable-static --without-xmlto --without-fop --without-xsltproc
+make -j"$JOBS"
+make install
+cd /build
+
+for xlib in \
+    "libXext-${LIBXEXT_VERSION}" \
+    "libXrender-${LIBXRENDER_VERSION}" \
+    "libXfixes-${LIBXFIXES_VERSION}" \
+    "libXdamage-${LIBXDAMAGE_VERSION}" \
+    "libXi-${LIBXI_VERSION}" \
+    "libXrandr-${LIBXRANDR_VERSION}" \
+    "libXcursor-${LIBXCURSOR_VERSION}" \
+    "libXinerama-${LIBXINERAMA_VERSION}" \
+    "libXxf86vm-${LIBXXF86VM_VERSION}" \
+    "libXtst-${LIBXTST_VERSION}" \
+    "libXv-${LIBXV_VERSION}" \
+    "libxshmfence-${LIBXSHMFENCE_VERSION}"
+do
+    echo ":: Building $xlib"
+    fetch_and_extract \
+        "https://xorg.freedesktop.org/releases/individual/lib/${xlib}.tar.xz" "/build/$xlib"
+    cd "/build/$xlib"
+    ./configure --prefix="$PREFIX" --disable-static --without-xmlto --without-fop --without-xsltproc
+    make -j"$JOBS"
+    make install
+    cd /build
+done
+
+echo ":: Building libxkbcommon $XKBCOMMON_VERSION"
+# The keymap data itself stays on the host (/usr/share/X11/xkb): it has to match the
+# layouts the user's desktop actually configured, so only the library is vendored.
+fetch_and_extract \
+    "https://xkbcommon.org/download/libxkbcommon-${XKBCOMMON_VERSION}.tar.xz" /build/libxkbcommon
+meson setup /build/libxkbcommon/_build /build/libxkbcommon --prefix="$PREFIX" \
+    -Denable-docs=false -Denable-wayland=false -Denable-xkbregistry=false
+ninja -C /build/libxkbcommon/_build -j"$JOBS" install
+
+echo ":: Building libglvnd $LIBGLVND_VERSION"
+# The bundle already ships its own Mesa and pins it through __EGL_VENDOR_LIBRARY_FILENAMES,
+# but the glvnd dispatch layer in front of it -- libEGL.so.1/libGLX.so.0 -- was still the
+# host's, so the vendor library we select was being loaded by a loader we do not control.
+# Vendoring glvnd closes that: the loader and the driver behind it are now both ours.
+fetch_and_extract \
+    "https://gitlab.freedesktop.org/glvnd/libglvnd/-/archive/v${LIBGLVND_VERSION}/libglvnd-v${LIBGLVND_VERSION}.tar.gz" \
+    /build/libglvnd
+meson setup /build/libglvnd/_build /build/libglvnd --prefix="$PREFIX" \
+    -Dx11=enabled -Degl=true -Dglx=enabled -Dhgl=false
+ninja -C /build/libglvnd/_build -j"$JOBS" install
+
+echo ":: Building libepoxy $LIBEPOXY_VERSION"
+fetch_and_extract \
+    "https://download.gnome.org/sources/libepoxy/${LIBEPOXY_VERSION%.*}/libepoxy-${LIBEPOXY_VERSION}.tar.xz" \
+    /build/libepoxy \
+    "https://github.com/anholt/libepoxy/archive/refs/tags/${LIBEPOXY_VERSION}.tar.gz"
+meson setup /build/libepoxy/_build /build/libepoxy --prefix="$PREFIX" \
+    -Dtests=false -Dglx=yes -Degl=yes
+ninja -C /build/libepoxy/_build -j"$JOBS" install
 
 echo ":: Building libffi $LIBFFI_VERSION"
 fetch_and_extract \
@@ -313,6 +589,19 @@ echo ":: Building cairo $CAIRO_VERSION"
 fetch_and_extract "https://cairographics.org/releases/cairo-${CAIRO_VERSION}.tar.xz" /build/cairo
 meson setup /build/cairo/_build /build/cairo --prefix="$PREFIX"
 ninja -C /build/cairo/_build -j"$JOBS" install
+
+echo ":: Building libXft $LIBXFT_VERSION"
+# Out of order with the rest of the X11 chain on purpose: libXft links fontconfig,
+# which arrives in this prefix as a cairo meson subproject rather than a build of its
+# own, so this is the first point where it exists. pango's pangoxft module is what
+# needs it.
+fetch_and_extract \
+    "https://xorg.freedesktop.org/releases/individual/lib/libXft-${LIBXFT_VERSION}.tar.xz" /build/libXft
+cd /build/libXft
+./configure --prefix="$PREFIX" --disable-static
+make -j"$JOBS"
+make install
+cd /build
 
 echo ":: Building harfbuzz $HARFBUZZ_VERSION"
 fetch_and_extract \
@@ -535,8 +824,11 @@ grep -q 'TuxBlox: release the EGL native window on BOTH destroy paths' /build/gt
 # this option "build-demos" (there is no bare "demos" option; "-Ddemos=false" fails
 # meson setup immediately with "Unknown option: demos"). Confirmed against the real
 # gtk-4.18.6 tarball's meson.options before fixing.
+# -Dprint-cups=disabled drops libprintbackend-cups.so, the only thing in this bundle
+# that pulled in libcups.so.2. Nothing in the Roblox sign-in flow prints.
 meson setup /build/gtk4/_build /build/gtk4 --prefix="$PREFIX" \
-    -Dmedia-gstreamer=disabled -Dvulkan=disabled -Dbuild-tests=false -Dbuild-demos=false -Dbuild-examples=false
+    -Dmedia-gstreamer=disabled -Dvulkan=disabled -Dbuild-tests=false -Dbuild-demos=false -Dbuild-examples=false \
+    -Dprint-cups=disabled
 ninja -C /build/gtk4/_build -j"$JOBS" install
 
 # --- TLS backend for libsoup/GIO -------------------------------------------------
@@ -562,7 +854,13 @@ echo ":: Building gmp $GMP_VERSION"
 # ftp.gnu.org is GMP's other official distribution point, not a volunteer mirror.
 fetch_and_extract "https://gmplib.org/download/gmp/gmp-${GMP_VERSION}.tar.xz" /build/gmp \
     "https://ftp.gnu.org/gnu/gmp/gmp-${GMP_VERSION}.tar.xz"
-cd /build/gmp && ./configure --prefix="$PREFIX" && make -j"$JOBS" && make install && cd /build
+# --enable-fat is required, not a tuning choice. GMP's configure otherwise probes the
+# BUILD machine's CPU and compiles one microarchitecture's mpn assembly with no runtime
+# dispatch, so a bundle built on a Zen or Haswell-or-newer machine fills libgmp with
+# mulx/adcx/adox and dies with SIGILL on any older CPU the moment GnuTLS asks it for
+# bignum work -- which is the first TLS handshake, i.e. signing in. --enable-fat builds
+# every variant and picks one from CPUID at startup, as every distro's own gmp does.
+cd /build/gmp && ./configure --prefix="$PREFIX" --enable-fat && make -j"$JOBS" && make install && cd /build
 
 echo ":: Building nettle $NETTLE_VERSION"
 fetch_and_extract "https://ftp.gnu.org/gnu/nettle/nettle-${NETTLE_VERSION}.tar.gz" /build/nettle
@@ -827,8 +1125,10 @@ fetch_and_extract \
 # but the build distro is dead weight -- GStreamer skips it at registry scan, so the
 # only thing it adds is confusion when someone greps the plugin list.
 # Toolbox audio needs vorbis/opus/ogg/wav/mp4 + a sink; none of these are on that path.
+# gtk3 is disabled for the same reason, one step further on: libgstgtk.so is a video
+# sink WebKit never uses, and it was dragging a whole GTK3 stack into a GTK4 bundle.
 meson setup /build/gst-plugins-good/_build /build/gst-plugins-good --prefix="$PREFIX" \
-    -Dflac=disabled -Dvpx=disabled -Dsoup=disabled
+    -Dflac=disabled -Dvpx=disabled -Dsoup=disabled -Dgtk3=disabled
 ninja -C /build/gst-plugins-good/_build -j"$JOBS" install
 
 echo ":: Building gst-plugins-bad $GSTREAMER_VERSION"
@@ -1065,6 +1365,12 @@ rsync -a -c --delete --exclude=_build /src-webkitgtk/ /build/webkitgtk/
 # ccache are untouched, so the cost is one reconfigure plus whatever genuinely
 # changed flags force a recompile.
 rm -f /build/webkitgtk/_build/CMakeCache.txt
+# ENABLE_JOURNALD_LOG defaults ON in OptionsGTK.cmake and is the only reason
+# libwebkitgtk and libjavascriptcoregtk link libsystemd, which simply does not exist on
+# Void, Artix, Alpine, Devuan or an OpenRC Gentoo -- WebKit's own libraries could not
+# load there at all. It is used in WTF's Logger.h/Assertions.h and nowhere else, so
+# turning it off costs the journal as a log destination and nothing more; the output
+# goes to stderr instead, which is where TuxBlox's session logs already capture it.
 cmake -B /build/webkitgtk/_build -S /build/webkitgtk -GNinja \
     -DPORT=GTK -DUSE_GTK4=ON -DCMAKE_INSTALL_PREFIX="$PREFIX" \
     -DCMAKE_BUILD_TYPE=Release -DENABLE_INTROSPECTION=OFF -DENABLE_DOCUMENTATION=OFF \
@@ -1074,7 +1380,8 @@ cmake -B /build/webkitgtk/_build -S /build/webkitgtk -GNinja \
     -DENABLE_SPELLCHECK=OFF -DENABLE_GAMEPAD=OFF -DUSE_LIBHYPHEN=OFF \
     -DCMAKE_PREFIX_PATH="$PREFIX" -DICU_ROOT="$PREFIX" \
     -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-    -DENABLE_BUBBLEWRAP_SANDBOX=OFF
+    -DENABLE_BUBBLEWRAP_SANDBOX=OFF \
+    -DENABLE_JOURNALD_LOG=OFF
 cmake --build /build/webkitgtk/_build -j"$JOBS"
 cmake --install /build/webkitgtk/_build
 
