@@ -1,10 +1,6 @@
-- Added an environment variable to turn off TuxBlox's XWayland fixes (no effect on native X11)
-- Added an error message for some errors that had no message
-- Added a basic render driver
-- Changed critical Windows directories to have correct capitalization
-- Changed audio devices to be named the same way they would on Windows
-- Changed error messages to look identical to Windows
-- Fixed random crashes in Roblox caused by the WebKit
-- Fixed process and thread numbers to look identical to Windows
-- Fixed some WebKit issues
-- Removed useless debug lines from the detailed logging channel
+- Fixed a network issue in the WebKit
+- Fixed an issue where windows that are supposed to be unscalable can be scalable
+- Fixed WebKit not working in non-systemd distros
+- Fixed some black boxes randomly appearing in Roblox Studio
+- Fixed some windows being able to exceed its maximum size
+- Removed some host dependencies for the WebKit

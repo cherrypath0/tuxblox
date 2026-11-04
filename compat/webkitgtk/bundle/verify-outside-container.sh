@@ -77,7 +77,17 @@ echo ":: Verifying $TARBALL"
 # earlier draft missing this full list flagged libfreetype/libexpat/libpixman/
 # libpng16/libepoxy/libXxf86vm as bugs, none of which have anything to do with this
 # correction round.
-SYSTEM_PROVIDED_PATTERN='^lib(z|png16|freetype|fontconfig|expat|pixman-1|X11|Xext|Xrender|Xi|Xrandr|Xcursor|Xdamage|Xfixes|Xinerama|Xxf86vm|xcb.*|X11-xcb|wayland-(client|server|egl|cursor)|epoxy|xkbcommon.*|drm.*|gcrypt|nghttp2|tiff|udev|selinux|mount|brotli(dec|enc|common)|zstd|systemd|atomic|xshmfence)\.so'
+#
+# 3.7.1: most of the above is now vendored, so the list below is much shorter than the
+# one this comment describes. What is left falls into four groups and nothing else:
+# the device/init layer the kernel side owns (udev, mount, atomic), the driver loaders
+# that must dispatch to the user's own GPU driver (vulkan, va, va-drm), the audio
+# daemons and their codec libraries, which are reachable only through GStreamer
+# plugins and degrade to "no sound" rather than "no webview", and libc/toolchain
+# below. systemd is gone entirely -- see ENABLE_JOURNALD_LOG in build-in-container.sh.
+# Adding a name back here is a decision to ship something that can be missing on a
+# user's machine, so it needs the same justification as the entries above did.
+SYSTEM_PROVIDED_PATTERN='^lib(udev|mount|atomic|vulkan|va|va-drm|asound|pulse|mpg123|sndfile|ogg|vorbis|vorbisenc|opus|speex|theoradec|theoraenc|v4l2|usb-1\.0)\.so'
 
 # The interpreter (ld-linux*.so.2) and libc/libm/libdl/libpthread/librt/libresolv/
 # libutil/libgcc_s/libstdc++/libz -- the C library + toolchain runtime itself, on the

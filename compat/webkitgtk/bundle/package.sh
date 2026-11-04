@@ -137,9 +137,20 @@ cp -a bin/webview2loader-host libexec/
 # count below is the guard that was missing: this relocation silently becoming
 # a no-op is what let the bundle start resolving EGL from whatever the user's
 # machine had installed, which is not a thing to discover from a bug report.
+# 3.7.1: libglvnd is vendored now, so a libEGL.so.1 in this prefix is the glvnd
+# DISPATCH layer, not a driver -- the opposite of what this relocation is for. Hiding
+# it in gl-fallback/ would also split the loader in half, since libGLX.so.0 and
+# libGLdispatch.so.0 match none of the patterns below and would stay behind. The
+# vendor description is what decides which driver that loader opens, and it is pinned
+# to this bundle's own Mesa, so the relocation has nothing left to choose between.
+# Skipped while that description is present; the loop below is still what a future
+# Mesa built WITHOUT glvnd would need, and that Mesa installs no vendor JSON.
 echo ":: Relocating bundle's own libEGL/libGL/libGLESv1_CM/libGLESv2 into gl-fallback/"
 mkdir -p lib/x86_64-linux-gnu/gl-fallback
 moved=0
+if [ -e share/glvnd/egl_vendor.d/50_mesa.json ]; then
+    echo ":: glvnd vendor description present -- loader stays resolvable, nothing relocated"
+else
 for pattern in 'libEGL.so*' 'libGL.so*' 'libGLESv1_CM.so*' 'libGLESv2.so*'; do
     for f in lib/x86_64-linux-gnu/$pattern; do
         [ -e "$f" ] || continue
@@ -147,6 +158,7 @@ for pattern in 'libEGL.so*' 'libGL.so*' 'libGLESv1_CM.so*' 'libGLESv2.so*'; do
         moved=$((moved + 1))
     done
 done
+fi
 if [ "$moved" -eq 0 ] && [ ! -e lib/x86_64-linux-gnu/share/glvnd ] \
    && [ ! -e share/glvnd/egl_vendor.d/50_mesa.json ]; then
     echo "!! Mesa installed neither a libEGL.so.1 to relocate nor a glvnd vendor" >&2
