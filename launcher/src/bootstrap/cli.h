@@ -50,7 +50,7 @@ CommandAction commandAction(const CliOptions& options);
 bool isCommandFlag(const std::string& arg);
 
 // Human-readable usage block, printed for --help and for any usage error.
-const char* usageText();
+std::string usageText();
 
 } // namespace bootstrap
 } // namespace tuxblox

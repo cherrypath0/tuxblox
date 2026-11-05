@@ -17,6 +17,7 @@
 #include "widgets.h"
 #include "adw_look.h"
 #include "dialog.h"
+#include "i18n.h"
 
 #include <cstring>
 #include <utility>
@@ -186,14 +187,14 @@ void applyLauncherTheme(const std::string &theme) {
 }
 
 void showNotice(GtkWidget *pParent, const std::string &heading, const std::string &body) {
-    adw_dialog_present(buildDialog(heading, body, {{"OK", nullptr, nullptr}}), pParent);
+    adw_dialog_present(buildDialog(heading, body, {{i18n::tr("OK"), nullptr, nullptr}}), pParent);
 }
 
 void confirmDestructive(GtkWidget *pParent, const std::string &heading, const std::string &body,
                         const std::string &confirmLabel, std::function<void()> onConfirm) {
     // Escape and the close both leave onConfirm unrun, which is what makes them count as cancelling.
     adw_dialog_present(buildDialog(heading, body,
-                                   {{"Cancel", nullptr, nullptr},
+                                   {{i18n::tr("Cancel"), nullptr, nullptr},
                                     {confirmLabel, "destructive-action", std::move(onConfirm)}}),
                        pParent);
 }

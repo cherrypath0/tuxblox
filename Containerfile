@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xkb1 \
     libxcb-util1 libxcb-shm0 libxcb-render0 \
     libxkbcommon-x11-0 libxkbcommon0 \
-    python3 python3-dev python3-pip patchelf \
+    python3 python3-dev python3-pip patchelf gettext \
     && rm -rf /var/lib/apt/lists/*
 
 # libarchive needs cmake 3.17 or newer and this baseline ships 3.16, so a current cmake goes in

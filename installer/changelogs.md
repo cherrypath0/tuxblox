@@ -1,1 +1,2 @@
 - Fixed issues with updating TuxBlox
+- Added Brazilian Portuguese and Spanish translations, selectable with --language or the saved launcher setting

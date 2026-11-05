@@ -17,6 +17,7 @@
 #include "server_region.h"
 
 #include "desktop_notify.h"
+#include "i18n.h"
 #include "json.hpp"
 #include "roblox_http.h"
 
@@ -119,7 +120,7 @@ std::string regionNotificationTitle(const ServerRegion& region) {
         where += ", ";
     }
     where += region.country;
-    return "Connected to a server in " + where;
+    return i18n::trf("Connected to a server in {0}", {where});
 }
 
 ServerRegionWatcher::ServerRegionWatcher(bool enabled, LookupFn lookup, NotifyFn notify)

@@ -16,6 +16,7 @@
 
 #include "app.h"
 #include "checksum.h"
+#include "i18n.h"
 #include "downloader.h"
 #include "install_plan.h"
 #include "roblox_deploy.h"
@@ -63,9 +64,9 @@ constexpr size_t kDownloadWorkers = 4;
 
 const char* titleFor(Mode mode) {
     switch (mode) {
-        case Mode::Preview: return "Preview Mode";
-        case Mode::Update:  return "Checking for updates...";
-        case Mode::Install: return "Installing Roblox";
+        case Mode::Preview: return i18n::tr("Preview Mode");
+        case Mode::Update:  return i18n::tr("Checking for updates...");
+        case Mode::Install: return i18n::tr("Installing Roblox");
         case Mode::None:    break;
     }
     return "TuxBlox";
@@ -139,7 +140,7 @@ void App::run() {
             runInstall(true);
             break;
         case Mode::None:
-            fail("Nothing to do.");
+            fail(i18n::tr("Nothing to do."));
             break;
     }
 }
@@ -149,7 +150,7 @@ void App::run() {
 void App::runPreview() {
     // Every line says so, because the steps below name real packages and
     // would otherwise read as a download that is actually happening.
-    const std::string prefix = "Preview Mode - ";
+    const std::string prefix = i18n::tr("Preview Mode - ");
     const auto& packages = previewPackages();
     // Two opening steps, then three per package.
     const double steps = 2.0 + static_cast<double>(packages.size()) * 3.0;
@@ -162,19 +163,19 @@ void App::runPreview() {
         return !cancelled_;
     };
 
-    if (!advance("Contacting Roblox servers", 700)) return;
-    if (!advance("Fetching the package list", 500)) return;
+    if (!advance(i18n::tr("Contacting Roblox servers"), 700)) return;
+    if (!advance(i18n::tr("Fetching the package list"), 500)) return;
 
     for (const auto& package : packages) {
-        if (!advance("Downloading " + package, 220)) return;
-        if (!advance("Extracting " + package, 140)) return;
-        if (!advance("Installing " + package, 90)) return;
+        if (!advance(i18n::trf("Downloading {0}", {package}), 220)) return;
+        if (!advance(i18n::trf("Extracting {0}", {package}), 140)) return;
+        if (!advance(i18n::trf("Installing {0}", {package}), 90)) return;
     }
 
     {
         std::lock_guard<std::mutex> lock(mutex_);
         snapshot_.phase = Phase::Done;
-        snapshot_.status = prefix + "Finished";
+        snapshot_.status = prefix + i18n::tr("Finished");
         snapshot_.overallPercent = 100.0;
     }
     finished_ = true;
@@ -189,17 +190,17 @@ void App::runInstall(bool skipIfPresent) {
 
     std::string hash = config_.hash;
     if (hash.empty()) {
-        setStatus(updating ? "Checking for updates..." : "Contacting Roblox servers", 2.0);
+        setStatus(updating ? i18n::tr("Checking for updates...") : i18n::tr("Contacting Roblox servers"), 2.0);
         try {
             hash = parseClientVersionHash(fetchClientVersionJson(
                 robloxBinaryType(config_.app), config_.channel, &cancelled_));
         } catch (const std::exception& e) {
             const std::string detail = e.what();
             if (detail.find("401") != std::string::npos) {
-                fail("Roblox does not allow this channel to be looked up. Name an exact "
-                      "version instead, or use the live channel.");
+                fail(i18n::tr("Roblox does not allow this channel to be looked up. Name an exact "
+                              "version instead, or use the live channel."));
             } else {
-                fail(std::string("Could not work out which version to install: ") + detail);
+                fail(i18n::trf("Could not work out which version to install: {0}", {detail}));
             }
             return;
         }
@@ -214,7 +215,7 @@ void App::runInstall(bool skipIfPresent) {
     const bool present = config_.hash.empty() ? versionIsInstalled(target, config_.app)
                                                : versionIsInstalledForAnyApp(target);
     if (skipIfPresent && present) {
-        finish("Roblox is up to date");
+        finish(i18n::tr("Roblox is up to date"));
         return;
     }
 
@@ -230,7 +231,7 @@ void App::runInstall(bool skipIfPresent) {
         fs::remove_all(target, stale);
     }
 
-    setStatus("Fetching the package list", 5.0);
+    setStatus(i18n::tr("Fetching the package list"), 5.0);
     std::vector<PackageEntry> packages;
     try {
         std::string manifestText;
@@ -249,8 +250,8 @@ void App::runInstall(bool skipIfPresent) {
         if (!ok) throw std::runtime_error(lastError);
         packages = parsePackageManifest(manifestText);
     } catch (const std::exception& e) {
-        fail(std::string("Could not fetch the package list (Roblox may have removed this "
-                          "version): ") + e.what());
+        fail(i18n::trf("Could not fetch the package list (Roblox may have removed this "
+                       "version): {0}", {e.what()}));
         return;
     }
     if (cancelled_) return;
@@ -260,7 +261,7 @@ void App::runInstall(bool skipIfPresent) {
     fs::remove_all(staging, error);
     fs::create_directories(staging, error);
     if (error) {
-        fail("Could not create " + staging + ": " + error.message());
+        fail(i18n::trf("Could not create {0}: {1}", {staging, error.message()}));
         return;
     }
 
@@ -274,7 +275,7 @@ void App::runInstall(bool skipIfPresent) {
 
     const std::vector<PackageJob> jobs = buildJobs(packages, config_.app, staging);
     if (jobs.empty()) {
-        abandon("Roblox's package list had nothing TuxBlox knows how to install.");
+        abandon(i18n::tr("Roblox's package list had nothing TuxBlox knows how to install."));
         return;
     }
 
@@ -297,7 +298,7 @@ void App::runInstall(bool skipIfPresent) {
 
             {
                 std::lock_guard<std::mutex> lock(mutex_);
-                snapshot_.status = "Downloading " + job.name;
+                snapshot_.status = i18n::trf("Downloading {0}", {job.name});
             }
 
             DownloadOutcome outcome{DownloadResult::Failed, "no mirror attempted"};
@@ -321,7 +322,7 @@ void App::runInstall(bool skipIfPresent) {
             if (outcome.result != DownloadResult::Ok) {
                 std::lock_guard<std::mutex> lock(failureMutex);
                 if (failure.empty()) {
-                    failure = "Could not download " + job.name + ": " + outcome.errorMessage;
+                    failure = i18n::trf("Could not download {0}: {1}", {job.name, outcome.errorMessage});
                 }
                 stop = true;
                 return;
@@ -329,8 +330,8 @@ void App::runInstall(bool skipIfPresent) {
             if (md5File(job.archivePath) != job.md5) {
                 std::lock_guard<std::mutex> lock(failureMutex);
                 if (failure.empty()) {
-                    failure = "Checksum mismatch for " + job.name +
-                              " -- refusing to install a corrupted package.";
+                    failure = i18n::trf("Checksum mismatch for {0} -- refusing to install a corrupted package.",
+                                        {job.name});
                 }
                 stop = true;
                 return;
@@ -348,25 +349,25 @@ void App::runInstall(bool skipIfPresent) {
     }
 
     if (!failure.empty()) { abandon(failure); return; }
-    if (cancelled_) { abandon("Cancelled."); return; }
+    if (cancelled_) { abandon(i18n::tr("Cancelled.")); return; }
 
     // Extraction stays one at a time: several packages unpack into the same
     // folders, and libarchive writing them at once would race on the
     // directories it creates.
     for (size_t i = 0; i < jobs.size(); ++i) {
-        if (cancelled_) { abandon("Cancelled."); return; }
+        if (cancelled_) { abandon(i18n::tr("Cancelled.")); return; }
         const PackageJob& job = jobs[i];
         const double base = 70.0 + 28.0 * (static_cast<double>(i) / jobs.size());
 
-        setStatus("Extracting " + job.name, base);
+        setStatus(i18n::trf("Extracting {0}", {job.name}), base);
         try {
             extractZip(job.archivePath, job.destDir);
         } catch (const std::exception& e) {
-            abandon(std::string("Could not extract ") + job.name + ": " + e.what());
+            abandon(i18n::trf("Could not extract {0}: {1}", {job.name, e.what()}));
             return;
         }
 
-        setStatus("Installing " + job.name, base + 28.0 / jobs.size() * 0.5);
+        setStatus(i18n::trf("Installing {0}", {job.name}), base + 28.0 / jobs.size() * 0.5);
         fs::remove(job.archivePath, error);
     }
 
@@ -374,7 +375,7 @@ void App::runInstall(bool skipIfPresent) {
         std::ofstream appSettings(staging + "/AppSettings.xml", std::ios::binary);
         appSettings << appSettingsXml();
         if (!appSettings) {
-            abandon("Could not write AppSettings.xml into " + staging);
+            abandon(i18n::trf("Could not write AppSettings.xml into {0}", {staging}));
             return;
         }
     }
@@ -383,11 +384,11 @@ void App::runInstall(bool skipIfPresent) {
     // is never visible under its real name.
     fs::rename(staging, target, error);
     if (error) {
-        abandon("Could not move the finished version into place: " + error.message());
+        abandon(i18n::trf("Could not move the finished version into place: {0}", {error.message()}));
         return;
     }
 
-    finish(updating ? "Roblox is up to date" : "Installed " + hash);
+    finish(updating ? i18n::tr("Roblox is up to date") : i18n::trf("Installed {0}", {hash}));
 }
 
 } // namespace bootstrap

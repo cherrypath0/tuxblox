@@ -26,6 +26,7 @@
 #include "tuxblox_logo_png.h"
 #include "version.h"
 #include "about_versions.h"
+#include "i18n.h"
 #include "install_identity.h"
 #include "widgets.h"
 
@@ -42,15 +43,6 @@ struct Link {
     size_t iconLength;
 };
 
-const Link Links[] = {
-    {"Website", "https://tuxblox.net", kAssetGlobe, kAssetGlobeLen},
-    {"Documentation", "https://tuxblox.net/docs", kAssetDocs, kAssetDocsLen},
-    {"GitHub", "https://tuxblox.net/github", kAssetGithub, kAssetGithubLen},
-    {"Discord", "https://tuxblox.net/discord", kAssetDiscord, kAssetDiscordLen},
-    {"Privacy Policy", "https://tuxblox.net/privacy", kAssetPrivacy, kAssetPrivacyLen},
-    {"Terms of Use", "https://tuxblox.net/terms", kAssetScale, kAssetScaleLen},
-};
-
 GtkWidget *centredLabel(const std::string &text, const char *pStyleClass) {
     GtkWidget *pLabel = gtk_label_new(text.c_str());
     gtk_label_set_wrap(GTK_LABEL(pLabel), TRUE);
@@ -64,6 +56,15 @@ GtkWidget *centredLabel(const std::string &text, const char *pStyleClass) {
 AboutPage::AboutPage(std::string installDir) {
     pRoot_ = adw_preferences_page_new();
 
+    const Link Links[] = {
+        {i18n::tr("Website"), "https://tuxblox.net", kAssetGlobe, kAssetGlobeLen},
+        {i18n::tr("Documentation"), "https://tuxblox.net/docs", kAssetDocs, kAssetDocsLen},
+        {"GitHub", "https://tuxblox.net/github", kAssetGithub, kAssetGithubLen},
+        {"Discord", "https://tuxblox.net/discord", kAssetDiscord, kAssetDiscordLen},
+        {i18n::tr("Privacy Policy"), "https://tuxblox.net/privacy", kAssetPrivacy, kAssetPrivacyLen},
+        {i18n::tr("Terms of Use"), "https://tuxblox.net/terms", kAssetScale, kAssetScaleLen},
+    };
+
     const AboutVersions versions = aboutVersions(installDir, kTuxBloxVersion);
 
     GdkPaintable *pLogo = logoPaintable(kTuxbloxLogoPng, kTuxbloxLogoPngLen, 96);
@@ -76,11 +77,11 @@ AboutPage::AboutPage(std::string installDir) {
     gtk_box_append(GTK_BOX(pHeader), centredLabel("TuxBlox", "title-1"));
     const InstallIdentity identity = installIdentity(versions.release, versions.channel, kTuxBloxVersion);
     const std::string identityLine = identity.isRelease
-        ? "Release " + identity.version + " \xC2\xB7 " + identity.channel + " channel"
-        : "Launcher " + identity.version;
+        ? i18n::trf("Release {0} · {1} channel", {identity.version, identity.channel})
+        : i18n::trf("Launcher {0}", {identity.version});
     gtk_box_append(GTK_BOX(pHeader), centredLabel(identityLine, "dim-label"));
     gtk_box_append(GTK_BOX(pHeader),
-                   centredLabel("A free, open source launcher and compatibility layer for running Roblox on Linux.",
+                   centredLabel(i18n::tr("A free, open source launcher and compatibility layer for running Roblox on Linux."),
                                 nullptr));
     GtkWidget *pHeaderGroup = adw_preferences_group_new();
     adw_preferences_group_add(ADW_PREFERENCES_GROUP(pHeaderGroup), pHeader);
@@ -90,7 +91,7 @@ AboutPage::AboutPage(std::string installDir) {
     // bug report, and two version numbers side by side read as an install at odds with itself.
     GtkWidget *pComponents = adw_preferences_group_new();
     GtkWidget *pExpander = adw_expander_row_new();
-    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(pExpander), "Component versions");
+    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(pExpander), i18n::tr("Component versions"));
     for (const auto &[name, version] : versions.components) {
         adw_expander_row_add_row(ADW_EXPANDER_ROW(pExpander), plainActionRow(name.c_str(), version.c_str()));
     }
@@ -98,7 +99,7 @@ AboutPage::AboutPage(std::string installDir) {
     adw_preferences_page_add(ADW_PREFERENCES_PAGE(pRoot_), ADW_PREFERENCES_GROUP(pComponents));
 
     GtkWidget *pLinks = adw_preferences_group_new();
-    adw_preferences_group_set_title(ADW_PREFERENCES_GROUP(pLinks), "Links");
+    adw_preferences_group_set_title(ADW_PREFERENCES_GROUP(pLinks), i18n::tr("Links"));
     for (const Link &link : Links) {
         GtkWidget *pRow = plainActionRow(link.pLabel, "");
         adw_action_row_add_prefix(ADW_ACTION_ROW(pRow), iconImage(link.pIcon, link.iconLength, 18));

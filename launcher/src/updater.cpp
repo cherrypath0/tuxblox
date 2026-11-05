@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "updater.h"
+#include "i18n.h"
 #include "checksum.h"
 #include "downloader.h"
 #include "install_paths.h"
@@ -59,7 +60,7 @@ EnsureInstallerResult ensureInstallerBinary(const ReleaseFile& release, const st
 
     const auto entry = release.components.find("installer");
     if (entry == release.components.end() || !entry->second.x86_64.has_value()) {
-        const std::string err = "Release " + release.release + " publishes no updater to hand over to.";
+        const std::string err = i18n::trf("Release {0} publishes no updater to hand over to.", {release.release});
         report(UpdatePhase::Error, 0.0, err);
         return {false, "", err};
     }
@@ -101,7 +102,7 @@ EnsureInstallerResult ensureInstallerBinary(const ReleaseFile& release, const st
             return {};
         }
         if (dlOutcome.result == DownloadResult::Failed) {
-            std::string err = "Downloading updater failed: " + dlOutcome.errorMessage;
+            std::string err = i18n::trf("Downloading updater failed: {0}", {dlOutcome.errorMessage});
             report(UpdatePhase::Error, 0.0, err);
             return {false, "", err};
         }
@@ -109,8 +110,9 @@ EnsureInstallerResult ensureInstallerBinary(const ReleaseFile& release, const st
         std::string actualSha = sha256File(newPath);
         if (actualSha != wanted.sha256) {
             fs::remove(newPath);
-            report(UpdatePhase::Error, 0.0, "Updater checksum mismatch");
-            return {false, "", "Updater checksum mismatch"};
+            const std::string err = i18n::tr("Updater checksum mismatch");
+            report(UpdatePhase::Error, 0.0, err);
+            return {false, "", err};
         }
 
         chmod(newPath.c_str(), 0755);
@@ -118,7 +120,7 @@ EnsureInstallerResult ensureInstallerBinary(const ReleaseFile& release, const st
         fs::rename(newPath, installerPath, renameEc);
         if (renameEc) {
             fs::remove(newPath);
-            std::string err = "Failed to install updater: " + renameEc.message();
+            std::string err = i18n::trf("Failed to install updater: {0}", {renameEc.message()});
             report(UpdatePhase::Error, 0.0, err);
             return {false, "", err};
         }
@@ -144,10 +146,10 @@ std::vector<ComponentVersion> readComponentVersions(const std::string& installDi
 std::string writeReleaseHandoff(const std::string& installDir, const std::string& releaseJson) {
     const std::string path = installDir + "/.release-incoming.json";
     std::ofstream out(path, std::ios::binary | std::ios::trunc);
-    if (!out) return "TuxBlox could not write to its own folder";
+    if (!out) return i18n::tr("TuxBlox could not write to its own folder");
     out << releaseJson;
     out.flush();
-    if (!out) return "writing the update details failed, which usually means the disk is full";
+    if (!out) return i18n::tr("writing the update details failed, which usually means the disk is full");
     return "";
 }
 

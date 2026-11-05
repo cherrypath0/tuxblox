@@ -36,10 +36,10 @@ std::optional<int> runCommand(int argc, char** argv) {
             printf("%s\n", kTuxBloxBuildId);
             return 0;
         case CommandAction::Usage:
-            printf("%s", usageText());
+            printf("%s", usageText().c_str());
             return 0;
         case CommandAction::Error:
-            fprintf(stderr, "%s\n\n%s", options.error.c_str(), usageText());
+            fprintf(stderr, "%s\n\n%s", options.error.c_str(), usageText().c_str());
             return 2;
         case CommandAction::Run:
             break;

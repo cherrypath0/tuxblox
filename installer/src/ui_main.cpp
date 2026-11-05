@@ -14,10 +14,11 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 #include "adw_env.h"
-#include "user_agent.h"
 #include "app.h"
 #include "cli.h"
+#include "i18n.h"
 #include "ui_adw.h"
+#include "user_agent.h"
 #include "version.h"
 
 #include <climits>
@@ -45,6 +46,10 @@ int main(int argc, char **argv) {
 
     useBundledEnvironment(selfDirectory());
 
+    // The outer installer already exported the language and passes --language
+    // through; when this binary is run directly it reads the same flags.
+    initializeLanguage(argc, argv);
+
     // Passed by the outer binary after it has already done the removal, purely so the result can be shown in a window.
     if (argc == 2 && std::string(argv[1]) == "--uninstall-result-ok") return runAdwUninstallResult(true);
     if (argc == 2 && std::string(argv[1]) == "--uninstall-result-failed") return runAdwUninstallResult(false);
@@ -56,7 +61,7 @@ int main(int argc, char **argv) {
     }
 
     if (options.help) {
-        printf("%s", usageText());
+        printf("%s", usageText().c_str());
         return 0;
     }
     if (options.version) {
@@ -66,12 +71,12 @@ int main(int argc, char **argv) {
 
     if (geteuid() == 0) {
         if (!options.allowRoot) {
-            fprintf(stderr, "TuxBlox: refusing to run as root. Re-run as a normal user, or pass "
-                            "--allow-root if you have a specific reason.\n");
+            fprintf(stderr, "%s\n", i18n::tr("TuxBlox: refusing to run as root. Re-run as a normal user, or pass "
+                                             "--allow-root if you have a specific reason."));
             return 1;
         }
-        printf("WARNING: The current user is root, it is highly recommended to launch TuxBlox as "
-               "a normal user unless there is a specific reason why\n");
+        printf("%s\n", i18n::tr("WARNING: The current user is root, it is highly recommended to launch TuxBlox as "
+                                "a normal user unless there is a specific reason why"));
         fflush(stdout);
     }
 
@@ -92,6 +97,7 @@ int main(int argc, char **argv) {
     } else {
         execl(launcher.c_str(), launcher.c_str(), (char *)nullptr);
     }
-    fprintf(stderr, "TuxBlox was installed successfully, but failed to launch %s.\n", launcher.c_str());
+    fprintf(stderr, "%s\n", i18n::trf("TuxBlox was installed successfully, but failed to launch {0}.",
+                                      {launcher}).c_str());
     return 1;
 }

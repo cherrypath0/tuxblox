@@ -37,6 +37,7 @@ int main() {
         assert(s.sendCrashReports == false);
         assert(s.channel == "stable");
         assert(s.autoUpdate == false);
+        assert(s.language == "system");
     }
 
     // Round-trip, including sendCrashReports = false and a non-default channel.

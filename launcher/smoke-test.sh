@@ -36,6 +36,9 @@ StackPath="$(realpath "$StackPath")"
 
 read -r -d '' InnerScript <<'INNER' || true
 set -eu
+# The checks below compare English text. Pin the language so a host locale
+# cannot change what the binary prints.
+export TUXBLOX_LANGUAGE=en
 export DEBIAN_FRONTEND=noninteractive
 fail() { printf 'FAIL: %s\n' "$1"; exit 1; }
 

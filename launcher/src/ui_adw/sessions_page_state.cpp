@@ -16,6 +16,7 @@
 
 #include "sessions_page_state.h"
 
+#include "i18n.h"
 #include "session_facts.h"
 
 #include <algorithm>
@@ -25,8 +26,6 @@ namespace tuxblox {
 
 namespace {
 
-const char kNothingRunning[] = "Nothing is running. Launch Roblox from Home and it will appear here.";
-const char kNothingMatched[] = "No sessions match what you typed.";
 const char kSeparator[] = " \xC2\xB7 ";
 
 std::string lowered(const std::string& text) {
@@ -64,14 +63,20 @@ SessionsView sessionsView(const std::vector<Session>& sessions, std::time_t now)
         }
 
         const long since = static_cast<long>(now - session.endedAt);
-        row.meta = "ended " + formatUptime(since) + " ago";
-        if (!session.endedReason.empty()) row.meta += std::string(kSeparator) + session.endedReason;
+        row.meta = i18n::trf("ended {0} ago", {formatUptime(since)});
+        if (session.endedReason == "crashed") {
+            row.meta += std::string(kSeparator) + i18n::tr("crashed");
+        } else if (!session.endedReason.empty()) {
+            row.meta += std::string(kSeparator) + session.endedReason;
+        }
         // Anything that did not close cleanly reads differently, so a crash is not something to go hunting for.
         row.crashed = session.endedReason == "crashed";
         view.ended.push_back(std::move(row));
     }
 
-    if (view.running.empty() && view.ended.empty()) view.emptyMessage = kNothingRunning;
+    if (view.running.empty() && view.ended.empty()) {
+        view.emptyMessage = i18n::tr("Nothing is running. Launch Roblox from Home and it will appear here.");
+    }
     return view;
 }
 
@@ -87,7 +92,9 @@ SessionsView filterSessions(const SessionsView& view, const std::string& query) 
         if (matches(row, needle)) kept.ended.push_back(row);
     }
     if (kept.running.empty() && kept.ended.empty()) {
-        kept.emptyMessage = view.running.empty() && view.ended.empty() ? kNothingRunning : kNothingMatched;
+        kept.emptyMessage = view.running.empty() && view.ended.empty()
+                                ? i18n::tr("Nothing is running. Launch Roblox from Home and it will appear here.")
+                                : i18n::tr("No sessions match what you typed.");
     }
     return kept;
 }

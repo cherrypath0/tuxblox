@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "ui_adw/sessions_page_state.h"
+#include "i18n.h"
 
 #include <cassert>
 #include <cstdio>
@@ -147,6 +148,14 @@ void test_filter_that_matches_nothing_says_so() {
     assert(!none.emptyMessage.empty());
 }
 
+void test_crashed_row_is_translated() {
+    tuxblox::i18n::setLanguage(tuxblox::i18n::Language::PortugueseBrazil);
+    const SessionsView view = sessionsView({finished(LaunchTarget::Player, 11, 60, "crashed")}, kNow);
+    assert(!view.ended.empty());
+    assert(view.ended[0].meta.find("travou") != std::string::npos);
+    tuxblox::i18n::setLanguage(tuxblox::i18n::Language::English);
+}
+
 } // namespace
 
 int main() {
@@ -160,6 +169,7 @@ int main() {
     test_filter_matches_the_pid();
     test_filter_with_an_empty_query_keeps_everything();
     test_filter_that_matches_nothing_says_so();
+    test_crashed_row_is_translated();
     std::printf("sessions_page_state: all tests passed\n");
     return 0;
 }

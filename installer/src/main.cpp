@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "app.h"
+#include "i18n.h"
 #include "user_agent.h"
 #include "cli.h"
 #include "install_paths.h"
@@ -79,12 +80,13 @@ void showGraphicalNotice(const std::string& details) {
         // Decided before the fork, because this process has threads and the child must do nothing but exec.
         const int kind = tool == tools[0] ? 0 : tool == tools[1] ? 1 : 2;
         const char* text = details.c_str();
+        const char* title = tuxblox::i18n::tr("TuxBlox Installer");
         const pid_t child = fork();
         if (child == 0) {
             if (kind == 0) {
-                execlp(tool, tool, "--error", "--title", "TuxBlox Installer", "--text", text, static_cast<char*>(nullptr));
+                execlp(tool, tool, "--error", "--title", title, "--text", text, static_cast<char*>(nullptr));
             } else if (kind == 1) {
-                execlp(tool, tool, "--title", "TuxBlox Installer", "--error", text, static_cast<char*>(nullptr));
+                execlp(tool, tool, "--title", title, "--error", text, static_cast<char*>(nullptr));
             } else {
                 execlp(tool, tool, "-center", text, static_cast<char*>(nullptr));
             }
@@ -104,7 +106,7 @@ void showGraphicalNotice(const std::string& details) {
 bool HeadlessRun = false;
 
 void reportError(const std::string& details) {
-    fprintf(stderr, "Error: %s\n", details.c_str());
+    fprintf(stderr, "%s: %s\n", tuxblox::i18n::tr("Error"), details.c_str());
     if (!HeadlessRun && hasGraphicalSession()) {
         showGraphicalNotice(details);
     }
@@ -112,9 +114,9 @@ void reportError(const std::string& details) {
 
 void printUninstallResult(bool ok, const char* failureText) {
     if (ok) {
-        printf("TuxBlox has been completely removed from this system.\n");
+        printf("%s\n", tuxblox::i18n::tr("TuxBlox has been completely removed from this system."));
     } else {
-        fprintf(stderr, "Error: %s\n", failureText);
+        fprintf(stderr, "%s: %s\n", tuxblox::i18n::tr("Error"), failureText);
     }
 }
 
@@ -140,18 +142,21 @@ void showUninstallResult(bool ok, const char* failureText, const std::string& ui
         printUninstallResult(ok, failureText);
     }
 }
+
 } // namespace
 
 int main(int argc, char** argv) {
     using namespace tuxblox;
 
+    initializeLanguage(argc, argv);
+
     const CliOptions options = parseArgs(argc, argv);
     if (!options.error.empty()) {
-        fprintf(stderr, "%s\n\n%s", options.error.c_str(), usageText());
+        fprintf(stderr, "%s\n\n%s", options.error.c_str(), usageText().c_str());
         return 2;
     }
     if (options.help) {
-        printf("%s", usageText());
+        printf("%s", usageText().c_str());
         return 0;
     }
     if (options.version) {
@@ -161,12 +166,12 @@ int main(int argc, char** argv) {
 
     if (geteuid() == 0) {
         if (!options.allowRoot) {
-            fprintf(stderr, "TuxBlox: refusing to run as root. Re-run as a normal user, or pass "
-                            "--allow-root if you have a specific reason.\n");
+            fprintf(stderr, "%s\n", i18n::tr("TuxBlox: refusing to run as root. Re-run as a normal user, or pass "
+                                             "--allow-root if you have a specific reason."));
             return 1;
         }
-        printf("WARNING: The current user is root, it is highly recommended to launch TuxBlox as "
-               "a normal user unless there is a specific reason why\n");
+        printf("%s\n", i18n::tr("WARNING: The current user is root, it is highly recommended to launch TuxBlox as "
+                                "a normal user unless there is a specific reason why"));
         fflush(stdout);
     }
 
@@ -176,11 +181,11 @@ int main(int argc, char** argv) {
         std::error_code ec;
         const std::filesystem::path path(options.dir);
         if (std::filesystem::exists(path, ec) && !std::filesystem::is_directory(path, ec)) {
-            reportError("--dir names a file, not a folder: " + options.dir);
+            reportError(i18n::trf("--dir names a file, not a folder: {0}", {options.dir}));
             return 2;
         }
         if (!std::filesystem::exists(path.parent_path(), ec)) {
-            reportError("--dir's parent folder does not exist: " + options.dir);
+            reportError(i18n::trf("--dir's parent folder does not exist: {0}", {options.dir}));
             return 2;
         }
     }
@@ -198,9 +203,9 @@ int main(int argc, char** argv) {
         }
 
         const bool ok = performUninstall(options.dir.empty() ? installDir() : options.dir);
-        const char* failureText =
+        const char* failureText = i18n::tr(
             "Desktop shortcuts and URL handlers were removed, but the TuxBlox folder could "
-            "not be fully deleted. You may need to remove it manually.";
+            "not be fully deleted. You may need to remove it manually.");
         if (options.headless) {
             printUninstallResult(ok, failureText);
         } else {
@@ -233,7 +238,7 @@ int main(int argc, char** argv) {
         }
     } else {
         if (!hasGraphicalSession()) {
-            reportError("There is no graphical session to show the installer in. Run this installer from your desktop, or use --headless to install from the terminal.");
+            reportError(i18n::tr("There is no graphical session to show the installer in. Run this installer from your desktop, or use --headless to install from the terminal."));
             app.cancel();
             return 1;
         }
@@ -262,7 +267,7 @@ int main(int argc, char** argv) {
         args.push_back(nullptr);
         execv(stack.uiBinaryPath.c_str(), args.data());
         const int execError = errno;
-        reportError("TuxBlox unpacked its interface but could not start it. This usually means the folder it was unpacked into does not allow programs to run. Try running this installer with --headless.");
+        reportError(i18n::tr("TuxBlox unpacked its interface but could not start it. This usually means the folder it was unpacked into does not allow programs to run. Try running this installer with --headless."));
         fprintf(stderr, "Details: %s: %s\n", stack.uiBinaryPath.c_str(), strerror(execError));
         return 1;
     }
@@ -284,8 +289,7 @@ int main(int argc, char** argv) {
     }
     // Only reached if execl() failed -- the install itself already succeeded,
     // so say so rather than letting the window just vanish.
-    reportError(
-        "TuxBlox was installed successfully, but failed to launch " + launcher +
-        ". You can try running it manually.");
+    reportError(i18n::trf("TuxBlox was installed successfully, but failed to launch {0}. "
+                          "You can try running it manually.", {launcher}));
     return 1;
 }

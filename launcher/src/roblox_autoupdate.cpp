@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "roblox_autoupdate.h"
+#include "i18n.h"
 #include "prefix_user.h"
 
 #include "desktop_notify.h"
@@ -116,9 +117,9 @@ void runRobloxUpdateCheck(const std::string& installDir, LaunchTarget target,
         // rather than that Roblox failed to start: the launch goes ahead on
         // the version already installed either way.
         showDesktopNotification(
-            "Failed to Update Roblox",
-            "Something went wrong while attempting to update Roblox, so the update "
-            "was skipped. Please check your internet connection and try again.");
+            i18n::tr("Failed to Update Roblox"),
+            i18n::tr("Something went wrong while attempting to update Roblox, so the update "
+                     "was skipped. Please check your internet connection and try again."));
         return;
     }
 

@@ -16,6 +16,7 @@
 
 #include "headless_launch.h"
 #include "fastflag_file.h"
+#include "i18n.h"
 #include "root_guard.h"
 #include "install_paths.h"
 #include "prefix_session.h"
@@ -37,6 +38,7 @@ namespace tuxblox {
 
 int runHeadlessQuickLaunch(const std::string& installDir, LaunchTarget target, const std::string& uri) {
     const Settings settings = loadSettings(installDir);
+    i18n::initializeFromSetting(settings.language);
 
     // Before the exe is resolved, so a version installed by this check is the
     // one that starts.

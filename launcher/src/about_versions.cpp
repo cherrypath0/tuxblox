@@ -16,6 +16,7 @@
 
 #include "about_versions.h"
 
+#include "i18n.h"
 #include "release_file.h"
 
 namespace tuxblox {
@@ -42,7 +43,7 @@ AboutVersions aboutVersions(const std::string& installDir, const std::string& la
             continue;
         }
         about.components.push_back(
-            {display, readComponentVersion(installDir, name).value_or("not installed")});
+            {display, readComponentVersion(installDir, name).value_or(i18n::tr("not installed"))});
     }
     return about;
 }

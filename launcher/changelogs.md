@@ -1,0 +1,1 @@
+- Added Brazilian Portuguese and Spanish translations, selectable in Settings

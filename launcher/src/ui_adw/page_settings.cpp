@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "page_settings.h"
+#include "i18n.h"
 #include "widgets.h"
 
 #include <string>
@@ -27,16 +28,11 @@ const char *const Channels[] = {"stable", "canary", "experimental", nullptr};
 
 // What settings.json stores, in the order the dropdown offers them
 const char *const Themes[] = {"system", "dark", "grey", "light", nullptr};
-const char *const ThemeLabels[] = {"System theme", "Dark", "Grey", "Light", nullptr};
-
-// One label per kGraphicsChoices entry, in the same order
-const char *const GraphicsLabels[] = {"Automatic", "DirectX 11", "Vulkan", "OpenGL", nullptr};
-static_assert(G_N_ELEMENTS(GraphicsLabels) == G_N_ELEMENTS(kGraphicsChoices) + 1,
-              "every renderer the setting stores needs a label, and the two lists are read by index");
+const char *const LanguageTags[] = {"system", "en", "pt_BR", "es", nullptr};
 
 std::string automaticGpuLabel(const std::vector<GpuDevice> &gpus) {
-    if (gpus.empty()) return "Automatic";
-    return "Automatic (1: " + gpus.front().label + ")";
+    if (gpus.empty()) return i18n::tr("Automatic");
+    return i18n::trf("Automatic (1: {0})", {gpus.front().label});
 }
 
 } // namespace
@@ -45,37 +41,40 @@ SettingsPage::SettingsPage(App &app) : app_(app) {
     gpus_ = enumerateGpus("/sys/class/drm");
     pRoot_ = adw_preferences_page_new();
 
-    AdwPreferencesGroup *pLauncher = addGroup("Launcher");
+    AdwPreferencesGroup *pLauncher = addGroup(i18n::tr("Launcher"));
+    buildLanguage(pLauncher);
     buildTheme(pLauncher);
-    addToggle(pLauncher, "Minimize to background", "Automatically close this window whenever Roblox starts.",
+    addToggle(pLauncher, i18n::tr("Minimize to background"),
+              i18n::tr("Automatically close this window whenever Roblox starts."),
               &Settings::minimizeToBackground);
 
     buildUpdates();
     buildEnvironment();
 
-    AdwPreferencesGroup *pController = addGroup("Controller");
-    addToggle(pController, "Enable Haptics", "An experimental feature that lets Roblox vibrate your controller",
+    AdwPreferencesGroup *pController = addGroup(i18n::tr("Controller"));
+    addToggle(pController, i18n::tr("Enable Haptics"),
+              i18n::tr("An experimental feature that lets Roblox vibrate your controller"),
               &Settings::haptics);
 
-    AdwPreferencesGroup *pTroubleshooting = addGroup("Troubleshooting");
-    addToggle(pTroubleshooting, "Detailed logging",
-              "Records much more information in session logs. Turn this on if you're reporting a bug.",
+    AdwPreferencesGroup *pTroubleshooting = addGroup(i18n::tr("Troubleshooting"));
+    addToggle(pTroubleshooting, i18n::tr("Detailed logging"),
+              i18n::tr("Records much more information in session logs. Turn this on if you're reporting a bug."),
               &Settings::debugLogging);
 
-    AdwPreferencesGroup *pPrivacy = addGroup("Privacy");
-    addToggle(pPrivacy, "Always send crash reports",
-              "Send the session log and your versions when Roblox crashes. See tuxblox.net/privacy",
+    AdwPreferencesGroup *pPrivacy = addGroup(i18n::tr("Privacy"));
+    addToggle(pPrivacy, i18n::tr("Always send crash reports"),
+              i18n::tr("Send the session log and your versions when Roblox crashes. See tuxblox.net/privacy"),
               &Settings::sendCrashReports);
     AdwExpanderRow *pDiscord =
-        addExpander(pPrivacy, "Enable Discord Rich Presence", "", &Settings::discordRpc);
-    addNestedToggle(pDiscord, "Let people join your server",
-                    "Adds a button to your activity that allows others to join your server",
+        addExpander(pPrivacy, i18n::tr("Enable Discord Rich Presence"), "", &Settings::discordRpc);
+    addNestedToggle(pDiscord, i18n::tr("Let people join your server"),
+                    i18n::tr("Adds a button to your activity that allows others to join your server"),
                     &Settings::discordJoinButton);
-    addNestedToggle(pDiscord, "Let games use the Rich Presence API",
-                    "Allows games you join to set more advanced activity. Only works on games that use the Bloxstrap API.",
+    addNestedToggle(pDiscord, i18n::tr("Let games use the Rich Presence API"),
+                    i18n::tr("Allows games you join to set more advanced activity. Only works on games that use the Bloxstrap API."),
                     &Settings::discordGameStatus);
-    addToggle(pPrivacy, "Notify server location",
-              "Sends a notification about the server's location whenever you join a game server or a Team Create server",
+    addToggle(pPrivacy, i18n::tr("Notify server location"),
+              i18n::tr("Sends a notification about the server's location whenever you join a game server or a Team Create server"),
               &Settings::serverRegionNotify);
 
     buildDangerZone();
@@ -129,10 +128,33 @@ void SettingsPage::onExpander(GObject *pRow, GParamSpec *, gpointer data) {
     self.app_.updateSettings(updated);
 }
 
+void SettingsPage::buildLanguage(AdwPreferencesGroup *pGroup) {
+    GtkWidget *pLanguage = adw_combo_row_new();
+    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(pLanguage), i18n::tr("Language"));
+    adw_action_row_set_subtitle(ADW_ACTION_ROW(pLanguage),
+                                i18n::tr("Takes effect after restarting TuxBlox."));
+    const char *const labels[] = {
+        i18n::tr("System language"),
+        i18n::nativeName(i18n::Language::English),
+        i18n::nativeName(i18n::Language::PortugueseBrazil),
+        i18n::nativeName(i18n::Language::Spanish),
+        nullptr};
+    static_assert(G_N_ELEMENTS(labels) == G_N_ELEMENTS(LanguageTags),
+                  "LanguageTags and the labels offered for them must stay in the same order");
+    GtkStringList *pLanguages = gtk_string_list_new(labels);
+    adw_combo_row_set_model(ADW_COMBO_ROW(pLanguage), G_LIST_MODEL(pLanguages));
+    g_object_unref(pLanguages);
+    pLanguage_ = ADW_COMBO_ROW(pLanguage);
+    g_signal_connect(pLanguage, "notify::selected", G_CALLBACK(onLanguage), this);
+    adw_preferences_group_add(pGroup, pLanguage);
+}
+
 void SettingsPage::buildTheme(AdwPreferencesGroup *pGroup) {
     GtkWidget *pTheme = adw_combo_row_new();
-    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(pTheme), "Launcher theme");
-    GtkStringList *pThemes = gtk_string_list_new(ThemeLabels);
+    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(pTheme), i18n::tr("Launcher theme"));
+    const char *const labels[] = {i18n::tr("System theme"), i18n::tr("Dark"), i18n::tr("Grey"),
+                                  i18n::tr("Light"), nullptr};
+    GtkStringList *pThemes = gtk_string_list_new(labels);
     adw_combo_row_set_model(ADW_COMBO_ROW(pTheme), G_LIST_MODEL(pThemes));
     g_object_unref(pThemes);
     pTheme_ = ADW_COMBO_ROW(pTheme);
@@ -141,11 +163,11 @@ void SettingsPage::buildTheme(AdwPreferencesGroup *pGroup) {
 }
 
 void SettingsPage::buildUpdates() {
-    AdwPreferencesGroup *pGroup = addGroup("Updates");
+    AdwPreferencesGroup *pGroup = addGroup(i18n::tr("Updates"));
 
     GtkWidget *pChannel = adw_combo_row_new();
-    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(pChannel), "Update channel");
-    adw_action_row_set_subtitle(ADW_ACTION_ROW(pChannel), "The release channel TuxBlox updates to");
+    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(pChannel), i18n::tr("Update channel"));
+    adw_action_row_set_subtitle(ADW_ACTION_ROW(pChannel), i18n::tr("The release channel TuxBlox updates to"));
     GtkStringList *pChannels = gtk_string_list_new(Channels);
     adw_combo_row_set_model(ADW_COMBO_ROW(pChannel), G_LIST_MODEL(pChannels));
     g_object_unref(pChannels);
@@ -153,16 +175,20 @@ void SettingsPage::buildUpdates() {
     g_signal_connect(pChannel, "notify::selected", G_CALLBACK(onChannel), this);
     adw_preferences_group_add(pGroup, pChannel);
 
-    addToggle(pGroup, "Automatic updates", "Install TuxBlox updates without asking.", &Settings::autoUpdate);
-    addToggle(pGroup, "Auto-Update Roblox", "", &Settings::autoUpdateRoblox);
+    addToggle(pGroup, i18n::tr("Automatic updates"), i18n::tr("Install TuxBlox updates without asking."),
+              &Settings::autoUpdate);
+    addToggle(pGroup, i18n::tr("Auto-Update Roblox"), "", &Settings::autoUpdateRoblox);
 }
 
 void SettingsPage::buildEnvironment() {
-    AdwPreferencesGroup *pGroup = addGroup("Environment");
+    AdwPreferencesGroup *pGroup = addGroup(i18n::tr("Environment"));
 
     GtkWidget *pGraphics = adw_combo_row_new();
-    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(pGraphics), "Graphics API");
-    GtkStringList *pGraphicsChoices = gtk_string_list_new(GraphicsLabels);
+    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(pGraphics), i18n::tr("Graphics API"));
+    const char *const graphicsLabels[] = {i18n::tr("Automatic"), "DirectX 11", "Vulkan", "OpenGL", nullptr};
+    static_assert(G_N_ELEMENTS(graphicsLabels) == G_N_ELEMENTS(kGraphicsChoices) + 1,
+                  "every renderer the setting stores needs a label, and the two lists are read by index");
+    GtkStringList *pGraphicsChoices = gtk_string_list_new(graphicsLabels);
     adw_combo_row_set_model(ADW_COMBO_ROW(pGraphics), G_LIST_MODEL(pGraphicsChoices));
     g_object_unref(pGraphicsChoices);
     pGraphics_ = ADW_COMBO_ROW(pGraphics);
@@ -170,7 +196,7 @@ void SettingsPage::buildEnvironment() {
     adw_preferences_group_add(pGroup, pGraphics);
 
     GtkWidget *pGpu = adw_combo_row_new();
-    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(pGpu), "Preferred graphics card");
+    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(pGpu), i18n::tr("Preferred graphics card"));
     GtkStringList *pGpus = gtk_string_list_new(nullptr);
     gtk_string_list_append(pGpus, automaticGpuLabel(gpus_).c_str());
     for (size_t i = 0; i < gpus_.size(); ++i) {
@@ -182,16 +208,16 @@ void SettingsPage::buildEnvironment() {
     g_signal_connect(pGpu, "notify::selected", G_CALLBACK(onGpu), this);
     adw_preferences_group_add(pGroup, pGpu);
 
-    addToggle(pGroup, "GPU acceleration for web pages",
-              "Speed up the rendering of web panels using your graphics card", &Settings::webviewGpu);
-    addToggle(pGroup, "Virtual Desktop Mode", "Run Roblox in a separate window that acts as a desktop",
-              &Settings::virtualDesktop);
+    addToggle(pGroup, i18n::tr("GPU acceleration for web pages"),
+              i18n::tr("Speed up the rendering of web panels using your graphics card"), &Settings::webviewGpu);
+    addToggle(pGroup, i18n::tr("Virtual Desktop Mode"),
+              i18n::tr("Run Roblox in a separate window that acts as a desktop"), &Settings::virtualDesktop);
 
     // An entry beside the row rather than an AdwEntryRow, which puts the entry on its own line
-    GtkWidget *pRow = plainActionRow("Environment variables", "");
+    GtkWidget *pRow = plainActionRow(i18n::tr("Environment variables"), "");
     GtkWidget *pEntry = gtk_entry_new();
     pEnvironment_ = GTK_ENTRY(pEntry);
-    gtk_entry_set_placeholder_text(pEnvironment_, "VARIABLE=value");
+    gtk_entry_set_placeholder_text(pEnvironment_, i18n::tr("VARIABLE=value"));
     gtk_editable_set_width_chars(GTK_EDITABLE(pEntry), 24);
     gtk_widget_set_valign(pEntry, GTK_ALIGN_CENTER);
     g_signal_connect(pEntry, "activate", G_CALLBACK(onEnvironmentActivate), this);
@@ -212,18 +238,18 @@ GtkButton *SettingsPage::dangerButton(GtkWidget *pRow, const char *pLabel, GCall
 }
 
 void SettingsPage::buildDangerZone() {
-    AdwPreferencesGroup *pGroup = addGroup("Danger zone");
+    AdwPreferencesGroup *pGroup = addGroup(i18n::tr("Danger zone"));
 
-    GtkWidget *pTerminate = plainActionRow("Terminate Roblox", "");
-    pTerminate_ = dangerButton(pTerminate, "Terminate", G_CALLBACK(onTerminate));
+    GtkWidget *pTerminate = plainActionRow(i18n::tr("Terminate Roblox"), "");
+    pTerminate_ = dangerButton(pTerminate, i18n::tr("Terminate"), G_CALLBACK(onTerminate));
     adw_preferences_group_add(pGroup, pTerminate);
 
-    GtkWidget *pWipe = plainActionRow("Wipe the virtual drive", "");
-    pWipe_ = dangerButton(pWipe, "Wipe prefix", G_CALLBACK(onWipe));
+    GtkWidget *pWipe = plainActionRow(i18n::tr("Wipe the virtual drive"), "");
+    pWipe_ = dangerButton(pWipe, i18n::tr("Wipe prefix"), G_CALLBACK(onWipe));
     adw_preferences_group_add(pGroup, pWipe);
 
-    GtkWidget *pUninstall = plainActionRow("Uninstall TuxBlox", "");
-    pUninstall_ = dangerButton(pUninstall, "Uninstall", G_CALLBACK(onUninstall));
+    GtkWidget *pUninstall = plainActionRow(i18n::tr("Uninstall TuxBlox"), "");
+    pUninstall_ = dangerButton(pUninstall, i18n::tr("Uninstall"), G_CALLBACK(onUninstall));
     adw_preferences_group_add(pGroup, pUninstall);
 
     // Not rows, so the group places them below its list
@@ -250,6 +276,19 @@ void SettingsPage::onChannel(GObject *pRow, GParamSpec *, gpointer data) {
     Settings updated = pSelf->app_.snapshot().settings;
     updated.channel = Channels[selected];
     pSelf->app_.updateSettings(updated);
+}
+
+void SettingsPage::onLanguage(GObject *pRow, GParamSpec *, gpointer data) {
+    auto *pSelf = static_cast<SettingsPage *>(data);
+    if (pSelf->seeding_) return;
+    const guint selected = adw_combo_row_get_selected(ADW_COMBO_ROW(pRow));
+    if (selected >= G_N_ELEMENTS(LanguageTags) - 1) return;
+    Settings updated = pSelf->app_.snapshot().settings;
+    if (updated.language == LanguageTags[selected]) return;
+    updated.language = LanguageTags[selected];
+    pSelf->app_.updateSettings(updated);
+    showNotice(GTK_WIDGET(pSelf->pRoot_), i18n::tr("Restart required"),
+               i18n::tr("The new language will be used the next time TuxBlox starts."));
 }
 
 void SettingsPage::onTheme(GObject *pRow, GParamSpec *, gpointer data) {
@@ -305,35 +344,38 @@ void SettingsPage::onTerminate(GtkButton *pButton, gpointer data) {
     auto *pSelf = static_cast<SettingsPage *>(data);
     pSelf->terminateAwaited_ = true;
     pSelf->app_.requestTerminateProcesses();
-    setButtonLabel(pButton, "Stopping\xE2\x80\xA6");
+    setButtonLabel(pButton, i18n::tr("Stopping…"));
     gtk_widget_set_sensitive(GTK_WIDGET(pButton), FALSE);
 }
 
 gboolean SettingsPage::onTerminateReset(gpointer data) {
     auto *pSelf = static_cast<SettingsPage *>(data);
-    setButtonLabel(pSelf->pTerminate_, "Terminate");
+    setButtonLabel(pSelf->pTerminate_, i18n::tr("Terminate"));
     gtk_widget_set_sensitive(GTK_WIDGET(pSelf->pTerminate_), TRUE);
     return G_SOURCE_REMOVE;
 }
 
 void SettingsPage::onWipe(GtkButton *pButton, gpointer data) {
     App *pApp = &static_cast<SettingsPage *>(data)->app_;
-    confirmDestructive(GTK_WIDGET(pButton), "Wipe the virtual drive?",
-                       "Every installed Roblox goes with it. Your settings and FastFlags are kept.", "Wipe",
-                       [pApp] { pApp->requestWipePrefix(); });
+    confirmDestructive(GTK_WIDGET(pButton), i18n::tr("Wipe the virtual drive?"),
+                       i18n::tr("Every installed Roblox goes with it. Your settings and FastFlags are kept."),
+                       i18n::tr("Wipe"), [pApp] { pApp->requestWipePrefix(); });
 }
 
 void SettingsPage::onUninstall(GtkButton *pButton, gpointer data) {
     App *pApp = &static_cast<SettingsPage *>(data)->app_;
-    confirmDestructive(GTK_WIDGET(pButton), "Uninstall TuxBlox?",
-                       "Removes the virtual drive, the shortcuts and TuxBlox itself.", "Uninstall",
-                       [pApp] { pApp->requestUninstall(); });
+    confirmDestructive(GTK_WIDGET(pButton), i18n::tr("Uninstall TuxBlox?"),
+                       i18n::tr("Removes the virtual drive, the shortcuts and TuxBlox itself."),
+                       i18n::tr("Uninstall"), [pApp] { pApp->requestUninstall(); });
 }
 
 void SettingsPage::seed(const Settings &settings) {
     seeding_ = true;
     for (guint i = 0; Channels[i] != nullptr; ++i) {
         if (settings.channel == Channels[i]) adw_combo_row_set_selected(pChannel_, i);
+    }
+    for (guint i = 0; LanguageTags[i] != nullptr; ++i) {
+        if (settings.language == LanguageTags[i]) adw_combo_row_set_selected(pLanguage_, i);
     }
     for (guint i = 0; Themes[i] != nullptr; ++i) {
         if (settings.theme == Themes[i]) adw_combo_row_set_selected(pTheme_, i);
@@ -360,19 +402,19 @@ void SettingsPage::update(const AppSnapshot &snap) {
     if (!seeded_) seed(snap.settings);
 
     gtk_widget_set_sensitive(GTK_WIDGET(pWipe_), !snap.wipePrefix.inProgress);
-    setButtonLabel(pWipe_, snap.wipePrefix.inProgress ? "Wiping\xE2\x80\xA6" : "Wipe prefix");
+    setButtonLabel(pWipe_, snap.wipePrefix.inProgress ? i18n::tr("Wiping…") : i18n::tr("Wipe prefix"));
     showError(pWipeError_, snap.wipePrefix.errorMessage);
 
     gtk_widget_set_sensitive(GTK_WIDGET(pUninstall_), !snap.uninstall.inProgress);
-    setButtonLabel(pUninstall_, snap.uninstall.inProgress ? "Uninstalling\xE2\x80\xA6" : "Uninstall");
+    setButtonLabel(pUninstall_, snap.uninstall.inProgress ? i18n::tr("Uninstalling…") : i18n::tr("Uninstall"));
     showError(pUninstallError_, snap.uninstall.errorMessage);
 
     // Closing the sessions properly takes seconds, so this follows the snapshot the way Wipe does rather than a return value, which used to freeze the window while it worked.
     if (terminateAwaited_ && !snap.terminate.inProgress && snap.terminate.signalled >= 0) {
         terminateAwaited_ = false;
         setButtonLabel(pTerminate_, snap.terminate.signalled == 0
-                                        ? "Nothing running"
-                                        : "Stopped " + std::to_string(snap.terminate.signalled));
+                                        ? i18n::tr("Nothing running")
+                                        : i18n::trf("Stopped {0}", {std::to_string(snap.terminate.signalled)}));
         g_timeout_add(2500, onTerminateReset, this);
     }
 }

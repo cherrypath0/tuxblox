@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "app.h"
+#include "i18n.h"
 #include "manifest.h"
 #include "release_file.h"
 #include <sstream>
@@ -144,7 +145,7 @@ void App::run() {
 
         const char* home = std::getenv("HOME");
         if (!home || home[0] == '\0') {
-            setError("HOME environment variable is not set.");
+            setError(i18n::tr("HOME environment variable is not set."));
             return;
         }
 
@@ -160,7 +161,7 @@ void App::run() {
             snapshot_.isUpgrade = isUpgrade;
         }
         if (!hasEnoughDiskSpace(existingAncestor(dir), kMinFreeBytes)) {
-            setError("Not enough free disk space. TuxBlox requires at least 3GB free.");
+            setError(i18n::tr("Not enough free disk space. TuxBlox requires at least 3GB free."));
             return;
         }
         if (cancelRequested_.load()) return;
@@ -183,7 +184,7 @@ void App::run() {
                     auto named = fetchLatestRelease(setupBaseUrl(), channel_, &cancelRequested_);
                     if (cancelRequested_.load()) return;
                     if (!named.has_value()) {
-                        setError("No releases available for the '" + channel_ + "' channel yet.");
+                        setError(i18n::trf("No releases available for the '{0}' channel yet.", {channel_}));
                         return;
                     }
                     release = *named;
@@ -203,9 +204,9 @@ void App::run() {
             // pointer just named it -- so a failure there is a genuine one. A cancel mid-transfer
             // also arrives as an exception and must stay silent.
             if (source_.kind != ReleaseSource::Kind::Named || cancelRequested_.load()) throw;
-            setError("Release " + source_.release + " is not published on the '" + channel_ +
-                     "' channel. Leave --release off to install the newest release instead. (" +
-                     e.what() + ")");
+            setError(i18n::trf("Release {0} is not published on the '{1}' channel. Leave --release off to "
+                               "install the newest release instead. ({2})",
+                               {source_.release, channel_, e.what()}));
             return;
         }
         if (cancelRequested_.load()) return;
@@ -214,7 +215,7 @@ void App::run() {
         try {
             release = parseReleaseFile(releaseJson);
         } catch (const std::exception& e) {
-            setError(std::string("That release cannot be read: ") + e.what());
+            setError(i18n::trf("That release cannot be read: {0}", {e.what()}));
             return;
         }
         // The handoff file has been read; it is scratch the launcher wrote for this one run.
@@ -238,8 +239,8 @@ void App::run() {
             static_cast<uint64_t>(static_cast<double>(artifactBytes) * kPeakUsageFactor) +
             kHeadroomBytes;
         if (!hasEnoughDiskSpace(existingAncestor(dir), requiredBytes)) {
-            setError("Not enough free disk space. This install needs approximately " +
-                     std::to_string(requiredBytes / (1024ULL * 1024ULL)) + " MB free.");
+            setError(i18n::trf("Not enough free disk space. This install needs approximately {0} MB free.",
+                               {std::to_string(requiredBytes / (1024ULL * 1024ULL))}));
             return;
         }
 

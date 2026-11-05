@@ -73,6 +73,10 @@ add_executable(test_settings test_settings.cpp)
 target_link_libraries(test_settings PRIVATE launcher_core)
 add_test(NAME settings COMMAND test_settings)
 
+add_executable(test_settings_language test_settings_language.cpp)
+target_link_libraries(test_settings_language PRIVATE launcher_core)
+add_test(NAME settings_language COMMAND test_settings_language)
+
 add_executable(test_fastflag_file test_fastflag_file.cpp)
 target_link_libraries(test_fastflag_file PRIVATE launcher_core)
 add_test(NAME fastflag_file COMMAND test_fastflag_file)
@@ -319,3 +323,11 @@ add_test(NAME sessions_page_state COMMAND test_sessions_page_state)
 add_executable(test_launch_follow_up test_launch_follow_up.cpp)
 target_link_libraries(test_launch_follow_up PRIVATE launcher_core)
 add_test(NAME launch_follow_up COMMAND test_launch_follow_up)
+
+add_executable(test_i18n ${TUXBLOX_I18N_DIR}/tests/test_i18n.cpp)
+target_link_libraries(test_i18n PRIVATE launcher_core)
+add_test(NAME i18n COMMAND test_i18n)
+
+add_test(NAME translations
+    COMMAND ${PYTHON3_EXECUTABLE} "${TUXBLOX_I18N_DIR}/tools/check-translations.py"
+            --check --source-dir ${CMAKE_SOURCE_DIR}/src --allow-extra --i18n ${TUXBLOX_I18N_DIR})

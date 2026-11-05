@@ -26,6 +26,7 @@
 #include "desktop_integration.h"
 #include "desktop_notify.h"
 #include "dialog.h"
+#include "i18n.h"
 #include "page.h"
 #include "page_about.h"
 #include "page_fastflags.h"
@@ -137,7 +138,7 @@ GtkWidget *updateDetails(const std::string &release, const std::vector<Component
     GtkWidget *pBox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
     gtk_widget_set_margin_top(pBox, 8);
 
-    GtkWidget *pRelease = gtk_label_new(("Release " + release).c_str());
+    GtkWidget *pRelease = gtk_label_new(i18n::trf("Release {0}", {release}).c_str());
     gtk_label_set_xalign(GTK_LABEL(pRelease), 0.0);
     gtk_widget_add_css_class(pRelease, "heading");
     gtk_box_append(GTK_BOX(pBox), pRelease);
@@ -150,7 +151,7 @@ GtkWidget *updateDetails(const std::string &release, const std::vector<Component
         gtk_box_append(GTK_BOX(pBox), pLine);
     }
 
-    GtkWidget *pQuestion = gtk_label_new("Would you like to update?");
+    GtkWidget *pQuestion = gtk_label_new(i18n::tr("Would you like to update?"));
     gtk_label_set_xalign(GTK_LABEL(pQuestion), 0.0);
     gtk_label_set_wrap(GTK_LABEL(pQuestion), TRUE);
     gtk_widget_set_margin_top(pQuestion, 10);
@@ -164,9 +165,9 @@ void notifyUpdate(WindowUi &ui, const AppSnapshot &snap) {
     if (!snap.updateAvailableVersion || *snap.updateAvailableVersion == ui.notifiedVersion) return;
     ui.notifiedVersion = *snap.updateAvailableVersion;
     App *pApp = ui.pApp;
-    AdwDialog *pDialog = buildDialog("Update available", "A new update is available",
-                                      {{"Not now", nullptr, nullptr},
-                                       {"Update", "suggested-action", [pApp] { pApp->requestUpdateNow(); }, true}},
+    AdwDialog *pDialog = buildDialog(i18n::tr("Update available"), i18n::tr("A new update is available"),
+                                      {{i18n::tr("Not now"), nullptr, nullptr},
+                                       {i18n::tr("Update"), "suggested-action", [pApp] { pApp->requestUpdateNow(); }, true}},
                                       updateDetails(ui.notifiedVersion, snap.updateChanges));
     adw_dialog_present(pDialog, GTK_WIDGET(ui.pStack));
 }
@@ -197,7 +198,7 @@ gboolean onTick(gpointer data) {
 
     if (!snap.containerWarning.empty() && !pUi->containerWarningShown) {
         pUi->containerWarningShown = true;
-        showNotice(GTK_WIDGET(pUi->pWindow), "Distrobox GPU Passthrough", snap.containerWarning);
+        showNotice(GTK_WIDGET(pUi->pWindow), i18n::tr("Distrobox GPU Passthrough"), snap.containerWarning);
     }
 
     // A launch hands over to the watcher process, and both handoffs exec the installer once this window is gone
@@ -290,7 +291,7 @@ GtkWidget *buildContent(WindowUi &ui) {
     adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(pView), adw_header_bar_new());
     adw_toolbar_view_set_content(ADW_TOOLBAR_VIEW(pView), pStack);
 
-    AdwNavigationPage *pPage = adw_navigation_page_new(pView, "Home");
+    AdwNavigationPage *pPage = adw_navigation_page_new(pView, i18n::tr("Home"));
     ui.pContentPage = pPage;
     return GTK_WIDGET(pPage);
 }
@@ -322,12 +323,12 @@ void onActivate(GtkApplication *pGtkApp, gpointer data) {
     // desktop integration. A no-op when main() already started it, which it does with Auto-Update on.
     app.startUpdateCheck();
 
-    addPage(*pUi, Tab::Start, "Home", kAssetHome, kAssetHomeLen, false, std::make_unique<HomePage>(app, pUi->installDir));
-    addPage(*pUi, Tab::Sessions, "Sessions", kAssetSessions, kAssetSessionsLen, false, std::make_unique<SessionsPage>(app));
-    addPage(*pUi, Tab::Versions, "Versions", kAssetRobloxRdd, kAssetRobloxRddLen, false, std::make_unique<VersionsPage>(app));
-    addPage(*pUi, Tab::FastFlags, "FastFlags", kAssetFastflags, kAssetFastflagsLen, false, std::make_unique<FastFlagsPage>(app));
-    addPage(*pUi, Tab::Settings, "Settings", kAssetSettings, kAssetSettingsLen, false, std::make_unique<SettingsPage>(app));
-    addPage(*pUi, Tab::About, "About", kAssetInfo, kAssetInfoLen, true, std::make_unique<AboutPage>(pUi->installDir));
+    addPage(*pUi, Tab::Start, i18n::tr("Home"), kAssetHome, kAssetHomeLen, false, std::make_unique<HomePage>(app, pUi->installDir));
+    addPage(*pUi, Tab::Sessions, i18n::tr("Sessions"), kAssetSessions, kAssetSessionsLen, false, std::make_unique<SessionsPage>(app));
+    addPage(*pUi, Tab::Versions, i18n::tr("Versions"), kAssetRobloxRdd, kAssetRobloxRddLen, false, std::make_unique<VersionsPage>(app));
+    addPage(*pUi, Tab::FastFlags, i18n::tr("FastFlags"), kAssetFastflags, kAssetFastflagsLen, false, std::make_unique<FastFlagsPage>(app));
+    addPage(*pUi, Tab::Settings, i18n::tr("Settings"), kAssetSettings, kAssetSettingsLen, false, std::make_unique<SettingsPage>(app));
+    addPage(*pUi, Tab::About, i18n::tr("About"), kAssetInfo, kAssetInfoLen, true, std::make_unique<AboutPage>(pUi->installDir));
 
     adw_application_window_set_content(ADW_APPLICATION_WINDOW(pWindow), pSplit);
 
