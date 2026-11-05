@@ -152,7 +152,7 @@ void test_crashed_row_is_translated() {
     tuxblox::i18n::setLanguage(tuxblox::i18n::Language::PortugueseBrazil);
     const SessionsView view = sessionsView({finished(LaunchTarget::Player, 11, 60, "crashed")}, kNow);
     assert(!view.ended.empty());
-    assert(view.ended[0].meta.find("falhou") != std::string::npos);
+    assert(view.ended[0].meta.find("travou") != std::string::npos);
     tuxblox::i18n::setLanguage(tuxblox::i18n::Language::English);
 }
 
