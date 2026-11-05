@@ -62,6 +62,16 @@ class ComponentsTouched(unittest.TestCase):
         self.assertEqual(components_touched(["installer/bridge/installer-stub.sh"]), set())
         self.assertEqual(components_touched(["installer/src/manifest.cpp"]), {"installer"})
 
+    # Each component's changelogs.md is published with the release rather than built into the
+    # component, so a changelog-only commit must not demand a bump. The 3.7.7.1 build was refused
+    # over exactly this: launcher/ and installer/changelogs.md were the only paths that had moved.
+    def test_a_component_changelog_is_not_an_input(self):
+        self.assertEqual(components_touched(["launcher/changelogs.md",
+                                             "installer/changelogs.md"]), set())
+        self.assertEqual(components_touched(["compat/changelogs.md"]), set())
+        self.assertEqual(components_touched(["launcher/changelogs.md",
+                                             "launcher/src/app.cpp"]), {"launcher"})
+
     def test_an_unrelated_path_touches_nothing(self):
         self.assertEqual(components_touched(["README.md", "workspace/notes.md"]), set())
 
