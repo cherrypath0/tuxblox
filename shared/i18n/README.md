@@ -35,8 +35,9 @@ names, channel identifiers or diagnostics that only go to session logs.
 
 - `translations/en.json` is the source catalog. It is generated from the
   `tr`/`trf`/`trn`/`trc` calls with `--write-en`.
-- `translations/pt_BR.json` and `translations/es.json` must contain exactly the
-  same keys.
+- Every other `translations/*.json` file is a shipped catalog and must contain
+  exactly the same keys as `en.json`. The build and the checker discover them
+  from the directory, so no CMake or checker list needs updating.
 
 Each file has the shape:
 

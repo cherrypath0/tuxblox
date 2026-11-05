@@ -35,7 +35,7 @@ import shutil
 import subprocess
 import sys
 
-CATALOGS = ("en.json", "pt_BR.json", "es.json")
+ENGLISH_CATALOG = "en.json"
 PLACEHOLDER_RE = re.compile(r"\{(\d+)\}")
 
 
@@ -175,8 +175,10 @@ def main() -> int:
                         help="do not fail on catalog keys this source tree does not use")
     args = parser.parse_args()
 
+    translations_dir = args.i18n / "translations"
+    english_path = translations_dir / ENGLISH_CATALOG
     source_keys = extract_source_keys(args.root, args.source_dir)
-    en_strings, en_contexts = load_catalog(args.i18n / "translations" / "en.json")
+    en_strings, en_contexts = load_catalog(english_path)
 
     if args.write_en:
         for context, source in sorted(source_keys):
@@ -184,7 +186,7 @@ def main() -> int:
                 en_contexts.setdefault(context, {}).setdefault(source, source)
             else:
                 en_strings.setdefault(source, source)
-        write_catalog(args.i18n / "translations" / "en.json", en_strings, en_contexts)
+        write_catalog(english_path, en_strings, en_contexts)
         print(f"en.json now has {len(catalog_keys(en_strings, en_contexts))} keys")
         return 0
 
@@ -197,14 +199,16 @@ def main() -> int:
             failures.append(f"en.json has a stale key {format_key(key)}")
 
     catalog_data = {"en": (en_strings, en_contexts)}
-    for filename in CATALOGS[1:]:
-        strings, contexts = load_catalog(args.i18n / "translations" / filename)
-        catalog_data[filename] = (strings, contexts)
+    for path in sorted(translations_dir.glob("*.json")):
+        if path.name == ENGLISH_CATALOG:
+            continue
+        strings, contexts = load_catalog(path)
+        catalog_data[path.name] = (strings, contexts)
         keys = catalog_keys(strings, contexts)
         for key in sorted(en_keys - keys):
-            failures.append(f"{filename} is missing {format_key(key)}")
+            failures.append(f"{path.name} is missing {format_key(key)}")
         for key in sorted(keys - en_keys):
-            failures.append(f"{filename} has an extra key {format_key(key)}")
+            failures.append(f"{path.name} has an extra key {format_key(key)}")
 
     for code, (strings, contexts) in catalog_data.items():
         for key in sorted(en_keys):

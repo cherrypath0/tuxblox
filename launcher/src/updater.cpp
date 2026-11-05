@@ -110,8 +110,9 @@ EnsureInstallerResult ensureInstallerBinary(const ReleaseFile& release, const st
         std::string actualSha = sha256File(newPath);
         if (actualSha != wanted.sha256) {
             fs::remove(newPath);
-            report(UpdatePhase::Error, 0.0, i18n::tr("Updater checksum mismatch"));
-            return {false, "", i18n::tr("Updater checksum mismatch")};
+            const std::string err = i18n::tr("Updater checksum mismatch");
+            report(UpdatePhase::Error, 0.0, err);
+            return {false, "", err};
         }
 
         chmod(newPath.c_str(), 0755);

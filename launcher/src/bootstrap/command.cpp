@@ -16,8 +16,6 @@
 
 #include "command.h"
 #include "config.h"
-#include "i18n.h"
-#include "install_paths.h"
 #include "ui_adw.h"
 #include "version.h"
 
@@ -31,12 +29,6 @@ namespace bootstrap {
 
 std::optional<int> runCommand(int argc, char** argv) {
     if (argc < 2 || !isCommandFlag(argv[1])) return std::nullopt;
-
-    try {
-        i18n::initializeFromSettingsFile(installDir() + "/settings.json");
-    } catch (...) {
-        i18n::initializeFromSetting("system");
-    }
 
     const CliOptions options = parseArgs(argc, argv);
     switch (commandAction(options)) {

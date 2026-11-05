@@ -105,21 +105,21 @@ int runMessageBoxCommand(int argc, char** argv) {
 int main(int argc, char** argv) {
     using namespace tuxblox;
 
+    // Resolve the language before anything can print to a user, including the
+    // message box and the bootstrap commands below. An unreadable install
+    // directory falls back to the desktop locale and keeps its own error path.
+    try {
+        i18n::initializeFromSettingsFile(installDir() + "/settings.json");
+    } catch (...) {
+        i18n::initializeFromSetting("system");
+    }
+
     // Ahead of everything, the root guard included: this draws a message for another program and reports the
     // answer as its exit code, so nothing else may reach a return before it and be read as that answer.
     if (argc > 1 && std::string(argv[1]) == "--message-box") return runMessageBoxCommand(argc - 2, argv + 2);
 
     // Above the root guard and the requirements check: the launcher that started this one has already passed both, and the root guard's answer does not survive a fork, so a root install would refuse its own Roblox download here.
     if (const std::optional<int> code = bootstrap::runCommand(argc, argv)) return *code;
-
-    // Resolve the language before anything can print to a user. A missing or
-    // unreadable install directory falls back to the desktop locale here and
-    // keeps its existing error path below.
-    try {
-        i18n::initializeFromSettingsFile(installDir() + "/settings.json");
-    } catch (...) {
-        i18n::initializeFromSetting("system");
-    }
 
     // Before the scope is joined and before any argument is read: a root run
     // builds a virtual drive the real user cannot write to afterwards.

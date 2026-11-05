@@ -17,12 +17,11 @@
 #pragma once
 #include "cli.h"
 #include "config.h"
+#include "i18n.h"
 
 #include <atomic>
 #include <mutex>
 #include <string>
-
-#include "i18n.h"
 #include <thread>
 
 namespace tuxblox {

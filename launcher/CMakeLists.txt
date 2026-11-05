@@ -87,23 +87,7 @@ find_package(Threads REQUIRED)
 if(NOT TUXBLOX_I18N_DIR)
     set(TUXBLOX_I18N_DIR "${CMAKE_SOURCE_DIR}/../shared/i18n")
 endif()
-find_program(PYTHON3_EXECUTABLE python3)
-if(NOT PYTHON3_EXECUTABLE)
-    message(FATAL_ERROR "python3 is required to embed the translation catalogs.")
-endif()
-set(I18N_HEADER "${CMAKE_BINARY_DIR}/generated/i18n_data.h")
-add_custom_command(
-    OUTPUT "${I18N_HEADER}"
-    COMMAND ${PYTHON3_EXECUTABLE} "${TUXBLOX_I18N_DIR}/tools/embed-translations.py"
-            --input-dir "${TUXBLOX_I18N_DIR}/translations" --output "${I18N_HEADER}"
-    DEPENDS
-        "${TUXBLOX_I18N_DIR}/translations/en.json"
-        "${TUXBLOX_I18N_DIR}/translations/pt_BR.json"
-        "${TUXBLOX_I18N_DIR}/translations/es.json"
-        "${TUXBLOX_I18N_DIR}/tools/embed-translations.py"
-    COMMENT "Embedding translations"
-)
-add_custom_target(generate_i18n_header DEPENDS "${I18N_HEADER}")
+include(${TUXBLOX_I18N_DIR}/src/EmbedTranslations.cmake)
 
 file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/generated)
 # TUXBLOX_BUILD_VERSION carries the LAUNCHER's own version, which launcher/build.sh reads from

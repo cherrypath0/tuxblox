@@ -638,10 +638,10 @@ void SessionsPage::refreshHeader(const AppSnapshot &snap) {
         gtk_widget_set_visible(pStop_, session.running);
 
         // The row beside it already says when a session ended, so the header keeps the version it ran and calls out only a crash.
-        std::string meta = session.endedReason.empty()
-                               ? ""
-                               : (session.endedReason == "crashed" ? i18n::tr("crashed")
-                                                                    : session.endedReason);
+        std::string meta;
+        if (!session.endedReason.empty()) {
+            meta = session.endedReason == "crashed" ? i18n::tr("crashed") : session.endedReason;
+        }
         if (session.running) {
             const SessionsView view = sessionsView({session}, std::time(nullptr));
             if (!view.running.empty()) meta = view.running.front().meta;

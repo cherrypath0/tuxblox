@@ -19,17 +19,11 @@
 
 namespace tuxblox {
 
-namespace {
-
-const char Stopping[] = "Stopping…";
-
-} // namespace
-
 CardState cardState(LaunchTarget target, bool installed, int sessions, bool stopping, bool launchPending) {
     CardState state;
     const bool playerRunning = target == LaunchTarget::Player && sessions > 0;
     if (playerRunning) {
-        state.launchLabel = stopping ? i18n::tr(Stopping) : i18n::tr("Stop Player");
+        state.launchLabel = stopping ? i18n::tr("Stopping…") : i18n::tr("Stop Player");
         state.launchStops = true;
         return state;
     }

@@ -134,7 +134,13 @@ void SettingsPage::buildLanguage(AdwPreferencesGroup *pGroup) {
     adw_action_row_set_subtitle(ADW_ACTION_ROW(pLanguage),
                                 i18n::tr("Takes effect after restarting TuxBlox."));
     const char *const labels[] = {
-        i18n::tr("System language"), "English", "Português (Brasil)", "Español", nullptr};
+        i18n::tr("System language"),
+        i18n::nativeName(i18n::Language::English),
+        i18n::nativeName(i18n::Language::PortugueseBrazil),
+        i18n::nativeName(i18n::Language::Spanish),
+        nullptr};
+    static_assert(G_N_ELEMENTS(labels) == G_N_ELEMENTS(LanguageTags),
+                  "LanguageTags and the labels offered for them must stay in the same order");
     GtkStringList *pLanguages = gtk_string_list_new(labels);
     adw_combo_row_set_model(ADW_COMBO_ROW(pLanguage), G_LIST_MODEL(pLanguages));
     g_object_unref(pLanguages);

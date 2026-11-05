@@ -143,35 +143,12 @@ void showUninstallResult(bool ok, const char* failureText, const std::string& ui
     }
 }
 
-// Reads --dir and --language before the full parser runs, so usage errors
-// and --help are already in the language the user asked for.
-void initializeLanguageFromArgs(int argc, char** argv) {
-    std::string directory;
-    std::string language;
-    for (int i = 1; i < argc; ++i) {
-        const std::string arg = argv[i];
-        if (arg == "--dir" && i + 1 < argc) directory = argv[++i];
-        else if (arg == "--language" && i + 1 < argc) language = argv[++i];
-    }
-    if (!language.empty()) {
-        if (const auto parsed = tuxblox::i18n::parseLanguage(language)) {
-            tuxblox::i18n::setLanguage(*parsed);
-            return;
-        }
-    }
-    try {
-        if (directory.empty()) directory = tuxblox::installDir();
-        tuxblox::i18n::initializeFromSettingsFile(directory + "/settings.json");
-    } catch (...) {
-        tuxblox::i18n::initializeFromSetting("system");
-    }
-}
 } // namespace
 
 int main(int argc, char** argv) {
     using namespace tuxblox;
 
-    initializeLanguageFromArgs(argc, argv);
+    initializeLanguage(argc, argv);
 
     const CliOptions options = parseArgs(argc, argv);
     if (!options.error.empty()) {

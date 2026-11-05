@@ -15,7 +15,6 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #pragma once
-#include <cstddef>
 #include <initializer_list>
 #include <optional>
 #include <string>
@@ -35,6 +34,7 @@ std::optional<Language> parseLanguage(std::string_view tag);
 Language systemLanguage();
 
 std::string tag(Language language);
+// The language's own name, for the picker: never translated.
 const char* nativeName(Language language);
 
 // Before any initialize* call, tr() returns the English source string. Every
@@ -45,9 +45,9 @@ void ensureInitialized();
 void setLanguage(Language language);
 Language current();
 
-// Looks the source string up in the selected catalog, then in English, then
-// falls back to the source itself. The returned pointer is stable for the
-// lifetime of the process after setLanguage().
+// Looks the source string up in the selected catalog and falls back to the
+// source itself, which is the English text. The returned pointer is stable
+// for the lifetime of the process after setLanguage().
 const char* tr(const char* source);
 const char* trc(const char* context, const char* source);
 

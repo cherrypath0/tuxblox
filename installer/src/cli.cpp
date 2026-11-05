@@ -50,6 +50,32 @@ ReleaseSource releaseSourceFor(const CliOptions& options) {
     return {};
 }
 
+void initializeLanguage(int argc, char** argv) {
+    std::string directory;
+    std::string language;
+    for (int i = 1; i < argc; ++i) {
+        const std::string arg = argv[i];
+        if (arg == "--dir" && i + 1 < argc) directory = argv[++i];
+        else if (arg == "--language" && i + 1 < argc) language = argv[++i];
+    }
+
+    if (!language.empty()) {
+        if (const auto parsed = i18n::parseLanguage(language)) {
+            i18n::setLanguage(*parsed);
+            return;
+        }
+    }
+
+    // A missing HOME or settings file is not fatal here: the installer's own
+    // error path reports it after the language is settled.
+    try {
+        if (directory.empty()) directory = installDir();
+        i18n::initializeFromSettingsFile(directory + "/settings.json");
+    } catch (...) {
+        i18n::initializeFromSetting("system");
+    }
+}
+
 CliOptions parseArgs(int argc, const char* const* argv) {
     CliOptions options;
 

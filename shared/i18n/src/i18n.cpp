@@ -40,9 +40,7 @@ using StringMap = std::unordered_map<std::string, std::string>;
 using ContextMap = std::unordered_map<std::string, StringMap>;
 
 StringMap SelectedStrings;
-StringMap EnglishStrings;
 ContextMap SelectedContexts;
-ContextMap EnglishContexts;
 
 std::string lowered(std::string text) {
     for (char &c : text) {
@@ -69,12 +67,12 @@ bool startsWith(const std::string &text, const char *prefix) {
 const I18nCatalog *catalogFor(Language language) {
     const char *code = "en";
     switch (language) {
-        case Language::English: code = "en"; break;
         case Language::PortugueseBrazil: code = "pt_BR"; break;
         case Language::Spanish: code = "es"; break;
+        case Language::English: break;
     }
     for (size_t i = 0; i < sizeof(kI18nCatalogs) / sizeof(kI18nCatalogs[0]); ++i) {
-        if (std::string(kI18nCatalogs[i].code) == code) return &kI18nCatalogs[i];
+        if (std::string_view(kI18nCatalogs[i].code) == code) return &kI18nCatalogs[i];
     }
     return nullptr;
 }
@@ -171,21 +169,12 @@ const char *nativeName(Language language) {
 
 void setLanguage(Language language) {
     CurrentLanguage = language;
-
-    EnglishStrings.clear();
-    EnglishContexts.clear();
-    loadInto(catalogFor(Language::English), EnglishStrings, EnglishContexts);
-
     SelectedStrings.clear();
     SelectedContexts.clear();
-    if (language == Language::English) {
-        SelectedStrings = EnglishStrings;
-        SelectedContexts = EnglishContexts;
-    } else {
-        loadInto(catalogFor(language), SelectedStrings, SelectedContexts);
-    }
-
+    loadInto(catalogFor(language), SelectedStrings, SelectedContexts);
     Initialized = true;
+    // Carried across exec: the installer and the watcher run in the same
+    // language the launcher chose, even before either reads settings.json.
     setenv("TUXBLOX_LANGUAGE", tag(language).c_str(), 1);
 }
 
@@ -231,25 +220,18 @@ void ensureInitialized() {
 
 const char *tr(const char *source) {
     if (source == nullptr || source[0] == '\0' || !Initialized) return source;
-    const auto selected = SelectedStrings.find(source);
-    if (selected != SelectedStrings.end()) return selected->second.c_str();
-    const auto english = EnglishStrings.find(source);
-    if (english != EnglishStrings.end()) return english->second.c_str();
-    return source;
+    // The English catalog maps every key to itself, so a missing translation
+    // needs no second lookup: the source string is already the English text.
+    const auto found = SelectedStrings.find(source);
+    return found != SelectedStrings.end() ? found->second.c_str() : source;
 }
 
 const char *trc(const char *context, const char *source) {
-    if (context == nullptr || context[0] == '\0') return tr(source);
-    if (Initialized) {
-        const auto selected = SelectedContexts.find(context);
-        if (selected != SelectedContexts.end()) {
-            const auto found = selected->second.find(source);
-            if (found != selected->second.end()) return found->second.c_str();
-        }
-        const auto english = EnglishContexts.find(context);
-        if (english != EnglishContexts.end()) {
-            const auto found = english->second.find(source);
-            if (found != english->second.end()) return found->second.c_str();
+    if (context != nullptr && context[0] != '\0' && Initialized) {
+        const auto byContext = SelectedContexts.find(context);
+        if (byContext != SelectedContexts.end()) {
+            const auto found = byContext->second.find(source);
+            if (found != byContext->second.end()) return found->second.c_str();
         }
     }
     return tr(source);

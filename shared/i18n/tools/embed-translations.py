@@ -29,7 +29,7 @@ import json
 import pathlib
 import sys
 
-CATALOGS = (("en", "en.json"), ("pt_BR", "pt_BR.json"), ("es", "es.json"))
+ENGLISH_CATALOG = "en.json"
 
 
 def cpp_string(value: str) -> str:
@@ -101,9 +101,14 @@ def main() -> int:
         "",
     ]
 
+    catalogs = sorted(args.input_dir.glob("*.json"))
+    if not any(path.name == ENGLISH_CATALOG for path in catalogs):
+        raise SystemExit(f"{args.input_dir} has no {ENGLISH_CATALOG}")
+
     catalog_rows = []
-    for code, filename in CATALOGS:
-        rows = load_catalog(args.input_dir / filename)
+    for path in catalogs:
+        code = path.stem
+        rows = load_catalog(path)
         symbol = "kI18n" + "".join(part.capitalize() for part in code.replace("-", "_").split("_"))
         lines.append(f"static const I18nEntry {symbol}[] = {{")
         if rows:

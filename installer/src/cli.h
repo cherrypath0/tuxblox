@@ -71,6 +71,11 @@ struct CliOptions {
 // than ignored, so a typo can't silently change what the installer does.
 CliOptions parseArgs(int argc, const char* const* argv);
 
+// Resolves --language and --dir before parseArgs runs, so --help and usage
+// errors are already in the requested language. Shared by the installer and
+// the interface binary it starts.
+void initializeLanguage(int argc, char** argv);
+
 // Where a run learns which release to install. The handoff file wins, then an explicitly named
 // release, and otherwise the channel's newest -- which is what a bare installer someone downloaded
 // does, because the version it was built for is its own component version and not a release at all.

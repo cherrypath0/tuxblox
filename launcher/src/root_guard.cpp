@@ -25,12 +25,6 @@ namespace {
 
 bool AllowRoot = false;
 
-const char* const RootWarning =
-    "WARNING: The current user is root, it is highly recommended to launch TuxBlox as a normal user unless there is a specific reason why";
-
-const char* const RootRefusal =
-    "TuxBlox: refusing to run as root. Re-run as a normal user, or pass --allow-root if you have a specific reason.";
-
 } // namespace
 
 bool takeAllowRootFlag(int& argc, char** argv) {
@@ -50,10 +44,12 @@ bool takeAllowRootFlag(int& argc, char** argv) {
 bool rootRunAllowed(bool allowRoot, uid_t effectiveUid) {
     if (effectiveUid != 0) return true;
     if (!allowRoot) {
-        fprintf(stderr, "%s\n", i18n::tr(RootRefusal));
+        fprintf(stderr, "%s\n", i18n::tr(
+            "TuxBlox: refusing to run as root. Re-run as a normal user, or pass --allow-root if you have a specific reason."));
         return false;
     }
-    printf("%s\n", i18n::tr(RootWarning));
+    printf("%s\n", i18n::tr(
+        "WARNING: The current user is root, it is highly recommended to launch TuxBlox as a normal user unless there is a specific reason why"));
     fflush(stdout);
     return true;
 }
