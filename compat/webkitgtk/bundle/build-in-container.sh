@@ -863,6 +863,12 @@ extract_source "gmp-${GMP_VERSION}.tar.xz" /build/gmp
 # bignum work -- which is the first TLS handshake, i.e. signing in. --enable-fat builds
 # every variant and picks one from CPUID at startup, as every distro's own gmp does.
 cd /build/gmp && ./configure --prefix="$PREFIX" --enable-fat && make -j"$JOBS" && make install && cd /build
+# A non-fat build exports no __gmpn_cpuvec; catching that here prevents another
+# SIGILL-only-on-older-CPUs tarball from being packaged and shipped.
+nm -D "$PREFIX/lib/libgmp.so" | grep -q '__gmpn_cpuvec' || {
+    echo "ERROR: libgmp was built without --enable-fat; the bundle will SIGILL on pre-Broadwell CPUs" >&2
+    exit 1
+}
 
 echo ":: Building nettle $NETTLE_VERSION"
 extract_source "nettle-${NETTLE_VERSION}.tar.gz" /build/nettle
