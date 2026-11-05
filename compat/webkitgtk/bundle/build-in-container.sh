@@ -80,40 +80,76 @@ JOBS="${JOBS:-$(nproc)}"
 export CCACHE_DIR="${CCACHE_DIR:-/ccache}"
 mkdir -p "$CCACHE_DIR"
 
-# fetch_and_extract <url> <dest_dir> [fallback_url...]
+# The archives this script builds from are mounted read-only from the host, filled by
+# fetch-sources.sh beforehand. Nothing here downloads: see that script for why the two
+# halves are deliberately separate.
+SOURCES_DIR="${SOURCES_DIR:-/sources}"
+SUMS_FILE="${SUMS_FILE:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/sha256sums}"
+
+if [ ! -d "$SOURCES_DIR" ]; then
+    echo "ERROR: no source archives mounted at $SOURCES_DIR" >&2
+    echo "       Run compat/webkitgtk/bundle/fetch-sources.sh on the host, then mount" >&2
+    echo "       that sources/ directory read-only at $SOURCES_DIR." >&2
+    exit 1
+fi
+if [ ! -f "$SUMS_FILE" ]; then
+    echo "ERROR: no recorded checksums at $SUMS_FILE" >&2
+    exit 1
+fi
+
+# The other way a build here could reach the network: a meson project declares its
+# optional dependencies as wrap files and downloads them at configure time when the
+# dependency is not already present. Nearly every wrap in these tarballs resolves
+# against a library this bundle vendors itself and is never fetched, but cairo ships no
+# subproject sources at all and genuinely builds fontconfig as one. Pointing meson's
+# package cache at the same read-only directory lets it find that archive on disk and
+# check it against the hash in cairo's own fontconfig.wrap. The container is run with
+# no network at all (see build.sh), so anything this misses fails loudly instead of
+# quietly fetching.
+export MESON_PACKAGE_CACHE_DIR="$SOURCES_DIR"
+
+# extract_source <archive filename> <dest_dir>
 #
-# Retries and fallback URLs added 2026-08-18 after a real failure: Savannah's
-# download URL is a redirector to a rotating pool of volunteer mirrors, and the one
-# it happened to pick for freetype (ftp.cc.uoc.gr) was down. A single unlucky
-# redirect killed a build that was already 40 minutes in, because one bare
-# `curl -fL` failing trips this script's `set -e`. --connect-timeout bounds the dead
-# mirror at 30s instead of the ~135s it actually burned; --retry-all-errors makes
-# curl retry a connection failure (plain --retry only covers transient HTTP codes),
-# which alone usually re-rolls onto a working mirror. Fallback URLs cover the case
-# where the whole primary host is down, not just one mirror behind it.
-fetch_and_extract() {
-    local url="$1" dest_dir="$2"
-    shift 2
-    local fallbacks=("$@")
-    local tmp_archive u
-    tmp_archive="$(mktemp)"
+# Unpacks one archive out of the read-only sources directory, after checking its bytes
+# against the checksum recorded for it. A missing archive, or one that does not match,
+# stops the build instead of being fetched or built anyway -- so a release can always
+# be traced back to a known set of source bytes, and an upstream that starts serving
+# something else cannot end up inside a shipped binary unnoticed.
+#
+# Every package here used to be a `curl` straight into `tar` at build time. That made
+# each build depend on a dozen upstreams being up and serving the same thing, and
+# verified none of it. It bit once already: Savannah's freetype download URL is a
+# redirector onto a rotating pool of volunteer mirrors, and the one it picked was down,
+# which killed a build 40 minutes in. The retries and fallback URLs that used to live
+# here moved to fetch-sources.sh, where a failure costs a re-run instead of a build.
+extract_source() {
+    local fname="$1" dest_dir="$2"
+    local archive="$SOURCES_DIR/$fname"
+    local expected actual
+
+    if [ ! -f "$archive" ]; then
+        echo "ERROR: $fname is not in $SOURCES_DIR" >&2
+        echo "       Run compat/webkitgtk/bundle/fetch-sources.sh on the host first." >&2
+        return 1
+    fi
+
+    expected="$(awk -v f="$fname" '$2 == f || $2 == "*" f { print $1; exit }' "$SUMS_FILE")"
+    if [ -z "$expected" ]; then
+        echo "ERROR: no recorded checksum for $fname -- refusing to build it" >&2
+        return 1
+    fi
+    actual="$(sha256sum "$archive" | awk '{print $1}')"
+    if [ "$actual" != "$expected" ]; then
+        echo "ERROR: checksum mismatch for $fname" >&2
+        echo "       recorded: $expected" >&2
+        echo "       on disk:  $actual" >&2
+        return 1
+    fi
+
     mkdir -p "$dest_dir"
-    # Download to a regular file rather than piping curl straight into tar: GNU tar
-    # only auto-detects gzip vs. xz vs. bzip2 from the archive's magic bytes when
-    # reading a seekable file, not a stdin pipe -- and these URLs mix compression
-    # formats (glib ships .tar.xz, everything else here ships .tar.gz/.tgz).
-    for u in "$url" "${fallbacks[@]}"; do
-        if curl -fL --connect-timeout 30 --retry 3 --retry-all-errors \
-                "$u" -o "$tmp_archive"; then
-            tar -xf "$tmp_archive" -C "$dest_dir" --strip-components=1
-            rm -f "$tmp_archive"
-            return 0
-        fi
-        echo ":: download failed: $u -- trying next source" >&2
-    done
-    rm -f "$tmp_archive"
-    echo "ERROR: every download source failed for $url" >&2
-    return 1
+    # tar picks gzip vs xz vs bzip2 out of the archive's own magic bytes, which it can
+    # only do on a seekable file -- these archives mix all three formats.
+    tar -xf "$archive" -C "$dest_dir" --strip-components=1
 }
 
 # --- Vendored host dependencies ---------------------------------------------------
@@ -130,8 +166,7 @@ fetch_and_extract() {
 # those, not appended to the end.
 
 echo ":: Building zlib $ZLIB_VERSION"
-fetch_and_extract "https://zlib.net/fossils/zlib-${ZLIB_VERSION}.tar.gz" /build/zlib \
-    "https://github.com/madler/zlib/releases/download/v${ZLIB_VERSION}/zlib-${ZLIB_VERSION}.tar.gz"
+extract_source "zlib-${ZLIB_VERSION}.tar.gz" /build/zlib
 cd /build/zlib
 ./configure --prefix="$PREFIX"
 make -j"$JOBS"
@@ -139,7 +174,7 @@ make install
 cd /build
 
 echo ":: Building bzip2 $BZIP2_VERSION"
-fetch_and_extract "https://sourceware.org/pub/bzip2/bzip2-${BZIP2_VERSION}.tar.gz" /build/bzip2
+extract_source "bzip2-${BZIP2_VERSION}.tar.gz" /build/bzip2
 # bzip2 ships no configure, and its default target builds only the static archive.
 # Makefile-libbz2_so is the one that produces the shared object; it installs nothing,
 # so the library, its SONAME links and the header are placed by hand. The SONAME it
@@ -155,26 +190,21 @@ cp -a bzlib.h "$PREFIX/include/"
 cd /build
 
 echo ":: Building zstd $ZSTD_VERSION"
-fetch_and_extract \
-    "https://github.com/facebook/zstd/releases/download/v${ZSTD_VERSION}/zstd-${ZSTD_VERSION}.tar.gz" \
-    /build/zstd
+extract_source "zstd-${ZSTD_VERSION}.tar.gz" /build/zstd
 cd /build/zstd
 make -j"$JOBS" PREFIX="$PREFIX"
 make PREFIX="$PREFIX" install
 cd /build
 
 echo ":: Building brotli $BROTLI_VERSION"
-fetch_and_extract \
-    "https://github.com/google/brotli/archive/refs/tags/v${BROTLI_VERSION}.tar.gz" /build/brotli
+extract_source "brotli-${BROTLI_VERSION}.tar.gz" /build/brotli
 cmake -B /build/brotli/_build -S /build/brotli -GNinja -DCMAKE_INSTALL_PREFIX="$PREFIX" \
     -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DBROTLI_DISABLE_TESTS=ON
 ninja -C /build/brotli/_build -j"$JOBS" install
 cd /build
 
 echo ":: Building expat $EXPAT_VERSION"
-fetch_and_extract \
-    "https://github.com/libexpat/libexpat/releases/download/R_${EXPAT_VERSION//./_}/expat-${EXPAT_VERSION}.tar.xz" \
-    /build/expat
+extract_source "expat-${EXPAT_VERSION}.tar.xz" /build/expat
 cd /build/expat
 ./configure --prefix="$PREFIX" --disable-static --without-docbook --without-examples --without-tests
 make -j"$JOBS"
@@ -182,7 +212,7 @@ make install
 cd /build
 
 echo ":: Building libpng $LIBPNG_VERSION"
-fetch_and_extract "https://download.sourceforge.net/libpng/libpng-${LIBPNG_VERSION}.tar.xz" /build/libpng
+extract_source "libpng-${LIBPNG_VERSION}.tar.xz" /build/libpng
 cd /build/libpng
 ./configure --prefix="$PREFIX" --disable-static
 make -j"$JOBS"
@@ -193,9 +223,7 @@ echo ":: Building pcre2 $PCRE2_VERSION"
 # glib links pcre2 unconditionally for GRegex; without this the bundle's own glib
 # resolves libpcre2-8 against the host, which is the single most load-bearing
 # unvendored dependency the bundle had -- nothing starts if it is absent.
-fetch_and_extract \
-    "https://github.com/PCRE2Project/pcre2/releases/download/pcre2-${PCRE2_VERSION}/pcre2-${PCRE2_VERSION}.tar.gz" \
-    /build/pcre2
+extract_source "pcre2-${PCRE2_VERSION}.tar.gz" /build/pcre2
 cd /build/pcre2
 ./configure --prefix="$PREFIX" --disable-static --enable-unicode --enable-jit
 make -j"$JOBS"
@@ -203,9 +231,7 @@ make install
 cd /build
 
 echo ":: Building libgpg-error $LIBGPG_ERROR_VERSION"
-fetch_and_extract \
-    "https://gnupg.org/ftp/gcrypt/libgpg-error/libgpg-error-${LIBGPG_ERROR_VERSION}.tar.bz2" \
-    /build/libgpg-error
+extract_source "libgpg-error-${LIBGPG_ERROR_VERSION}.tar.bz2" /build/libgpg-error
 cd /build/libgpg-error
 ./configure --prefix="$PREFIX" --disable-static --disable-doc --disable-tests
 make -j"$JOBS"
@@ -213,8 +239,7 @@ make install
 cd /build
 
 echo ":: Building libgcrypt $LIBGCRYPT_VERSION"
-fetch_and_extract \
-    "https://gnupg.org/ftp/gcrypt/libgcrypt/libgcrypt-${LIBGCRYPT_VERSION}.tar.bz2" /build/libgcrypt
+extract_source "libgcrypt-${LIBGCRYPT_VERSION}.tar.bz2" /build/libgcrypt
 cd /build/libgcrypt
 ./configure --prefix="$PREFIX" --disable-static --disable-doc \
     --with-libgpg-error-prefix="$PREFIX"
@@ -223,7 +248,7 @@ make install
 cd /build
 
 echo ":: Building libidn2 $LIBIDN2_VERSION"
-fetch_and_extract "https://ftp.gnu.org/gnu/libidn/libidn2-${LIBIDN2_VERSION}.tar.gz" /build/libidn2
+extract_source "libidn2-${LIBIDN2_VERSION}.tar.gz" /build/libidn2
 cd /build/libidn2
 ./configure --prefix="$PREFIX" --disable-static --disable-doc --disable-gcc-warnings
 make -j"$JOBS"
@@ -231,17 +256,13 @@ make install
 cd /build
 
 echo ":: Building fribidi $FRIBIDI_VERSION"
-fetch_and_extract \
-    "https://github.com/fribidi/fribidi/releases/download/v${FRIBIDI_VERSION}/fribidi-${FRIBIDI_VERSION}.tar.xz" \
-    /build/fribidi
+extract_source "fribidi-${FRIBIDI_VERSION}.tar.xz" /build/fribidi
 meson setup /build/fribidi/_build /build/fribidi --prefix="$PREFIX" \
     -Ddocs=false -Dbin=false -Dtests=false
 ninja -C /build/fribidi/_build -j"$JOBS" install
 
 echo ":: Building libdatrie $LIBDATRIE_VERSION"
-fetch_and_extract \
-    "https://github.com/tlwg/libdatrie/releases/download/v${LIBDATRIE_VERSION}/libdatrie-${LIBDATRIE_VERSION}.tar.xz" \
-    /build/libdatrie
+extract_source "libdatrie-${LIBDATRIE_VERSION}.tar.xz" /build/libdatrie
 cd /build/libdatrie
 ./configure --prefix="$PREFIX" --disable-static --disable-doxygen-doc
 make -j"$JOBS"
@@ -251,9 +272,7 @@ cd /build
 echo ":: Building libthai $LIBTHAI_VERSION"
 # pango links libthai for Thai line breaking whether or not anybody types Thai, so an
 # absent libthai.so.0 stops pango loading at all -- and with it GTK and the whole host.
-fetch_and_extract \
-    "https://github.com/tlwg/libthai/releases/download/v${LIBTHAI_VERSION}/libthai-${LIBTHAI_VERSION}.tar.xz" \
-    /build/libthai
+extract_source "libthai-${LIBTHAI_VERSION}.tar.xz" /build/libthai
 cd /build/libthai
 ./configure --prefix="$PREFIX" --disable-static --disable-doxygen-doc
 make -j"$JOBS"
@@ -261,7 +280,7 @@ make install
 cd /build
 
 echo ":: Building pixman $PIXMAN_VERSION"
-fetch_and_extract "https://www.cairographics.org/releases/pixman-${PIXMAN_VERSION}.tar.gz" /build/pixman
+extract_source "pixman-${PIXMAN_VERSION}.tar.gz" /build/pixman
 meson setup /build/pixman/_build /build/pixman --prefix="$PREFIX" \
     -Dtests=disabled -Ddemos=disabled
 ninja -C /build/pixman/_build -j"$JOBS" install
@@ -273,9 +292,7 @@ ninja -C /build/pixman/_build -j"$JOBS" install
 # so vendoring them pins our ABI without pinning the user's display server.
 
 echo ":: Building xorgproto $XORGPROTO_VERSION"
-fetch_and_extract \
-    "https://xorg.freedesktop.org/releases/individual/proto/xorgproto-${XORGPROTO_VERSION}.tar.xz" \
-    /build/xorgproto
+extract_source "xorgproto-${XORGPROTO_VERSION}.tar.xz" /build/xorgproto
 cd /build/xorgproto
 ./configure --prefix="$PREFIX"
 make -j"$JOBS"
@@ -283,8 +300,7 @@ make install
 cd /build
 
 echo ":: Building libXau $LIBXAU_VERSION"
-fetch_and_extract \
-    "https://xorg.freedesktop.org/releases/individual/lib/libXau-${LIBXAU_VERSION}.tar.xz" /build/libXau
+extract_source "libXau-${LIBXAU_VERSION}.tar.xz" /build/libXau
 cd /build/libXau
 ./configure --prefix="$PREFIX" --disable-static
 make -j"$JOBS"
@@ -292,9 +308,7 @@ make install
 cd /build
 
 echo ":: Building libXdmcp $LIBXDMCP_VERSION"
-fetch_and_extract \
-    "https://xorg.freedesktop.org/releases/individual/lib/libXdmcp-${LIBXDMCP_VERSION}.tar.xz" \
-    /build/libXdmcp
+extract_source "libXdmcp-${LIBXDMCP_VERSION}.tar.xz" /build/libXdmcp
 cd /build/libXdmcp
 ./configure --prefix="$PREFIX" --disable-static --without-docs
 make -j"$JOBS"
@@ -302,9 +316,7 @@ make install
 cd /build
 
 echo ":: Building xcb-proto $XCBPROTO_VERSION"
-fetch_and_extract \
-    "https://xorg.freedesktop.org/releases/individual/proto/xcb-proto-${XCBPROTO_VERSION}.tar.xz" \
-    /build/xcb-proto
+extract_source "xcb-proto-${XCBPROTO_VERSION}.tar.xz" /build/xcb-proto
 cd /build/xcb-proto
 ./configure --prefix="$PREFIX"
 make -j"$JOBS"
@@ -316,8 +328,7 @@ cd /build
 export PYTHONPATH="$(echo "$PREFIX"/lib/python3*/site-packages):${PYTHONPATH:-}"
 
 echo ":: Building libxcb $LIBXCB_VERSION"
-fetch_and_extract \
-    "https://xorg.freedesktop.org/releases/individual/lib/libxcb-${LIBXCB_VERSION}.tar.xz" /build/libxcb
+extract_source "libxcb-${LIBXCB_VERSION}.tar.xz" /build/libxcb
 cd /build/libxcb
 ./configure --prefix="$PREFIX" --disable-static --without-doxygen
 make -j"$JOBS"
@@ -325,8 +336,7 @@ make install
 cd /build
 
 echo ":: Building libX11 $LIBX11_VERSION"
-fetch_and_extract \
-    "https://xorg.freedesktop.org/releases/individual/lib/libX11-${LIBX11_VERSION}.tar.xz" /build/libX11
+extract_source "libX11-${LIBX11_VERSION}.tar.xz" /build/libX11
 cd /build/libX11
 ./configure --prefix="$PREFIX" --disable-static --without-xmlto --without-fop --without-xsltproc
 make -j"$JOBS"
@@ -348,8 +358,7 @@ for xlib in \
     "libxshmfence-${LIBXSHMFENCE_VERSION}"
 do
     echo ":: Building $xlib"
-    fetch_and_extract \
-        "https://xorg.freedesktop.org/releases/individual/lib/${xlib}.tar.xz" "/build/$xlib"
+    extract_source "${xlib}.tar.xz" "/build/$xlib"
     cd "/build/$xlib"
     ./configure --prefix="$PREFIX" --disable-static --without-xmlto --without-fop --without-xsltproc
     make -j"$JOBS"
@@ -360,8 +369,7 @@ done
 echo ":: Building libxkbcommon $XKBCOMMON_VERSION"
 # The keymap data itself stays on the host (/usr/share/X11/xkb): it has to match the
 # layouts the user's desktop actually configured, so only the library is vendored.
-fetch_and_extract \
-    "https://xkbcommon.org/download/libxkbcommon-${XKBCOMMON_VERSION}.tar.xz" /build/libxkbcommon
+extract_source "libxkbcommon-${XKBCOMMON_VERSION}.tar.xz" /build/libxkbcommon
 meson setup /build/libxkbcommon/_build /build/libxkbcommon --prefix="$PREFIX" \
     -Denable-docs=false -Denable-wayland=false -Denable-xkbregistry=false
 ninja -C /build/libxkbcommon/_build -j"$JOBS" install
@@ -371,26 +379,19 @@ echo ":: Building libglvnd $LIBGLVND_VERSION"
 # but the glvnd dispatch layer in front of it -- libEGL.so.1/libGLX.so.0 -- was still the
 # host's, so the vendor library we select was being loaded by a loader we do not control.
 # Vendoring glvnd closes that: the loader and the driver behind it are now both ours.
-fetch_and_extract \
-    "https://gitlab.freedesktop.org/glvnd/libglvnd/-/archive/v${LIBGLVND_VERSION}/libglvnd-v${LIBGLVND_VERSION}.tar.gz" \
-    /build/libglvnd
+extract_source "libglvnd-v${LIBGLVND_VERSION}.tar.gz" /build/libglvnd
 meson setup /build/libglvnd/_build /build/libglvnd --prefix="$PREFIX" \
     -Dx11=enabled -Degl=true -Dglx=enabled -Dhgl=false
 ninja -C /build/libglvnd/_build -j"$JOBS" install
 
 echo ":: Building libepoxy $LIBEPOXY_VERSION"
-fetch_and_extract \
-    "https://download.gnome.org/sources/libepoxy/${LIBEPOXY_VERSION%.*}/libepoxy-${LIBEPOXY_VERSION}.tar.xz" \
-    /build/libepoxy \
-    "https://github.com/anholt/libepoxy/archive/refs/tags/${LIBEPOXY_VERSION}.tar.gz"
+extract_source "libepoxy-${LIBEPOXY_VERSION}.tar.xz" /build/libepoxy
 meson setup /build/libepoxy/_build /build/libepoxy --prefix="$PREFIX" \
     -Dtests=false -Dglx=yes -Degl=yes
 ninja -C /build/libepoxy/_build -j"$JOBS" install
 
 echo ":: Building libffi $LIBFFI_VERSION"
-fetch_and_extract \
-    "https://github.com/libffi/libffi/releases/download/v${LIBFFI_VERSION}/libffi-${LIBFFI_VERSION}.tar.gz" \
-    /build/libffi
+extract_source "libffi-${LIBFFI_VERSION}.tar.gz" /build/libffi
 # Vendored because libgobject links it and the SONAME moves between distros:
 # Debian 11 (this builder) ships libffi.so.7, while Ubuntu 22.04, Arch and Fedora
 # ship .so.8. Borrowing the builder's copy makes the bundle unloadable on exactly
@@ -401,10 +402,36 @@ make -j"$JOBS"
 make install
 cd /build
 
+echo ":: Building wayland $WAYLAND_VERSION"
+# The shipped 3.7.0 bundle already contained libwayland 1.23.0 and nothing here built it:
+# it came out of a builder image that had been modified by hand, so a library inside a
+# published release existed nowhere in this repository and could not be rebuilt from it.
+# Debian 11 has 1.18.0 and gtk4 requires ">= 1.23.0", which is why the image had to be
+# modified in the first place; building it here is what makes the bundle reproducible.
+#
+# Placed after libffi because libwayland-server marshals through it, and before gtk4 and
+# mesa, which are the consumers. Shipping a newer libwayland than the user's compositor is
+# safe and is what every bundled runtime does: the client library talks a stable wire
+# protocol to the compositor, so the two are not required to match.
+#
+# dtd_validation is off so this does not have to wait for libxml2 further down; it only
+# checks the protocol DTD at build time and changes nothing about what is produced.
+extract_source "wayland-${WAYLAND_VERSION}.tar.xz" /build/wayland
+meson setup /build/wayland/_build /build/wayland --prefix="$PREFIX" \
+    -Dlibraries=true -Dscanner=true -Dtests=false -Ddocumentation=false \
+    -Ddtd_validation=false
+ninja -C /build/wayland/_build -j"$JOBS" install
+
+echo ":: Building wayland-protocols $WAYLAND_PROTOCOLS_VERSION"
+# Protocol XML and a pkg-config file, no library -- it is build-time data, so nothing from
+# it is shipped. gtk4 and mesa both require ">= 1.41" and Debian 11 carries 1.20.
+extract_source "wayland-protocols-${WAYLAND_PROTOCOLS_VERSION}.tar.xz" /build/wayland-protocols
+meson setup /build/wayland-protocols/_build /build/wayland-protocols --prefix="$PREFIX" \
+    -Dtests=false
+ninja -C /build/wayland-protocols/_build -j"$JOBS" install
+
 echo ":: Building glib $GLIB_VERSION"
-fetch_and_extract \
-    "https://download.gnome.org/sources/glib/${GLIB_VERSION%.*}/glib-${GLIB_VERSION}.tar.xz" \
-    /build/glib
+extract_source "glib-${GLIB_VERSION}.tar.xz" /build/glib
 # -Dselinux=disabled is REQUIRED for portability, not a preference. Debian ships
 # libselinux and glib's gio links it when present; Arch does not ship it at all, so
 # a bundle built here without this flag dies on Arch with
@@ -416,9 +443,7 @@ meson setup /build/glib/_build /build/glib --prefix="$PREFIX" -Dtests=false -Dse
 ninja -C /build/glib/_build -j"$JOBS" install
 
 echo ":: Building icu $ICU_VERSION"
-fetch_and_extract \
-    "https://github.com/unicode-org/icu/releases/download/release-${ICU_VERSION//./-}/icu4c-${ICU_VERSION//-/_}-src.tgz" \
-    /build/icu
+extract_source "icu4c-${ICU_VERSION//-/_}-src.tgz" /build/icu
 cd /build/icu/source
 ./configure --prefix="$PREFIX"
 make -j"$JOBS"
@@ -426,32 +451,23 @@ make install
 cd /build
 
 echo ":: Building libtasn1 $LIBTASN1_VERSION"
-fetch_and_extract \
-    "https://ftp.gnu.org/gnu/libtasn1/libtasn1-${LIBTASN1_VERSION}.tar.gz" /build/libtasn1
+extract_source "libtasn1-${LIBTASN1_VERSION}.tar.gz" /build/libtasn1
 cd /build/libtasn1 && ./configure --prefix="$PREFIX" && make -j"$JOBS" && make install && cd /build
 
 echo ":: Building sqlite $SQLITE_VERSION"
-mkdir -p /build/sqlite
-curl -fL "https://www.sqlite.org/${SQLITE_YEAR}/sqlite-autoconf-${SQLITE_VERSION}.tar.gz" \
-    | tar -xz -C /build/sqlite --strip-components=1
+extract_source "sqlite-autoconf-${SQLITE_VERSION}.tar.gz" /build/sqlite
 cd /build/sqlite && ./configure --prefix="$PREFIX" && make -j"$JOBS" && make install && cd /build
 
 echo ":: Building lcms2 $LCMS2_VERSION"
-fetch_and_extract \
-    "https://github.com/mm2/Little-CMS/releases/download/lcms${LCMS2_VERSION}/lcms2-${LCMS2_VERSION}.tar.gz" \
-    /build/lcms2
+extract_source "lcms2-${LCMS2_VERSION}.tar.gz" /build/lcms2
 cd /build/lcms2 && ./configure --prefix="$PREFIX" && make -j"$JOBS" && make install && cd /build
 
 echo ":: Building libwebp $LIBWEBP_VERSION"
-fetch_and_extract \
-    "https://storage.googleapis.com/downloads.webmproject.org/releases/webp/libwebp-${LIBWEBP_VERSION}.tar.gz" \
-    /build/libwebp
+extract_source "libwebp-${LIBWEBP_VERSION}.tar.gz" /build/libwebp
 cd /build/libwebp && ./configure --prefix="$PREFIX" && make -j"$JOBS" && make install && cd /build
 
 echo ":: Building openjpeg $OPENJPEG_VERSION"
-fetch_and_extract \
-    "https://github.com/uclouvain/openjpeg/archive/refs/tags/v${OPENJPEG_VERSION}.tar.gz" \
-    /build/openjpeg
+extract_source "openjpeg-${OPENJPEG_VERSION}.tar.gz" /build/openjpeg
 cmake -B /build/openjpeg/_build -S /build/openjpeg -DCMAKE_INSTALL_PREFIX="$PREFIX" \
     -DBUILD_SHARED_LIBS=ON
 cmake --build /build/openjpeg/_build -j"$JOBS"
@@ -479,9 +495,7 @@ cmake --install /build/openjpeg/_build
 # subproject (dtd_validation, needs libxml2 -- see Containerfile's Task 4 comment,
 # now superseded) both need these earlier in the pipeline too.
 echo ":: Building libjpeg-turbo $LIBJPEG_TURBO_VERSION"
-fetch_and_extract \
-    "https://github.com/libjpeg-turbo/libjpeg-turbo/releases/download/${LIBJPEG_TURBO_VERSION}/libjpeg-turbo-${LIBJPEG_TURBO_VERSION}.tar.gz" \
-    /build/libjpeg-turbo
+extract_source "libjpeg-turbo-${LIBJPEG_TURBO_VERSION}.tar.gz" /build/libjpeg-turbo
 # -DWITH_JPEG8=1: makes the installed libjpeg.so report itself under the modern
 # libjpeg-turbo/libjpeg v8 API/ABI (SONAME libjpeg.so.8), matching what most
 # non-Debian distros ship and what gdk-pixbuf/WebKitGTK both link against by name
@@ -497,9 +511,7 @@ cmake --build /build/libjpeg-turbo/_build -j"$JOBS"
 cmake --install /build/libjpeg-turbo/_build
 
 echo ":: Building libtiff $LIBTIFF_VERSION"
-fetch_and_extract \
-    "https://download.osgeo.org/libtiff/tiff-${LIBTIFF_VERSION}.tar.gz" \
-    /build/libtiff
+extract_source "tiff-${LIBTIFF_VERSION}.tar.gz" /build/libtiff
 # Vendored for exactly the reason libjpeg-turbo above is: the distro SONAME is not
 # portable. Debian 11/Ubuntu 22.04 ship libtiff.so.5, Debian 12/Arch ship .so.6, so
 # linking whatever the builder happens to have breaks the other half of the users --
@@ -522,9 +534,7 @@ cmake --build /build/libtiff/_build -j"$JOBS"
 cmake --install /build/libtiff/_build
 
 echo ":: Building libxml2 $LIBXML2_VERSION"
-fetch_and_extract \
-    "https://download.gnome.org/sources/libxml2/${LIBXML2_VERSION%.*}/libxml2-${LIBXML2_VERSION}.tar.xz" \
-    /build/libxml2
+extract_source "libxml2-${LIBXML2_VERSION}.tar.xz" /build/libxml2
 # -Dpython=disabled: libxml2's meson build can also build Python bindings; nothing
 # in this C/C++ dependency chain needs them, and building them would pull in a
 # python3-dev header dependency this Containerfile doesn't otherwise need.
@@ -532,9 +542,7 @@ meson setup /build/libxml2/_build /build/libxml2 --prefix="$PREFIX" -Dpython=dis
 ninja -C /build/libxml2/_build -j"$JOBS" install
 
 echo ":: Building libxslt $LIBXSLT_VERSION"
-fetch_and_extract \
-    "https://download.gnome.org/sources/libxslt/${LIBXSLT_VERSION%.*}/libxslt-${LIBXSLT_VERSION}.tar.xz" \
-    /build/libxslt
+extract_source "libxslt-${LIBXSLT_VERSION}.tar.xz" /build/libxslt
 # libxslt ${LIBXSLT_VERSION} ships both an autotools ./configure and a CMakeLists.txt
 # but no meson.build -- autotools chosen to match this script's existing convention
 # for every other non-meson dependency (gmp, nettle, gnutls, icu, sqlite, lcms2,
@@ -559,8 +567,8 @@ cd /build
 
 echo ":: Building freetype $FREETYPE_VERSION (pass 1, no harfbuzz)"
 # Vendored as of 2026-08-18 -- see versions.env's FREETYPE_VERSION comment for the
-# COLRv1 ABI crash this fixes. Must come before cairo: cairo needs cairo-ft, and
-# cairo's meson also builds the fontconfig subproject that lands in this prefix.
+# COLRv1 ABI crash this fixes. Must come before cairo, which needs cairo-ft, and before
+# fontconfig below, which links freetype.
 #
 # Two passes, because freetype and harfbuzz depend on each other: harfbuzz's hb-ft
 # needs freetype, and freetype's autohinter uses harfbuzz to reach glyphs a font's
@@ -577,59 +585,68 @@ echo ":: Building freetype $FREETYPE_VERSION (pass 1, no harfbuzz)"
 # already a host runtime dependency by way of the system freetype this replaces.
 # png is needed for CBDT/CBLC color bitmap fonts (the non-COLRv1 emoji format most
 # non-Fedora distros still ship).
-fetch_and_extract \
-    "https://download.savannah.gnu.org/releases/freetype/freetype-${FREETYPE_VERSION}.tar.xz" \
-    /build/freetype \
-    "https://downloads.sourceforge.net/project/freetype/freetype2/${FREETYPE_VERSION}/freetype-${FREETYPE_VERSION}.tar.xz"
+extract_source "freetype-${FREETYPE_VERSION}.tar.xz" /build/freetype
 meson setup /build/freetype/_build /build/freetype --prefix="$PREFIX" \
     -Dharfbuzz=disabled -Dbrotli=enabled -Dpng=enabled -Dzlib=system -Dbzip2=disabled
 ninja -C /build/freetype/_build -j"$JOBS" install
 
+echo ":: Building fontconfig $FONTCONFIG_VERSION"
+# Built here rather than left to cairo's meson subproject, which is what used to happen.
+# That subproject only triggers when the container's own fontconfig is too old for cairo,
+# and Debian 11's 2.13.1 satisfies cairo's ">= 2.13.0" -- so nothing was ever built, and
+# cairo and libXft linked the host's copy instead, one built against a different freetype
+# than the 2.14.3 above. pango wants ">= 2.15.0" and falls back to a git clone, which an
+# offline build cannot serve at all; that is the failure this fixes.
+#
+# The config paths are deliberately left at their defaults, which put them under $PREFIX.
+# That is not incidental: the bundle SHIPS its own etc/fonts, and the webview points
+# FONTCONFIG_PATH at it, so pointing these at the host's /etc/fonts instead would ship no
+# configuration at all and leave that variable aimed at a directory that does not exist --
+# which costs every font rather than saving anything. The shipped fonts.conf already lists
+# the host's font directories (/usr/share/fonts, the xdg one, ~/.fonts), so host fonts are
+# found either way; what the default loses is the user's own conf.d tweaks, and what it
+# buys is a bundle that renders text at all. package.sh drops the one $PREFIX path in that
+# file, the build-prefix cachedir, leaving the xdg one it would have fallen through to.
+#
+# cache-build is off because it runs fc-cache at install time, which builds a cache keyed
+# to this container rather than the machine that will use it.
+extract_source "fontconfig-${FONTCONFIG_VERSION}.tar.xz" /build/fontconfig
+meson setup /build/fontconfig/_build /build/fontconfig --prefix="$PREFIX" \
+    -Dcache-build=disabled -Ddoc=disabled -Ddoc-man=disabled -Dtests=disabled
+ninja -C /build/fontconfig/_build -j"$JOBS" install
+
 echo ":: Building cairo $CAIRO_VERSION"
-fetch_and_extract "https://cairographics.org/releases/cairo-${CAIRO_VERSION}.tar.xz" /build/cairo
+extract_source "cairo-${CAIRO_VERSION}.tar.xz" /build/cairo
 meson setup /build/cairo/_build /build/cairo --prefix="$PREFIX"
 ninja -C /build/cairo/_build -j"$JOBS" install
 
-echo ":: Building libXft $LIBXFT_VERSION"
-# Out of order with the rest of the X11 chain on purpose: libXft links fontconfig,
-# which arrives in this prefix as a cairo meson subproject rather than a build of its
-# own, so this is the first point where it exists. pango's pangoxft module is what
-# needs it.
-fetch_and_extract \
-    "https://xorg.freedesktop.org/releases/individual/lib/libXft-${LIBXFT_VERSION}.tar.xz" /build/libXft
-cd /build/libXft
-./configure --prefix="$PREFIX" --disable-static
-make -j"$JOBS"
-make install
-cd /build
-
 echo ":: Building harfbuzz $HARFBUZZ_VERSION"
-fetch_and_extract \
-    "https://github.com/harfbuzz/harfbuzz/releases/download/${HARFBUZZ_VERSION}/harfbuzz-${HARFBUZZ_VERSION}.tar.xz" \
-    /build/harfbuzz
+extract_source "harfbuzz-${HARFBUZZ_VERSION}.tar.xz" /build/harfbuzz
 meson setup /build/harfbuzz/_build /build/harfbuzz --prefix="$PREFIX"
 ninja -C /build/harfbuzz/_build -j"$JOBS" install
 
 echo ":: Rebuilding freetype $FREETYPE_VERSION (pass 2, with harfbuzz)"
 # Second half of the dependency cycle described in pass 1 above. Same version, same
 # soname, same public ABI -- the harfbuzz option only changes the autofitter's
-# internals -- so overwriting the pass-1 library in place is safe for the fontconfig
-# subproject and cairo, which already linked against it.
+# internals -- so overwriting the pass-1 library in place is safe for fontconfig and
+# cairo, which already linked against it.
 meson setup --wipe /build/freetype/_build /build/freetype --prefix="$PREFIX" \
     -Dharfbuzz=enabled -Dbrotli=enabled -Dpng=enabled -Dzlib=system -Dbzip2=disabled
 ninja -C /build/freetype/_build -j"$JOBS" install
 
 echo ":: Building pango $PANGO_VERSION"
-fetch_and_extract \
-    "https://download.gnome.org/sources/pango/${PANGO_VERSION%.*}/pango-${PANGO_VERSION}.tar.xz" \
-    /build/pango
-meson setup /build/pango/_build /build/pango --prefix="$PREFIX"
+extract_source "pango-${PANGO_VERSION}.tar.xz" /build/pango
+# -Dxft=disabled, and no libXft build above any more. pangoxft was the only thing that
+# wanted Xft, nothing in this bundle loads pangoxft -- GTK 4 draws text through
+# pangocairo -- and it was not even resolvable in the shipped tarball, which carried
+# libpangoxft without the libXft it needs. Left on auto it would link the container's own
+# libXft instead, which is a host dependency bought for a module nothing opens.
+meson setup /build/pango/_build /build/pango --prefix="$PREFIX" \
+    -Dxft=disabled
 ninja -C /build/pango/_build -j"$JOBS" install
 
 echo ":: Building gdk-pixbuf $GDK_PIXBUF_VERSION"
-fetch_and_extract \
-    "https://download.gnome.org/sources/gdk-pixbuf/${GDK_PIXBUF_VERSION%.*}/gdk-pixbuf-${GDK_PIXBUF_VERSION}.tar.xz" \
-    /build/gdk-pixbuf
+extract_source "gdk-pixbuf-${GDK_PIXBUF_VERSION}.tar.xz" /build/gdk-pixbuf
 meson setup /build/gdk-pixbuf/_build /build/gdk-pixbuf --prefix="$PREFIX" -Dman=false
 ninja -C /build/gdk-pixbuf/_build -j"$JOBS" install
 
@@ -637,16 +654,12 @@ echo ":: Building graphene $GRAPHENE_VERSION"
 # graphene's "1.10.8" GitHub release has no uploaded release asset (only 1.10.6 and
 # earlier do) -- release-download URLs 404 for it. GitHub's auto-generated tag
 # source archive works for every tag, same pattern already used for openjpeg above.
-fetch_and_extract \
-    "https://github.com/ebassi/graphene/archive/refs/tags/${GRAPHENE_VERSION}.tar.gz" \
-    /build/graphene
+extract_source "graphene-${GRAPHENE_VERSION}.tar.gz" /build/graphene
 meson setup /build/graphene/_build /build/graphene --prefix="$PREFIX"
 ninja -C /build/graphene/_build -j"$JOBS" install
 
 echo ":: Building libpsl $LIBPSL_VERSION"
-fetch_and_extract \
-    "https://github.com/rockdaboot/libpsl/releases/download/${LIBPSL_VERSION}/libpsl-${LIBPSL_VERSION}.tar.gz" \
-    /build/libpsl
+extract_source "libpsl-${LIBPSL_VERSION}.tar.gz" /build/libpsl
 # IDNA backend pinned to ICU instead of left on 'auto'. On debian:12 'auto' happened
 # to find libunistring and silently used it; sniper (Debian 11) has no
 # libunistring-dev, so the same 'auto' hard-errors with
@@ -661,16 +674,12 @@ meson setup /build/libpsl/_build /build/libpsl --prefix="$PREFIX" \
 ninja -C /build/libpsl/_build -j"$JOBS" install
 
 echo ":: Building libgudev $LIBGUDEV_VERSION"
-fetch_and_extract \
-    "https://download.gnome.org/sources/libgudev/${LIBGUDEV_VERSION%%.*}/libgudev-${LIBGUDEV_VERSION}.tar.xz" \
-    /build/libgudev
+extract_source "libgudev-${LIBGUDEV_VERSION}.tar.xz" /build/libgudev
 meson setup /build/libgudev/_build /build/libgudev --prefix="$PREFIX"
 ninja -C /build/libgudev/_build -j"$JOBS" install
 
 echo ":: Building libsecret $LIBSECRET_VERSION"
-fetch_and_extract \
-    "https://download.gnome.org/sources/libsecret/${LIBSECRET_VERSION%.*}/libsecret-${LIBSECRET_VERSION}.tar.xz" \
-    /build/libsecret
+extract_source "libsecret-${LIBSECRET_VERSION}.tar.xz" /build/libsecret
 # libsecret's meson.options declares `introspection` as a plain boolean (default
 # true), unlike the `feature`-typed (auto/enabled/disabled) introspection options
 # used everywhere else in this chain (glib, pango, gtk4, libsoup, ...) -- so it's a
@@ -689,9 +698,7 @@ meson setup /build/libsecret/_build /build/libsecret --prefix="$PREFIX" -Dmanpag
 ninja -C /build/libsecret/_build -j"$JOBS" install
 
 echo ":: Building libnghttp2 $LIBNGHTTP2_VERSION"
-fetch_and_extract \
-    "https://github.com/nghttp2/nghttp2/releases/download/v${LIBNGHTTP2_VERSION}/nghttp2-${LIBNGHTTP2_VERSION}.tar.xz" \
-    /build/nghttp2
+extract_source "nghttp2-${LIBNGHTTP2_VERSION}.tar.xz" /build/nghttp2
 # libsoup links this for HTTP/2, and it was being taken from the host. It is not
 # installed by default on minimal systems, and the host binary refuses to start
 # when it is absent -- "libnghttp2.so.14: cannot open shared object file" was the
@@ -705,9 +712,7 @@ cmake --build /build/nghttp2/_build -j"$JOBS"
 cmake --install /build/nghttp2/_build
 
 echo ":: Building libsoup $LIBSOUP_VERSION"
-fetch_and_extract \
-    "https://download.gnome.org/sources/libsoup/${LIBSOUP_VERSION%.*}/libsoup-${LIBSOUP_VERSION}.tar.xz" \
-    /build/libsoup
+extract_source "libsoup-${LIBSOUP_VERSION}.tar.xz" /build/libsoup
 # Plan 2 (webview2loader) investigation finding: libsoup/libsoup/soup-init.c's ELF
 # constructor calls soup2_is_loaded(), which probes for a libsoup2-only symbol via
 # `dlopen(NULL, RTLD_LAZY | RTLD_GLOBAL)` + `dlsym(handle, "soup_uri_new")` and calls
@@ -759,9 +764,7 @@ meson setup /build/libsoup/_build /build/libsoup --prefix="$PREFIX" \
 ninja -C /build/libsoup/_build -j"$JOBS" install
 
 echo ":: Building gtk4 $GTK4_VERSION"
-fetch_and_extract \
-    "https://download.gnome.org/sources/gtk/${GTK4_VERSION%.*}/gtk-${GTK4_VERSION}.tar.xz" \
-    /build/gtk4
+extract_source "gtk-${GTK4_VERSION}.tar.xz" /build/gtk4
 # TuxBlox patch: fix an upstream GTK crash that aborts this whole helper process
 # whenever a reparented, EGL-backed surface's X window is destroyed by someone else.
 #
@@ -852,8 +855,7 @@ ninja -C /build/gtk4/_build -j"$JOBS" install
 echo ":: Building gmp $GMP_VERSION"
 # gmplib.org went unreachable mid-build on 2026-08-18 (recovered on curl's retry).
 # ftp.gnu.org is GMP's other official distribution point, not a volunteer mirror.
-fetch_and_extract "https://gmplib.org/download/gmp/gmp-${GMP_VERSION}.tar.xz" /build/gmp \
-    "https://ftp.gnu.org/gnu/gmp/gmp-${GMP_VERSION}.tar.xz"
+extract_source "gmp-${GMP_VERSION}.tar.xz" /build/gmp
 # --enable-fat is required, not a tuning choice. GMP's configure otherwise probes the
 # BUILD machine's CPU and compiles one microarchitecture's mpn assembly with no runtime
 # dispatch, so a bundle built on a Zen or Haswell-or-newer machine fills libgmp with
@@ -863,7 +865,7 @@ fetch_and_extract "https://gmplib.org/download/gmp/gmp-${GMP_VERSION}.tar.xz" /b
 cd /build/gmp && ./configure --prefix="$PREFIX" --enable-fat && make -j"$JOBS" && make install && cd /build
 
 echo ":: Building nettle $NETTLE_VERSION"
-fetch_and_extract "https://ftp.gnu.org/gnu/nettle/nettle-${NETTLE_VERSION}.tar.gz" /build/nettle
+extract_source "nettle-${NETTLE_VERSION}.tar.gz" /build/nettle
 cd /build/nettle
 # --libdir="$PREFIX/lib" is required, not cosmetic: nettle's own configure.ac
 # silently overrides libdir to "$PREFIX/lib64" on 64-bit ABIs whenever the caller
@@ -877,16 +879,12 @@ make install
 cd /build
 
 echo ":: Building p11-kit $P11KIT_VERSION"
-fetch_and_extract \
-    "https://github.com/p11-glue/p11-kit/releases/download/${P11KIT_VERSION}/p11-kit-${P11KIT_VERSION}.tar.xz" \
-    /build/p11-kit
+extract_source "p11-kit-${P11KIT_VERSION}.tar.xz" /build/p11-kit
 meson setup /build/p11-kit/_build /build/p11-kit --prefix="$PREFIX"
 ninja -C /build/p11-kit/_build -j"$JOBS" install
 
 echo ":: Building gnutls $GNUTLS_VERSION"
-fetch_and_extract \
-    "https://www.gnupg.org/ftp/gcrypt/gnutls/v${GNUTLS_VERSION%.*}/gnutls-${GNUTLS_VERSION}.tar.xz" \
-    /build/gnutls
+extract_source "gnutls-${GNUTLS_VERSION}.tar.xz" /build/gnutls
 cd /build/gnutls
 # --with-default-trust-store-file / --with-default-trust-store-dir: without an
 # explicit choice, gnutls's own configure probes a short list of common distro CA
@@ -916,9 +914,7 @@ make install
 cd /build
 
 echo ":: Building glib-networking $GLIB_NETWORKING_VERSION"
-fetch_and_extract \
-    "https://download.gnome.org/sources/glib-networking/${GLIB_NETWORKING_VERSION%.*}/glib-networking-${GLIB_NETWORKING_VERSION}.tar.xz" \
-    /build/glib-networking
+extract_source "glib-networking-${GLIB_NETWORKING_VERSION}.tar.xz" /build/glib-networking
 # -Dgnome_proxy=disabled: this option (default 'enabled', not 'auto') needs
 # gsettings-desktop-schemas, which Debian 12's package ships as schema data only --
 # no .pc file at all, so it can never be satisfied via pkg-config on this baseline
@@ -943,9 +939,7 @@ meson setup /build/glib-networking/_build /build/glib-networking --prefix="$PREF
 ninja -C /build/glib-networking/_build -j"$JOBS" install
 
 echo ":: Building libdrm $LIBDRM_VERSION"
-fetch_and_extract \
-    "https://dri.freedesktop.org/libdrm/libdrm-${LIBDRM_VERSION}.tar.xz" \
-    /build/libdrm
+extract_source "libdrm-${LIBDRM_VERSION}.tar.xz" /build/libdrm
 # Vendored for two reasons at once.
 #
 # Required: Mesa ${MESA_VERSION} wants libdrm >= 2.4.109 and sniper (Debian 11)
@@ -961,7 +955,7 @@ meson setup /build/libdrm/_build /build/libdrm --prefix="$PREFIX" \
 ninja -C /build/libdrm/_build -j"$JOBS" install
 
 echo ":: Building mesa $MESA_VERSION"
-fetch_and_extract "https://archive.mesa3d.org/mesa-${MESA_VERSION}.tar.xz" /build/mesa
+extract_source "mesa-${MESA_VERSION}.tar.xz" /build/mesa
 # The plan brief's original flags (-Dgallium-drivers=swrast, -Dosmesa=true) don't
 # match current Mesa's actual meson.options -- verified directly against the real
 # mesa-${MESA_VERSION} source tree, not assumed from the brief:
@@ -1049,24 +1043,11 @@ meson setup /build/mesa/_build /build/mesa --prefix="$PREFIX" \
     -Dllvm=enabled -Dshared-llvm=disabled
 ninja -C /build/mesa/_build -j"$JOBS" install
 
-echo ":: Building libwpe $LIBWPE_VERSION"
-fetch_and_extract \
-    "https://wpewebkit.org/releases/libwpe-${LIBWPE_VERSION}.tar.xz" /build/libwpe
-# libwpe (WPE's core windowing-abstraction library, providing the wpe-1.0 pkg-config
-# module) is a real, hard dependency of wpebackend-fdo below (its meson.build does
-# dependency('wpe-1.0', ..., fallback: ['libwpe', 'libwpe_dep']) -- not in the
-# original plan brief/versions.env, discovered while actually building this task
-# rather than guessed at during planning; see the comment on LIBWPE_VERSION in
-# versions.env.
-meson setup /build/libwpe/_build /build/libwpe --prefix="$PREFIX"
-ninja -C /build/libwpe/_build -j"$JOBS" install
-
-echo ":: Building wpebackend-fdo $WPEBACKEND_FDO_VERSION"
-fetch_and_extract \
-    "https://wpewebkit.org/releases/wpebackend-fdo-${WPEBACKEND_FDO_VERSION}.tar.xz" \
-    /build/wpebackend-fdo
-meson setup /build/wpebackend-fdo/_build /build/wpebackend-fdo --prefix="$PREFIX"
-ninja -C /build/wpebackend-fdo/_build -j"$JOBS" install
+# libwpe and wpebackend-fdo used to be built here and are not any more. They are the WPE
+# port's windowing abstraction, and this is the GTK port: WebKit's cmake for PORT=GTK
+# mentions WPE nowhere at all, no shipped binary carried a single wpe DT_NEEDED entry,
+# nothing provided the libWPEBackend-default.so that libwpe dlopens, and no gstreamer wpe
+# plugin was built either. They were shipped, unopenable, for every release until now.
 
 # --- GStreamer (native Linux) -----------------------------------------------------
 # This is a *native Linux* GStreamer build for WebKitGTK's <video>/<audio> support --
@@ -1101,24 +1082,27 @@ ninja -C /build/wpebackend-fdo/_build -j"$JOBS" install
 # good already covers what the Toolbox actually serves. If a format shows up that
 # still fails, check the plugin set before assuming a code bug -- a missing plugin
 # looks exactly like a crash here.
+# Tests and examples are disabled in all four of these, and not to save time: several
+# of the examples are GTK3 programs, and they link the container's own libgdk-3, which
+# wants Debian's versioned xkb_*@V_0.5.0 symbols. Since this bundle started building its
+# own libxkbcommon, -L$PREFIX wins the library search and upstream's unversioned 1.7.0
+# answers instead, so the link fails on a program that is never installed or shipped --
+# 470 targets into gstreamer, after everything that matters has already built. Same
+# reasoning as -Dgtk3=disabled below, one step earlier in the dependency chain.
 echo ":: Building gstreamer $GSTREAMER_VERSION"
-fetch_and_extract \
-    "https://gstreamer.freedesktop.org/src/gstreamer/gstreamer-${GSTREAMER_VERSION}.tar.xz" \
-    /build/gstreamer
-meson setup /build/gstreamer/_build /build/gstreamer --prefix="$PREFIX"
+extract_source "gstreamer-${GSTREAMER_VERSION}.tar.xz" /build/gstreamer
+meson setup /build/gstreamer/_build /build/gstreamer --prefix="$PREFIX" \
+    -Dexamples=disabled -Dtests=disabled -Dbenchmarks=disabled
 ninja -C /build/gstreamer/_build -j"$JOBS" install
 
 echo ":: Building gst-plugins-base $GSTREAMER_VERSION"
-fetch_and_extract \
-    "https://gstreamer.freedesktop.org/src/gst-plugins-base/gst-plugins-base-${GSTREAMER_VERSION}.tar.xz" \
-    /build/gst-plugins-base
-meson setup /build/gst-plugins-base/_build /build/gst-plugins-base --prefix="$PREFIX"
+extract_source "gst-plugins-base-${GSTREAMER_VERSION}.tar.xz" /build/gst-plugins-base
+meson setup /build/gst-plugins-base/_build /build/gst-plugins-base --prefix="$PREFIX" \
+    -Dexamples=disabled -Dtests=disabled
 ninja -C /build/gst-plugins-base/_build -j"$JOBS" install
 
 echo ":: Building gst-plugins-good $GSTREAMER_VERSION"
-fetch_and_extract \
-    "https://gstreamer.freedesktop.org/src/gst-plugins-good/gst-plugins-good-${GSTREAMER_VERSION}.tar.xz" \
-    /build/gst-plugins-good
+extract_source "gst-plugins-good-${GSTREAMER_VERSION}.tar.xz" /build/gst-plugins-good
 # Plugins disabled because their host libraries are not portable across distros:
 # FLAC (libFLAC.so.8 on Debian, .so.12 elsewhere), vpx (libvpx.so.6 vs .so.7/.so.9),
 # soup (would pull a second HTTP stack). Shipping a plugin that cannot load anywhere
@@ -1128,19 +1112,26 @@ fetch_and_extract \
 # gtk3 is disabled for the same reason, one step further on: libgstgtk.so is a video
 # sink WebKit never uses, and it was dragging a whole GTK3 stack into a GTK4 bundle.
 meson setup /build/gst-plugins-good/_build /build/gst-plugins-good --prefix="$PREFIX" \
-    -Dflac=disabled -Dvpx=disabled -Dsoup=disabled -Dgtk3=disabled
+    -Dflac=disabled -Dvpx=disabled -Dsoup=disabled -Dgtk3=disabled \
+    -Dexamples=disabled -Dtests=disabled
 ninja -C /build/gst-plugins-good/_build -j"$JOBS" install
 
 echo ":: Building gst-plugins-bad $GSTREAMER_VERSION"
-fetch_and_extract \
-    "https://gstreamer.freedesktop.org/src/gst-plugins-bad/gst-plugins-bad-${GSTREAMER_VERSION}.tar.xz" \
-    /build/gst-plugins-bad
+extract_source "gst-plugins-bad-${GSTREAMER_VERSION}.tar.xz" /build/gst-plugins-bad
 # Same portability rule as gst-plugins-good above: openal (libopenal.so.1),
 # curl (Debian's libcurl-gnutls.so.4 specifically), and dtls/aes (OpenSSL 1.1's
 # libcrypto.so.1.1, while Arch and every current distro are on OpenSSL 3) all pull
 # host libraries that do not exist outside the build distro.
+# -Dgtk3=disabled for the reason gst-plugins-good disables it above, and it only began to
+# matter once this script started building wayland: the option is "auto", so with GTK3 still
+# in the container and libwayland now in $PREFIX, gst-plugins-bad builds libgstgtkwayland.so
+# -- a GTK *3* video sink. This bundle ships GTK 4, so that plugin went out needing
+# libgtk-3/libgdk-3, which are neither vendored here nor on the system boundary README.md
+# documents, and verify-outside-container.sh reports it as a real bug. waylandsink is a
+# separate option and is still built.
 meson setup /build/gst-plugins-bad/_build /build/gst-plugins-bad --prefix="$PREFIX" \
-    -Dopenal=disabled -Dcurl=disabled -Ddtls=disabled -Daes=disabled
+    -Dopenal=disabled -Dcurl=disabled -Ddtls=disabled -Daes=disabled -Dgtk3=disabled \
+    -Dexamples=disabled -Dtests=disabled
 ninja -C /build/gst-plugins-bad/_build -j"$JOBS" install
 
 # --- WebKitGTK itself -------------------------------------------------------------

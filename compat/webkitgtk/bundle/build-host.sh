@@ -31,9 +31,13 @@ installed="$repo_root/build/compat/files/lib/tuxblox-webview/libexec/webview2loa
 do_package=0
 [ "$1" = "--package" ] && do_package=1
 
-# The image build is broken upstream of this repo -- Debian 11 is archived, so every
-# pinned .deb 404s -- which is exactly why this script never builds an image and uses
-# whichever one is already here instead.
+# This script never builds an image, it uses whichever one is already here. The reason
+# used to be that it could not: Debian 11 went end-of-life, its packages moved to
+# archive.debian.org, and the .debs pinned here 404ed. Containerfile now points at the
+# archive and builds again, but an image already on the machine can still predate a
+# package that was added to that file since -- which is its own trap, because the build
+# then fails hours in on a missing library rather than at setup. A stale image is worth
+# rebuilding from Containerfile rather than carrying.
 image=""
 for candidate in tuxblox-webkitgtk-builder tuxblox-webkitgtk-builder-sniper; do
     if podman image exists "$candidate"; then image="$candidate"; break; fi

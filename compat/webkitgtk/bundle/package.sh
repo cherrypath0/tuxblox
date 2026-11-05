@@ -331,11 +331,82 @@ mkdir -p /out
 # input this bundle is never linked against, the docs are never read at runtime, and
 # share/locale is 30 MB of GTK/WebKit translations for a UI TuxBlox ships in English.
 # 60 MB uncompressed, ~10 MB of the compressed tarball.
+#
+# The libraries excluded below are ones nothing in this bundle can reach. They were found
+# by walking DT_NEEDED from the real entry points -- the libexec binaries, the injected
+# bundle, and every tree that is dlopen()ed rather than linked (gstreamer plugins,
+# gdk-pixbuf loaders, the dri/ and gbm/ drivers, the glvnd vendor libraries, gio modules)
+# -- and taking what the walk never reached. They are alternative APIs and bindings their
+# packages install alongside the library this bundle actually uses: the C++ wrappers
+# (libtiffxx, libgnutlsxx), the TurboJPEG API next to the libjpeg one WebKit calls, ICU's
+# io/test/toolutil libraries, libexslt (WebKit references no exslt symbol), gobject
+# introspection's runtime with no typelibs shipped to read, the libgthread stub glib keeps
+# for source compatibility, harfbuzz 14's split-out cairo/gobject/gpu/raster/vector
+# libraries that nothing references, cairo's LD_PRELOAD trace tools, and the gstreamer
+# helper libraries no built plugin links.
+#
+# The non-library exclusions are build-time and debug content that installs into the same
+# tree: libtool .la files (which embed /opt/tuxblox-webview paths that are wrong the moment
+# the bundle is unpacked anywhere else), cmake and pkgconfig fragments, autotools m4 macros,
+# shell completions, gdb and valgrind helpers, GObject codegen, the XML/RNG validation
+# schemas, and the wayland protocol definitions, which are input to building a Wayland
+# client rather than anything a built one reads. share/glib-2.0/schemas, share/drirc.d,
+# share/glvnd, share/fontconfig, share/p11-kit and the gstreamer share trees are NOT in
+# that list -- those are read at runtime.
+#
+# Four more build-time trees arrived with the host-dependency vendoring rather than with
+# WebKit: xcb-proto's xcbgen Python generator and share/xcb's protocol XML, which are input
+# to generating libxcb and not read by it, libgpg-error's Common Lisp bindings, and
+# libexec/xkbcommon's xkbcli command-line tools. 1.0 MB, none of it reachable from a running
+# web view. share/X11/locale is NOT in that list at 1.1 MB: libX11 reads it for Compose and
+# dead-key input, so dropping it would quietly break text entry for the people who need it.
+#
+# share/gtk-4.0/emoji is the largest single item at 6.3 MB: per-language search names for
+# GtkEmojiChooser. A web view never shows that widget -- WebKit draws its own text fields
+# and its own context menus -- and emoji still render, because that is the font's job and
+# not this data's.
+#
+# DELIBERATELY NOT excluded, though the same walk does not reach them either:
+# libdrm_amdgpu/libdrm_nouveau/libdrm_radeon. Mesa opens those by name from inside
+# libgallium when it finds the matching GPU, so a reachability walk cannot see the edge.
+# They are 120 KB together, and dropping them to save that would trade a black webview on
+# AMD and nouveau machines for nothing -- the exact "fine here, broken there" trade this
+# bundle exists to stop making. The injected bundle is kept for the same reason: WebKit's
+# WebProcess opens it by path.
 tar -cJf "/out/webkitgtk-${WEBKITGTK_VERSION}-x86_64.tar.xz" \
     --exclude='libexec/installed-tests' --exclude='share/installed-tests' \
     --exclude='*.a' --exclude='*.pc' \
     --exclude='share/locale' --exclude='share/man' --exclude='share/info' \
     --exclude='share/doc' --exclude='share/gtk-doc' --exclude='share/gir-1.0' \
+    --exclude='lib/libtiffxx.so*' --exclude='lib/libgnutlsxx.so*' \
+    --exclude='lib/libturbojpeg.so*' --exclude='lib/libexslt.so*' \
+    --exclude='lib/libicuio.so*' --exclude='lib/libicutest.so*' --exclude='lib/libicutu.so*' \
+    --exclude='lib/x86_64-linux-gnu/cairo' \
+    --exclude='lib/x86_64-linux-gnu/libgirepository-2.0.so*' \
+    --exclude='lib/x86_64-linux-gnu/libgthread-2.0.so*' \
+    --exclude='lib/x86_64-linux-gnu/libharfbuzz-cairo.so*' \
+    --exclude='lib/x86_64-linux-gnu/libharfbuzz-gobject.so*' \
+    --exclude='lib/x86_64-linux-gnu/libharfbuzz-gpu.so*' \
+    --exclude='lib/x86_64-linux-gnu/libharfbuzz-raster.so*' \
+    --exclude='lib/x86_64-linux-gnu/libharfbuzz-vector.so*' \
+    --exclude='lib/x86_64-linux-gnu/libgstbadaudio-1.0.so*' \
+    --exclude='lib/x86_64-linux-gnu/libgstcheck-1.0.so*' \
+    --exclude='lib/x86_64-linux-gnu/libgstplay-1.0.so*' \
+    --exclude='lib/x86_64-linux-gnu/libgstplayer-1.0.so*' \
+    --exclude='lib/x86_64-linux-gnu/libgsttranscoder-1.0.so*' \
+    --exclude='lib/x86_64-linux-gnu/libgstwebrtc-1.0.so*' \
+    --exclude='*.la' --exclude='lib/cmake' --exclude='lib/icu' \
+    --exclude='share/aclocal' --exclude='share/pkgconfig' --exclude='share/cmake' \
+    --exclude='share/bash-completion' --exclude='share/zsh' --exclude='share/gettext' \
+    --exclude='share/gdb' --exclude='share/thumbnailers' \
+    --exclude='share/wayland' --exclude='share/wayland-protocols' \
+    --exclude='lib/python3.9' --exclude='share/xcb' \
+    --exclude='share/common-lisp' --exclude='libexec/xkbcommon' \
+    --exclude='share/glib-2.0/codegen' --exclude='share/glib-2.0/dtds' \
+    --exclude='share/glib-2.0/gdb' --exclude='share/glib-2.0/gettext' \
+    --exclude='share/glib-2.0/valgrind' \
+    --exclude='share/gtk-4.0/emoji' --exclude='share/gtk-4.0/valgrind' \
+    --exclude='share/gtk-4.0/gtk4builder.rng' \
     --transform 's,^,webkitgtk/,S' \
     lib libexec etc share
 

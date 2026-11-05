@@ -11,6 +11,17 @@ was fetched live from the project's own repository at (or as close as possible t
 the pinned version tag, or extracted directly from the pinned-version release
 tarball.
 
+The entries added on 2026-11-05 were all taken the second way, out of the very archives
+`compat/webkitgtk/bundle/sources/` holds and `sha256sums` pins, so each one is the licence
+text that shipped with the exact bytes this bundle compiles rather than whatever a project
+page serves today. They close a gap that had been growing: 3.7.1 vendored around 35
+libraries that had previously been borrowed from the host, and this file was not extended
+with them at the time, so it claimed a completeness it no longer had.
+
+Two packages this bundle compiles have no entry here on purpose, because nothing from them
+reaches the tarball: `xorgproto` and `xcb-proto` install headers and protocol descriptions
+only. `wayland-protocols` is the same and is now excluded at packaging time as well.
+
 ## Dependency table
 
 | Directory | versions.env var | Pinned version | SPDX license(s) | Files | Source |
@@ -34,8 +45,6 @@ tarball.
 | `gstreamer/` | `GSTREAMER_VERSION` | 1.26.5 | LGPL-2.1-or-later | `COPYING` | `https://gitlab.freedesktop.org/gstreamer/gstreamer/-/raw/1.26.5/subprojects/gstreamer/COPYING` |
 | `gst-plugins-base/` | `GSTREAMER_VERSION` | 1.26.5 | LGPL-2.1-or-later | `COPYING` | `https://gitlab.freedesktop.org/gstreamer/gstreamer/-/raw/1.26.5/subprojects/gst-plugins-base/COPYING` |
 | `gst-plugins-bad/` | `GSTREAMER_VERSION` | 1.26.5 | LGPL-2.1-or-later (see note — no GPL-only element is actually compiled into this bundle's build config) | `COPYING` | `https://gitlab.freedesktop.org/gstreamer/gstreamer/-/raw/1.26.5/subprojects/gst-plugins-bad/COPYING` |
-| `wpebackend-fdo/` | `WPEBACKEND_FDO_VERSION` | 1.14.2 | BSD-2-Clause | `COPYING` | `https://raw.githubusercontent.com/Igalia/WPEBackend-fdo/1.14.2/COPYING` (upstream org moved from `WebPlatformForEmbedded` to `Igalia`) |
-| `libwpe/` | `LIBWPE_VERSION` | 1.16.3 | BSD-2-Clause | `COPYING` | `https://raw.githubusercontent.com/WebPlatformForEmbedded/libwpe/1.16.3/COPYING` |
 | `harfbuzz/` | `HARFBUZZ_VERSION` | 14.3.0 | MIT (HarfBuzz's own customized "Old MIT" text, not stock boilerplate) | `COPYING` | `https://raw.githubusercontent.com/harfbuzz/harfbuzz/14.3.0/COPYING` |
 | `graphene/` | `GRAPHENE_VERSION` | 1.10.8 | MIT | `LICENSE.txt` | `https://raw.githubusercontent.com/ebassi/graphene/1.10.8/LICENSE.txt` |
 | `libpsl/` | `LIBPSL_VERSION` | 0.21.5 | MIT | `LICENSE` | `https://raw.githubusercontent.com/rockdaboot/libpsl/0.21.5/LICENSE` |
@@ -48,8 +57,63 @@ tarball.
 | `libxml2/` | `LIBXML2_VERSION` | 2.15.3 (tag `v2.15.3`) | MIT | `Copyright` | `https://gitlab.gnome.org/GNOME/libxml2/-/raw/v2.15.3/Copyright` |
 | `libxslt/` | `LIBXSLT_VERSION` | 1.1.45 (tag `v1.1.45`) | MIT-style (libxslt's own text; combined document covering libxslt + libexslt) | `Copyright` | `https://gitlab.gnome.org/GNOME/libxslt/-/raw/v1.1.45/Copyright` |
 | `pcre2/` | *(not in versions.env — real transitive dependency, see note)* | 10.44 | BSD-3-Clause-style (PCRE2's own text) | `LICENCE` | `https://raw.githubusercontent.com/PCRE2Project/pcre2/pcre2-10.44/LICENCE` |
+| `brotli/` | `BROTLI_VERSION` | 1.1.0 | MIT | `LICENSE` | `https://github.com/google/brotli/archive/refs/tags/v1.1.0.tar.gz` (the pinned archive this build compiles, verified against `sha256sums`) |
+| `bzip2/` | `BZIP2_VERSION` | 1.0.8 | bzip2-1.0.6 | `LICENSE` | `https://sourceware.org/pub/bzip2/bzip2-1.0.8.tar.gz` (the pinned archive this build compiles, verified against `sha256sums`) |
+| `expat/` | `EXPAT_VERSION` | 2.6.4 | MIT | `COPYING` | `https://github.com/libexpat/libexpat/releases/download/R_2_6_4/expat-2.6.4.tar.xz` (the pinned archive this build compiles, verified against `sha256sums`) |
+| `fontconfig/` | `FONTCONFIG_VERSION` | 2.16.0 | MIT (Keith Packard's text, an HPND/MIT variant) | `COPYING` | `https://www.freedesktop.org/software/fontconfig/release/fontconfig-2.16.0.tar.xz` (the pinned archive this build compiles, verified against `sha256sums`) |
+| `freetype/` | `FREETYPE_VERSION` | 2.14.3 | FTL OR GPL-2.0-or-later (dual, recipient's choice — the text says so explicitly) | `LICENSE.TXT` | `https://download.savannah.gnu.org/releases/freetype/freetype-2.14.3.tar.xz` (the pinned archive this build compiles, verified against `sha256sums`) |
+| `fribidi/` | `FRIBIDI_VERSION` | 1.0.16 | LGPL-2.1-or-later | `COPYING` | `https://github.com/fribidi/fribidi/releases/download/v1.0.16/fribidi-1.0.16.tar.xz` (the pinned archive this build compiles, verified against `sha256sums`) |
+| `gst-plugins-good/` | `GSTREAMER_VERSION` | 1.26.5 | LGPL-2.1-or-later | `COPYING` | `https://gstreamer.freedesktop.org/src/gst-plugins-good/gst-plugins-good-1.26.5.tar.xz` (the pinned archive this build compiles, verified against `sha256sums`) |
+| `libx11/` | `LIBX11_VERSION` | 1.8.10 | MIT/X11 plus BSD-style notices | `COPYING` | `https://xorg.freedesktop.org/releases/individual/lib/libX11-1.8.10.tar.xz` (the pinned archive this build compiles, verified against `sha256sums`) |
+| `libxau/` | `LIBXAU_VERSION` | 1.0.11 | MIT (Open Group HPND-style) | `COPYING` | `https://xorg.freedesktop.org/releases/individual/lib/libXau-1.0.11.tar.xz` (the pinned archive this build compiles, verified against `sha256sums`) |
+| `libxcursor/` | `LIBXCURSOR_VERSION` | 1.2.2 | MIT/X11-style | `COPYING` | `https://xorg.freedesktop.org/releases/individual/lib/libXcursor-1.2.2.tar.xz` (the pinned archive this build compiles, verified against `sha256sums`) |
+| `libxdamage/` | `LIBXDAMAGE_VERSION` | 1.1.6 | MIT/X11-style | `COPYING` | `https://xorg.freedesktop.org/releases/individual/lib/libXdamage-1.1.6.tar.xz` (the pinned archive this build compiles, verified against `sha256sums`) |
+| `libxdmcp/` | `LIBXDMCP_VERSION` | 1.1.5 | MIT (Open Group HPND-style) | `COPYING` | `https://xorg.freedesktop.org/releases/individual/lib/libXdmcp-1.1.5.tar.xz` (the pinned archive this build compiles, verified against `sha256sums`) |
+| `libxext/` | `LIBXEXT_VERSION` | 1.3.6 | MIT/X11-style | `COPYING` | `https://xorg.freedesktop.org/releases/individual/lib/libXext-1.3.6.tar.xz` (the pinned archive this build compiles, verified against `sha256sums`) |
+| `libxfixes/` | `LIBXFIXES_VERSION` | 6.0.1 | MIT/X11-style | `COPYING` | `https://xorg.freedesktop.org/releases/individual/lib/libXfixes-6.0.1.tar.xz` (the pinned archive this build compiles, verified against `sha256sums`) |
+| `libxi/` | `LIBXI_VERSION` | 1.8.2 | MIT/X11-style | `COPYING` | `https://xorg.freedesktop.org/releases/individual/lib/libXi-1.8.2.tar.xz` (the pinned archive this build compiles, verified against `sha256sums`) |
+| `libxinerama/` | `LIBXINERAMA_VERSION` | 1.1.5 | MIT/X11-style | `COPYING` | `https://xorg.freedesktop.org/releases/individual/lib/libXinerama-1.1.5.tar.xz` (the pinned archive this build compiles, verified against `sha256sums`) |
+| `libxrandr/` | `LIBXRANDR_VERSION` | 1.5.4 | MIT/X11-style | `COPYING` | `https://xorg.freedesktop.org/releases/individual/lib/libXrandr-1.5.4.tar.xz` (the pinned archive this build compiles, verified against `sha256sums`) |
+| `libxrender/` | `LIBXRENDER_VERSION` | 0.9.11 | MIT/X11-style | `COPYING` | `https://xorg.freedesktop.org/releases/individual/lib/libXrender-0.9.11.tar.xz` (the pinned archive this build compiles, verified against `sha256sums`) |
+| `libxtst/` | `LIBXTST_VERSION` | 1.2.5 | MIT/X11-style | `COPYING` | `https://xorg.freedesktop.org/releases/individual/lib/libXtst-1.2.5.tar.xz` (the pinned archive this build compiles, verified against `sha256sums`) |
+| `libxv/` | `LIBXV_VERSION` | 1.0.12 | MIT/X11-style (DEC and MIT, with a name-use restriction) | `COPYING` | `https://xorg.freedesktop.org/releases/individual/lib/libXv-1.0.12.tar.xz` (the pinned archive this build compiles, verified against `sha256sums`) |
+| `libxxf86vm/` | `LIBXXF86VM_VERSION` | 1.1.5 | MIT/X11-style | `COPYING` | `https://xorg.freedesktop.org/releases/individual/lib/libXxf86vm-1.1.5.tar.xz` (the pinned archive this build compiles, verified against `sha256sums`) |
+| `libdatrie/` | `LIBDATRIE_VERSION` | 0.2.13 | LGPL-2.1-or-later | `COPYING` | `https://github.com/tlwg/libdatrie/releases/download/v0.2.13/libdatrie-0.2.13.tar.xz` (the pinned archive this build compiles, verified against `sha256sums`) |
+| `libdrm/` | `LIBDRM_VERSION` | 2.4.125 | MIT | `LICENSE` | `https://dri.freedesktop.org/libdrm/libdrm-2.4.125.tar.xz` (the pinned archive this build compiles, verified against `sha256sums`) |
+| `libepoxy/` | `LIBEPOXY_VERSION` | 1.5.10 | MIT | `COPYING` | `https://download.gnome.org/sources/libepoxy/1.5/libepoxy-1.5.10.tar.xz` (the pinned archive this build compiles, verified against `sha256sums`) |
+| `libffi/` | `LIBFFI_VERSION` | 3.4.6 | MIT (library); GPL-2.0-or-later with autoconf exception (`LICENSE-BUILDTOOLS`, build scripts only) | `LICENSE`, `LICENSE-BUILDTOOLS` | `https://github.com/libffi/libffi/releases/download/v3.4.6/libffi-3.4.6.tar.gz` (the pinned archive this build compiles, verified against `sha256sums`) |
+| `libgcrypt/` | `LIBGCRYPT_VERSION` | 1.11.0 | LGPL-2.1-or-later (library); GPL-2.0-or-later (tools); MIT and BSD notices for bundled code (`LICENSES`) | `COPYING`, `COPYING.LIB`, `LICENSES` | `https://gnupg.org/ftp/gcrypt/libgcrypt/libgcrypt-1.11.0.tar.bz2` (the pinned archive this build compiles, verified against `sha256sums`) |
+| `libglvnd/` | `LIBGLVND_VERSION` | 1.7.0 | MIT (NVIDIA's text); plus X.Org, Mesa, uthash, buildconf and ax-pthread notices for bundled components | `LICENSE`, `src/util/cJSON/LICENSE`, `src/util/uthash/LICENSE` | `https://gitlab.freedesktop.org/glvnd/libglvnd/-/archive/v1.7.0/libglvnd-v1.7.0.tar.gz` (the pinned archive this build compiles, verified against `sha256sums`) |
+| `libgpg-error/` | `LIBGPG_ERROR_VERSION` | 1.50 | LGPL-2.1-or-later (library); GPL-2.0-or-later (tools) | `COPYING`, `COPYING.LIB` | `https://gnupg.org/ftp/gcrypt/libgpg-error/libgpg-error-1.50.tar.bz2` (the pinned archive this build compiles, verified against `sha256sums`) |
+| `libidn2/` | `LIBIDN2_VERSION` | 2.3.7 | LGPL-3.0-or-later OR GPL-2.0-or-later (dual); Unicode terms for the bundled tables (`COPYING.unicode`) | `COPYING`, `COPYING.LESSERv3`, `COPYING.unicode`, `COPYINGv2` | `https://ftp.gnu.org/gnu/libidn/libidn2-2.3.7.tar.gz` (the pinned archive this build compiles, verified against `sha256sums`) |
+| `libpng/` | `LIBPNG_VERSION` | 1.6.44 | Libpng ("PNG Reference Library License version 2") | `LICENSE` | `https://download.sourceforge.net/libpng/libpng-1.6.44.tar.xz` (the pinned archive this build compiles, verified against `sha256sums`) |
+| `libthai/` | `LIBTHAI_VERSION` | 0.1.29 | LGPL-2.1-or-later | `COPYING` | `https://github.com/tlwg/libthai/releases/download/v0.1.29/libthai-0.1.29.tar.xz` (the pinned archive this build compiles, verified against `sha256sums`) |
+| `libxcb/` | `LIBXCB_VERSION` | 1.17.0 | MIT | `COPYING` | `https://xorg.freedesktop.org/releases/individual/lib/libxcb-1.17.0.tar.xz` (the pinned archive this build compiles, verified against `sha256sums`) |
+| `libxkbcommon/` | `XKBCOMMON_VERSION` | 1.7.0 | MIT | `LICENSE` | `https://xkbcommon.org/download/libxkbcommon-1.7.0.tar.xz` (the pinned archive this build compiles, verified against `sha256sums`) |
+| `libxshmfence/` | `LIBXSHMFENCE_VERSION` | 1.3.2 | MIT/X11-style | `COPYING` | `https://xorg.freedesktop.org/releases/individual/lib/libxshmfence-1.3.2.tar.xz` (the pinned archive this build compiles, verified against `sha256sums`) |
+| `nghttp2/` | `LIBNGHTTP2_VERSION` | 1.64.0 | MIT | `COPYING` | `https://github.com/nghttp2/nghttp2/releases/download/v1.64.0/nghttp2-1.64.0.tar.xz` (the pinned archive this build compiles, verified against `sha256sums`) |
+| `pixman/` | `PIXMAN_VERSION` | 0.44.2 | MIT | `COPYING` | `https://www.cairographics.org/releases/pixman-0.44.2.tar.gz` (the pinned archive this build compiles, verified against `sha256sums`) |
+| `libtiff/` | `LIBTIFF_VERSION` | 4.7.0 | libtiff (HPND-style, Sam Leffler / SGI) | `LICENSE.md` | `https://download.osgeo.org/libtiff/tiff-4.7.0.tar.gz` (the pinned archive this build compiles, verified against `sha256sums`) |
+| `wayland/` | `WAYLAND_VERSION` | 1.23.0 | MIT | `COPYING` | `https://gitlab.freedesktop.org/wayland/wayland/-/releases/1.23.0/downloads/wayland-1.23.0.tar.xz` (the pinned archive this build compiles, verified against `sha256sums`) |
+| `zlib/` | `ZLIB_VERSION` | 1.3.1 | Zlib | `LICENSE` | `https://zlib.net/fossils/zlib-1.3.1.tar.gz` (the pinned archive this build compiles, verified against `sha256sums`) |
+| `zstd/` | `ZSTD_VERSION` | 1.5.6 | BSD-3-Clause (`LICENSE`) OR GPL-2.0-only (`COPYING`), dual at the recipient's choice | `COPYING`, `LICENSE` | `https://github.com/facebook/zstd/releases/download/v1.5.6/zstd-1.5.6.tar.gz` (the pinned archive this build compiles, verified against `sha256sums`) |
 
 ## Notes on individual entries
+
+- **libdrm**: ships no `COPYING`/`LICENSE` file of any kind. The MIT grant it is
+  distributed under is stated in its own core header, `include/drm/drm.h`, and
+  `LICENSE` here is that notice copied out of it verbatim with the C comment markers
+  removed and nothing else changed. Same approach as the `sqlite` entry below, which
+  also has no in-tree licence file.
+- **libglvnd**: likewise ships no top-level licence file. `LICENSE` here is the licence
+  section of its own `README.md`, verbatim apart from removing the four-space markdown
+  indent -- it covers libglvnd's own MIT text plus the separate X.Org, Mesa, uthash,
+  buildconf and ax-pthread notices for the code it bundles. The two bundled components
+  that *do* carry their own files keep them at their upstream paths
+  (`src/util/cJSON/LICENSE`, `src/util/uthash/LICENSE`).
+- **libwpe / wpebackend-fdo**: removed on 2026-11-05 along with their build steps. They
+  are the WPE port's windowing abstraction and this bundle builds the GTK port, which
+  never linked them -- see `build-in-container.sh` where the build steps used to be.
 
 - **webkitgtk**: WebKit has no single canonical top-level LICENSE covering the
   whole project — licensing is expressed per-file/per-directory. The four files
