@@ -25,6 +25,19 @@ FROM registry.gitlab.steamos.cloud/steamrt/sniper/sdk:latest
 # gcc-10 is the sniper default; WebKitGTK 2.52 needs newer C++.
 ENV CC=gcc-14 CXX=g++-14
 
+# Debian 11 is end-of-life, so its packages have moved off deb.debian.org and into
+# archive.debian.org. The indexes still resolve from the old host, which makes this
+# look fine until an individual .deb 404s out of a pool that no longer carries it --
+# and because this image installs in several layers, the first thing to disappear
+# took the whole image build down while the apt lines themselves still looked correct.
+# That is why this file could not be built at all for a while; the comment in
+# build-host.sh about "repair Containerfile's apt sources" is this. The archive has no
+# current Release file either, so Check-Valid-Until has to be off or every update
+# fails on a date rather than a missing package.
+RUN sed -i 's#\(https\?\)://deb.debian.org/debian-security#http://archive.debian.org/debian-security#g; s#\(https\?\)://deb.debian.org/debian#http://archive.debian.org/debian#g; s#\(https\?\)://security.debian.org/debian-security#http://archive.debian.org/debian-security#g' \
+        /etc/apt/sources.list $(ls /etc/apt/sources.list.d/*.list 2>/dev/null || true) \
+    && echo 'Acquire::Check-Valid-Until "false";' > /etc/apt/apt.conf.d/99archive
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc-14 g++-14 \
     build-essential cmake ninja-build meson pkg-config git curl ca-certificates \

@@ -12,7 +12,24 @@ engineering, not part of the normal `./build.sh` a user or contributor runs.
 ## How to run it
 
     cd compat/webkitgtk/bundle
+    ./fetch-sources.sh      # once, and after any version bump
     ./build.sh
+
+The build downloads nothing. Every source archive comes out of `sources/` (gitignored,
+about 250 MB), which `fetch-sources.sh` fills from `sources.list` and checksums into
+`sha256sums`; `build-in-container.sh` resolves each package from there by name, checks
+it against the recorded checksum, and stops if an archive is missing or its bytes have
+changed. `build.sh` runs the container with `--network=none`, so that is enforced
+rather than merely intended -- a package that slipped back to fetching its own source,
+or a meson wrap that still wants downloading, fails instead of quietly pulling bytes
+nothing recorded. `build.sh` verifies `sources/` before it starts the hours-long part,
+so a missing archive costs one command rather than an hour.
+
+A version bump in `versions.env` therefore means: `./fetch-sources.sh` to pull the new
+archive, then `./fetch-sources.sh --relock` to re-record `sha256sums`, and commit
+`sha256sums` with the bump. `--relock` is the only thing that rewrites recorded
+checksums and is never part of a build; `./fetch-sources.sh --verify` checks what is on
+disk without touching the network.
 
 Takes a long time (building the full GTK4/WebKitGTK stack from source) on a genuinely
 clean run -- expect multiple hours, most of it a single-threaded (`JOBS=1`, see the
@@ -20,7 +37,7 @@ memory-history comment in `build-in-container.sh`) WebKitGTK compile. A re-run w
 webkitgtk itself is unchanged (no patch/version bump) finishes in well under a minute:
 its own source+build tree persists in the `webkitgtk-src-build` volume, so `ninja`
 does a true incremental build and correctly does nothing. Every *other* dependency
-(glib, gtk4, libsoup, icu, ...) still re-fetches and rebuilds from scratch on every
+(glib, gtk4, libsoup, icu, ...) still re-extracts and rebuilds from scratch on every
 run regardless -- that's fine, since all of them combined take well under an hour, and
 none of them get the same persistent-source treatment webkitgtk does. Produces
 `out/webkitgtk-<version>-x86_64.tar.xz`. Copy it into `../prebuilt/`,
@@ -34,12 +51,12 @@ doesn't force starting over from nothing:
   you want a genuinely clean build.
 - `webkitgtk-src-build` -- webkitgtk's own extracted source tree AND its cmake
   `_build` directory (mounted at `/build/webkitgtk`, the one dependency whose /build
-  subdirectory isn't ephemeral -- see the comment at its `fetch_and_extract` call site
+  subdirectory isn't ephemeral -- see the comment at its `extract_source` call site
   in `build-in-container.sh`). This is what makes an unchanged re-run fast. Delete it
   to force a genuinely clean webkitgtk rebuild (e.g. if you suspect the persisted tree
   itself is corrupted) -- a version bump in `versions.env` does NOT require deleting
   this manually, the script detects the version change itself via a marker file and
-  re-fetches automatically.
+  re-extracts automatically.
 - `webkitgtk-ccache` -- compiler cache for the WebKitGTK step only, a second line of
   defense for cases the persisted `_build` tree doesn't cover on its own (e.g. after
   deleting `webkitgtk-src-build` but not this). Not part of the shippable artifact;
@@ -337,9 +354,21 @@ anyway). This boundary has grown twice since the plan's original Global Constrai
     `libsndfile`, `libogg`/`libvorbis`/`libopus`/`libspeex`/`libtheora`, `libv4l2`,
     `libusb`. All reachable only through GStreamer plugins; absent, they cost sound
     or video rather than the webview.
-  - **fontconfig and freetype**, which arrive as a cairo meson subproject rather
-    than from the host -- listed here only because the entries above describe them
-    as system-provided and that is no longer accurate.
+  - **fontconfig, freetype and wayland**, all three built from source here -- listed
+    only because the entries above describe them as system-provided and that is no
+    longer accurate. freetype was vendored in 3.7.1; fontconfig followed it, having
+    been left until then to cairo's meson subproject, which turned out never to
+    build at all when the container's own copy satisfied cairo. See the fontconfig
+    step in `build-in-container.sh` for why its config paths point at the host.
+
+    wayland is the one that had already been shipping without being built. The 3.7.0
+    tarball contains `libwayland-client.so.0.23.0` and nothing in this repository
+    built it: Debian 11 has 1.18.0, gtk4 requires `>= 1.23.0`, and the gap had been
+    closed by modifying the builder image by hand, so a library inside a published
+    release could not be rebuilt from the repository it shipped from. Shipping a
+    newer libwayland than the user's compositor is safe -- the client library speaks
+    a stable wire protocol, so the two do not have to match -- but shipping one
+    nobody could rebuild was not.
 
   `libsystemd` is gone rather than vendored: it came from WebKit's
   `ENABLE_JOURNALD_LOG`, now `OFF`. `libgtk-3` and `libcups` are gone the same way,
@@ -507,25 +536,44 @@ straightforward:
   per-user location, alongside the other environment variables in the contract table
   above.
 
-## Supply-chain hardening gap (known limitation, not blocking)
+## Supply-chain hardening (sources CLOSED in 3.7.1, toolchain still open)
 
-Nothing in this pipeline verifies what it downloads:
+The source side of this is now closed. It used to be that nothing verified anything:
+every package was a bare `curl -fL` straight into `tar` at build time, and
+`versions.env` pinned *versions*, which protects against upstream drift but not
+against a compromised or substituted mirror. That mattered more here than it looks,
+because several of these upstreams are mirror redirectors onto volunteer hosts rather
+than single origins, and one of them has already served a dead mirror mid-build.
 
-- `build-in-container.sh` fetches ~28 source tarballs with a bare `curl -fL` and no
-  checksum or signature check. `versions.env` pins *versions*, which protects against
-  upstream drift but not against a compromised or substituted mirror.
-- `Containerfile` uses the moving `FROM debian:12` tag rather than a digest, and
-  `pip3 install --break-system-packages --upgrade 'meson>=1.4.0'` is unpinned -- so
-  two runs months apart can legitimately produce different toolchains.
+What replaced it:
 
-For a component that renders live web content and handles Roblox login sessions,
-this is worth closing before the bundle ships in an actual release: add a
-`sha256sums` file next to `versions.env` and verify it inside `fetch_and_extract`,
-pin the base image by digest, and pin the meson version exactly. Not blocking today
-(the artifact in `compat/webkitgtk/prebuilt/` was built and verified by hand), but it is
-the difference between "pinned" and "reproducible", and the whole point of this
-directory is that someone can rebuild it in six months for a security update and
-trust the result.
+- `sources.list` holds every archive and where to get it; `fetch-sources.sh` fills
+  `sources/` on the host and records a checksum per archive in `sha256sums`.
+- `build-in-container.sh` resolves each package from `sources/` by name and verifies
+  it against `sha256sums` before unpacking. A missing archive, or one whose bytes
+  changed, stops the build -- it is never fetched or built anyway.
+- `build.sh` runs the container with `--network=none`, which makes "downloads nothing"
+  a property of the build rather than a claim about the script. It also closes meson's
+  own configure-time wrap downloads, which were a second, quieter path to the network:
+  `MESON_PACKAGE_CACHE_DIR` points meson at the same directory for any wrap that is a
+  tarball. No wrap is load-bearing any more: fontconfig, the only one that ever was, is
+  a package of its own now. That also closed a path the cache could not have covered --
+  pango's fontconfig wrap is a *git* wrap, and a `git clone` is not a cached download.
+- `fetch-sources.sh` pins the whole exchange to https including redirects, so a
+  redirector cannot hand an archive to plain http.
+
+What is still open is the *toolchain*, not the sources:
+
+- `Containerfile` uses the moving `FROM registry.gitlab.steamos.cloud/steamrt/sniper/sdk:latest`
+  tag rather than a digest, and `pip3 install --upgrade 'meson>=1.4.0'` is unpinned, so
+  two runs months apart can still legitimately produce different compilers and a
+  different meson. Pinning the base image by digest and the meson version exactly is
+  what remains before this directory can claim a reproducible build rather than a
+  verified set of inputs.
+- The image is also installed from Debian 11's archive, which is end-of-life and
+  frozen. That is good for reproducibility and bad for security updates, and it is
+  the direct reason the glibc floor is 2.31; it is a deliberate trade, not an
+  oversight. See the `FROM` comment in `Containerfile`.
 
 ## Third-party license attribution needed before release
 

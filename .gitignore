@@ -44,3 +44,4 @@ compat/webkitgtk/bundle/out/
 compat/webkitgtk/bundle/host/webview2loader_ipc_protocol.h
 logs/
 shared/ui/dist/
+compat/webkitgtk/bundle/sources/
