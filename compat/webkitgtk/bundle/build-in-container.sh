@@ -562,7 +562,19 @@ echo ":: Building gmp $GMP_VERSION"
 # ftp.gnu.org is GMP's other official distribution point, not a volunteer mirror.
 fetch_and_extract "https://gmplib.org/download/gmp/gmp-${GMP_VERSION}.tar.xz" /build/gmp \
     "https://ftp.gnu.org/gnu/gmp/gmp-${GMP_VERSION}.tar.xz"
-cd /build/gmp && ./configure --prefix="$PREFIX" && make -j"$JOBS" && make install && cd /build
+# --enable-fat is required for this tarball to run on anything older than the
+# build host: without it, GMP's config.guess detects the builder's exact CPU
+# (e.g. broadwell-pc-linux-gnu) and emits that CPU's assembly unconditionally.
+# On a Broadwell builder, __gmpn_sqr_basecase then uses BMI2/ADX (mulx/adcx/adox),
+# and the first GnuTLS handshake SIGILLs on every pre-Broadwell CPU (issue #5).
+# A fat build keeps the tuned paths but selects one through CPUID at runtime.
+cd /build/gmp && ./configure --prefix="$PREFIX" --enable-fat && make -j"$JOBS" && make install && cd /build
+# A non-fat build exports no __gmpn_cpuvec; catching that here prevents another
+# SIGILL-only-on-older-CPUs tarball from being packaged and shipped.
+nm -D "$PREFIX/lib/libgmp.so" | grep -q '__gmpn_cpuvec' || {
+    echo "ERROR: libgmp was built without --enable-fat; the bundle will SIGILL on pre-Broadwell CPUs" >&2
+    exit 1
+}
 
 echo ":: Building nettle $NETTLE_VERSION"
 fetch_and_extract "https://ftp.gnu.org/gnu/nettle/nettle-${NETTLE_VERSION}.tar.gz" /build/nettle
