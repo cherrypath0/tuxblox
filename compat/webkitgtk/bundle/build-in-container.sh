@@ -865,10 +865,14 @@ extract_source "gmp-${GMP_VERSION}.tar.xz" /build/gmp
 cd /build/gmp && ./configure --prefix="$PREFIX" --enable-fat && make -j"$JOBS" && make install && cd /build
 # A non-fat build exports no __gmpn_cpuvec; catching that here prevents another
 # SIGILL-only-on-older-CPUs tarball from being packaged and shipped.
-nm -D "$PREFIX/lib/libgmp.so" | grep -q '__gmpn_cpuvec' || {
+# nm's output goes into a variable rather than through `| grep -q`: grep -q exits on the
+# first match, nm dies of SIGPIPE mid-write, and under `set -o pipefail` the pipeline then
+# returns 141 -- so the pipe form fails the build on a perfectly good fat libgmp.
+gmp_dynsyms="$(nm -D "$PREFIX/lib/libgmp.so")"
+if [[ "$gmp_dynsyms" != *__gmpn_cpuvec* ]]; then
     echo "ERROR: libgmp was built without --enable-fat; the bundle will SIGILL on pre-Broadwell CPUs" >&2
     exit 1
-}
+fi
 
 echo ":: Building nettle $NETTLE_VERSION"
 extract_source "nettle-${NETTLE_VERSION}.tar.gz" /build/nettle
