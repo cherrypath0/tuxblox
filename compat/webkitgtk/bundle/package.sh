@@ -59,6 +59,23 @@ source "$(dirname "$0")/versions.env"
 PREFIX=/opt/tuxblox-webview
 cd "$PREFIX"
 
+# The same invariant the gmp build step asserts, re-checked here on what actually ships.
+# Normally the two are the same thing, but they are not guaranteed to be: this prefix is a
+# podman volume that outlives any one run, and the 3.7.0 bundle went out containing a
+# libwayland built from a source nobody had recorded, collected from a hand-modified image
+# exactly like this. A build-time check cannot see that; a package-time one can. Without a
+# runtime-dispatching libgmp, the first TLS handshake SIGILLs on any CPU older than the
+# builder's, which is a crash nobody building this bundle can reproduce.
+# nm's output goes into a variable rather than through `| grep -q`: grep -q exits on the
+# first match, nm dies of SIGPIPE mid-write, and under `set -o pipefail` the pipeline then
+# returns 141 -- so the pipe form fails the build on a perfectly good fat libgmp.
+gmp_dynsyms="$(nm -D "$PREFIX/lib/libgmp.so")"
+if [[ "$gmp_dynsyms" != *__gmpn_cpuvec* ]]; then
+    echo "ERROR: the libgmp about to be packaged exports no __gmpn_cpuvec, so it is not a" >&2
+    echo "       fat build and will SIGILL on CPUs older than this builder. Refusing to package." >&2
+    exit 1
+fi
+
 # Task 8 post-review correction (2026-08-10), I-2: gdk-pixbuf's loaders.cache (the
 # module registry gdk_pixbuf_get_formats()/loader lookup reads at runtime) has each
 # loader's absolute .so path baked into the cache FILE ITSELF at build time -- a
