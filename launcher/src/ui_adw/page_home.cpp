@@ -21,6 +21,7 @@
 #include "asset_roblox_studio.h"
 #include "asset_stop.h"
 #include "home_card_state.h"
+#include "i18n.h"
 #include "session_facts.h"
 #include "install_identity.h"
 #include "release_file.h"
@@ -107,9 +108,9 @@ HomePage::HomePage(App &app, std::string installDir) : app_(app) {
 
     GtkWidget *pStrip = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
     const std::string name = identity.isRelease ? "TuxBlox " + identity.version
-                                                : "Launcher " + identity.version;
+                                                : i18n::trf("Launcher {0}", {identity.version});
     gtk_box_append(GTK_BOX(pStrip), textLabel(name, "caption"));
-    GtkWidget *pChannel = textLabel(identity.isRelease ? "\xC2\xB7 " + identity.channel + " channel" : "",
+    GtkWidget *pChannel = textLabel(identity.isRelease ? i18n::trf("· {0} channel", {identity.channel}) : "",
                                     "caption");
     gtk_widget_add_css_class(pChannel, "dim-label");
     gtk_widget_set_hexpand(pChannel, TRUE);
@@ -122,7 +123,7 @@ HomePage::HomePage(App &app, std::string installDir) : app_(app) {
     gtk_widget_add_css_class(pUpdateDot_, "dim-label");
     gtk_widget_set_visible(pUpdateDot_, FALSE);
     gtk_box_append(GTK_BOX(pStrip), pUpdateDot_);
-    pUpdateButton_ = gtk_button_new_with_label("Update");
+    pUpdateButton_ = gtk_button_new_with_label(i18n::tr("Update"));
     gtk_widget_add_css_class(pUpdateButton_, "update-button");
     gtk_widget_set_visible(pUpdateButton_, FALSE);
     g_signal_connect(pUpdateButton_, "clicked", G_CALLBACK(onUpdateClicked), this);
@@ -142,7 +143,7 @@ GtkWidget *HomePage::buildCard(Card &card, const char *pTitle, const unsigned ch
     GtkWidget *pIconImage = iconImage(pIcon, iconLength, 34);
     gtk_widget_set_valign(pIconImage, GTK_ALIGN_START);
 
-    GtkWidget *pMeta = textLabel("Not installed yet", "caption");
+    GtkWidget *pMeta = textLabel(i18n::tr("Not installed yet"), "caption");
     gtk_widget_add_css_class(pMeta, "dim-label");
     gtk_widget_add_css_class(pMeta, "version-meta");
     gtk_label_set_ellipsize(GTK_LABEL(pMeta), PANGO_ELLIPSIZE_END);
@@ -161,7 +162,7 @@ GtkWidget *HomePage::buildCard(Card &card, const char *pTitle, const unsigned ch
     gtk_widget_set_valign(pHeader, GTK_ALIGN_START);
 
     GtkWidget *pButtonIcon = iconImage(kAssetDownload, kAssetDownloadLen, 18);
-    GtkWidget *pButtonLabel = gtk_label_new("Install & Launch");
+    GtkWidget *pButtonLabel = gtk_label_new(i18n::tr("Install & Launch"));
     gtk_label_set_ellipsize(GTK_LABEL(pButtonLabel), PANGO_ELLIPSIZE_END);
     card.pButtonIcon = pButtonIcon;
     card.pButtonLabel = GTK_LABEL(pButtonLabel);
@@ -195,7 +196,7 @@ GtkWidget *HomePage::buildCard(Card &card, const char *pTitle, const unsigned ch
 }
 
 GtkWidget *HomePage::buildSessions() {
-    pSessionEmpty_ = textLabel("Nothing is running right now.", "caption");
+    pSessionEmpty_ = textLabel(i18n::tr("Nothing is running right now."), "caption");
     gtk_widget_add_css_class(pSessionEmpty_, "dim-label");
     gtk_widget_set_margin_top(pSessionEmpty_, 3);
 
@@ -208,7 +209,7 @@ GtkWidget *HomePage::buildSessions() {
     gtk_widget_set_margin_end(pInner, 16);
     gtk_widget_set_margin_top(pInner, 14);
     gtk_widget_set_margin_bottom(pInner, 14);
-    gtk_box_append(GTK_BOX(pInner), textLabel("Open sessions", "heading"));
+    gtk_box_append(GTK_BOX(pInner), textLabel(i18n::tr("Open sessions"), "heading"));
     gtk_box_append(GTK_BOX(pInner), pSessionEmpty_);
     gtk_box_append(GTK_BOX(pInner), pSessionRows_);
 
@@ -245,11 +246,11 @@ void HomePage::setSessions(const std::vector<Session> &sessions) {
             gtk_size_group_add_widget(pMetaWidths, pMeta);
             pSessionMetas_.push_back(GTK_LABEL(pMeta));
 
-            GtkWidget *pOpen = gtk_button_new_with_label("Open");
+            GtkWidget *pOpen = gtk_button_new_with_label(i18n::tr("Open"));
             gtk_widget_add_css_class(pOpen, "flat");
             gtk_widget_add_css_class(pOpen, "session-open");
             gtk_widget_set_valign(pOpen, GTK_ALIGN_CENTER);
-            gtk_widget_set_tooltip_text(pOpen, "Show this session and its log");
+            gtk_widget_set_tooltip_text(pOpen, i18n::tr("Show this session and its log"));
             g_object_set_data(G_OBJECT(pOpen), "tuxblox-pid", GINT_TO_POINTER(session.pid));
             g_signal_connect(pOpen, "clicked", G_CALLBACK(onOpenSessionClicked), this);
 
@@ -321,7 +322,7 @@ void HomePage::onUpdateClicked(GtkButton *, gpointer data) {
 
 void HomePage::setCard(Card &card, bool installed, const std::string &versionLabel, int sessions,
                        bool stopping, bool launchPending) {
-    setLabelText(card.pMeta, installed ? versionLabel : "Not installed yet");
+    setLabelText(card.pMeta, installed ? versionLabel : i18n::tr("Not installed yet"));
 
     const CardState state = cardState(card.target, installed, sessions, stopping, launchPending);
 
@@ -390,10 +391,10 @@ void HomePage::update(const AppSnapshot &snap) {
 
     if (applying) {
         showUpdateButton(false);
-        setLabelText(pTitle_, "Updating TuxBlox");
-        setLabelText(GTK_LABEL(pUpdateStatus_), "Preparing updater");
+        setLabelText(pTitle_, i18n::tr("Updating TuxBlox"));
+        setLabelText(GTK_LABEL(pUpdateStatus_), i18n::tr("Preparing updater"));
         gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(pUpdateBar_), snap.update.fraction);
-        setUpdateState("Updating", "warning");
+        setUpdateState(i18n::tr("Updating"), "warning");
         showError(pError_, "");
         return;
     }
@@ -401,7 +402,7 @@ void HomePage::update(const AppSnapshot &snap) {
     showUpdateButton(snap.updateAvailableVersion.has_value());
     if (snap.update.phase == UpdatePhase::Error) {
         showError(pError_, snap.update.errorMessage);
-        setUpdateState("Update check failed", "error");
+        setUpdateState(i18n::tr("Update check failed"), "error");
         return;
     }
 
@@ -409,13 +410,13 @@ void HomePage::update(const AppSnapshot &snap) {
     const bool checking = snap.update.phase == UpdatePhase::Idle ||
                           snap.update.phase == UpdatePhase::CheckingManifest;
     if (checking) {
-        setUpdateState("Checking\xE2\x80\xA6", "dim-label");
+        setUpdateState(i18n::tr("Checking…"), "dim-label");
     } else if (snap.updateAvailableVersion) {
         // The release is named in the dialog that offers it, so the strip says the state rather
         // than repeating the number.
-        setUpdateState("Out of date", "warning");
+        setUpdateState(i18n::tr("Out of date"), "warning");
     } else {
-        setUpdateState("Up to date", "success");
+        setUpdateState(i18n::tr("Up to date"), "success");
     }
 }
 

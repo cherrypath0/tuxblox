@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "settings.h"
+#include "i18n.h"
 #include "json.hpp"
 #include "system_info.h"
 #include <filesystem>
@@ -138,6 +139,8 @@ Settings loadSettings(const std::string& installDir) {
         settings.discordGameStatus = j.value("discord_game_status", true);
         const std::string theme = j.value("theme", std::string("system"));
         settings.theme = isKnownTheme(theme) ? theme : "system";
+        settings.language = i18n::normalizeLanguageSetting(
+            j.value("language", std::string("system")));
         const std::string graphics = j.value("graphics", std::string("automatic"));
         settings.graphics = isKnownGraphics(graphics) ? graphics : "automatic";
 
@@ -179,6 +182,7 @@ void saveSettings(const std::string& installDir, const Settings& settings) {
         j["discord_join_button"] = settings.discordJoinButton;
         j["discord_game_status"] = settings.discordGameStatus;
         j["theme"] = settings.theme;
+        j["language"] = settings.language;
         j["graphics"] = settings.graphics;
         j["fast_flags"] = {{"player", fastFlagsToJson(settings.fastFlags.player)},
                             {"studio", fastFlagsToJson(settings.fastFlags.studio)}};

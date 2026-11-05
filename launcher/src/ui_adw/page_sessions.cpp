@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "page_sessions.h"
+#include "i18n.h"
 
 #include "asset_chevron_down.h"
 #include "asset_chevron_up.h"
@@ -113,7 +114,7 @@ GtkWidget *SessionsPage::buildList() {
     gtk_widget_set_margin_end(pSearch_, 8);
     gtk_widget_set_margin_top(pSearch_, 8);
     gtk_widget_set_margin_bottom(pSearch_, 4);
-    gtk_search_entry_set_placeholder_text(GTK_SEARCH_ENTRY(pSearch_), "Search sessions");
+    gtk_search_entry_set_placeholder_text(GTK_SEARCH_ENTRY(pSearch_), i18n::tr("Search sessions"));
     g_signal_connect(pSearch_, "changed", G_CALLBACK(onSearchChanged), this);
     gtk_box_append(GTK_BOX(pColumn), pSearch_);
 
@@ -164,11 +165,11 @@ GtkWidget *SessionsPage::filterCheck(const char *pLabel, bool &flag) {
 
 GtkWidget *SessionsPage::buildFilterButton() {
     GtkWidget *pList = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
-    gtk_box_append(GTK_BOX(pList), filterCheck("Errors", filter_.errors));
-    gtk_box_append(GTK_BOX(pList), filterCheck("Warnings", filter_.warnings));
-    gtk_box_append(GTK_BOX(pList), filterCheck("Game output", filter_.gameOutput));
-    gtk_box_append(GTK_BOX(pList), filterCheck("Info", filter_.info));
-    gtk_box_append(GTK_BOX(pList), filterCheck("TuxBlox", filter_.tuxblox));
+    gtk_box_append(GTK_BOX(pList), filterCheck(i18n::tr("Errors"), filter_.errors));
+    gtk_box_append(GTK_BOX(pList), filterCheck(i18n::tr("Warnings"), filter_.warnings));
+    gtk_box_append(GTK_BOX(pList), filterCheck(i18n::tr("Game output"), filter_.gameOutput));
+    gtk_box_append(GTK_BOX(pList), filterCheck(i18n::tr("Info"), filter_.info));
+    gtk_box_append(GTK_BOX(pList), filterCheck(i18n::tr("TuxBlox"), filter_.tuxblox));
 
     GtkWidget *pPopover = gtk_popover_new();
     gtk_popover_set_child(GTK_POPOVER(pPopover), pList);
@@ -177,7 +178,7 @@ GtkWidget *SessionsPage::buildFilterButton() {
     gtk_menu_button_set_child(GTK_MENU_BUTTON(pButton), iconImage(kAssetFilter, kAssetFilterLen, 18));
     gtk_menu_button_set_popover(GTK_MENU_BUTTON(pButton), pPopover);
     gtk_widget_add_css_class(pButton, "flat");
-    gtk_widget_set_tooltip_text(pButton, "Choose which lines the log shows");
+    gtk_widget_set_tooltip_text(pButton, i18n::tr("Choose which lines the log shows"));
     return pButton;
 }
 
@@ -203,15 +204,15 @@ GtkWidget *SessionsPage::buildControls() {
     gtk_widget_add_css_class(pSize, "dim-label");
     gtk_box_append(GTK_BOX(pStrip), pSize);
 
-    GtkWidget *pCopy = iconButton(kAssetCopy, kAssetCopyLen, "Copy the log");
+    GtkWidget *pCopy = iconButton(kAssetCopy, kAssetCopyLen, i18n::tr("Copy the log"));
     g_signal_connect(pCopy, "clicked", G_CALLBACK(onCopyClicked), this);
     gtk_box_append(GTK_BOX(pStrip), pCopy);
 
-    GtkWidget *pSave = iconButton(kAssetSave, kAssetSaveLen, "Save the log to a file");
+    GtkWidget *pSave = iconButton(kAssetSave, kAssetSaveLen, i18n::tr("Save the log to a file"));
     g_signal_connect(pSave, "clicked", G_CALLBACK(onSaveClicked), this);
     gtk_box_append(GTK_BOX(pStrip), pSave);
 
-    GtkWidget *pFolder = iconButton(kAssetFolder, kAssetFolderLen, "Open the folder the logs are in");
+    GtkWidget *pFolder = iconButton(kAssetFolder, kAssetFolderLen, i18n::tr("Open the folder the logs are in"));
     g_signal_connect(pFolder, "clicked", G_CALLBACK(onFolderClicked), this);
     gtk_box_append(GTK_BOX(pStrip), pFolder);
 
@@ -232,7 +233,7 @@ GtkWidget *SessionsPage::buildFindBar() {
     gtk_widget_set_margin_bottom(pBar, 6);
 
     pFind_ = gtk_search_entry_new();
-    gtk_search_entry_set_placeholder_text(GTK_SEARCH_ENTRY(pFind_), "Find in log");
+    gtk_search_entry_set_placeholder_text(GTK_SEARCH_ENTRY(pFind_), i18n::tr("Find in log"));
     gtk_widget_set_size_request(pFind_, 220, -1);
     g_signal_connect(pFind_, "changed", G_CALLBACK(onFindChanged), this);
     gtk_box_append(GTK_BOX(pBar), pFind_);
@@ -243,12 +244,12 @@ GtkWidget *SessionsPage::buildFindBar() {
     gtk_widget_add_css_class(pCount, "caption");
     gtk_box_append(GTK_BOX(pBar), pCount);
 
-    GtkWidget *pPrevious = iconButton(kAssetChevronUp, kAssetChevronUpLen, "Previous match");
+    GtkWidget *pPrevious = iconButton(kAssetChevronUp, kAssetChevronUpLen, i18n::tr("Previous match"));
     g_object_set_data(G_OBJECT(pPrevious), "tuxblox-step", GINT_TO_POINTER(-1));
     g_signal_connect(pPrevious, "clicked", G_CALLBACK(onFindStep), this);
     gtk_box_append(GTK_BOX(pBar), pPrevious);
 
-    GtkWidget *pNext = iconButton(kAssetChevronDown, kAssetChevronDownLen, "Next match");
+    GtkWidget *pNext = iconButton(kAssetChevronDown, kAssetChevronDownLen, i18n::tr("Next match"));
     g_object_set_data(G_OBJECT(pNext), "tuxblox-step", GINT_TO_POINTER(1));
     g_signal_connect(pNext, "clicked", G_CALLBACK(onFindStep), this);
     gtk_box_append(GTK_BOX(pBar), pNext);
@@ -258,7 +259,7 @@ GtkWidget *SessionsPage::buildFindBar() {
     gtk_box_append(GTK_BOX(pBar), pSpacer);
 
     // Reading back through a log that is still being written should not keep yanking you to the bottom, so following stops until you ask for it again.
-    pJumpToEnd_ = gtk_button_new_with_label("Jump to the end");
+    pJumpToEnd_ = gtk_button_new_with_label(i18n::tr("Jump to the end"));
     gtk_widget_add_css_class(pJumpToEnd_, "flat");
     gtk_widget_add_css_class(pJumpToEnd_, "log-toggle");
     gtk_widget_set_visible(pJumpToEnd_, FALSE);
@@ -278,7 +279,7 @@ GtkWidget *SessionsPage::buildLogPane() {
     gtk_widget_set_margin_bottom(pHeader, 6);
 
     GtkWidget *pTitleRow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
-    GtkWidget *pName = gtk_label_new("No session selected");
+    GtkWidget *pName = gtk_label_new(i18n::tr("No session selected"));
     pName_ = GTK_LABEL(pName);
     gtk_label_set_xalign(GTK_LABEL(pName), 0.0f);
     gtk_widget_add_css_class(pName, "heading");
@@ -299,7 +300,7 @@ GtkWidget *SessionsPage::buildLogPane() {
     gtk_label_set_ellipsize(GTK_LABEL(pMetaInline), PANGO_ELLIPSIZE_END);
     gtk_box_append(GTK_BOX(pTitleRow), pMetaInline);
 
-    pStop_ = gtk_button_new_with_label("Stop session");
+    pStop_ = gtk_button_new_with_label(i18n::tr("Stop session"));
     gtk_widget_add_css_class(pStop_, "destructive-action");
     gtk_widget_set_visible(pStop_, FALSE);
     g_signal_connect(pStop_, "clicked", G_CALLBACK(onStopClicked), this);
@@ -441,7 +442,7 @@ void SessionsPage::rebuildList(const SessionsView &view) {
             gtk_box_append(GTK_BOX(pBox), pText);
 
             if (entry.running) {
-                GtkWidget *pStop = iconButton(kAssetStop, kAssetStopLen, "Stop this session");
+                GtkWidget *pStop = iconButton(kAssetStop, kAssetStopLen, i18n::tr("Stop this session"));
                 gtk_widget_add_css_class(pStop, "session-stop");
                 gtk_widget_set_valign(pStop, GTK_ALIGN_CENTER);
                 g_object_set_data(G_OBJECT(pStop), "tuxblox-pid", GINT_TO_POINTER(entry.pid));
@@ -458,8 +459,8 @@ void SessionsPage::rebuildList(const SessionsView &view) {
         }
     };
 
-    addGroup("ACTIVE", view.running);
-    addGroup("ENDED", view.ended);
+    addGroup(i18n::tr("ACTIVE"), view.running);
+    addGroup(i18n::tr("ENDED"), view.ended);
 
     gtk_widget_set_visible(pEmpty_, !view.emptyMessage.empty());
     if (!view.emptyMessage.empty()) gtk_label_set_text(GTK_LABEL(pEmpty_), view.emptyMessage.c_str());
@@ -567,8 +568,9 @@ void SessionsPage::applyFilter() {
 void SessionsPage::refreshCount() {
     // Saying only what got through would read as a log that is missing lines, so when the filter hides any it says so.
     const std::string count = shownEntries_ == entries_.size()
-                                  ? std::to_string(entries_.size()) + " entries"
-                                  : std::to_string(shownEntries_) + " of " + std::to_string(entries_.size()) + " entries";
+                                  ? i18n::trn("{} entry", "{} entries", static_cast<long long>(entries_.size()))
+                                  : i18n::trf("{0} of {1} entries", {std::to_string(shownEntries_),
+                                                                    std::to_string(entries_.size())});
     gtk_label_set_text(pSize_, (count + " \xC2\xB7 " +
                                 std::to_string(gtk_text_buffer_get_char_count(pBuffer_) / 1024) + " KB").c_str());
 }
@@ -618,25 +620,28 @@ void SessionsPage::applyFind() {
     }
 
     if (found == 0) {
-        gtk_label_set_text(pFindCount_, "no matches");
+        gtk_label_set_text(pFindCount_, i18n::tr("no matches"));
         return;
     }
     if (currentMatch_ >= static_cast<size_t>(found)) currentMatch_ = 0;
     gtk_label_set_text(pFindCount_,
-                       (std::to_string(currentMatch_ + 1) + " of " + std::to_string(found)).c_str());
+                       i18n::trf("{0} of {1}", {std::to_string(currentMatch_ + 1), std::to_string(found)}).c_str());
 }
 
 void SessionsPage::refreshHeader(const AppSnapshot &snap) {
     for (const Session &session : snap.sessionList) {
         if (session.pid != selectedPid_) continue;
         gtk_label_set_text(pName_, session.target == LaunchTarget::Player ? "Roblox Player" : "Roblox Studio");
-        gtk_label_set_text(pState_, session.running ? "ACTIVE" : "ENDED");
+        gtk_label_set_text(pState_, session.running ? i18n::tr("ACTIVE") : i18n::tr("ENDED"));
         gtk_widget_remove_css_class(GTK_WIDGET(pState_), session.running ? "ended" : "running");
         gtk_widget_add_css_class(GTK_WIDGET(pState_), session.running ? "running" : "ended");
         gtk_widget_set_visible(pStop_, session.running);
 
         // The row beside it already says when a session ended, so the header keeps the version it ran and calls out only a crash.
-        std::string meta = session.endedReason;
+        std::string meta = session.endedReason.empty()
+                               ? ""
+                               : (session.endedReason == "crashed" ? i18n::tr("crashed")
+                                                                    : session.endedReason);
         if (session.running) {
             const SessionsView view = sessionsView({session}, std::time(nullptr));
             if (!view.running.empty()) meta = view.running.front().meta;
@@ -652,7 +657,7 @@ void SessionsPage::refreshHeader(const AppSnapshot &snap) {
         gtk_label_set_text(pMeta_, meta.c_str());
         return;
     }
-    gtk_label_set_text(pName_, "No session selected");
+    gtk_label_set_text(pName_, i18n::tr("No session selected"));
     gtk_label_set_text(pState_, "");
     gtk_label_set_text(pMeta_, "");
     gtk_widget_set_visible(pStop_, FALSE);
@@ -774,7 +779,7 @@ void SessionsPage::onSaveClicked(GtkButton *, gpointer data) {
                                std::to_string(pSelf->selectedPid_) + ".log";
     std::ofstream(target) << pText;
     g_free(pText);
-    gtk_label_set_text(pSelf->pSources_, ("Saved to " + target).c_str());
+    gtk_label_set_text(pSelf->pSources_, i18n::trf("Saved to {0}", {target}).c_str());
     gtk_widget_set_visible(GTK_WIDGET(pSelf->pSources_), TRUE);
 }
 

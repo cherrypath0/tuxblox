@@ -15,12 +15,13 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "home_card_state.h"
+#include "i18n.h"
 
 namespace tuxblox {
 
 namespace {
 
-const char Stopping[] = "Stopping\xE2\x80\xA6";
+const char Stopping[] = "Stopping…";
 
 } // namespace
 
@@ -28,20 +29,20 @@ CardState cardState(LaunchTarget target, bool installed, int sessions, bool stop
     CardState state;
     const bool playerRunning = target == LaunchTarget::Player && sessions > 0;
     if (playerRunning) {
-        state.launchLabel = stopping ? Stopping : "Stop Player";
+        state.launchLabel = stopping ? i18n::tr(Stopping) : i18n::tr("Stop Player");
         state.launchStops = true;
         return state;
     }
 
     if (!installed) {
-        state.launchLabel = "Install & Launch";
+        state.launchLabel = i18n::tr("Install & Launch");
     } else {
-        state.launchLabel = target == LaunchTarget::Player ? "Launch Player" : "Launch Studio";
+        state.launchLabel = target == LaunchTarget::Player ? i18n::tr("Launch Player") : i18n::tr("Launch Studio");
     }
 
     // Nothing has started yet, so there is nothing to stop and no point offering another go.
     if (launchPending && !state.launchStops) {
-        state.launchLabel = "Starting\xE2\x80\xA6";
+        state.launchLabel = i18n::tr("Starting…");
         state.launchDisabled = true;
     }
     return state;

@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "installer_steps.h"
+#include "i18n.h"
 #include "release_file.h"
 #include <cstdio>
 #include <algorithm>
@@ -145,8 +146,8 @@ InstallOutcome runInstall(const ReleaseFile& release,
             std::string(hostArch()) == "arm64" ? entry->second.arm64 : entry->second.x86_64;
         const ComponentLayout layout = *componentLayout(name);
         if (!bytes.has_value()) {
-            return {false, false, "Release " + release.release + " has no " + layout.displayName +
-                                   " for this computer's processor", ""};
+            return {false, false, i18n::trf("Release {0} has no {1} for this computer's processor",
+                                            {release.release, layout.displayName}), ""};
         }
 
         ArtifactPlan p;
@@ -172,7 +173,7 @@ InstallOutcome runInstall(const ReleaseFile& release,
     // launcher names nothing to hand off to, while a release whose launcher the install already
     // holds is the ordinary hybrid case and hands off to the one already there.
     if (release.components.find("launcher") == release.components.end()) {
-        return {false, false, "this release names no launcher -- nothing to hand off to", ""};
+        return {false, false, i18n::tr("this release names no launcher -- nothing to hand off to"), ""};
     }
 
     // Phase budget: a small fixed slice for creating the directory and each
@@ -184,18 +185,19 @@ InstallOutcome runInstall(const ReleaseFile& release,
     const double artifactBudget = 100.0 - kCreateDirWeight - 2 * kRobloxWeight;
 
     std::vector<ProgressPhase> phases;
-    phases.push_back({isUpgrade ? "Preparing" : "Creating TuxBlox directory", kCreateDirWeight});
+    phases.push_back({isUpgrade ? i18n::tr("Preparing") : i18n::tr("Creating TuxBlox directory"), kCreateDirWeight});
     for (const auto& plan : plans) {
         double weight = totalArtifactBytes > 0
             ? artifactBudget * (static_cast<double>(plan.artifact.sizeBytes) / static_cast<double>(totalArtifactBytes))
             : artifactBudget / static_cast<double>(plans.size());
-        std::string label = (isUpgrade ? "Upgrading " : "Downloading ") + plan.artifact.displayname;
+        std::string label = isUpgrade ? i18n::trf("Upgrading {0}", {plan.artifact.displayname})
+                                      : i18n::trf("Downloading {0}", {plan.artifact.displayname});
         phases.push_back({label, weight});
     }
     const size_t robloxPlayerPhase = phases.size();
-    phases.push_back({"Downloading Roblox Player", kRobloxWeight});
+    phases.push_back({i18n::tr("Downloading Roblox Player"), kRobloxWeight});
     const size_t robloxStudioPhase = phases.size();
-    phases.push_back({"Downloading Roblox Studio", kRobloxWeight});
+    phases.push_back({i18n::tr("Downloading Roblox Studio"), kRobloxWeight});
 
     Progress progress(phases);
     auto report = [&](size_t phaseIndex, double fraction) {
@@ -270,15 +272,16 @@ InstallOutcome runInstall(const ReleaseFile& release,
             if (dlOutcome.result == DownloadResult::Cancelled) { cleanupTmpPaths(); return {false, true, "", ""}; }
             if (dlOutcome.result == DownloadResult::Failed) {
                 cleanupTmpPaths();
-                return {false, false, "Downloading " + plan.artifact.displayname + " failed: " + dlOutcome.errorMessage, ""};
+                return {false, false, i18n::trf("Downloading {0} failed: {1}",
+                                                {plan.artifact.displayname, dlOutcome.errorMessage}), ""};
             }
 
             std::string actualSha = sha256File(plan.tmpPath);
             if (actualSha != plan.artifact.sha256) {
                 cleanupTmpPaths();
                 return {false, false,
-                        plan.artifact.displayname + " download checksum mismatch (expected " +
-                        plan.artifact.sha256 + ", got " + actualSha + ")", ""};
+                        i18n::trf("{0} download checksum mismatch (expected {1}, got {2})",
+                                  {plan.artifact.displayname, plan.artifact.sha256, actualSha}), ""};
             }
             report(phaseIndex, 0.95);
             if (isCancelled()) { cleanupTmpPaths(); return {false, true, "", ""}; }
@@ -312,8 +315,8 @@ InstallOutcome runInstall(const ReleaseFile& release,
                 if (renameEc) {
                     fs::remove_all(staging);
                     cleanupTmpPaths();
-                    return {false, false, "Failed to install " + plan.artifact.displayname + ": " +
-                                           renameEc.message(), ""};
+                    return {false, false, i18n::trf("Failed to install {0}: {1}",
+                                                    {plan.artifact.displayname, renameEc.message()}), ""};
                 }
                 fs::remove(plan.tmpPath);
 
@@ -325,8 +328,8 @@ InstallOutcome runInstall(const ReleaseFile& release,
                 if (fs::is_directory(fs::path(plan.targetPath) / plan.artifact.filename)) {
                     cleanupTmpPaths();
                     return {false, false,
-                            plan.artifact.displayname + " was packed with a wrapper directory, "
-                            "which breaks the install layout", ""};
+                            i18n::trf("{0} was packed with a wrapper directory, which breaks the install layout",
+                                      {plan.artifact.displayname}), ""};
                 }
             } else {
                 fs::create_directories(fs::path(plan.targetPath).parent_path());
@@ -334,7 +337,8 @@ InstallOutcome runInstall(const ReleaseFile& release,
                 fs::rename(plan.tmpPath, plan.targetPath, renameEc);
                 if (renameEc) {
                     cleanupTmpPaths();
-                    return {false, false, "Failed to install " + plan.artifact.displayname + ": " + renameEc.message(), ""};
+                    return {false, false, i18n::trf("Failed to install {0}: {1}",
+                                                    {plan.artifact.displayname, renameEc.message()}), ""};
                 }
                 chmod(plan.targetPath.c_str(), 0755);
             }
@@ -386,9 +390,9 @@ InstallOutcome runInstall(const ReleaseFile& release,
                     if (!fs::is_regular_file(launcherFinalPath)) {
                         cleanupTmpPaths();
                         return {false, false,
-                                plan.artifact.displayname + " archive does not contain " +
-                                kLauncherExeName + " at its root -- it was packed with a "
-                                "wrapper directory, which breaks the install layout", ""};
+                                i18n::trf("{0} archive does not contain {1} at its root -- it was packed "
+                                          "with a wrapper directory, which breaks the install layout",
+                                          {plan.artifact.displayname, kLauncherExeName}), ""};
                     }
                     // The tarball carries 0755 and extractTarZst honours it
                     // (ARCHIVE_EXTRACT_PERM), but the non-archive branch above
@@ -474,7 +478,7 @@ InstallOutcome runInstall(const ReleaseFile& release,
         // marker, so it must not exist until every component is in place. A failure anywhere above
         // leaves an install that says it is still the release it was, which is true.
         if (!releaseJson.empty() && !writeRecordedRelease(dir, releaseJson)) {
-            return {false, false, "Installed, but could not record which release this is", ""};
+            return {false, false, i18n::tr("Installed, but could not record which release this is"), ""};
         }
 
         return {true, false, "", launcherFinalPath};

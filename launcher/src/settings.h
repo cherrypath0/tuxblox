@@ -126,6 +126,10 @@ struct Settings {
     // it took the website's. Only the window is affected -- Roblox never sees
     // this.
     std::string theme = "system";
+    // "system" follows the desktop locale; otherwise "en", "pt_BR" or "es".
+    // Read leniently, so a settings.json written before this field existed
+    // keeps its other values and picks the desktop language.
+    std::string language = "system";
     // Written into the active Roblox version's ClientSettings folder at every
     // launch -- see fastflag_file.h for why it can't just be written once.
     FastFlagSet fastFlags;

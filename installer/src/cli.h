@@ -57,6 +57,9 @@ struct CliOptions {
     // Installing as root leaves a folder the real user cannot write to, so
     // it has to be asked for rather than just happening.
     bool allowRoot = false;
+    // Optional interface language. Empty means follow settings.json, then the
+    // desktop locale. Validated by i18n::parseLanguage.
+    std::string language;
     // Non-empty means the arguments were unusable: the caller should print
     // this and usageText() to stderr and exit non-zero. Every other field is
     // meaningless when this is set.
@@ -81,6 +84,6 @@ struct ReleaseSource {
 ReleaseSource releaseSourceFor(const CliOptions& options);
 
 // Human-readable usage block, printed for --help and for any usage error.
-const char* usageText();
+std::string usageText();
 
 } // namespace tuxblox

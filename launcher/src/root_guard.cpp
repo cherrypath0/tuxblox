@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "root_guard.h"
+#include "i18n.h"
 #include <cstdio>
 #include <cstring>
 
@@ -49,10 +50,10 @@ bool takeAllowRootFlag(int& argc, char** argv) {
 bool rootRunAllowed(bool allowRoot, uid_t effectiveUid) {
     if (effectiveUid != 0) return true;
     if (!allowRoot) {
-        fprintf(stderr, "%s\n", RootRefusal);
+        fprintf(stderr, "%s\n", i18n::tr(RootRefusal));
         return false;
     }
-    printf("%s\n", RootWarning);
+    printf("%s\n", i18n::tr(RootWarning));
     fflush(stdout);
     return true;
 }

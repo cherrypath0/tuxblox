@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "page_versions.h"
+#include "i18n.h"
 #include "versions_tab_state.h"
 #include "widgets.h"
 
@@ -43,7 +44,7 @@ std::string describe(const InstalledVersion &version) {
     }
     if (!version.installedAt.empty()) {
         if (!text.empty()) text += " \xC2\xB7 ";
-        text += "installed " + version.installedAt.substr(0, 10);
+        text += i18n::trf("installed {0}", {version.installedAt.substr(0, 10)});
     }
     return text;
 }
@@ -67,8 +68,8 @@ GtkWidget *entryRow(const char *pTitle, const char *pText) {
 VersionsPage::VersionsPage(App &app) : app_(app) {
     pRoot_ = adw_preferences_page_new();
     adw_preferences_page_set_description(ADW_PREFERENCES_PAGE(pRoot_),
-                                         "Choose which build of Roblox you play on, install an older one, or remove "
-                                         "the ones you no longer need.");
+                                         i18n::tr("Choose which build of Roblox you play on, install an older one, or remove "
+                                                  "the ones you no longer need."));
     buildInstallGroup();
     adw_preferences_page_add(ADW_PREFERENCES_PAGE(pRoot_), buildList(player_, "Player"));
     adw_preferences_page_add(ADW_PREFERENCES_PAGE(pRoot_), buildList(studio_, "Studio"));
@@ -80,10 +81,10 @@ GtkWidget *VersionsPage::widget() const {
 
 void VersionsPage::buildInstallGroup() {
     GtkWidget *pGroup = adw_preferences_group_new();
-    adw_preferences_group_set_title(ADW_PREFERENCES_GROUP(pGroup), "Install a version");
+    adw_preferences_group_set_title(ADW_PREFERENCES_GROUP(pGroup), i18n::tr("Install a version"));
 
     GtkWidget *pTarget = adw_combo_row_new();
-    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(pTarget), "App");
+    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(pTarget), i18n::tr("App"));
     const char *const targets[] = {"Player", "Studio", nullptr};
     GtkStringList *pTargets = gtk_string_list_new(targets);
     adw_combo_row_set_model(ADW_COMBO_ROW(pTarget), G_LIST_MODEL(pTargets));
@@ -92,23 +93,23 @@ void VersionsPage::buildInstallGroup() {
     g_signal_connect(pTarget, "notify::selected", G_CALLBACK(onTargetChanged), this);
     adw_preferences_group_add(ADW_PREFERENCES_GROUP(pGroup), pTarget);
 
-    GtkWidget *pChannel = entryRow("Channel", "live");
+    GtkWidget *pChannel = entryRow(i18n::tr("Channel"), "live");
     pChannel_ = GTK_EDITABLE(pChannel);
     g_signal_connect(pChannel, "changed", G_CALLBACK(onChannelChanged), nullptr);
     adw_preferences_group_add(ADW_PREFERENCES_GROUP(pGroup), pChannel);
 
-    GtkWidget *pHash = entryRow("Version hash (leave blank for latest)", "");
+    GtkWidget *pHash = entryRow(i18n::tr("Version hash (leave blank for latest)"), "");
     pHash_ = GTK_EDITABLE(pHash);
     adw_preferences_group_add(ADW_PREFERENCES_GROUP(pGroup), pHash);
 
     pInstall_ = adw_button_row_new();
-    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(pInstall_), "Install");
+    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(pInstall_), i18n::tr("Install"));
     gtk_widget_add_css_class(pInstall_, "suggested-action");
     g_signal_connect(pInstall_, "activated", G_CALLBACK(onInstall), this);
     adw_preferences_group_add(ADW_PREFERENCES_GROUP(pGroup), pInstall_);
 
     pPrevious_ = adw_button_row_new();
-    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(pPrevious_), "Install previous version");
+    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(pPrevious_), i18n::tr("Install previous version"));
     g_signal_connect(pPrevious_, "activated", G_CALLBACK(onPrevious), this);
     adw_preferences_group_add(ADW_PREFERENCES_GROUP(pGroup), pPrevious_);
 
@@ -151,20 +152,20 @@ GtkWidget *VersionsPage::versionRow(LaunchTarget target, const AppVersions &vers
     GtkWidget *pRow = plainActionRow(version.hash, describe(version));
 
     if (version.hash == versions.activeHash) {
-        GtkWidget *pActive = gtk_label_new("Active");
+        GtkWidget *pActive = gtk_label_new(i18n::tr("Active"));
         gtk_widget_add_css_class(pActive, "accent");
         gtk_widget_add_css_class(pActive, "caption-heading");
         gtk_widget_set_valign(pActive, GTK_ALIGN_CENTER);
         adw_action_row_add_suffix(ADW_ACTION_ROW(pRow), pActive);
     } else {
-        GtkWidget *pSetActive = gtk_button_new_with_label("Set active");
+        GtkWidget *pSetActive = gtk_button_new_with_label(i18n::tr("Set active"));
         gtk_widget_set_valign(pSetActive, GTK_ALIGN_CENTER);
         gtk_widget_set_sensitive(pSetActive, !readOnly_);
         connectRowAction(pSetActive, G_CALLBACK(onSetActive), target, version.hash);
         adw_action_row_add_suffix(ADW_ACTION_ROW(pRow), pSetActive);
     }
 
-    GtkWidget *pDelete = gtk_button_new_with_label("Delete");
+    GtkWidget *pDelete = gtk_button_new_with_label(i18n::tr("Delete"));
     gtk_widget_add_css_class(pDelete, "destructive-action");
     gtk_widget_set_valign(pDelete, GTK_ALIGN_CENTER);
     gtk_widget_set_sensitive(pDelete, !readOnly_ && canDeleteVersion(versions, version.hash));
@@ -176,9 +177,9 @@ GtkWidget *VersionsPage::versionRow(LaunchTarget target, const AppVersions &vers
 void VersionsPage::applyReadOnly(bool readOnly) {
     adw_preferences_page_set_description(
         ADW_PREFERENCES_PAGE(pRoot_),
-        readOnly ? "Auto-Update Roblox keeps these up to date. Turn it off in Settings to pick a build yourself."
-                 : "Choose which build of Roblox you play on, install an older one, or remove the ones you no "
-                   "longer need.");
+        readOnly ? i18n::tr("Auto-Update Roblox keeps these up to date. Turn it off in Settings to pick a build yourself.")
+                 : i18n::tr("Choose which build of Roblox you play on, install an older one, or remove the ones you no "
+                            "longer need."));
 
     gtk_widget_set_sensitive(GTK_WIDGET(pTarget_), !readOnly);
     gtk_widget_set_sensitive(GTK_WIDGET(pChannel_), !readOnly);
@@ -190,7 +191,7 @@ void VersionsPage::rebuild(List &list, const AppVersions &versions) {
     list.rows.clear();
 
     if (versions.installed.empty()) {
-        GtkWidget *pEmpty = plainActionRow("No versions installed", "");
+        GtkWidget *pEmpty = plainActionRow(i18n::tr("No versions installed"), "");
         adw_preferences_group_add(list.pGroup, pEmpty);
         list.rows.push_back(pEmpty);
         return;
@@ -248,8 +249,8 @@ void VersionsPage::onDelete(GtkButton *pButton, gpointer data) {
     const LaunchTarget target = pAction->target;
     const std::string hash = pAction->hash;
     // The row can be rebuilt while the dialog is open, so the dialog keeps its own copy of what to delete
-    confirmDestructive(GTK_WIDGET(pButton), "Delete this version?",
-                       hash + " will be removed from the virtual drive.", "Delete",
+    confirmDestructive(GTK_WIDGET(pButton), i18n::tr("Delete this version?"),
+                       i18n::trf("{0} will be removed from the virtual drive.", {hash}), i18n::tr("Delete"),
                        [pApp, target, hash] { pApp->requestDeleteVersion(target, hash); });
 }
 
@@ -272,9 +273,17 @@ void VersionsPage::update(const AppSnapshot &snap) {
     gtk_widget_set_sensitive(pInstall_, !running && !readOnly_);
     gtk_widget_set_sensitive(pPrevious_, !running && !readOnly_);
     if (running && forSelected) {
-        static const char *const PhaseLabels[] = {"", "Resolving version", "Fetching package manifest",
-                                                  "Downloading packages", "Extracting", "", ""};
-        setLabelText(GTK_LABEL(pProgressLabel_), PhaseLabels[static_cast<int>(progress.phase)]);
+        const char *pPhase = "";
+        switch (progress.phase) {
+            case VersionInstallPhase::ResolvingVersion: pPhase = i18n::tr("Resolving version"); break;
+            case VersionInstallPhase::DownloadingManifest: pPhase = i18n::tr("Fetching package manifest"); break;
+            case VersionInstallPhase::DownloadingPackages: pPhase = i18n::tr("Downloading packages"); break;
+            case VersionInstallPhase::Extracting: pPhase = i18n::tr("Extracting"); break;
+            case VersionInstallPhase::Idle:
+            case VersionInstallPhase::Done:
+            case VersionInstallPhase::Error: break;
+        }
+        setLabelText(GTK_LABEL(pProgressLabel_), pPhase);
         gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(pProgress_), progress.fraction);
     }
     showError(pError_, progress.phase == VersionInstallPhase::Error && forSelected ? progress.errorMessage : "");

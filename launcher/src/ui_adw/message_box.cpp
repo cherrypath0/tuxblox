@@ -18,6 +18,7 @@
 #include "adw_env.h"
 #include "adw_look.h"
 #include "dialog.h"
+#include "i18n.h"
 #include "install_paths.h"
 #include "widgets.h"
 
@@ -44,6 +45,7 @@ void onClosed(AdwDialog *, gpointer data) {
 bool startInterface(bool *pStarted) {
     // GTK cannot be started again after it failed to find a display, so the second message goes straight to stderr
     static bool noDisplay = false;
+    i18n::ensureInitialized();
 
     *pStarted = false;
     if (noDisplay) return false;
@@ -136,7 +138,7 @@ bool showErrorMessageBoxWithAction(const std::string &title, const std::string &
 
     bool actionChosen = false;
     std::vector<DialogButton> buttons;
-    buttons.push_back({"OK", nullptr, nullptr, false});
+    buttons.push_back({i18n::tr("OK"), nullptr, nullptr, false});
     if (!actionLabel.empty()) {
         buttons.push_back({actionLabel, "suggested-action", [&actionChosen] { actionChosen = true; }, false});
     }
@@ -160,14 +162,14 @@ void showErrorMessageBoxWithCopy(const std::string &title, const std::string &me
 
     std::vector<DialogButton> buttons;
     if (!copyText.empty()) {
-        buttons.push_back({"Copy", nullptr,
+        buttons.push_back({i18n::tr("Copy"), nullptr,
                            [copyText] {
                                GdkDisplay *pDisplay = gdk_display_get_default();
                                if (pDisplay != nullptr) gdk_clipboard_set_text(gdk_display_get_clipboard(pDisplay), copyText.c_str());
                            },
                            false});
     }
-    buttons.push_back({"OK", nullptr, nullptr, false});
+    buttons.push_back({i18n::tr("OK"), nullptr, nullptr, false});
 
     runDialog(buildDialog(title, message, std::move(buttons)), nullptr);
 
@@ -191,7 +193,7 @@ MessageBoxOutcome showRequestedMessageBox(const std::string &title, const std::s
         if (comma == std::string::npos) break;
         at = comma + 1;
     }
-    if (labels.empty()) labels.push_back("OK");
+    if (labels.empty()) labels.push_back(i18n::tr("OK"));
 
     std::vector<DialogButton> made;
     for (size_t at = 0; at < labels.size(); ++at) {

@@ -31,6 +31,12 @@ By submitting a pull request, you agree that your contribution is licensed under
    These are **separate compiled artifacts** that communicate at runtime, they are not statically linked into a single binary. Please keep this separation intact in any changes you make; it's what allows the two components to carry different licenses cleanly.
 4. Run the test suite (see docs) before opening a pull request.
 
+## Translations
+
+The launcher and installer share the catalogs in `shared/i18n/translations`.
+Wrap user-facing English text with `i18n::tr`, `trf`, `trn` or `trc`; see
+`shared/i18n/README.md` for the placeholder rules and the coverage check.
+
 ## Code Style
 
 - Keep functions focused and reasonably sized; prefer clarity over cleverness.

@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "system_requirements.h"
+#include "i18n.h"
 #include <dlfcn.h>
 #include <fstream>
 #include <sstream>
@@ -116,18 +117,18 @@ std::vector<UnmetRequirement> unmetRequirements(const SystemFacts& facts) {
     std::vector<UnmetRequirement> unmet;
 
     if (kernelIsOlderThan(facts.kernelRelease, kMinimumKernelMajor, kMinimumKernelMinor)) {
-        unmet.push_back({"Linux 6.7 or newer", facts.kernelRelease});
+        unmet.push_back({i18n::tr("Linux 6.7 or newer"), facts.kernelRelease});
     }
 
     // Only when there is an NVIDIA driver to read. Mesa does not publish its version anywhere TuxBlox
     // can read without glxinfo installed, so an AMD or Intel machine is never held to a driver floor.
     const std::string nvidia = nvidiaDriverVersion(facts.nvidiaProcContent);
     if (!nvidia.empty() && versionIsOlder(nvidia, kMinimumNvidiaDriver)) {
-        unmet.push_back({std::string("NVIDIA driver ") + kMinimumNvidiaDriver + " or newer", nvidia});
+        unmet.push_back({i18n::trf("NVIDIA driver {0} or newer", {kMinimumNvidiaDriver}), nvidia});
     }
 
     if (!facts.vulkanLoadable) {
-        unmet.push_back({"A graphics driver with Vulkan support", ""});
+        unmet.push_back({i18n::tr("A graphics driver with Vulkan support"), ""});
     }
 
     return unmet;
@@ -150,12 +151,16 @@ SystemFacts collectSystemFacts() {
 std::string unsupportedSystemMessage(const std::vector<UnmetRequirement>& unmet) {
     if (unmet.empty()) return "";
 
-    std::string message = "TuxBlox needs:\n";
+    std::string message = i18n::tr("TuxBlox needs:");
+    message += "\n";
     for (const UnmetRequirement& item : unmet) {
         message += "\n\xE2\x80\xA2 " + item.requirement;
-        if (!item.found.empty()) message += " \xE2\x80\x94 this computer has " + item.found;
+        if (!item.found.empty()) {
+            message += " \xE2\x80\x94 " + i18n::trf("this computer has {0}", {item.found});
+        }
     }
-    message += "\n\nSee tuxblox.net/docs for the full requirements.";
+    message += "\n\n";
+    message += i18n::tr("See tuxblox.net/docs for the full requirements.");
     return message;
 }
 
