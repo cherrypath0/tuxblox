@@ -44,6 +44,13 @@ COMPONENT_EXCLUDES = (
 )
 
 
+# A component's changelogs.md is published beside each release rather than compiled into the
+# component, so editing one cannot move its bytes. Counted as an input it refuses the next release
+# on a clean main and demands a bump that would republish an identical binary under a new number.
+def _is_changelog(path):
+    return path.endswith("/changelogs.md")
+
+
 def _is_mcp_shared(path):
     for stem in _MCP_SHARED_STEMS:
         if path in ("launcher/src/%s.cpp" % stem, "launcher/src/%s.h" % stem):
@@ -57,6 +64,8 @@ def components_touched(paths):
     touched = set()
     for path in paths:
         if any(path.startswith(prefix) for prefix in COMPONENT_EXCLUDES):
+            continue
+        if _is_changelog(path):
             continue
         for component, prefixes in COMPONENT_INPUTS.items():
             if any(path.startswith(prefix) for prefix in prefixes):
