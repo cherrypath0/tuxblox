@@ -1,0 +1,1 @@
+- Added an animated boot screen to the launcher window
