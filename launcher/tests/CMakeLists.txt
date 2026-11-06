@@ -65,6 +65,10 @@ add_executable(test_update_changes test_update_changes.cpp)
 target_link_libraries(test_update_changes PRIVATE launcher_core)
 add_test(NAME update_changes COMMAND test_update_changes)
 
+add_executable(test_boot_animation test_boot_animation.cpp)
+target_link_libraries(test_boot_animation PRIVATE launcher_core)
+add_test(NAME boot_animation COMMAND test_boot_animation)
+
 add_executable(test_updater test_updater.cpp)
 target_link_libraries(test_updater PRIVATE launcher_core)
 add_test(NAME updater COMMAND test_updater)
