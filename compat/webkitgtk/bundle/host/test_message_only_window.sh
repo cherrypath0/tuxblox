@@ -48,6 +48,12 @@ env["GIO_EXTRA_MODULES"] = bundle + "/lib/x86_64-linux-gnu/gio/modules"
 env["GDK_BACKEND"] = "x11"
 env["EGL_PLATFORM"] = "x11"
 env["LIBGL_ALWAYS_SOFTWARE"] = "1"
+# The bundle's libglvnd was built with --prefix=/opt/tuxblox-webview, so its
+# compiled-in vendor directory does not exist here; point it at the bundle's
+# own Mesa description or eglGetDisplay() returns nothing and the first real
+# page kills the WebProcess. Same requirement as unixlib.c's
+# __EGL_VENDOR_LIBRARY_DIRS setup.
+env["__EGL_VENDOR_LIBRARY_DIRS"] = bundle + "/share/glvnd/egl_vendor.d"
 os.set_inheritable(b.fileno(), True)
 p = subprocess.Popen([helper], env=env, pass_fds=[b.fileno()], stderr=subprocess.DEVNULL)
 b.close()

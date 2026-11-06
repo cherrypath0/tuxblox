@@ -1,3 +1,4 @@
+- Fixed web panels crashing when GPU acceleration for web pages is enabled
 - Fixed a network issue in the WebKit
 - Fixed an issue where windows that are supposed to be unscalable can be scalable
 - Fixed WebKit not working in non-systemd distros

@@ -294,6 +294,40 @@ static const char *const host_gbm_backend_dirs[] =
     "/usr/lib/x86_64-linux-gnu/gbm",
 };
 
+/* Where libglvnd's own EGL dispatcher looks for the vendor descriptions that
+ * name a real driver. This bundle ships its own libglvnd, built with
+ * --prefix=/opt/tuxblox-webview, so the paths compiled into that copy
+ * (/opt/tuxblox-webview/{etc,share}/glvnd/egl_vendor.d) exist only inside the
+ * build container. They do not exist on a real install, and glvnd does not
+ * fall back to the host's directories when they are missing -- it finds no
+ * vendor at all and eglGetDisplay() returns EGL_NO_DISPLAY.
+ *
+ * That is not a soft failure in WebKit. The content process calls
+ * PlatformDisplayDefault::create(), which aborts the whole WebKitWebProcess
+ * when EGL cannot come up (Source/WebCore/platform/graphics/egl/
+ * PlatformDisplayDefault.cpp). The user sees a Toolbox or login panel that
+ * never loads, plus a SIGABRT in the journal -- issue #8. It happens whenever
+ * "GPU acceleration for web pages" is on, because that is the branch that
+ * deliberately leaves __EGL_VENDOR_LIBRARY_FILENAMES unset so the host's own
+ * driver can be chosen. With it off, the bundle's JSON is pinned explicitly
+ * and this list is overridden, which is why the crash only showed up on the
+ * default setting.
+ *
+ * The host's directories come first so the person's real driver still wins
+ * (NVIDIA's 10_nvidia.json, Mesa's 50_mesa.json). The bundle's own directory
+ * is appended last as a guaranteed fallback for a machine with no glvnd
+ * vendor installed at all: its Mesa is software-only, but software EGL is
+ * infinitely better than a dead content process.
+ *
+ * Three spellings because distributions disagree and none of them is wrong;
+ * only the ones that exist are appended, same as host_gbm_backend_dirs. */
+static const char *const host_egl_vendor_dirs[] =
+{
+    "/usr/share/glvnd/egl_vendor.d",
+    "/etc/glvnd/egl_vendor.d",
+    "/usr/local/share/glvnd/egl_vendor.d",
+};
+
 /* Part B (Task 7): ported from the pre-Task-3 unixlib.c's
  * set_webkit_relocation_env(), deleted by Task 3's rewrite along with the
  * dlmopen/pthread machinery it used to run alongside. That deletion was
@@ -340,6 +374,18 @@ static void set_webkit_relocation_env(const char *dir)
             if (!stat(host_gbm_backend_dirs[i], &st))
                 append_env("GBM_BACKENDS_PATH", host_gbm_backend_dirs[i]);
     }
+
+    /* The vendor directory the bundle's own glvnd was compiled with does not
+     * exist outside the build container, so point it at the host's real ones
+     * and keep the bundle's own description as the last resort -- see
+     * host_egl_vendor_dirs' comment for the WebProcess abort this prevents.
+     * Appended rather than prepended for the same reason as the GBM backends
+     * above: a value the session already has wins. */
+    for (i = 0; i < ARRAY_SIZE(host_egl_vendor_dirs); i++)
+        if (!stat(host_egl_vendor_dirs[i], &st))
+            append_env("__EGL_VENDOR_LIBRARY_DIRS", host_egl_vendor_dirs[i]);
+    snprintf(path, sizeof(path), "%s/share/glvnd/egl_vendor.d", dir);
+    append_env("__EGL_VENDOR_LIBRARY_DIRS", path);
 
     snprintf(path, sizeof(path), "%s/libexec/gstreamer-1.0/gst-plugin-scanner", dir);
     setenv("GST_PLUGIN_SCANNER", path, 1);
@@ -416,11 +462,13 @@ static void set_webkit_relocation_env(const char *dir)
     /* Which graphics driver this process renders through, and the one thing the
      * "GPU acceleration for web pages" setting actually decides.
      *
-     * The helper links libEGL.so.1/libGLX.so.0, which belong to libglvnd and are
-     * never shipped here: they are dispatchers, and the driver behind them is
-     * chosen from the ICD descriptions in the HOST's /usr/share/glvnd/egl_vendor.d.
-     * That is deliberate. Everybody's own vendor is the one that can drive their
-     * own card, so a proprietary NVIDIA install must reach libEGL_nvidia and a
+     * The helper links libEGL.so.1/libGLX.so.0, which are libglvnd dispatchers.
+     * This bundle ships its own copy of that dispatcher (as of 3.7.1), but the
+     * driver behind it is chosen from the vendor descriptions in the HOST's
+     * /usr/share/glvnd/egl_vendor.d -- see host_egl_vendor_dirs above for why
+     * the dispatcher's own compiled-in paths cannot be used. That is
+     * deliberate. Everybody's own vendor is the one that can drive their own
+     * card, so a proprietary NVIDIA install must reach libEGL_nvidia and a
      * Mesa install must reach Mesa -- naming a vendor here would hand one of
      * those two somebody else's driver.
      *
