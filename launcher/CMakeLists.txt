@@ -108,6 +108,7 @@ add_library(launcher_core STATIC
     ${TUXBLOX_SHARED_PATHS}/windows_paths.cpp
     ${TUXBLOX_SHARED_RELEASE}/user_agent.cpp
     src/app.cpp
+    src/boot_animation.cpp
     src/discord_rpc.cpp
     src/about_versions.cpp
     src/install_identity.cpp
@@ -224,6 +225,7 @@ if(TUXBLOX_UI_STACK_DEV)
 
     add_library(launcher_ui_adw STATIC
         src/ui_adw/widgets.cpp
+        src/ui_adw/boot_overlay.cpp
         src/ui_adw/dialog.cpp
         src/ui_adw/message_box.cpp
         src/ui_adw/launcher_window.cpp

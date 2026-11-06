@@ -16,6 +16,7 @@
 
 #include "launcher_window.h"
 #include "adw_look.h"
+#include "boot_overlay.h"
 #include "asset_fastflags.h"
 #include "asset_home.h"
 #include "asset_info.h"
@@ -82,6 +83,11 @@ struct WindowUi {
     bool activated = false;
     // True while the tour's own window is up, which holds back the dialogs that would stack on it.
     bool welcomeOpen = false;
+    // The opening animation is an overlay child of this same window, so the
+    // content behind it is already in the window and is simply revealed.
+    GtkOverlay *pContentOverlay = nullptr;
+    BootOverlay *pBootOverlay = nullptr;
+    bool mainWindowShown = false;
 };
 
 std::string tabName(Tab tab) {
@@ -220,6 +226,11 @@ gboolean onTick(gpointer data) {
 // quietly. The poll stops first, since no close-request is raised for it to stop on.
 gboolean closeUnopenedWindow(gpointer data) {
     auto *pUi = static_cast<WindowUi *>(data);
+    if (pUi->pBootOverlay != nullptr) {
+        BootOverlay *pOverlay = pUi->pBootOverlay;
+        pUi->pBootOverlay = nullptr;
+        bootOverlayDestroy(pOverlay);
+    }
     if (pUi->tickId != 0) {
         g_source_remove(pUi->tickId);
         pUi->tickId = 0;
@@ -230,6 +241,11 @@ gboolean closeUnopenedWindow(gpointer data) {
 
 gboolean onCloseRequest(GtkWindow *, gpointer data) {
     auto *pUi = static_cast<WindowUi *>(data);
+    if (pUi->pBootOverlay != nullptr) {
+        BootOverlay *pOverlay = pUi->pBootOverlay;
+        pUi->pBootOverlay = nullptr;
+        bootOverlayDestroy(pOverlay);
+    }
     if (pUi->tickId != 0) {
         g_source_remove(pUi->tickId);
         pUi->tickId = 0;
@@ -314,6 +330,58 @@ GtkWidget *buildContent(WindowUi &ui) {
     return GTK_WIDGET(pPage);
 }
 
+// Builds the normal launcher window and its pages, but leaves it hidden. The
+// boot overlay is added afterwards, so the window can be shown with the
+// animation covering content that is already underneath it.
+void buildMainWindow(WindowUi &ui, GtkApplication *pGtkApp) {
+    GtkWidget *pWindow = adw_application_window_new(pGtkApp);
+    ui.pWindow = GTK_WINDOW(pWindow);
+    gtk_window_set_title(ui.pWindow, "TuxBlox");
+    // The size it opens at is also the smallest it goes: the Sessions tab's list and its log pane sit side by side, and narrower than this one of them stops being readable rather than merely getting tight.
+    gtk_window_set_default_size(ui.pWindow, 988, 549);
+    gtk_widget_set_size_request(pWindow, 988, 549);
+    g_signal_connect(pWindow, "close-request", G_CALLBACK(onCloseRequest), &ui);
+    g_signal_connect(pWindow, "realize", G_CALLBACK(onRealize), &ui);
+
+    GtkWidget *pSplit = adw_navigation_split_view_new();
+    adw_navigation_split_view_set_min_sidebar_width(ADW_NAVIGATION_SPLIT_VIEW(pSplit), 180);
+    adw_navigation_split_view_set_max_sidebar_width(ADW_NAVIGATION_SPLIT_VIEW(pSplit), 220);
+    adw_navigation_split_view_set_sidebar(ADW_NAVIGATION_SPLIT_VIEW(pSplit), ADW_NAVIGATION_PAGE(buildSidebar(ui)));
+    adw_navigation_split_view_set_content(ADW_NAVIGATION_SPLIT_VIEW(pSplit), ADW_NAVIGATION_PAGE(buildContent(ui)));
+
+    App &app = *ui.pApp;
+    // First thing, so the check is already running while the pages are built and is never waiting behind
+    // desktop integration. A no-op when main() already started it, which it does with Auto-Update on.
+    app.startUpdateCheck();
+
+    addPage(ui, Tab::Start, "Home", kAssetHome, kAssetHomeLen, false, std::make_unique<HomePage>(app, ui.installDir));
+    addPage(ui, Tab::Sessions, "Sessions", kAssetSessions, kAssetSessionsLen, false, std::make_unique<SessionsPage>(app));
+    addPage(ui, Tab::Versions, "Versions", kAssetRobloxRdd, kAssetRobloxRddLen, false, std::make_unique<VersionsPage>(app));
+    addPage(ui, Tab::FastFlags, "FastFlags", kAssetFastflags, kAssetFastflagsLen, false, std::make_unique<FastFlagsPage>(app));
+    addPage(ui, Tab::Settings, "Settings", kAssetSettings, kAssetSettingsLen, false, std::make_unique<SettingsPage>(app));
+    addPage(ui, Tab::About, "About", kAssetInfo, kAssetInfoLen, true, std::make_unique<AboutPage>(ui.installDir));
+
+    // The boot animation is added as an overlay child of this same window, so
+    // the normal content is built and waiting underneath it.
+    GtkWidget *pOverlay = gtk_overlay_new();
+    gtk_overlay_set_child(GTK_OVERLAY(pOverlay), pSplit);
+    ui.pContentOverlay = GTK_OVERLAY(pOverlay);
+    adw_application_window_set_content(ADW_APPLICATION_WINDOW(pWindow), pOverlay);
+}
+
+// Starts the polling that keeps the window current. The window is already on
+// screen: it is presented with the boot overlay covering its content, and this
+// runs once that overlay has been revealed.
+void startMainWindow(WindowUi &ui) {
+    if (ui.mainWindowShown) return;
+    ui.mainWindowShown = true;
+
+    onTick(&ui);
+    ui.tickId = g_timeout_add(100, onTick, &ui);
+    // A window that never gets a frame, such as one opened on a hidden workspace, must still register itself with the desktop
+    g_timeout_add_seconds(2, startBackgroundWork, &ui);
+}
+
 void onActivate(GtkApplication *pGtkApp, gpointer data) {
     auto *pUi = static_cast<WindowUi *>(data);
     pUi->activated = true;
@@ -323,41 +391,21 @@ void onActivate(GtkApplication *pGtkApp, gpointer data) {
     pUi->appliedTheme = pUi->pApp->snapshot().settings.theme;
     applyLauncherTheme(pUi->appliedTheme);
 
-    GtkWidget *pWindow = adw_application_window_new(pGtkApp);
-    pUi->pWindow = GTK_WINDOW(pWindow);
-    gtk_window_set_title(pUi->pWindow, "TuxBlox");
-    // The size it opens at is also the smallest it goes: the Sessions tab's list and its log pane sit side by side, and narrower than this one of them stops being readable rather than merely getting tight.
-    gtk_window_set_default_size(pUi->pWindow, 988, 549);
-    gtk_widget_set_size_request(pWindow, 988, 549);
-    g_signal_connect(pWindow, "close-request", G_CALLBACK(onCloseRequest), pUi);
-    g_signal_connect(pWindow, "realize", G_CALLBACK(onRealize), pUi);
+    buildMainWindow(*pUi, pGtkApp);
 
-    GtkWidget *pSplit = adw_navigation_split_view_new();
-    adw_navigation_split_view_set_min_sidebar_width(ADW_NAVIGATION_SPLIT_VIEW(pSplit), 180);
-    adw_navigation_split_view_set_max_sidebar_width(ADW_NAVIGATION_SPLIT_VIEW(pSplit), 220);
-    adw_navigation_split_view_set_sidebar(ADW_NAVIGATION_SPLIT_VIEW(pSplit), ADW_NAVIGATION_PAGE(buildSidebar(*pUi)));
-    adw_navigation_split_view_set_content(ADW_NAVIGATION_SPLIT_VIEW(pSplit), ADW_NAVIGATION_PAGE(buildContent(*pUi)));
+    pUi->pBootOverlay = bootOverlayCreate([pUi] {
+        BootOverlay *pOverlay = pUi->pBootOverlay;
+        pUi->pBootOverlay = nullptr;
+        bootOverlayDestroy(pOverlay);
+        startMainWindow(*pUi);
+    });
+    if (pUi->pBootOverlay != nullptr) {
+        gtk_overlay_add_overlay(pUi->pContentOverlay, bootOverlayWidget(pUi->pBootOverlay));
+    }
 
-    App &app = *pUi->pApp;
-    // First thing, so the check is already running while the pages are built and is never waiting behind
-    // desktop integration. A no-op when main() already started it, which it does with Auto-Update on.
-    app.startUpdateCheck();
-
-    addPage(*pUi, Tab::Start, "Home", kAssetHome, kAssetHomeLen, false, std::make_unique<HomePage>(app, pUi->installDir));
-    addPage(*pUi, Tab::Sessions, "Sessions", kAssetSessions, kAssetSessionsLen, false, std::make_unique<SessionsPage>(app));
-    addPage(*pUi, Tab::Versions, "Versions", kAssetRobloxRdd, kAssetRobloxRddLen, false, std::make_unique<VersionsPage>(app));
-    addPage(*pUi, Tab::FastFlags, "FastFlags", kAssetFastflags, kAssetFastflagsLen, false, std::make_unique<FastFlagsPage>(app));
-    addPage(*pUi, Tab::Settings, "Settings", kAssetSettings, kAssetSettingsLen, false, std::make_unique<SettingsPage>(app));
-    addPage(*pUi, Tab::About, "About", kAssetInfo, kAssetInfoLen, true, std::make_unique<AboutPage>(pUi->installDir));
-
-    adw_application_window_set_content(ADW_APPLICATION_WINDOW(pWindow), pSplit);
-
-    onTick(pUi);
-    pUi->tickId = g_timeout_add(100, onTick, pUi);
-    // A window that never gets a frame, such as one opened on a hidden workspace, must still register itself with the desktop
-    g_timeout_add_seconds(2, startBackgroundWork, pUi);
-
-    // On a first run the tour comes up instead, and this window waits behind it for Get started.
+    // On a first run the tour comes up first, and this window waits behind it
+    // for Get started. The overlay is already attached, so its animation begins
+    // when the window is finally presented.
     if (shouldShowWelcome(pUi->pApp->snapshot().settings)) {
         pUi->welcomeOpen = true;
         presentWelcomeTour(*pUi->pApp, pGtkApp, [pUi](bool finished) {
@@ -373,10 +421,15 @@ void onActivate(GtkApplication *pGtkApp, gpointer data) {
             settings.welcomeSeen = true;
             pUi->pApp->updateSettings(settings);
             gtk_window_present(pUi->pWindow);
+            if (pUi->pBootOverlay == nullptr) startMainWindow(*pUi);
         });
         return;
     }
+
+    // The normal window is on screen from the first frame; the overlay only
+    // covers its content until the entrance has played.
     gtk_window_present(pUi->pWindow);
+    if (pUi->pBootOverlay == nullptr) startMainWindow(*pUi);
 }
 
 } // namespace
@@ -399,6 +452,14 @@ int runLauncherWindow(App &app, const std::string &exePath, const std::string &i
     AdwApplication *pGtkApp = adw_application_new(nullptr, G_APPLICATION_NON_UNIQUE);
     g_signal_connect(pGtkApp, "activate", G_CALLBACK(onActivate), &ui);
     const int status = g_application_run(G_APPLICATION(pGtkApp), 0, nullptr);
+
+    // Quitting during the entrance otherwise leaves the overlay alive after
+    // the loop that drives it has gone.
+    if (ui.pBootOverlay != nullptr) {
+        bootOverlayDestroy(ui.pBootOverlay);
+        ui.pBootOverlay = nullptr;
+    }
+
     g_object_unref(pGtkApp);
     return ui.activated ? status : 1;
 }
