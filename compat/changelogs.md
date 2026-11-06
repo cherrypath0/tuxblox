@@ -1,6 +1,7 @@
-- Fixed a network issue in the WebKit
+- Fixed a network issue in the web engine
 - Fixed an issue where windows that are supposed to be unscalable can be scalable
-- Fixed WebKit not working in non-systemd distros
+- Fixed the web engine not working in systems that do not use systemd
+- Fixed the web engine crashing when GPU acceleration for web pages is enabled
 - Fixed some black boxes randomly appearing in Roblox Studio
-- Fixed some windows being able to exceed its maximum size
-- Removed some host dependencies for the WebKit
+- Fixed some windows being able to exceed their maximum size
+- Removed some host dependencies for the web engine
