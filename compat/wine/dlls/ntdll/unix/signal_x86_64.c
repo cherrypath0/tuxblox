@@ -2610,8 +2610,11 @@ static unsigned int align_faulted_mask = ARRAY_SIZE(align_faulted) / 4 - 1;
  * is not semantics-preserving: a legacy SSE instruction leaves bits 255:128 of
  * the destination alone and its VEX.128 spelling zeroes them, so any value the
  * layer is keeping in the upper half of that register is destroyed. The move
- * rewrite has no such problem -- movdqu does exactly what movdqa did. */
-static BOOL vex_rewrite_allowed = TRUE;
+ * rewrite has no such problem -- movdqu does exactly what movdqa did.
+ *
+ * Off by default for the same reason as the move rewrite below: Windows does not
+ * edit the instruction. TUXBLOX_VEX_REWRITE=1 turns it back on. */
+static BOOL vex_rewrite_allowed = FALSE;
 
 /* Whether a general protection fault from an instruction fetch reports execute
  * rather than read. Wine reports read for every #GP; Windows distinguishes, and
@@ -2625,24 +2628,37 @@ static BOOL vex_rewrite_allowed = TRUE;
  * behaviour, since the Windows value has never been measured. */
 static BOOL gp_reports_execute = FALSE;
 
-/* Whether a faulted move may be rewritten where it stands. The layer hashes its
- * own code, so a run with TUXBLOX_NO_ALIGN_REWRITE set separates "the rewrite is
- * seen" from every other reason a run can fail. Read once at startup, because
- * nothing on the fault path may call getenv. */
-static BOOL align_rewrite_allowed = TRUE;
+/* Whether a faulted move may be rewritten where it stands.
+ *
+ * OFF, because Windows does not do it. Its kernel decodes the faulted
+ * instruction and performs the access in software -- RtlpIcParseInstruction,
+ * RtlpIcDecodeModRm, RtlpIcReadOperandValue, RtlpIcAccessMemory,
+ * RtlpIcWriteRegisterValue, RtlpIcEmulateInstruction -- and counts every one in
+ * KeAlignmentFixupCount, a per-occurrence counter that would be meaningless if a
+ * site were patched once. There is no routine anywhere in it that edits an
+ * instruction. Measured 2026-11-06 from the shipping kernel's own symbols, and
+ * corroborated by a healthy Windows process: 15,751,030 bytes of the Roblox
+ * layer's code in memory are byte-identical to the file it was mapped from.
+ *
+ * Emulating every fault is what Windows charges for too -- its own documentation
+ * warns of "severe performance degradation" when a process keeps generating
+ * them. Ours cost far more than its, so this is only affordable because the
+ * faults are themselves a symptom: a correctly aligned run barely makes any.
+ *
+ * TUXBLOX_ALIGN_REWRITE=1 turns the rewrite back on for a comparison.
+ * Read once at startup, because nothing on the fault path may call getenv. */
+static BOOL align_rewrite_allowed = FALSE;
 
 /* Whether a faulted move inside a mapped image may be rewritten.
  *
- * Windows never needs to: the Roblox layer's misaligned accesses do not trap
- * there, so its image in memory always matches the file it was mapped from, and
- * the layer checks. Ours trap 194 million times a run, and rewriting them edits
- * an image the program can compare against its own file -- which is measurably
- * what stops its start-up. Leaving images alone fixes that and costs every one
- * of those faults back: seconds become tens of minutes. So rewriting stays on.
+ * Moot while align_rewrite_allowed is off, and kept for the comparison runs that
+ * turn it back on. The claim this comment used to carry -- that movdqa is "the
+ * one spelling Windows is known to produce" -- was never measured and is wrong:
+ * Windows produces none, it emulates. See align_rewrite_allowed above.
  *
  * TUXBLOX_ALIGN_REWRITE_IMAGES=none leaves images alone, =movdqa allows only the
- * one spelling Windows is known to produce. Read once at startup, because
- * nothing on the fault path may call getenv. */
+ * movdqa/movdqu pair. Read once at startup, because nothing on the fault path
+ * may call getenv. */
 static BOOL align_rewrite_images = TRUE;
 static BOOL align_rewrite_images_dq = FALSE;
 /* Whether a move inside an image must fault twice before it is rewritten.
@@ -4425,7 +4441,10 @@ void signal_init_process(void)
     void *ptr, *kernel_stack = (char *)thread_data->kernel_stack + kernel_stack_size;
     unsigned int i;
 
-    align_rewrite_allowed = !getenv( "TUXBLOX_NO_ALIGN_REWRITE" );
+    /* Opt-in now that the default is Windows' behaviour, emulate and leave the
+     * instruction alone. The old negative knob still forces it off, so a note or
+     * a script that sets it still means what it said. */
+    align_rewrite_allowed = getenv( "TUXBLOX_ALIGN_REWRITE" ) && !getenv( "TUXBLOX_NO_ALIGN_REWRITE" );
     {
         const char *v = getenv( "TUXBLOX_ALIGN_REWRITE_IMAGES" );
 
@@ -4457,7 +4476,7 @@ void signal_init_process(void)
     }
     align_image_needs_repeat = !getenv( "TUXBLOX_ALIGN_IMAGE_FIRST_FAULT" );
     gp_reports_execute = !!tuxblox_dev_getenv( "TUXBLOX_TEST_GP_EXEC" );
-    vex_rewrite_allowed = !getenv( "TUXBLOX_NO_VEX_REWRITE" );
+    vex_rewrite_allowed = getenv( "TUXBLOX_VEX_REWRITE" ) && !getenv( "TUXBLOX_NO_VEX_REWRITE" );
     {
         const char *v = getenv( "TUXBLOX_ALIGN_TABLE" );
         unsigned int want = v ? atoi( v ) : 0;
