@@ -234,6 +234,7 @@ if(TUXBLOX_UI_STACK_DEV)
         src/ui_adw/versions_tab_state.cpp
         src/ui_adw/home_card_state.cpp
         src/ui_adw/sessions_page_state.cpp
+        src/ui_adw/welcome_tour_state.cpp
         src/ui_adw/page_sessions.cpp
         src/bootstrap/ui_adw.cpp
         src/bootstrap/command.cpp

@@ -137,6 +137,10 @@ add_executable(test_home_card_state test_home_card_state.cpp ../src/ui_adw/home_
 target_link_libraries(test_home_card_state PRIVATE launcher_core)
 add_test(NAME home_card_state COMMAND test_home_card_state)
 
+add_executable(test_welcome_tour_state test_welcome_tour_state.cpp ../src/ui_adw/welcome_tour_state.cpp)
+target_link_libraries(test_welcome_tour_state PRIVATE launcher_core)
+add_test(NAME welcome_tour_state COMMAND test_welcome_tour_state)
+
 add_executable(test_prefix_session test_prefix_session.cpp)
 target_link_libraries(test_prefix_session PRIVATE launcher_core)
 add_test(NAME prefix_session COMMAND test_prefix_session)
