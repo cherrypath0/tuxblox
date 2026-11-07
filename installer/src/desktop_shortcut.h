@@ -35,15 +35,18 @@ void createDesktopShortcut(const std::string& launcherExePath);
 // Removes any existing non-development TuxBlox URL-scheme handlers (the
 // installed "TuxBlox"/"TuxBlox Player"/"TuxBlox Studio" .desktop entries,
 // plus the pre-rename shared handler name from older installs) and writes
-// them fresh, forcing xdg-mime's default back to them for roblox:,
-// roblox-player:, roblox-studio:, and roblox-studio-auth:. Unlike the
-// launcher's own ensureDesktopIntegration(), this does NOT skip schemes
-// currently pointed at a repo-local dev handler --
-// running the installer is a deliberate top-level action and should always
-// leave the installed launcher as the real default. launcherExePath should
-// be the just-installed TuxBloxLauncher binary's full path. Best-effort:
-// never throws -- failure here must not fail an otherwise-successful
-// install/update.
+// them fresh.
+//
+// It does NOT make any of them the default for roblox:, roblox-player:,
+// roblox-studio: or roblox-studio-auth:. It used to, on every install AND
+// every update, which took the association back from whatever the user had
+// chosen -- and did it before any Roblox app existed to answer the link.
+// Claiming is the launcher's job now, in ensureDesktopIntegration(), and only
+// once the app a scheme belongs to is actually installed in the virtual drive.
+// Writing the entries here is still needed: the launcher can only make one the
+// default if it is already on disk. launcherExePath should be the
+// just-installed TuxBloxLauncher binary's full path. Best-effort: never throws
+// -- failure here must not fail an otherwise-successful install/update.
 void refreshUrlHandlers(const std::string& launcherExePath);
 
 } // namespace tuxblox

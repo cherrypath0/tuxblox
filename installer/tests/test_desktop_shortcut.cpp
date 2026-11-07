@@ -105,18 +105,31 @@ int main() {
     {
         const std::string bundledExe = (work / "tuxblox" / "launcher" / "TuxBloxLauncher").string();
         createDesktopShortcut(bundledExe);
+
+        // Entries from older naming schemes, which a refresh has to clear out.
+        fs::create_directories(appsDir);
+        std::ofstream(appsDir / "tuxblox-url-handler.desktop") << "[Desktop Entry]\n";
+        std::ofstream(appsDir / "tuxblox-roblox-handler.desktop") << "[Desktop Entry]\n";
+
         refreshUrlHandlers(bundledExe);
 
         const std::string menu = readFile(menuEntry);
         assert(menu.find("Exec=\"" + bundledExe + "\"\n") != std::string::npos);
 
+        // The entries are still written: the launcher needs them present to claim
+        // a scheme later. Only the forcing of the xdg-mime default is gone, and no
+        // test can observe that -- TUXBLOX_SKIP_XDG_MIME suppresses those calls here.
         for (const char* id : {"tuxblox-player-handler.desktop",
                                 "tuxblox-studio-handler.desktop"}) {
             const fs::path handler = appsDir / id;
             assert(fs::exists(handler));
             const std::string h = readFile(handler);
             assert(h.find("Exec=\"" + bundledExe + "\" %u\n") != std::string::npos);
+            assert(h.find("MimeType=x-scheme-handler/") != std::string::npos);
         }
+
+        assert(!fs::exists(appsDir / "tuxblox-url-handler.desktop"));
+        assert(!fs::exists(appsDir / "tuxblox-roblox-handler.desktop"));
     }
 
     fs::remove_all(work);
