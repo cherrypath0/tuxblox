@@ -997,11 +997,10 @@ void Prefix::syncHostFont() {
     const std::string font = logFontValue(family, points, detected > 0 ? detected : kUnscaledDpi);
     const fs::path userReg = prefixDir / "user.reg";
 
-    // Only the fonts Wine reports for dialogs and menus. The caption font is
-    // left alone because the window's title bar is the desktop's to draw.
+    // The caption font is here for Studio's docked panels, whose titles Qt takes from it rather than from the message font.
     const bool changed = setRegKeyValues(userReg,
             "Control Panel\\\\Desktop\\\\WindowMetrics",
-            {{"MessageFont", font}, {"MenuFont", font}, {"StatusFont", font}});
+            {{"MessageFont", font}, {"MenuFont", font}, {"StatusFont", font}, {"CaptionFont", font}});
 
     if (changed) {
         log("Synced prefix to host font " + family + " " + std::to_string(points));

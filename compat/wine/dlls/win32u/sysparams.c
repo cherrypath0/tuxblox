@@ -5607,21 +5607,38 @@ static void logfont16to32( const LOGFONT16 *font16, LPLOGFONTW font32 )
     font32->lfFaceName[LF_FACESIZE-1] = 0;
 }
 
+/* The full name is what resolves an alias like MS Shell Dlg to a real font, but it
+ * is only usable as a face name when the Regular face is named after its family.
+ * That is a Microsoft convention -- Tahoma's full name is "Tahoma" -- and most
+ * other fonts append the style, so "Noto Sans" comes back as "Noto Sans Regular".
+ * A caller that looks the reported name up as a family then finds nothing, so the
+ * full name is kept only when it is itself a family and the family name otherwise.
+ */
 static void get_real_fontname( LOGFONTW *lf, WCHAR fullname[LF_FACESIZE] )
 {
-    struct font_enum_entry enum_entry;
+    struct font_enum_entry enum_entry, full_entry;
     ULONG count = sizeof(enum_entry);
     HDC hdc;
 
     hdc = get_display_dc();
     NtGdiEnumFonts( hdc, 0, 0, lstrlenW( lf->lfFaceName ), lf->lfFaceName, lf->lfCharSet,
                     &count, &enum_entry );
+    if (!count)
+    {
+        release_display_dc( hdc );
+        lstrcpynW( fullname, lf->lfFaceName, LF_FACESIZE );
+        return;
+    }
+
+    count = sizeof(full_entry);
+    NtGdiEnumFonts( hdc, 0, 0, lstrlenW( enum_entry.lf.elfFullName ), enum_entry.lf.elfFullName,
+                    lf->lfCharSet, &count, &full_entry );
     release_display_dc( hdc );
 
-    if (count)
-        lstrcpyW( fullname, enum_entry.lf.elfFullName );
+    if (count && !wcsicmp( full_entry.lf.elfLogFont.lfFaceName, enum_entry.lf.elfFullName ))
+        lstrcpynW( fullname, enum_entry.lf.elfFullName, LF_FACESIZE );
     else
-        lstrcpyW( fullname, lf->lfFaceName );
+        lstrcpynW( fullname, enum_entry.lf.elfLogFont.lfFaceName, LF_FACESIZE );
 }
 
 LONG get_char_dimensions( HDC hdc, TEXTMETRICW *metric, int *height )
