@@ -810,65 +810,6 @@ const char *const kPlayStationPads[] = {
     "054C/0DF2", // DualSense Edge
 };
 
-// The desktop's interface font, as a family name and a size in points.
-std::pair<std::string, int> detectHostFont() {
-    const char* home = std::getenv("HOME");
-
-    // KDE keeps it as "Noto Sans,10,-1,5,50,0,0,0,0,0". The line is absent
-    // when the user has never changed it, which is why this falls through.
-    if (home != nullptr) {
-        std::ifstream kdeglobals(fs::path(home) / ".config" / "kdeglobals");
-        std::string line;
-        bool inGeneral = false;
-        while (std::getline(kdeglobals, line)) {
-            if (!line.empty() && line[0] == '[') {
-                inGeneral = (line.rfind("[General]", 0) == 0);
-                continue;
-            }
-            if (!inGeneral || line.rfind("font=", 0) != 0) {
-                continue;
-            }
-            const std::string value = line.substr(5);
-            const size_t comma = value.find(',');
-            if (comma == std::string::npos) {
-                continue;
-            }
-            const std::string family = trimmed(value.substr(0, comma));
-            const std::string rest = value.substr(comma + 1);
-            const int points = std::atoi(rest.c_str());
-            if (!family.empty() && points > 0) {
-                return {family, points};
-            }
-        }
-    }
-
-    // GNOME and anything else following it answer "Noto Sans 10", where the
-    // size is the last space-separated word.
-    const std::string gnome = trimmed(runHostCmd({"gsettings", "get",
-            "org.gnome.desktop.interface", "font-name"}));
-    if (!gnome.empty()) {
-        std::string value = gnome;
-        if (value.size() >= 2 && value.front() == '\'' && value.back() == '\'') {
-            value = value.substr(1, value.size() - 2);
-        }
-        const size_t space = value.find_last_of(' ');
-        if (space != std::string::npos) {
-            const int points = std::atoi(value.substr(space + 1).c_str());
-            const std::string family = trimmed(value.substr(0, space));
-            if (!family.empty() && points > 0) {
-                return {family, points};
-            }
-        }
-    }
-
-    const std::string matched = trimmed(runHostCmd({"fc-match", "--format=%{family}", "sans"}));
-    if (!matched.empty()) {
-        // fc-match can answer with a comma-separated list of aliases.
-        return {trimmed(matched.substr(0, matched.find(','))), 10};
-    }
-    return {"", 0};
-}
-
 // The desktop's subpixel layout, as one of rgb, bgr, none or "" when the
 // desktop does not say. This is the same X resource the graphics driver reads
 // when it decides how to rasterise a glyph, so reading it here is what keeps
@@ -987,23 +928,31 @@ void Prefix::syncHostDpi() {
     }
 }
 
-void Prefix::syncHostFont() {
-    const auto [family, points] = detectHostFont();
-    if (family.empty() || points <= 0) {
-        return;
-    }
+// What every Windows machine reports for all six of its interface fonts. Read off a
+// real Windows 11 install rather than assumed: Segoe UI, nine points, regular weight.
+constexpr const char* kWindowsUiFont = "Segoe UI";
+constexpr int kWindowsUiPoints = 9;
 
+void Prefix::syncHostFont() {
     const int detected = detectHostDpi();
-    const std::string font = logFontValue(family, points, detected > 0 ? detected : kUnscaledDpi);
+    const std::string font = logFontValue(kWindowsUiFont, kWindowsUiPoints,
+            detected > 0 ? detected : kUnscaledDpi);
     const fs::path userReg = prefixDir / "user.reg";
 
-    // The caption font is here for Studio's docked panels, whose titles Qt takes from it rather than from the message font.
-    const bool changed = setRegKeyValues(userReg,
+    // All six, because Studio takes its menus from one, its docked panel titles from
+    // another and its dialogs from a third, and on Windows they are the same font.
+    bool changed = setRegKeyValues(userReg,
             "Control Panel\\\\Desktop\\\\WindowMetrics",
-            {{"MessageFont", font}, {"MenuFont", font}, {"StatusFont", font}, {"CaptionFont", font}});
+            {{"MessageFont", font}, {"MenuFont", font}, {"StatusFont", font},
+             {"CaptionFont", font}, {"SmCaptionFont", font}, {"IconFont", font}});
+
+    // A drive built before this sent that name to Times New Roman, so the interface
+    // came out in a serif. New drives get this from the layer's own setup script.
+    changed |= setRegKeyValues(userReg, "Software\\\\TuxBlox\\\\Fonts\\\\Replacements",
+            {{"Segoe UI", "\"Selawik\""}, {"Segoe UI Semibold", "\"Selawik Semibold\""}});
 
     if (changed) {
-        log("Synced prefix to host font " + family + " " + std::to_string(points));
+        log(std::string("Synced prefix to the Windows interface font, ") + kWindowsUiFont);
     }
 }
 

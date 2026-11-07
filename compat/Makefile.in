@@ -958,6 +958,8 @@ $(DIST_FONTS): fonts
 	cp $(FONTS_OBJ)/ume-gothic/msgothic.ttc "$@"
 	cp $(FONTS_OBJ)/source-han/malgun.ttf "$@"
 	cp -r $(FONTS_OBJ)/alt "$@"
+	@# Shipped as they come from Microsoft: the licence reserves the name Selawik, so a renamed or edited copy could not be redistributed.
+	cp $(FONTS)/selawik/selawk.ttf $(FONTS)/selawik/selawkb.ttf $(FONTS)/selawik/selawksb.ttf "$@"
 
 all-dist: $(DIST_FONTS)
 
