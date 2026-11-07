@@ -112,7 +112,15 @@ const char LauncherStyles[] =
     "button.update-button:active { background-image: image(alpha(black, 0.1)); }\n"
     // Deliberately not the monospace family: TuxBlox ships no monospace font, so that family is whatever the machine happens to have, and a version number needs no fixed width anyway
     "button.session-open { font-size: 0.8rem; min-height: 0; padding: 2px 11px; }\n"
-    "label.version-meta { font-size: 0.75rem; line-height: 1.0; }\n";
+    "label.version-meta { font-size: 0.75rem; line-height: 1.0; }\n"
+    // The welcome tour's theme previews: one element each, the sidebar's colour hard-stopped against the page's
+    "box.theme-swatch { min-height: 34px; border-radius: 6px; box-shadow: inset 0 0 0 1px @card_shade_color; }\n"
+    "box.theme-swatch-system { background: linear-gradient(to right, #0e1117 0%, #0e1117 30%, #f5f6f8 30%, #f5f6f8 100%); }\n"
+    "box.theme-swatch-dark { background: linear-gradient(to right, #0e1117 0%, #0e1117 30%, #0a0c11 30%, #0a0c11 100%); }\n"
+    "box.theme-swatch-grey { background: linear-gradient(to right, #303030 0%, #303030 30%, #242424 30%, #242424 100%); }\n"
+    "box.theme-swatch-light { background: linear-gradient(to right, #ffffff 0%, #ffffff 30%, #f5f6f8 30%, #f5f6f8 100%); }\n"
+    "button.theme-tile { padding: 6px; }\n"
+    "button.theme-tile:checked { box-shadow: inset 0 0 0 2px @accent_bg_color; }\n";
 
 } // namespace
 

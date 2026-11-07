@@ -33,6 +33,8 @@
 #include "page_sessions.h"
 #include "page_settings.h"
 #include "page_versions.h"
+#include "welcome_tour.h"
+#include "welcome_tour_state.h"
 #include "widgets.h"
 
 #include <cstdio>
@@ -78,6 +80,9 @@ struct WindowUi {
     bool backgroundWorkStarted = false;
     guint tickId = 0;
     bool activated = false;
+    // Presented once per run; `welcomeOpen` keeps the update dialog from stacking on top of it.
+    bool welcomeShown = false;
+    bool welcomeOpen = false;
 };
 
 std::string tabName(Tab tab) {
@@ -161,6 +166,7 @@ GtkWidget *updateDetails(const std::string &release, const std::vector<Component
 // Once per offered version, so it does not reappear on every poll. "Not now" leaves the Home page's
 // own Update button, which is what makes dismissing it something other than a dead end.
 void notifyUpdate(WindowUi &ui, const AppSnapshot &snap) {
+    if (ui.welcomeOpen) return;
     if (!snap.updateAvailableVersion || *snap.updateAvailableVersion == ui.notifiedVersion) return;
     ui.notifiedVersion = *snap.updateAvailableVersion;
     App *pApp = ui.pApp;
@@ -193,6 +199,18 @@ gboolean onTick(gpointer data) {
         }
     }
     for (PageEntry &entry : pUi->pages) entry.page->update(snap);
+
+    if (!pUi->welcomeShown && shouldShowWelcome(snap.settings)) {
+        pUi->welcomeShown = true;
+        pUi->welcomeOpen = true;
+        presentWelcomeTour(app, GTK_WIDGET(pUi->pStack), [pUi, &app] {
+            pUi->welcomeOpen = false;
+            Settings settings = app.snapshot().settings;
+            settings.welcomeSeen = true;
+            app.updateSettings(settings);
+        });
+    }
+
     notifyUpdate(*pUi, snap);
 
     if (!snap.containerWarning.empty() && !pUi->containerWarningShown) {
