@@ -24,6 +24,16 @@ bool canDeleteVersion(const AppVersions& av, const std::string& hash) {
                         [&](const InstalledVersion& v) { return v.hash == hash; });
 }
 
+std::string versionRowMeta(const InstalledVersion& version) {
+    if (version.versionString.empty()) return version.channel;
+    if (version.channel.empty()) return version.versionString;
+    return version.versionString + " \xC2\xB7 " + version.channel;
+}
+
+bool versionIsActive(const AppVersions& versions, const std::string& hash) {
+    return !hash.empty() && versions.activeHash == hash;
+}
+
 std::string normalizedChannel(const std::string& typed) {
     const size_t first = typed.find_first_not_of(" \t\r\n");
     if (first == std::string::npos) return "";

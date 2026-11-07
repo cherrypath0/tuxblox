@@ -32,4 +32,13 @@ bool canDeleteVersion(const AppVersions& av, const std::string& hash);
 // The channel as it is sent: lowercase, without spaces around it
 std::string normalizedChannel(const std::string& typed);
 
+// What a version's row says under its hash: the version Roblox reports and the
+// channel, separated by a dot. Deliberately carries neither the install date nor
+// the size on disk -- the size would need a recursive walk of a 1.3 GB directory
+// per version, and the date earns nothing. installedAt is still stored, just not shown.
+std::string versionRowMeta(const InstalledVersion& version);
+
+// Whether this is the version a launch would start.
+bool versionIsActive(const AppVersions& versions, const std::string& hash);
+
 } // namespace tuxblox
