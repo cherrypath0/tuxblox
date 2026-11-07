@@ -141,6 +141,10 @@ add_executable(test_welcome_tour_state test_welcome_tour_state.cpp ../src/ui_adw
 target_link_libraries(test_welcome_tour_state PRIVATE launcher_core)
 add_test(NAME welcome_tour_state COMMAND test_welcome_tour_state)
 
+add_executable(test_fastflags_page_state test_fastflags_page_state.cpp ../src/ui_adw/fastflags_page_state.cpp)
+target_link_libraries(test_fastflags_page_state PRIVATE launcher_core)
+add_test(NAME fastflags_page_state COMMAND test_fastflags_page_state)
+
 add_executable(test_prefix_session test_prefix_session.cpp)
 target_link_libraries(test_prefix_session PRIVATE launcher_core)
 add_test(NAME prefix_session COMMAND test_prefix_session)
