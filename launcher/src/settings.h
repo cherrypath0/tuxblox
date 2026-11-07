@@ -126,6 +126,10 @@ struct Settings {
     // it took the website's. Only the window is affected -- Roblox never sees
     // this.
     std::string theme = "system";
+    // The welcome tour is shown once; absent means unseen.
+    bool welcomeSeen = false;
+    // Hidden on purpose; deleted when Player support ships.
+    bool enablePlayerButton = false;
     // Written into the active Roblox version's ClientSettings folder at every
     // launch -- see fastflag_file.h for why it can't just be written once.
     FastFlagSet fastFlags;

@@ -140,6 +140,9 @@ Settings loadSettings(const std::string& installDir) {
         settings.theme = isKnownTheme(theme) ? theme : "system";
         const std::string graphics = j.value("graphics", std::string("automatic"));
         settings.graphics = isKnownGraphics(graphics) ? graphics : "automatic";
+        // Read leniently, same reasoning as "channel" above.
+        settings.welcomeSeen = j.value("welcome_seen", false);
+        settings.enablePlayerButton = j.value("enable_player_button", false);
 
         const auto fastFlags = j.find("fast_flags");
         if (fastFlags != j.end()) {
@@ -180,6 +183,8 @@ void saveSettings(const std::string& installDir, const Settings& settings) {
         j["discord_game_status"] = settings.discordGameStatus;
         j["theme"] = settings.theme;
         j["graphics"] = settings.graphics;
+        j["welcome_seen"] = settings.welcomeSeen;
+        j["enable_player_button"] = settings.enablePlayerButton;
         j["fast_flags"] = {{"player", fastFlagsToJson(settings.fastFlags.player)},
                             {"studio", fastFlagsToJson(settings.fastFlags.studio)}};
 

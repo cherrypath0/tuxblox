@@ -623,6 +623,34 @@ int main() {
         assert(loadSettings(dir).discordGameStatus == true);
     }
 
+    // An existing settings.json naming neither new field must read as tour-unseen and
+    // Player-gated, and must keep everything else it says.
+    {
+        fs::create_directories(dir);
+        {
+            std::ofstream out(dir + "/settings.json");
+            out << R"({"send_crash_reports":true,"channel":"canary","theme":"dark"})";
+        }
+        Settings s = loadSettings(dir);
+        assert(s.welcomeSeen == false);
+        assert(s.enablePlayerButton == false);
+        assert(s.sendCrashReports == true);
+        assert(s.channel == "canary");
+        assert(s.theme == "dark");
+        fs::remove_all(dir);
+    }
+    // Both round-trip.
+    {
+        Settings s;
+        s.welcomeSeen = true;
+        s.enablePlayerButton = true;
+        saveSettings(dir, s);
+        Settings back = loadSettings(dir);
+        assert(back.welcomeSeen == true);
+        assert(back.enablePlayerButton == true);
+        fs::remove_all(dir);
+    }
+
     fs::remove_all(dir);
 
     printf("settings: all tests passed\n");
