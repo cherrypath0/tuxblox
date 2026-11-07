@@ -134,8 +134,8 @@ GtkWidget *pageBox() {
     GtkWidget *pBox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
     gtk_widget_set_margin_start(pBox, 24);
     gtk_widget_set_margin_end(pBox, 24);
-    gtk_widget_set_margin_top(pBox, 26);
-    gtk_widget_set_margin_bottom(pBox, 8);
+    gtk_widget_set_margin_top(pBox, 16);
+    gtk_widget_set_margin_bottom(pBox, 6);
     return pBox;
 }
 
@@ -302,7 +302,7 @@ GtkWidget *buildOptionalPage(Tour &tour) {
     // Not "all four are off": every existing install sees this tour once, and theirs may already be on.
     GtkWidget *pBody = bodyLabel("Each of these sends something off your machine. None is required.", "dim-label");
     gtk_widget_set_margin_top(pBody, 4);
-    gtk_widget_set_margin_bottom(pBody, 16);
+    gtk_widget_set_margin_bottom(pBody, 12);
     gtk_box_append(GTK_BOX(pBox), pBody);
 
     const Settings settings = tour.pApp->snapshot().settings;
@@ -329,7 +329,7 @@ GtkWidget *buildOptionalPage(Tour &tour) {
     gtk_label_set_wrap(GTK_LABEL(pPolicy), TRUE);
     gtk_widget_add_css_class(pPolicy, "caption");
     gtk_widget_add_css_class(pPolicy, "dim-label");
-    gtk_widget_set_margin_top(pPolicy, 13);
+    gtk_widget_set_margin_top(pPolicy, 10);
     g_signal_connect(pPolicy, "activate-link", G_CALLBACK(onPolicyLink), nullptr);
     gtk_box_append(GTK_BOX(pBox), pPolicy);
     return pBox;
@@ -509,8 +509,8 @@ void presentWelcomeTour(App &app, GtkApplication *pGtkApp, std::function<void(bo
     adw_clamp_set_child(ADW_CLAMP(pFooterClamp), pFooterBar);
     gtk_widget_set_margin_start(pFooterClamp, 24);
     gtk_widget_set_margin_end(pFooterClamp, 24);
-    gtk_widget_set_margin_top(pFooterClamp, 12);
-    gtk_widget_set_margin_bottom(pFooterClamp, 20);
+    gtk_widget_set_margin_top(pFooterClamp, 10);
+    gtk_widget_set_margin_bottom(pFooterClamp, 14);
 
     GtkWidget *pOuter = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
     gtk_box_append(GTK_BOX(pOuter), pCarousel);
