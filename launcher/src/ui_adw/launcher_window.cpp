@@ -80,8 +80,7 @@ struct WindowUi {
     bool backgroundWorkStarted = false;
     guint tickId = 0;
     bool activated = false;
-    // Presented once per run; `welcomeOpen` keeps the update dialog from stacking on top of it.
-    bool welcomeShown = false;
+    // True while the tour's own window is up, which holds back the dialogs that would stack on it.
     bool welcomeOpen = false;
 };
 
@@ -200,17 +199,6 @@ gboolean onTick(gpointer data) {
     }
     for (PageEntry &entry : pUi->pages) entry.page->update(snap);
 
-    if (!pUi->welcomeShown && shouldShowWelcome(snap.settings)) {
-        pUi->welcomeShown = true;
-        pUi->welcomeOpen = true;
-        presentWelcomeTour(app, pUi->pWindow, [pUi, &app] {
-            pUi->welcomeOpen = false;
-            Settings settings = app.snapshot().settings;
-            settings.welcomeSeen = true;
-            app.updateSettings(settings);
-        });
-    }
-
     notifyUpdate(*pUi, snap);
 
     // Held back like the update dialog, or it stacks on the tour and is marked shown without being read.
@@ -226,6 +214,18 @@ gboolean onTick(gpointer data) {
         return G_SOURCE_REMOVE;
     }
     return G_SOURCE_CONTINUE;
+}
+
+// The launcher window when the tour was abandoned: it was built but never shown, so it goes
+// quietly. The poll stops first, since no close-request is raised for it to stop on.
+gboolean closeUnopenedWindow(gpointer data) {
+    auto *pUi = static_cast<WindowUi *>(data);
+    if (pUi->tickId != 0) {
+        g_source_remove(pUi->tickId);
+        pUi->tickId = 0;
+    }
+    gtk_window_destroy(pUi->pWindow);
+    return G_SOURCE_REMOVE;
 }
 
 gboolean onCloseRequest(GtkWindow *, gpointer data) {
@@ -356,6 +356,26 @@ void onActivate(GtkApplication *pGtkApp, gpointer data) {
     pUi->tickId = g_timeout_add(100, onTick, pUi);
     // A window that never gets a frame, such as one opened on a hidden workspace, must still register itself with the desktop
     g_timeout_add_seconds(2, startBackgroundWork, pUi);
+
+    // On a first run the tour comes up instead, and this window waits behind it for Get started.
+    if (shouldShowWelcome(pUi->pApp->snapshot().settings)) {
+        pUi->welcomeOpen = true;
+        presentWelcomeTour(*pUi->pApp, pGtkApp, [pUi](bool finished) {
+            pUi->welcomeOpen = false;
+            if (!finished) {
+                // Closed without finishing, so nothing was set up and the launcher does not open.
+                // Deferred: this runs inside the tour window's own teardown, and tearing a second
+                // window down from in there leaves GTK asking X about a drawable that has gone.
+                g_idle_add(closeUnopenedWindow, pUi);
+                return;
+            }
+            Settings settings = pUi->pApp->snapshot().settings;
+            settings.welcomeSeen = true;
+            pUi->pApp->updateSettings(settings);
+            gtk_window_present(pUi->pWindow);
+        });
+        return;
+    }
     gtk_window_present(pUi->pWindow);
 }
 

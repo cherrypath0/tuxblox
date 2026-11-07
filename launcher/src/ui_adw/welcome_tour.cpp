@@ -74,8 +74,8 @@ const SwitchChoice Switches[] = {
 struct Tour {
     App *pApp = nullptr;
     GtkWindow *pWindow = nullptr;
-    // What the window showed before the tour took it over, held with a ref so replacing the content cannot destroy it.
-    GtkWidget *pPrevContent = nullptr;
+    // Set when Get started closes the window, so the close handler can tell it from somebody shutting it.
+    bool finished = false;
     AdwCarousel *pCarousel = nullptr;
     GtkWidget *pBack = nullptr;
     GtkWidget *pSkip = nullptr;
@@ -87,9 +87,7 @@ struct Tour {
     std::vector<AdwSwitchRow *> pSwitchRows;
     std::string appliedStudioMeta;
     guint tickId = 0;
-    // Set while a toggle is being written back, so the poll below cannot fight the user.
-    bool writing = false;
-    std::function<void()> onClosed;
+    std::function<void(bool)> onDone;
 };
 
 struct SwitchBinding {
@@ -153,9 +151,7 @@ GtkWidget *clampedPage(GtkWidget *pBox) {
 void writeSettings(Tour &tour, const std::function<void(Settings &)> &change) {
     Settings settings = tour.pApp->snapshot().settings;
     change(settings);
-    tour.writing = true;
     tour.pApp->updateSettings(settings);
-    tour.writing = false;
 }
 
 void onThemePicked(GtkToggleButton *pButton, gpointer data) {
@@ -167,7 +163,6 @@ void onThemePicked(GtkToggleButton *pButton, gpointer data) {
 
 void onSwitchToggled(AdwSwitchRow *pRow, GParamSpec *, gpointer data) {
     auto *pBinding = static_cast<SwitchBinding *>(data);
-    if (pBinding->pTour->writing) return;
     const bool on = adw_switch_row_get_active(pRow);
     bool Settings::*pField = pBinding->pField;
     writeSettings(*pBinding->pTour, [&](Settings &settings) { settings.*pField = on; });
@@ -409,24 +404,24 @@ void onSkip(GtkButton *, gpointer data) {
     scrollTo(*pTour, tourSkipTarget());
 }
 
-// Deferred to an idle turn: this runs from a button inside the very widget tree it replaces.
-gboolean finishTour(gpointer data) {
+// One cleanup path, however the window goes: Get started, the close button, or the desktop.
+void onTourDestroyed(GtkWidget *, gpointer data) {
     auto *pTour = static_cast<Tour *>(data);
     if (pTour->tickId != 0) {
         g_source_remove(pTour->tickId);
         pTour->tickId = 0;
     }
-    adw_application_window_set_content(ADW_APPLICATION_WINDOW(pTour->pWindow), pTour->pPrevContent);
-    g_object_unref(pTour->pPrevContent);
-    if (pTour->onClosed) pTour->onClosed();
+    const bool finished = pTour->finished;
+    const std::function<void(bool)> done = pTour->onDone;
     delete pTour;
-    return G_SOURCE_REMOVE;
+    if (done) done(finished);
 }
 
 void onNext(GtkButton *, gpointer data) {
     auto *pTour = static_cast<Tour *>(data);
     if (currentPage(*pTour) >= tourSkipTarget()) {
-        g_idle_add(finishTour, pTour);
+        pTour->finished = true;
+        gtk_window_destroy(pTour->pWindow);
         return;
     }
     scrollTo(*pTour, currentPage(*pTour) + 1);
@@ -470,11 +465,10 @@ gboolean onTourTick(gpointer data) {
 
 } // namespace
 
-void presentWelcomeTour(App &app, GtkWindow *pWindow, std::function<void()> onClosed) {
+void presentWelcomeTour(App &app, GtkApplication *pGtkApp, std::function<void(bool)> onDone) {
     auto *pTour = new Tour;
     pTour->pApp = &app;
-    pTour->pWindow = pWindow;
-    pTour->onClosed = std::move(onClosed);
+    pTour->onDone = std::move(onDone);
 
     GtkWidget *pCarousel = adw_carousel_new();
     pTour->pCarousel = ADW_CAROUSEL(pCarousel);
@@ -530,14 +524,21 @@ void presentWelcomeTour(App &app, GtkWindow *pWindow, std::function<void()> onCl
     adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(pView), pHeader);
     adw_toolbar_view_set_content(ADW_TOOLBAR_VIEW(pView), pOuter);
 
-    pTour->pPrevContent = adw_application_window_get_content(ADW_APPLICATION_WINDOW(pWindow));
-    g_object_ref(pTour->pPrevContent);
-    adw_application_window_set_content(ADW_APPLICATION_WINDOW(pWindow), pView);
-    gtk_widget_grab_focus(pNext);
+    GtkWidget *pTourWindow = adw_application_window_new(pGtkApp);
+    pTour->pWindow = GTK_WINDOW(pTourWindow);
+    gtk_window_set_title(pTour->pWindow, "Welcome to TuxBlox");
+    // Fixed: every page is laid out for this one size, and there is nothing here worth resizing.
+    gtk_window_set_default_size(pTour->pWindow, 620, 580);
+    gtk_window_set_resizable(pTour->pWindow, FALSE);
+    adw_application_window_set_content(ADW_APPLICATION_WINDOW(pTourWindow), pView);
+    g_signal_connect(pTourWindow, "destroy", G_CALLBACK(onTourDestroyed), pTour);
 
     applyFooter(*pTour);
     onTourTick(pTour);
     pTour->tickId = g_timeout_add(250, onTourTick, pTour);
+
+    gtk_window_present(pTour->pWindow);
+    gtk_widget_grab_focus(pNext);
 }
 
 } // namespace tuxblox

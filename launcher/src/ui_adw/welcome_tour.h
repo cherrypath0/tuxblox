@@ -24,8 +24,9 @@ namespace tuxblox {
 
 class App;
 
-// The first-run tour. It takes the whole window over, and puts back what was there when it
-// finishes. onClosed runs once, at that point, and is where welcome_seen gets written.
-void presentWelcomeTour(App &app, GtkWindow *pWindow, std::function<void()> onClosed);
+// The first-run tour, in a fixed-size window of its own, shown before the launcher's.
+// onDone runs once when that window goes: true for Get started, false for closing it without
+// finishing. The caller decides what each means -- nothing is written or opened from here.
+void presentWelcomeTour(App &app, GtkApplication *pGtkApp, std::function<void(bool finished)> onDone);
 
 } // namespace tuxblox
