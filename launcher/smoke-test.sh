@@ -91,11 +91,34 @@ test "$status" -eq 1 || { cat /tmp/nodisplay.txt; fail "the launcher with no dis
 grep -q 'no display to open the launcher window on' /tmp/nodisplay.txt || { cat /tmp/nodisplay.txt; fail 'the no-display failure was not reported'; }
 printf 'OK: with no display the launcher reports it and exits 1\n'
 
-# Case D: a real window, on a display.
+# Case D: a real window, on a display. A fresh install opens the welcome window first and holds the
+# launcher's own back until Get started, so the two are checked in that order.
 rm -rf "$home/.cache"
 Xvfb :99 -screen 0 1280x800x24 >/tmp/xvfb.log 2>&1 &
 sleep 2
 export DISPLAY=:99
+run env DISPLAY=:99 "$root/TuxBloxLauncher" >/tmp/welcome.log 2>&1 &
+
+pid=""
+window=""
+for _ in $(seq 1 30); do
+    pid="$(pgrep -u tester -f "^$root/TuxBloxLauncher" | head -n 1 || true)"
+    window="$(xwininfo -root -tree 2>/dev/null | grep -E '"Welcome to TuxBlox".*[0-9]+x[0-9]+\+' | head -n 1 | awk '{print $1}' || true)"
+    if [[ -n "$pid" && -n "$window" ]]; then break; fi
+    sleep 1
+done
+test -n "$pid" || { cat /tmp/welcome.log; fail 'the launcher is not running'; }
+test -n "$window" || { cat /tmp/welcome.log; fail 'the welcome window is not on the display'; }
+printf 'OK: a fresh install opens the welcome window\n'
+pkill -u tester -f "^$root/TuxBloxLauncher$" || true
+sleep 1
+
+# Once it has been seen the launcher's own window is what opens. send_crash_reports is read
+# strictly, so a settings file without it would be thrown away whole and the tour would return.
+cat > "$root/settings.json" <<'JSON'
+{"send_crash_reports": false, "welcome_seen": true}
+JSON
+chown tester "$root/settings.json"
 run env DISPLAY=:99 "$root/TuxBloxLauncher" >/tmp/launcher.log 2>&1 &
 
 pid=""
