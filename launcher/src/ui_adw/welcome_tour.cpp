@@ -39,13 +39,19 @@ struct ThemeChoice {
     const char *pSwatchClass;
 };
 
-// Same four the Settings page offers, in the same order.
+// Same four the Settings page offers, in the same order. System has no colours of its own: it
+// previews whichever of dark or light the desktop is actually asking for.
 const ThemeChoice Themes[] = {
-    {"system", "System", "theme-swatch-system"},
+    {"system", "System", nullptr},
     {"dark", "Dark", "theme-swatch-dark"},
     {"grey", "Grey", "theme-swatch-grey"},
     {"light", "Light", "theme-swatch-light"},
 };
+
+const char *swatchClassFor(const ThemeChoice &choice) {
+    if (choice.pSwatchClass != nullptr) return choice.pSwatchClass;
+    return systemPrefersDark() ? "theme-swatch-dark" : "theme-swatch-light";
+}
 
 struct SwitchChoice {
     const char *pTitle;
@@ -67,7 +73,9 @@ const SwitchChoice Switches[] = {
 
 struct Tour {
     App *pApp = nullptr;
-    AdwDialog *pDialog = nullptr;
+    GtkWindow *pWindow = nullptr;
+    // What the window showed before the tour took it over, held with a ref so replacing the content cannot destroy it.
+    GtkWidget *pPrevContent = nullptr;
     AdwCarousel *pCarousel = nullptr;
     GtkWidget *pBack = nullptr;
     GtkWidget *pSkip = nullptr;
@@ -131,6 +139,15 @@ GtkWidget *pageBox() {
     gtk_widget_set_margin_top(pBox, 26);
     gtk_widget_set_margin_bottom(pBox, 8);
     return pBox;
+}
+
+// The tour fills the window now, so each page is held to a readable width and centred in it.
+GtkWidget *clampedPage(GtkWidget *pBox) {
+    gtk_widget_set_valign(pBox, GTK_ALIGN_CENTER);
+    GtkWidget *pClamp = adw_clamp_new();
+    adw_clamp_set_maximum_size(ADW_CLAMP(pClamp), 560);
+    adw_clamp_set_child(ADW_CLAMP(pClamp), pBox);
+    return pClamp;
 }
 
 void writeSettings(Tour &tour, const std::function<void(Settings &)> &change) {
@@ -203,7 +220,7 @@ GtkWidget *buildWelcomePage(Tour &tour) {
     for (const ThemeChoice &choice : Themes) {
         GtkWidget *pSwatch = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
         gtk_widget_add_css_class(pSwatch, "theme-swatch");
-        gtk_widget_add_css_class(pSwatch, choice.pSwatchClass);
+        gtk_widget_add_css_class(pSwatch, swatchClassFor(choice));
 
         GtkWidget *pLabel = gtk_label_new(choice.pLabel);
         gtk_widget_add_css_class(pLabel, "caption");
@@ -391,10 +408,24 @@ void onSkip(GtkButton *, gpointer data) {
     scrollTo(*pTour, tourSkipTarget());
 }
 
+// Deferred to an idle turn: this runs from a button inside the very widget tree it replaces.
+gboolean finishTour(gpointer data) {
+    auto *pTour = static_cast<Tour *>(data);
+    if (pTour->tickId != 0) {
+        g_source_remove(pTour->tickId);
+        pTour->tickId = 0;
+    }
+    adw_application_window_set_content(ADW_APPLICATION_WINDOW(pTour->pWindow), pTour->pPrevContent);
+    g_object_unref(pTour->pPrevContent);
+    if (pTour->onClosed) pTour->onClosed();
+    delete pTour;
+    return G_SOURCE_REMOVE;
+}
+
 void onNext(GtkButton *, gpointer data) {
     auto *pTour = static_cast<Tour *>(data);
     if (currentPage(*pTour) >= tourSkipTarget()) {
-        adw_dialog_force_close(pTour->pDialog);
+        g_idle_add(finishTour, pTour);
         return;
     }
     scrollTo(*pTour, currentPage(*pTour) + 1);
@@ -436,31 +467,21 @@ gboolean onTourTick(gpointer data) {
     return G_SOURCE_CONTINUE;
 }
 
-void onTourClosed(AdwDialog *, gpointer data) {
-    auto *pTour = static_cast<Tour *>(data);
-    if (pTour->tickId != 0) {
-        g_source_remove(pTour->tickId);
-        pTour->tickId = 0;
-    }
-    if (pTour->onClosed) pTour->onClosed();
-    delete pTour;
-}
-
 } // namespace
 
-void presentWelcomeTour(App &app, GtkWidget *pParent, std::function<void()> onClosed) {
+void presentWelcomeTour(App &app, GtkWindow *pWindow, std::function<void()> onClosed) {
     auto *pTour = new Tour;
     pTour->pApp = &app;
+    pTour->pWindow = pWindow;
     pTour->onClosed = std::move(onClosed);
-    pTour->pDialog = adw_dialog_new();
 
     GtkWidget *pCarousel = adw_carousel_new();
     pTour->pCarousel = ADW_CAROUSEL(pCarousel);
     // Off, or a scroll over the switch list would change the page under the pointer.
     adw_carousel_set_allow_scroll_wheel(pTour->pCarousel, FALSE);
-    adw_carousel_append(pTour->pCarousel, buildWelcomePage(*pTour));
-    adw_carousel_append(pTour->pCarousel, buildOptionalPage(*pTour));
-    adw_carousel_append(pTour->pCarousel, buildFinishPage(*pTour));
+    adw_carousel_append(pTour->pCarousel, clampedPage(buildWelcomePage(*pTour)));
+    adw_carousel_append(pTour->pCarousel, clampedPage(buildOptionalPage(*pTour)));
+    adw_carousel_append(pTour->pCarousel, clampedPage(buildFinishPage(*pTour)));
     gtk_widget_set_vexpand(pCarousel, TRUE);
     g_signal_connect(pCarousel, "notify::position", G_CALLBACK(onCarouselMoved), pTour);
 
@@ -480,37 +501,39 @@ void presentWelcomeTour(App &app, GtkWidget *pParent, std::function<void()> onCl
     GtkWidget *pSpacer = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
     gtk_widget_set_hexpand(pSpacer, TRUE);
 
-    GtkWidget *pFooter = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
-    gtk_widget_set_margin_start(pFooter, 20);
-    gtk_widget_set_margin_end(pFooter, 20);
-    gtk_widget_set_margin_top(pFooter, 12);
-    gtk_widget_set_margin_bottom(pFooter, 16);
-    gtk_box_append(GTK_BOX(pFooter), pDots);
-    gtk_box_append(GTK_BOX(pFooter), pSpacer);
-    gtk_box_append(GTK_BOX(pFooter), pTour->pSkip);
-    gtk_box_append(GTK_BOX(pFooter), pTour->pBack);
-    gtk_box_append(GTK_BOX(pFooter), pNext);
+    GtkWidget *pFooterBar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    gtk_box_append(GTK_BOX(pFooterBar), pDots);
+    gtk_box_append(GTK_BOX(pFooterBar), pSpacer);
+    gtk_box_append(GTK_BOX(pFooterBar), pTour->pSkip);
+    gtk_box_append(GTK_BOX(pFooterBar), pTour->pBack);
+    gtk_box_append(GTK_BOX(pFooterBar), pNext);
+
+    // Held to the same width as the pages, so the buttons line up with the content above them.
+    GtkWidget *pFooterClamp = adw_clamp_new();
+    adw_clamp_set_maximum_size(ADW_CLAMP(pFooterClamp), 560);
+    adw_clamp_set_child(ADW_CLAMP(pFooterClamp), pFooterBar);
+    gtk_widget_set_margin_start(pFooterClamp, 24);
+    gtk_widget_set_margin_end(pFooterClamp, 24);
+    gtk_widget_set_margin_top(pFooterClamp, 12);
+    gtk_widget_set_margin_bottom(pFooterClamp, 20);
 
     GtkWidget *pOuter = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
     gtk_box_append(GTK_BOX(pOuter), pCarousel);
-    gtk_box_append(GTK_BOX(pOuter), pFooter);
+    gtk_box_append(GTK_BOX(pOuter), pFooterClamp);
 
-    // No title bar when presented parentless, so the whole surface drags the window.
-    GtkWidget *pHandle = gtk_window_handle_new();
-    gtk_window_handle_set_child(GTK_WINDOW_HANDLE(pHandle), pOuter);
+    // An empty bar, so the window keeps its close button and stays draggable while the tour is up.
+    GtkWidget *pView = adw_toolbar_view_new();
+    adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(pView), adw_header_bar_new());
+    adw_toolbar_view_set_content(ADW_TOOLBAR_VIEW(pView), pOuter);
 
-    adw_dialog_set_title(pTour->pDialog, "Welcome to TuxBlox");
-    // The installer's width, which is what every other TuxBlox dialog uses.
-    adw_dialog_set_content_width(pTour->pDialog, 520);
-    adw_dialog_set_child(pTour->pDialog, pHandle);
-    adw_dialog_set_default_widget(pTour->pDialog, pNext);
-    adw_dialog_set_focus(pTour->pDialog, pNext);
-    g_signal_connect(pTour->pDialog, "closed", G_CALLBACK(onTourClosed), pTour);
+    pTour->pPrevContent = adw_application_window_get_content(ADW_APPLICATION_WINDOW(pWindow));
+    g_object_ref(pTour->pPrevContent);
+    adw_application_window_set_content(ADW_APPLICATION_WINDOW(pWindow), pView);
+    gtk_widget_grab_focus(pNext);
 
     applyFooter(*pTour);
     onTourTick(pTour);
     pTour->tickId = g_timeout_add(250, onTourTick, pTour);
-    adw_dialog_present(pTour->pDialog, pParent);
 }
 
 } // namespace tuxblox

@@ -115,7 +115,6 @@ const char LauncherStyles[] =
     "label.version-meta { font-size: 0.75rem; line-height: 1.0; }\n"
     // The welcome tour's theme previews: one element each, the sidebar's colour hard-stopped against the page's
     "box.theme-swatch { min-height: 34px; border-radius: 6px; box-shadow: inset 0 0 0 1px @card_shade_color; }\n"
-    "box.theme-swatch-system { background: linear-gradient(to right, #0e1117 0%, #0e1117 30%, #f5f6f8 30%, #f5f6f8 100%); }\n"
     "box.theme-swatch-dark { background: linear-gradient(to right, #0e1117 0%, #0e1117 30%, #0a0c11 30%, #0a0c11 100%); }\n"
     "box.theme-swatch-grey { background: linear-gradient(to right, #303030 0%, #303030 30%, #242424 30%, #242424 100%); }\n"
     "box.theme-swatch-light { background: linear-gradient(to right, #ffffff 0%, #ffffff 30%, #f5f6f8 30%, #f5f6f8 100%); }\n"
@@ -177,6 +176,21 @@ void setLabelText(GtkLabel *pLabel, const std::string &text) {
 void setButtonLabel(GtkButton *pButton, const std::string &text) {
     const char *pCurrent = gtk_button_get_label(pButton);
     if (pCurrent == nullptr || text != pCurrent) gtk_button_set_label(pButton, text.c_str());
+}
+
+namespace {
+
+bool SystemDark = false;
+
+} // namespace
+
+void captureSystemColourScheme() {
+    // Read while the scheme is still the desktop's, so forcing one later cannot overwrite the answer.
+    SystemDark = adw_style_manager_get_dark(adw_style_manager_get_default()) != FALSE;
+}
+
+bool systemPrefersDark() {
+    return SystemDark;
 }
 
 void applyLauncherTheme(const std::string &theme) {

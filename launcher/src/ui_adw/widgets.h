@@ -44,6 +44,12 @@ void setButtonLabel(GtkButton *pButton, const std::string &text);
 // Puts the launcher into one of its four looks -- "system", "dark", "grey" or "light" -- and loads the styles that go with it. Call it whenever the setting changes; the window redraws itself.
 void applyLauncherTheme(const std::string &theme);
 
+// Call once before the first applyLauncherTheme, while the colour scheme is still the desktop's.
+void captureSystemColourScheme();
+
+// Whether the desktop itself asks for dark, whatever TuxBlox is currently set to.
+bool systemPrefersDark();
+
 void showNotice(GtkWidget *pParent, const std::string &heading, const std::string &body);
 
 // onConfirm runs only if the destructive button is pressed; Escape and closing both count as cancel

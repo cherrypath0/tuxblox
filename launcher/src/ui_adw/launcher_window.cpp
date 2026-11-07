@@ -203,7 +203,7 @@ gboolean onTick(gpointer data) {
     if (!pUi->welcomeShown && shouldShowWelcome(snap.settings)) {
         pUi->welcomeShown = true;
         pUi->welcomeOpen = true;
-        presentWelcomeTour(app, GTK_WIDGET(pUi->pStack), [pUi, &app] {
+        presentWelcomeTour(app, pUi->pWindow, [pUi, &app] {
             pUi->welcomeOpen = false;
             Settings settings = app.snapshot().settings;
             settings.welcomeSeen = true;
@@ -317,6 +317,8 @@ void onActivate(GtkApplication *pGtkApp, gpointer data) {
     auto *pUi = static_cast<WindowUi *>(data);
     pUi->activated = true;
     applyLook();
+    // Before the first applyLauncherTheme, which is the last moment the scheme is still the desktop's.
+    captureSystemColourScheme();
     pUi->appliedTheme = pUi->pApp->snapshot().settings.theme;
     applyLauncherTheme(pUi->appliedTheme);
 
