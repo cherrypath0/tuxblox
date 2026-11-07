@@ -308,21 +308,29 @@ void App::runInstall(bool skipIfPresent) {
     std::condition_variable queueReady;
     std::deque<size_t> ready;
 
+    double highestFraction = 0.0;
+
     auto noteFailure = [&](const std::string& message) {
         {
             std::lock_guard<std::mutex> lock(failureMutex);
             if (failure.empty()) failure = message;
         }
-        stop = true;
+        {
+            // Set under the queue lock, or a waiter can miss the notify and never wake.
+            std::lock_guard<std::mutex> lock(queueMutex);
+            stop = true;
+        }
         queueReady.notify_all();
     };
 
     auto publishProgress = [&]() {
         uint64_t done = 0;
         for (const auto& value : received) done += value;
-        const double fraction = installFraction(done, totalBytes, extracted.load(), jobs.size());
+        const size_t unpacked = extracted.load();
         std::lock_guard<std::mutex> lock(mutex_);
-        snapshot_.overallPercent = 6.0 + 92.0 * fraction;
+        // Ratcheted under the lock: a mirror retry restarts a package at zero bytes.
+        snapshot_.overallPercent =
+            6.0 + 92.0 * monotonicInstallFraction(highestFraction, done, totalBytes, unpacked, jobs.size());
     };
 
     auto downloadWorker = [&]() {
@@ -370,7 +378,10 @@ void App::runInstall(bool skipIfPresent) {
         }
 
         // Every exit path passes here, or an extractor could wait on work that never comes.
-        --downloadersLeft;
+        {
+            std::lock_guard<std::mutex> lock(queueMutex);
+            --downloadersLeft;
+        }
         queueReady.notify_all();
     };
 
@@ -379,10 +390,12 @@ void App::runInstall(bool skipIfPresent) {
             size_t index = 0;
             {
                 std::unique_lock<std::mutex> lock(queueMutex);
-                queueReady.wait(lock, [&] {
+                // Timed, because cancelled_ is set from outside and cannot take this lock to notify.
+                queueReady.wait_for(lock, std::chrono::milliseconds(100), [&] {
                     return !ready.empty() || stop || cancelled_ || downloadersLeft.load() == 0;
                 });
                 if (stop || cancelled_) return;
+                if (ready.empty() && downloadersLeft.load() != 0) continue;
                 if (ready.empty()) {
                     if (downloadersLeft.load() == 0) return;
                     continue;

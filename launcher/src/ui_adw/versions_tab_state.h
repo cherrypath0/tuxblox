@@ -32,6 +32,9 @@ bool canDeleteVersion(const AppVersions& av, const std::string& hash);
 // The channel as it is sent: lowercase, without spaces around it
 std::string normalizedChannel(const std::string& typed);
 
+// A version hash as it is sent. Copying one out of a log or a web page brings whitespace with it, and the URL that builds is refused.
+std::string trimmedHash(const std::string& typed);
+
 // What a version's row says under its hash: the version Roblox reports and the
 // channel, separated by a dot. Deliberately carries neither the install date nor
 // the size on disk -- the size would need a recursive walk of a 1.3 GB directory

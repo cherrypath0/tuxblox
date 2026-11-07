@@ -304,7 +304,8 @@ GtkWidget *buildOptionalPage(Tour &tour) {
     gtk_widget_add_css_class(pHeading, "title-2");
     gtk_box_append(GTK_BOX(pBox), pHeading);
 
-    GtkWidget *pBody = bodyLabel("All four are off until you turn them on.", "dim-label");
+    // Not "all four are off": every existing install sees this tour once, and theirs may already be on.
+    GtkWidget *pBody = bodyLabel("Each of these sends something off your machine. None is required.", "dim-label");
     gtk_widget_set_margin_top(pBody, 4);
     gtk_widget_set_margin_bottom(pBody, 16);
     gtk_box_append(GTK_BOX(pBox), pBody);
@@ -521,9 +522,12 @@ void presentWelcomeTour(App &app, GtkWindow *pWindow, std::function<void()> onCl
     gtk_box_append(GTK_BOX(pOuter), pCarousel);
     gtk_box_append(GTK_BOX(pOuter), pFooterClamp);
 
-    // An empty bar, so the window keeps its close button and stays draggable while the tour is up.
+    // Bare: no title and no icon, just the window buttons, so nothing competes with the tour itself.
+    GtkWidget *pHeader = adw_header_bar_new();
+    adw_header_bar_set_show_title(ADW_HEADER_BAR(pHeader), FALSE);
+
     GtkWidget *pView = adw_toolbar_view_new();
-    adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(pView), adw_header_bar_new());
+    adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(pView), pHeader);
     adw_toolbar_view_set_content(ADW_TOOLBAR_VIEW(pView), pOuter);
 
     pTour->pPrevContent = adw_application_window_get_content(ADW_APPLICATION_WINDOW(pWindow));

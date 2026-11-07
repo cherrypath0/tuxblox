@@ -213,7 +213,8 @@ gboolean onTick(gpointer data) {
 
     notifyUpdate(*pUi, snap);
 
-    if (!snap.containerWarning.empty() && !pUi->containerWarningShown) {
+    // Held back like the update dialog, or it stacks on the tour and is marked shown without being read.
+    if (!pUi->welcomeOpen && !snap.containerWarning.empty() && !pUi->containerWarningShown) {
         pUi->containerWarningShown = true;
         showNotice(GTK_WIDGET(pUi->pWindow), "Distrobox GPU Passthrough", snap.containerWarning);
     }

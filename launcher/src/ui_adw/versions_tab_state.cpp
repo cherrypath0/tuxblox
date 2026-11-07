@@ -34,6 +34,13 @@ bool versionIsActive(const AppVersions& versions, const std::string& hash) {
     return !hash.empty() && versions.activeHash == hash;
 }
 
+std::string trimmedHash(const std::string& typed) {
+    const size_t first = typed.find_first_not_of(" \t\r\n");
+    if (first == std::string::npos) return "";
+    const size_t last = typed.find_last_not_of(" \t\r\n");
+    return typed.substr(first, last - first + 1);
+}
+
 std::string normalizedChannel(const std::string& typed) {
     const size_t first = typed.find_first_not_of(" \t\r\n");
     if (first == std::string::npos) return "";

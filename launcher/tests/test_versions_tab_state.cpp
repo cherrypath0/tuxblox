@@ -87,6 +87,17 @@ int main() {
         assert(!versionIsActive(pinned, ""));
     }
 
+    // A hash pasted out of a log or a web page usually brings whitespace with it, and a URL
+    // built with that in it is refused by the CDN -- which reads as "this version was purged".
+    {
+        assert(trimmedHash("  version-ffe2a3bd56e14e69 \n") == "version-ffe2a3bd56e14e69");
+        assert(trimmedHash("version-ffe2a3bd56e14e69\n") == "version-ffe2a3bd56e14e69");
+        assert(trimmedHash("\tversion-ffe2a3bd56e14e69") == "version-ffe2a3bd56e14e69");
+        assert(trimmedHash("version-ffe2a3bd56e14e69") == "version-ffe2a3bd56e14e69");
+        assert(trimmedHash("   ").empty());
+        assert(trimmedHash("").empty());
+    }
+
     printf("versions_tab_state: all tests passed\n");
     return 0;
 }

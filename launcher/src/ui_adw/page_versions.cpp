@@ -35,25 +35,7 @@ bool sameVersions(const AppVersions &a, const AppVersions &b) {
     return true;
 }
 
-std::string describe(const InstalledVersion &version) {
-    std::string text = version.versionString;
-    if (!version.channel.empty()) {
-        if (!text.empty()) text += " \xC2\xB7 ";
-        text += version.channel;
-    }
-    if (!version.installedAt.empty()) {
-        if (!text.empty()) text += " \xC2\xB7 ";
-        text += "installed " + version.installedAt.substr(0, 10);
-    }
-    return text;
-}
 
-std::string trimmed(const std::string &text) {
-    const size_t first = text.find_first_not_of(" \t\r\n");
-    if (first == std::string::npos) return "";
-    const size_t last = text.find_last_not_of(" \t\r\n");
-    return text.substr(first, last - first + 1);
-}
 
 GtkWidget *entryRow(const char *pTitle, const char *pText) {
     GtkWidget *pRow = adw_entry_row_new();
@@ -189,7 +171,7 @@ void VersionsPage::onSheetInstall(GtkButton *, gpointer data) {
     }
 
     pSelf->channel_ = normalizedChannel(gtk_editable_get_text(pSheet->pChannel));
-    const std::string hash = gtk_editable_get_text(pSheet->pHash);
+    const std::string hash = trimmedHash(gtk_editable_get_text(pSheet->pHash));
     adw_dialog_close(pSheet->pDialog);
     pSelf->app_.requestInstallVersion(pSelf->active_, mode, pSelf->channel_, hash);
 }

@@ -215,6 +215,30 @@ int main() {
         assert(installFraction(0, 0, 0, 0) == 1.0);
     }
 
+    // A mirror retry restarts that package's byte count at zero, so the raw measure DOES fall.
+    // This is the case the published value has to absorb.
+    {
+        assert(installFraction(400, 1000, 0, 10) > installFraction(0, 1000, 0, 10));
+    }
+
+    // The ratchet is what a progress bar is given, and it never retreats.
+    {
+        double highest = 0.0;
+        const double climbed = monotonicInstallFraction(highest, 400, 1000, 0, 10);
+        // 400 MB in on the first mirror, that mirror dies, the second starts from nothing.
+        const double afterRetry = monotonicInstallFraction(highest, 0, 1000, 0, 10);
+        assert(afterRetry == climbed);
+        // And a later sample that genuinely is higher still moves it on.
+        assert(monotonicInstallFraction(highest, 1000, 1000, 0, 10) > climbed);
+    }
+    // Interleaving the two halves out of order cannot drop it either.
+    {
+        double highest = 0.0;
+        monotonicInstallFraction(highest, 1000, 1000, 3, 10);
+        const double peak = highest;
+        assert(monotonicInstallFraction(highest, 900, 1000, 0, 10) == peak);
+    }
+
     printf("install_plan: all tests passed\n");
     return 0;
 }

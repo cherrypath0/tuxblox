@@ -50,4 +50,11 @@ double installFraction(uint64_t bytesDownloaded, uint64_t bytesTotal, size_t pac
     return fraction > 1.0 ? 1.0 : fraction;
 }
 
+double monotonicInstallFraction(double& highest, uint64_t bytesDownloaded, uint64_t bytesTotal,
+                                 size_t packagesExtracted, size_t packagesTotal) {
+    const double fraction = installFraction(bytesDownloaded, bytesTotal, packagesExtracted, packagesTotal);
+    if (fraction > highest) highest = fraction;
+    return highest;
+}
+
 } // namespace tuxblox

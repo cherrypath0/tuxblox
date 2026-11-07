@@ -140,9 +140,13 @@ Settings loadSettings(const std::string& installDir) {
         settings.theme = isKnownTheme(theme) ? theme : "system";
         const std::string graphics = j.value("graphics", std::string("automatic"));
         settings.graphics = isKnownGraphics(graphics) ? graphics : "automatic";
-        // Read leniently, same reasoning as "channel" above.
-        settings.welcomeSeen = j.value("welcome_seen", false);
-        settings.enablePlayerButton = j.value("enable_player_button", false);
+        // Type-checked, not just lenient: editing this file by hand is the only way to set
+        // enable_player_button, so "true" instead of true must not throw the whole file away.
+        const auto welcome = j.find("welcome_seen");
+        settings.welcomeSeen = welcome != j.end() && welcome->is_boolean() && welcome->get<bool>();
+        const auto playerButton = j.find("enable_player_button");
+        settings.enablePlayerButton =
+            playerButton != j.end() && playerButton->is_boolean() && playerButton->get<bool>();
 
         const auto fastFlags = j.find("fast_flags");
         if (fastFlags != j.end()) {

@@ -639,6 +639,22 @@ int main() {
         assert(s.theme == "dark");
         fs::remove_all(dir);
     }
+    // Hand-editing settings.json is the ONLY way to set enable_player_button, so a typo there
+    // must not throw the whole file away. "true" as a string is the obvious slip.
+    {
+        fs::create_directories(dir);
+        {
+            std::ofstream out(dir + "/settings.json");
+            out << R"({"send_crash_reports":false,"enable_player_button":"true","welcome_seen":1,)"
+                   R"("channel":"canary","env_vars":"A=1"})";
+        }
+        Settings s = loadSettings(dir);
+        assert(s.enablePlayerButton == false); // the wrong type is ignored, not obeyed
+        assert(s.welcomeSeen == false);
+        assert(s.channel == "canary");   // and everything else survives
+        assert(s.envVars == "A=1");
+        fs::remove_all(dir);
+    }
     // Both round-trip.
     {
         Settings s;

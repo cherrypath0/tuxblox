@@ -958,21 +958,34 @@ void App::versionInstallThreadMain(LaunchTarget target, VersionSelectMode mode, 
     std::condition_variable queueReady;
     std::deque<size_t> ready;
 
+    double highestFraction = 0.0;
+    std::mutex publishMutex;
+
     auto noteFailure = [&](const std::string& message) {
         {
             std::lock_guard<std::mutex> lock(failureMutex);
             if (failure.empty()) failure = message;
         }
-        stop = true;
+        {
+            // Set under the queue lock, or a waiter can miss the notify and never wake.
+            std::lock_guard<std::mutex> lock(queueMutex);
+            stop = true;
+        }
         queueReady.notify_all();
     };
 
     auto publish = [&]() {
         uint64_t done = 0;
         for (const auto& value : received) done += value;
-        const double fraction = installFraction(done, totalBytes, extracted.load(), work.size());
+        const size_t unpacked = extracted.load();
         const VersionInstallPhase phase = downloadersLeft.load() == 0 ? VersionInstallPhase::Extracting
                                                                        : VersionInstallPhase::DownloadingPackages;
+        double fraction = 0.0;
+        {
+            // Ratcheted under its own lock: a mirror retry restarts a package at zero bytes.
+            std::lock_guard<std::mutex> lock(publishMutex);
+            fraction = monotonicInstallFraction(highestFraction, done, totalBytes, unpacked, work.size());
+        }
         report({phase, 0.1 + 0.85 * fraction, "", target});
     };
 
@@ -1016,7 +1029,10 @@ void App::versionInstallThreadMain(LaunchTarget target, VersionSelectMode mode, 
         }
 
         // Every exit path passes here, or an extractor could wait on work that never comes.
-        --downloadersLeft;
+        {
+            std::lock_guard<std::mutex> lock(queueMutex);
+            --downloadersLeft;
+        }
         queueReady.notify_all();
     };
 
@@ -1025,10 +1041,12 @@ void App::versionInstallThreadMain(LaunchTarget target, VersionSelectMode mode, 
             size_t index = 0;
             {
                 std::unique_lock<std::mutex> lock(queueMutex);
-                queueReady.wait(lock, [&] {
+                // Timed, because versionInstallCancel_ is set from outside and cannot take this lock to notify.
+                queueReady.wait_for(lock, std::chrono::milliseconds(100), [&] {
                     return !ready.empty() || stop || versionInstallCancel_ || downloadersLeft.load() == 0;
                 });
                 if (stop || versionInstallCancel_) return;
+                if (ready.empty() && downloadersLeft.load() != 0) continue;
                 if (ready.empty()) {
                     if (downloadersLeft.load() == 0) return;
                     continue;
