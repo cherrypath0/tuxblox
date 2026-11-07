@@ -1,7 +1,10 @@
-- Fixed a network issue in the web engine
+- Added the Selawik font as a Segoe UI substitute
+- Changed certain CPU instructions to be emulated the same way Windows does, instead of being patched
+- Fixed a network issue in the browser engine that happens on older processors
 - Fixed an issue where windows that are supposed to be unscalable can be scalable
-- Fixed the web engine not working in systems that do not use systemd
-- Fixed the web engine crashing when GPU acceleration for web pages is enabled
+- Fixed an issue with the font resolver
+- Fixed the web engine not working in distros that do not have systemd
 - Fixed some black boxes randomly appearing in Roblox Studio
+- Fixed non-resizable windows being resizable
 - Fixed some windows being able to exceed their maximum size
 - Removed some host dependencies for the web engine

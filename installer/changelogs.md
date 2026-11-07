@@ -1,1 +1,1 @@
-- Fixed issues with updating TuxBlox
+- Changed the installer to no longer override Roblox URL handlers on install

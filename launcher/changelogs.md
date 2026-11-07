@@ -1,0 +1,7 @@
+- Added a **Welcome to TuxBlox** screen when launching the launcher for the first time
+- Added a Privacy Policy and Terms of Use notice to some privacy settings
+- Added parallel downloading and extracting for installing Roblox
+- Redesigned the Versions and FastFlags tabs
+- Changed the launcher to add Roblox URL handlers only when installing Roblox
+- Disabled the launch button for Roblox Player temporarily (until Roblox Player is supported)
+- Fixed the launcher randomly closing itself without any warning
