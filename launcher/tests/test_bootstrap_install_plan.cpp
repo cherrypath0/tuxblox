@@ -15,6 +15,8 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "bootstrap/install_plan.h"
+#include "install_concurrency.h"
+#include "roblox_deploy.h"
 #include <filesystem>
 #include <fstream>
 #include <vector>
@@ -147,6 +149,41 @@ int main() {
         assert(!versionIsInstalled(dir, LaunchTarget::Studio));
 
         std::filesystem::remove_all(dir);
+    }
+
+    // Seven packages land in the version root and must serialise against each
+    // other; everything else owns its own directory and may extract at once.
+    {
+        std::vector<std::string> dests;
+        for (const char *name : {"RobloxApp.zip", "redist.zip", "shaders.zip", "ssl.zip"}) {
+            const auto subdir = packageInstallSubdir(name, LaunchTarget::Player);
+            assert(subdir.has_value());
+            dests.push_back(packageDestDir("/stage", *subdir));
+        }
+
+        const std::vector<std::string> distinct = distinctDestDirs(dests);
+        assert(distinct.size() == 3); // the version root, shaders/, ssl/
+
+        // The two root-bound packages share a lock; the others do not.
+        assert(destDirIndex(distinct, dests[0]) == destDirIndex(distinct, dests[1]));
+        assert(destDirIndex(distinct, dests[2]) != destDirIndex(distinct, dests[0]));
+        assert(destDirIndex(distinct, dests[3]) != destDirIndex(distinct, dests[2]));
+    }
+
+    // Order is the order first seen, so a lock index is stable across a run.
+    {
+        const std::vector<std::string> dests = {"/stage/b", "/stage/a", "/stage/b", "/stage/c"};
+        const std::vector<std::string> distinct = distinctDestDirs(dests);
+        assert(distinct.size() == 3);
+        assert(distinct[0] == "/stage/b");
+        assert(distinct[1] == "/stage/a");
+        assert(destDirIndex(distinct, "/stage/b") == 0);
+        assert(destDirIndex(distinct, "/stage/c") == 2);
+    }
+
+    // An empty plan needs no locks at all.
+    {
+        assert(distinctDestDirs({}).empty());
     }
 
     printf("install_plan: all tests passed\n");

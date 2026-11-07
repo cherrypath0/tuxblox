@@ -126,6 +126,7 @@ add_library(launcher_core STATIC
     src/prefix_user.cpp
     src/checksum.cpp
     src/downloader.cpp
+    src/install_concurrency.cpp
     src/tar_extract.cpp
     src/manifest.cpp
     src/lnk_resolver.cpp
