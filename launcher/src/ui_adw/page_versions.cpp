@@ -69,50 +69,71 @@ VersionsPage::VersionsPage(App &app) : app_(app) {
     adw_preferences_page_set_description(ADW_PREFERENCES_PAGE(pRoot_),
                                          "Choose which build of Roblox you play on, install an older one, or remove "
                                          "the ones you no longer need.");
-    buildInstallGroup();
+    GtkWidget *pToolbarGroup = adw_preferences_group_new();
+    adw_preferences_group_add(ADW_PREFERENCES_GROUP(pToolbarGroup), buildToolbar());
+    adw_preferences_page_add(ADW_PREFERENCES_PAGE(pRoot_), ADW_PREFERENCES_GROUP(pToolbarGroup));
+
     adw_preferences_page_add(ADW_PREFERENCES_PAGE(pRoot_), buildList(player_, "Player"));
     adw_preferences_page_add(ADW_PREFERENCES_PAGE(pRoot_), buildList(studio_, "Studio"));
+
+    // Below the lists, and on the page rather than in the sheet, so closing the
+    // sheet never hides an install that is still running.
+    buildProgressGroup();
+    applyActive();
 }
 
 GtkWidget *VersionsPage::widget() const {
     return pRoot_;
 }
 
-void VersionsPage::buildInstallGroup() {
+GtkWidget *VersionsPage::buildToolbar() {
+    pPlayerToggle_ = gtk_toggle_button_new_with_label("Player");
+    pStudioToggle_ = gtk_toggle_button_new_with_label("Studio");
+    gtk_toggle_button_set_group(GTK_TOGGLE_BUTTON(pStudioToggle_), GTK_TOGGLE_BUTTON(pPlayerToggle_));
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(pPlayerToggle_), TRUE);
+    g_signal_connect(pPlayerToggle_, "toggled", G_CALLBACK(onTargetToggled), this);
+    g_signal_connect(pStudioToggle_, "toggled", G_CALLBACK(onTargetToggled), this);
+
+    GtkWidget *pSegmented = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+    gtk_widget_add_css_class(pSegmented, "linked");
+    gtk_box_append(GTK_BOX(pSegmented), pPlayerToggle_);
+    gtk_box_append(GTK_BOX(pSegmented), pStudioToggle_);
+
+    GtkWidget *pSpacer = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+    gtk_widget_set_hexpand(pSpacer, TRUE);
+
+    pInstallButton_ = gtk_button_new_with_label("Install a version");
+    gtk_widget_add_css_class(pInstallButton_, "suggested-action");
+    g_signal_connect(pInstallButton_, "clicked", G_CALLBACK(onInstallPressed), this);
+
+    GtkWidget *pBar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    gtk_box_append(GTK_BOX(pBar), pSegmented);
+    gtk_box_append(GTK_BOX(pBar), pSpacer);
+    gtk_box_append(GTK_BOX(pBar), pInstallButton_);
+    return pBar;
+}
+
+void VersionsPage::applyActive() {
+    const bool player = active_ == LaunchTarget::Player;
+    gtk_widget_set_visible(GTK_WIDGET(player_.pGroup), player);
+    gtk_widget_set_visible(GTK_WIDGET(studio_.pGroup), !player);
+}
+
+void VersionsPage::onTargetToggled(GtkToggleButton *pButton, gpointer data) {
+    if (!gtk_toggle_button_get_active(pButton)) return;
+    auto *pSelf = static_cast<VersionsPage *>(data);
+    pSelf->active_ = pButton == GTK_TOGGLE_BUTTON(pSelf->pStudioToggle_) ? LaunchTarget::Studio
+                                                                         : LaunchTarget::Player;
+    pSelf->applyActive();
+}
+
+void VersionsPage::onInstallPressed(GtkButton *, gpointer data) {
+    static_cast<VersionsPage *>(data)->openInstallSheet();
+}
+
+void VersionsPage::buildProgressGroup() {
     GtkWidget *pGroup = adw_preferences_group_new();
-    adw_preferences_group_set_title(ADW_PREFERENCES_GROUP(pGroup), "Install a version");
 
-    GtkWidget *pTarget = adw_combo_row_new();
-    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(pTarget), "App");
-    const char *const targets[] = {"Player", "Studio", nullptr};
-    GtkStringList *pTargets = gtk_string_list_new(targets);
-    adw_combo_row_set_model(ADW_COMBO_ROW(pTarget), G_LIST_MODEL(pTargets));
-    g_object_unref(pTargets);
-    pTarget_ = ADW_COMBO_ROW(pTarget);
-    g_signal_connect(pTarget, "notify::selected", G_CALLBACK(onTargetChanged), this);
-    adw_preferences_group_add(ADW_PREFERENCES_GROUP(pGroup), pTarget);
-
-    GtkWidget *pChannel = entryRow("Channel", "live");
-    pChannel_ = GTK_EDITABLE(pChannel);
-    g_signal_connect(pChannel, "changed", G_CALLBACK(onChannelChanged), nullptr);
-    adw_preferences_group_add(ADW_PREFERENCES_GROUP(pGroup), pChannel);
-
-    GtkWidget *pHash = entryRow("Version hash (leave blank for latest)", "");
-    pHash_ = GTK_EDITABLE(pHash);
-    adw_preferences_group_add(ADW_PREFERENCES_GROUP(pGroup), pHash);
-
-    pInstall_ = adw_button_row_new();
-    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(pInstall_), "Install");
-    gtk_widget_add_css_class(pInstall_, "suggested-action");
-    g_signal_connect(pInstall_, "activated", G_CALLBACK(onInstall), this);
-    adw_preferences_group_add(ADW_PREFERENCES_GROUP(pGroup), pInstall_);
-
-    pPrevious_ = adw_button_row_new();
-    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(pPrevious_), "Install previous version");
-    g_signal_connect(pPrevious_, "activated", G_CALLBACK(onPrevious), this);
-    adw_preferences_group_add(ADW_PREFERENCES_GROUP(pGroup), pPrevious_);
-
-    // Not rows, so the group places them below its list
     pProgressLabel_ = gtk_label_new(nullptr);
     gtk_label_set_xalign(GTK_LABEL(pProgressLabel_), 0.0f);
     gtk_widget_add_css_class(pProgressLabel_, "dim-label");
@@ -131,13 +152,125 @@ void VersionsPage::buildInstallGroup() {
 
 AdwPreferencesGroup *VersionsPage::buildList(List &list, const char *pTitle) {
     GtkWidget *pGroup = adw_preferences_group_new();
-    adw_preferences_group_set_title(ADW_PREFERENCES_GROUP(pGroup), pTitle);
+    // Untitled: the toggle above already names which list this is.
+    (void)pTitle;
     list.pGroup = ADW_PREFERENCES_GROUP(pGroup);
     return list.pGroup;
 }
 
 LaunchTarget VersionsPage::selectedTarget() const {
-    return adw_combo_row_get_selected(pTarget_) == 1 ? LaunchTarget::Studio : LaunchTarget::Player;
+    return active_;
+}
+
+void VersionsPage::onSheetModeToggled(GtkToggleButton *pButton, gpointer data) {
+    if (!gtk_toggle_button_get_active(pButton)) return;
+    auto *pSheet = static_cast<InstallSheet *>(data);
+    // Only a named build needs one typed, so the field is offered only for Custom.
+    gtk_widget_set_visible(pSheet->pHashBox, pButton == GTK_TOGGLE_BUTTON(pSheet->pCustom));
+}
+
+void VersionsPage::onSheetCancel(GtkButton *, gpointer data) {
+    adw_dialog_close(static_cast<InstallSheet *>(data)->pDialog);
+}
+
+void VersionsPage::onSheetClosed(AdwDialog *, gpointer data) {
+    delete static_cast<InstallSheet *>(data);
+}
+
+void VersionsPage::onSheetInstall(GtkButton *, gpointer data) {
+    auto *pSheet = static_cast<InstallSheet *>(data);
+    VersionsPage *pSelf = pSheet->pOwner;
+
+    VersionSelectMode mode = VersionSelectMode::Latest;
+    if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(pSheet->pPrevious))) {
+        mode = VersionSelectMode::Previous;
+    } else if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(pSheet->pCustom))) {
+        mode = VersionSelectMode::ManualHash;
+    }
+
+    pSelf->channel_ = normalizedChannel(gtk_editable_get_text(pSheet->pChannel));
+    const std::string hash = gtk_editable_get_text(pSheet->pHash);
+    adw_dialog_close(pSheet->pDialog);
+    pSelf->app_.requestInstallVersion(pSelf->active_, mode, pSelf->channel_, hash);
+}
+
+void VersionsPage::openInstallSheet() {
+    auto *pSheet = new InstallSheet;
+    pSheet->pOwner = this;
+    pSheet->pDialog = adw_dialog_new();
+
+    GtkWidget *pHeading = gtk_label_new("Install a version");
+    gtk_label_set_xalign(GTK_LABEL(pHeading), 0.0f);
+    gtk_widget_add_css_class(pHeading, "title-2");
+
+    pSheet->pLatest = gtk_toggle_button_new_with_label("Latest");
+    pSheet->pPrevious = gtk_toggle_button_new_with_label("Previous");
+    pSheet->pCustom = gtk_toggle_button_new_with_label("Custom");
+    gtk_toggle_button_set_group(GTK_TOGGLE_BUTTON(pSheet->pPrevious), GTK_TOGGLE_BUTTON(pSheet->pLatest));
+    gtk_toggle_button_set_group(GTK_TOGGLE_BUTTON(pSheet->pCustom), GTK_TOGGLE_BUTTON(pSheet->pLatest));
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(pSheet->pLatest), TRUE);
+
+    GtkWidget *pModes = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+    gtk_widget_add_css_class(pModes, "linked");
+    gtk_widget_set_halign(pModes, GTK_ALIGN_START);
+    for (GtkWidget *pMode : {pSheet->pLatest, pSheet->pPrevious, pSheet->pCustom}) {
+        gtk_box_append(GTK_BOX(pModes), pMode);
+        g_signal_connect(pMode, "toggled", G_CALLBACK(onSheetModeToggled), pSheet);
+    }
+
+    GtkWidget *pChannelLabel = gtk_label_new("Channel");
+    gtk_label_set_xalign(GTK_LABEL(pChannelLabel), 0.0f);
+    gtk_widget_add_css_class(pChannelLabel, "caption-heading");
+    gtk_widget_add_css_class(pChannelLabel, "dim-label");
+    GtkWidget *pChannel = gtk_entry_new();
+    gtk_editable_set_text(GTK_EDITABLE(pChannel), channel_.c_str());
+    pSheet->pChannel = GTK_EDITABLE(pChannel);
+
+    GtkWidget *pHashLabel = gtk_label_new("Build");
+    gtk_label_set_xalign(GTK_LABEL(pHashLabel), 0.0f);
+    gtk_widget_add_css_class(pHashLabel, "caption-heading");
+    gtk_widget_add_css_class(pHashLabel, "dim-label");
+    GtkWidget *pHash = gtk_entry_new();
+    gtk_entry_set_placeholder_text(GTK_ENTRY(pHash), "version-0000000000000000");
+    pSheet->pHash = GTK_EDITABLE(pHash);
+
+    pSheet->pHashBox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
+    gtk_box_append(GTK_BOX(pSheet->pHashBox), pHashLabel);
+    gtk_box_append(GTK_BOX(pSheet->pHashBox), pHash);
+    gtk_widget_set_visible(pSheet->pHashBox, FALSE);
+
+    GtkWidget *pCancel = gtk_button_new_with_label("Cancel");
+    g_signal_connect(pCancel, "clicked", G_CALLBACK(onSheetCancel), pSheet);
+    GtkWidget *pConfirm = gtk_button_new_with_label("Install");
+    gtk_widget_add_css_class(pConfirm, "suggested-action");
+    g_signal_connect(pConfirm, "clicked", G_CALLBACK(onSheetInstall), pSheet);
+
+    GtkWidget *pButtons = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    gtk_widget_set_halign(pButtons, GTK_ALIGN_END);
+    gtk_widget_set_margin_top(pButtons, 6);
+    gtk_box_append(GTK_BOX(pButtons), pCancel);
+    gtk_box_append(GTK_BOX(pButtons), pConfirm);
+
+    GtkWidget *pBox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 14);
+    gtk_widget_set_margin_start(pBox, 22);
+    gtk_widget_set_margin_end(pBox, 22);
+    gtk_widget_set_margin_top(pBox, 22);
+    gtk_widget_set_margin_bottom(pBox, 18);
+    gtk_box_append(GTK_BOX(pBox), pHeading);
+    gtk_box_append(GTK_BOX(pBox), pModes);
+    GtkWidget *pChannelBox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
+    gtk_box_append(GTK_BOX(pChannelBox), pChannelLabel);
+    gtk_box_append(GTK_BOX(pChannelBox), pChannel);
+    gtk_box_append(GTK_BOX(pBox), pChannelBox);
+    gtk_box_append(GTK_BOX(pBox), pSheet->pHashBox);
+    gtk_box_append(GTK_BOX(pBox), pButtons);
+
+    adw_dialog_set_title(pSheet->pDialog, "Install a version");
+    adw_dialog_set_content_width(pSheet->pDialog, 420);
+    adw_dialog_set_child(pSheet->pDialog, pBox);
+    adw_dialog_set_default_widget(pSheet->pDialog, pConfirm);
+    g_signal_connect(pSheet->pDialog, "closed", G_CALLBACK(onSheetClosed), pSheet);
+    adw_dialog_present(pSheet->pDialog, pRoot_);
 }
 
 void VersionsPage::connectRowAction(GtkWidget *pButton, GCallback onClicked, LaunchTarget target, const std::string &hash) {
@@ -148,10 +281,10 @@ void VersionsPage::connectRowAction(GtkWidget *pButton, GCallback onClicked, Lau
 
 GtkWidget *VersionsPage::versionRow(LaunchTarget target, const AppVersions &versions, const InstalledVersion &version) {
     // The bundled font, not the monospace family: TuxBlox ships no monospace font, so what that family picks is the machine's, and on this one it draws a 7 as a bare slash
-    GtkWidget *pRow = plainActionRow(version.hash, describe(version));
+    GtkWidget *pRow = plainActionRow(version.hash, versionRowMeta(version));
 
-    if (version.hash == versions.activeHash) {
-        GtkWidget *pActive = gtk_label_new("Active");
+    if (versionIsActive(versions, version.hash)) {
+        GtkWidget *pActive = gtk_label_new("ACTIVE");
         gtk_widget_add_css_class(pActive, "accent");
         gtk_widget_add_css_class(pActive, "caption-heading");
         gtk_widget_set_valign(pActive, GTK_ALIGN_CENTER);
@@ -164,12 +297,29 @@ GtkWidget *VersionsPage::versionRow(LaunchTarget target, const AppVersions &vers
         adw_action_row_add_suffix(ADW_ACTION_ROW(pRow), pSetActive);
     }
 
-    GtkWidget *pDelete = gtk_button_new_with_label("Delete");
+    // Behind an overflow: removing a build is rare and destructive, so it does not sit under the pointer.
+    GtkWidget *pDelete = gtk_button_new_with_label("Remove");
     gtk_widget_add_css_class(pDelete, "destructive-action");
-    gtk_widget_set_valign(pDelete, GTK_ALIGN_CENTER);
+    gtk_widget_add_css_class(pDelete, "flat");
     gtk_widget_set_sensitive(pDelete, !readOnly_ && canDeleteVersion(versions, version.hash));
     connectRowAction(pDelete, G_CALLBACK(onDelete), target, version.hash);
-    adw_action_row_add_suffix(ADW_ACTION_ROW(pRow), pDelete);
+
+    GtkWidget *pMenuBox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    gtk_widget_set_margin_start(pMenuBox, 6);
+    gtk_widget_set_margin_end(pMenuBox, 6);
+    gtk_widget_set_margin_top(pMenuBox, 6);
+    gtk_widget_set_margin_bottom(pMenuBox, 6);
+    gtk_box_append(GTK_BOX(pMenuBox), pDelete);
+    GtkWidget *pPopover = gtk_popover_new();
+    gtk_popover_set_child(GTK_POPOVER(pPopover), pMenuBox);
+
+    GtkWidget *pMore = gtk_menu_button_new();
+    gtk_menu_button_set_icon_name(GTK_MENU_BUTTON(pMore), "view-more-symbolic");
+    gtk_menu_button_set_popover(GTK_MENU_BUTTON(pMore), pPopover);
+    gtk_widget_add_css_class(pMore, "flat");
+    gtk_widget_set_valign(pMore, GTK_ALIGN_CENTER);
+    gtk_widget_set_tooltip_text(pMore, ("More actions for " + version.hash).c_str());
+    adw_action_row_add_suffix(ADW_ACTION_ROW(pRow), pMore);
     return pRow;
 }
 
@@ -180,9 +330,7 @@ void VersionsPage::applyReadOnly(bool readOnly) {
                  : "Choose which build of Roblox you play on, install an older one, or remove the ones you no "
                    "longer need.");
 
-    gtk_widget_set_sensitive(GTK_WIDGET(pTarget_), !readOnly);
-    gtk_widget_set_sensitive(GTK_WIDGET(pChannel_), !readOnly);
-    gtk_widget_set_sensitive(GTK_WIDGET(pHash_), !readOnly);
+    gtk_widget_set_sensitive(pInstallButton_, !readOnly);
 }
 
 void VersionsPage::rebuild(List &list, const AppVersions &versions) {
@@ -200,41 +348,6 @@ void VersionsPage::rebuild(List &list, const AppVersions &versions) {
         adw_preferences_group_add(list.pGroup, pRow);
         list.rows.push_back(pRow);
     }
-}
-
-void VersionsPage::onTargetChanged(GObject *, GParamSpec *, gpointer data) {
-    auto *pSelf = static_cast<VersionsPage *>(data);
-    pSelf->update(pSelf->app_.snapshot());
-}
-
-void VersionsPage::onChannelChanged(GtkEditable *pEditable, gpointer) {
-    const std::string typed = gtk_editable_get_text(pEditable);
-    std::string folded = typed;
-    for (char &letter : folded) {
-        if (letter >= 'A' && letter <= 'Z') letter = static_cast<char>(letter - 'A' + 'a');
-    }
-    if (folded == typed) return;
-    // Setting the text moves the cursor to the start, so it is put back where the user was typing
-    const int position = gtk_editable_get_position(pEditable);
-    gtk_editable_set_text(pEditable, folded.c_str());
-    gtk_editable_set_position(pEditable, position);
-}
-
-void VersionsPage::onInstall(AdwButtonRow *, gpointer data) {
-    auto *pSelf = static_cast<VersionsPage *>(data);
-    const std::string channel = normalizedChannel(gtk_editable_get_text(pSelf->pChannel_));
-    const std::string hash = trimmed(gtk_editable_get_text(pSelf->pHash_));
-    if (hash.empty()) {
-        pSelf->app_.requestInstallVersion(pSelf->selectedTarget(), VersionSelectMode::Latest, channel);
-        return;
-    }
-    pSelf->app_.requestInstallVersion(pSelf->selectedTarget(), VersionSelectMode::ManualHash, channel, hash);
-}
-
-void VersionsPage::onPrevious(AdwButtonRow *, gpointer data) {
-    auto *pSelf = static_cast<VersionsPage *>(data);
-    pSelf->app_.requestInstallVersion(pSelf->selectedTarget(), VersionSelectMode::Previous,
-                                      normalizedChannel(gtk_editable_get_text(pSelf->pChannel_)));
 }
 
 void VersionsPage::onSetActive(GtkButton *, gpointer data) {
@@ -269,8 +382,7 @@ void VersionsPage::update(const AppSnapshot &snap) {
     readOnly_ = snap.settings.autoUpdateRoblox;
     if (readOnlyChanged || !renderedOnce_) applyReadOnly(readOnly_);
 
-    gtk_widget_set_sensitive(pInstall_, !running && !readOnly_);
-    gtk_widget_set_sensitive(pPrevious_, !running && !readOnly_);
+    gtk_widget_set_sensitive(pInstallButton_, !running && !readOnly_);
     if (running && forSelected) {
         static const char *const PhaseLabels[] = {"", "Resolving version", "Fetching package manifest",
                                                   "Downloading packages", "Extracting", "", ""};

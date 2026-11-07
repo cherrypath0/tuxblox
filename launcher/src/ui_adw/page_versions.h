@@ -44,32 +44,51 @@ private:
         std::string hash;
     };
 
+    // The install sheet while it is open, freed when it closes.
+    struct InstallSheet {
+        VersionsPage *pOwner = nullptr;
+        AdwDialog *pDialog = nullptr;
+        GtkWidget *pLatest = nullptr;
+        GtkWidget *pPrevious = nullptr;
+        GtkWidget *pCustom = nullptr;
+        GtkEditable *pChannel = nullptr;
+        GtkEditable *pHash = nullptr;
+        GtkWidget *pHashBox = nullptr;
+    };
+
     void applyReadOnly(bool readOnly);
-    void buildInstallGroup();
+    GtkWidget *buildToolbar();
+    void buildProgressGroup();
     AdwPreferencesGroup *buildList(List &list, const char *pTitle);
     void rebuild(List &list, const AppVersions &versions);
     GtkWidget *versionRow(LaunchTarget target, const AppVersions &versions, const InstalledVersion &version);
     LaunchTarget selectedTarget() const;
+    // Which list is on screen.
+    void applyActive();
+    void openInstallSheet();
     void connectRowAction(GtkWidget *pButton, GCallback onClicked, LaunchTarget target, const std::string &hash);
 
-    static void onTargetChanged(GObject *, GParamSpec *, gpointer data);
-    static void onChannelChanged(GtkEditable *pEditable, gpointer);
-    static void onInstall(AdwButtonRow *, gpointer data);
-    static void onPrevious(AdwButtonRow *, gpointer data);
+    static void onTargetToggled(GtkToggleButton *pButton, gpointer data);
+    static void onInstallPressed(GtkButton *, gpointer data);
+    static void onSheetModeToggled(GtkToggleButton *pButton, gpointer data);
+    static void onSheetInstall(GtkButton *, gpointer data);
+    static void onSheetCancel(GtkButton *, gpointer data);
+    static void onSheetClosed(AdwDialog *, gpointer data);
     static void onSetActive(GtkButton *, gpointer data);
     static void onDelete(GtkButton *pButton, gpointer data);
     static void freeRowAction(gpointer data, GClosure *);
 
     App &app_;
     GtkWidget *pRoot_ = nullptr;
-    AdwComboRow *pTarget_ = nullptr;
-    GtkEditable *pChannel_ = nullptr;
-    GtkEditable *pHash_ = nullptr;
-    GtkWidget *pInstall_ = nullptr;
-    GtkWidget *pPrevious_ = nullptr;
+    GtkWidget *pPlayerToggle_ = nullptr;
+    GtkWidget *pStudioToggle_ = nullptr;
+    GtkWidget *pInstallButton_ = nullptr;
     GtkWidget *pProgressLabel_ = nullptr;
     GtkWidget *pProgress_ = nullptr;
     GtkWidget *pError_ = nullptr;
+    LaunchTarget active_ = LaunchTarget::Player;
+    // Remembered between sheet openings, so a channel typed once is still there next time.
+    std::string channel_ = "live";
     List player_{LaunchTarget::Player};
     List studio_{LaunchTarget::Studio};
     VersionsManifest rendered_;
