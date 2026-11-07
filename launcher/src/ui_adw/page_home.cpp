@@ -305,8 +305,9 @@ void HomePage::beginLaunchCooldown() {
 
 gboolean HomePage::onLaunchCooldownOver(gpointer data) {
     auto *pSelf = static_cast<HomePage *>(data);
-    gtk_widget_set_sensitive(GTK_WIDGET(pSelf->player_.pButton), TRUE);
-    gtk_widget_set_sensitive(GTK_WIDGET(pSelf->studio_.pButton), TRUE);
+    // Not unconditionally sensitive: a gated Player button must stay off.
+    gtk_widget_set_sensitive(GTK_WIDGET(pSelf->player_.pButton), !pSelf->player_.appliedDisabled);
+    gtk_widget_set_sensitive(GTK_WIDGET(pSelf->studio_.pButton), !pSelf->studio_.appliedDisabled);
     return G_SOURCE_REMOVE;
 }
 
@@ -320,18 +321,25 @@ void HomePage::onUpdateClicked(GtkButton *, gpointer data) {
 }
 
 void HomePage::setCard(Card &card, bool installed, const std::string &versionLabel, int sessions,
-                       bool stopping, bool launchPending) {
-    setLabelText(card.pMeta, installed ? versionLabel : "Not installed yet");
+                       bool stopping, bool launchPending, bool playerEnabled) {
+    const bool gated = card.target == LaunchTarget::Player && !playerEnabled;
+    if (gated) {
+        setLabelText(card.pMeta, "Player support is in development");
+    } else {
+        setLabelText(card.pMeta, installed ? versionLabel : "Not installed yet");
+    }
 
-    const CardState state = cardState(card.target, installed, sessions, stopping, launchPending);
+    const CardState state = cardState(card.target, installed, sessions, stopping, launchPending, playerEnabled);
 
     if (card.applied && card.appliedInstalled == installed &&
-        card.appliedLaunchLabel == state.launchLabel && card.appliedStops == state.launchStops) {
+        card.appliedLaunchLabel == state.launchLabel && card.appliedStops == state.launchStops &&
+        card.appliedDisabled == state.launchDisabled) {
         return;
     }
     card.appliedInstalled = installed;
     card.appliedLaunchLabel = state.launchLabel;
     card.appliedStops = state.launchStops;
+    card.appliedDisabled = state.launchDisabled;
     card.applied = true;
 
     setLabelText(card.pButtonLabel, state.launchLabel);
@@ -354,7 +362,7 @@ void HomePage::setCard(Card &card, bool installed, const std::string &versionLab
         gtk_widget_add_css_class(GTK_WIDGET(card.pButton), "stop-red");
     } else {
         gtk_widget_remove_css_class(GTK_WIDGET(card.pButton), "stop-red");
-        if (installed) {
+        if (installed && !gated) {
             gtk_widget_add_css_class(GTK_WIDGET(card.pButton), "launch-green");
         } else {
             gtk_widget_remove_css_class(GTK_WIDGET(card.pButton), "launch-green");
@@ -373,9 +381,9 @@ void HomePage::setUpdateState(const std::string &text, const std::string &styleC
 
 void HomePage::update(const AppSnapshot &snap) {
     setCard(player_, !snap.versions.player.activeHash.empty(), versionLabel(snap.versions.player),
-            snap.sessions.player, snap.stoppingPlayer, snap.launchPending);
+            snap.sessions.player, snap.stoppingPlayer, snap.launchPending, snap.settings.enablePlayerButton);
     setCard(studio_, !snap.versions.studio.activeHash.empty(), versionLabel(snap.versions.studio),
-            snap.sessions.studio, snap.stoppingStudio, snap.launchPending);
+            snap.sessions.studio, snap.stoppingStudio, snap.launchPending, snap.settings.enablePlayerButton);
 
     // Only an update actually being applied takes the screen over. Merely checking leaves the cards
     // there and says so in the strip at the bottom, so nothing flickers in and out on startup.

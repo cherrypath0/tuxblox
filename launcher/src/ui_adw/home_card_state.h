@@ -34,6 +34,8 @@ struct CardState {
 };
 
 // Kept apart from the Home page so it can be tested without a display.
-CardState cardState(LaunchTarget target, bool installed, int sessions, bool stopping, bool launchPending);
+// `playerEnabled` is Settings::enablePlayerButton, and goes with it when Player support ships.
+CardState cardState(LaunchTarget target, bool installed, int sessions, bool stopping, bool launchPending,
+                     bool playerEnabled);
 
 } // namespace tuxblox

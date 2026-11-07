@@ -40,11 +40,13 @@ private:
         std::string appliedLaunchLabel;
         bool appliedStops = false;
         bool appliedInstalled = false;
+        bool appliedDisabled = false;
         bool applied = false;
     };
 
     GtkWidget *buildCard(Card &card, const char *pTitle, const unsigned char *pIcon, size_t iconLength);
-    void setCard(Card &card, bool installed, const std::string &versionLabel, int sessions, bool stopping, bool launchPending);
+    void setCard(Card &card, bool installed, const std::string &versionLabel, int sessions, bool stopping,
+                 bool launchPending, bool playerEnabled);
     GtkWidget *buildSessions();
     void setSessions(const std::vector<Session> &sessions);
     void showUpdateButton(bool shown);

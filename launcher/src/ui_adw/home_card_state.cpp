@@ -24,12 +24,20 @@ const char Stopping[] = "Stopping\xE2\x80\xA6";
 
 } // namespace
 
-CardState cardState(LaunchTarget target, bool installed, int sessions, bool stopping, bool launchPending) {
+CardState cardState(LaunchTarget target, bool installed, int sessions, bool stopping, bool launchPending,
+                     bool playerEnabled) {
     CardState state;
     const bool playerRunning = target == LaunchTarget::Player && sessions > 0;
     if (playerRunning) {
         state.launchLabel = stopping ? Stopping : "Stop Player";
         state.launchStops = true;
+        return state;
+    }
+
+    // Below the branch above on purpose: a running Player must stay stoppable.
+    if (target == LaunchTarget::Player && !playerEnabled) {
+        state.launchLabel = "Coming soon";
+        state.launchDisabled = true;
         return state;
     }
 
