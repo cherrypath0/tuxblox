@@ -18,7 +18,9 @@
 #include "tuxblox_logo_png.h" // generated at build time: kTuxbloxLogoPng[], kTuxbloxLogoPngLen
 #include "container_env.h"
 #include "install_paths.h"
+#include "versions_manifest.h"
 #include "wine_shortcut_export.h"
+#include <algorithm>
 #include <cctype>
 #include <chrono>
 #include <cstdlib>
@@ -241,6 +243,20 @@ std::string explicitDefaultFor(const std::string& mimeappsText, const std::strin
     return "";
 }
 
+std::vector<std::string> schemesToClaim(bool playerInstalled, bool studioInstalled) {
+    std::vector<std::string> wanted;
+    for (const auto& handler : installedHandlers()) {
+        const bool player = std::string(handler.desktopId) == "tuxblox-player-handler.desktop";
+        if (player ? !playerInstalled : !studioInstalled) continue;
+        for (const char* scheme : handler.schemes) wanted.push_back(scheme);
+    }
+    return wanted;
+}
+
+bool shouldClaimPlaceFiles(bool studioInstalled) {
+    return studioInstalled;
+}
+
 bool shouldClaimAssociation(const std::string& currentDefault, bool currentDefaultInstalled) {
     if (currentDefault.empty()) return true;
     // Not installed, so it opens nothing -- a leftover rather than a choice, whoever left it.
@@ -406,16 +422,23 @@ void ensureDesktopIntegration(const std::string& launcherExePath, const std::str
         exportPrefixShortcuts(installDir, launcherExePath);
 
         if (!std::getenv("TUXBLOX_SKIP_XDG_MIME")) { // escape hatch for sandboxed test/CI runs
+            // Read off the virtual drive rather than versions.json, so a stale file cannot make an installed Roblox look missing.
+            const VersionsManifest versions = loadInstalledVersions(installDir);
+            const std::vector<std::string> wanted =
+                schemesToClaim(!versions.player.installed.empty(), !versions.studio.installed.empty());
             for (const auto& h : installedHandlers()) {
                 for (const char* scheme : h.schemes) {
+                    if (std::find(wanted.begin(), wanted.end(), scheme) == wanted.end()) continue;
                     claimDefaultIfFree(scheme, h.desktopId);
                 }
             }
 
             // Before claiming the file types: the types have to exist in the database before anything can be made their default.
             runCommandBestEffort({"update-mime-database", std::string(home) + "/.local/share/mime"});
-            for (const char* mimeType : placeFileMimeTypes()) {
-                claimDefaultIfFree(mimeType, "tuxblox-studio-place.desktop");
+            if (shouldClaimPlaceFiles(!versions.studio.installed.empty())) {
+                for (const char* mimeType : placeFileMimeTypes()) {
+                    claimDefaultIfFree(mimeType, "tuxblox-studio-place.desktop");
+                }
             }
             runCommandBestEffort({"update-desktop-database", appsDir});
 

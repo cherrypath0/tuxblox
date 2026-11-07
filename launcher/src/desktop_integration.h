@@ -16,6 +16,7 @@
 
 #pragma once
 #include <string>
+#include <vector>
 
 namespace tuxblox {
 
@@ -67,6 +68,14 @@ void ensureDesktopIntegration(const std::string& launcherExePath, const std::str
 // development handler is left alone for the same reason: it is put there by
 // hand and outranks the installed one.
 bool shouldClaimAssociation(const std::string& currentDefault, bool currentDefaultInstalled);
+
+// Which link schemes TuxBlox should make itself the default for, given what the
+// virtual drive actually holds. A scheme whose app is not installed opens nothing,
+// so claiming it takes the association away from whatever would have answered.
+std::vector<std::string> schemesToClaim(bool playerInstalled, bool studioInstalled);
+
+// The .rbxl/.rbxm types, which only Studio can open.
+bool shouldClaimPlaceFiles(bool studioInstalled);
 
 // The desktop id explicitly set as the default for `mimeType` in a mimeapps.list,
 // given that file's text. Empty when it sets none.

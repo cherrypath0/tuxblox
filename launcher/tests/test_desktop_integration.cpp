@@ -15,8 +15,19 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "desktop_integration.h"
+#include <algorithm>
 #include <cassert>
 #include <cstdio>
+#include <string>
+#include <vector>
+
+namespace {
+
+bool claims(const std::vector<std::string>& schemes, const std::string& wanted) {
+    return std::find(schemes.begin(), schemes.end(), wanted) != schemes.end();
+}
+
+} // namespace
 
 int main() {
     using namespace tuxblox;
@@ -85,6 +96,35 @@ int main() {
     assert(explicitDefaultFor("[Default Applications]\napplication/x-roblox-place=\n",
                               "application/x-roblox-place")
                .empty());
+
+    // Nothing installed: TuxBlox claims nothing. A fresh install must not own
+    // roblox:// before there is a Player to answer it.
+    {
+        assert(schemesToClaim(false, false).empty());
+        assert(!shouldClaimPlaceFiles(false));
+    }
+    // A Player claims roblox:// and roblox-player:// only.
+    {
+        const std::vector<std::string> schemes = schemesToClaim(true, false);
+        assert(schemes.size() == 2);
+        assert(claims(schemes, "x-scheme-handler/roblox"));
+        assert(claims(schemes, "x-scheme-handler/roblox-player"));
+        assert(!claims(schemes, "x-scheme-handler/roblox-studio"));
+        assert(!shouldClaimPlaceFiles(false));
+    }
+    // Studio claims its own two and the place files, never roblox://.
+    {
+        const std::vector<std::string> schemes = schemesToClaim(false, true);
+        assert(schemes.size() == 2);
+        assert(claims(schemes, "x-scheme-handler/roblox-studio"));
+        assert(claims(schemes, "x-scheme-handler/roblox-studio-auth"));
+        assert(!claims(schemes, "x-scheme-handler/roblox"));
+        assert(shouldClaimPlaceFiles(true));
+    }
+    // Both installed: all four.
+    {
+        assert(schemesToClaim(true, true).size() == 4);
+    }
 
     printf("desktop_integration: all tests passed\n");
     return 0;
