@@ -20,6 +20,7 @@
 #include "widgets.h"
 
 #include <algorithm>
+#include <map>
 #include <set>
 #include <string>
 
@@ -226,7 +227,7 @@ void FastFlagsPage::addRow(Section &section, const FastFlag &flag) {
     g_signal_connect_data(pRemove, "clicked", G_CALLBACK(onRemove), new RemoveAction{&section, GTK_ENTRY(pName)},
                           freeRemoveAction, static_cast<GConnectFlags>(0));
 
-    GtkWidget *pBadge = gtk_label_new("already set");
+    GtkWidget *pBadge = gtk_label_new("overridden");
     gtk_widget_add_css_class(pBadge, "caption");
     gtk_widget_add_css_class(pBadge, "error");
     gtk_widget_set_valign(pBadge, GTK_ALIGN_CENTER);
@@ -276,21 +277,29 @@ std::vector<FastFlag> FastFlagsPage::collect(const Section &section) const {
 }
 
 void FastFlagsPage::markDuplicates(Section &section) {
-    std::set<std::string> seen;
-    for (const FlagRow &row : section.rows) {
+    // The file is written name by name, so the LAST row of a name is the one that
+    // applies and the earlier ones are inert. Those are the rows to mark.
+    std::map<std::string, size_t> lastAt;
+    for (size_t at = 0; at < section.rows.size(); ++at) {
+        const std::string name = trimmedText(section.rows[at].pName);
+        if (!name.empty()) lastAt[name] = at;
+    }
+
+    for (size_t at = 0; at < section.rows.size(); ++at) {
+        const FlagRow &row = section.rows[at];
         const std::string name = trimmedText(row.pName);
-        const bool duplicate = !name.empty() && seen.count(name) > 0;
-        if (!name.empty()) seen.insert(name);
-        if (duplicate) {
+        const bool overridden = !name.empty() && lastAt[name] != at;
+        if (overridden) {
             gtk_widget_add_css_class(GTK_WIDGET(row.pName), "error");
-            gtk_widget_set_tooltip_text(GTK_WIDGET(row.pName), "Another row already sets this flag. The last one wins.");
+            gtk_widget_set_tooltip_text(GTK_WIDGET(row.pName),
+                                        "A later row sets this flag too, and that one is the one that applies.");
         } else {
             gtk_widget_remove_css_class(GTK_WIDGET(row.pName), "error");
             gtk_widget_set_tooltip_text(GTK_WIDGET(row.pName), nullptr);
         }
-        // A duplicate's value never applies, so the row says so and stops taking one.
-        gtk_widget_set_visible(row.pBadge, duplicate);
-        gtk_widget_set_sensitive(GTK_WIDGET(row.pValue), !duplicate);
+        // Greyed because this value genuinely does nothing, not to stop an edit that would.
+        gtk_widget_set_visible(row.pBadge, overridden);
+        gtk_widget_set_sensitive(GTK_WIDGET(row.pValue), !overridden);
     }
 }
 
