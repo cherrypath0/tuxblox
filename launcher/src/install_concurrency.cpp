@@ -36,4 +36,18 @@ size_t destDirIndex(const std::vector<std::string>& dests, const std::string& de
     return static_cast<size_t>(at - dests.begin());
 }
 
+double installFraction(uint64_t bytesDownloaded, uint64_t bytesTotal, size_t packagesExtracted,
+                        size_t packagesTotal) {
+    // Roughly what the old two-phase split gave each half, so the bar moves as it used to.
+    const double downloadShare = 0.7;
+    const double downloaded =
+        bytesTotal == 0 ? 1.0 : static_cast<double>(bytesDownloaded) / static_cast<double>(bytesTotal);
+    const double extracted = packagesTotal == 0
+                                  ? 1.0
+                                  : static_cast<double>(packagesExtracted) / static_cast<double>(packagesTotal);
+    const double fraction = downloadShare * downloaded + (1.0 - downloadShare) * extracted;
+    // Clamped, because the two shares do not add to exactly one in binary.
+    return fraction > 1.0 ? 1.0 : fraction;
+}
+
 } // namespace tuxblox

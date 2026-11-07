@@ -186,6 +186,35 @@ int main() {
         assert(distinctDestDirs({}).empty());
     }
 
+    // With the two halves overlapping the measure must never retreat, or the bar
+    // goes backwards and reads as a failure.
+    {
+        double last = 0.0;
+        for (uint64_t bytes = 0; bytes <= 1000; bytes += 100) {
+            const double fraction = installFraction(bytes, 1000, 0, 10);
+            assert(fraction >= last);
+            last = fraction;
+        }
+        for (size_t done = 0; done <= 10; ++done) {
+            const double fraction = installFraction(1000, 1000, done, 10);
+            assert(fraction >= last);
+            last = fraction;
+        }
+        assert(last <= 1.0);
+    }
+
+    // Downloading everything is not finished -- extraction is still to come.
+    {
+        assert(installFraction(1000, 1000, 0, 10) < 1.0);
+        assert(installFraction(1000, 1000, 10, 10) == 1.0);
+        assert(installFraction(0, 1000, 0, 10) == 0.0);
+    }
+
+    // A plan with nothing to weigh must not divide by zero.
+    {
+        assert(installFraction(0, 0, 0, 0) == 1.0);
+    }
+
     printf("install_plan: all tests passed\n");
     return 0;
 }

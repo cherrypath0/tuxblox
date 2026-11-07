@@ -33,4 +33,9 @@ std::vector<std::string> distinctDestDirs(const std::vector<std::string>& destDi
 // version root and must never write it at once; the rest own a directory each.
 size_t destDirIndex(const std::vector<std::string>& dests, const std::string& destDir);
 
+// One measure across downloading and extracting, which now overlap, so there is no
+// longer a moment where one ends and the other starts. Never goes backwards.
+double installFraction(uint64_t bytesDownloaded, uint64_t bytesTotal, size_t packagesExtracted,
+                        size_t packagesTotal);
+
 } // namespace tuxblox

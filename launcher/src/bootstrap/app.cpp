@@ -17,14 +17,19 @@
 #include "app.h"
 #include "checksum.h"
 #include "downloader.h"
+#include "install_concurrency.h"
 #include "install_plan.h"
 #include "roblox_deploy.h"
 #include "tar_extract.h"
 
 #include <algorithm>
 #include <chrono>
+#include <condition_variable>
+#include <deque>
 #include <filesystem>
 #include <fstream>
+#include <mutex>
+#include <thread>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -278,21 +283,52 @@ void App::runInstall(bool skipIfPresent) {
         return;
     }
 
-    // Downloads run several at a time: one connection spends most of its
-    // life waiting, so this is where nearly all of the install time goes.
+    // Downloading and extracting run together: a connection spends most of its life
+    // waiting, so the unpacking is nearly free if it happens while the next package arrives.
     const uint64_t totalBytes = totalPackedBytes(jobs);
     std::vector<std::atomic<uint64_t>> received(jobs.size());
     for (auto& value : received) value = 0;
 
+    // One lock per destination. Seven packages share the version root and must never
+    // write it at once; the rest own a directory each and unpack in parallel.
+    std::vector<std::string> jobDests;
+    jobDests.reserve(jobs.size());
+    for (const PackageJob& job : jobs) jobDests.push_back(job.destDir);
+    const std::vector<std::string> dests = distinctDestDirs(jobDests);
+    std::vector<std::mutex> destLocks(dests.size());
+
     std::atomic<size_t> nextJob{0};
+    std::atomic<size_t> extracted{0};
+    std::atomic<size_t> downloadersLeft{0};
     std::atomic<bool> stop{false};
     std::mutex failureMutex;
     std::string failure;
 
+    std::mutex queueMutex;
+    std::condition_variable queueReady;
+    std::deque<size_t> ready;
+
+    auto noteFailure = [&](const std::string& message) {
+        {
+            std::lock_guard<std::mutex> lock(failureMutex);
+            if (failure.empty()) failure = message;
+        }
+        stop = true;
+        queueReady.notify_all();
+    };
+
+    auto publishProgress = [&]() {
+        uint64_t done = 0;
+        for (const auto& value : received) done += value;
+        const double fraction = installFraction(done, totalBytes, extracted.load(), jobs.size());
+        std::lock_guard<std::mutex> lock(mutex_);
+        snapshot_.overallPercent = 6.0 + 92.0 * fraction;
+    };
+
     auto downloadWorker = [&]() {
         for (;;) {
             const size_t index = nextJob++;
-            if (index >= jobs.size() || stop || cancelled_) return;
+            if (index >= jobs.size() || stop || cancelled_) break;
             const PackageJob& job = jobs[index];
 
             {
@@ -306,68 +342,94 @@ void App::runInstall(bool skipIfPresent) {
                     setupCdnUrl(mirror, config_.channel, hash, job.name), job.archivePath,
                     [&](uint64_t now, uint64_t) {
                         received[index] = now;
-                        uint64_t done = 0;
-                        for (const auto& value : received) done += value;
-                        const double fraction =
-                            totalBytes > 0 ? static_cast<double>(done) / totalBytes : 0.0;
-                        std::lock_guard<std::mutex> lock(mutex_);
-                        snapshot_.overallPercent = 6.0 + 64.0 * fraction;
+                        publishProgress();
                     },
                     &cancelled_);
                 if (outcome.result == DownloadResult::Ok) break;
-                if (stop || cancelled_) return;
+                if (stop || cancelled_) break;
             }
+            if (stop || cancelled_) break;
 
             if (outcome.result != DownloadResult::Ok) {
-                std::lock_guard<std::mutex> lock(failureMutex);
-                if (failure.empty()) {
-                    failure = "Could not download " + job.name + ": " + outcome.errorMessage;
-                }
-                stop = true;
-                return;
+                noteFailure("Could not download " + job.name + ": " + outcome.errorMessage);
+                break;
             }
+            // Still before extraction, so a corrupted package never reaches the drive.
             if (md5File(job.archivePath) != job.md5) {
-                std::lock_guard<std::mutex> lock(failureMutex);
-                if (failure.empty()) {
-                    failure = "Checksum mismatch for " + job.name +
-                              " -- refusing to install a corrupted package.";
-                }
-                stop = true;
-                return;
+                noteFailure("Checksum mismatch for " + job.name +
+                            " -- refusing to install a corrupted package.");
+                break;
             }
             received[index] = job.packedSize;
+
+            {
+                std::lock_guard<std::mutex> lock(queueMutex);
+                ready.push_back(index);
+            }
+            queueReady.notify_one();
+        }
+
+        // Every exit path passes here, or an extractor could wait on work that never comes.
+        --downloadersLeft;
+        queueReady.notify_all();
+    };
+
+    auto extractWorker = [&]() {
+        for (;;) {
+            size_t index = 0;
+            {
+                std::unique_lock<std::mutex> lock(queueMutex);
+                queueReady.wait(lock, [&] {
+                    return !ready.empty() || stop || cancelled_ || downloadersLeft.load() == 0;
+                });
+                if (stop || cancelled_) return;
+                if (ready.empty()) {
+                    if (downloadersLeft.load() == 0) return;
+                    continue;
+                }
+                index = ready.front();
+                ready.pop_front();
+            }
+
+            const PackageJob& job = jobs[index];
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                snapshot_.status = "Extracting " + job.name;
+            }
+            try {
+                std::lock_guard<std::mutex> guard(destLocks[destDirIndex(dests, job.destDir)]);
+                extractZip(job.archivePath, job.destDir);
+            } catch (const std::exception& e) {
+                noteFailure(std::string("Could not extract ") + job.name + ": " + e.what());
+                return;
+            }
+
+            std::error_code removeError;
+            fs::remove(job.archivePath, removeError);
+            ++extracted;
+            publishProgress();
         }
     };
 
     {
-        const size_t workers = std::min<size_t>(kDownloadWorkers, jobs.size());
+        const size_t downloaders = std::min<size_t>(kDownloadWorkers, jobs.size());
+        const unsigned int cores = std::thread::hardware_concurrency();
+        const size_t extractors = std::min<size_t>(cores > 0 ? cores : 1, jobs.size());
+        downloadersLeft = downloaders;
+
         std::vector<std::thread> pool;
-        pool.reserve(workers);
-        for (size_t i = 0; i < workers; ++i) pool.emplace_back(downloadWorker);
+        pool.reserve(downloaders + extractors);
+        for (size_t at = 0; at < downloaders; ++at) pool.emplace_back(downloadWorker);
+        for (size_t at = 0; at < extractors; ++at) pool.emplace_back(extractWorker);
+        // Joined here, so nothing is still writing when abandon() removes the staging directory.
         for (auto& worker : pool) worker.join();
     }
 
     if (!failure.empty()) { abandon(failure); return; }
     if (cancelled_) { abandon("Cancelled."); return; }
-
-    // Extraction stays one at a time: several packages unpack into the same
-    // folders, and libarchive writing them at once would race on the
-    // directories it creates.
-    for (size_t i = 0; i < jobs.size(); ++i) {
-        if (cancelled_) { abandon("Cancelled."); return; }
-        const PackageJob& job = jobs[i];
-        const double base = 70.0 + 28.0 * (static_cast<double>(i) / jobs.size());
-
-        setStatus("Extracting " + job.name, base);
-        try {
-            extractZip(job.archivePath, job.destDir);
-        } catch (const std::exception& e) {
-            abandon(std::string("Could not extract ") + job.name + ": " + e.what());
-            return;
-        }
-
-        setStatus("Installing " + job.name, base + 28.0 / jobs.size() * 0.5);
-        fs::remove(job.archivePath, error);
+    if (extracted.load() != jobs.size()) {
+        abandon("Roblox's packages were not all unpacked.");
+        return;
     }
 
     {
