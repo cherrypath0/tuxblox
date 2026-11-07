@@ -35,6 +35,8 @@ private:
         GtkWidget *pRow;
         GtkEntry *pName;
         GtkEntry *pValue;
+        // Shown only while this row's name repeats one above it.
+        GtkWidget *pBadge;
     };
 
     // Player and Studio differ only in which half of FastFlagSet they edit
@@ -62,6 +64,12 @@ private:
     };
 
     AdwPreferencesGroup *buildSection(Section &section, const char *pTitle);
+    GtkWidget *buildToolbar();
+    Section &activeSection();
+    // Which list is on screen, what the search term leaves showing, and the counts on the toggle.
+    void applyActive();
+    void applyFilter();
+    void updateCounts();
     void addRow(Section &section, const FastFlag &flag);
     void rebuild(Section &section, const std::vector<FastFlag> &flags);
     void refreshEmpty(Section &section);
@@ -73,6 +81,8 @@ private:
     void commit();
 
     static void onAdd(GtkButton *, gpointer data);
+    static void onTargetToggled(GtkToggleButton *pButton, gpointer data);
+    static void onSearchChanged(GtkEditable *pEntry, gpointer data);
     static void onImportClicked(GtkButton *pButton, gpointer data);
     static void onImportTextChanged(GtkTextBuffer *, gpointer data);
     static void onImportConfirm(GtkButton *, gpointer data);
@@ -85,6 +95,13 @@ private:
 
     App &app_;
     GtkWidget *pRoot_ = nullptr;
+    GtkWidget *pSearch_ = nullptr;
+    GtkWidget *pPlayerToggle_ = nullptr;
+    GtkWidget *pStudioToggle_ = nullptr;
+    GtkLabel *pPlayerCount_ = nullptr;
+    GtkLabel *pStudioCount_ = nullptr;
+    LaunchTarget active_ = LaunchTarget::Player;
+    std::string searchTerm_;
     Section player_{this};
     Section studio_{this};
     // What the rows were last built from or saved as, so a poll tick that changes nothing leaves the entries and the cursor alone
