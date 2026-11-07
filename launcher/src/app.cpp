@@ -25,16 +25,21 @@
 #include "checksum.h"
 #include "container_env.h"
 #include "downloader.h"
+#include "install_concurrency.h"
 #include "manifest.h"
 #include "prefix_session.h"
 #include "roblox_deploy.h"
 #include "tar_extract.h"
 #include <algorithm>
 #include <chrono>
+#include <condition_variable>
 #include <ctime>
+#include <deque>
 #include <filesystem>
 #include <fstream>
+#include <mutex>
 #include <optional>
+#include <thread>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -907,54 +912,182 @@ void App::versionInstallThreadMain(LaunchTarget target, VersionSelectMode mode, 
 
     report({VersionInstallPhase::DownloadingPackages, 0.1, "", target});
 
-    for (size_t i = 0; i < packages.size(); ++i) {
-        const auto& pkg = packages[i];
+    // One entry per package TuxBlox knows where to put; the rest are skipped
+    // (see packageInstallSubdir's doc).
+    struct PackageWork {
+        std::string name;
+        std::string md5;
+        std::string archivePath;
+        std::string destDir;
+        uint64_t packedSize = 0;
+    };
+    std::vector<PackageWork> work;
+    uint64_t totalBytes = 0;
+    for (const auto& pkg : packages) {
         auto subdir = packageInstallSubdir(pkg.name, target);
-        if (!subdir.has_value()) continue; // unknown package -- skip (see packageInstallSubdir's doc)
+        if (!subdir.has_value()) continue;
+        work.push_back({pkg.name, pkg.md5, stagingDir + "/" + pkg.name,
+                        versionDir + (subdir->empty() ? "" : ("/" + *subdir)), pkg.packedSize});
+        totalBytes += pkg.packedSize;
+    }
+    if (work.empty()) {
+        fs::remove_all(stagingDir, ec);
+        fail("Roblox's package list had nothing TuxBlox knows how to install.");
+        return;
+    }
 
-        const std::string destZip = stagingDir + "/" + pkg.name;
+    // One lock per destination: several packages share the version root and must
+    // never write it at once, while the rest own a directory each.
+    std::vector<std::string> workDests;
+    workDests.reserve(work.size());
+    for (const PackageWork& item : work) workDests.push_back(item.destDir);
+    const std::vector<std::string> dests = distinctDestDirs(workDests);
+    std::vector<std::mutex> destLocks(dests.size());
+
+    std::vector<std::atomic<uint64_t>> received(work.size());
+    for (auto& value : received) value = 0;
+
+    std::atomic<size_t> nextJob{0};
+    std::atomic<size_t> extracted{0};
+    std::atomic<size_t> downloadersLeft{0};
+    std::atomic<bool> stop{false};
+    std::mutex failureMutex;
+    std::string failure;
+
+    std::mutex queueMutex;
+    std::condition_variable queueReady;
+    std::deque<size_t> ready;
+
+    auto noteFailure = [&](const std::string& message) {
+        {
+            std::lock_guard<std::mutex> lock(failureMutex);
+            if (failure.empty()) failure = message;
+        }
+        stop = true;
+        queueReady.notify_all();
+    };
+
+    auto publish = [&]() {
+        uint64_t done = 0;
+        for (const auto& value : received) done += value;
+        const double fraction = installFraction(done, totalBytes, extracted.load(), work.size());
+        const VersionInstallPhase phase = downloadersLeft.load() == 0 ? VersionInstallPhase::Extracting
+                                                                       : VersionInstallPhase::DownloadingPackages;
+        report({phase, 0.1 + 0.85 * fraction, "", target});
+    };
+
+    auto downloadWorker = [&]() {
         static const char* kMirrors[] = {"setup.rbxcdn.com", "setup-aws.rbxcdn.com"};
-        DownloadOutcome outcome{DownloadResult::Failed, "no mirror attempted"};
-        for (const char* mirror : kMirrors) {
-            outcome = downloadFile(setupCdnUrl(mirror, channel, hash, pkg.name), destZip,
-                [&](uint64_t now, uint64_t total) {
-                    double pkgFraction = total > 0 ? static_cast<double>(now) / total : 0.0;
-                    double overall = 0.1 + 0.6 * ((i + pkgFraction) / std::max<size_t>(1, packages.size()));
-                    report({VersionInstallPhase::DownloadingPackages, overall, "", target});
-                },
-                &versionInstallCancel_);
-            if (outcome.result == DownloadResult::Ok) break;
-        }
-        if (outcome.result != DownloadResult::Ok) {
-            // Also remove versionDir, not just stagingDir (Finding 6,
-            // 2026-08-16 final review): an earlier package in this same loop
-            // may have already extracted into it before this one failed,
-            // which would otherwise leave a partial, unregistered version
-            // directory on disk. fs::remove_all is a no-op if it was never
-            // created yet.
-            fs::remove_all(versionDir, ec);
-            fs::remove_all(stagingDir, ec);
-            fail("Failed to download " + pkg.name + ": " + outcome.errorMessage);
-            return;
-        }
-        if (md5File(destZip) != pkg.md5) {
-            fs::remove_all(versionDir, ec); // see the matching comment above
-            fs::remove_all(stagingDir, ec);
-            fail("Checksum mismatch for " + pkg.name + " -- refusing to install a corrupted package.");
-            return;
+        for (;;) {
+            const size_t index = nextJob++;
+            if (index >= work.size() || stop || versionInstallCancel_) break;
+            const PackageWork& item = work[index];
+
+            DownloadOutcome outcome{DownloadResult::Failed, "no mirror attempted"};
+            for (const char* mirror : kMirrors) {
+                outcome = downloadFile(setupCdnUrl(mirror, channel, hash, item.name), item.archivePath,
+                    [&](uint64_t now, uint64_t) {
+                        received[index] = now;
+                        publish();
+                    },
+                    &versionInstallCancel_);
+                if (outcome.result == DownloadResult::Ok) break;
+                if (stop || versionInstallCancel_) break;
+            }
+            if (stop || versionInstallCancel_) break;
+
+            if (outcome.result != DownloadResult::Ok) {
+                noteFailure("Failed to download " + item.name + ": " + outcome.errorMessage);
+                break;
+            }
+            // Still before extraction, so a corrupted package never reaches the drive.
+            if (md5File(item.archivePath) != item.md5) {
+                noteFailure("Checksum mismatch for " + item.name +
+                            " -- refusing to install a corrupted package.");
+                break;
+            }
+            received[index] = item.packedSize;
+
+            {
+                std::lock_guard<std::mutex> lock(queueMutex);
+                ready.push_back(index);
+            }
+            queueReady.notify_one();
         }
 
-        report({VersionInstallPhase::Extracting, 0.7 + 0.25 * (static_cast<double>(i) / packages.size()),
-                "", target});
-        const std::string destDir = versionDir + (subdir->empty() ? "" : ("/" + *subdir));
-        try {
-            extractZip(destZip, destDir);
-        } catch (const std::exception& e) {
-            fs::remove_all(versionDir, ec);
-            fs::remove_all(stagingDir, ec);
-            fail(std::string("Failed to extract ") + pkg.name + ": " + e.what());
-            return;
+        // Every exit path passes here, or an extractor could wait on work that never comes.
+        --downloadersLeft;
+        queueReady.notify_all();
+    };
+
+    auto extractWorker = [&]() {
+        for (;;) {
+            size_t index = 0;
+            {
+                std::unique_lock<std::mutex> lock(queueMutex);
+                queueReady.wait(lock, [&] {
+                    return !ready.empty() || stop || versionInstallCancel_ || downloadersLeft.load() == 0;
+                });
+                if (stop || versionInstallCancel_) return;
+                if (ready.empty()) {
+                    if (downloadersLeft.load() == 0) return;
+                    continue;
+                }
+                index = ready.front();
+                ready.pop_front();
+            }
+
+            const PackageWork& item = work[index];
+            try {
+                std::lock_guard<std::mutex> guard(destLocks[destDirIndex(dests, item.destDir)]);
+                extractZip(item.archivePath, item.destDir);
+            } catch (const std::exception& e) {
+                noteFailure(std::string("Failed to extract ") + item.name + ": " + e.what());
+                return;
+            }
+
+            std::error_code removeError;
+            fs::remove(item.archivePath, removeError);
+            ++extracted;
+            publish();
         }
+    };
+
+    {
+        const size_t downloaders = std::min<size_t>(4, work.size());
+        const unsigned int cores = std::thread::hardware_concurrency();
+        const size_t extractors = std::min<size_t>(cores > 0 ? cores : 1, work.size());
+        downloadersLeft = downloaders;
+
+        std::vector<std::thread> pool;
+        pool.reserve(downloaders + extractors);
+        for (size_t at = 0; at < downloaders; ++at) pool.emplace_back(downloadWorker);
+        for (size_t at = 0; at < extractors; ++at) pool.emplace_back(extractWorker);
+        // Joined before any cleanup below, so nothing is still writing into a directory being removed.
+        for (auto& worker : pool) worker.join();
+    }
+
+    // Also removes versionDir, not just stagingDir (Finding 6, 2026-08-16 final
+    // review): a package that already extracted would otherwise leave a partial,
+    // unregistered version directory behind. remove_all is a no-op if it was
+    // never created.
+    if (!failure.empty()) {
+        fs::remove_all(versionDir, ec);
+        fs::remove_all(stagingDir, ec);
+        fail(failure);
+        return;
+    }
+    if (versionInstallCancel_) {
+        fs::remove_all(versionDir, ec);
+        fs::remove_all(stagingDir, ec);
+        fail("Cancelled.");
+        return;
+    }
+    if (extracted.load() != work.size()) {
+        fs::remove_all(versionDir, ec);
+        fs::remove_all(stagingDir, ec);
+        fail("Roblox's packages were not all unpacked.");
+        return;
     }
     fs::remove_all(stagingDir, ec);
 
