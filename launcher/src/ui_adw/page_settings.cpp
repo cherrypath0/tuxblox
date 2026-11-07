@@ -63,6 +63,11 @@ SettingsPage::SettingsPage(App &app) : app_(app) {
               &Settings::debugLogging);
 
     AdwPreferencesGroup *pPrivacy = addGroup("Privacy");
+    // Said here as well as in the welcome tour, so the two screens cannot disagree.
+    adw_preferences_group_set_description(
+        pPrivacy,
+        "TuxBlox's Privacy Policy and Terms of Use apply to these features. "
+        "See tuxblox.net/privacy and tuxblox.net/terms");
     addToggle(pPrivacy, "Always send crash reports",
               "Send the session log and your versions when Roblox crashes. See tuxblox.net/privacy",
               &Settings::sendCrashReports);
