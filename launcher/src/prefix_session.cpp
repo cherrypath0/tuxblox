@@ -54,9 +54,15 @@ std::string toLower(std::string s) {
 }
 
 std::string readWholeFile(const fs::path& path) {
-    std::ifstream f(path, std::ios::binary);
-    if (!f) return "";
-    return std::string((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    // Opening is not enough: a process that exits mid-scan fails the READ, and libstdc++ throws
+    // from underflow whatever the exceptions mask says, which used to abort the whole launcher.
+    try {
+        std::ifstream f(path, std::ios::binary);
+        if (!f) return "";
+        return std::string((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    } catch (const std::exception&) {
+        return "";
+    }
 }
 
 // os.path.normpath's shape for our purposes: collapse the path and drop any
