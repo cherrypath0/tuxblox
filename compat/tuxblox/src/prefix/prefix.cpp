@@ -928,14 +928,15 @@ void Prefix::syncHostDpi() {
     }
 }
 
-// What every Windows machine reports for all six of its interface fonts. Read off a
-// real Windows 11 install rather than assumed: Segoe UI, nine points, regular weight.
-constexpr const char* kWindowsUiFont = "Segoe UI";
-constexpr int kWindowsUiPoints = 9;
+// Studio's own interface font, which it ships and loads itself, so it draws here exactly
+// as it does on Windows. Windows reports Segoe UI for these, and naming that instead is
+// close but visibly not the same face -- Studio's menus are the one place it shows.
+constexpr const char* kStudioUiFont = "Source Sans Pro";
+constexpr int kStudioUiPoints = 9;
 
 void Prefix::syncHostFont() {
     const int detected = detectHostDpi();
-    const std::string font = logFontValue(kWindowsUiFont, kWindowsUiPoints,
+    const std::string font = logFontValue(kStudioUiFont, kStudioUiPoints,
             detected > 0 ? detected : kUnscaledDpi);
     const fs::path userReg = prefixDir / "user.reg";
 
@@ -952,7 +953,7 @@ void Prefix::syncHostFont() {
             {{"Segoe UI", "\"Selawik\""}, {"Segoe UI Semibold", "\"Selawik Semibold\""}});
 
     if (changed) {
-        log(std::string("Synced prefix to the Windows interface font, ") + kWindowsUiFont);
+        log(std::string("Synced prefix to Studio's interface font, ") + kStudioUiFont);
     }
 }
 
