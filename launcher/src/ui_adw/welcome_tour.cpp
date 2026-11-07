@@ -516,9 +516,10 @@ void presentWelcomeTour(App &app, GtkApplication *pGtkApp, std::function<void(bo
     gtk_box_append(GTK_BOX(pOuter), pCarousel);
     gtk_box_append(GTK_BOX(pOuter), pFooterClamp);
 
-    // Bare: no title and no icon, just the window buttons, so nothing competes with the tour itself.
+    // Bare: no title, and only a close button, so nothing competes with the tour itself.
     GtkWidget *pHeader = adw_header_bar_new();
     adw_header_bar_set_show_title(ADW_HEADER_BAR(pHeader), FALSE);
+    adw_header_bar_set_decoration_layout(ADW_HEADER_BAR(pHeader), ":close");
 
     GtkWidget *pView = adw_toolbar_view_new();
     adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(pView), pHeader);
@@ -527,8 +528,9 @@ void presentWelcomeTour(App &app, GtkApplication *pGtkApp, std::function<void(bo
     GtkWidget *pTourWindow = adw_application_window_new(pGtkApp);
     pTour->pWindow = GTK_WINDOW(pTourWindow);
     gtk_window_set_title(pTour->pWindow, "Welcome to TuxBlox");
-    // Fixed: every page is laid out for this one size, and there is nothing here worth resizing.
-    gtk_window_set_default_size(pTour->pWindow, 620, 580);
+    // Fixed width, and a height that follows the tallest page: no dead space, and no clipping on a
+    // system whose text is larger than this one's.
+    gtk_window_set_default_size(pTour->pWindow, 620, -1);
     gtk_window_set_resizable(pTour->pWindow, FALSE);
     adw_application_window_set_content(ADW_APPLICATION_WINDOW(pTourWindow), pView);
     g_signal_connect(pTourWindow, "destroy", G_CALLBACK(onTourDestroyed), pTour);
