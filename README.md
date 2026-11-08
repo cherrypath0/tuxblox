@@ -1,5 +1,5 @@
 > [!WARNING]
-> **Roblox Player support is highly experimental!** Except it to have bugs and issues. Updates will be posted on our Discord.
+> **Roblox Player support is still in progress!** Updates will be posted on our Discord.
 
 <p align="center">
   <img src="https://static.tuxblox.net/images/banner/tuxblox-banner.png" width="600">
