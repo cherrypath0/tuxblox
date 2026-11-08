@@ -266,7 +266,11 @@ static char tuxblox_info_str[TUXBLOX_INFO_LEN];
 const char * CDECL tuxblox_get_version(void)
 {
 #ifdef TUXBLOX_LAYER_VERSION
-    return TUXBLOX_LAYER_VERSION;
+    /* The build passes the version as a bare token, because quoting it on the
+       command line does not survive make, the shell and configure in turn. */
+#define TUXBLOX_STR_(x) #x
+#define TUXBLOX_STR(x) TUXBLOX_STR_(x)
+    return TUXBLOX_STR(TUXBLOX_LAYER_VERSION);
 #else
     return "unknown";
 #endif

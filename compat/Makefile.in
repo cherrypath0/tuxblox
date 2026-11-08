@@ -429,8 +429,10 @@ WINE_CFLAGS += -Wno-discarded-qualifiers -std=gnu11
 
 # ntdll's tuxblox_get_version answers with this, so TuxBlox identifies itself
 # with a compiled-in number rather than one anybody could edit on disk. Passed
-# in as a make variable because only MAKEFLAGS crosses into the build container.
-WINE_CFLAGS += -DTUXBLOX_LAYER_VERSION=\"$(TUXBLOX_COMPAT_VERSION)\"
+# in as a make variable because only MAKEFLAGS crosses into the build container,
+# and unquoted because quotes do not survive the chain down to the compiler --
+# version.c stringifies the token instead.
+WINE_CFLAGS += -DTUXBLOX_LAYER_VERSION=$(TUXBLOX_COMPAT_VERSION)
 
 WINE_SOURCE_ARGS = \
   --exclude configure \
