@@ -257,8 +257,6 @@ extern void tuxblox_diag_swatch_start( void );
 extern BOOL tuxblox_diag_swatch_fault( ULONG64 addr, ULONG64 rip, const ULONG64 *regs, ULONG kind );
 extern BOOL tuxblox_diag_swatch_step_pending( void );
 extern BOOL tuxblox_diag_swatch_step_rearm( void );
-extern void tuxblox_roblox_stackfix_arm( void );
-extern BOOL tuxblox_roblox_stackfix_hit( ULONG64 rip, ULONG64 *regs );
 extern void tuxblox_diag_hww_start( void );
 extern void tuxblox_diag_hww_dump( void );
 extern void tuxblox_diag_note_open_section( const OBJECT_ATTRIBUTES *attr, unsigned int status );

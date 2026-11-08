@@ -784,9 +784,6 @@ void tuxblox_diag_note_syscall( ULONG64 rip, ULONG64 rsp, ULONG64 rax )
     static unsigned int shown;
     unsigned int i;
 
-    /* Always-on compatibility shim (not gated by the diagnostic knobs). */
-    tuxblox_roblox_stackfix_arm();
-
     /* Env-gated live code+stack dump at a chosen layer syscall site, so the
      * polymorphic layer's real bytes (not the dump's) can be read at the drift. */
     {
@@ -1115,69 +1112,6 @@ BOOL tuxblox_hide_wine_driver_file( const UNICODE_STRING *name )
 BOOL tuxblox_hide_wine_driver_section( const UNICODE_STRING *name )
 {
     return hide_wine_drv_level() >= 2 && is_wine_driver_probe( name );
-}
-
-/* Roblox current-version stack-drift compatibility shim.
- *
- * The layer runs an integrity check at RobloxPlayerBeta.dll+0xd03395
- * ("cmp %r8d,%r11d; jbe ..."): the two computed sides satisfy the branch on
- * Windows but not on Wine, so the layer takes the mismatch path -- an unmatched
- * "add $0x8,%rsp" that drifts the stack 8 bytes and makes a later "ret" read a
- * poison slot, crashing with 0xC0000005 (the startup "enum wall"). Until the
- * value divergence is root-caused, force the check's match path by zeroing r11
- * at the compare.
- *
- * This changes only a register, never the layer's code, so the layer's own
- * self-hash is unaffected. It is base-relative (ASLR-safe) and version-verified
- * by the compare's opcode bytes, so on any build whose code differs there it
- * silently does nothing. VERSION-SPECIFIC to version-c5aecda2245e4fae: a Player
- * update that moves the check leaves this inert and the wall returns until the
- * offset is refreshed -- or, better, the divergence is fixed at its source.
- */
-#define ROBLOX_STACKFIX_RVA 0xd03395
-static ULONG64 roblox_stackfix_addr;
-static BYTE roblox_stackfix_orig;
-static int roblox_stackfix_armed, roblox_stackfix_done;
-
-void tuxblox_roblox_stackfix_arm( void )
-{
-    static int disabled = -1;
-    ULONG64 base;
-    BYTE sig[5];
-
-    if (roblox_stackfix_done || roblox_stackfix_armed) return;
-    if (!image_is_player()) return;                /* nothing to arm outside the Player */
-    /* Read once: this runs on every system call. */
-    if (disabled == -1) disabled = getenv( "TUXBLOX_NO_STACKFIX" ) ? 1 : 0;
-    if (disabled) return;                          /* A/B: run the natural (unforced) path */
-    if (!(base = roblox_dll_base())) return;
-    roblox_stackfix_addr = base + ROBLOX_STACKFIX_RVA;
-    /* only where the decrypted code is the known check: cmp r8d,r11d ; jbe */
-    if (virtual_uninterrupted_read_memory( (const void *)(ULONG_PTR)roblox_stackfix_addr,
-                                           sig, sizeof(sig) ) != sizeof(sig))
-        return;                                    /* page not decrypted yet */
-    if (sig[0] != 0x45 || sig[1] != 0x39 || sig[2] != 0xc3 || sig[3] != 0x0f || sig[4] != 0x86)
-    {
-        /* Readable and not the check: this build is not the one this shim
-         * patches, and no later read will change that. Stop, rather than
-         * retrying the loader walk on every call for the rest of the run. */
-        roblox_stackfix_done = 1;
-        return;
-    }
-    roblox_stackfix_orig = sig[0];
-    if (virtual_patch_code_byte( (void *)(ULONG_PTR)roblox_stackfix_addr, 0xcc )) return;
-    roblox_stackfix_armed = 1;
-}
-
-/* From the int3 dispatch: TRUE (and r11 forced to 0) when the trap is ours. */
-BOOL tuxblox_roblox_stackfix_hit( ULONG64 rip, ULONG64 *regs )
-{
-    if (!roblox_stackfix_armed || rip - 1 != roblox_stackfix_addr) return FALSE;
-    virtual_patch_code_byte( (void *)(ULONG_PTR)roblox_stackfix_addr, roblox_stackfix_orig );
-    roblox_stackfix_armed = 0;
-    roblox_stackfix_done = 1;                       /* the check runs once */
-    regs[11] = 0;                                   /* r11 = 0 -> the match path */
-    return TRUE;
 }
 
 /* Read straight from the signal paths, so an ordinary run pays one load and a

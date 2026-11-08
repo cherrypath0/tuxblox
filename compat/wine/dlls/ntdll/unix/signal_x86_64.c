@@ -4021,17 +4021,6 @@ static void trap_handler( int signal, siginfo_t *siginfo, void *sigcontext )
          * breakpoint dump so a snapshot carries the layer's live XMM state. */
         const void *bp_xmm = FPU_sig(ucontext) ? (const char *)FPU_sig(ucontext) + 0xa0 : NULL;
 
-        /* Always-on Roblox stack-drift shim: forces r11=0 at the layer's
-         * integrity check so its match path is taken. Checked before the
-         * diagnostic breakpoints, which are off in an ordinary run. */
-        if (tuxblox_roblox_stackfix_hit( RIP_sig(ucontext), regs ))
-        {
-            RIP_sig(ucontext) = RIP_sig(ucontext) - 1;  /* back onto the restored instruction */
-            R11_sig(ucontext) = regs[11];
-            leave_handler( ucontext );
-            return;
-        }
-
         if (tuxblox_diag_bp_hit( RIP_sig(ucontext), regs, &rsp_delta, bp_xmm ))
         {
             ULONG64 redir = tuxblox_diag_bp_take_redirect();
