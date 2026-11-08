@@ -7259,6 +7259,7 @@ static void fill_working_set_info( struct fill_working_set_info_data *d, struct 
 
         p->VirtualAttributes.Valid = !(vprot & VPROT_GUARD) && (vprot & 0x0f) && entry && entry->kve_type != KVME_TYPE_SWAP;
         p->VirtualAttributes.Shared = !is_view_valloc( view );
+        p->VirtualAttributes.SharedOriginal = p->VirtualAttributes.Shared;
         if (p->VirtualAttributes.Shared && p->VirtualAttributes.Valid)
             p->VirtualAttributes.ShareCount = 1; /* FIXME */
         if (p->VirtualAttributes.Valid)
@@ -7331,7 +7332,12 @@ static void fill_working_set_info( struct fill_working_set_info_data *d, struct 
         pagemap = d->pm_buffer[page - d->buffer_start];
 
         p->VirtualAttributes.Valid = !(vprot & VPROT_GUARD) && (vprot & 0x0f) && (pagemap >> 63);
-        p->VirtualAttributes.Shared = !is_view_valloc( view ) && ((pagemap >> 61) & 1);
+        /* Windows reports a page of a mapped section as shared whatever its residency --
+           measured on 26300, where a not-present image page still answers Shared=1 -- so this
+           follows the backing rather than Linux's file-page bit, which goes false as soon as a
+           page is copied and made that answer disagree with Windows for every image. */
+        p->VirtualAttributes.Shared = !is_view_valloc( view );
+        p->VirtualAttributes.SharedOriginal = p->VirtualAttributes.Shared;
         if (p->VirtualAttributes.Shared && p->VirtualAttributes.Valid)
             p->VirtualAttributes.ShareCount = 1; /* FIXME */
         if (p->VirtualAttributes.Valid)
