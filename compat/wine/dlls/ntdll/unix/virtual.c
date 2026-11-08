@@ -7427,6 +7427,17 @@ static NTSTATUS get_working_set_ex( HANDLE process, LPCVOID addr,
         if (test) for (i = 0; i < count; i++)
         {
             if (!strcmp( test, "invalid" )) info[i].VirtualAttributes.Flags = 0;
+            else if (!strcmp( test, "shared" ))
+            {
+                /* Wine only sets Shared when Linux calls the page file-backed, which an
+                   image page that has been written to no longer is. This asks whether that
+                   bit is what sends the Player down the arm that leaks 0x20 of stack. */
+                if (info[i].VirtualAttributes.Valid)
+                {
+                    info[i].VirtualAttributes.Shared = 1;
+                    info[i].VirtualAttributes.ShareCount = 1;
+                }
+            }
             else if (info[i].VirtualAttributes.Valid) info[i].VirtualAttributes.Flags |= 5u << 24;
         }
     }
