@@ -2021,6 +2021,13 @@ static void setup_raise_exception( ucontext_t *sigcontext, EXCEPTION_RECORD *rec
      * state cannot follow it any more -- that would lose the 64-byte alignment
      * XSAVE needs -- so it goes underneath instead, which the context's own
      * offset to it describes either way. */
+    /* Resolved before the branch below reads it: these start at -1, which is truthy, so leaving
+       the resolution until afterwards gave the first exception in every process a different frame
+       geometry from all the later ones -- the record, the context and the extended state all moved
+       between exception one and exception two. */
+    if (no_xstate == -1) no_xstate = tuxblox_dev_getenv( "TUXBLOX_TEST_NO_XSTATE_EXC" ) ? 1 : 0;
+    if (xstate_above == -1) xstate_above = tuxblox_dev_getenv( "TUXBLOX_TEST_XSTATE_ABOVE" ) ? 1 : 0;
+
     if (xstate_above)
     {
         /* Probe: the extended state in the gap above the frame instead of
@@ -2047,9 +2054,6 @@ static void setup_raise_exception( ucontext_t *sigcontext, EXCEPTION_RECORD *rec
     stack->context           = *context;
     stack->machine_frame.rip = context->Rip;
     stack->machine_frame.rsp = context->Rsp;
-
-    if (no_xstate == -1) no_xstate = tuxblox_dev_getenv( "TUXBLOX_TEST_NO_XSTATE_EXC" ) ? 1 : 0;
-    if (xstate_above == -1) xstate_above = tuxblox_dev_getenv( "TUXBLOX_TEST_XSTATE_ABOVE" ) ? 1 : 0;
 
     if (!no_xstate && (src_xs = xstate_from_context( context )))
     {

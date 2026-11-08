@@ -5215,9 +5215,6 @@ static NTSTATUS query_system_information( SYSTEM_INFORMATION_CLASS class,
 
     switch (class)
     {
-    case SystemNativeBasicInformation:  /* 114 */
-        if (!is_win64) return STATUS_INVALID_INFO_CLASS;
-        /* fall through */
     case SystemBootEnvironmentInformation:  /* 90 */
     {
         /* The boot identifier has to be the same for every process in a boot
@@ -5323,6 +5320,12 @@ static NTSTATUS query_system_information( SYSTEM_INFORMATION_CLASS class,
         break;
     }
 
+    /* 114 answers with the basic information, not the boot environment: a case inserted between
+       the two had silently redirected it, so it returned a 32-byte boot GUID where the reference
+       machine returns the same 64 bytes as class 0, byte for byte. */
+    case SystemNativeBasicInformation:  /* 114 */
+        if (!is_win64) return STATUS_INVALID_INFO_CLASS;
+        /* fall through */
     case SystemBasicInformation:  /* 0 */
     {
         SYSTEM_BASIC_INFORMATION sbi;

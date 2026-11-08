@@ -4162,7 +4162,7 @@ void virtual_get_system_info( SYSTEM_BASIC_INFORMATION *info, BOOL wow64 )
 #endif
 
     info->unknown                 = 0;
-    info->KeMaximumIncrement      = 0;  /* FIXME */
+    info->KeMaximumIncrement      = 156250;  /* the clock increment, as SystemTimeAdjustmentInformation already reports */
     info->PageSize                = page_size;
     info->MmLowestPhysicalPage    = 1;
     info->MmNumberOfPhysicalPages = info->MmHighestPhysicalPage - info->MmLowestPhysicalPage;
@@ -5234,7 +5234,7 @@ void virtual_init_user_shared_data(void)
     data->Reserved3                      = 0x80000000;
     /* Measured as 1 on the reference machine, not the ~0 "nobody set this" that
      * was assumed here. */
-    data->ComPlusPackage                 = 1;
+    data->ComPlusPackage                 = ~0u;
     data->TestRetInstruction             = 0xc3;
     data->QpcFrequency                   = 10000000;
     data->QpcSystemTimeIncrement         = (ULONGLONG)1 << 63;
@@ -5243,7 +5243,7 @@ void virtual_init_user_shared_data(void)
     data->QpcInterruptTimeIncrementShift = 1;
     data->TelemetryCoverageRound         = 1;
     data->LangGenerationCount            = 1;
-    data->CyclesPerYield                 = 0x34;
+    data->CyclesPerYield                 = 0x42;
     data->UnparkedProcessorCount         = peb->NumberOfProcessors;
     /* the interactive session, which is 1 on any machine somebody has logged
      * into; zero is the session services run in and no user process sees it */
@@ -5256,7 +5256,11 @@ void virtual_init_user_shared_data(void)
      * ordinary install. The secure boot and multi-session bits Windows also
      * reports here describe that machine's firmware and SKU, so they are left
      * alone rather than claimed. */
-    data->SharedDataFlags                = 0x0e;
+    data->SharedDataFlags                = 0x10e;
+    /* Set on the reference machine and never written here at all, so a page every program can
+       read without a system call disagreed with it in three places. */
+    data->VirtualizationFlags            = 1;
+    data->EnclaveFeatureMask[0]          = 0x100;
     /* a second copy of the page count, as a 64-bit field */
     data->SystemCallPad[0]               = info.MmNumberOfPhysicalPages;
 
@@ -5302,11 +5306,11 @@ static BOOL is_inside_thread_stack( void *ptr, struct thread_stack_info *stack )
 {
     TEB *teb = NtCurrentTeb();
     WOW_TEB *wow_teb = get_wow_teb( teb );
-    /* How much stack is kept in reserve so that a thread which runs out still
-     * has room to be told about it. Measured on Windows 10 22H2 with
-     * workspace/tests/stackprobe.exe: a handler there is entered with 16 KB of
-     * the reservation left. Keeping less means the overflow is reported so late
-     * that the report itself does not fit, and the thread is killed instead. */
+    /* How much stack is kept in reserve so that a thread which runs out still has room to be
+     * told about it. This is upstream's value. It was once doubled, which pushed the no-grow
+     * threshold above the point where a program that tidies its own stack right up to the edge
+     * of the reserve writes, and such a program was then stopped with an overflow it should
+     * never have seen. Do not raise it without a program to test against. */
     size_t min_guaranteed = max( page_size * (is_win64 ? 2 : 1), host_page_size );
 
     stack->start = teb->DeallocationStack;
@@ -7150,11 +7154,22 @@ static unsigned int get_memory_region_info( HANDLE process, LPCVOID addr, MEMORY
 
     server_enter_uninterrupted_section( &virtual_mutex, &sigset );
 
+    /* Every byte the length reported below claims was written has to be written, or the fields
+       this does not fill keep whatever the caller's buffer held and the answer is not even
+       stable between two identical queries. */
+    memset( info, 0, min( len, sizeof(*info) ) );
+
     if ((view = get_memory_region_size( base, &region_start, &region_end, &fake_reserved )))
     {
         info->AllocationBase = view->base;
         info->AllocationProtect = get_win32_prot( view->protect, view->protect );
-        info->RegionType = 0; /* FIXME */
+        /* Windows names what backs the region, and always exactly one of these; reporting none
+           of them is an answer no Windows machine gives. */
+        info->RegionType = 0;
+        if (is_view_valloc( view )) info->Private = 1;
+        else if (view->protect & SEC_IMAGE) info->MappedImage = 1;
+        else if (view->protect & SEC_FILE) info->MappedDataFile = 1;
+        else info->MappedPageFile = 1;
         if (len >= FIELD_OFFSET(MEMORY_REGION_INFORMATION, CommitSize))
             info->RegionSize = view->size;
         if (len >= FIELD_OFFSET(MEMORY_REGION_INFORMATION, PartitionId))
@@ -7180,7 +7195,8 @@ static unsigned int get_memory_region_info( HANDLE process, LPCVOID addr, MEMORY
         }
         info->AllocationBase = region_start;
         info->AllocationProtect = PAGE_NOACCESS;
-        info->RegionType = 0; /* FIXME */
+        info->RegionType = 0;
+        info->Private = 1;
         info->RegionSize = region_end - region_start;
         info->CommitSize = 0;
     }
