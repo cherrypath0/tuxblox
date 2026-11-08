@@ -7258,8 +7258,8 @@ static void fill_working_set_info( struct fill_working_set_info_data *d, struct 
         }
 
         p->VirtualAttributes.Valid = !(vprot & VPROT_GUARD) && (vprot & 0x0f) && entry && entry->kve_type != KVME_TYPE_SWAP;
-        p->VirtualAttributes.Shared = !is_view_valloc( view );
-        p->VirtualAttributes.SharedOriginal = p->VirtualAttributes.Shared;
+        p->VirtualAttributes.SharedOriginal = !is_view_valloc( view );
+        p->VirtualAttributes.Shared = !is_view_valloc( view ) && !(vprot & VPROT_COPIED);
         if (p->VirtualAttributes.Shared && p->VirtualAttributes.Valid)
             p->VirtualAttributes.ShareCount = 1; /* FIXME */
         if (p->VirtualAttributes.Valid)
@@ -7332,12 +7332,13 @@ static void fill_working_set_info( struct fill_working_set_info_data *d, struct 
         pagemap = d->pm_buffer[page - d->buffer_start];
 
         p->VirtualAttributes.Valid = !(vprot & VPROT_GUARD) && (vprot & 0x0f) && (pagemap >> 63);
-        /* Windows reports a page of a mapped section as shared whatever its residency --
-           measured on 26300, where a not-present image page still answers Shared=1 -- so this
-           follows the backing rather than Linux's file-page bit, which goes false as soon as a
-           page is copied and made that answer disagree with Windows for every image. */
-        p->VirtualAttributes.Shared = !is_view_valloc( view );
-        p->VirtualAttributes.SharedOriginal = p->VirtualAttributes.Shared;
+        /* Windows distinguishes the two halves of copy-on-write, measured on 26300: a page still
+           shared with its section answers Shared=1 even when it is not resident, and one that has
+           been written is private and answers Shared=0, while SharedOriginal stays set either way
+           to record where it came from. Linux's file-page bit cannot express that, because Wine
+           maps an image into anonymous memory, so it reads false for a clean page too. */
+        p->VirtualAttributes.SharedOriginal = !is_view_valloc( view );
+        p->VirtualAttributes.Shared = !is_view_valloc( view ) && !(vprot & VPROT_COPIED);
         if (p->VirtualAttributes.Shared && p->VirtualAttributes.Valid)
             p->VirtualAttributes.ShareCount = 1; /* FIXME */
         if (p->VirtualAttributes.Valid)
