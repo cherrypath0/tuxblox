@@ -38,6 +38,9 @@
 #include <sys/mman.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#ifdef HAVE_SYS_UTSNAME_H
+# include <sys/utsname.h>
+#endif
 #include <malloc.h>
 #include <dlfcn.h>
 #ifdef HAVE_PWD_H
@@ -1470,6 +1473,39 @@ static NTSTATUS unixcall_relocate_module( void *args )
     return virtual_relocate_module( params->module );
 }
 
+/* TuxBlox says what it is here on purpose. An anti-tamper vendor that wants to
+ * recognise this compatibility layer should be able to ask it directly instead
+ * of inferring it from behaviour, so ntdll exports tuxblox_get_version,
+ * tuxblox_get_kernel and tuxblox_get_arch.
+ *
+ * The version those report is the layer's own, compiled in, so that nothing on
+ * disk and no setting decides what this answers. Neither a release nor a
+ * channel is reported: one layer build ships in several releases, and the same
+ * build serves every channel, so both are properties of the install rather than
+ * of this binary and are resolved from the version instead. */
+/* The names TuxBlox's own component layout uses, not whatever the kernel calls
+ * the processor, so an answer here matches the paths a release is served from. */
+static const char *tuxblox_arch_name( const char *machine )
+{
+    if (!strcmp( machine, "aarch64" ) || !strcmp( machine, "arm64" )) return "arm64";
+    if (!strcmp( machine, "x86_64" ) || !strcmp( machine, "amd64" )) return "x86_64";
+    return "unknown";
+}
+
+NTSTATUS tuxblox_info( void *args )
+{
+    struct utsname buf;
+    char kernel[200];
+
+    memset( &buf, 0, sizeof(buf) );
+    uname( &buf );
+    /* Every field carries its own precision so the two together provably fit the
+     * caller's buffer, which a plain %s of the utsname arrays cannot show. */
+    snprintf( kernel, sizeof(kernel), "%.64s %.64s %.64s", buf.sysname, buf.release, buf.machine );
+    snprintf( args, TUXBLOX_INFO_LEN, "%.199s%c%.31s", kernel, 0, tuxblox_arch_name( buf.machine ) );
+    return STATUS_SUCCESS;
+}
+
 static const unixlib_entry_t unix_call_funcs[] =
 {
     load_so_dll,
@@ -1488,6 +1524,7 @@ static const unixlib_entry_t unix_call_funcs[] =
     unixcall_compat_wine_nt_to_unix_file_name,
     unixcall_relocate_module,
     wine_version_info,
+    tuxblox_info,
 };
 
 
@@ -1598,6 +1635,7 @@ const unixlib_entry_t unix_call_wow64_funcs[] =
     wow64_compat_wine_nt_to_unix_file_name,
     wow64_relocate_module,
     wine_version_info,
+    tuxblox_info,
 };
 
 #endif  /* _WIN64 */
