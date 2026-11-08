@@ -4428,6 +4428,9 @@ static TEB *init_teb( void *ptr, BOOL is_wow )
 #endif
     teb->Peb = peb;
     teb->Tib.Self = &teb->Tib;
+    /* Measured as 0xfffe on every one of the reference machine's threads and never written
+       here at all, so reading four bytes of your own TEB told a program what this was. */
+    teb->TxFsContext = 0xfffe;
     teb->Tib.StackBase = (void *)~0ul;
     /* Windows leaves this constant in the union until the thread becomes a
      * fiber; zero here is visible to anything reading %gs:0x20 directly. */
