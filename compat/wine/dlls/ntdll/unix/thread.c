@@ -2239,6 +2239,15 @@ static BOOL is_process_wow64( const CLIENT_ID *id )
  * Note Windows never answers a thread class with STATUS_NOT_IMPLEMENTED, and
  * that its table ends at 59 -- everything above that is an invalid class.
  * Only classes without their own case below are answered from here. */
+/* Measured on Windows 10.0.26300 with workspace/tests/tuxcapture.exe. Same cause as the process
+ * table's: the probe that built this one started its size list at 8, so every class taking a
+ * plain ULONG was recorded as refusing at every size when Windows answers it. */
+static const unsigned char thr_zero_4[4];
+static const unsigned char thr_two_4[4]    = { 0x02 };
+static const unsigned char thr_five_4[4]   = { 0x05 };
+static const unsigned char thr_eight_4[4]  = { 0x08 };
+static const unsigned char thr_41_data[16] = { 0xff, 0x0f };
+
 static const unsigned char thr_11_data[8];
 static const unsigned char thr_34_data[1];
 static const unsigned char thr_37_data[16];
@@ -2273,13 +2282,13 @@ static const struct known_class known_thread_classes[] =
     {  15, 0xc0000003, NO_LENGTH },
     {  16, 0xc0000004, NO_LENGTH },
     {  17, 0xc0000004, NO_LENGTH },
-    {  18, 0xc0000004, NO_LENGTH },
+    {  18, 0xc0000004,   4, thr_zero_4, 4 },
     {  19, 0xc0000003, NO_LENGTH },
     {  20, 0xc0000004, NO_LENGTH },
-    {  22, 0xc0000004, NO_LENGTH },
+    {  22, 0xc0000004,   4, thr_two_4, 4 },
     {  23, 0xc0000004, NO_LENGTH },
-    {  24, 0xc0000004, NO_LENGTH },
-    {  25, 0xc0000004, NO_LENGTH },
+    {  24, 0xc0000004,   4, thr_five_4, 4 },
+    {  25, 0xc0000004,   4, thr_eight_4, 4 },
     {  26, 0xc0000004, NO_LENGTH },
     {  27, 0xc0000003, NO_LENGTH },
     {  28, 0xc0000003, NO_LENGTH },
@@ -2290,16 +2299,16 @@ static const struct known_class known_thread_classes[] =
     {  33, 0xc0000004, NO_LENGTH },
     {  34, 0xc0000004, NO_LENGTH },
     {  35, 0xc0000004, NO_LENGTH },
-    {  36, 0xc0000004, NO_LENGTH },
+    {  36, 0xc0000004,   4, thr_five_4, 4 },
     {  37, 0xc0000004, NO_LENGTH },
     {  38, 0xc0000023,       16  },
     {  39, 0x00000000,        8  },
     {  40, 0xc0000004, NO_LENGTH },
-    {  41, 0xc0000004, NO_LENGTH },
-    {  42, 0xc0000004, NO_LENGTH },
-    {  43, 0xc0000004, NO_LENGTH },
+    {  41, 0xc0000004,  16, thr_41_data, 16 },
+    {  42, 0xc0000004,   4, thr_zero_4, 4 },
+    {  43, 0xc0000004,   4, thr_zero_4, 4 },
     {  44, 0xc0000004, NO_LENGTH },
-    {  45, 0xc0000004, NO_LENGTH },
+    {  45, 0xc0000004,   4, thr_zero_4, 4 },
     {  46, 0xc0000003, NO_LENGTH },
     {  47, 0xc0000003, NO_LENGTH },
     {  48, 0xc0000003, NO_LENGTH },
@@ -2308,8 +2317,8 @@ static const struct known_class known_thread_classes[] =
     {  51, 0xc0000003, NO_LENGTH },
     {  52, 0xc0000003, NO_LENGTH },
     {  53, 0xc0000003, NO_LENGTH },
-    {  54, 0xc0000004, NO_LENGTH },
-    {  55, 0xc0000004, NO_LENGTH },
+    {  54, 0xc0000004,   4, thr_two_4, 4 },
+    {  55, 0xc0000004,   4, thr_five_4, 4 },
     {  56, 0xc0000003, NO_LENGTH },
     {  57, 0xc0000004, NO_LENGTH },
     {  58, 0xc0000004, NO_LENGTH },

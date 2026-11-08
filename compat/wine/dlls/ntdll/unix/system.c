@@ -3553,6 +3553,12 @@ static BOOL tuxblox_sysclass_answer_full( unsigned int class )
     return FALSE;
 }
 
+/* Measured on Windows 10.0.26300 with workspace/tests/tuxcapture.exe: both are answered with a
+ * buffer of zeros, where this table had 208 sized zero (so the answer branch never ran) and 234
+ * sized but with no payload (so it came back "not implemented"). */
+static const unsigned char sys_208_data[4];
+static const unsigned char sys_234_data[17048];
+
 static const struct known_class known_system_classes[] =
 {
     /* Classes this build used to deny outright. A real Windows 11 25H2 has all
@@ -3746,7 +3752,7 @@ static const struct known_class known_system_classes[] =
     { 204, 0xc0000003, NO_LENGTH },
     { 205, 0xc0000003, NO_LENGTH },
     { 207, 0xc0000004,      4, sys_207_data, 4 },
-    { 208, 0xc0000004, 0 },
+    { 208, 0xc0000004, 4, sys_208_data, 4 },
     { 209, 0xc0000022, 0 },
     { 210, 0xc0000003, NO_LENGTH },
     { 211, 0xc0000003, NO_LENGTH },
@@ -3772,7 +3778,7 @@ static const struct known_class known_system_classes[] =
     { 231, 0xc0000003, NO_LENGTH },
     { 232, 0xc00000bb, 0 },
     { 233, 0xc0000003, NO_LENGTH },
-    { 234, 0xc0000004, 17048 },
+    { 234, 0xc0000004, 17048, sys_234_data, 17048 },
     { 235, 0xc0000022, 0 },
     { 236, 0xc00000bb, 0 },
     { 237, 0xc00000bb, 0 },

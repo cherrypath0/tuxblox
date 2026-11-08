@@ -1228,6 +1228,24 @@ static BOOL set_unalign_atomic_mode( ULONG64 flags ) {
 /**********************************************************************
  *           NtQueryInformationProcess  (NTDLL.@)
  */
+/* Answers measured on Windows 10.0.26300 with workspace/tests/tuxcapture.exe. Each of these
+ * classes was recorded as refusing at every size, because the probe that built this table began
+ * its size list at 8 and a class taking a plain ULONG therefore never found a length it would
+ * accept. Windows answers all of them. Only values that say nothing about the particular machine
+ * are here: a zero, or the mode or priority a normal process always reports.
+ * ProcessConsoleHostProcess and ProcessSequenceNumber were measured too and are deliberately
+ * absent -- one is a pid, the other a per-boot counter, so they keep refusing rather than carry
+ * another machine's. Where Windows writes fewer bytes than it asked for, data_len says so. */
+static const unsigned char prc_zero_4[4];
+static const unsigned char prc_zero_8[8];
+static const unsigned char prc_one_4[4]    = { 0x01 };
+static const unsigned char prc_two_4[4]    = { 0x02 };
+static const unsigned char prc_five_4[4]   = { 0x05 };
+static const unsigned char prc_77_data[12] = { 0x01 };
+static const unsigned char prc_87_data[1]  = { 0x02 };
+static const unsigned char prc_96_data[1]  = { 0x3e };
+static const unsigned char prc_106_data[4] = { 0x10 };
+
 static const unsigned char prc_47_data[] =
 {
     0x00, 0x00,
@@ -1267,10 +1285,10 @@ static const struct known_class known_process_classes[] =
     {  10, 0xc0000002, NO_LENGTH },
     {  14, 0xc0000004, NO_LENGTH },
     {  15, 0xc0000001, NO_LENGTH },
-    {  19, 0xc0000004, NO_LENGTH },
+    {  19, 0xc0000004,      4, prc_zero_4, 4 },
     {  23, 0xc0000004, NO_LENGTH },
-    {  28, 0xc0000004, NO_LENGTH },
-    {  29, 0xc0000004, NO_LENGTH },
+    {  28, 0xc0000004,      4, prc_one_4, 4 },
+    {  29, 0xc0000004,      4, prc_zero_4, 4 },
     {  32, 0xc0000004, NO_LENGTH },
     {  66, 0x00000000,         8 },
     {  67, 0x00000000,         8 },
@@ -1288,32 +1306,29 @@ static const struct known_class known_process_classes[] =
     {  15, 0xc0000001, NO_LENGTH },
     {  16, 0xc0000003, NO_LENGTH },
     {  17, 0xc0000003, NO_LENGTH },
-    {  19, 0xc0000004, NO_LENGTH },
     {  23, 0xc0000004, NO_LENGTH },
     {  25, 0xc0000003, NO_LENGTH },
-    {  28, 0xc0000004, NO_LENGTH },
-    {  29, 0xc0000004, NO_LENGTH },
     {  32, 0xc0000004, NO_LENGTH },
-    {  33, 0xc0000004, NO_LENGTH },
+    {  33, 0xc0000004,      4, prc_two_4, 4 },
     {  35, 0xc0000003, NO_LENGTH },
-    {  39, 0xc0000004, NO_LENGTH },
+    {  39, 0xc0000004,      4, prc_five_4, 4 },
     {  40, 0xc0000003, NO_LENGTH },
     {  41, 0xc0000003, NO_LENGTH },
     {  42, 0xc0000001, NO_LENGTH },
     {  44, 0xc0000004, NO_LENGTH },
-    {  45, 0xc0000004, NO_LENGTH },
-    {  46, 0xc0000004, NO_LENGTH },
+    {  45, 0xc0000004,      4, prc_zero_4, 4 },
+    {  46, 0xc0000004,      4, prc_zero_4, 4 },
 {  47, 0xc0000023,      2, prc_47_data, 2 },  /* refused as too small, not as a length mismatch */
     {  48, 0xc0000003, NO_LENGTH },
     {  49, 0xc0000004, NO_LENGTH },
     {  50, 0xc0000004, 62 },
     {  52, 0xc0000004, NO_LENGTH },
     {  53, 0xc0000003, NO_LENGTH },
-    {  54, 0xc0000004, NO_LENGTH },
+    {  54, 0xc0000004,      4, prc_zero_4, 4 },
     {  55, 0xc0000004,      8, prc_55_data, 8 },
     {  56, 0xc0000003, NO_LENGTH },
     {  57, 0xc0000003, NO_LENGTH },
-    {  59, 0xc0000004, NO_LENGTH },
+    {  59, 0xc0000004,      4, prc_zero_4, 4 },
     {  60, 0xc0000004, 80 },
     {  61, 0xc0000004,      8, prc_61_data, 1 },
     {  62, 0xc0000003, NO_LENGTH },
@@ -1323,12 +1338,12 @@ static const struct known_class known_process_classes[] =
     {  68, 0xc0000003, NO_LENGTH },
     {  69, 0xc0000004, NO_LENGTH },
     {  70, 0xc0000004, NO_LENGTH },
-    {  71, 0xc0000004, NO_LENGTH },
+    {  71, 0xc0000004,      4, prc_zero_4, 4 },
     {  72, 0xc0000024, NO_LENGTH },
     {  73, 0xc0000004, NO_LENGTH },
     {  74, 0xc0000004, NO_LENGTH },
-    {  75, 0xc0000004, NO_LENGTH },
-    {  77, 0xc0000004, NO_LENGTH },
+    {  75, 0xc0000004,      4, prc_zero_4, 4 },
+    {  77, 0xc0000004,     12, prc_77_data, 12 },
     {  78, 0xc0000003, NO_LENGTH },
     {  79, 0xc0000004,      8, prc_79_data, 8 },
     {  80, 0xc0000003, NO_LENGTH },
@@ -1338,7 +1353,7 @@ static const struct known_class known_process_classes[] =
     {  84, 0xc0000004, NO_LENGTH },
     {  85, 0xc0000022, NO_LENGTH },
     {  86, 0xc0000003, NO_LENGTH },
-    {  87, 0xc0000004, NO_LENGTH },
+    {  87, 0xc0000004,      4, prc_87_data, 1 },
     {  89, 0xc0000004, NO_LENGTH },
     {  90, 0xc0000003, NO_LENGTH },
     {  91, 0xc0000003, NO_LENGTH },
@@ -1356,6 +1371,12 @@ static const struct known_class known_process_classes[] =
     { 108, 0xc0000003, NO_LENGTH },
     { 112, 0xc0000003, NO_LENGTH },
     { 113, 0xc0000003, NO_LENGTH },
+    {  94, 0xc0000004,      8, prc_zero_8, 8 },
+    {  96, 0xc0000004,      4, prc_96_data, 1 },
+    { 106, 0xc0000004,      4, prc_106_data, 4 },
+    { 109, 0xc0000004,      4, prc_zero_4, 4 },
+    { 110, 0xc0000004,      4, prc_two_4, 4 },
+    { 111, 0xc0000004,      4, prc_five_4, 4 },
     { 114, 0xc0000004,     16, prc_114_data, 16 },
     { 116, 0xc0000003, NO_LENGTH },
     { 117, 0xc0000003, NO_LENGTH },
@@ -1996,14 +2017,10 @@ static NTSTATUS query_information_process( HANDLE handle, PROCESSINFOCLASS class
      * it answers a class it has never heard of with an invalid class. Anything
      * probing the range can tell the two apart, so say the same thing.
      * Measured on Windows 10 22H2 with workspace/tests/sysprobe.exe. */
+    /* 94, 96, 106, 109, 110, 111 and 114 were here too and are answered from the table below
+     * instead: listing them here shadowed it, which left ProcessNetworkIoCounters' measured
+     * payload unreachable. These two stay refused -- a sequence number and a thread lookup. */
     case ProcessSequenceNumber:             /* 92 */
-    case ProcessSecurityDomainInformation:  /* 94 */
-    case ProcessEnableLogging:              /* 96 */
-    case ProcessAltPrefetchParam:           /* 106 */
-    case ProcessMembershipInformation:      /* 109 */
-    case ProcessEffectiveIoPriority:        /* 110 */
-    case ProcessEffectivePagePriority:      /* 111 */
-    case ProcessNetworkIoCounters:          /* 114 */
     case ProcessFindFirstThreadByTebValue:  /* 115 */
         return STATUS_INFO_LENGTH_MISMATCH;
 
