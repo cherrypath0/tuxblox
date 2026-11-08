@@ -427,6 +427,11 @@ $(eval $(call rules-cmake,glslang,aarch64,unix))
 # HACK: glib 2.0 in the runtime is old and causes a lot of errors with a newer GCC
 WINE_CFLAGS += -Wno-discarded-qualifiers -std=gnu11
 
+# ntdll's tuxblox_get_version answers with this, so TuxBlox identifies itself
+# with a compiled-in number rather than one anybody could edit on disk. Passed
+# in as a make variable because only MAKEFLAGS crosses into the build container.
+WINE_CFLAGS += -DTUXBLOX_LAYER_VERSION=\"$(TUXBLOX_COMPAT_VERSION)\"
+
 WINE_SOURCE_ARGS = \
   --exclude configure \
   --exclude autom4te.cache \

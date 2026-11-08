@@ -675,7 +675,7 @@ step "Configuring Proton (ccache enabled for faster rebuilds)"
 run_step "configure_proton" strict logged "$ROOT/compat/configure.sh" --enable-ccache
 
 step "First-pass build (1/4) (using $JOBS parallel jobs)"
-run_step "first_pass_build" allow-fail logged make -j"$JOBS"
+run_step "first_pass_build" allow-fail logged make -j"$JOBS" TUXBLOX_COMPAT_VERSION="$TUXBLOX_COMPAT_VERSION"
 
 step "Fetching external sources (2/4)"
 run_step "fetch_external_sources" strict bash -c 'cd src-glslang && rm -rf External/spirv-tools External/googletest && python3 update_glslang_sources.py'
@@ -684,13 +684,13 @@ step "Initializing nested submodules (3/4)"
 run_step "init_submodules" strict bash -c 'cd "$ROOT/compat/submodules/dxvk-nvapi" && git submodule update --init --recursive'
 
 step "Ensuring wine x86_64 is configured"
-run_step "configure_wine_x86_64" strict logged make wine-x86_64-configure
+run_step "configure_wine_x86_64" strict logged make wine-x86_64-configure TUXBLOX_COMPAT_VERSION="$TUXBLOX_COMPAT_VERSION"
 
 step "Ensuring x86_64 NLS data is built"
 run_step "build_x86_64_nls" strict bash -c 'cd obj-wine-x86_64 && make nls/locale.nls'
 
 step "Resuming build (4/4) (using $JOBS parallel jobs)"
-run_step "resume_build" strict logged make -j"$JOBS"
+run_step "resume_build" strict logged make -j"$JOBS" TUXBLOX_COMPAT_VERSION="$TUXBLOX_COMPAT_VERSION"
 
 step "Compiling proton launcher"
 run_step "compile_proton_native" strict bash -c '

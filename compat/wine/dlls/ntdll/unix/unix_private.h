@@ -183,6 +183,7 @@ struct _FILE_FS_DEVICE_INFORMATION;
 
 extern const char wine_build[];
 extern NTSTATUS wine_version_info( void *args );
+extern NTSTATUS tuxblox_info( void *args );
 
 extern const char *home_dir;
 extern const char *data_dir;

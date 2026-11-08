@@ -252,6 +252,53 @@ void CDECL wine_get_host_version( const char **sysname, const char **release )
 }
 
 
+static char tuxblox_info_str[TUXBLOX_INFO_LEN];
+
+/*********************************************************************
+ *                  tuxblox_get_version
+ *
+ * The compatibility layer's own version, as "3.9.0", compiled in so that
+ * nothing on disk and no setting can change what this answers. A release and
+ * its channel are resolved from this rather than reported here: one layer
+ * build ships in several releases, and the same build serves every channel.
+ * Never NULL -- finding this export at all is what identifies TuxBlox.
+ */
+const char * CDECL tuxblox_get_version(void)
+{
+#ifdef TUXBLOX_LAYER_VERSION
+    return TUXBLOX_LAYER_VERSION;
+#else
+    return "unknown";
+#endif
+}
+
+
+/*********************************************************************
+ *                  tuxblox_get_kernel
+ *
+ * The host kernel, as "Linux 6.17.0-arch1-1 x86_64".
+ */
+const char * CDECL tuxblox_get_kernel(void)
+{
+    return tuxblox_info_str;
+}
+
+
+/*********************************************************************
+ *                  tuxblox_get_arch
+ *
+ * The host architecture, "x86_64" or "arm64", in the spelling a release path
+ * uses rather than the kernel's.
+ */
+const char * CDECL tuxblox_get_arch(void)
+{
+    const char *p = tuxblox_info_str;
+
+    p += strlen(p) + 1;  /* skip the kernel */
+    return p;
+}
+
+
 /* the names Windows uses in ProductOptions\ProductSuite, and the bit each one
  * stands for in the suite mask */
 static const struct { const WCHAR *name; WORD mask; } suite_names[] =
@@ -530,6 +577,7 @@ void version_init(void)
     WCHAR appversion[MAX_PATH+20];
 
     WINE_UNIX_CALL( unix_wine_version, wine_version );
+    WINE_UNIX_CALL( unix_tuxblox_info, tuxblox_info_str );
 
     /* The system call numbers, and every measured answer this build gives, come
      * from Windows 11 24H2. Reporting Windows 10 alongside them would describe

@@ -131,7 +131,13 @@ enum ntdll_unix_funcs
     unix_compat_wine_nt_to_unix_file_name,
     unix_relocate_module,
     unix_wine_version,
+    unix_tuxblox_info,
 };
+
+/* The buffer tuxblox_info fills: the host kernel and architecture,
+ * NUL-separated, for the tuxblox_get_* exports to hand out. The version is
+ * compiled in rather than fetched, so it is not in here. */
+#define TUXBLOX_INFO_LEN 256
 
 extern unixlib_handle_t __wine_unixlib_handle;
 
