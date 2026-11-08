@@ -17,6 +17,7 @@
 #include "integrity/authenticode.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdint>
 #include <cstring>
 #include <fstream>
@@ -259,6 +260,12 @@ std::string organisationOf(X509 *pCertificate) {
     return std::string(buffer, static_cast<size_t>(length));
 }
 
+std::string lowercased(std::string text) {
+    std::transform(text.begin(), text.end(), text.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return text;
+}
+
 IntegrityReport fail(IntegrityStatus status, const std::string& detail) {
     IntegrityReport report;
     report.status = status;
@@ -439,9 +446,13 @@ IntegrityReport verifyAuthenticode(const std::filesystem::path& file,
 
     IntegrityReport report;
     report.publisher = organisationOf(pLeaf);
-    if (!acceptedPublishers.empty() &&
-        std::find(acceptedPublishers.begin(), acceptedPublishers.end(), report.publisher) ==
-            acceptedPublishers.end()) {
+    // X.500 compares organisation names without regard to case, and Roblox has signed as both
+    // "Roblox Corporation" and "ROBLOX CORPORATION", so an exact match rejects its own binaries.
+    const std::string signer = lowercased(report.publisher);
+    bool recognised = false;
+    for (const std::string& accepted : acceptedPublishers)
+        if (signer == lowercased(accepted)) recognised = true;
+    if (!acceptedPublishers.empty() && !recognised) {
         std::string wanted;
         for (const std::string& publisher : acceptedPublishers) {
             if (!wanted.empty()) wanted += " or ";
