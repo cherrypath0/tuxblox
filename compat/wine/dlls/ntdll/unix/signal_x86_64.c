@@ -1834,10 +1834,14 @@ static void setup_raise_exception( ucontext_t *sigcontext, EXCEPTION_RECORD *rec
              * target sits here, and the return address says who transferred */
             {
                 const ULONG64 *sp = (const ULONG64 *)(ULONG_PTR)context->Rsp;
-                char st[256];
+                char st[512];
                 int n = 0, i;
 
-                for (i = -2; i < 6 && n < (int)sizeof(st) - 20; i++)
+                /* Wide enough to reach the calling function's own frame: a ret that
+                   popped one slot too low leaves the intended return address just
+                   above rsp and its caller's return address above that, and naming
+                   that caller is what says which call went wrong. */
+                for (i = -4; i < 16 && n < (int)sizeof(st) - 24; i++)
                 {
                     ULONG64 v = 0;
                     virtual_uninterrupted_read_memory( sp + i, &v, sizeof(v) );
