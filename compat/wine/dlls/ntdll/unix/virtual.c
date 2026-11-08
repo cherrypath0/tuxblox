@@ -5307,7 +5307,7 @@ static BOOL is_inside_thread_stack( void *ptr, struct thread_stack_info *stack )
      * workspace/tests/stackprobe.exe: a handler there is entered with 16 KB of
      * the reservation left. Keeping less means the overflow is reported so late
      * that the report itself does not fit, and the thread is killed instead. */
-    size_t min_guaranteed = max( page_size * (is_win64 ? 4 : 2), host_page_size );
+    size_t min_guaranteed = max( page_size * (is_win64 ? 2 : 1), host_page_size );
 
     stack->start = teb->DeallocationStack;
     stack->limit = teb->Tib.StackLimit;
