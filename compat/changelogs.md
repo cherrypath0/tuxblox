@@ -1,9 +1,1 @@
-- Added the Selawik font as a Segoe UI substitute
-- Changed certain CPU instructions to be emulated the same way Windows does, instead of being patched
-- Fixed a network issue in the browser engine that happens on older processors
-- Fixed an issue with the font resolver
-- Fixed the web engine not working in distros that do not have systemd
-- Fixed some black boxes randomly appearing in Roblox Studio
-- Fixed non-resizable windows being resizable
-- Fixed some windows being able to exceed their maximum size
-- Removed some host dependencies for the web engine
+- Added a way for Roblox to check whether it is running under TuxBlox, and which version, kernel and architecture it is on
