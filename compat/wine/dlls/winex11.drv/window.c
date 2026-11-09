@@ -1500,6 +1500,10 @@ Window init_clip_window(void)
 }
 
 
+/* The time of the last real keyboard or mouse input, which is what an activation request has to
+ * carry for a window manager to tell a window the user asked for from one that raised itself. */
+static Time last_user_time;
+
 /***********************************************************************
  *     window_set_user_time
  */
@@ -1507,6 +1511,10 @@ void window_set_user_time( struct x11drv_win_data *data, Time time, BOOL init )
 {
     if (init && data->managed) NtUserSetProp( data->hwnd, focus_time_prop, (HANDLE)time );
     else if (!init && !time) time = 1; /* time == 0 has reserved semantics */
+
+    /* Recorded before the early returns below, which drop a repeat of the same time rather than a
+     * later one, so the most recent input is kept whichever window received it. */
+    if (!init) last_user_time = time;
 
     if (init && !data->user_time == !time) return;
     if (!init && data->user_time == time) return;
@@ -2584,8 +2592,13 @@ void set_net_active_window( HWND hwnd, HWND previous )
     xev.xclient.display = data->display;
     xev.xclient.send_event = True;
     xev.xclient.format = 32;
-    xev.xclient.data.l[0] = 2; /* source: pager */
-    xev.xclient.data.l[1] = 0; /* timestamp */
+    /* A pager request tells the window manager the user asked for this window by hand, so it skips
+     * focus-stealing prevention entirely and every window that appears takes the keyboard from
+     * whatever the user was in. Asking as an ordinary application, with the time of the input that
+     * led here, lets the window manager decide: a window the user asked for still comes forward,
+     * and one that raised itself gets its taskbar entry highlighted instead. */
+    xev.xclient.data.l[0] = 1; /* source: a normal application */
+    xev.xclient.data.l[1] = last_user_time; /* the user action this request follows from */
     xev.xclient.data.l[2] = X11DRV_get_whole_window( previous ); /* current active */
     xev.xclient.data.l[3] = 0;
     xev.xclient.data.l[4] = 0;
@@ -4449,8 +4462,12 @@ void X11DRV_FlashWindowEx( FLASHWINFO *pfinfo )
         xev.xclient.data.l[3] = 1;
         xev.xclient.data.l[4] = 0;
 
+        /* A window manager only reads a state request off the root window when it arrives through
+         * SubstructureRedirect, so sent with notify alone this asked for attention and was dropped
+         * every time -- the taskbar never highlighted. The other state requests here already send
+         * both masks. */
         XSendEvent( data->display, DefaultRootWindow( data->display ), False,
-                    SubstructureNotifyMask, &xev );
+                    SubstructureRedirectMask | SubstructureNotifyMask, &xev );
         XFlush( data->display );
     }
     release_win_data( data );
