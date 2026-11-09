@@ -59,7 +59,8 @@ body:
       options:
         - Roblox Studio
         - Roblox Player
-        - Launcher (not Proton-related)
+        - Launcher
+        - Installer
         - Build system / not sure
     validations:
       required: true
@@ -71,7 +72,7 @@ body:
       description: What did you do, what did you expect, what happened instead?
       placeholder: |
         1. Launched TuxBlox with ...
-        2. Opened Studio and ...
+        2. Opened Roblox and ...
         3. Expected: ...
         4. Actual: ...
     validations:
@@ -90,6 +91,6 @@ body:
     id: additionalContext
     attributes:
       label: Additional context
-      description: GPU/driver info, DXVK version, anything else that might be relevant
+      description: GPU/driver info, X11/Wayland version, anything else that might be relevant
     validations:
       required: false
