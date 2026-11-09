@@ -34,7 +34,6 @@ compat/syn-*
 .claude/
 .superpowers/
 workspace/
-CLAUDE.md
 SKILL.md
 
 /*.tar.gz
