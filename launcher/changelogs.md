@@ -1,1 +1,2 @@
+- Added an animated boot screen to the launcher window
 - Fixed the **Preferred graphics card** setting being ignored on laptops with two graphics cards
