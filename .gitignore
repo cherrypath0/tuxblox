@@ -35,6 +35,7 @@ compat/syn-*
 .superpowers/
 workspace/
 SKILL.md
+CLAUDE.local.md
 
 /*.tar.gz
 /*.tar.zst
