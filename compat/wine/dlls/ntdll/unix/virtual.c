@@ -7422,6 +7422,15 @@ static NTSTATUS get_working_set_ex( HANDLE process, LPCVOID addr,
     while (view && (char *)view->base < end)
     {
         if (start < (char *)view->base) start = view->base;
+        /* The Shared bit reported below turns on which write-copy pages have already been
+         * written, and that state was only ever refreshed on the MemoryBasicInformation path.
+         * Without this every resident image page reads back shared however much of the image
+         * has been written, which is not what Windows reports. */
+        if (view->protect & SEC_IMAGE)
+        {
+            char *view_end = (char *)view->base + view->size;
+            update_writecopy_state( start, end < view_end ? end : view_end );
+        }
         while (r != ref + count && r->addr < start) ++r;
         while (start != (char *)view->base + view->size && r != ref + count
                && r->addr < (char *)view->base + view->size)
@@ -7464,8 +7473,38 @@ static NTSTATUS get_working_set_ex( HANDLE process, LPCVOID addr,
                     info[i].VirtualAttributes.ShareCount = 1;
                 }
             }
+            else if (!strcmp( test, "private" ))
+            {
+                /* The opposite of "shared", and the arm nothing has ever produced: the Player's walk
+                   stops at the first page that is resident and NOT shared, and every page we report
+                   resident is shared, so it always walks to the end. This says whether that early
+                   exit is what skips the block leaving the stack high -- if it is not, residency is
+                   not the lever and the whole line of enquiry closes. */
+                if (info[i].VirtualAttributes.Valid) info[i].VirtualAttributes.Shared = 0;
+            }
             else if (info[i].VirtualAttributes.Valid) info[i].VirtualAttributes.Flags |= 5u << 24;
         }
+    }
+
+    /* The Roblox Player walks this answer looking for the first resident page and branches on
+     * whether that page is shared, so the shape of the whole answer is what decides the branch. */
+    if (tuxblox_diag_enabled())
+    {
+        SIZE_T valid = 0, valid_shared = 0, first = ~(SIZE_T)0;
+
+        for (i = 0; i < count; i++)
+        {
+            if (!info[i].VirtualAttributes.Valid) continue;
+            if (first == ~(SIZE_T)0) first = i;
+            valid++;
+            if (info[i].VirtualAttributes.Shared) valid_shared++;
+        }
+        ERR( "DIAG wsex count=%u valid=%u valid_shared=%u first_valid=%d addr0=%p flags0=%#llx first_addr=%p first_flags=%#llx\n",
+             (unsigned int)count, (unsigned int)valid, (unsigned int)valid_shared,
+             first == ~(SIZE_T)0 ? -1 : (int)first, info[0].VirtualAddress,
+             (unsigned long long)info[0].VirtualAttributes.Flags,
+             first == ~(SIZE_T)0 ? NULL : info[first].VirtualAddress,
+             first == ~(SIZE_T)0 ? 0ull : (unsigned long long)info[first].VirtualAttributes.Flags );
     }
 
     if (res_len)
