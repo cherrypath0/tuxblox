@@ -8,7 +8,7 @@
     "tbxFlagDisableGeoTool": false,
     "tbxFlagDisableCrashTelemetry": false,
     "tbxFlagEnableChannelToUpperChannelUpgradeOnBuildPromotion": true,
-    "tbxStringPrivacyPolicyVersion": "2026-10-16",
+    "tbxStringPrivacyPolicyVersion": "2026-11-10",
     "tbxStringTermsOfUseVersion": "2026-10-17",
     "tbxStringHttpProtocolOther": "2",
     "tbxStringHttpProtocolCdn": "1.1",
