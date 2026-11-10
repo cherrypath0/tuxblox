@@ -96,6 +96,7 @@ if(NOT TUXBLOX_TRANSLATIONS_DIR)
     set(TUXBLOX_TRANSLATIONS_DIR "${CMAKE_SOURCE_DIR}/../shared/translations")
 endif()
 include(${TUXBLOX_I18N_DIR}/src/EmbedTranslations.cmake)
+include(${TUXBLOX_SHARED_FLAGS}/EmbedFlags.cmake)
 
 file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/generated)
 # TUXBLOX_BUILD_VERSION carries the LAUNCHER's own version, which launcher/build.sh reads from
@@ -235,7 +236,7 @@ include(cmake/EmbedAssets.cmake)
 # and copyright_file.cpp/license_file.cpp embed license text. Declared here
 # on launcher_core itself, not duplicated on every consumer, since these
 # are launcher_core's own compile-time requirements.
-add_dependencies(launcher_core generate_ca_bundle_header generate_logo_header generate_font_header generate_thirdparty_license_headers generate_license_header generate_i18n_header)
+add_dependencies(launcher_core generate_ca_bundle_header generate_logo_header generate_font_header generate_thirdparty_license_headers generate_license_header generate_i18n_header generate_default_flags_header)
 
 # The window needs the interface stack's development tree, which only exists once shared/tools/ui-build.sh has run; without it only launcher_core and its tests build, and build.sh refuses to finish.
 if(TUXBLOX_UI_STACK_DEV)
