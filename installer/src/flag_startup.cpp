@@ -16,6 +16,7 @@
 
 #include "flag_startup.h"
 #include "release_file.h"
+#include "user_agent.h"
 
 namespace tuxblox {
 
@@ -28,7 +29,8 @@ constexpr int kFlagFetchSeconds = 5;
 void initInstallerFlags(const std::string& installDir, const std::string& channel,
                         FlagFetch fetch) {
     const RecordedRelease release = readRecordedRelease(installDir);
-    initFlags(installDir, channel, release.present, kFlagFetchSeconds, std::move(fetch));
+    initFlags(installDir, channel, release.present, kFlagFetchSeconds, std::move(fetch),
+              {}, userAgent());
 }
 
 } // namespace tuxblox

@@ -17,10 +17,13 @@
 #include "flags.h"
 #include "flag_table.h"
 #include "tuxblox_default_flags.h"
+#include "ca_bundle.h"
 #include <chrono>
 #include <condition_variable>
 #include <fstream>
 #include <mutex>
+#include <optional>
+#include <cstdio>
 #include <sstream>
 #include <thread>
 #include <curl/curl.h>
@@ -30,6 +33,7 @@ namespace tuxblox {
 namespace {
 
 const char* const kConfigBase = "https://config.tuxblox.net";
+const char* const kFallbackUserAgent = "TuxBlox";
 // A flag set is a short object; anything larger is not one.
 constexpr long kMaxBody = 64 * 1024;
 
@@ -49,6 +53,7 @@ struct State {
     std::string installDir;
     int timeoutSeconds = 5;
     bool sealed = false;
+    bool initialised = false;
 };
 
 std::mutex& stateMutex() {
@@ -72,11 +77,20 @@ size_t writeToString(char* ptr, size_t size, size_t nmemb, void* userdata) {
     return size * nmemb;
 }
 
-std::string curlFetch(const std::string& url, int timeoutSeconds) {
+std::string curlFetch(const std::string& url, int timeoutSeconds, const std::string& agent) {
     CURL* curl = curl_easy_init();
     if (!curl) return {};
     std::string body;
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+    // Not optional: the libcurl TuxBlox ships is built --without-ca-bundle on purpose,
+    // so a request that does not ask for the certificate list fails verification on
+    // every machine, forever, and fails soft with nothing said.
+    applyCaBundle(curl);
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, agent.c_str());
+    // This is the one handle in the tree created on a thread spawned for it, which is
+    // the case libcurl documents NOSIGNAL for.
+    curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, static_cast<long>(timeoutSeconds));
     // HTTP/2 where the server offers it, by ALPN. For one small request the gain is
     // marginal -- a TLS handshake dominates -- but it costs nothing to ask for.
     curl_easy_setopt(curl, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2TLS);
@@ -114,18 +128,26 @@ void sealLocked(State& s) {
             mergeFlagsOver(s.table, parseFlagJson(s.pending->body, true));
         }
     }
-    // Last, so it wins: this file is the one a person wrote by hand.
+    // Last, so it wins: this file is the one a person wrote by hand. Skipped entirely
+    // when there is no install directory, rather than consulting the filesystem root.
+    if (s.installDir.empty()) return;
     const std::string override = readFile(s.installDir + "/flags.json");
-    if (!override.empty()) mergeFlagsOver(s.table, parseFlagJson(override, false));
+    if (!override.empty()) {
+        fprintf(stderr, "TuxBlox: reading flag overrides from %s/flags.json\n", s.installDir.c_str());
+        mergeFlagsOver(s.table, parseFlagJson(override, false));
+    }
 }
 
-const FlagValue* lookup(const std::string& name) {
+// Returns a COPY, not a pointer: a pointer dereferenced after the lock is released is a
+// use-after-free the moment anything clears the table.
+std::optional<FlagValue> lookup(const std::string& name) {
     std::lock_guard<std::mutex> lock(stateMutex());
     State& s = state();
     if (s.table.empty() && !s.sealed) s.table = defaultTable();
     sealLocked(s);
     auto it = s.table.find(name);
-    return it == s.table.end() ? nullptr : &it->second;
+    if (it == s.table.end()) return std::nullopt;
+    return it->second;
 }
 
 } // namespace
@@ -142,11 +164,28 @@ std::string clientFlagsUrl(const std::string& channel, const std::string& arch) 
     return std::string(kConfigBase) + "/v1/tuxblox/client/" + channel + "/" + arch + "/flags";
 }
 
-void initFlags(const std::string& installDir, const std::string& channel,
-               bool isRecordedRelease, int timeoutSeconds,
-               FlagFetch fetch, const std::string& baseUrl) {
+void resetFlags() {
     std::lock_guard<std::mutex> lock(stateMutex());
     State& s = state();
+    s.table.clear();
+    s.pending.reset();
+    s.installDir.clear();
+    s.sealed = false;
+    s.initialised = false;
+}
+
+void initFlags(const std::string& installDir, const std::string& channel,
+               bool isRecordedRelease, int timeoutSeconds,
+               FlagFetch fetch, const std::string& baseUrl, const std::string& userAgent) {
+    std::lock_guard<std::mutex> lock(stateMutex());
+    State& s = state();
+    // Ignored rather than obeyed: once anything has read a flag the answer is fixed for
+    // the run, and a second init would hand the next reader a different one.
+    if (s.initialised || s.sealed) {
+        fprintf(stderr, "TuxBlox: flags are already loaded; this call is ignored\n");
+        return;
+    }
+    s.initialised = true;
     s.table = defaultTable();
     s.installDir = installDir;
     s.timeoutSeconds = timeoutSeconds > 0 ? timeoutSeconds : 5;
@@ -155,11 +194,19 @@ void initFlags(const std::string& installDir, const std::string& channel,
 
     if (!isRecordedRelease) return;
 
+    // Touched on this thread so its statics are constructed before the detached fetch
+    // can reach them, and cannot be destroyed underneath it at exit.
+    (void)caBundlePath();
+
     const std::string base = baseUrl.empty() ? kConfigBase : baseUrl;
     const std::string url = base + "/v1/tuxblox/client/" + channel + "/" + flagArch() + "/flags";
     auto pending = std::make_shared<Pending>();
     s.pending = pending;
-    FlagFetch run = fetch ? fetch : FlagFetch(curlFetch);
+    const std::string agent = userAgent.empty() ? kFallbackUserAgent : userAgent;
+    FlagFetch run = fetch ? fetch
+                          : FlagFetch([agent](const std::string& target, int seconds) {
+                                return curlFetch(target, seconds, agent);
+                            });
 
     // Detached rather than joined: a fetch that outran its budget must not hold up the
     // program, and it writes into `pending`, which outlives this scope by shared_ptr.
@@ -180,17 +227,17 @@ void initFlags(const std::string& installDir, const std::string& channel,
 }
 
 bool flagBool(const std::string& name) {
-    const FlagValue* value = lookup(name);
+    const std::optional<FlagValue> value = lookup(name);
     return value && value->type == FlagType::Bool && value->boolean;
 }
 
 int64_t flagInt(const std::string& name) {
-    const FlagValue* value = lookup(name);
+    const std::optional<FlagValue> value = lookup(name);
     return value && value->type == FlagType::Int ? value->integer : 0;
 }
 
 std::string flagString(const std::string& name) {
-    const FlagValue* value = lookup(name);
+    const std::optional<FlagValue> value = lookup(name);
     return value && value->type == FlagType::String ? value->text : std::string();
 }
 

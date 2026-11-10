@@ -14,8 +14,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
+#include "flag_startup.h"
 #include "headless_launch.h"
 #include "fastflag_file.h"
+#include "i18n.h"
 #include "root_guard.h"
 #include "install_paths.h"
 #include "prefix_session.h"
@@ -37,6 +39,7 @@ namespace tuxblox {
 
 int runHeadlessQuickLaunch(const std::string& installDir, LaunchTarget target, const std::string& uri) {
     const Settings settings = loadSettings(installDir);
+    i18n::initializeFromSetting(settings.language);
 
     // Before the exe is resolved, so a version installed by this check is the
     // one that starts.
@@ -77,7 +80,9 @@ int runHeadlessQuickLaunch(const std::string& installDir, LaunchTarget target, c
         return 0;
     }
 
-    for (const auto& kv : launchEnvVars(installDir, target)) {
+    std::vector<std::string> launchEnv = launchEnvVars(installDir, target);
+    for (const std::string& kv : flagEnvVars(installDir)) launchEnv.push_back(kv);
+    for (const auto& kv : launchEnv) {
         auto pos = kv.find('=');
         setenv(kv.substr(0, pos).c_str(), kv.substr(pos + 1).c_str(), 1);
     }

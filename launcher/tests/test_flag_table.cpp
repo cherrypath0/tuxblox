@@ -41,6 +41,15 @@ int main() {
         assert(parseFlagJson(R"({"tbxStringC":9})", false).empty());
         assert(parseFlagJson(R"({"tbxFlagA":1})", false).empty());       // 1 is not true
         assert(parseFlagJson(R"({"tbxIntB":4.5})", false).empty());      // not an integer
+        // Past int64: nlohmann parses this as UNSIGNED, is_number_integer() is true, and
+        // get<int64_t>() wraps it to a large negative. A flag set large and positive
+        // would arrive at every install as its negative twin, so it is refused instead.
+        assert(parseFlagJson(R"({"tbxIntB":9223372036854775808})", false).empty());
+        assert(parseFlagJson(R"({"tbxIntB":18446744073709551615})", false).empty());
+        assert(parseFlagJson(R"({"tbxIntB":1e300})", false).empty());
+        // The edges themselves still work.
+        assert(parseFlagJson(R"({"tbxIntB":9223372036854775807})", false)
+                   .at("tbxIntB").integer == 9223372036854775807LL);
         assert(parseFlagJson(R"({"unknownPrefix":true})", false).empty());
         assert(parseFlagJson(R"({"tbxFlagA":{"nested":true}})", false).empty());
         assert(parseFlagJson(R"({"tbxFlagA":[true]})", false).empty());

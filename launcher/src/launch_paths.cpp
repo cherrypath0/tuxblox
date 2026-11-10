@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-#include "flag_startup.h"
 #include "launch_paths.h"
 #include "prefix_user.h"
 #include "install_paths.h"
@@ -40,15 +39,6 @@ std::vector<std::string> launchEnvVars(const std::string& installDir, LaunchTarg
         "TUXBLOX_PREFIX=" + installDir + "/runtime",
         "TUXBLOX_LOG_DIR=" + installDir + "/logs",
     };
-    // The layer knows nothing of its own context beyond the prefix, so what it needs to
-    // read its flags is handed over here. RELEASED is set only for an install that
-    // records a release, which is what keeps a local build out of build/ from asking.
-    const RecordedRelease release = readRecordedRelease(installDir);
-    env.push_back("TUXBLOX_FLAGS_CHANNEL=" +
-                  flagChannelFor(loadSettings(installDir), settingsFilePresent(installDir),
-                                 release));
-    if (release.present) env.push_back("TUXBLOX_FLAGS_RELEASED=1");
-
     if (target == LaunchTarget::Studio) {
         // Studio's embedded WebView2 (login/create.roblox.com UI) appears to rely
         // on a DXGI composition swapchain; DXVK's CreateSwapChainForComposition

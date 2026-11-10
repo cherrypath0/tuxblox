@@ -28,11 +28,17 @@ COMPONENT_INPUTS = {
     # changes both binaries. Missing from this map it would change them silently: neither VERSION
     # gets bumped, and a component version's published bytes are written once ever, so the CDN
     # would keep serving the old ones and the fix would never reach anybody.
-    "launcher":   ("launcher/", "shared/ui/", "shared/release/"),
-    "installer":  ("installer/", "shared/ui/", "shared/release/"),
+    # shared/i18n/ and shared/translations/ are the same case: the catalogues are compiled into
+    # both binaries at build time, so a translation that changes without a bump would never reach
+    # anybody.
+    # shared/flags/ is compiled into all three of launcher_core, installer_core and the
+    # compatibility layer, so a flags-only change -- a fix to the fetch, or a name added to
+    # the local-only list, which only a release can deliver -- must bump all three.
+    "launcher":   ("launcher/", "shared/ui/", "shared/release/", "shared/flags/", "shared/i18n/", "shared/translations/"),
+    "installer":  ("installer/", "shared/ui/", "shared/release/", "shared/flags/", "shared/i18n/", "shared/translations/"),
     "studio-mcp": ("studio-mcp/",),
     "libtuxblox": ("shared/ui/", "shared/tools/ui-"),
-    "compat":     ("compat/",),
+    "compat":     ("compat/", "shared/flags/"),
 }
 
 # Paths that sit inside a component's directory without being built into it. installer/bridge/

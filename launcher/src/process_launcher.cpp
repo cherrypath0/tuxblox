@@ -14,7 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
+#include "flag_startup.h"
 #include "process_launcher.h"
+#include "i18n.h"
 #include "root_guard.h"
 #include "launch_paths.h"
 
@@ -42,14 +44,14 @@ namespace tuxblox {
 
 const char* exitCodeTitle(int exitCode) {
     switch (exitCode) {
-        case 0:   return "OK";
-        case 1:   return "General Error";
-        case 127: return "Not Executable";
-        case 132: return "Illegal CPU instruction";
-        case 134: return "Aborted";
-        case 137: return "Killed";
-        case 139: return "Segmentation Fault";
-        case 143: return "Terminated";
+        case 0:   return i18n::tr("OK");
+        case 1:   return i18n::tr("General Error");
+        case 127: return i18n::tr("Not Executable");
+        case 132: return i18n::tr("Illegal CPU instruction");
+        case 134: return i18n::tr("Aborted");
+        case 137: return i18n::tr("Killed");
+        case 139: return i18n::tr("Segmentation Fault");
+        case 143: return i18n::tr("Terminated");
         default:  return nullptr; // not in the table -- caller shows the bare code, no made-up description
     }
 }
@@ -274,7 +276,7 @@ LaunchOutcome ProcessLauncher::launch(LaunchTarget target, const std::string& ur
                                        const std::vector<std::string>& extraEnv) {
     TrackedProcess& p = processFor(target);
     if (p.isRunning()) {
-        return {false, "already running", "", false};
+        return {false, i18n::tr("already running"), "", false};
     }
 
     std::string exePath = resolveActiveVersionExePath(target, installDir_);
@@ -290,7 +292,7 @@ LaunchOutcome ProcessLauncher::launch(LaunchTarget target, const std::string& ur
         wasBootstrapInstall = !exePath.empty() && resolveExePath(target, driveC).empty();
     }
     if (exePath.empty()) {
-        return {false, "could not resolve or download the Roblox executable", "", false};
+        return {false, i18n::tr("could not resolve or download the Roblox executable"), "", false};
     }
 
     // Applied in the child (via TrackedProcess::start's env overlay) rather
@@ -298,6 +300,7 @@ LaunchOutcome ProcessLauncher::launch(LaunchTarget target, const std::string& ur
     // setenv()/getenv() are not thread-safe in glibc, and this (parent)
     // process has other threads that may call getenv() concurrently.
     std::vector<std::string> env = launchEnvVars(installDir_, target);
+    for (const std::string& kv : flagEnvVars(installDir_)) env.push_back(kv);
     env.insert(env.end(), extraEnv.begin(), extraEnv.end());
 
     // Multi-instance. A launch into a prefix that already has a live Roblox
@@ -339,7 +342,7 @@ LaunchOutcome ProcessLauncher::launch(LaunchTarget target, const std::string& ur
     const std::string logPath = launchLogPath(installDir_, target);
 
     if (!p.start(argv, env, logPath)) {
-        return {false, "failed to start Proton process", "", false};
+        return {false, i18n::tr("failed to start Proton process"), "", false};
     }
     return {true, "", logPath, wasBootstrapInstall};
 }

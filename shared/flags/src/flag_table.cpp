@@ -17,6 +17,8 @@
 #include "flag_table.h"
 #include "json.hpp"
 #include <array>
+#include <cstdint>
+#include <cstdio>
 
 namespace tuxblox {
 
@@ -60,29 +62,55 @@ FlagTable parseFlagJson(const std::string& json, bool fromServer) {
     nlohmann::json parsed;
     try {
         parsed = nlohmann::json::parse(json);
-    } catch (const nlohmann::json::exception&) {
+    } catch (const nlohmann::json::exception& failure) {
+        // Said out loud: a flag that was dropped and a flag that was never written look
+        // identical from the outside, and support cannot tell a user which they have.
+        if (!json.empty()) {
+            fprintf(stderr, "TuxBlox: ignoring flags that are not valid JSON (%s)\n", failure.what());
+        }
         return table;
     }
-    if (!parsed.is_object()) return table;
+    if (!parsed.is_object()) {
+        fprintf(stderr, "TuxBlox: ignoring flags that are not a JSON object\n");
+        return table;
+    }
 
     for (auto it = parsed.begin(); it != parsed.end(); ++it) {
         const std::optional<FlagType> type = flagTypeForName(it.key());
-        if (!type.has_value()) continue;
-        if (fromServer && isLocalOnlyFlag(it.key())) continue;
+        if (!type.has_value()) {
+            fprintf(stderr, "TuxBlox: ignoring the flag \"%s\": its name says no type\n",
+                    it.key().c_str());
+            continue;
+        }
+        if (fromServer && isLocalOnlyFlag(it.key())) {
+            fprintf(stderr, "TuxBlox: ignoring the flag \"%s\" from the server: it can only be "
+                            "set on this machine\n", it.key().c_str());
+            continue;
+        }
 
         FlagValue value;
         value.type = *type;
+        bool usable = true;
         if (*type == FlagType::Bool) {
-            if (!it->is_boolean()) continue;
-            value.boolean = it->get<bool>();
+            if (!it->is_boolean()) usable = false;
+            else value.boolean = it->get<bool>();
         } else if (*type == FlagType::String) {
-            if (!it->is_string()) continue;
-            value.text = it->get<std::string>();
+            if (!it->is_string()) usable = false;
+            else value.text = it->get<std::string>();
         } else {
             // is_number_integer() is false for a boolean and for 4.5, which is what keeps
             // "true" from arriving as 1 and a fraction from being truncated.
-            if (!it->is_number_integer() || it->is_boolean()) continue;
-            value.integer = it->get<int64_t>();
+            if (!it->is_number_integer() || it->is_boolean()) usable = false;
+            // It is also TRUE for an unsigned past int64, where get<int64_t>() wraps: a
+            // flag set large and positive would arrive as its large negative twin.
+            else if (it->is_number_unsigned() &&
+                     it->get<uint64_t>() > static_cast<uint64_t>(INT64_MAX)) usable = false;
+            else value.integer = it->get<int64_t>();
+        }
+        if (!usable) {
+            fprintf(stderr, "TuxBlox: ignoring the flag \"%s\": its value is not the kind its "
+                            "name says\n", it.key().c_str());
+            continue;
         }
         table[it.key()] = value;
     }

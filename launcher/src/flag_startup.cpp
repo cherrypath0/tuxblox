@@ -17,6 +17,7 @@
 #include "flag_startup.h"
 #include "flags.h"
 #include "roblox_config.h"
+#include "user_agent.h"
 #include <filesystem>
 #include <system_error>
 
@@ -43,12 +44,24 @@ std::string flagChannelFor(const Settings& settings, bool settingsPresent,
     return "stable";
 }
 
+std::vector<std::string> flagEnvVars(const std::string& installDir) {
+    const RecordedRelease release = readRecordedRelease(installDir);
+    std::vector<std::string> env = {
+        "TUXBLOX_FLAGS_CHANNEL=" +
+            flagChannelFor(loadSettings(installDir), settingsFilePresent(installDir), release),
+    };
+    // Only for an install that records a release, which is what keeps a local build out
+    // of build/ from reaching the network on the launch path.
+    if (release.present) env.push_back("TUXBLOX_FLAGS_RELEASED=1");
+    return env;
+}
+
 void initLauncherFlags(const std::string& installDir) {
     const Settings settings = loadSettings(installDir);
     const RecordedRelease release = readRecordedRelease(installDir);
     initFlags(installDir, flagChannelFor(settings, settingsFilePresent(installDir), release),
               release.present,
-              kFlagFetchSeconds, {}, configBaseUrl());
+              kFlagFetchSeconds, {}, configBaseUrl(), userAgent());
 }
 
 } // namespace tuxblox

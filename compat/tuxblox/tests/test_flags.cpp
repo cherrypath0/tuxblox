@@ -37,6 +37,7 @@ int main() {
         unsetenv("TUXBLOX_FLAGS_CHANNEL");
         unsetenv("TUXBLOX_FLAGS_RELEASED");
         bool asked = false;
+        resetFlags();
         initLayerFlags(dir.string(), [&](const std::string&, int) { asked = true; return std::string(); });
         (void)flagBool("tbxFlagDisableUpdater");
         assert(!asked);
@@ -48,6 +49,7 @@ int main() {
         setenv("TUXBLOX_FLAGS_CHANNEL", "stable", 1);
         unsetenv("TUXBLOX_FLAGS_RELEASED");
         bool asked = false;
+        resetFlags();
         initLayerFlags(dir.string(), [&](const std::string&, int) { asked = true; return std::string(); });
         (void)flagBool("tbxFlagDisableUpdater");
         assert(!asked);
@@ -59,6 +61,7 @@ int main() {
         setenv("TUXBLOX_FLAGS_RELEASED", "1", 1);
         std::string seen;
         int budget = 0;
+        resetFlags();
         initLayerFlags(dir.string(), [&](const std::string& url, int seconds) {
             seen = url;
             budget = seconds;

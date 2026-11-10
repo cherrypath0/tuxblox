@@ -46,9 +46,19 @@ std::string clientFlagsUrl(const std::string& channel, const std::string& arch);
 // `fetch` empty means the real one. `baseUrl` empty means config.tuxblox.net; a caller
 // that honours TUXBLOX_CONFIG_HOST passes the host it resolved, so the suffix guard
 // lives with the caller that already has it rather than being copied here.
+// `userAgent` empty means a plain product string. Passed in for the same reason as
+// baseUrl: taking it from shared/release would drag release_file.cpp into the
+// compatibility layer, which is a large dependency for one header line.
 void initFlags(const std::string& installDir, const std::string& channel,
                bool isRecordedRelease, int timeoutSeconds,
-               FlagFetch fetch = {}, const std::string& baseUrl = {});
+               FlagFetch fetch = {}, const std::string& baseUrl = {},
+               const std::string& userAgent = {});
+
+// Forgets everything, so initFlags() can run again. A second initFlags() WITHOUT this is
+// ignored: the table is sealed at the first read and a flag must not change value during
+// a run, so re-initialising by accident would hand one feature two answers in one
+// session. Calling this is a deliberate act and says so.
+void resetFlags();
 
 // A name no source defines answers the same as one defined and switched off. An offline
 // install whose defaults predate a flag cannot tell those apart, so nor may a caller.

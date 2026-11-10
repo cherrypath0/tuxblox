@@ -16,6 +16,7 @@
 
 #pragma once
 #include <string>
+#include <vector>
 #include "settings.h"
 #include "release_file.h"
 
@@ -35,6 +36,11 @@ std::string flagChannelFor(const Settings& settings, bool settingsPresent,
 
 // True when installDir holds a settings.json at all.
 bool settingsFilePresent(const std::string& installDir);
+
+// What the layer needs to read its own flags, for the child environment. Kept out of
+// launchEnvVars(), which studio-mcp compiles too and which must stay curl-free: a layer
+// started by studio-mcp simply gets neither variable and asks nobody.
+std::vector<std::string> flagEnvVars(const std::string& installDir);
 
 // Loads the flags for this install. Reads settings and the recorded release itself, so
 // the caller has one line rather than four. An install with no recorded release -- every

@@ -4,7 +4,6 @@
     "tbxFlagEnableRobloxNextVersionDownload": true,
     "tbxFlagEnableParallelWorkersForRobloxInstaller": true,
     "tbxFlagEnableChristmasTheme": true,
-    "tbxFlagDisableUpdater": false,
     "tbxFlagDisableGeoTool": false,
     "tbxFlagDisableCrashTelemetry": false,
     "tbxFlagEnableChannelToUpperChannelUpgradeOnBuildPromotion": true,

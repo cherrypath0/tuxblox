@@ -704,6 +704,17 @@ run_step "compile_proton_native" strict bash -c '
     cp -a "$ROOT"/shared/paths/src/. "$workdir/src/shared_paths/"
     mkdir -p "$workdir/src/shared_flags"
     cp -a "$ROOT"/shared/flags/src/. "$workdir/src/shared_flags/"
+    # flags.cpp asks for the certificate list, and the libcurl TuxBlox ships carries no
+    # list of its own. The user agent is passed in rather than taken from shared/release,
+    # which would have dragged release_file.cpp in behind it.
+    cp "$ROOT"/shared/crypto/src/ca_bundle.cpp "$ROOT"/shared/crypto/src/ca_bundle.h \
+       "$workdir/src/shared_flags/"
+    # ca_bundle.cpp carries a built-in certificate list for a machine that has none of its
+    # own. The launcher builds before this step and already generated it, so it is reused
+    # rather than downloaded a second time.
+    caheader="$ROOT/build/.artifacts/launcher/generated/tuxblox_ca_bundle_pem.h"
+    [ -f "$caheader" ] || { echo "missing $caheader -- the launcher must build first"; exit 1; }
+    cp "$caheader" "$workdir/src/"
     "$ROOT/compat/tuxblox/tools/embed-data.py" "$ROOT/compat/tuxblox/data" "$workdir/src/embedded_data.h"
     # The same generator the launcher and installer use, so a default that would fail
     # their build fails this one too rather than only being caught on one side.

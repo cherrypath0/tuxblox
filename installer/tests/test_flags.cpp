@@ -34,6 +34,7 @@ int main() {
         fs::remove_all(dir);
         fs::create_directories(dir);
         bool asked = false;
+        resetFlags();
         initInstallerFlags(dir.string(), "stable",
                            [&](const std::string&, int) { asked = true; return std::string(); });
         (void)flagBool("tbxFlagDisableUpdater");
@@ -50,6 +51,7 @@ int main() {
         std::ofstream(dir / "release.json")
             << R"({"release": "3.6.0.0", "channel": "stable", "changelog": "c", "source_commit": "abc123", "source_dirty": false, "components": {"launcher": {"version": "3.5.0", "arch": {"x86_64": {"sha256": "aa", "size": 12}, "arm64": null}}}})";
         std::string seen;
+        resetFlags();
         initInstallerFlags(dir.string(), "canary",
                            [&](const std::string& url, int) { seen = url; return std::string("{}"); });
         (void)flagBool("tbxFlagDisableUpdater");
@@ -66,6 +68,7 @@ int main() {
         std::ofstream(dir / "release.json")
             << R"({"release": "3.6.0.0", "channel": "experimental", "changelog": "c", "source_commit": "abc123", "source_dirty": false, "components": {"launcher": {"version": "3.5.0", "arch": {"x86_64": {"sha256": "aa", "size": 12}, "arm64": null}}}})";
         std::string seen;
+        resetFlags();
         initInstallerFlags(dir.string(), "dev",
                            [&](const std::string& url, int) { seen = url; return std::string("{}"); });
         (void)flagBool("tbxFlagDisableUpdater");

@@ -70,6 +70,17 @@ class EmbedFlagsTests(unittest.TestCase):
             self.assertNotEqual(code, 0, str(flags))
             self.assertIn(list(flags)[0], err)
 
+    def test_an_integer_too_large_to_deliver_intact_fails_the_build(self):
+        # Beyond 2^53 a JSON number no longer survives the trip unchanged, and beyond
+        # 2^63 the launcher would read it as a large negative. Refused at the source.
+        for value in (2 ** 53, 2 ** 63, -(2 ** 53), 2 ** 64):
+            code, err, _ = run(json.dumps({"tbxIntA": value}))
+            self.assertNotEqual(code, 0, str(value))
+            self.assertIn("tbxIntA", err)
+        # The largest that does survive is still allowed.
+        code, _, _ = run(json.dumps({"tbxIntA": 2 ** 53 - 1}))
+        self.assertEqual(code, 0)
+
     def test_malformed_json_fails_the_build(self):
         code, _, _ = run('{"tbxFlagA":')
         self.assertNotEqual(code, 0)
@@ -123,11 +134,28 @@ class ShippedFilesTests(unittest.TestCase):
     def test_the_compiled_in_defaults_are_valid(self):
         self.check_real("DefaultFlags-x86_64.json")
 
+    def test_the_publishable_set_refuses_a_local_only_flag(self):
+        with tempfile.TemporaryDirectory() as d:
+            src = os.path.join(d, "Flags.json")
+            with open(src, "w", encoding="utf-8") as handle:
+                handle.write(json.dumps({"tbxFlagDisableUpdater": True}))
+            done = subprocess.run(
+                [sys.executable, SCRIPT, src, os.path.join(d, "f.h"), "kF", "--published"],
+                capture_output=True, text=True)
+            self.assertNotEqual(done.returncode, 0)
+            self.assertIn("tbxFlagDisableUpdater", done.stderr)
+
     def test_the_publishable_set_is_valid(self):
         # Flags-x86_64.json is what installs are TOLD; DefaultFlags-x86_64.json is what
         # they fall back to. Same checks, so a set that could not be compiled in cannot
-        # be published either.
-        self.check_real("Flags-x86_64.json")
+        # be published either -- plus the local-only rule, which only applies to what is
+        # published.
+        path = os.path.join(self.FLAGS_DIR, "Flags-x86_64.json")
+        with tempfile.TemporaryDirectory() as d:
+            done = subprocess.run(
+                [sys.executable, SCRIPT, path, os.path.join(d, "f.h"), "kF", "--published"],
+                capture_output=True, text=True)
+            self.assertEqual(done.returncode, 0, done.stderr)
 
     def test_the_publishable_set_may_name_a_flag_with_no_compiled_in_default(self):
         # That is how a flag is introduced ahead of the release that reads it.

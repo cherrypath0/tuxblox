@@ -22,13 +22,19 @@ a name that declares no type, or a value that contradicts the one it declares, f
 build here instead. The same checks run again at runtime against the server's answer and
 the user's override, because those arrive from outside the build.
 
-    embed-flags.py <input.json> <output.h> <symbol>
+    embed-flags.py <input.json> <output.h> <symbol> [--published]
+
+--published additionally refuses a flag the client will only honour locally: publishing
+one means setting it on the server and watching nothing happen.
 """
 
 import json
 import sys
 
 PREFIXES = (("tbxFlag", bool), ("tbxString", str), ("tbxInt", int))
+# Mirrors kLocalOnly in shared/flags/src/flag_table.cpp. The client drops these from a
+# server answer, so a published set naming one is a mistake worth catching here.
+LOCAL_ONLY = ("tbxFlagDisableUpdater",)
 # A delimiter that cannot occur inside JSON, so the literal cannot be closed early.
 DELIM = "TBXFLAGS"
 
@@ -45,8 +51,10 @@ def declared_type(name):
     return None
 
 
-def check(flags):
+def check(flags, published=False):
     for name, value in flags.items():
+        if published and name in LOCAL_ONLY:
+            fail(f"{name} can only be set on a user's own machine; publishing it does nothing")
         kind = declared_type(name)
         if kind is None:
             fail(f"{name} does not start with tbxFlag, tbxString or tbxInt")
@@ -58,12 +66,18 @@ def check(flags):
             fail(f"{name} is not a string")
         if kind is int and (isinstance(value, bool) or not isinstance(value, int)):
             fail(f"{name} is not an integer")
+        # Past 2**53 a JSON number no longer survives the trip unchanged, and past 2**63
+        # the launcher reads it as a large negative. Refused where it is written.
+        if kind is int and not -(2 ** 53) < value < 2 ** 53:
+            fail(f"{name} is too large to be delivered intact")
 
 
 def main(argv):
-    if len(argv) != 4:
-        fail("usage: embed-flags.py <input.json> <output.h> <symbol>")
-    source, destination, symbol = argv[1], argv[2], argv[3]
+    args = [a for a in argv[1:] if a != "--published"]
+    published = "--published" in argv
+    if len(args) != 3:
+        fail("usage: embed-flags.py <input.json> <output.h> <symbol> [--published]")
+    source, destination, symbol = args
 
     try:
         with open(source, encoding="utf-8") as handle:
@@ -75,7 +89,7 @@ def main(argv):
 
     if not isinstance(flags, dict):
         fail(f"{source} must hold a flat JSON object of flags")
-    check(flags)
+    check(flags, published)
 
     # Re-serialised rather than copied: what is compiled in is then exactly what passed
     # the checks above, whatever the file's formatting happened to be.

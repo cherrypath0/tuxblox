@@ -76,6 +76,7 @@ int main() {
     // No recorded release means no request at all -- that is every local run out of build/.
     {
         bool asked = false;
+        resetFlags();
         initFlags(rootWith("tuxblox_test_flags_norelease", nullptr), "stable", false, 5,
                   [&](const std::string&, int) { asked = true; return std::string(); });
         (void)flagBool("tbxFlagDisableUpdater");
@@ -85,6 +86,7 @@ int main() {
     // With a release, the server is asked -- for the channel it was given.
     {
         std::string seen;
+        resetFlags();
         initFlags(rootWith("tuxblox_test_flags_url", nullptr), "canary", true, 5,
                   [&](const std::string& url, int) { seen = url; return std::string("{}"); });
         (void)flagBool("tbxFlagDisableUpdater");
@@ -93,6 +95,7 @@ int main() {
 
     // The server's answer sits over the defaults.
     {
+        resetFlags();
         initFlags(rootWith("tuxblox_test_flags_server", nullptr), "stable", true, 5,
                   [](const std::string&, int) {
                       return std::string(R"({"tbxStringPrivacyPolicyVersion":"2030-01-01"})");
@@ -104,6 +107,7 @@ int main() {
 
     // The server may not set a local-only flag, whatever it sends.
     {
+        resetFlags();
         initFlags(rootWith("tuxblox_test_flags_localonly", nullptr), "stable", true, 5,
                   [](const std::string&, int) {
                       return std::string(R"({"tbxFlagDisableUpdater":true})");
@@ -113,6 +117,7 @@ int main() {
 
     // flags.json wins over the server, per key.
     {
+        resetFlags();
         initFlags(rootWith("tuxblox_test_flags_override",
                            R"({"tbxStringPrivacyPolicyVersion":"2040-01-01"})"),
                   "stable", true, 5,
@@ -126,6 +131,7 @@ int main() {
 
     // And flags.json MAY set a local-only flag -- that is the whole point of it.
     {
+        resetFlags();
         initFlags(rootWith("tuxblox_test_flags_localfile", R"({"tbxFlagDisableUpdater":true})"),
                   "stable", true, 5, [](const std::string&, int) { return std::string("{}"); });
         assert(flagBool("tbxFlagDisableUpdater") == true);
@@ -133,6 +139,7 @@ int main() {
 
     // A malformed flags.json is ignored WHOLE, not half-applied.
     {
+        resetFlags();
         initFlags(rootWith("tuxblox_test_flags_badfile",
                            R"({"tbxStringPrivacyPolicyVersion":"2040-01-01",)"),
                   "stable", true, 5,
@@ -144,6 +151,7 @@ int main() {
 
     // A flags.json that is not an object changes nothing.
     {
+        resetFlags();
         initFlags(rootWith("tuxblox_test_flags_arrayfile", "[1,2,3]"), "stable", true, 5,
                   [](const std::string&, int) { return std::string("{}"); });
         assert(!flagString("tbxStringPrivacyPolicyVersion").empty());
@@ -151,6 +159,7 @@ int main() {
 
     // A fetch that fails leaves the lower sources answering, and does not throw.
     {
+        resetFlags();
         initFlags(rootWith("tuxblox_test_flags_fetchfail", nullptr), "stable", true, 5,
                   [](const std::string&, int) -> std::string {
                       throw std::runtime_error("no route to host");
@@ -161,6 +170,7 @@ int main() {
     // A value does not change between two reads in one run.
     {
         int calls = 0;
+        resetFlags();
         initFlags(rootWith("tuxblox_test_flags_sealed", nullptr), "stable", true, 5,
                   [&](const std::string&, int) {
                       calls++;
@@ -175,6 +185,7 @@ int main() {
     // The timeout the caller asked for is what the fetch is given.
     {
         int budget = 0;
+        resetFlags();
         initFlags(rootWith("tuxblox_test_flags_budget", nullptr), "stable", true, 2,
                   [&](const std::string&, int seconds) { budget = seconds; return std::string("{}"); });
         (void)flagBool("tbxFlagDisableUpdater");
@@ -232,7 +243,7 @@ int main() {
 
         // No recorded release: a channel is still named, but nothing says it is released,
         // so the layer asks nobody.
-        std::vector<std::string> env = launchEnvVars(dir.string(), LaunchTarget::Player);
+        std::vector<std::string> env = flagEnvVars(dir.string());
         assert(has(env, "TUXBLOX_FLAGS_CHANNEL="));
         assert(!has(env, "TUXBLOX_FLAGS_RELEASED="));
 
@@ -240,10 +251,35 @@ int main() {
             << R"({"release": "3.6.0.0", "channel": "canary", "changelog": "c", )"
                R"("source_commit": "abc123", "source_dirty": false, "components": {)"
                R"("launcher": {"version": "3.5.0", "arch": {"x86_64": {"sha256": "aa", "size": 12}, "arm64": null}}}})";
-        env = launchEnvVars(dir.string(), LaunchTarget::Player);
+        env = flagEnvVars(dir.string());
         assert(has(env, "TUXBLOX_FLAGS_CHANNEL=canary"));
         assert(has(env, "TUXBLOX_FLAGS_RELEASED=1"));
         fs::remove_all(dir);
+    }
+
+    // A second initFlags after the table is sealed must NOT change a value. The whole
+    // point of sealing is that a feature reading its flag twice cannot get two answers,
+    // and some code always reads a flag earlier than anyone planned.
+    {
+        resetFlags();
+        initFlags(rootWith("tuxblox_test_flags_reinit", nullptr), "stable", true, 5,
+                  [](const std::string&, int) { return std::string("{}"); });
+        const std::string before = flagString("tbxStringPrivacyPolicyVersion");
+
+        initFlags(rootWith("tuxblox_test_flags_reinit2", nullptr), "stable", true, 5,
+                  [](const std::string&, int) {
+                      return std::string(R"({"tbxStringPrivacyPolicyVersion":"2030-01-01"})");
+                  });
+        assert(flagString("tbxStringPrivacyPolicyVersion") == before);
+
+        // Asking explicitly is still allowed -- that is a decision, not an accident.
+        resetFlags();
+        initFlags(rootWith("tuxblox_test_flags_reinit3", nullptr), "stable", true, 5,
+                  [](const std::string&, int) {
+                      return std::string(R"({"tbxStringPrivacyPolicyVersion":"2030-01-01"})");
+                  });
+        assert(flagString("tbxStringPrivacyPolicyVersion") == "2030-01-01");
+        resetFlags();
     }
 
     printf("flags: all tests passed\n");
