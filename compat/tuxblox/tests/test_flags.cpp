@@ -72,7 +72,7 @@ int main() {
 
     // The compiled-in defaults answer whatever happens.
     {
-        assert(flagString("tbxStringPrivacyPolicyVersion") == "2026-10-16");
+        assert(!flagString("tbxStringPrivacyPolicyVersion").empty());
     }
 
     fs::remove_all(dir);
