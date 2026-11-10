@@ -106,5 +106,34 @@ class EmbedFlagsTests(unittest.TestCase):
         self.assertEqual(header.count("#pragma once"), 1)
 
 
+class ShippedFilesTests(unittest.TestCase):
+    """Both files in the repository must pass the same checks the build applies."""
+
+    FLAGS_DIR = os.path.join(HERE, "..")
+
+    def check_real(self, name):
+        path = os.path.join(self.FLAGS_DIR, name)
+        self.assertTrue(os.path.exists(path), path)
+        with tempfile.TemporaryDirectory() as d:
+            out = os.path.join(d, "flags.h")
+            done = subprocess.run([sys.executable, SCRIPT, path, out, "kFlags"],
+                                  capture_output=True, text=True)
+            self.assertEqual(done.returncode, 0, done.stderr)
+
+    def test_the_compiled_in_defaults_are_valid(self):
+        self.check_real("DefaultFlags-x86_64.json")
+
+    def test_the_publishable_set_is_valid(self):
+        # Flags-x86_64.json is what installs are TOLD; DefaultFlags-x86_64.json is what
+        # they fall back to. Same checks, so a set that could not be compiled in cannot
+        # be published either.
+        self.check_real("Flags-x86_64.json")
+
+    def test_the_publishable_set_may_name_a_flag_with_no_compiled_in_default(self):
+        # That is how a flag is introduced ahead of the release that reads it.
+        code, _, _ = run(json.dumps({"tbxFlagSomethingNotYetShipped": True}))
+        self.assertEqual(code, 0)
+
+
 if __name__ == "__main__":
     unittest.main()
