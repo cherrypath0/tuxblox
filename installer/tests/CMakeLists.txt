@@ -37,6 +37,10 @@ add_executable(test_release_source test_release_source.cpp)
 target_link_libraries(test_release_source PRIVATE installer_core)
 add_test(NAME release_source COMMAND test_release_source)
 
+add_executable(test_flags test_flags.cpp)
+target_link_libraries(test_flags PRIVATE installer_core)
+add_test(NAME installer_flags COMMAND test_flags)
+
 add_executable(test_cli test_cli.cpp)
 target_link_libraries(test_cli PRIVATE installer_core)
 add_test(NAME cli COMMAND test_cli)
@@ -106,3 +110,11 @@ add_test(NAME ui_extract COMMAND test_ui_extract)
 add_executable(test_ca_bundle ${TUXBLOX_SHARED_CRYPTO}/../tests/test_ca_bundle.cpp)
 target_link_libraries(test_ca_bundle PRIVATE installer_core)
 add_test(NAME ca_bundle COMMAND test_ca_bundle)
+
+add_executable(test_i18n ${TUXBLOX_I18N_DIR}/tests/test_i18n.cpp)
+target_link_libraries(test_i18n PRIVATE installer_core)
+add_test(NAME i18n COMMAND test_i18n)
+
+add_test(NAME translations
+    COMMAND ${PYTHON3_EXECUTABLE} "${TUXBLOX_I18N_DIR}/tools/check-translations.py"
+            --check --translations ${TUXBLOX_TRANSLATIONS_DIR})

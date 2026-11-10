@@ -44,6 +44,10 @@ endif()
 
 # What a release consists of, parsed the same way by the launcher and the installer -- they have to
 # agree on it exactly, because the launcher resolves a release and hands it to the installer.
+if(NOT TUXBLOX_SHARED_FLAGS)
+    set(TUXBLOX_SHARED_FLAGS "${CMAKE_SOURCE_DIR}/../shared/flags/src")
+endif()
+
 if(NOT TUXBLOX_SHARED_RELEASE)
     set(TUXBLOX_SHARED_RELEASE "${CMAKE_SOURCE_DIR}/../shared/release/src")
 endif()
@@ -73,10 +77,25 @@ set(TUXBLOX_SHARED_LIBS
 # safety makes it cheap insurance).
 find_package(Threads REQUIRED)
 
+# Translation catalogs shared with the launcher. The generated header is a
+# plain C++ table, so the single-file installer needs no locale files beside it.
+if(NOT TUXBLOX_I18N_DIR)
+    set(TUXBLOX_I18N_DIR "${CMAKE_SOURCE_DIR}/../shared/i18n")
+endif()
+if(NOT TUXBLOX_TRANSLATIONS_DIR)
+    set(TUXBLOX_TRANSLATIONS_DIR "${CMAKE_SOURCE_DIR}/../shared/translations")
+endif()
+include(${TUXBLOX_I18N_DIR}/src/EmbedTranslations.cmake)
+include(${TUXBLOX_SHARED_FLAGS}/EmbedFlags.cmake)
+
 add_library(installer_core STATIC
     ${TUXBLOX_SHARED_CRYPTO}/ca_bundle.cpp
+    ${TUXBLOX_SHARED_FLAGS}/flag_table.cpp
+    ${TUXBLOX_SHARED_FLAGS}/flags.cpp
+    src/flag_startup.cpp
     ${TUXBLOX_SHARED_RELEASE}/release_file.cpp
     ${TUXBLOX_SHARED_RELEASE}/user_agent.cpp
+    ${TUXBLOX_I18N_DIR}/src/i18n.cpp
     src/cli.cpp
     src/manifest.cpp
     src/downloader.cpp
@@ -94,7 +113,7 @@ add_library(installer_core STATIC
 include(${TUXBLOX_SHARED_CRYPTO}/EmbedCaBundle.cmake)
 
 target_include_directories(installer_core PUBLIC
-    src third_party ${TUXBLOX_SHARED_INCLUDE} ${TUXBLOX_SHARED_CRYPTO} ${TUXBLOX_SHARED_RELEASE} ${CMAKE_BINARY_DIR}/generated)
+    src third_party ${TUXBLOX_I18N_DIR}/src ${TUXBLOX_SHARED_INCLUDE} ${TUXBLOX_SHARED_CRYPTO} ${TUXBLOX_SHARED_RELEASE} ${TUXBLOX_SHARED_FLAGS} ${CMAKE_BINARY_DIR}/generated)
 if(TUXBLOX_TEST_SETUP_URL)
     target_compile_definitions(installer_core PUBLIC TUXBLOX_TEST_SETUP_URL)
 endif()
@@ -112,7 +131,7 @@ target_link_options(installer_core PUBLIC
     -Wl,--exclude-libs=libssl.a -Wl,--exclude-libs=libcrypto.a)
 # These would otherwise make every machine need a C++ runtime at least as new as this builder's, for no gain. The interface stack TuxBlox loads is all C, so nothing throws across a library boundary.
 target_link_options(installer_core PUBLIC -static-libstdc++ -static-libgcc)
-add_dependencies(installer_core generate_ca_bundle_header)
+add_dependencies(installer_core generate_ca_bundle_header generate_i18n_header generate_default_flags_header)
 
 # Same version resolution as launcher/CMakeLists.txt: TUXBLOX_BUILD_VERSION wins, and
 # installer/build.sh sets it from installer/VERSION on the host, because cmake runs inside a
@@ -175,6 +194,7 @@ if(TUXBLOX_UI_STACK_DEV)
         ${TUXBLOX_UI_SRC}/host_icons.cpp
         ${TUXBLOX_UI_SRC}/svg_raster.cpp
         ${TUXBLOX_UI_SRC}/palette.cpp
+        ${TUXBLOX_UI_SRC}/seasonal.cpp
     )
     target_include_directories(TuxBloxInstaller-ui PRIVATE
         ${CMAKE_BINARY_DIR}/generated ${TUXBLOX_UI_SRC} ${ADWAITA_INCLUDE_DIRS})
