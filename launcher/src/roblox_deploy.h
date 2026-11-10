@@ -101,4 +101,29 @@ std::string setupCdnUrl(const std::string& mirrorHost, const std::string& channe
 // The channel's DeployHistory.txt, split the same way as setupCdnUrl().
 std::string deployHistoryUrl(const std::string& mirrorHost, const std::string& channel);
 
+// Roblox's one open non-live channel. It carries a build that has been deployed but
+// not released, and it answers only while there is one -- with nothing pending it
+// refuses the request, which is the ordinary state rather than a fault.
+const char* robloxPendingChannel();
+
+// True when an error from fetchClientVersionJson() is Roblox refusing the channel.
+// For a channel somebody typed that means they cannot look it up; for the pending
+// channel it means no build is upcoming, which is not a failure.
+bool isNotAuthorized(const std::string& errorText);
+
+// Where a build the pending channel named sits against the one that is live.
+enum class PendingBuild { Newer, SameAsLive, OlderThanLive };
+
+// Compares Roblox's four-field version strings numerically. A string that cannot be
+// read compares as OlderThanLive, so a reply nobody can parse is never installed as
+// though it were newer.
+PendingBuild comparePendingToLive(const std::string& pendingVersion, const std::string& liveVersion);
+
+// The channels to look for an unreleased build's files in, in order. Measured
+// 2026-11-10: the live mirror root served the pending build's manifest while
+// channel/zbeta/ refused it, so the root is where the files actually are and the
+// channel path is a fallback against a future change in Roblox's layout. Whichever
+// one answers is the channel the build is recorded under.
+std::vector<std::string> pendingChannelsInOrder();
+
 } // namespace tuxblox

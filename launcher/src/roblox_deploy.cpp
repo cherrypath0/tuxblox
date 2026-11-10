@@ -37,6 +37,31 @@ const char* const kDefaultChannel = "live";
 // disagree about where a download comes from.
 const char* const kDefaultChannelAlias = "production";
 
+// Roblox's one open non-live channel, which carries a build that is deployed but not
+// yet released.
+const char* const kPendingChannel = "zbeta";
+
+// Roblox's version strings are exactly four numeric fields. Anything else is not one,
+// and says so rather than being compared on whatever could be read out of it.
+bool versionFields(const std::string& version, std::vector<unsigned long long>& out) {
+    out.clear();
+    size_t start = 0;
+    while (start <= version.size()) {
+        const size_t dot = version.find('.', start);
+        const std::string field = version.substr(start, dot == std::string::npos ? std::string::npos
+                                                                                  : dot - start);
+        if (field.empty() || field.find_first_not_of("0123456789") != std::string::npos) return false;
+        try {
+            out.push_back(std::stoull(field));
+        } catch (const std::exception&) {
+            return false;
+        }
+        if (dot == std::string::npos) break;
+        start = dot + 1;
+    }
+    return out.size() == 4;
+}
+
 size_t curlWriteToString(char* ptr, size_t size, size_t nmemb, void* userdata) {
     auto* out = static_cast<std::string*>(userdata);
     out->append(ptr, size * nmemb);
@@ -272,6 +297,27 @@ std::string setupCdnUrl(const std::string& mirrorHost, const std::string& channe
 
 std::string deployHistoryUrl(const std::string& mirrorHost, const std::string& channel) {
     return cdnBase(mirrorHost, channel) + "DeployHistory.txt";
+}
+
+const char* robloxPendingChannel() {
+    return kPendingChannel;
+}
+
+bool isNotAuthorized(const std::string& errorText) {
+    return errorText.find("HTTP 401") != std::string::npos;
+}
+
+PendingBuild comparePendingToLive(const std::string& pendingVersion, const std::string& liveVersion) {
+    std::vector<unsigned long long> pending, live;
+    if (!versionFields(pendingVersion, pending) || !versionFields(liveVersion, live)) {
+        return PendingBuild::OlderThanLive;
+    }
+    if (pending == live) return PendingBuild::SameAsLive;
+    return pending > live ? PendingBuild::Newer : PendingBuild::OlderThanLive;
+}
+
+std::vector<std::string> pendingChannelsInOrder() {
+    return {kDefaultChannel, kPendingChannel};
 }
 
 } // namespace tuxblox

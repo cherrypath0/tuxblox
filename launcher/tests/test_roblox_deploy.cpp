@@ -194,6 +194,49 @@ int main() {
                "https://setup.rbxcdn.com/channel/zintegration/DeployHistory.txt");
     }
 
+    // comparePendingToLive(): which of the three states Roblox's zbeta channel is in.
+    {
+        assert(comparePendingToLive("0.747.0.7471481", "0.746.0.7461267") == PendingBuild::Newer);
+        assert(comparePendingToLive("0.746.0.7461267", "0.746.0.7461267") == PendingBuild::SameAsLive);
+        assert(comparePendingToLive("0.745.0.7450000", "0.746.0.7461267") == PendingBuild::OlderThanLive);
+        // Field-wise and numeric, not string order: "1000" sorts before "999" as text.
+        assert(comparePendingToLive("0.1000.0.1", "0.999.0.1") == PendingBuild::Newer);
+        assert(comparePendingToLive("0.746.0.7461268", "0.746.0.7461267") == PendingBuild::Newer);
+        // A version that cannot be read is never treated as newer -- it must not install.
+        assert(comparePendingToLive("", "0.746.0.7461267") == PendingBuild::OlderThanLive);
+        assert(comparePendingToLive("nonsense", "0.746.0.7461267") == PendingBuild::OlderThanLive);
+        assert(comparePendingToLive("0.747", "0.746.0.7461267") == PendingBuild::OlderThanLive);
+        assert(comparePendingToLive("0.747.0.7471481", "") == PendingBuild::OlderThanLive);
+    }
+
+    // pendingChannelsInOrder(): where a deployed-but-unreleased build's files actually live.
+    // Measured 2026-11-10: the live CDN root served 0.747's manifest with HTTP 200 while
+    // channel/zbeta/ answered 403, so the root is the real location and the channel path is
+    // a fallback against a future change in Roblox's layout.
+    {
+        const std::vector<std::string> channels = pendingChannelsInOrder();
+        assert(channels.size() == 2);
+        assert(channels[0] == "live");
+        assert(channels[1] == "zbeta");
+        assert(setupCdnUrl("setup.rbxcdn.com", channels[0], "version-4ea8e85481e34f46", "rbxPkgManifest.txt") ==
+               "https://setup.rbxcdn.com/version-4ea8e85481e34f46-rbxPkgManifest.txt");
+        assert(setupCdnUrl("setup.rbxcdn.com", channels[1], "version-4ea8e85481e34f46", "rbxPkgManifest.txt") ==
+               "https://setup.rbxcdn.com/channel/zbeta/version-4ea8e85481e34f46-rbxPkgManifest.txt");
+    }
+
+    // isNotAuthorized(): measured 2026-11-10, zbeta answers only while a build is pending.
+    // Once 0.747 was promoted it began refusing both binaries, so this is the ordinary
+    // "nothing upcoming" state and must not be reported as a channel the user got wrong.
+    {
+        assert(isNotAuthorized("httpGet: HTTP 401 for https://clientsettings.roblox.com/..."));
+        assert(!isNotAuthorized("httpGet: HTTP 403 for https://clientsettings.roblox.com/..."));
+        assert(!isNotAuthorized("httpGet: HTTP 404 for https://setup.rbxcdn.com/..."));
+        assert(!isNotAuthorized("httpGet: Could not resolve host"));
+        assert(!isNotAuthorized(""));
+        // Not fooled by a 401 appearing somewhere that is not the status.
+        assert(!isNotAuthorized("httpGet: HTTP 200 for https://example.invalid/401"));
+    }
+
     printf("roblox_deploy: all tests passed\n");
     return 0;
 }
