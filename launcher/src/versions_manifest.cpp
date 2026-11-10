@@ -42,6 +42,7 @@ nlohmann::json toJson(const AppVersions& v) {
             {"hash", iv.hash},
             {"channel", iv.channel},
             {"installed_at", iv.installedAt},
+            {"source", iv.source},
         });
     }
     return j;
@@ -56,6 +57,8 @@ AppVersions fromJson(const nlohmann::json& j) {
             e.at("hash").get<std::string>(),
             e.value("channel", std::string()),
             e.value("installed_at", std::string()),
+            std::string(),                      // versionString is read off the exe, never stored
+            e.value("source", std::string()),
         });
     }
     return v;
@@ -238,6 +241,13 @@ void registerBootstrappedVersion(const std::string& installDir, LaunchTarget tar
         if (same) return;
     }
     saveVersionsManifest(installDir, manifest);
+}
+
+bool wasChosenDeliberately(const InstalledVersion& version) {
+    // Empty is every version recorded before this field existed, and reads as "the
+    // update check put it there" -- which is what it was, so nothing changes for an
+    // install that predates this.
+    return version.source == "previous" || version.source == "next" || version.source == "manual";
 }
 
 } // namespace tuxblox

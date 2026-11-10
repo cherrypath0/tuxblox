@@ -32,7 +32,19 @@ struct InstalledVersion {
     // create a second answer that could go stale. Empty when the exe carries
     // no version, which is the caller's cue to fall back to the hash.
     std::string versionString;
+    // How this version came to be installed: "auto" (or empty, for anything recorded
+    // before this was written) when the update check put it there, otherwise "latest",
+    // "previous", "next" or "manual" -- which install option the person picked. Unlike
+    // versionString this cannot be recovered from the prefix, so it is kept in
+    // versions.json and preserved by reconcileWithPrefix().
+    std::string source;
 };
+
+// True when this version is one somebody asked for rather than one the update check
+// installed. The auto-update may replace what it installed itself; replacing a build
+// the person chose is undoing their decision, and it is how a recovery install of an
+// earlier build would silently put the broken one back.
+bool wasChosenDeliberately(const InstalledVersion& version);
 
 struct AppVersions {
     std::vector<InstalledVersion> installed;
