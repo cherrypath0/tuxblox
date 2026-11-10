@@ -706,14 +706,65 @@ WORD WINAPI GetMaximumProcessorGroupCount(void)
     return groups;
 }
 
+static DWORD get_firmware_variable(const WCHAR *name, const WCHAR *guid, void *buffer,
+                                   DWORD size, DWORD *attributes)
+{
+    UNICODE_STRING name_str, guid_str;
+    ULONG attrs = 0, len = size;
+    GUID vendor;
+
+    if (!name || !guid)
+    {
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return 0;
+    }
+    RtlInitUnicodeString(&name_str, name);
+    RtlInitUnicodeString(&guid_str, guid);
+    if (!set_ntstatus(RtlGUIDFromString(&guid_str, &vendor))) return 0;
+    if (!set_ntstatus(NtQuerySystemEnvironmentValueEx(&name_str, &vendor, buffer, &len,
+                                                      attributes ? &attrs : NULL)))
+        return 0;
+    if (attributes) *attributes = attrs;
+    return len;
+}
+
+/***********************************************************************
+ *           GetFirmwareEnvironmentVariableExA     (KERNEL32.@)
+ */
+DWORD WINAPI GetFirmwareEnvironmentVariableExA(LPCSTR name, LPCSTR guid, PVOID buffer, DWORD size,
+                                               DWORD *attributes)
+{
+    UNICODE_STRING name_str, guid_str;
+    DWORD ret = 0;
+
+    name_str.Buffer = guid_str.Buffer = NULL;
+    if (!name || !guid)
+        SetLastError(ERROR_INVALID_PARAMETER);
+    else if (!RtlCreateUnicodeStringFromAsciiz(&name_str, name) ||
+             !RtlCreateUnicodeStringFromAsciiz(&guid_str, guid))
+        SetLastError(ERROR_NOT_ENOUGH_MEMORY);
+    else
+        ret = get_firmware_variable(name_str.Buffer, guid_str.Buffer, buffer, size, attributes);
+    RtlFreeUnicodeString(&name_str);
+    RtlFreeUnicodeString(&guid_str);
+    return ret;
+}
+
+/***********************************************************************
+ *           GetFirmwareEnvironmentVariableExW     (KERNEL32.@)
+ */
+DWORD WINAPI GetFirmwareEnvironmentVariableExW(LPCWSTR name, LPCWSTR guid, PVOID buffer, DWORD size,
+                                               DWORD *attributes)
+{
+    return get_firmware_variable(name, guid, buffer, size, attributes);
+}
+
 /***********************************************************************
  *           GetFirmwareEnvironmentVariableA     (KERNEL32.@)
  */
 DWORD WINAPI GetFirmwareEnvironmentVariableA(LPCSTR name, LPCSTR guid, PVOID buffer, DWORD size)
 {
-    FIXME("stub: %s %s %p %lu\n", debugstr_a(name), debugstr_a(guid), buffer, size);
-    SetLastError(ERROR_INVALID_FUNCTION);
-    return 0;
+    return GetFirmwareEnvironmentVariableExA(name, guid, buffer, size, NULL);
 }
 
 /***********************************************************************
@@ -721,9 +772,7 @@ DWORD WINAPI GetFirmwareEnvironmentVariableA(LPCSTR name, LPCSTR guid, PVOID buf
  */
 DWORD WINAPI GetFirmwareEnvironmentVariableW(LPCWSTR name, LPCWSTR guid, PVOID buffer, DWORD size)
 {
-    FIXME("stub: %s %s %p %lu\n", debugstr_w(name), debugstr_w(guid), buffer, size);
-    SetLastError(ERROR_INVALID_FUNCTION);
-    return 0;
+    return get_firmware_variable(name, guid, buffer, size, NULL);
 }
 
 /***********************************************************************
@@ -751,10 +800,23 @@ BOOL WINAPI SetFirmwareEnvironmentVariableW(const WCHAR *name, const WCHAR *guid
  */
 BOOL WINAPI GetFirmwareType(FIRMWARE_TYPE *type)
 {
-    if (!type)
-        return FALSE;
+    struct
+    {
+        GUID      BootIdentifier;
+        ULONG     FirmwareType;
+        ULONG     reserved;
+        ULONGLONG BootFlags;
+    } info;
 
-    *type = FirmwareTypeUnknown;
+    if (!type)
+    {
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return FALSE;
+    }
+    if (!set_ntstatus(NtQuerySystemInformation(SystemBootEnvironmentInformation, &info,
+                                               sizeof(info), NULL)))
+        return FALSE;
+    *type = info.FirmwareType;
     return TRUE;
 }
 

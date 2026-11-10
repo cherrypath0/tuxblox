@@ -1905,6 +1905,12 @@ WINBASEAPI DWORD       WINAPI GetFileSize(HANDLE,LPDWORD);
 WINBASEAPI BOOL        WINAPI GetFileSizeEx(HANDLE,PLARGE_INTEGER);
 WINBASEAPI BOOL        WINAPI GetFileTime(HANDLE,LPFILETIME,LPFILETIME,LPFILETIME);
 WINBASEAPI DWORD       WINAPI GetFileType(HANDLE);
+WINBASEAPI DWORD       WINAPI GetFirmwareEnvironmentVariableA(LPCSTR,LPCSTR,PVOID,DWORD);
+WINBASEAPI DWORD       WINAPI GetFirmwareEnvironmentVariableW(LPCWSTR,LPCWSTR,PVOID,DWORD);
+#define                       GetFirmwareEnvironmentVariable WINELIB_NAME_AW(GetFirmwareEnvironmentVariable)
+WINBASEAPI DWORD       WINAPI GetFirmwareEnvironmentVariableExA(LPCSTR,LPCSTR,PVOID,DWORD,PDWORD);
+WINBASEAPI DWORD       WINAPI GetFirmwareEnvironmentVariableExW(LPCWSTR,LPCWSTR,PVOID,DWORD,PDWORD);
+#define                       GetFirmwareEnvironmentVariableEx WINELIB_NAME_AW(GetFirmwareEnvironmentVariableEx)
 WINBASEAPI BOOL        WINAPI GetFirmwareType(PFIRMWARE_TYPE);
 #define                       GetFreeSpace(w) (__MSABI_LONG(0x100000))
 WINBASEAPI DWORD       WINAPI GetFullPathNameA(LPCSTR,DWORD,LPSTR,LPSTR*);

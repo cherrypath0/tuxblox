@@ -2861,6 +2861,50 @@ static void *read_sysfs_file( const char *path, size_t *ret_size, size_t head_ro
     return buf;
 }
 
+#define EFI_DIR "/sys/firmware/efi"
+
+static const GUID efi_global_variable = { 0x8be4df61, 0x93ca, 0x11d2, { 0xaa, 0x0d, 0x00, 0xe0, 0x98, 0x03, 0x2b, 0x8c }};
+
+/* One firmware environment variable. The kernel names a file after the variable and puts the
+ * attribute word in front of the value, which is the pair the firmware itself reports. */
+static NTSTATUS read_efi_variable( const char *name, const GUID *vendor, void *buffer,
+                                   ULONG *size, ULONG *attrib )
+{
+    char path[sizeof(EFI_DIR "/efivars/") + 512 + 40];
+    unsigned char *data;
+    unsigned int attrs;
+    size_t got;
+
+    /* a machine that booted a legacy BIOS has no firmware variables at all, which is a
+     * different answer from a UEFI machine that does not have the one asked for */
+    if (access( EFI_DIR, F_OK )) return STATUS_NOT_IMPLEMENTED;
+    if (!name[0]) return STATUS_VARIABLE_NOT_FOUND;
+    snprintf( path, sizeof(path),
+              EFI_DIR "/efivars/%s-%08x-%04x-%04x-%02x%02x-%02x%02x%02x%02x%02x%02x", name,
+              (unsigned int)vendor->Data1, vendor->Data2, vendor->Data3,
+              vendor->Data4[0], vendor->Data4[1], vendor->Data4[2], vendor->Data4[3],
+              vendor->Data4[4], vendor->Data4[5], vendor->Data4[6], vendor->Data4[7] );
+    if (!(data = read_sysfs_file( path, &got, 0 ))) return STATUS_VARIABLE_NOT_FOUND;
+    if (got < sizeof(attrs))
+    {
+        free( data );
+        return STATUS_VARIABLE_NOT_FOUND;
+    }
+    memcpy( &attrs, data, sizeof(attrs) );
+    got -= sizeof(attrs);
+    if (*size < got)
+    {
+        *size = got;
+        free( data );
+        return STATUS_BUFFER_TOO_SMALL;
+    }
+    if (got) memcpy( buffer, data + sizeof(attrs), got );
+    *size = got;
+    if (attrib) *attrib = attrs;
+    free( data );
+    return STATUS_SUCCESS;
+}
+
 /* The firmware's own SMBIOS table.
  *
  * Otherwise this is built from the handful of fields sysfs decodes into
@@ -3174,11 +3218,6 @@ static const unsigned char sys_92_data[] =
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00,
-};
-
-static const unsigned char sys_145_data[] =
-{
-    0x00, 0x01,
 };
 
 static const unsigned char sys_147_data[] =
@@ -3699,7 +3738,6 @@ static const struct known_class known_system_classes[] =
     { 141, 0xc0000004, 864 },
     { 142, 0xc0000003, NO_LENGTH },
     { 143, 0x80430006, 0 },
-    { 145, 0xc0000004,      2, sys_145_data, 2 },
     { 146, 0xc0000003, NO_LENGTH },
     { 147, 0xc0000004,      1, sys_147_data, 1 },
     { 148, 0xc0000022, 0 },
@@ -5264,13 +5302,34 @@ static NTSTATUS query_system_information( SYSTEM_INFORMATION_CLASS class,
                 }
             }
             /* 1 is BIOS, 2 is UEFI, which is what the boot actually was */
-            out.FirmwareType = access( "/sys/firmware/efi", F_OK ) ? 1 : 2;
+            out.FirmwareType = access( EFI_DIR, F_OK ) ? 1 : 2;
             /* the four bytes after FirmwareType are left alone, as on the
              * reference machine, so this copies the two halves and not the
              * padding between them */
             memcpy( info, &out, FIELD_OFFSET( typeof(out), pad ) );
             memcpy( (char *)info + FIELD_OFFSET( typeof(out), BootFlags ),
                     &out.BootFlags, sizeof(out.BootFlags) );
+        }
+        break;
+    }
+
+    case SystemSecureBootInformation:  /* 145 */
+    {
+        /* Whether the firmware can do secure boot and whether it is turned on. Only firmware
+         * that supports it has the SecureBoot variable, which is what capable means here. */
+        unsigned char value[8];
+        ULONG value_len = sizeof(value);
+        BOOLEAN *out = info;
+
+        len = 2 * sizeof(BOOLEAN);
+        if (size < len) { ret = STATUS_INFO_LENGTH_MISMATCH; break; }
+        if (info)
+        {
+            BOOL capable = !read_efi_variable( "SecureBoot", &efi_global_variable, value,
+                                               &value_len, NULL );
+
+            out[0] = capable && value_len && value[0];
+            out[1] = capable;
         }
         break;
     }
@@ -6555,15 +6614,50 @@ NTSTATUS WINAPI NtQuerySystemEnvironmentValue( UNICODE_STRING *name, WCHAR *buff
 }
 
 
+/* Windows wants the privilege enabled in the token rather than merely held, and checks it
+ * before it looks at the firmware, so an ordinary process is refused on any machine. */
+static NTSTATUS check_firmware_privilege( void )
+{
+    PRIVILEGE_SET privs = { 1, PRIVILEGE_SET_ALL_NECESSARY, {{ { SE_SYSTEM_ENVIRONMENT_PRIVILEGE, 0 }, 0 }} };
+    BOOLEAN enabled = FALSE;
+    unsigned int status;
+    HANDLE token;
+
+    if (NtOpenThreadToken( GetCurrentThread(), TOKEN_QUERY, TRUE, &token ))
+    {
+        if ((status = NtOpenProcessToken( GetCurrentProcess(), TOKEN_QUERY, &token ))) return status;
+    }
+    status = NtPrivilegeCheck( token, &privs, &enabled );
+    NtClose( token );
+    if (status) return status;
+    return enabled ? STATUS_SUCCESS : STATUS_PRIVILEGE_NOT_HELD;
+}
+
+
 /******************************************************************************
  *              NtQuerySystemEnvironmentValueEx  (NTDLL.@)
  */
 NTSTATUS WINAPI NtQuerySystemEnvironmentValueEx( UNICODE_STRING *name, GUID *vendor, void *buffer,
                                                  ULONG *retlen, ULONG *attrib )
 {
-    FIXME( "(%s, %s, %p, %p, %p), stub\n", debugstr_us(name),
-           debugstr_guid(vendor), buffer, retlen, attrib );
-    return STATUS_NOT_IMPLEMENTED;
+    unsigned int i, len, status;
+    char var[512];
+
+    if (!name || !name->Buffer || !vendor || !retlen) return STATUS_INVALID_PARAMETER;
+    if (!buffer && *retlen) return STATUS_INVALID_PARAMETER;
+    if ((status = check_firmware_privilege())) return status;
+
+    len = name->Length / sizeof(WCHAR);
+    if (len >= sizeof(var)) return STATUS_VARIABLE_NOT_FOUND;
+    for (i = 0; i < len; i++)
+    {
+        /* the name is part of a file name here, so one that cannot be is no variable of ours */
+        if (name->Buffer[i] <= ' ' || name->Buffer[i] > '~' || name->Buffer[i] == '/')
+            return STATUS_VARIABLE_NOT_FOUND;
+        var[i] = name->Buffer[i];
+    }
+    var[len] = 0;
+    return read_efi_variable( var, vendor, buffer, retlen, attrib );
 }
 
 

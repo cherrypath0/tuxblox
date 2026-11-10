@@ -702,6 +702,8 @@
 @ stdcall -import GetFinalPathNameByHandleA(long ptr long long)
 @ stdcall -import GetFinalPathNameByHandleW(long ptr long long)
 @ stdcall GetFirmwareEnvironmentVariableA(str str ptr long)
+@ stdcall GetFirmwareEnvironmentVariableExA(str str ptr long ptr)
+@ stdcall GetFirmwareEnvironmentVariableExW(wstr wstr ptr long ptr)
 @ stdcall GetFirmwareEnvironmentVariableW(wstr wstr ptr long)
 @ stdcall GetFirmwareType(ptr)
 @ stdcall -import GetFullPathNameA(str long ptr ptr)
