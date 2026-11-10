@@ -167,6 +167,32 @@ int main() {
         fs::remove_all(base);
     }
 
+    // The rule is "the latest build, the pending build, or the one currently active" --
+    // and nothing wider. An earlier build installed on purpose and then switched away
+    // from is an ordinary superseded build again, or a fortnight of debugging leaves
+    // several gigabytes nothing will ever collect.
+    {
+        const fs::path base = fs::temp_directory_path() / "tuxblox_test_autoupdate_narrow";
+        fs::remove_all(base);
+        const fs::path versions = fs::path(robloxVersionsDir(base.string()));
+        fs::create_directories(versions);
+        for (const char* hash : {"version-latest", "version-oldpick"}) {
+            fs::create_directories(versions / hash);
+            FILE* f = fopen((versions / hash / "RobloxPlayerBeta.exe").string().c_str(), "w");
+            assert(f);
+            fclose(f);
+        }
+        VersionsManifest m;
+        m.player.activeHash = "version-latest";
+        m.player.installed = {{"version-latest", "live", "", "", "latest"},
+                              {"version-oldpick", "live", "", "", "previous"}};
+        saveVersionsManifest(base.string(), m);
+
+        removeSupersededVersions(base.string(), LaunchTarget::Player, "version-latest");
+        assert(!fs::exists(versions / "version-oldpick"));
+        fs::remove_all(base);
+    }
+
     // The build that is active is kept even when the updater just installed another.
     {
         const fs::path base = fs::temp_directory_path() / "tuxblox_test_autoupdate_keepactive";

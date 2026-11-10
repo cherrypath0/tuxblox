@@ -87,7 +87,10 @@ std::string httpGet(const std::string& url, const std::atomic<bool>* cancel) {
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &body);
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, errBuf);
-    curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);
+    // Deliberately not CURLOPT_FAILONERROR: it aborts the transfer on a 4xx, so the
+    // failure arrives as libcurl's own wording and the status below is never reported.
+    // Callers have to tell "Roblox has nothing pending" (401) from "that build is gone"
+    // (404) from "the network is down", and that needs the code, not prose.
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
     if (cancel) {
         curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
@@ -108,7 +111,7 @@ std::string httpGet(const std::string& url, const std::atomic<bool>* cancel) {
         throw std::runtime_error(std::string("httpGet: ") + (errBuf[0] ? errBuf : curl_easy_strerror(res)));
     }
     if (httpCode < 200 || httpCode >= 300) {
-        throw std::runtime_error("httpGet: HTTP " + std::to_string(httpCode) + " for " + url);
+        throw std::runtime_error(httpStatusErrorText(httpCode, url));
     }
     return body;
 }
@@ -312,12 +315,20 @@ const char* robloxPendingChannel() {
     return kPendingChannel;
 }
 
+const char* robloxDefaultChannel() {
+    return kDefaultChannel;
+}
+
+std::string httpStatusErrorText(long httpCode, const std::string& url) {
+    return "httpGet: HTTP " + std::to_string(httpCode) + " for " + url;
+}
+
 bool isNotAuthorized(const std::string& errorText) {
-    return errorText.find("HTTP 401") != std::string::npos;
+    return errorText.find("HTTP 401 ") != std::string::npos;
 }
 
 bool isNotFound(const std::string& errorText) {
-    return errorText.find("HTTP 404") != std::string::npos;
+    return errorText.find("HTTP 404 ") != std::string::npos;
 }
 
 PendingBuild comparePendingToLive(const std::string& pendingVersion, const std::string& liveVersion) {

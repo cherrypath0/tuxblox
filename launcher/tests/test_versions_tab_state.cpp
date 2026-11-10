@@ -116,6 +116,18 @@ int main() {
         assert(!nextWarningVisibleFor(VersionSelectMode::ManualHash));
     }
 
+    // Which mark each mode leaves on the installed version. Swapping two of these used
+    // to break nothing, because nothing asserted the mapping.
+    {
+        assert(sourceForMode(VersionSelectMode::Latest) == "latest");
+        assert(sourceForMode(VersionSelectMode::Previous) == "previous");
+        assert(sourceForMode(VersionSelectMode::Next) == "next");
+        assert(sourceForMode(VersionSelectMode::ManualHash) == "manual");
+        // Only "next" is kept from collection on its own; the rest rely on being active.
+        assert(!wasChosenDeliberately(InstalledVersion{"h", "live", "", "", sourceForMode(VersionSelectMode::Latest)}));
+        assert(wasChosenDeliberately(InstalledVersion{"h", "live", "", "", sourceForMode(VersionSelectMode::Next)}));
+    }
+
     printf("versions_tab_state: all tests passed\n");
     return 0;
 }

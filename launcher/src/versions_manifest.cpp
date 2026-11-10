@@ -250,4 +250,8 @@ bool wasChosenDeliberately(const InstalledVersion& version) {
     return version.source == "previous" || version.source == "next" || version.source == "manual";
 }
 
+bool isPendingBuild(const InstalledVersion& version) {
+    return version.source == "next";
+}
+
 } // namespace tuxblox

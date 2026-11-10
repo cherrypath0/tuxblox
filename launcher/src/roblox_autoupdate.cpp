@@ -169,9 +169,9 @@ void removeSupersededVersions(const std::string& installDir, LaunchTarget target
     // versions.json names none, and a hash it picked for us is not a choice anybody made.
     const VersionsManifest manifest = loadVersionsManifest(installDir);
     const AppVersions& versions = appVersionsFor(manifest, target);
-    auto chosenDeliberately = [&versions](const std::string& hash) {
+    auto pending = [&versions](const std::string& hash) {
         for (const InstalledVersion& version : versions.installed) {
-            if (version.hash == hash) return wasChosenDeliberately(version);
+            if (version.hash == hash) return isPendingBuild(version);
         }
         return false;
     };
@@ -179,7 +179,7 @@ void removeSupersededVersions(const std::string& installDir, LaunchTarget target
     for (const std::string& hash : scanPrefixVersions(installDir, target)) {
         if (hash == keepHash) continue;
         if (hash == versions.activeHash) continue;
-        if (chosenDeliberately(hash)) continue;
+        if (pending(hash)) continue;
 
         const std::string dir = versionsDir + "/" + hash;
         if (versionInUse(dir)) continue;

@@ -247,6 +247,21 @@ int main() {
                "https://setup.rbxcdn.com/channel/zbeta/version-4ea8e85481e34f46-rbxPkgManifest.txt");
     }
 
+    // The matchers must read what httpGet actually throws, not a string invented here.
+    // CURLOPT_FAILONERROR used to abort the transfer on a 4xx, so the status message was
+    // never built and every one of these matched nothing in the field.
+    {
+        assert(isNotAuthorized(httpStatusErrorText(401, "https://clientsettings.roblox.com/x")));
+        assert(isNotFound(httpStatusErrorText(404, "https://config.tuxblox.net/x")));
+        assert(!isNotAuthorized(httpStatusErrorText(404, "https://config.tuxblox.net/x")));
+        assert(!isNotFound(httpStatusErrorText(401, "https://clientsettings.roblox.com/x")));
+        // The URL is named, which is what makes a failure diagnosable at all.
+        assert(httpStatusErrorText(404, "https://setup.rbxcdn.com/a").find(
+                   "https://setup.rbxcdn.com/a") != std::string::npos);
+        // A 401 appearing in the URL rather than the status must not match.
+        assert(!isNotAuthorized(httpStatusErrorText(200, "https://example.invalid/401")));
+    }
+
     // isNotAuthorized(): measured 2026-11-10, zbeta answers only while a build is pending.
     // Once 0.747 was promoted it began refusing both binaries, so this is the ordinary
     // "nothing upcoming" state and must not be reported as a channel the user got wrong.

@@ -111,6 +111,15 @@ std::string deployHistoryUrl(const std::string& mirrorHost, const std::string& c
 // refuses the request, which is the ordinary state rather than a fault.
 const char* robloxPendingChannel();
 
+// Roblox's released channel. Next and Previous are both defined against it rather than
+// against whatever a person last typed, so neither depends on a field they cannot see.
+const char* robloxDefaultChannel();
+
+// The message a fetch throws when the server answered but not with success. Shared so
+// the matchers below are checked against what is actually produced: these used to be
+// written against a string the code never emitted, and matched nothing in the field.
+std::string httpStatusErrorText(long httpCode, const std::string& url);
+
 // True when an error from fetchClientVersionJson() is Roblox refusing the channel.
 // For a channel somebody typed that means they cannot look it up; for the pending
 // channel it means no build is upcoming, which is not a failure.

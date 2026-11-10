@@ -40,6 +40,10 @@ LaunchFollowUp launchFollowUp(bool minimizeToBackground, bool startedFromTheWind
 
 enum class VersionSelectMode { Latest, Previous, Next, ManualHash };
 
+// The mark an install leaves on the version, saying how it was picked. The update check
+// reads it back to decide what it may replace.
+std::string sourceForMode(VersionSelectMode mode);
+
 enum class VersionInstallPhase { Idle, ResolvingVersion, DownloadingManifest, DownloadingPackages, Extracting, Done, Error };
 
 struct VersionInstallProgress {

@@ -49,6 +49,16 @@
 
 namespace tuxblox {
 
+std::string sourceForMode(VersionSelectMode mode) {
+    switch (mode) {
+        case VersionSelectMode::Previous:   return "previous";
+        case VersionSelectMode::Next:       return "next";
+        case VersionSelectMode::ManualHash: return "manual";
+        case VersionSelectMode::Latest:     break;
+    }
+    return "latest";
+}
+
 namespace fs = std::filesystem;
 
 namespace {
@@ -849,17 +859,19 @@ void App::versionInstallThreadMain(LaunchTarget target, VersionSelectMode mode, 
 
     std::string hash;
     // How this build was picked, so the update check knows later whether it may replace it.
-    std::string source = "latest";
+    std::string source = sourceForMode(mode);
     // Where to look for its files. Only an unreleased build is served from more than one place.
     std::vector<std::string> channelsToTry{channel};
     try {
         if (mode == VersionSelectMode::ManualHash) {
-            source = "manual";
             hash = manualHash;
         } else if (mode == VersionSelectMode::Latest) {
             hash = parseClientVersionHash(fetchClientVersionJson(binaryType, channel, &versionInstallCancel_));
         } else if (mode == VersionSelectMode::Next) {
-            source = "next";
+            // Against the released channel, never against the Channel box: it is hidden for
+            // this mode and still holds whatever was typed for an earlier install, so a
+            // stale name here would send someone to a field they cannot see.
+            const std::string released = robloxDefaultChannel();
             std::string pending;
             try {
                 pending = fetchClientVersionJson(binaryType, robloxPendingChannel(), &versionInstallCancel_);
@@ -875,12 +887,13 @@ void App::versionInstallThreadMain(LaunchTarget target, VersionSelectMode mode, 
             }
             const std::string pendingVersion = parseClientVersionNumber(pending);
             const std::string liveVersion = parseClientVersionNumber(
-                fetchClientVersionJson(binaryType, channel, &versionInstallCancel_));
+                fetchClientVersionJson(binaryType, released, &versionInstallCancel_));
             const PendingBuild standing = comparePendingToLive(pendingVersion, liveVersion);
             if (standing == PendingBuild::SameAsLive) {
-                fail(i18n::tr("Roblox has no upcoming version right now. The next version is the one "
-                              "already released, so there is nothing newer to install."));
-                return;
+                // Nothing is pending, so the newest there is, is the released one. Installing
+                // it is the honest outcome; refusing would be refusing a version that exists.
+                source = sourceForMode(VersionSelectMode::Latest);
+                channel = released;
             }
             if (standing == PendingBuild::OlderThanLive) {
                 // Installing it would hand over an older build under a label promising a newer one.
@@ -889,9 +902,11 @@ void App::versionInstallThreadMain(LaunchTarget target, VersionSelectMode mode, 
                 return;
             }
             hash = parseClientVersionHash(pending);
-            channelsToTry = pendingChannelsInOrder();
+            if (standing == PendingBuild::Newer) channelsToTry = pendingChannelsInOrder();
         } else { // Previous
-            source = "previous";
+            // Released channel, for the same reason as Next: the Channel box is hidden here.
+            channel = robloxDefaultChannel();
+            channelsToTry = {channel};
             std::string body;
             try {
                 body = fetchText(configPreviousUrl(channel, binaryType), &versionInstallCancel_);
@@ -943,14 +958,17 @@ void App::versionInstallThreadMain(LaunchTarget target, VersionSelectMode mode, 
         // too -- and is the channel this build is listed under afterwards.
         for (const std::string& candidate : channelsToTry) {
             for (const char* mirror : kMirrors) {
+                const std::string url = setupCdnUrl(mirror, candidate, hash, "rbxPkgManifest.txt");
                 try {
-                    manifestText = fetchText(setupCdnUrl(mirror, candidate, hash, "rbxPkgManifest.txt"),
-                                              &versionInstallCancel_);
+                    manifestText = fetchText(url, &versionInstallCancel_);
                     channel = candidate;
                     ok = true;
                     break;
                 } catch (const std::exception& e) {
-                    lastError = e.what();
+                    // Every attempt, not just the last: the last is the unreleased channel's
+                    // own 403, which is expected and says nothing about why this failed.
+                    if (!lastError.empty()) lastError += "; ";
+                    lastError += std::string(e.what());
                 }
             }
             if (ok) break;
@@ -1217,7 +1235,10 @@ void App::versionInstallThreadMain(LaunchTarget target, VersionSelectMode mode, 
             it->installedAt = isoNowUtc();
             it->source = source;
         }
-        if (av.activeHash.empty()) av.activeHash = hash; // first version for this app type -- pin it
+        // Choosing Latest is how somebody stops following a build they picked earlier, so it
+        // takes the pin. Without this the only way back is three steps through Settings, and
+        // two of them are disabled while the update check is on.
+        if (av.activeHash.empty() || mode == VersionSelectMode::Latest) av.activeHash = hash;
     }
     saveVersionsManifest(installDir_, fresh);
     {

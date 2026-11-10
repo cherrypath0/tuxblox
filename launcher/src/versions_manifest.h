@@ -46,6 +46,12 @@ struct InstalledVersion {
 // earlier build would silently put the broken one back.
 bool wasChosenDeliberately(const InstalledVersion& version);
 
+// True for the unreleased build installed by Next. It is kept from collection on its own
+// because the rule names it; a build installed by Previous or by hash is kept only while
+// it is the active one, so a fortnight of picking builds does not leave several
+// gigabytes behind that nothing will ever tidy away.
+bool isPendingBuild(const InstalledVersion& version);
+
 struct AppVersions {
     std::vector<InstalledVersion> installed;
     std::string activeHash;   // empty if nothing pinned active yet
