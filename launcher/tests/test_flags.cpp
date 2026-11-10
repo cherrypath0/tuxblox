@@ -19,11 +19,13 @@
 #include "flag_startup.h"
 #include "settings.h"
 #include "release_file.h"
+#include "launch_paths.h"
 #include <cassert>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <vector>
 
 namespace fs = std::filesystem;
 
@@ -183,22 +185,59 @@ int main() {
         settings.channel = "canary";
         release.present = true;
         release.file.channel = "stable";
-        assert(flagChannelFor(settings, release) == "canary");
+        assert(flagChannelFor(settings, true, release) == "canary");
 
-        settings.channel.clear();
-        assert(flagChannelFor(settings, release) == "stable");
+        // No settings.json: the release's channel answers. loadSettings() defaults the
+        // channel to "stable", so without the presence flag a fresh canary install
+        // would read stable's flags and nothing would say why.
+        assert(flagChannelFor(settings, false, release) == "stable");
+        release.file.channel = "canary";
+        assert(flagChannelFor(settings, false, release) == "canary");
 
+        // Neither says anything: the same default loadSettings() uses, so the flags
+        // channel cannot disagree with the one the updater follows.
         release.present = false;
-        assert(flagChannelFor(settings, release) == "stable");   // the safe default
+        settings.channel = "stable";
+        assert(flagChannelFor(settings, false, release) == "stable");
 
         settings.channel = "experimental";
-        assert(flagChannelFor(settings, release) == "experimental");
+        assert(flagChannelFor(settings, true, release) == "experimental");
 
         // A release that is present but names no channel is not an answer.
-        settings.channel.clear();
         release.present = true;
         release.file.channel.clear();
-        assert(flagChannelFor(settings, release) == "stable");
+        assert(flagChannelFor(settings, false, release) == "experimental");
+    }
+
+    // What the launcher hands the layer. The layer has no settings and no release file
+    // of its own, so without these two it cannot key a request -- which is exactly what
+    // should happen for a build that is not a release.
+    {
+        const fs::path dir = fs::temp_directory_path() / "tuxblox_test_launch_env";
+        fs::remove_all(dir);
+        fs::create_directories(dir);
+
+        auto has = [](const std::vector<std::string>& env, const std::string& prefix) {
+            for (const std::string& entry : env) {
+                if (entry.rfind(prefix, 0) == 0) return true;
+            }
+            return false;
+        };
+
+        // No recorded release: a channel is still named, but nothing says it is released,
+        // so the layer asks nobody.
+        std::vector<std::string> env = launchEnvVars(dir.string(), LaunchTarget::Player);
+        assert(has(env, "TUXBLOX_FLAGS_CHANNEL="));
+        assert(!has(env, "TUXBLOX_FLAGS_RELEASED="));
+
+        std::ofstream(dir / "release.json")
+            << R"({"release": "3.6.0.0", "channel": "canary", "changelog": "c", )"
+               R"("source_commit": "abc123", "source_dirty": false, "components": {)"
+               R"("launcher": {"version": "3.5.0", "arch": {"x86_64": {"sha256": "aa", "size": 12}, "arm64": null}}}})";
+        env = launchEnvVars(dir.string(), LaunchTarget::Player);
+        assert(has(env, "TUXBLOX_FLAGS_CHANNEL=canary"));
+        assert(has(env, "TUXBLOX_FLAGS_RELEASED=1"));
+        fs::remove_all(dir);
     }
 
     printf("flags: all tests passed\n");

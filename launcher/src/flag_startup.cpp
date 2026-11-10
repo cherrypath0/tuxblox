@@ -17,6 +17,8 @@
 #include "flag_startup.h"
 #include "flags.h"
 #include "roblox_config.h"
+#include <filesystem>
+#include <system_error>
 
 namespace tuxblox {
 
@@ -28,16 +30,24 @@ constexpr int kFlagFetchSeconds = 5;
 
 } // namespace
 
-std::string flagChannelFor(const Settings& settings, const RecordedRelease& release) {
-    if (!settings.channel.empty()) return settings.channel;
+bool settingsFilePresent(const std::string& installDir) {
+    std::error_code ignored;
+    return std::filesystem::exists(installDir + "/settings.json", ignored);
+}
+
+std::string flagChannelFor(const Settings& settings, bool settingsPresent,
+                           const RecordedRelease& release) {
+    if (settingsPresent && !settings.channel.empty()) return settings.channel;
     if (release.present && !release.file.channel.empty()) return release.file.channel;
+    if (!settings.channel.empty()) return settings.channel;
     return "stable";
 }
 
 void initLauncherFlags(const std::string& installDir) {
     const Settings settings = loadSettings(installDir);
     const RecordedRelease release = readRecordedRelease(installDir);
-    initFlags(installDir, flagChannelFor(settings, release), release.present,
+    initFlags(installDir, flagChannelFor(settings, settingsFilePresent(installDir), release),
+              release.present,
               kFlagFetchSeconds, {}, configBaseUrl());
 }
 

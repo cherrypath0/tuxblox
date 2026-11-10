@@ -24,8 +24,17 @@ namespace tuxblox {
 // Which channel's flags this install asks for. The channel the user follows wins:
 // switching channel switches everything else in the launcher, so somebody who moved to
 // canary and has not updated yet should see canary's flags now rather than after the
-// update. The installed release's channel answers only when settings say nothing.
-std::string flagChannelFor(const Settings& settings, const RecordedRelease& release);
+// update.
+//
+// `settingsPresent` is load-bearing and not a convenience: loadSettings() defaults the
+// channel to "stable", so a missing settings.json is indistinguishable from one that
+// chose stable. Without it a fresh canary install -- which has a release file and no
+// settings yet -- would silently read stable's flags.
+std::string flagChannelFor(const Settings& settings, bool settingsPresent,
+                           const RecordedRelease& release);
+
+// True when installDir holds a settings.json at all.
+bool settingsFilePresent(const std::string& installDir);
 
 // Loads the flags for this install. Reads settings and the recorded release itself, so
 // the caller has one line rather than four. An install with no recorded release -- every

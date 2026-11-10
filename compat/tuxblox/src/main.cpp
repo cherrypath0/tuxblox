@@ -32,6 +32,7 @@
 #include <signal.h>
 #include <unistd.h>
 
+#include "support/flag_startup.h"
 #include "integrity/authenticode.h"
 #include "prefix/prefix.h"
 #include "support/account_name.h"
@@ -260,6 +261,11 @@ int runMain(int argc, char *argv[]) {
     const std::string release = recordedRelease(installDir(argv[0]));
     tuxblox::log("Runtime version " + TuxBloxVersion +
                  (release.empty() ? "" : " (release " + release + ")"));
+
+    // Started here so the answer is on its way while the prefix and the executable are
+    // resolved. Only a later flag read can wait, and a run the launcher did not start --
+    // which is every `main run something.exe` by hand -- asks nobody at all.
+    tuxblox::initLayerFlags(installDir(argv[0]).string());
 
     // Authenticode verification to ensure the Roblox executables used are legitimate and not tampered with
     // TODO: Expand this to all third-party executables instead of just the one being launched (including DLLs), potentially even TuxBlox's own DLLs.

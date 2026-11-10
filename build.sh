@@ -702,17 +702,25 @@ run_step "compile_proton_native" strict bash -c '
     cp -a "$ROOT"/compat/tuxblox/src/. "$workdir/src/"
     mkdir -p "$workdir/src/shared_paths"
     cp -a "$ROOT"/shared/paths/src/. "$workdir/src/shared_paths/"
+    mkdir -p "$workdir/src/shared_flags"
+    cp -a "$ROOT"/shared/flags/src/. "$workdir/src/shared_flags/"
     "$ROOT/compat/tuxblox/tools/embed-data.py" "$ROOT/compat/tuxblox/data" "$workdir/src/embedded_data.h"
+    # The same generator the launcher and installer use, so a default that would fail
+    # their build fails this one too rather than only being caught on one side.
+    "$ROOT/shared/flags/tools/embed-flags.py" "$ROOT/shared/flags/DefaultFlags-x86_64.json" \
+        "$workdir/src/tuxblox_default_flags.h" kTuxBloxDefaultFlagsJson
 
     # Run through sh so the find runs inside the container.
     podman run --rm --userns=keep-id -v "$workdir:/work:Z" -w /work/src \
         -v "$ROOT/build/.artifacts/shared:/shared:ro,z" \
         -e TUXBLOX_COMPAT_VERSION \
         tuxblox-old-glibc-builder sh -c \
-        '"'"'g++ -std=c++17 -O2 -Wall -Wextra -static-libstdc++ -static-libgcc -I. -I/shared/include \
+        '"'"'g++ -std=c++17 -O2 -Wall -Wextra -static-libstdc++ -static-libgcc \
+            -I. -Ithird_party -Ishared_flags -I/shared/include \
             -DTUXBLOX_VERSION="\"$TUXBLOX_COMPAT_VERSION\"" \
             -o /work/out/main $(find . -name "*.cpp") \
-            /shared/lib/libcrypto.a -ldl -lpthread'"'"'
+            /shared/lib/libcurl.a /shared/lib/libnghttp2.a /shared/lib/libssl.a \
+            /shared/lib/libcrypto.a /shared/lib/libz.a -ldl -lpthread'"'"'
 
     install -m 755 "$workdir/out/main" dist/main
     rm -rf "$workdir"
