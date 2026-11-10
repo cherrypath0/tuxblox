@@ -32,6 +32,11 @@ namespace {
 
 const char* const kDefaultChannel = "live";
 
+// Roblox's own name for the channel is "live". "production" is what people reach for,
+// and resolving it to the same thing here keeps one answer rather than two that could
+// disagree about where a download comes from.
+const char* const kDefaultChannelAlias = "production";
+
 size_t curlWriteToString(char* ptr, size_t size, size_t nmemb, void* userdata) {
     auto* out = static_cast<std::string*>(userdata);
     out->append(ptr, size * nmemb);
@@ -256,6 +261,7 @@ std::string normalizeChannel(const std::string& channel) {
     std::string name = channel.substr(begin, end - begin + 1);
     std::transform(name.begin(), name.end(), name.begin(),
                     [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    if (name == kDefaultChannelAlias) return kDefaultChannel;
     return name;
 }
 

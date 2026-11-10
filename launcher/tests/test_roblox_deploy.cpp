@@ -163,6 +163,29 @@ int main() {
                "https://setup-aws.rbxcdn.com/channel/zcanary/version-abc123-rbxPkgManifest.txt");
     }
 
+    // normalizeChannel(): "production" is the name people reach for; Roblox's own is
+    // "live", and resolving it here keeps one answer rather than two.
+    {
+        assert(normalizeChannel("production") == "live");
+        assert(normalizeChannel("PRODUCTION") == "live");
+        assert(normalizeChannel("  Production  ") == "live");
+        assert(normalizeChannel("live") == "live");
+        assert(normalizeChannel("LIVE") == "live");
+        assert(normalizeChannel("") == "live");
+        // Only the exact name is an alias -- nothing else is rewritten.
+        assert(normalizeChannel("zbeta") == "zbeta");
+        assert(normalizeChannel("production2") == "production2");
+        assert(normalizeChannel("preproduction") == "preproduction");
+    }
+
+    // An aliased channel must reach the CDN root, not channel/production/.
+    {
+        assert(setupCdnUrl("setup.rbxcdn.com", "production", "version-abc123", "rbxPkgManifest.txt") ==
+               "https://setup.rbxcdn.com/version-abc123-rbxPkgManifest.txt");
+        assert(deployHistoryUrl("setup.rbxcdn.com", "Production") ==
+               "https://setup.rbxcdn.com/DeployHistory.txt");
+    }
+
     // deployHistoryUrl(): same split as setupCdnUrl().
     {
         assert(deployHistoryUrl("setup.rbxcdn.com", "live") ==

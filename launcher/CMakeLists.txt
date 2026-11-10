@@ -82,6 +82,16 @@ set(TUXBLOX_SHARED_LIBS
 # old-glibc-baseline safety makes it cheap insurance).
 find_package(Threads REQUIRED)
 
+# Translation catalogs shared by the launcher and the installer. The generated
+# header is a plain C++ table, so no JSON file is read at runtime.
+if(NOT TUXBLOX_I18N_DIR)
+    set(TUXBLOX_I18N_DIR "${CMAKE_SOURCE_DIR}/../shared/i18n")
+endif()
+if(NOT TUXBLOX_TRANSLATIONS_DIR)
+    set(TUXBLOX_TRANSLATIONS_DIR "${CMAKE_SOURCE_DIR}/../shared/translations")
+endif()
+include(${TUXBLOX_I18N_DIR}/src/EmbedTranslations.cmake)
+
 file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/generated)
 # TUXBLOX_BUILD_VERSION carries the LAUNCHER's own version, which launcher/build.sh reads from
 # launcher/VERSION on the host and forwards in, because cmake runs inside a container where only
@@ -107,6 +117,7 @@ add_library(launcher_core STATIC
     ${TUXBLOX_SHARED_RELEASE}/release_file.cpp
     ${TUXBLOX_SHARED_PATHS}/windows_paths.cpp
     ${TUXBLOX_SHARED_RELEASE}/user_agent.cpp
+    ${TUXBLOX_I18N_DIR}/src/i18n.cpp
     src/app.cpp
     src/discord_rpc.cpp
     src/about_versions.cpp
@@ -117,6 +128,7 @@ add_library(launcher_core STATIC
     src/player_presence.cpp
     src/presence_loop.cpp
     src/server_region.cpp
+    src/roblox_config.cpp
     src/roblox_http.cpp
     src/roblox_universe.cpp
     src/roblox_place_info.cpp
@@ -165,6 +177,7 @@ add_library(launcher_core STATIC
     ${TUXBLOX_UI_SRC}/adw_env.cpp
     ${TUXBLOX_UI_SRC}/svg_raster.cpp
     ${TUXBLOX_UI_SRC}/palette.cpp
+    ${TUXBLOX_UI_SRC}/seasonal.cpp
     src/session_facts.cpp
     src/session_list.cpp
     src/session_log_match.cpp
@@ -178,7 +191,7 @@ endif()
 include(${TUXBLOX_SHARED_CRYPTO}/EmbedCaBundle.cmake)
 
 target_include_directories(launcher_core PUBLIC
-    src third_party ${CMAKE_BINARY_DIR}/generated ${TUXBLOX_UI_SRC}
+    src third_party ${TUXBLOX_I18N_DIR}/src ${CMAKE_BINARY_DIR}/generated ${TUXBLOX_UI_SRC}
     ${TUXBLOX_SHARED_INCLUDE} ${TUXBLOX_SHARED_CRYPTO} ${TUXBLOX_SHARED_RELEASE}
     ${TUXBLOX_SHARED_PATHS} ${CMAKE_BINARY_DIR}/generated)
 if(TUXBLOX_TEST_SETUP_URL)
@@ -216,7 +229,7 @@ include(cmake/EmbedAssets.cmake)
 # and copyright_file.cpp/license_file.cpp embed license text. Declared here
 # on launcher_core itself, not duplicated on every consumer, since these
 # are launcher_core's own compile-time requirements.
-add_dependencies(launcher_core generate_ca_bundle_header generate_logo_header generate_font_header generate_thirdparty_license_headers generate_license_header)
+add_dependencies(launcher_core generate_ca_bundle_header generate_logo_header generate_font_header generate_thirdparty_license_headers generate_license_header generate_i18n_header)
 
 # The window needs the interface stack's development tree, which only exists once shared/tools/ui-build.sh has run; without it only launcher_core and its tests build, and build.sh refuses to finish.
 if(TUXBLOX_UI_STACK_DEV)
@@ -239,6 +252,7 @@ if(TUXBLOX_UI_STACK_DEV)
         src/ui_adw/welcome_tour.cpp
         src/ui_adw/fastflags_page_state.cpp
         src/ui_adw/page_sessions.cpp
+        src/ui_adw/snow.cpp
         src/bootstrap/ui_adw.cpp
         src/bootstrap/command.cpp
         ${TUXBLOX_UI_SRC}/adw_look.cpp

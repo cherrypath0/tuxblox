@@ -73,6 +73,10 @@ add_executable(test_settings test_settings.cpp)
 target_link_libraries(test_settings PRIVATE launcher_core)
 add_test(NAME settings COMMAND test_settings)
 
+add_executable(test_settings_language test_settings_language.cpp)
+target_link_libraries(test_settings_language PRIVATE launcher_core)
+add_test(NAME settings_language COMMAND test_settings_language)
+
 add_executable(test_fastflag_file test_fastflag_file.cpp)
 target_link_libraries(test_fastflag_file PRIVATE launcher_core)
 add_test(NAME fastflag_file COMMAND test_fastflag_file)
@@ -124,6 +128,10 @@ add_test(NAME crash_report COMMAND test_crash_report)
 add_executable(test_versions_manifest test_versions_manifest.cpp)
 target_link_libraries(test_versions_manifest PRIVATE launcher_core)
 add_test(NAME versions_manifest COMMAND test_versions_manifest)
+
+add_executable(test_roblox_config test_roblox_config.cpp)
+target_link_libraries(test_roblox_config PRIVATE launcher_core)
+add_test(NAME roblox_config COMMAND test_roblox_config)
 
 add_executable(test_roblox_deploy test_roblox_deploy.cpp)
 target_link_libraries(test_roblox_deploy PRIVATE launcher_core)
@@ -282,6 +290,10 @@ add_executable(test_adw_env test_adw_env.cpp ${TUXBLOX_UI_SRC}/adw_env.cpp)
 target_include_directories(test_adw_env PRIVATE ${TUXBLOX_UI_SRC})
 add_test(NAME adw_env COMMAND test_adw_env)
 
+add_executable(test_seasonal test_seasonal.cpp ${TUXBLOX_UI_SRC}/seasonal.cpp)
+target_include_directories(test_seasonal PRIVATE ${TUXBLOX_UI_SRC})
+add_test(NAME seasonal COMMAND test_seasonal)
+
 add_executable(test_bootstrap_dispatch test_bootstrap_dispatch.cpp)
 target_link_libraries(test_bootstrap_dispatch PRIVATE launcher_core)
 add_test(NAME bootstrap_dispatch COMMAND test_bootstrap_dispatch)
@@ -327,3 +339,11 @@ add_test(NAME sessions_page_state COMMAND test_sessions_page_state)
 add_executable(test_launch_follow_up test_launch_follow_up.cpp)
 target_link_libraries(test_launch_follow_up PRIVATE launcher_core)
 add_test(NAME launch_follow_up COMMAND test_launch_follow_up)
+
+add_executable(test_i18n ${TUXBLOX_I18N_DIR}/tests/test_i18n.cpp)
+target_link_libraries(test_i18n PRIVATE launcher_core)
+add_test(NAME i18n COMMAND test_i18n)
+
+add_test(NAME translations
+    COMMAND ${PYTHON3_EXECUTABLE} "${TUXBLOX_I18N_DIR}/tools/check-translations.py"
+            --check --translations ${TUXBLOX_TRANSLATIONS_DIR})
