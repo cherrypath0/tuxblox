@@ -135,6 +135,7 @@ add_library(launcher_core STATIC
     src/presence_loop.cpp
     src/server_region.cpp
     ${TUXBLOX_SHARED_FLAGS}/flag_table.cpp
+    ${TUXBLOX_SHARED_FLAGS}/flags.cpp
     src/roblox_config.cpp
     src/roblox_http.cpp
     src/roblox_universe.cpp

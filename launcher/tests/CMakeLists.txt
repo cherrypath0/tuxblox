@@ -129,6 +129,10 @@ add_executable(test_versions_manifest test_versions_manifest.cpp)
 target_link_libraries(test_versions_manifest PRIVATE launcher_core)
 add_test(NAME versions_manifest COMMAND test_versions_manifest)
 
+add_executable(test_flags test_flags.cpp)
+target_link_libraries(test_flags PRIVATE launcher_core)
+add_test(NAME flags COMMAND test_flags)
+
 add_executable(test_flag_table test_flag_table.cpp)
 target_link_libraries(test_flag_table PRIVATE launcher_core)
 add_test(NAME flag_table COMMAND test_flag_table)
