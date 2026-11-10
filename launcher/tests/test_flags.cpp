@@ -16,6 +16,9 @@
 
 #include "flags.h"
 #include "flag_table.h"
+#include "flag_startup.h"
+#include "settings.h"
+#include "release_file.h"
 #include <cassert>
 #include <cstdio>
 #include <filesystem>
@@ -168,6 +171,34 @@ int main() {
                   [&](const std::string&, int seconds) { budget = seconds; return std::string("{}"); });
         (void)flagBool("tbxFlagDisableUpdater");
         assert(budget == 2);
+    }
+
+    // Which channel keys the request. The one the user follows wins, because switching
+    // channel means switching everywhere else in the launcher too; the installed
+    // release's channel answers only when settings say nothing.
+    {
+        Settings settings;
+        RecordedRelease release;
+
+        settings.channel = "canary";
+        release.present = true;
+        release.file.channel = "stable";
+        assert(flagChannelFor(settings, release) == "canary");
+
+        settings.channel.clear();
+        assert(flagChannelFor(settings, release) == "stable");
+
+        release.present = false;
+        assert(flagChannelFor(settings, release) == "stable");   // the safe default
+
+        settings.channel = "experimental";
+        assert(flagChannelFor(settings, release) == "experimental");
+
+        // A release that is present but names no channel is not an answer.
+        settings.channel.clear();
+        release.present = true;
+        release.file.channel.clear();
+        assert(flagChannelFor(settings, release) == "stable");
     }
 
     printf("flags: all tests passed\n");

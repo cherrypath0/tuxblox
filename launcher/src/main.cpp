@@ -15,11 +15,13 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "app.h"
+#include "i18n.h"
 #include "user_agent.h"
 #include "bootstrap/command.h"
 #include "adw_env.h"
 #include "ui_adw/launcher_window.h"
 #include "ui_adw/message_box.h"
+#include "flag_startup.h"
 #include "install_paths.h"
 #include "root_guard.h"
 #include "headless_launch.h"
@@ -45,8 +47,6 @@
 #include <vector>
 
 namespace {
-
-constexpr const char* kErrorTitle = "TuxBlox has encountered an error and has to quit!";
 
 bool startsWith(const std::string& s, const char* prefix) {
     return s.rfind(prefix, 0) == 0;
@@ -106,6 +106,15 @@ int runMessageBoxCommand(int argc, char** argv) {
 int main(int argc, char** argv) {
     using namespace tuxblox;
 
+    // Resolve the language before anything can print to a user, including the
+    // message box and the bootstrap commands below. An unreadable install
+    // directory falls back to the desktop locale and keeps its own error path.
+    try {
+        i18n::initializeFromSettingsFile(installDir() + "/settings.json");
+    } catch (...) {
+        i18n::initializeFromSetting("system");
+    }
+
     // Ahead of everything, the root guard included: this draws a message for another program and reports the
     // answer as its exit code, so nothing else may reach a return before it and be read as that answer.
     if (argc > 1 && std::string(argv[1]) == "--message-box") return runMessageBoxCommand(argc - 2, argv + 2);
@@ -145,7 +154,7 @@ int main(int argc, char** argv) {
     {
         const std::vector<UnmetRequirement> unmet = unmetRequirements(collectSystemFacts());
         if (!unmet.empty()) {
-            showErrorMessageBox("TuxBlox is not supported on your system", unsupportedSystemMessage(unmet));
+            showErrorMessageBox(i18n::tr("TuxBlox is not supported on your system"), unsupportedSystemMessage(unmet));
             return 1;
         }
     }
@@ -245,9 +254,8 @@ int main(int argc, char** argv) {
 
             const std::string winPath = bridgeHostPathIntoPrefix(dir, argv[2]);
             if (winPath.empty()) {
-                showErrorMessageBox("TuxBlox Error",
-                                    std::string("Could not open this file in Roblox Studio:\n") +
-                                        argv[2]);
+                showErrorMessageBox(i18n::tr("TuxBlox Error"),
+                                    i18n::trf("Could not open this file in Roblox Studio:\n{0}", {argv[2]}));
                 return 1;
             }
             return runWatchAndLaunch(dir, LaunchTarget::Studio, winPath, kTuxBloxVersion);
@@ -259,7 +267,7 @@ int main(int argc, char** argv) {
     try {
         dir = installDir();
     } catch (const std::exception& e) {
-        fprintf(stderr, "%s\nDetails: %s\n", kErrorTitle, e.what());
+        fprintf(stderr, "%s\nDetails: %s\n", i18n::tr("TuxBlox has encountered an error and has to quit!"), e.what());
         return 1;
     }
 
@@ -276,7 +284,8 @@ int main(int argc, char** argv) {
 
     // Only the GUI itself is single-instance: the quick-launch and --watch-launch paths above have already returned.
     if (!acquireSingleInstanceLock(dir)) {
-        showErrorMessageBox("TuxBlox Error", "An instance of the TuxBlox Launcher is already running!");
+        showErrorMessageBox(i18n::tr("TuxBlox Error"),
+                            i18n::tr("An instance of the TuxBlox Launcher is already running!"));
         return 1;
     }
 
@@ -302,6 +311,11 @@ int main(int argc, char** argv) {
     // Set before anything can make a request. Every call site reads it rather than building its
     // own, so the seven places TuxBlox talks to a server cannot come to disagree about what it is.
     setUserAgent(UserAgentProduct::Client, kTuxBloxVersion, loadSettings(dir).channel);
+
+    // Started here so the answer is on its way while the window is built. Nothing on the
+    // path to the first frame reads a flag, so only a later read can ever wait, and an
+    // install with no recorded release does not ask at all.
+    initLauncherFlags(dir);
 
     // App's constructor is cheap (just a JSON load + a filesystem::exists
     // check) -- constructing it before the window is shown doesn't
