@@ -98,6 +98,24 @@ int main() {
         assert(trimmedHash("").empty());
     }
 
+    // Which of the install sheet's fields each mode actually uses. Kept out of the page
+    // so the rule can be checked without a display.
+    {
+        // Latest and Custom are the two where a channel is a real question.
+        assert(channelBoxVisibleFor(VersionSelectMode::Latest));
+        assert(channelBoxVisibleFor(VersionSelectMode::ManualHash));
+        // Next is defined by Roblox's unreleased channel, and Previous is only served
+        // for the channels TuxBlox records -- neither has a channel to type.
+        assert(!channelBoxVisibleFor(VersionSelectMode::Previous));
+        assert(!channelBoxVisibleFor(VersionSelectMode::Next));
+
+        // The warning belongs to Next alone.
+        assert(nextWarningVisibleFor(VersionSelectMode::Next));
+        assert(!nextWarningVisibleFor(VersionSelectMode::Latest));
+        assert(!nextWarningVisibleFor(VersionSelectMode::Previous));
+        assert(!nextWarningVisibleFor(VersionSelectMode::ManualHash));
+    }
+
     printf("versions_tab_state: all tests passed\n");
     return 0;
 }

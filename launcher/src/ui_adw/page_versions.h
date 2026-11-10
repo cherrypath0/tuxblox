@@ -50,10 +50,13 @@ private:
         AdwDialog *pDialog = nullptr;
         GtkWidget *pLatest = nullptr;
         GtkWidget *pPrevious = nullptr;
+        GtkWidget *pNext = nullptr;
         GtkWidget *pCustom = nullptr;
         GtkEditable *pChannel = nullptr;
         GtkEditable *pHash = nullptr;
         GtkWidget *pHashBox = nullptr;
+        GtkWidget *pChannelBox = nullptr;
+        GtkWidget *pNextWarning = nullptr;
     };
 
     void applyReadOnly(bool readOnly);
@@ -71,6 +74,7 @@ private:
     static void onTargetToggled(GtkToggleButton *pButton, gpointer data);
     static void onInstallPressed(GtkButton *, gpointer data);
     static void onSheetModeToggled(GtkToggleButton *pButton, gpointer data);
+    static VersionSelectMode sheetMode(const InstallSheet *pSheet);
     static void onSheetInstall(GtkButton *, gpointer data);
     static void onSheetCancel(GtkButton *, gpointer data);
     static void onSheetClosed(AdwDialog *, gpointer data);

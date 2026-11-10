@@ -52,4 +52,12 @@ std::string normalizedChannel(const std::string& typed) {
     return channel;
 }
 
+bool channelBoxVisibleFor(VersionSelectMode mode) {
+    return mode == VersionSelectMode::Latest || mode == VersionSelectMode::ManualHash;
+}
+
+bool nextWarningVisibleFor(VersionSelectMode mode) {
+    return mode == VersionSelectMode::Next;
+}
+
 } // namespace tuxblox

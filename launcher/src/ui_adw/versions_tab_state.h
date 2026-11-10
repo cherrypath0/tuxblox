@@ -17,8 +17,17 @@
 #pragma once
 #include <string>
 #include "versions_manifest.h"
+#include "app.h"
 
 namespace tuxblox {
+
+// Whether the install sheet offers a channel to type. Latest and Custom are the two
+// where it is a real question; Next is defined by Roblox's unreleased channel and
+// Previous is only served for the channels TuxBlox records, so neither has one.
+bool channelBoxVisibleFor(VersionSelectMode mode);
+
+// Whether the sheet shows the notice that a build has not been released yet.
+bool nextWarningVisibleFor(VersionSelectMode mode);
 
 // True if `hash` is actually installed -- the rule VersionsTab's per-row
 // delete button enables against. The version in use is deletable too: with
