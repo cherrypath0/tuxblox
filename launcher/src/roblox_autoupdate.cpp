@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "roblox_autoupdate.h"
+#include "i18n.h"
 #include "prefix_user.h"
 
 #include "desktop_notify.h"
@@ -116,9 +117,9 @@ void runRobloxUpdateCheck(const std::string& installDir, LaunchTarget target,
         // rather than that Roblox failed to start: the launch goes ahead on
         // the version already installed either way.
         showDesktopNotification(
-            "Failed to Update Roblox",
-            "Something went wrong while attempting to update Roblox, so the update "
-            "was skipped. Please check your internet connection and try again.");
+            i18n::tr("Failed to Update Roblox"),
+            i18n::tr("Something went wrong while attempting to update Roblox, so the update "
+                     "was skipped. Please check your internet connection and try again."));
         return;
     }
 
@@ -143,6 +144,14 @@ void activateNewlyUpdatedVersion(const std::string& installDir, LaunchTarget tar
     AppVersions& versions = appVersionsFor(manifest, target);
     if (versions.activeHash == installed) return;
 
+    // A build somebody picked keeps the pin. This is what makes the deletion rule below hold for
+    // more than one launch: move the pin off it here and it is an ordinary superseded build by the
+    // next launch, so protecting it from deletion would protect nothing. An active build that is
+    // no longer on disk is not found here, and the pin moves as it always did.
+    for (const InstalledVersion& version : versions.installed) {
+        if (version.hash == versions.activeHash && wasChosenDeliberately(version)) return;
+    }
+
     versions.activeHash = installed;
     saveVersionsManifest(installDir, manifest);
 }
@@ -155,8 +164,22 @@ void removeSupersededVersions(const std::string& installDir, LaunchTarget target
     const std::string versionsDir = robloxVersionsDir(installDir);
     bool removedAny = false;
 
+    // What somebody chose, and what they are playing on, are not the update's to remove.
+    // Read raw rather than reconciled: reconcileWithPrefix() invents an active build when
+    // versions.json names none, and a hash it picked for us is not a choice anybody made.
+    const VersionsManifest manifest = loadVersionsManifest(installDir);
+    const AppVersions& versions = appVersionsFor(manifest, target);
+    auto chosenDeliberately = [&versions](const std::string& hash) {
+        for (const InstalledVersion& version : versions.installed) {
+            if (version.hash == hash) return wasChosenDeliberately(version);
+        }
+        return false;
+    };
+
     for (const std::string& hash : scanPrefixVersions(installDir, target)) {
         if (hash == keepHash) continue;
+        if (hash == versions.activeHash) continue;
+        if (chosenDeliberately(hash)) continue;
 
         const std::string dir = versionsDir + "/" + hash;
         if (versionInUse(dir)) continue;

@@ -15,7 +15,9 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "roblox_autoupdate.h"
+#include "versions_manifest.h"
 #include <cassert>
+#include <vector>
 #include <filesystem>
 #include <cstdio>
 #include <optional>
@@ -125,6 +127,108 @@ int main() {
         fs::remove_all(base);
     }
 
+
+    // The auto-update may tidy away a build it installed itself. It may NOT tidy away
+    // one somebody picked on purpose -- that is how installing an earlier build to get
+    // away from a broken one would silently put the broken one back on the next launch.
+    {
+        const fs::path base = fs::temp_directory_path() / "tuxblox_test_autoupdate_chosen";
+        fs::remove_all(base);
+        const fs::path versions = fs::path(robloxVersionsDir(base.string()));
+        fs::create_directories(versions);
+
+        auto makeVersion = [&](const char* hash) {
+            fs::create_directories(versions / hash);
+            FILE* f = fopen((versions / hash / "RobloxPlayerBeta.exe").string().c_str(), "w");
+            assert(f);
+            fclose(f);
+        };
+        auto seed = [&](const char* active, std::vector<InstalledVersion> installed) {
+            VersionsManifest m;
+            m.player.activeHash = active;
+            m.player.installed = std::move(installed);
+            saveVersionsManifest(base.string(), m);
+        };
+
+        makeVersion("version-latest");
+        makeVersion("version-next");
+        makeVersion("version-stale");
+        seed("version-latest", {
+            {"version-latest", "live", "", "", "latest"},
+            {"version-next", "zbeta", "", "", "next"},
+            {"version-stale", "live", "", "", "auto"},
+        });
+
+        removeSupersededVersions(base.string(), LaunchTarget::Player, "version-latest");
+
+        assert(fs::exists(versions / "version-latest"));  // just installed, and active
+        assert(fs::exists(versions / "version-next"));    // chosen on purpose -- not the updater's to remove
+        assert(!fs::exists(versions / "version-stale")); // ordinary superseded build, still collected
+        fs::remove_all(base);
+    }
+
+    // The build that is active is kept even when the updater just installed another.
+    {
+        const fs::path base = fs::temp_directory_path() / "tuxblox_test_autoupdate_keepactive";
+        fs::remove_all(base);
+        const fs::path versions = fs::path(robloxVersionsDir(base.string()));
+        fs::create_directories(versions);
+        for (const char* hash : {"version-latest", "version-active"}) {
+            fs::create_directories(versions / hash);
+            FILE* f = fopen((versions / hash / "RobloxPlayerBeta.exe").string().c_str(), "w");
+            assert(f);
+            fclose(f);
+        }
+        VersionsManifest m;
+        m.player.activeHash = "version-active";
+        m.player.installed = {{"version-latest", "live", "", "", "latest"},
+                              {"version-active", "live", "", "", "previous"}};
+        saveVersionsManifest(base.string(), m);
+
+        removeSupersededVersions(base.string(), LaunchTarget::Player, "version-latest");
+        assert(fs::exists(versions / "version-active"));
+        fs::remove_all(base);
+    }
+
+    // activateNewlyUpdatedVersion(): the pin follows the update only when the update
+    // is what put the active build there. Without this half, protecting the active
+    // build from deletion protects nothing -- it stops being active on this launch and
+    // is an ordinary superseded build by the next one.
+    {
+        const fs::path base = fs::temp_directory_path() / "tuxblox_test_autoupdate_pin";
+        fs::remove_all(base);
+        const fs::path versions = fs::path(robloxVersionsDir(base.string()));
+        fs::create_directories(versions);
+        auto makeVersion = [&](const char* hash) {
+            fs::create_directories(versions / hash);
+            FILE* f = fopen((versions / hash / "RobloxPlayerBeta.exe").string().c_str(), "w");
+            assert(f);
+            fclose(f);
+        };
+
+        // Chosen on purpose: the newly installed build does not take the pin.
+        makeVersion("version-chosen");
+        VersionsManifest m;
+        m.player.activeHash = "version-chosen";
+        m.player.installed = {{"version-chosen", "live", "", "", "previous"}};
+        saveVersionsManifest(base.string(), m);
+        const std::vector<std::string> before = scanPrefixVersions(base.string(), LaunchTarget::Player);
+        makeVersion("version-fresh");
+        activateNewlyUpdatedVersion(base.string(), LaunchTarget::Player, before);
+        assert(loadInstalledVersions(base.string()).player.activeHash == "version-chosen");
+
+        // The updater's own build: the pin follows, exactly as it does today.
+        VersionsManifest auto_m;
+        auto_m.player.activeHash = "version-chosen";
+        auto_m.player.installed = {{"version-chosen", "live", "", "", "auto"},
+                                   {"version-fresh", "live", "", "", "auto"}};
+        saveVersionsManifest(base.string(), auto_m);
+        makeVersion("version-newer");
+        const std::vector<std::string> before2 = {"version-chosen", "version-fresh"};
+        activateNewlyUpdatedVersion(base.string(), LaunchTarget::Player, before2);
+        assert(loadInstalledVersions(base.string()).player.activeHash == "version-newer");
+        fs::remove_all(base);
+    }
 
     printf("roblox_autoupdate: all tests passed\n");
     return 0;
