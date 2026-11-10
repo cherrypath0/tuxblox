@@ -51,6 +51,11 @@ if(NOT TUXBLOX_SHARED_RELEASE)
     set(TUXBLOX_SHARED_RELEASE "${CMAKE_SOURCE_DIR}/../shared/release/src")
 endif()
 
+# TuxBlox's own feature flags, shared with the installer and the compatibility layer.
+if(NOT TUXBLOX_SHARED_FLAGS)
+    set(TUXBLOX_SHARED_FLAGS "${CMAKE_SOURCE_DIR}/../shared/flags/src")
+endif()
+
 # The capitalisation Windows uses for the folders on the virtual drive, shared with the
 # compatibility layer so a path built here is spelled the way the layer spells one.
 if(NOT TUXBLOX_SHARED_PATHS)
@@ -128,6 +133,7 @@ add_library(launcher_core STATIC
     src/player_presence.cpp
     src/presence_loop.cpp
     src/server_region.cpp
+    ${TUXBLOX_SHARED_FLAGS}/flag_table.cpp
     src/roblox_config.cpp
     src/roblox_http.cpp
     src/roblox_universe.cpp
@@ -191,7 +197,7 @@ endif()
 include(${TUXBLOX_SHARED_CRYPTO}/EmbedCaBundle.cmake)
 
 target_include_directories(launcher_core PUBLIC
-    src third_party ${TUXBLOX_I18N_DIR}/src ${CMAKE_BINARY_DIR}/generated ${TUXBLOX_UI_SRC}
+    src third_party ${TUXBLOX_SHARED_FLAGS} ${TUXBLOX_I18N_DIR}/src ${CMAKE_BINARY_DIR}/generated ${TUXBLOX_UI_SRC}
     ${TUXBLOX_SHARED_INCLUDE} ${TUXBLOX_SHARED_CRYPTO} ${TUXBLOX_SHARED_RELEASE}
     ${TUXBLOX_SHARED_PATHS} ${CMAKE_BINARY_DIR}/generated)
 if(TUXBLOX_TEST_SETUP_URL)
