@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "app.h"
+#include "i18n.h"
 #include <cstdlib>
 #include "roblox_log_capture.h"
 #include "process_launcher.h"
@@ -29,6 +30,7 @@
 #include "manifest.h"
 #include "prefix_session.h"
 #include "roblox_deploy.h"
+#include "roblox_config.h"
 #include "tar_extract.h"
 #include <algorithm>
 #include <chrono>
@@ -109,10 +111,10 @@ App::App(std::string installDir, std::string launcherExePath)
     // message before the user even tries to launch.
     if (isInsideDistrobox() && !std::filesystem::exists("/dev/dri")) {
         snapshot_.containerWarning =
-            "Running inside a Distrobox container without GPU passthrough -- "
-            "Roblox will likely fail to render. Recreate the container with "
-            "GPU access, e.g. `distrobox create --nvidia ...` or "
-            "`--additional-flags \"--device /dev/dri\"`.";
+            i18n::tr("Running inside a Distrobox container without GPU passthrough -- "
+                     "Roblox will likely fail to render. Recreate the container with "
+                     "GPU access, e.g. `distrobox create --nvidia ...` or "
+                     "`--additional-flags \"--device /dev/dri\"`.");
     }
 
     // Taken once here rather than only on the poll thread, so the first frame
@@ -319,11 +321,11 @@ void App::uninstallThreadMain() {
     try {
         latestRelease = fetchLatestRelease(setupBaseUrl(), channel, &uninstallCancel_);
     } catch (const std::exception& e) {
-        fail(std::string("Couldn't reach tuxblox.net to prepare the uninstaller: ") + e.what());
+        fail(i18n::trf("Couldn't reach tuxblox.net to prepare the uninstaller: {0}", {e.what()}));
         return;
     }
     if (!latestRelease.has_value()) {
-        fail("No published release found for the current channel -- can't fetch an uninstaller.");
+        fail(i18n::tr("No published release found for the current channel -- can't fetch an uninstaller."));
         return;
     }
 
@@ -332,14 +334,14 @@ void App::uninstallThreadMain() {
         release = parseReleaseFile(fetchManifestJson(
             releaseFileUrl(setupBaseUrl(), channel, *latestRelease), &uninstallCancel_));
     } catch (const std::exception& e) {
-        fail(std::string("Couldn't fetch the release: ") + e.what());
+        fail(i18n::trf("Couldn't fetch the release: {0}", {e.what()}));
         return;
     }
 
     EnsureInstallerResult ensured =
         ensureInstallerBinary(release, setupBaseUrl(), installDir_, &uninstallCancel_, nullptr);
     if (!ensured.ok) {
-        fail(ensured.errorMessage.empty() ? "Failed to prepare the uninstaller." : ensured.errorMessage);
+        fail(ensured.errorMessage.empty() ? i18n::tr("Failed to prepare the uninstaller.") : ensured.errorMessage);
         return;
     }
 
@@ -386,12 +388,12 @@ void App::wipePrefixThreadMain() {
             std::error_code removeEc;
             fs::remove_all(entry.path(), removeEc); // best-effort per entry
             if (removeEc && error.empty()) {
-                error = "Failed to remove " + entry.path().string() + ": " + removeEc.message();
+                error = i18n::trf("Failed to remove {0}: {1}", {entry.path().string(), removeEc.message()});
             }
         }
     }
     if (ec && error.empty()) {
-        error = "Failed to read " + runtimeDir + ": " + ec.message();
+        error = i18n::trf("Failed to read {0}: {1}", {runtimeDir, ec.message()});
     }
 
     // Wiping runtime/ deletes every Roblox version directory it contained --
@@ -697,7 +699,8 @@ bool App::prepareInstallerHandoff(const ReleaseFile& release, const std::string&
     const std::string problem = writeReleaseHandoff(installDir_, releaseJson);
     if (!problem.empty()) {
         std::lock_guard<std::mutex> lock(mutex_);
-        snapshot_.update = {UpdatePhase::Error, 0.0, "Could not prepare the update: " + problem + "."};
+        snapshot_.update = {UpdatePhase::Error, 0.0,
+                            i18n::trf("Could not prepare the update: {0}.", {problem})};
         return false;
     }
     const std::string handoff = installDir_ + "/.release-incoming.json";
@@ -752,7 +755,7 @@ void App::updateCheckThreadMain() {
     try {
         namedRelease = fetchLatestRelease(setupBaseUrl(), channel, &updateCancel_);
     } catch (const std::exception& e) {
-        report({UpdatePhase::Error, 0.0, e.what()});
+        report({UpdatePhase::Error, 0.0, i18n::trf("Could not check for updates: {0}", {e.what()})});
         return;
     }
     if (!namedRelease.has_value()) {
@@ -845,36 +848,85 @@ void App::versionInstallThreadMain(LaunchTarget target, VersionSelectMode mode, 
     channel = normalizeChannel(channel);
 
     std::string hash;
+    // How this build was picked, so the update check knows later whether it may replace it.
+    std::string source = "latest";
+    // Where to look for its files. Only an unreleased build is served from more than one place.
+    std::vector<std::string> channelsToTry{channel};
     try {
         if (mode == VersionSelectMode::ManualHash) {
+            source = "manual";
             hash = manualHash;
         } else if (mode == VersionSelectMode::Latest) {
             hash = parseClientVersionHash(fetchClientVersionJson(binaryType, channel, &versionInstallCancel_));
-        } else { // Previous
-            std::string latestHash =
-                parseClientVersionHash(fetchClientVersionJson(binaryType, channel, &versionInstallCancel_));
-            std::string history = fetchDeployHistory(channel, &versionInstallCancel_);
-            auto prev = previousVersionFromDeployHistory(history, binaryType, latestHash);
-            if (!prev.has_value()) {
-                fail("No earlier version found in Roblox's deploy history for this channel. "
-                      "Roblox hides the version list for its private channels, so this only "
-                      "works on the live channel.");
+        } else if (mode == VersionSelectMode::Next) {
+            source = "next";
+            std::string pending;
+            try {
+                pending = fetchClientVersionJson(binaryType, robloxPendingChannel(), &versionInstallCancel_);
+            } catch (const std::exception& e) {
+                // Roblox answers this channel only while a build is waiting to be released, so
+                // being refused is the ordinary "nothing upcoming" state rather than a fault.
+                if (isNotAuthorized(e.what())) {
+                    fail(i18n::tr("Roblox has no upcoming version right now. There is nothing newer "
+                                  "than the current release to install yet."));
+                    return;
+                }
+                throw;
+            }
+            const std::string pendingVersion = parseClientVersionNumber(pending);
+            const std::string liveVersion = parseClientVersionNumber(
+                fetchClientVersionJson(binaryType, channel, &versionInstallCancel_));
+            const PendingBuild standing = comparePendingToLive(pendingVersion, liveVersion);
+            if (standing == PendingBuild::SameAsLive) {
+                fail(i18n::tr("Roblox has no upcoming version right now. The next version is the one "
+                              "already released, so there is nothing newer to install."));
                 return;
             }
-            hash = *prev;
+            if (standing == PendingBuild::OlderThanLive) {
+                // Installing it would hand over an older build under a label promising a newer one.
+                fail(i18n::tr("Roblox is not offering a newer version than the current release right "
+                              "now, so there is nothing to install."));
+                return;
+            }
+            hash = parseClientVersionHash(pending);
+            channelsToTry = pendingChannelsInOrder();
+        } else { // Previous
+            source = "previous";
+            std::string body;
+            try {
+                body = fetchText(configPreviousUrl(channel, binaryType), &versionInstallCancel_);
+            } catch (const std::exception& e) {
+                if (isNotFound(e.what())) {
+                    fail(i18n::tr("TuxBlox hasn't recorded an earlier version of this app yet. It notes "
+                                  "each new Roblox version as it is released, so this will work once "
+                                  "Roblox releases its next one."));
+                    return;
+                }
+                fail(i18n::trf("Couldn't reach TuxBlox's version list, so there is no earlier version "
+                               "to install right now: {0}", {std::string(e.what())}));
+                return;
+            }
+            const std::optional<std::string> previous = parsePreviousHash(body);
+            if (!previous.has_value()) {
+                fail(i18n::tr("TuxBlox hasn't recorded an earlier version of this app yet. It notes "
+                              "each new Roblox version as it is released, so this will work once "
+                              "Roblox releases its next one."));
+                return;
+            }
+            hash = *previous;
         }
     } catch (const std::exception& e) {
         const std::string detail = e.what();
-        if (detail.find("401") != std::string::npos) {
-            fail("Roblox does not allow this channel to be looked up, so TuxBlox cannot find its "
-                  "latest version. Type an exact version instead, or use the live channel.");
+        if (isNotAuthorized(detail)) {
+            fail(i18n::tr("Roblox does not allow this channel to be looked up, so TuxBlox cannot find its "
+                          "latest version. Type an exact version instead, or use the live channel."));
         } else {
-            fail(std::string("Couldn't resolve a version: ") + detail);
+            fail(i18n::trf("Couldn't resolve a version: {0}", {detail}));
         }
         return;
     }
     if (hash.empty()) {
-        fail("No version hash to install.");
+        fail(i18n::tr("No version hash to install."));
         return;
     }
 
@@ -886,21 +938,28 @@ void App::versionInstallThreadMain(LaunchTarget target, VersionSelectMode mode, 
         std::string manifestText;
         std::string lastError;
         bool ok = false;
-        for (const char* mirror : kMirrors) {
-            try {
-                manifestText = fetchText(setupCdnUrl(mirror, channel, hash, "rbxPkgManifest.txt"),
-                                          &versionInstallCancel_);
-                ok = true;
-                break;
-            } catch (const std::exception& e) {
-                lastError = e.what();
+        // An unreleased build is served from the release mirror's root rather than from its
+        // own channel folder, so whichever one answers decides where the packages come from
+        // too -- and is the channel this build is listed under afterwards.
+        for (const std::string& candidate : channelsToTry) {
+            for (const char* mirror : kMirrors) {
+                try {
+                    manifestText = fetchText(setupCdnUrl(mirror, candidate, hash, "rbxPkgManifest.txt"),
+                                              &versionInstallCancel_);
+                    channel = candidate;
+                    ok = true;
+                    break;
+                } catch (const std::exception& e) {
+                    lastError = e.what();
+                }
             }
+            if (ok) break;
         }
         if (!ok) throw std::runtime_error(lastError);
         packages = parsePackageManifest(manifestText);
     } catch (const std::exception& e) {
-        fail(std::string("Couldn't fetch the package manifest (this version may have been purged from "
-                          "Roblox's CDN): ") + e.what());
+        fail(i18n::trf("Couldn't fetch the package manifest (this version may have been purged from "
+                       "Roblox's CDN): {0}", {e.what()}));
         return;
     }
 
@@ -932,7 +991,7 @@ void App::versionInstallThreadMain(LaunchTarget target, VersionSelectMode mode, 
     }
     if (work.empty()) {
         fs::remove_all(stagingDir, ec);
-        fail("Roblox's package list had nothing TuxBlox knows how to install.");
+        fail(i18n::tr("Roblox's package list had nothing TuxBlox knows how to install."));
         return;
     }
 
@@ -1010,13 +1069,12 @@ void App::versionInstallThreadMain(LaunchTarget target, VersionSelectMode mode, 
             if (stop || versionInstallCancel_) break;
 
             if (outcome.result != DownloadResult::Ok) {
-                noteFailure("Failed to download " + item.name + ": " + outcome.errorMessage);
+                noteFailure(i18n::trf("Failed to download {0}: {1}", {item.name, outcome.errorMessage}));
                 break;
             }
             // Still before extraction, so a corrupted package never reaches the drive.
             if (md5File(item.archivePath) != item.md5) {
-                noteFailure("Checksum mismatch for " + item.name +
-                            " -- refusing to install a corrupted package.");
+                noteFailure(i18n::trf("Checksum mismatch for {0} -- refusing to install a corrupted package.", {item.name}));
                 break;
             }
             received[index] = item.packedSize;
@@ -1060,7 +1118,7 @@ void App::versionInstallThreadMain(LaunchTarget target, VersionSelectMode mode, 
                 std::lock_guard<std::mutex> guard(destLocks[destDirIndex(dests, item.destDir)]);
                 extractZip(item.archivePath, item.destDir);
             } catch (const std::exception& e) {
-                noteFailure(std::string("Failed to extract ") + item.name + ": " + e.what());
+                noteFailure(i18n::trf("Failed to extract {0}: {1}", {item.name, e.what()}));
                 return;
             }
 
@@ -1098,13 +1156,13 @@ void App::versionInstallThreadMain(LaunchTarget target, VersionSelectMode mode, 
     if (versionInstallCancel_) {
         fs::remove_all(versionDir, ec);
         fs::remove_all(stagingDir, ec);
-        fail("Cancelled.");
+        fail(i18n::tr("Cancelled."));
         return;
     }
     if (extracted.load() != work.size()) {
         fs::remove_all(versionDir, ec);
         fs::remove_all(stagingDir, ec);
-        fail("Roblox's packages were not all unpacked.");
+        fail(i18n::tr("Roblox's packages were not all unpacked."));
         return;
     }
     fs::remove_all(stagingDir, ec);
@@ -1121,7 +1179,7 @@ void App::versionInstallThreadMain(LaunchTarget target, VersionSelectMode mode, 
         std::ofstream appSettings(versionDir + "/AppSettings.xml", std::ios::binary);
         if (!appSettings) {
             fs::remove_all(versionDir, ec);
-            fail("Failed to write AppSettings.xml into " + versionDir);
+            fail(i18n::trf("Failed to write AppSettings.xml into {0}", {versionDir}));
             return;
         }
         appSettings << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
@@ -1131,7 +1189,7 @@ void App::versionInstallThreadMain(LaunchTarget target, VersionSelectMode mode, 
                        "</Settings>";
         if (!appSettings) {
             fs::remove_all(versionDir, ec);
-            fail("Failed to write AppSettings.xml into " + versionDir);
+            fail(i18n::trf("Failed to write AppSettings.xml into {0}", {versionDir}));
             return;
         }
     }
@@ -1153,10 +1211,11 @@ void App::versionInstallThreadMain(LaunchTarget target, VersionSelectMode mode, 
         auto it = std::find_if(av.installed.begin(), av.installed.end(),
                                 [&](const InstalledVersion& v) { return v.hash == hash; });
         if (it == av.installed.end()) {
-            av.installed.push_back({hash, channel, isoNowUtc()});
+            av.installed.push_back({hash, channel, isoNowUtc(), "", source});
         } else {
             it->channel = channel;
             it->installedAt = isoNowUtc();
+            it->source = source;
         }
         if (av.activeHash.empty()) av.activeHash = hash; // first version for this app type -- pin it
     }

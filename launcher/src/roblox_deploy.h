@@ -47,6 +47,11 @@ std::string fetchClientVersionJson(const std::string& binaryType, const std::str
 // isn't valid JSON.
 std::string parseClientVersionHash(const std::string& json);
 
+// The version number from a clientsettings v2 response body (field "version", e.g.
+// "0.747.0.7471481"). Throws std::runtime_error if it is missing or the body is not
+// valid JSON, the same contract as parseClientVersionHash().
+std::string parseClientVersionNumber(const std::string& json);
+
 // Fetches the raw DeployHistory.txt body for a channel.
 std::string fetchDeployHistory(const std::string& channel, const std::atomic<bool>* cancel = nullptr);
 
@@ -110,6 +115,11 @@ const char* robloxPendingChannel();
 // For a channel somebody typed that means they cannot look it up; for the pending
 // channel it means no build is upcoming, which is not a failure.
 bool isNotAuthorized(const std::string& errorText);
+
+// True when an error from a fetch is an HTTP 404. The version history answers that way
+// when it holds no earlier build for an application, which is worth explaining rather
+// than reporting as a failure.
+bool isNotFound(const std::string& errorText);
 
 // Where a build the pending channel named sits against the one that is live.
 enum class PendingBuild { Newer, SameAsLive, OlderThanLive };

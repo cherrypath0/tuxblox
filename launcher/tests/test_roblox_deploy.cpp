@@ -209,6 +209,29 @@ int main() {
         assert(comparePendingToLive("0.747.0.7471481", "") == PendingBuild::OlderThanLive);
     }
 
+    // parseClientVersionNumber(): the number beside the hash. Needed because deciding
+    // whether an unreleased build is actually newer is a comparison of versions, and the
+    // hash says nothing about order.
+    {
+        const std::string fixture = R"({"version":"0.747.0.7471481",)"
+                                    R"("clientVersionUpload":"version-4ea8e85481e34f46",)"
+                                    R"("bootstrapperVersion":""})";
+        assert(parseClientVersionNumber(fixture) == "0.747.0.7471481");
+        bool threw = false;
+        try { parseClientVersionNumber(R"({"clientVersionUpload":"version-abc"})"); }
+        catch (const std::runtime_error&) { threw = true; }
+        assert(threw);
+    }
+
+    // isNotFound(): the version history answers 404 when it has no earlier build recorded,
+    // which is a thing to explain rather than an error to report.
+    {
+        assert(isNotFound("httpGet: HTTP 404 for https://config.tuxblox.net/..."));
+        assert(!isNotFound("httpGet: HTTP 401 for https://config.tuxblox.net/..."));
+        assert(!isNotFound("httpGet: Could not resolve host: config.tuxblox.net"));
+        assert(!isNotFound(""));
+    }
+
     // pendingChannelsInOrder(): where a deployed-but-unreleased build's files actually live.
     // Measured 2026-11-10: the live CDN root served 0.747's manifest with HTTP 200 while
     // channel/zbeta/ answered 403, so the root is the real location and the channel path is

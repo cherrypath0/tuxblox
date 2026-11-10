@@ -202,6 +202,15 @@ std::string parseClientVersionHash(const std::string& json) {
     }
 }
 
+std::string parseClientVersionNumber(const std::string& json) {
+    try {
+        nlohmann::json j = nlohmann::json::parse(json);
+        return j.at("version").get<std::string>();
+    } catch (const nlohmann::json::exception& e) {
+        throw std::runtime_error(std::string("parseClientVersionNumber: ") + e.what());
+    }
+}
+
 std::string fetchDeployHistory(const std::string& channel, const std::atomic<bool>* cancel) {
     return httpGet(deployHistoryUrl("setup.rbxcdn.com", channel), cancel);
 }
@@ -305,6 +314,10 @@ const char* robloxPendingChannel() {
 
 bool isNotAuthorized(const std::string& errorText) {
     return errorText.find("HTTP 401") != std::string::npos;
+}
+
+bool isNotFound(const std::string& errorText) {
+    return errorText.find("HTTP 404") != std::string::npos;
 }
 
 PendingBuild comparePendingToLive(const std::string& pendingVersion, const std::string& liveVersion) {
