@@ -30,6 +30,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <poll.h>
 #include <pthread.h>
 #include <signal.h>
 #include <stdint.h>
@@ -1131,9 +1132,92 @@ static BOOL ensure_helper_locked(void)
 /* The raw round-trip: caller holds g_ipc_mutex and has already ensured a live
  * helper. Tears the helper down on any transport failure so the NEXT call
  * respawns rather than writing into a socket whose peer is gone. */
+/* Every call below is a synchronous round trip on the calling thread, and Studio
+ * makes them from the thread that runs its interface, so a helper that is still
+ * alive but has stopped answering takes the whole window down with it: nothing
+ * repaints, nothing closes, and no failure is written anywhere, because as far as
+ * this side is concerned the reply is merely late. A dead helper was always
+ * handled -- its socket closes -- and the live-but-silent one is the case that
+ * was not. Bound the wait instead. The helper bounds its own work at 30 seconds
+ * for a navigation and 10 for cookies and scripts, so a reply still missing well
+ * past all of those means its event loop is stuck rather than busy, and the
+ * helper is worth replacing. TUXBLOX_WEBVIEW_IPC_TIMEOUT overrides the seconds,
+ * and 0 waits for ever, which is what this did before. */
+#define WV2L_REPLY_TIMEOUT_SECS 45
+
+static int reply_timeout_secs(void)
+{
+    static int cached = -1;
+
+    if (cached < 0)
+    {
+        const char *env = getenv("TUXBLOX_WEBVIEW_IPC_TIMEOUT");
+        int secs = env ? atoi(env) : WV2L_REPLY_TIMEOUT_SECS;
+        cached = secs < 0 ? WV2L_REPLY_TIMEOUT_SECS : secs;
+    }
+    return cached;
+}
+
+/* Like ipc_read_full, but gives up once the deadline passes. Only the reply to a
+ * request uses this; the event pump's own read has nothing to wait for and must
+ * stay blocked until the helper sends something or the socket closes. */
+static ssize_t ipc_read_reply(int fd, void *buf, size_t len, BOOL *timed_out)
+{
+    int secs = reply_timeout_secs();
+    struct timespec deadline;
+    size_t done = 0;
+
+    *timed_out = FALSE;
+    if (!secs) return ipc_read_full(fd, buf, len);
+
+    clock_gettime(CLOCK_MONOTONIC, &deadline);
+    deadline.tv_sec += secs;
+
+    while (done < len)
+    {
+        struct pollfd pfd = { .fd = fd, .events = POLLIN };
+        struct timespec now;
+        long remaining;
+        ssize_t n;
+        int ret;
+
+        clock_gettime(CLOCK_MONOTONIC, &now);
+        remaining = (deadline.tv_sec - now.tv_sec) * 1000
+                  + (deadline.tv_nsec - now.tv_nsec) / 1000000;
+        if (remaining <= 0)
+        {
+            *timed_out = TRUE;
+            return -1;
+        }
+
+        ret = poll(&pfd, 1, (int)remaining);
+        if (ret < 0)
+        {
+            if (errno == EINTR) continue;
+            return -1;
+        }
+        if (!ret)
+        {
+            *timed_out = TRUE;
+            return -1;
+        }
+
+        n = read(fd, (char *)buf + done, len - done);
+        if (n == 0) return -1; /* peer closed -- same meaning as in ipc_read_full */
+        if (n < 0)
+        {
+            if (errno == EINTR) continue;
+            return -1;
+        }
+        done += (size_t)n;
+    }
+    return (ssize_t)done;
+}
+
 static BOOL ipc_call_locked(enum wv2l_opcode op, void *req_resp, size_t size)
 {
     uint32_t wire_op = (uint32_t)op;
+    BOOL timed_out = FALSE;
     BOOL ok;
 
     /* Logged before the write so a request that never comes back still names itself. */
@@ -1142,15 +1226,19 @@ static BOOL ipc_call_locked(enum wv2l_opcode op, void *req_resp, size_t size)
     ok = g_helper_fd >= 0
         && ipc_write_full(g_helper_fd, &wire_op, sizeof(wire_op)) == (ssize_t)sizeof(wire_op)
         && ipc_write_full(g_helper_fd, req_resp, size) == (ssize_t)size
-        && ipc_read_full(g_helper_fd, req_resp, size) == (ssize_t)size;
+        && ipc_read_reply(g_helper_fd, req_resp, size, &timed_out) == (ssize_t)size;
 
     if (!ok && g_helper_fd >= 0)
     {
         /* A partial write or a short read also lands here: once framing is
          * broken there is no way to resynchronise a stream protocol with no
          * request IDs, so the connection is finished either way. */
-        WARN("IPC round-trip for opcode %u failed (%s) -- tearing down the helper; "
-             "the next call will respawn it\n", (unsigned)op, strerror(errno));
+        if (timed_out)
+            ERR("the web view helper did not answer opcode %u within %d seconds -- restarting it; "
+                "the panel it was drawing will go blank and come back\n", (unsigned)op, reply_timeout_secs());
+        else
+            WARN("IPC round-trip for opcode %u failed (%s) -- tearing down the helper; "
+                 "the next call will respawn it\n", (unsigned)op, strerror(errno));
         helper_teardown_locked();
     }
     return ok;
