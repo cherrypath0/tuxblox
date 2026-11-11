@@ -411,6 +411,9 @@ struct x11drv_thread_data
     XFontSet font_set;             /* international text drawing font set */
     Window   selection_wnd;        /* window used for selection interactions */
     unsigned long warp_serial;     /* serial number of last pointer warp request */
+    POINT    last_pointer_root;    /* root position the last pointer event reported */
+    BOOL     have_pointer_root;    /* whether last_pointer_root has been filled in yet */
+    BOOL     warp_pending;         /* an application pointer warp is waiting for the next event */
     Window   clip_window;          /* window used for cursor clipping */
     BOOL     clipping_cursor;      /* whether thread is currently clipping the cursor */
     Atom    *net_supported;        /* list of _NET_SUPPORTED atoms */

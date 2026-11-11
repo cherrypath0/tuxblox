@@ -617,6 +617,51 @@ void reapply_cursor_clipping(void)
 
 
 /***********************************************************************
+ *		record_pointer_root
+ *
+ * Remember where the X server last reported the pointer, and report whether the
+ * application warped it since the previous event.
+ */
+static BOOL record_pointer_root( int x_root, int y_root, POINT *last )
+{
+    struct x11drv_thread_data *thread_data = x11drv_thread_data();
+    BOOL warped = thread_data->warp_pending && thread_data->have_pointer_root;
+
+    if (last) *last = thread_data->last_pointer_root;
+    thread_data->last_pointer_root.x = x_root;
+    thread_data->last_pointer_root.y = y_root;
+    thread_data->have_pointer_root = TRUE;
+    thread_data->warp_pending = FALSE;
+    return warped;
+}
+
+
+/***********************************************************************
+ *		report_distance_after_warp
+ *
+ * A compositor is free to leave the pointer where it was rather than where SetCursorPos asked for
+ * it, and then keeps reporting it from there, so an application that holds the pointer on one spot
+ * and steers by the offset -- which is how Roblox Studio turns the camera -- sees that offset grow
+ * without bound instead of staying the size of the hand movement. Report how far the pointer
+ * travelled instead of where the server thinks it is: the position the application asked for
+ * already stands, and a distance is the same on a server that honoured the warp.
+ */
+static BOOL report_distance_after_warp( Display *display, int x_root, int y_root, INPUT *input )
+{
+    POINT last;
+
+    if (!record_pointer_root( x_root, y_root, &last )) return FALSE;
+    if (!xwayland_fixes_enabled( display )) return FALSE;
+
+    input->mi.dwFlags &= ~MOUSEEVENTF_ABSOLUTE;
+    input->mi.dx = x_root - last.x;
+    input->mi.dy = y_root - last.y;
+    TRACE( "pos %d,%d after a warp, moved %d,%d\n", x_root, y_root, (int)input->mi.dx, (int)input->mi.dy );
+    return TRUE;
+}
+
+
+/***********************************************************************
  *		is_old_motion_event
  */
 static BOOL is_old_motion_event( unsigned long serial )
@@ -698,7 +743,7 @@ static void send_mouse_input( HWND hwnd, Window window, unsigned int state, INPU
 
     /* update the wine server Z-order */
 
-    if (hwnd != x11drv_thread_data()->grab_hwnd &&
+    if (hwnd != x11drv_thread_data()->grab_hwnd && (input->mi.dwFlags & MOUSEEVENTF_ABSOLUTE) &&
         /* ignore event if a button is pressed, since the mouse is then grabbed too */
         !(state & (Button1Mask|Button2Mask|Button3Mask|Button4Mask|Button5Mask|Button6Mask|Button7Mask)))
     {
@@ -1546,6 +1591,7 @@ BOOL X11DRV_SetCursorPos( INT x, INT y )
     data->warp_serial = NextRequest( data->display );
     pXFixesShowCursor( data->display, root_window );
     XFlush( data->display ); /* avoids bad mouse lag in games that do their own mouse warping */
+    data->warp_pending = TRUE;
     TRACE( "warped to %d,%d serial %lu\n", x, y, data->warp_serial );
     return TRUE;
 }
@@ -1700,7 +1746,8 @@ BOOL X11DRV_ButtonPress( HWND hwnd, XEvent *xev )
         release_win_data( data );
     }
 
-    map_event_coords( hwnd, event->window, event->root, event->x_root, event->y_root, &input );
+    if (!report_distance_after_warp( event->display, event->x_root, event->y_root, &input ))
+        map_event_coords( hwnd, event->window, event->root, event->x_root, event->y_root, &input );
     send_mouse_input( hwnd, event->window, event->state, &input );
     return TRUE;
 }
@@ -1726,7 +1773,8 @@ BOOL X11DRV_ButtonRelease( HWND hwnd, XEvent *xev )
     input.mi.time        = EVENT_x11_time_to_win32_time( event->time );
     input.mi.dwExtraInfo = 0;
 
-    map_event_coords( hwnd, event->window, event->root, event->x_root, event->y_root, &input );
+    if (!report_distance_after_warp( event->display, event->x_root, event->y_root, &input ))
+        map_event_coords( hwnd, event->window, event->root, event->x_root, event->y_root, &input );
     send_mouse_input( hwnd, event->window, event->state, &input );
     return TRUE;
 }
@@ -1738,6 +1786,7 @@ BOOL X11DRV_ButtonRelease( HWND hwnd, XEvent *xev )
 BOOL X11DRV_MotionNotify( HWND hwnd, XEvent *xev )
 {
     XMotionEvent *event = &xev->xmotion;
+    BOOL warped;
     INPUT input;
 
     TRACE( "hwnd %p/%lx pos %d,%d is_hint %d serial %lu\n",
@@ -1750,12 +1799,15 @@ BOOL X11DRV_MotionNotify( HWND hwnd, XEvent *xev )
     input.mi.time        = EVENT_x11_time_to_win32_time( event->time );
     input.mi.dwExtraInfo = 0;
 
+    warped = report_distance_after_warp( event->display, event->x_root, event->y_root, &input );
+
     if (is_old_motion_event( event->serial ))
     {
         TRACE( "pos %d,%d old serial %lu, ignoring\n", event->x, event->y, event->serial );
         return FALSE;
     }
-    map_event_coords( hwnd, event->window, event->root, event->x_root, event->y_root, &input );
+    if (!warped) map_event_coords( hwnd, event->window, event->root, event->x_root, event->y_root, &input );
+    else if (!input.mi.dx && !input.mi.dy) return FALSE;
     send_mouse_input( hwnd, event->window, event->state, &input );
     return TRUE;
 }
@@ -1774,6 +1826,8 @@ BOOL X11DRV_EnterNotify( HWND hwnd, XEvent *xev )
     x11drv_thread_data()->keymapnotify_hwnd = hwnd;
 
     if (hwnd == x11drv_thread_data()->grab_hwnd) return FALSE;
+
+    record_pointer_root( event->x_root, event->y_root, NULL );
 
     /* simulate a mouse motion event */
     input.mi.dx          = event->x;
