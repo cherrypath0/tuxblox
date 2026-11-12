@@ -16,7 +16,10 @@
 
 #include "server_region.h"
 
+#include "flag_startup.h"
+
 #include "desktop_notify.h"
+#include "i18n.h"
 #include "json.hpp"
 #include "roblox_http.h"
 
@@ -119,7 +122,7 @@ std::string regionNotificationTitle(const ServerRegion& region) {
         where += ", ";
     }
     where += region.country;
-    return "Connected to a server in " + where;
+    return i18n::trf("Connected to a server in {0}", {where});
 }
 
 ServerRegionWatcher::ServerRegionWatcher(bool enabled, LookupFn lookup, NotifyFn notify)
@@ -146,6 +149,10 @@ void ServerRegionWatcher::consumeServerAddress(const std::string& address) {
     if (known->second.has_value()) {
         notify_(regionNotificationTitle(*known->second));
     }
+}
+
+bool serverRegionNotifyEnabled(bool settingEnabled) {
+    return settingEnabled && launcherFlags().geoTool;
 }
 
 ServerRegionWatcher makeServerRegionWatcher(bool enabled, const std::string& icon) {

@@ -22,9 +22,12 @@ a name that declares no type, or a value that contradicts the one it declares, f
 build here instead. The same checks run again at runtime against the server's answer and
 the user's override, because those arrive from outside the build.
 
-    embed-flags.py <input.json> <output.h> <symbol> [--published]
+    embed-flags.py <input.json> <output.h> <symbol>
+    embed-flags.py <input.json> --publish-json <output.json>
 
---published additionally refuses a flag the client will only honour locally: publishing
+One file holds every flag, and the two tiers of the ladder are made from it: the header
+is compiled in as what a build falls back to, and the JSON is what is published to the
+server. The second drops the flags a client will only honour locally, because publishing
 one means setting it on the server and watching nothing happen.
 """
 
@@ -32,8 +35,9 @@ import json
 import sys
 
 PREFIXES = (("tbxFlag", bool), ("tbxString", str), ("tbxInt", int))
-# Mirrors kLocalOnly in shared/flags/src/flag_table.cpp. The client drops these from a
-# server answer, so a published set naming one is a mistake worth catching here.
+# Mirrors kLocalOnly in shared/flags/FlagManager.cpp. The client drops these from a
+# server answer anyway; dropping them here as well means the server is never told a value
+# it would be ignored for, and the published set says only what it can decide.
 LOCAL_ONLY = ("tbxFlagDisableUpdater",)
 # A delimiter that cannot occur inside JSON, so the literal cannot be closed early.
 DELIM = "TBXFLAGS"
@@ -51,10 +55,8 @@ def declared_type(name):
     return None
 
 
-def check(flags, published=False):
+def check(flags):
     for name, value in flags.items():
-        if published and name in LOCAL_ONLY:
-            fail(f"{name} can only be set on a user's own machine; publishing it does nothing")
         kind = declared_type(name)
         if kind is None:
             fail(f"{name} does not start with tbxFlag, tbxString or tbxInt")
@@ -73,11 +75,13 @@ def check(flags, published=False):
 
 
 def main(argv):
-    args = [a for a in argv[1:] if a != "--published"]
-    published = "--published" in argv
-    if len(args) != 3:
-        fail("usage: embed-flags.py <input.json> <output.h> <symbol> [--published]")
-    source, destination, symbol = args
+    publishing = "--publish-json" in argv
+    args = [a for a in argv[1:] if a != "--publish-json"]
+    if len(args) != (2 if publishing else 3):
+        fail("usage: embed-flags.py <input.json> <output.h> <symbol>\n"
+             "   or: embed-flags.py <input.json> --publish-json <output.json>")
+    source, destination = args[0], args[1]
+    symbol = None if publishing else args[2]
 
     try:
         with open(source, encoding="utf-8") as handle:
@@ -89,7 +93,21 @@ def main(argv):
 
     if not isinstance(flags, dict):
         fail(f"{source} must hold a flat JSON object of flags")
-    check(flags, published)
+    check(flags)
+
+    if publishing:
+        # Said out loud rather than dropped quietly: somebody reading the deploy output
+        # should see that the set on the server is not the whole file.
+        kept = {}
+        for name, value in flags.items():
+            if name in LOCAL_ONLY:
+                sys.stderr.write(f"embed-flags: not publishing {name}; it is only honoured "
+                                 f"on a user's own machine\n")
+                continue
+            kept[name] = value
+        with open(destination, "w", encoding="utf-8") as handle:
+            handle.write(json.dumps(kept, sort_keys=True, indent=4) + "\n")
+        return
 
     # Re-serialised rather than copied: what is compiled in is then exactly what passed
     # the checks above, whatever the file's formatting happened to be.

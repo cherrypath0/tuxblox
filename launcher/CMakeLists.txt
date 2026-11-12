@@ -53,7 +53,7 @@ endif()
 
 # TuxBlox's own feature flags, shared with the installer and the compatibility layer.
 if(NOT TUXBLOX_SHARED_FLAGS)
-    set(TUXBLOX_SHARED_FLAGS "${CMAKE_SOURCE_DIR}/../shared/flags/src")
+    set(TUXBLOX_SHARED_FLAGS "${CMAKE_SOURCE_DIR}/../shared/flags")
 endif()
 
 # The capitalisation Windows uses for the folders on the virtual drive, shared with the
@@ -121,6 +121,7 @@ configure_file(${CMAKE_SOURCE_DIR}/cmake/version.h.in ${CMAKE_BINARY_DIR}/genera
 add_library(launcher_core STATIC
     ${TUXBLOX_SHARED_CRYPTO}/ca_bundle.cpp
     ${TUXBLOX_SHARED_RELEASE}/release_file.cpp
+    ${TUXBLOX_SHARED_RELEASE}/release_stamp.cpp
     ${TUXBLOX_SHARED_PATHS}/windows_paths.cpp
     ${TUXBLOX_SHARED_RELEASE}/user_agent.cpp
     ${TUXBLOX_I18N_DIR}/src/i18n.cpp
@@ -134,8 +135,7 @@ add_library(launcher_core STATIC
     src/player_presence.cpp
     src/presence_loop.cpp
     src/server_region.cpp
-    ${TUXBLOX_SHARED_FLAGS}/flag_table.cpp
-    ${TUXBLOX_SHARED_FLAGS}/flags.cpp
+    ${TUXBLOX_SHARED_FLAGS}/FlagManager.cpp
     src/flag_startup.cpp
     src/roblox_config.cpp
     src/roblox_http.cpp

@@ -15,6 +15,8 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "app.h"
+
+#include "flag_startup.h"
 #include "i18n.h"
 #include <cstdlib>
 #include "roblox_log_capture.h"
@@ -32,6 +34,7 @@
 #include "roblox_deploy.h"
 #include "roblox_config.h"
 #include "tar_extract.h"
+#include "update_decision.h"
 #include <algorithm>
 #include <chrono>
 #include <condition_variable>
@@ -648,11 +651,12 @@ void App::updateSettings(Settings settings) {
     bool envChanged;
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        // The card picker feeds the same environment, so a change to it has
-        // to re-apply too -- otherwise picking a card would do nothing until
-        // the launcher was restarted.
-        envChanged = snapshot_.settings.envVars != settings.envVars ||
-                     snapshot_.settings.gpu != settings.gpu;
+        // Only the Environment Variables box: it is the one setting this
+        // process exports. The card picker reaches a launch through
+        // launchEnvPairs(), which every launch reads for itself, so a card
+        // picked here applies to the next launch without this process
+        // changing anything about its own window.
+        envChanged = snapshot_.settings.envVars != settings.envVars;
         snapshot_.settings = settings;
     }
     if (envChanged) {
@@ -739,7 +743,9 @@ void App::applyEnvVars(const Settings& settings) {
     // later calls from updateSettings() (user edits, on the render thread)
     // accept the same small, already-documented race rather than adding
     // cross-thread coordination for a rare, user-initiated edit.
-    for (const auto& kv : launchEnvPairs(settings)) {
+    // exportedEnvPairs(), not launchEnvPairs(): see its declaration for why
+    // the rest of a launch's environment must not reach this process.
+    for (const auto& kv : exportedEnvPairs(settings)) {
         auto pos = kv.find('=');
         setenv(kv.substr(0, pos).c_str(), kv.substr(pos + 1).c_str(), 1);
     }
@@ -762,11 +768,37 @@ void App::updateCheckThreadMain() {
     report({UpdatePhase::CheckingManifest, 0.0});
 
     std::optional<std::string> namedRelease;
+    // Which channel the release being aimed at is published on. The install's own, until a
+    // calmer one turns out to have published something ahead of it -- the install's channel
+    // setting does not move, only the build it takes does.
+    std::string releaseChannel = channel;
     try {
         namedRelease = fetchLatestRelease(setupBaseUrl(), channel, &updateCancel_);
     } catch (const std::exception& e) {
         report({UpdatePhase::Error, 0.0, i18n::trf("Could not check for updates: {0}", {e.what()})});
         return;
+    }
+
+    if (launcherFlags().followPromotedBuild) {
+        for (const std::string& above : channelsAbove(channel)) {
+            std::optional<std::string> promoted;
+            try {
+                promoted = fetchLatestRelease(setupBaseUrl(), above, &updateCancel_);
+            } catch (const std::exception&) {
+                // The install's own channel has already answered, so a calmer one that cannot
+                // be reached is a build not taken rather than an update that failed.
+                continue;
+            }
+            if (!promoted.has_value()) continue;
+            if (namedRelease.has_value() && compareReleases(*promoted, *namedRelease) <= 0) continue;
+            namedRelease = promoted;
+            releaseChannel = above;
+        }
+        if (releaseChannel != channel) {
+            fprintf(stderr, "TuxBlox: %s is published on %s and is ahead of %s, so this install "
+                            "is taking it; the channel it follows is still %s\n",
+                    namedRelease->c_str(), releaseChannel.c_str(), channel.c_str(), channel.c_str());
+        }
     }
     if (!namedRelease.has_value()) {
         // No releases published for this channel yet -- there's nothing to
@@ -775,7 +807,17 @@ void App::updateCheckThreadMain() {
         return;
     }
 
-    auto result = runUpdateCheck(setupBaseUrl(), channel, *namedRelease,
+    // tbxFlagDisableUpdater is the one flag the server may not set, because serving it
+    // wrongly would stop every install updating and updating is how that gets corrected.
+    // So this is somebody's own flags.json, and it is how you keep a build you are
+    // testing from being replaced under you.
+    if (!launcherFlags().updater) {
+        fprintf(stderr, "TuxBlox: not checking for updates; tbxFlagDisableUpdater is set\n");
+        report({UpdatePhase::UpToDate, 1.0});
+        return;
+    }
+
+    auto result = runUpdateCheck(setupBaseUrl(), releaseChannel, *namedRelease,
         [&](UpdateProgress p) { report(p); },
         &updateCancel_, installDir_);
     if (result.needsHandoff) {
@@ -981,8 +1023,7 @@ void App::versionInstallThreadMain(LaunchTarget target, VersionSelectMode mode, 
         return;
     }
 
-    const std::string versionDir =
-        prefixUserDir(installDir_) + "/AppData/Local/Roblox/Versions/" + hash;
+    const std::string versionDir = robloxDataDir(installDir_) + "/Versions/" + hash;
     const std::string stagingDir = installDir_ + "/RobloxPackageStaging/" + hash;
     std::error_code ec;
     fs::create_directories(stagingDir, ec);

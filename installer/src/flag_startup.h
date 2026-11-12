@@ -16,7 +16,7 @@
 
 #pragma once
 #include <string>
-#include "flags.h"
+#include "FlagManager.h"
 
 namespace tuxblox {
 

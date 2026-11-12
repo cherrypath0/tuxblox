@@ -18,7 +18,7 @@
 # release does with no server and no override is fixed at the moment it is compiled.
 
 if(NOT TUXBLOX_FLAGS_DIR)
-    set(TUXBLOX_FLAGS_DIR "${CMAKE_CURRENT_LIST_DIR}/..")
+    set(TUXBLOX_FLAGS_DIR "${CMAKE_CURRENT_LIST_DIR}")
 endif()
 
 # Only x86_64 is built today; arm64 is reserved in the release layout and gets its file

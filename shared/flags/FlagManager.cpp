@@ -14,21 +14,185 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-#include "flags.h"
-#include "flag_table.h"
-#include "tuxblox_default_flags.h"
+#include "FlagManager.h"
+
 #include "ca_bundle.h"
+#include "json.hpp"
+#include "tuxblox_default_flags.h"
+#include <array>
 #include <chrono>
 #include <condition_variable>
+#include <cstdint>
+#include <cstdio>
 #include <fstream>
 #include <mutex>
 #include <optional>
-#include <cstdio>
 #include <sstream>
 #include <thread>
 #include <curl/curl.h>
 
 namespace tuxblox {
+
+namespace {
+
+constexpr std::array<std::pair<const char*, FlagType>, 3> kPrefixes = {{
+    {"tbxFlag", FlagType::Bool},
+    {"tbxString", FlagType::String},
+    {"tbxInt", FlagType::Int},
+}};
+
+// Flags the server may not set, enforced here rather than trusted to the server. Adding
+// to this list takes a release, which is the point.
+constexpr std::array<const char*, 1> kLocalOnly = {{
+    "tbxFlagDisableUpdater",
+}};
+
+bool startsWith(const std::string& name, const char* prefix) {
+    const std::string p = prefix;
+    return name.size() > p.size() && name.compare(0, p.size(), p) == 0;
+}
+
+} // namespace
+
+std::optional<FlagType> flagTypeForName(const std::string& name) {
+    for (const auto& entry : kPrefixes) {
+        if (startsWith(name, entry.first)) return entry.second;
+    }
+    return std::nullopt;
+}
+
+bool isLocalOnlyFlag(const std::string& name) {
+    for (const char* local : kLocalOnly) {
+        if (name == local) return true;
+    }
+    return false;
+}
+
+FlagTable parseFlagJson(const std::string& json, bool fromServer) {
+    FlagTable table;
+    nlohmann::json parsed;
+    try {
+        parsed = nlohmann::json::parse(json);
+    } catch (const nlohmann::json::exception& failure) {
+        // Said out loud: a flag that was dropped and a flag that was never written look
+        // identical from the outside, and support cannot tell a user which they have.
+        if (!json.empty()) {
+            fprintf(stderr, "TuxBlox: ignoring flags that are not valid JSON (%s)\n", failure.what());
+        }
+        return table;
+    }
+    if (!parsed.is_object()) {
+        fprintf(stderr, "TuxBlox: ignoring flags that are not a JSON object\n");
+        return table;
+    }
+
+    for (auto it = parsed.begin(); it != parsed.end(); ++it) {
+        const std::optional<FlagType> type = flagTypeForName(it.key());
+        if (!type.has_value()) {
+            fprintf(stderr, "TuxBlox: ignoring the flag \"%s\": its name says no type\n",
+                    it.key().c_str());
+            continue;
+        }
+        if (fromServer && isLocalOnlyFlag(it.key())) {
+            fprintf(stderr, "TuxBlox: ignoring the flag \"%s\" from the server: it can only be "
+                            "set on this machine\n", it.key().c_str());
+            continue;
+        }
+
+        FlagValue value;
+        value.type = *type;
+        bool usable = true;
+        if (*type == FlagType::Bool) {
+            if (!it->is_boolean()) usable = false;
+            else value.boolean = it->get<bool>();
+        } else if (*type == FlagType::String) {
+            if (!it->is_string()) usable = false;
+            else value.text = it->get<std::string>();
+        } else {
+            // is_number_integer() is false for a boolean and for 4.5, which is what keeps
+            // "true" from arriving as 1 and a fraction from being truncated.
+            if (!it->is_number_integer() || it->is_boolean()) usable = false;
+            // It is also TRUE for an unsigned past int64, where get<int64_t>() wraps: a
+            // flag set large and positive would arrive as its large negative twin.
+            else if (it->is_number_unsigned() &&
+                     it->get<uint64_t>() > static_cast<uint64_t>(INT64_MAX)) usable = false;
+            else value.integer = it->get<int64_t>();
+        }
+        if (!usable) {
+            fprintf(stderr, "TuxBlox: ignoring the flag \"%s\": its value is not the kind its "
+                            "name says\n", it.key().c_str());
+            continue;
+        }
+        table[it.key()] = value;
+    }
+    return table;
+}
+
+void mergeFlagsOver(FlagTable& base, const FlagTable& higher) {
+    for (const auto& entry : higher) base[entry.first] = entry.second;
+}
+
+// --- what the flags decide about a request ------------------------------
+
+namespace {
+
+bool hostEndsWith(const std::string& host, const char* suffix) {
+    const std::string tail = suffix;
+    return host.size() >= tail.size() &&
+           host.compare(host.size() - tail.size(), tail.size(), tail) == 0;
+}
+
+// The host of a URL, lowercased, or empty when there is not one to read.
+std::string hostOf(const std::string& url) {
+    const std::string::size_type scheme = url.find("://");
+    if (scheme == std::string::npos) return std::string();
+    const std::string::size_type start = scheme + 3;
+    const std::string::size_type end = url.find_first_of("/?#", start);
+    std::string host = url.substr(start, end == std::string::npos ? std::string::npos : end - start);
+    // Credentials and a port are not part of the name being matched.
+    const std::string::size_type at = host.rfind('@');
+    if (at != std::string::npos) host = host.substr(at + 1);
+    const std::string::size_type colon = host.rfind(':');
+    if (colon != std::string::npos) host = host.substr(0, colon);
+    for (char& c : host) {
+        if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+    }
+    return host;
+}
+
+} // namespace
+
+HttpDestination httpDestinationFor(const std::string& url) {
+    const std::string host = hostOf(url);
+    if (hostEndsWith(host, "rbxcdn.com")) return HttpDestination::RobloxCdn;
+    // The download CDN only, not every name under tuxblox.net: the flag server and
+    // telemetry are ordinary requests and answer to the third flag.
+    if (hostEndsWith(host, "tuxblox.net") && host.compare(0, 5, "setup") == 0) {
+        return HttpDestination::TuxbloxCdn;
+    }
+    return HttpDestination::Other;
+}
+
+void applyFlaggedHttpVersion(void* curl, const std::string& url) {
+    if (curl == nullptr) return;
+    std::string asked;
+    switch (httpDestinationFor(url)) {
+        case HttpDestination::RobloxCdn: asked = flagString("tbxStringHttpProtocolRbxCdn"); break;
+        case HttpDestination::TuxbloxCdn: asked = flagString("tbxStringHttpProtocolCdn"); break;
+        case HttpDestination::Other: asked = flagString("tbxStringHttpProtocolOther"); break;
+    }
+    long version = 0;
+    if (asked == "1.0") version = CURL_HTTP_VERSION_1_0;
+    else if (asked == "1.1") version = CURL_HTTP_VERSION_1_1;
+    // 2TLS rather than 2: over plain HTTP, asking for 2 means a connection nothing here
+    // speaks, and every one of these URLs is https anyway.
+    else if (asked == "2") version = CURL_HTTP_VERSION_2TLS;
+    else if (asked == "3") version = CURL_HTTP_VERSION_3;
+    if (version == 0) return;
+    curl_easy_setopt(static_cast<CURL*>(curl), CURLOPT_HTTP_VERSION, version);
+}
+
+// --- reading a flag -----------------------------------------------------
 
 namespace {
 

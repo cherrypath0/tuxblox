@@ -45,7 +45,7 @@ endif()
 # What a release consists of, parsed the same way by the launcher and the installer -- they have to
 # agree on it exactly, because the launcher resolves a release and hands it to the installer.
 if(NOT TUXBLOX_SHARED_FLAGS)
-    set(TUXBLOX_SHARED_FLAGS "${CMAKE_SOURCE_DIR}/../shared/flags/src")
+    set(TUXBLOX_SHARED_FLAGS "${CMAKE_SOURCE_DIR}/../shared/flags")
 endif()
 
 if(NOT TUXBLOX_SHARED_RELEASE)
@@ -90,10 +90,10 @@ include(${TUXBLOX_SHARED_FLAGS}/EmbedFlags.cmake)
 
 add_library(installer_core STATIC
     ${TUXBLOX_SHARED_CRYPTO}/ca_bundle.cpp
-    ${TUXBLOX_SHARED_FLAGS}/flag_table.cpp
-    ${TUXBLOX_SHARED_FLAGS}/flags.cpp
+    ${TUXBLOX_SHARED_FLAGS}/FlagManager.cpp
     src/flag_startup.cpp
     ${TUXBLOX_SHARED_RELEASE}/release_file.cpp
+    ${TUXBLOX_SHARED_RELEASE}/release_stamp.cpp
     ${TUXBLOX_SHARED_RELEASE}/user_agent.cpp
     ${TUXBLOX_I18N_DIR}/src/i18n.cpp
     src/cli.cpp

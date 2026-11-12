@@ -15,7 +15,10 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "watch_launch.h"
+
+#include "flag_startup.h"
 #include "crash_report.h"
+#include "i18n.h"
 #include "install_paths.h"
 #include "presence_loop.h"
 #include "process_launcher.h"
@@ -43,7 +46,14 @@ int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const 
     // every process list, and anything matching the launcher matches a running Roblox session too.
     setProcessName("tuxbloxWatcher");
 
+    // This mode is reached before main() gets as far as the window, so it loads the flags
+    // itself: without it the first read here would seal an empty table, and the switches
+    // over crash reports and the server location notification would answer for the server
+    // without ever having asked it.
+    initLauncherFlags(installDir);
+
     Settings settings = loadSettings(installDir);
+    i18n::initializeFromSetting(settings.language);
 
     // Runs before the active version is resolved below, so a freshly
     // installed version is the one that launches and gets its FastFlags.
@@ -63,9 +73,9 @@ int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const 
     std::time_t launchStart = std::time(nullptr);
     auto outcome = launcher.launch(target, uri, extraEnv);
     if (!outcome.ok) {
-        std::string message = "A TuxBlox process has exited with a non-zero exit code.\n" +
-            outcome.errorMessage;
-        showErrorMessageBox("TuxBlox Error", message);
+        std::string message = i18n::trf("A TuxBlox process has exited with a non-zero exit code.\n{0}",
+                                        {outcome.errorMessage});
+        showErrorMessageBox(i18n::tr("TuxBlox Error"), message);
         return 1;
     }
 
@@ -73,7 +83,7 @@ int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const 
     // This is also the wait for the session to end, so it runs whether or not either feature is on.
     runPresenceLoop(installDir, target, settings, launchStart,
                     [&] { return launcher.pollIsRunning(target); },
-                    makeServerRegionWatcher(settings.serverRegionNotify,
+                    makeServerRegionWatcher(serverRegionNotifyEnabled(settings.serverRegionNotify),
                                             presenceNotificationIcon(target)));
 
     auto ev = launcher.takeExitEvent(target);
@@ -106,28 +116,28 @@ int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const 
     int displayCode = robloxExitCode.value_or(protonExitCode);
 
     const char* title = exitCodeTitle(displayCode);
-    std::string exitCodeLine = "Exit Code: " + std::to_string(displayCode);
+    std::string exitCodeLine = i18n::trf("Exit Code: {0}", {std::to_string(displayCode)});
     if (title) exitCodeLine += std::string(" (") + title + ")";
 
     std::string popupTitle, message;
     if (ev->exitCode == 3) {
         // Integrity and certificate verification, TuxBlox's compatibility layer always returns exit code 3 if this failed.
-        showErrorMessageBox("Failed to launch Roblox",
-            "Failed to verify the integrity of Roblox. Some files might be unsigned or have "
-            "been tampered with. Please make sure TuxBlox is up to date, then reinstall "
-            "Roblox and try again.");
+        showErrorMessageBox(i18n::tr("Failed to launch Roblox"),
+            i18n::tr("Failed to verify the integrity of Roblox. Some files might be unsigned or have "
+                     "been tampered with. Please make sure TuxBlox is up to date, then reinstall "
+                     "Roblox and try again."));
         return 1;
     }
 
     if (ev->exitCode == 1) {
-        popupTitle = "TuxBlox Error";
-        message = "TuxBlox has encountered an error and has quit!";
+        popupTitle = i18n::tr("TuxBlox Error");
+        message = i18n::tr("TuxBlox has encountered an error and has quit!");
     } else if (ev->exitCode == 2) {
-        popupTitle = "Roblox Error";
-        message = "Roblox has exited with a non-zero exit code.\n" + exitCodeLine;
+        popupTitle = i18n::tr("Roblox Error");
+        message = i18n::tr("Roblox has exited with a non-zero exit code.\n") + exitCodeLine;
     } else {
-        popupTitle = "Something went wrong";
-        message = "An unknown error has occurred which has crashed TuxBlox.\n" + exitCodeLine;
+        popupTitle = i18n::tr("Something went wrong");
+        message = i18n::tr("An unknown error has occurred which has crashed TuxBlox.\n") + exitCodeLine;
     }
 
     auto sendReport = [&] {
@@ -142,11 +152,16 @@ int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const 
         uploadCrashReport(report);
     };
 
-    if (settings.sendCrashReports) {
+    // tbxFlagDisableCrashTelemetry takes the whole feature away, the Report button included:
+    // a switch that stopped the automatic send but left a button that did it anyway would not
+    // be a way to stop reports arriving.
+    if (!launcherFlags().crashTelemetry) {
+        showErrorMessageBoxWithCopy(popupTitle, message, readLogTail(outcome.logPath, kMaxLogCopyBytes));
+    } else if (settings.sendCrashReports) {
         sendReport();
         // The log is already on its way, so what is left to offer is the copy somebody attaches to a bug report themselves.
         showErrorMessageBoxWithCopy(popupTitle, message, readLogTail(outcome.logPath, kMaxLogCopyBytes));
-    } else if (showErrorMessageBoxWithAction(popupTitle, message, "Report")) {
+    } else if (showErrorMessageBoxWithAction(popupTitle, message, i18n::tr("Report"))) {
         sendReport();
     }
 

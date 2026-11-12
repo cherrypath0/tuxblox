@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-#include "flag_table.h"
+#include "FlagManager.h"
 #include <cassert>
 #include <cstdio>
 #include <string>

@@ -16,6 +16,7 @@
 
 #include "launcher_window.h"
 #include "adw_look.h"
+#include "asset_download.h"
 #include "asset_fastflags.h"
 #include "asset_home.h"
 #include "asset_info.h"
@@ -26,13 +27,16 @@
 #include "desktop_integration.h"
 #include "desktop_notify.h"
 #include "dialog.h"
+#include "i18n.h"
 #include "page.h"
+#include "update_changes.h"
 #include "page_about.h"
 #include "page_fastflags.h"
 #include "page_home.h"
 #include "page_sessions.h"
 #include "page_settings.h"
 #include "page_versions.h"
+#include "snow.h"
 #include "welcome_tour.h"
 #include "welcome_tour_state.h"
 #include "widgets.h"
@@ -70,9 +74,9 @@ struct WindowUi {
     GtkListBox *pFooterList = nullptr;
     std::vector<PageEntry> pages;
     std::optional<Tab> shownTab;
-    std::string notifiedVersion;
     ActionNotification updateNotice;
     std::string appliedTheme;
+    GtkWidget *pSnow = nullptr;
     // How many sessions are open, shown on the Sessions row so it is answerable without going there.
     GtkLabel *pSessionCount = nullptr;
     int shownSessionCount = -1;
@@ -82,6 +86,8 @@ struct WindowUi {
     bool activated = false;
     // True while the tour's own window is up, which holds back the dialogs that would stack on it.
     bool welcomeOpen = false;
+    // In the header rather than on a page, so it is there on every tab for as long as an update is.
+    GtkWidget *pUpdateButton = nullptr;
 };
 
 std::string tabName(Tab tab) {
@@ -136,55 +142,19 @@ void addPage(WindowUi &ui, Tab tab, const char *pTitle, const unsigned char *pIc
     ui.pages.push_back({tab, pTitle, footer, std::move(page), GTK_LIST_BOX_ROW(pRow)});
 }
 
-// The release being offered and the parts of it that move, under the body of the dialog.
-GtkWidget *updateDetails(const std::string &release, const std::vector<ComponentChange> &changes) {
-    GtkWidget *pBox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
-    gtk_widget_set_margin_top(pBox, 8);
-
-    GtkWidget *pRelease = gtk_label_new(("Release " + release).c_str());
-    gtk_label_set_xalign(GTK_LABEL(pRelease), 0.0);
-    gtk_widget_add_css_class(pRelease, "heading");
-    gtk_box_append(GTK_BOX(pBox), pRelease);
-
-    for (const ComponentChange &change : changes) {
-        GtkWidget *pLine = gtk_label_new(changeLine(change).c_str());
-        gtk_label_set_xalign(GTK_LABEL(pLine), 0.0);
-        gtk_label_set_wrap(GTK_LABEL(pLine), TRUE);
-        gtk_widget_add_css_class(pLine, "dim-label");
-        gtk_box_append(GTK_BOX(pBox), pLine);
-    }
-
-    GtkWidget *pQuestion = gtk_label_new("Would you like to update?");
-    gtk_label_set_xalign(GTK_LABEL(pQuestion), 0.0);
-    gtk_label_set_wrap(GTK_LABEL(pQuestion), TRUE);
-    gtk_widget_set_margin_top(pQuestion, 10);
-    gtk_box_append(GTK_BOX(pBox), pQuestion);
-    return pBox;
-}
-
-// Once per offered version, so it does not reappear on every poll. "Not now" leaves the Home page's
-// own Update button, which is what makes dismissing it something other than a dead end.
-void notifyUpdate(WindowUi &ui, const AppSnapshot &snap) {
-    if (ui.welcomeOpen) return;
-    if (!snap.updateAvailableVersion || *snap.updateAvailableVersion == ui.notifiedVersion) return;
-    ui.notifiedVersion = *snap.updateAvailableVersion;
-    App *pApp = ui.pApp;
-    AdwDialog *pDialog = buildDialog("Update available", "A new update is available",
-                                      {{"Not now", nullptr, nullptr},
-                                       {"Update", "suggested-action", [pApp] { pApp->requestUpdateNow(); }, true}},
-                                      updateDetails(ui.notifiedVersion, snap.updateChanges));
-    adw_dialog_present(pDialog, GTK_WIDGET(ui.pStack));
-}
-
 gboolean onTick(gpointer data) {
     auto *pUi = static_cast<WindowUi *>(data);
     App &app = *pUi->pApp;
     const AppSnapshot snap = app.snapshot();
 
     showTab(*pUi, snap.activeTab);
-    if (pUi->appliedTheme != snap.settings.theme) {
-        pUi->appliedTheme = snap.settings.theme;
+    if (pUi->pUpdateButton != nullptr) {
+        gtk_widget_set_visible(pUi->pUpdateButton, snap.updateAvailableVersion.has_value());
+    }
+    if (pUi->appliedTheme != launcherThemeFor(snap.settings.theme)) {
+        pUi->appliedTheme = launcherThemeFor(snap.settings.theme);
         applyLauncherTheme(pUi->appliedTheme);
+        if (pUi->pSnow != nullptr) gtk_widget_set_visible(pUi->pSnow, pUi->appliedTheme == "christmas");
     }
     if (pUi->pSessionCount != nullptr) {
         int running = 0;
@@ -199,12 +169,11 @@ gboolean onTick(gpointer data) {
     }
     for (PageEntry &entry : pUi->pages) entry.page->update(snap);
 
-    notifyUpdate(*pUi, snap);
 
     // Held back like the update dialog, or it stacks on the tour and is marked shown without being read.
     if (!pUi->welcomeOpen && !snap.containerWarning.empty() && !pUi->containerWarningShown) {
         pUi->containerWarningShown = true;
-        showNotice(GTK_WIDGET(pUi->pWindow), "Distrobox GPU Passthrough", snap.containerWarning);
+        showNotice(GTK_WIDGET(pUi->pWindow), i18n::tr("Distrobox GPU Passthrough"), snap.containerWarning);
     }
 
     // A launch hands over to the watcher process, and both handoffs exec the installer once this window is gone
@@ -301,15 +270,70 @@ GtkWidget *buildSidebar(WindowUi &ui) {
     return GTK_WIDGET(adw_navigation_page_new(pView, "TuxBlox"));
 }
 
+// The release being offered and the parts of it that move, under the body of the dialog.
+GtkWidget *updateDetails(const std::string &release, const std::vector<ComponentChange> &changes) {
+    GtkWidget *pBox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+    gtk_widget_set_margin_top(pBox, 8);
+
+    GtkWidget *pRelease = gtk_label_new(i18n::trf("Release {0}", {release}).c_str());
+    gtk_label_set_xalign(GTK_LABEL(pRelease), 0.0);
+    gtk_widget_add_css_class(pRelease, "heading");
+    gtk_box_append(GTK_BOX(pBox), pRelease);
+
+    for (const ComponentChange &change : changes) {
+        GtkWidget *pLine = gtk_label_new(changeLine(change).c_str());
+        gtk_label_set_xalign(GTK_LABEL(pLine), 0.0);
+        gtk_label_set_wrap(GTK_LABEL(pLine), TRUE);
+        gtk_widget_add_css_class(pLine, "dim-label");
+        gtk_box_append(GTK_BOX(pBox), pLine);
+    }
+
+    GtkWidget *pQuestion = gtk_label_new(i18n::tr("Would you like to update?"));
+    gtk_label_set_xalign(GTK_LABEL(pQuestion), 0.0);
+    gtk_label_set_wrap(GTK_LABEL(pQuestion), TRUE);
+    gtk_widget_set_margin_top(pQuestion, 10);
+    gtk_box_append(GTK_BOX(pBox), pQuestion);
+    return pBox;
+}
+
+// Nothing is offered until the check has found something, so the button is the whole prompt: it
+// appears in the header on every tab and opens this when it is clicked.
+void onUpdateClicked(GtkButton *, gpointer data) {
+    auto *pUi = static_cast<WindowUi *>(data);
+    const AppSnapshot snap = pUi->pApp->snapshot();
+    if (!snap.updateAvailableVersion) return;
+    App *pApp = pUi->pApp;
+    AdwDialog *pDialog = buildDialog(i18n::tr("Update available"), i18n::tr("A new update is available"),
+                                     {{i18n::tr("Not now"), nullptr, nullptr},
+                                      {i18n::tr("Update"), "suggested-action", [pApp] { pApp->requestUpdateNow(); }, true}},
+                                     updateDetails(*snap.updateAvailableVersion, snap.updateChanges));
+    adw_dialog_present(pDialog, GTK_WIDGET(pUi->pStack));
+}
+
 GtkWidget *buildContent(WindowUi &ui) {
     GtkWidget *pStack = gtk_stack_new();
     ui.pStack = GTK_STACK(pStack);
 
+    // Packed at the end, so it sits just inside the window's own buttons rather than beyond them,
+    // and it is in the header rather than on one page because an update is waiting whatever tab
+    // you are looking at.
+    GtkWidget *pUpdate = gtk_button_new();
+    gtk_button_set_child(GTK_BUTTON(pUpdate), iconImage(kAssetDownload, kAssetDownloadLen, 14));
+    gtk_widget_add_css_class(pUpdate, "update-button");
+    gtk_widget_set_valign(pUpdate, GTK_ALIGN_CENTER);
+    gtk_widget_set_visible(pUpdate, FALSE);
+    gtk_widget_set_tooltip_text(pUpdate, i18n::tr("Update available"));
+    g_signal_connect(pUpdate, "clicked", G_CALLBACK(onUpdateClicked), &ui);
+    ui.pUpdateButton = pUpdate;
+
+    GtkWidget *pHeader = adw_header_bar_new();
+    adw_header_bar_pack_end(ADW_HEADER_BAR(pHeader), pUpdate);
+
     GtkWidget *pView = adw_toolbar_view_new();
-    adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(pView), adw_header_bar_new());
+    adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(pView), pHeader);
     adw_toolbar_view_set_content(ADW_TOOLBAR_VIEW(pView), pStack);
 
-    AdwNavigationPage *pPage = adw_navigation_page_new(pView, "Home");
+    AdwNavigationPage *pPage = adw_navigation_page_new(pView, i18n::tr("Home"));
     ui.pContentPage = pPage;
     return GTK_WIDGET(pPage);
 }
@@ -320,7 +344,7 @@ void onActivate(GtkApplication *pGtkApp, gpointer data) {
     applyLook();
     // Before the first applyLauncherTheme, which is the last moment the scheme is still the desktop's.
     captureSystemColourScheme();
-    pUi->appliedTheme = pUi->pApp->snapshot().settings.theme;
+    pUi->appliedTheme = launcherThemeFor(pUi->pApp->snapshot().settings.theme);
     applyLauncherTheme(pUi->appliedTheme);
 
     GtkWidget *pWindow = adw_application_window_new(pGtkApp);
@@ -343,14 +367,21 @@ void onActivate(GtkApplication *pGtkApp, gpointer data) {
     // desktop integration. A no-op when main() already started it, which it does with Auto-Update on.
     app.startUpdateCheck();
 
-    addPage(*pUi, Tab::Start, "Home", kAssetHome, kAssetHomeLen, false, std::make_unique<HomePage>(app, pUi->installDir));
-    addPage(*pUi, Tab::Sessions, "Sessions", kAssetSessions, kAssetSessionsLen, false, std::make_unique<SessionsPage>(app));
-    addPage(*pUi, Tab::Versions, "Versions", kAssetRobloxRdd, kAssetRobloxRddLen, false, std::make_unique<VersionsPage>(app));
-    addPage(*pUi, Tab::FastFlags, "FastFlags", kAssetFastflags, kAssetFastflagsLen, false, std::make_unique<FastFlagsPage>(app));
-    addPage(*pUi, Tab::Settings, "Settings", kAssetSettings, kAssetSettingsLen, false, std::make_unique<SettingsPage>(app));
-    addPage(*pUi, Tab::About, "About", kAssetInfo, kAssetInfoLen, true, std::make_unique<AboutPage>(pUi->installDir));
+    addPage(*pUi, Tab::Start, i18n::tr("Home"), kAssetHome, kAssetHomeLen, false, std::make_unique<HomePage>(app, pUi->installDir));
+    addPage(*pUi, Tab::Sessions, i18n::tr("Sessions"), kAssetSessions, kAssetSessionsLen, false, std::make_unique<SessionsPage>(app));
+    addPage(*pUi, Tab::Versions, i18n::tr("Versions"), kAssetRobloxRdd, kAssetRobloxRddLen, false, std::make_unique<VersionsPage>(app));
+    addPage(*pUi, Tab::FastFlags, i18n::tr("FastFlags"), kAssetFastflags, kAssetFastflagsLen, false, std::make_unique<FastFlagsPage>(app));
+    addPage(*pUi, Tab::Settings, i18n::tr("Settings"), kAssetSettings, kAssetSettingsLen, false, std::make_unique<SettingsPage>(app));
+    addPage(*pUi, Tab::About, i18n::tr("About"), kAssetInfo, kAssetInfoLen, true, std::make_unique<AboutPage>(pUi->installDir));
 
-    adw_application_window_set_content(ADW_APPLICATION_WINDOW(pWindow), pSplit);
+    // The snow sits under the whole window rather than inside one page, so it keeps falling behind the sidebar too. The split view is what the overlay measures itself from, since the snow asks for no size of its own.
+    GtkWidget *pOverlay = gtk_overlay_new();
+    pUi->pSnow = createSnowLayer();
+    gtk_overlay_set_child(GTK_OVERLAY(pOverlay), pUi->pSnow);
+    gtk_overlay_add_overlay(GTK_OVERLAY(pOverlay), pSplit);
+    gtk_overlay_set_measure_overlay(GTK_OVERLAY(pOverlay), pSplit, TRUE);
+    gtk_widget_set_visible(pUi->pSnow, pUi->appliedTheme == "christmas");
+    adw_application_window_set_content(ADW_APPLICATION_WINDOW(pWindow), pOverlay);
 
     onTick(pUi);
     pUi->tickId = g_timeout_add(100, onTick, pUi);

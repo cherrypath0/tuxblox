@@ -128,8 +128,11 @@ struct Settings {
     std::string theme = "system";
     // The welcome tour is shown once; absent means unseen.
     bool welcomeSeen = false;
-    // Hidden on purpose; deleted when Player support ships.
-    bool enablePlayerButton = false;
+    // "system" follows the desktop locale; otherwise a language tag a shipped
+    // catalogue names, such as "pt_BR". Read leniently, so a settings.json
+    // written before this field existed keeps its other values and picks the
+    // desktop language.
+    std::string language = "system";
     // Written into the active Roblox version's ClientSettings folder at every
     // launch -- see fastflag_file.h for why it can't just be written once.
     FastFlagSet fastFlags;
@@ -156,9 +159,20 @@ std::vector<std::string> parseEnvPairs(const std::string& text);
 // settings box overrides the same variable coming from the card picker, so
 // the box stays the escape hatch for a machine the picker gets wrong.
 //
-// Defined here rather than at each call site because there are two of them
-// (the running launcher and a --watch-launch desktop shortcut) and they must
-// not disagree about what a launch's environment is.
+// Defined here rather than at each call site because there are three of them
+// (the running launcher, a --watch-launch desktop shortcut and the quick
+// launch a menu entry or a roblox: link goes through) and they must not
+// disagree about what a launch's environment is.
 std::vector<std::string> launchEnvPairs(const Settings& settings);
+
+// The subset of the above that the launcher applies to its own process, so
+// that anything it starts inherits it: the user's own Environment Variables,
+// and nothing else. Everything else in launchEnvPairs() describes how Roblox
+// should run, and the card picker in particular decides which card renders --
+// applied here it moves the launcher's own window onto a card that is not
+// driving the screen, which on a laptop with two of them draws the window as
+// whatever was left in that card's memory. Every launch is given the full set
+// explicitly, so nothing is lost by keeping it out of this process.
+std::vector<std::string> exportedEnvPairs(const Settings& settings);
 
 } // namespace tuxblox

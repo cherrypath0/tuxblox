@@ -15,7 +15,9 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "flag_startup.h"
-#include "flags.h"
+#include "FlagManager.h"
+#include <algorithm>
+#include <cstdint>
 #include "roblox_config.h"
 #include "user_agent.h"
 #include <filesystem>
@@ -28,6 +30,12 @@ namespace {
 // Long enough for a slow connection, short enough that nobody notices it failing. The
 // program has a perfectly good answer without it.
 constexpr int kFlagFetchSeconds = 5;
+
+// What the Roblox installer ran with before the number was a flag, and a ceiling that is
+// about saturating a connection rather than a machine: past this it is more sockets, not
+// more speed, and Roblox's CDN sees a burst it has no reason to welcome.
+constexpr int kDefaultInstallerWorkers = 4;
+constexpr int kMaxInstallerWorkers = 16;
 
 } // namespace
 
@@ -54,6 +62,34 @@ std::vector<std::string> flagEnvVars(const std::string& installDir) {
     // of build/ from reaching the network on the launch path.
     if (release.present) env.push_back("TUXBLOX_FLAGS_RELEASED=1");
     return env;
+}
+
+const LauncherFlags& launcherFlags() {
+    // Sealed on the first call, which initLauncherFlags() makes deliberately so the wait
+    // happens there and not under a window that is trying to draw.
+    static const LauncherFlags flags = [] {
+        LauncherFlags out;
+        out.playerButton = !flagBool("tbxFlagDisablePlayerButton");
+        out.christmasTheme = flagBool("tbxFlagEnableChristmasTheme");
+        out.geoTool = !flagBool("tbxFlagDisableGeoTool");
+        out.crashTelemetry = !flagBool("tbxFlagDisableCrashTelemetry");
+        out.robloxNextVersion = flagBool("tbxFlagEnableRobloxNextVersionDownload");
+        out.updater = !flagBool("tbxFlagDisableUpdater");
+        out.followPromotedBuild =
+            flagBool("tbxFlagEnableChannelToUpperChannelUpgradeOnBuildPromotion");
+        if (flagBool("tbxFlagEnableParallelWorkersForRobloxInstaller")) {
+            const int64_t asked = flagInt("tbxIntRobloxInstallerParallelWorkers");
+            // Clamped rather than trusted: this is a thread count, and a set of flags that
+            // predates the number would otherwise read as 0 and download nothing at all.
+            out.robloxInstallerWorkers =
+                asked <= 0 ? kDefaultInstallerWorkers
+                           : static_cast<int>(std::min<int64_t>(asked, kMaxInstallerWorkers));
+        }
+        out.privacyPolicyVersion = flagString("tbxStringPrivacyPolicyVersion");
+        out.termsOfUseVersion = flagString("tbxStringTermsOfUseVersion");
+        return out;
+    }();
+    return flags;
 }
 
 void initLauncherFlags(const std::string& installDir) {

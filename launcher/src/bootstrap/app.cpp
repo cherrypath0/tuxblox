@@ -15,6 +15,8 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "app.h"
+
+#include "flag_startup.h"
 #include "checksum.h"
 #include "i18n.h"
 #include "downloader.h"
@@ -64,8 +66,9 @@ const std::vector<std::string>& previewPackages() {
     return kPackages;
 }
 
-// Enough connections to keep the link busy without hammering Roblox's CDN.
-constexpr size_t kDownloadWorkers = 4;
+// Enough connections to keep the link busy without hammering Roblox's CDN. How many is
+// tbxIntRobloxInstallerParallelWorkers, and whether at all is the flag beside it, so a
+// CDN that answers badly under load can be given one connection again without a release.
 
 const char* titleFor(Mode mode) {
     switch (mode) {
@@ -97,6 +100,11 @@ App::~App() {
 
 void App::start() {
     if (thread_.joinable()) return;
+    // The bootstrapper is reached before main() gets anywhere near initLauncherFlags(), and
+    // it is the very thing tbxFlagEnableParallelWorkersForRobloxInstaller describes -- so it
+    // loads the flags itself. Without this the first read would seal an empty table and
+    // every flag would answer "off", which here means downloading Roblox one file at a time.
+    initLauncherFlags(config_.installDir);
     thread_ = std::thread(&App::run, this);
 }
 
@@ -425,7 +433,8 @@ void App::runInstall(bool skipIfPresent) {
     };
 
     {
-        const size_t downloaders = std::min<size_t>(kDownloadWorkers, jobs.size());
+        const size_t asked = static_cast<size_t>(launcherFlags().robloxInstallerWorkers);
+        const size_t downloaders = std::min<size_t>(asked, jobs.size());
         const unsigned int cores = std::thread::hardware_concurrency();
         const size_t extractors = std::min<size_t>(cores > 0 ? cores : 1, jobs.size());
         downloadersLeft = downloaders;

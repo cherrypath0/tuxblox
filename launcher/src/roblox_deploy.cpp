@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "roblox_deploy.h"
+#include "FlagManager.h"
 #include "user_agent.h"
 #include "downloader.h"
 #include "json.hpp"
@@ -82,6 +83,7 @@ std::string httpGet(const std::string& url, const std::atomic<bool>* cancel) {
     char errBuf[CURL_ERROR_SIZE] = {0};
 
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+    applyFlaggedHttpVersion(curl, url);
     curl_easy_setopt(curl, CURLOPT_USERAGENT, userAgent().c_str());
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curlWriteToString);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &body);

@@ -15,7 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "flag_startup.h"
-#include "flags.h"
+#include "FlagManager.h"
 #include <cassert>
 #include <cstdio>
 #include <cstdlib>

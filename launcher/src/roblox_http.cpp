@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "roblox_http.h"
+#include "FlagManager.h"
 #include "user_agent.h"
 
 #include "ca_bundle.h"
@@ -46,6 +47,7 @@ std::string httpGet(const std::string& url, long timeoutSeconds) {
 
     std::string body;
     curl_easy_setopt(pCurl, CURLOPT_URL, url.c_str());
+    applyFlaggedHttpVersion(pCurl, url);
     curl_easy_setopt(pCurl, CURLOPT_USERAGENT, userAgent().c_str());
     curl_easy_setopt(pCurl, CURLOPT_WRITEFUNCTION, writeToString);
     curl_easy_setopt(pCurl, CURLOPT_WRITEDATA, &body);

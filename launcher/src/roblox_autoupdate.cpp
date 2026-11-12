@@ -58,7 +58,7 @@ std::optional<std::string> ownExePath() {
 }
 
 std::string robloxVersionsDir(const std::string& installDir) {
-    return prefixUserDir(installDir) + "/AppData/Local/Roblox/Versions";
+    return robloxDataDir(installDir) + "/Versions";
 }
 
 bool shouldRunUpdateCheck(const Settings& settings) {

@@ -33,10 +33,10 @@ python3 ../../../shared/flags/tools/embed-flags.py \
 printf 'static const unsigned char kTuxBloxCaBundlePem[] = "";\nstatic const unsigned int kTuxBloxCaBundlePemLen = 0;\n' \
     > "$out/tuxblox_ca_bundle_pem.h"
 g++ -std=c++17 -O0 -g -Wall -Wextra -UNDEBUG \
-    -I ../src/support -I ../src/third_party -I ../../../shared/flags/src \
+    -I ../src/support -I ../src/third_party -I ../../../shared/flags \
     -I ../../../shared/crypto/src -I "$out" \
     -o "$out/test_flags" test_flags.cpp ../src/support/flag_startup.cpp \
-    ../../../shared/flags/src/flags.cpp ../../../shared/flags/src/flag_table.cpp \
+    ../../../shared/flags/FlagManager.cpp \
     ../../../shared/crypto/src/ca_bundle.cpp \
     -lcurl -lpthread
 "$out/test_flags"

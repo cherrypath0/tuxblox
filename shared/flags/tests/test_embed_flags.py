@@ -118,9 +118,11 @@ class EmbedFlagsTests(unittest.TestCase):
 
 
 class ShippedFilesTests(unittest.TestCase):
-    """Both files in the repository must pass the same checks the build applies."""
+    """The one file in the repository must pass the same checks the build applies, and
+    publishing it must produce the set the server is allowed to hold."""
 
     FLAGS_DIR = os.path.join(HERE, "..")
+    REAL = "DefaultFlags-x86_64.json"
 
     def check_real(self, name):
         path = os.path.join(self.FLAGS_DIR, name)
@@ -131,34 +133,56 @@ class ShippedFilesTests(unittest.TestCase):
                                   capture_output=True, text=True)
             self.assertEqual(done.returncode, 0, done.stderr)
 
-    def test_the_compiled_in_defaults_are_valid(self):
-        self.check_real("DefaultFlags-x86_64.json")
-
-    def test_the_publishable_set_refuses_a_local_only_flag(self):
+    def publish(self, text):
+        """Publish `text` as the deploy step does; return (returncode, stderr, flags or None)."""
         with tempfile.TemporaryDirectory() as d:
             src = os.path.join(d, "Flags.json")
+            out = os.path.join(d, "published.json")
             with open(src, "w", encoding="utf-8") as handle:
-                handle.write(json.dumps({"tbxFlagDisableUpdater": True}))
-            done = subprocess.run(
-                [sys.executable, SCRIPT, src, os.path.join(d, "f.h"), "kF", "--published"],
-                capture_output=True, text=True)
-            self.assertNotEqual(done.returncode, 0)
-            self.assertIn("tbxFlagDisableUpdater", done.stderr)
+                handle.write(text)
+            done = subprocess.run([sys.executable, SCRIPT, src, "--publish-json", out],
+                                  capture_output=True, text=True)
+            published = None
+            if os.path.exists(out):
+                with open(out, encoding="utf-8") as handle:
+                    published = json.load(handle)
+            return done.returncode, done.stderr, published
 
-    def test_the_publishable_set_is_valid(self):
-        # Flags-x86_64.json is what installs are TOLD; DefaultFlags-x86_64.json is what
-        # they fall back to. Same checks, so a set that could not be compiled in cannot
-        # be published either -- plus the local-only rule, which only applies to what is
-        # published.
-        path = os.path.join(self.FLAGS_DIR, "Flags-x86_64.json")
-        with tempfile.TemporaryDirectory() as d:
-            done = subprocess.run(
-                [sys.executable, SCRIPT, path, os.path.join(d, "f.h"), "kF", "--published"],
-                capture_output=True, text=True)
-            self.assertEqual(done.returncode, 0, done.stderr)
+    def test_the_shipped_flags_are_valid(self):
+        self.check_real(self.REAL)
 
-    def test_the_publishable_set_may_name_a_flag_with_no_compiled_in_default(self):
-        # That is how a flag is introduced ahead of the release that reads it.
+    # There is one file, so a flag only honoured on a user's own machine has to live in it
+    # -- it is dropped on the way out rather than refused, and said out loud so a deploy
+    # cannot quietly publish a different set from the one in the repository.
+    def test_publishing_drops_a_local_only_flag_rather_than_refusing_it(self):
+        code, stderr, published = self.publish(json.dumps({
+            "tbxFlagDisableUpdater": True,
+            "tbxFlagEnableChristmasTheme": True,
+        }))
+        self.assertEqual(code, 0, stderr)
+        self.assertEqual(published, {"tbxFlagEnableChristmasTheme": True})
+        self.assertIn("tbxFlagDisableUpdater", stderr)
+
+    def test_publishing_the_shipped_flags_keeps_everything_else(self):
+        path = os.path.join(self.FLAGS_DIR, self.REAL)
+        with open(path, encoding="utf-8") as handle:
+            source = json.load(handle)
+        code, stderr, published = self.publish(json.dumps(source))
+        self.assertEqual(code, 0, stderr)
+        self.assertEqual(set(published), set(source) - {"tbxFlagDisableUpdater"})
+        for name, value in published.items():
+            self.assertEqual(value, source[name])
+
+    # The same checks either way, so a set that could not be compiled in cannot be
+    # published either.
+    def test_publishing_applies_the_same_checks(self):
+        code, stderr, _ = self.publish(json.dumps({"somethingWithNoPrefix": True}))
+        self.assertNotEqual(code, 0)
+        self.assertIn("somethingWithNoPrefix", stderr)
+
+    def test_a_flag_may_be_shipped_ahead_of_the_release_that_reads_it(self):
+        # Nothing reads it, so compiling it in costs nothing and publishing it is how it
+        # reaches the release that will.
         code, _, _ = run(json.dumps({"tbxFlagSomethingNotYetShipped": True}))
         self.assertEqual(code, 0)
 

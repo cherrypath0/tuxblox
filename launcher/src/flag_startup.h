@@ -47,4 +47,31 @@ std::vector<std::string> flagEnvVars(const std::string& installDir);
 // local run out of build/ -- makes no request.
 void initLauncherFlags(const std::string& installDir);
 
+// Every flag the launcher honours, in the sense the code wants rather than the sense the
+// name is written in: a flag called Disable reads here as the thing being on.
+//
+// Read once, together, and here rather than at each site. The FIRST read of any flag
+// waits for the server's answer, so doing it from a window tick would stall the window;
+// this is also the one list of what the launcher actually lets a flag decide.
+struct LauncherFlags {
+    bool playerButton = false;        // tbxFlagDisablePlayerButton
+    bool christmasTheme = false;      // tbxFlagEnableChristmasTheme
+    bool geoTool = false;             // tbxFlagDisableGeoTool
+    bool crashTelemetry = false;      // tbxFlagDisableCrashTelemetry
+    bool robloxNextVersion = false;   // tbxFlagEnableRobloxNextVersionDownload
+    bool updater = true;              // tbxFlagDisableUpdater, which only this machine may set
+    bool followPromotedBuild = false; // tbxFlagEnableChannelToUpperChannelUpgradeOnBuildPromotion
+    // How many of the Roblox installer's downloads run at once. 1 when the flag that
+    // enables them is off, so the switch is "parallel or not" and the number is "how much".
+    int robloxInstallerWorkers = 1;
+    // What the server says the current documents are. Empty when it said nothing, which
+    // is an install that has never reached the server and must not be nagged.
+    std::string privacyPolicyVersion;  // tbxStringPrivacyPolicyVersion
+    std::string termsOfUseVersion;     // tbxStringTermsOfUseVersion
+};
+
+// Valid once initLauncherFlags() has run. Reading it before that answers the compiled-in
+// defaults, which is what a program that never initialised them should get.
+const LauncherFlags& launcherFlags();
+
 } // namespace tuxblox

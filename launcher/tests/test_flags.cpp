@@ -14,8 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-#include "flags.h"
-#include "flag_table.h"
+#include "FlagManager.h"
 #include "flag_startup.h"
 #include "settings.h"
 #include "release_file.h"

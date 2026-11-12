@@ -15,6 +15,8 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "page_versions.h"
+
+#include "flag_startup.h"
 #include "i18n.h"
 #include "versions_tab_state.h"
 #include "widgets.h"
@@ -210,6 +212,10 @@ void VersionsPage::openInstallSheet() {
     gtk_widget_add_css_class(pModes, "linked");
     gtk_widget_set_halign(pModes, GTK_ALIGN_START);
     for (GtkWidget *pMode : {pSheet->pLatest, pSheet->pPrevious, pSheet->pNext, pSheet->pCustom}) {
+        // Next is the one Roblox has uploaded and not released, so it is the one that can
+        // stop being installable without warning. tbxFlagEnableRobloxNextVersionDownload
+        // takes it out of the row rather than leaving a button that fails when pressed.
+        if (pMode == pSheet->pNext && !launcherFlags().robloxNextVersion) continue;
         gtk_box_append(GTK_BOX(pModes), pMode);
         g_signal_connect(pMode, "toggled", G_CALLBACK(onSheetModeToggled), pSheet);
     }

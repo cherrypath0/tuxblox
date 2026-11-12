@@ -34,7 +34,9 @@ struct CardState {
 };
 
 // Kept apart from the Home page so it can be tested without a display.
-// `playerEnabled` is Settings::enablePlayerButton, and goes with it when Player support ships.
+// `playerEnabled` is what tbxFlagDisablePlayerButton leaves of the Player button: the gate is a
+// flag rather than a setting, so it can be lifted for everyone the day Player support ships, and
+// anyone who wants it early can set it in their own flags.json.
 CardState cardState(LaunchTarget target, bool installed, int sessions, bool stopping, bool launchPending,
                      bool playerEnabled);
 
