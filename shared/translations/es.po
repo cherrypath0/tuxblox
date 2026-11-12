@@ -1,0 +1,1352 @@
+# TuxBlox translations.
+# This file is distributed under the same licence as TuxBlox.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: tuxblox\n"
+"Report-Msgid-Bugs-To: cherry@tuxblox.net\n"
+"POT-Creation-Date: 2026-11-10 15:36+0300\n"
+"Last-Translator: Yan Henridev <228758946+yanhenrique-dev@users.noreply.github.com>\n"
+"Language-Team: Spanish\n"
+"Language: es\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+"X-Native-Name: Español\n"
+
+#, c++-format
+msgid "--dir names a file, not a folder: {0}"
+msgstr "--dir apunta a un archivo, no a una carpeta: {0}"
+
+msgid "--dir needs an absolute path."
+msgstr "--dir necesita una ruta absoluta."
+
+#, c++-format
+msgid "--dir's parent folder does not exist: {0}"
+msgstr "La carpeta que contiene --dir no existe: {0}"
+
+#, c++-format
+msgid "--release needs a release version like 3.6.0.1, not \"{0}\"."
+msgstr "--release necesita una versión de release como 3.6.0.1, no \"{0}\"."
+
+#, c++-format
+msgid ""
+"A TuxBlox process has exited with a non-zero exit code.\n"
+"{0}"
+msgstr ""
+"Un proceso de TuxBlox terminó con un código de salida distinto de cero.\n"
+"{0}"
+
+msgid "A flag has no name."
+msgstr "Una flag no tiene nombre."
+
+msgid ""
+"A free, open source launcher and compatibility layer for running Roblox on "
+"Linux."
+msgstr ""
+"Un launcher y una capa de compatibilidad gratuitos y de código abierto para "
+"ejecutar Roblox en Linux."
+
+msgid "A graphics driver with Vulkan support"
+msgstr "Un controlador gráfico compatible con Vulkan"
+
+msgid "A later row sets this flag too, and that one is the one that applies."
+msgstr "Una fila más abajo también define esta flag, y es esa la que se aplica."
+
+msgid "A new update is available"
+msgstr "Hay una nueva actualización disponible"
+
+msgid "ACTIVE"
+msgstr "ACTIVO"
+
+msgid "Aborted"
+msgstr "Abortado"
+
+msgid "About"
+msgstr "Acerca de"
+
+msgid "Adds a button to your activity that allows others to join your server"
+msgstr ""
+"Añade un botón a tu actividad que permite que otras personas se unan a tu "
+"servidor"
+
+msgid ""
+"Allows games you join to set more advanced activity. Only works on games "
+"that use the Bloxstrap API."
+msgstr ""
+"Permite que los juegos a los que te unes establezcan una actividad más "
+"avanzada. Solo funciona en juegos que usan la API de Bloxstrap."
+
+msgid "Always send crash reports"
+msgstr "Enviar siempre informes de fallos"
+
+msgid "An experimental feature that lets Roblox vibrate your controller"
+msgstr "Una función experimental que permite que Roblox haga vibrar tu control"
+
+msgid "An instance of the TuxBlox Launcher is already running!"
+msgstr "¡Ya hay una instancia de TuxBlox Launcher en ejecución!"
+
+msgid "An unknown error has occurred which has crashed TuxBlox.\n"
+msgstr "Se produjo un error desconocido que bloqueó TuxBlox.\n"
+
+msgid "Auto-Update Roblox"
+msgstr "Actualización automática de Roblox"
+
+msgid ""
+"Auto-Update Roblox keeps these up to date. Turn it off in Settings to pick a "
+"build yourself."
+msgstr ""
+"La actualización automática de Roblox mantiene estas versiones al día. "
+"Desactívala en Configuración para elegir una versión manualmente."
+
+msgid "Automatic"
+msgstr "Automático"
+
+#, c++-format
+msgid "Automatic (1: {0})"
+msgstr "Automático (1: {0})"
+
+msgid "Automatic updates"
+msgstr "Actualizaciones automáticas"
+
+msgid "Automatically close this window whenever Roblox starts."
+msgstr "Cierra esta ventana automáticamente cada vez que Roblox se inicie."
+
+msgid "Cancel"
+msgstr "Cancelar"
+
+msgid "Cancelled."
+msgstr "Cancelado."
+
+msgid "Cancelled. Cleaning up..."
+msgstr "Cancelado. Limpiando..."
+
+msgid "Checking for updates..."
+msgstr "Comprobando actualizaciones..."
+
+msgid "Checking…"
+msgstr "Comprobando…"
+
+#, c++-format
+msgid "Checksum mismatch for {0} -- refusing to install a corrupted package."
+msgstr ""
+"Suma de verificación incorrecta para {0} -- se rechaza la instalación de un "
+"paquete dañado."
+
+#, c++-format
+msgid "Choose one of {0}, {1} or {2}."
+msgstr "Elige uno de {0}, {1} o {2}."
+
+msgid ""
+"Choose which build of Roblox you play on, install an older one, or remove "
+"the ones you no longer need."
+msgstr ""
+"Elige qué versión de Roblox usas, instala una anterior o elimina las que ya "
+"no necesites."
+
+msgid "Choose which lines the log shows"
+msgstr "Elegir qué líneas muestra el registro"
+
+msgid "Close"
+msgstr "Cerrar"
+
+msgid "Coming soon"
+msgstr "Próximamente"
+
+msgid "Component versions"
+msgstr "Versiones de los componentes"
+
+#, c++-format
+msgid "Connected to a server in {0}"
+msgstr "Conectado a un servidor en {0}"
+
+msgid "Contacting Roblox servers"
+msgstr "Contactando con los servidores de Roblox"
+
+msgid "Controller"
+msgstr "Control"
+
+msgid "Copy"
+msgstr "Copiar"
+
+msgid "Copy the log"
+msgstr "Copiar el registro"
+
+#, c++-format
+msgid "Could not check for updates: {0}"
+msgstr "No se pudieron comprobar las actualizaciones: {0}"
+
+#, c++-format
+msgid "Could not create {0}: {1}"
+msgstr "No se pudo crear {0}: {1}"
+
+#, c++-format
+msgid "Could not download {0}: {1}"
+msgstr "No se pudo descargar {0}: {1}"
+
+#, c++-format
+msgid ""
+"Could not fetch the package list (Roblox may have removed this version): {0}"
+msgstr ""
+"No se pudo obtener la lista de paquetes (puede que Roblox haya eliminado "
+"esta versión): {0}"
+
+#, c++-format
+msgid "Could not move the finished version into place: {0}"
+msgstr "No se pudo mover la versión terminada a su ubicación: {0}"
+
+#, c++-format
+msgid ""
+"Could not open this file in Roblox Studio:\n"
+"{0}"
+msgstr ""
+"No se pudo abrir este archivo en Roblox Studio:\n"
+"{0}"
+
+#, c++-format
+msgid "Could not prepare the update: {0}."
+msgstr "No se pudo preparar la actualización: {0}."
+
+#, c++-format
+msgid "Could not work out which version to install: {0}"
+msgstr "No se pudo determinar qué versión instalar: {0}"
+
+#, c++-format
+msgid "Could not write AppSettings.xml into {0}"
+msgstr "No se pudo escribir AppSettings.xml en {0}"
+
+#, c++-format
+msgid ""
+"Couldn't fetch the package manifest (this version may have been purged from "
+"Roblox's CDN): {0}"
+msgstr ""
+"No se pudo obtener el manifiesto de paquetes (puede que esta versión se haya "
+"eliminado del CDN de Roblox): {0}"
+
+#, c++-format
+msgid "Couldn't fetch the release: {0}"
+msgstr "No se pudo obtener el release: {0}"
+
+#, c++-format
+msgid "Couldn't reach tuxblox.net to prepare the uninstaller: {0}"
+msgstr "No se pudo acceder a tuxblox.net para preparar el desinstalador: {0}"
+
+#, c++-format
+msgid "Couldn't resolve a version: {0}"
+msgstr "No se pudo resolver una versión: {0}"
+
+msgid "Creating TuxBlox directory"
+msgstr "Creando el directorio de TuxBlox"
+
+msgid "Danger zone"
+msgstr "Zona de peligro"
+
+msgid "Delete"
+msgstr "Eliminar"
+
+msgid "Delete this version?"
+msgstr "¿Eliminar esta versión?"
+
+msgid ""
+"Desktop shortcuts and URL handlers were removed, but the TuxBlox folder "
+"could not be fully deleted. You may need to remove it manually."
+msgstr ""
+"Se eliminaron los accesos directos y los controladores de URL, pero la "
+"carpeta de TuxBlox no se pudo borrar por completo. Es posible que debas "
+"eliminarla manualmente."
+
+msgid "Detailed logging"
+msgstr "Registro detallado"
+
+msgid "Distrobox GPU Passthrough"
+msgstr "Passthrough de GPU de Distrobox"
+
+msgid "Documentation"
+msgstr "Documentación"
+
+msgid "Done"
+msgstr "Finalizado"
+
+msgid "Downloading Roblox Player"
+msgstr "Descargando Roblox Player"
+
+msgid "Downloading Roblox Studio"
+msgstr "Descargando Roblox Studio"
+
+msgid "Downloading packages"
+msgstr "Descargando paquetes"
+
+#, c++-format
+msgid "Downloading updater failed: {0}"
+msgstr "Error al descargar el actualizador: {0}"
+
+#, c++-format
+msgid "Downloading {0}"
+msgstr "Descargando {0}"
+
+#, c++-format
+msgid "Downloading {0} failed: {1}"
+msgstr "Error al descargar {0}: {1}"
+
+msgid "ENDED"
+msgstr "FINALIZADO"
+
+msgid "Enable Discord Rich Presence"
+msgstr "Activar Discord Rich Presence"
+
+msgid "Enable Haptics"
+msgstr "Activar vibración háptica"
+
+msgid "Environment"
+msgstr "Entorno"
+
+msgid "Environment variables"
+msgstr "Variables de entorno"
+
+msgid "Error"
+msgstr "Error"
+
+msgid "Errors"
+msgstr "Errores"
+
+msgid ""
+"Every installed Roblox goes with it. Your settings and FastFlags are kept."
+msgstr ""
+"Se eliminará todo el Roblox instalado. Tus ajustes y FastFlags se conservan."
+
+#, c++-format
+msgid "Exit Code: {0}"
+msgstr "Código de salida: {0}"
+
+msgid "Extracting"
+msgstr "Extrayendo"
+
+#, c++-format
+msgid "Extracting {0}"
+msgstr "Extrayendo {0}"
+
+msgid "Failed"
+msgstr "Falló"
+
+msgid "Failed to Update Roblox"
+msgstr "Error al actualizar Roblox"
+
+#, c++-format
+msgid "Failed to download {0}: {1}"
+msgstr "Error al descargar {0}: {1}"
+
+#, c++-format
+msgid "Failed to extract {0}: {1}"
+msgstr "Error al extraer {0}: {1}"
+
+#, c++-format
+msgid "Failed to install updater: {0}"
+msgstr "Error al instalar el actualizador: {0}"
+
+#, c++-format
+msgid "Failed to install {0}: {1}"
+msgstr "Error al instalar {0}: {1}"
+
+msgid "Failed to launch Roblox"
+msgstr "Error al iniciar Roblox"
+
+msgid "Failed to prepare the uninstaller."
+msgstr "Error al preparar el desinstalador."
+
+#, c++-format
+msgid "Failed to read {0}: {1}"
+msgstr "Error al leer {0}: {1}"
+
+#, c++-format
+msgid "Failed to remove {0}: {1}"
+msgstr "Error al eliminar {0}: {1}"
+
+msgid ""
+"Failed to verify the integrity of Roblox. Some files might be unsigned or "
+"have been tampered with. Please make sure TuxBlox is up to date, then "
+"reinstall Roblox and try again."
+msgstr ""
+"No se pudo verificar la integridad de Roblox. Puede que algunos archivos no "
+"estén firmados o hayan sido alterados. Asegúrate de que TuxBlox esté "
+"actualizado, vuelve a instalar Roblox y prueba de nuevo."
+
+#, c++-format
+msgid "Failed to write AppSettings.xml into {0}"
+msgstr "Error al escribir AppSettings.xml en {0}"
+
+msgid "FastFlags"
+msgstr "FastFlags"
+
+msgid ""
+"FastFlags are hidden Roblox settings you can change yourself. Only some of "
+"them are meant to be changed, and what happens to an account that changes "
+"the rest is Roblox's decision alone."
+msgstr ""
+"FastFlags son ajustes ocultos de Roblox que puedes cambiar. Solo algunos "
+"están pensados para cambiarse, y lo que ocurra con una cuenta que cambie el "
+"resto es decisión exclusiva de Roblox."
+
+msgid "Fetching package manifest"
+msgstr "Obteniendo el manifiesto de paquetes"
+
+msgid "Fetching release manifest"
+msgstr "Obteniendo el manifiesto del release"
+
+msgid "Fetching the package list"
+msgstr "Obteniendo la lista de paquetes"
+
+msgid "Find in log"
+msgstr "Buscar en el registro"
+
+msgid "Finished"
+msgstr "Finalizado"
+
+msgid "GPU acceleration for web pages"
+msgstr "Aceleración por GPU para páginas web"
+
+msgid "Game output"
+msgstr "Salida del juego"
+
+msgid "General Error"
+msgstr "Error general"
+
+msgid "Graphics API"
+msgstr "API gráfica"
+
+msgid "HOME environment variable is not set."
+msgstr "La variable de entorno HOME no está definida."
+
+msgid "Home"
+msgstr "Inicio"
+
+msgid "Illegal CPU instruction"
+msgstr "Instrucción de CPU no válida"
+
+msgid "Import"
+msgstr "Importar"
+
+msgid "Import JSON into Player"
+msgstr "Importar JSON en Player"
+
+msgid "Import JSON into Studio"
+msgstr "Importar JSON en Studio"
+
+msgid "Info"
+msgstr "Información"
+
+msgid "Install & Launch"
+msgstr "Instalar e iniciar"
+
+msgid "Install TuxBlox updates without asking."
+msgstr "Instalar actualizaciones de TuxBlox sin preguntar."
+
+#, c++-format
+msgid "Installed {0}"
+msgstr "Instalado {0}"
+
+msgid "Installed, but could not record which release this is"
+msgstr "Instalado, pero no se pudo registrar qué release es este"
+
+msgid "Installing Roblox"
+msgstr "Instalando Roblox"
+
+msgid "Installing TuxBlox"
+msgstr "Instalando TuxBlox"
+
+#, c++-format
+msgid "Installing {0}"
+msgstr "Instalando {0}"
+
+msgid "Jump to the end"
+msgstr "Ir al final"
+
+msgid "Killed"
+msgstr "Finalizado por la fuerza"
+
+msgid "Language"
+msgstr "Idioma"
+
+msgid "Launch Player"
+msgstr "Iniciar Player"
+
+msgid "Launch Studio"
+msgstr "Iniciar Studio"
+
+msgid "Launcher"
+msgstr "Launcher"
+
+msgid "Launcher theme"
+msgstr "Tema del launcher"
+
+#, c++-format
+msgid "Launcher {0}"
+msgstr "Launcher {0}"
+
+msgid "Let games use the Rich Presence API"
+msgstr "Permitir que los juegos usen la API de Rich Presence"
+
+msgid "Let people join your server"
+msgstr "Permitir que otras personas se unan a tu servidor"
+
+msgid "Links"
+msgstr "Enlaces"
+
+msgid "Linux 6.7 or newer"
+msgstr "Linux 6.7 o posterior"
+
+msgid "Minimize to background"
+msgstr "Minimizar al segundo plano"
+
+msgid "Missing value for --channel."
+msgstr "Falta el valor de --channel."
+
+msgid "Missing value for --dir."
+msgstr "Falta el valor de --dir."
+
+msgid "Missing value for --language."
+msgstr "Falta el valor de --language."
+
+msgid "Missing value for --release-file."
+msgstr "Falta el valor de --release-file."
+
+msgid "Missing value for --release."
+msgstr "Falta el valor de --release."
+
+#, c++-format
+msgid "NVIDIA driver {0} or newer"
+msgstr "Controlador NVIDIA {0} o posterior"
+
+msgid "Next match"
+msgstr "Siguiente coincidencia"
+
+msgid ""
+"No earlier version found in Roblox's deploy history for this channel. Roblox "
+"hides the version list for its private channels, so this only works on the "
+"live channel."
+msgstr ""
+"No se encontró una versión anterior en el historial de despliegue de Roblox "
+"para este canal. Roblox oculta la lista de versiones de sus canales "
+"privados, así que esto solo funciona en el canal live."
+
+msgid "No flags set."
+msgstr "No hay flags configuradas."
+
+msgid ""
+"No published release found for the current channel -- can't fetch an "
+"uninstaller."
+msgstr ""
+"No se encontró ningún release publicado para el canal actual -- no se puede "
+"obtener un desinstalador."
+
+#, c++-format
+msgid "No releases available for the '{0}' channel yet."
+msgstr "Aún no hay releases disponibles para el canal '{0}'."
+
+msgid "No session selected"
+msgstr "Ninguna sesión seleccionada"
+
+msgid "No sessions match what you typed."
+msgstr "Ninguna sesión coincide con lo que escribiste."
+
+msgid "No version hash to install."
+msgstr "No hay hash de versión para instalar."
+
+msgid "No versions installed"
+msgstr "No hay versiones instaladas"
+
+msgid "Not Executable"
+msgstr "No ejecutable"
+
+#, c++-format
+msgid ""
+"Not enough free disk space. This install needs approximately {0} MB free."
+msgstr ""
+"No hay suficiente espacio en disco. Esta instalación necesita "
+"aproximadamente {0} MB libres."
+
+msgid "Not enough free disk space. TuxBlox requires at least 3GB free."
+msgstr ""
+"No hay suficiente espacio en disco. TuxBlox requiere al menos 3 GB libres."
+
+msgid "Not installed yet"
+msgstr "Aún no instalado"
+
+msgid "Not now"
+msgstr "Ahora no"
+
+msgid "Nothing is running right now."
+msgstr "No hay nada en ejecución ahora."
+
+msgid "Nothing is running. Launch Roblox from Home and it will appear here."
+msgstr "No hay nada en ejecución. Inicia Roblox desde Inicio y aparecerá aquí."
+
+msgid "Nothing running"
+msgstr "Nada en ejecución"
+
+msgid "Nothing to do."
+msgstr "Nada que hacer."
+
+msgid ""
+"Nothing to do: pass --update-roblox, --install-roblox or --preview-"
+"rbxinstaller."
+msgstr ""
+"Nada que hacer: pasa --update-roblox, --install-roblox o --preview-"
+"rbxinstaller."
+
+msgid "Notify server location"
+msgstr "Notificar la ubicación del servidor"
+
+msgid "OK"
+msgstr "OK"
+
+msgid "Open"
+msgstr "Abrir"
+
+msgid "Open sessions"
+msgstr "Sesiones abiertas"
+
+msgid "Open the folder the logs are in"
+msgstr "Abrir la carpeta de los registros"
+
+msgid "Paste the flags as JSON, like {\"FlagName\": \"true\"}."
+msgstr "Pega las flags como JSON, por ejemplo {\"FlagName\": \"true\"}."
+
+msgid "Paste the flags as JSON."
+msgstr "Pega las flags como JSON."
+
+msgid "Player support is in development"
+msgstr "Soporte para Player en desarrollo"
+
+msgid "Preferred graphics card"
+msgstr "Tarjeta gráfica preferida"
+
+msgid "Preparing"
+msgstr "Preparando"
+
+msgid "Preparing updater"
+msgstr "Preparando el actualizador"
+
+msgid "Preview Mode"
+msgstr "Modo de vista previa"
+
+msgid "Preview Mode - "
+msgstr "Modo de vista previa - "
+
+msgid "Previous match"
+msgstr "Coincidencia anterior"
+
+msgid "Privacy"
+msgstr "Privacidad"
+
+msgid "Privacy Policy"
+msgstr "Política de privacidad"
+
+msgid ""
+"Records much more information in session logs. Turn this on if you're "
+"reporting a bug."
+msgstr ""
+"Registra mucha más información en los registros de sesión. Actívalo si estás "
+"informando de un error."
+
+#, c++-format
+msgid "Release {0}"
+msgstr "Versión {0}"
+
+#, c++-format
+msgid "Release {0} has no {1} for this computer's processor"
+msgstr "El release {0} no tiene {1} para el procesador de este equipo"
+
+#, c++-format
+msgid ""
+"Release {0} is not published on the '{1}' channel. Leave --release off to "
+"install the newest release instead. ({2})"
+msgstr ""
+"El release {0} no está publicado en el canal '{1}'. Omite --release para "
+"instalar el release más reciente. ({2})"
+
+#, c++-format
+msgid "Release {0} publishes no updater to hand over to."
+msgstr "El release {0} no incluye un actualizador al que transferir."
+
+#, c++-format
+msgid "Release {0} · {1} channel"
+msgstr "Versión {0} · canal {1}"
+
+msgid "Remove"
+msgstr "Eliminar"
+
+msgid "Remove this flag"
+msgstr "Eliminar esta flag"
+
+msgid "Removes the virtual drive, the shortcuts and TuxBlox itself."
+msgstr "Elimina la unidad virtual, los accesos directos y el propio TuxBlox."
+
+msgid "Report"
+msgstr "Informar"
+
+msgid "Resolving version"
+msgstr "Resolviendo versión"
+
+msgid "Restart required"
+msgstr "Es necesario reiniciar"
+
+msgid "Roblox Error"
+msgstr "Error de Roblox"
+
+msgid ""
+"Roblox does not allow this channel to be looked up, so TuxBlox cannot find "
+"its latest version. Type an exact version instead, or use the live channel."
+msgstr ""
+"Roblox no permite consultar este canal, así que TuxBlox no puede encontrar "
+"su versión más reciente. Escribe una versión exacta o usa el canal live."
+
+msgid ""
+"Roblox does not allow this channel to be looked up. Name an exact version "
+"instead, or use the live channel."
+msgstr ""
+"Roblox no permite consultar este canal. Indica una versión exacta o usa el "
+"canal live."
+
+msgid "Roblox has exited with a non-zero exit code.\n"
+msgstr "Roblox terminó con un código de salida distinto de cero.\n"
+
+msgid "Roblox is up to date"
+msgstr "Roblox está actualizado"
+
+msgid "Roblox's package list had nothing TuxBlox knows how to install."
+msgstr ""
+"La lista de paquetes de Roblox no tenía nada que TuxBlox sepa instalar."
+
+msgid "Roblox's packages were not all unpacked."
+msgstr "No se extrajeron todos los paquetes de Roblox."
+
+msgid "Run Roblox in a separate window that acts as a desktop"
+msgstr "Ejecutar Roblox en una ventana separada que actúa como escritorio"
+
+msgid ""
+"Running inside a Distrobox container without GPU passthrough -- Roblox will "
+"likely fail to render. Recreate the container with GPU access, e.g. "
+"`distrobox create --nvidia ...` or `--additional-flags \"--device /dev/"
+"dri\"`."
+msgstr ""
+"Ejecutando dentro de un contenedor Distrobox sin passthrough de GPU -- es "
+"probable que Roblox no pueda renderizar. Vuelve a crear el contenedor con "
+"acceso a la GPU, por ejemplo `distrobox create --nvidia ...` o `--additional-"
+"flags \"--device /dev/dri\"`."
+
+msgid "Save the log to a file"
+msgstr "Guardar el registro en un archivo"
+
+#, c++-format
+msgid "Saved to {0}"
+msgstr "Guardado en {0}"
+
+msgid "Search sessions"
+msgstr "Buscar sesiones"
+
+msgid "See tuxblox.net/docs for the full requirements."
+msgstr "Consulta tuxblox.net/docs para ver los requisitos completos."
+
+msgid "Segmentation Fault"
+msgstr "Fallo de segmentación"
+
+msgid ""
+"Send the session log and your versions when Roblox crashes. See tuxblox.net/"
+"privacy"
+msgstr ""
+"Envía el registro de la sesión y tus versiones cuando Roblox se bloquea. "
+"Consulta tuxblox.net/privacy"
+
+msgid ""
+"Sends a notification about the server's location whenever you join a game "
+"server or a Team Create server"
+msgstr ""
+"Envía una notificación sobre la ubicación del servidor cada vez que te unes "
+"a un servidor de juego o de Team Create"
+
+msgid "Sessions"
+msgstr "Sesiones"
+
+msgid "Set active"
+msgstr "Establecer como activa"
+
+msgid "Settings"
+msgstr "Configuración"
+
+msgid "Show this session and its log"
+msgstr "Mostrar esta sesión y su registro"
+
+msgid "Something went wrong"
+msgstr "Algo salió mal"
+
+msgid ""
+"Something went wrong while attempting to update Roblox, so the update was "
+"skipped. Please check your internet connection and try again."
+msgstr ""
+"Algo salió mal al intentar actualizar Roblox, así que se omitió la "
+"actualización. Comprueba tu conexión a internet e inténtalo de nuevo."
+
+msgid "Speed up the rendering of web panels using your graphics card"
+msgstr "Acelera el renderizado de los paneles web usando tu tarjeta gráfica"
+
+msgid "Starting"
+msgstr "Iniciando"
+
+msgid "Starting…"
+msgstr "Iniciando…"
+
+msgid "Stop Player"
+msgstr "Detener Player"
+
+msgid "Stop session"
+msgstr "Finalizar sesión"
+
+msgid "Stop this session"
+msgstr "Finalizar esta sesión"
+
+#, c++-format
+msgid "Stopped {0}"
+msgstr "Detuvo {0}"
+
+msgid "Stopping…"
+msgstr "Deteniendo…"
+
+msgid "System language"
+msgstr "Idioma del sistema"
+
+msgid "Takes effect after restarting TuxBlox."
+msgstr "Se aplica después de reiniciar TuxBlox."
+
+msgid "Terminate"
+msgstr "Finalizar"
+
+msgid "Terminate Roblox"
+msgstr "Finalizar Roblox"
+
+msgid "Terminated"
+msgstr "Finalizado"
+
+msgid "Terms of Use"
+msgstr "Términos de uso"
+
+#, c++-format
+msgid "That release cannot be read: {0}"
+msgstr "Ese release no se puede leer: {0}"
+
+msgid "The flags need to be in curly brackets, like {\"FlagName\": \"true\"}."
+msgstr "Las flags deben estar entre llaves, como {\"FlagName\": \"true\"}."
+
+msgid "The new language will be used the next time TuxBlox starts."
+msgstr "El nuevo idioma se usará la próxima vez que se inicie TuxBlox."
+
+msgid "The release channel TuxBlox updates to"
+msgstr "El canal de release al que se actualiza TuxBlox"
+
+#, c++-format
+msgid "The value of {0} must be text, a number, true or false."
+msgstr "El valor de {0} debe ser texto, un número, true o false."
+
+msgid "There are no flags in this JSON."
+msgstr "No hay flags en este JSON."
+
+msgid ""
+"There is no graphical session to show the installer in. Run this installer "
+"from your desktop, or use --headless to install from the terminal."
+msgstr ""
+"No hay una sesión gráfica para mostrar el instalador. Ejecuta el instalador "
+"desde tu escritorio o usa --headless para instalar desde la terminal."
+
+msgid ""
+"This copy of the installer has no interface attached to it. Download TuxBlox "
+"again, or run this installer with --headless."
+msgstr ""
+"Esta copia del instalador no tiene una interfaz incorporada. Descarga "
+"TuxBlox de nuevo o ejecuta el instalador con --headless."
+
+msgid ""
+"This copy of the installer is damaged: its interface does not match its own "
+"checksum. Download TuxBlox again, or run this installer with --headless."
+msgstr ""
+"Esta copia del instalador está dañada: su interfaz no coincide con su propia "
+"suma de verificación. Descarga TuxBlox de nuevo o ejecuta el instalador con "
+"--headless."
+
+msgid ""
+"This copy of the installer is damaged: its interface is missing the program "
+"that should start it. Download TuxBlox again, or run this installer with --"
+"headless."
+msgstr ""
+"Esta copia del instalador está dañada: falta el programa que debería iniciar "
+"su interfaz. Descarga TuxBlox de nuevo o ejecuta el instalador con --"
+"headless."
+
+#, c++-format
+msgid "This is not valid JSON: {0}"
+msgstr "Este no es un JSON válido: {0}"
+
+msgid "Troubleshooting"
+msgstr "Solución de problemas"
+
+msgid "TuxBlox"
+msgstr "TuxBlox"
+
+msgid "TuxBlox Error"
+msgstr "Error de TuxBlox"
+
+msgid "TuxBlox Installer"
+msgstr "Instalador de TuxBlox"
+
+msgid "TuxBlox Uninstalled"
+msgstr "TuxBlox desinstalado"
+
+msgid "TuxBlox could not be installed"
+msgstr "No se pudo instalar TuxBlox"
+
+msgid ""
+"TuxBlox could not check its interface. Run this installer with --headless "
+"instead."
+msgstr ""
+"TuxBlox no pudo comprobar su interfaz. Ejecuta el instalador con --headless."
+
+#, c++-format
+msgid ""
+"TuxBlox could not create {0} to unpack its interface. Check that you are "
+"allowed to write there and that the disk is not full, or run this installer "
+"with --headless."
+msgstr ""
+"TuxBlox no pudo crear {0} para descomprimir su interfaz. Comprueba que "
+"puedes escribir allí y que el disco no está lleno, o ejecuta el instalador "
+"con --headless."
+
+msgid ""
+"TuxBlox could not finish unpacking its interface. Run this installer with --"
+"headless instead."
+msgstr ""
+"TuxBlox no pudo terminar de descomprimir su interfaz. Ejecuta el instalador "
+"con --headless."
+
+msgid "TuxBlox could not finish updating Roblox"
+msgstr "TuxBlox no pudo completar la actualización de Roblox"
+
+msgid "TuxBlox could not open its window, so nothing was installed."
+msgstr "TuxBlox no pudo abrir su ventana, así que no se instaló nada."
+
+msgid ""
+"TuxBlox could not read its interface out of this installer. Check that the "
+"disk is not full, or run this installer with --headless."
+msgstr ""
+"TuxBlox no pudo leer su interfaz de este instalador. Comprueba que el disco "
+"no esté lleno o ejecuta el instalador con --headless."
+
+msgid ""
+"TuxBlox could not unpack its interface. Check that the disk is not full, or "
+"run this installer with --headless."
+msgstr ""
+"TuxBlox no pudo descomprimir su interfaz. Comprueba que el disco no esté "
+"lleno o ejecuta el instalador con --headless."
+
+msgid ""
+"TuxBlox could not work out where to unpack its interface. Run this installer "
+"with --headless instead."
+msgstr ""
+"TuxBlox no pudo determinar dónde descomprimir su interfaz. Ejecuta el "
+"instalador con --headless."
+
+msgid "TuxBlox could not write to its own folder"
+msgstr "TuxBlox no pudo escribir en su propia carpeta"
+
+msgid "TuxBlox has been completely removed from this system."
+msgstr "TuxBlox se ha eliminado por completo de este sistema."
+
+msgid "TuxBlox has encountered an error and has quit!"
+msgstr "TuxBlox encontró un error y se cerró."
+
+msgid "TuxBlox has encountered an error and has to quit!"
+msgstr "TuxBlox encontró un error y debe cerrarse."
+
+msgid "TuxBlox installed successfully."
+msgstr "TuxBlox se instaló correctamente."
+
+msgid "TuxBlox is not supported on your system"
+msgstr "TuxBlox no es compatible con tu sistema"
+
+msgid "TuxBlox needs:"
+msgstr "TuxBlox necesita:"
+
+msgid ""
+"TuxBlox unpacked its interface but could not start it. This usually means "
+"the folder it was unpacked into does not allow programs to run. Try running "
+"this installer with --headless."
+msgstr ""
+"TuxBlox descomprimió su interfaz pero no pudo iniciarla. Esto suele "
+"significar que la carpeta donde se descomprimió no permite ejecutar "
+"programas. Prueba a ejecutar el instalador con --headless."
+
+msgid "TuxBlox upgraded successfully."
+msgstr "TuxBlox se actualizó correctamente."
+
+#, c++-format
+msgid "TuxBlox was installed successfully, but failed to launch {0}."
+msgstr "TuxBlox se instaló correctamente, pero no se pudo iniciar {0}."
+
+#, c++-format
+msgid ""
+"TuxBlox was installed successfully, but failed to launch {0}. You can try "
+"running it manually."
+msgstr ""
+"TuxBlox se instaló correctamente, pero no se pudo iniciar {0}. Intenta "
+"ejecutarlo manualmente."
+
+msgid ""
+"TuxBlox's Privacy Policy and Terms of Use apply to these features. See "
+"tuxblox.net/privacy and tuxblox.net/terms"
+msgstr "La Política de privacidad y los Términos de uso de TuxBlox se aplican a estas funciones. Consulta tuxblox.net/privacy y tuxblox.net/terms"
+
+msgid ""
+"TuxBlox: refusing to run as root. Re-run as a normal user, or pass --allow-"
+"root if you have a specific reason."
+msgstr ""
+"TuxBlox: se niega a ejecutarse como root. Ejecuta como un usuario normal o "
+"pasa --allow-root si tienes un motivo concreto."
+
+msgid "Uninstall"
+msgstr "Desinstalar"
+
+msgid "Uninstall TuxBlox"
+msgstr "Desinstalar TuxBlox"
+
+msgid "Uninstall TuxBlox?"
+msgstr "¿Desinstalar TuxBlox?"
+
+msgid "Uninstalling…"
+msgstr "Desinstalando…"
+
+#, c++-format
+msgid "Unknown language: {0}. This build has {1}."
+msgstr "Idioma desconocido: {0}. Esta versión tiene {1}."
+
+#, c++-format
+msgid "Unrecognised argument: {0}"
+msgstr "Argumento no reconocido: {0}"
+
+#, c++-format
+msgid "Unrecognized argument: {0}"
+msgstr "Argumento no reconocido: {0}"
+
+msgid "Up to date"
+msgstr "Actualizado"
+
+msgid "Update"
+msgstr "Actualizar"
+
+msgid "Update available"
+msgstr "Actualización disponible"
+
+msgid "Update channel"
+msgstr "Canal de actualización"
+
+msgid "Update check failed"
+msgstr "Error al comprobar actualizaciones"
+
+msgid "Updater checksum mismatch"
+msgstr "Suma de verificación del actualizador incorrecta"
+
+msgid "Updates"
+msgstr "Actualizaciones"
+
+msgid "Updating"
+msgstr "Actualizando"
+
+msgid "Updating TuxBlox"
+msgstr "Actualizando TuxBlox"
+
+#, c++-format
+msgid "Upgrading {0}"
+msgstr "Actualizando {0}"
+
+msgid ""
+"Usage: TuxBloxInstaller [options]\n"
+"\n"
+"Installs TuxBlox, upgrading an existing install in place if one is\n"
+"found, then starts the TuxBlox Launcher. Installs into ~/.tuxblox\n"
+"unless --dir says otherwise. Installs the newest release on its\n"
+"channel unless told otherwise.\n"
+"\n"
+"Options:\n"
+"  --dir <path>       Absolute path to install into, instead of\n"
+"                     ~/.tuxblox.\n"
+"  --allow-root       Allow installing as root, which is not\n"
+"                     recommended.\n"
+"  --headless         Report progress on the terminal instead of\n"
+"                     opening a window. Needs no display.\n"
+"  --nolaunch         Don't start the launcher once the install\n"
+"                     finishes.\n"
+"  --uninstall        Remove TuxBlox from this system instead of\n"
+"                     installing it.\n"
+"  --channel <name>   Release channel to install from (default: the\n"
+"                     channel this installer was built for).\n"
+"  --release <ver>    Install a specific release, e.g. 3.6.0.1, instead\n"
+"                     of the newest one.\n"
+"  --release-file <p> Install the release described by a file already on\n"
+"                     disk. Used by the launcher when it hands over an\n"
+"                     update it has already resolved.\n"
+"  --language <code>  Interface language: en, pt_BR or es.\n"
+"  --latest           Accepted and ignored: installing the newest release\n"
+"                     instead of this installer's own version.\n"
+"  --version          Show the build version and exit.\n"
+"  -h, --help         Show this help and exit.\n"
+msgstr ""
+"Uso: TuxBloxInstaller [opciones]\n"
+"\n"
+"Instala TuxBlox, actualizando una instalación existente en el mismo lugar "
+"si\n"
+"la hay, y luego inicia TuxBlox Launcher. Instala en ~/.tuxblox\n"
+"a menos que --dir indique otra cosa. Instala el release más reciente de su\n"
+"canal a menos que se indique otra cosa.\n"
+"\n"
+"Opciones:\n"
+"  --dir <ruta>       Ruta absoluta donde instalar, en lugar de\n"
+"                     ~/.tuxblox.\n"
+"  --allow-root       Permitir instalar como root, lo que no se\n"
+"                     recomienda.\n"
+"  --headless         Mostrar el progreso en la terminal en lugar de\n"
+"                     abrir una ventana. No necesita pantalla.\n"
+"  --nolaunch         No iniciar el launcher cuando termine la\n"
+"                     instalación.\n"
+"  --uninstall        Eliminar TuxBlox de este sistema en lugar de\n"
+"                     instalarlo.\n"
+"  --channel <nombre> Canal de release desde el que instalar (por defecto: "
+"el\n"
+"                     canal para el que se compiló este instalador).\n"
+"  --release <versión> Instalar un release concreto, por ejemplo 3.6.0.1, en\n"
+"                     lugar del más reciente.\n"
+"  --release-file <p> Instalar el release descrito por un archivo que ya está "
+"en\n"
+"                     el disco. Lo usa el launcher cuando entrega una\n"
+"                     actualización que ya resolvió.\n"
+"  --language <código> Idioma de la interfaz: en, pt_BR o es.\n"
+"  --latest           Aceptado e ignorado: instala el release más reciente\n"
+"                     en lugar de la versión de este instalador.\n"
+"  --version          Mostrar la versión de la compilación y salir.\n"
+"  -h, --help         Mostrar esta ayuda y salir.\n"
+
+msgid ""
+"Usage: TuxBloxLauncher [--update-roblox | --install-roblox | --preview-"
+"rbxinstaller]\n"
+"\n"
+"  --update-roblox         Install the channel's newest version if it is "
+"missing.\n"
+"                          Shows no window unless there is something to "
+"download.\n"
+"  --install-roblox        Install the Roblox version the environment "
+"describes.\n"
+"  --preview-rbxinstaller  Show the window without downloading or writing "
+"anything.\n"
+"  --help                  Show this message.\n"
+"  --version               Print the TuxBlox version and exit.\n"
+"\n"
+"Environment:\n"
+"  TUXBLOX_BOOTSTRAPPER_DOWNLOAD_SERVER      Mirror to download from.\n"
+"  TUXBLOX_BOOTSTRAPPER_DOWNLOAD_RBXHASH     Exact version, or blank for "
+"newest.\n"
+"  TUXBLOX_BOOTSTRAPPER_DOWNLOAD_RBXCHANNEL  Roblox release channel.\n"
+"  TUXBLOX_BOOTSTRAPPER_DOWNLOAD_APP         player or studio.\n"
+"  TUXBLOX_BOOTSTRAPPER_INSTALL_DIR          Where versions are installed.\n"
+msgstr ""
+"Uso: TuxBloxLauncher [--update-roblox | --install-roblox | --preview-"
+"rbxinstaller]\n"
+"\n"
+"  --update-roblox         Instala la versión más reciente del canal si "
+"falta.\n"
+"                          No muestra ventana a menos que haya algo que "
+"descargar.\n"
+"  --install-roblox        Instala la versión de Roblox descrita por el "
+"entorno.\n"
+"  --preview-rbxinstaller  Muestra la ventana sin descargar ni escribir "
+"nada.\n"
+"  --help                  Muestra este mensaje.\n"
+"  --version               Imprime la versión de TuxBlox y sale.\n"
+"\n"
+"Entorno:\n"
+"  TUXBLOX_BOOTSTRAPPER_DOWNLOAD_SERVER      Espejo desde el que descargar.\n"
+"  TUXBLOX_BOOTSTRAPPER_DOWNLOAD_RBXHASH     Versión exacta, o vacío para la "
+"más reciente.\n"
+"  TUXBLOX_BOOTSTRAPPER_DOWNLOAD_RBXCHANNEL  Canal de release de Roblox.\n"
+"  TUXBLOX_BOOTSTRAPPER_DOWNLOAD_APP         player o studio.\n"
+"  TUXBLOX_BOOTSTRAPPER_INSTALL_DIR          Donde se instalan las "
+"versiones.\n"
+
+msgid "VARIABLE=value"
+msgstr "VARIABLE=valor"
+
+msgid "Versions"
+msgstr "Versiones"
+
+msgid "Virtual Desktop Mode"
+msgstr "Modo de escritorio virtual"
+
+msgid ""
+"WARNING: The current user is root, it is highly recommended to launch "
+"TuxBlox as a normal user unless there is a specific reason why"
+msgstr ""
+"ADVERTENCIA: el usuario actual es root. Se recomienda encarecidamente "
+"iniciar TuxBlox como un usuario normal, a menos que haya un motivo concreto."
+
+msgid "Warnings"
+msgstr "Advertencias"
+
+msgid "Website"
+msgstr "Sitio web"
+
+msgid "Wipe"
+msgstr "Borrar"
+
+msgid "Wipe prefix"
+msgstr "Borrar prefijo"
+
+msgid "Wipe the virtual drive"
+msgstr "Borrar la unidad virtual"
+
+msgid "Wipe the virtual drive?"
+msgstr "¿Borrar la unidad virtual?"
+
+msgid "Wiping…"
+msgstr "Borrando…"
+
+msgid "Would you like to update?"
+msgstr "¿Quieres actualizar?"
+
+msgid "already running"
+msgstr "ya en ejecución"
+
+msgid "could not resolve or download the Roblox executable"
+msgstr "no se pudo resolver o descargar el ejecutable de Roblox"
+
+msgid "crashed"
+msgstr "se bloqueó"
+
+#, c++-format
+msgid "ended {0} ago"
+msgstr "finalizada hace {0}"
+
+msgid "failed to start Proton process"
+msgstr "error al iniciar el proceso de Proton"
+
+msgid "no matches"
+msgstr "sin coincidencias"
+
+msgid "not installed"
+msgstr "no instalado"
+
+#, c++-format
+msgid "this computer has {0}"
+msgstr "este equipo tiene {0}"
+
+msgid "this release names no launcher -- nothing to hand off to"
+msgstr "este release no indica ningún launcher -- no hay a dónde transferir"
+
+msgid "value"
+msgstr "valor"
+
+msgid "writing the update details failed, which usually means the disk is full"
+msgstr ""
+"error al escribir los detalles de la actualización, lo que suele significar "
+"que el disco está lleno"
+
+#, c++-format
+msgid ""
+"{0} archive does not contain {1} at its root -- it was packed with a wrapper "
+"directory, which breaks the install layout"
+msgstr ""
+"El archivo {0} no contiene {1} en su raíz -- se empaquetó con un directorio "
+"contenedor, lo que rompe el diseño de la instalación"
+
+#, c++-format
+msgid "{0} download checksum mismatch (expected {1}, got {2})"
+msgstr ""
+"Suma de verificación de descarga incorrecta para {0} (se esperaba {1}, se "
+"obtuvo {2})"
+
+#, c++-format
+msgid "{0} of {1}"
+msgstr "{0} de {1}"
+
+#, c++-format
+msgid "{0} of {1} entries"
+msgstr "{0} de {1} entradas"
+
+#, c++-format
+msgid ""
+"{0} was packed with a wrapper directory, which breaks the install layout"
+msgstr ""
+"{0} se empaquetó con un directorio contenedor, lo que rompe el diseño de la "
+"instalación"
+
+#, c++-format
+msgid "{0} will be removed from the virtual drive."
+msgstr "{0} se eliminará de la unidad virtual."
+
+#, c++-format
+msgid "{} entry"
+msgid_plural "{} entries"
+msgstr[0] "{} entrada"
+msgstr[1] "{} entradas"
+
+#, c++-format
+msgid "{} flag is ready to import."
+msgid_plural "{} flags are ready to import."
+msgstr[0] "{} flag está lista para importar."
+msgstr[1] "{} flags están listas para importar."
+
+#, c++-format
+msgid "· {0} channel"
+msgstr "· canal {0}"
+
+#~ msgid "Out of date"
+#~ msgstr "Desactualizado"
+
+#~ msgid "Active"
+#~ msgstr "Activa"
+
+#~ msgid "Add flag"
+#~ msgstr "Añadir flag"
+
+#~ msgid "App"
+#~ msgstr "Aplicación"
+
+#~ msgid "Channel"
+#~ msgstr "Canal"
+
+#~ msgid "Could not extract {0}: {1}"
+#~ msgstr "No se pudo extraer {0}: {1}"
+
+#~ msgid "Dark"
+#~ msgstr "Oscuro"
+
+#~ msgid "Grey"
+#~ msgstr "Gris"
+
+#~ msgid "Import JSON"
+#~ msgstr "Importar JSON"
+
+#~ msgid "Install"
+#~ msgstr "Instalar"
+
+#~ msgid "Install a version"
+#~ msgstr "Instalar una versión"
+
+#~ msgid "Install previous version"
+#~ msgstr "Instalar versión anterior"
+
+#~ msgid "Light"
+#~ msgstr "Claro"
+
+#~ msgid "System theme"
+#~ msgstr "Tema del sistema"
+
+#~ msgid "Version hash (leave blank for latest)"
+#~ msgstr "Hash de la versión (déjalo vacío para la más reciente)"
+
+#~ msgid "installed {0}"
+#~ msgstr "instalada el {0}"
