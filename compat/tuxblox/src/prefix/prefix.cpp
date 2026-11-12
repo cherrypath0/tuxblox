@@ -24,6 +24,7 @@
 #include "prefix/webview_mode.h"
 #include "support/account_name.h"
 #include "support/host_folders.h"
+#include "FlagManager.h"
 #include "shared_paths/windows_paths.h"
 #include "embedded_data.h"
 
@@ -655,43 +656,149 @@ void Prefix::linkHostUserFolders() {
     }
 }
 
-void Prefix::linkRobloxData() {
-    // Roblox keeps its installed versions, settings and logs here. Create it up
-    // front, empty, so it is always present -- even a brand-new prefix has the
-    // folder, and Roblox fills it in on first launch.
-    const std::string account = accountFolder();
-    const fs::path robloxData =
-        prefixDir / "drive_c/users" / account / "AppData/Local/Roblox";
-    makeDirs(robloxData);
-
-    // A "roblox" shortcut in the install folder, so that data is reachable
-    // without walking down through the virtual drive. It sits outside the
-    // drive, where Roblox never sees it -- which is the point of pointing the
-    // shortcut inward rather than moving the data out and linking back to it:
-    // the folder Roblox runs from stays an ordinary directory, not a link the
-    // anti-tamper could notice.
-    const fs::path installRoot = baseDir.parent_path();
-    const std::string runtimeName = baseDir.filename().string();
-    if (installRoot.empty() || runtimeName.empty()) {
-        return; // an unusual prefix path; skip the shortcut rather than guess
+// Where Roblox's own data is kept. Normally a folder in the install folder, so that
+// rebuilding the virtual drive does not take a few gigabytes of installed Roblox down
+// with it. With the experimental Linux integration turned on it is the folder the
+// desktop names for application data instead, with the folders in robloxDataSplits()
+// carved out of it into the state and cache folders beside it.
+fs::path Prefix::robloxDataDir(const fs::path& installRoot) const {
+    if (!flagBool("tbxFlagEnableExperimentalLinuxIntegration")) {
+        return installRoot / "roblox";
     }
-    const fs::path target =
-        fs::path(runtimeName) / "pfx/drive_c/users" / account / "AppData/Local/Roblox";
-
-    std::error_code error;
-    const fs::path link = installRoot / "roblox";
-    if (fileExists(link, false)) {
-        if (!isSymlink(link)) {
-            return; // something real is there; leave it alone
-        }
-        if (fs::read_symlink(link, error) == target) {
-            return; // already points where we want
-        }
-        fs::remove(link, error);
+    const std::string data = xdgBaseDir("XDG_DATA_HOME", envOrEmpty("HOME"));
+    if (data.empty()) {
+        return installRoot / "roblox"; // no home folder, so nowhere to follow the desktop into
     }
-    fs::create_symlink(target, link, error);
+    return fs::path(data) / "roblox";
 }
 
+// Where the data is now, which is not always where it belongs: it moves when the
+// experimental Linux integration is switched either way, and a drive built before 3.10.0
+// kept it inside the drive. Empty when there is none yet.
+fs::path Prefix::currentRobloxDataDir(const fs::path& robloxData,
+                                      const fs::path& installRoot) const {
+    std::error_code error;
+    const fs::path candidates[] = {robloxData, installRoot / "roblox"};
+    for (const fs::path& candidate : candidates) {
+        if (isSymlink(candidate)) {
+            const fs::path target = fs::read_symlink(candidate, error);
+            if (!error && target.is_absolute() && fs::is_directory(target, error)) return target;
+        } else if (fs::is_directory(candidate, error)) {
+            return candidate;
+        }
+    }
+    return {};
+}
+
+// Moves a folder to where it belongs and leaves a link behind in its place. One rename
+// wherever that is possible, which is instant however large the folder is and keeps every
+// folder in it, the empty ones included; linkHostFolder() moves entry by entry otherwise,
+// which is needed only when there is already something on both sides to merge. False when
+// something had to stay behind, which the caller reports.
+bool Prefix::moveFolderAndLink(const fs::path& from, const fs::path& to) {
+    std::error_code error;
+    const bool spare = !fileExists(to, false) ||
+                       (fs::is_directory(to, error) && fs::is_empty(to, error));
+    if (spare && !isSymlink(from) && fs::is_directory(from, error)) {
+        makeDirs(to.parent_path());
+        fs::remove(to, error);
+        fs::rename(from, to, error);
+    }
+    makeDirs(to);
+    // A rename above leaves nothing at `from`, so this only creates the link; without one it moves what is there across first.
+    return linkHostFolder(from, to) != HostFolderLink::Kept;
+}
+
+// Points the carved-out folders at the desktop's state and cache folders, or puts them
+// back when the integration is switched off again -- which has to be done either way, or
+// a folder would go on being written somewhere TuxBlox no longer believes it is.
+void Prefix::splitRobloxDataFolders(const fs::path& dataDir) {
+    const bool wanted = flagBool("tbxFlagEnableExperimentalLinuxIntegration");
+    const std::string home = envOrEmpty("HOME");
+
+    for (const RobloxDataSplit& split : robloxDataSplits()) {
+        const std::string base = xdgBaseDir(split.xdgKey, home);
+        if (base.empty()) continue;
+        const fs::path inData = dataDir / split.name;
+        const fs::path outside = fs::path(base) / "roblox" / split.name;
+        std::error_code error;
+
+        if (wanted) {
+            if (!moveFolderAndLink(inData, outside)) {
+                log("Keeping Roblox's \"" + split.name + "\" folder where it is: something in "
+                    "it could not be moved to " + outside.string());
+            }
+            continue;
+        }
+
+        // Switched off: only a link this made is undone, and only back into the folder it came out of.
+        if (!isSymlink(inData) || fs::read_symlink(inData, error) != outside || error) continue;
+        fs::remove(inData, error);
+        if (!moveFolderAndLink(outside, inData)) {
+            log("Leaving Roblox's \"" + split.name + "\" folder in " + outside.string() +
+                ": something in it could not be moved back");
+            continue;
+        }
+        fs::remove(outside, error); // the link left in its place leads back into the drive's own data, and nothing should follow it there
+        fs::remove(outside.parent_path(), error); // fails harmlessly while a folder that could not be moved back is still in it
+    }
+}
+
+void Prefix::linkRobloxData() {
+    // Roblox keeps its installed versions, settings and logs here. It is always
+    // present, even in a brand-new prefix, and Roblox fills it in on first launch.
+    const fs::path robloxData =
+        prefixDir / "drive_c/users" / accountFolder() / "AppData/Local/Roblox";
+
+    std::error_code error;
+    const fs::path installRoot = fs::weakly_canonical(baseDir.parent_path(), error);
+    if (error || !installRoot.is_absolute()) {
+        makeDirs(robloxData);
+        return; // without a dependable path outside the drive the data stays inside it
+    }
+    const fs::path inInstall = installRoot / "roblox";
+    const fs::path dataDir = robloxDataDir(installRoot);
+    const fs::path current = currentRobloxDataDir(robloxData, installRoot);
+
+    if (!current.empty() && current != dataDir) {
+        // Put the folders back before the data moves, so they travel with it rather than
+        // being left behind pointing into the place it moved out of.
+        splitRobloxDataFolders(current);
+        // The data belongs at this path now, and what is there is TuxBlox's own shortcut to where it used to be.
+        if (dataDir == inInstall && isSymlink(inInstall)) fs::remove(inInstall, error);
+
+        if (!moveFolderAndLink(current, dataDir)) {
+            log("Keeping Roblox's data in " + current.string() +
+                ": something in it could not be moved to " + dataDir.string());
+        } else if (current != inInstall) {
+            fs::remove(current, error); // a link back is wanted in the install folder and nowhere else
+        }
+    }
+
+    makeDirs(dataDir);
+    makeDirs(robloxData.parent_path());
+
+    switch (linkHostFolder(robloxData, dataDir)) {
+    case HostFolderLink::Kept:
+        log("Keeping Roblox's data inside the virtual drive: something in it could not "
+            "be moved to " + dataDir.string());
+        break;
+    case HostFolderLink::NoHostFolder:
+        makeDirs(robloxData); // nowhere outside the drive to keep it, so it stays inside
+        break;
+    case HostFolderLink::Linked:
+    case HostFolderLink::AlreadyLinked:
+        break;
+    }
+
+    // Nothing of TuxBlox's own is left in the install folder when the data is kept in the
+    // desktop's folders instead: every program finds it by following the folder inside the
+    // drive, which robloxDataDir() is the one rule for, so a second way to the same place
+    // would only be another thing able to go stale.
+    if (dataDir != inInstall && isSymlink(inInstall)) fs::remove(inInstall, error);
+
+    splitRobloxDataFolders(dataDir);
+}
 // The account folder this drive uses. Whatever Wine created is the truth, and when the drive holds more than one the host's own name settles it -- that is the folder %USERPROFILE% names, so it is where Windows programs will actually be writing.
 std::string Prefix::accountFolder() const {
     const std::string wanted = accountName();

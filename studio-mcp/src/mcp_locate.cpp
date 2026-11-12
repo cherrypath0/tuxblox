@@ -50,7 +50,7 @@ std::string findStudioMcp(const std::string& installDir) {
     // Last resort: the newest version folder that has one. Newest rather than
     // first, so a version left behind by an update cannot win.
     const fs::path versions =
-        fs::path(driveC) / "users" / prefixUserName(driveC) / "AppData/Local/Roblox/Versions";
+        fs::path(robloxDataDirIn(fs::path(driveC) / "users" / prefixUserName(driveC))) / "Versions";
     std::error_code ec;
     std::string newest;
     fs::file_time_type newestTime{};

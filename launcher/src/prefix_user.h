@@ -38,7 +38,24 @@ std::string hostAccountName();
 std::string prefixUserName(const std::string& driveCDir, const std::string& preferred);
 std::string prefixUserName(const std::string& driveCDir);
 
-// That folder's full path: where Roblox, its logs and its settings live.
+// That folder's full path inside the drive.
 std::string prefixUserDir(const std::string& installDir);
+
+// Where Roblox's own data is: its installed builds, its settings and its logs.
+//
+// Inside the drive Roblox always finds it at <account folder>/AppData/Local/Roblox, and
+// TuxBlox points that at wherever the data is really being kept -- a folder in the
+// install folder normally, or the one the desktop names for application data when the
+// experimental Linux integration is turned on. So this follows it: what the
+// compatibility layer chose is read back rather than worked out a second time, which is
+// what stops two programs disagreeing about where Roblox's data is.
+//
+// Before the drive has been built nothing points anywhere yet, and then the folder
+// inside the drive is the answer -- which is where a first install puts things, and what
+// the layer moves out to wherever it belongs the next time it sets the drive up.
+std::string robloxDataDir(const std::string& installDir);
+
+// The same, for a caller that already has the account folder inside the drive.
+std::string robloxDataDirIn(const std::string& accountDir);
 
 } // namespace tuxblox

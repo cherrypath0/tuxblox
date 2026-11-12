@@ -58,6 +58,32 @@ int main() {
     // The host account is read for callers that do not name one.
     assert(!hostAccountName().empty());
 
+    // Where Roblox's data is. With nothing pointing anywhere yet it is the folder
+    // inside the drive, which is where a first install puts things.
+    {
+        const fs::path account = base / "runtime/pfx/drive_c/users/cherry";
+        const fs::path inDrive = account / "AppData/Local/Roblox";
+        assert(robloxDataDirIn(account.string()) == inDrive.string());
+
+        // Pointed somewhere: that is what the compatibility layer chose, so it is the
+        // answer. Every program reads it back the same way rather than working it out
+        // again, which is what stops two of them disagreeing.
+        const fs::path kept = base / "elsewhere/roblox";
+        fs::create_directories(kept);
+        fs::create_directories(inDrive.parent_path());
+        fs::create_directory_symlink(kept, inDrive);
+        assert(robloxDataDirIn(account.string()) == kept.string());
+        assert(robloxDataDir(base.string()) == kept.string());
+
+        // A relative target is read against a directory this is not standing in, so it
+        // is not followed -- the folder inside the drive answers instead and the file
+        // system resolves the link itself, as it did before any of this.
+        fs::remove(inDrive);
+        fs::create_directory_symlink("../../../../../elsewhere/roblox", inDrive);
+        assert(robloxDataDirIn(account.string()) == inDrive.string());
+        fs::remove(inDrive);
+    }
+
     fs::remove_all(base);
     printf("prefix_user: all tests passed\n");
     return 0;

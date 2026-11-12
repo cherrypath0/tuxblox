@@ -17,6 +17,7 @@
 #include "../src/support/host_folders.h"
 #include <cassert>
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -210,6 +211,44 @@ int main() {
         std::ofstream(old / "someones-file.txt").put('x');
         assert(!removeLegacyBridgeRoot(docs));
         assert(fs::exists(old / "someones-file.txt"));
+    }
+
+    // The base directories the desktop defines, for the experimental Linux
+    // integration. Unset means the place the specification names under $HOME.
+    {
+        unsetenv("XDG_DATA_HOME");
+        unsetenv("XDG_STATE_HOME");
+        unsetenv("XDG_CACHE_HOME");
+        assert(xdgBaseDir("XDG_DATA_HOME", home.string()) == (home / ".local/share").string());
+        assert(xdgBaseDir("XDG_STATE_HOME", home.string()) == (home / ".local/state").string());
+        assert(xdgBaseDir("XDG_CACHE_HOME", home.string()) == (home / ".cache").string());
+
+        // Set, and an absolute path, so it is followed. A trailing separator goes.
+        setenv("XDG_DATA_HOME", "/somewhere/share/", 1);
+        assert(xdgBaseDir("XDG_DATA_HOME", home.string()) == "/somewhere/share");
+
+        // The specification says a relative value is invalid and must be ignored
+        // exactly as though the variable were not set at all.
+        setenv("XDG_STATE_HOME", "relative/state", 1);
+        assert(xdgBaseDir("XDG_STATE_HOME", home.string()) == (home / ".local/state").string());
+
+        // No home folder to fall back into, and a name this does not know.
+        assert(xdgBaseDir("XDG_DATA_HOME", "").empty());
+        assert(xdgBaseDir("XDG_RUNTIME_DIR", home.string()).empty());
+        unsetenv("XDG_DATA_HOME");
+        unsetenv("XDG_STATE_HOME");
+    }
+
+    // Every folder carved out of Roblox's data directory goes to a base directory
+    // xdgBaseDir() knows, or it would silently never be carved out at all.
+    {
+        assert(!robloxDataSplits().empty());
+        for (const RobloxDataSplit& split : robloxDataSplits()) {
+            assert(!split.name.empty());
+            assert(!xdgBaseDir(split.xdgKey, home.string()).empty());
+            // A name with a separator in it would escape the data directory.
+            assert(split.name.find('/') == std::string::npos);
+        }
     }
 
     fs::remove_all(base);

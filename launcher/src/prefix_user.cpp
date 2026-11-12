@@ -77,4 +77,17 @@ std::string prefixUserDir(const std::string& installDir) {
     return driveC + "/users/" + prefixUserName(driveC);
 }
 
+std::string robloxDataDirIn(const std::string& accountDir) {
+    const std::string inDrive = accountDir + "/AppData/Local/Roblox";
+    std::error_code ec;
+    const fs::path target = fs::read_symlink(inDrive, ec);
+    // An absolute target, because a relative one is read against a directory this is not standing in.
+    if (!ec && target.is_absolute()) return target.string();
+    return inDrive;
+}
+
+std::string robloxDataDir(const std::string& installDir) {
+    return robloxDataDirIn(prefixUserDir(installDir));
+}
+
 } // namespace tuxblox

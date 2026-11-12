@@ -16,9 +16,11 @@
 
 #include "host_folders.h"
 
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <utility>
 
 namespace tuxblox {
 
@@ -62,6 +64,41 @@ const std::vector<HostFolder>& hostFolderMappings() {
         {"Videos", "XDG_VIDEOS_DIR"},
     };
     return Folders;
+}
+
+const std::vector<RobloxDataSplit>& robloxDataSplits() {
+    static const std::vector<RobloxDataSplit> Splits = {
+        // What Roblox should keep between runs but is not the installation.
+        {"logs", "XDG_STATE_HOME"},
+        {"placeIDEState", "XDG_STATE_HOME"},
+        // What Roblox can lose without the user losing anything.
+        {"OTAPlugins", "XDG_CACHE_HOME"},
+        {"OTAPatchBackups", "XDG_CACHE_HOME"},
+        {"tmp-capture-storage", "XDG_CACHE_HOME"},
+        {"DefaultInstances", "XDG_CACHE_HOME"},
+    };
+    return Splits;
+}
+
+std::string xdgBaseDir(const std::string& xdgKey, const std::string& home) {
+    static const std::vector<std::pair<std::string, std::string>> Defaults = {
+        {"XDG_DATA_HOME", ".local/share"},
+        {"XDG_STATE_HOME", ".local/state"},
+        {"XDG_CACHE_HOME", ".cache"},
+    };
+    if (home.empty()) return "";
+
+    std::string fallback;
+    for (const auto& known : Defaults) {
+        if (known.first == xdgKey) fallback = known.second;
+    }
+    if (fallback.empty()) return "";
+
+    const char* value = std::getenv(xdgKey.c_str());
+    // The specification says to ignore a value that is not an absolute path exactly as though the variable were not set at all.
+    std::string dir = (value && *value == '/') ? value : (std::filesystem::path(home) / fallback).string();
+    while (dir.size() > 1 && dir.back() == '/') dir.pop_back();
+    return dir;
 }
 
 std::string hostFolderPath(const std::string& xdgKey, const std::string& englishName,

@@ -75,6 +75,11 @@ private:
     void migrateUserPaths();
     void canonicaliseRegistryPaths();
     void linkHostUserFolders();
+    std::filesystem::path robloxDataDir(const std::filesystem::path& installRoot) const;
+    std::filesystem::path currentRobloxDataDir(const std::filesystem::path& robloxData,
+                                               const std::filesystem::path& installRoot) const;
+    bool moveFolderAndLink(const std::filesystem::path& from, const std::filesystem::path& to);
+    void splitRobloxDataFolders(const std::filesystem::path& dataDir);
     void linkRobloxData();
     void linkTempDir();
     void syncHostTheme();
