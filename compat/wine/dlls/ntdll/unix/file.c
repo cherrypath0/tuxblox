@@ -1792,6 +1792,8 @@ static NTSTATUS fd_set_file_info( int fd, HANDLE handle, UINT attr, BOOL force_s
 }
 
 
+static BOOL link_leaves_the_prefix( const char *path );
+
 /* get the stat info and file attributes for a file (by name) */
 static int get_file_info( const char *path, struct stat *st, ULONG *attr, ULONG *reparse_tag )
 {
@@ -1809,8 +1811,8 @@ static int get_file_info( const char *path, struct stat *st, ULONG *attr, ULONG 
     {
         ret = stat( path, st );
         if (ret == -1) return ret;
-        /* is a symbolic link and a directory, consider these "reparse points" */
-        if (S_ISDIR( st->st_mode ))
+        /* is a symbolic link and a directory, consider these "reparse points" -- unless it is one of the layer's own, which stands in for a folder that is an ordinary directory on Windows */
+        if (S_ISDIR( st->st_mode ) && !link_leaves_the_prefix( path ))
         {
             *attr |= FILE_ATTRIBUTE_REPARSE_POINT;
             if (reparse_tag) *reparse_tag = IO_REPARSE_TAG_LX_SYMLINK;
@@ -4764,6 +4766,33 @@ static BOOL path_within( const char *unix_name, const char *dir )
     return !strncmp( unix_name, dir, len ) && (!unix_name[len] || unix_name[len] == '/');
 }
 
+
+/* Whether a symbolic link leads out of this prefix, which is what tells the
+ * layer's own plumbing apart from a link Windows would have had.
+ *
+ * The folders pointed at the user's home, Roblox's data and the temporary
+ * folder all lead out, and on Windows every one of them is an ordinary
+ * directory -- so that is how they are reported, rather than as the reparse
+ * points they are underneath. Wine's own compatibility links stay inside the
+ * prefix, "Application Data" and "My Documents" among them, and on Windows
+ * those really are junctions, so they keep reporting as reparse points.
+ *
+ * A reparse point a program makes for itself is unaffected: those are a
+ * separate mechanism in this file, an entry carrying the reparse attribute,
+ * and the check for it runs after this one and sets the flag regardless.
+ */
+static BOOL link_leaves_the_prefix( const char *path )
+{
+    char target[PATH_MAX];
+    ssize_t len = readlink( path, target, sizeof(target) - 1 );
+
+    if (len <= 0) return FALSE;
+    target[len] = 0;
+    /* A relative target cannot leave the prefix: each of those sits beside the folder it points at. */
+    if (target[0] != '/') return FALSE;
+    return !path_within( target, config_dir );
+}
+
 /* Whether a host path a program named directly may be opened.
  *
  * \??\unix\<path>, and a plain absolute path such as /etc/hostname, name a
@@ -5109,29 +5138,48 @@ static BOOL account_name_is_usable( const char *name )
 
 
 /***********************************************************************
- *           get_external_files_dir_unix
+ *           get_account_dir_unix
  *
- * Resolves "C:\users\<account>\files" (creating the "files" leaf if needed) to
- * its unix path. The account name matches what wineboot named the on-disk
- * profile directory, which is what GetUserNameA/W reports. Returns NULL if the
- * directory cannot be created.
+ * Resolves "C:\users\<account>", or a folder named inside it, to its unix
+ * path. The account name matches what wineboot named the on-disk profile
+ * directory, which is what GetUserNameA/W reports. Returns NULL if the
+ * directory cannot be resolved.
  */
-static char *get_external_files_dir_unix(void)
+static char *get_account_dir_unix( const char *leaf, UINT disposition )
 {
     /* See the comment in is_unix_fallback_path: no L"" here either. */
     static const WCHAR prefixW[] = {'C',':','\\','u','s','e','r','s','\\'};
-    static const WCHAR suffixW[] = {'\\','f','i','l','e','s',0};
     const char *account = (user_name && account_name_is_usable( user_name )) ? user_name : "user";
-    WCHAR pathW[ARRAY_SIZE(prefixW) + MAX_ACCOUNT_NAME + ARRAY_SIZE(suffixW)];
+    WCHAR pathW[ARRAY_SIZE(prefixW) + MAX_ACCOUNT_NAME + 32];
     char *unix_dir = NULL;
-    DWORD len;
+    DWORD len = ARRAY_SIZE(prefixW);
+
+    if (leaf && strlen( leaf ) > 30) return NULL;
 
     memcpy( pathW, prefixW, sizeof(prefixW) );
-    len = ntdll_umbstowcs( account, strlen(account), pathW + ARRAY_SIZE(prefixW), MAX_ACCOUNT_NAME );
-    memcpy( pathW + ARRAY_SIZE(prefixW) + len, suffixW, sizeof(suffixW) );
+    len += ntdll_umbstowcs( account, strlen(account), pathW + len, MAX_ACCOUNT_NAME );
+    if (leaf)
+    {
+        pathW[len++] = '\\';
+        len += ntdll_umbstowcs( leaf, strlen(leaf), pathW + len, 30 );
+    }
+    pathW[len] = 0;
 
+    ntdll_get_unix_file_name( pathW, &unix_dir, disposition );
+    return unix_dir;
+}
+
+
+/***********************************************************************
+ *           get_external_files_dir_unix
+ *
+ * Resolves "C:\users\<account>\files", creating the "files" leaf if needed.
+ * Returns NULL if the directory cannot be created.
+ */
+static char *get_external_files_dir_unix(void)
+{
     /* FILE_OPEN_IF: only the leaf "files" component may not exist yet. */
-    ntdll_get_unix_file_name( pathW, &unix_dir, FILE_OPEN_IF );
+    char *unix_dir = get_account_dir_unix( "files", FILE_OPEN_IF );
 
     if (unix_dir && mkdir( unix_dir, 0755 ) && errno != EEXIST)
     {
@@ -5139,6 +5187,90 @@ static char *get_external_files_dir_unix(void)
         unix_dir = NULL;
     }
     return unix_dir;
+}
+
+
+/***********************************************************************
+ *           dos_path_through_linked_folder
+ *
+ * Names a file through a folder in the account's profile that already points
+ * at the user's home - "C:\users\<account>\Downloads\Folder\Thing.rbxm" for
+ * a file the desktop handed over as "/home/<user>/Downloads/Folder/Thing.rbxm".
+ * Those links are what lets a program open and save in the user's own folders,
+ * so a file inside one already has an ordinary C: path; linking it into
+ * "files" as well would throw away every folder the user picked below the
+ * linked one, which is how saving into Downloads/Folder arrived in
+ * "files\Folder" instead. The links are read off the drive rather than listed
+ * here, so this follows whatever was actually linked, and the longest match
+ * wins so the most specific one is used. source must exist; leaf, when given,
+ * is a name inside it that need not. Returns the dos path (caller frees), or
+ * NULL when the file is under none of them.
+ */
+static WCHAR *dos_path_through_linked_folder( const char *source, const char *leaf )
+{
+    char resolved[PATH_MAX], target[PATH_MAX];
+    char *profile_unix, *best = NULL, *through_drive;
+    WCHAR *dos_name = NULL;
+    size_t best_len = 0, rel_len;
+    const char *rel;
+    struct dirent *entry;
+    DIR *dir;
+
+    if (!realpath( source, resolved )) return NULL;
+    if (!(profile_unix = get_account_dir_unix( NULL, FILE_OPEN ))) return NULL;
+    if (!(dir = opendir( profile_unix )))
+    {
+        free( profile_unix );
+        return NULL;
+    }
+
+    while ((entry = readdir( dir )))
+    {
+        char path[PATH_MAX];
+        struct stat st;
+        size_t len;
+
+        if (!strcmp( entry->d_name, "." ) || !strcmp( entry->d_name, ".." )) continue;
+        if (snprintf( path, sizeof(path), "%s/%s", profile_unix, entry->d_name ) >= (int)sizeof(path))
+            continue;
+        if (lstat( path, &st ) || !S_ISLNK( st.st_mode )) continue;
+        if (!realpath( path, target ) || !path_within( resolved, target )) continue;
+
+        len = strlen( target );
+        if (len < best_len) continue;
+        /* On a tie the shorter name, so the profile's own "Documents" wins over the "My Documents" alias beside it that resolves to the same folder. */
+        if (len == best_len && best && strlen( entry->d_name ) >= strlen( best )) continue;
+        free( best );
+        if (!(best = strdup( entry->d_name ))) break;
+        best_len = len;
+    }
+    closedir( dir );
+
+    rel = resolved + best_len;
+    while (*rel == '/') rel++;
+    rel_len = strlen( rel );
+
+    if (best && (through_drive = malloc( strlen(profile_unix) + strlen(best) + rel_len +
+                                         (leaf ? strlen(leaf) : 0) + 4 )))
+    {
+        char *end = through_drive + sprintf( through_drive, "%s/%s", profile_unix, best );
+
+        if (rel_len) end += sprintf( end, "/%s", rel );
+        if (leaf) sprintf( end, "/%s", leaf );
+        ntdll_get_dos_file_name( through_drive, &dos_name, 0 );
+        free( through_drive );
+    }
+
+    /* A name no drive could be found for is what the caller already has. */
+    if (dos_name && is_unix_fallback_path( dos_name ))
+    {
+        free( dos_name );
+        dos_name = NULL;
+    }
+
+    free( best );
+    free( profile_unix );
+    return dos_name;
 }
 
 
@@ -5242,6 +5374,39 @@ static char *pick_symlink_path( const char *dir_unix, const char *source_path, B
 
 
 /***********************************************************************
+ *           ntdll_host_folder_to_show
+ *
+ * The folder on the computer to open a file-choosing window at, for a folder a
+ * program named inside the virtual drive. This is the mirror of
+ * ntdll_localize_external_path() below, which takes the file the user picked
+ * and gives it a name the program can open.
+ *
+ * Every folder TuxBlox points at one of the user's own -- Documents,
+ * Downloads, Roblox's data, a folder reached through a file picked earlier --
+ * is followed through to where it really is, so the window opens on the user's
+ * own Documents and says so, rather than on a path inside the drive that
+ * happens to lead there. Nested folders come out right for free, because the
+ * whole path is resolved rather than matched against a list.
+ *
+ * A folder that really is inside the drive is not somewhere to send anybody:
+ * it holds Windows' own files and TuxBlox's plumbing, and a program asking for
+ * C:\, C:\windows or the account folder itself is asking for a part of the
+ * drive the user has no reason to be looking at. The home folder is offered
+ * instead. Returns the folder to show (caller frees), or NULL when there is
+ * nothing better to say than what the caller already had.
+ */
+char *ntdll_host_folder_to_show( const char *unix_name )
+{
+    char resolved[PATH_MAX];
+
+    if (!unix_name || !unix_name[0]) return NULL;
+    if (!resolve_host_path( unix_name, resolved )) return NULL;
+    if (!path_within( resolved, config_dir )) return strdup( resolved );
+    return home_dir ? strdup( home_dir ) : NULL;
+}
+
+
+/***********************************************************************
  *           ntdll_localize_external_path
  *
  * Gives a file outside every drive this prefix maps a path a Windows program
@@ -5249,10 +5414,12 @@ static char *pick_symlink_path( const char *dir_unix, const char *source_path, B
  * ntdll_get_dos_file_name() falls back to the "\\?\unix\<path>" device-path
  * form, and a program that normalises a path before opening it destroys that
  * form - Roblox turns the backslashes into forward slashes, which stops it
- * being a device path at all, and then reports the file as unreadable. This
- * symlinks the file into this prefix's "C:\users\user\files" and returns the
- * dos path of the link (caller frees), so the program is handed an ordinary
- * C: path instead. Returns NULL - leaving dos_name as the caller's problem,
+ * being a device path at all, and then reports the file as unreadable. A file
+ * that already sits under a folder the drive points at the user's home is
+ * named through that folder, keeping the path the user picked; anything else
+ * is symlinked into this prefix's "C:\users\user\files" and the dos path of
+ * the link is returned (caller frees). Either way the program is handed an
+ * ordinary C: path. Returns NULL - leaving dos_name as the caller's problem,
  * same as before this existed - if dos_name is already an ordinary path, or if
  * remapping failed for any reason (no leaf name, unknown username, directory
  * not creatable, all 1000 name slots taken, symlink() itself failing).
@@ -5280,6 +5447,13 @@ WCHAR *ntdll_localize_external_path( const char *unix_name, const WCHAR *dos_nam
     if (link_parent) link_source = split_parent_dir( unix_name, &leaf );
     else link_source = dup_without_trailing_slash( unix_name );
     if (!link_source) return NULL;
+
+    /* Already reachable through a folder the drive points at the user's home, so it is named there rather than linked in a second time. */
+    if ((new_dos_name = dos_path_through_linked_folder( link_source, leaf )))
+    {
+        free( link_source );
+        return new_dos_name;
+    }
 
     if (!(dir_unix = get_external_files_dir_unix()))
     {
