@@ -1,1 +1,2 @@
-- Changed the installer to no longer override Roblox URL handlers on install
+- Added a --language option
+- Following an experimental or canary release channel now automatically promotes to the higher more stable channel without changing the release channel

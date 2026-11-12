@@ -1,0 +1,1 @@
+- Fixed the Studio MCP not finding Roblox files when the experimental folder layout is on

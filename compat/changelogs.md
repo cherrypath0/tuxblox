@@ -1,1 +1,10 @@
-- Added a way for Roblox to check whether it is running under TuxBlox, and which version, kernel and architecture it is on
+- Fixed Hyperion crashing with an out-of-memory error during startup
+- Fixed TuxBlox refusing to launch some official Roblox builds that were signed differently
+- Fixed new windows randomly stealing focus
+- Fixed Roblox being unable to flash in the taskbar
+- Fixed Studio camera issues on GNOME XWayland
+- Fixed Studio freezing when a built-in web panel stopped loading
+- Fixed Studio freezing when opening a file picker
+- Fixed files saved into nested directories ending up in the wrong place
+- Fixed file pickers opening on internal paths instead of the real folders
+- Fixed Roblox failing to clear its cache
