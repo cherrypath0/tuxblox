@@ -15,8 +15,12 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "widgets.h"
+
+#include "flag_startup.h"
+#include "seasonal.h"
 #include "adw_look.h"
 #include "dialog.h"
+#include "i18n.h"
 
 #include <cstring>
 #include <utility>
@@ -107,7 +111,7 @@ const char LauncherStyles[] =
     "button.stop-red { background-color: @error_bg_color; color: @error_fg_color; }\n"
     "button.stop-red:hover { background-image: image(alpha(white, 0.1)); }\n"
     "button.stop-red:active { background-image: image(alpha(black, 0.1)); }\n"
-    "button.update-button { font-weight: 700; font-size: 0.9rem; min-height: 0; padding: 3px 12px; background-color: @warning_bg_color; color: @warning_fg_color; }\n"
+    "button.update-button { min-height: 0; min-width: 0; padding: 5px; background-color: @warning_bg_color; color: @warning_fg_color; }\n"
     "button.update-button:hover { background-image: image(alpha(white, 0.15)); }\n"
     "button.update-button:active { background-image: image(alpha(black, 0.1)); }\n"
     // Deliberately not the monospace family: TuxBlox ships no monospace font, so that family is whatever the machine happens to have, and a version number needs no fixed width anyway
@@ -120,6 +124,15 @@ const char LauncherStyles[] =
     "box.theme-swatch-light { background: linear-gradient(to right, #ffffff 0%, #ffffff 30%, #f5f6f8 30%, #f5f6f8 100%); }\n"
     "button.theme-tile { padding: 6px; }\n"
     "button.theme-tile:checked { box-shadow: inset 0 0 0 2px @accent_bg_color; }\n";
+
+// The structural panes paint the window colour over the whole area, which would bury the snow drawn behind them. Only the panes are cleared; every surface that carries content keeps the see-through colour the palette gives it.
+const char ChristmasStyles[] =
+    "navigation-split-view, navigation-split-view > page, toolbarview, toolbarview > box, stack { background-color: transparent; }\n"
+    "navigation-split-view > page > toolbarview > box > stack { background-color: transparent; }\n"
+    // The window is the only solid surface left, so the depth every pane is tinted over comes from here
+    "window.background { background-image: radial-gradient(ellipse at 18% -12%, #131f36 0%, rgba(19, 31, 54, 0) 55%), linear-gradient(160deg, #080d18 0%, #04060a 55%, #0a1019 100%); }\n"
+    // What makes a pane read as glass rather than as a darker box: a sheen down its face, a lit top edge and a brighter rim
+    ".card, list.boxed-list, list.boxed-list-separate > row { background-image: linear-gradient(rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02)); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 0 0 1px rgba(255, 255, 255, 0.13); }\n";
 
 } // namespace
 
@@ -193,29 +206,45 @@ bool systemPrefersDark() {
     return SystemDark;
 }
 
-void applyLauncherTheme(const std::string &theme) {
+std::string launcherThemeFor(const std::string &theme) {
+    if (theme != "christmas") return theme;
+    return christmasThemeAvailable() && launcherFlags().christmasTheme ? theme : "system";
+}
+
+void applyLauncherTheme(const std::string &wanted) {
+    const std::string theme = launcherThemeFor(wanted);
     applyTheme(theme);
 
     // The buttons are the launcher's own and are the same in every theme, so they are loaded once and left alone
     static bool installed = false;
-    if (installed) return;
-    installed = true;
-    GtkCssProvider *pProvider = gtk_css_provider_new();
-    gtk_css_provider_load_from_string(pProvider, LauncherStyles);
-    gtk_style_context_add_provider_for_display(gdk_display_get_default(), GTK_STYLE_PROVIDER(pProvider),
-                                               GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
-    g_object_unref(pProvider);
+    if (!installed) {
+        installed = true;
+        GtkCssProvider *pProvider = gtk_css_provider_new();
+        gtk_css_provider_load_from_string(pProvider, LauncherStyles);
+        gtk_style_context_add_provider_for_display(gdk_display_get_default(), GTK_STYLE_PROVIDER(pProvider),
+                                                   GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+        g_object_unref(pProvider);
+    }
+
+    // Reloaded on every theme change rather than installed once, because it has to come back off again when the theme changes away from Christmas
+    static GtkCssProvider *pSeasonal = nullptr;
+    if (pSeasonal == nullptr) {
+        pSeasonal = gtk_css_provider_new();
+        gtk_style_context_add_provider_for_display(gdk_display_get_default(), GTK_STYLE_PROVIDER(pSeasonal),
+                                                   GTK_STYLE_PROVIDER_PRIORITY_APPLICATION + 1);
+    }
+    gtk_css_provider_load_from_string(pSeasonal, theme == "christmas" ? ChristmasStyles : "");
 }
 
 void showNotice(GtkWidget *pParent, const std::string &heading, const std::string &body) {
-    adw_dialog_present(buildDialog(heading, body, {{"OK", nullptr, nullptr}}), pParent);
+    adw_dialog_present(buildDialog(heading, body, {{i18n::tr("OK"), nullptr, nullptr}}), pParent);
 }
 
 void confirmDestructive(GtkWidget *pParent, const std::string &heading, const std::string &body,
                         const std::string &confirmLabel, std::function<void()> onConfirm) {
     // Escape and the close both leave onConfirm unrun, which is what makes them count as cancelling.
     adw_dialog_present(buildDialog(heading, body,
-                                   {{"Cancel", nullptr, nullptr},
+                                   {{i18n::tr("Cancel"), nullptr, nullptr},
                                     {confirmLabel, "destructive-action", std::move(onConfirm)}}),
                        pParent);
 }

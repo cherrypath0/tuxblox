@@ -41,7 +41,10 @@ void showError(GtkWidget *pLabel, const std::string &message);
 void setLabelText(GtkLabel *pLabel, const std::string &text);
 void setButtonLabel(GtkButton *pButton, const std::string &text);
 
-// Puts the launcher into one of its four looks -- "system", "dark", "grey" or "light" -- and loads the styles that go with it. Call it whenever the setting changes; the window redraws itself.
+// The look a theme setting actually resolves to. Everything but Christmas is itself; Christmas is itself only while its season lasts AND while tbxFlagEnableChristmasTheme allows it, and reads as "system" otherwise -- so a settings.json that still asks for it is not a setting nobody can leave.
+std::string launcherThemeFor(const std::string &theme);
+
+// Puts the launcher into one of its looks -- "system", "dark", "grey", "light", or "christmas" while its season lasts -- and loads the styles that go with it. Call it whenever the setting changes; the window redraws itself. Resolves the name through launcherThemeFor() first.
 void applyLauncherTheme(const std::string &theme);
 
 // Call once before the first applyLauncherTheme, while the colour scheme is still the desktop's.

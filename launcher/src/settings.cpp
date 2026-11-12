@@ -15,7 +15,9 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "settings.h"
+#include "i18n.h"
 #include "json.hpp"
+#include "seasonal.h"
 #include "system_info.h"
 #include <filesystem>
 #include <fstream>
@@ -32,6 +34,14 @@ std::string settingsFilePath(const std::string& installDir) {
 }
 
 bool isKnownTheme(const std::string& theme) {
+    // Christmas stops being a known name once its season is over, which is what puts somebody who chose it back on the system theme
+    //
+    // Deliberately NOT asking the flags: initLauncherFlags() calls loadSettings() to find
+    // out which channel to ask for, so a flag read from in here would seal the table
+    // before the fetch had even started, and every flag would answer with its default.
+    // Whether the theme is OFFERED and APPLIED is where tbxFlagEnableChristmasTheme is
+    // honoured instead -- see applyThemeSetting().
+    if (theme == "christmas") return christmasThemeAvailable();
     return theme == "system" || theme == "dark" || theme == "grey" || theme == "light";
 }
 
@@ -138,15 +148,14 @@ Settings loadSettings(const std::string& installDir) {
         settings.discordGameStatus = j.value("discord_game_status", true);
         const std::string theme = j.value("theme", std::string("system"));
         settings.theme = isKnownTheme(theme) ? theme : "system";
+        settings.language = i18n::normalizeLanguageSetting(
+            j.value("language", std::string("system")));
         const std::string graphics = j.value("graphics", std::string("automatic"));
         settings.graphics = isKnownGraphics(graphics) ? graphics : "automatic";
-        // Type-checked, not just lenient: editing this file by hand is the only way to set
-        // enable_player_button, so "true" instead of true must not throw the whole file away.
+        // Type-checked, not just lenient: this file can be edited by hand, so "true"
+        // instead of true must not throw the whole thing away.
         const auto welcome = j.find("welcome_seen");
         settings.welcomeSeen = welcome != j.end() && welcome->is_boolean() && welcome->get<bool>();
-        const auto playerButton = j.find("enable_player_button");
-        settings.enablePlayerButton =
-            playerButton != j.end() && playerButton->is_boolean() && playerButton->get<bool>();
 
         const auto fastFlags = j.find("fast_flags");
         if (fastFlags != j.end()) {
@@ -186,9 +195,9 @@ void saveSettings(const std::string& installDir, const Settings& settings) {
         j["discord_join_button"] = settings.discordJoinButton;
         j["discord_game_status"] = settings.discordGameStatus;
         j["theme"] = settings.theme;
+        j["language"] = settings.language;
         j["graphics"] = settings.graphics;
         j["welcome_seen"] = settings.welcomeSeen;
-        j["enable_player_button"] = settings.enablePlayerButton;
         j["fast_flags"] = {{"player", fastFlagsToJson(settings.fastFlags.player)},
                             {"studio", fastFlagsToJson(settings.fastFlags.studio)}};
 
@@ -246,12 +255,16 @@ std::vector<std::string> launchEnvPairs(const Settings& settings) {
     }
 
     // Appended second so that a duplicate variable here is the one that wins:
-    // both consumers apply these in order, with setenv() overwriting and the
+    // every consumer applies these in order, with setenv() overwriting and the
     // child-process environment taking the last occurrence.
-    for (auto& pair : parseEnvPairs(settings.envVars)) {
+    for (auto& pair : exportedEnvPairs(settings)) {
         pairs.push_back(std::move(pair));
     }
     return pairs;
+}
+
+std::vector<std::string> exportedEnvPairs(const Settings& settings) {
+    return parseEnvPairs(settings.envVars);
 }
 
 } // namespace tuxblox

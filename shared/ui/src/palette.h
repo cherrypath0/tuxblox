@@ -21,6 +21,10 @@ namespace tuxblox {
 
 const char* darkPaletteCss();
 const char* lightPaletteCss();
+
+// The dark palette taken darker, with the surfaces made see-through so whatever is drawn behind them shows.
+const char* christmasPaletteCss();
+
 const char* paletteStylesCss();
 
 // The value `pName` is given in `pCss`, or "" when that palette does not set it.
