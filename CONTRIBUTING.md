@@ -134,7 +134,7 @@ The launcher and installer builds run a fresh-install smoke test, and a failure 
 
 ### Signing off commits
 
-Every commit must end with a `Signed-off-by:` line with your real name or known handle and email:
+Every commit in your pull request must end with a `Signed-off-by:` line with your real name or known handle and email:
 
 ```
 Signed-off-by: Your Name <you@example.com>
@@ -172,7 +172,7 @@ AI tools are welcome for any part of the repository. **Read [AGENTS.md](AGENTS.m
 
 TuxBlox runs the **official, unmodified** Roblox client by providing an accurate Windows API environment. Hyperion is the anti-tamper software Roblox uses to protect Roblox Player. It is used only on the Windows clients.
 
-All contributions must follow the [Roblox Terms of Use](https://rbxl.co/tou).
+All contributions must follow the [Roblox Terms of Use](https://rblx.co/tou).
 
 **Compatibility work is welcome.** Making Windows APIs, the loader, the prefix, graphics, input, audio and networking behave as they do on real Windows, so that Roblox Player, Roblox Studio and Hyperion run as intended, is in scope.
 
@@ -209,4 +209,4 @@ If you find a security vulnerability, **do not open a public issue or pull reque
 
 ## Questions?
 
-Open a discussion thread, create an issue, or join our community on [Discord](https://tuxblox.net/discord) if anything here is unclear. We're happy to help new contributors get started.
+Open an issue, or join our community on [Discord](https://tuxblox.net/discord), if anything here is unclear. We're happy to help new contributors get started.

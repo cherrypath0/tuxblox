@@ -20,7 +20,7 @@ A human is fully responsible for every contribution, whoever or whatever wrote i
 
 - **The human contributor must fully review all AI-written code** before submitting it. They must understand it well enough to explain and defend every line in review. "The AI wrote it" is never an answer to a review question.
 - **The human contributor is fully responsible** for everything in their contribution: correctness, security, licensing and behaviour.
-- **Every commit needs the human contributor's own `Signed-off-by:` line** (see `CONTRIBUTING.md`). Only the human may add it, because it certifies the Developer Certificate of Origin.
+- **Every commit submitted in a pull request needs the human contributor's own `Signed-off-by:` line** (see `CONTRIBUTING.md`). Only the human may add it, because it certifies the Developer Certificate of Origin.
 - **AI must not appear as an author or co-author.** Do not add any of these trailers naming an AI, a model or a tool:
   - `Signed-off-by:`
   - `Co-authored-by:` / `Co-Authored-By:`
@@ -48,7 +48,7 @@ TuxBlox runs the **official, unmodified** Roblox client. The project only works 
 
 **Hyperion** is the anti-tamper software Roblox uses to protect Roblox Player. It is used only on the Windows clients.
 
-All work must follow the [Roblox Terms of Use](https://rbxl.co/tou). Do not do anything they prohibit, even if it would help compatibility.
+All work must follow the [Roblox Terms of Use](https://rblx.co/tou). Do not do anything they prohibit, even if it would help compatibility.
 
 ### Allowed
 
@@ -83,7 +83,7 @@ If you find or suspect a security vulnerability, in TuxBlox or in how it handles
 - TuxBlox has more than one licence:
   - Everything outside `compat/` is **GPLv3**.
   - `compat/` (based on Wine and Proton) is **LGPLv2.1**. The exceptions are `compat/tuxblox/` and `compat/webkitgtk/bundle/`, which are TuxBlox's own code and are **GPLv3**.
-  
+
   Code you add must be compatible with the licence of the place you add it. New source files should use the same SPDX identifier as the files around them.
 - TuxBlox's own code and `compat/` build into separate binaries. Do not link them into one binary or move code between them, because that would break the licence separation.
 - Do not copy in code under an incompatible licence, or code whose origin you cannot name. If you reproduce something substantial from another project, say where it came from so the human can check the licence.
@@ -103,7 +103,7 @@ If you find or suspect a security vulnerability, in TuxBlox or in how it handles
 
 ## 7. Working style
 
-- **Keep AI tool artifacts out of commits.** Specs, plans, notes, scratch files, logs and similar output from AI tools must not be committed. Put them in `workspace/`, which is gitignored. Directories used by some AI plugins and skills are already gitignored too. **Do not modify `.gitignore`** to hide AI artifacts. Move them into `workspace/` instead.
+- **Keep AI tool artifacts out of commits.** Specs, plans, notes, scratch files, logs and similar output from AI tools must not be committed. Put them in `workspace/`, which is gitignored. Directories used by some AI plugins and skills are already gitignored too. **Do not modify `.gitignore`** to hide AI artifacts. Move them into `workspace/` instead. Ignoring a local, uncommitted config file your own tool reads is fine; this rule is about generated output.
 - Keep changes small and focused on the task. Do not reformat or "clean up" unrelated code.
 - Match the style of the surrounding code.
 - Build and run what you changed before you say it works. If you couldn't test it, say so plainly.

@@ -84,7 +84,7 @@ Some features contact TuxBlox's own servers: self-updates, the optional server-l
 ## FAQ
 
 **Is TuxBlox a fork of Vinegar or Sober?**
-No. Sober runs the Android version of Roblox, while TuxBlox runs the Windows client with its own compatibility layer.
+No, TuxBlox is its own project. Vinegar runs the Windows client through the Wine you install yourself, while TuxBlox bundles its own compatibility layer built for Roblox. Sober runs the Android version of Roblox instead.
 
 **Does it work on Wayland?**
 Yes. The launcher runs natively on Wayland, and Studio runs through XWayland.
@@ -93,7 +93,7 @@ Yes. The launcher runs natively on Wayland, and Studio runs through XWayland.
 The Flatpak sandbox gets in the way of controller access and system integration, and TuxBlox's self-update schedule doesn't fit package repositories.
 
 **Can I run other Windows apps with it?**
-No. TuxBlox only runs software signed by Roblox.
+No. TuxBlox only runs programs signed by Roblox or by TuxBlox itself.
 
 **Is it free?**
 Yes. TuxBlox is free and open source under GPLv3.

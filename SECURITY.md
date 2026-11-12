@@ -12,8 +12,6 @@ please report it privately using one of the following methods:
   method we prefer.
 - On GitHub, you may instead use
   [private vulnerability reporting](https://github.com/cherrypath0/tuxblox/security/advisories/new).
-- On GitLab, you may instead open an issue and tick **This issue is confidential**
-  before submitting it.
 
 Please include as much of the following as you can:
 

@@ -36,6 +36,7 @@ compat/syn-*
 workspace/
 SKILL.md
 CLAUDE.local.md
+AGENTS.local.md
 
 /*.tar.gz
 /*.tar.zst

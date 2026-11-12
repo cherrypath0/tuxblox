@@ -31,7 +31,7 @@ body:
     attributes:
       label: TuxBlox version
       description: Output of `~/.tuxblox/compat/main --version` (or the release/commit you built from)
-      placeholder: e.g. v0.4.2 or commit abc1234
+      placeholder: e.g. 3.9.11.0 or commit abc1234
     validations:
       required: true
 
@@ -58,7 +58,6 @@ body:
       label: Which component is affected?
       options:
         - Roblox Studio
-        - Roblox Player
         - Launcher
         - Installer
         - Build system / not sure
