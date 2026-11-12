@@ -33,6 +33,7 @@
 #include "single_instance.h"
 #include "app_scope.h"
 #include "system_requirements.h"
+#include "release_stamp.h"
 #include "version.h"
 #include <cctype>
 #include <chrono>
@@ -144,7 +145,7 @@ int main(int argc, char** argv) {
     // to be the build's own answer. Ahead of the requirements check below for
     // the same reason -- an install must still be able to say what it is.
     if (argc > 1 && std::string(argv[1]) == "--version") {
-        printf("%s\n", kTuxBloxBuildId);
+        printf("%s\n", reportedVersion(kTuxBloxBuildId).c_str());
         return 0;
     }
 
@@ -207,7 +208,7 @@ int main(int argc, char** argv) {
                 fprintf(stderr, "TuxBlox: %s\n", e.what());
                 return 1;
             }
-            return runWatchAndLaunch(dir, watchTarget, "", kTuxBloxVersion);
+            return runWatchAndLaunch(dir, watchTarget, "", reportedVersion(kTuxBloxVersion));
         }
 
         // Launched from an exported Wine shortcut (see wine_shortcut_export.h).
@@ -237,7 +238,7 @@ int main(int argc, char** argv) {
                 fprintf(stderr, "TuxBlox: %s\n", e.what());
                 return 1;
             }
-            return runWatchAndLaunch(dir, runTarget, "", kTuxBloxVersion);
+            return runWatchAndLaunch(dir, runTarget, "", reportedVersion(kTuxBloxVersion));
         }
 
         // Launched by the desktop's MIME handler for .rbxl/.rbxlx -- item 18.
@@ -258,7 +259,7 @@ int main(int argc, char** argv) {
                                     i18n::trf("Could not open this file in Roblox Studio:\n{0}", {argv[2]}));
                 return 1;
             }
-            return runWatchAndLaunch(dir, LaunchTarget::Studio, winPath, kTuxBloxVersion);
+            return runWatchAndLaunch(dir, LaunchTarget::Studio, winPath, reportedVersion(kTuxBloxVersion));
         }
     }
 
@@ -310,11 +311,14 @@ int main(int argc, char** argv) {
 
     // Set before anything can make a request. Every call site reads it rather than building its
     // own, so the seven places TuxBlox talks to a server cannot come to disagree about what it is.
-    setUserAgent(UserAgentProduct::Client, kTuxBloxVersion, loadSettings(dir).channel);
+    setUserAgent(UserAgentProduct::Client, reportedVersion(kTuxBloxVersion), loadSettings(dir).channel);
 
-    // Started here so the answer is on its way while the window is built. Nothing on the
-    // path to the first frame reads a flag, so only a later read can ever wait, and an
-    // install with no recorded release does not ask at all.
+    // Started here so the answer is on its way while the window is built, which is as early
+    // as it can be: the window needs the flags to build itself -- which theme it may offer,
+    // whether the Player card is there, whether the Versions sheet offers Next -- so the
+    // first frame is what waits for them, for whatever is left of the five seconds the fetch
+    // is given. An install with no recorded release does not ask at all, so a local build out
+    // of build/ never waits and never appears in the server's logs.
     initLauncherFlags(dir);
 
     // App's constructor is cheap (just a JSON load + a filesystem::exists

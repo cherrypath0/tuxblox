@@ -40,6 +40,16 @@ if(NOT EXISTS "${TUXBLOX_LAUNCHER_DIR}/third_party/json.hpp")
         "Run launcher/vendor.sh first.")
 endif()
 
+# The release this build is staged into is written into the finished binary rather than compiled in,
+# because it is not known until the build is staged. Mounted separately for the same reason the
+# launcher tree is: the container sees only this directory.
+set(TUXBLOX_SHARED_RELEASE "${CMAKE_SOURCE_DIR}/../shared/release/src" CACHE PATH
+    "Path to the shared release sources")
+if(NOT EXISTS "${TUXBLOX_SHARED_RELEASE}/release_stamp.cpp")
+    message(FATAL_ERROR
+        "TUXBLOX_SHARED_RELEASE (${TUXBLOX_SHARED_RELEASE}) does not hold release_stamp.cpp.")
+endif()
+
 # TUXBLOX_BUILD_VERSION is the version the root build.sh resolved, forwarded
 # into this container because the repo-root VERSION is not reachable from
 # inside it. The file is the fallback for a bare host cmake run.
@@ -64,6 +74,7 @@ add_executable(studio-mcp
     ${TUXBLOX_LAUNCHER_DIR}/src/pe_version.cpp
     ${TUXBLOX_LAUNCHER_DIR}/src/prefix_user.cpp
     ${TUXBLOX_LAUNCHER_DIR}/src/versions_manifest.cpp
+    ${TUXBLOX_SHARED_RELEASE}/release_stamp.cpp
 )
 # These would otherwise make every machine need a C++ runtime at least as new as this builder's, for no gain.
 target_link_options(studio-mcp PRIVATE -static-libstdc++ -static-libgcc)
@@ -71,6 +82,7 @@ target_include_directories(studio-mcp PRIVATE
     src
     ${TUXBLOX_LAUNCHER_DIR}/src
     ${TUXBLOX_LAUNCHER_DIR}/third_party
+    ${TUXBLOX_SHARED_RELEASE}
     ${CMAKE_BINARY_DIR}/generated
 )
 

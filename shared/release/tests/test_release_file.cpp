@@ -157,13 +157,56 @@ void test_the_layout_table() {
 }
 
 void test_urls() {
-    assert(componentUrl("https://setup.tuxblox.net", "compat", "3.3.0", "x86_64") ==
+    // Addressed by the release as well as the component version: every release publishes its own
+    // copy of a component, because each copy carries the release it was published in.
+    assert(componentUrl("https://setup.tuxblox.net", "compat", "3.3.0", "3.6.0.0", "x86_64") ==
+           "https://setup.tuxblox.net/client/compat/3.3.0/3.6.0.0/x86_64/compat.tar.zst");
+    // Where one copy served every release that named it, which is still where the last release
+    // published before that sits.
+    assert(legacyComponentUrl("https://setup.tuxblox.net", "compat", "3.3.0", "x86_64") ==
            "https://setup.tuxblox.net/client/compat/3.3.0/x86_64/compat.tar.zst");
     assert(latestPointerUrl("https://setup.tuxblox.net", "canary") ==
            "https://setup.tuxblox.net/client/releases/canary/latest");
     assert(releaseFileUrl("https://setup.tuxblox.net", "stable", "3.6.0.0") ==
            "https://setup.tuxblox.net/client/releases/stable/3.6.0.0.json");
     printf("  urls\n");
+}
+
+// The two sides of "does this install hold this release?" are built by one function each, so they
+// cannot be made to disagree by a caller comparing the wrong pair of things.
+// Which release is ahead decides which one an install takes, so getting 3.10 and 3.9 the
+// wrong way round would walk installs backwards on the day a MINOR rolls over.
+void test_releases_order_by_number_not_by_text() {
+    assert(compareReleases("3.9.11.0", "3.10.11.0") < 0);
+    assert(compareReleases("3.10.11.0", "3.9.11.0") > 0);
+    assert(compareReleases("3.9.11.0", "3.9.11.0") == 0);
+    // The counter is the third field and the patch the last, and both order like the rest.
+    assert(compareReleases("3.9.11.0", "3.9.12.0") < 0);
+    assert(compareReleases("3.9.11.0", "3.9.11.1") < 0);
+    // Anything malformed sorts below everything well-formed rather than throwing: this runs
+    // on an answer from the server, and a bad one must not stop an install updating.
+    assert(compareReleases("not-a-release", "3.9.11.0") < 0);
+    assert(compareReleases("3.9.11", "3.9.11.0") < 0);
+    assert(compareReleases("3.9.11.0.1", "3.9.11.0") < 0);
+    assert(compareReleases("", "3.9.11.0") < 0);
+    assert(compareReleases("nonsense", "rubbish") == 0);
+    printf("  releases order by number, not by text\n");
+}
+
+void test_what_a_component_should_say_it_is() {
+    const ReleaseFile release = parseReleaseFile(kRelease);
+    // Everything with a binary answers with the release it was published in.
+    assert(expectedComponentIdentity(release, "launcher") == "3.6.0.0");
+    assert(expectedComponentIdentity(release, "compat") == "3.6.0.0");
+    // The interface stack has none, so its own version is still what identifies it. It is not in
+    // this release file, and a component a release does not name has nothing to say.
+    assert(expectedComponentIdentity(release, "libtuxblox").empty());
+    assert(expectedComponentIdentity(release, "studio-mcp").empty());
+
+    ReleaseFile withStack = release;
+    withStack.components["libtuxblox"].version = "3.1.0";
+    assert(expectedComponentIdentity(withStack, "libtuxblox") == "3.1.0");
+    printf("  what a component should say it is\n");
 }
 
 // Review Focus 4: an install whose record is absent or damaged is an ordinary case, not an error.
@@ -217,15 +260,15 @@ void writeStub(const std::string& path, const std::string& body) {
 
 void test_a_component_that_cannot_be_asked_has_no_version() {
     TempDir d;
-    assert(!readComponentVersion(d.path(), "studio-mcp").has_value());        // absent
+    assert(!readComponentIdentity(d.path(), "studio-mcp").has_value());        // absent
     writeFile(d.path() + "/studio-mcp", "not an executable");                 // present, not runnable
-    assert(!readComponentVersion(d.path(), "studio-mcp").has_value());
+    assert(!readComponentIdentity(d.path(), "studio-mcp").has_value());
     writeStub(d.path() + "/studio-mcp", "#!/bin/sh\nexit 1\n");               // runs, fails
-    assert(!readComponentVersion(d.path(), "studio-mcp").has_value());
+    assert(!readComponentIdentity(d.path(), "studio-mcp").has_value());
     writeStub(d.path() + "/studio-mcp", "#!/bin/sh\n");                       // runs, says nothing
-    assert(!readComponentVersion(d.path(), "studio-mcp").has_value());
+    assert(!readComponentIdentity(d.path(), "studio-mcp").has_value());
     writeStub(d.path() + "/studio-mcp", "#!/bin/sh\necho 2.0.1\n");
-    assert(*readComponentVersion(d.path(), "studio-mcp") == "2.0.1");
+    assert(*readComponentIdentity(d.path(), "studio-mcp") == "2.0.1");
     printf("  a component that cannot be asked has no version\n");
 }
 
@@ -234,7 +277,7 @@ void test_a_component_that_cannot_be_asked_has_no_version() {
 void test_a_version_is_trimmed_at_both_ends() {
     TempDir d;
     writeStub(d.path() + "/studio-mcp", "#!/bin/sh\nprintf '  2.0.1 \\n'\n");
-    assert(*readComponentVersion(d.path(), "studio-mcp") == "2.0.1");
+    assert(*readComponentIdentity(d.path(), "studio-mcp") == "2.0.1");
     printf("  a version is trimmed at both ends\n");
 }
 
@@ -242,9 +285,9 @@ void test_a_version_is_trimmed_at_both_ends() {
 void test_the_layer_is_found_under_either_name() {
     TempDir d;
     writeStub(d.path() + "/proton/main", "#!/bin/sh\necho 3.3.0\n");
-    assert(*readComponentVersion(d.path(), "compat") == "3.3.0");
+    assert(*readComponentIdentity(d.path(), "compat") == "3.3.0");
     writeStub(d.path() + "/compat/main", "#!/bin/sh\necho 3.4.0\n");
-    assert(*readComponentVersion(d.path(), "compat") == "3.4.0");   // the new name wins
+    assert(*readComponentIdentity(d.path(), "compat") == "3.4.0");   // the new name wins
     printf("  the layer is found under either name\n");
 }
 
@@ -255,7 +298,7 @@ void test_a_component_that_never_exits_is_given_up_on() {
     TempDir d;
     writeStub(d.path() + "/studio-mcp", "#!/bin/sh\nsleep 60\n");
     const auto start = std::chrono::steady_clock::now();
-    assert(!readComponentVersion(d.path(), "studio-mcp").has_value());
+    assert(!readComponentIdentity(d.path(), "studio-mcp").has_value());
     const auto elapsed = std::chrono::steady_clock::now() - start;
     assert(std::chrono::duration_cast<std::chrono::seconds>(elapsed).count() < 15);
     printf("  a component that never exits is given up on\n");
@@ -351,6 +394,8 @@ int main() {
     test_no_component_shadows_the_releases_path();
     test_the_layout_table();
     test_urls();
+    test_releases_order_by_number_not_by_text();
+    test_what_a_component_should_say_it_is();
     test_a_damaged_record_reads_as_no_record();
     test_the_stack_version_is_read_from_its_file();
     test_a_written_record_reads_back();

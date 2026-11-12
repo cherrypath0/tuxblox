@@ -32,17 +32,17 @@ class ComponentsTouched(unittest.TestCase):
     def test_a_shared_launcher_source_touches_studio_mcp(self):
         self.assertIn("studio-mcp", components_touched(["launcher/src/launch_paths.cpp"]))
 
-    def test_the_shared_release_code_is_an_input_to_both_programs(self):
-        # release_file.cpp is compiled into launcher_core AND installer_core, so a change touching
-        # only shared/release/ changes both binaries' bytes. Unseen here, neither VERSION is bumped
-        # -- and a component version's published bytes are written once, ever, so the CDN keeps
-        # serving the old ones and the fix silently never ships.
+    def test_the_shared_release_code_is_an_input_to_every_program(self):
+        # shared/release/ is compiled into all four binaries: release_file.cpp into launcher_core
+        # and installer_core, and release_stamp.cpp -- the field the release is written into -- into
+        # every one of them, the compatibility layer included. Unseen here, none of their VERSIONs
+        # is bumped and each is published under a number that already means other bytes.
         touched = components_touched(["shared/release/src/release_file.cpp"])
-        self.assertIn("launcher", touched)
-        self.assertIn("installer", touched)
-        self.assertNotIn("compat", touched)
+        for component in ("launcher", "installer", "studio-mcp", "compat"):
+            self.assertIn(component, touched)
         self.assertIn("studio-mcp", components_touched(["launcher/src/versions_manifest.h"]))
         self.assertNotIn("studio-mcp", components_touched(["launcher/src/ui_adw/page_home.cpp"]))
+        self.assertNotIn("compat", components_touched(["launcher/src/ui_adw/page_home.cpp"]))
 
     def test_a_launcher_only_change_touches_only_the_launcher(self):
         self.assertEqual(components_touched(["launcher/src/ui_adw/page_home.cpp"]), {"launcher"})

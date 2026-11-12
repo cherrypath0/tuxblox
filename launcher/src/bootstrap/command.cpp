@@ -17,6 +17,7 @@
 #include "command.h"
 #include "config.h"
 #include "ui_adw.h"
+#include "release_stamp.h"
 #include "version.h"
 
 #include <chrono>
@@ -33,13 +34,13 @@ std::optional<int> runCommand(int argc, char** argv) {
     const CliOptions options = parseArgs(argc, argv);
     switch (commandAction(options)) {
         case CommandAction::Version:
-            printf("%s\n", kTuxBloxBuildId);
+            printf("%s\n", reportedVersion(kTuxBloxBuildId).c_str());
             return 0;
         case CommandAction::Usage:
-            printf("%s", usageText());
+            printf("%s", usageText().c_str());
             return 0;
         case CommandAction::Error:
-            fprintf(stderr, "%s\n\n%s", options.error.c_str(), usageText());
+            fprintf(stderr, "%s\n\n%s", options.error.c_str(), usageText().c_str());
             return 2;
         case CommandAction::Run:
             break;

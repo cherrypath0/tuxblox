@@ -55,6 +55,14 @@ std::vector<std::string> inComponentOrder(const std::map<std::string, std::strin
 
 } // namespace
 
+std::vector<std::string> channelsAbove(const std::string& channel) {
+    // Written out rather than derived from an index into the ladder, because the ladder is
+    // three names and the question only ever has three answers.
+    if (channel == "experimental") return {"canary", "stable"};
+    if (channel == "canary") return {"stable"};
+    return {};
+}
+
 UpdateDecision decideUpdate(const InstallState& state, const std::string& namedRelease,
                              bool noRollback) {
     UpdateDecision decision;
@@ -71,10 +79,10 @@ UpdateDecision decideUpdate(const InstallState& state, const std::string& namedR
         return decision;
     }
 
-    for (const std::string& name : inComponentOrder(state.recordedVersions)) {
-        const auto installed = state.installedVersions.find(name);
-        if (installed == state.installedVersions.end() ||
-            installed->second != state.recordedVersions.at(name)) {
+    for (const std::string& name : inComponentOrder(state.recordedIdentities)) {
+        const auto installed = state.installedIdentities.find(name);
+        if (installed == state.installedIdentities.end() ||
+            installed->second != state.recordedIdentities.at(name)) {
             decision.incoherent.push_back(name);
         }
     }

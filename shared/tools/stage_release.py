@@ -85,15 +85,19 @@ def main():
     parser.add_argument("--build", default="0",
                         help="the BUILD counter, from line 2; it is the THIRD field of a release")
     parser.add_argument("--release", default="", help="an explicit release, skipping resolution")
+    parser.add_argument("--legacy-paths", action="store_true",
+                        help="publish each component where one copy served every release that named "
+                             "it, rather than under the release it is published in. For the last "
+                             "release before the new layout, so installs made from it still update.")
     args = parser.parse_args()
 
     root = os.path.abspath(args.root)
     versions = read_component_versions(root)
     base_url = os.environ.get("TUXBLOX_SETUP_URL", DEFAULT_SETUP_URL)
 
-    # An explicit release overrides only the NUMBER. The reuse map is still fetched, because a
-    # component version's bytes are published once and must never be packed again: tar records
-    # mtimes, so repacking identical contents changes the sha256 and the server rejects it.
+    # An explicit release overrides only the NUMBER. What the channels already publish is still
+    # fetched, because it is what says which component versions have moved since the last release --
+    # the one thing the bump check cannot work out from this tree alone.
     try:
         resolved = resolve(versions, args.channel, http_fetch(base_url), args.seed,
                            int(args.build) if str(args.build).isdigit() else 0)
@@ -103,9 +107,9 @@ def main():
                   file=sys.stderr)
             print("!! Set TUXBLOX_BUILD_VERSION to stage offline.", file=sys.stderr)
             return 1
-        print(".. Cannot reach %s, so nothing can be reused and every component is repacked." % base_url,
+        print(".. Cannot reach %s, so no component can be said to have been bumped or not." % base_url,
               file=sys.stderr)
-        print(".. A repacked archive hashes differently, so this build may be rejected on deploy.",
+        print(".. Everything is staged and nothing is checked against the last release.",
               file=sys.stderr)
         resolved = {"release": args.release, "published": {}, "base_commit": None}
     except NotFound as e:
@@ -145,17 +149,16 @@ def main():
     # The build's own record, not HEAD: see build_source().
     commit, build_dirty = build_source(root)
     content = stage(os.path.join(root, "build"), os.path.join(root, "releases", "client"),
-                    args.channel, release, versions, resolved["published"],
+                    args.channel, release, versions,
                     source_commit=commit or None, source_dirty=build_dirty,
-                    changelogs=component_changelogs(root))
+                    changelogs=component_changelogs(root), legacy_paths=args.legacy_paths)
     # Only the release line is added; the commit and dirty flag stay as the build wrote them.
     write_provenance(os.path.join(root, "build", ".provenance"), commit, build_dirty, release)
 
-    reused = [c for c, v in versions.items() if (c, v) in resolved["published"]]
-    print(":: Release %s (%s)" % (release, args.channel), file=sys.stderr)
+    print(":: Release %s (%s)%s" % (release, args.channel,
+                                     " -- legacy paths" if args.legacy_paths else ""), file=sys.stderr)
     for component, entry in sorted(content["components"].items()):
-        print("   %-12s %-8s %s" % (component, entry["version"],
-                                     "reused" if component in reused else "published"), file=sys.stderr)
+        print("   %-12s %-8s published" % (component, entry["version"]), file=sys.stderr)
     print(release)
     return 0
 

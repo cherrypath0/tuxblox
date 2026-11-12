@@ -42,11 +42,13 @@ struct InstallState {
     // asked whether it is coherent, only whether something newer is published.
     bool releaseRecorded = false;
     std::string recordedRelease;
-    // Component name -> the version it reports. A component that is not installed is absent from
-    // the map rather than present with an empty string.
-    std::map<std::string, std::string> installedVersions;
-    // Component name -> the version the recorded release names. Empty when !releaseRecorded.
-    std::map<std::string, std::string> recordedVersions;
+    // Component name -> what the copy on disk says it is. That is the release it was published in
+    // for everything with a binary to ask, and its own version for the interface stack, which has
+    // none. A component that is not installed is absent from the map rather than present empty.
+    std::map<std::string, std::string> installedIdentities;
+    // Component name -> what the recorded release says the same question should answer. Empty when
+    // !releaseRecorded. Built by expectedComponentIdentity(), so the two sides cannot drift.
+    std::map<std::string, std::string> recordedIdentities;
 };
 
 struct UpdateDecision {
@@ -63,6 +65,18 @@ struct UpdateDecision {
 // `namedRelease` is what the channel's `latest` names, or empty when the channel publishes nothing.
 // `noRollback` means "never take the forced path" -- it protects an install built on this machine,
 // whose components are replaced one at a time and which is therefore incoherent by construction.
+// The channels an install following `channel` may also take a release from, calmest first.
+//
+// Only ever calmer ones: an install on canary will take a stable build that is ahead of what
+// canary has published, and will follow canary again the moment canary publishes something
+// newer -- but it is never given an experimental build, because that is the opposite of what
+// choosing canary asked for. Empty for stable, which has nothing above it, so a stable install
+// makes no extra request at all.
+//
+// This is what tbxFlagEnableChannelToUpperChannelUpgradeOnBuildPromotion switches on; with it
+// off the list is empty for every channel and an install follows only its own.
+std::vector<std::string> channelsAbove(const std::string& channel);
+
 UpdateDecision decideUpdate(const InstallState& state, const std::string& namedRelease,
                              bool noRollback);
 

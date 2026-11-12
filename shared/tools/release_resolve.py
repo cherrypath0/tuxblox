@@ -40,7 +40,7 @@ def _latest_of(channel, fetch):
 
 
 def resolve(versions, channel, fetch, seed, build):
-    """{release, published, base_commit}: the next release version, the component versions whose bytes are already published, and the commit the previous release was built from. Raises Unreachable rather than guessing, and NotFound when a channel's pointer names a release file that is not there."""
+    """{release, published, base_commit}: the next release version, the component versions the last release already published, and the commit it was built from. Raises Unreachable rather than guessing, and NotFound when a channel's pointer names a release file that is not there."""
     # The release number is shared across channels, so the maximum is taken over all of them.
     latest = {ch: _latest_of(ch, fetch) for ch in CHANNELS}
     published_releases = [r for r in latest.values() if r]

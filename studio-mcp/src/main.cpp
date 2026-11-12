@@ -26,6 +26,7 @@
 #include "launch_paths.h"
 #include "lnk_resolver.h"
 #include "mcp_locate.h"
+#include "release_stamp.h"
 #include "version.h"
 
 #include <cstdio>
@@ -49,7 +50,7 @@ void printUsage() {
             "program; it takes no arguments of its own, and anything passed is\n"
             "handed to the Roblox server unchanged.\n"
             "\n"
-            "  --version   Print the TuxBlox version this was built from\n"
+            "  --version   Print the TuxBlox release this was published in\n"
             "  --help      Show this message\n");
 }
 
@@ -60,7 +61,7 @@ int main(int argc, char** argv) {
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
         if (arg == "--version") {
-            printf("%s\n", kTuxBloxBuildId);
+            printf("%s\n", reportedVersion(kTuxBloxBuildId).c_str());
             return 0;
         }
         if (arg == "--help" || arg == "-h") {

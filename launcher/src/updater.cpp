@@ -15,12 +15,14 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "updater.h"
+#include "i18n.h"
 #include "checksum.h"
 #include "downloader.h"
 #include "install_paths.h"
 #include "manifest.h"
 #include "release_file.h"
 #include "update_decision.h"
+#include "release_stamp.h"
 #include "version.h"
 #include "settings.h"
 #include <algorithm>
@@ -59,13 +61,13 @@ EnsureInstallerResult ensureInstallerBinary(const ReleaseFile& release, const st
 
     const auto entry = release.components.find("installer");
     if (entry == release.components.end() || !entry->second.x86_64.has_value()) {
-        const std::string err = "Release " + release.release + " publishes no updater to hand over to.";
+        const std::string err = i18n::trf("Release {0} publishes no updater to hand over to.", {release.release});
         report(UpdatePhase::Error, 0.0, err);
         return {false, "", err};
     }
     const ComponentBytes& wanted = *entry->second.x86_64;
     const std::string installerUrl =
-        componentUrl(baseUrl, "installer", entry->second.version, hostArch());
+        componentUrl(baseUrl, "installer", entry->second.version, release.release, hostArch());
 
     report(UpdatePhase::PreparingUpdater, 0.0);
     const std::string installerPath = dir + "/TuxBloxInstaller";
@@ -85,8 +87,8 @@ EnsureInstallerResult ensureInstallerBinary(const ReleaseFile& release, const st
 
     if (needsFetch) {
         const std::string newPath = installerPath + ".new";
-        auto dlOutcome = downloadFile(installerUrl, newPath,
-            [&](uint64_t now, uint64_t total) {
+        auto download = [&](const std::string& from) {
+            return downloadFile(from, newPath, [&](uint64_t now, uint64_t total) {
                 // Some CDN configurations (chunked responses) don't report a
                 // Content-Length, leaving curl's `total` at 0 for the whole
                 // transfer -- fall back to the manifest's declared size
@@ -95,13 +97,23 @@ EnsureInstallerResult ensureInstallerBinary(const ReleaseFile& release, const st
                 // 100%.
                 report(UpdatePhase::PreparingUpdater, downloadProgressFraction(now, total, wanted.size));
             }, cancel);
+        };
+
+        auto dlOutcome = download(installerUrl);
+        // The release before the one that moved each release's components under its own number is
+        // still installable, and this is what installs it: its updater sits where one copy served
+        // every release that named it. Tried only after the address every later release uses.
+        if (dlOutcome.result == DownloadResult::Failed) {
+            dlOutcome = download(legacyComponentUrl(baseUrl, "installer", entry->second.version,
+                                                     hostArch()));
+        }
 
         if (dlOutcome.result == DownloadResult::Cancelled) {
             report(UpdatePhase::Idle, 0.0);
             return {};
         }
         if (dlOutcome.result == DownloadResult::Failed) {
-            std::string err = "Downloading updater failed: " + dlOutcome.errorMessage;
+            std::string err = i18n::trf("Downloading updater failed: {0}", {dlOutcome.errorMessage});
             report(UpdatePhase::Error, 0.0, err);
             return {false, "", err};
         }
@@ -109,8 +121,9 @@ EnsureInstallerResult ensureInstallerBinary(const ReleaseFile& release, const st
         std::string actualSha = sha256File(newPath);
         if (actualSha != wanted.sha256) {
             fs::remove(newPath);
-            report(UpdatePhase::Error, 0.0, "Updater checksum mismatch");
-            return {false, "", "Updater checksum mismatch"};
+            const std::string err = i18n::tr("Updater checksum mismatch");
+            report(UpdatePhase::Error, 0.0, err);
+            return {false, "", err};
         }
 
         chmod(newPath.c_str(), 0755);
@@ -118,7 +131,7 @@ EnsureInstallerResult ensureInstallerBinary(const ReleaseFile& release, const st
         fs::rename(newPath, installerPath, renameEc);
         if (renameEc) {
             fs::remove(newPath);
-            std::string err = "Failed to install updater: " + renameEc.message();
+            std::string err = i18n::trf("Failed to install updater: {0}", {renameEc.message()});
             report(UpdatePhase::Error, 0.0, err);
             return {false, "", err};
         }
@@ -136,7 +149,7 @@ std::vector<ComponentVersion> readComponentVersions(const std::string& installDi
         // binary answers for it depends on which install is being judged.
         if (name == "launcher") continue;
         components.push_back({name, componentLayout(name)->displayName, "",
-                               readComponentVersion(installDir, name).value_or("")});
+                               readComponentIdentity(installDir, name).value_or("")});
     }
     return components;
 }
@@ -144,10 +157,10 @@ std::vector<ComponentVersion> readComponentVersions(const std::string& installDi
 std::string writeReleaseHandoff(const std::string& installDir, const std::string& releaseJson) {
     const std::string path = installDir + "/.release-incoming.json";
     std::ofstream out(path, std::ios::binary | std::ios::trunc);
-    if (!out) return "TuxBlox could not write to its own folder";
+    if (!out) return i18n::tr("TuxBlox could not write to its own folder");
     out << releaseJson;
     out.flush();
-    if (!out) return "writing the update details failed, which usually means the disk is full";
+    if (!out) return i18n::tr("writing the update details failed, which usually means the disk is full");
     return "";
 }
 
@@ -194,13 +207,13 @@ UpdateResult runUpdateCheck(const std::string& baseUrl,
     state.releaseRecorded = recorded.present;
     if (recorded.present) {
         state.recordedRelease = recorded.file.release;
-        for (const auto& [name, component] : recorded.file.components) {
-            state.recordedVersions[name] = component.version;
+        for (const auto& named : recorded.file.components) {
+            state.recordedIdentities[named.first] = expectedComponentIdentity(recorded.file, named.first);
         }
     }
     const std::vector<ComponentVersion> installed = readComponentVersions(dir);
     for (const ComponentVersion& component : installed) {
-        if (!component.version.empty()) state.installedVersions[component.component] = component.version;
+        if (!component.version.empty()) state.installedIdentities[component.component] = component.version;
     }
     // The install being judged is the one at `dir`, which is not always the one running:
     // $TUXBLOX_ROOT points this launcher at another install, and judging that install by the
@@ -212,13 +225,13 @@ UpdateResult runUpdateCheck(const std::string& baseUrl,
     const bool runningFromThisInstall =
         !self.empty() && fs::path(self).parent_path() == fs::path(dir);
     const std::optional<std::string> launcherVersion =
-        runningFromThisInstall ? std::optional<std::string>(kTuxBloxVersion)
-                                : readComponentVersion(dir, "launcher");
-    if (launcherVersion.has_value()) state.installedVersions["launcher"] = *launcherVersion;
+        runningFromThisInstall ? std::optional<std::string>(reportedVersion(kTuxBloxVersion))
+                                : readComponentIdentity(dir, "launcher");
+    if (launcherVersion.has_value()) state.installedIdentities["launcher"] = *launcherVersion;
 
     // Nothing installed at all is a first run, not a broken install -- and it is the layer being
     // there that makes the rest of the pieces overdue, since one release places them all together.
-    const bool compatMissing = state.installedVersions.count("compat") == 0;
+    const bool compatMissing = state.installedIdentities.count("compat") == 0;
 
     const UpdateDecision decision = decideUpdate(state, namedRelease, settings.noRollback);
 
@@ -238,7 +251,7 @@ UpdateResult runUpdateCheck(const std::string& baseUrl,
     result.compatMissing = compatMissing;
     std::map<std::string, std::string> namedVersions;
     for (const auto& [name, component] : result.release.components) namedVersions[name] = component.version;
-    result.changes = updateChanges(state.recordedVersions, namedVersions);
+    result.changes = updateChanges(state.recordedIdentities, namedVersions);
     return result;
 }
 

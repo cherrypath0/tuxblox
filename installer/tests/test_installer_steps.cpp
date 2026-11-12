@@ -133,7 +133,7 @@ int main() {
     const std::string robloxStudioUrl = "file://" + robloxStudioSrc.string();
 
     // A published tree, exactly as the CDN serves one:
-    //   client/<component>/<version>/x86_64/<published name>
+    //   client/<component>/<version>/<release>/x86_64/<published name>
     // runInstall builds every URL from the release and the layout table, so an artifact cannot be
     // pointed at an arbitrary file any more -- which means this exercises the real path
     // construction rather than stepping around it.
@@ -143,9 +143,13 @@ int main() {
         {"studio-mcp", "2.0.1"}, {"libtuxblox", "3.1.0"},
     };
 
-    auto publishedPath = [&](const std::string& name) {
-        return work / "client" / name / kVersions.at(name) / "x86_64" /
+    auto publishedAt = [&](const std::string& name, const std::string& version,
+                            const std::string& release) {
+        return work / "client" / name / version / release / "x86_64" /
                componentLayout(name)->publishedAs;
+    };
+    auto publishedPath = [&](const std::string& name) {
+        return publishedAt(name, kVersions.at(name), "3.6.0.0");
     };
     auto publishFrom = [&](const std::string& name, const fs::path& src) {
         const fs::path dest = publishedPath(name);
@@ -166,12 +170,24 @@ int main() {
     // release's bytes alone.
     auto republish = [&](ReleaseFile& r, const std::string& name, const std::string& version,
                           const fs::path& src) {
-        const fs::path dest = work / "client" / name / version / "x86_64" /
-                               componentLayout(name)->publishedAs;
+        const fs::path dest = publishedAt(name, version, r.release);
         fs::create_directories(dest.parent_path());
         fs::copy_file(src, dest, fs::copy_options::overwrite_existing);
         r.components[name].version = version;
         r.components[name].x86_64 = ComponentBytes{sha256File(dest.string()), fs::file_size(dest)};
+    };
+
+    // Every release publishes its own copy of every component, so a release whose components only
+    // exist under the one before it has nothing to install. Copies rather than re-points: in a real
+    // release each copy differs by the release stamped inside it.
+    auto rehome = [&](const ReleaseFile& r, const std::string& from) {
+        for (const auto& [name, component] : r.components) {
+            const fs::path src = publishedAt(name, component.version, from);
+            const fs::path dest = publishedAt(name, component.version, r.release);
+            if (src == dest || !fs::exists(src)) continue;
+            fs::create_directories(dest.parent_path());
+            fs::copy_file(src, dest, fs::copy_options::overwrite_existing);
+        }
     };
 
     auto buildRelease = [&]() {
@@ -545,34 +561,42 @@ int main() {
     }
 
     // --- what an install still needs, and what it records ------------------
-    // A hybrid release ships only what changed, so an install already holding a component at the
-    // release's version must not download it again -- that is the whole point of the layout.
+    // Every binary says which release it was published in, so what an install already holds is
+    // measured against the release rather than against a component version: this release's copy of
+    // a component is not fetched twice, and another release's copy of it is not the same file.
     {
         fs::path dir = work / "install_skipping";
         fs::create_directories(dir);
         // Nothing installed: everything is needed.
         assert(componentsToInstall(release, dir.string()).size() == release.components.size());
 
-        // A component already at the release's version is skipped; one at another version is not.
-        writeVersionStub(dir / "studio-mcp", "2.0.1");
+        // This release's copy is skipped; the same component from another release is not, however
+        // its own version compares.
+        writeVersionStub(dir / "studio-mcp", release.release);
         auto todo = componentsToInstall(release, dir.string());
         assert(std::find(todo.begin(), todo.end(), "studio-mcp") == todo.end());
-        writeVersionStub(dir / "studio-mcp", "1.0.0");
+        writeVersionStub(dir / "studio-mcp", "3.6.0.1");
+        todo = componentsToInstall(release, dir.string());
+        assert(std::find(todo.begin(), todo.end(), "studio-mcp") != todo.end());
+        // A component version where a release belongs is a copy from before releases carried their
+        // own, and it is not this release's.
+        writeVersionStub(dir / "studio-mcp", "2.0.1");
         todo = componentsToInstall(release, dir.string());
         assert(std::find(todo.begin(), todo.end(), "studio-mcp") != todo.end());
 
-        // The libraries are read from their VERSION file, never run.
+        // The libraries have no binary to carry a release, so they are still identified by their
+        // own version, read from their VERSION file and never run.
         fs::create_directories(dir / "libtuxblox");
         { std::ofstream out(dir / "libtuxblox" / "VERSION"); out << "3.1.0\n"; }
         todo = componentsToInstall(release, dir.string());
         assert(std::find(todo.begin(), todo.end(), "libtuxblox") == todo.end());
 
         // Reported in the layout's order, so the list reads the same way every time.
-        writeVersionStub(dir / "studio-mcp", "2.0.1");
-        writeVersionStub(dir / "TuxBloxInstaller", "3.1.0");
+        writeVersionStub(dir / "studio-mcp", release.release);
+        writeVersionStub(dir / "TuxBloxInstaller", release.release);
         todo = componentsToInstall(release, dir.string());
         assert((todo == std::vector<std::string>{"launcher", "compat"}));
-        printf("  components already at the release's version are skipped\n");
+        printf("  components already holding this release's copy are skipped\n");
     }
 
     // The record is the install's identity AND its "update completed" marker, so it must not exist
@@ -602,8 +626,9 @@ int main() {
         printf("  a failed install records nothing\n");
     }
 
-    // The point of the whole layout, end to end: a release that changes one component installs
-    // ONE component and leaves the others exactly as they were, byte for byte and untouched.
+    // The cost of every binary carrying its release, end to end: a release installs every
+    // component it names, including the ones whose own version did not move, because this
+    // release's copy of each of them is a different file from the last release's.
     {
         fs::path dir = work / "install_hybrid";
         auto first = runInstall(release, releaseBaseUrl, [](const std::string&, double) {}, nullptr,
@@ -615,12 +640,14 @@ int main() {
         const auto layerBefore = fs::last_write_time(layer);
         const auto mcpBefore = fs::last_write_time(mcp);
 
-        // A new release in which only the launcher moved.
+        // A new release in which only the launcher's own version moved. Every other component is
+        // published again under it unchanged, which is what a real release does.
         fs::path newLauncherSrc = work / "TuxBloxLauncherSrc2";
         { std::ofstream out(newLauncherSrc, std::ios::binary); out << "#!/bin/sh\necho 3.5.1\n"; }
         ReleaseFile next = release;
         next.release = "3.6.0.1";
         republish(next, "launcher", "3.5.1", newLauncherSrc);
+        rehome(next, "3.6.0.0");
 
         std::vector<std::string> downloaded;
         auto second = runInstall(next, releaseBaseUrl,
@@ -630,15 +657,19 @@ int main() {
             }, nullptr, /*isUpgrade=*/true, dir.string(), robloxPlayerUrl, robloxStudioUrl, releaseJson);
         assert(second.ok);
 
-        assert((downloaded == std::vector<std::string>{"Upgrading Launcher"}));
-        assert(fs::last_write_time(layer) == layerBefore);   // the 334MB component, untouched
-        assert(fs::last_write_time(mcp) == mcpBefore);
+        // Everything but the launcher first, then the libraries, then the launcher.
+        assert((downloaded == std::vector<std::string>{"Upgrading Installer", "Upgrading Studio MCP",
+                                                        "Upgrading Runtime", "Upgrading Libraries",
+                                                        "Upgrading Launcher"}));
+        // The 334MB component among them: this is what a release costs now.
+        assert(fs::last_write_time(layer) != layerBefore);
+        assert(fs::last_write_time(mcp) != mcpBefore);
         {
             std::ifstream in(dir / "TuxBloxLauncher", std::ios::binary);
             std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
             assert(content == "#!/bin/sh\necho 3.5.1\n");
         }
-        printf("  a release that changes one component installs one component\n");
+        printf("  a release installs every component it names\n");
     }
 
     // An extraction that dies partway must not leave something that can answer --version.
@@ -650,9 +681,9 @@ int main() {
     // SKIPS the very component that is broken. It then writes the record, and every launch after
     // that reads the install as healthy. Roblox never starts and nothing ever repairs it.
     //
-    // Before the skip existed this healed on the next update, because every artifact was
-    // re-downloaded every time. The skip is what makes it permanent, so the extraction has to be
-    // all-or-nothing.
+    // The skip is what makes it permanent, so the extraction has to be all-or-nothing. A release
+    // publishes every component again, but a repair still skips what already reports the release it
+    // is repairing towards -- and a half-extracted layer reports exactly that.
     {
         fs::path dir = work / "install_torn_extract";
         auto first = runInstall(release, releaseBaseUrl, [](const std::string&, double) {}, nullptr,
@@ -684,7 +715,7 @@ int main() {
 
         // Whatever is left must not claim to be the version that failed to install. Either the old
         // layer is still there, or there is no layer -- never a partial one wearing the new number.
-        const std::optional<std::string> after = readComponentVersion(dir.string(), "compat");
+        const std::optional<std::string> after = readComponentIdentity(dir.string(), "compat");
         assert(!after.has_value() || *after == "3.3.0");
         assert(!fs::exists(dir / "compat.incoming"));   // and ~350MB of nothing is not left behind
         printf("  a torn extraction never leaves something claiming the new version\n");

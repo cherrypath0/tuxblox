@@ -24,9 +24,9 @@ namespace tuxblox {
 // What the About screen says about this install.
 //
 // The release is the one number a person is shown, because it is the one that identifies the
-// install: a component version appears in several releases, so no binary can name the release it
-// belongs to. The component versions are real and worth showing, but behind an expander rather
-// than beside it -- two numbers side by side read as an install at odds with itself.
+// install, and it is what every binary in it answers with when it is asked its version. The
+// component versions are real and worth showing, but behind an expander rather than beside it --
+// two numbers side by side read as an install at odds with itself.
 struct AboutVersions {
     std::string release;  // empty for an install made before the release file existed
     std::string channel;  // empty with the release

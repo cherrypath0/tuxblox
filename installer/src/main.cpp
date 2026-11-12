@@ -24,6 +24,7 @@
 #include "ui_cache.h"
 #include "ui_extract.h"
 #include "uninstall.h"
+#include "release_stamp.h"
 #include "version.h"
 #include <cerrno>
 #include <cstdio>
@@ -161,7 +162,7 @@ int main(int argc, char** argv) {
         return 0;
     }
     if (options.version) {
-        printf("%s\n", kTuxBloxVersion);
+        printf("%s\n", reportedVersion(kTuxBloxVersion).c_str());
         return 0;
     }
 
@@ -223,7 +224,7 @@ int main(int argc, char** argv) {
         return ok ? 0 : 1;
     }
 
-    setUserAgent(UserAgentProduct::Installer, kTuxBloxVersion, options.channel);
+    setUserAgent(UserAgentProduct::Installer, reportedVersion(kTuxBloxVersion), options.channel);
 
     // An update run reads the flags for the channel it was told to use. A fresh install
     // has no recorded release -- resolving one is what it is about to do -- so it asks

@@ -101,9 +101,10 @@ fi
 # An explicit TUXBLOX_BUILD_VERSION means "publish exactly this release" and overrides the derived
 # number; it is the escape hatch for an offline stage and for a number the server reports as taken.
 #
-# No binary reports the release any more: one component build appears in several releases, which is
-# the point of not redistributing what did not change. So --stage-only reads the release out of the
-# provenance of the build it is publishing, which is what that build actually became.
+# Every binary reports the release, because staging writes it into a field each one reserves for it.
+# So --stage-only reads the release out of the provenance of the build it is publishing, which is
+# what that build actually became -- and re-staging under another number rewrites the field rather
+# than leaving a binary naming a release it is not in.
 if [[ $stage_only -eq 1 && -z "$TUXBLOX_BUILD_VERSION" && -r "$ROOT/build/.provenance" ]]; then
     built_release="$(sed -n '3p' "$ROOT/build/.provenance" | tr -d '[:space:]')"
     if [[ -n "$built_release" ]]; then
@@ -388,9 +389,18 @@ stage_release() {
         explicit="--release $TUXBLOX_BUILD_VERSION"
     fi
 
+    # Publishes each component where one copy served every release that named it, which is where an
+    # install made before releases carried their own copies looks for it. For the one release that
+    # crosses that change, and nothing after it.
+    local layout=""
+    if [[ "${TUXBLOX_LEGACY_PATHS:-}" == "1" ]]; then
+        layout="--legacy-paths"
+        echo ":: Publishing component paths without the release in them (TUXBLOX_LEGACY_PATHS=1)"
+    fi
+
     local release
     if ! release="$(python3 "$ROOT/shared/tools/stage_release.py" \
-            --root "$ROOT" --channel "$channel" --seed "$seed" --build "$build" $explicit)"; then
+            --root "$ROOT" --channel "$channel" --seed "$seed" --build "$build" $explicit $layout)"; then
         return 1
     fi
 
@@ -703,7 +713,13 @@ run_step "compile_proton_native" strict bash -c '
     mkdir -p "$workdir/src/shared_paths"
     cp -a "$ROOT"/shared/paths/src/. "$workdir/src/shared_paths/"
     mkdir -p "$workdir/src/shared_flags"
-    cp -a "$ROOT"/shared/flags/src/. "$workdir/src/shared_flags/"
+    cp "$ROOT"/shared/flags/FlagManager.cpp "$ROOT"/shared/flags/FlagManager.h \
+       "$workdir/src/shared_flags/"
+    # Only the stamp pair, never the whole directory: the release field has no dependencies, and
+    # taking shared/release wholesale would drag release_file.cpp in behind it.
+    mkdir -p "$workdir/src/shared_release"
+    cp "$ROOT"/shared/release/src/release_stamp.cpp "$ROOT"/shared/release/src/release_stamp.h \
+       "$workdir/src/shared_release/"
     # flags.cpp asks for the certificate list, and the libcurl TuxBlox ships carries no
     # list of its own. The user agent is passed in rather than taken from shared/release,
     # which would have dragged release_file.cpp in behind it.
@@ -727,7 +743,7 @@ run_step "compile_proton_native" strict bash -c '
         -e TUXBLOX_COMPAT_VERSION \
         tuxblox-old-glibc-builder sh -c \
         '"'"'g++ -std=c++17 -O2 -Wall -Wextra -static-libstdc++ -static-libgcc \
-            -I. -Ithird_party -Ishared_flags -I/shared/include \
+            -I. -Ithird_party -Ishared_flags -Ishared_release -I/shared/include \
             -DTUXBLOX_VERSION="\"$TUXBLOX_COMPAT_VERSION\"" \
             -o /work/out/main $(find . -name "*.cpp") \
             /shared/lib/libcurl.a /shared/lib/libnghttp2.a /shared/lib/libssl.a \

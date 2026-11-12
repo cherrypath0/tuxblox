@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "cli.h"
+#include "i18n.h"
 #include <string>
 
 namespace tuxblox {
@@ -28,8 +29,8 @@ const char* const kUpdateFlag = "--update-roblox";
 
 bool setMode(CliOptions& options, Mode mode) {
     if (options.mode != Mode::None) {
-        options.error = std::string("Choose one of ") + kUpdateFlag + ", " + kInstallFlag +
-                        " or " + kPreviewFlag + ".";
+        options.error = i18n::trf("Choose one of {0}, {1} or {2}.",
+                                  {kUpdateFlag, kInstallFlag, kPreviewFlag});
         return false;
     }
     options.mode = mode;
@@ -65,35 +66,35 @@ CliOptions parseArgs(int argc, const char* const* argv) {
         } else if (arg == "--version") {
             options.version = true;
         } else {
-            options.error = "Unrecognised argument: " + arg;
+            options.error = i18n::trf("Unrecognised argument: {0}", {arg});
             return options;
         }
     }
 
     if (options.help || options.version) return options;
     if (options.mode == Mode::None) {
-        options.error =
-            "Nothing to do: pass --update-roblox, --install-roblox or --preview-rbxinstaller.";
+        options.error = i18n::tr("Nothing to do: pass --update-roblox, --install-roblox or --preview-rbxinstaller.");
     }
     return options;
 }
 
-const char* usageText() {
-    return "Usage: TuxBloxLauncher [--update-roblox | --install-roblox | --preview-rbxinstaller]\n"
-           "\n"
-           "  --update-roblox         Install the channel's newest version if it is missing.\n"
-           "                          Shows no window unless there is something to download.\n"
-           "  --install-roblox        Install the Roblox version the environment describes.\n"
-           "  --preview-rbxinstaller  Show the window without downloading or writing anything.\n"
-           "  --help                  Show this message.\n"
-           "  --version               Print the TuxBlox version and exit.\n"
-           "\n"
-           "Environment:\n"
-           "  TUXBLOX_BOOTSTRAPPER_DOWNLOAD_SERVER      Mirror to download from.\n"
-           "  TUXBLOX_BOOTSTRAPPER_DOWNLOAD_RBXHASH     Exact version, or blank for newest.\n"
-           "  TUXBLOX_BOOTSTRAPPER_DOWNLOAD_RBXCHANNEL  Roblox release channel.\n"
-           "  TUXBLOX_BOOTSTRAPPER_DOWNLOAD_APP         player or studio.\n"
-           "  TUXBLOX_BOOTSTRAPPER_INSTALL_DIR          Where versions are installed.\n";
+std::string usageText() {
+    return i18n::tr(
+        "Usage: TuxBloxLauncher [--update-roblox | --install-roblox | --preview-rbxinstaller]\n"
+        "\n"
+        "  --update-roblox         Install the channel's newest version if it is missing.\n"
+        "                          Shows no window unless there is something to download.\n"
+        "  --install-roblox        Install the Roblox version the environment describes.\n"
+        "  --preview-rbxinstaller  Show the window without downloading or writing anything.\n"
+        "  --help                  Show this message.\n"
+        "  --version               Print the TuxBlox release and exit.\n"
+        "\n"
+        "Environment:\n"
+        "  TUXBLOX_BOOTSTRAPPER_DOWNLOAD_SERVER      Mirror to download from.\n"
+        "  TUXBLOX_BOOTSTRAPPER_DOWNLOAD_RBXHASH     Exact version, or blank for newest.\n"
+        "  TUXBLOX_BOOTSTRAPPER_DOWNLOAD_RBXCHANNEL  Roblox release channel.\n"
+        "  TUXBLOX_BOOTSTRAPPER_DOWNLOAD_APP         player or studio.\n"
+        "  TUXBLOX_BOOTSTRAPPER_INSTALL_DIR          Where versions are installed.\n");
 }
 
 } // namespace bootstrap

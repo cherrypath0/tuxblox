@@ -46,22 +46,25 @@ struct UpdateProgress {
 
 using UpdateProgressFn = std::function<void(UpdateProgress)>;
 
-// One component of an install, and the version it reports.
+// One component of an install, and what it says it is.
 struct ComponentVersion {
     std::string component;  // the release file's key for it, e.g. "compat"
     std::string name;       // as a user would read it, e.g. "compatibility layer"
     std::string path;       // the binary asked; empty for the one that is read from a file instead
-    std::string version;    // its bare "x.y.z", empty if it is not installed
+    // The release it was published in, which is what a binary answers when it is asked its
+    // version; the interface stack has no binary and answers with its own "x.y.z". Empty if it is
+    // not installed.
+    std::string version;
 };
 
-// Asks every TuxBlox component in `installDir` what version it is. Four of them: the launcher is
-// the one asking and knows its own answer, so the caller supplies that. The interface stack has no
-// binary to ask and is read from the file its tarball carries.
+// Asks every TuxBlox component in `installDir` what it is. Four of them: the launcher is the one
+// asking and knows its own answer, so the caller supplies that. The interface stack has no binary
+// to ask and is read from the file its tarball carries.
 //
 // A component that is present but cannot be asked -- not executable, exits nonzero, prints nothing
-// -- reports an EMPTY version, the same as one that is absent. An install cannot be repaired
-// towards a version nobody can read, and a non-empty placeholder would differ from every recorded
-// version and force a repair on every launch forever.
+// -- reports an EMPTY answer, the same as one that is absent. An install cannot be repaired towards
+// something nobody can read, and a non-empty placeholder would differ from every recorded answer
+// and force a repair on every launch forever.
 std::vector<ComponentVersion> readComponentVersions(const std::string& installDir);
 
 struct UpdateResult {

@@ -32,6 +32,7 @@
 #include <signal.h>
 #include <unistd.h>
 
+#include "release_stamp.h"
 #include "support/flag_startup.h"
 #include "integrity/authenticode.h"
 #include "prefix/prefix.h"
@@ -71,7 +72,7 @@ const std::array<std::string, 6> RobloxProcesses = {
 const std::array<std::string, 8> HelpOutput = {
     "Options:",
     "--help                  Show this help message",
-    "--version               Show TuxBlox version",
+    "--version               Show the TuxBlox release this was published in",
     "--immediate             Run TuxBlox without draining the prefix, must be used with the \"run\" argument",
     "--destroy               Destroys the prefix",
     "--allow-root            Allow running as root, which is not recommended",
@@ -180,7 +181,7 @@ CommandLine parseCommandLine(int argc, char *argv[]) {
         }
 
         if (argument == "--version") {
-            std::cout << TuxBloxVersion << std::endl;
+            std::cout << tuxblox::reportedVersion(TuxBloxVersion) << std::endl;
             parsed.handled = true;
             return parsed;
         }

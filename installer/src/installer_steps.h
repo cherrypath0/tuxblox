@@ -96,13 +96,14 @@ double downloadProgressFraction(uint64_t now, uint64_t total, uint64_t manifestS
 // (for testing against a temp directory instead of the real $HOME).
 // `robloxPlayerInstallerUrl`/`robloxStudioInstallerUrl` default to the
 // real Roblox CDN, overridable so tests can point them at local fixtures.
-// The components of `release` this install does not already hold at the release's version, in the
-// layout's own order. A hybrid release ships only what changed, so re-downloading a component the
-// install already has at that exact version is the one thing the layout exists to avoid.
+// The components of `release` this install does not already hold THIS RELEASE'S copy of, in the
+// layout's own order. Every release publishes its own copy of every component, each carrying the
+// release it was published in, so an update fetches all of them and a repair fetches only what is
+// missing or is some other release's.
 //
 // A component that cannot be asked -- absent, not executable, exits nonzero, prints nothing --
-// counts as needing installation: there is no version to compare, and reinstalling is the answer
-// that converges.
+// counts as needing installation: there is nothing to compare, and reinstalling is the answer that
+// converges.
 std::vector<std::string> componentsToInstall(const ReleaseFile& release,
                                               const std::string& installDir);
 

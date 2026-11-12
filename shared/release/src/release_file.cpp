@@ -137,6 +137,42 @@ ReleaseComponent parseComponent(const std::string& name, const nlohmann::json& e
 
 } // namespace
 
+namespace {
+
+// The four fields of a release, or empty when it does not have four numbers.
+std::vector<long long> releaseFields(const std::string& release) {
+    std::vector<long long> fields;
+    std::string digits;
+    for (std::string::size_type at = 0; at <= release.size(); ++at) {
+        if (at == release.size() || release[at] == '.') {
+            if (digits.empty()) return {};
+            fields.push_back(std::stoll(digits));
+            digits.clear();
+            continue;
+        }
+        if (release[at] < '0' || release[at] > '9') return {};
+        digits.push_back(release[at]);
+        // Longer than any real field, and what stops stoll throwing on something absurd.
+        if (digits.size() > 9) return {};
+    }
+    return fields.size() == 4 ? fields : std::vector<long long>();
+}
+
+} // namespace
+
+int compareReleases(const std::string& a, const std::string& b) {
+    const std::vector<long long> left = releaseFields(a);
+    const std::vector<long long> right = releaseFields(b);
+    if (left.empty() || right.empty()) {
+        if (left.empty() && right.empty()) return 0;
+        return left.empty() ? -1 : 1;
+    }
+    for (size_t at = 0; at < left.size(); ++at) {
+        if (left[at] != right[at]) return left[at] < right[at] ? -1 : 1;
+    }
+    return 0;
+}
+
 const std::vector<std::string>& componentNames() {
     static const std::vector<std::string> names = [] {
         std::vector<std::string> all;
@@ -296,13 +332,31 @@ const char* hostArch() {
 #endif
 }
 
-std::string componentUrl(const std::string& baseUrl, const std::string& name,
-                          const std::string& version, const std::string& arch) {
+namespace {
+
+// The name a component is published under. Throws rather than building a URL under a name nothing
+// publishes, which would 404 at the end of a download somebody had already been told was starting.
+std::string publishedAs(const std::string& name) {
     const std::optional<ComponentLayout> layout = componentLayout(name);
     if (!layout.has_value()) {
         throw std::runtime_error("\"" + name + "\" is not a component of TuxBlox");
     }
-    return baseUrl + "/client/" + name + "/" + version + "/" + arch + "/" + layout->publishedAs;
+    return layout->publishedAs;
+}
+
+} // namespace
+
+std::string componentUrl(const std::string& baseUrl, const std::string& name,
+                          const std::string& version, const std::string& release,
+                          const std::string& arch) {
+    return baseUrl + "/client/" + name + "/" + version + "/" + release + "/" + arch + "/"
+           + publishedAs(name);
+}
+
+std::string legacyComponentUrl(const std::string& baseUrl, const std::string& name,
+                                const std::string& version, const std::string& arch) {
+    return baseUrl + "/client/" + name + "/" + version + "/" + arch + "/"
+           + publishedAs(name);
 }
 
 std::string latestPointerUrl(const std::string& baseUrl, const std::string& channel) {
@@ -431,8 +485,17 @@ std::optional<std::string> askBinaryVersion(const std::string& bin) {
     return version;
 }
 
-std::optional<std::string> readComponentVersion(const std::string& installDir,
-                                                 const std::string& name) {
+std::string expectedComponentIdentity(const ReleaseFile& release, const std::string& name) {
+    const auto entry = release.components.find(name);
+    if (entry == release.components.end()) return std::string();
+    const std::optional<ComponentLayout> layout = componentLayout(name);
+    // The one component with no binary to stamp, so its own version is still what identifies it.
+    if (layout.has_value() && layout->versionPath.empty()) return entry->second.version;
+    return release.release;
+}
+
+std::optional<std::string> readComponentIdentity(const std::string& installDir,
+                                                  const std::string& name) {
     const std::optional<ComponentLayout> layout = componentLayout(name);
     if (!layout.has_value()) return std::nullopt;
     if (layout->versionPath.empty()) return readStackVersion(installDir);

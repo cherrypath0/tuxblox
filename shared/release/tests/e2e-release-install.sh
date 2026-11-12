@@ -20,9 +20,9 @@
 #
 # Everything else in this work is tested a function at a time. This is the only thing that proves
 # the parts meet: that the installer resolves a release over HTTP, downloads what the release
-# names, records what it installed, and -- on a second run against a release where one component
-# moved -- fetches THAT COMPONENT ONLY. The last one is the whole point of the layout and the one
-# claim no unit test can make, because it is about what crosses the network.
+# names at the address that release publishes it under, and records what it installed. A second run
+# against a new release fetches EVERY component, because each release's copy of one carries that
+# release inside it -- a claim no unit test can make, because it is about what crosses the network.
 #
 # A hand-built tree rather than `./build.sh --stage-only`: staging currently refuses, because the
 # interface stack tarball predates per-component versions and carries no VERSION. Rebuilding it
@@ -64,26 +64,28 @@ Installer=$Build/TuxBloxInstaller
 [ -x "$Installer" ] || { fail "no installer at $Installer"; printf ':: %d failure(s)\n' "$fails"; exit 1; }
 
 # --- the published tree ---------------------------------------------------
-# client/<name>/<version>/x86_64/<published name>, exactly as the server lays it out.
-publish_flat() {   # name version content
-    local dir="$Cdn/client/$1/$2/x86_64"
+# client/<name>/<version>/<release>/x86_64/<published name>, exactly as the server lays it out: a
+# release publishes its own copy of every component, because each copy carries the release it was
+# published in.
+publish_flat() {   # name version release filename
+    local dir="$Cdn/client/$1/$2/$3/x86_64"
     mkdir -p "$dir"
-    printf '#!/bin/sh\necho %s\n' "$2" > "$dir/$3"
-    chmod 0755 "$dir/$3"
+    printf '#!/bin/sh\necho %s\n' "$2" > "$dir/$4"
+    chmod 0755 "$dir/$4"
 }
-publish_archive() { # name version rootfile content
-    local dir="$Cdn/client/$1/$2/x86_64" stage="$Work/stage-$1-$2"
-    mkdir -p "$dir" "$stage/$(dirname "$3")"
-    printf '%s' "$4" > "$stage/$3"
-    [ "$3" = "main" ] && chmod 0755 "$stage/$3"
+publish_archive() { # name version release rootfile content
+    local dir="$Cdn/client/$1/$2/$3/x86_64" stage="$Work/stage-$1-$2"
+    mkdir -p "$dir" "$stage/$(dirname "$4")"
+    printf '%s' "$5" > "$stage/$4"
+    [ "$4" = "main" ] && chmod 0755 "$stage/$4"
     tar --zstd -cf "$dir/$1.tar.zst" -C "$stage" .
 }
 sha_of() { sha256sum "$1" | cut -d' ' -f1; }
 size_of() { stat -c %s "$1"; }
 
-entry() {  # name version
+entry() {  # name version release
     local file
-    file=$(find "$Cdn/client/$1/$2/x86_64" -type f | head -1)
+    file=$(find "$Cdn/client/$1/$2/$3/x86_64" -type f | head -1)
     printf '"%s": {"version": "%s", "arch": {"x86_64": {"sha256": "%s", "size": %s}, "arm64": null}}' \
         "$1" "$2" "$(sha_of "$file")" "$(size_of "$file")"
 }
@@ -94,26 +96,31 @@ write_release() {  # release launcherVersion
     {
         printf '{\n  "release": "%s",\n  "channel": "stable",\n  "changelog": "components",\n' "$1"
         printf '  "source_commit": "e2e", "source_dirty": false,\n  "components": {\n    '
-        entry launcher "$2"; printf ',\n    '
-        entry installer 3.1.0; printf ',\n    '
-        entry studio-mcp 2.0.1; printf ',\n    '
-        entry compat 3.3.0; printf ',\n    '
-        entry libtuxblox 3.1.0
+        entry launcher "$2" "$1"; printf ',\n    '
+        entry installer 3.1.0 "$1"; printf ',\n    '
+        entry studio-mcp 2.0.1 "$1"; printf ',\n    '
+        entry compat 3.3.0 "$1"; printf ',\n    '
+        entry libtuxblox 3.1.0 "$1"
         printf '\n  }\n}\n'
     } > "$dir/$1.json"
     printf '%s\n' "$1" > "$dir/latest"
 }
 
-echo ":: Publishing release 3.6.0.0"
-publish_flat launcher 3.5.0 TuxBloxLauncher
-publish_flat installer 3.1.0 TuxBloxInstaller
-publish_flat studio-mcp 2.0.1 studio-mcp
-publish_archive compat 3.3.0 main '#!/bin/sh
+# Every component under the release that names it, which is what staging writes.
+publish_release() {  # release launcherVersion
+    publish_flat launcher "$2" "$1" TuxBloxLauncher
+    publish_flat installer 3.1.0 "$1" TuxBloxInstaller
+    publish_flat studio-mcp 2.0.1 "$1" studio-mcp
+    publish_archive compat 3.3.0 "$1" main '#!/bin/sh
 echo 3.3.0
 '
-publish_archive libtuxblox 3.1.0 VERSION '3.1.0
+    publish_archive libtuxblox 3.1.0 "$1" VERSION '3.1.0
 '
-write_release 3.6.0.0 3.5.0
+    write_release "$1" "$2"
+}
+
+echo ":: Publishing release 3.6.0.0"
+publish_release 3.6.0.0 3.5.0
 
 echo ":: Serving it on 18099"
 if ss -ltn 2>/dev/null | grep -q ':18099 '; then
@@ -191,17 +198,18 @@ else
     pass "nothing sends the old agent any more"
 fi
 
-echo ":: A release in which only the launcher moved"
+echo ":: A release in which only the launcher's own version moved"
 : > "$Work/server.log"
-publish_flat launcher 3.5.1 TuxBloxLauncher
-write_release 3.6.0.1 3.5.1
+publish_release 3.6.0.1 3.5.1
 run_install second
 
+# Every component, including the four whose own version did not move: this release's copy of each
+# of them is a different file from the last release's, because each carries the release inside it.
 fetched=$(grep -ao 'GET /client/[^/]*' "$Work/server.log" | sed 's|.*/||' | grep -v '^releases$' | sort -u | tr '\n' ' ')
-if [ "$fetched" = "launcher " ]; then
-    pass "one component changed, one component was fetched (${fetched% })"
+if [ "$fetched" = "compat installer launcher libtuxblox studio-mcp " ]; then
+    pass "a new release fetched every component (${fetched% })"
 else
-    fail "expected only the launcher to be fetched, got: ${fetched:-nothing}"
+    fail "expected every component to be fetched, got: ${fetched:-nothing}"
 fi
 
 if [ "$("$Install/TuxBloxLauncher" --version 2>/dev/null)" = "3.5.1" ]; then
@@ -234,8 +242,7 @@ else
 fi
 
 echo ":: A release naming a component whose bytes are not served"
-publish_flat launcher 9.9.9 TuxBloxLauncher
-write_release 3.6.0.2 9.9.9
+publish_release 3.6.0.2 9.9.9
 rm -rf "$Cdn/client/launcher/9.9.9"
 if run_install missing; then
     fail "a release naming an unpublished component installed anyway"

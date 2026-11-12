@@ -24,10 +24,10 @@ _MCP_SHARED_STEMS = ("install_paths", "launch_paths", "lnk_resolver",
 # A component's inputs are not just its own directory: the interface stack is linked by the two
 # graphical programs, and studio-mcp borrows from the launcher.
 COMPONENT_INPUTS = {
-    # shared/release/ is compiled into both launcher_core and installer_core, so a change there
-    # changes both binaries. Missing from this map it would change them silently: neither VERSION
-    # gets bumped, and a component version's published bytes are written once ever, so the CDN
-    # would keep serving the old ones and the fix would never reach anybody.
+    # shared/release/ is compiled into all four binaries: launcher_core, installer_core,
+    # studio-mcp and the compatibility layer, which take the release stamp field from it. Missing
+    # from this map a change there moves their bytes silently, and they are then published under a
+    # version number that already means something else.
     # shared/i18n/ and shared/translations/ are the same case: the catalogues are compiled into
     # both binaries at build time, so a translation that changes without a bump would never reach
     # anybody.
@@ -36,9 +36,9 @@ COMPONENT_INPUTS = {
     # the local-only list, which only a release can deliver -- must bump all three.
     "launcher":   ("launcher/", "shared/ui/", "shared/release/", "shared/flags/", "shared/i18n/", "shared/translations/"),
     "installer":  ("installer/", "shared/ui/", "shared/release/", "shared/flags/", "shared/i18n/", "shared/translations/"),
-    "studio-mcp": ("studio-mcp/",),
+    "studio-mcp": ("studio-mcp/", "shared/release/"),
     "libtuxblox": ("shared/ui/", "shared/tools/ui-"),
-    "compat":     ("compat/", "shared/flags/"),
+    "compat":     ("compat/", "shared/flags/", "shared/release/"),
 }
 
 # Paths that sit inside a component's directory without being built into it. installer/bridge/
@@ -86,7 +86,8 @@ def scope_of_check(base_commit, base_is_local):
 
     "nothing published" and "the previous release's commit is not in this clone" both leave nothing
     to diff against, but only the first is harmless: in the second, a component that changed without
-    a version bump still has its old bytes reused from the CDN, and the release ships them.
+    a version bump is published under a version that already names something else, and the two sets
+    of bytes are then a version number apart from nobody.
     """
     if not base_commit:
         return "first-release", None

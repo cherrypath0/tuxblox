@@ -16,7 +16,10 @@
 
 #include "about_versions.h"
 
+#include "i18n.h"
 #include "release_file.h"
+
+#include <filesystem>
 
 namespace tuxblox {
 
@@ -41,8 +44,22 @@ AboutVersions aboutVersions(const std::string& installDir, const std::string& la
             about.components.push_back({display, launcherVersion});
             continue;
         }
-        about.components.push_back(
-            {display, readComponentVersion(installDir, name).value_or("not installed")});
+        // What the install records, not what the binary answers: a binary names the release it was
+        // published in now, which is one number for all of them and not what this list is for. The
+        // record is not the weaker source it would once have been -- an install whose components do
+        // not match it is one the launcher is already forcing a repair on.
+        const std::string path = componentLayout(name)->versionPath;
+        const auto recordedComponent = recorded.file.components.find(name);
+        if (path.empty() || !std::filesystem::exists(installDir + "/" + path)) {
+            about.components.push_back({display, i18n::tr("not installed")});
+        } else if (recordedComponent != recorded.file.components.end()) {
+            about.components.push_back({display, recordedComponent->second.version});
+        } else {
+            // On disk under an install that records nothing, so the only thing left to ask is the
+            // component itself, and what it answers is all there is to show.
+            about.components.push_back(
+                {display, readComponentIdentity(installDir, name).value_or(i18n::tr("not installed"))});
+        }
     }
     return about;
 }

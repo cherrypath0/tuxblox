@@ -27,6 +27,8 @@ import unittest
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
 from stage_tree import stage
+from stamp_release import FIELD_SIZE, MARKER
+from stamp_release import read as read_stamp
 
 VERSIONS = {"launcher": "3.5.0", "compat": "3.3.0", "installer": "3.1.0",
             "libtuxblox": "3.1.0", "studio-mcp": "2.0.1"}
@@ -50,11 +52,11 @@ class StageTree(unittest.TestCase):
         self.dist = os.path.join(self.tmp, "dist")
         os.makedirs(self.dist)
 
-        self.write("compat/main", "layer\n")
+        self.write_binary("compat/main", "layer\n")
         self.write("compat/files/share/thing", "data\n")
-        self.write("TuxBloxLauncher", "launcher\n")
-        self.write("TuxBloxInstaller", "installer\n")
-        self.write("studio-mcp", "mcp\n")
+        self.write_binary("TuxBloxLauncher", "launcher\n")
+        self.write_binary("TuxBloxInstaller", "installer\n")
+        self.write_binary("studio-mcp", "mcp\n")
         self.write("libtuxblox/lib/x86_64-linux-gnu/libgtk-4.so", "so\n")
         self.write("libtuxblox/share/icons/TuxBlox/index.theme", "theme\n")
         self.write("libtuxblox/LIBADWAITA_COMMIT", COMMIT + "\n")
@@ -76,12 +78,24 @@ class StageTree(unittest.TestCase):
         with open(path, "w") as f:
             f.write(text)
 
-    def stage(self, channel="stable", release="3.6.0.0", versions=None, published=None):
-        return stage(self.build, self.out, channel, release,
-                     versions or VERSIONS, published or {}, ui_tarball=self.ui_tarball)
+    # A stand-in for a TuxBlox binary: text, carrying the field every one of them reserves for the
+    # release, exactly as the compiler leaves it -- the marker and then nothing.
+    def write_binary(self, rel, text):
+        path = os.path.join(self.build, rel)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "wb") as f:
+            f.write(text.encode() + MARKER + b"\0" * (FIELD_SIZE - len(MARKER)))
+
+    def stage(self, channel="stable", release="3.6.0.0", versions=None, legacy_paths=False):
+        return stage(self.build, self.out, channel, release, versions or VERSIONS,
+                     ui_tarball=self.ui_tarball, legacy_paths=legacy_paths)
 
     def path(self, *parts):
         return os.path.join(self.out, *parts)
+
+    # Where this release's copy of a component is written.
+    def component(self, name, version, filename, release="3.6.0.0"):
+        return self.path(name, version, release, "x86_64", filename)
 
     def test_writes_the_release_file_and_latest(self):
         out = self.stage()
@@ -105,12 +119,12 @@ class StageTree(unittest.TestCase):
 
     def test_component_paths_carry_no_channel(self):
         self.stage(channel="canary")
-        self.assertTrue(os.path.exists(self.path("compat", "3.3.0", "x86_64", "compat.tar.zst")))
+        self.assertTrue(os.path.exists(self.component("compat", "3.3.0", "compat.tar.zst")))
         self.assertFalse(os.path.exists(self.path("canary")))
 
     def test_hash_describes_the_downloaded_file(self):
         out = self.stage()
-        tarball = self.path("compat", "3.3.0", "x86_64", "compat.tar.zst")
+        tarball = self.component("compat", "3.3.0", "compat.tar.zst")
         entry = out["components"]["compat"]["arch"]["x86_64"]
         self.assertEqual(entry["sha256"], sha256_of(tarball))
         self.assertEqual(entry["size"], os.path.getsize(tarball))
@@ -120,7 +134,7 @@ class StageTree(unittest.TestCase):
     def test_the_layer_archive_has_no_wrapper_directory(self):
         self.stage()
         names = subprocess.run(["tar", "--zstd", "-tf",
-                                self.path("compat", "3.3.0", "x86_64", "compat.tar.zst")],
+                                self.component("compat", "3.3.0", "compat.tar.zst")],
                                capture_output=True, text=True, check=True).stdout.split()
         self.assertIn("./main", names)
         self.assertNotIn("./compat/main", names)
@@ -128,7 +142,7 @@ class StageTree(unittest.TestCase):
     # The stack tarball is copied, never repacked, so its checksum does not change on a re-stage.
     def test_the_stack_tarball_is_copied_byte_for_byte(self):
         out = self.stage()
-        copied = self.path("libtuxblox", "3.1.0", "x86_64", "libtuxblox.tar.zst")
+        copied = self.component("libtuxblox", "3.1.0", "libtuxblox.tar.zst")
         self.assertEqual(sha256_of(copied), sha256_of(self.ui_tarball))
         self.assertEqual(out["components"]["libtuxblox"]["arch"]["x86_64"]["sha256"], sha256_of(self.ui_tarball))
 
@@ -171,7 +185,7 @@ class Changelogs(StageTree):
         src = os.path.join(self.tmp, "launcher-changelog.md")
         with open(src, "w") as f:
             f.write("- Fixed a thing\n")
-        stage(self.build, self.out, "stable", "3.6.0.0", VERSIONS, {},
+        stage(self.build, self.out, "stable", "3.6.0.0", VERSIONS,
               ui_tarball=self.ui_tarball, changelogs={"launcher": src})
         with open(self.path("launcher", "3.5.0", "changelogs.md")) as f:
             self.assertEqual(f.read(), "- Fixed a thing\n")
@@ -180,15 +194,20 @@ class Changelogs(StageTree):
         self.stage()
         self.assertFalse(os.path.exists(self.path("compat", "3.3.0", "changelogs.md")))
 
-    # A reused component is not written at all, so a changelog for it would have nowhere to go.
-    def test_a_changelog_for_a_reused_component_is_not_written(self):
+    # It sits under the component version, not under the release, because what changed in a
+    # component version is the same account however many releases publish a copy of it.
+    def test_the_changelog_sits_above_every_release_that_carries_the_component(self):
         src = os.path.join(self.tmp, "compat-changelog.md")
         with open(src, "w") as f:
             f.write("- Layer change\n")
-        stage(self.build, self.out, "stable", "3.6.0.1", VERSIONS,
-              {("compat", "3.3.0"): {"sha256": "de" * 32, "size": 1}},
-              ui_tarball=self.ui_tarball, changelogs={"compat": src})
-        self.assertFalse(os.path.exists(self.path("compat", "3.3.0", "changelogs.md")))
+        for release in ("3.6.0.0", "3.6.0.1"):
+            stage(self.build, self.out, "stable", release, VERSIONS,
+                  ui_tarball=self.ui_tarball, changelogs={"compat": src})
+        with open(self.path("compat", "3.3.0", "changelogs.md")) as f:
+            self.assertEqual(f.read(), "- Layer change\n")
+        for release in ("3.6.0.0", "3.6.0.1"):
+            self.assertTrue(os.path.exists(
+                self.component("compat", "3.3.0", "compat.tar.zst", release)))
 
 
 class StackVersionMatch(StageTree):
@@ -229,7 +248,7 @@ class Provenance(StageTree):
     too, to know what "changed since this component was last published" is measured against."""
 
     def test_the_release_file_records_its_source(self):
-        out = stage(self.build, self.out, "stable", "3.6.0.0", VERSIONS, {},
+        out = stage(self.build, self.out, "stable", "3.6.0.0", VERSIONS,
                     ui_tarball=self.ui_tarball, source_commit="abc123", source_dirty=False)
         self.assertEqual(out["source_commit"], "abc123")
         self.assertIs(out["source_dirty"], False)
@@ -242,37 +261,101 @@ class Provenance(StageTree):
         self.assertIs(out["source_dirty"], True)
 
 
-class AlreadyPublished(StageTree):
-    """A component version's bytes are packed exactly once, ever: tar records mtimes, so a repack
-    of identical contents hashes differently and would defeat the client's "skip what I have"."""
+class EveryReleasePublishesEverything(StageTree):
+    """A component version's bytes used to be packed exactly once and reused by every release that
+    named it. They cannot be now: each release's copy carries that release's number inside it, so no
+    two releases' copies are the same file and each release publishes its own."""
 
-    PUBLISHED = {("compat", "3.3.0"): {"sha256": "de" * 32, "size": 349829060}}
+    def test_a_component_whose_version_did_not_move_is_published_again(self):
+        self.stage(release="3.6.0.0")
+        self.stage(release="3.6.0.1")
+        for release in ("3.6.0.0", "3.6.0.1"):
+            self.assertTrue(os.path.exists(
+                self.component("compat", "3.3.0", "compat.tar.zst", release)))
 
-    def test_already_published_component_is_not_repacked(self):
-        out = self.stage(release="3.6.0.1", published=self.PUBLISHED)
-        entry = out["components"]["compat"]["arch"]["x86_64"]
-        self.assertEqual(entry["sha256"], "de" * 32)
-        self.assertEqual(entry["size"], 349829060)
-        self.assertFalse(os.path.exists(
-            self.path("compat", "3.3.0", "x86_64", "compat.tar.zst")))
+    def test_one_component_version_has_different_bytes_in_each_release(self):
+        first = self.stage(release="3.6.0.0")["components"]["launcher"]["arch"]["x86_64"]
+        second = self.stage(release="3.6.0.1")["components"]["launcher"]["arch"]["x86_64"]
+        self.assertNotEqual(first["sha256"], second["sha256"])
+        self.assertEqual(first["size"], second["size"])   # a fixed-size field, so the size holds
 
-    def test_a_changed_component_is_still_packed(self):
-        versions = dict(VERSIONS, launcher="3.6.0")
-        self.stage(release="3.6.0.1", versions=versions, published=self.PUBLISHED)
-        self.assertTrue(os.path.exists(
-            self.path("launcher", "3.6.0", "x86_64", "TuxBloxLauncher")))
+    def test_the_release_is_written_into_every_binary(self):
+        self.stage(release="3.6.0.0")
+        for name, version, filename in (("launcher", "3.5.0", "TuxBloxLauncher"),
+                                         ("installer", "3.1.0", "TuxBloxInstaller"),
+                                         ("studio-mcp", "2.0.1", "studio-mcp")):
+            self.assertEqual(read_stamp(self.component(name, version, filename)), "3.6.0.0")
 
-    # A published entry is matched on version too, not just component name.
-    def test_a_different_version_of_a_published_component_is_packed(self):
-        versions = dict(VERSIONS, compat="3.4.0")
-        self.stage(release="3.6.0.1", versions=versions, published=self.PUBLISHED)
-        self.assertTrue(os.path.exists(
-            self.path("compat", "3.4.0", "x86_64", "compat.tar.zst")))
+    # The build's own copy, not just the published one: ./launch.sh runs what is in build/, and a
+    # re-stage under another number has to leave nothing of the old one behind.
+    def test_the_build_is_stamped_in_place(self):
+        self.stage(release="3.6.0.0")
+        self.assertEqual(read_stamp(os.path.join(self.build, "TuxBloxLauncher")), "3.6.0.0")
+        self.stage(release="3.10.11.0")
+        self.assertEqual(read_stamp(os.path.join(self.build, "TuxBloxLauncher")), "3.10.11.0")
 
-    # Skipping must not leave an empty directory behind that a sync would publish as a 0-byte artifact.
-    def test_no_empty_directory_is_left_for_a_skipped_component(self):
-        self.stage(release="3.6.0.1", published=self.PUBLISHED)
-        self.assertFalse(os.path.isdir(self.path("compat")))
+    def test_the_layer_is_packed_with_the_release_inside_it(self):
+        self.stage(release="3.6.0.0")
+        self.assertEqual(read_stamp(os.path.join(self.build, "compat", "main")), "3.6.0.0")
+        packed = subprocess.run(["tar", "--zstd", "-xOf",
+                                 self.component("compat", "3.3.0", "compat.tar.zst"), "./main"],
+                                capture_output=True, check=True).stdout
+        self.assertIn(MARKER + b"3.6.0.0\0", packed)
+
+    # The one component with no binary to write a number into. It is still published under every
+    # release, because a client builds its address out of the release it is installing.
+    def test_the_stack_carries_no_release_and_is_published_under_each_one(self):
+        self.stage(release="3.6.0.0")
+        self.stage(release="3.6.0.1")
+        for release in ("3.6.0.0", "3.6.0.1"):
+            copied = self.component("libtuxblox", "3.1.0", "libtuxblox.tar.zst", release)
+            self.assertEqual(sha256_of(copied), sha256_of(self.ui_tarball))
+            self.assertIsNone(read_stamp(copied))
+
+    def test_a_binary_with_no_field_is_refused_naming_it(self):
+        self.write("TuxBloxLauncher", "a build from before the field existed\n")
+        with self.assertRaisesRegex(RuntimeError, "TuxBloxLauncher"):
+            self.stage()
+
+    # Two copies of the field would mean stamping one and reading the other.
+    def test_a_binary_carrying_the_field_twice_is_refused(self):
+        path = os.path.join(self.build, "studio-mcp")
+        with open(path, "rb") as f:
+            doubled = f.read()
+        with open(path, "wb") as f:
+            f.write(doubled + doubled)
+        with self.assertRaisesRegex(RuntimeError, "more than once"):
+            self.stage()
+
+
+class LegacyPaths(StageTree):
+    """The last release published before each one carried its own copy of every component. Installs
+    made from it build an address with no release in it, so that one release is published where they
+    will look for it -- and every release after it is not."""
+
+    def test_components_are_written_where_one_copy_served_every_release(self):
+        self.stage(legacy_paths=True)
+        self.assertTrue(os.path.exists(self.path("launcher", "3.5.0", "x86_64", "TuxBloxLauncher")))
+        self.assertFalse(os.path.exists(self.component("launcher", "3.5.0", "TuxBloxLauncher")))
+
+    def test_the_release_is_still_written_into_them(self):
+        self.stage(legacy_paths=True)
+        self.assertEqual(read_stamp(self.path("launcher", "3.5.0", "x86_64", "TuxBloxLauncher")),
+                         "3.6.0.0")
+
+    # Only where the bytes are differs, and the file says which.
+    def test_the_release_file_says_the_same_thing_either_way(self):
+        legacy = self.stage(legacy_paths=True)
+        current = self.stage()
+        self.assertEqual(legacy["components"]["launcher"]["arch"]["x86_64"]["path"],
+                         "launcher/3.5.0/x86_64/TuxBloxLauncher")
+        self.assertEqual(current["components"]["launcher"]["arch"]["x86_64"]["path"],
+                         "launcher/3.5.0/3.6.0.0/x86_64/TuxBloxLauncher")
+        for content in (legacy, current):
+            del content["published"]
+            for entry in content["components"].values():
+                del entry["arch"]["x86_64"]["path"]
+        self.assertEqual(legacy, current)
 
 
 class StackTarballSelection(StageTree):
@@ -290,8 +373,8 @@ class StackTarballSelection(StageTree):
         with open(os.path.join(root, "shared", "ui", "dist", "ui-stack-3-x86_64.tar.zst"), "w") as f:
             f.write("stale, and not a valid archive\n")
         out = os.path.join(self.tmp, "out7")
-        content = stage(os.path.join(root, "build"), out, "stable", "3.6.0.0", VERSIONS, {})
-        copied = os.path.join(out, "libtuxblox", "3.1.0", "x86_64", "libtuxblox.tar.zst")
+        content = stage(os.path.join(root, "build"), out, "stable", "3.6.0.0", VERSIONS)
+        copied = os.path.join(out, "libtuxblox", "3.1.0", "3.6.0.0", "x86_64", "libtuxblox.tar.zst")
         self.assertEqual(sha256_of(copied), sha256_of(self.ui_tarball))
         self.assertEqual(content["components"]["libtuxblox"]["arch"]["x86_64"]["sha256"],
                          sha256_of(self.ui_tarball))
