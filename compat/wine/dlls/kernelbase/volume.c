@@ -117,12 +117,19 @@ BOOL device_path_to_dos_path( UNICODE_STRING *path )
 /* open a handle to a device root */
 static BOOL open_device_root( LPCWSTR root, HANDLE *handle )
 {
+    WCHAR volume_path[MAX_PATH];
     UNICODE_STRING nt_name;
     OBJECT_ATTRIBUTES attr;
     IO_STATUS_BLOCK io;
     NTSTATUS status;
 
     if (!root) root = L"\\";
+    /* Every caller of this asks about the VOLUME a name sits on, not about the name, and that is
+     * what Windows answers: it resolves the name to its mount point first, so the free space of a
+     * directory that does not exist yet is the free space of the disk it would be created on.
+     * Opening the name itself instead turned that into ERROR_FILE_NOT_FOUND, which a program that
+     * asks how much room it has before it creates the directory reads as a failure. */
+    if (GetVolumePathNameW( root, volume_path, ARRAY_SIZE(volume_path) )) root = volume_path;
     if (!RtlDosPathNameToNtPathName_U( root, &nt_name, NULL, NULL ))
     {
         SetLastError( ERROR_PATH_NOT_FOUND );
