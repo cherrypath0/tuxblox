@@ -1,12 +1,1149 @@
 # German translation for tuxblox
 # still working on translations, very work in progress
-
 msgid ""
 msgstr ""
 "Project-Id-Version: tuxblox\n"
+"Report-Msgid-Bugs-To: cherry@tuxblox.net\n"
+"POT-Creation-Date: 2026-11-10 15:36+0300\n"
 "Language-Team: German\n"
 "Language: de\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
+"X-Native-Name: Deutsch\n"
+
+#, c++-format
+msgid "--dir names a file, not a folder: {0}"
+msgstr ""
+
+msgid "--dir needs an absolute path."
+msgstr ""
+
+#, c++-format
+msgid "--dir's parent folder does not exist: {0}"
+msgstr ""
+
+#, c++-format
+msgid "--release needs a release version like 3.6.0.1, not \"{0}\"."
+msgstr ""
+
+#, c++-format
+msgid ""
+"A TuxBlox process has exited with a non-zero exit code.\n"
+"{0}"
+msgstr ""
+
+msgid "A flag has no name."
+msgstr ""
+
+msgid ""
+"A free, open source launcher and compatibility layer for running Roblox on "
+"Linux."
+msgstr ""
+
+msgid "A graphics driver with Vulkan support"
+msgstr ""
+
+msgid "A later row sets this flag too, and that one is the one that applies."
+msgstr ""
+
+msgid "A new update is available"
+msgstr ""
+
+msgid "ACTIVE"
+msgstr ""
+
+msgid "Aborted"
+msgstr ""
+
+msgid "About"
+msgstr ""
+
+msgid "Adds a button to your activity that allows others to join your server"
+msgstr ""
+
+msgid ""
+"Allows games you join to set more advanced activity. Only works on games "
+"that use the Bloxstrap API."
+msgstr ""
+
+msgid "Always send crash reports"
+msgstr ""
+
+msgid "An experimental feature that lets Roblox vibrate your controller"
+msgstr ""
+
+msgid "An instance of the TuxBlox Launcher is already running!"
+msgstr ""
+
+msgid "An unknown error has occurred which has crashed TuxBlox.\n"
+msgstr ""
+
+msgid "Auto-Update Roblox"
+msgstr ""
+
+msgid ""
+"Auto-Update Roblox keeps these up to date. Turn it off in Settings to pick a "
+"build yourself."
+msgstr ""
+
+msgid "Automatic"
+msgstr ""
+
+#, c++-format
+msgid "Automatic (1: {0})"
+msgstr ""
+
+msgid "Automatic updates"
+msgstr ""
+
+msgid "Automatically close this window whenever Roblox starts."
+msgstr ""
+
+msgid "Cancel"
+msgstr ""
+
+msgid "Cancelled."
+msgstr ""
+
+msgid "Cancelled. Cleaning up..."
+msgstr ""
+
+msgid "Checking for updates..."
+msgstr ""
+
+msgid "Checking…"
+msgstr ""
+
+#, c++-format
+msgid "Checksum mismatch for {0} -- refusing to install a corrupted package."
+msgstr ""
+
+#, c++-format
+msgid "Choose one of {0}, {1} or {2}."
+msgstr ""
+
+msgid ""
+"Choose which build of Roblox you play on, install an older one, or remove "
+"the ones you no longer need."
+msgstr ""
+
+msgid "Choose which lines the log shows"
+msgstr ""
+
+msgid "Close"
+msgstr ""
+
+msgid "Coming soon"
+msgstr ""
+
+msgid "Component versions"
+msgstr ""
+
+#, c++-format
+msgid "Connected to a server in {0}"
+msgstr ""
+
+msgid "Contacting Roblox servers"
+msgstr ""
+
+msgid "Controller"
+msgstr ""
+
+msgid "Copy"
+msgstr ""
+
+msgid "Copy the log"
+msgstr ""
+
+#, c++-format
+msgid "Could not check for updates: {0}"
+msgstr ""
+
+#, c++-format
+msgid "Could not create {0}: {1}"
+msgstr ""
+
+#, c++-format
+msgid "Could not download {0}: {1}"
+msgstr ""
+
+#, c++-format
+msgid ""
+"Could not fetch the package list (Roblox may have removed this version): {0}"
+msgstr ""
+
+#, c++-format
+msgid "Could not move the finished version into place: {0}"
+msgstr ""
+
+#, c++-format
+msgid ""
+"Could not open this file in Roblox Studio:\n"
+"{0}"
+msgstr ""
+
+#, c++-format
+msgid "Could not prepare the update: {0}."
+msgstr ""
+
+#, c++-format
+msgid "Could not work out which version to install: {0}"
+msgstr ""
+
+#, c++-format
+msgid "Could not write AppSettings.xml into {0}"
+msgstr ""
+
+#, c++-format
+msgid ""
+"Couldn't fetch the package manifest (this version may have been purged from "
+"Roblox's CDN): {0}"
+msgstr ""
+
+#, c++-format
+msgid "Couldn't fetch the release: {0}"
+msgstr ""
+
+#, c++-format
+msgid "Couldn't reach tuxblox.net to prepare the uninstaller: {0}"
+msgstr ""
+
+#, c++-format
+msgid "Couldn't resolve a version: {0}"
+msgstr ""
+
+msgid "Creating TuxBlox directory"
+msgstr ""
+
+msgid "Danger zone"
+msgstr ""
+
+msgid "Delete"
+msgstr ""
+
+msgid "Delete this version?"
+msgstr ""
+
+msgid ""
+"Desktop shortcuts and URL handlers were removed, but the TuxBlox folder "
+"could not be fully deleted. You may need to remove it manually."
+msgstr ""
+
+msgid "Detailed logging"
+msgstr ""
+
+msgid "Distrobox GPU Passthrough"
+msgstr ""
+
+msgid "Documentation"
+msgstr ""
+
+msgid "Done"
+msgstr ""
+
+msgid "Downloading Roblox Player"
+msgstr ""
+
+msgid "Downloading Roblox Studio"
+msgstr ""
+
+msgid "Downloading packages"
+msgstr ""
+
+#, c++-format
+msgid "Downloading updater failed: {0}"
+msgstr ""
+
+#, c++-format
+msgid "Downloading {0}"
+msgstr ""
+
+#, c++-format
+msgid "Downloading {0} failed: {1}"
+msgstr ""
+
+msgid "ENDED"
+msgstr ""
+
+msgid "Enable Discord Rich Presence"
+msgstr ""
+
+msgid "Enable Haptics"
+msgstr ""
+
+msgid "Environment"
+msgstr ""
+
+msgid "Environment variables"
+msgstr ""
+
+msgid "Error"
+msgstr ""
+
+msgid "Errors"
+msgstr ""
+
+msgid ""
+"Every installed Roblox goes with it. Your settings and FastFlags are kept."
+msgstr ""
+
+#, c++-format
+msgid "Exit Code: {0}"
+msgstr ""
+
+msgid "Extracting"
+msgstr ""
+
+#, c++-format
+msgid "Extracting {0}"
+msgstr ""
+
+msgid "Failed"
+msgstr ""
+
+msgid "Failed to Update Roblox"
+msgstr ""
+
+#, c++-format
+msgid "Failed to download {0}: {1}"
+msgstr ""
+
+#, c++-format
+msgid "Failed to extract {0}: {1}"
+msgstr ""
+
+#, c++-format
+msgid "Failed to install updater: {0}"
+msgstr ""
+
+#, c++-format
+msgid "Failed to install {0}: {1}"
+msgstr ""
+
+msgid "Failed to launch Roblox"
+msgstr ""
+
+msgid "Failed to prepare the uninstaller."
+msgstr ""
+
+#, c++-format
+msgid "Failed to read {0}: {1}"
+msgstr ""
+
+#, c++-format
+msgid "Failed to remove {0}: {1}"
+msgstr ""
+
+msgid ""
+"Failed to verify the integrity of Roblox. Some files might be unsigned or "
+"have been tampered with. Please make sure TuxBlox is up to date, then "
+"reinstall Roblox and try again."
+msgstr ""
+
+#, c++-format
+msgid "Failed to write AppSettings.xml into {0}"
+msgstr ""
+
+msgid "FastFlags"
+msgstr ""
+
+msgid ""
+"FastFlags are hidden Roblox settings you can change yourself. Only some of "
+"them are meant to be changed, and what happens to an account that changes "
+"the rest is Roblox's decision alone."
+msgstr ""
+
+msgid "Fetching package manifest"
+msgstr ""
+
+msgid "Fetching release manifest"
+msgstr ""
+
+msgid "Fetching the package list"
+msgstr ""
+
+msgid "Find in log"
+msgstr ""
+
+msgid "Finished"
+msgstr ""
+
+msgid "GPU acceleration for web pages"
+msgstr ""
+
+msgid "Game output"
+msgstr ""
+
+msgid "General Error"
+msgstr ""
+
+msgid "Graphics API"
+msgstr ""
+
+msgid "HOME environment variable is not set."
+msgstr ""
+
+msgid "Home"
+msgstr ""
+
+msgid "Illegal CPU instruction"
+msgstr ""
+
+msgid "Import"
+msgstr ""
+
+msgid "Import JSON into Player"
+msgstr ""
+
+msgid "Import JSON into Studio"
+msgstr ""
+
+msgid "Info"
+msgstr ""
+
+msgid "Install & Launch"
+msgstr ""
+
+msgid "Install TuxBlox updates without asking."
+msgstr ""
+
+#, c++-format
+msgid "Installed {0}"
+msgstr ""
+
+msgid "Installed, but could not record which release this is"
+msgstr ""
+
+msgid "Installing Roblox"
+msgstr ""
+
+msgid "Installing TuxBlox"
+msgstr ""
+
+#, c++-format
+msgid "Installing {0}"
+msgstr ""
+
+msgid "Jump to the end"
+msgstr ""
+
+msgid "Killed"
+msgstr ""
+
+msgid "Language"
+msgstr ""
+
+msgid "Launch Player"
+msgstr ""
+
+msgid "Launch Studio"
+msgstr ""
+
+msgid "Launcher"
+msgstr ""
+
+msgid "Launcher theme"
+msgstr ""
+
+#, c++-format
+msgid "Launcher {0}"
+msgstr ""
+
+msgid "Let games use the Rich Presence API"
+msgstr ""
+
+msgid "Let people join your server"
+msgstr ""
+
+msgid "Links"
+msgstr ""
+
+msgid "Linux 6.7 or newer"
+msgstr ""
+
+msgid "Minimize to background"
+msgstr ""
+
+msgid "Missing value for --channel."
+msgstr ""
+
+msgid "Missing value for --dir."
+msgstr ""
+
+msgid "Missing value for --language."
+msgstr ""
+
+msgid "Missing value for --release-file."
+msgstr ""
+
+msgid "Missing value for --release."
+msgstr ""
+
+#, c++-format
+msgid "NVIDIA driver {0} or newer"
+msgstr ""
+
+msgid "Next match"
+msgstr ""
+
+msgid ""
+"No earlier version found in Roblox's deploy history for this channel. Roblox "
+"hides the version list for its private channels, so this only works on the "
+"live channel."
+msgstr ""
+
+msgid "No flags set."
+msgstr ""
+
+msgid ""
+"No published release found for the current channel -- can't fetch an "
+"uninstaller."
+msgstr ""
+
+#, c++-format
+msgid "No releases available for the '{0}' channel yet."
+msgstr ""
+
+msgid "No session selected"
+msgstr ""
+
+msgid "No sessions match what you typed."
+msgstr ""
+
+msgid "No version hash to install."
+msgstr ""
+
+msgid "No versions installed"
+msgstr ""
+
+msgid "Not Executable"
+msgstr ""
+
+#, c++-format
+msgid ""
+"Not enough free disk space. This install needs approximately {0} MB free."
+msgstr ""
+
+msgid "Not enough free disk space. TuxBlox requires at least 3GB free."
+msgstr ""
+
+msgid "Not installed yet"
+msgstr ""
+
+msgid "Not now"
+msgstr ""
+
+msgid "Nothing is running right now."
+msgstr ""
+
+msgid "Nothing is running. Launch Roblox from Home and it will appear here."
+msgstr ""
+
+msgid "Nothing running"
+msgstr ""
+
+msgid "Nothing to do."
+msgstr ""
+
+msgid ""
+"Nothing to do: pass --update-roblox, --install-roblox or --preview-"
+"rbxinstaller."
+msgstr ""
+
+msgid "Notify server location"
+msgstr ""
+
+msgid "OK"
+msgstr ""
+
+msgid "Open"
+msgstr ""
+
+msgid "Open sessions"
+msgstr ""
+
+msgid "Open the folder the logs are in"
+msgstr ""
+
+msgid "Paste the flags as JSON, like {\"FlagName\": \"true\"}."
+msgstr ""
+
+msgid "Paste the flags as JSON."
+msgstr ""
+
+msgid "Player support is in development"
+msgstr ""
+
+msgid "Preferred graphics card"
+msgstr ""
+
+msgid "Preparing"
+msgstr ""
+
+msgid "Preparing updater"
+msgstr ""
+
+msgid "Preview Mode"
+msgstr ""
+
+msgid "Preview Mode - "
+msgstr ""
+
+msgid "Previous match"
+msgstr ""
+
+msgid "Privacy"
+msgstr ""
+
+msgid "Privacy Policy"
+msgstr ""
+
+msgid ""
+"Records much more information in session logs. Turn this on if you're "
+"reporting a bug."
+msgstr ""
+
+#, c++-format
+msgid "Release {0}"
+msgstr ""
+
+#, c++-format
+msgid "Release {0} has no {1} for this computer's processor"
+msgstr ""
+
+#, c++-format
+msgid ""
+"Release {0} is not published on the '{1}' channel. Leave --release off to "
+"install the newest release instead. ({2})"
+msgstr ""
+
+#, c++-format
+msgid "Release {0} publishes no updater to hand over to."
+msgstr ""
+
+#, c++-format
+msgid "Release {0} · {1} channel"
+msgstr ""
+
+msgid "Remove"
+msgstr ""
+
+msgid "Remove this flag"
+msgstr ""
+
+msgid "Removes the virtual drive, the shortcuts and TuxBlox itself."
+msgstr ""
+
+msgid "Report"
+msgstr ""
+
+msgid "Resolving version"
+msgstr ""
+
+msgid "Restart required"
+msgstr ""
+
+msgid "Roblox Error"
+msgstr ""
+
+msgid ""
+"Roblox does not allow this channel to be looked up, so TuxBlox cannot find "
+"its latest version. Type an exact version instead, or use the live channel."
+msgstr ""
+
+msgid ""
+"Roblox does not allow this channel to be looked up. Name an exact version "
+"instead, or use the live channel."
+msgstr ""
+
+msgid "Roblox has exited with a non-zero exit code.\n"
+msgstr ""
+
+msgid "Roblox is up to date"
+msgstr ""
+
+msgid "Roblox's package list had nothing TuxBlox knows how to install."
+msgstr ""
+
+msgid "Roblox's packages were not all unpacked."
+msgstr ""
+
+msgid "Run Roblox in a separate window that acts as a desktop"
+msgstr ""
+
+msgid ""
+"Running inside a Distrobox container without GPU passthrough -- Roblox will "
+"likely fail to render. Recreate the container with GPU access, e.g. "
+"`distrobox create --nvidia ...` or `--additional-flags \"--device /dev/"
+"dri\"`."
+msgstr ""
+
+msgid "Save the log to a file"
+msgstr ""
+
+#, c++-format
+msgid "Saved to {0}"
+msgstr ""
+
+msgid "Search sessions"
+msgstr ""
+
+msgid "See tuxblox.net/docs for the full requirements."
+msgstr ""
+
+msgid "Segmentation Fault"
+msgstr ""
+
+msgid ""
+"Send the session log and your versions when Roblox crashes. See tuxblox.net/"
+"privacy"
+msgstr ""
+
+msgid ""
+"Sends a notification about the server's location whenever you join a game "
+"server or a Team Create server"
+msgstr ""
+
+msgid "Sessions"
+msgstr ""
+
+msgid "Set active"
+msgstr ""
+
+msgid "Settings"
+msgstr ""
+
+msgid "Show this session and its log"
+msgstr ""
+
+msgid "Something went wrong"
+msgstr ""
+
+msgid ""
+"Something went wrong while attempting to update Roblox, so the update was "
+"skipped. Please check your internet connection and try again."
+msgstr ""
+
+msgid "Speed up the rendering of web panels using your graphics card"
+msgstr ""
+
+msgid "Starting"
+msgstr ""
+
+msgid "Starting…"
+msgstr ""
+
+msgid "Stop Player"
+msgstr ""
+
+msgid "Stop session"
+msgstr ""
+
+msgid "Stop this session"
+msgstr ""
+
+#, c++-format
+msgid "Stopped {0}"
+msgstr ""
+
+msgid "Stopping…"
+msgstr ""
+
+msgid "System language"
+msgstr ""
+
+msgid "Takes effect after restarting TuxBlox."
+msgstr ""
+
+msgid "Terminate"
+msgstr ""
+
+msgid "Terminate Roblox"
+msgstr ""
+
+msgid "Terminated"
+msgstr ""
+
+msgid "Terms of Use"
+msgstr ""
+
+#, c++-format
+msgid "That release cannot be read: {0}"
+msgstr ""
+
+msgid "The flags need to be in curly brackets, like {\"FlagName\": \"true\"}."
+msgstr ""
+
+msgid "The new language will be used the next time TuxBlox starts."
+msgstr ""
+
+msgid "The release channel TuxBlox updates to"
+msgstr ""
+
+#, c++-format
+msgid "The value of {0} must be text, a number, true or false."
+msgstr ""
+
+msgid "There are no flags in this JSON."
+msgstr ""
+
+msgid ""
+"There is no graphical session to show the installer in. Run this installer "
+"from your desktop, or use --headless to install from the terminal."
+msgstr ""
+
+msgid ""
+"This copy of the installer has no interface attached to it. Download TuxBlox "
+"again, or run this installer with --headless."
+msgstr ""
+
+msgid ""
+"This copy of the installer is damaged: its interface does not match its own "
+"checksum. Download TuxBlox again, or run this installer with --headless."
+msgstr ""
+
+msgid ""
+"This copy of the installer is damaged: its interface is missing the program "
+"that should start it. Download TuxBlox again, or run this installer with --"
+"headless."
+msgstr ""
+
+#, c++-format
+msgid "This is not valid JSON: {0}"
+msgstr ""
+
+msgid "Troubleshooting"
+msgstr ""
+
+msgid "TuxBlox"
+msgstr ""
+
+msgid "TuxBlox Error"
+msgstr ""
+
+msgid "TuxBlox Installer"
+msgstr ""
+
+msgid "TuxBlox Uninstalled"
+msgstr ""
+
+msgid "TuxBlox could not be installed"
+msgstr ""
+
+msgid ""
+"TuxBlox could not check its interface. Run this installer with --headless "
+"instead."
+msgstr ""
+
+#, c++-format
+msgid ""
+"TuxBlox could not create {0} to unpack its interface. Check that you are "
+"allowed to write there and that the disk is not full, or run this installer "
+"with --headless."
+msgstr ""
+
+msgid ""
+"TuxBlox could not finish unpacking its interface. Run this installer with --"
+"headless instead."
+msgstr ""
+
+msgid "TuxBlox could not finish updating Roblox"
+msgstr ""
+
+msgid "TuxBlox could not open its window, so nothing was installed."
+msgstr ""
+
+msgid ""
+"TuxBlox could not read its interface out of this installer. Check that the "
+"disk is not full, or run this installer with --headless."
+msgstr ""
+
+msgid ""
+"TuxBlox could not unpack its interface. Check that the disk is not full, or "
+"run this installer with --headless."
+msgstr ""
+
+msgid ""
+"TuxBlox could not work out where to unpack its interface. Run this installer "
+"with --headless instead."
+msgstr ""
+
+msgid "TuxBlox could not write to its own folder"
+msgstr ""
+
+msgid "TuxBlox has been completely removed from this system."
+msgstr ""
+
+msgid "TuxBlox has encountered an error and has quit!"
+msgstr ""
+
+msgid "TuxBlox has encountered an error and has to quit!"
+msgstr ""
+
+msgid "TuxBlox installed successfully."
+msgstr ""
+
+msgid "TuxBlox is not supported on your system"
+msgstr ""
+
+msgid "TuxBlox needs:"
+msgstr ""
+
+msgid ""
+"TuxBlox unpacked its interface but could not start it. This usually means "
+"the folder it was unpacked into does not allow programs to run. Try running "
+"this installer with --headless."
+msgstr ""
+
+msgid "TuxBlox upgraded successfully."
+msgstr ""
+
+#, c++-format
+msgid "TuxBlox was installed successfully, but failed to launch {0}."
+msgstr ""
+
+#, c++-format
+msgid ""
+"TuxBlox was installed successfully, but failed to launch {0}. You can try "
+"running it manually."
+msgstr ""
+
+msgid ""
+"TuxBlox's Privacy Policy and Terms of Use apply to these features. See "
+"tuxblox.net/privacy and tuxblox.net/terms"
+msgstr ""
+
+msgid ""
+"TuxBlox: refusing to run as root. Re-run as a normal user, or pass --allow-"
+"root if you have a specific reason."
+msgstr ""
+
+msgid "Uninstall"
+msgstr ""
+
+msgid "Uninstall TuxBlox"
+msgstr ""
+
+msgid "Uninstall TuxBlox?"
+msgstr ""
+
+msgid "Uninstalling…"
+msgstr ""
+
+#, c++-format
+msgid "Unknown language: {0}. This build has {1}."
+msgstr ""
+
+#, c++-format
+msgid "Unrecognised argument: {0}"
+msgstr ""
+
+#, c++-format
+msgid "Unrecognized argument: {0}"
+msgstr ""
+
+msgid "Up to date"
+msgstr ""
+
+msgid "Update"
+msgstr ""
+
+msgid "Update available"
+msgstr ""
+
+msgid "Update channel"
+msgstr ""
+
+msgid "Update check failed"
+msgstr ""
+
+msgid "Updater checksum mismatch"
+msgstr ""
+
+msgid "Updates"
+msgstr ""
+
+msgid "Updating"
+msgstr ""
+
+msgid "Updating TuxBlox"
+msgstr ""
+
+#, c++-format
+msgid "Upgrading {0}"
+msgstr ""
+
+msgid ""
+"Usage: TuxBloxInstaller [options]\n"
+"\n"
+"Installs TuxBlox, upgrading an existing install in place if one is\n"
+"found, then starts the TuxBlox Launcher. Installs into ~/.tuxblox\n"
+"unless --dir says otherwise. Installs the newest release on its\n"
+"channel unless told otherwise.\n"
+"\n"
+"Options:\n"
+"  --dir <path>       Absolute path to install into, instead of\n"
+"                     ~/.tuxblox.\n"
+"  --allow-root       Allow installing as root, which is not\n"
+"                     recommended.\n"
+"  --headless         Report progress on the terminal instead of\n"
+"                     opening a window. Needs no display.\n"
+"  --nolaunch         Don't start the launcher once the install\n"
+"                     finishes.\n"
+"  --uninstall        Remove TuxBlox from this system instead of\n"
+"                     installing it.\n"
+"  --channel <name>   Release channel to install from (default: the\n"
+"                     channel this installer was built for).\n"
+"  --release <ver>    Install a specific release, e.g. 3.6.0.1, instead\n"
+"                     of the newest one.\n"
+"  --release-file <p> Install the release described by a file already on\n"
+"                     disk. Used by the launcher when it hands over an\n"
+"                     update it has already resolved.\n"
+"  --language <code>  Interface language: en, pt_BR or es.\n"
+"  --latest           Accepted and ignored: installing the newest release\n"
+"                     instead of this installer's own version.\n"
+"  --version          Show the build version and exit.\n"
+"  -h, --help         Show this help and exit.\n"
+msgstr ""
+
+msgid ""
+"Usage: TuxBloxLauncher [--update-roblox | --install-roblox | --preview-"
+"rbxinstaller]\n"
+"\n"
+"  --update-roblox         Install the channel's newest version if it is "
+"missing.\n"
+"                          Shows no window unless there is something to "
+"download.\n"
+"  --install-roblox        Install the Roblox version the environment "
+"describes.\n"
+"  --preview-rbxinstaller  Show the window without downloading or writing "
+"anything.\n"
+"  --help                  Show this message.\n"
+"  --version               Print the TuxBlox version and exit.\n"
+"\n"
+"Environment:\n"
+"  TUXBLOX_BOOTSTRAPPER_DOWNLOAD_SERVER      Mirror to download from.\n"
+"  TUXBLOX_BOOTSTRAPPER_DOWNLOAD_RBXHASH     Exact version, or blank for "
+"newest.\n"
+"  TUXBLOX_BOOTSTRAPPER_DOWNLOAD_RBXCHANNEL  Roblox release channel.\n"
+"  TUXBLOX_BOOTSTRAPPER_DOWNLOAD_APP         player or studio.\n"
+"  TUXBLOX_BOOTSTRAPPER_INSTALL_DIR          Where versions are installed.\n"
+msgstr ""
+
+msgid "VARIABLE=value"
+msgstr ""
+
+msgid "Versions"
+msgstr ""
+
+msgid "Virtual Desktop Mode"
+msgstr ""
+
+msgid ""
+"WARNING: The current user is root, it is highly recommended to launch "
+"TuxBlox as a normal user unless there is a specific reason why"
+msgstr ""
+
+msgid "Warnings"
+msgstr ""
+
+msgid "Website"
+msgstr ""
+
+msgid "Wipe"
+msgstr ""
+
+msgid "Wipe prefix"
+msgstr ""
+
+msgid "Wipe the virtual drive"
+msgstr ""
+
+msgid "Wipe the virtual drive?"
+msgstr ""
+
+msgid "Wiping…"
+msgstr ""
+
+msgid "Would you like to update?"
+msgstr ""
+
+msgid "already running"
+msgstr ""
+
+msgid "could not resolve or download the Roblox executable"
+msgstr ""
+
+msgid "crashed"
+msgstr ""
+
+#, c++-format
+msgid "ended {0} ago"
+msgstr ""
+
+msgid "failed to start Proton process"
+msgstr ""
+
+msgid "no matches"
+msgstr ""
+
+msgid "not installed"
+msgstr ""
+
+#, c++-format
+msgid "this computer has {0}"
+msgstr ""
+
+msgid "this release names no launcher -- nothing to hand off to"
+msgstr ""
+
+msgid "value"
+msgstr ""
+
+msgid "writing the update details failed, which usually means the disk is full"
+msgstr ""
+
+#, c++-format
+msgid ""
+"{0} archive does not contain {1} at its root -- it was packed with a wrapper "
+"directory, which breaks the install layout"
+msgstr ""
+
+#, c++-format
+msgid "{0} download checksum mismatch (expected {1}, got {2})"
+msgstr ""
+
+#, c++-format
+msgid "{0} of {1}"
+msgstr ""
+
+#, c++-format
+msgid "{0} of {1} entries"
+msgstr ""
+
+#, c++-format
+msgid ""
+"{0} was packed with a wrapper directory, which breaks the install layout"
+msgstr ""
+
+#, c++-format
+msgid "{0} will be removed from the virtual drive."
+msgstr ""
+
+#, c++-format
+msgid "{} entry"
+msgid_plural "{} entries"
+msgstr[0] ""
+msgstr[1] ""
+
+#, c++-format
+msgid "{} flag is ready to import."
+msgid_plural "{} flags are ready to import."
+msgstr[0] ""
+msgstr[1] ""
+
+#, c++-format
+msgid "· {0} channel"
+msgstr ""

@@ -29,6 +29,9 @@ BinaryPath="$(realpath "$BinaryPath")"
 
 read -r -d '' InnerScript <<'INNER' || true
 set -eu
+# The checks below compare English text. Pin the language so a host locale
+# cannot change what the binary prints.
+export TUXBLOX_LANGUAGE=en
 export DEBIAN_FRONTEND=noninteractive
 # Debian 11 is end of life, so its packages now live on the archive mirror.
 if grep -q '^VERSION_ID="11"' /etc/os-release; then
@@ -157,6 +160,7 @@ podman run --rm --init -v "$BinaryPath:/TuxBloxInstaller:ro" "$Image" bash -c "$
 
 read -r -d '' NoexecScript <<'INNER' || true
 set -eu
+export TUXBLOX_LANGUAGE=en
 export DEBIAN_FRONTEND=noninteractive
 if grep -q '^VERSION_ID="11"' /etc/os-release; then
     printf 'deb http://archive.debian.org/debian bullseye main\n' >/etc/apt/sources.list

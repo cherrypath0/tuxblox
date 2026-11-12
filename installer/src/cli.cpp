@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "cli.h"
+#include "i18n.h"
 #include "install_paths.h"
 #include <string>
 
@@ -49,6 +50,32 @@ ReleaseSource releaseSourceFor(const CliOptions& options) {
     return {};
 }
 
+void initializeLanguage(int argc, char** argv) {
+    std::string directory;
+    std::string language;
+    for (int i = 1; i < argc; ++i) {
+        const std::string arg = argv[i];
+        if (arg == "--dir" && i + 1 < argc) directory = argv[++i];
+        else if (arg == "--language" && i + 1 < argc) language = argv[++i];
+    }
+
+    if (!language.empty()) {
+        if (const auto parsed = i18n::parseLanguage(language)) {
+            i18n::setLanguage(*parsed);
+            return;
+        }
+    }
+
+    // A missing HOME or settings file is not fatal here: the installer's own
+    // error path reports it after the language is settled.
+    try {
+        if (directory.empty()) directory = installDir();
+        i18n::initializeFromSettingsFile(directory + "/settings.json");
+    } catch (...) {
+        i18n::initializeFromSetting("system");
+    }
+}
+
 CliOptions parseArgs(int argc, const char* const* argv) {
     CliOptions options;
 
@@ -70,18 +97,18 @@ CliOptions parseArgs(int argc, const char* const* argv) {
             // predates this change keeps working rather than failing on an unknown flag.
         } else if (arg == "--release") {
             if (i + 1 >= argc) {
-                options.error = "Missing value for --release.";
+                options.error = i18n::tr("Missing value for --release.");
                 return options;
             }
             options.release = argv[++i];
             if (!isReleaseVersion(options.release)) {
-                options.error = "--release needs a release version like 3.6.0.1, not \"" +
-                                 options.release + "\".";
+                options.error = i18n::trf("--release needs a release version like 3.6.0.1, not \"{0}\".",
+                                          {options.release});
                 return options;
             }
         } else if (arg == "--release-file") {
             if (i + 1 >= argc) {
-                options.error = "Missing value for --release-file.";
+                options.error = i18n::tr("Missing value for --release-file.");
                 return options;
             }
             options.releaseFile = argv[++i];
@@ -90,7 +117,7 @@ CliOptions parseArgs(int argc, const char* const* argv) {
             // install the wrong channel during a launcher upgrade handoff,
             // so a value-less --channel is a hard usage error.
             if (i + 1 >= argc) {
-                options.error = "Missing value for --channel.";
+                options.error = i18n::tr("Missing value for --channel.");
                 return options;
             }
             // "dev" was renamed to "experimental". Accepted as an alias so an
@@ -101,20 +128,37 @@ CliOptions parseArgs(int argc, const char* const* argv) {
             options.channel = value == "dev" ? "experimental" : value;
         } else if (arg == "--allow-root") {
             options.allowRoot = true;
+        } else if (arg == "--language") {
+            if (i + 1 >= argc) {
+                options.error = i18n::tr("Missing value for --language.");
+                return options;
+            }
+            options.language = argv[++i];
+            if (!i18n::parseLanguage(options.language)) {
+                // Named rather than listed in the message's own text, so the
+                // list cannot go stale when a catalogue is added or removed.
+                std::string known;
+                for (const i18n::LanguageInfo &language : i18n::languages()) {
+                    if (!known.empty()) known += ", ";
+                    known += language.tag;
+                }
+                options.error = i18n::trf("Unknown language: {0}. This build has {1}.", {options.language, known});
+                return options;
+            }
         } else if (arg == "--dir") {
             if (i + 1 >= argc) {
-                options.error = "Missing value for --dir.";
+                options.error = i18n::tr("Missing value for --dir.");
                 return options;
             }
             // A relative path would resolve against the current directory, which a double-clicked installer does not meaningfully have.
             const std::string value = argv[++i];
             if (value.empty() || value[0] != '/') {
-                options.error = "--dir needs an absolute path.";
+                options.error = i18n::tr("--dir needs an absolute path.");
                 return options;
             }
             options.dir = normalizedDir(value);
         } else {
-            options.error = "Unrecognized argument: " + arg;
+            options.error = i18n::trf("Unrecognized argument: {0}", {arg});
             return options;
         }
     }
@@ -122,36 +166,38 @@ CliOptions parseArgs(int argc, const char* const* argv) {
     return options;
 }
 
-const char* usageText() {
-    return "Usage: TuxBloxInstaller [options]\n"
-           "\n"
-           "Installs TuxBlox, upgrading an existing install in place if one is\n"
-           "found, then starts the TuxBlox Launcher. Installs into ~/.tuxblox\n"
-           "unless --dir says otherwise. Installs the newest release on its\n"
-           "channel unless told otherwise.\n"
-           "\n"
-           "Options:\n"
-           "  --dir <path>       Absolute path to install into, instead of\n"
-           "                     ~/.tuxblox.\n"
-           "  --allow-root       Allow installing as root, which is not\n"
-           "                     recommended.\n"
-           "  --headless         Report progress on the terminal instead of\n"
-           "                     opening a window. Needs no display.\n"
-           "  --nolaunch         Don't start the launcher once the install\n"
-           "                     finishes.\n"
-           "  --uninstall        Remove TuxBlox from this system instead of\n"
-           "                     installing it.\n"
-           "  --channel <name>   Release channel to install from (default: the\n"
-           "                     channel this installer was built for).\n"
-           "  --release <ver>    Install a specific release, e.g. 3.6.0.1, instead\n"
-           "                     of the newest one.\n"
-           "  --release-file <p> Install the release described by a file already on\n"
-           "                     disk. Used by the launcher when it hands over an\n"
-           "                     update it has already resolved.\n"
-           "  --latest           Accepted and ignored: installing the newest release\n"
-           "                     instead of this installer's own version.\n"
-           "  --version          Show the build version and exit.\n"
-           "  -h, --help         Show this help and exit.\n";
+std::string usageText() {
+    return i18n::tr(
+        "Usage: TuxBloxInstaller [options]\n"
+        "\n"
+        "Installs TuxBlox, upgrading an existing install in place if one is\n"
+        "found, then starts the TuxBlox Launcher. Installs into ~/.tuxblox\n"
+        "unless --dir says otherwise. Installs the newest release on its\n"
+        "channel unless told otherwise.\n"
+        "\n"
+        "Options:\n"
+        "  --dir <path>       Absolute path to install into, instead of\n"
+        "                     ~/.tuxblox.\n"
+        "  --allow-root       Allow installing as root, which is not\n"
+        "                     recommended.\n"
+        "  --headless         Report progress on the terminal instead of\n"
+        "                     opening a window. Needs no display.\n"
+        "  --nolaunch         Don't start the launcher once the install\n"
+        "                     finishes.\n"
+        "  --uninstall        Remove TuxBlox from this system instead of\n"
+        "                     installing it.\n"
+        "  --channel <name>   Release channel to install from (default: the\n"
+        "                     channel this installer was built for).\n"
+        "  --release <ver>    Install a specific release, e.g. 3.6.0.1, instead\n"
+        "                     of the newest one.\n"
+        "  --release-file <p> Install the release described by a file already on\n"
+        "                     disk. Used by the launcher when it hands over an\n"
+        "                     update it has already resolved.\n"
+        "  --language <code>  Interface language: en, pt_BR or es.\n"
+        "  --latest           Accepted and ignored: installing the newest release\n"
+        "                     instead of this installer's own version.\n"
+        "  --version          Show the release it installs and exit.\n"
+        "  -h, --help         Show this help and exit.\n");
 }
 
 } // namespace tuxblox

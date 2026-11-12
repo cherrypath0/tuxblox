@@ -29,7 +29,6 @@ namespace {
 const char* const kDefaultServer = "setup.rbxcdn.com";
 const char* const kDefaultChannel = "live";
 const char* const kPrefixSuffix = "/runtime/pfx";
-const char* const kVersionsSuffix = "/AppData/Local/Roblox/Versions";
 
 // An unset variable and one set to nothing mean the same thing here: use the
 // default.
@@ -80,7 +79,8 @@ Config loadConfig(const char* (*readEnv)(const char*)) {
         const std::string root = slash == std::string::npos ? home : self.substr(0, slash);
         const std::string prefix = root + kPrefixSuffix;
         config.installDir =
-            prefix + "/drive_c/users/" + prefixUserName(prefix + "/drive_c") + kVersionsSuffix;
+            robloxDataDirIn(prefix + "/drive_c/users/" + prefixUserName(prefix + "/drive_c")) +
+            "/Versions";
     }
     return config;
 }

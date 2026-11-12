@@ -35,7 +35,7 @@ std::vector<std::string> selectSessionLogFiles(
 }
 
 std::string robloxLogsDir(const std::string& installDir) {
-    return prefixUserDir(installDir) + "/AppData/Local/Roblox/logs";
+    return robloxDataDir(installDir) + "/logs";
 }
 
 namespace {

@@ -159,7 +159,7 @@ std::string newestAddedVersion(const std::string& installDir,
 
 
 std::string prefixVersionsDir(const std::string& installDir) {
-    return prefixUserDir(installDir) + "/AppData/Local/Roblox/Versions";
+    return robloxDataDir(installDir) + "/Versions";
 }
 
 std::vector<std::string> scanPrefixVersions(const std::string& installDir, LaunchTarget target) {

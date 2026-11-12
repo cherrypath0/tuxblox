@@ -57,8 +57,7 @@ std::string resolveActiveVersionExePath(LaunchTarget target, const std::string& 
     const AppVersions& av = appVersionsFor(manifest, target);
     if (av.activeHash.empty()) return "";
 
-    const std::string versionDir =
-        prefixUserDir(installDir) + "/AppData/Local/Roblox/Versions/" + av.activeHash;
+    const std::string versionDir = robloxDataDir(installDir) + "/Versions/" + av.activeHash;
     const std::string exePath = versionDir + "/" + targetExeName(target);
 
     std::error_code ec;
