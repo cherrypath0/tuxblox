@@ -4949,7 +4949,24 @@ NTSTATUS get_full_path( char *name, const WCHAR *curdir, UNICODE_STRING *nt_name
     ULONG prefix_len, len = max( ARRAY_SIZE(unix_prefixW), wcslen(curdir) ) + strlen(name) + 1;
 
     /* special case for Unix file name */
-    if (name[0] == '/' && !find_drive_nt_root( name, strlen(name), &ret, FILE_OPEN )) goto done;
+    if (name[0] == '/' && !find_drive_nt_root( name, strlen(name), &ret, FILE_OPEN ))
+    {
+        /* No drive contains the path, which find_drive_nt_root() reports as success with no name
+         * -- the same answer unix_to_nt_file_name() turns into a \??\unix\ path rather than
+         * passing on. Without this the NULL reached init_unicode_string() below and crashed the
+         * process before it had loaded anything, which is what a prefix with no drive mapping the
+         * path does on every launch from outside drive_c. The length above already reserves room
+         * for the prefix. */
+        if (!ret)
+        {
+            ULONG name_len = strlen(name) + 1;
+            if (!(ret = malloc( sizeof(unix_prefixW) + name_len * sizeof(WCHAR) ))) return STATUS_NO_MEMORY;
+            memcpy( ret, unix_prefixW, sizeof(unix_prefixW) );
+            ntdll_umbstowcs( name, name_len, ret + ARRAY_SIZE(unix_prefixW), name_len );
+            collapse_path( ret );
+        }
+        goto done;
+    }
 
     if (!(ret = malloc( len * sizeof(WCHAR) ))) return STATUS_NO_MEMORY;
 
