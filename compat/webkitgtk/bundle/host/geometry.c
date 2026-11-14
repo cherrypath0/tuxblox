@@ -377,13 +377,10 @@ gboolean geometry_sync(struct native_webview *nv, struct wv2l_rect bounds, gbool
                        * function's existing degrade-gracefully pattern */
     }
 
-    /* Unconditional (not geometry_debug_on()-gated) so the exact rect Roblox
-     * asks for is visible in every session log without depending on an env flag
-     * the launcher may not have picked up -- this is the data the "blank panel
-     * covers the screen" investigation needs: whether the covering webview is
-     * being handed fullscreen bounds, offscreen bounds, or something else. */
-    fprintf(stderr, "webview2loader-host: geometry_sync nv=%p bounds=(%d,%d)+%dx%d visible=%d parent_xid=0x%lx\n",
-            (void *)nv, bounds.left, bounds.top, width, height, visible, (unsigned long)parent_xid);
+    /* Gated like the rest: put_Bounds fires once per motion event, so dragging a window wrote hundreds of these into the session log. */
+    if (geometry_debug_on())
+        fprintf(stderr, "webview2loader-host: geometry_sync nv=%p bounds=(%d,%d)+%dx%d visible=%d parent_xid=0x%lx\n",
+                (void *)nv, bounds.left, bounds.top, width, height, visible, (unsigned long)parent_xid);
 
     /* A webview Roblox has not navigated has no content to show. Keep it hidden
      * and do no reparent/position work at all, so it never appears as a blank box
