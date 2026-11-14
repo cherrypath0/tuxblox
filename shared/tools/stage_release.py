@@ -85,6 +85,9 @@ def main():
     parser.add_argument("--build", default="0",
                         help="the BUILD counter, from line 2; it is the THIRD field of a release")
     parser.add_argument("--release", default="", help="an explicit release, skipping resolution")
+    parser.add_argument("--out-dir", default="",
+                        help="where to write the client tree; a temporary directory by default, "
+                             "since the tree exists only to be packed and uploaded")
     parser.add_argument("--legacy-paths", action="store_true",
                         help="publish each component where one copy served every release that named "
                              "it, rather than under the release it is published in. For the last "
@@ -148,7 +151,8 @@ def main():
 
     # The build's own record, not HEAD: see build_source().
     commit, build_dirty = build_source(root)
-    content = stage(os.path.join(root, "build"), os.path.join(root, "releases", "client"),
+    out_dir = os.path.abspath(args.out_dir) if args.out_dir else os.path.join(root, "releases", "client")
+    content = stage(os.path.join(root, "build"), out_dir,
                     args.channel, release, versions,
                     source_commit=commit or None, source_dirty=build_dirty,
                     changelogs=component_changelogs(root), legacy_paths=args.legacy_paths)

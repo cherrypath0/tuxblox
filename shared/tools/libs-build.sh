@@ -15,8 +15,6 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-# Builds the libraries TuxBlox ships inside its own programs, in the same container every one of them is built in.
-
 set -euo pipefail
 
 ScriptDir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -24,7 +22,6 @@ Root="$(cd "$ScriptDir/../.." && pwd)"
 OutDir="$Root/build/.artifacts/shared"
 ScratchDir="$Root/build/.artifacts/shared-build"
 JOBS="${TUXBLOX_MAKE_JOBS:-$(nproc 2>/dev/null || echo 1)}"
-# Lives outside build/, which every full build wipes, so an unchanged pin is a cache hit rather than a recompile
 CacheDir="${CCACHE_DIR:-$HOME/.ccache}"
 
 Submodules=(
@@ -51,7 +48,6 @@ done
 printf ':: Building builder container image (old-glibc baseline)\n'
 podman build -t tuxblox-old-glibc-builder -f "$Root/Containerfile" "$Root"
 
-# The container runs as the calling user, so it cannot create anything at the root; both the output and the scratch space are mounted in.
 mkdir -p "$OutDir" "$ScratchDir" "$CacheDir"
 printf ':: Building the shared libraries (in podman, rootless, old-glibc baseline)\n'
 podman run --rm --userns=keep-id -e JOBS="$JOBS" "${CommitArgs[@]}" \

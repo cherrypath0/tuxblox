@@ -23,7 +23,6 @@ cd "$ToolsDir"
 DistDir="$StackDir/dist"
 ImageTag=tuxblox-ui-stack-builder
 
-# A submodule that was never initialised is an empty folder, and the build would fail deep inside meson with nothing pointing back here
 if [ ! -e "$StackDir/libadwaita/meson.build" ]; then
     printf 'ERROR: shared/ui/libadwaita is empty. Run: git submodule update --init shared/ui/libadwaita\n' >&2
     exit 1
@@ -41,12 +40,19 @@ fi
 
 mkdir -p "$DistDir/prefix" "$DistDir/work" "$DistDir/out"
 
+if ! "$StackDir/fetch-sources.sh" --verify >/dev/null 2>&1; then
+    printf 'ERROR: the interface stack sources are missing or do not match their checksums.\n' >&2
+    printf '       Run: ./shared/ui/fetch-sources.sh\n' >&2
+    exit 1
+fi
+
 printf ':: Building the builder image\n'
 podman build -t "$ImageTag" -f "$ToolsDir/Containerfile.ui" "$ToolsDir"
 
 printf ':: Building the stack (a rerun skips every library that already finished)\n'
-podman run --rm --userns=keep-id \
+podman run --rm --userns=keep-id --network=none \
     -v "$SharedDir:/src:ro" \
+    -v "$StackDir/sources:/sources:ro" \
     -v "$DistDir/prefix:/opt/tuxblox-ui" \
     -v "$DistDir/work:/build" \
     -e JOBS="${JOBS:-$(nproc)}" \
@@ -54,7 +60,7 @@ podman run --rm --userns=keep-id \
     "$ImageTag" bash /src/tools/ui-build-in-container.sh
 
 printf ':: Packaging\n'
-podman run --rm --userns=keep-id \
+podman run --rm --userns=keep-id --network=none \
     -v "$SharedDir:/src:ro" \
     -v "$DistDir/prefix:/opt/tuxblox-ui:ro" \
     -v "$DistDir/out:/out" \

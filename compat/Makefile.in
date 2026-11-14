@@ -983,7 +983,7 @@ all-dist: $(DIST_FONTS)
 ## webkitgtk (bundled WebView2 replacement backend)
 ##
 ## Vendored as a prebuilt, relocatable tarball -- see webkitgtk/bundle/README.md for
-## how it's built. The tarball is committed to webkitgtk/prebuilt/ rather than fetched over the
+## how it's built. The tarball is built into webkitgtk/prebuilt/ by `make webkitgtk` rather than fetched over the
 ## network at build time, because WebKitGTK isn't published anywhere as a ready-to-use
 ## relocatable x86_64 tarball -- this repo has to build and vendor its own.
 ##

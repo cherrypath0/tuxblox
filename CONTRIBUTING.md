@@ -38,40 +38,44 @@ By opening a pull request, you agree that your contribution is licensed under th
 Building inside WSL or a virtual machine is not supported.
 
 > [!IMPORTANT]
-> **Podman, not Docker.** Parts of the build (`build.sh`, `launcher/build.sh`, `installer/build.sh` and the helper scripts in `shared/tools/`) run inside containers using `podman run --userns=keep-id`, a rootless flag Docker doesn't have. Docker is fine for anything else in the repository, but it won't work for these steps.
+> **Podman, not Docker.** Parts of the build run inside containers using `podman run --userns=keep-id`, a rootless flag Docker doesn't have. Docker is fine for anything else in the repository, but it won't work for these steps.
 
 ### Build
 
 ```bash
 git clone https://github.com/<you>/tuxblox
 cd tuxblox
-./build.sh --log --nodebug
+make
 ```
 
-- **Don't run it with `sudo`.** The script detects your package manager and installs anything missing, asking for your password only if it needs to.
-- It asks which release channel to build for. Press Enter to accept the default, `experimental`.
-- **Always use `--log`.** It writes everything to `build.log`, and when a build fails it prints the lines around the last error. Without it, a failure leaves nothing to look at.
+- **Don't run it with `sudo`.** `make deps` installs what the host needs, asking for your password only if it needs to, and a plain `make` does the same check as it goes.
+- To keep the output for reading afterwards: `make 2>&1 | tee build.log`.
 
-| Option | What it does |
+Each part is its own target, so you can rebuild only what you changed:
+
+| Command | What it builds |
 |---|---|
-| *(none)* | Full build, with each step's output shown |
-| `--nodebug` | Quieter: only summaries, not every step's output |
-| `--log` | Also write everything to `build.log`, and diagnose failures automatically |
-| `--stage-only` | Re-package the existing build without rebuilding it |
-| `--local` | Build and package, upload nothing (only matters for maintainers) |
+| `make` | Everything |
+| `make launcher` / `make installer` / `make studio-mcp` | One component |
+| `make compat` | The compatibility layer |
+| `make webkitgtk` | The web panel, from scratch (hours) |
+| `make webkitgtk-host` | Only the helper that positions the web panel (minutes) |
+| `make clean` | Delete `build/` |
 
 | Build-time variable | What it does |
 |---|---|
-| `TUXBLOX_MAKE_JOBS` | How many compile jobs to run at once, instead of one per core. Lower it if you run out of memory. |
-| `TUXBLOX_DEV_TOOLS` | Include the development tooling in the build |
+| `JOBS` | How many compile jobs to run at once, instead of one per core. **Lower it if you run out of memory** -- the web panel needs 2 to 4 GB per job. |
+| `TUXBLOX_RM_DIST` | Delete the layer's leftover build files afterwards, freeing disk at the cost of a slower next build |
 | `TUXBLOX_HEADLESS_ONLY` | Build the installer without its window, for a machine with no display |
-| `TUXBLOX_BUILD_VERSION`, `TUXBLOX_CHANNEL` | Set the release version and channel yourself. Needed when building offline, since working out the version needs `setup.tuxblox.net`. |
+| `TUXBLOX_BUILD_VERSION`, `TUXBLOX_CHANNEL` | Set the release version and channel yourself. Only packaging a release needs `setup.tuxblox.net`; building never does. |
 
 ```bash
-TUXBLOX_MAKE_JOBS=4 ./build.sh --log --nodebug
+make JOBS=4
 ```
 
-Later builds are much faster, because only what changed is compiled again. Every build wipes and recreates `build/`, so don't keep anything there by hand.
+Settings you want to keep go in `config.mk` at the repository root, which is gitignored and read automatically.
+
+Later builds are much faster: a part whose sources are untouched is not rebuilt at all. `build/` is kept between builds, so anything you put there stays; `make clean` removes it when you want a fresh start.
 
 ### Running your build
 

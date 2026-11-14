@@ -15,7 +15,7 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 # Every test in this directory checks correctness with plain assert().
-# CMAKE_BUILD_TYPE=Release (what installer/build.sh always configures --
+# CMAKE_BUILD_TYPE=Release (what the Makefile always configures --
 # see its cmake invocation) defines -DNDEBUG, which compiles assert() to a
 # no-op -- silently turning every test in this suite into "always passes"
 # regardless of CMAKE_BUILD_TYPE. -UNDEBUG here, scoped to this directory

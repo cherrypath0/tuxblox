@@ -62,10 +62,10 @@ INSTALL_DIR="$HOME/.tuxblox"
 
 COMPONENTS=(compat libtuxblox TuxBloxLauncher TuxBloxInstaller studio-mcp)
 
-[[ -d build ]] || fail "build/ not found, make sure to run ./build.sh first"
-[[ -f build/compat/main ]] || fail "build/compat/main not found, make sure to run ./build.sh first"
+[[ -d build ]] || fail "build/ not found, make sure to run make first"
+[[ -f build/compat/main ]] || fail "build/compat/main not found, make sure to run make first"
 for component in "${COMPONENTS[@]}"; do
-    [[ -e "build/$component" ]] || fail "build/$component not found, make sure to run ./build.sh first"
+    [[ -e "build/$component" ]] || fail "build/$component not found, make sure to run make first"
 done
 
 if pgrep -f "$INSTALL_DIR/TuxBloxLauncher" >/dev/null 2>&1; then

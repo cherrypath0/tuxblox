@@ -23,7 +23,7 @@ StackPath="${2:-}"
 Image="${TUXBLOX_SMOKE_IMAGE:-debian:11}"
 
 if [[ ! -f "$BinaryPath" ]]; then
-    printf 'No launcher at %s. Build it with launcher/build.sh first.\n' "$BinaryPath" >&2
+    printf 'No launcher at %s. Build it with: make launcher\n' "$BinaryPath" >&2
     exit 1
 fi
 if [[ -z "$StackPath" || ! -f "$StackPath" ]]; then

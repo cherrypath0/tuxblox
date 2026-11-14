@@ -15,8 +15,6 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-# Builds the libraries TuxBlox ships inside its own programs, as static archives.
-
 set -euo pipefail
 
 Prefix=/out
@@ -27,8 +25,6 @@ JOBS="${JOBS:-$(nproc 2>/dev/null || echo 1)}"
 mkdir -p "$Prefix/lib" "$Prefix/include" "$Markers" /build
 export PKG_CONFIG_PATH="$Prefix/lib/pkgconfig"
 
-# Every full build wipes build/ and so rebuilds all six from scratch; the cache is mounted from
-# outside it, which turns an unchanged pin into a few seconds instead of several minutes.
 if command -v ccache >/dev/null 2>&1 && [ -n "${CCACHE_DIR:-}" ]; then
     export CC="ccache gcc"
     export CXX="ccache g++"
@@ -37,8 +33,6 @@ else
     CMakeLauncher=""
 fi
 
-# The marker carries the submodule commit, which the host resolves and passes in because the source is mounted read-only
-# The recipe is part of what decides the archive, so the marker carries a hash of this file too.
 RecipeId="$(sha256sum "${BASH_SOURCE[0]}" | cut -c1-12)"
 
 runStep() {
@@ -54,7 +48,6 @@ runStep() {
     touch "$marker"
 }
 
-# The source is mounted read-only, so every build happens on a copy
 copySource() {
     local from="$1" to="$2"
     rm -rf "$to"
@@ -72,7 +65,6 @@ buildZlib() {
 
 buildZstd() {
     copySource shared/fs/zstd /build/zstd
-    # Library only: no command line tool, and no legacy format support
     make -C /build/zstd/lib -j"$JOBS" libzstd.a ZSTD_LEGACY_SUPPORT=0
     make -C /build/zstd/lib install-static install-includes install-pc \
         PREFIX="$Prefix" ZSTD_LEGACY_SUPPORT=0
@@ -92,7 +84,6 @@ buildNghttp2() {
 buildOpenssl() {
     copySource shared/crypto/openssl /build/openssl
     cd /build/openssl
-    # Keeps the TLS 1.2/1.3 client, X.509 for the layer's signature checks, and SHA-256 for checksums
     ./Configure linux-x86_64 --prefix="$Prefix" --openssldir="$Prefix/ssl" --libdir=lib \
         no-shared no-dso no-engine no-tests no-apps no-docs \
         no-legacy no-md2 no-md4 no-rc2 no-rc4 no-rc5 no-idea no-seed no-camellia \
@@ -106,7 +97,6 @@ buildCurl() {
     copySource shared/network/libcurl /build/curl
     cd /build/curl
     autoreconf -fi
-    # Everything nothing in TuxBlox uses is off, so the list of libraries cannot grow back
     ./configure --prefix="$Prefix" --disable-shared --enable-static \
         --with-openssl="$Prefix" --with-nghttp2="$Prefix" --without-zlib \
         --without-libssh2 --without-libssh --without-gssapi --without-libidn2 \
@@ -124,10 +114,7 @@ buildCurl() {
 buildLibarchive() {
     copySource shared/fs/libarchive /build/libarchive
     cd /build/libarchive
-    # libarchive wants a newer cmake than this baseline's, so the one installed beside it is used
     local cmakeBin=/opt/cmake/bin/cmake
-    # Exactly the formats and filters the three tar_extract.cpp files ask for, and nothing else
-    # shellcheck disable=SC2086
     "$cmakeBin" -B _b -S . -G Ninja -DCMAKE_BUILD_TYPE=Release $CMakeLauncher \
         -DCMAKE_PREFIX_PATH="$Prefix" -DCMAKE_INSTALL_PREFIX="$Prefix" \
         -DBUILD_SHARED_LIBS=OFF -DENABLE_TEST=OFF -DENABLE_INSTALL=ON \
@@ -142,8 +129,6 @@ buildLibarchive() {
     cd /build
 }
 
-# curl must carry no certificate list of its own. With one baked in, a download that forgot to ask
-# for the list would quietly work on this builder's distribution and fail on everyone else's.
 checkCurlHasNoBakedCertificates() {
     local found
     found="$(strings "$Prefix/lib/libcurl.a" | grep -cE '^/etc/(ssl|pki)' || true)"
@@ -162,7 +147,6 @@ runStep openssl    OPENSSL_COMMIT    buildOpenssl
 runStep curl       CURL_COMMIT       buildCurl
 runStep libarchive LIBARCHIVE_COMMIT buildLibarchive
 
-# The old formats were dropped on purpose, so a build that silently kept them is a build that lied
 checkZstdHasNoLegacyFormats() {
     local found
     found="$(nm "$Prefix/lib/libzstd.a" 2>/dev/null | grep -cE 'ZSTDv0[0-9]_' || true)"

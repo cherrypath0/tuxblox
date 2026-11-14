@@ -21,7 +21,7 @@ BinaryPath="${1:-build/TuxBloxInstaller}"
 Image="${TUXBLOX_SMOKE_IMAGE:-debian:11}"
 
 if [[ ! -f "$BinaryPath" ]]; then
-    printf 'No installer at %s. Build it with installer/build.sh first.\n' "$BinaryPath" >&2
+    printf 'No installer at %s. Build it with: make installer\n' "$BinaryPath" >&2
     exit 1
 fi
 

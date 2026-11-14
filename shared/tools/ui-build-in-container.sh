@@ -23,9 +23,9 @@ Prefix=/opt/tuxblox-ui
 LibDir="$Prefix/lib/x86_64-linux-gnu"
 Markers="$Prefix/.done"
 JOBS="${JOBS:-$(nproc)}"
+SourcesDir="${TUXBLOX_SOURCES_DIR:-/sources}"
 mkdir -p "$Prefix" "$Markers" /build
 
-# Our own libraries must win over the builder's older ones, and meson installs into the multiarch libdir while autotools would use lib
 export PKG_CONFIG_PATH="$LibDir/pkgconfig:$Prefix/lib/pkgconfig:$Prefix/share/pkgconfig"
 export LDFLAGS="-Wl,-rpath,$LibDir -L$LibDir"
 export CPPFLAGS="-I$Prefix/include"
@@ -33,25 +33,17 @@ export CFLAGS="-O2"
 export CXXFLAGS="-O2"
 export PATH="$Prefix/bin:$PATH"
 
-fetchAndExtract() {
-    local url="$1" destDir="$2"
-    shift 2
-    local fallbacks=("$@")
-    local tmpArchive u
-    tmpArchive="$(mktemp)"
+extractSource() {
+    local archive="$1" destDir="$2"
+    local path="$SourcesDir/$archive"
+    if [ ! -f "$path" ]; then
+        printf 'ERROR: missing source archive: %s\n' "$archive" >&2
+        printf '       run shared/ui/fetch-sources.sh to fill %s\n' "$SourcesDir" >&2
+        return 1
+    fi
     rm -rf "$destDir"
     mkdir -p "$destDir"
-    for u in "$url" "${fallbacks[@]}"; do
-        if curl -fL --connect-timeout 30 --retry 3 --retry-all-errors "$u" -o "$tmpArchive"; then
-            tar -xf "$tmpArchive" -C "$destDir" --strip-components=1
-            rm -f "$tmpArchive"
-            return 0
-        fi
-        printf ':: download failed: %s -- trying next source\n' "$u" >&2
-    done
-    rm -f "$tmpArchive"
-    printf 'ERROR: every download source failed for %s\n' "$url" >&2
-    return 1
+    tar -xf "$path" -C "$destDir" --strip-components=1
 }
 
 mesonBuild() {
@@ -61,9 +53,7 @@ mesonBuild() {
     ninja -C "/build/$name/_b" -j"$JOBS" install
 }
 
-# Runs a build function once; the marker carries the version so a bump rebuilds it
 runStep() {
-    # The stack version is part of the marker because adding a library changes what every later one links against, and Task 10 of the dependency work had to wipe dist/ by hand for exactly this reason.
     local name="$1" version="$2" func="$3" marker="$Markers/$1-$2-stack$UI_STACK_VERSION"
     if [ -e "$marker" ]; then
         printf ':: Skipping %s %s (already built)\n' "$name" "$version"
@@ -75,8 +65,7 @@ runStep() {
 }
 
 buildZlib() {
-    fetchAndExtract "https://zlib.net/zlib-${ZLIB_VERSION}.tar.gz" /build/zlib \
-        "https://github.com/madler/zlib/releases/download/v${ZLIB_VERSION}/zlib-${ZLIB_VERSION}.tar.gz"
+    extractSource "zlib-${ZLIB_VERSION}.tar.gz" /build/zlib
     cd /build/zlib
     ./configure --prefix="$Prefix" --libdir="$LibDir"
     make -j"$JOBS"
@@ -86,9 +75,8 @@ buildZlib() {
 }
 
 buildPcre2() {
-    fetchAndExtract "https://github.com/PCRE2Project/pcre2/releases/download/pcre2-${PCRE2_VERSION}/pcre2-${PCRE2_VERSION}.tar.bz2" /build/pcre2
+    extractSource "pcre2-${PCRE2_VERSION}.tar.bz2" /build/pcre2
     cd /build/pcre2
-    # GLib needs the 8-bit library with unicode; nothing here wants the 16- or 32-bit ones or the tools
     ./configure --prefix="$Prefix" --libdir="$LibDir" --disable-static \
         --enable-pcre2-8 --disable-pcre2-16 --disable-pcre2-32 --enable-unicode
     make -j"$JOBS"
@@ -97,7 +85,7 @@ buildPcre2() {
 }
 
 buildExpat() {
-    fetchAndExtract "https://github.com/libexpat/libexpat/releases/download/R_${EXPAT_VERSION//./_}/expat-${EXPAT_VERSION}.tar.xz" /build/expat
+    extractSource "expat-${EXPAT_VERSION}.tar.xz" /build/expat
     cd /build/expat
     ./configure --prefix="$Prefix" --libdir="$LibDir" --disable-static --without-docbook --without-examples --without-tests
     make -j"$JOBS"
@@ -106,8 +94,7 @@ buildExpat() {
 }
 
 buildLibpng() {
-    fetchAndExtract "https://downloads.sourceforge.net/libpng/libpng-${LIBPNG_VERSION}.tar.xz" /build/libpng \
-        "https://github.com/pnggroup/libpng/releases/download/v${LIBPNG_VERSION}/libpng-${LIBPNG_VERSION}.tar.xz"
+    extractSource "libpng-${LIBPNG_VERSION}.tar.xz" /build/libpng
     cd /build/libpng
     ./configure --prefix="$Prefix" --libdir="$LibDir" --disable-static
     make -j"$JOBS"
@@ -117,12 +104,11 @@ buildLibpng() {
 }
 
 buildLibffi() {
-    fetchAndExtract "https://github.com/libffi/libffi/releases/download/v${LIBFFI_VERSION}/libffi-${LIBFFI_VERSION}.tar.gz" /build/libffi
+    extractSource "libffi-${LIBFFI_VERSION}.tar.gz" /build/libffi
     cd /build/libffi
     ./configure --prefix="$Prefix" --libdir="$LibDir" --disable-static --disable-docs
     make -j"$JOBS"
     make install
-    # libffi's own makefile installs to $(libdir)/../lib, not $(libdir)
     mv "$Prefix"/lib/lib/libffi* "$LibDir/"
     rmdir "$Prefix/lib/lib"
     sed -i 's|^toolexeclibdir=.*|toolexeclibdir=${libdir}|' "$LibDir/pkgconfig/libffi.pc"
@@ -130,22 +116,18 @@ buildLibffi() {
 }
 
 buildGlib() {
-    fetchAndExtract "https://download.gnome.org/sources/glib/${GLIB_VERSION%.*}/glib-${GLIB_VERSION}.tar.xz" /build/glib
-    # selinux would add a libselinux.so.1 dependency that distros like Arch do not ship
-    # libmount would pull libselinux back in through the host's libmount
+    extractSource "glib-${GLIB_VERSION}.tar.xz" /build/glib
     mesonBuild glib -Dtests=false -Dselinux=disabled -Dlibmount=disabled
 }
 
 buildZstd() {
-    fetchAndExtract "https://github.com/facebook/zstd/releases/download/v${ZSTD_VERSION}/zstd-${ZSTD_VERSION}.tar.gz" /build/zstd
-    # The builder has no libzstd.so or .a, and the multiarch libdir is the only one the meson builds search
+    extractSource "zstd-${ZSTD_VERSION}.tar.gz" /build/zstd
     make -C /build/zstd/lib -j"$JOBS" install PREFIX="$Prefix" libdir="$LibDir"
     make -C /build/zstd/programs -j"$JOBS" install PREFIX="$Prefix"
 }
 
 buildLibtiff() {
-    fetchAndExtract "https://download.osgeo.org/libtiff/tiff-${TIFF_VERSION}.tar.gz" /build/libtiff
-    # GTK requires libtiff, and the host's soname differs between distros (5 on Debian 11, 6 on Arch), so it is built here with only zlib
+    extractSource "tiff-${TIFF_VERSION}.tar.gz" /build/libtiff
     cd /build/libtiff
     ./configure --prefix="$Prefix" --libdir="$LibDir" --disable-static --disable-jpeg --disable-old-jpeg --disable-jbig \
         --disable-lerc --disable-lzma --disable-zstd --disable-webp --disable-libdeflate --disable-cxx \
@@ -156,22 +138,19 @@ buildLibtiff() {
 }
 
 buildLibjpeg() {
-    fetchAndExtract "https://github.com/libjpeg-turbo/libjpeg-turbo/releases/download/${JPEG_TURBO_VERSION}/libjpeg-turbo-${JPEG_TURBO_VERSION}.tar.gz" /build/libjpeg
-    # gdk-pixbuf compiles its JPEG loader in, and the host's soname differs between distros (62 on Debian and Fedora, 8 on Arch and openSUSE)
+    extractSource "libjpeg-turbo-${JPEG_TURBO_VERSION}.tar.gz" /build/libjpeg
     cmake -S /build/libjpeg -B /build/libjpeg/_b -G Ninja -DCMAKE_INSTALL_PREFIX="$Prefix" -DCMAKE_INSTALL_LIBDIR=lib/x86_64-linux-gnu \
         -DCMAKE_BUILD_TYPE=Release -DENABLE_STATIC=OFF -DWITH_TURBOJPEG=OFF -DWITH_JAVA=OFF
     ninja -C /build/libjpeg/_b -j"$JOBS" install
 }
 
 buildPixman() {
-    fetchAndExtract "https://cairographics.org/releases/pixman-${PIXMAN_VERSION}.tar.gz" /build/pixman
-    # The host's pixman is not guaranteed to exist on a machine without cairo installed
+    extractSource "pixman-${PIXMAN_VERSION}.tar.gz" /build/pixman
     mesonBuild pixman -Dtests=disabled -Ddemos=disabled -Dgtk=disabled -Dlibpng=disabled
 }
 
 buildFribidi() {
-    fetchAndExtract "https://github.com/fribidi/fribidi/releases/download/v${FRIBIDI_VERSION}/fribidi-${FRIBIDI_VERSION}.tar.xz" /build/fribidi
-    # Pango, GTK and libadwaita all link it, and it is not guaranteed on a machine without GTK installed
+    extractSource "fribidi-${FRIBIDI_VERSION}.tar.xz" /build/fribidi
     mesonBuild fribidi -Ddocs=false -Dbin=false -Dtests=false
 }
 
@@ -179,71 +158,60 @@ buildFreetype() {
     local harfbuzz="disabled"
     [ "$1" = "freetype-pass2" ] && harfbuzz="enabled"
     if [ ! -e /build/freetype/meson.build ]; then
-        fetchAndExtract "https://download.savannah.gnu.org/releases/freetype/freetype-${FREETYPE_VERSION}.tar.xz" /build/freetype \
-            "https://downloads.sourceforge.net/project/freetype/freetype2/${FREETYPE_VERSION}/freetype-${FREETYPE_VERSION}.tar.xz"
+        extractSource "freetype-${FREETYPE_VERSION}.tar.xz" /build/freetype
     fi
-    # freetype and harfbuzz need each other, so freetype is built once without harfbuzz, then again with it; brotli only adds WOFF2, which nothing here uses
     rm -rf /build/freetype/_b
     mesonBuild freetype -Dharfbuzz="$harfbuzz" -Dbrotli=disabled -Dpng=enabled -Dzlib=system -Dbzip2=disabled
 }
 
 buildCairo() {
-    fetchAndExtract "https://cairographics.org/releases/cairo-${CAIRO_VERSION}.tar.xz" /build/cairo
+    extractSource "cairo-${CAIRO_VERSION}.tar.xz" /build/cairo
     mesonBuild cairo -Dtests=disabled
 }
 
 buildHarfbuzz() {
-    fetchAndExtract "https://github.com/harfbuzz/harfbuzz/releases/download/${HARFBUZZ_VERSION}/harfbuzz-${HARFBUZZ_VERSION}.tar.xz" /build/harfbuzz
-    # ICU would add libicuuc, whose soname changes with every ICU release
+    extractSource "harfbuzz-${HARFBUZZ_VERSION}.tar.xz" /build/harfbuzz
     mesonBuild harfbuzz -Dicu=disabled -Dutilities=disabled -Dtests=disabled -Ddocs=disabled -Dintrospection=disabled
 }
 
 buildPango() {
-    fetchAndExtract "https://download.gnome.org/sources/pango/${PANGO_VERSION%.*}/pango-${PANGO_VERSION}.tar.xz" /build/pango
-    # libthai and Xft are left out: they exist on a host mostly because Pango pulls them in
+    extractSource "pango-${PANGO_VERSION}.tar.xz" /build/pango
     mesonBuild pango -Dintrospection=disabled -Dbuild-testsuite=false -Dbuild-examples=false -Dlibthai=disabled -Dxft=disabled
 }
 
 buildGdkPixbuf() {
-    fetchAndExtract "https://download.gnome.org/sources/gdk-pixbuf/${GDK_PIXBUF_VERSION%.*}/gdk-pixbuf-${GDK_PIXBUF_VERSION}.tar.xz" /build/gdkpixbuf
-    # A loader that is merely left out of builtin_loaders is still built as a dlopenable module, so the unwanted ones are disabled outright
+    extractSource "gdk-pixbuf-${GDK_PIXBUF_VERSION}.tar.xz" /build/gdkpixbuf
     mesonBuild gdkpixbuf -Dbuiltin_loaders=png,jpeg -Dtiff=disabled -Dgif=disabled \
         -Dtests=false -Dman=false -Dintrospection=disabled -Dinstalled_tests=false
 }
 
 buildGraphene() {
-    # 1.10.8 has no uploaded release asset, so this is the tag archive
-    fetchAndExtract "https://github.com/ebassi/graphene/archive/refs/tags/${GRAPHENE_VERSION}.tar.gz" /build/graphene
+    extractSource "graphene-${GRAPHENE_VERSION}.tar.gz" /build/graphene
     mesonBuild graphene -Dtests=false -Dinstalled_tests=false -Dintrospection=disabled -Dgtk_doc=false
 }
 
 buildLibepoxy() {
-    fetchAndExtract "https://github.com/anholt/libepoxy/archive/refs/tags/${EPOXY_VERSION}.tar.gz" /build/libepoxy
+    extractSource "libepoxy-${EPOXY_VERSION}.tar.gz" /build/libepoxy
     mesonBuild libepoxy -Dtests=false -Ddocs=false
 }
 
 buildLibxkbcommon() {
-    fetchAndExtract "https://xkbcommon.org/download/libxkbcommon-${XKBCOMMON_VERSION}.tar.xz" /build/libxkbcommon
+    extractSource "libxkbcommon-${XKBCOMMON_VERSION}.tar.xz" /build/libxkbcommon
     mesonBuild libxkbcommon -Denable-docs=false -Denable-tools=false -Denable-x11=false -Denable-wayland=false
 }
 
 buildWayland() {
-    # The builder ships 1.18, below GTK's floor, and a missing Wayland silently drops the backend instead of failing
-    fetchAndExtract "https://gitlab.freedesktop.org/wayland/wayland/-/releases/${WAYLAND_VERSION}/downloads/wayland-${WAYLAND_VERSION}.tar.xz" /build/wayland \
-        "https://wayland.freedesktop.org/releases/wayland-${WAYLAND_VERSION}.tar.xz"
+    extractSource "wayland-${WAYLAND_VERSION}.tar.xz" /build/wayland
     mesonBuild wayland -Ddocumentation=false -Dtests=false -Ddtd_validation=false
 }
 
 buildWaylandprotocols() {
-    fetchAndExtract "https://gitlab.freedesktop.org/wayland/wayland-protocols/-/releases/${WAYLAND_PROTOCOLS_VERSION}/downloads/wayland-protocols-${WAYLAND_PROTOCOLS_VERSION}.tar.xz" /build/wayland-protocols \
-        "https://wayland.freedesktop.org/releases/wayland-protocols-${WAYLAND_PROTOCOLS_VERSION}.tar.xz"
+    extractSource "wayland-protocols-${WAYLAND_PROTOCOLS_VERSION}.tar.xz" /build/wayland-protocols
     mesonBuild wayland-protocols -Dtests=false
 }
 
 buildLibxml2() {
-    # GTK 4.20 requires librsvg, and its meson fallback subproject links libxml2; the builder's own copy is not ours to ship, so the stack carries one
-    # 2.13 is the last series whose soname is libxml2.so.2, which is what librsvg links against -- 2.14 installs libxml2.so.16 instead
-    fetchAndExtract "https://download.gnome.org/sources/libxml2/${LIBXML2_VERSION%.*}/libxml2-${LIBXML2_VERSION}.tar.xz" /build/libxml2
+    extractSource "libxml2-${LIBXML2_VERSION}.tar.xz" /build/libxml2
     cd /build/libxml2
     ./configure --prefix="$Prefix" --libdir="$LibDir" --disable-static --without-python --without-lzma --without-zlib --without-http --without-modules --without-readline
     make -j"$JOBS"
@@ -251,8 +219,7 @@ buildLibxml2() {
     cd /build
 }
 buildGtk4() {
-    fetchAndExtract "https://download.gnome.org/sources/gtk/${GTK4_VERSION%.*}/gtk-${GTK4_VERSION}.tar.xz" /build/gtk4
-    # Both backends, and no Mesa: glvnd resolves the host's GL driver, which is what we want here
+    extractSource "gtk-${GTK4_VERSION}.tar.xz" /build/gtk4
     mesonBuild gtk4 -Dx11-backend=true -Dwayland-backend=true -Dvulkan=disabled \
         -Dmedia-gstreamer=disabled -Dbuild-tests=false -Dbuild-demos=false \
         -Dbuild-examples=false -Dbuild-testsuite=false -Dintrospection=disabled \
@@ -261,8 +228,6 @@ buildGtk4() {
 }
 
 buildLibadwaita() {
-    # Not fetched: libadwaita is the one library TuxBlox maintains, and it comes from the submodule at shared/ui/libadwaita, whose commit is the pin
-    # Copied out of the read-only mount rather than built in place, so the checkout the repo owner edits never collects build artefacts
     rm -rf /build/libadwaita
     cp -a /src/ui/libadwaita /build/libadwaita
     rm -rf /build/libadwaita/.git
@@ -270,14 +235,13 @@ buildLibadwaita() {
 }
 
 buildAdwaitaFonts() {
-    fetchAndExtract "https://download.gnome.org/sources/adwaita-fonts/${ADWAITA_FONTS_VERSION%%.*}/adwaita-fonts-${ADWAITA_FONTS_VERSION}.tar.xz" /build/adwaita-fonts
+    extractSource "adwaita-fonts-${ADWAITA_FONTS_VERSION}.tar.xz" /build/adwaita-fonts
     mkdir -p "$Prefix/fonts"
     find /build/adwaita-fonts -name 'AdwaitaSans-*.ttf' -exec cp -f {} "$Prefix/fonts/" \;
     if ! ls "$Prefix"/fonts/AdwaitaSans-*.ttf >/dev/null 2>&1; then
         printf 'ERROR: no AdwaitaSans fonts in the adwaita-fonts archive\n' >&2
         exit 1
     fi
-    # The session log is read as columns, so it needs a face whose characters are all one width. Without this the window falls back on whatever the machine has, which on some is a font that draws a 7 as a bare slash.
     find /build/adwaita-fonts -name 'AdwaitaMono-*.ttf' -exec cp -f {} "$Prefix/fonts/" \;
     if ! ls "$Prefix"/fonts/AdwaitaMono-*.ttf >/dev/null 2>&1; then
         printf 'ERROR: no AdwaitaMono fonts in the adwaita-fonts archive\n' >&2
@@ -309,7 +273,6 @@ runStep wayland "$WAYLAND_VERSION" buildWayland
 runStep wayland-protocols "$WAYLAND_PROTOCOLS_VERSION" buildWaylandprotocols
 runStep libxml2 "$LIBXML2_VERSION" buildLibxml2
 runStep gtk4 "$GTK4_VERSION" buildGtk4
-# The marker carries the submodule's commit, and an uncommitted edit always rebuilds; every other libadwaita marker goes, since the install in the prefix is about to be replaced
 case "${LIBADWAITA_SOURCE:?build.sh passes the submodule commit}" in
     *-dirty) rm -f "$Markers"/libadwaita-* ;;
     *) [ -e "$Markers/libadwaita-$LIBADWAITA_SOURCE" ] || rm -f "$Markers"/libadwaita-* ;;
@@ -317,7 +280,6 @@ esac
 runStep libadwaita "$LIBADWAITA_SOURCE" buildLibadwaita
 runStep adwaita-fonts "$ADWAITA_FONTS_VERSION" buildAdwaitaFonts
 
-# GTK and libadwaita each carry the icons their own widgets ask for, but only inside the libraries, where they are reachable only through whichever icon index the host happens to provide. Collecting them into a theme TuxBlox ships and selects is what makes a window draw the same on a desktop with its own icons and on one with none.
 printf ':: Assembling the icon theme\n'
 themeDir="$Prefix/share/icons/TuxBlox"
 for iconSource in /build/gtk4/gtk/icons /build/libadwaita/src/icons; do
@@ -332,7 +294,6 @@ cp -a /build/gtk4/gtk/icons/. "$themeDir/"
 cp -a /build/libadwaita/src/icons/. "$themeDir/"
 rm -f "$themeDir/hicolor.index.theme"
 
-# The stack carries no image loader for SVG, so an icon that exists only as one is found and then drawn as the missing-image square -- libadwaita's own internals, the expander arrow among them, are all in that state. Rendering a PNG twin beside each one is what GTK itself ships for every other symbolic icon in this theme.
 printf ':: Rasterising the icons that exist only as SVG\n'
 rasterised=0
 while IFS= read -r svg; do
@@ -354,7 +315,6 @@ while IFS= read -r svg; do
 done < <(find "$themeDir/scalable" -name '*.svg' | sort)
 printf ':: %s icons rendered\n' "$rasterised"
 
-# Only the folders that are actually here. GTK's own index names every folder the icon standard allows, and the interface stats each one against every search path at startup, so listing the hundreds TuxBlox does not ship would cost real time on every launch and find nothing. Each description is still copied from that index, which already has these folders right; inheriting keeps the host's icons available for anything TuxBlox does not carry.
 iconDirs="$(cd "$themeDir" && find . -mindepth 2 -type d | sed 's#^\./##' | sort)"
 {
     printf '[Icon Theme]\nName=TuxBlox\nComment=The icons TuxBlox ships\nInherits=Adwaita,hicolor\n'
@@ -369,7 +329,6 @@ iconDirs="$(cd "$themeDir" && find . -mindepth 2 -type d | sed 's#^\./##' | sort
     done
 } > "$themeDir/index.theme"
 
-# An icon in a folder the index does not describe cannot be found at all, which is the failure this theme exists to prevent, so it fails the build rather than shipping
 themeFailed=0
 sections="$(grep -c '^\[.*\]$' "$themeDir/index.theme")"
 sizes="$(grep -c '^Size=' "$themeDir/index.theme")"
@@ -384,7 +343,6 @@ while IFS= read -r iconDir; do
         themeFailed=1
     fi
 done < <(find "$themeDir" -mindepth 2 -type d)
-# An icon that is only an SVG cannot be drawn at all, so the rasterising above has to have covered every one of them
 while IFS= read -r svg; do
     name="$(basename "$svg" .svg)"
     if ! find "$themeDir" -name "$name.png" -o -name "$name.symbolic.png" | grep -q .; then
@@ -392,7 +350,6 @@ while IFS= read -r svg; do
         themeFailed=1
     fi
 done < <(find "$themeDir/scalable" -name '*.svg')
-# The icon drawn in place of one that is missing; without it the interface searches for it forever and dies
 if [ ! -e "$themeDir/16x16/status/image-missing.png" ]; then
     printf 'ERROR: the icon theme has no image-missing\n' >&2
     themeFailed=1

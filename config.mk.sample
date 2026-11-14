@@ -1,0 +1,7 @@
+# Copy to config.mk to make these stick. config.mk is gitignored and build only.
+
+# Drop the layer's build scratch after staging. Unset keeps it so a rebuild is incremental.
+# TUXBLOX_RM_DIST ?= 1
+
+# Parallel jobs. Defaults to nproc.
+# JOBS ?= 8

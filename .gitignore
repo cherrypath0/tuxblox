@@ -4,18 +4,16 @@ releases/
 launcher/build/
 launcher/build-test/
 launcher/build-*/
-launcher/third_party/
 
 .env
+config.mk
 
 push.sh
-install-handler.sh
 deploy.sh
 
 __pycache__/
 
 installer/build/
-installer/third_party/
 studio-mcp/build/
 
 *.log
@@ -25,6 +23,7 @@ studio-mcp/build/
 *.so
 *.archived
 
+compat/sources/
 compat/dist
 compat/dist-*
 compat/obj-*
@@ -42,7 +41,9 @@ AGENTS.local.md
 /*.tar.zst
 
 compat/webkitgtk/bundle/out/
-compat/webkitgtk/bundle/host/webview2loader_ipc_protocol.h
 logs/
 shared/ui/dist/
+shared/ui/sources/
 compat/webkitgtk/bundle/sources/
+compat/webkitgtk/prebuilt/
+compat/webkitgtk/wpe/sources/

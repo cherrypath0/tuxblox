@@ -15,21 +15,15 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-# Checks what each shipped binary actually loads, so a change cannot quietly put back a dependency on the machine it runs on.
-
 set -euo pipefail
 
 BuildDir="${1:-build}"
 StackDirName="libtuxblox"
-# The C library version TuxBlox tells users it needs; raising it is a decision, not a build detail.
 GlibcFloor="GLIBC_2.29"
 
-# Libraries that have to come from the machine: the C library and the loader.
 GlibcNames='^(libc|libm|libdl|libpthread|librt|libresolv|libutil|libanl)\.so\.[0-9]+$'
-# Driver- and display-coupled libraries, which must match what is installed rather than be shipped.
 HostGraphicsNames='^lib(X11|X11-xcb|Xau|Xdmcp|Xext|Xrender|Xi|Xrandr|Xcursor|Xdamage|Xfixes|Xinerama|Xtst|Xss|xcb|xcb-render|xcb-shm|xcb-dri2|xcb-dri3|xcb-glx|xcb-present|xcb-sync|xcb-xfixes|xcb-randr|xcb-shape|xcb-util|xshmfence|drm|gbm|GL|GLX|EGL|GLdispatch|OpenGL|wayland-client|wayland-cursor|wayland-egl|xkbcommon|xkbcommon-x11)\.so\.[0-9]+$'
 
-# Each binary, and whether it may load the interface stack and the display libraries alongside the C library.
 Binaries=(
     "TuxBloxInstaller:no"
     "studio-mcp:no"
@@ -48,7 +42,6 @@ problem() {
     Failures=$((Failures + 1))
 }
 
-# Reports "name<TAB>resolved path" for everything the binary loads, with RPATH and RUNPATH honoured.
 resolveLoaded() {
     local binary="$1"
     ldd "$binary" 2>/dev/null | awk '
@@ -84,7 +77,6 @@ checkBinary() {
         [[ -z "$libName" ]] && continue
         seen=$((seen + 1))
 
-        # The loader appears either as a bare soname or as the absolute path baked into the binary.
         if [[ "$libPath" == "kernel-or-loader" || "$libName" == *"ld-linux"* ]]; then
             continue
         fi
@@ -93,7 +85,6 @@ checkBinary() {
             continue
         fi
 
-        # Anything resolving inside the install's own folder is shipped, not borrowed.
         if [[ "$libPath" == "$stackRoot/"* || "$libPath" == *"/$StackDirName/"* ]]; then
             fromStack=$((fromStack + 1))
             if [[ "$stackAllowed" != "yes" ]]; then
@@ -123,15 +114,12 @@ for entry in "${Binaries[@]}"; do
     checkBinary "${entry%%:*}" "${entry##*:}"
 done
 
-# Carrying our own C++ runtime is only safe while the interface stack stays pure C: a C++ library
-# in there could throw across the boundary into a different runtime than the one it was built with.
 while IFS= read -r lib; do
     if objdump -p "$lib" 2>/dev/null | grep -q 'NEEDED.*libstdc++'; then
         problem "!! $(basename "$lib") needs a C++ runtime, so carrying our own in the programs is no longer safe"
     fi
 done < <(find "$BuildDir/$StackDirName" -name '*.so*' -type f 2>/dev/null)
 
-# No program may ask the machine for a C++ runtime version any more, and the C library floor must not have risen.
 for entry in "${Binaries[@]}"; do
     name="${entry%%:*}"
     binary="$BuildDir/$name"
@@ -145,7 +133,6 @@ for entry in "${Binaries[@]}"; do
         continue
     fi
     note "   $name needs at most $maxGlibc"
-    # The floor is a published requirement, so a change that raises it has to be a decision rather than a surprise.
     if [[ "$(printf '%s\n' "${maxGlibc#GLIBC_}" "${GlibcFloor#GLIBC_}" | sort -V | tail -1)" != "${GlibcFloor#GLIBC_}" ]]; then
         problem "!! $name needs $maxGlibc, above the $GlibcFloor floor TuxBlox promises"
     fi

@@ -15,8 +15,6 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-# Sourced by installer/build.sh and launcher/build.sh. Prints the libadwaita commit to name in the copyright notice, or nothing when there is no stack to name. A headless installer still names it, because every release installs the stack.
-# The tarball's own record wins, because it describes the library that is actually inside it; git is only asked when the tarball predates the record.
 libadwaitaCommit() {
     local uiDir="$1" tarball commit dir
     for tarball in "$uiDir"/dist/ui-stack-*.tar.zst; do
@@ -28,7 +26,6 @@ libadwaitaCommit() {
         fi
     done
     dir="$(cd "$uiDir" 2>/dev/null && pwd -P)/libadwaita"
-    # An uninitialised submodule directory makes git answer about the parent repository, so the commit is only trusted when git's top level is the submodule itself.
     if [[ -d "$dir" && "$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null)" == "$dir" ]]; then
         commit="$(git -C "$dir" rev-parse HEAD)"
         if [[ -n "$(git -C "$dir" status --porcelain)" ]]; then

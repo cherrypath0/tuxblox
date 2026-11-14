@@ -26,7 +26,6 @@ OutDir=/out
 Tarball="ui-stack-${UI_STACK_VERSION}-x86_64.tar.zst"
 export PATH="$Prefix/bin:$PATH"
 
-# Libraries safe to assume on an arbitrary Linux desktop with no GTK installed; anything else must be shipped in the stack
 HostAllowList=(
     '^libc\.so\.6$' '^libm\.so\.6$' '^libdl\.so\.2$' '^libpthread\.so\.0$' '^librt\.so\.1$' '^libresolv\.so\.2$'
     '^ld-linux-x86-64\.so\.2$'
@@ -58,7 +57,6 @@ stageRuntime() {
     rm -rf "$StageDir/$LibRel/pkgconfig" "$StageDir/$LibRel/glib-2.0/include" "$StageDir/$LibRel/gdk-pixbuf-2.0"
     rm -f "$StageDir/$LibRel"/libgirepository-2.0.so* "$StageDir/$LibRel"/libxkbregistry.so*
     cp -a "$Prefix/fonts/." "$StageDir/fonts/"
-    # Relative to this file, so the bundled fonts are found wherever the payload is unpacked; the host's own configuration is only added for fallback fonts
     cat > "$StageDir/fonts/fonts.conf" <<'FONTS'
 <?xml version="1.0"?>
 <!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">
@@ -70,13 +68,11 @@ stageRuntime() {
 FONTS
     cp -a "$Prefix/share/glib-2.0/schemas" "$StageDir/share/glib-2.0/schemas"
     glib-compile-schemas "$StageDir/share/glib-2.0/schemas"
-    # The icons the interface draws. Shipping them is what keeps a window identical on a desktop that has its own and on one that has none, so a stack without them is not shippable.
     cp -a "$Prefix/share/icons" "$StageDir/share/icons"
     if [ ! -e "$StageDir/share/icons/TuxBlox/index.theme" ] || [ ! -e "$StageDir/share/icons/TuxBlox/16x16/status/image-missing.png" ]; then
         printf 'ERROR: the icon theme is missing from the stack\n' >&2
         exit 1
     fi
-    # The session log is read as columns and needs a face whose characters are all one width. The build step insists on these, so the packaging step has to as well, or a stack that passed the build ships without them and the window quietly falls back on whatever the machine has.
     if ! ls "$StageDir"/fonts/AdwaitaSans-*.ttf >/dev/null 2>&1 || ! ls "$StageDir"/fonts/AdwaitaMono-*.ttf >/dev/null 2>&1; then
         printf 'ERROR: the stack is missing AdwaitaSans or AdwaitaMono\n' >&2
         exit 1
@@ -155,9 +151,7 @@ checkSymbolVersions() {
 writeTarball() {
     printf ':: Writing %s\n' "$Tarball"
     mkdir -p "$OutDir"
-    # The commit rides inside the tarball so the copyright notice names the libadwaita that was actually built, however old the tarball is
     printf '%s\n' "${LIBADWAITA_COMMIT:?build.sh passes the full submodule commit}" > "$StageDir/LIBADWAITA_COMMIT"
-    # The launcher cannot run a directory of shared libraries to ask its version, so the stack carries it as a file.
     printf '%s\n' "${LIBTUXBLOX_VERSION:?ui-versions.env sets the component version}" > "$StageDir/VERSION"
     tar -C "$StageDir" -cf - lib share fonts LIBADWAITA_COMMIT VERSION | zstd -19 -T0 -q -o "$OutDir/$Tarball" -f
 }
