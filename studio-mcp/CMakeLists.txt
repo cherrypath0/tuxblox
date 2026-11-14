@@ -33,11 +33,11 @@ if(NOT EXISTS "${TUXBLOX_LAUNCHER_DIR}/src/launch_paths.cpp")
     message(FATAL_ERROR
         "TUXBLOX_LAUNCHER_DIR (${TUXBLOX_LAUNCHER_DIR}) is not a launcher source tree.")
 endif()
-# Not in the repository -- launcher/vendor.sh fetches it, which build.sh runs.
+# Comes from the launcher's committed third_party/, mounted read-only at /launcher.
 if(NOT EXISTS "${TUXBLOX_LAUNCHER_DIR}/third_party/json.hpp")
     message(FATAL_ERROR
         "${TUXBLOX_LAUNCHER_DIR}/third_party/json.hpp is missing. "
-        "Run launcher/vendor.sh first.")
+        "It should be committed in launcher/third_party/.")
 endif()
 
 # The release this build is staged into is written into the finished binary rather than compiled in,

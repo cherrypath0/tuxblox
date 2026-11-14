@@ -21,14 +21,15 @@
 #
 # nlohmann/json is vendored as a single header with no accompanying LICENSE
 # file, so its license is fetched separately, pinned to the exact same v3.11.3
-# tag vendor.sh already pins json.hpp to.
+# tag the committed json.hpp came from.
 #
 # stb_image.h's dual-license text lives inline in that (large, mostly-code)
 # header rather than in a separate file, so it isn't handled here -- it's
 # hardcoded directly in copyright_file.cpp instead, with a comment noting
 # which pinned commit it was copied from.
 
-set(JSON_LICENSE_URL "https://raw.githubusercontent.com/nlohmann/json/v3.11.3/LICENSE.MIT")
+# Kept in the repository: a build must not need the network, and a licence notice must not come from a moving target.
+set(JSON_LICENSE_SRC "${CMAKE_SOURCE_DIR}/assets/json-LICENSE.MIT")
 # The LGPLv2.1 text is kept in the tree rather than fetched: a build must not fail because gnu.org is unreachable, and the bytes shipped must not change under us.
 set(LGPL21_LICENSE_SRC "${CMAKE_SOURCE_DIR}/licenses/lgpl-2.1.txt")
 set(GENERATED_DIR "${CMAKE_BINARY_DIR}/generated")
@@ -41,8 +42,7 @@ file(MAKE_DIRECTORY ${GENERATED_DIR})
 
 add_custom_command(
     OUTPUT ${JSON_LICENSE_HEADER_PATH}
-    COMMAND ${CMAKE_COMMAND} -DURL=${JSON_LICENSE_URL} -DDEST=${JSON_LICENSE_TXT_PATH}
-            -P ${CMAKE_SOURCE_DIR}/cmake/DownloadFile.cmake
+    COMMAND ${CMAKE_COMMAND} -E copy ${JSON_LICENSE_SRC} ${JSON_LICENSE_TXT_PATH}
     COMMAND ${CMAKE_COMMAND} -DINPUT=${JSON_LICENSE_TXT_PATH} -DOUTPUT=${JSON_LICENSE_HEADER_PATH}
             -DSYMBOL=kJsonLicenseTxt
             -P ${CMAKE_SOURCE_DIR}/cmake/BinToHeader.cmake

@@ -31,7 +31,7 @@ if(NOT TUXBLOX_UI_SRC)
 endif()
 
 if(NOT EXISTS "${CMAKE_SOURCE_DIR}/third_party/json.hpp")
-    message(FATAL_ERROR "third_party/json.hpp is missing. Run ./vendor.sh first.")
+    message(FATAL_ERROR "third_party/json.hpp is missing from the repository.")
 endif()
 
 # Still needed by the interface stack's UiStack.cmake, which finds GTK and libadwaita through pkg-config.
@@ -134,7 +134,7 @@ target_link_options(installer_core PUBLIC -static-libstdc++ -static-libgcc)
 add_dependencies(installer_core generate_ca_bundle_header generate_i18n_header generate_default_flags_header)
 
 # Same version resolution as launcher/CMakeLists.txt: TUXBLOX_BUILD_VERSION wins, and
-# installer/build.sh sets it from installer/VERSION on the host, because cmake runs inside a
+# The Makefile sets it from installer/VERSION on the host, because cmake runs inside a
 # container where only this directory is mounted. This is the INSTALLER's own version now, not a
 # number shared with the launcher and the layer. installer/VERSION is the fallback for a bare host
 # cmake run, which is the one case that reaches it.
