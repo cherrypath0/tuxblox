@@ -17,23 +17,22 @@
 #pragma once
 #include <ctime>
 #include <string>
-#include <utility>
 #include <vector>
 
 namespace tuxblox {
 
-// Pure selection logic, kept separate from the real directory walk for
-// testability: given (filename, mtime) pairs, returns just the names with
-// mtime >= sessionStart, preserving input order.
-std::vector<std::string> selectSessionLogFiles(
-    const std::vector<std::pair<std::string, std::time_t>>& entries, std::time_t sessionStart);
+// The logs this session wrote, picked out of a folder that also holds other sessions' logs, earlier
+// runs' logs and files that are not logs at all. A name is the only reliable evidence: every
+// modification time in the folder moves while any session is running.
+std::vector<std::string> selectSessionLogFiles(const std::vector<std::string>& names,
+                                               std::time_t sessionStart, bool player);
 
 std::string robloxLogsDir(const std::string& installDir);
 
 std::vector<std::string> appendRobloxSessionLogs(const std::string& installDir, std::time_t sessionStart,
-                                                  const std::string& destLogPath);
+                                                  const std::string& destLogPath, bool player);
 
-// Removes the log appendRobloxSessionLogs() copied, so a session leaves one file holding both halves instead of two holding the same lines. Only one unambiguous log goes: the whole list must be a single file carrying this target's own name, because a second session running at the same time puts its log in that folder too and losing somebody else's log is far worse than leaving a copy behind.
+// Removes the logs appendRobloxSessionLogs() copied, so a session leaves one file holding both halves instead of two holding the same lines. Every name is checked against this target once more before it goes, because losing somebody else's log is far worse than leaving a copy behind.
 int removeAppendedRobloxLogs(const std::string& installDir, const std::vector<std::string>& appended,
                              bool player);
 

@@ -65,19 +65,21 @@ int main() {
         const fs::path inDrive = account / "AppData/Local/Roblox";
         assert(robloxDataDirIn(account.string()) == inDrive.string());
 
-        // Pointed somewhere: that is what the compatibility layer chose, so it is the
-        // answer. Every program reads it back the same way rather than working it out
-        // again, which is what stops two of them disagreeing.
-        const fs::path kept = base / "elsewhere/roblox";
-        fs::create_directories(kept);
+        // Pointed somewhere else: still the folder inside the drive. Everything that opens
+        // a file here follows the link without noticing, and the one caller that cannot is
+        // the one naming an executable for the compatibility layer, which maps C: and
+        // nothing else -- an exe named outside the drive belongs to no drive and the layer
+        // dies before it has loaded anything.
+        const fs::path elsewhere = base / "elsewhere/roblox";
+        fs::create_directories(elsewhere);
         fs::create_directories(inDrive.parent_path());
-        fs::create_directory_symlink(kept, inDrive);
-        assert(robloxDataDirIn(account.string()) == kept.string());
-        assert(robloxDataDir(base.string()) == kept.string());
+        fs::create_directory_symlink(elsewhere, inDrive);
+        assert(robloxDataDirIn(account.string()) == inDrive.string());
+        assert(robloxDataDir(base.string()) == inDrive.string());
+        // And it is the same directory either way, which is what stops the two disagreeing.
+        assert(fs::canonical(robloxDataDirIn(account.string())) == fs::canonical(elsewhere));
 
-        // A relative target is read against a directory this is not standing in, so it
-        // is not followed -- the folder inside the drive answers instead and the file
-        // system resolves the link itself, as it did before any of this.
+        // A relative target answers the same, as it always did.
         fs::remove(inDrive);
         fs::create_directory_symlink("../../../../../elsewhere/roblox", inDrive);
         assert(robloxDataDirIn(account.string()) == inDrive.string());

@@ -23,7 +23,6 @@
 
 #include "roblox_log_capture.h"
 
-#include <algorithm>
 #include <cstddef>
 #include <filesystem>
 #include <utility>
@@ -209,19 +208,20 @@ std::string findSessionLog(const std::string& installDir, std::time_t sessionSta
         candidates.emplace_back(name, status.st_mtime);
     }
 
-    const std::vector<std::string> session = selectSessionLogFiles(candidates, sessionStart);
-    if (session.empty()) {
-        return std::string();
-    }
-
     // The newest, so a second Studio started in the same session does not pin presence to the first one's log.
-    std::string newest = session.front();
+    std::string newest;
     std::time_t newestTime = 0;
     for (const auto& [name, written] : candidates) {
-        if (std::find(session.begin(), session.end(), name) != session.end() && written >= newestTime) {
+        if (written < sessionStart) {
+            continue;
+        }
+        if (newest.empty() || written >= newestTime) {
             newestTime = written;
             newest = name;
         }
+    }
+    if (newest.empty()) {
+        return std::string();
     }
     return dir + "/" + newest;
 }

@@ -16,21 +16,48 @@
 
 #include "roblox_log_capture.h"
 #include "prefix_user.h"
+#include "session_log_match.h"
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
-#include <sys/stat.h>
 
 namespace fs = std::filesystem;
 
 namespace tuxblox {
 
-std::vector<std::string> selectSessionLogFiles(
-    const std::vector<std::pair<std::string, std::time_t>>& entries, std::time_t sessionStart) {
-    std::vector<std::string> result;
-    for (const auto& [name, mtime] : entries) {
-        if (mtime >= sessionStart) result.push_back(name);
+namespace {
+
+// Roblox starts its crash reporter alongside the client, so one beginning long after belongs to another instance.
+constexpr std::time_t kCrashReporterLeadSeconds = 60;
+
+} // namespace
+
+std::vector<std::string> selectSessionLogFiles(const std::vector<std::string>& names,
+                                               std::time_t sessionStart, bool player) {
+    const char* marker = player ? "_Player_" : "_Studio_";
+
+    std::string session, crash;
+    std::time_t sessionAt = 0, crashAt = 0;
+
+    for (const std::string& name : names) {
+        if (name.find(marker) == std::string::npos) continue;
+        const std::time_t startedAt = robloxLogStartTime(name);
+        if (startedAt == 0 || startedAt < sessionStart) continue;
+
+        // The earliest log at or after this launch is its own; anything later was written by an instance that started after it.
+        if (isCrashHandlerLog(name)) {
+            if (crash.empty() || startedAt < crashAt) { crash = name; crashAt = startedAt; }
+        } else if (session.empty() || startedAt < sessionAt) {
+            session = name;
+            sessionAt = startedAt;
+        }
     }
+
+    std::vector<std::string> result;
+    if (session.empty()) return result;
+    result.push_back(session);
+    if (!crash.empty() && crashAt - sessionAt <= kCrashReporterLeadSeconds) result.push_back(crash);
+    std::sort(result.begin(), result.end());
     return result;
 }
 
@@ -63,24 +90,22 @@ bool streamAppendFile(std::ofstream& dest, const std::string& srcPath) {
 } // namespace
 
 std::vector<std::string> appendRobloxSessionLogs(const std::string& installDir, std::time_t sessionStart,
-                                                  const std::string& destLogPath) {
+                                                  const std::string& destLogPath, bool player) {
     std::vector<std::string> appended;
 
     std::string dir = robloxLogsDir(installDir);
     std::error_code ec;
     if (!fs::exists(dir, ec) || ec) return appended;
 
-    std::vector<std::pair<std::string, std::time_t>> entries;
+    std::vector<std::string> entries;
     for (const auto& entry : fs::directory_iterator(dir, ec)) {
         if (ec) break;
         if (!entry.is_regular_file()) continue;
-        struct stat st{};
-        if (stat(entry.path().c_str(), &st) != 0) continue;
-        entries.emplace_back(entry.path().filename().string(), st.st_mtime);
+        entries.push_back(entry.path().filename().string());
     }
     std::sort(entries.begin(), entries.end()); // deterministic order regardless of directory iteration order
 
-    auto qualifying = selectSessionLogFiles(entries, sessionStart);
+    auto qualifying = selectSessionLogFiles(entries, sessionStart, player);
     if (qualifying.empty()) return appended;
 
     std::ofstream dest(destLogPath, std::ios::binary | std::ios::app);
@@ -97,17 +122,18 @@ std::vector<std::string> appendRobloxSessionLogs(const std::string& installDir, 
 
 int removeAppendedRobloxLogs(const std::string& installDir, const std::vector<std::string>& appended,
                              bool player) {
-    // More than one log means another session was writing in the same folder, and there is no way
-    // from here to tell which belongs to whom, so nothing goes.
-    if (appended.size() != 1) return 0;
+    const char* marker = player ? "_Player_" : "_Studio_";
+    const fs::path dir = robloxLogsDir(installDir);
+    int removed = 0;
 
-    const std::string& name = appended.front();
-    if (name.find(player ? "_Player_" : "_Studio_") == std::string::npos) return 0;
-
-    const fs::path path = fs::path(robloxLogsDir(installDir)) / name;
-    std::error_code ec;
-    if (!fs::is_regular_file(path, ec)) return 0;
-    return fs::remove(path, ec) ? 1 : 0;
+    for (const std::string& name : appended) {
+        if (name.find(marker) == std::string::npos) continue;
+        const fs::path path = dir / name;
+        std::error_code ec;
+        if (!fs::is_regular_file(path, ec)) continue;
+        if (fs::remove(path, ec)) ++removed;
+    }
+    return removed;
 }
 
 } // namespace tuxblox
