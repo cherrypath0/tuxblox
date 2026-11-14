@@ -1679,7 +1679,7 @@ static enum dialog_wait wait_for_dialog( pid_t pid, int *status )
  * exit code can be lost -- a crashing program's own handler may reap the child
  * first -- and a lost answer would put the fallback box on screen underneath a
  * dialog that is already there. A byte can only come from a box that ran. */
-static enum dialog_wait read_dialog_answer( int fd, pid_t pid, int *chosen )
+static enum dialog_wait read_dialog_answer( int fd, pid_t pid, int *chosen, int *status, BOOL *reaped )
 {
     ULONGLONG deadline = monotonic_counter() + 120000 * (ULONGLONG)10000;
 
@@ -1701,6 +1701,14 @@ static enum dialog_wait read_dialog_answer( int fd, pid_t pid, int *chosen )
             return DIALOG_ANSWERED;
         }
         if (ready == -1 && errno != EINTR) return DIALOG_LOST;
+        /* The box being gone ends the wait, rather than the pipe being closed: another thread
+         * forking at the wrong moment leaves a copy of the write end in a process that never
+         * writes to it and may outlive everything, and then the read end never hangs up at all. */
+        if (waitpid( pid, status, WNOHANG ) == pid)
+        {
+            *reaped = TRUE;
+            return DIALOG_LOST;
+        }
         if (monotonic_counter() >= deadline)
         {
             kill( pid, SIGTERM );
@@ -1761,10 +1769,14 @@ static int run_launcher_dialog( const char *title, const char *body, const struc
     char path[PATH_MAX], labels[128], preferred[8];
     int fds[2], icon_fd, status = 0, count = 0, chosen = MSGBOX_DISMISSED, answer, i, at = 0;
     enum dialog_wait waited;
+    BOOL reaped = FALSE;
     pid_t pid;
 
     if (!find_launcher( path, sizeof(path) )) return MSGBOX_NOT_SHOWN;
-    if (pipe( fds ) == -1) return MSGBOX_NOT_SHOWN;
+    /* Close-on-exec because the program raising the error has other threads, and one of them
+     * forking between here and the close below would hand a copy of the write end to a process
+     * that keeps it open for ever. The dialog's own copy is put back below, after dup2. */
+    if (pipe2( fds, O_CLOEXEC ) == -1) return MSGBOX_NOT_SHOWN;
 
     /* The window carries the icon of the program that raised the error, the
      * way the box Windows draws does. */
@@ -1809,16 +1821,21 @@ static int run_launcher_dialog( const char *title, const char *body, const struc
         const char *original = getenv( "ORIG_LD_LIBRARY_PATH" );
 
         close( fds[0] );
+        /* dup2 clears close-on-exec on the copy it makes; a descriptor that already sits where the
+         * dialog expects it is never duplicated, so its own flag has to come off by hand. */
         if (fds[1] != MSGBOX_ANSWER_FD)
         {
             if (dup2( fds[1], MSGBOX_ANSWER_FD ) == -1) _exit( MSGBOX_NOT_SHOWN );
             close( fds[1] );
         }
+        else if (fcntl( fds[1], F_SETFD, 0 ) == -1) _exit( MSGBOX_NOT_SHOWN );
         if (icon_fd != -1 && icon_fd != MSGBOX_ICON_FD)
         {
             if (dup2( icon_fd, MSGBOX_ICON_FD ) == -1) _exit( MSGBOX_NOT_SHOWN );
             close( icon_fd );
         }
+        else if (icon_fd == MSGBOX_ICON_FD && fcntl( icon_fd, F_SETFD, 0 ) == -1)
+            _exit( MSGBOX_NOT_SHOWN );
         if (original) setenv( "LD_LIBRARY_PATH", original, 1 );
         else unsetenv( "LD_LIBRARY_PATH" );
         unsetenv( "LD_PRELOAD" );
@@ -1828,7 +1845,7 @@ static int run_launcher_dialog( const char *title, const char *body, const struc
 
     close( fds[1] );
     if (icon_fd != -1) close( icon_fd );
-    waited = read_dialog_answer( fds[0], pid, &chosen );
+    waited = read_dialog_answer( fds[0], pid, &chosen, &status, &reaped );
     close( fds[0] );
 
     if (waited == DIALOG_ANSWERED) answer = chosen;
@@ -1837,7 +1854,7 @@ static int run_launcher_dialog( const char *title, const char *body, const struc
     /* Reaped however it went, so nothing is left behind. Its exit code says
      * only whether it had a screen to draw on, which is all there is left to
      * learn once no answer has come back. */
-    if (wait_for_dialog( pid, &status ) == DIALOG_ANSWERED && waited == DIALOG_LOST &&
+    if ((reaped || wait_for_dialog( pid, &status ) == DIALOG_ANSWERED) && waited == DIALOG_LOST &&
         WIFEXITED(status) && WEXITSTATUS(status) < 2)
         answer = MSGBOX_DISMISSED;
 
@@ -1857,7 +1874,9 @@ static int run_x11_dialog( const char *title, const char *body, unsigned int fla
     int code;
 
     if (!load_libraries()) return MSGBOX_NOT_SHOWN;
-    if (pipe( fds ) == -1) fds[0] = fds[1] = -1;
+    /* Close-on-exec for the same reason as the launcher's pipe above; this one is only inherited
+     * across fork, never exec, so nothing has to put the flag back. */
+    if (pipe2( fds, O_CLOEXEC ) == -1) fds[0] = fds[1] = -1;
 
     parent = getpid();
     if ((pid = fork()) == -1)

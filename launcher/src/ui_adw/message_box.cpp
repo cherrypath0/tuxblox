@@ -31,6 +31,10 @@
 #include <unistd.h>
 
 // Third Parties
+#include <gdk/x11/gdkx.h>
+#include <X11/Xatom.h>
+
+// Third Parties
 #include <adwaita.h>
 
 namespace tuxblox {
@@ -105,12 +109,83 @@ GdkTexture *readIconFd(int fd) {
 }
 
 // Shows the dialog and returns once it is closed, however it was closed.
-void runDialog(AdwDialog *pDialog, GdkTexture *pIcon) {
+// A window in the desktop's list can close between it being read and being asked about, and the
+// default answer to that is to end this program. Nothing here is worth that, so it is ignored.
+int ignoreXError(Display *, XErrorEvent *) { return 0; }
+
+// The window of the program that asked for this box. It started us, so its process id is this
+// process's parent, and the desktop's own list of windows says which window is its.
+Window findParentAppWindow(Display *pDisplay) {
+    const unsigned long parent = static_cast<unsigned long>(getppid());
+    const Atom clientList = XInternAtom(pDisplay, "_NET_CLIENT_LIST", True);
+    const Atom pidProperty = XInternAtom(pDisplay, "_NET_WM_PID", True);
+    if (clientList == None || pidProperty == None) return None;
+
+    Atom type = None;
+    int format = 0;
+    unsigned long count = 0;
+    unsigned long remaining = 0;
+    unsigned char *pBytes = nullptr;
+    if (XGetWindowProperty(pDisplay, DefaultRootWindow(pDisplay), clientList, 0, 4096, False,
+                           XA_WINDOW, &type, &format, &count, &remaining, &pBytes) != Success) {
+        return None;
+    }
+
+    Window found = None;
+    const Window *pWindows = reinterpret_cast<const Window *>(pBytes);
+    for (unsigned long at = 0; pWindows != nullptr && at < count && found == None; ++at) {
+        unsigned char *pPid = nullptr;
+        unsigned long pidCount = 0;
+        if (XGetWindowProperty(pDisplay, pWindows[at], pidProperty, 0, 1, False, XA_CARDINAL, &type,
+                               &format, &pidCount, &remaining, &pPid) != Success) {
+            continue;
+        }
+        if (pPid != nullptr && pidCount == 1 && *reinterpret_cast<unsigned long *>(pPid) == parent) {
+            found = pWindows[at];
+        }
+        if (pPid != nullptr) XFree(pPid);
+    }
+    if (pBytes != nullptr) XFree(pBytes);
+    return found;
+}
+
+// Looked up before the interface starts, because the box has to be on the same display server as
+// the program that asked for it before the desktop will treat it as that program's own window.
+Window parentAppWindowForBox() {
+    Display *pDisplay = XOpenDisplay(nullptr);
+    if (pDisplay == nullptr) return None;
+
+    XErrorHandler previous = XSetErrorHandler(ignoreXError);
+    const Window parent = findParentAppWindow(pDisplay);
+    XSync(pDisplay, False);
+    XSetErrorHandler(previous);
+    XCloseDisplay(pDisplay);
+    if (parent != None) setenv("GDK_BACKEND", "x11", 1);
+    return parent;
+}
+
+// Says the box belongs to the window that asked for it, so the desktop keeps the two together and
+// brings the box up in front of it rather than leaving it behind, unfocused and easily missed.
+void markAsDialogOf(AdwDialog *pDialog, Window parent) {
+    if (parent == None) return;
+
+    GtkRoot *pRoot = gtk_widget_get_root(GTK_WIDGET(pDialog));
+    GdkSurface *pSurface = GTK_IS_NATIVE(pRoot) ? gtk_native_get_surface(GTK_NATIVE(pRoot)) : nullptr;
+    if (pSurface == nullptr || !GDK_IS_X11_SURFACE(pSurface)) return;
+
+    Display *pDisplay = GDK_SURFACE_XDISPLAY(pSurface);
+    XSetTransientForHint(pDisplay, GDK_SURFACE_XID(pSurface), parent);
+    if (GTK_IS_WINDOW(pRoot)) gtk_window_present(GTK_WINDOW(pRoot));
+}
+
+void runDialog(AdwDialog *pDialog, GdkTexture *pIcon, Window parent = None) {
     GMainLoop *pLoop = g_main_loop_new(nullptr, FALSE);
 
     g_signal_connect(pDialog, "closed", G_CALLBACK(onClosed), pLoop);
     // With no parent, libadwaita gives the dialog a small window of its own
     adw_dialog_present(pDialog, nullptr);
+
+    markAsDialogOf(pDialog, parent);
 
     // Only once it is on screen does the window exist to carry an icon. A desktop that has no way to show one ignores it.
     if (pIcon != nullptr) {
@@ -181,6 +256,9 @@ MessageBoxOutcome showRequestedMessageBox(const std::string &title, const std::s
                                           int iconFd) {
     MessageBoxOutcome outcome;
 
+    // Looked up before the interface starts, because finding it decides which display server the box is drawn on.
+    const Window parent = parentAppWindowForBox();
+
     bool startedGtk = false;
     if (!startInterface(&startedGtk)) return outcome;
 
@@ -211,7 +289,7 @@ MessageBoxOutcome showRequestedMessageBox(const std::string &title, const std::s
     outcome.how = MessageBoxOutcome::Dismissed;
     AdwDialog *pDialog = buildDialog(title, message, std::move(made));
     adw_dialog_set_can_close(pDialog, canDismiss);
-    runDialog(pDialog, pIcon);
+    runDialog(pDialog, pIcon, parent);
     if (pIcon != nullptr) g_object_unref(pIcon);
 
     if (startedGtk) restoreBundledEnvironment();

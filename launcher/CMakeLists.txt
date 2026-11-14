@@ -31,10 +31,10 @@ if(NOT TUXBLOX_UI_SRC)
 endif()
 
 if(NOT EXISTS "${CMAKE_SOURCE_DIR}/third_party/json.hpp")
-    message(FATAL_ERROR "third_party/json.hpp is missing. Run ./vendor.sh first.")
+    message(FATAL_ERROR "third_party/json.hpp is missing from the repository.")
 endif()
 if(NOT EXISTS "${CMAKE_SOURCE_DIR}/third_party/stb_image.h")
-    message(FATAL_ERROR "third_party/stb_image.h is missing. Run ./vendor.sh first.")
+    message(FATAL_ERROR "third_party/stb_image.h is missing from the repository.")
 endif()
 
 # Still needed by the interface stack's UiStack.cmake, which finds GTK and libadwaita through pkg-config.
@@ -99,7 +99,7 @@ include(${TUXBLOX_I18N_DIR}/src/EmbedTranslations.cmake)
 include(${TUXBLOX_SHARED_FLAGS}/EmbedFlags.cmake)
 
 file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/generated)
-# TUXBLOX_BUILD_VERSION carries the LAUNCHER's own version, which launcher/build.sh reads from
+# TUXBLOX_BUILD_VERSION carries the LAUNCHER's own version, which the Makefile reads from
 # launcher/VERSION on the host and forwards in, because cmake runs inside a container where only
 # this directory is mounted. It is no longer a number shared with the installer and the layer:
 # each component carries its own, and the release is derived from their bump levels at staging.
@@ -267,10 +267,14 @@ if(TUXBLOX_UI_STACK_DEV)
         ${TUXBLOX_UI_SRC}/adw_look.cpp
         ${TUXBLOX_UI_SRC}/host_icons.cpp
     )
+    # A message box another program asked for says which of that program's windows it belongs to, so
+    # the desktop brings the two up together. Saying so is an X11 property, and GTK 4 dropped the
+    # API for pointing at a window belonging to another program.
+    pkg_check_modules(X11 REQUIRED x11)
     target_include_directories(launcher_ui_adw PUBLIC
-        src src/ui_adw ${CMAKE_BINARY_DIR}/generated ${ADWAITA_INCLUDE_DIRS})
+        src src/ui_adw ${CMAKE_BINARY_DIR}/generated ${ADWAITA_INCLUDE_DIRS} ${X11_INCLUDE_DIRS})
     target_compile_options(launcher_ui_adw PUBLIC ${ADWAITA_CFLAGS_OTHER})
-    target_link_libraries(launcher_ui_adw PUBLIC launcher_core ${ADWAITA_LINK_LIBRARIES})
+    target_link_libraries(launcher_ui_adw PUBLIC launcher_core ${ADWAITA_LINK_LIBRARIES} ${X11_LINK_LIBRARIES})
     add_dependencies(launcher_ui_adw generate_asset_headers generate_logo_header)
 
     add_executable(TuxBloxLauncher
