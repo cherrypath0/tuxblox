@@ -1159,7 +1159,8 @@ void App::versionInstallThreadMain(LaunchTarget target, VersionSelectMode mode, 
             {
                 std::unique_lock<std::mutex> lock(queueMutex);
                 // Timed, because versionInstallCancel_ is set from outside and cannot take this lock to notify.
-                queueReady.wait_for(lock, std::chrono::milliseconds(100), [&] {
+                // On the wall clock rather than wait_for, because libstdc++ routes wait_for through pthread_cond_clockwait, which glibc only grew in 2.30.
+                queueReady.wait_until(lock, std::chrono::system_clock::now() + std::chrono::milliseconds(100), [&] {
                     return !ready.empty() || stop || versionInstallCancel_ || downloadersLeft.load() == 0;
                 });
                 if (stop || versionInstallCancel_) return;

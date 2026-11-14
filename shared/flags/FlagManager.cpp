@@ -286,8 +286,9 @@ void sealLocked(State& s) {
 
     if (s.pending) {
         std::unique_lock<std::mutex> lock(s.pending->mutex);
-        s.pending->done.wait_for(lock, std::chrono::seconds(s.timeoutSeconds),
-                                  [&] { return s.pending->finished; });
+        // On the wall clock rather than wait_for, because libstdc++ routes wait_for through pthread_cond_clockwait, which glibc only grew in 2.30.
+        s.pending->done.wait_until(lock, std::chrono::system_clock::now() + std::chrono::seconds(s.timeoutSeconds),
+                                   [&] { return s.pending->finished; });
         if (s.pending->finished && !s.pending->body.empty()) {
             mergeFlagsOver(s.table, parseFlagJson(s.pending->body, true));
         }
