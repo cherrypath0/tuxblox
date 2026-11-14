@@ -4598,6 +4598,14 @@ static BOOL can_activate_window( HWND hwnd )
     return !(style & WS_DISABLED);
 }
 
+static BOOL is_window_of_current_process( HWND hwnd )
+{
+    DWORD pid = 0;
+
+    if (!get_window_thread( hwnd, &pid )) return FALSE;
+    return pid == GetCurrentProcessId();
+}
+
 /*******************************************************************
  *         activate_other_window
  *
@@ -4614,11 +4622,16 @@ static void activate_other_window( HWND hwnd )
         if (can_activate_window( hwnd_to )) goto done;
     }
 
+    /* Only this process's own windows are candidates. On Windows the next window in the Z order
+     * belongs to whatever else the user happens to have open and the shell decides what comes
+     * forward; here the desktop holds nothing but this prefix's windows, so closing one program's
+     * window would always hand the foreground to another program running in the same prefix.
+     * Leaving that to the window manager is what matches Windows. */
     hwnd_to = hwnd;
     for (;;)
     {
         if (!(hwnd_to = get_window_relative( hwnd_to, GW_HWNDNEXT ))) break;
-        if (can_activate_window( hwnd_to )) goto done;
+        if (can_activate_window( hwnd_to ) && is_window_of_current_process( hwnd_to )) goto done;
     }
 
     hwnd_to = get_window_relative( get_desktop_window(), GW_CHILD );
@@ -4629,7 +4642,7 @@ static void activate_other_window( HWND hwnd )
             hwnd_to = 0;
             break;
         }
-        if (can_activate_window( hwnd_to )) goto done;
+        if (can_activate_window( hwnd_to ) && is_window_of_current_process( hwnd_to )) goto done;
         if (!(hwnd_to = get_window_relative( hwnd_to, GW_HWNDNEXT ))) break;
     }
 
