@@ -73,7 +73,7 @@ Each part is its own target, so you can rebuild only what you changed:
 make JOBS=4
 ```
 
-Settings you want to keep go in `config.mk` at the repository root, which is gitignored and read automatically.
+Settings you want to keep go in `config.mk` at the repository root, which is read automatically. It is tracked and every setting in it is commented out, so uncommenting one is a change to the repository rather than a local-only tweak.
 
 Later builds are much faster: a part whose sources are untouched is not rebuilt at all. `build/` is kept between builds, so anything you put there stays; `make clean` removes it when you want a fresh start.
 
@@ -167,7 +167,7 @@ AI tools are welcome for any part of the repository. **Read [AGENTS.md](AGENTS.m
 
   ```
   Assisted-by: Claude Opus 5.5 (Claude Code)
-  Assisted-by: GPT-Astra 6 (Codex)
+  Assisted-by: GPT 6 Astra (Codex)
   ```
 
 - **Don't commit AI tool artifacts** (specs, plans, notes, scratch files). Keep them in `workspace/`, which is gitignored, and don't change `.gitignore` to hide them.
@@ -205,7 +205,7 @@ Please include:
 - Your Linux distribution and kernel version
 - Your TuxBlox version
 - Steps to reproduce
-- Relevant logs (redact any personal or account information, including Roblox cookies)
+- Relevant logs (redact any personal or account information)
 
 ## Reporting Security Issues
 

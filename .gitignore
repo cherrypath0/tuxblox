@@ -6,7 +6,6 @@ launcher/build-test/
 launcher/build-*/
 
 .env
-config.mk
 
 push.sh
 deploy.sh
