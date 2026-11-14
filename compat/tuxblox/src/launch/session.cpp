@@ -503,20 +503,15 @@ int Session::runProc(const std::vector<std::string>& command, const Environment&
             }
 
             // wineserver outlives any single client on purpose, so it and the helpers connected to it survive killing our own process group.
-            const DriveExit driveExit = driveExitOnClose(ownsPrefix, prefixSessionHolders(prefixDir));
-            if (driveExit == DriveExit::TearDownNow) {
+            if (driveExitOnClose(otherSessionsInDrive(layerBinary, tuxbloxPrefix)) ==
+                DriveExit::TearDownNow) {
                 runSimple({proton.wineserverBin.string(), "-k"}, localEnv, logFd);
+                markDriveClosed(tuxbloxPrefix);
             }
 
             sigprocmask(SIG_SETMASK, &previous, nullptr);
             if (stopRequested) {
-                // This session is closing but it owns a drive others are still using, so it keeps the owner's duty and closes the drive once the last of them leaves.
-                if (driveExit == DriveExit::WaitThenTearDown) {
-                    log("Session closed at TuxBlox's request; staying until the other sessions in the virtual drive close.");
-                    waitForPrefixDrain(PrefixDrainTimeoutSeconds);
-                } else {
-                    log("Session closed at TuxBlox's request.");
-                }
+                log("Session closed at TuxBlox's request.");
                 std::exit(0);
             }
             reportExitCodes(exitCodeFromStatus(status));
@@ -631,6 +626,7 @@ bool Session::waitForPrefixDrain(int timeoutSeconds) {
     // process runProc waited on.
     bool haveDeadline = false;
     bool stopRequested = false;
+    bool leaveDrive = false;
     time_t deadline = 0;
     std::string reported;
     const struct timespec pollInterval = {1, 0};
@@ -643,13 +639,24 @@ bool Session::waitForPrefixDrain(int timeoutSeconds) {
         }
 
         const int signalNumber = ::sigtimedwait(&blocked, nullptr, &pollInterval);
-        if (signalNumber == SIGUSR1) {
-            stopRequested = true;
-            log("Closing the virtual drive at TuxBlox's request.");
+        if (signalNumber == SIGUSR1 || signalNumber == SIGINT || signalNumber == SIGTERM) {
+            if (signalNumber == SIGUSR1) stopRequested = true;
+            // Whoever is last out closes the drive, however this session came to end, so stopping this one never takes a session that is still using the drive down with it.
+            if (driveExitOnClose(otherSessionsInDrive(layerBinary, tuxbloxPrefix)) == DriveExit::Leave) {
+                log("Another session is using the virtual drive, so it stays open.");
+                leaveDrive = true;
+                break;
+            }
+            log(signalNumber == SIGUSR1 ? "Closing the virtual drive at TuxBlox's request."
+                                        : "Interrupted while waiting for the prefix, tearing it down");
             break;
         }
-        if (signalNumber == SIGINT || signalNumber == SIGTERM) {
-            log("Interrupted while waiting for the prefix, tearing it down");
+
+        // A session that started while this one was draining is the last one out now, so the drive
+        // stops being this one's to wait for or to close.
+        if (otherSessionsInDrive(layerBinary, tuxbloxPrefix)) {
+            log("Another session is using the virtual drive, so it stays open.");
+            leaveDrive = true;
             break;
         }
 
@@ -674,7 +681,18 @@ bool Session::waitForPrefixDrain(int timeoutSeconds) {
         }
     }
 
+    // Nothing to wait for once the drive is somebody else's: the watcher is only here to notice
+    // wineserver going away, and it never will now, so it goes rather than holding this exit up.
+    if (leaveDrive) {
+        ::kill(watcher, SIGKILL);
+        int watcherStatus = 0;
+        ::waitpid(watcher, &watcherStatus, 0);
+        sigprocmask(SIG_SETMASK, &previous, nullptr);
+        return stopRequested;
+    }
+
     runSimple({proton.wineserverBin.string(), "-k"}, env, logFd);
+    markDriveClosed(tuxbloxPrefix);
 
     for (int attempt = 0; attempt < 50; attempt++) {
         int status = 0;

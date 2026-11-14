@@ -77,8 +77,10 @@ public:
     // header so a bug report says how the run was launched.
     std::string invocation;
 
-    // False for a run that joined a virtual drive somebody else started, which must never tear that drive down on its way out.
-    bool ownsPrefix = true;
+    // This install's layer binary and virtual drive, for recognising the other sessions sharing the
+    // drive. Whoever is last out closes it, so a session has to be able to tell whether it is last.
+    std::filesystem::path layerBinary;
+    std::string tuxbloxPrefix;
 
     // DLL overrides collected before launch, written out as WINEDLLOVERRIDES.
     std::map<std::string, std::string> dllOverrides;

@@ -296,7 +296,8 @@ int runMain(int argc, char *argv[]) {
     tuxblox::Session session(proton, prefixDir);
     session.buildVersion = TuxBloxVersion;
     session.invocation = invocation;
-    session.ownsPrefix = !command.runImmediately;
+    session.layerBinary = installDir(argv[0]) / "main";
+    session.tuxbloxPrefix = pPrefixDir;
     session.initWine();
 
     tuxblox::Prefix prefix(proton, std::filesystem::path(pPrefixDir), TuxBloxVersion);
@@ -328,6 +329,15 @@ int runMain(int argc, char *argv[]) {
     }
 
     if (!command.runImmediately) {
+        // Marked in use with no session left means the last run was cut off mid-write rather than
+        // closed, so TuxBlox's own files in the drive are rebuilt before anything starts. Installed
+        // Roblox versions, logs, shortcuts and documents are kept.
+        if (tuxblox::driveNeedsRepair(pPrefixDir, tuxblox::otherSessionsInDrive(
+                                                      session.layerBinary, session.tuxbloxPrefix))) {
+            tuxblox::log("The virtual drive was not closed properly last time, so it is being repaired first.");
+            prefix.removeTrackedFiles(tuxblox::Prefix::Removal::KeepAccumulatedState);
+        }
+
         prefix.setup(session);
 
         // setup() may have just renamed the drive's account folder, and whoever asked for this launch worked the path out before that happened.
@@ -339,10 +349,16 @@ int runMain(int argc, char *argv[]) {
 
     session.applyDllOverrides();
 
+    tuxblox::markDriveInUse(pPrefixDir);
+
     const int rc = session.run(target);
 
+    // Only the last session out waits for the drive to empty and closes it. One that still has
+    // company leaves it up and goes, because whoever closes after it will be the last out.
+    //
     // A stop that arrives while the drive is draining ends the run as a success: the user asked for it, so it is not a failure to report.
-    if (!command.runImmediately && session.waitForPrefixDrain(tuxblox::PrefixDrainTimeoutSeconds)) {
+    if (!tuxblox::otherSessionsInDrive(session.layerBinary, session.tuxbloxPrefix) &&
+        session.waitForPrefixDrain(tuxblox::PrefixDrainTimeoutSeconds)) {
         return 0;
     }
 

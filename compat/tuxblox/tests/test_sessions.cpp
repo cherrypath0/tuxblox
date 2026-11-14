@@ -92,16 +92,34 @@ int main() {
     assert(sessionsToReplace("RobloxPlayerBeta.exe", {}).empty());
 
     // driveExitOnClose(): who takes the virtual drive down as a session closes.
-    // The last one out takes it down; a guest never does; and a session that owns
-    // the drive but is not the last out has to stay until the others leave --
-    // exiting then would leave the drive running with nobody left to close it.
-    std::vector<SessionHolder> studioLeft = {SessionHolder{"51", "robloxstudiobeta.exe", true}};
-    std::vector<SessionHolder> installerLeft = {SessionHolder{"52", "robloxstudioinstaller.exe", false}};
-    assert(driveExitOnClose(true, {}) == DriveExit::TearDownNow);
-    assert(driveExitOnClose(false, {}) == DriveExit::Leave);
-    assert(driveExitOnClose(false, studioLeft) == DriveExit::Leave);
-    assert(driveExitOnClose(true, studioLeft) == DriveExit::WaitThenTearDown);
-    assert(driveExitOnClose(true, installerLeft) == DriveExit::WaitThenTearDown);
+    // Whoever is last out takes it down, whether or not it started the drive;
+    // anybody who still has company leaves it up and goes, because the one that
+    // closes after it will be the last out and will close it then.
+    assert(driveExitOnClose(false) == DriveExit::TearDownNow);
+    assert(driveExitOnClose(true) == DriveExit::Leave);
+
+    // The drive is marked in use while a session is in it, so a drive still marked in use with
+    // nobody running it was cut off rather than closed -- a power cut, or the machine going down.
+    {
+        const fs::path base = tmp / "runtime_state";
+        fs::create_directories(base);
+
+        // Never launched before: nothing to repair.
+        assert(!driveNeedsRepair(base, false));
+
+        markDriveInUse(base);
+        // A session is running in it right now, which is what the mark is for -- not a fault.
+        assert(!driveNeedsRepair(base, true));
+        // Marked in use with nobody left: the last run never got to close it.
+        assert(driveNeedsRepair(base, false));
+
+        markDriveClosed(base);
+        assert(!driveNeedsRepair(base, false));
+
+        // Closing a drive that was never marked is not an error.
+        markDriveClosed(base);
+        assert(!driveNeedsRepair(base, false));
+    }
 
     // otherLayerProcesses(): which layer process is running which session.
     {
@@ -139,6 +157,19 @@ int main() {
         std::vector<std::string> studio =
             otherLayerProcesses(layerRoot, layerBinary, prefixEnv, "RobloxStudioBeta.exe", 64);
         assert((studio == std::vector<std::string>{"61"}));
+
+        // No image named means every session sharing this drive, whatever it launched. The drive's
+        // teardown asks it that way: what matters is whether anybody is left to close the drive,
+        // not which Roblox they happen to be running.
+        std::vector<std::string> any =
+            otherLayerProcesses(layerRoot, layerBinary, prefixEnv, "", 64);
+        std::sort(any.begin(), any.end()); // the answer is a set; /proc is not walked in order
+        assert((any == std::vector<std::string>{"60", "61"}));
+
+        // Still nobody else's: another install and another drive stay out of it.
+        std::vector<std::string> alone =
+            otherLayerProcesses(layerRoot, layerBinary, (tmp / "nowhere").string(), "", 63);
+        assert(alone.empty());
 
         assert(otherLayerProcesses(tmp / "nope", layerBinary, prefixEnv,
                                    "RobloxPlayerBeta.exe", 64).empty());
