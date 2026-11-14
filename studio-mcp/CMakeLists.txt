@@ -25,7 +25,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # every source below is one of the launcher's Qt-free, curl-free units.
 #
 # The launcher tree is a sibling in the repository, but the build container
-# mounts only this directory at /src, so build.sh mounts launcher/ separately
+# mounts only this directory at /src, so the Makefile mounts launcher/ separately
 # and points this at it.
 set(TUXBLOX_LAUNCHER_DIR "${CMAKE_SOURCE_DIR}/../launcher" CACHE PATH
     "Path to the launcher source tree this shares its path-resolution code with")
@@ -50,9 +50,8 @@ if(NOT EXISTS "${TUXBLOX_SHARED_RELEASE}/release_stamp.cpp")
         "TUXBLOX_SHARED_RELEASE (${TUXBLOX_SHARED_RELEASE}) does not hold release_stamp.cpp.")
 endif()
 
-# TUXBLOX_BUILD_VERSION is the version the root build.sh resolved, forwarded
-# into this container because the repo-root VERSION is not reachable from
-# inside it. The file is the fallback for a bare host cmake run.
+# TUXBLOX_BUILD_VERSION is studio-mcp/VERSION, read on the host by the Makefile
+# and passed in. The file is the fallback for a bare host cmake run.
 file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/generated)
 if(NOT "$ENV{TUXBLOX_BUILD_VERSION}" STREQUAL "")
     set(TUXBLOX_MCP_VERSION "$ENV{TUXBLOX_BUILD_VERSION}")

@@ -24,7 +24,7 @@
 # against a new release fetches EVERY component, because each release's copy of one carries that
 # release inside it -- a claim no unit test can make, because it is about what crosses the network.
 #
-# A hand-built tree rather than `./build.sh --stage-only`: staging currently refuses, because the
+# A hand-built tree rather than a staged release: staging currently refuses, because the
 # interface stack tarball predates per-component versions and carries no VERSION. Rebuilding it
 # takes over an hour and proves nothing this does not.
 #

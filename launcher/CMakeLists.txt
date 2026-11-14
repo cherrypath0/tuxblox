@@ -40,7 +40,7 @@ endif()
 # Still needed by the interface stack's UiStack.cmake, which finds GTK and libadwaita through pkg-config.
 find_package(PkgConfig REQUIRED)
 
-# TuxBlox's own code that uses those libraries, mounted read-only by build.sh.
+# TuxBlox's own code that uses those libraries, mounted read-only into the build container.
 if(NOT TUXBLOX_SHARED_CRYPTO)
     set(TUXBLOX_SHARED_CRYPTO "${CMAKE_SOURCE_DIR}/../shared/crypto/src")
 endif()
@@ -62,12 +62,12 @@ if(NOT TUXBLOX_SHARED_PATHS)
     set(TUXBLOX_SHARED_PATHS "${CMAKE_SOURCE_DIR}/../shared/paths/src")
 endif()
 
-# The libraries TuxBlox ships rather than taking from the machine, built by shared/tools/libs-build.sh and mounted read-only by build.sh.
+# The libraries TuxBlox ships rather than taking from the machine, built by the Makefile's $(LIBS) rule and mounted read-only into the build container.
 if(NOT TUXBLOX_SHARED_DIR)
     set(TUXBLOX_SHARED_DIR "${CMAKE_SOURCE_DIR}/../build/.artifacts/shared")
 endif()
 if(NOT EXISTS "${TUXBLOX_SHARED_DIR}/lib/libcurl.a")
-    message(FATAL_ERROR "${TUXBLOX_SHARED_DIR}/lib/libcurl.a is missing. Run ../shared/tools/libs-build.sh first.")
+    message(FATAL_ERROR "${TUXBLOX_SHARED_DIR}/lib/libcurl.a is missing. Run `make launcher` from the repository root.")
 endif()
 set(TUXBLOX_SHARED_INCLUDE "${TUXBLOX_SHARED_DIR}/include")
 # Static archives are order sensitive: each must come before whatever it calls into.
@@ -104,8 +104,8 @@ file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/generated)
 # this directory is mounted. It is no longer a number shared with the installer and the layer:
 # each component carries its own, and the release is derived from their bump levels at staging.
 #
-# launcher/VERSION is only the second choice because build.sh reads it on the
-# host and passes it in. It still resolves for a bare `cmake -B build -S .` run,
+# launcher/VERSION is only the second choice because the Makefile reads it on
+# the host and passes it in. It still resolves for a bare `cmake -B build -S .` run,
 # which is the one case that reaches it. Anything else gets a version that is
 # obviously a placeholder rather than a plausible-looking wrong number.
 if(NOT "$ENV{TUXBLOX_BUILD_VERSION}" STREQUAL "")
@@ -240,7 +240,7 @@ include(cmake/EmbedAssets.cmake)
 # are launcher_core's own compile-time requirements.
 add_dependencies(launcher_core generate_ca_bundle_header generate_logo_header generate_font_header generate_thirdparty_license_headers generate_license_header generate_i18n_header generate_default_flags_header)
 
-# The window needs the interface stack's development tree, which only exists once shared/tools/ui-build.sh has run; without it only launcher_core and its tests build, and build.sh refuses to finish.
+# The window needs the interface stack's development tree, which only exists once the Makefile's $(UI) rule has run; without it only launcher_core and its tests build, and the Makefile refuses to finish.
 if(TUXBLOX_UI_STACK_DEV)
     include(${TUXBLOX_UI_SRC}/UiStack.cmake)
 

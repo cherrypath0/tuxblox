@@ -27,6 +27,6 @@ esac
 exec "$SCRIPT_DIR/../tools/fetch-sources.sh" \
     --manifest "$SCRIPT_DIR" \
     --sources-dir "${TUXBLOX_SOURCES_DIR:-$SCRIPT_DIR/sources}" \
-    --env "$SCRIPT_DIR/../tools/ui-versions.env" \
+    --env "$SCRIPT_DIR/versions.env" \
     --label "interface stack" \
     ${1:+"$1"}

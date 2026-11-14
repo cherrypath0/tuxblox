@@ -28,8 +28,8 @@ constexpr std::size_t kMarkerSize = 25;
 
 } // namespace
 
-// Written after the build, by shared/tools/stamp_release.py: it finds this field by its marker and
-// overwrites everything after it with the release. The marker must appear exactly once in the
+// Written after the build, by the maintainer's release tooling: it finds this field by its marker
+// and overwrites everything after it with the release. The marker must appear exactly once in the
 // binary, which is why it is spelled out here and nowhere else.
 //
 // It is volatile because it would otherwise be a constant the compiler can see all of: reads would

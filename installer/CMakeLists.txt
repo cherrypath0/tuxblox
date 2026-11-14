@@ -37,7 +37,7 @@ endif()
 # Still needed by the interface stack's UiStack.cmake, which finds GTK and libadwaita through pkg-config.
 find_package(PkgConfig REQUIRED)
 
-# TuxBlox's own code that uses those libraries, mounted read-only by build.sh.
+# TuxBlox's own code that uses those libraries, mounted read-only into the build container.
 if(NOT TUXBLOX_SHARED_CRYPTO)
     set(TUXBLOX_SHARED_CRYPTO "${CMAKE_SOURCE_DIR}/../shared/crypto/src")
 endif()
@@ -52,12 +52,12 @@ if(NOT TUXBLOX_SHARED_RELEASE)
     set(TUXBLOX_SHARED_RELEASE "${CMAKE_SOURCE_DIR}/../shared/release/src")
 endif()
 
-# The libraries TuxBlox ships rather than taking from the machine, built by shared/tools/libs-build.sh and mounted read-only by build.sh.
+# The libraries TuxBlox ships rather than taking from the machine, built by the Makefile's $(LIBS) rule and mounted read-only into the build container.
 if(NOT TUXBLOX_SHARED_DIR)
     set(TUXBLOX_SHARED_DIR "${CMAKE_SOURCE_DIR}/../build/.artifacts/shared")
 endif()
 if(NOT EXISTS "${TUXBLOX_SHARED_DIR}/lib/libcurl.a")
-    message(FATAL_ERROR "${TUXBLOX_SHARED_DIR}/lib/libcurl.a is missing. Run ../shared/tools/libs-build.sh first.")
+    message(FATAL_ERROR "${TUXBLOX_SHARED_DIR}/lib/libcurl.a is missing. Run `make installer` from the repository root.")
 endif()
 set(TUXBLOX_SHARED_INCLUDE "${TUXBLOX_SHARED_DIR}/include")
 # Static archives are order sensitive: each must come before whatever it calls into.

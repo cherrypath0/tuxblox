@@ -1,4 +1,4 @@
-# filename|url [fallback urls...]   versions come from shared/tools/ui-versions.env
+# filename|url [fallback urls...]   versions come from versions.env beside this file
 zlib-${ZLIB_VERSION}.tar.gz|https://zlib.net/zlib-${ZLIB_VERSION}.tar.gz https://github.com/madler/zlib/releases/download/v${ZLIB_VERSION}/zlib-${ZLIB_VERSION}.tar.gz
 pcre2-${PCRE2_VERSION}.tar.bz2|https://github.com/PCRE2Project/pcre2/releases/download/pcre2-${PCRE2_VERSION}/pcre2-${PCRE2_VERSION}.tar.bz2
 expat-${EXPAT_VERSION}.tar.xz|https://github.com/libexpat/libexpat/releases/download/R_${EXPAT_VERSION//./_}/expat-${EXPAT_VERSION}.tar.xz

@@ -114,7 +114,7 @@ buildCurl() {
 buildLibarchive() {
     copySource shared/fs/libarchive /build/libarchive
     cd /build/libarchive
-    local cmakeBin=/opt/cmake/bin/cmake
+    local cmakeBin=cmake
     "$cmakeBin" -B _b -S . -G Ninja -DCMAKE_BUILD_TYPE=Release $CMakeLauncher \
         -DCMAKE_PREFIX_PATH="$Prefix" -DCMAKE_INSTALL_PREFIX="$Prefix" \
         -DBUILD_SHARED_LIBS=OFF -DENABLE_TEST=OFF -DENABLE_INSTALL=ON \

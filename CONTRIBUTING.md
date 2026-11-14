@@ -102,7 +102,7 @@ Two things that will cost you an afternoon if you don't know them:
 
 ### Tests
 
-The launcher and installer builds run a fresh-install smoke test, and a failure stops the build. `TUXBLOX_SKIP_SMOKE=1` skips it while you iterate, but **never skip it for a build you're submitting**. Unit tests live in `launcher/tests/`, `installer/tests/`, `shared/*/tests/` and `shared/tools/tests/`. Add or update tests there when you change the code they cover.
+The launcher and installer builds run a fresh-install smoke test, and a failure stops the build. `TUXBLOX_SKIP_SMOKE=1` skips it while you iterate, but **never skip it for a build you're submitting**. Unit tests live in `launcher/tests/`, `installer/tests/` and `shared/*/tests/`. Add or update tests there when you change the code they cover.
 
 ## Repository Layout
 

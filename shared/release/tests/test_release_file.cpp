@@ -33,7 +33,7 @@ using namespace tuxblox;
 
 namespace {
 
-// A release as shared/tools/stage_tree.py writes it.
+// A release as the release staging writes it.
 const char* kRelease = R"({
   "release": "3.6.0.0", "channel": "stable", "changelog": "components",
   "source_commit": "abc123", "source_dirty": false,

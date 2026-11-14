@@ -227,7 +227,7 @@ int main() {
         assert(fs::exists(installDirPath / "TuxBloxInstaller"));
         // The interface libraries, which are an archive like the layer is.
         assert(fs::exists(installDirPath / "libtuxblox"));
-        // Studio MCP ships exactly as stage_release() publishes it: a flat
+        // Studio MCP ships exactly as the release staging publishes it: a flat
         // file at the install root. It must arrive executable, since it is run
         // as a program rather than read.
         assert(fs::exists(installDirPath / "studio-mcp"));
