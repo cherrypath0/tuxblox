@@ -23,6 +23,8 @@
 #pragma makedep unix
 #endif
 
+#include "config.h"
+
 #include <assert.h>
 #include <dlfcn.h>
 #include <pthread.h>
