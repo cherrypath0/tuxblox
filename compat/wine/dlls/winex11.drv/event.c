@@ -932,6 +932,10 @@ static BOOL X11DRV_FocusIn( HWND hwnd, XEvent *xev )
     /* ignore wm specific NotifyUngrab / NotifyGrab events w.r.t focus */
     if (event->mode == NotifyGrab || event->mode == NotifyUngrab) return FALSE;
 
+    /* The pointer lock a program asks for as it is activated usually arrives before this focus
+     * event does, too early to be put in place; now that the focus is really here, put it on. */
+    retry_pending_cursor_clipping();
+
     xim_set_focus( hwnd, TRUE );
 
     if (use_take_focus) return TRUE;

@@ -476,6 +476,10 @@ void x11drv_xinput2_init( struct x11drv_thread_data *data )
 
 #endif /* HAVE_X11_EXTENSIONS_XINPUT2_H */
 
+/* Set when a clip was asked for that could not be put in place because the X input focus had not
+ * arrived yet, so that the focus event can put it in place instead of it being lost. */
+static BOOL clip_pending;
+
 /***********************************************************************
  *		grab_clipping_window
  *
@@ -492,7 +496,14 @@ static BOOL grab_clipping_window( const RECT *clip )
     /* don't clip in the desktop process */
     if (NtUserGetWindowThread( NtUserGetDesktopWindow(), NULL ) == GetCurrentThreadId()) return TRUE;
     /* don't clip the cursor if the X input focus is on another process window */
-    if (!is_current_process_focused()) return TRUE;
+    if (!is_current_process_focused())
+    {
+        /* A program that locks the pointer as it is activated usually asks before the focus has
+         * arrived. Remember the request so it goes on when the focus does, rather than dropping it
+         * and leaving the pointer free until the window is focused again by hand. */
+        clip_pending = TRUE;
+        return TRUE;
+    }
 
     if (!data) return FALSE;
     if (!(clip_window = init_clip_window())) return TRUE;
@@ -552,6 +563,7 @@ static BOOL grab_clipping_window( const RECT *clip )
     }
     clip_rect = *clip;
     data->clipping_cursor = TRUE;
+    clip_pending = FALSE;
     return TRUE;
 #else
     WARN( "XInput2 was not available at compile time\n" );
@@ -572,6 +584,7 @@ void ungrab_clipping_window(void)
     if (!clip_window) return;
 
     TRACE( "no longer clipping\n" );
+    clip_pending = FALSE;
     XUnmapWindow( data->display, clip_window );
     if (clipping_cursor) XUngrabPointer( data->display, CurrentTime );
     clipping_cursor = FALSE;
@@ -613,6 +626,17 @@ void reapply_cursor_clipping(void)
     UINT context = NtUserSetThreadDpiAwarenessContext( NTUSER_DPI_PER_MONITOR_AWARE );
     if (NtUserGetClipCursor( &rect )) NtUserClipCursor( &rect );
     NtUserSetThreadDpiAwarenessContext( context );
+}
+
+/***********************************************************************
+ *      retry_pending_cursor_clipping
+ *
+ * Put back a clip that was asked for before the window had the focus.
+ */
+void retry_pending_cursor_clipping(void)
+{
+    if (!clip_pending) return;
+    reapply_cursor_clipping();
 }
 
 

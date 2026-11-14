@@ -801,6 +801,7 @@ extern XContext cursor_context;
 extern BOOL is_current_process_focused(void);
 extern void X11DRV_ActivateWindow( HWND hwnd, HWND previous );
 extern void reapply_cursor_clipping(void);
+extern void retry_pending_cursor_clipping(void);
 extern void ungrab_clipping_window(void);
 extern void move_resize_window( HWND hwnd, int dir, POINT pos );
 extern void X11DRV_InitKeyboard( Display *display );
