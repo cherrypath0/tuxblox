@@ -26,13 +26,13 @@ SHELL := /bin/bash
 #
 TARGET_ARCH ?= x86_64
 
-# Built from Containerfile.compat at the repo root: the sniper SDK (glibc 2.31)
+# Built from Containerfile at the repo root, the one build image: the sniper SDK (glibc 2.31)
 # plus a newer meson. Upstream's steamrt4 SDK is glibc 2.41, which real Proton
 # gets from the Steam runtime container it runs inside; TuxBlox runs on the
 # user's own system, so that number becomes the oldest distro TuxBlox can start
 # on at all.
 ifeq ($(TARGET_ARCH),x86_64)
-	STEAMRT_IMAGE ?= tuxblox-compat-builder
+	STEAMRT_IMAGE ?= tuxblox-builder
 else ifeq ($(TARGET_ARCH),arm64)
 	STEAMRT_IMAGE ?= registry.gitlab.steamos.cloud/proton/steamrt4/sdk/arm64-llvm:4.0.20260331.220802-0
 else
@@ -458,11 +458,17 @@ WINE_SOURCE_ARGS = \
 ## table of every module it finds, so a section that only a GNU toolchain emits
 ## is a fingerprint on all of them at once. It carries no meaning on Windows;
 ## only debug-info matching uses it.
+## --without-wayland drops a driver nothing here can select. explorer resolves
+## "mac,x11,wayland" in order and x11 always answers first on this platform, so
+## winewayland.drv was only ever a Wine-named file sitting in the virtual drive.
+## It also turns missing X11 development files into a configure error rather than
+## a notice, which is what this build wants: no X11 means no display driver.
 WINE_AUTOCONF_ARGS = \
   --enable-werror \
   --with-mingw=$(MINGW_TYPE) \
   --disable-tests \
   --disable-build-id \
+  --without-wayland \
   --without-ffmpeg \
   --without-vosk \
   --without-piper
@@ -1167,15 +1173,12 @@ DOCKER_BASE = $(CONTAINER_ENGINE) run --rm -v $(SRC):$(SRC)$(CONTAINER_MOUNT_OPT
                 -w $(OBJ) -e MAKEFLAGS \
                 $(DOCKER_OPTS) $(STEAMRT_IMAGE)
 
+# No rustup bootstrap: nothing here uses cargo, and it refuses beside the image's own Rust.
 .PHONY: dist
 .DEFAULT dist:
 	if [ "$(ENABLE_CCACHE)" -eq "1" ]; then mkdir -p $(CCACHE_DIR); fi
 	mkdir -p $(CARGO_HOME)
 	$(DOCKER_BASE) sh -c '\
-		if ! command -v cargo >/dev/null 2>&1 || [ "$$(cargo --version | cut -d" " -f2)" \< "1.85.0" ]; then \
-			curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.85.0 >&2; \
-		fi; \
-		export PATH="$$HOME/.cargo/bin:$$PATH"; \
 		$(MAKE) -j$(J) $(filter -j%,$(MAKEFLAGS)) -f $(firstword $(MAKEFILE_LIST)) $(MFLAGS) $(MAKEOVERRIDES) CONTAINER=1 $@ \
 	'
 

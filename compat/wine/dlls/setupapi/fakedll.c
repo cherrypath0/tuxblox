@@ -1123,10 +1123,9 @@ static void install_lib_dir( WCHAR *dest, WCHAR *file, const WCHAR *wildcard,
         if (!wcscmp( data.name, L"." )) continue;
         if (!wcscmp( data.name, L".." )) continue;
         if (!wcscmp( data.name, L"amd_ags_x64.dll" )) continue;
-        /* The graphics driver ships under a neutral name and is reached through that alias,
-           so copying it here as well would put the Wine-derived name back into the virtual
-           drive that the build deliberately leaves out of the template. */
-        if (!wcscmp( data.name, L"winex11.drv" )) continue;
+        /* Nothing loads the graphics driver's PE: win32u loads the backend on the unix side, the
+           way Windows keeps this in the kernel. A copy in the virtual drive would serve no one. */
+        if (!wcscmp( data.name, L"dispumd.dll" )) continue;
         lstrcpyW( name, data.name );
         if (default_ext)  /* inside build dir */
         {

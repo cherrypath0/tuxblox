@@ -999,8 +999,8 @@ static BOOL get_no_tray_items_display(void)
  * system32 is a thing every real machine has, and "winex11.drv" is not.
  *
  * The name has to exist as a file, not just be reported, because the layer
- * re-opens and re-maps each module's backing file. build.sh aliases it in both
- * of Wine's library directories and the prefix links it into system32.
+ * re-opens and re-maps each module's backing file. dlls/winex11.drv builds under
+ * this name, and the prefix template links it into system32 and syswow64.
  */
 static void graphics_driver_module( WCHAR *libname, size_t len, const WCHAR *name )
 {
@@ -1014,10 +1014,8 @@ static void load_graphics_driver( const WCHAR *driver, GUID *guid )
 
     WCHAR buffer[MAX_PATH], libname[32], *name, *next;
     WCHAR key[ARRAY_SIZE( device_keyW ) + 39];
-    BOOL null_driver = FALSE;
-    HMODULE module = 0;
+    BOOL null_driver = FALSE, have_driver = FALSE;
     HKEY hkey;
-    char error[80];
 
     if (!driver)
     {
@@ -1048,21 +1046,11 @@ static void load_graphics_driver( const WCHAR *driver, GUID *guid )
             break;
         }
 
+        /* Only resolved here, never loaded: win32u loads the backend on the unix side, because
+           Windows keeps this in the kernel and has no user-space module for it to load. */
         graphics_driver_module( libname, ARRAY_SIZE( libname ), name );
-        if ((module = LoadLibraryW( libname )) != 0) break;
-        switch (GetLastError())
-        {
-        case ERROR_MOD_NOT_FOUND:
-            strcpy( error, "The graphics driver is missing. Check your build!" );
-            break;
-        case ERROR_DLL_INIT_FAILED:
-            strcpy( error, "Make sure that your display server is running and that its variables are set." );
-            break;
-        default:
-            sprintf( error, "Unknown error (%lu).", GetLastError() );
-            break;
-        }
-        name = next;
+        have_driver = TRUE;
+        break;
     }
 
     TRACE( "display %s driver %s\n", debugstr_guid(guid), debugstr_w(libname) );
@@ -1074,11 +1062,11 @@ static void load_graphics_driver( const WCHAR *driver, GUID *guid )
     if (!RegCreateKeyExW( HKEY_LOCAL_MACHINE, key, 0, NULL,
                           REG_OPTION_VOLATILE, KEY_SET_VALUE, NULL, &hkey, NULL  ))
     {
-        if (module || null_driver)
+        /* No DriverError counterpart: whether the backend actually comes up is only known where it
+           is loaded now, so win32u records that failure itself. */
+        if (have_driver || null_driver)
             RegSetValueExW( hkey, L"GraphicsDriver", 0, REG_SZ,
                             (BYTE *)libname, (lstrlenW(libname) + 1) * sizeof(WCHAR) );
-        else
-            RegSetValueExA( hkey, "DriverError", 0, REG_SZ, (BYTE *)error, strlen(error) + 1 );
         RegCloseKey( hkey );
     }
 }

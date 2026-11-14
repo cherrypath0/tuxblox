@@ -24,6 +24,7 @@
 #endif
 
 #include <assert.h>
+#include <dlfcn.h>
 #include <pthread.h>
 
 #include "ntstatus.h"
@@ -33,6 +34,7 @@
 #include "wine/winbase16.h"
 #include "wine/list.h"
 #include "wine/debug.h"
+#include "wine/unixlib.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(driver);
 WINE_DECLARE_DEBUG_CHANNEL(winediag);
@@ -40,6 +42,52 @@ WINE_DECLARE_DEBUG_CHANNEL(winediag);
 static const struct user_driver_funcs lazy_load_driver;
 static struct user_driver_funcs null_user_driver;
 static WCHAR driver_load_error[80];
+
+/* Windows keeps its windowing driver in the kernel, behind win32u, and has no user-space module for
+ * it. So the backend is loaded here as a plain library beside this one rather than as a PE nothing on
+ * Windows would have. Its entry 0 is the same init the module's DllMain used to call.
+ *
+ * The name comes from the registry as a module name, so swap the extension the way the loader does.
+ *
+ * shortcut: the backend has to sit beside this library, which holds in an installed layer but not in
+ * a Wine build tree where each dll has its own directory, to upgrade when a build-tree run is wanted.
+ */
+static BOOL load_unix_driver( const WCHAR *name, ULONG len )
+{
+    const unixlib_entry_t *entries;
+    char path[MAX_PATH], *sep;
+    void *handle;
+    Dl_info info;
+    ULONG i, n = len / sizeof(WCHAR);
+
+    if (!dladdr( (void *)load_unix_driver, &info ) || !info.dli_fname) return FALSE;
+    if (strlen( info.dli_fname ) >= sizeof(path)) return FALSE;
+    strcpy( path, info.dli_fname );
+    if (!(sep = strrchr( path, '/' ))) return FALSE;
+    sep++;
+
+    while (n && !name[n - 1]) n--;   /* the value is stored with its terminator */
+    for (i = 0; i < n; i++)
+    {
+        if (name[i] > 0x7f || sep - path + i + 4 >= sizeof(path)) return FALSE;
+        sep[i] = name[i];
+    }
+    while (i && sep[i - 1] != '.') i--;
+    if (!i) return FALSE;
+    strcpy( sep + i, "so" );
+
+    if (!(handle = dlopen( path, RTLD_NOW )))
+    {
+        WARN( "failed to load %s: %s\n", debugstr_a(path), dlerror() );
+        return FALSE;
+    }
+    if (!(entries = dlsym( handle, "__wine_unix_call_funcs" )))
+    {
+        ERR( "%s has no entry points\n", debugstr_a(path) );
+        return FALSE;
+    }
+    return !entries[0]( NULL );
+}
 
 static INT nulldrv_AbortDoc( PHYSDEV dev )
 {
@@ -981,9 +1029,9 @@ static BOOL load_desktop_driver( HWND hwnd )
                                                   info->DataLength / sizeof(WCHAR) ));
         if (info->DataLength != sizeof(nullW) || memcmp( info->Data, nullW, sizeof(nullW) ))
         {
-            void *ret_ptr;
-            ULONG ret_len;
-            ret = !KeUserModeCallback( NtUserLoadDriver, info->Data, info->DataLength, &ret_ptr, &ret_len );
+            ret = load_unix_driver( (const WCHAR *)info->Data, info->DataLength );
+            if (!ret) asciiz_to_unicode( driver_load_error,
+                                         "Make sure that your display server is running and that its variables are set." );
         }
         else
         {

@@ -2,7 +2,7 @@
 
 One-time (or per-version-bump) build tooling for the WebKitGTK tarball vendored at
 `../prebuilt/webkitgtk-<version>-x86_64.tar.xz`. This is release
-engineering, not part of the normal `./build.sh` a user or contributor runs.
+engineering, not part of the normal `make` a user or contributor runs.
 
 ## When to run this
 
