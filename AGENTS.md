@@ -35,7 +35,7 @@ A human is fully responsible for every contribution, whoever or whatever wrote i
 
   ```
   Assisted-by: Claude Opus 5.5 (Claude Code)
-  Assisted-by: GPT-Astra 6 (Codex)
+  Assisted-by: GPT 6 Astra (Codex)
   ```
 
   The trailer is optional. Add it only if the human wants it, and never use it in place of the human's own review.
