@@ -1,0 +1,4 @@
+# filename|url [fallback urls...]   versions come from versions.env beside this file
+libwpe-${LIBWPE_VERSION}.tar.xz|https://wpewebkit.org/releases/libwpe-${LIBWPE_VERSION}.tar.xz
+wpebackend-fdo-${WPEBACKEND_FDO_VERSION}.tar.xz|https://wpewebkit.org/releases/wpebackend-fdo-${WPEBACKEND_FDO_VERSION}.tar.xz
+wpewebkit-${WPEWEBKIT_VERSION}.tar.xz|https://wpewebkit.org/releases/wpewebkit-${WPEWEBKIT_VERSION}.tar.xz
