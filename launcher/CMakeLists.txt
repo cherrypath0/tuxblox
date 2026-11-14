@@ -118,6 +118,14 @@ endif()
 message(STATUS "TuxBlox launcher version: ${TUXBLOX_LAUNCHER_VERSION}")
 configure_file(${CMAKE_SOURCE_DIR}/cmake/version.h.in ${CMAKE_BINARY_DIR}/generated/version.h @ONLY)
 
+# The release the root VERSION file declares, forwarded by the Makefile the way the component
+# version is. It is baked into the stamp field so a binary that was never staged still reports a
+# release; staging overwrites the field regardless.
+if(NOT "$ENV{TUXBLOX_RELEASE}" STREQUAL "")
+    set_source_files_properties(${TUXBLOX_SHARED_RELEASE}/release_stamp.cpp PROPERTIES
+        COMPILE_DEFINITIONS "TUXBLOX_RELEASE=\"$ENV{TUXBLOX_RELEASE}\"")
+endif()
+
 add_library(launcher_core STATIC
     ${TUXBLOX_SHARED_CRYPTO}/ca_bundle.cpp
     ${TUXBLOX_SHARED_RELEASE}/release_file.cpp

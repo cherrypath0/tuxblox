@@ -36,7 +36,14 @@ constexpr std::size_t kMarkerSize = 25;
 // be folded into the empty value it is compiled with, and the number written into the file would
 // never be the number the program reports. extern, so it survives as a symbol of its own.
 extern const volatile char kReleaseStampField[kFieldSize];
+#ifdef TUXBLOX_RELEASE
+// The build bakes in the release the root VERSION file declares, so a binary that was never staged
+// still answers with one. Staging overwrites it either way: it finds the marker and writes past it,
+// whatever follows. Too long a release fails here rather than being silently cut to fit.
+const volatile char kReleaseStampField[kFieldSize] = "TUXBLOX_RELEASE_STAMP_V1:" TUXBLOX_RELEASE;
+#else
 const volatile char kReleaseStampField[kFieldSize] = "TUXBLOX_RELEASE_STAMP_V1:";
+#endif
 
 const std::string& releaseVersion() {
     // Read once: the file is stamped before anybody runs it, so the field cannot change underneath

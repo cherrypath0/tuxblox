@@ -81,10 +81,12 @@ test "$status" -ne 0 || fail 'it ran without its interface libraries'
 grep -q 'error while loading shared libraries' /tmp/missing.txt || { cat /tmp/missing.txt; fail 'the failure does not name the loader'; }
 printf 'OK: a missing libtuxblox folder fails to load (exit %s)\n' "$status"
 
-# Case B: with them, the version is this component's own bare x.y.z -- no channel, because one
-# component build serves every channel and which channel an install follows is the install's setting.
+# Case B: with them, a bare numeric version and no channel, because one component build serves every
+# channel and which channel an install follows is the install's setting. Three fields or four: the
+# build bakes in the release the root VERSION declares, and staging later stamps the published one
+# over it, so an unstaged binary answers x.y.z.w and only a build with no release falls back to x.y.z.
 version="$(run "$root/TuxBloxLauncher" --version)"
-[[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "unexpected --version output: $version"
+[[ "$version" =~ ^[0-9]+(\.[0-9]+){2,3}$ ]] || fail "unexpected --version output: $version"
 printf 'OK: --version prints %s\n' "$version"
 
 # Case C: no display. The window cannot open, and the launcher must say so and exit 1 rather than let GTK exit for it.

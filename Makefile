@@ -41,6 +41,12 @@ PODMAN := $(ART)/.podman
 
 COMPAT_VERSION := $(shell cat compat/VERSION 2>/dev/null)
 
+# The release the components bake in, seeded the way staging seeds one: root VERSION is
+# MAJOR.MINOR.PATCH on line 1 and the BUILD counter on line 2, and a release puts BUILD third, so
+# the two interleave rather than join. Staging overwrites the stamped field with the release it
+# resolves against the server, so this is what a binary reports when it was never staged.
+RELEASE := $(shell awk 'NR==1{s=$$0} NR==2{b=$$0} END{ gsub(/[ \t\r]/,"",s); gsub(/[ \t\r]/,"",b); n=split(s,v,"."); if (n==4) print s; else if (n==3) { if (b !~ /^[0-9]+$$/) b="0"; print v[1]"."v[2]"."b"."v[3] } }' VERSION 2>/dev/null)
+
 # HEAD and SHORT are the submodule's own commit, which the stack build stamps into the tarball it writes.
 # git -C an empty submodule walks up to this repository, so the toplevel has to match before trusting it.
 LIBADWAITA_DIR := $(shell cd $(ROOT)/shared/ui 2>/dev/null && pwd -P)/libadwaita
@@ -74,6 +80,7 @@ export TUXBLOX_SKIP_DEPS := 1
 # One job knob: the component builds read their own variable, so JOBS has to reach them too.
 export TUXBLOX_MAKE_JOBS := $(JOBS)
 export TUXBLOX_COMPAT_VERSION := $(COMPAT_VERSION)
+export TUXBLOX_RELEASE := $(RELEASE)
 
 # Each sub-build already uses every core, so running two at once only thrashes.
 .NOTPARALLEL:
@@ -683,6 +690,7 @@ $(INSTALLER): $(INSTALLER_SRC) $(SHARED_SRC) $(LIBS) $(UI) | $(PODMAN)
 	    -e UI_STACK_ARG="$(UI_ARGS)" \
 	    -e LIBADWAITA_ARG="-DTUXBLOX_LIBADWAITA_COMMIT=$(LIBADWAITA_COMMIT)" \
 	    -e TUXBLOX_BUILD_VERSION="$(shell cat installer/VERSION 2>/dev/null)" \
+	    -e TUXBLOX_RELEASE="$(RELEASE)" \
 	    -v $(ROOT)/installer:/src:Z -v $(ART)/shared:/shared:ro,z \
 	    -v $(ROOT)/shared/crypto:/shared-crypto:ro,z -v $(ROOT)/shared/release:/shared-release:ro,z \
 	    -v $(ROOT)/shared/flags:/shared-flags:ro,z -v $(ROOT)/shared/i18n:/shared-i18n:ro,z \
@@ -708,6 +716,7 @@ $(STUDIO_MCP): $(STUDIO_MCP_SRC) $(LAUNCHER_SRC) $(SHARED_SRC) $(LIBS) | $(PODMA
 	@mkdir -p $(CCACHE_DIR)
 	podman run --rm --userns=keep-id -e JOBS="$(JOBS)" \
 	    -e TUXBLOX_BUILD_VERSION="$(shell cat studio-mcp/VERSION 2>/dev/null)" \
+	    -e TUXBLOX_RELEASE="$(RELEASE)" \
 	    -v $(ROOT)/studio-mcp:/src:Z -v $(ROOT)/launcher:/launcher:ro,z \
 	    -v $(ROOT)/shared/release:/shared-release:ro,z \
 	    -v $(CCACHE_DIR):/ccache:z -e CCACHE_DIR=/ccache -e CCACHE_MAXSIZE=30G -w /src \
@@ -729,6 +738,7 @@ $(LAUNCHER): $(LAUNCHER_SRC) $(SHARED_SRC) $(LIBS) $(UI) | $(PODMAN)
 	podman run --rm --userns=keep-id -e JOBS="$(JOBS)" \
 	    -e LIBADWAITA_ARG="-DTUXBLOX_LIBADWAITA_COMMIT=$(LIBADWAITA_COMMIT)" \
 	    -e TUXBLOX_BUILD_VERSION="$(shell cat launcher/VERSION 2>/dev/null)" \
+	    -e TUXBLOX_RELEASE="$(RELEASE)" \
 	    -v $(ROOT)/launcher:/src:Z -v $(ROOT)/LICENSE:/LICENSE:ro,z \
 	    -v $(ROOT)/shared/ui/src:/ui-src:ro -v $(UI_DIST)/dev:/ui-dev:ro \
 	    -v $(ART)/shared:/shared:ro,z -v $(ROOT)/shared/crypto:/shared-crypto:ro,z \
@@ -787,10 +797,10 @@ cp "$$CaHeader" "$$Work/src/"
 
 podman run --rm --userns=keep-id -v "$$Work:/work:Z" -w /work/src \
     -v "$$ROOT/build/.artifacts/shared:/shared:ro,z" \
-    -e TUXBLOX_COMPAT_VERSION \
+    -e TUXBLOX_COMPAT_VERSION -e TUXBLOX_RELEASE \
     tuxblox-builder sh -c 'g++ -std=c++17 -O2 -Wall -Wextra -static-libstdc++ -static-libgcc \
         -I. -Ithird_party -Ishared_flags -Ishared_release -I/shared/include \
-        -DTUXBLOX_VERSION="\"$$TUXBLOX_COMPAT_VERSION\"" \
+        -DTUXBLOX_VERSION="\"$$TUXBLOX_COMPAT_VERSION\"" -DTUXBLOX_RELEASE="\"$$TUXBLOX_RELEASE\"" \
         -o /work/out/main $$(find . -name "*.cpp") \
         /shared/lib/libcurl.a /shared/lib/libnghttp2.a /shared/lib/libssl.a \
         /shared/lib/libcrypto.a /shared/lib/libz.a -ldl -lpthread'
@@ -817,11 +827,15 @@ $(COMPAT): $(COMPAT_SRC) $(PATCHES) $(LIBS) $(LAUNCHER) $(WEBVIEW) | $(PODMAN)
 	cd $(PROTON) && make wine-x86_64-configure TUXBLOX_COMPAT_VERSION=$(COMPAT_VERSION)
 	cd $(PROTON)/obj-wine-x86_64 && make nls/locale.nls
 	cd $(PROTON) && make -j$(JOBS) TUXBLOX_COMPAT_VERSION=$(COMPAT_VERSION)
-	@printf '%s' "$$$$BUILD_ENTRY_POINT" | bash -s -- $(PROTON)
+	@printf '%s' "$$BUILD_ENTRY_POINT" | bash -s -- $(PROTON)
 	@# The markers describe the scratch, so they go with it or the next build configures nothing.
 	@if [ -n "$(TUXBLOX_RM_DIST)" ]; then cd $(PROTON) && rm -rf obj-* dst-* && \
 	    rm -f .*-configure .*-build .*-post-build .*-dist; fi
 	rm -rf $(BUILD)/compat && mv $(PROTON)/dist $(BUILD)/compat
+	@# The -dist markers describe what was staged into dist, and dist has just been moved out
+	@# from under them. Left behind, the next build skips those steps and ships a layer missing
+	@# whatever they install, the webview bundle among them, with nothing said.
+	rm -f $(PROTON)/.*-dist
 	cp -a LICENSE $(BUILD)/compat/LICENSE
 	rm -rf $(BUILD)/compat/third_party_licenses
 	cp -a third_party_licenses $(BUILD)/compat/third_party_licenses
@@ -990,7 +1004,7 @@ export CHECK_HOST_DEPS
 
 .PHONY: check
 check: components
-	@printf '%s' "$$$$CHECK_HOST_DEPS" | bash -s -- $(BUILD)
+	@printf '%s' "$$CHECK_HOST_DEPS" | bash -s -- $(BUILD)
 
 .PHONY: copy-include
 copy-include:

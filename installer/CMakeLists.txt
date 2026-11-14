@@ -88,6 +88,14 @@ endif()
 include(${TUXBLOX_I18N_DIR}/src/EmbedTranslations.cmake)
 include(${TUXBLOX_SHARED_FLAGS}/EmbedFlags.cmake)
 
+# The release the root VERSION file declares, forwarded by the Makefile the way the component
+# version is. It is baked into the stamp field so a binary that was never staged still reports a
+# release; staging overwrites the field regardless.
+if(NOT "$ENV{TUXBLOX_RELEASE}" STREQUAL "")
+    set_source_files_properties(${TUXBLOX_SHARED_RELEASE}/release_stamp.cpp PROPERTIES
+        COMPILE_DEFINITIONS "TUXBLOX_RELEASE=\"$ENV{TUXBLOX_RELEASE}\"")
+endif()
+
 add_library(installer_core STATIC
     ${TUXBLOX_SHARED_CRYPTO}/ca_bundle.cpp
     ${TUXBLOX_SHARED_FLAGS}/FlagManager.cpp
