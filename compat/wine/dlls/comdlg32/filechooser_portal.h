@@ -13,6 +13,7 @@ struct filechooser_filter
 
 struct filechooser_request
 {
+    HWND owner;                  /* the window the dialog belongs to; may be NULL */
     const WCHAR *title;
     const WCHAR *initial_dir;
     const WCHAR *initial_name;

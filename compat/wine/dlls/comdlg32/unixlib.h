@@ -14,6 +14,7 @@ struct portal_filter
 
 struct portal_open_save_params
 {
+    UINT64 parent_xid;           /* owner's X11 window, 0 when there is not one */
     const WCHAR *title;
     const WCHAR *initial_dir;    /* may be NULL */
     const WCHAR *initial_name;   /* may be NULL; default filename */

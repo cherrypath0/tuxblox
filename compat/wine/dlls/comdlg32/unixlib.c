@@ -272,6 +272,7 @@ static char *expected_request_path(DBusConnection *conn, const char *token)
  * each entry and the array. */
 static BOOL portal_open_or_save(const char *method, const char *title, const char *initial_dir_path,
                                  const char *initial_name, BOOL directory, BOOL multiple,
+                                 UINT64 parent_xid,
                                  UINT filter_count, const char **names_utf8, const char **patterns_utf8,
                                  char ***out_uris, UINT *out_count)
 {
@@ -279,6 +280,9 @@ static BOOL portal_open_or_save(const char *method, const char *title, const cha
     DBusConnection *conn;
     DBusMessage *msg, *reply;
     DBusMessageIter args, options;
+    /* The window the dialog belongs to, in the form the portal spec gives for X11. Empty means no
+     * parent, which leaves the dialog owned by nothing and the focus with the window manager. */
+    char parent_window_buf[32];
     const char *parent_window = "";
     static LONG token_seq;
     char handle_token[32];
@@ -291,6 +295,11 @@ static BOOL portal_open_or_save(const char *method, const char *title, const cha
 
     *out_uris = NULL;
     *out_count = 0;
+    if (parent_xid)
+    {
+        snprintf(parent_window_buf, sizeof(parent_window_buf), "x11:%llx", (unsigned long long)parent_xid);
+        parent_window = parent_window_buf;
+    }
     if (!load_dbus_functions()) return FALSE;
 
     p_dbus_error_init(&error);
@@ -495,7 +504,7 @@ static BOOL run_portal_request(const char *method, struct portal_open_save_param
     }
 
     ok = portal_open_or_save(method, title_utf8 ? title_utf8 : "", initial_dir_unix, initial_name_utf8,
-                              directory, multiple, filter_count, names_ptr, patterns_ptr,
+                              directory, multiple, params->parent_xid, filter_count, names_ptr, patterns_ptr,
                               out_uris, out_count);
 
     free(title_utf8);

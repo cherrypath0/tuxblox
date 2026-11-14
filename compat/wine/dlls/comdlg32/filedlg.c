@@ -4210,6 +4210,8 @@ BOOL WINAPI GetOpenFileNameW(OPENFILENAMEW *ofn)
          * leaking a stale nonzero code from some earlier, unrelated call. */
         COMDLG32_SetCommDlgExtendedError(0);
 
+        req.owner = ofn->hwndOwner;
+
         req.title = ofn->lpstrTitle;
         req.initial_dir = ofn->lpstrInitialDir;
         req.multiple = (ofn->Flags & OFN_ALLOWMULTISELECT) != 0;
@@ -4322,6 +4324,8 @@ BOOL WINAPI GetSaveFileNameW(
          * the start of dialog setup, so a stale nonzero error from an
          * earlier call can't leak into a cancelled portal-path result. */
         COMDLG32_SetCommDlgExtendedError(0);
+
+        req.owner = ofn->hwndOwner;
 
         req.title = ofn->lpstrTitle;
         req.initial_dir = ofn->lpstrInitialDir;
