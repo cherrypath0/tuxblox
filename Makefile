@@ -658,13 +658,14 @@ $(UI): shared/ui/versions.env shared/ui/sources.list Makefile | $(PODMAN)
 	    exit 1; \
 	fi
 	$(ROOT)/shared/ui/fetch-sources.sh
-	@mkdir -p $(UI_DIST)/prefix $(UI_DIST)/work $(UI_DIST)/out
+	@mkdir -p $(UI_DIST)/prefix $(UI_DIST)/work $(UI_DIST)/out $(CCACHE_DIR)
 	@# A rerun skips every library that already finished, which is what the marker commit is for.
 	printf '%s' "$$UI_BUILD" | podman run -i --rm --userns=keep-id --network=none \
 	    -v $(ROOT)/shared:/src:ro -v $(ROOT)/shared/ui/sources:/sources:ro \
 	    -v $(UI_DIST)/prefix:/opt/tuxblox-ui -v $(UI_DIST)/work:/build \
 	    -e JOBS="$(JOBS)" -e LIBADWAITA_SOURCE="$(LIBADWAITA_SHORT)" \
 	    -e CC=gcc-14 -e CXX=g++-14 \
+	    -v $(CCACHE_DIR):/ccache:z -e CCACHE_DIR=/ccache -e CCACHE_MAXSIZE=30G \
 	    tuxblox-builder bash -s
 	printf '%s' "$$UI_PACKAGE" | podman run -i --rm --userns=keep-id --network=none \
 	    -v $(ROOT)/shared:/src:ro -v $(UI_DIST)/prefix:/opt/tuxblox-ui:ro -v $(UI_DIST)/out:/out \
