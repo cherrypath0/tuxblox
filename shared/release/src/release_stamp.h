@@ -27,13 +27,11 @@
 // release's copy of a component a different file.
 namespace tuxblox {
 
-// Empty for a binary that was never staged into a release, which is every local build.
+// The release this binary was built as, from the root VERSION file, or the one staging resolved.
 const std::string& releaseVersion();
 
-// The channel that release was published on, and empty for a binary that was never staged: a build
-// cannot know its channel, because which one a release goes to is decided when it is staged. So
-// this doubles as the answer to "was this published at all", which is what a local build out of the
-// build folder must answer no to -- it has a release baked in from the VERSION file, but no channel.
+// The channel, baked in from line 3 of the root VERSION file and overwritten by staging. It no
+// longer tells you whether this binary was published, because a local build now carries one too.
 const std::string& releaseChannel();
 
 // The release, or `fallback` when there is none. What a program prints when it is asked its

@@ -27,7 +27,7 @@
 
 extern "C" {
 
-// The release this copy of the stack was published in. Empty until staging writes it.
+// The release this copy of the stack was built as, which staging overwrites with the one it resolves.
 const char *tuxblox_release_version(void) {
     return tuxblox::releaseVersion().c_str();
 }
@@ -38,7 +38,7 @@ const char *tuxblox_component_version(void) {
     return TUXBLOX_COMPONENT_VERSION;
 }
 
-// The channel that release went to. Empty for a stack that was never published.
+// The channel line 3 of the root VERSION file named, which staging overwrites with the real one.
 const char *tuxblox_release_channel(void) {
     return tuxblox::releaseChannel().c_str();
 }
