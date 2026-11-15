@@ -87,6 +87,8 @@ private:
     static void onFindStep(GtkButton *pButton, gpointer data);
     static void onJumpToEnd(GtkButton *pButton, gpointer data);
     static void onLogPositionChanged(GtkAdjustment *pPosition, gpointer data);
+    static void onLogClick(GtkGestureClick *pGesture, int presses, double x, double y, gpointer data);
+    static gboolean finishTailScroll(gpointer data);
 
     App &app_;
     GtkWidget *pRoot_ = nullptr;
@@ -128,6 +130,9 @@ private:
     int selectedPid_ = 0;
     // Set only when the reader actually scrolls. Working it out from the scrollbar instead latches: the scroll the page asks for is carried out later, so the next tick reads a stale position, decides the reader moved away, and then never scrolls again.
     bool readerScrolledAway_ = false;
+    // A scroll the page asked for, which must not be read back as the reader moving.
+    bool selfScrolling_ = false;
+    guint tailScrollIdle_ = 0;
     // The reader was swapped and what is on screen belongs to the old one, so it is replaced rather than cleared the moment the new one produces anything.
     bool replacingText_ = false;
     std::string renderedQuery_;

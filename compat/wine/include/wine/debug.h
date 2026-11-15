@@ -27,6 +27,7 @@
 
 #include <stdarg.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <windef.h>
 #include <winbase.h>
 #ifndef GUID_DEFINED
@@ -168,10 +169,34 @@ static int __wine_dbg_cdecl wine_dbg_vprintf( const char *format, va_list args )
 static inline int __wine_dbg_cdecl wine_dbg_vprintf( const char *format, va_list args )
 {
     char buffer[1024];
+    va_list args_again;
+    int needed, ret;
+    char *line;
 
-    vsnprintf( buffer, sizeof(buffer), format, args );
-    buffer[sizeof(buffer) - 1] = 0;
-    return __wine_dbg_output( buffer );
+    va_copy( args_again, args );
+    needed = vsnprintf( buffer, sizeof(buffer), format, args );
+    if (needed < (int)sizeof(buffer))
+    {
+        va_end( args_again );
+        buffer[sizeof(buffer) - 1] = 0;
+        return __wine_dbg_output( buffer );
+    }
+
+    /* A longer line used to be cut here, with nothing in the log to say it had been. The buffer
+     * above stays the fast path because logging must not allocate in the ordinary case; only a line
+     * that does not fit reaches this branch, and nothing that allocates writes one that long. */
+    line = (char *)malloc( (size_t)needed + 1 );
+    if (!line)
+    {
+        va_end( args_again );
+        buffer[sizeof(buffer) - 1] = 0;
+        return __wine_dbg_output( buffer );
+    }
+    vsnprintf( line, (size_t)needed + 1, format, args_again );
+    va_end( args_again );
+    ret = __wine_dbg_output( line );
+    free( line );
+    return ret;
 }
 
 static int __wine_dbg_cdecl wine_dbg_printf( const char *format, ... ) __WINE_PRINTF_ATTR(1,2);

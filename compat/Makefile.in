@@ -631,6 +631,12 @@ VKD3D_AUTOCONF_ARGS = \
 # LTO is enabled by default, but causes the build to fail. I havent't
 # investigated this yet.
 VKD3D_CFLAGS = -fno-lto
+# A PE header carries the moment it was linked, so one commit built twice produced different
+# files. Set per architecture rather than in LDFLAGS, which the unix side shares and whose ld
+# rejects the option.
+i386-windows_LDFLAGS = -Wl,--no-insert-timestamp
+x86_64-windows_LDFLAGS = -Wl,--no-insert-timestamp
+
 VKD3D_LDFLAGS = -static-libgcc $(CROSSLDFLAGS)
 VKD3D_DEPENDS = vulkan-headers spirv-headers
 

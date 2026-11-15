@@ -266,7 +266,15 @@ GtkWidget *SessionsPage::buildFindBar() {
     gtk_widget_set_visible(pJumpToEnd_, FALSE);
     g_signal_connect(pJumpToEnd_, "clicked", G_CALLBACK(onJumpToEnd), this);
     gtk_box_append(GTK_BOX(pBar), pJumpToEnd_);
-    return pBar;
+
+    // How wide the window is stays the reader's choice: the bar holds a button that comes and
+    // goes, and a window that grew and shrank with it was the result.
+    GtkWidget *pBarScroll = gtk_scrolled_window_new();
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(pBarScroll), GTK_POLICY_EXTERNAL, GTK_POLICY_NEVER);
+    gtk_scrolled_window_set_propagate_natural_width(GTK_SCROLLED_WINDOW(pBarScroll), FALSE);
+    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(pBarScroll), pBar);
+    gtk_widget_set_size_request(pBarScroll, 80, -1);
+    return pBarScroll;
 }
 
 GtkWidget *SessionsPage::buildLogPane() {
@@ -338,6 +346,11 @@ GtkWidget *SessionsPage::buildLogPane() {
     gtk_text_view_set_bottom_margin(pLog_, 6);
     pBuffer_ = gtk_text_view_get_buffer(pLog_);
 
+    GtkGesture *pLineSelect = gtk_gesture_click_new();
+    gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(pLineSelect), GDK_BUTTON_PRIMARY);
+    g_signal_connect(pLineSelect, "pressed", G_CALLBACK(onLogClick), this);
+    gtk_widget_add_controller(pView, GTK_EVENT_CONTROLLER(pLineSelect));
+
     gtk_text_buffer_create_tag(pBuffer_, "time", "foreground", "#6b7687", nullptr);
     gtk_text_buffer_create_tag(pBuffer_, "warning", "foreground", "#f5b73d", nullptr);
     gtk_text_buffer_create_tag(pBuffer_, "error", "foreground", "#f87171", nullptr);
@@ -349,6 +362,11 @@ GtkWidget *SessionsPage::buildLogPane() {
     gtk_text_buffer_create_mark(pBuffer_, "tail", &start, FALSE);
 
     pLogScroll_ = gtk_scrolled_window_new();
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(pLogScroll_), GTK_POLICY_AUTOMATIC,
+                                   GTK_POLICY_AUTOMATIC);
+    // However long a line is, it scrolls rather than widening the window.
+    gtk_scrolled_window_set_propagate_natural_width(GTK_SCROLLED_WINDOW(pLogScroll_), FALSE);
+    gtk_widget_set_size_request(pLogScroll_, 320, -1);
     gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(pLogScroll_), pView);
     gtk_widget_set_vexpand(pLogScroll_, TRUE);
     gtk_box_append(GTK_BOX(pPane), pLogScroll_);
@@ -811,11 +829,50 @@ void SessionsPage::scrollToTail() {
     GtkTextMark *pTail = gtk_text_buffer_get_mark(pBuffer_, "tail");
     if (pTail == nullptr) return;
     gtk_text_buffer_move_mark(pBuffer_, pTail, &end);
-    gtk_text_view_scroll_to_mark(pLog_, pTail, 0.0, FALSE, 0.0, 0.0);
+    // Held at the bottom rather than merely brought into view, and finished from an idle: the view
+    // lays its lines out later, so a line arriving as this runs leaves the first attempt short of
+    // the end -- which is what used to leave the reader one line up after asking for the end.
+    selfScrolling_ = true;
+    gtk_text_view_scroll_to_mark(pLog_, pTail, 0.0, TRUE, 0.0, 1.0);
+    if (tailScrollIdle_ == 0) tailScrollIdle_ = g_idle_add(finishTailScroll, this);
+}
+
+gboolean SessionsPage::finishTailScroll(gpointer data) {
+    auto *pSelf = static_cast<SessionsPage *>(data);
+    pSelf->tailScrollIdle_ = 0;
+    GtkTextMark *pTail = gtk_text_buffer_get_mark(pSelf->pBuffer_, "tail");
+    if (pTail != nullptr) {
+        gtk_text_view_scroll_to_mark(pSelf->pLog_, pTail, 0.0, TRUE, 0.0, 1.0);
+    }
+    pSelf->selfScrolling_ = false;
+    return G_SOURCE_REMOVE;
+}
+
+void SessionsPage::onLogClick(GtkGestureClick *pGesture, int presses, double x, double y,
+                               gpointer data) {
+    if (presses != 2) return;
+    auto *pSelf = static_cast<SessionsPage *>(data);
+    int bufferX = 0;
+    int bufferY = 0;
+    gtk_text_view_window_to_buffer_coords(pSelf->pLog_, GTK_TEXT_WINDOW_WIDGET,
+                                           static_cast<int>(x), static_cast<int>(y),
+                                           &bufferX, &bufferY);
+    GtkTextIter at;
+    gtk_text_view_get_iter_at_location(pSelf->pLog_, &at, bufferX, bufferY);
+    GtkTextIter start = at;
+    GtkTextIter end = at;
+    gtk_text_iter_set_line_offset(&start, 0);
+    if (!gtk_text_iter_ends_line(&end)) gtk_text_iter_forward_to_line_end(&end);
+    gtk_text_buffer_select_range(pSelf->pBuffer_, &start, &end);
+    // Claimed, or the view's own word selection runs straight after and replaces it.
+    gtk_gesture_set_state(GTK_GESTURE(pGesture), GTK_EVENT_SEQUENCE_CLAIMED);
 }
 
 void SessionsPage::onLogPositionChanged(GtkAdjustment *pPosition, gpointer data) {
     auto *pSelf = static_cast<SessionsPage *>(data);
+    // Our own scroll, carried out after we asked for it. Reading it back as the reader moving is
+    // what stopped the log following its own tail.
+    if (pSelf->selfScrolling_) return;
     // A line's worth of slack, so resting a hair off the end still counts as being at it.
     const double remaining = gtk_adjustment_get_upper(pPosition) -
                              gtk_adjustment_get_page_size(pPosition) -
