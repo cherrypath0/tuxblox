@@ -49,8 +49,10 @@ const char *tuxblox_integrity_detail(void);
 
 /* Verifies one PE image. roots_pem is the set of roots a chain may end at, and
  * accepted_publishers the organisations the leaf may be signed by, compared
- * without regard to case. publisher receives the organisation that signed it
- * whenever the file got far enough for that to be known. */
+ * without regard to case. At least one is required, and an empty list refuses
+ * every file rather than accepting any publisher. publisher receives the
+ * organisation that signed it whenever the file got far enough for that to be
+ * known. */
 enum tuxblox_integrity_status tuxblox_verify_authenticode( const char *path, const char *gnutls_path,
                                                            const char *roots_pem, size_t roots_length,
                                                            const char **accepted_publishers,

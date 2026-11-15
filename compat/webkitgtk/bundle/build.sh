@@ -50,9 +50,13 @@ podman run --rm --network=none -v "$(pwd):/src:ro" -v webkitgtk-prefix:/opt/tuxb
 
 echo ":: Packaging"
 mkdir -p out
+# The tarball's own checksum is what a manifest would lock, so it must not carry the hour it was built.
+: "${SOURCE_DATE_EPOCH:=$(git -C "$(pwd)" log -1 --format=%ct 2>/dev/null || date +%s)}"
 podman run --rm -v webkitgtk-prefix:/opt/tuxblox-webview -v "$(pwd)/out:/out" \
     -v "$(pwd)/package.sh:/build-scripts/package.sh:ro" \
     -v "$(pwd)/versions.env:/build-scripts/versions.env:ro" \
+    -v "$(pwd)/../../../shared/tools/check-archive.py:/build-scripts/check-archive.py:ro" \
+    -e SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" \
     tuxblox-webkitgtk-builder bash /build-scripts/package.sh
 
 source versions.env

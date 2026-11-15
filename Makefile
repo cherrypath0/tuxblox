@@ -21,8 +21,19 @@ JOBS ?= $(shell nproc)
 # Local build settings, gitignored. Not .env: that file is deploy credentials.
 -include config.mk
 
+# Two builds of one commit must match, so what gets stamped is the commit date and not the clock.
+ifeq ($(origin SOURCE_DATE_EPOCH),undefined)
+SOURCE_DATE_EPOCH := $(shell git -C $(ROOT) log -1 --format=%ct 2>/dev/null)
+endif
+# A tree exported without its history cannot be released anyway, so it keeps the layer's old default.
+SOURCE_DATE_EPOCH := $(or $(strip $(SOURCE_DATE_EPOCH)),$(shell date +%s))
+export SOURCE_DATE_EPOCH
+
 # Build scratch is what makes a rebuild fast. Set TUXBLOX_RM_DIST=1 to free the disk instead.
 TUXBLOX_RM_DIST ?=
+
+# NODIST=1 compiles the layer and stops, leaving build/compat alone rather than staling it.
+NODIST ?=
 
 BUILD := $(ROOT)/build
 ART := $(BUILD)/.artifacts
@@ -97,7 +108,11 @@ components: launcher installer studio-mcp compat
 launcher: $(LAUNCHER)
 installer: $(INSTALLER)
 studio-mcp: $(STUDIO_MCP)
+ifdef NODIST
+compat: compat-build
+else
 compat: $(COMPAT)
+endif
 
 $(PODMAN): Containerfile
 	@mkdir -p $(dir $@)
@@ -649,7 +664,10 @@ writeTarball() {
     mkdir -p "$$OutDir"
     printf '%s\n' "$${LIBADWAITA_COMMIT:?the Makefile passes the full submodule commit}" > "$$StageDir/LIBADWAITA_COMMIT"
     printf '%s\n' "$${LIBTUXBLOX_VERSION:?shared/ui/versions.env sets the component version}" > "$$StageDir/VERSION"
-    tar -C "$$StageDir" -cf - lib share fonts version.so LIBADWAITA_COMMIT VERSION | zstd -19 -T0 -q -o "$$OutDir/$$Tarball" -f
+    tar -C "$$StageDir" --sort=name --mtime="@$${SOURCE_DATE_EPOCH:?the Makefile exports the commit date}" \
+        --owner=0 --group=0 --numeric-owner \
+        -cf - lib share fonts version.so LIBADWAITA_COMMIT VERSION | zstd -19 -T0 -q -o "$$OutDir/$$Tarball" -f
+    python3 /src/tools/check-archive.py --epoch "$$SOURCE_DATE_EPOCH" "$$OutDir/$$Tarball"
 }
 
 writeDevTree() {
@@ -698,7 +716,7 @@ $(UI): shared/ui/versions.env shared/ui/sources.list Makefile | $(PODMAN)
 	printf '%s' "$$UI_PACKAGE" | podman run -i --rm --userns=keep-id --network=none \
 	    -v $(ROOT)/shared:/src:ro -v $(UI_DIST)/prefix:/opt/tuxblox-ui:ro -v $(UI_DIST)/out:/out \
 	    -e LIBADWAITA_SOURCE="$(LIBADWAITA_SHORT)" -e LIBADWAITA_COMMIT="$(LIBADWAITA_HEAD)" \
-	    -e CXX=g++-14 -e TUXBLOX_RELEASE="$(RELEASE)" \
+	    -e CXX=g++-14 -e TUXBLOX_RELEASE="$(RELEASE)" -e SOURCE_DATE_EPOCH="$(SOURCE_DATE_EPOCH)" \
 	    tuxblox-builder bash -s
 	rm -rf $(UI_DIST)/dev && mv $(UI_DIST)/out/dev $(UI_DIST)/dev
 	rm -f $(UI_DIST)/ui-stack-*.tar.zst
@@ -832,7 +850,8 @@ endef
 export BUILD_ENTRY_POINT
 
 # The layer's own launcher embeds the CA header the launcher build generates.
-$(COMPAT): $(COMPAT_SRC) $(PATCHES) $(LIBS) $(LAUNCHER) $(WEBVIEW) | $(PODMAN)
+# Every step up to the point the packages are compiled, shared by the staged and the build-only layer.
+define prepare_layer
 	@mkdir -p $(PROTON)
 	@# ntdll verifies the Roblox client's signature and needs a gnutls it can
 	@# count on, so the layer ships its own rather than hoping the host has one.
@@ -869,6 +888,10 @@ $(COMPAT): $(COMPAT_SRC) $(PATCHES) $(LIBS) $(LAUNCHER) $(WEBVIEW) | $(PODMAN)
 	cd compat/submodules/dxvk-nvapi && git submodule update --init --recursive
 	cd $(PROTON) && make wine-x86_64-configure TUXBLOX_COMPAT_VERSION=$(COMPAT_VERSION)
 	cd $(PROTON)/obj-wine-x86_64 && make nls/locale.nls
+endef
+
+$(COMPAT): $(COMPAT_SRC) $(PATCHES) $(LIBS) $(LAUNCHER) $(WEBVIEW) | $(PODMAN)
+	$(prepare_layer)
 	cd $(PROTON) && make -j$(JOBS) TUXBLOX_COMPAT_VERSION=$(COMPAT_VERSION)
 	@printf '%s' "$$BUILD_ENTRY_POINT" | bash -s -- $(PROTON)
 	@# The markers describe the scratch, so they go with it or the next build configures nothing.
@@ -882,6 +905,14 @@ $(COMPAT): $(COMPAT_SRC) $(PATCHES) $(LIBS) $(LAUNCHER) $(WEBVIEW) | $(PODMAN)
 	cp -a LICENSE $(BUILD)/compat/LICENSE
 	rm -rf $(BUILD)/compat/third_party_licenses
 	cp -a third_party_licenses $(BUILD)/compat/third_party_licenses
+
+# Stops once every package has compiled. Proton's own all-build does the work; the webview bundle
+# and the launcher are left out because only the staging step reads them.
+.PHONY: compat-build
+compat-build: $(COMPAT_SRC) $(PATCHES) $(LIBS) | $(PODMAN)
+	$(prepare_layer)
+	cd $(PROTON) && make -j$(JOBS) TUXBLOX_COMPAT_VERSION=$(COMPAT_VERSION) all-build
+	@echo ":: Compiled, not staged. build/compat is untouched, so run make compat to get a usable layer."
 
 # Vendored as a committed tarball, so this is a deliberate rebuild and not part of a normal build.
 .PHONY: webkitgtk
@@ -917,6 +948,8 @@ define CHECK_HOST_DEPS
 set -euo pipefail
 
 BuildDir="$${1:-build}"
+# NODIST compiles the layer without staging it, so there is no layer here to inspect.
+StagedLayer="$${2:-staged}"
 StackDirName="libtuxblox"
 GlibcFloor="GLIBC_2.29"
 
@@ -926,9 +959,13 @@ HostGraphicsNames='^lib(X11|X11-xcb|Xau|Xdmcp|Xext|Xrender|Xi|Xrandr|Xcursor|Xda
 Binaries=(
     "TuxBloxInstaller:no"
     "studio-mcp:no"
-    "compat/main:no"
     "TuxBloxLauncher:yes"
 )
+if [[ "$$StagedLayer" == staged ]]; then
+    Binaries+=("compat/main:no")
+else
+    echo ":: the layer was compiled but not staged, so it is not checked here"
+fi
 
 Failures=0
 
@@ -1047,7 +1084,9 @@ export CHECK_HOST_DEPS
 
 .PHONY: check
 check: components
-	@printf '%s' "$$CHECK_HOST_DEPS" | bash -s -- $(BUILD)
+	@printf '%s' "$$CHECK_HOST_DEPS" | bash -s -- $(BUILD) $(if $(NODIST),nostage,staged)
+	@# The webview bundle is checked where it is built, since its metadata never reaches a release.
+	@python3 shared/tools/check-archive.py $(UI)
 
 .PHONY: copy-include
 copy-include:
@@ -1086,5 +1125,6 @@ help:
 	@echo "make distclean       also remove the interface stack and source caches"
 	@echo
 	@echo "TUXBLOX_RM_DIST=1    drop the layer's build scratch to free disk"
+	@echo "NODIST=1             compile the layer without staging it, for a quick check"
 	@echo "JOBS=N               parallel jobs (default: nproc)"
 

@@ -1,2 +1,2 @@
-- Added a --language option
-- Following an experimental or canary release channel now automatically promotes to the higher more stable channel without changing the release channel
+* Added detection for an unfinished or mismatched installs
+* Removed the release information file that the installer creates

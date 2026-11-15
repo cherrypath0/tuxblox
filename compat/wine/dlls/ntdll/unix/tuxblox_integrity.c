@@ -728,6 +728,13 @@ enum tuxblox_integrity_status tuxblox_verify_authenticode( const char *path, con
 
     if (publisher && publisher_size) publisher[0] = 0;
 
+    /* Refused rather than taken to mean anybody may sign: the wrong way round for the one check that says who may. */
+    if (!accepted_publishers || !accepted_count)
+    {
+        last_detail = "no publisher is accepted";
+        return TUXBLOX_INTEGRITY_WRONG_PUBLISHER;
+    }
+
     if (!load_gnutls( gnutls_path )) return TUXBLOX_INTEGRITY_UNAVAILABLE;
 
     if ((fd = open( path, O_RDONLY )) < 0) return TUXBLOX_INTEGRITY_UNREADABLE;
@@ -887,7 +894,7 @@ enum tuxblox_integrity_status tuxblox_verify_authenticode( const char *path, con
         }
         for (i = 0; i < accepted_count; i++)
             if (!strcasecmp( organisation, accepted_publishers[i] )) recognised = 1;
-        if (accepted_count && !recognised)
+        if (!recognised)
         {
             status = TUXBLOX_INTEGRITY_WRONG_PUBLISHER;
             FAIL( "signed by somebody else" );

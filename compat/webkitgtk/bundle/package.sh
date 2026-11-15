@@ -94,6 +94,8 @@ done
 
 mkdir -p /out
 tar -cJf "/out/webkitgtk-${WEBKITGTK_VERSION}-x86_64.tar.xz" \
+    --sort=name --mtime="@${SOURCE_DATE_EPOCH:?build.sh passes the commit date}" \
+    --owner=0 --group=0 --numeric-owner \
     --exclude='libexec/installed-tests' --exclude='share/installed-tests' \
     --exclude='*.a' --exclude='*.pc' \
     --exclude='share/locale' --exclude='share/man' --exclude='share/info' \
@@ -129,5 +131,8 @@ tar -cJf "/out/webkitgtk-${WEBKITGTK_VERSION}-x86_64.tar.xz" \
     --exclude='share/gtk-4.0/gtk4builder.rng' \
     --transform 's,^,webkitgtk/,S' \
     lib libexec etc share
+
+python3 /build-scripts/check-archive.py --epoch "$SOURCE_DATE_EPOCH" \
+    "/out/webkitgtk-${WEBKITGTK_VERSION}-x86_64.tar.xz"
 
 echo ":: Wrote /out/webkitgtk-${WEBKITGTK_VERSION}-x86_64.tar.xz"
