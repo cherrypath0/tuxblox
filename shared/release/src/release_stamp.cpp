@@ -29,17 +29,20 @@ constexpr std::size_t kMarkerSize = 25;
 } // namespace
 
 // Written after the build, by the maintainer's release tooling: it finds this field by its marker
-// and overwrites everything after it with the release. The marker must appear exactly once in the
-// binary, which is why it is spelled out here and nowhere else.
+// and overwrites everything after it with the release and the channel. The marker must appear exactly
+// once in the binary, which is why it is spelled out here and nowhere else.
 //
 // It is volatile because it would otherwise be a constant the compiler can see all of: reads would
 // be folded into the empty value it is compiled with, and the number written into the file would
 // never be the number the program reports. extern, so it survives as a symbol of its own.
 extern const volatile char kReleaseStampField[kFieldSize];
-#ifdef TUXBLOX_RELEASE
-// The build bakes in the release the root VERSION file declares, so a binary that was never staged
-// still answers with one. Staging overwrites it either way: it finds the marker and writes past it,
-// whatever follows. Too long a release fails here rather than being silently cut to fit.
+#if defined(TUXBLOX_RELEASE) && defined(TUXBLOX_CHANNEL)
+// The build bakes in the release and the channel the root VERSION file declares, so a binary that was
+// never staged still answers with both. Staging overwrites them either way: it finds the marker and
+// writes past it, whatever follows. Too long a pair fails here rather than being silently cut to fit.
+const volatile char kReleaseStampField[kFieldSize] =
+    "TUXBLOX_RELEASE_STAMP_V1:" TUXBLOX_RELEASE "\0" TUXBLOX_CHANNEL;
+#elif defined(TUXBLOX_RELEASE)
 const volatile char kReleaseStampField[kFieldSize] = "TUXBLOX_RELEASE_STAMP_V1:" TUXBLOX_RELEASE;
 #else
 const volatile char kReleaseStampField[kFieldSize] = "TUXBLOX_RELEASE_STAMP_V1:";

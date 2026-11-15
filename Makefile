@@ -55,8 +55,12 @@ COMPAT_VERSION := $(shell cat compat/VERSION 2>/dev/null)
 # The release the components bake in, seeded the way staging seeds one: root VERSION is
 # MAJOR.MINOR.PATCH on line 1 and the BUILD counter on line 2, and a release puts BUILD third, so
 # the two interleave rather than join. Staging overwrites the stamped field with the release it
-# resolves against the server, so this is what a binary reports when it was never staged.
-RELEASE := $(shell awk 'NR==1{s=$$0} NR==2{b=$$0} END{ gsub(/[ \t\r]/,"",s); gsub(/[ \t\r]/,"",b); n=split(s,v,"."); if (n==4) print s; else if (n==3) { if (b !~ /^[0-9]+$$/) b="0"; print v[1]"."v[2]"."b"."v[3] } }' VERSION 2>/dev/null)
+# resolves against the server, so this is what a binary reports when it was never staged. Line 3 is
+# the channel, baked in beside it. Both are read when a recipe runs rather than when this file is
+# parsed, because bump-build moves the counter mid-run and a parse-time value would be the old one.
+RELEASE_AWK = awk 'NR==1{s=$$0} NR==2{b=$$0} END{ gsub(/[ \t\r]/,"",s); gsub(/[ \t\r]/,"",b); n=split(s,v,"."); if (n==4) print s; else if (n==3) { if (b !~ /^[0-9]+$$/) b="0"; print v[1]"."v[2]"."b"."v[3] } }' VERSION
+RELEASE = $(shell $(RELEASE_AWK) 2>/dev/null)
+CHANNEL = $(shell sed -n 3p VERSION 2>/dev/null | tr -d '[:space:]')
 
 # HEAD and SHORT are the submodule's own commit, which the stack build stamps into the tarball it writes.
 # git -C an empty submodule walks up to this repository, so the toplevel has to match before trusting it.
@@ -91,28 +95,50 @@ export TUXBLOX_SKIP_DEPS := 1
 # One job knob: the component builds read their own variable, so JOBS has to reach them too.
 export TUXBLOX_MAKE_JOBS := $(JOBS)
 export TUXBLOX_COMPAT_VERSION := $(COMPAT_VERSION)
-export TUXBLOX_RELEASE := $(RELEASE)
+export TUXBLOX_RELEASE = $(RELEASE)
+export TUXBLOX_CHANNEL = $(CHANNEL)
 
 # Each sub-build already uses every core, so running two at once only thrashes.
 .NOTPARALLEL:
 
 .PHONY: all
-all: components check copy-include
+all: bump-build components check copy-include
 
 .PHONY: components
-components: launcher installer studio-mcp compat
+components: bump-build launcher installer studio-mcp compat
 
 # The interface stack, the shared libraries, patches and the builder image are not targets anyone
 # invokes. They are prerequisites, so they build exactly when something needs them.
 .PHONY: launcher installer studio-mcp compat deps
-launcher: $(LAUNCHER)
-installer: $(INSTALLER)
-studio-mcp: $(STUDIO_MCP)
+launcher: bump-build $(LAUNCHER)
+installer: bump-build $(INSTALLER)
+studio-mcp: bump-build $(STUDIO_MCP)
 ifdef NODIST
-compat: compat-build
+compat: bump-build compat-build
 else
-compat: $(COMPAT)
+compat: bump-build $(COMPAT)
 endif
+
+# BUILD counts builds, so building is what advances it: once per run, and before anything is
+# compiled so every component bakes the same number. Line 1 is left alone, because that is the floor
+# a release has to beat and only a published release moves it.
+.PHONY: bump-build
+bump-build:
+	@if [ -n "$$TUXBLOX_DONT_INCREMENT_BUILD" ]; then \
+	    printf ':: Build counter held at %s by TUXBLOX_DONT_INCREMENT_BUILD\n' \
+	        "$$(sed -n 2p VERSION | tr -d '[:space:]')"; \
+	else \
+	    Counter="$$(sed -n 2p VERSION | tr -d '[:space:]')"; \
+	    case "$$Counter" in '' | *[!0-9]*) \
+	        printf '!! line 2 of VERSION is the build counter and reads "%s"\n' "$$Counter" >&2; \
+	        exit 1 ;; \
+	    esac; \
+	    Tmp="$$(mktemp)"; \
+	    awk -v n="$$((Counter + 1))" 'NR==2 { print n; next } { print }' VERSION > "$$Tmp" \
+	        && cat "$$Tmp" > VERSION && rm -f "$$Tmp"; \
+	fi
+	@printf ':: Building release %s on %s\n' \
+	    "$$($(RELEASE_AWK))" "$$(sed -n 3p VERSION | tr -d '[:space:]')"
 
 $(PODMAN): Containerfile
 	@mkdir -p $(dir $@)
@@ -655,6 +681,7 @@ stageVersionLibrary() {
         -I /src/release/src \
         -DTUXBLOX_COMPONENT_VERSION="\"$${LIBTUXBLOX_VERSION:?shared/ui/versions.env sets the component version}\"" \
         -DTUXBLOX_RELEASE="\"$${TUXBLOX_RELEASE:-}\"" \
+        -DTUXBLOX_CHANNEL="\"$${TUXBLOX_CHANNEL:-}\"" \
         -o "$$StageDir/version.so" \
         /src/release/src/stack_version.cpp /src/release/src/release_stamp.cpp
 }
@@ -716,7 +743,8 @@ $(UI): shared/ui/versions.env shared/ui/sources.list Makefile | $(PODMAN)
 	printf '%s' "$$UI_PACKAGE" | podman run -i --rm --userns=keep-id --network=none \
 	    -v $(ROOT)/shared:/src:ro -v $(UI_DIST)/prefix:/opt/tuxblox-ui:ro -v $(UI_DIST)/out:/out \
 	    -e LIBADWAITA_SOURCE="$(LIBADWAITA_SHORT)" -e LIBADWAITA_COMMIT="$(LIBADWAITA_HEAD)" \
-	    -e CXX=g++-14 -e TUXBLOX_RELEASE="$(RELEASE)" -e SOURCE_DATE_EPOCH="$(SOURCE_DATE_EPOCH)" \
+	    -e CXX=g++-14 -e TUXBLOX_RELEASE="$(RELEASE)" -e TUXBLOX_CHANNEL="$(CHANNEL)" \
+	    -e SOURCE_DATE_EPOCH="$(SOURCE_DATE_EPOCH)" \
 	    tuxblox-builder bash -s
 	rm -rf $(UI_DIST)/dev && mv $(UI_DIST)/out/dev $(UI_DIST)/dev
 	rm -f $(UI_DIST)/ui-stack-*.tar.zst
@@ -730,7 +758,7 @@ $(INSTALLER): $(INSTALLER_SRC) $(SHARED_SRC) $(LIBS) $(UI) | $(PODMAN)
 	    -e UI_STACK_ARG="$(UI_ARGS)" \
 	    -e LIBADWAITA_ARG="-DTUXBLOX_LIBADWAITA_COMMIT=$(LIBADWAITA_COMMIT)" \
 	    -e TUXBLOX_BUILD_VERSION="$(shell cat installer/VERSION 2>/dev/null)" \
-	    -e TUXBLOX_RELEASE="$(RELEASE)" \
+	    -e TUXBLOX_RELEASE="$(RELEASE)" -e TUXBLOX_CHANNEL="$(CHANNEL)" \
 	    -v $(ROOT)/installer:/src:Z -v $(ART)/shared:/shared:ro,z \
 	    -v $(ROOT)/shared/crypto:/shared-crypto:ro,z -v $(ROOT)/shared/release:/shared-release:ro,z \
 	    -v $(ROOT)/shared/flags:/shared-flags:ro,z -v $(ROOT)/shared/i18n:/shared-i18n:ro,z \
@@ -756,7 +784,7 @@ $(STUDIO_MCP): $(STUDIO_MCP_SRC) $(LAUNCHER_SRC) $(SHARED_SRC) $(LIBS) | $(PODMA
 	@mkdir -p $(CCACHE_DIR)
 	podman run --rm --userns=keep-id -e JOBS="$(JOBS)" \
 	    -e TUXBLOX_BUILD_VERSION="$(shell cat studio-mcp/VERSION 2>/dev/null)" \
-	    -e TUXBLOX_RELEASE="$(RELEASE)" \
+	    -e TUXBLOX_RELEASE="$(RELEASE)" -e TUXBLOX_CHANNEL="$(CHANNEL)" \
 	    -v $(ROOT)/studio-mcp:/src:Z -v $(ROOT)/launcher:/launcher:ro,z \
 	    -v $(ROOT)/shared/release:/shared-release:ro,z \
 	    -v $(CCACHE_DIR):/ccache:z -e CCACHE_DIR=/ccache -e CCACHE_MAXSIZE=30G -w /src \
@@ -778,7 +806,7 @@ $(LAUNCHER): $(LAUNCHER_SRC) $(SHARED_SRC) $(LIBS) $(UI) | $(PODMAN)
 	podman run --rm --userns=keep-id -e JOBS="$(JOBS)" \
 	    -e LIBADWAITA_ARG="-DTUXBLOX_LIBADWAITA_COMMIT=$(LIBADWAITA_COMMIT)" \
 	    -e TUXBLOX_BUILD_VERSION="$(shell cat launcher/VERSION 2>/dev/null)" \
-	    -e TUXBLOX_RELEASE="$(RELEASE)" \
+	    -e TUXBLOX_RELEASE="$(RELEASE)" -e TUXBLOX_CHANNEL="$(CHANNEL)" \
 	    -v $(ROOT)/launcher:/src:Z -v $(ROOT)/LICENSE:/LICENSE:ro,z \
 	    -v $(ROOT)/shared/ui/src:/ui-src:ro -v $(UI_DIST)/dev:/ui-dev:ro \
 	    -v $(ART)/shared:/shared:ro,z -v $(ROOT)/shared/crypto:/shared-crypto:ro,z \
@@ -837,10 +865,11 @@ cp "$$CaHeader" "$$Work/src/"
 
 podman run --rm --userns=keep-id -v "$$Work:/work:Z" -w /work/src \
     -v "$$ROOT/build/.artifacts/shared:/shared:ro,z" \
-    -e TUXBLOX_COMPAT_VERSION -e TUXBLOX_RELEASE \
+    -e TUXBLOX_COMPAT_VERSION -e TUXBLOX_RELEASE -e TUXBLOX_CHANNEL \
     tuxblox-builder sh -c 'g++ -std=c++17 -O2 -Wall -Wextra -static-libstdc++ -static-libgcc \
         -I. -Ithird_party -Ishared_flags -Ishared_release -I/shared/include \
         -DTUXBLOX_VERSION="\"$$TUXBLOX_COMPAT_VERSION\"" -DTUXBLOX_RELEASE="\"$$TUXBLOX_RELEASE\"" \
+        -DTUXBLOX_CHANNEL="\"$$TUXBLOX_CHANNEL\"" \
         -o /work/out/main $$(find . -name "*.cpp") \
         /shared/lib/libcurl.a /shared/lib/libnghttp2.a /shared/lib/libssl.a \
         /shared/lib/libcrypto.a /shared/lib/libz.a -ldl -lpthread'
@@ -1127,4 +1156,5 @@ help:
 	@echo "TUXBLOX_RM_DIST=1    drop the layer's build scratch to free disk"
 	@echo "NODIST=1             compile the layer without staging it, for a quick check"
 	@echo "JOBS=N               parallel jobs (default: nproc)"
+	@echo "TUXBLOX_DONT_INCREMENT_BUILD=1  leave the build counter in VERSION where it is"
 
