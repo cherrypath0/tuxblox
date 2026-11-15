@@ -2,7 +2,7 @@
 * Added the flag `tbxFlagTranslateWindowsShortcuts`, on by default, which translates Roblox's Windows-formatted desktop shortcuts to Linux desktop shortcuts
 * Added session identifiers for each Roblox instance
 * Changed the way Roblox renders pixels to match Windows
-* Fixed TuxBlox's file integrity checks being bypassed by using a different launch route
+* Changed the check that Roblox's files are genuine to run as Roblox starts, rather than in the launcher beforehand
 * Fixed closing one instance of Roblox waiting for the others to close
 * Fixed closing one instance of Roblox automatically focusing to the other ones
 * Fixed focus not working whenever a file manager is opened by Roblox
