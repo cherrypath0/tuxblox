@@ -43,6 +43,9 @@ def run(flags_text):
         return done.returncode, done.stderr, header
 
 
+# Mirrors LOCAL_ONLY in tools/embed-flags.py.
+LOCAL_ONLY = {"tbxFlagDisableUpdater", "tbxFlagBypassSystemRequirements"}
+
 GOOD = json.dumps({
     "tbxFlagEnableChristmasTheme": True,
     "tbxStringPrivacyPolicyVersion": "2026-10-16",
@@ -169,7 +172,7 @@ class ShippedFilesTests(unittest.TestCase):
             source = json.load(handle)
         code, stderr, published = self.publish(json.dumps(source))
         self.assertEqual(code, 0, stderr)
-        self.assertEqual(set(published), set(source) - {"tbxFlagDisableUpdater"})
+        self.assertEqual(set(published), set(source) - LOCAL_ONLY)
         for name, value in published.items():
             self.assertEqual(value, source[name])
 

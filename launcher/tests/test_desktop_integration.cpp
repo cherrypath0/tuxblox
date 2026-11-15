@@ -126,6 +126,35 @@ int main() {
         assert(schemesToClaim(true, true).size() == 4);
     }
 
+    // One set of desktop entries per user, not one per copy of TuxBlox: a launcher run out of a
+    // build tree must not repoint an installed one's shortcuts at itself. It cost a session of
+    // "my shortcuts launch nothing" to find, because the dev build it pointed them at launches
+    // into the dev drive, which is not the one the installed TuxBlox uses.
+    {
+        const auto there = [](const std::string&) { return true; };
+        const auto gone = [](const std::string&) { return false; };
+        const std::string installed =
+            "[Desktop Entry]\nName=TuxBlox\nExec=\"/home/a/.tuxblox/TuxBloxLauncher\" %u\n";
+
+        assert(launcherNamedByEntry("Exec=\"/home/a/.tuxblox/TuxBloxLauncher\" %u") ==
+               "/home/a/.tuxblox/TuxBloxLauncher");
+        assert(launcherNamedByEntry("Exec=/home/a/.tuxblox/TuxBloxLauncher --launch-studio") ==
+               "/home/a/.tuxblox/TuxBloxLauncher");
+        assert(launcherNamedByEntry("Exec=").empty());
+
+        // A build tree's launcher leaves the installed one's entries alone.
+        assert(entriesOwnedByAnother(installed, "/home/a/src/build/TuxBloxLauncher", there));
+        // The installed one still maintains its own.
+        assert(!entriesOwnedByAnother(installed, "/home/a/.tuxblox/TuxBloxLauncher", there));
+        // A launcher that has since gone owns nothing, so the entries heal themselves.
+        assert(!entriesOwnedByAnother(installed, "/home/a/src/build/TuxBloxLauncher", gone));
+        // Nothing written yet is nobody's.
+        assert(!entriesOwnedByAnother("", "/home/a/src/build/TuxBloxLauncher", there));
+        assert(!entriesOwnedByAnother("[Desktop Entry]\nName=TuxBlox\n",
+                                      "/home/a/src/build/TuxBloxLauncher", there));
+        printf("  entries stay with the launcher that owns them\n");
+    }
+
     printf("desktop_integration: all tests passed\n");
     return 0;
 }

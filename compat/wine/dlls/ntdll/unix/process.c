@@ -1228,9 +1228,9 @@ static BOOL set_unalign_atomic_mode( ULONG64 flags ) {
 /**********************************************************************
  *           NtQueryInformationProcess  (NTDLL.@)
  */
-/* Answers measured on Windows 10.0.26300 with workspace/tests/tuxcapture.exe. Each of these
- * classes was recorded as refusing at every size, because the probe that built this table began
- * its size list at 8 and a class taking a plain ULONG therefore never found a length it would
+/* Answers measured on Windows 10.0.26300, by asking every class at a range of buffer sizes. Each
+ * of these classes was recorded as refusing at every size, because that sweep began its size list
+ * at 8 and a class taking a plain ULONG therefore never found a length it would
  * accept. Windows answers all of them. Only values that say nothing about the particular machine
  * are here: a zero, or the mode or priority a normal process always reports.
  * ProcessConsoleHostProcess and ProcessSequenceNumber were measured too and are deliberately
@@ -1407,8 +1407,8 @@ static const struct known_class known_process_classes[] =
 
 /* Whether Windows writes the caller's returned-length when a query fails.
  *
- * Measured on Windows 11 25H2 with workspace/tests/infoprobe.exe: of the 141
- * process classes that machine has, only these twelve report the length they
+ * Measured on Windows 11 25H2, asking every process class with a buffer too
+ * small: of the 141 that machine has, only these twelve report the length they
  * want when the buffer is the wrong size. Every other class leaves the
  * caller's variable exactly as the caller left it, so a caller that reads it
  * back after a failed query sees its own value. This build wrote it for 39,
@@ -1760,8 +1760,8 @@ static NTSTATUS query_information_process( HANDLE handle, PROCESSINFOCLASS class
          * process holds no handles -- the same falsehood ProcessHandleCount
          * told until it was answered from the server, and no process on
          * Windows has an empty handle table. Windows refuses a buffer that
-         * cannot hold the whole array without saying how much room it wants;
-         * measured with workspace/tests/infoprobe.exe. */
+         * cannot hold the whole array without saying how much room it wants,
+         * measured on Windows. */
         ULONG count = 0;
 
         if (size && !info) return STATUS_ACCESS_VIOLATION;
@@ -2016,7 +2016,7 @@ static NTSTATUS query_information_process( HANDLE handle, PROCESSINFOCLASS class
      * these with a length mismatch and leaves the returned length alone, where
      * it answers a class it has never heard of with an invalid class. Anything
      * probing the range can tell the two apart, so say the same thing.
-     * Measured on Windows 10 22H2 with workspace/tests/sysprobe.exe. */
+     * Measured on Windows 10 22H2. */
     /* 94, 96, 106, 109, 110, 111 and 114 were here too and are answered from the table below
      * instead: listing them here shadowed it, which left ProcessNetworkIoCounters' measured
      * payload unreachable. These two stay refused -- a sequence number and a thread lookup. */

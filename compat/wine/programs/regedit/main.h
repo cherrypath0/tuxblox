@@ -113,9 +113,6 @@ extern const WCHAR* reg_class_namesW[];
 #define INDEX_HKEY_CURRENT_USER     4
 #define INDEX_HKEY_DYN_DATA         5
 
-/* about.c */
-void ShowAboutBox(HWND hWnd);
-
 /* childwnd.c */
 LPWSTR GetItemFullPath(HWND hwndTV, HTREEITEM hItem, BOOL bFull);
 LRESULT CALLBACK ChildWndProc(HWND, UINT, WPARAM, LPARAM);

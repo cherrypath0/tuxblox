@@ -193,59 +193,17 @@ void test_releases_order_by_number_not_by_text() {
     printf("  releases order by number, not by text\n");
 }
 
-void test_what_a_component_should_say_it_is() {
-    const ReleaseFile release = parseReleaseFile(kRelease);
-    // Everything with a binary answers with the release it was published in.
-    assert(expectedComponentIdentity(release, "launcher") == "3.6.0.0");
-    assert(expectedComponentIdentity(release, "compat") == "3.6.0.0");
-    // The interface stack has none, so its own version is still what identifies it. It is not in
-    // this release file, and a component a release does not name has nothing to say.
-    assert(expectedComponentIdentity(release, "libtuxblox").empty());
-    assert(expectedComponentIdentity(release, "studio-mcp").empty());
-
-    ReleaseFile withStack = release;
-    withStack.components["libtuxblox"].version = "3.1.0";
-    assert(expectedComponentIdentity(withStack, "libtuxblox") == "3.1.0");
-    printf("  what a component should say it is\n");
-}
-
-// Review Focus 4: an install whose record is absent or damaged is an ordinary case, not an error.
-void test_a_damaged_record_reads_as_no_record() {
+// The stack is libraries, so it answers through the one thing in it that can be asked. Whether a
+// real library answers correctly is a question for a built stack; what matters here is that
+// everything else reads as "there is nothing to ask", rather than as a failure.
+void test_the_stack_answers_through_its_library() {
     TempDir d;
-    assert(readRecordedRelease(d.path()).present == false);          // nothing written yet
-    for (const char* body : {"", "   ", "{", R"({"release": "3.6.0.0"})", "not json"}) {
-        writeFile(d.path() + "/release.json", body);
-        assert(readRecordedRelease(d.path()).present == false);
-    }
-    printf("  a damaged record reads as no record\n");
-}
-
-// The stack ships its version as a file inside its tarball; it is read, never executed.
-void test_the_stack_version_is_read_from_its_file() {
-    TempDir d;
-    assert(!readStackVersion(d.path()).has_value());              // no libtuxblox at all
+    assert(!readStackVersions(d.path()).has_value());              // no libtuxblox at all
     makeDir(d.path() + "/libtuxblox");
-    assert(!readStackVersion(d.path()).has_value());              // no VERSION in it
-    writeFile(d.path() + "/libtuxblox/VERSION", "");
-    assert(!readStackVersion(d.path()).has_value());              // empty is not a version
-    writeFile(d.path() + "/libtuxblox/VERSION", "  3.1.0 \n");
-    assert(*readStackVersion(d.path()) == "3.1.0");               // trimmed
-    printf("  the stack version is read from its file\n");
-}
-
-void test_a_written_record_reads_back() {
-    TempDir d;
-    assert(writeRecordedRelease(d.path(), kRelease));
-    RecordedRelease r = readRecordedRelease(d.path());
-    assert(r.present);
-    assert(r.file.release == "3.6.0.0");
-    assert(r.file.components.at("compat").version == "3.3.0");
-    // The published bytes, verbatim: the record is what the server served, not a re-serialisation
-    // of it, so the coherence check compares against exactly what the release said.
-    assert(readFile(recordedReleasePath(d.path())) == kRelease);
-    // Nothing is left behind by the rename-into-place.
-    assert(!fs::exists(recordedReleasePath(d.path()) + ".incoming"));
-    printf("  a written record reads back\n");
+    assert(!readStackVersions(d.path()).has_value());              // no version.so in it
+    writeFile(d.path() + "/libtuxblox/version.so", "not a library");
+    assert(!readStackVersions(d.path()).has_value());              // and not one that can be loaded
+    printf("  the stack answers through its library\n");
 }
 
 // --------------------------------------------- asking a component its version
@@ -395,10 +353,7 @@ int main() {
     test_the_layout_table();
     test_urls();
     test_releases_order_by_number_not_by_text();
-    test_what_a_component_should_say_it_is();
-    test_a_damaged_record_reads_as_no_record();
-    test_the_stack_version_is_read_from_its_file();
-    test_a_written_record_reads_back();
+    test_the_stack_answers_through_its_library();
     test_a_component_that_cannot_be_asked_has_no_version();
     test_a_version_is_trimmed_at_both_ends();
     test_the_layer_is_found_under_either_name();

@@ -16,6 +16,7 @@
 
 #include "flag_startup.h"
 #include "FlagManager.h"
+#include "release_stamp.h"
 #include <algorithm>
 #include <cstdint>
 #include "roblox_config.h"
@@ -45,23 +46,28 @@ bool settingsFilePresent(const std::string& installDir) {
 }
 
 std::string flagChannelFor(const Settings& settings, bool settingsPresent,
-                           const RecordedRelease& release) {
+                           const std::string& stamped) {
     if (settingsPresent && !settings.channel.empty()) return settings.channel;
-    if (release.present && !release.file.channel.empty()) return release.file.channel;
+    if (!stamped.empty()) return stamped;
     if (!settings.channel.empty()) return settings.channel;
     return "stable";
 }
 
-std::vector<std::string> flagEnvVars(const std::string& installDir) {
-    const RecordedRelease release = readRecordedRelease(installDir);
+std::vector<std::string> flagEnvVarsFor(const std::string& installDir,
+                                         const std::string& stampedChannel) {
     std::vector<std::string> env = {
-        "TUXBLOX_FLAGS_CHANNEL=" +
-            flagChannelFor(loadSettings(installDir), settingsFilePresent(installDir), release),
+        "TUXBLOX_FLAGS_CHANNEL=" + flagChannelFor(loadSettings(installDir),
+                                                   settingsFilePresent(installDir), stampedChannel),
     };
-    // Only for an install that records a release, which is what keeps a local build out
-    // of build/ from reaching the network on the launch path.
-    if (release.present) env.push_back("TUXBLOX_FLAGS_RELEASED=1");
+    // Only for a binary that was published, which is what keeps a local build out of the build
+    // folder from reaching the network on the launch path: it has a release baked in, but staging
+    // is the only thing that can write a channel.
+    if (!stampedChannel.empty()) env.push_back("TUXBLOX_FLAGS_RELEASED=1");
     return env;
+}
+
+std::vector<std::string> flagEnvVars(const std::string& installDir) {
+    return flagEnvVarsFor(installDir, releaseChannel());
 }
 
 const LauncherFlags& launcherFlags() {
@@ -77,6 +83,7 @@ const LauncherFlags& launcherFlags() {
         out.updater = !flagBool("tbxFlagDisableUpdater");
         out.followPromotedBuild =
             flagBool("tbxFlagEnableChannelToUpperChannelUpgradeOnBuildPromotion");
+        out.translateWindowsShortcuts = flagBool("tbxFlagTranslateWindowsShortcuts");
         if (flagBool("tbxFlagEnableParallelWorkersForRobloxInstaller")) {
             const int64_t asked = flagInt("tbxIntRobloxInstallerParallelWorkers");
             // Clamped rather than trusted: this is a thread count, and a set of flags that
@@ -94,9 +101,8 @@ const LauncherFlags& launcherFlags() {
 
 void initLauncherFlags(const std::string& installDir) {
     const Settings settings = loadSettings(installDir);
-    const RecordedRelease release = readRecordedRelease(installDir);
-    initFlags(installDir, flagChannelFor(settings, settingsFilePresent(installDir), release),
-              release.present,
+    initFlags(installDir, flagChannelFor(settings, settingsFilePresent(installDir), releaseChannel()),
+              !releaseChannel().empty(),
               kFlagFetchSeconds, {}, configBaseUrl(), userAgent());
 }
 

@@ -114,10 +114,6 @@ InstallOutcome runInstall(const ReleaseFile& release,
                            bool isUpgrade,
                            const std::string& installDirOverride = "",
                            const std::string& robloxPlayerInstallerUrl = "https://setup.rbxcdn.com/RobloxPlayerInstaller.exe",
-                           const std::string& robloxStudioInstallerUrl = "https://setup.rbxcdn.com/RobloxStudioInstaller.exe",
-                           // The release's bytes exactly as published. Written to the install as
-                           // its identity once every component has landed, which makes it the
-                           // "update completed" marker too. Empty records nothing.
-                           const std::string& releaseJson = "");
+                           const std::string& robloxStudioInstallerUrl = "https://setup.rbxcdn.com/RobloxStudioInstaller.exe");
 
 } // namespace tuxblox

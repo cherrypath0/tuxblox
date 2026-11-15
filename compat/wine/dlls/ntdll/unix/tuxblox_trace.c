@@ -1952,7 +1952,7 @@ done_dump:
 }
 
 
-/* Whole-process snapshot for the offline layer emulator (workspace/tests/emu.py).
+/* Whole-process snapshot for the offline layer emulator.
  *
  * The layer's F-dispatch decision runs behind anti-single-step, so the native
  * tracer cannot follow it -- but a CPU emulator can, because the trap-flag
@@ -4402,7 +4402,7 @@ static __thread ULONG_PTR sysout_args[4];
 static __thread unsigned int sysout_argc;
 
 /* TUXBLOX_DIAG_SYSOUT=<path>: after each traced syscall, append a binary record
- * of its output so the emulator (workspace/tests/emu.py) can reproduce what the
+ * of its output so the offline emulator can reproduce what the
  * syscall wrote and stay on the real control-flow path across the census.
  * Record: u64 tid, u64 syscall_id, u64 retval, u64 nbufs, then nbufs of
  * (u64 addr, u64 len, len bytes). A buffer is any pointer-valued arg; its length

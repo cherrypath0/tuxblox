@@ -22,6 +22,7 @@
 #include "ui_adw/launcher_window.h"
 #include "ui_adw/message_box.h"
 #include "flag_startup.h"
+#include "FlagManager.h"
 #include "install_paths.h"
 #include "root_guard.h"
 #include "headless_launch.h"
@@ -102,6 +103,21 @@ int runMessageBoxCommand(int argc, char** argv) {
     return 2;
 }
 
+// Whether this machine is set to start anyway when a requirement is not met. The flag table belongs to whichever route loads it and every route is below the check, so this asks the two sources that need no network -- see FlagManager.h.
+bool bypassSystemRequirements() {
+    std::string dir;
+    try {
+        dir = tuxblox::installDir();
+    } catch (...) {
+        // No install directory is no flags.json, which is not a reason to start on a system that cannot run.
+    }
+    if (!tuxblox::flagBoolOffline(dir, "tbxFlagBypassSystemRequirements")) return false;
+    // Said out loud, because a report from a machine that does not meet a requirement has to say so.
+    fprintf(stderr, "TuxBlox: tbxFlagBypassSystemRequirements is set, starting on a system that "
+                    "does not meet every requirement\n");
+    return true;
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -149,12 +165,20 @@ int main(int argc, char** argv) {
         return 0;
     }
 
+    // The other half of the same question: --version answers with the release this was published
+    // in, which every component of an install shares, and this answers with the launcher's own
+    // number, which is the one that says what changed in it.
+    if (argc > 1 && std::string(argv[1]) == "--component-version") {
+        printf("%s\n", kTuxBloxVersion);
+        return 0;
+    }
+
     // Every route to Roblox passes through here -- the window, a roblox: link, a desktop shortcut, a
     // place file -- so one check covers all of them. It refuses only what it can prove: see
     // system_requirements.h for why being unable to read a version never stops a launch.
     {
         const std::vector<UnmetRequirement> unmet = unmetRequirements(collectSystemFacts());
-        if (!unmet.empty()) {
+        if (!unmet.empty() && !bypassSystemRequirements()) {
             showErrorMessageBox(i18n::tr("TuxBlox is not supported on your system"), unsupportedSystemMessage(unmet));
             return 1;
         }

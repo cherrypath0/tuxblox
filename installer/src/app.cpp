@@ -253,9 +253,7 @@ void App::run() {
             },
             &cancelRequested_, isUpgrade, installDirOverride_,
             "https://setup.rbxcdn.com/RobloxPlayerInstaller.exe",
-            "https://setup.rbxcdn.com/RobloxStudioInstaller.exe",
-            // The bytes this run installed from, recorded last as the install's identity.
-            releaseJson);
+            "https://setup.rbxcdn.com/RobloxStudioInstaller.exe");
 
         if (outcome.cancelled) {
             if (!isUpgrade) cleanupBestEffort(dir);

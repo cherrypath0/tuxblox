@@ -77,7 +77,6 @@ BEGIN
     POPUP "&Help"
     BEGIN
         MENUITEM "&Contents\tF1",               ID_HELP_HELPTOPICS
-        MENUITEM "&About Registry Editor",      ID_HELP_ABOUT
     END
 END
 
@@ -182,7 +181,6 @@ BEGIN
                             "Exports all or part of the registry to a text file"
     ID_REGISTRY_PRINT       "Prints all or part of the registry"
     ID_HELP_HELPTOPICS      "Opens Registry Editor Help"
-    ID_HELP_ABOUT           "Displays program information, version number and copyright"
 END
 
 STRINGTABLE

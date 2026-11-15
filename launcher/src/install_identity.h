@@ -21,17 +21,20 @@ namespace tuxblox {
 
 // Which number names this install, decided once for every screen that shows one.
 //
-// The release is it, and the channel comes with it from the same place. Neither can be compiled in:
-// a component version appears in several releases, so no binary knows its release, and one copy of
-// each component serves all three channels, so a channel baked in at build time is simply whichever
-// channel happened to be building -- a canary install would be told it is on stable.
+// The release is it, and staging writes it into a fixed field in every binary, so this one answers
+// for itself rather than from the record beside it. The channel cannot be compiled in the same way:
+// one copy of each component serves all three channels, so a channel baked in at build time is
+// simply whichever channel happened to be building -- a canary install would be told it is on
+// stable. It stays the install's record to say.
 struct InstallIdentity {
-    // False when the install recorded no release, which is ordinary for one made before the release
-    // file existed. The version is then this program's own, and a screen says so rather than
+    // False for a local build with no release stamped into it and no release recorded beside it,
+    // which is ordinary. The version is then this program's own, and a screen says so rather than
     // printing a number that reads like a release and is not one.
     bool isRelease = false;
     std::string version;
-    std::string channel;  // empty whenever isRelease is false
+    // Empty whenever isRelease is false, and also for a stamped binary whose install records a
+    // different release -- a screen then names the release without a channel instead of guessing.
+    std::string channel;
 };
 
 // `release` and `channel` come from the install's own record; an empty release means it kept none.

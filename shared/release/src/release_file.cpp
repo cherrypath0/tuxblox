@@ -22,6 +22,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <dlfcn.h>
 #include <netdb.h>
 #include <sys/socket.h>
 #include <filesystem>
@@ -368,50 +369,8 @@ std::string releaseFileUrl(const std::string& baseUrl, const std::string& channe
     return baseUrl + "/client/releases/" + channel + "/" + release + ".json";
 }
 
-std::string recordedReleasePath(const std::string& installDir) {
-    return installDir + "/release.json";
-}
-
-RecordedRelease readRecordedRelease(const std::string& installDir) {
-    try {
-        RecordedRelease recorded;
-        recorded.file = parseReleaseFile(readWholeFile(recordedReleasePath(installDir)));
-        recorded.present = true;
-        return recorded;
-    } catch (const std::exception&) {
-        // Every failure is the same answer to the caller: this install does not say what it is.
-        return {};
-    }
-}
-
-bool writeRecordedRelease(const std::string& installDir, const std::string& publishedJson) {
-    const std::string target = recordedReleasePath(installDir);
-    const std::string incoming = target + ".incoming";
-    try {
-        {
-            std::ofstream out(incoming, std::ios::binary | std::ios::trunc);
-            if (!out) return false;
-            out << publishedJson;
-            if (!out) return false;
-        }
-        // Renamed into place, so a launcher reading it while an update writes it never sees half a
-        // release -- which would read as an install that does not know what it is.
-        std::error_code ec;
-        fs::rename(incoming, target, ec);
-        if (ec) {
-            fs::remove(incoming, ec);
-            return false;
-        }
-        return true;
-    } catch (const std::exception&) {
-        std::error_code ec;
-        fs::remove(incoming, ec);
-        return false;
-    }
-}
-
 // fork/exec rather than popen: no shell is involved, so an install path needs no quoting.
-std::optional<std::string> askBinaryVersion(const std::string& bin) {
+std::optional<std::string> askBinaryVersion(const std::string& bin, const char *flag) {
     if (access(bin.c_str(), X_OK) != 0) return std::nullopt;
 
     int fds[2];
@@ -429,7 +388,7 @@ std::optional<std::string> askBinaryVersion(const std::string& bin) {
         dup2(fds[1], STDOUT_FILENO);
         close(fds[0]);
         close(fds[1]);
-        execl(bin.c_str(), bin.c_str(), "--version", static_cast<char*>(nullptr));
+        execl(bin.c_str(), bin.c_str(), flag, static_cast<char*>(nullptr));
         _exit(127);
     }
     close(fds[1]);
@@ -485,36 +444,65 @@ std::optional<std::string> askBinaryVersion(const std::string& bin) {
     return version;
 }
 
-std::string expectedComponentIdentity(const ReleaseFile& release, const std::string& name) {
-    const auto entry = release.components.find(name);
-    if (entry == release.components.end()) return std::string();
-    const std::optional<ComponentLayout> layout = componentLayout(name);
-    // The one component with no binary to stamp, so its own version is still what identifies it.
-    if (layout.has_value() && layout->versionPath.empty()) return entry->second.version;
-    return release.release;
-}
-
 std::optional<std::string> readComponentIdentity(const std::string& installDir,
                                                   const std::string& name) {
     const std::optional<ComponentLayout> layout = componentLayout(name);
     if (!layout.has_value()) return std::nullopt;
-    if (layout->versionPath.empty()) return readStackVersion(installDir);
+    if (layout->versionPath.empty()) {
+        const std::optional<StackVersions> stack = readStackVersions(installDir);
+        if (!stack.has_value() || stack->release.empty()) return std::nullopt;
+        return stack->release;
+    }
 
     const std::optional<std::string> version =
-        askBinaryVersion(installDir + "/" + layout->versionPath);
+        askBinaryVersion(installDir + "/" + layout->versionPath, "--version");
     if (version.has_value() || name != "compat") return version;
     // An install made before the layer's folder was renamed still has it under the old name.
-    return askBinaryVersion(installDir + "/proton/main");
+    return askBinaryVersion(installDir + "/proton/main", "--version");
 }
 
-std::optional<std::string> readStackVersion(const std::string& installDir) {
-    try {
-        const std::string version = trimmed(readWholeFile(fs::path(installDir) / "libtuxblox" / "VERSION"));
-        if (version.empty()) return std::nullopt;
-        return version;
-    } catch (const std::exception&) {
-        return std::nullopt;
+std::optional<std::string> readComponentVersion(const std::string& installDir,
+                                                 const std::string& name) {
+    const std::optional<ComponentLayout> layout = componentLayout(name);
+    if (!layout.has_value()) return std::nullopt;
+    if (layout->versionPath.empty()) {
+        const std::optional<StackVersions> stack = readStackVersions(installDir);
+        if (!stack.has_value()) return std::nullopt;
+        return stack->component;
     }
+
+    const std::optional<std::string> version =
+        askBinaryVersion(installDir + "/" + layout->versionPath, "--component-version");
+    if (version.has_value() || name != "compat") return version;
+    return askBinaryVersion(installDir + "/proton/main", "--component-version");
+}
+
+std::optional<StackVersions> readStackVersions(const std::string& installDir) {
+    const std::string path = installDir + "/libtuxblox/version.so";
+    std::error_code error;
+    if (!fs::is_regular_file(path, error) || error) return std::nullopt;
+
+    // RTLD_LOCAL because nothing else here has any business resolving against it, and it needs
+    // nothing of ours: the library carries only its own answers and the field they are read from.
+    void *library = dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
+    if (library == nullptr) return std::nullopt;
+
+    using Answer = const char *(*)();
+    const auto ask = [library](const char *name) {
+        const Answer answer = reinterpret_cast<Answer>(dlsym(library, name));
+        // Copied before the library is closed, because what it returns lives inside it.
+        return answer == nullptr ? std::string() : std::string(answer());
+    };
+
+    StackVersions found;
+    found.release = ask("tuxblox_release_version");
+    found.component = ask("tuxblox_component_version");
+    found.channel = ask("tuxblox_release_channel");
+    dlclose(library);
+
+    // A library that answers nothing is one of ours in name only.
+    if (found.component.empty()) return std::nullopt;
+    return found;
 }
 
 } // namespace tuxblox

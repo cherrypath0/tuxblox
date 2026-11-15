@@ -103,8 +103,8 @@ static USHORT cs32_sel;  /* selector for %cs in 32-bit mode */
 static USHORT cs64_sel;  /* selector for %cs in 64-bit mode */
 static USHORT ds64_sel;  /* selector for %ds/%es/%ss in 64-bit mode */
 
-/* Measured on Windows 11 25H2 with workspace/tests/dispprobe: every CONTEXT a
- * native 64-bit thread is handed carries %fs = 0x53. Linux reaches fs through
+/* Measured on Windows 11 25H2: every CONTEXT a native 64-bit thread is handed
+ * there carries %fs = 0x53. Linux reaches fs through
  * the MSR and loads no selector at all, so this came back as zero -- a value no
  * Windows machine reports, in a structure every exception handler reads. A
  * thread that really has a WoW64 selector keeps it; only the empty case is
@@ -434,9 +434,9 @@ struct machine_frame
 };
 
 /* Windows leaves this much of the interrupted stack alone before it places
- * anything on it. Measured with workspace/tests/dispprobe, which reports the
- * exception record and the context thirty-two bytes further down on Windows
- * than they were here; a program that walks its own stack across a handled
+ * anything on it. Measured by faulting on purpose and reading back where the
+ * exception record and the context landed: thirty-two bytes further down on
+ * Windows than they were here; a program that walks its own stack across a handled
  * fault sees the difference. */
 #define EXC_STACK_HEADROOM 0x20
 
@@ -1065,9 +1065,9 @@ static inline void leave_handler( ucontext_t *sigcontext )
  *
  * Bit 10 of the real register always reads as one, so a thread that has armed a
  * hardware breakpoint sees it set. Wine hands back exactly what was written,
- * which is a difference a program can see: measured on the reference machine
- * with workspace/tests/dbgprobe, arming one watchpoint and reading DR7 out of
- * the fault it causes gives 0xd0401 there and gave 0xd0001 here. With nothing
+ * which is a difference a program can see: on the reference machine, arming one
+ * watchpoint and reading DR7 out of the fault it causes gives 0xd0401 there and
+ * gave 0xd0001 here. With nothing
  * armed both report a plain zero -- the saved value rather than the register --
  * so the bit is only added once something is enabled.
  */
@@ -4104,9 +4104,8 @@ static void trap_handler( int signal, siginfo_t *siginfo, void *sigcontext )
     case TRAP_x86_TRCTRAP:
         /* No DR6 is filled in here, on purpose. The processor does record why
          * it stopped, but Windows does not pass that on for a single step the
-         * program asked for itself: measured on the reference machine with
-         * workspace/tests/dbgprobe, both report an empty DR6, and only a
-         * hardware watchpoint hit reports a real one. */
+         * program asked for itself: on the reference machine both report an
+         * empty DR6, and only a hardware watchpoint hit reports a real one. */
         rec.ExceptionCode = EXCEPTION_SINGLE_STEP;
         break;
     case TRAP_x86_BPTFLT:

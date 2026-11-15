@@ -25,10 +25,6 @@
 # outside this directory's scope).
 add_compile_options(-UNDEBUG)
 
-add_executable(test_user_agent ${TUXBLOX_SHARED_RELEASE}/../tests/test_user_agent.cpp)
-target_link_libraries(test_user_agent PRIVATE installer_core)
-add_test(NAME user_agent COMMAND test_user_agent)
-
 add_executable(test_release_file ${TUXBLOX_SHARED_RELEASE}/../tests/test_release_file.cpp)
 target_link_libraries(test_release_file PRIVATE installer_core)
 add_test(NAME release_file COMMAND test_release_file)
@@ -69,8 +65,21 @@ add_executable(test_tar_extract test_tar_extract.cpp)
 target_link_libraries(test_tar_extract PRIVATE installer_core)
 add_test(NAME tar_extract COMMAND test_tar_extract)
 
+# A real interface-stack library to install into a fixture, built from the two sources the shipped
+# one is built from, so this stops matching if the exports or the stamp move.
+add_library(test_stack_version MODULE
+    ${TUXBLOX_SHARED_RELEASE}/stack_version.cpp
+    ${TUXBLOX_SHARED_RELEASE}/release_stamp.cpp)
+target_include_directories(test_stack_version PRIVATE ${TUXBLOX_SHARED_RELEASE})
+target_compile_definitions(test_stack_version PRIVATE
+    TUXBLOX_COMPONENT_VERSION="3.1.0" TUXBLOX_RELEASE="3.6.0.0")
+set_target_properties(test_stack_version PROPERTIES PREFIX "" OUTPUT_NAME "version")
+
 add_executable(test_installer_steps test_installer_steps.cpp)
 target_link_libraries(test_installer_steps PRIVATE installer_core)
+add_dependencies(test_installer_steps test_stack_version)
+target_compile_definitions(test_installer_steps PRIVATE
+    TUXBLOX_TEST_STACK_LIBRARY="$<TARGET_FILE:test_stack_version>")
 add_test(NAME installer_steps COMMAND test_installer_steps)
 
 add_executable(test_container_env test_container_env.cpp)

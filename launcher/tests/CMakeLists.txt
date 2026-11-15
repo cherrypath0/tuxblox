@@ -65,8 +65,22 @@ add_executable(test_update_changes test_update_changes.cpp)
 target_link_libraries(test_update_changes PRIVATE launcher_core)
 add_test(NAME update_changes COMMAND test_update_changes)
 
+# The interface stack answers through a library rather than a file, so a fixture install needs a
+# real one. Built from the same two sources the shipped stack is, which is what makes it a fixture
+# and not a stand-in: if the exports or the stamp move, this stops matching and the test says so.
+add_library(test_stack_version MODULE
+    ${TUXBLOX_SHARED_RELEASE}/stack_version.cpp
+    ${TUXBLOX_SHARED_RELEASE}/release_stamp.cpp)
+target_include_directories(test_stack_version PRIVATE ${TUXBLOX_SHARED_RELEASE})
+target_compile_definitions(test_stack_version PRIVATE
+    TUXBLOX_COMPONENT_VERSION="3.1.0" TUXBLOX_RELEASE="3.6.0.0")
+set_target_properties(test_stack_version PROPERTIES PREFIX "" OUTPUT_NAME "version")
+
 add_executable(test_updater test_updater.cpp)
 target_link_libraries(test_updater PRIVATE launcher_core)
+add_dependencies(test_updater test_stack_version)
+target_compile_definitions(test_updater PRIVATE
+    TUXBLOX_TEST_STACK_LIBRARY="$<TARGET_FILE:test_stack_version>")
 add_test(NAME updater COMMAND test_updater)
 
 add_executable(test_settings test_settings.cpp)
@@ -229,10 +243,6 @@ add_test(NAME desktop_notify COMMAND test_desktop_notify)
 add_executable(test_fastflag_import test_fastflag_import.cpp)
 target_link_libraries(test_fastflag_import PRIVATE launcher_core)
 add_test(NAME fastflag_import COMMAND test_fastflag_import)
-
-add_executable(test_user_agent ${TUXBLOX_SHARED_RELEASE}/../tests/test_user_agent.cpp)
-target_link_libraries(test_user_agent PRIVATE launcher_core)
-add_test(NAME user_agent COMMAND test_user_agent)
 
 add_executable(test_release_file ${TUXBLOX_SHARED_RELEASE}/../tests/test_release_file.cpp)
 target_link_libraries(test_release_file PRIVATE launcher_core)

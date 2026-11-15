@@ -19,18 +19,16 @@
 #include "i18n.h"
 #include "release_file.h"
 
-#include <filesystem>
-
 namespace tuxblox {
 
-AboutVersions aboutVersions(const std::string& installDir, const std::string& launcherVersion) {
+AboutVersions aboutVersions(const std::string& installDir, const std::string& launcherVersion,
+                             const std::string& release, const std::string& channel) {
     AboutVersions about;
 
-    const RecordedRelease recorded = readRecordedRelease(installDir);
-    if (recorded.present) {
-        about.release = recorded.file.release;
-        about.channel = recorded.file.channel;
-    }
+    // The caller's own stamp: every component of a release carries it, so there is nothing beside
+    // them to read and nothing that can go stale against what is actually installed.
+    about.release = release;
+    about.channel = channel;
 
     for (const std::string& name : componentNames()) {
         // Left out on purpose: the interface stack is GTK and libadwaita built from source, so its
@@ -44,22 +42,10 @@ AboutVersions aboutVersions(const std::string& installDir, const std::string& la
             about.components.push_back({display, launcherVersion});
             continue;
         }
-        // What the install records, not what the binary answers: a binary names the release it was
-        // published in now, which is one number for all of them and not what this list is for. The
-        // record is not the weaker source it would once have been -- an install whose components do
-        // not match it is one the launcher is already forcing a repair on.
-        const std::string path = componentLayout(name)->versionPath;
-        const auto recordedComponent = recorded.file.components.find(name);
-        if (path.empty() || !std::filesystem::exists(installDir + "/" + path)) {
-            about.components.push_back({display, i18n::tr("not installed")});
-        } else if (recordedComponent != recorded.file.components.end()) {
-            about.components.push_back({display, recordedComponent->second.version});
-        } else {
-            // On disk under an install that records nothing, so the only thing left to ask is the
-            // component itself, and what it answers is all there is to show.
-            about.components.push_back(
-                {display, readComponentIdentity(installDir, name).value_or(i18n::tr("not installed"))});
-        }
+        // The component's own number, not the release it was published in: the release is one
+        // number for all of them and is shown above, while this list is for what moved.
+        about.components.push_back(
+            {display, readComponentVersion(installDir, name).value_or(i18n::tr("not installed"))});
     }
     return about;
 }

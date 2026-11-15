@@ -461,9 +461,8 @@ extern BOOL virtual_check_buffer_for_write( void *ptr, SIZE_T size );
  * fails as from what one returns, and answering "no such class" to all of them
  * describes a system that does not exist. These are failures only: a class
  * Windows answers successfully is left to a real implementation rather than
- * being made up. Captured from Windows 10 22H2 with workspace/tests/sysprobe,
- * and extended with the payloads measured on Windows 11 25H2 with
- * workspace/tests/infoprobe.
+ * being made up. Captured from Windows 10 22H2, and extended with the payloads
+ * measured on Windows 11 25H2.
  * NO_LENGTH means Windows leaves the caller's returned-length alone.
  *
  * An entry with a payload answers the query as well as the probe. Only classes

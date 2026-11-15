@@ -21,8 +21,8 @@
 namespace tuxblox {
 namespace {
 
-// The field is 64 bytes and the marker takes the first 25, so a release has 39 to sit in -- plenty
-// for four numbers, and room for whatever a release version becomes later.
+// The field is 64 bytes and the marker takes the first 25, so a release and a channel have 39 to
+// sit in -- plenty for four numbers and the longest channel name, with room to spare.
 constexpr std::size_t kFieldSize = 64;
 constexpr std::size_t kMarkerSize = 25;
 
@@ -45,18 +45,36 @@ const volatile char kReleaseStampField[kFieldSize] = "TUXBLOX_RELEASE_STAMP_V1:"
 const volatile char kReleaseStampField[kFieldSize] = "TUXBLOX_RELEASE_STAMP_V1:";
 #endif
 
-const std::string& releaseVersion() {
-    // Read once: the file is stamped before anybody runs it, so the field cannot change underneath
-    // a running program, and a volatile read is not something to repeat on every caller's behalf.
-    static const std::string value = [] {
-        std::string out;
-        for (std::size_t i = kMarkerSize; i < kFieldSize; ++i) {
-            const char c = kReleaseStampField[i];
+namespace {
+
+// The release and the channel are written one after the other, each ending in a zero byte, so
+// anything that reads only the first of them stops where it always did.
+std::string fieldEntry(std::size_t which) {
+    std::string out;
+    std::size_t at = kMarkerSize;
+    for (std::size_t entry = 0; entry <= which; ++entry) {
+        out.clear();
+        for (; at < kFieldSize; ++at) {
+            const char c = kReleaseStampField[at];
             if (c == '\0') break;
             out.push_back(c);
         }
-        return out;
-    }();
+        ++at; // past the zero byte that ended it
+    }
+    return out;
+}
+
+} // namespace
+
+const std::string& releaseVersion() {
+    // Read once: the file is stamped before anybody runs it, so the field cannot change underneath
+    // a running program, and a volatile read is not something to repeat on every caller's behalf.
+    static const std::string value = fieldEntry(0);
+    return value;
+}
+
+const std::string& releaseChannel() {
+    static const std::string value = fieldEntry(1);
     return value;
 }
 

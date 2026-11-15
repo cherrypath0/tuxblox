@@ -86,7 +86,7 @@ private:
     static void onFindChanged(GtkEditable *pEditable, gpointer data);
     static void onFindStep(GtkButton *pButton, gpointer data);
     static void onJumpToEnd(GtkButton *pButton, gpointer data);
-    static gboolean onLogScrolled(GtkEventControllerScroll *pController, double dx, double dy, gpointer data);
+    static void onLogPositionChanged(GtkAdjustment *pPosition, gpointer data);
 
     App &app_;
     GtkWidget *pRoot_ = nullptr;
@@ -122,7 +122,6 @@ private:
     std::unique_ptr<SessionLogReader> pReader_;
     std::string readerCaptured_;
     std::string readerRoblox_;
-    bool readerSessionRunning_ = true;
     std::vector<LogEntry> entries_;
     // How many of them the filter let through, so the count can say what is being hidden.
     size_t shownEntries_ = 0;

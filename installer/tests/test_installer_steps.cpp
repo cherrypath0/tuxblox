@@ -584,10 +584,11 @@ int main() {
         todo = componentsToInstall(release, dir.string());
         assert(std::find(todo.begin(), todo.end(), "studio-mcp") != todo.end());
 
-        // The libraries have no binary to carry a release, so they are still identified by their
-        // own version, read from their VERSION file and never run.
+        // The libraries have no program to carry a release, so they carry version.so instead: it
+        // is loaded and asked, never run, and the release it was built with is this one.
         fs::create_directories(dir / "libtuxblox");
-        { std::ofstream out(dir / "libtuxblox" / "VERSION"); out << "3.1.0\n"; }
+        fs::copy_file(TUXBLOX_TEST_STACK_LIBRARY, dir / "libtuxblox" / "version.so",
+                      fs::copy_options::overwrite_existing);
         todo = componentsToInstall(release, dir.string());
         assert(std::find(todo.begin(), todo.end(), "libtuxblox") == todo.end());
 
@@ -599,31 +600,18 @@ int main() {
         printf("  components already holding this release's copy are skipped\n");
     }
 
-    // The record is the install's identity AND its "update completed" marker, so it must not exist
-    // until every component has landed.
-    {
-        fs::path dir = work / "install_records";
-        auto outcome = runInstall(release, releaseBaseUrl, [](const std::string&, double) {}, nullptr,
-            false, dir.string(), robloxPlayerUrl, robloxStudioUrl, releaseJson);
-        assert(outcome.ok);
-        std::ifstream in(dir / "release.json", std::ios::binary);
-        std::string recorded((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-        // Byte for byte what was published, not a re-serialisation: the coherence check the
-        // launcher runs compares against exactly what the release said.
-        assert(recorded == releaseJson);
-        printf("  the record holds the published bytes verbatim\n");
-    }
-
+    // An install says what it is through its components, so nothing is written beside them to say
+    // it: a failed install is one whose components disagree, which is what the launcher repairs.
     {
         fs::path dir = work / "install_records_failed";
         ReleaseFile broken = release;
         broken.components["compat"].x86_64->sha256 =
             "0000000000000000000000000000000000000000000000000000000000000";
         auto outcome = runInstall(broken, releaseBaseUrl, [](const std::string&, double) {}, nullptr,
-            false, dir.string(), robloxPlayerUrl, robloxStudioUrl, releaseJson);
+            false, dir.string(), robloxPlayerUrl, robloxStudioUrl);
         assert(!outcome.ok);
         assert(!fs::exists(dir / "release.json"));
-        printf("  a failed install records nothing\n");
+        printf("  a failed install leaves no record behind\n");
     }
 
     // The cost of every binary carrying its release, end to end: a release installs every
@@ -632,13 +620,16 @@ int main() {
     {
         fs::path dir = work / "install_hybrid";
         auto first = runInstall(release, releaseBaseUrl, [](const std::string&, double) {}, nullptr,
-            false, dir.string(), robloxPlayerUrl, robloxStudioUrl, releaseJson);
+            false, dir.string(), robloxPlayerUrl, robloxStudioUrl);
         assert(first.ok);
 
         const fs::path layer = dir / "compat" / "main";
         const fs::path mcp = dir / "studio-mcp";
-        const auto layerBefore = fs::last_write_time(layer);
-        const auto mcpBefore = fs::last_write_time(mcp);
+        // Taken away rather than timed: a component is re-extracted from the archive the release
+        // published, which carries its own timestamps, so a file being back is what proves it
+        // landed again and a changed mtime proves nothing.
+        fs::remove(layer);
+        fs::remove(mcp);
 
         // A new release in which only the launcher's own version moved. Every other component is
         // published again under it unchanged, which is what a real release does.
@@ -654,7 +645,7 @@ int main() {
             [&](const std::string& label, double) {
                 if (label.rfind("Upgrading ", 0) == 0 &&
                     (downloaded.empty() || downloaded.back() != label)) downloaded.push_back(label);
-            }, nullptr, /*isUpgrade=*/true, dir.string(), robloxPlayerUrl, robloxStudioUrl, releaseJson);
+            }, nullptr, /*isUpgrade=*/true, dir.string(), robloxPlayerUrl, robloxStudioUrl);
         assert(second.ok);
 
         // Everything but the launcher first, then the libraries, then the launcher.
@@ -662,8 +653,8 @@ int main() {
                                                         "Upgrading Runtime", "Upgrading Libraries",
                                                         "Upgrading Launcher"}));
         // The 334MB component among them: this is what a release costs now.
-        assert(fs::last_write_time(layer) != layerBefore);
-        assert(fs::last_write_time(mcp) != mcpBefore);
+        assert(fs::exists(layer));
+        assert(fs::exists(mcp));
         {
             std::ifstream in(dir / "TuxBloxLauncher", std::ios::binary);
             std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
@@ -687,7 +678,7 @@ int main() {
     {
         fs::path dir = work / "install_torn_extract";
         auto first = runInstall(release, releaseBaseUrl, [](const std::string&, double) {}, nullptr,
-            false, dir.string(), robloxPlayerUrl, robloxStudioUrl, releaseJson);
+            false, dir.string(), robloxPlayerUrl, robloxStudioUrl);
         assert(first.ok);
 
         // An archive whose program comes FIRST and which is then truncated: extraction writes
@@ -710,7 +701,7 @@ int main() {
         republish(torn, "compat", "9.1.0", tornSrc);
 
         auto second = runInstall(torn, releaseBaseUrl, [](const std::string&, double) {}, nullptr,
-            /*isUpgrade=*/true, dir.string(), robloxPlayerUrl, robloxStudioUrl, releaseJson);
+            /*isUpgrade=*/true, dir.string(), robloxPlayerUrl, robloxStudioUrl);
         assert(!second.ok);
 
         // Whatever is left must not claim to be the version that failed to install. Either the old

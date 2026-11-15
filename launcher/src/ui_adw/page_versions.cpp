@@ -155,6 +155,8 @@ void VersionsPage::onSheetModeToggled(GtkToggleButton *pButton, gpointer data) {
     gtk_widget_set_visible(pSheet->pHashBox, mode == VersionSelectMode::ManualHash);
     gtk_widget_set_visible(pSheet->pChannelBox, channelBoxVisibleFor(mode));
     gtk_widget_set_visible(pSheet->pNextWarning, nextWarningVisibleFor(mode));
+    // The sheet's height is measured once when it opens and from then on only grows, so a mode with fewer fields is left with the taller one's empty space below it until the height is measured again.
+    adw_dialog_set_content_height(pSheet->pDialog, -1);
 }
 
 VersionSelectMode VersionsPage::sheetMode(const InstallSheet *pSheet) {

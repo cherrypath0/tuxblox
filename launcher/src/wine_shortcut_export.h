@@ -34,6 +34,9 @@ std::string clientDesktopEntry(LaunchTarget target, const std::string& launcherE
 bool writeClientDesktopShortcut(const std::string& installDir, const std::string& launcherExePath,
                                 LaunchTarget target);
 
+// Turns a Windows shortcut Roblox put on the desktop into a desktop entry that works, which is the icon writeClientDesktopShortcut() writes, and takes the shortcut away. Reads the desktop and the folder the compatibility layer moves a shortcut into the moment it takes one off the desktop. Only the Player's and Studio's own shortcuts, and only once the entry replacing one is there. Returns how many were translated.
+int translateDesktopShortcuts(const std::string& installDir, const std::string& launcherExePath);
+
 // Removes the icons TuxBlox put on the desktop, and only those: a file it did not write is left alone however it is named. Returns how many went.
 int removeGeneratedDesktopShortcuts(const std::string& desktopDir);
 

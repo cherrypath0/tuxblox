@@ -165,6 +165,10 @@ int main(int argc, char** argv) {
         printf("%s\n", reportedVersion(kTuxBloxVersion).c_str());
         return 0;
     }
+    if (options.componentVersion) {
+        printf("%s\n", kTuxBloxVersion);
+        return 0;
+    }
 
     if (geteuid() == 0) {
         if (!options.allowRoot) {

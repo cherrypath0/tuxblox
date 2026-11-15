@@ -25,12 +25,12 @@
 // state rather than evidence of a half-applied update. That turns the old single question -- "do
 // the pieces agree on one build id" -- into two that are answered separately:
 //
-//   Coherent?  Do the installed versions match the component set of the release the install
-//              RECORDS? Incoherent means an update died midway, which is broken rather than out of
+//   Coherent?  Does every installed component say it belongs to the same release as the launcher
+//              asking? Incoherent means an update died midway, which is broken rather than out of
 //              date, so it is repaired without asking.
-//   Stale?     Does the recorded release differ from the one the channel names? An ordinary
+//   Stale?     Does the release they agree on differ from the one the channel names? An ordinary
 //              update, which waits for the Auto-Update setting. It covers a channel moving BACK to
-//              an earlier release too, because "recorded != named" has no direction.
+//              an earlier release too, because "installed != named" has no direction.
 //
 // Getting this wrong fails both ways -- broken installs that stop repairing themselves, or every
 // install repairing itself on every launch forever -- so the decision is pure and the filesystem
@@ -38,17 +38,18 @@
 namespace tuxblox {
 
 struct InstallState {
-    // False for an install made before the release file existed. Not an error: it just cannot be
-    // asked whether it is coherent, only whether something newer is published.
-    bool releaseRecorded = false;
-    std::string recordedRelease;
-    // Component name -> what the copy on disk says it is. That is the release it was published in
-    // for everything with a binary to ask, and its own version for the interface stack, which has
-    // none. A component that is not installed is absent from the map rather than present empty.
+    // The release this install says it is, which is what its own launcher answers. Empty when the
+    // launcher cannot be asked: then there is nothing to check the rest against, and the only
+    // question left is whether something newer is published.
+    std::string installedRelease;
+    // False only for an install that says outright it was never published, which is a tree built
+    // on this machine: its components carry a release from the VERSION file but no channel, because
+    // only staging can write one. Such a tree is incoherent by construction as its components are
+    // rebuilt one at a time, so it is offered a release rather than repaired into one.
+    bool published = true;
+    // Component name -> the release the copy on disk says it was published in. A component that is
+    // not installed, or cannot be asked, is absent from the map rather than present empty.
     std::map<std::string, std::string> installedIdentities;
-    // Component name -> what the recorded release says the same question should answer. Empty when
-    // !releaseRecorded. Built by expectedComponentIdentity(), so the two sides cannot drift.
-    std::map<std::string, std::string> recordedIdentities;
 };
 
 struct UpdateDecision {

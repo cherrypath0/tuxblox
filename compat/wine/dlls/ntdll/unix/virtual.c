@@ -4498,8 +4498,8 @@ TEB *virtual_alloc_first_teb(void)
      *
      * The band is one difference and the *arrangement* is another, and only the
      * first had been tried. Windows puts the PEB one page below the TEB --
-     * workspace/tests/tebprobe reads "peb - teb = -4096" on the reference
-     * machine -- while this put it a whole 64 KB block above, reading +65536.
+     * "peb - teb = -4096" on the reference machine -- while this put it a whole
+     * 64 KB block above, reading +65536.
      * Roblox's protection layer reads both pointers through gs: and does
      * arithmetic on them, so the arrangement is worth matching even though the
      * band is not. The 32-bit build keeps its own layout, where the 64-bit PEB
@@ -4965,7 +4965,8 @@ NTSTATUS virtual_alloc_thread_stack( INITIAL_TEB *stack, ULONG_PTR limit_low, UL
      * the guard page, so a thread reports StackBase - StackLimit of a few pages
      * until it has actually used more. This committed the whole reservation up
      * front, which reads as 0x1FE000 against 0x4000 on the reference machine
-     * (workspace/tests/tebprobe). grow_thread_stack() below already implements
+     * (measured on the reference machine). grow_thread_stack() below already
+     * implements
      * the growth correctly -- it commits the faulting page, moves the guard
      * down and updates Tib.StackLimit -- it was simply never reached, because
      * nothing was left uncommitted to fault on.
@@ -5000,8 +5001,8 @@ NTSTATUS virtual_alloc_thread_stack( INITIAL_TEB *stack, ULONG_PTR limit_low, UL
     {
         /* Leave room below the guard page for a thread that runs out of stack
          * to be told about it and do something about it. Windows enters such a
-         * handler with about 16 KB of the reservation still usable (measured on
-         * Windows 10 22H2 with workspace/tests/stackprobe.exe). Putting the
+         * handler with about 16 KB of the reservation still usable (measured
+         * on Windows 10 22H2). Putting the
          * guard immediately above the bottom, as this used to, leaves a handler
          * nowhere to run: it faults again on the page below and the thread is
          * killed with nothing reported. */
@@ -5180,8 +5181,8 @@ void virtual_init_user_shared_data(void)
 
     /* This page sits at a fixed address and needs no system call to read, so
      * anything in the process can compare it against a real machine at any
-     * moment. Every constant below was read off Windows 11 25H2 with
-     * workspace/tests/infoprobe.exe; a field left at zero that Windows always
+     * moment. Every constant below was read off Windows 11 25H2; a field left
+     * at zero that Windows always
      * fills is as much of a difference as a field with the wrong value in it. */
     /* Windows keeps 0x0fa00000 here and counts TickCount in 15.625 ms units,
      * so that (TickCount * TickCountMultiplier) >> 24 is milliseconds. Wine
@@ -7781,8 +7782,8 @@ static NTSTATUS query_virtual_memory( HANDLE process, LPCVOID addr,
          * The answer does not depend on what the address is: most of what the
          * layer asks about is private memory it built a module into, not a
          * mapped image. What a successful call writes back is not known -- the
-         * trace carries the status only -- so the buffer is cleared;
-         * `workspace/tests/vmprobe.c` sweeps the keys to settle it. */
+         * trace carries the status only -- so the buffer is cleared until a
+         * sweep of the keys settles it. */
         case MemoryImageExtensionInformation:
             if (len < 24) return STATUS_INFO_LENGTH_MISMATCH;
             if (!buffer) return STATUS_ACCESS_VIOLATION;

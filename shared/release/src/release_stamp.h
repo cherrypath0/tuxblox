@@ -30,6 +30,12 @@ namespace tuxblox {
 // Empty for a binary that was never staged into a release, which is every local build.
 const std::string& releaseVersion();
 
+// The channel that release was published on, and empty for a binary that was never staged: a build
+// cannot know its channel, because which one a release goes to is decided when it is staged. So
+// this doubles as the answer to "was this published at all", which is what a local build out of the
+// build folder must answer no to -- it has a release baked in from the VERSION file, but no channel.
+const std::string& releaseChannel();
+
 // The release, or `fallback` when there is none. What a program prints when it is asked its
 // version: a local build has no release to name, so it names what it does have instead.
 std::string reportedVersion(const std::string& fallback);

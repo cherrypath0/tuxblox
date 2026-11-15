@@ -32,6 +32,7 @@
 #include "widgets.h"
 
 #include <algorithm>
+#include <filesystem>
 #include <fstream>
 
 namespace tuxblox {
@@ -347,14 +348,18 @@ GtkWidget *SessionsPage::buildLogPane() {
     // Left gravity off, so it stays at the end as text arrives rather than being pushed along in front of it.
     gtk_text_buffer_create_mark(pBuffer_, "tail", &start, FALSE);
 
-    GtkEventController *pScrollWatch = gtk_event_controller_scroll_new(GTK_EVENT_CONTROLLER_SCROLL_VERTICAL);
-    g_signal_connect(pScrollWatch, "scroll", G_CALLBACK(onLogScrolled), this);
-    gtk_widget_add_controller(pView, pScrollWatch);
-
     pLogScroll_ = gtk_scrolled_window_new();
     gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(pLogScroll_), pView);
     gtk_widget_set_vexpand(pLogScroll_, TRUE);
     gtk_box_append(GTK_BOX(pPane), pLogScroll_);
+
+    // Where the view sits, rather than the wheel turning: dragging the bar, the keyboard and a
+    // touchscreen all move it too, and watching only the wheel left every one of those looking like
+    // somebody still reading the end. Position alone, so arriving at the end by any means follows
+    // again. Only "value-changed", never "changed": adding a line grows the range without moving
+    // the view, and treating that as the reader moving would stop it following on the first line.
+    g_signal_connect(gtk_scrolled_window_get_vadjustment(GTK_SCROLLED_WINDOW(pLogScroll_)),
+                     "value-changed", G_CALLBACK(onLogPositionChanged), this);
 
     gtk_box_append(GTK_BOX(pPane), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
     gtk_box_append(GTK_BOX(pPane), buildFindBar());
@@ -500,20 +505,19 @@ void SessionsPage::reconcileReader(const AppSnapshot &snap) {
     }
     if (pSession == nullptr) return;
 
-    // Once a session is over, TuxBlox appends Roblox's log onto the end of its own and deletes the original -- so the capture alone is the whole thing, and going on reading both would show Roblox's half a second time.
-    const bool ended = !pSession->running;
+    // Once a session is over, TuxBlox appends Roblox's log onto the end of its own and deletes the original -- so the capture alone is the whole thing, and going on reading both would show Roblox's half a second time. The file going is what says that has happened: the merge runs after the session, so dropping it on the session ending instead emptied the pane of everything Roblox wrote until it did.
     const std::string wantCaptured = pSession->capturedLogPath;
-    const std::string wantRoblox = ended ? std::string() : pSession->robloxLogPath;
+    const bool merged = !pSession->running && !pSession->robloxLogPath.empty() &&
+                        !std::filesystem::exists(pSession->robloxLogPath);
+    const std::string wantRoblox = merged ? std::string() : pSession->robloxLogPath;
 
-    const bool sameFiles = pReader_ != nullptr && wantCaptured == readerCaptured_ && wantRoblox == readerRoblox_;
-    if (sameFiles && ended == !readerSessionRunning_) return;
+    if (pReader_ != nullptr && wantCaptured == readerCaptured_ && wantRoblox == readerRoblox_) return;
 
     pReader_ = std::make_unique<SessionLogReader>(wantCaptured, wantRoblox);
     // Which file is being read is not something to spend a line on, but it is what somebody filing a bug report needs, so it stays within reach.
     gtk_widget_set_tooltip_text(GTK_WIDGET(pName_), pReader_->describeSources().c_str());
     readerCaptured_ = wantCaptured;
     readerRoblox_ = wantRoblox;
-    readerSessionRunning_ = !ended;
     // Emptying the pane here would leave it blank until the new reader produces something, which reads as the log vanishing and coming back. A reader with no files to read has nothing coming, so that one is emptied at once.
     if (wantCaptured.empty() && wantRoblox.empty()) {
         entries_.clear();
@@ -810,20 +814,13 @@ void SessionsPage::scrollToTail() {
     gtk_text_view_scroll_to_mark(pLog_, pTail, 0.0, FALSE, 0.0, 0.0);
 }
 
-gboolean SessionsPage::onLogScrolled(GtkEventControllerScroll *, double, double dy, gpointer data) {
+void SessionsPage::onLogPositionChanged(GtkAdjustment *pPosition, gpointer data) {
     auto *pSelf = static_cast<SessionsPage *>(data);
-    if (dy < 0.0) {
-        pSelf->readerScrolledAway_ = true;
-    } else if (dy > 0.0) {
-        // Back at the bottom means they want to be carried along again.
-        GtkAdjustment *pPosition =
-            gtk_scrolled_window_get_vadjustment(GTK_SCROLLED_WINDOW(pSelf->pLogScroll_));
-        const double remaining = gtk_adjustment_get_upper(pPosition) -
-                                 gtk_adjustment_get_page_size(pPosition) -
-                                 gtk_adjustment_get_value(pPosition);
-        if (remaining < 48.0) pSelf->readerScrolledAway_ = false;
-    }
-    return GDK_EVENT_PROPAGATE;
+    // A line's worth of slack, so resting a hair off the end still counts as being at it.
+    const double remaining = gtk_adjustment_get_upper(pPosition) -
+                             gtk_adjustment_get_page_size(pPosition) -
+                             gtk_adjustment_get_value(pPosition);
+    pSelf->readerScrolledAway_ = remaining >= 48.0;
 }
 
 void SessionsPage::onJumpToEnd(GtkButton *, gpointer data) {

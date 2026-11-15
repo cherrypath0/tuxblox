@@ -25,12 +25,66 @@ namespace fs = std::filesystem;
 
 namespace tuxblox {
 
+const char* const kCreatedLogFileLine = "TuxBlox: created logfile: ";
+
 namespace {
 
 // Roblox starts its crash reporter alongside the client, so one beginning long after belongs to another instance.
 constexpr std::time_t kCrashReporterLeadSeconds = 60;
 
+constexpr size_t kMaxAnnouncedLogs = 4;
+
+// Announced as Roblox starts, so near the front; the rest is not re-read every pass.
+constexpr std::streamoff kAnnouncementScanBytes = 4 * 1024 * 1024;
+
+constexpr size_t kMaxAnnouncementBytes = 4096;
+
 } // namespace
+
+std::vector<std::string> announcedLogFileNames(const std::string& capturedLogPath) {
+    std::vector<std::string> names;
+    if (capturedLogPath.empty()) return names;
+
+    std::ifstream in(capturedLogPath, std::ios::binary);
+    if (!in) return names;
+
+    const std::string marker = kCreatedLogFileLine;
+    auto take = [&](const std::string& line) {
+        if (names.size() >= kMaxAnnouncedLogs) return;
+        const size_t at = line.find(marker);
+        if (at == std::string::npos) return;
+
+        std::string path = line.substr(at + marker.size());
+        while (!path.empty() && (path.back() == '\r' || path.back() == ' ')) path.pop_back();
+        const size_t slash = path.find_last_of("\\/");
+        const std::string name = slash == std::string::npos ? path : path.substr(slash + 1);
+        if (name.empty()) return;
+        if (std::find(names.begin(), names.end(), name) == names.end()) names.push_back(name);
+    };
+
+    // Not getline: a source with no line break is read into memory whole.
+    char chunk[8192];
+    std::string pending;
+    std::streamoff scanned = 0;
+
+    while (names.size() < kMaxAnnouncedLogs && scanned < kAnnouncementScanBytes) {
+        in.read(chunk, sizeof(chunk));
+        const std::streamsize got = in.gcount();
+        if (got <= 0) break;
+        scanned += got;
+
+        for (std::streamsize i = 0; i < got; ++i) {
+            if (chunk[i] == '\n') {
+                take(pending);
+                pending.clear();
+            } else if (pending.size() < kMaxAnnouncementBytes) {
+                pending.push_back(chunk[i]);
+            }
+        }
+    }
+    take(pending);
+    return names;
+}
 
 std::vector<std::string> selectSessionLogFiles(const std::vector<std::string>& names,
                                                std::time_t sessionStart, bool player) {
@@ -105,14 +159,18 @@ std::vector<std::string> appendRobloxSessionLogs(const std::string& installDir, 
     }
     std::sort(entries.begin(), entries.end()); // deterministic order regardless of directory iteration order
 
-    auto qualifying = selectSessionLogFiles(entries, sessionStart, player);
+    // The capture is this session's own, so what it names beats the guess below.
+    std::vector<std::string> qualifying;
+    for (const std::string& name : announcedLogFileNames(destLogPath)) {
+        if (std::find(entries.begin(), entries.end(), name) != entries.end()) qualifying.push_back(name);
+    }
+    if (qualifying.empty()) qualifying = selectSessionLogFiles(entries, sessionStart, player);
     if (qualifying.empty()) return appended;
 
     std::ofstream dest(destLogPath, std::ios::binary | std::ios::app);
     if (!dest) return appended;
 
     for (const auto& name : qualifying) {
-        dest << "=== ROBLOX LOG: " << name << " ===\n";
         if (streamAppendFile(dest, (fs::path(dir) / name).string())) {
             appended.push_back(name);
         }

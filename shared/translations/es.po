@@ -5,8 +5,9 @@ msgid ""
 msgstr ""
 "Project-Id-Version: tuxblox\n"
 "Report-Msgid-Bugs-To: cherry@tuxblox.net\n"
-"POT-Creation-Date: 2026-11-10 15:36+0300\n"
-"Last-Translator: Yan Henridev <228758946+yanhenrique-dev@users.noreply.github.com>\n"
+"POT-Creation-Date: 2026-11-15 14:35+0300\n"
+"Last-Translator: Yan Henridev <228758946+yanhenrique-"
+"dev@users.noreply.github.com>\n"
 "Language-Team: Spanish\n"
 "Language: es\n"
 "MIME-Version: 1.0\n"
@@ -52,7 +53,8 @@ msgid "A graphics driver with Vulkan support"
 msgstr "Un controlador gráfico compatible con Vulkan"
 
 msgid "A later row sets this flag too, and that one is the one that applies."
-msgstr "Una fila más abajo también define esta flag, y es esa la que se aplica."
+msgstr ""
+"Una fila más abajo también define esta flag, y es esa la que se aplica."
 
 msgid "A new update is available"
 msgstr "Hay una nueva actualización disponible"
@@ -70,6 +72,9 @@ msgid "Adds a button to your activity that allows others to join your server"
 msgstr ""
 "Añade un botón a tu actividad que permite que otras personas se unan a tu "
 "servidor"
+
+msgid "Advanced"
+msgstr ""
 
 msgid ""
 "Allows games you join to set more advanced activity. Only works on games "
@@ -227,6 +232,12 @@ msgstr ""
 #, c++-format
 msgid "Couldn't fetch the release: {0}"
 msgstr "No se pudo obtener el release: {0}"
+
+#, fuzzy, c++-format
+msgid ""
+"Couldn't reach TuxBlox's version list, so there is no earlier version to "
+"install right now: {0}"
+msgstr "No se pudo acceder a tuxblox.net para preparar el desinstalador: {0}"
 
 #, c++-format
 msgid "Couldn't reach tuxblox.net to prepare the uninstaller: {0}"
@@ -520,15 +531,6 @@ msgstr "Controlador NVIDIA {0} o posterior"
 msgid "Next match"
 msgstr "Siguiente coincidencia"
 
-msgid ""
-"No earlier version found in Roblox's deploy history for this channel. Roblox "
-"hides the version list for its private channels, so this only works on the "
-"live channel."
-msgstr ""
-"No se encontró una versión anterior en el historial de despliegue de Roblox "
-"para este canal. Roblox oculta la lista de versiones de sus canales "
-"privados, así que esto solo funciona en el canal live."
-
 msgid "No flags set."
 msgstr "No hay flags configuradas."
 
@@ -557,6 +559,10 @@ msgstr "No hay versiones instaladas"
 
 msgid "Not Executable"
 msgstr "No ejecutable"
+
+#, fuzzy
+msgid "Not a released version"
+msgstr "Instalar una versión"
 
 #, c++-format
 msgid ""
@@ -594,6 +600,9 @@ msgstr ""
 "Nada que hacer: pasa --update-roblox, --install-roblox o --preview-"
 "rbxinstaller."
 
+msgid "Nothing to open yet"
+msgstr ""
+
 msgid "Notify server location"
 msgstr "Notificar la ubicación del servidor"
 
@@ -602,6 +611,9 @@ msgstr "OK"
 
 msgid "Open"
 msgstr "Abrir"
+
+msgid "Open Registry Editor"
+msgstr ""
 
 msgid "Open sessions"
 msgstr "Sesiones abiertas"
@@ -710,6 +722,21 @@ msgstr ""
 
 msgid "Roblox has exited with a non-zero exit code.\n"
 msgstr "Roblox terminó con un código de salida distinto de cero.\n"
+
+msgid ""
+"Roblox has no upcoming version right now. There is nothing newer than the "
+"current release to install yet."
+msgstr ""
+
+msgid ""
+"Roblox has uploaded this version but hasn't released it. It may be unstable, "
+"and it may never be released at all."
+msgstr ""
+
+msgid ""
+"Roblox is not offering a newer version than the current release right now, "
+"so there is nothing to install."
+msgstr ""
 
 msgid "Roblox is up to date"
 msgstr "Roblox está actualizado"
@@ -847,6 +874,9 @@ msgstr "El canal de release al que se actualiza TuxBlox"
 msgid "The value of {0} must be text, a number, true or false."
 msgstr "El valor de {0} debe ser texto, un número, true o false."
 
+msgid "The virtual drive is built the first time you start Roblox."
+msgstr ""
+
 msgid "There are no flags in this JSON."
 msgstr "No hay flags en este JSON."
 
@@ -965,6 +995,12 @@ msgstr "TuxBlox encontró un error y se cerró."
 msgid "TuxBlox has encountered an error and has to quit!"
 msgstr "TuxBlox encontró un error y debe cerrarse."
 
+msgid ""
+"TuxBlox hasn't recorded an earlier version of this app yet. It notes each "
+"new Roblox version as it is released, so this will work once Roblox releases "
+"its next one."
+msgstr ""
+
 msgid "TuxBlox installed successfully."
 msgstr "TuxBlox se instaló correctamente."
 
@@ -1001,7 +1037,9 @@ msgstr ""
 msgid ""
 "TuxBlox's Privacy Policy and Terms of Use apply to these features. See "
 "tuxblox.net/privacy and tuxblox.net/terms"
-msgstr "La Política de privacidad y los Términos de uso de TuxBlox se aplican a estas funciones. Consulta tuxblox.net/privacy y tuxblox.net/terms"
+msgstr ""
+"La Política de privacidad y los Términos de uso de TuxBlox se aplican a "
+"estas funciones. Consulta tuxblox.net/privacy y tuxblox.net/terms"
 
 msgid ""
 "TuxBlox: refusing to run as root. Re-run as a normal user, or pass --allow-"
@@ -1065,6 +1103,7 @@ msgstr "Actualizando TuxBlox"
 msgid "Upgrading {0}"
 msgstr "Actualizando {0}"
 
+#, fuzzy
 msgid ""
 "Usage: TuxBloxInstaller [options]\n"
 "\n"
@@ -1094,7 +1133,7 @@ msgid ""
 "  --language <code>  Interface language: en, pt_BR or es.\n"
 "  --latest           Accepted and ignored: installing the newest release\n"
 "                     instead of this installer's own version.\n"
-"  --version          Show the build version and exit.\n"
+"  --version          Show the release it installs and exit.\n"
 "  -h, --help         Show this help and exit.\n"
 msgstr ""
 "Uso: TuxBloxInstaller [opciones]\n"
@@ -1131,6 +1170,7 @@ msgstr ""
 "  --version          Mostrar la versión de la compilación y salir.\n"
 "  -h, --help         Mostrar esta ayuda y salir.\n"
 
+#, fuzzy
 msgid ""
 "Usage: TuxBloxLauncher [--update-roblox | --install-roblox | --preview-"
 "rbxinstaller]\n"
@@ -1144,7 +1184,7 @@ msgid ""
 "  --preview-rbxinstaller  Show the window without downloading or writing "
 "anything.\n"
 "  --help                  Show this message.\n"
-"  --version               Print the TuxBlox version and exit.\n"
+"  --version               Print the TuxBlox release and exit.\n"
 "\n"
 "Environment:\n"
 "  TUXBLOX_BOOTSTRAPPER_DOWNLOAD_SERVER      Mirror to download from.\n"
@@ -1201,9 +1241,6 @@ msgstr "Sitio web"
 
 msgid "Wipe"
 msgstr "Borrar"
-
-msgid "Wipe prefix"
-msgstr "Borrar prefijo"
 
 msgid "Wipe the virtual drive"
 msgstr "Borrar la unidad virtual"
@@ -1303,6 +1340,18 @@ msgstr[1] "{} flags están listas para importar."
 msgid "· {0} channel"
 msgstr "· canal {0}"
 
+#~ msgid "Wipe prefix"
+#~ msgstr "Borrar prefijo"
+
+#~ msgid ""
+#~ "No earlier version found in Roblox's deploy history for this channel. "
+#~ "Roblox hides the version list for its private channels, so this only "
+#~ "works on the live channel."
+#~ msgstr ""
+#~ "No se encontró una versión anterior en el historial de despliegue de "
+#~ "Roblox para este canal. Roblox oculta la lista de versiones de sus "
+#~ "canales privados, así que esto solo funciona en el canal live."
+
 #~ msgid "Out of date"
 #~ msgstr "Desactualizado"
 
@@ -1332,9 +1381,6 @@ msgstr "· canal {0}"
 
 #~ msgid "Install"
 #~ msgstr "Instalar"
-
-#~ msgid "Install a version"
-#~ msgstr "Instalar una versión"
 
 #~ msgid "Install previous version"
 #~ msgstr "Instalar versión anterior"

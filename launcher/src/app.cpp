@@ -270,6 +270,10 @@ void App::requestLaunch(LaunchTarget target) {
     if (closeWindow) shouldQuit_.store(true);
 }
 
+bool App::openRegistryEditor() {
+    return launchRegistryEditor(installDir_);
+}
+
 void App::requestTerminateProcesses() {
     if (terminateBusy_.exchange(true)) return; // already running -- ignore repeat clicks
     if (terminateThread_.joinable()) terminateThread_.join(); // an earlier run has finished -- reclaim it before reusing the slot
@@ -550,27 +554,49 @@ std::vector<LogCandidate> logCandidatesIn(const std::string& dir, bool fromNameO
     return candidates;
 }
 
+// The log this session's capture says Roblox created, the crash reporter's aside.
+std::string announcedRobloxLog(const std::string& capturedLogPath, const std::string& logsDir) {
+    for (const std::string& name : announcedLogFileNames(capturedLogPath)) {
+        if (isCrashHandlerLog(name)) continue;
+        const std::string path = logsDir + "/" + name;
+        std::error_code error;
+        if (std::filesystem::is_regular_file(path, error)) return path;
+    }
+    return "";
+}
+
 } // namespace
 
 void App::resolveSessionLogs(std::vector<Session>& sessions) {
-    const bool wantRoblox = std::any_of(sessions.begin(), sessions.end(),
-                                        [](const Session& s) { return s.robloxLogPath.empty(); });
     const bool wantCaptured = std::any_of(sessions.begin(), sessions.end(),
                                           [](const Session& s) { return s.capturedLogPath.empty(); });
+    auto anyRobloxMissing = [&sessions] {
+        return std::any_of(sessions.begin(), sessions.end(),
+                           [](const Session& s) { return s.robloxLogPath.empty(); });
+    };
 
-    // Walking two folders is far too much work for a session whose files are already known, so it only happens while something is still unmatched.
-    if (wantRoblox) {
-        const std::vector<std::string> matched =
-            matchSessionLogs(logCandidatesIn(robloxLogsDir(installDir_), true), sessions);
-        for (size_t i = 0; i < sessions.size(); ++i) {
-            if (sessions[i].robloxLogPath.empty()) sessions[i].robloxLogPath = matched[i];
-        }
-    }
+    // Walking a folder is far too much work for a session whose files are already known, so it only happens while something is still unmatched. The capture comes first because Roblox's log name is read out of it.
     if (wantCaptured) {
         const std::vector<std::string> matched =
             matchCapturedLogs(logCandidatesIn(installDir_ + "/logs", false), sessions);
         for (size_t i = 0; i < sessions.size(); ++i) {
             if (sessions[i].capturedLogPath.empty()) sessions[i].capturedLogPath = matched[i];
+        }
+    }
+
+    if (anyRobloxMissing()) {
+        const std::string logsDir = robloxLogsDir(installDir_);
+        for (Session& session : sessions) {
+            if (!session.robloxLogPath.empty()) continue;
+            session.robloxLogPath = announcedRobloxLog(session.capturedLogPath, logsDir);
+        }
+        // Left over from a layer that announces nothing, so back to names and timestamps.
+        if (anyRobloxMissing()) {
+            const std::vector<std::string> matched =
+                matchSessionLogs(logCandidatesIn(logsDir, true), sessions);
+            for (size_t i = 0; i < sessions.size(); ++i) {
+                if (sessions[i].robloxLogPath.empty()) sessions[i].robloxLogPath = matched[i];
+            }
         }
     }
 

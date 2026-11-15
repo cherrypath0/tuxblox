@@ -92,6 +92,8 @@ CliOptions parseArgs(int argc, const char* const* argv) {
             options.help = true;
         } else if (arg == "--version") {
             options.version = true;
+        } else if (arg == "--component-version") {
+            options.componentVersion = true;
         } else if (arg == "--latest") {
             // What this now names is the default. Still accepted so a handoff from a launcher that
             // predates this change keeps working rather than failing on an unknown flag.
@@ -197,6 +199,7 @@ std::string usageText() {
         "  --latest           Accepted and ignored: installing the newest release\n"
         "                     instead of this installer's own version.\n"
         "  --version          Show the release it installs and exit.\n"
+        "  --component-version Show the installer's own version and exit.\n"
         "  -h, --help         Show this help and exit.\n");
 }
 

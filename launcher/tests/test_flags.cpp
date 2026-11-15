@@ -136,6 +136,26 @@ int main() {
         assert(flagBool("tbxFlagDisableUpdater") == true);
     }
 
+    // Read before anything has loaded the flags, which is where the requirements check asks: the
+    // file wins over the compiled-in value, and nothing is sealed, so the route that loads them
+    // properly still gets the server's answer.
+    {
+        resetFlags();
+        const std::string root =
+            rootWith("tuxblox_test_flags_offline", R"({"tbxFlagBypassSystemRequirements":true})");
+        assert(flagBoolOffline(root, "tbxFlagBypassSystemRequirements") == true);
+        assert(flagBoolOffline(rootWith("tuxblox_test_flags_offline_plain", nullptr),
+                               "tbxFlagBypassSystemRequirements") == false);
+        // No install directory at all, which is a launcher that cannot work out where it lives.
+        assert(flagBoolOffline("", "tbxFlagBypassSystemRequirements") == false);
+        assert(flagBoolOffline(root, "tbxFlagNobodyDefines") == false);
+
+        initFlags(root, "stable", true, 5, [](const std::string&, int) {
+            return std::string(R"({"tbxStringPrivacyPolicyVersion":"2033-01-01"})");
+        });
+        assert(flagString("tbxStringPrivacyPolicyVersion") == "2033-01-01");
+    }
+
     // A malformed flags.json is ignored WHOLE, not half-applied.
     {
         resetFlags();
@@ -196,33 +216,27 @@ int main() {
     // release's channel answers only when settings say nothing.
     {
         Settings settings;
-        RecordedRelease release;
 
         settings.channel = "canary";
-        release.present = true;
-        release.file.channel = "stable";
-        assert(flagChannelFor(settings, true, release) == "canary");
+        assert(flagChannelFor(settings, true, "stable") == "canary");
 
-        // No settings.json: the release's channel answers. loadSettings() defaults the
-        // channel to "stable", so without the presence flag a fresh canary install
-        // would read stable's flags and nothing would say why.
-        assert(flagChannelFor(settings, false, release) == "stable");
-        release.file.channel = "canary";
-        assert(flagChannelFor(settings, false, release) == "canary");
+        // No settings.json: the channel stamped into the binary answers. loadSettings()
+        // defaults the channel to "stable", so without the presence flag a fresh canary
+        // install would read stable's flags and nothing would say why. It may never have a
+        // settings.json at all: one is written only when something is changed.
+        assert(flagChannelFor(settings, false, "stable") == "stable");
+        assert(flagChannelFor(settings, false, "canary") == "canary");
 
         // Neither says anything: the same default loadSettings() uses, so the flags
         // channel cannot disagree with the one the updater follows.
-        release.present = false;
         settings.channel = "stable";
-        assert(flagChannelFor(settings, false, release) == "stable");
+        assert(flagChannelFor(settings, false, "") == "stable");
 
         settings.channel = "experimental";
-        assert(flagChannelFor(settings, true, release) == "experimental");
+        assert(flagChannelFor(settings, true, "") == "experimental");
 
-        // A release that is present but names no channel is not an answer.
-        release.present = true;
-        release.file.channel.clear();
-        assert(flagChannelFor(settings, false, release) == "experimental");
+        // A binary carrying no channel was never published, and is not an answer.
+        assert(flagChannelFor(settings, false, "") == "experimental");
     }
 
     // What the launcher hands the layer. The layer has no settings and no release file
@@ -240,17 +254,15 @@ int main() {
             return false;
         };
 
-        // No recorded release: a channel is still named, but nothing says it is released,
-        // so the layer asks nobody.
+        // A binary that was never published: a channel is still named, but nothing says it is
+        // released, so the layer asks nobody. This is what every build out of the build folder
+        // looks like, and what this test binary is.
         std::vector<std::string> env = flagEnvVars(dir.string());
         assert(has(env, "TUXBLOX_FLAGS_CHANNEL="));
         assert(!has(env, "TUXBLOX_FLAGS_RELEASED="));
 
-        std::ofstream(dir / "release.json")
-            << R"({"release": "3.6.0.0", "channel": "canary", "changelog": "c", )"
-               R"("source_commit": "abc123", "source_dirty": false, "components": {)"
-               R"("launcher": {"version": "3.5.0", "arch": {"x86_64": {"sha256": "aa", "size": 12}, "arm64": null}}}})";
-        env = flagEnvVars(dir.string());
+        // One that was: the channel staging stamped into it is the one the layer is told.
+        env = flagEnvVarsFor(dir.string(), "canary");
         assert(has(env, "TUXBLOX_FLAGS_CHANNEL=canary"));
         assert(has(env, "TUXBLOX_FLAGS_RELEASED=1"));
         fs::remove_all(dir);

@@ -51,6 +51,8 @@ void printUsage() {
             "handed to the Roblox server unchanged.\n"
             "\n"
             "  --version   Print the TuxBlox release this was published in\n"
+            "  --component-version\n"
+            "              Print this program's own version\n"
             "  --help      Show this message\n");
 }
 
@@ -62,6 +64,11 @@ int main(int argc, char** argv) {
         const std::string arg = argv[i];
         if (arg == "--version") {
             printf("%s\n", reportedVersion(kTuxBloxBuildId).c_str());
+            return 0;
+        }
+        // The release is what --version answers; this is this program's own number.
+        if (arg == "--component-version") {
+            printf("%s\n", kTuxBloxVersion);
             return 0;
         }
         if (arg == "--help" || arg == "-h") {

@@ -90,9 +90,96 @@ int main() {
                "/home/x/.tuxblox/runtime/pfx/drive_c/users/user/AppData/Local/Roblox/logs");
     }
 
-    // appendRobloxSessionLogs(): only the current-session log gets merged in,
-    // after the existing wrapper content, with a separator header; a
-    // leftover log from an earlier session is left out entirely.
+    // announcedLogFileNames(): every log the layer named, in order, out of a capture that is mostly other output. Only the last part of each Windows path, and a name said twice is one name.
+    {
+        fs::path dir = fs::temp_directory_path() / "tuxblox_test_announced_names";
+        fs::remove_all(dir);
+        fs::create_directories(dir);
+        fs::path capture = dir / "Player-20261115T120000Z-4242.log";
+        {
+            std::ofstream out(capture);
+            out << "======================\n";
+            out << "TuxBlox: 3.11.13.0\n";
+            out << kCreatedLogFileLine
+                << "C:\\users\\cherry\\AppData\\Local\\Roblox\\logs\\0.747_x_Player_A_last.log\n";
+            out << "wine: some unrelated chatter\n";
+            out << kCreatedLogFileLine
+                << "C:\\users\\cherry\\AppData\\Local\\Roblox\\logs\\0.747_x_Player_A_last.log\n";
+            out << kCreatedLogFileLine
+                << "C:\\users\\cherry\\AppData\\Local\\Roblox\\logs\\0.747_x_Player_B_CrashHandler_last.log\n";
+        }
+
+        auto names = announcedLogFileNames(capture.string());
+        assert(names.size() == 2);
+        assert(names[0] == "0.747_x_Player_A_last.log");
+        assert(names[1] == "0.747_x_Player_B_CrashHandler_last.log");
+
+        // Nothing to read is not an error: a capture from a layer that never announced its log
+        // files, and a path that is not there at all, both say nothing rather than fail.
+        assert(announcedLogFileNames((dir / "absent.log").string()).empty());
+        assert(announcedLogFileNames("").empty());
+
+        // A source with no line break anywhere is given up on rather than assembled.
+        if (fs::exists("/dev/zero")) assert(announcedLogFileNames("/dev/zero").empty());
+
+        fs::remove_all(dir);
+    }
+
+    // appendRobloxSessionLogs(): what the capture names beats what the stamps suggest. The announced log is older than the session, so its stamp rules it out, and the one the stamps would have taken is somebody else's.
+    {
+        fs::path installDir = fs::temp_directory_path() / "tuxblox_test_roblox_log_announced";
+        fs::remove_all(installDir);
+        fs::path robloxLogs = fs::path(robloxLogsDir(installDir.string()));
+        fs::create_directories(robloxLogs);
+
+        const std::string ours = "0.747_20261113T143447Z_Player_2CEF3_last.log";
+        const std::string theirs = "0.747_20261113T154434Z_Player_C452A_last.log";
+        const std::time_t sessionStart = robloxLogStartTime(theirs) - 1;
+
+        {
+            std::ofstream out(robloxLogs / ours);
+            out << "[FLog::Output] the log this session named\n";
+        }
+        {
+            std::ofstream out(robloxLogs / theirs);
+            out << "[FLog::Output] the log the timestamps would have taken\n";
+        }
+
+        fs::path destLog = installDir / "wrapper.log";
+        {
+            std::ofstream out(destLog);
+            out << "wrapper\n";
+            out << kCreatedLogFileLine << "C:\\users\\cherry\\AppData\\Local\\Roblox\\logs\\"
+                << ours << "\n";
+        }
+
+        auto appended =
+            appendRobloxSessionLogs(installDir.string(), sessionStart, destLog.string(), true);
+        assert(appended.size() == 1);
+        assert(appended[0] == ours);
+
+        std::string contents = readFile(destLog);
+        assert(contents.find("the log this session named") != std::string::npos);
+        assert(contents.find("the log the timestamps would have taken") == std::string::npos);
+
+        // An announced name that is no longer in the folder is dropped rather than carried.
+        fs::remove(robloxLogs / ours);
+        fs::path second = installDir / "wrapper2.log";
+        {
+            std::ofstream out(second);
+            out << kCreatedLogFileLine << "C:\\users\\cherry\\AppData\\Local\\Temp\\" << ours << "\n";
+        }
+        // Nothing announced is left, so the stamps take over.
+        auto fallen = appendRobloxSessionLogs(installDir.string(), sessionStart, second.string(), true);
+        assert(fallen.size() == 1);
+        assert(fallen[0] == theirs);
+
+        fs::remove_all(installDir);
+    }
+
+    // appendRobloxSessionLogs(): with nothing announced, only the current-session log gets merged
+    // in, after the existing wrapper content; a leftover log from an earlier session is left out
+    // entirely.
     {
         fs::path installDir = fs::temp_directory_path() / "tuxblox_test_roblox_log_capture";
         fs::remove_all(installDir);
@@ -132,12 +219,12 @@ int main() {
         std::string contents = readFile(destLog);
         assert(contents.find("stale content from a previous session") == std::string::npos);
         auto wrapperPos = contents.find("tuxblox/proton wrapper output");
-        auto separatorPos = contents.find("=== ROBLOX LOG: " + ours + " ===");
         auto robloxPos = contents.find("roblox's own log for this session");
         assert(wrapperPos != std::string::npos);
-        assert(separatorPos != std::string::npos);
         assert(robloxPos != std::string::npos);
-        assert(wrapperPos < separatorPos && separatorPos < robloxPos); // wrapper content stays first
+        assert(wrapperPos < robloxPos); // wrapper content stays first
+        // Roblox's half goes in as it is, with nothing of ours in between.
+        assert(contents.find("ROBLOX LOG") == std::string::npos);
 
         fs::remove_all(installDir);
     }

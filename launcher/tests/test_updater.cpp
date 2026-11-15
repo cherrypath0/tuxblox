@@ -42,10 +42,12 @@ void writeFile(const fs::path& path, const std::string& body) {
     out << body;
 }
 
-// A TuxBlox binary answers `--version` with its own bare "x.y.z" -- no channel suffix any more,
-// because one component build serves every channel.
-void writeVersionStub(const fs::path& path, const std::string& version) {
-    writeFile(path, "#!/bin/sh\necho " + version + "\n");
+// A TuxBlox binary answers `--version` with the release it was published in, which every component
+// of that release shares, and `--component-version` with its own number.
+void writeVersionStub(const fs::path& path, const std::string& release,
+                      const std::string& component = "1.0.0") {
+    writeFile(path, "#!/bin/sh\ncase \"$1\" in --component-version) echo " + component +
+                        ";; *) echo " + release + ";; esac\n");
     fs::permissions(path, fs::perms::owner_all);
 }
 
@@ -111,24 +113,47 @@ void publish(const std::string& channel, const std::string& release,
     writeFile(gWork / "client" / "releases" / channel / "latest", release + "\n");
 }
 
-// An install: the four components that can be asked, plus the record of which release it is.
-// `installed` and `recorded` are separate on purpose -- an install whose components do not match
-// the release it claims to be is the whole incoherent case, and a fixture that writes the record
-// from the installed versions can never produce one.
-void writeInstall(const fs::path& dir, const std::map<std::string, std::string>& installed,
-                  const std::string& recordedRelease,
-                  const std::map<std::string, std::string>& recorded) {
-    writeVersionStub(dir / "TuxBloxLauncher", installed.at("launcher"));
-    writeVersionStub(dir / "compat" / "main", installed.at("compat"));
-    writeVersionStub(dir / "TuxBloxInstaller", installed.at("installer"));
-    writeVersionStub(dir / "studio-mcp", installed.at("studio-mcp"));
-    writeFile(dir / "libtuxblox" / "VERSION", installed.at("libtuxblox") + "\n");
+// The stack's library, carrying the release this fixture's stack belongs to. Built by cmake from
+// the shipped sources and stamped here, the way staging stamps the real one.
+void installStackLibrary(const fs::path& dir, const std::string& release) {
+    const fs::path target = dir / "libtuxblox" / "version.so";
+    fs::create_directories(target.parent_path());
+    fs::copy_file(TUXBLOX_TEST_STACK_LIBRARY, target, fs::copy_options::overwrite_existing);
+
+    // The same field, written the same way: marker, release, a zero byte, the channel.
+    static const std::string marker = "TUXBLOX_RELEASE_STAMP_V1:";
+    std::ifstream in(target, std::ios::binary);
+    std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    in.close();
+    const size_t at = bytes.find(marker);
+    assert(at != std::string::npos);
+    std::string payload = release + '\0' + "stable";
+    payload.resize(64 - marker.size(), '\0');
+    bytes.replace(at + marker.size(), payload.size(), payload);
+    writeFile(target, bytes);
+    fs::permissions(target, fs::perms::owner_all);
+}
+
+// An install: every component answering with the release it was published in. `odd` is what makes
+// an incoherent one -- a component naming a different release, or an empty string for one that is
+// not there at all, which is what an update that died midway leaves behind.
+void writeInstall(const fs::path& dir, const std::string& release,
+                  const std::map<std::string, std::string>& odd = {}) {
+    const auto answers = [&](const std::string& name) {
+        const auto found = odd.find(name);
+        return found == odd.end() ? release : found->second;
+    };
+    const std::map<std::string, fs::path> binaries = {
+        {"launcher", dir / "TuxBloxLauncher"}, {"compat", dir / "compat" / "main"},
+        {"installer", dir / "TuxBloxInstaller"}, {"studio-mcp", dir / "studio-mcp"},
+    };
+    for (const auto& [name, path] : binaries) {
+        if (!answers(name).empty()) writeVersionStub(path, answers(name));
+    }
+    if (!answers("libtuxblox").empty()) installStackLibrary(dir, answers("libtuxblox"));
     // Deliberately a leftover: nothing ships TuxBloxBootstrapper since 3.4.0, so it must never
     // read as part of the install -- counting it would hand off to a repair that cannot fix it.
     writeVersionStub(dir / "TuxBloxBootstrapper", "0.0.1");
-    if (!recordedRelease.empty()) {
-        writeFile(dir / "release.json", releaseBody(recordedRelease, "stable", recorded));
-    }
 }
 
 const std::string& baseUrl() {
@@ -148,13 +173,14 @@ void test_reads_the_four_components_it_can_ask() {
     // libtuxblox is new here, and it is read from its VERSION file rather than run. The launcher
     // is still absent: it is the one asking. A bare "x.y.z" now, with no channel suffix.
     const fs::path dir = gWork / "install_reads_four";
-    writeInstall(dir, kFullSet, "3.6.0.0", kFullSet);
+    writeInstall(dir, "3.6.0.0");
     auto v = readComponentVersions(dir.string());
     assert(v.size() == 4);
     // The layout's order, the same one the installer and the About screen use.
     assert((namesOf(v) == std::vector<std::string>{"installer", "studio-mcp", "compat", "libtuxblox"}));
-    assert(versionOf(v, "compat") == "3.3.0");
-    assert(versionOf(v, "libtuxblox") == "3.1.0");
+    assert(versionOf(v, "compat") == "3.6.0.0");
+    // The stack answers through its library rather than by being run, and says the same release.
+    assert(versionOf(v, "libtuxblox") == "3.6.0.0");
     for (const ComponentVersion& c : v) assert(c.component != "bootstrapper");
     printf("  reads the four components it can ask\n");
 }
@@ -191,7 +217,7 @@ void test_a_pointer_is_trimmed() {
 void test_a_coherent_install_on_the_named_release_needs_no_handoff() {
     publish("stable", "3.6.0.0", kFullSet);
     const fs::path dir = gWork / "install_uptodate";
-    writeInstall(dir, kFullSet, "3.6.0.0", kFullSet);
+    writeInstall(dir, "3.6.0.0");
     auto r = runUpdateCheck(baseUrl(), "stable", "3.6.0.0", nullptr, nullptr, dir.string());
     assert(!r.needsHandoff);
     assert(!r.forced);
@@ -200,12 +226,10 @@ void test_a_coherent_install_on_the_named_release_needs_no_handoff() {
 
 void test_an_incoherent_install_is_forced_and_carries_the_release_bytes() {
     publish("stable", "3.6.0.0", kFullSet);
-    auto broken = kFullSet;
-    broken["compat"] = "3.2.0";                 // an update that died midway
     const fs::path dir = gWork / "install_mixed";
-    // Records 3.6.0.0 (compat 3.3.0) but HAS compat 3.2.0: the pieces do not match the release
-    // this install says it is.
-    writeInstall(dir, broken, "3.6.0.0", kFullSet);
+    // Its launcher says 3.6.0.0 and its layer is still the one from 3.5.0.0: the pieces do not
+    // agree on which release this install is.
+    writeInstall(dir, "3.6.0.0", {{"compat", "3.5.0.0"}});
     auto r = runUpdateCheck(baseUrl(), "stable", "3.6.0.0", nullptr, nullptr, dir.string());
     assert(r.needsHandoff);
     assert(r.forced);
@@ -219,7 +243,7 @@ void test_an_incoherent_install_is_forced_and_carries_the_release_bytes() {
 void test_a_stale_install_hands_off_without_being_forced() {
     publish("stable", "3.6.0.1", kFullSet);
     const fs::path dir = gWork / "install_stale";
-    writeInstall(dir, kFullSet, "3.6.0.0", kFullSet);
+    writeInstall(dir, "3.6.0.0");
     auto r = runUpdateCheck(baseUrl(), "stable", "3.6.0.1", nullptr, nullptr, dir.string());
     assert(r.needsHandoff);
     assert(!r.forced);
@@ -228,7 +252,7 @@ void test_a_stale_install_hands_off_without_being_forced() {
 
 void test_a_release_file_the_pointer_names_but_that_is_missing_is_an_error_not_a_handoff() {
     const fs::path dir = gWork / "install_dangling";
-    writeInstall(dir, kFullSet, "3.6.0.0", kFullSet);
+    writeInstall(dir, "3.6.0.0");
     auto r = runUpdateCheck(baseUrl(), "stable", "9.9.9.9", nullptr, nullptr, dir.string());
     assert(!r.needsHandoff);
     printf("  a dangling pointer is an error, not a handoff\n");
@@ -240,7 +264,7 @@ void test_a_release_file_the_pointer_names_but_that_is_missing_is_an_error_not_a
 void test_an_offered_update_changes_nothing_on_disk() {
     publish("stable", "3.6.0.1", kFullSet);
     const fs::path dir = gWork / "install_untouched";
-    writeInstall(dir, kFullSet, "3.6.0.0", kFullSet);
+    writeInstall(dir, "3.6.0.0");
     auto before = snapshotDir(dir);
     auto r = runUpdateCheck(baseUrl(), "stable", "3.6.0.1", nullptr, nullptr, dir.string());
     assert(r.needsHandoff);
@@ -252,7 +276,7 @@ void test_an_offered_update_changes_nothing_on_disk() {
 void test_an_install_with_no_record_is_offered_an_update() {
     publish("stable", "3.6.0.0", kFullSet);
     const fs::path dir = gWork / "install_norecord";
-    writeInstall(dir, kFullSet, "", kFullSet);           // no release.json at all
+    writeInstall(dir, "3.6.0.0", {{"launcher", ""}});    // nothing to ask what this install is
     auto r = runUpdateCheck(baseUrl(), "stable", "3.6.0.0", nullptr, nullptr, dir.string());
     assert(r.needsHandoff);
     assert(!r.forced);
@@ -278,9 +302,8 @@ void test_an_empty_install_reports_the_layer_missing() {
 void test_the_launcher_judged_is_the_one_in_the_install_directory() {
     publish("stable", "3.6.0.0", kFullSet);
     const fs::path dir = gWork / "install_other_root";
-    auto other = kFullSet;
-    other["launcher"] = "9.9.9";            // the install holds a launcher this build is not
-    writeInstall(dir, other, "3.6.0.0", kFullSet);
+    // The install holds a launcher from another release, and the rest of it from 3.6.0.0.
+    writeInstall(dir, "3.6.0.0", {{"launcher", "3.9.0.0"}});
     auto r = runUpdateCheck(baseUrl(), "stable", "3.6.0.0", nullptr, nullptr, dir.string());
     assert(r.needsHandoff);
     assert(r.forced);                       // it disagrees with the release this install records
@@ -290,11 +313,9 @@ void test_the_launcher_judged_is_the_one_in_the_install_directory() {
 // And the other way: an install whose launcher on disk matches its record is coherent even when
 // the binary doing the asking is a different build entirely.
 void test_a_matching_install_is_coherent_whatever_is_running() {
-    auto set = kFullSet;
-    set["launcher"] = "9.9.9";
-    publish("stable", "3.9.0.0", set);
+    publish("stable", "3.9.0.0", kFullSet);
     const fs::path dir = gWork / "install_matching_other";
-    writeInstall(dir, set, "3.9.0.0", set);
+    writeInstall(dir, "3.9.0.0");
     auto r = runUpdateCheck(baseUrl(), "stable", "3.9.0.0", nullptr, nullptr, dir.string());
     assert(!r.needsHandoff);
     printf("  a matching install is coherent whatever is running\n");

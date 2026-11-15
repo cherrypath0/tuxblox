@@ -846,6 +846,14 @@ void Prefix::syncWebViewVersionKeys(bool microsoft) {
     }
 }
 
+// Recorded in the drive for the same reason as the line below: the part of the runtime that turns a
+// Windows shortcut on the desktop into a desktop entry runs Windows-side.
+void Prefix::recordShortcutTranslation() {
+    setRegKeyValues(prefixDir / "user.reg", "Software\\\\TuxBlox",
+                    {{"TranslateWindowsShortcuts",
+                      flagBool("tbxFlagTranslateWindowsShortcuts") ? "\"Y\"" : "\"N\""}});
+}
+
 // Recorded in the drive because the parts of the runtime that act on it are Windows-side, where TuxBlox's own environment variables are deliberately not visible.
 void Prefix::recordWebViewMode() {
     const bool microsoft = useMicrosoftWebView();
@@ -978,14 +986,15 @@ int detectHostDpi() {
 // A LOGFONTW for the registry: five LONGs, eight bytes of flags, then the
 // face name as 32 UTF-16 characters. Wine reads these back for the fonts it
 // reports through SystemParametersInfo.
-std::string logFontValue(const std::string& family, int points, int dpi) {
+std::string logFontValue(const std::string& family, int points) {
     std::array<unsigned char, 92> blob{};
 
     // Negative asks for a character height rather than a cell height, which is
-    // what a point size means. The height is in the drive's own pixels, so it
-    // has to follow the LogPixels the drive reports or the text comes out the
-    // wrong size against everything sized from it.
-    const int height = -((points * dpi + 36) / 72);
+    // what a point size means. Always at the unscaled size: Windows keeps these
+    // fonts normalised to 96 DPI and scales them to the live one as it hands
+    // them out, so writing the scaled height here is what made the menus and
+    // the title bars come out twice the size on a desktop at 200%.
+    const int height = -((points * kUnscaledDpi + 36) / 72);
     const unsigned int cellHeight = static_cast<unsigned int>(height);
     const unsigned int weight = 400;
     for (int byte = 0; byte < 4; byte++) {
@@ -1042,9 +1051,7 @@ constexpr const char* kStudioUiFont = "Source Sans Pro";
 constexpr int kStudioUiPoints = 9;
 
 void Prefix::syncHostFont() {
-    const int detected = detectHostDpi();
-    const std::string font = logFontValue(kStudioUiFont, kStudioUiPoints,
-            detected > 0 ? detected : kUnscaledDpi);
+    const std::string font = logFontValue(kStudioUiFont, kStudioUiPoints);
     const fs::path userReg = prefixDir / "user.reg";
 
     // All six, because Studio takes its menus from one, its docked panel titles from
@@ -1279,6 +1286,7 @@ void Prefix::setup(Session& session) {
 
     // Last, because copyTemplatePrefix() and updateBuiltinLibs() both lay the WebView2 runtime back down from the template whenever the drive is missing it.
     recordWebViewMode();
+    recordShortcutTranslation();
 
     writeVersion();
     createFontSymlinks();

@@ -9,6 +9,8 @@
     "tbxFlagDisableUpdater": false,
     "tbxFlagEnableChannelToUpperChannelUpgradeOnBuildPromotion": true,
     "tbxFlagEnableExperimentalLinuxIntegration": false,
+    "tbxFlagBypassSystemRequirements": false,
+    "tbxFlagTranslateWindowsShortcuts": true,
     "tbxStringPrivacyPolicyVersion": "2026-11-11",
     "tbxStringTermsOfUseVersion": "2026-10-17",
     "tbxStringHttpProtocolOther": "2",

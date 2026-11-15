@@ -54,9 +54,11 @@ private:
     void buildTheme(AdwPreferencesGroup *pGroup);
     void buildUpdates();
     void buildEnvironment();
+    void buildAdvanced();
     void buildDangerZone();
     void seed(const Settings &settings);
     void commitEnvironmentVariables();
+    GtkButton *rowButton(GtkWidget *pRow, const char *pLabel, GCallback onClicked);
     GtkButton *dangerButton(GtkWidget *pRow, const char *pLabel, GCallback onClicked);
 
     static void onToggle(GObject *pRow, GParamSpec *, gpointer data);
@@ -68,6 +70,7 @@ private:
     static void onGraphics(GObject *pRow, GParamSpec *, gpointer data);
     static void onEnvironmentActivate(GtkEntry *, gpointer data);
     static void onEnvironmentFocusLeft(GtkEventControllerFocus *, gpointer data);
+    static void onRegistryEditor(GtkButton *pButton, gpointer data);
     static void onTerminate(GtkButton *pButton, gpointer data);
     static gboolean onTerminateReset(gpointer data);
     static void onWipe(GtkButton *pButton, gpointer data);

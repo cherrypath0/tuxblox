@@ -26,11 +26,13 @@
 #include "versions_manifest.h"
 #include <atomic>
 #include <chrono>
+#include <cerrno>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
 #include <fcntl.h>
 #include <filesystem>
+#include <cstdio>
 #include <fstream>
 #include <mutex>
 #include <signal.h>
@@ -54,6 +56,31 @@ const char* exitCodeTitle(int exitCode) {
         case 143: return i18n::tr("Terminated");
         default:  return nullptr; // not in the table -- caller shows the bare code, no made-up description
     }
+}
+
+void appendSessionLine(const std::string& logPath, const std::string& message) {
+    if (logPath.empty()) return;
+
+    // Counted from when this watcher started, which is the session it is writing about.
+    static const std::chrono::steady_clock::time_point started = std::chrono::steady_clock::now();
+    const double elapsed =
+        std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
+
+    struct timespec now {};
+    struct tm utc {};
+    if (::clock_gettime(CLOCK_REALTIME, &now) != 0 || ::gmtime_r(&now.tv_sec, &utc) == nullptr) return;
+
+    char head[96];
+    const int length = std::snprintf(
+        head, sizeof(head), "%04d-%02d-%02dT%02d:%02d:%02d.%03dZ,%.6f,%04x,6,Info TuxBlox: ",
+        utc.tm_year + 1900, utc.tm_mon + 1, utc.tm_mday, utc.tm_hour, utc.tm_min, utc.tm_sec,
+        static_cast<int>(now.tv_nsec / 1000000), elapsed,
+        static_cast<unsigned>(::getpid()) & 0xffffu);
+    if (length <= 0) return;
+
+    std::ofstream out(logPath, std::ios::binary | std::ios::app);
+    if (!out) return;
+    out << std::string(head, static_cast<size_t>(length)) << message << "\n";
 }
 
 std::optional<int> findRealExitCodeInLog(const std::string& logPath) {
@@ -270,6 +297,47 @@ std::string launchLogPath(const std::string& installDir, LaunchTarget target) {
     const std::string targetName = target == LaunchTarget::Player ? "Player" : "Studio";
     return installDir + "/logs/" + targetName + "-" + logTimestamp() + "-" +
            std::to_string(getpid()) + ".log";
+}
+
+bool launchRegistryEditor(const std::string& installDir) {
+    const std::string exePath = installDir + "/runtime/pfx/drive_c/windows/regedit.exe";
+    std::error_code ec;
+    if (!fs::exists(exePath, ec) || ec) return false;
+
+    std::vector<std::string> argv = {compatBinaryPath(installDir), "run", "--immediate"};
+    if (allowRoot()) argv.push_back("--allow-root");
+    argv.push_back(exePath);
+
+    std::vector<char*> cargv;
+    cargv.reserve(argv.size() + 1);
+    for (const std::string& argument : argv) cargv.push_back(const_cast<char*>(argument.c_str()));
+    cargv.push_back(nullptr);
+    // Either app gives the same two variables; only Studio's adds a setting for its web panels.
+    const std::vector<std::string> env = launchEnvVars(installDir, LaunchTarget::Player);
+
+    // Two forks and a session of its own, so closing the window leaves it running and no child is
+    // left for this process to collect.
+    const pid_t outer = fork();
+    if (outer < 0) return false;
+    if (outer == 0) {
+        if (fork() == 0) {
+            setsid();
+            // In the child, single-threaded: setenv() is not safe beside the launcher's own threads.
+            for (const std::string& pair : env) {
+                const size_t equals = pair.find('=');
+                if (equals != std::string::npos) {
+                    setenv(pair.substr(0, equals).c_str(), pair.substr(equals + 1).c_str(), 1);
+                }
+            }
+            execvp(cargv[0], cargv.data());
+            _exit(127);
+        }
+        _exit(0);
+    }
+    int status = 0;
+    while (waitpid(outer, &status, 0) < 0 && errno == EINTR) {
+    }
+    return true;
 }
 
 LaunchOutcome ProcessLauncher::launch(LaunchTarget target, const std::string& uri,

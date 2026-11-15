@@ -26,6 +26,7 @@
 #include "i18n.h"
 #include "session_facts.h"
 #include "install_identity.h"
+#include "release_stamp.h"
 #include "release_file.h"
 #include "version.h"
 #include "widgets.h"
@@ -103,16 +104,16 @@ HomePage::HomePage(App &app, std::string installDir) : app_(app) {
     gtk_widget_set_vexpand(pSpacer, TRUE);
     gtk_box_append(GTK_BOX(pBox), pSpacer);
 
-    const RecordedRelease recorded = readRecordedRelease(installDir);
-    const InstallIdentity identity = installIdentity(
-        recorded.present ? recorded.file.release : "",
-        recorded.present ? recorded.file.channel : "", kTuxBloxVersion);
+    // What this binary carries, which is what the install is: a component says which release it
+    // was published in, and only a published one can say which channel it went to.
+    const InstallIdentity identity =
+        installIdentity(releaseChannel().empty() ? "" : releaseVersion(), releaseChannel(), kTuxBloxVersion);
 
     GtkWidget *pStrip = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
     const std::string name = identity.isRelease ? "TuxBlox " + identity.version
                                                 : i18n::trf("Launcher {0}", {identity.version});
     gtk_box_append(GTK_BOX(pStrip), textLabel(name, "caption"));
-    GtkWidget *pChannel = textLabel(identity.isRelease ? i18n::trf("· {0} channel", {identity.channel}) : "",
+    GtkWidget *pChannel = textLabel(identity.channel.empty() ? "" : i18n::trf("· {0} channel", {identity.channel}),
                                     "caption");
     gtk_widget_add_css_class(pChannel, "dim-label");
     gtk_widget_set_hexpand(pChannel, TRUE);

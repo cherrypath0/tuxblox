@@ -274,6 +274,50 @@ bool shouldClaimAssociation(const std::string& currentDefault, bool currentDefau
 // often -- is not the one the shortcuts should start. Writing its own path into them repoints every
 // shortcut at a binary that is no part of the install, and they break the moment it moves, so it
 // leaves the whole of the desktop integration alone instead.
+std::string launcherNamedByEntry(const std::string& execLine) {
+    const size_t equals = execLine.find('=');
+    std::string value = equals == std::string::npos ? execLine : execLine.substr(equals + 1);
+    while (!value.empty() && value.front() == ' ') value.erase(0, 1);
+    if (value.empty()) return std::string();
+
+    if (value.front() == '"') {
+        const size_t close = value.find('"', 1);
+        return close == std::string::npos ? std::string() : value.substr(1, close - 1);
+    }
+    const size_t space = value.find(' ');
+    return space == std::string::npos ? value : value.substr(0, space);
+}
+
+bool entriesOwnedByAnother(const std::string& entryText, const std::string& launcherExePath,
+                           const std::function<bool(const std::string&)>& exists) {
+    if (launcherExePath.empty()) return false;
+
+    size_t at = 0;
+    while (at < entryText.size()) {
+        const size_t eol = entryText.find('\n', at);
+        const std::string line = entryText.substr(at, eol == std::string::npos ? std::string::npos : eol - at);
+        at = eol == std::string::npos ? entryText.size() : eol + 1;
+        if (line.compare(0, 5, "Exec=") != 0) continue;
+
+        const std::string named = launcherNamedByEntry(line);
+        if (named.empty() || named == launcherExePath) return false;
+        return exists(named);
+    }
+    return false;
+}
+
+// The entries this launcher would write over, read from where they live.
+static bool anotherInstallOwnsEntries(const std::string& launcherExePath) {
+    const char *home = std::getenv("HOME");
+    if (home == nullptr || home[0] == '\0') return false;
+    const std::string entry =
+        readWholeFile(std::string(home) + "/.local/share/applications/tuxblox-launcher.desktop");
+    return entriesOwnedByAnother(entry, launcherExePath, [](const std::string& path) {
+        std::error_code error;
+        return fs::exists(path, error) && !error;
+    });
+}
+
 static bool runningFromInstall(const std::string& launcherExePath) {
     if (launcherExePath.empty()) return true; // nothing to compare against, behave as before
 
@@ -293,7 +337,7 @@ static bool runningFromInstall(const std::string& launcherExePath) {
 }
 
 void writeDesktopEntries(const std::string& launcherExePath) {
-    if (!runningFromInstall(launcherExePath)) return;
+    if (!runningFromInstall(launcherExePath) || anotherInstallOwnsEntries(launcherExePath)) return;
     try {
         const char* home = std::getenv("HOME");
         if (!home || home[0] == '\0') return;
@@ -411,7 +455,7 @@ void writeDesktopEntries(const std::string& launcherExePath) {
 }
 
 void ensureDesktopIntegration(const std::string& launcherExePath, const std::string& installDir) {
-    if (!runningFromInstall(launcherExePath)) return;
+    if (!runningFromInstall(launcherExePath) || anotherInstallOwnsEntries(launcherExePath)) return;
     writeDesktopEntries(launcherExePath);
 
     try {

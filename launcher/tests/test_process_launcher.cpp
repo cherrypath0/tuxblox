@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "process_launcher.h"
+#include "log_entry.h"
 #include "versions_manifest.h"
 #include <algorithm>
 #include <cassert>
@@ -355,6 +356,38 @@ int main() {
             if (i == 8 || i == 15) continue;
             assert(stamp[i] >= '0' && stamp[i] <= '9');
         }
+
+        fs::remove_all(tmp);
+    }
+
+    // appendSessionLine(): what the launcher writes onto the end of a session log is read back as
+    // one of TuxBlox's own lines, not as Roblox's. The two halves live in different files, so this
+    // is the only thing that holds the written shape and the parsed shape together.
+    {
+        fs::path tmp = fs::temp_directory_path() / "tuxblox_test_append_session_line";
+        fs::remove_all(tmp);
+        fs::create_directories(tmp);
+        const std::string log = (tmp / "Player-20261115T000000Z-1.log").string();
+        {
+            std::ofstream out(log);
+            out << "2026-11-15T00:45:46.872Z,0.872850,2e78,6,Warning [FLog::Output] something\n";
+        }
+
+        appendSessionLine(log, "Exit Code: 0");
+
+        std::ifstream in(log);
+        std::vector<std::string> lines;
+        std::string line;
+        while (std::getline(in, line)) lines.push_back(line);
+        assert(lines.size() == 2);
+
+        const std::vector<LogEntry> entries = groupLogEntries(lines);
+        // Two entries, not one: ours has to open its own rather than trail the line above it.
+        assert(entries.size() == 2);
+        assert(entries[1].source == LogSource::TuxBlox);
+        assert(entries[1].text == "TuxBlox: Exit Code: 0");
+        // And it carries a time of its own, read out of the stamp the same way Roblox's is.
+        assert(entries[1].time.size() == 12 && entries[1].time[2] == ':');
 
         fs::remove_all(tmp);
     }

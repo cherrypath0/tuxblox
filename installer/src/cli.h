@@ -35,6 +35,8 @@ struct CliOptions {
     // Print the build version and exit. Matches `proton/main --version` and the
     // launcher's footer -- all three come from the same TUXBLOX_BUILD_VERSION.
     bool version = false;
+    // The installer's own number rather than the release it installs, which is what --version says.
+    bool componentVersion = false;
     // Which channel's newest release to install. It defaults to stable rather than to anything
     // about this binary: one copy of the installer is served to every channel, so "the channel this
     // was built for" is only whichever channel happened to be building. The launcher passes

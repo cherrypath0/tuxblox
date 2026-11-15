@@ -3722,7 +3722,6 @@ WINE_CONFIG_MAKEFILE(programs/winedbg)
 WINE_CONFIG_MAKEFILE(programs/winedevice)
 WINE_CONFIG_MAKEFILE(programs/winefile)
 WINE_CONFIG_MAKEFILE(programs/winemenubuilder)
-WINE_CONFIG_MAKEFILE(programs/winemine)
 WINE_CONFIG_MAKEFILE(programs/winemsibuilder)
 WINE_CONFIG_MAKEFILE(programs/winepath)
 WINE_CONFIG_MAKEFILE(programs/winetest)
@@ -3833,7 +3832,6 @@ programs/winecfg/winecfg \
 programs/wineconsole/wineconsole \
 programs/winedbg/winedbg \
 programs/winefile/winefile \
-programs/winemine/winemine \
 programs/winepath/winepath \
 server/wineserver"
 fi

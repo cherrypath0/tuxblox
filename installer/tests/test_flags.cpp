@@ -27,8 +27,9 @@ namespace fs = std::filesystem;
 int main() {
     using namespace tuxblox;
 
-    // A fresh install is resolving the release it is about to install, so it has none
-    // and asks nobody. Every run of the installer from a download looks like this.
+    // An installer that was never published asks nobody, whatever it is pointed at: it carries a
+    // release baked in from the VERSION file, but only staging can write a channel. This test
+    // binary is one of those, so initInstallerFlags() answers for itself here.
     {
         const fs::path dir = fs::temp_directory_path() / "tuxblox_test_installer_flags_fresh";
         fs::remove_all(dir);
@@ -42,17 +43,15 @@ int main() {
         fs::remove_all(dir);
     }
 
-    // An update run has a recorded release, so it asks -- for the channel it was told to
-    // use, which is the one --channel named, not the one the install currently records.
+    // A published installer asks -- for the channel it was told to use, which is the one
+    // --channel named, not the one it was itself published on.
     {
         const fs::path dir = fs::temp_directory_path() / "tuxblox_test_installer_flags_update";
         fs::remove_all(dir);
         fs::create_directories(dir);
-        std::ofstream(dir / "release.json")
-            << R"({"release": "3.6.0.0", "channel": "stable", "changelog": "c", "source_commit": "abc123", "source_dirty": false, "components": {"launcher": {"version": "3.5.0", "arch": {"x86_64": {"sha256": "aa", "size": 12}, "arm64": null}}}})";
         std::string seen;
         resetFlags();
-        initInstallerFlags(dir.string(), "canary",
+        initInstallerFlagsFor(dir.string(), "canary", true,
                            [&](const std::string& url, int) { seen = url; return std::string("{}"); });
         (void)flagBool("tbxFlagDisableUpdater");
         assert(seen == clientFlagsUrl("canary", flagArch()));
@@ -65,11 +64,9 @@ int main() {
         const fs::path dir = fs::temp_directory_path() / "tuxblox_test_installer_flags_dev";
         fs::remove_all(dir);
         fs::create_directories(dir);
-        std::ofstream(dir / "release.json")
-            << R"({"release": "3.6.0.0", "channel": "experimental", "changelog": "c", "source_commit": "abc123", "source_dirty": false, "components": {"launcher": {"version": "3.5.0", "arch": {"x86_64": {"sha256": "aa", "size": 12}, "arm64": null}}}})";
         std::string seen;
         resetFlags();
-        initInstallerFlags(dir.string(), "dev",
+        initInstallerFlagsFor(dir.string(), "dev", true,
                            [&](const std::string& url, int) { seen = url; return std::string("{}"); });
         (void)flagBool("tbxFlagDisableUpdater");
         assert(seen == clientFlagsUrl("dev", flagArch()));

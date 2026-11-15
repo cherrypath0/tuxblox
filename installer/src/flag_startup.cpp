@@ -15,7 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "flag_startup.h"
-#include "release_file.h"
+#include "release_stamp.h"
 #include "user_agent.h"
 
 namespace tuxblox {
@@ -26,11 +26,16 @@ constexpr int kFlagFetchSeconds = 5;
 
 } // namespace
 
+void initInstallerFlagsFor(const std::string& installDir, const std::string& channel,
+                           bool published, FlagFetch fetch) {
+    initFlags(installDir, channel, published, kFlagFetchSeconds, std::move(fetch), {}, userAgent());
+}
+
 void initInstallerFlags(const std::string& installDir, const std::string& channel,
                         FlagFetch fetch) {
-    const RecordedRelease release = readRecordedRelease(installDir);
-    initFlags(installDir, channel, release.present, kFlagFetchSeconds, std::move(fetch),
-              {}, userAgent());
+    // Only a published installer asks: one built locally carries a release from the VERSION file
+    // but no channel, because staging is the only thing that can write one.
+    initInstallerFlagsFor(installDir, channel, !releaseChannel().empty(), std::move(fetch));
 }
 
 } // namespace tuxblox

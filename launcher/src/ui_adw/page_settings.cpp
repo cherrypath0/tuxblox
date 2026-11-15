@@ -102,6 +102,7 @@ SettingsPage::SettingsPage(App &app) : app_(app) {
               i18n::tr("Sends a notification about the server's location whenever you join a game server or a Team Create server"),
               &Settings::serverRegionNotify);
 
+    buildAdvanced();
     buildDangerZone();
 }
 
@@ -250,13 +251,26 @@ void SettingsPage::buildEnvironment() {
     adw_preferences_group_add(pGroup, pRow);
 }
 
-GtkButton *SettingsPage::dangerButton(GtkWidget *pRow, const char *pLabel, GCallback onClicked) {
+GtkButton *SettingsPage::rowButton(GtkWidget *pRow, const char *pLabel, GCallback onClicked) {
     GtkWidget *pButton = gtk_button_new_with_label(pLabel);
-    gtk_widget_add_css_class(pButton, "destructive-action");
     gtk_widget_set_valign(pButton, GTK_ALIGN_CENTER);
     g_signal_connect(pButton, "clicked", onClicked, this);
     adw_action_row_add_suffix(ADW_ACTION_ROW(pRow), pButton);
     return GTK_BUTTON(pButton);
+}
+
+GtkButton *SettingsPage::dangerButton(GtkWidget *pRow, const char *pLabel, GCallback onClicked) {
+    GtkButton *pButton = rowButton(pRow, pLabel, onClicked);
+    gtk_widget_add_css_class(GTK_WIDGET(pButton), "destructive-action");
+    return pButton;
+}
+
+void SettingsPage::buildAdvanced() {
+    AdwPreferencesGroup *pGroup = addGroup(i18n::tr("Advanced"));
+
+    GtkWidget *pRegistry = plainActionRow(i18n::tr("Open Registry Editor"), "");
+    rowButton(pRegistry, i18n::tr("Open"), G_CALLBACK(onRegistryEditor));
+    adw_preferences_group_add(pGroup, pRegistry);
 }
 
 void SettingsPage::buildDangerZone() {
@@ -267,7 +281,7 @@ void SettingsPage::buildDangerZone() {
     adw_preferences_group_add(pGroup, pTerminate);
 
     GtkWidget *pWipe = plainActionRow(i18n::tr("Wipe the virtual drive"), "");
-    pWipe_ = dangerButton(pWipe, i18n::tr("Wipe prefix"), G_CALLBACK(onWipe));
+    pWipe_ = dangerButton(pWipe, i18n::tr("Wipe"), G_CALLBACK(onWipe));
     adw_preferences_group_add(pGroup, pWipe);
 
     GtkWidget *pUninstall = plainActionRow(i18n::tr("Uninstall TuxBlox"), "");
@@ -279,6 +293,13 @@ void SettingsPage::buildDangerZone() {
     adw_preferences_group_add(pGroup, pWipeError_);
     pUninstallError_ = errorLabel();
     adw_preferences_group_add(pGroup, pUninstallError_);
+}
+
+void SettingsPage::onRegistryEditor(GtkButton *pButton, gpointer data) {
+    auto *pSelf = static_cast<SettingsPage *>(data);
+    if (pSelf->app_.openRegistryEditor()) return;
+    showNotice(GTK_WIDGET(pButton), i18n::tr("Nothing to open yet"),
+               i18n::tr("The virtual drive is built the first time you start Roblox."));
 }
 
 void SettingsPage::onToggle(GObject *pRow, GParamSpec *, gpointer data) {
@@ -426,7 +447,7 @@ void SettingsPage::update(const AppSnapshot &snap) {
     if (!seeded_) seed(snap.settings);
 
     gtk_widget_set_sensitive(GTK_WIDGET(pWipe_), !snap.wipePrefix.inProgress);
-    setButtonLabel(pWipe_, snap.wipePrefix.inProgress ? i18n::tr("Wiping…") : i18n::tr("Wipe prefix"));
+    setButtonLabel(pWipe_, snap.wipePrefix.inProgress ? i18n::tr("Wiping…") : i18n::tr("Wipe"));
     showError(pWipeError_, snap.wipePrefix.errorMessage);
 
     gtk_widget_set_sensitive(GTK_WIDGET(pUninstall_), !snap.uninstall.inProgress);

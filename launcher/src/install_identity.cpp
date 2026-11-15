@@ -16,10 +16,20 @@
 
 #include "install_identity.h"
 
+#include "release_stamp.h"
+
 namespace tuxblox {
 
 InstallIdentity installIdentity(const std::string& release, const std::string& channel,
                                  const std::string& launcherVersion) {
+    // The stamp in this very binary, before anything beside it: it names the release this file was
+    // published in, where the record is only what the install was last told and can be missing,
+    // stale, or written by another install sharing the folder. The channel is still the record's to
+    // say, and only while it names the same release -- one naming another release says nothing
+    // about which channel this one came out on.
+    const std::string& stamped = releaseVersion();
+    if (!stamped.empty()) return {true, stamped, stamped == release ? channel : ""};
+
     if (release.empty()) return {false, launcherVersion, ""};
     // A release with no channel beside it would read as an install whose channel is unknown, which
     // is not a state a recorded release can be in -- a release belongs to exactly one channel.

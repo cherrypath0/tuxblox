@@ -29,4 +29,10 @@ namespace tuxblox {
 void initInstallerFlags(const std::string& installDir, const std::string& channel,
                         FlagFetch fetch = {});
 
+// The same, against a published-or-not of the caller's choosing rather than this binary's own.
+// Exposed so the gate that decides whether anything is asked of the server can be tested, which it
+// otherwise could not be: the real answer is compiled into whichever binary is asking.
+void initInstallerFlagsFor(const std::string& installDir, const std::string& channel,
+                           bool published, FlagFetch fetch = {});
+
 } // namespace tuxblox

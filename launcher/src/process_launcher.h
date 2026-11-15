@@ -56,6 +56,11 @@ const char* exitCodeTitle(int exitCode);
 // exitCode == 1).
 std::optional<int> findRealExitCodeInLog(const std::string& logPath);
 
+// Adds one line of TuxBlox's own to the end of a session log, written the way the compatibility
+// layer writes its own so it reads as part of the same sequence rather than as something stuck on
+// the end. Does nothing it can report: by the time this runs there is nowhere left to report to.
+void appendSessionLine(const std::string& logPath, const std::string& message);
+
 class TrackedProcess {
 public:
     // `env` entries are "KEY=VALUE" strings, applied via setenv() in the
@@ -95,6 +100,12 @@ struct LaunchOutcome {
 };
 
 std::string resolveOrBootstrapExePath(LaunchTarget target, const std::string& installDir);
+
+// Opens the virtual drive's registry editor and leaves it alone: it is a tool for looking at the
+// drive rather than a session, so nothing follows it and it is not one of the sessions listed in
+// the window. Joins the drive the way a second Roblox does, so it neither sets the drive up nor
+// waits for anybody else's Roblox to close. False when the drive has not been built yet.
+bool launchRegistryEditor(const std::string& installDir);
 
 // Path of the crash/stdout log for one launch:
 // <installDir>/logs/<Studio|Player>-<YYYYMMDDTHHMMSSZ>-<pid>.log

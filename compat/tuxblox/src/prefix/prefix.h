@@ -70,6 +70,7 @@ private:
     std::string accountFolder() const;
     void migrateAccountFolder();
     void recordWebViewMode();
+    void recordShortcutTranslation();
     void restoreWebViewRuntime();
     void syncWebViewVersionKeys(bool microsoft);
     void migrateUserPaths();

@@ -203,14 +203,6 @@ UpdateResult runUpdateCheck(const std::string& baseUrl,
     const Settings settings = loadSettings(dir);
 
     InstallState state;
-    const RecordedRelease recorded = readRecordedRelease(dir);
-    state.releaseRecorded = recorded.present;
-    if (recorded.present) {
-        state.recordedRelease = recorded.file.release;
-        for (const auto& named : recorded.file.components) {
-            state.recordedIdentities[named.first] = expectedComponentIdentity(recorded.file, named.first);
-        }
-    }
     const std::vector<ComponentVersion> installed = readComponentVersions(dir);
     for (const ComponentVersion& component : installed) {
         if (!component.version.empty()) state.installedIdentities[component.component] = component.version;
@@ -228,6 +220,15 @@ UpdateResult runUpdateCheck(const std::string& baseUrl,
         runningFromThisInstall ? std::optional<std::string>(reportedVersion(kTuxBloxVersion))
                                 : readComponentIdentity(dir, "launcher");
     if (launcherVersion.has_value()) state.installedIdentities["launcher"] = *launcherVersion;
+    // The install's own launcher is what it says it is, and every other component is checked
+    // against that. There is nothing else to check against: the release lives inside the
+    // components themselves rather than in a file beside them.
+    state.installedRelease = launcherVersion.value_or("");
+    // The interface stack is asked which channel it was published on, because it is the one
+    // component that answers without being run. No channel means nobody published this install,
+    // and a tree built on this machine is not something to repair over the top of.
+    const std::optional<StackVersions> stack = readStackVersions(dir);
+    state.published = !stack.has_value() || !stack->channel.empty();
 
     // Nothing installed at all is a first run, not a broken install -- and it is the layer being
     // there that makes the rest of the pieces overdue, since one release places them all together.
@@ -251,7 +252,14 @@ UpdateResult runUpdateCheck(const std::string& baseUrl,
     result.compatMissing = compatMissing;
     std::map<std::string, std::string> namedVersions;
     for (const auto& [name, component] : result.release.components) namedVersions[name] = component.version;
-    result.changes = updateChanges(state.recordedIdentities, namedVersions);
+    // Component versions on both sides: what is changing in an update is which components moved,
+    // and every one of them answers with the release otherwise, which is one number for all five.
+    std::map<std::string, std::string> installedVersions;
+    for (const std::string& name : componentNames()) {
+        const std::optional<std::string> version = readComponentVersion(dir, name);
+        if (version.has_value() && !version->empty()) installedVersions[name] = *version;
+    }
+    result.changes = updateChanges(installedVersions, namedVersions);
     return result;
 }
 

@@ -43,8 +43,9 @@ constexpr std::array<std::pair<const char*, FlagType>, 3> kPrefixes = {{
 
 // Flags the server may not set, enforced here rather than trusted to the server. Adding
 // to this list takes a release, which is the point.
-constexpr std::array<const char*, 1> kLocalOnly = {{
+constexpr std::array<const char*, 2> kLocalOnly = {{
     "tbxFlagDisableUpdater",
+    "tbxFlagBypassSystemRequirements",
 }};
 
 bool startsWith(const std::string& name, const char* prefix) {
@@ -297,10 +298,8 @@ void sealLocked(State& s) {
     // when there is no install directory, rather than consulting the filesystem root.
     if (s.installDir.empty()) return;
     const std::string override = readFile(s.installDir + "/flags.json");
-    if (!override.empty()) {
-        fprintf(stderr, "TuxBlox: reading flag overrides from %s/flags.json\n", s.installDir.c_str());
-        mergeFlagsOver(s.table, parseFlagJson(override, false));
-    }
+    // Not logged: the file is read on every start and saying so told a reader nothing about theirs.
+    if (!override.empty()) mergeFlagsOver(s.table, parseFlagJson(override, false));
 }
 
 // Returns a COPY, not a pointer: a pointer dereferenced after the lock is released is a
@@ -394,6 +393,16 @@ void initFlags(const std::string& installDir, const std::string& channel,
 bool flagBool(const std::string& name) {
     const std::optional<FlagValue> value = lookup(name);
     return value && value->type == FlagType::Bool && value->boolean;
+}
+
+bool flagBoolOffline(const std::string& installDir, const std::string& name) {
+    FlagTable table = defaultTable();
+    // Skipped on an empty directory rather than read from the filesystem root.
+    if (!installDir.empty()) {
+        mergeFlagsOver(table, parseFlagJson(readFile(installDir + "/flags.json"), false));
+    }
+    const auto found = table.find(name);
+    return found != table.end() && found->second.type == FlagType::Bool && found->second.boolean;
 }
 
 int64_t flagInt(const std::string& name) {

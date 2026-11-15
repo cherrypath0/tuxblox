@@ -27,6 +27,12 @@ namespace tuxblox {
 std::vector<std::string> selectSessionLogFiles(const std::vector<std::string>& names,
                                                std::time_t sessionStart, bool player);
 
+// The log file names the layer announced in this session's own capture, in creation order. Only the last part of each path, since the line carries a path in the virtual drive. Empty for a capture that announces none.
+std::vector<std::string> announcedLogFileNames(const std::string& capturedLogPath);
+
+// The layer's rbxlogfile marker, shared so the test cannot drift from it.
+extern const char* const kCreatedLogFileLine;
+
 std::string robloxLogsDir(const std::string& installDir);
 
 std::vector<std::string> appendRobloxSessionLogs(const std::string& installDir, std::time_t sessionStart,

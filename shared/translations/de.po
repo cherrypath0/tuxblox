@@ -4,7 +4,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: tuxblox\n"
 "Report-Msgid-Bugs-To: cherry@tuxblox.net\n"
-"POT-Creation-Date: 2026-11-10 15:36+0300\n"
+"POT-Creation-Date: 2026-11-15 14:35+0300\n"
 "Language-Team: German\n"
 "Language: de\n"
 "MIME-Version: 1.0\n"
@@ -61,6 +61,9 @@ msgid "About"
 msgstr ""
 
 msgid "Adds a button to your activity that allows others to join your server"
+msgstr ""
+
+msgid "Advanced"
 msgstr ""
 
 msgid ""
@@ -204,6 +207,12 @@ msgstr ""
 
 #, c++-format
 msgid "Couldn't fetch the release: {0}"
+msgstr ""
+
+#, c++-format
+msgid ""
+"Couldn't reach TuxBlox's version list, so there is no earlier version to "
+"install right now: {0}"
 msgstr ""
 
 #, c++-format
@@ -488,12 +497,6 @@ msgstr ""
 msgid "Next match"
 msgstr ""
 
-msgid ""
-"No earlier version found in Roblox's deploy history for this channel. Roblox "
-"hides the version list for its private channels, so this only works on the "
-"live channel."
-msgstr ""
-
 msgid "No flags set."
 msgstr ""
 
@@ -519,6 +522,9 @@ msgid "No versions installed"
 msgstr ""
 
 msgid "Not Executable"
+msgstr ""
+
+msgid "Not a released version"
 msgstr ""
 
 #, c++-format
@@ -552,6 +558,9 @@ msgid ""
 "rbxinstaller."
 msgstr ""
 
+msgid "Nothing to open yet"
+msgstr ""
+
 msgid "Notify server location"
 msgstr ""
 
@@ -559,6 +568,9 @@ msgid "OK"
 msgstr ""
 
 msgid "Open"
+msgstr ""
+
+msgid "Open Registry Editor"
 msgstr ""
 
 msgid "Open sessions"
@@ -659,6 +671,21 @@ msgid ""
 msgstr ""
 
 msgid "Roblox has exited with a non-zero exit code.\n"
+msgstr ""
+
+msgid ""
+"Roblox has no upcoming version right now. There is nothing newer than the "
+"current release to install yet."
+msgstr ""
+
+msgid ""
+"Roblox has uploaded this version but hasn't released it. It may be unstable, "
+"and it may never be released at all."
+msgstr ""
+
+msgid ""
+"Roblox is not offering a newer version than the current release right now, "
+"so there is nothing to install."
 msgstr ""
 
 msgid "Roblox is up to date"
@@ -786,6 +813,9 @@ msgstr ""
 msgid "The value of {0} must be text, a number, true or false."
 msgstr ""
 
+msgid "The virtual drive is built the first time you start Roblox."
+msgstr ""
+
 msgid "There are no flags in this JSON."
 msgstr ""
 
@@ -880,6 +910,12 @@ msgid "TuxBlox has encountered an error and has quit!"
 msgstr ""
 
 msgid "TuxBlox has encountered an error and has to quit!"
+msgstr ""
+
+msgid ""
+"TuxBlox hasn't recorded an earlier version of this app yet. It notes each "
+"new Roblox version as it is released, so this will work once Roblox releases "
+"its next one."
 msgstr ""
 
 msgid "TuxBlox installed successfully."
@@ -1004,7 +1040,7 @@ msgid ""
 "  --language <code>  Interface language: en, pt_BR or es.\n"
 "  --latest           Accepted and ignored: installing the newest release\n"
 "                     instead of this installer's own version.\n"
-"  --version          Show the build version and exit.\n"
+"  --version          Show the release it installs and exit.\n"
 "  -h, --help         Show this help and exit.\n"
 msgstr ""
 
@@ -1021,7 +1057,7 @@ msgid ""
 "  --preview-rbxinstaller  Show the window without downloading or writing "
 "anything.\n"
 "  --help                  Show this message.\n"
-"  --version               Print the TuxBlox version and exit.\n"
+"  --version               Print the TuxBlox release and exit.\n"
 "\n"
 "Environment:\n"
 "  TUXBLOX_BOOTSTRAPPER_DOWNLOAD_SERVER      Mirror to download from.\n"
@@ -1053,9 +1089,6 @@ msgid "Website"
 msgstr ""
 
 msgid "Wipe"
-msgstr ""
-
-msgid "Wipe prefix"
 msgstr ""
 
 msgid "Wipe the virtual drive"

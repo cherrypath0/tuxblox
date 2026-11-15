@@ -25,13 +25,15 @@ using namespace tuxblox;
 
 namespace {
 
+// Every component of a release carries that release, so a coherent install is five components
+// naming the same one. Their own versions differ and are not what this decision is about.
 InstallState coherent() {
     InstallState s;
-    s.releaseRecorded = true;
-    s.recordedRelease = "3.6.0.0";
-    s.recordedIdentities = {{"launcher", "3.5.0"}, {"installer", "3.1.0"}, {"studio-mcp", "2.0.1"},
-                          {"compat", "3.3.0"}, {"libtuxblox", "3.1.0"}};
-    s.installedIdentities = s.recordedIdentities;
+    s.published = true;
+    s.installedRelease = "3.6.0.0";
+    s.installedIdentities = {{"launcher", "3.6.0.0"}, {"installer", "3.6.0.0"},
+                            {"studio-mcp", "3.6.0.0"}, {"compat", "3.6.0.0"},
+                            {"libtuxblox", "3.6.0.0"}};
     return s;
 }
 
@@ -43,13 +45,6 @@ void test_a_coherent_install_on_the_named_release_does_nothing() {
     printf("  a coherent install on the named release does nothing\n");
 }
 
-// Five different component versions is the NORMAL state now, not a half-applied update.
-void test_differing_component_versions_are_not_a_mismatch() {
-    InstallState s = coherent();
-    assert(!decideUpdate(s, "3.6.0.0", false).update);
-    printf("  differing component versions are not a mismatch\n");
-}
-
 void test_a_stale_install_updates_but_is_not_forced() {
     UpdateDecision d = decideUpdate(coherent(), "3.6.0.1", false);
     assert(d.update);
@@ -58,7 +53,7 @@ void test_a_stale_install_updates_but_is_not_forced() {
 }
 
 // Rollback: the channel moved back to an earlier release and the install has to follow it.
-// "recorded != named" is the whole comparison, so there is no second direction to reason about.
+// "installed != named" is the whole comparison, so there is no second direction to reason about.
 void test_a_release_behind_the_recorded_one_is_an_ordinary_update() {
     UpdateDecision d = decideUpdate(coherent(), "3.5.0.0", false);
     assert(d.update);
@@ -68,7 +63,7 @@ void test_a_release_behind_the_recorded_one_is_an_ordinary_update() {
 
 void test_a_component_at_the_wrong_version_is_forced() {
     InstallState s = coherent();
-    s.installedIdentities["compat"] = "3.2.0";          // an update that died midway
+    s.installedIdentities["compat"] = "3.5.0.0";          // an update that died midway
     UpdateDecision d = decideUpdate(s, "3.6.0.0", false);
     assert(d.update);
     assert(d.forced);
@@ -90,7 +85,7 @@ void test_a_component_the_release_names_but_the_install_lacks_is_forced() {
 // incoherent by construction; noRollback is what stops it being repaired over the top of itself.
 void test_norollback_suppresses_the_forced_path_only() {
     InstallState s = coherent();
-    s.installedIdentities["compat"] = "3.2.0";
+    s.installedIdentities["compat"] = "3.5.0.0";
     UpdateDecision blocked = decideUpdate(s, "3.6.0.0", true);
     assert(!blocked.update);
     assert(!blocked.incoherent.empty());             // still reported, so it can be logged
@@ -107,14 +102,31 @@ void test_norollback_suppresses_the_forced_path_only() {
 // The repo owner's decision, 2026-10-23: an install that predates the release file is OFFERED
 // an update, not forced into one. Nobody is updated without being asked.
 void test_an_install_with_no_record_is_offered_an_ordinary_update() {
-    InstallState s;                                   // releaseRecorded = false
-    s.installedIdentities = {{"launcher", "3.5.0"}, {"compat", "3.3.0"}};
+    InstallState s;                                   // its launcher could not be asked
+    s.installedIdentities = {{"compat", "3.6.0.0"}};
     UpdateDecision d = decideUpdate(s, "3.6.0.0", false);
     assert(d.update);
     assert(!d.forced);
     assert(d.incoherent.empty());                     // nothing to be incoherent WITH
-    assert(d.reason.find("record") != std::string::npos);
+    assert(d.reason.find("cannot say") != std::string::npos);
     printf("  an install with no record is offered an ordinary update\n");
+}
+
+// A tree built on this machine: its components are replaced one at a time, so it is incoherent by
+// construction, and repairing it means fetching a published release over the top of a local build.
+void test_an_unpublished_install_is_never_repaired() {
+    InstallState s = coherent();
+    s.published = false;
+    s.installedIdentities["compat"] = "3.5.0.0";
+    UpdateDecision d = decideUpdate(s, "3.6.0.0", false);
+    assert(!d.forced);
+    assert(d.incoherent.empty());
+    // Still offered what is published, which Auto-Update then gates.
+    assert(!d.update);
+    UpdateDecision stale = decideUpdate(s, "3.6.0.1", false);
+    assert(stale.update);
+    assert(!stale.forced);
+    printf("  an unpublished install is never repaired\n");
 }
 
 void test_an_install_with_no_record_and_nothing_published_does_nothing() {
@@ -126,7 +138,7 @@ void test_an_install_with_no_record_and_nothing_published_does_nothing() {
 
 void test_a_component_the_release_does_not_name_is_ignored() {
     InstallState s = coherent();
-    s.installedIdentities["leftover"] = "1.0.0";        // e.g. a file an older release placed
+    s.installedIdentities["leftover"] = "3.5.0.0";      // e.g. a file an older release placed
     assert(!decideUpdate(s, "3.6.0.0", false).update);
     printf("  a component the release does not name is ignored\n");
 }
@@ -136,8 +148,8 @@ void test_a_component_the_release_does_not_name_is_ignored() {
 // run is the kind of thing that makes a bug report hard to compare against another one.
 void test_several_incoherent_components_are_reported_in_component_order() {
     InstallState s = coherent();
-    s.installedIdentities["libtuxblox"] = "3.0.0";
-    s.installedIdentities["compat"] = "3.2.0";
+    s.installedIdentities["libtuxblox"] = "3.5.0.0";
+    s.installedIdentities["compat"] = "3.5.0.0";
     s.installedIdentities.erase("launcher");
     UpdateDecision d = decideUpdate(s, "3.6.0.0", false);
     assert(d.forced);
@@ -149,13 +161,13 @@ void test_several_incoherent_components_are_reported_in_component_order() {
 // the rest of TuxBlox names them -- not by the keys the release file happens to use.
 void test_the_reason_names_components_the_way_a_person_reads_them() {
     InstallState s = coherent();
-    s.installedIdentities["compat"] = "3.2.0";
+    s.installedIdentities["compat"] = "3.5.0.0";
     const std::string one = decideUpdate(s, "3.6.0.0", false).reason;
     assert(one.find("Runtime") != std::string::npos);
     assert(one.find("compat ") == std::string::npos);
     assert(one.find(" does not match") != std::string::npos);
 
-    s.installedIdentities["libtuxblox"] = "3.0.0";
+    s.installedIdentities["libtuxblox"] = "3.5.0.0";
     const std::string two = decideUpdate(s, "3.6.0.0", false).reason;
     assert(two.find("Runtime and Libraries") != std::string::npos);
     assert(two.find(" do not match") != std::string::npos);   // plural, not "does"
@@ -168,7 +180,7 @@ void test_the_reason_names_components_the_way_a_person_reads_them() {
 // release never arrives.
 void test_norollback_says_it_is_also_holding_back_a_newer_release() {
     InstallState s = coherent();
-    s.installedIdentities["compat"] = "3.2.0";
+    s.installedIdentities["compat"] = "3.5.0.0";
     const std::string held = decideUpdate(s, "3.6.0.1", true).reason;
     assert(held.find("norollback") != std::string::npos);
     assert(held.find("3.6.0.1") != std::string::npos);
@@ -194,13 +206,13 @@ static void test_only_calmer_channels_are_considered() {
 int main() {
     test_only_calmer_channels_are_considered();
     test_a_coherent_install_on_the_named_release_does_nothing();
-    test_differing_component_versions_are_not_a_mismatch();
     test_a_stale_install_updates_but_is_not_forced();
     test_a_release_behind_the_recorded_one_is_an_ordinary_update();
     test_a_component_at_the_wrong_version_is_forced();
     test_a_component_the_release_names_but_the_install_lacks_is_forced();
     test_norollback_suppresses_the_forced_path_only();
     test_an_install_with_no_record_is_offered_an_ordinary_update();
+    test_an_unpublished_install_is_never_repaired();
     test_an_install_with_no_record_and_nothing_published_does_nothing();
     test_a_component_the_release_does_not_name_is_ignored();
     test_several_incoherent_components_are_reported_in_component_order();

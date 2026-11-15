@@ -28,13 +28,16 @@ namespace tuxblox {
 // component versions are real and worth showing, but behind an expander rather than beside it --
 // two numbers side by side read as an install at odds with itself.
 struct AboutVersions {
-    std::string release;  // empty for an install made before the release file existed
+    std::string release;  // empty for a build that was never published
     std::string channel;  // empty with the release
     // {display name, version}, always one row per component in the layout's order. A component
     // that is not installed is named as such rather than left out, so an absence is visible.
     std::vector<std::pair<std::string, std::string>> components;
 };
 
-AboutVersions aboutVersions(const std::string& installDir, const std::string& launcherVersion);
+// `release` and `channel` are what the running binary's stamp carries, passed in rather than read
+// here so this stays something a test can ask a question of.
+AboutVersions aboutVersions(const std::string& installDir, const std::string& launcherVersion,
+                             const std::string& release, const std::string& channel);
 
 } // namespace tuxblox

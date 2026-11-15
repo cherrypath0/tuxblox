@@ -489,7 +489,9 @@ WINE_x86_64_AUTOCONF_ARGS += \
 
 WINE_DEPENDS = gst_orc gstreamer gst_base ffmpeg
 WINE_i386_DEPENDS = vkd3d
-WINE_x86_64_DEPENDS = vkd3d
+## gnutls is here for its headers only. ntdll loads it at runtime instead of
+## linking it, so that nothing new is mapped into every process.
+WINE_x86_64_DEPENDS = vkd3d gnutls
 
 WINE_i386_LIBDIR = $(WINE_i386_DST)/lib
 WINE_x86_64_LIBDIR = $(WINE_x86_64_DST)/lib
@@ -522,6 +524,10 @@ $(OBJ)/.wine-x86_64-post-build:
 
 	mkdir -p $(DST_DIR)/share
 	cp -a $(WINE_x86_64_DST)/share/wine $(DST_DIR)/share
+	@# The roots ntdll checks the Roblox client's signature against. It reads
+	@# them from beside itself rather than from anywhere a caller could name.
+	mkdir -p $(DST_DIR)/share/tuxblox
+	cp -a $(SRCDIR)/tuxblox/data/roots.pem $(DST_DIR)/share/tuxblox/roots.pem
 	touch $@
 
 $(OBJ)/.wine-aarch64-post-build:
@@ -668,6 +674,71 @@ $(OBJ)/.vkd3d-i386-post-build: $(OBJ)/.wine-$(HOST_ARCH)-tools
 ## prefix keeps Wine's own builtin d3d12, which sits on the vkd3d we still ship,
 ## so a D3D12 caller still gets an answer.
 ##
+
+
+##
+## crypto: gmp, nettle, libtasn1, gnutls
+##
+## ntdll verifies the signature on the Roblox client, and the host cannot be
+## relied on for that: Wine dlopens gnutls and carries on without it, so a check
+## built on the host's copy would simply not run where there is none.
+##
+## x86_64 only. The only image verified is the Roblox client, which is a 64-bit
+## PE, so the 32-bit ntdll never sees one as its main image.
+##
+## Far smaller than the webview bundle's gnutls, which carries eleven libraries
+## because WebKit wants the compression and p11-kit anyway. Without those this is
+## five: gnutls, tasn1, nettle, hogweed, gmp.
+##
+
+include $(SRC)/crypto/versions.env
+CRYPTO_SRCS = $(SRCDIR)/sources/crypto/src
+
+## Installed under the architecture directory the rest of the build links and
+## reads pkg-config from. rules-autoconf names a plain lib/, and the -L, the
+## rpath-link and PKG_CONFIG_PATH all look one level deeper, so without this
+## nettle cannot find gmp and gnutls cannot find nettle.
+CRYPTO_LIBDIR = lib/$(x86_64-unix_LIBDIR)
+
+## --enable-fat or the result SIGILLs on anything older than Broadwell.
+GMP_AUTOCONF_ARGS = --enable-fat --disable-static --enable-shared
+GMP_x86_64_AUTOCONF_ARGS = --libdir=$(GMP_x86_64_DST)/$(CRYPTO_LIBDIR)
+$(eval $(call rules-source,gmp,$(CRYPTO_SRCS)/gmp-$(GMP_VERSION)))
+$(eval $(call rules-autoconf,gmp,x86_64,unix))
+
+NETTLE_DEPENDS = gmp
+NETTLE_AUTOCONF_ARGS = --disable-static --enable-shared --disable-documentation --disable-openssl
+NETTLE_x86_64_AUTOCONF_ARGS = --libdir=$(NETTLE_x86_64_DST)/$(CRYPTO_LIBDIR)
+$(eval $(call rules-source,nettle,$(CRYPTO_SRCS)/nettle-$(NETTLE_VERSION)))
+$(eval $(call rules-autoconf,nettle,x86_64,unix))
+
+LIBTASN1_AUTOCONF_ARGS = --disable-static --enable-shared --disable-doc --disable-gtk-doc
+LIBTASN1_x86_64_AUTOCONF_ARGS = --libdir=$(LIBTASN1_x86_64_DST)/$(CRYPTO_LIBDIR)
+$(eval $(call rules-source,libtasn1,$(CRYPTO_SRCS)/libtasn1-$(LIBTASN1_VERSION)))
+$(eval $(call rules-autoconf,libtasn1,x86_64,unix))
+
+## Everything switched off here is a dependency we would otherwise ship. SRP and
+## the OpenSSL compatibility layer need no flag: both are --enable-* and off by
+## default in 3.8.
+GNUTLS_DEPENDS = gmp nettle libtasn1
+GNUTLS_AUTOCONF_ARGS = \
+  --disable-static --enable-shared \
+  --without-p11-kit --without-idn --without-zlib --without-brotli --without-zstd \
+  --without-tpm --without-tpm2 --with-included-unistring \
+  --disable-doc --disable-manpages --disable-guile --disable-tools --disable-tests \
+  --disable-cxx --disable-nls --disable-libdane \
+  --disable-psk-authentication --disable-anon-authentication --disable-dtls-srtp-support \
+
+GNUTLS_x86_64_AUTOCONF_ARGS = --libdir=$(GNUTLS_x86_64_DST)/$(CRYPTO_LIBDIR)
+$(eval $(call rules-source,gnutls,$(CRYPTO_SRCS)/gnutls-$(GNUTLS_VERSION)))
+$(eval $(call rules-autoconf,gnutls,x86_64,unix))
+
+$(OBJ)/.gmp-x86_64-post-build:
+	@# The webview bundle checks the same thing, because the failure is a SIGILL
+	@# on an old CPU rather than anything the build would notice.
+	nm -D "$(GMP_x86_64_DST)/$(CRYPTO_LIBDIR)/libgmp.so" | grep -q __gmpn_cpuvec || \
+	    { echo "ERROR: libgmp built without --enable-fat" >&2; exit 1; }
+	touch $@
 
 
 ##

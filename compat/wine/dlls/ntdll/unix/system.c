@@ -557,7 +557,7 @@ void init_shared_data_cpuinfo( KUSER_SHARED_DATA *data )
     features[PF_RDRAND_INSTRUCTION_AVAILABLE]  = !!(regs[2] & (1 << 30));
     /* Windows reports this as absent on hardware that plainly supports it, so
      * detecting it correctly is itself the difference. Measured zero on
-     * Windows 11 25H2 with workspace/tests/infoprobe.exe. */
+     * Windows 11 25H2. */
     features[PF_SSE_DAZ_MODE_AVAILABLE] = FALSE;
 
     do_cpuid( 0x00000000, 0, regs );
@@ -3298,7 +3298,7 @@ static const unsigned char sys_243_data[] =
 /* Twenty classes this build sized correctly and then refused as not
  * implemented. Windows answers every one of them, and refusing a class the
  * system has is the kind of difference that cannot be innocent. The bytes are
- * what the reference machine returned, from workspace/tests/infoprobe. */
+ * what the reference machine returned. */
 /* offsets 0x0,0x1,0x2,0x3 the machine left untouched; zero here. */
 static const unsigned char sys_24_data[] =
 {
@@ -3592,7 +3592,7 @@ static BOOL tuxblox_sysclass_answer_full( unsigned int class )
     return FALSE;
 }
 
-/* Measured on Windows 10.0.26300 with workspace/tests/tuxcapture.exe: both are answered with a
+/* Measured on Windows 10.0.26300: both are answered there with a
  * buffer of zeros, where this table had 208 sized zero (so the answer branch never ran) and 234
  * sized but with no payload (so it came back "not implemented"). */
 static const unsigned char sys_208_data[4];
@@ -3604,7 +3604,7 @@ static const struct known_class known_system_classes[] =
      * of them, and answering "no such class" to a class the system has is a
      * difference in the one direction that cannot be innocent: measured
      * against the reference machine there was not a single class we had and it
-     * did not. Statuses from workspace/tests/infoprobe.
+     * did not. The statuses are that machine's own.
      *
      * The three that report success for a zero-length query are recorded as
      * exactly that. What Windows writes into a larger buffer for them was not
@@ -4020,8 +4020,8 @@ static NTSTATUS enum_firmware_info( SYSTEM_FIRMWARE_TABLE_INFORMATION *sfti, ULO
 
 /* The drivers a Windows kernel has loaded. Wine has none, and there is no true
  * answer to give here. What there is, is a real one: this list is what a real
- * Windows 11 machine reports, read off it with workspace/tests/modprobe.exe --
- * names, sizes and load counts, in the order it gave them. The invented list
+ * Windows 11 machine reports -- names, sizes and load counts, in the order it
+ * gave them. The invented list
  * that used to be here had every size a round multiple of 64K, every load count
  * 1, and ntoskrnl.exe at 8 MB against the real 21 MB, none of which survives
  * comparison with a reference.
@@ -6062,9 +6062,9 @@ static NTSTATUS query_system_information( SYSTEM_INFORMATION_CLASS class,
             ret = STATUS_INFO_LENGTH_MISMATCH;
             break;
         }
-        /* The caller fills in Length itself and Windows checks it: measured on
-         * Windows 11 25H2 with workspace/tests/infoprobe, an 8-byte buffer whose
-         * Length field still held the caller's filler was refused with
+        /* The caller fills in Length itself and Windows checks it: on
+         * Windows 11 25H2, an 8-byte buffer whose Length field still held the
+         * caller's filler was refused with
          * STATUS_INFO_LENGTH_MISMATCH rather than answered. Only the size of the
          * buffer was being checked here, so any caller got an answer. */
         if (integrity_info->Length != len)
@@ -6292,7 +6292,7 @@ static NTSTATUS query_system_information( SYSTEM_INFORMATION_CLASS class,
          * STATUS_BUFFER_TOO_SMALL and report a length of zero rather than the
          * size it wants -- which is why it cannot be described by the table
          * below, whose one length field is both. Twenty-four bytes as read
-         * from the reference machine with workspace/tests/infoprobe.exe. */
+         * from the reference machine. */
         if (size < sizeof(sys_174_data))
         {
             if (ret_size) *ret_size = 0;

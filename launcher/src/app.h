@@ -207,6 +207,11 @@ public:
     // reports progress and how many processes were closed.
     void requestTerminateProcesses();
 
+    // Opens the virtual drive's registry editor, which is a tool for looking at the drive rather
+    // than a session: nothing follows it, and it is not listed among the sessions. False when the
+    // drive has not been built yet, which is an install nothing has been launched from.
+    bool openRegistryEditor();
+
     AppSnapshot snapshot() const;
 
     // Persists `settings` (settings.json), re-applies Global Environment

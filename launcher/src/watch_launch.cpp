@@ -33,6 +33,7 @@
 #include "versions_manifest.h"
 #include "wine_shortcut_export.h"
 #include <ctime>
+#include <optional>
 #include <vector>
 
 namespace tuxblox {
@@ -92,6 +93,16 @@ int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const 
     const std::vector<std::string> appendedLogs =
         appendRobloxSessionLogs(installDir, launchStart, outcome.logPath, player);
     removeAppendedRobloxLogs(installDir, appendedLogs, player);
+
+    // How the session ended, on the end of its own log. Written whatever the code, because "it
+    // finished" is worth as much to somebody reading the log afterwards as a number to complain
+    // about, and written after the merge so it is the last line rather than the middle of one.
+    const std::optional<int> endedWith =
+        ev ? std::optional<int>(ev->exitCode) : findRealExitCodeInLog(outcome.logPath);
+    if (endedWith.has_value()) {
+        appendSessionLine(outcome.logPath,
+                          i18n::trf("Exit Code: {0}", {std::to_string(*endedWith)}));
+    }
     exportPrefixShortcuts(installDir, selfExePath());
 
     if (outcome.wasBootstrapInstall && ev && !ev->stopRequested && ev->exitCode == 0) {
@@ -120,8 +131,10 @@ int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const 
     if (title) exitCodeLine += std::string(" (") + title + ")";
 
     std::string popupTitle, message;
-    if (ev->exitCode == 3) {
-        // Integrity and certificate verification, TuxBlox's compatibility layer always returns exit code 3 if this failed.
+    // Exit code 3 came from the layer when it checked the signature before launching. It now
+    // checks as the process starts instead, so the refusal arrives as Roblox's own exit code.
+    constexpr int kRefusedSignature = static_cast<int>(0xC0000428); // STATUS_INVALID_IMAGE_HASH
+    if (ev->exitCode == 3 || robloxExitCode == kRefusedSignature) {
         showErrorMessageBox(i18n::tr("Failed to launch Roblox"),
             i18n::tr("Failed to verify the integrity of Roblox. Some files might be unsigned or have "
                      "been tampered with. Please make sure TuxBlox is up to date, then reinstall "

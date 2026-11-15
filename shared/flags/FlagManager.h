@@ -68,6 +68,14 @@ bool flagBool(const std::string& name);
 int64_t flagInt(const std::string& name);
 std::string flagString(const std::string& name);
 
+// A boolean flag from the two sources that need no network: installDir/flags.json over the
+// values compiled in. For a read that has to happen before initFlags(), where flagBool()
+// would answer from a table nothing had loaded and seal it there for the rest of the run.
+// Shares no state with the three above, so it can be called at any point and changes none
+// of their answers. A flag read this way has to be local-only, or the server would be
+// setting a value this read cannot see.
+bool flagBoolOffline(const std::string& installDir, const std::string& name);
+
 // --- what the flags decide about a request ------------------------------
 
 // Where a request is going, which is what decides which of the three HTTP-version flags

@@ -1021,9 +1021,6 @@ static BOOL _CmdWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         WinHelpW(hWnd, L"regedit", HELP_FINDER, 0);
         break;
     }
-    case ID_HELP_ABOUT:
-        ShowAboutBox(hWnd);
-        break;
     case ID_VIEW_SPLIT: {
         RECT rt;
         POINT pt, pts;

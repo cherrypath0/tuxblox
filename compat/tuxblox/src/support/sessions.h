@@ -28,6 +28,9 @@ struct SessionHolder {
     std::string image;
     // The Player or Studio client itself, rather than one of the installers.
     bool client = false;
+    // Which session started it, from the stamp every process a session launches inherits. Empty for
+    // one that carries no stamp, which is nobody's.
+    std::string sessionId;
 };
 
 // The bare file name of a path, for matching against the image lists.
@@ -43,6 +46,19 @@ bool imageIsInstaller(const std::string& image);
 // stay in sync with the image lists here -- the launcher cannot share this file
 // because the two halves carry different licences.
 std::vector<SessionHolder> prefixSessionHolders(const std::filesystem::path& prefixDir);
+
+// The name of the stamp, and the holders carrying one session's. Roblox relaunches itself, so the
+// process a session waited on is not the one still running, and several sessions share the drive:
+// the stamp is the only thing that says which Roblox belongs to which session. An unstamped holder
+// is never anybody's, so it is treated like a session that joined the drive without setting it up.
+extern const char* const SessionIdVariable;
+
+// What this session stamps its processes with. The process number, because that already identifies
+// a session; here rather than at either use so the one printed is the one inherited.
+std::string currentSessionId();
+
+std::vector<SessionHolder> holdersOfSession(const std::vector<SessionHolder>& holders,
+                                            const std::string& sessionId);
 
 // The sessions a launch of `image` has to replace. Roblox runs one Player
 // session at a time and closes the running one when a new Player starts, so a

@@ -26,6 +26,7 @@
 #include "tuxblox_logo_png.h"
 #include "version.h"
 #include "about_versions.h"
+#include "release_stamp.h"
 #include "i18n.h"
 #include "install_identity.h"
 #include "widgets.h"
@@ -65,7 +66,8 @@ AboutPage::AboutPage(std::string installDir) {
         {i18n::tr("Terms of Use"), "https://tuxblox.net/terms", kAssetScale, kAssetScaleLen},
     };
 
-    const AboutVersions versions = aboutVersions(installDir, kTuxBloxVersion);
+    const AboutVersions versions = aboutVersions(installDir, kTuxBloxVersion,
+                                                 releaseVersion(), releaseChannel());
 
     GdkPaintable *pLogo = logoPaintable(kTuxbloxLogoPng, kTuxbloxLogoPngLen, 96);
     GtkWidget *pLogoImage = gtk_image_new_from_paintable(pLogo);
@@ -76,9 +78,11 @@ AboutPage::AboutPage(std::string installDir) {
     gtk_box_append(GTK_BOX(pHeader), pLogoImage);
     gtk_box_append(GTK_BOX(pHeader), centredLabel("TuxBlox", "title-1"));
     const InstallIdentity identity = installIdentity(versions.release, versions.channel, kTuxBloxVersion);
-    const std::string identityLine = identity.isRelease
-        ? i18n::trf("Release {0} · {1} channel", {identity.version, identity.channel})
-        : i18n::trf("Launcher {0}", {identity.version});
+    const std::string identityLine =
+        !identity.isRelease  ? i18n::trf("Launcher {0}", {identity.version})
+        : identity.channel.empty() ? i18n::trf("Release {0}", {identity.version})
+                                   : i18n::trf("Release {0} · {1} channel",
+                                               {identity.version, identity.channel});
     gtk_box_append(GTK_BOX(pHeader), centredLabel(identityLine, "dim-label"));
     gtk_box_append(GTK_BOX(pHeader),
                    centredLabel(i18n::tr("A free, open source launcher and compatibility layer for running Roblox on Linux."),

@@ -88,6 +88,7 @@ std::string usageText() {
         "  --preview-rbxinstaller  Show the window without downloading or writing anything.\n"
         "  --help                  Show this message.\n"
         "  --version               Print the TuxBlox release and exit.\n"
+        "  --component-version     Print the launcher's own version and exit.\n"
         "\n"
         "Environment:\n"
         "  TUXBLOX_BOOTSTRAPPER_DOWNLOAD_SERVER      Mirror to download from.\n"

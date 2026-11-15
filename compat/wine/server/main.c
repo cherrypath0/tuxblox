@@ -34,6 +34,9 @@
 #ifdef HAVE_SYS_SYSCTL_H
 # include <sys/sysctl.h>
 #endif
+#ifdef HAVE_SYS_PRCTL_H
+# include <sys/prctl.h>
+#endif
 
 #include "object.h"
 #include "file.h"
@@ -244,10 +247,22 @@ static void init_limits(void)
 #endif
 }
 
+/* the name a process list shows this process under */
+static void set_process_name(void)
+{
+#ifdef HAVE_PRCTL
+#ifndef PR_SET_NAME
+# define PR_SET_NAME 15
+#endif
+    prctl( PR_SET_NAME, "tuxblox-server" );
+#endif
+}
+
 int main( int argc, char *argv[] )
 {
     setvbuf( stderr, NULL, _IOLBF, 0 );
     server_argv0 = argv[0];
+    set_process_name();
     parse_options( argc, argv, "d::fhk::p::vw", long_options, option_callback );
 
     /* setup temporary handlers before the real signal initialization is done */

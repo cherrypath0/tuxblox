@@ -540,6 +540,11 @@ stageRuntime() {
     <dir prefix="relative">.</dir>
     <cachedir prefix="xdg">tuxblox/fontconfig</cachedir>
     <include ignore_missing="yes">/etc/fonts/fonts.conf</include>
+    <!-- Spelled out because the desktop's own file says "conf.d" and the fontconfig this stack
+         carries resolves that against the wrong directory, so it silently loaded none of the rules
+         there. Bitmap scaling is one of them, and without it a colour emoji is drawn at the size
+         its font stores it at: ten times the line it sits on. -->
+    <include ignore_missing="yes">/etc/fonts/conf.d</include>
 </fontconfig>
 FONTS
     cp -a "$$Prefix/share/glib-2.0/schemas" "$$StageDir/share/glib-2.0/schemas"
@@ -624,12 +629,27 @@ checkSymbolVersions() {
     fi
 }
 
+# The stack is libraries, so it has no program to answer --version and nothing for staging to
+# stamp. This is both: it carries the same stamp field the programs do, and bakes in the stack's
+# own version. Linked without libstdc++ so the stack still needs nothing the allow-list above
+# does not already have.
+stageVersionLibrary() {
+    printf ':: Building version.so\n'
+    "$${CXX:-g++}" -std=c++20 -O2 -fPIC -shared -Wl,--no-undefined \
+        -static-libstdc++ -static-libgcc \
+        -I /src/release/src \
+        -DTUXBLOX_COMPONENT_VERSION="\"$${LIBTUXBLOX_VERSION:?shared/ui/versions.env sets the component version}\"" \
+        -DTUXBLOX_RELEASE="\"$${TUXBLOX_RELEASE:-}\"" \
+        -o "$$StageDir/version.so" \
+        /src/release/src/stack_version.cpp /src/release/src/release_stamp.cpp
+}
+
 writeTarball() {
     printf ':: Writing %s\n' "$$Tarball"
     mkdir -p "$$OutDir"
     printf '%s\n' "$${LIBADWAITA_COMMIT:?the Makefile passes the full submodule commit}" > "$$StageDir/LIBADWAITA_COMMIT"
     printf '%s\n' "$${LIBTUXBLOX_VERSION:?shared/ui/versions.env sets the component version}" > "$$StageDir/VERSION"
-    tar -C "$$StageDir" -cf - lib share fonts LIBADWAITA_COMMIT VERSION | zstd -19 -T0 -q -o "$$OutDir/$$Tarball" -f
+    tar -C "$$StageDir" -cf - lib share fonts version.so LIBADWAITA_COMMIT VERSION | zstd -19 -T0 -q -o "$$OutDir/$$Tarball" -f
 }
 
 writeDevTree() {
@@ -652,6 +672,7 @@ writeDevTree() {
 
 stageRuntime
 rewriteRpaths
+stageVersionLibrary
 checkNeededLibraries
 checkSymbolVersions
 writeTarball
@@ -677,6 +698,7 @@ $(UI): shared/ui/versions.env shared/ui/sources.list Makefile | $(PODMAN)
 	printf '%s' "$$UI_PACKAGE" | podman run -i --rm --userns=keep-id --network=none \
 	    -v $(ROOT)/shared:/src:ro -v $(UI_DIST)/prefix:/opt/tuxblox-ui:ro -v $(UI_DIST)/out:/out \
 	    -e LIBADWAITA_SOURCE="$(LIBADWAITA_SHORT)" -e LIBADWAITA_COMMIT="$(LIBADWAITA_HEAD)" \
+	    -e CXX=g++-14 -e TUXBLOX_RELEASE="$(RELEASE)" \
 	    tuxblox-builder bash -s
 	rm -rf $(UI_DIST)/dev && mv $(UI_DIST)/out/dev $(UI_DIST)/dev
 	rm -f $(UI_DIST)/ui-stack-*.tar.zst
@@ -812,6 +834,27 @@ export BUILD_ENTRY_POINT
 # The layer's own launcher embeds the CA header the launcher build generates.
 $(COMPAT): $(COMPAT_SRC) $(PATCHES) $(LIBS) $(LAUNCHER) $(WEBVIEW) | $(PODMAN)
 	@mkdir -p $(PROTON)
+	@# ntdll verifies the Roblox client's signature and needs a gnutls it can
+	@# count on, so the layer ships its own rather than hoping the host has one.
+	@# Extracted here because the layer's build rsyncs from a directory.
+	bash $(ROOT)/shared/tools/fetch-sources.sh --manifest $(ROOT)/compat/crypto \
+	    --sources-dir $(ROOT)/compat/sources/crypto --label "layer crypto"
+	@# The touches matter, and the order with them: these tarballs carry configure.ac and
+	@# Makefile.am newer than what was generated from them, so the build reaches for autoconf and
+	@# automake, and the container's are older than gnutls and libtasn1 ask for. Stamping each
+	@# generated file newer than its source, in that order, is what keeps the shipped ones.
+	@set -e; . $(ROOT)/compat/crypto/versions.env; \
+	mkdir -p $(ROOT)/compat/sources/crypto/src; \
+	for p in gmp-$$GMP_VERSION nettle-$$NETTLE_VERSION libtasn1-$$LIBTASN1_VERSION gnutls-$$GNUTLS_VERSION; do \
+	    [ -d "$(ROOT)/compat/sources/crypto/src/$$p" ] && continue; \
+	    echo ":: Extracting $$p"; \
+	    tar -xf $(ROOT)/compat/sources/crypto/$$p.tar.* -C $(ROOT)/compat/sources/crypto/src; \
+	    d=$(ROOT)/compat/sources/crypto/src/$$p; \
+	    find $$d -name aclocal.m4 -exec touch {} +; \
+	    find $$d -name configure -exec touch {} +; \
+	    find $$d -name 'config.h.in' -exec touch {} +; \
+	    find $$d -name 'Makefile.in' -exec touch {} +; \
+	done
 	cd $(PROTON) && $(ROOT)/compat/configure.sh --enable-ccache
 	@# A command-line variable, because the layer's make re-runs in a container the environment misses.
 	cd $(PROTON) && make -j$(JOBS) TUXBLOX_COMPAT_VERSION=$(COMPAT_VERSION) all-source

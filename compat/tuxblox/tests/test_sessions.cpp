@@ -36,11 +36,13 @@ static void writeNulJoined(const fs::path& path, const std::vector<std::string>&
 }
 
 static void makeProcEntry(const fs::path& procRoot, const std::string& pid,
-                          const std::string& cmdline, const std::string& winePrefix) {
+                          const std::string& cmdline, const std::string& winePrefix,
+                          const std::string& sessionId = "") {
     fs::create_directories(procRoot / pid);
     writeNulJoined(procRoot / pid / "cmdline", {cmdline});
     std::vector<std::string> env = {"PATH=/usr/bin"};
     if (!winePrefix.empty()) env.push_back("WINEPREFIX=" + winePrefix);
+    if (!sessionId.empty()) env.push_back(std::string(tuxblox::SessionIdVariable) + "=" + sessionId);
     writeNulJoined(procRoot / pid / "environ", env);
 }
 
@@ -82,6 +84,32 @@ int main() {
 
     // The layer sets WINEPREFIX with a trailing slash and normalises it away.
     assert(prefixSessionHoldersIn(procRoot, wanted + "/").size() == 3);
+
+    // holdersOfSession(): which Roblox in a shared drive belongs to which session. Two sessions are
+    // in this drive and one Roblox carries no stamp at all.
+    {
+        const fs::path shared = procRoot.parent_path() / "proc_shared";
+        const std::string drive = (tmp / "shared" / "pfx").string();
+        makeProcEntry(shared, "70", "C:\\v\\RobloxStudioBeta.exe", drive, "900");
+        // The same session's Roblox after it relaunched itself: a different process, same stamp.
+        makeProcEntry(shared, "71", "C:\\v\\RobloxStudioBeta.exe", drive, "900");
+        makeProcEntry(shared, "72", "C:\\v\\RobloxPlayerBeta.exe", drive, "901");
+        makeProcEntry(shared, "73", "C:\\v\\RobloxStudioBeta.exe", drive);
+
+        const std::vector<SessionHolder> live = prefixSessionHoldersIn(shared, drive);
+        assert(live.size() == 4);
+
+        std::vector<std::string> mine;
+        for (const SessionHolder& holder : holdersOfSession(live, "900")) mine.push_back(holder.pid);
+        std::sort(mine.begin(), mine.end()); // /proc is not walked in order
+        assert((mine == std::vector<std::string>{"70", "71"}));
+
+        assert(holdersOfSession(live, "901").size() == 1);
+        // A session whose own Roblox has gone waits for nothing, however much else is in the drive.
+        assert(holdersOfSession(live, "902").empty());
+        // The unstamped one is nobody's, and an unstamped session claims nothing.
+        assert(holdersOfSession(live, "").empty());
+    }
 
     // sessionsToReplace(): only a Player launch replaces anything, and only the
     // live Player clients -- never Studio, never an installer mid-handover.

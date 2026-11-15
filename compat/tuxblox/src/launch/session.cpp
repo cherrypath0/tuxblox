@@ -173,6 +173,11 @@ Session::~Session() {
 
 void Session::initWine() {
     env["WINEPREFIX"] = prefixDir.string();
+    // Inherited by everything this session starts, Roblox's own relaunch of itself included, so the
+    // wait at the end can tell this session's Roblox from one belonging to another session sharing
+    // the drive. This process's own number, because that is already what identifies a session.
+    sessionId = currentSessionId();
+    env[SessionIdVariable] = sessionId;
     env.erase("LC_ALL");
     env.erase("WINEARCH");
 
@@ -291,6 +296,11 @@ void Session::initSession() {
     env.emplace("DXVK_LOG_LEVEL", "error");
     env.emplace("VKD3D_DEBUG", "none");
     env.emplace("VKD3D_SHADER_DEBUG", "none");
+
+    // One line per log file Roblox creates, which is how the launcher tells whose log is whose. Last, so it survives the "-all" above, and skipped when already named so it can still be turned off.
+    if (!silent && env["WINEDEBUG"].find("rbxlogfile") == std::string::npos) {
+        appendToEnvStr(env, "WINEDEBUG", "+rbxlogfile", ",");
+    }
 
     // Synchronization ladder is ntsync, then fsync, then wineserver. Wine
     // picks the best one available; TUXBLOX_NO_FSYNC drops it a rung.
@@ -510,8 +520,8 @@ int Session::runProc(const std::vector<std::string>& command, const Environment&
             }
 
             sigprocmask(SIG_SETMASK, &previous, nullptr);
+            // Not logged: the user asked for it, so there is nothing to tell them about it.
             if (stopRequested) {
-                log("Session closed at TuxBlox's request.");
                 std::exit(0);
             }
             reportExitCodes(exitCodeFromStatus(status));
@@ -619,11 +629,10 @@ bool Session::waitForPrefixDrain(int timeoutSeconds) {
         ::_exit(127);
     }
 
-    // The timeout applies only once nothing but helper processes are left. For
-    // as long as a real Roblox process is connected the deadline is held off:
-    // "still running after 15s" is what a working launch looks like, and the
-    // self-relaunch this wait exists for is exactly an app outliving the
-    // process runProc waited on.
+    // The timeout applies only once the drive holds nothing but helper processes. For as long as
+    // this session's own Roblox is connected the deadline is held off: "still running after 15s" is
+    // what a working launch looks like, and the self-relaunch this wait exists for is exactly an
+    // app outliving the process runProc waited on.
     bool haveDeadline = false;
     bool stopRequested = false;
     bool leaveDrive = false;
@@ -647,36 +656,43 @@ bool Session::waitForPrefixDrain(int timeoutSeconds) {
                 leaveDrive = true;
                 break;
             }
-            log(signalNumber == SIGUSR1 ? "Closing the virtual drive at TuxBlox's request."
-                                        : "Interrupted while waiting for the prefix, tearing it down");
+            // Only the interruption is worth a line; closing on request is what was asked for.
+            if (signalNumber != SIGUSR1) log("Interrupted while waiting for the prefix, tearing it down");
             break;
         }
 
-        // A session that started while this one was draining is the last one out now, so the drive
-        // stops being this one's to wait for or to close.
-        if (otherSessionsInDrive(layerBinary, tuxbloxPrefix)) {
-            log("Another session is using the virtual drive, so it stays open.");
-            leaveDrive = true;
-            break;
-        }
-
+        // Only this session's own Roblox, never another session's: they share the drive, and
+        // waiting for all of it made every session outlive every other one, holding back its exit
+        // code, its crash report and the merge of its log until the last of them closed.
         const std::vector<SessionHolder> holders = prefixSessionHolders(prefixDir);
-        if (!holders.empty()) {
+        const std::vector<SessionHolder> mine = holdersOfSession(holders, sessionId);
+        if (!mine.empty()) {
             // Naming what the wait is on, so an app that never exits reads as
             // a stuck process rather than as a launcher that hung.
-            const std::string description = describeSessionHolders(holders);
+            const std::string description = describeSessionHolders(mine);
             if (description != reported) {
                 reported = description;
                 log("Waiting for " + description +
                     " to close. Press Ctrl+C to close it and tear the prefix down.");
             }
             haveDeadline = false;
-        } else if (!haveDeadline) {
+            continue;
+        }
+
+        // This session is over. Anybody else still in the drive, whether a session of their own or
+        // a Roblox carrying nobody's stamp, makes somebody else the last one out.
+        if (!holders.empty() || otherSessionsInDrive(layerBinary, tuxbloxPrefix)) {
+            log("Another session is using the virtual drive, so it stays open.");
+            leaveDrive = true;
+            break;
+        }
+
+        if (!haveDeadline) {
             haveDeadline = true;
             deadline = ::time(nullptr) + timeoutSeconds;
         } else if (::time(nullptr) >= deadline) {
-            log("Prefix still busy " + std::to_string(timeoutSeconds) +
-                "s after the last app exited, tearing it down");
+            // Not logged: waiting out the last of the drive is the ordinary end of a session, and
+            // saying so read like a fault to anybody looking at the log after a normal close.
             break;
         }
     }

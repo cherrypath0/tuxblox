@@ -18,7 +18,6 @@
 #include <string>
 #include <vector>
 #include "settings.h"
-#include "release_file.h"
 
 namespace tuxblox {
 
@@ -29,10 +28,12 @@ namespace tuxblox {
 //
 // `settingsPresent` is load-bearing and not a convenience: loadSettings() defaults the
 // channel to "stable", so a missing settings.json is indistinguishable from one that
-// chose stable. Without it a fresh canary install -- which has a release file and no
-// settings yet -- would silently read stable's flags.
+// chose stable. Without it a fresh canary install -- which has no settings yet, and may
+// never have one, since settings are only written when something is changed -- would
+// silently read stable's flags. `stamped` is what this binary was published on, which is
+// the only thing a fresh install can be asked.
 std::string flagChannelFor(const Settings& settings, bool settingsPresent,
-                           const RecordedRelease& release);
+                           const std::string& stamped);
 
 // True when installDir holds a settings.json at all.
 bool settingsFilePresent(const std::string& installDir);
@@ -41,6 +42,12 @@ bool settingsFilePresent(const std::string& installDir);
 // launchEnvVars(), which studio-mcp compiles too and which must stay curl-free: a layer
 // started by studio-mcp simply gets neither variable and asks nobody.
 std::vector<std::string> flagEnvVars(const std::string& installDir);
+
+// The same, against a stamped channel of the caller's choosing rather than this binary's own.
+// Exposed so the gate that decides whether the layer may reach the network can be tested, which it
+// otherwise could not be: the real answer is compiled into whichever binary is asking.
+std::vector<std::string> flagEnvVarsFor(const std::string& installDir,
+                                         const std::string& stampedChannel);
 
 // Loads the flags for this install. Reads settings and the recorded release itself, so
 // the caller has one line rather than four. An install with no recorded release -- every
@@ -61,6 +68,7 @@ struct LauncherFlags {
     bool robloxNextVersion = false;   // tbxFlagEnableRobloxNextVersionDownload
     bool updater = true;              // tbxFlagDisableUpdater, which only this machine may set
     bool followPromotedBuild = false; // tbxFlagEnableChannelToUpperChannelUpgradeOnBuildPromotion
+    bool translateWindowsShortcuts = true; // tbxFlagTranslateWindowsShortcuts
     // How many of the Roblox installer's downloads run at once. 1 when the flag that
     // enables them is off, so the switch is "parallel or not" and the number is "how much".
     int robloxInstallerWorkers = 1;

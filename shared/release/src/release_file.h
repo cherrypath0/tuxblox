@@ -157,35 +157,28 @@ std::string latestPointerUrl(const std::string& baseUrl, const std::string& chan
 std::string releaseFileUrl(const std::string& baseUrl, const std::string& channel,
                             const std::string& release);
 
-// --- what an install records about itself -------------------------------
+// --- what an install says it is -----------------------------------------
 
-std::string recordedReleasePath(const std::string& installDir);
+// An install says what it is through its own components: every one of them carries the release it
+// was published in, so there is nothing beside them to read and nothing to go stale.
 
-struct RecordedRelease {
-    bool present = false;  // false for an install made before this file existed, which is ordinary
-    ReleaseFile file;      // valid iff present
+// What the interface stack answers. It is libraries rather than a program, so it carries version.so
+// purely to be asked, and that library exports the release it was published in, the stack's own
+// version, and the channel that release went to. std::nullopt when the stack is absent, or carries
+// no such library, which is an install made before it did.
+struct StackVersions {
+    std::string release;    // empty for a stack that was never published
+    std::string component;  // the stack's own version, which is the one thing it always knows
+    std::string channel;    // empty for a stack that was never published
 };
-
-// Never throws. A missing, unreadable, truncated or wrongly-shaped file all read the same way --
-// "this install does not say which release it is" -- because that is an ordinary state an install
-// can be in, and the launcher reads this on the path that decides whether it can start at all.
-RecordedRelease readRecordedRelease(const std::string& installDir);
-
-// Writes the release file's PUBLISHED bytes, not a re-serialisation of them, so what an install
-// records is exactly what the server served. Written last by the installer, which makes it the
-// "update completed" marker as well as the install's identity.
-bool writeRecordedRelease(const std::string& installDir, const std::string& publishedJson);
-
-// The interface stack has no binary to ask, so it carries its version as a file inside its tarball.
-std::optional<std::string> readStackVersion(const std::string& installDir);
+std::optional<StackVersions> readStackVersions(const std::string& installDir);
 
 // What the copy of `name` on disk says it is, or std::nullopt when this install holds none. One
 // rule, shared, because the launcher deciding "this install is coherent" and the installer deciding
 // "this one is already current" must not be able to reach different answers about the same install.
 //
-// Everything with a binary of its own answers with the RELEASE it was published in, since that is
-// what a binary is asked for its version now. The interface stack has no binary to ask and answers
-// with its own version, which is the only thing it can say about itself.
+// Every component answers with the RELEASE it was published in, since that is what a binary is
+// asked for its version now, and what the interface stack's version.so exports.
 //
 // A component that is present but cannot be asked -- not executable, exits nonzero, prints nothing
 // -- answers std::nullopt, the same as one that is absent. There is nothing to compare, and a
@@ -193,9 +186,11 @@ std::optional<std::string> readStackVersion(const std::string& installDir);
 std::optional<std::string> readComponentIdentity(const std::string& installDir,
                                                   const std::string& name);
 
-// What readComponentIdentity() would answer for an install holding `release`'s copy of `name`. The
-// two belong together: a comparison that built one side by hand would be the place the launcher and
-// the installer drift apart. Empty for a component the release does not name.
-std::string expectedComponentIdentity(const ReleaseFile& release, const std::string& name);
+// The component's OWN version, which is what moved when it moved: 3.7.2 for a launcher, whatever
+// shared/ui/versions.env declares for the interface stack. Every program answers this one with
+// --component-version, and the stack's version.so exports it. std::nullopt on the same terms as
+// readComponentIdentity(): absent, or present and unable to answer.
+std::optional<std::string> readComponentVersion(const std::string& installDir,
+                                                 const std::string& name);
 
 } // namespace tuxblox

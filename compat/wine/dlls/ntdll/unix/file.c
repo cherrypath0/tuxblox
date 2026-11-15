@@ -125,6 +125,7 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(file);
 WINE_DECLARE_DEBUG_CHANNEL(winediag);
+WINE_DECLARE_DEBUG_CHANNEL(rbxlogfile);
 
 #define MAX_DOS_DRIVES 26
 
@@ -5582,6 +5583,75 @@ NTSTATUS open_unix_file( HANDLE *handle, const char *unix_name, ACCESS_MASK acce
 }
 
 
+/* Whether an NT name ends in ".log", lowered as ASCII. */
+static BOOL name_ends_in_log( const WCHAR *name, ULONG len )
+{
+    static const char ext[] = ".log";
+    ULONG i;
+
+    if (len < 4) return FALSE;
+    name += len - 4;
+    for (i = 0; i < 4; i++)
+    {
+        WCHAR c = name[i];
+
+        if (c >= 'A' && c <= 'Z') c += 'a' - 'A';
+        if (c != (WCHAR)ext[i]) return FALSE;
+    }
+    return TRUE;
+}
+
+
+/* Names each log file as it is created, so the reader of a session log knows which log is whose.
+ * MESSAGE rather than TRACE: the line is for that reader, so it carries no channel prefix.
+ */
+static void announce_created_log_file( const UNICODE_STRING *nt_name )
+{
+    static const WCHAR nt_prefix[] = {'\\','?','?','\\'};
+    const WCHAR *name = nt_name->Buffer;
+    ULONG len = nt_name->Length / sizeof(WCHAR);
+    static struct timespec first;
+    char path[3 * MAX_PATH], stamp[96] = "";
+    struct timespec now, since;
+    struct tm utc;
+    double elapsed = 0.0;
+    int size;
+
+    if (!name || !name_ends_in_log( name, len )) return;
+
+    /* Not a path any program could open, so the line carries the DOS one. */
+    if (len > ARRAY_SIZE(nt_prefix) && !memcmp( name, nt_prefix, sizeof(nt_prefix) ))
+    {
+        name += ARRAY_SIZE(nt_prefix);
+        len -= ARRAY_SIZE(nt_prefix);
+    }
+
+    size = ntdll_wcstoumbs( name, len, path, sizeof(path) - 1, FALSE );
+    if (size <= 0) return;
+    path[size] = 0;
+
+    /* Laid out the way Roblox lays out its own lines, so this sits in the same column as the rest
+     * of the session log rather than breaking the run of times down the side of it.
+     *
+     * The elapsed seconds count from the first of these written in this process. Not the tick
+     * count: that one counts from when the machine booted, which put five figures in a column
+     * everything else keeps to one or two. */
+    if (!clock_gettime( CLOCK_MONOTONIC, &since ))
+    {
+        if (!first.tv_sec && !first.tv_nsec) first = since;
+        elapsed = (double)(since.tv_sec - first.tv_sec) +
+                  (double)(since.tv_nsec - first.tv_nsec) / 1e9;
+        if (elapsed < 0.0) elapsed = 0.0;
+    }
+    if (!clock_gettime( CLOCK_REALTIME, &now ) && gmtime_r( &now.tv_sec, &utc ))
+        snprintf( stamp, sizeof(stamp), "%04d-%02d-%02dT%02d:%02d:%02d.%03dZ,%.6f,%04x,6,Info ",
+                  utc.tm_year + 1900, utc.tm_mon + 1, utc.tm_mday, utc.tm_hour, utc.tm_min,
+                  utc.tm_sec, (int)(now.tv_nsec / 1000000), elapsed,
+                  (unsigned)GetCurrentThreadId() & 0xffff );
+    MESSAGE( "%sTuxBlox: created logfile: %s\n", stamp, path );
+}
+
+
 /******************************************************************************
  *              NtCreateFile   (NTDLL.@)
  */
@@ -5661,6 +5731,10 @@ NTSTATUS WINAPI NtCreateFile( HANDLE *handle, ACCESS_MASK access, OBJECT_ATTRIBU
             io->Information = FILE_OVERWRITTEN;
             break;
         }
+
+        /* new_attr.ObjectName, never nt_name: that one is filled only on a rewrite. */
+        if (io->Information == FILE_CREATED && TRACE_ON(rbxlogfile))
+            announce_created_log_file( new_attr.ObjectName );
 
         if (io->Information == FILE_CREATED &&
             ((attributes & XATTR_ATTRIBS_MASK) || name_hidden))

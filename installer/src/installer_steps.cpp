@@ -111,8 +111,10 @@ std::vector<std::string> componentsToInstall(const ReleaseFile& release,
     for (const std::string& name : componentNames()) {
         const auto entry = release.components.find(name);
         if (entry == release.components.end()) continue;
+        // Every component of a release carries that release, so one already at it is one already
+        // installed, whatever its own version happens to be.
         const std::optional<std::string> have = readComponentIdentity(installDir, name);
-        if (!have.has_value() || *have != expectedComponentIdentity(release, name)) needed.push_back(name);
+        if (!have.has_value() || *have != release.release) needed.push_back(name);
     }
     return needed;
 }
@@ -124,8 +126,7 @@ InstallOutcome runInstall(const ReleaseFile& release,
                            bool isUpgrade,
                            const std::string& installDirOverride,
                            const std::string& robloxPlayerInstallerUrl,
-                           const std::string& robloxStudioInstallerUrl,
-                           const std::string& releaseJson) {
+                           const std::string& robloxStudioInstallerUrl) {
     const std::string dir = resolveInstallDir(installDirOverride);
 
     // A plan per artifact, built up front -- lets total download bytes (and
@@ -490,13 +491,10 @@ InstallOutcome runInstall(const ReleaseFile& release,
         }
         report(robloxStudioPhase, 1.0);
 
-        // Last, and only here: this file is the install's identity AND its "update completed"
-        // marker, so it must not exist until every component is in place. A failure anywhere above
-        // leaves an install that says it is still the release it was, which is true.
-        if (!releaseJson.empty() && !writeRecordedRelease(dir, releaseJson)) {
-            return {false, false, i18n::tr("Installed, but could not record which release this is"), ""};
-        }
-
+        // Nothing is written to say which release this install is: every component carries that
+        // inside it. A failure anywhere above leaves the components that did land naming the new
+        // release and the rest naming the old one, which is exactly what the launcher reads as a
+        // half-applied update and repairs without asking.
         return {true, false, "", launcherFinalPath};
     } catch (const std::exception& e) {
         cleanupTmpPaths();

@@ -173,6 +173,12 @@ bool imageIsInstaller(const std::string& image) {
            InstallerHolderImages.end();
 }
 
+const char* const SessionIdVariable = "TUXBLOX_SESSION_ID";
+
+std::string currentSessionId() {
+    return std::to_string(::getpid());
+}
+
 std::vector<SessionHolder> prefixSessionHoldersIn(const fs::path& procRoot, const fs::path& prefixDir) {
     std::vector<SessionHolder> holders;
     const std::string wanted = normalized(prefixDir.string());
@@ -202,6 +208,7 @@ std::vector<SessionHolder> prefixSessionHoldersIn(const fs::path& procRoot, cons
         holder.pid = pid;
         holder.image = image;
         holder.client = client;
+        holder.sessionId = envValue(entry.path() / "environ", SessionIdVariable);
         holders.push_back(holder);
     }
     return holders;
@@ -209,6 +216,20 @@ std::vector<SessionHolder> prefixSessionHoldersIn(const fs::path& procRoot, cons
 
 std::vector<SessionHolder> prefixSessionHolders(const fs::path& prefixDir) {
     return prefixSessionHoldersIn("/proc", prefixDir);
+}
+
+std::vector<SessionHolder> holdersOfSession(const std::vector<SessionHolder>& holders,
+                                            const std::string& sessionId) {
+    std::vector<SessionHolder> mine;
+    if (sessionId.empty()) {
+        return mine;
+    }
+    for (const SessionHolder& holder : holders) {
+        if (holder.sessionId == sessionId) {
+            mine.push_back(holder);
+        }
+    }
+    return mine;
 }
 
 std::vector<std::string> sessionsToReplace(const std::string& image,
