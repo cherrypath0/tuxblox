@@ -29,7 +29,6 @@ namespace {
 // naming the same one. Their own versions differ and are not what this decision is about.
 InstallState coherent() {
     InstallState s;
-    s.published = true;
     s.installedRelease = "3.6.0.0";
     s.installedIdentities = {{"launcher", "3.6.0.0"}, {"installer", "3.6.0.0"},
                             {"studio-mcp", "3.6.0.0"}, {"compat", "3.6.0.0"},
@@ -112,21 +111,36 @@ void test_an_install_with_no_record_is_offered_an_ordinary_update() {
     printf("  an install with no record is offered an ordinary update\n");
 }
 
-// A tree built on this machine: its components are replaced one at a time, so it is incoherent by
-// construction, and repairing it means fetching a published release over the top of a local build.
-void test_an_unpublished_install_is_never_repaired() {
+// A tree built here is ahead of its channel, in the release or in one component. Repairing it would
+// fetch the published release over the top of the build, so nothing is done at all.
+void test_an_install_ahead_of_its_channel_is_left_alone() {
     InstallState s = coherent();
-    s.published = false;
+    s.installedRelease = "3.6.0.1";
     s.installedIdentities["compat"] = "3.5.0.0";
     UpdateDecision d = decideUpdate(s, "3.6.0.0", false);
+    assert(d.internal);
+    assert(!d.update);
     assert(!d.forced);
     assert(d.incoherent.empty());
-    // Still offered what is published, which Auto-Update then gates.
-    assert(!d.update);
-    UpdateDecision stale = decideUpdate(s, "3.6.0.1", false);
-    assert(stale.update);
-    assert(!stale.forced);
-    printf("  an unpublished install is never repaired\n");
+    assert(!d.reason.empty());
+
+    // Ahead in one component alone, with the release matching, counts the same way.
+    InstallState one = coherent();
+    one.installedVersions = {{"compat", "3.12.0"}};
+    one.publishedVersions = {{"compat", "3.11.0"}};
+    UpdateDecision only = decideUpdate(one, "3.6.0.0", false);
+    assert(only.internal);
+    assert(!only.update);
+
+    // An install level with the channel is not internal, and is still repaired when it is broken.
+    InstallState level = coherent();
+    level.installedVersions = {{"compat", "3.11.0"}};
+    level.publishedVersions = {{"compat", "3.11.0"}};
+    level.installedIdentities["compat"] = "3.5.0.0";
+    UpdateDecision broken = decideUpdate(level, "3.6.0.0", false);
+    assert(!broken.internal);
+    assert(broken.forced);
+    printf("  an install ahead of its channel is left alone\n");
 }
 
 void test_an_install_with_no_record_and_nothing_published_does_nothing() {
@@ -212,7 +226,7 @@ int main() {
     test_a_component_the_release_names_but_the_install_lacks_is_forced();
     test_norollback_suppresses_the_forced_path_only();
     test_an_install_with_no_record_is_offered_an_ordinary_update();
-    test_an_unpublished_install_is_never_repaired();
+    test_an_install_ahead_of_its_channel_is_left_alone();
     test_an_install_with_no_record_and_nothing_published_does_nothing();
     test_a_component_the_release_does_not_name_is_ignored();
     test_several_incoherent_components_are_reported_in_component_order();

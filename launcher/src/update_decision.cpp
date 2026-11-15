@@ -52,6 +52,25 @@ UpdateDecision decideUpdate(const InstallState& state, const std::string& namedR
     // Nothing published on this channel yet. Not an error, and not something to repair towards.
     if (namedRelease.empty()) return decision;
 
+    // Ahead of the channel in the release or in any single component: built here, not downloaded.
+    // Repairing it would fetch the published release over the top of the build, and offering it an
+    // older release is not an update, so nothing is done at all.
+    if (compareDottedVersions(state.installedRelease, namedRelease) > 0) {
+        decision.internal = true;
+        decision.reason = "this install is ahead of " + namedRelease + ", so it is left alone";
+        return decision;
+    }
+    for (const auto& [name, version] : state.installedVersions) {
+        const auto published = state.publishedVersions.find(name);
+        if (published == state.publishedVersions.end()) continue;
+        if (compareDottedVersions(version, published->second) > 0) {
+            decision.internal = true;
+            decision.reason = listed({name}) + " " + version + " is ahead of the published " +
+                              published->second + ", so this install is left alone";
+            return decision;
+        }
+    }
+
     if (state.installedRelease.empty()) {
         // There is nothing to check coherence against, so the only question left is whether
         // something is published -- and it is. Offered rather than forced: the install works, it
@@ -64,7 +83,7 @@ UpdateDecision decideUpdate(const InstallState& state, const std::string& namedR
     // Every component of a release carries that release inside it, so an install is coherent when
     // all of them name the same one. A component that is absent, or that cannot be asked, is as
     // much a half-applied update as one naming a different release.
-    for (const std::string& name : state.published ? componentNames() : std::vector<std::string>{}) {
+    for (const std::string& name : componentNames()) {
         const auto installed = state.installedIdentities.find(name);
         if (installed == state.installedIdentities.end() ||
             installed->second != state.installedRelease) {

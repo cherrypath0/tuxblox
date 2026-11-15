@@ -477,6 +477,31 @@ std::optional<std::string> readComponentVersion(const std::string& installDir,
     return askBinaryVersion(installDir + "/proton/main", "--component-version");
 }
 
+int compareDottedVersions(const std::string& left, const std::string& right) {
+    const auto fields = [](const std::string& text) {
+        std::vector<long long> out;
+        size_t at = 0;
+        while (at <= text.size()) {
+            const size_t dot = text.find('.', at);
+            const std::string part = text.substr(at, dot == std::string::npos ? std::string::npos : dot - at);
+            if (part.empty() || part.find_first_not_of("0123456789") != std::string::npos) return std::vector<long long>();
+            out.push_back(std::stoll(part));
+            if (dot == std::string::npos) break;
+            at = dot + 1;
+        }
+        return out;
+    };
+    const std::vector<long long> a = fields(left);
+    const std::vector<long long> b = fields(right);
+    if (a.empty() || b.empty()) return 0;
+    for (size_t i = 0; i < a.size() || i < b.size(); i++) {
+        const long long one = i < a.size() ? a[i] : 0;
+        const long long two = i < b.size() ? b[i] : 0;
+        if (one != two) return one < two ? -1 : 1;
+    }
+    return 0;
+}
+
 std::optional<StackVersions> readStackVersions(const std::string& installDir) {
     const std::string path = installDir + "/libtuxblox/version.so";
     std::error_code error;

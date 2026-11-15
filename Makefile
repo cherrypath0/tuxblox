@@ -915,8 +915,7 @@ define prepare_layer
 	        tar -cf "$$cache.part" External && mv -f "$$cache.part" "$$cache" && \
 	        echo ":: Cached glslang externals for future builds"; fi
 	cd compat/submodules/dxvk-nvapi && git submodule update --init --recursive
-	cd $(PROTON) && make wine-x86_64-configure TUXBLOX_COMPAT_VERSION=$(COMPAT_VERSION) \
-	    CROSSLDFLAGS="-Wl,--no-insert-timestamp"
+	cd $(PROTON) && make wine-x86_64-configure TUXBLOX_COMPAT_VERSION=$(COMPAT_VERSION)
 	cd $(PROTON)/obj-wine-x86_64 && make nls/locale.nls
 endef
 
@@ -943,6 +942,7 @@ $(COMPAT): $(COMPAT_SRC) $(PATCHES) $(LIBS) $(LAUNCHER) $(WEBVIEW) | $(PODMAN)
 	    sed -i -e "s/^#time=.*/#time=$$Stamp/" \
 	        -e "s/^\(\[.*\]\) [0-9][0-9]*$$/\1 $(SOURCE_DATE_EPOCH)/" "$$Skeleton"/*.reg; \
 	    printf '%s\n' "$(SOURCE_DATE_EPOCH)" > "$$Skeleton/.update-timestamp"
+	@python3 shared/tools/strip-pe-timestamps.py $(BUILD)/compat
 
 # Stops once every package has compiled. Proton's own all-build does the work; the webview bundle
 # and the launcher are left out because only the staging step reads them.

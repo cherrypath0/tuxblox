@@ -42,11 +42,11 @@ struct InstallState {
     // launcher cannot be asked: then there is nothing to check the rest against, and the only
     // question left is whether something newer is published.
     std::string installedRelease;
-    // False only for an install that says outright it was never published. The build bakes the
-    // channel in now, so a tree built on this machine no longer says that: it reads as published and
-    // is repaired into a release rather than offered one, which fetches that release over the top of
-    // the local build. Set tbxFlagDisableUpdater while working on a tree you built.
-    bool published = true;
+    // Each installed component's own version, and the version the channel publishes for it. An
+    // install ahead of the channel in either the release or any one component was built here rather
+    // than downloaded, and is left alone: see `internal` below.
+    std::map<std::string, std::string> installedVersions;
+    std::map<std::string, std::string> publishedVersions;
     // Component name -> the release the copy on disk says it was published in. A component that is
     // not installed, or cannot be asked, is absent from the map rather than present empty.
     std::map<std::string, std::string> installedIdentities;
@@ -60,6 +60,9 @@ struct UpdateDecision {
     // The components that disagree with the recorded release, in component order. Filled even when
     // noRollback suppressed the update, so the caller can say what it saw and did not act on.
     std::vector<std::string> incoherent;
+    // True when this install is ahead of what its channel publishes, which nothing downloaded can
+    // be. Then nothing is updated and nothing is repaired, and the window says so in its title.
+    bool internal = false;
     std::string reason;  // one sentence for the log; empty when nothing is to be done
 };
 

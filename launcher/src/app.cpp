@@ -846,6 +846,11 @@ void App::updateCheckThreadMain() {
     auto result = runUpdateCheck(setupBaseUrl(), releaseChannel, *namedRelease,
         [&](UpdateProgress p) { report(p); },
         &updateCancel_, installDir_);
+    {
+        // Recorded whatever else is decided, because the window title is drawn from it.
+        std::lock_guard<std::mutex> lock(mutex_);
+        snapshot_.internalBuild = result.internal;
+    }
     if (result.needsHandoff) {
         // Deliberately gated on autoUpdate alone, even when
         // result.protonMissing is true (no Proton install at all, e.g. a

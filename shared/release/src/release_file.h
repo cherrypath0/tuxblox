@@ -193,4 +193,9 @@ std::optional<std::string> readComponentIdentity(const std::string& installDir,
 std::optional<std::string> readComponentVersion(const std::string& installDir,
                                                  const std::string& name);
 
+// Negative, zero or positive as `left` sorts below, with, or above `right`. Dotted numbers,
+// field by field, a missing field counting as zero, so "3.11" and "3.11.0" are the same number.
+// Anything that is not a number compares equal: an unreadable version is not evidence either way.
+int compareDottedVersions(const std::string& left, const std::string& right);
+
 } // namespace tuxblox

@@ -224,11 +224,15 @@ UpdateResult runUpdateCheck(const std::string& baseUrl,
     // against that. There is nothing else to check against: the release lives inside the
     // components themselves rather than in a file beside them.
     state.installedRelease = launcherVersion.value_or("");
-    // The interface stack is asked which channel it was published on, because it is the one
-    // component that answers without being run. Since the build bakes a channel in, the only stack
-    // without one is from an install older than that, not a tree built here: see InstallState.
-    const std::optional<StackVersions> stack = readStackVersions(dir);
-    state.published = !stack.has_value() || !stack->channel.empty();
+    // What each component says its own version is, against what the channel publishes for it.
+    for (const std::string& name : componentNames()) {
+        const std::optional<std::string> own = readComponentVersion(dir, name);
+        if (own.has_value()) state.installedVersions[name] = *own;
+        const auto published = result.release.components.find(name);
+        if (published != result.release.components.end()) {
+            state.publishedVersions[name] = published->second.version;
+        }
+    }
 
     // Nothing installed at all is a first run, not a broken install -- and it is the layer being
     // there that makes the rest of the pieces overdue, since one release places them all together.
@@ -244,11 +248,14 @@ UpdateResult runUpdateCheck(const std::string& baseUrl,
 
     if (!decision.update && !compatMissing) {
         report(UpdatePhase::UpToDate, 1.0);
-        return {};
+        UpdateResult quiet;
+        quiet.internal = decision.internal;
+        return quiet;
     }
 
     result.needsHandoff = true;
     result.forced = decision.forced;
+    result.internal = decision.internal;
     result.compatMissing = compatMissing;
     std::map<std::string, std::string> namedVersions;
     for (const auto& [name, component] : result.release.components) namedVersions[name] = component.version;

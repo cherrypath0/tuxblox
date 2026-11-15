@@ -78,6 +78,8 @@ struct UpdateResult {
     // True iff the update bypasses the Auto-Update setting: the installed components do not match
     // the release this install records, which is broken rather than merely out of date.
     bool forced = false;
+    // True when the install is ahead of its channel, so nothing was done and the window says so.
+    bool internal = false;
     // True iff there is no compatibility layer at all, as opposed to an outdated one -- nothing can
     // be launched yet, which App::updateCheckThreadMain() treats differently from an ordinary update.
     bool compatMissing = false;

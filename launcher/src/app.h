@@ -95,6 +95,8 @@ struct AppSnapshot {
     // directly instead -- see updateCheckThreadMain()'s comment). Cleared
     // by dismissUpdateNotification().
     std::optional<std::string> updateAvailableVersion;
+    // This install is ahead of its channel, so it was built here rather than downloaded.
+    bool internalBuild = false;
     // The components that move, filled in the same critical section as the version above, so a
     // reader that has seen one has seen the other. Empty until an update is offered.
     std::vector<ComponentChange> updateChanges;

@@ -151,6 +151,9 @@ gboolean onTick(gpointer data) {
     if (pUi->pUpdateButton != nullptr) {
         gtk_widget_set_visible(pUi->pUpdateButton, snap.updateAvailableVersion.has_value());
     }
+    // Said in the title because it is true of the whole window, and because a build you made is
+    // easy to mistake for the install when both are open.
+    gtk_window_set_title(pUi->pWindow, snap.internalBuild ? "TuxBlox (Internal)" : "TuxBlox");
     if (pUi->appliedTheme != launcherThemeFor(snap.settings.theme)) {
         pUi->appliedTheme = launcherThemeFor(snap.settings.theme);
         applyLauncherTheme(pUi->appliedTheme);
