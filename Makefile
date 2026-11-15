@@ -934,6 +934,11 @@ $(COMPAT): $(COMPAT_SRC) $(PATCHES) $(LIBS) $(LAUNCHER) $(WEBVIEW) | $(PODMAN)
 	cp -a LICENSE $(BUILD)/compat/LICENSE
 	rm -rf $(BUILD)/compat/third_party_licenses
 	cp -a third_party_licenses $(BUILD)/compat/third_party_licenses
+	@# wineboot writes the moment it created each key into the skeleton registry, so the layer came
+	@# out different for every build. The skeleton's keys are all written in one pass anyway, so one
+	@# value from the commit date costs nothing and makes two builds of a commit identical.
+	@Stamp=$$(printf '%x' $$(( ($(SOURCE_DATE_EPOCH) + 11644473600) * 10000000 ))); \
+	    sed -i "s/^#time=.*/#time=$$Stamp/" $(BUILD)/compat/files/share/default_pfx/*.reg
 
 # Stops once every package has compiled. Proton's own all-build does the work; the webview bundle
 # and the launcher are left out because only the staging step reads them.

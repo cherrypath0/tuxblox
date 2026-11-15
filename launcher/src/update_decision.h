@@ -42,10 +42,10 @@ struct InstallState {
     // launcher cannot be asked: then there is nothing to check the rest against, and the only
     // question left is whether something newer is published.
     std::string installedRelease;
-    // False only for an install that says outright it was never published, which is a tree built
-    // on this machine: its components carry a release from the VERSION file but no channel, because
-    // only staging can write one. Such a tree is incoherent by construction as its components are
-    // rebuilt one at a time, so it is offered a release rather than repaired into one.
+    // False only for an install that says outright it was never published. The build bakes the
+    // channel in now, so a tree built on this machine no longer says that: it reads as published and
+    // is repaired into a release rather than offered one, which fetches that release over the top of
+    // the local build. Set tbxFlagDisableUpdater while working on a tree you built.
     bool published = true;
     // Component name -> the release the copy on disk says it was published in. A component that is
     // not installed, or cannot be asked, is absent from the map rather than present empty.

@@ -225,8 +225,8 @@ UpdateResult runUpdateCheck(const std::string& baseUrl,
     // components themselves rather than in a file beside them.
     state.installedRelease = launcherVersion.value_or("");
     // The interface stack is asked which channel it was published on, because it is the one
-    // component that answers without being run. No channel means nobody published this install,
-    // and a tree built on this machine is not something to repair over the top of.
+    // component that answers without being run. Since the build bakes a channel in, the only stack
+    // without one is from an install older than that, not a tree built here: see InstallState.
     const std::optional<StackVersions> stack = readStackVersions(dir);
     state.published = !stack.has_value() || !stack->channel.empty();
 
