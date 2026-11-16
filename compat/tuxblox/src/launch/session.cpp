@@ -292,7 +292,8 @@ void Session::initSession() {
     // that would otherwise reach us with nothing to go on. A lost graphics
     // device reaches Roblox as an opaque "device removed" and reaches us, at
     // "none", as nothing at all.
-    env.emplace("WINEDEBUG", "-all");
+    // err+seh is the same bargain as DXVK's "error": silent until a fault is already killing the process, and then the only line naming the exception and the address it happened at. Without it an assertion or an abort inside the layer reaches us as a bare exit code and nothing else.
+    env.emplace("WINEDEBUG", "-all,err+seh");
     env.emplace("DXVK_LOG_LEVEL", "error");
     env.emplace("VKD3D_DEBUG", "none");
     env.emplace("VKD3D_SHADER_DEBUG", "none");
