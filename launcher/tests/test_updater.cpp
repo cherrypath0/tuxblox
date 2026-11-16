@@ -349,12 +349,79 @@ void test_a_handoff_that_cannot_be_written_says_why() {
 
 } // namespace
 
+// A Flatpak's bundle cannot be stamped, so the release it reports is the one it was compiled with.
+// Judging it on that read as permanently out of date; it is judged on each part's own version.
+void test_a_flatpak_bundle_is_judged_on_component_versions_not_the_release() {
+    const fs::path dir = gWork / "flatpak_bundle";
+    fs::create_directories(dir);
+    // Every part's own version is 3.9.0, and the release it answers with is deliberately nothing
+    // like the one published: that is exactly the Flatpak's situation.
+    // libtuxblox is left out: its version comes from the real library's own exported value, which
+    // a stub cannot set. Every part is judged by the same two lines, so the two stubs cover it.
+    writeVersionStub(dir / "TuxBloxLauncher", "0.0.0.0", "3.9.0");
+    writeVersionStub(dir / "studio-mcp", "0.0.0.0", "2.2.0");
+
+    ReleaseFile release;
+    release.release = "3.12.14.0";
+    release.components["launcher"].version = "3.9.0";
+    release.components["studio-mcp"].version = "2.2.0";
+    assert(!flatpakBundleBehind(release, dir.string()));
+
+    // One part moved on, so flatpak has something to fetch.
+    release.components["studio-mcp"].version = "2.3.0";
+    assert(flatpakBundleBehind(release, dir.string()));
+
+    // Ahead of the channel is not behind it: a locally built bundle must not be sent after an
+    // update that does not exist.
+    release.components["studio-mcp"].version = "2.1.0";
+    assert(!flatpakBundleBehind(release, dir.string()));
+
+    // compat is fetched by the launcher itself, so it never makes the bundle look stale.
+    release.components["studio-mcp"].version = "2.2.0";
+    release.components["compat"].version = "99.0.0";
+    assert(!flatpakBundleBehind(release, dir.string()));
+
+    // A part the release does not name, and one that cannot be asked, are both no evidence.
+    release.components.erase("launcher");
+    assert(!flatpakBundleBehind(release, dir.string()));
+    fs::remove(dir / "studio-mcp");
+    release.components["studio-mcp"].version = "9.9.9";
+    assert(!flatpakBundleBehind(release, dir.string()));
+    printf("  a Flatpak bundle is judged on component versions, not the release\n");
+}
+
+// A layer from a release published before stamping answers with its own component version, not the
+// release. Comparing against the release alone made every launch re-download the whole layer.
+void test_a_layer_naming_its_component_version_is_not_refetched() {
+    const fs::path dir = gWork / "compat_identity";
+    fs::create_directories(dir / "compat");
+    ReleaseFile release;
+    release.release = "3.9.11.0";
+    auto &compat = release.components["compat"];
+    compat.version = "3.9.0";
+    compat.x86_64 = ComponentBytes{};
+
+    // Answers "3.9.0" to --version: its component version, which is what the release names.
+    writeVersionStub(dir / "compat" / "main", "3.9.0");
+    // ensureCompatInstalled would have to reach the network to do anything but skip, so returning
+    // ok without one is the whole assertion: a mismatch here is a gigabyte downloaded every launch.
+    const EnsureCompatResult same = ensureCompatInstalled(release, "http://127.0.0.1:1", dir.string(), nullptr, nullptr);
+    assert(same.ok);
+
+    // A stamped layer answers with the release itself, which must also count as current.
+    writeVersionStub(dir / "compat" / "main", "3.9.11.0");
+    assert(ensureCompatInstalled(release, "http://127.0.0.1:1", dir.string(), nullptr, nullptr).ok);
+    printf("  a layer naming its component version is not refetched\n");
+}
+
 int main() {
     gWork = fs::temp_directory_path() / "tuxblox_test_updater";
     fs::remove_all(gWork);
     fs::create_directories(gWork);
 
     test_download_progress_fraction();
+    test_a_flatpak_bundle_is_judged_on_component_versions_not_the_release();
+    test_a_layer_naming_its_component_version_is_not_refetched();
     test_reads_the_four_components_it_can_ask();
     test_a_component_that_cannot_be_asked_counts_as_absent();
     test_an_unpublished_or_malformed_pointer_is_nothing_to_update_to();

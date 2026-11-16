@@ -100,6 +100,19 @@ HomePage::HomePage(App &app, std::string installDir) : app_(app) {
     gtk_widget_set_margin_top(pError_, 12);
     gtk_box_append(GTK_BOX(pBox), pError_);
 
+    // Shown only when the layer is missing, which is a state only a Flatpak reaches: it fetches its
+    // own, and a failed fetch otherwise leaves a launcher that will not start anything and cannot
+    // say what to do about it.
+    if constexpr (kFlatpakBuild) {
+        pRuntimeRetry_ = gtk_button_new_with_label(i18n::tr("Install the runtime"));
+        gtk_widget_add_css_class(pRuntimeRetry_, "suggested-action");
+        gtk_widget_set_halign(pRuntimeRetry_, GTK_ALIGN_CENTER);
+        gtk_widget_set_margin_top(pRuntimeRetry_, 10);
+        gtk_widget_set_visible(pRuntimeRetry_, FALSE);
+        g_signal_connect(pRuntimeRetry_, "clicked", G_CALLBACK(onRuntimeRetry), this);
+        gtk_box_append(GTK_BOX(pBox), pRuntimeRetry_);
+    }
+
     GtkWidget *pSpacer = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
     gtk_widget_set_vexpand(pSpacer, TRUE);
     gtk_box_append(GTK_BOX(pBox), pSpacer);
@@ -356,6 +369,10 @@ void HomePage::setCard(Card &card, bool installed, const std::string &versionLab
     gtk_widget_set_sensitive(GTK_WIDGET(card.pButton), !(state.launchStops && stopping) && !state.launchDisabled);
 }
 
+void HomePage::onRuntimeRetry(GtkButton *, gpointer data) {
+    static_cast<HomePage *>(data)->app_.requestRuntimeInstall();
+}
+
 void HomePage::setUpdateState(const std::string &text, const std::string &styleClass) {
     setLabelText(pUpdateState_, text);
     if (styleClass == updateStateClass_) return;
@@ -370,29 +387,52 @@ void HomePage::update(const AppSnapshot &snap) {
     setCard(studio_, !snap.versions.studio.activeHash.empty(), versionLabel(snap.versions.studio),
             snap.sessions.studio, snap.stoppingStudio, snap.launchPending, launcherFlags().playerButton);
 
+    // A Flatpak fetches its own compatibility layer, and one that does not match this release is
+    // no use: after a flatpak update the layer on disk belongs to the release before it. So the
+    // fetch takes the screen over the same way an update does, and nothing can be launched until
+    // it lands -- a card left clickable here starts Roblox against a layer that is not there.
+    const bool runtimeBusy = kFlatpakBuild && snap.update.phase == UpdatePhase::FetchingCompat;
+    const bool runtimeBlocked = kFlatpakBuild && (snap.runtimeMissing || runtimeBusy);
+
     // Only an update actually being applied takes the screen over. Merely checking leaves the cards
     // there and says so in the strip at the bottom, so nothing flickers in and out on startup.
-    const bool applying = snap.update.phase == UpdatePhase::PreparingUpdater;
+    const bool applying = snap.update.phase == UpdatePhase::PreparingUpdater || runtimeBusy;
     gtk_widget_set_visible(pUpdateStatus_, applying);
     gtk_widget_set_visible(pUpdateBar_, applying);
-    gtk_widget_set_visible(pCards_, !applying);
-    gtk_widget_set_visible(pSessions_, !applying);
-    gtk_widget_set_visible(GTK_WIDGET(pTitle_), applying);
+    gtk_widget_set_visible(pCards_, !applying && !runtimeBlocked);
+    gtk_widget_set_visible(pSessions_, !applying && !runtimeBlocked);
+    gtk_widget_set_visible(GTK_WIDGET(pTitle_), applying || runtimeBlocked);
 
-    if (!applying) setSessions(snap.sessionList);
+    if (!applying && !runtimeBlocked) setSessions(snap.sessionList);
+
+    if (pRuntimeRetry_ != nullptr) {
+        // Set above the early return below, which is taken while a fetch is running: left until
+        // after it, a button from the attempt that failed stays on screen through the retry.
+        gtk_widget_set_visible(pRuntimeRetry_, runtimeBlocked && !runtimeBusy);
+    }
 
     if (applying) {
-        setLabelText(pTitle_, i18n::tr("Updating TuxBlox"));
-        setLabelText(GTK_LABEL(pUpdateStatus_), i18n::tr("Preparing updater"));
+        setLabelText(pTitle_, runtimeBusy ? i18n::tr("Updating the runtime")
+                                          : i18n::tr("Updating TuxBlox"));
+        setLabelText(GTK_LABEL(pUpdateStatus_),
+                     runtimeBusy ? i18n::tr("Downloading the compatibility layer")
+                                 : i18n::tr("Preparing updater"));
         gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(pUpdateBar_), snap.update.fraction);
         setUpdateState(i18n::tr("Updating"), "warning");
         showError(pError_, "");
         return;
     }
 
+    if (runtimeBlocked) {
+        // The fetch is not running, so this is the attempt that failed: the cards are gone and the
+        // title is all that is left to say why before the error and the retry below it.
+        setLabelText(pTitle_, i18n::tr("The runtime is not ready"));
+    }
+
     if (snap.update.phase == UpdatePhase::Error) {
         showError(pError_, snap.update.errorMessage);
-        setUpdateState(i18n::tr("Update check failed"), "error");
+        setUpdateState(snap.runtimeMissing ? i18n::tr("The runtime is not installed")
+                                           : i18n::tr("Update check failed"), "error");
         return;
     }
 

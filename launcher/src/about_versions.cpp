@@ -18,6 +18,7 @@
 
 #include "i18n.h"
 #include "release_file.h"
+#include "version.h"
 
 namespace tuxblox {
 
@@ -35,6 +36,9 @@ AboutVersions aboutVersions(const std::string& installDir, const std::string& la
         // version tracks theirs and says nothing a reader of this screen can act on. It is still a
         // component, still downloaded and still named while it installs -- just not listed here.
         if (name == "libtuxblox") continue;
+        // A Flatpak ships no installer, so listing it names a part that is never coming rather than
+        // one that is missing: flatpak replaces the whole app, and nothing here ever installs it.
+        if (kFlatpakBuild && name == "installer") continue;
         const std::string display = componentLayout(name)->displayName;
         // The launcher is the one asking, so it answers from the binary that is running rather
         // than from a copy on disk, which may not be the one that was started.

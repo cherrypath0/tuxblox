@@ -156,6 +156,7 @@ App::~App() {
     if (terminateThread_.joinable()) terminateThread_.join();
     if (updateThread_.joinable()) updateThread_.join();
     if (updateApplyThread_.joinable()) updateApplyThread_.join();
+    if (runtimeInstallThread_.joinable()) runtimeInstallThread_.join();
     if (uninstallThread_.joinable()) uninstallThread_.join();
     if (wipePrefixThread_.joinable()) wipePrefixThread_.join();
     if (versionInstallThread_.joinable()) versionInstallThread_.join();
@@ -710,6 +711,40 @@ void App::requestUpdateNow() {
     updateApplyThread_ = std::thread(&App::updateApplyThreadMain, this);
 }
 
+void App::requestRuntimeInstall() {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        // Nothing to fetch against yet: the update check has not reached a release this run.
+        if (pendingRelease_.release.empty()) return;
+    }
+    if (runtimeInstallStarted_.exchange(true)) return; // already fetching -- ignore repeat clicks
+    if (runtimeInstallThread_.joinable()) runtimeInstallThread_.join();
+    runtimeInstallThread_ = std::thread(&App::runtimeInstallThreadMain, this);
+}
+
+void App::runtimeInstallThreadMain() {
+    ReleaseFile release;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        release = pendingRelease_;
+    }
+    const EnsureCompatResult fetched = ensureCompatInstalled(
+        release, setupBaseUrl(), installDir_, &updateCancel_,
+        [&](UpdateProgress p) {
+            std::lock_guard<std::mutex> lock(mutex_);
+            snapshot_.update = p;
+        });
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        snapshot_.runtimeMissing = !fetched.ok;
+        if (!fetched.ok && !fetched.errorMessage.empty()) {
+            snapshot_.update = {UpdatePhase::Error, 0.0, fetched.errorMessage};
+        }
+    }
+    // Last, so a click arriving now starts a fresh attempt rather than being swallowed by this one.
+    runtimeInstallStarted_.store(false);
+}
+
 void App::updateApplyThreadMain() {
     ReleaseFile release;
     std::string releaseJson;
@@ -802,6 +837,16 @@ void App::updateCheckThreadMain() {
 
     report({UpdatePhase::CheckingManifest, 0.0});
 
+    // Asked of the install rather than inferred from a fetch, because the fetch may never happen:
+    // with no network there is no release to fetch against and the check below returns early, so a
+    // Flatpak with no layer at all would otherwise look ready and launch nothing. Refined once a
+    // release is known, where the question becomes whether the layer matches it.
+    if constexpr (kFlatpakBuild) {
+        const bool haveLayer = readComponentIdentity(installDir_, "compat").has_value();
+        std::lock_guard<std::mutex> lock(mutex_);
+        snapshot_.runtimeMissing = !haveLayer;
+    }
+
     std::optional<std::string> namedRelease;
     // Which channel the release being aimed at is published on. The install's own, until a
     // calmer one turns out to have published something ahead of it -- the install's channel
@@ -883,22 +928,30 @@ void App::updateCheckThreadMain() {
         // A Flatpak ships no installer to hand off to, so it fetches the one component it cannot
         // carry itself. Its own launcher is beyond reach either way: that lives in a read-only /app
         // and belongs to flatpak, so that case is offered rather than applied.
-        const bool flatpakLauncherBehind =
-            kFlatpakBuild && !releaseVersion().empty() && releaseVersion() != result.release.release;
-        if (kFlatpakBuild && !flatpakLauncherBehind) {
+        const bool bundleBehind = kFlatpakBuild && flatpakBundleBehind(result.release, installDir_);
+        if (kFlatpakBuild && !bundleBehind) {
+            {
+                // Kept so a retry has a release to fetch against: the check that produced this one
+                // runs once per launch, and a failed fetch must not need another to be tried again.
+                std::lock_guard<std::mutex> lock(mutex_);
+                pendingRelease_ = result.release;
+                pendingReleaseJson_ = result.releaseJson;
+            }
             const EnsureCompatResult fetched = ensureCompatInstalled(
                 result.release, setupBaseUrl(), installDir_, &updateCancel_,
                 [&](UpdateProgress p) { report(p); });
+            std::lock_guard<std::mutex> lock(mutex_);
+            // Cancelled leaves no layer either, so it is missing by the same test rather than by why.
+            snapshot_.runtimeMissing = !fetched.ok;
             if (!fetched.ok && !fetched.errorMessage.empty()) {
-                std::lock_guard<std::mutex> lock(mutex_);
                 snapshot_.update = {UpdatePhase::Error, 0.0, fetched.errorMessage};
             }
             return;
         }
-        if ((autoUpdate || result.forced) && !flatpakLauncherBehind) {
+        if ((autoUpdate || result.forced) && !bundleBehind) {
             if (!prepareInstallerHandoff(result.release, result.releaseJson)) return;
             needsInstallerHandoff_.store(true);
-        } else if (flatpakLauncherBehind && result.release.components.count("flatpak") == 0) {
+        } else if (bundleBehind && result.release.components.count("flatpak") == 0) {
             // The release is out but its bundle is not, so `flatpak update` would find nothing.
             std::lock_guard<std::mutex> lock(mutex_);
             snapshot_.update = {UpdatePhase::UpToDate, 1.0};
@@ -910,7 +963,7 @@ void App::updateCheckThreadMain() {
             pendingReleaseJson_ = result.releaseJson;
             snapshot_.updateAvailableVersion = *namedRelease;
             snapshot_.updateChanges = result.changes;
-            snapshot_.flatpakLauncherBehind = flatpakLauncherBehind;
+            snapshot_.flatpakBundleBehindRelease = bundleBehind;
             // Without this the phase stays where runUpdateCheck()'s last report() left it -- CheckingManifest -- forever, since nothing else in this function reports again on this branch. StartTab::updateFromSnapshot() treats that as "updating" and hides the Launch buttons in favour of the progress bar for as long as it is true, so the Home tab would sit there with no way to launch anything. The branch above needs no such reset: it sets needsInstallerHandoff_, which MainWindow::poll() acts on by closing the window within one tick.
             snapshot_.update = {UpdatePhase::UpToDate, 1.0};
         }

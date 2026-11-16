@@ -22,11 +22,16 @@
 namespace tuxblox {
 
 // The tour's pages, in the order they are shown.
-enum class TourPage { Welcome, Optional, Finish };
+enum class TourPage { Runtime, Welcome, Optional, Finish };
 
 // Kept apart from the tour dialog so it can be tested without a display.
 // An absent welcome_seen reads as false, so every install that predates the field sees the tour once.
 bool shouldShowWelcome(const Settings& settings);
+
+// Whether the tour may move on from `page`. Only the runtime page ever holds it: a Flatpak with no
+// compatibility layer cannot launch anything, so finishing the tour would hand over a launcher that
+// looks ready and is not. Every other page is always free to advance.
+bool tourMayAdvance(TourPage page, bool runtimeMissing);
 
 int tourPageCount();
 // Clamped to the ends, so a carousel index can never name a page that is not there.

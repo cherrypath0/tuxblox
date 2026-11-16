@@ -112,6 +112,18 @@ EnsureCompatResult ensureCompatInstalled(const ReleaseFile& release, const std::
                                           const std::atomic<bool>* cancel,
                                           const UpdateProgressFn& onProgress);
 
+// Whether the parts a Flatpak carries inside its read-only /app are older than the ones `release`
+// names, which is the one update TuxBlox cannot apply itself and has to ask flatpak for.
+//
+// Judged on each part's OWN version, never on the release: a Flatpak bundle is an OSTree delta and
+// cannot be stamped, so the release it reports is whatever it was compiled with and would differ
+// from the published one forever, which read as permanently out of date.
+//
+// Only older counts. A bundle built locally can be ahead of the channel, and telling that user to
+// run `flatpak update` would send them after something that does not exist. A part that cannot be
+// asked its version is no evidence either way and is passed over.
+bool flatpakBundleBehind(const ReleaseFile& release, const std::string& installDir);
+
 // Ensures a verified copy of the installer binary is present at <dir>/TuxBloxInstaller, fetching a
 // fresh one first if it's missing or its checksum no longer matches the one `release` names. Shared
 // by runUpdateCheck (below) and the uninstall path (App::requestUninstall()) -- both need a working

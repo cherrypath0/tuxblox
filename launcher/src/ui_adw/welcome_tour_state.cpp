@@ -16,11 +16,26 @@
 
 #include "welcome_tour_state.h"
 
+#include "version.h"
+#include <vector>
+
 namespace tuxblox {
 
 namespace {
 
-const TourPage Pages[] = {TourPage::Welcome, TourPage::Optional, TourPage::Finish};
+// The runtime page is first and exists only in a Flatpak, which is the only build that fetches its
+// own compatibility layer: everywhere else the installer has already put one there.
+const std::vector<TourPage>& pages() {
+    static const std::vector<TourPage> list = [] {
+        std::vector<TourPage> out;
+        if (kFlatpakBuild) out.push_back(TourPage::Runtime);
+        out.push_back(TourPage::Welcome);
+        out.push_back(TourPage::Optional);
+        out.push_back(TourPage::Finish);
+        return out;
+    }();
+    return list;
+}
 
 } // namespace
 
@@ -28,19 +43,23 @@ bool shouldShowWelcome(const Settings& settings) {
     return !settings.welcomeSeen;
 }
 
+bool tourMayAdvance(TourPage page, bool runtimeMissing) {
+    return page != TourPage::Runtime || !runtimeMissing;
+}
+
 int tourPageCount() {
-    return static_cast<int>(sizeof(Pages) / sizeof(Pages[0]));
+    return static_cast<int>(pages().size());
 }
 
 TourPage tourPageAt(int index) {
-    if (index <= 0) return Pages[0];
-    if (index >= tourPageCount()) return Pages[tourPageCount() - 1];
-    return Pages[index];
+    if (index <= 0) return pages().front();
+    if (index >= tourPageCount()) return pages().back();
+    return pages()[static_cast<size_t>(index)];
 }
 
 int tourPageIndex(TourPage page) {
     for (int at = 0; at < tourPageCount(); ++at) {
-        if (Pages[at] == page) return at;
+        if (pages()[static_cast<size_t>(at)] == page) return at;
     }
     return 0;
 }

@@ -69,8 +69,15 @@ EnsureCompatResult ensureCompatInstalled(const ReleaseFile& release, const std::
     }
     const ComponentBytes& wanted = *entry->second.x86_64;
 
-    // The copy on disk names the release it came from, so an install already at this one is done.
-    if (readComponentIdentity(dir, "compat").value_or("") == release.release) return {true, ""};
+    // Either answer means the copy on disk is the one this release names, and re-fetching it would
+    // cost a gigabyte for nothing. A stamped layer says which release it was published in; one from
+    // a release published before stamping says its own component version instead, and older layers
+    // answer --component-version with nothing at all, so the identity is the only thing to go on.
+    // Comparing against the release alone made every launch re-download the whole layer.
+    const std::string have = readComponentIdentity(dir, "compat").value_or("");
+    if (!have.empty() && (have == release.release || have == entry->second.version)) {
+        return {true, ""};
+    }
 
     report(UpdatePhase::FetchingCompat, 0.0);
     const std::string target = dir + "/compat";
@@ -84,10 +91,10 @@ EnsureCompatResult ensureCompatInstalled(const ReleaseFile& release, const std::
         }, cancel);
     };
 
-    auto outcome = download(componentUrl(baseUrl, "compat", entry->second.version,
-                                          release.release, hostArch()));
-    if (outcome.result == DownloadResult::Failed) {
-        outcome = download(legacyComponentUrl(baseUrl, "compat", entry->second.version, hostArch()));
+    DownloadOutcome outcome;
+    for (const std::string& from : componentUrls(componentBaseUrls(baseUrl), release, "compat", hostArch())) {
+        outcome = download(from);
+        if (outcome.result != DownloadResult::Failed) break;
     }
     if (outcome.result == DownloadResult::Cancelled) {
         std::error_code ignored;
@@ -152,6 +159,18 @@ EnsureCompatResult ensureCompatInstalled(const ReleaseFile& release, const std::
     return {true, ""};
 }
 
+bool flatpakBundleBehind(const ReleaseFile& release, const std::string& installDir) {
+    // compat is not here on purpose: it is the one part a Flatpak fetches for itself.
+    for (const char* name : {"launcher", "libtuxblox", "studio-mcp"}) {
+        const auto entry = release.components.find(name);
+        if (entry == release.components.end()) continue;
+        const std::optional<std::string> have = readComponentVersion(installDir, name);
+        if (!have.has_value()) continue;
+        if (compareDottedVersions(*have, entry->second.version) < 0) return true;
+    }
+    return false;
+}
+
 EnsureInstallerResult ensureInstallerBinary(const ReleaseFile& release, const std::string& baseUrl,
                                              const std::string& dir,
                                              const std::atomic<bool>* cancel,
@@ -167,8 +186,6 @@ EnsureInstallerResult ensureInstallerBinary(const ReleaseFile& release, const st
         return {false, "", err};
     }
     const ComponentBytes& wanted = *entry->second.x86_64;
-    const std::string installerUrl =
-        componentUrl(baseUrl, "installer", entry->second.version, release.release, hostArch());
 
     report(UpdatePhase::PreparingUpdater, 0.0);
     const std::string installerPath = dir + "/TuxBloxInstaller";
@@ -200,13 +217,10 @@ EnsureInstallerResult ensureInstallerBinary(const ReleaseFile& release, const st
             }, cancel);
         };
 
-        auto dlOutcome = download(installerUrl);
-        // The release before the one that moved each release's components under its own number is
-        // still installable, and this is what installs it: its updater sits where one copy served
-        // every release that named it. Tried only after the address every later release uses.
-        if (dlOutcome.result == DownloadResult::Failed) {
-            dlOutcome = download(legacyComponentUrl(baseUrl, "installer", entry->second.version,
-                                                     hostArch()));
+        DownloadOutcome dlOutcome;
+        for (const std::string& from : componentUrls(componentBaseUrls(baseUrl), release, "installer", hostArch())) {
+            dlOutcome = download(from);
+            if (dlOutcome.result != DownloadResult::Failed) break;
         }
 
         if (dlOutcome.result == DownloadResult::Cancelled) {

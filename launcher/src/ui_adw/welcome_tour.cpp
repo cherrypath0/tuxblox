@@ -17,6 +17,8 @@
 #include "welcome_tour.h"
 #include "adw_look.h"
 #include "app.h"
+#include "i18n.h"
+#include "version.h"
 #include "open_url.h"
 #include "tuxblox_logo_png.h"
 #include "welcome_tour_state.h"
@@ -80,6 +82,9 @@ struct Tour {
     GtkWidget *pBack = nullptr;
     GtkWidget *pSkip = nullptr;
     GtkButton *pNext = nullptr;
+    GtkLabel *pRuntimeStatus = nullptr;
+    GtkButton *pRuntimeButton = nullptr;
+    GtkWidget *pRuntimeBar = nullptr;
     GtkLabel *pStudioMeta = nullptr;
     GtkButton *pStudioButton = nullptr;
     GtkWidget *pStudioBar = nullptr;
@@ -382,11 +387,76 @@ void scrollTo(Tour &tour, int index) {
     if (pPage != nullptr) adw_carousel_scroll_to(tour.pCarousel, pPage, TRUE);
 }
 
+void onRuntimeInstall(GtkButton *, gpointer data) {
+    static_cast<Tour *>(data)->pApp->requestRuntimeInstall();
+}
+
+// A Flatpak carries no compatibility layer: it is fetched on first run, and nothing can launch
+// until it is there. Shown first, and the tour will not move past it until it succeeds.
+GtkWidget *buildRuntimePage(Tour &tour) {
+    GtkWidget *pBox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
+    gtk_widget_set_valign(pBox, GTK_ALIGN_CENTER);
+
+    GtkWidget *pTitle = bodyLabel(i18n::tr("Install the runtime"), "title-1");
+    gtk_box_append(GTK_BOX(pBox), pTitle);
+
+    GtkWidget *pBody = bodyLabel(
+        i18n::tr("TuxBlox needs its compatibility layer before it can start Roblox. It is "
+                 "downloaded once and kept up to date for you."), "body");
+    gtk_label_set_wrap(GTK_LABEL(pBody), TRUE);
+    gtk_label_set_justify(GTK_LABEL(pBody), GTK_JUSTIFY_CENTER);
+    gtk_box_append(GTK_BOX(pBox), pBody);
+
+    tour.pRuntimeBar = gtk_progress_bar_new();
+    gtk_widget_set_visible(tour.pRuntimeBar, FALSE);
+    gtk_box_append(GTK_BOX(pBox), tour.pRuntimeBar);
+
+    GtkWidget *pStatus = bodyLabel("", "caption");
+    tour.pRuntimeStatus = GTK_LABEL(pStatus);
+    gtk_box_append(GTK_BOX(pBox), pStatus);
+
+    GtkWidget *pButton = gtk_button_new_with_label(i18n::tr("Install"));
+    gtk_widget_add_css_class(pButton, "suggested-action");
+    gtk_widget_set_halign(pButton, GTK_ALIGN_CENTER);
+    g_signal_connect(pButton, "clicked", G_CALLBACK(onRuntimeInstall), &tour);
+    tour.pRuntimeButton = GTK_BUTTON(pButton);
+    gtk_box_append(GTK_BOX(pBox), pButton);
+    return pBox;
+}
+
+// Keeps the runtime page honest about what is happening, and is what re-enables Next once the
+// layer is there. Called from the tour's own tick, so it follows the fetch without a signal.
+void applyRuntime(Tour &tour) {
+    if (tour.pRuntimeStatus == nullptr) return;
+    const AppSnapshot snap = tour.pApp->snapshot();
+    const bool fetching = snap.update.phase == UpdatePhase::FetchingCompat;
+    gtk_widget_set_visible(tour.pRuntimeBar, fetching);
+    if (fetching) {
+        gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(tour.pRuntimeBar), snap.update.fraction);
+    }
+    // Hidden, not just greyed: there is nothing to click while the fetch is running.
+    gtk_widget_set_visible(GTK_WIDGET(tour.pRuntimeButton), !fetching);
+    if (fetching) {
+        setLabelText(tour.pRuntimeStatus, i18n::tr("Downloading…"));
+    } else if (snap.runtimeMissing) {
+        setLabelText(tour.pRuntimeStatus, snap.update.errorMessage.empty()
+                                              ? i18n::tr("Not installed yet")
+                                              : snap.update.errorMessage);
+        setButtonLabel(tour.pRuntimeButton, "Try again");
+    } else {
+        setLabelText(tour.pRuntimeStatus, i18n::tr("Installed"));
+        gtk_widget_set_visible(GTK_WIDGET(tour.pRuntimeButton), FALSE);
+    }
+}
+
 void applyFooter(Tour &tour) {
     const int at = currentPage(tour);
     const bool last = at >= tourSkipTarget();
     gtk_widget_set_visible(tour.pBack, at > 0);
-    gtk_widget_set_visible(tour.pSkip, !last);
+    // Skip would otherwise walk straight past the one page that has to be finished.
+    const bool mayAdvance = tourMayAdvance(tourPageAt(at), tour.pApp->snapshot().runtimeMissing);
+    gtk_widget_set_visible(tour.pSkip, !last && mayAdvance);
+    gtk_widget_set_sensitive(GTK_WIDGET(tour.pNext), mayAdvance);
     setButtonLabel(tour.pNext, last ? "Get started" : "Next");
 }
 
@@ -431,6 +501,9 @@ void onNext(GtkButton *, gpointer data) {
 gboolean onTourTick(gpointer data) {
     auto *pTour = static_cast<Tour *>(data);
     const AppSnapshot snap = pTour->pApp->snapshot();
+    // The runtime page and the footer follow the fetch, which nothing else signals.
+    applyRuntime(*pTour);
+    applyFooter(*pTour);
     const bool installed = !snap.versions.studio.activeHash.empty();
     const bool busy = snap.versionInstall.target == LaunchTarget::Studio &&
                       (snap.versionInstall.phase == VersionInstallPhase::ResolvingVersion ||
@@ -474,6 +547,9 @@ void presentWelcomeTour(App &app, GtkApplication *pGtkApp, std::function<void(bo
     pTour->pCarousel = ADW_CAROUSEL(pCarousel);
     // Off, or a scroll over the switch list would change the page under the pointer.
     adw_carousel_set_allow_scroll_wheel(pTour->pCarousel, FALSE);
+    if constexpr (kFlatpakBuild) {
+        adw_carousel_append(pTour->pCarousel, clampedPage(buildRuntimePage(*pTour)));
+    }
     adw_carousel_append(pTour->pCarousel, clampedPage(buildWelcomePage(*pTour)));
     adw_carousel_append(pTour->pCarousel, clampedPage(buildOptionalPage(*pTour)));
     adw_carousel_append(pTour->pCarousel, clampedPage(buildFinishPage(*pTour)));

@@ -102,7 +102,11 @@ struct AppSnapshot {
     std::vector<ComponentChange> updateChanges;
     // A Flatpak whose own launcher is behind the release. Only flatpak can replace that one, since
     // it lives in a read-only /app, so the offer has to say so instead of offering to do it.
-    bool flatpakLauncherBehind = false;
+    bool flatpakBundleBehindRelease = false;
+    // A Flatpak with no usable compatibility layer: it fetches that itself, and until it has one
+    // nothing can launch. Set when the fetch fails, so the Home tab and the tour can offer a retry
+    // rather than leaving a launcher that cannot say why it will not start anything.
+    bool runtimeMissing = false;
 
     VersionsManifest versions;
     VersionInstallProgress versionInstall;
@@ -237,6 +241,11 @@ public:
     // racing a dismiss -- or if a click is already being acted on.
     void requestUpdateNow();
 
+    // Fetches the compatibility layer again after a failed attempt. Only a Flatpak needs this: every
+    // other install hands the whole job to the installer. Ignores a click while one is already
+    // running, and does nothing when the release that would be fetched is not known yet.
+    void requestRuntimeInstall();
+
     // Hides the current UpdatePopup notification for this run. Only
     // clears the snapshot field -- doesn't persist anywhere and doesn't
     // suppress a future update check, since there's only ever one per
@@ -260,6 +269,7 @@ public:
 private:
     void updateCheckThreadMain();
     void updateApplyThreadMain();
+    void runtimeInstallThreadMain();
     // Fetches and verifies the installer for `manifest` and records it as the handoff target. False means it could not be prepared, and the reason is already in the snapshot.
     bool prepareInstallerHandoff(const ReleaseFile& release, const std::string& releaseJson);
     void uninstallThreadMain();
@@ -300,6 +310,7 @@ private:
     ReleaseFile pendingRelease_;
     std::string pendingReleaseJson_;
     std::atomic<bool> updateApplyStarted_{false};
+    std::atomic<bool> runtimeInstallStarted_{false};
     std::atomic<bool> updateCancel_{false};
     std::atomic<bool> uninstallCancel_{false};
     std::atomic<bool> versionInstallCancel_{false};
@@ -324,6 +335,7 @@ private:
     std::thread terminateThread_;
     std::thread updateThread_;
     std::thread updateApplyThread_;
+    std::thread runtimeInstallThread_;
     std::thread uninstallThread_;
     std::thread versionInstallThread_;
     // No cancel flag: unlike the two threads above (both network-bound,

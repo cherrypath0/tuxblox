@@ -70,6 +70,9 @@ private:
     GtkWidget *pUpdateStatus_ = nullptr;
     GtkWidget *pUpdateBar_ = nullptr;
     GtkWidget *pError_ = nullptr;
+    // Only a Flatpak fetches its own compatibility layer, so only a Flatpak can be left without one.
+    GtkWidget *pRuntimeRetry_ = nullptr;
+    static void onRuntimeRetry(GtkButton *pButton, gpointer data);
     GtkLabel *pUpdateState_ = nullptr;
     std::string updateStateClass_;
     Card player_{LaunchTarget::Player};
