@@ -205,9 +205,13 @@ bump-build:
 .PHONY: record-provenance
 record-provenance:
 	@mkdir -p $(BUILD)
+	@# VERSION is excluded because bump-build writes it, so no build would ever read as clean.
 	@Commit="$$(git -C $(ROOT) rev-parse HEAD 2>/dev/null)"; \
 	 Dirty=true; \
-	 if [ -n "$$Commit" ] && [ -z "$$(git -C $(ROOT) status --porcelain 2>/dev/null)" ]; then Dirty=false; fi; \
+	 if [ -n "$$Commit" ] && \
+	    [ -z "$$(git -C $(ROOT) status --porcelain -- ':(exclude)VERSION' 2>/dev/null)" ]; then \
+	     Dirty=false; \
+	 fi; \
 	 printf '%s\n%s\n\n' "$$Commit" "$$Dirty" > $(BUILD)/.provenance; \
 	 if [ -z "$$Commit" ]; then \
 	     printf '!! not a git checkout, so this build cannot say what source it came from\n' >&2; \
