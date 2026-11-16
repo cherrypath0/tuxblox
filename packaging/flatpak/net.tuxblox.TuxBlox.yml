@@ -4,74 +4,75 @@ runtime-version: '26.08'
 sdk: org.freedesktop.Sdk
 command: tuxblox
 
-# The runtime declares the 32-bit mount points but ships nothing behind them, so /lib/ld-linux.so.2
-# is a dangling symlink until these are attached and no 32-bit program can start at all. GL32 is as
-# necessary as the libraries: without it a 32-bit Windows program gets no graphics driver.
+# For the 32-bit side of TuxBlox, including Roblox's MCP server
 add-extensions:
   org.freedesktop.Platform.Compat.i386:
     directory: lib/i386-linux-gnu
     version: '26.08'
-  org.freedesktop.Platform.Compat.i386.Debug:
-    directory: lib/debug/lib/i386-linux-gnu
-    version: '26.08'
-    no-autodownload: true
   org.freedesktop.Platform.GL32:
     directory: lib/i386-linux-gnu/GL
     version: '1.4'
-    versions: '26.08;1.4'
+    versions: '26.08;26.08-extra;1.4'
     subdirectories: true
     no-autodownload: true
     autodelete: false
     add-ld-path: lib
-    merge-dirs: vulkan/icd.d;glvnd/egl_vendor.d
+    merge-dirs: vulkan/icd.d;glvnd/egl_vendor.d;OpenCL/vendors;lib/dri;lib/d3d;vulkan/explicit_layer.d;vulkan/implicit_layer.d
 
-# Every one of these was established by testing Studio and the Player in a sandbox, not copied from another project.
+
 finish-args:
-  # --device=dri is NOT enough: /dev/ntsync needs this, and losing it silently costs the fast synchronisation path.
+  # --device=dri is NOT enough: /dev/ntsync needs this
   - --device=all
-  # Without this the sandbox refuses every binary that is not the host's own architecture, and the
-  # virtual drive is full of them: the layer ships an i386 half, and a 32-bit Windows program is
-  # ordinary. StudioMCP.exe will not start without it.
+
+  # The 32-bit side of the runtime (and Studio's MCP server) will not start without this
   - --allow=multiarch
+
+  # Network is required to get the latest runtime of TuxBlox, authenticate to Roblox and join Team Create servers, and basically everything that Roblox needs
   - --share=network
   - --share=ipc
-  # Wine renders through winex11, so X11 is required even in a Wayland session. Wayland is for the launcher's own GTK interface.
+
+  # TuxBlox renders through XWayland on Wayland, so both X11 and Wayland is required
   - --socket=x11
   - --socket=wayland
+
+  # Required for audio to play
   - --socket=pulseaudio
-  # Roblox's own data, which leaves the sandbox only with the experimental Linux integration turned on.
+
+  # Roblox's own data, with the Linux integration flag turned on
   - --filesystem=xdg-data/roblox:create
   - --filesystem=xdg-cache/roblox:create
-  # flatpak has no xdg-state token, so this one is spelled out and does not follow a relocated XDG_STATE_HOME.
   - --filesystem=~/.local/state/roblox:create
-  # The folders the virtual drive points at, so a place saved to the Desktop lands on the real Desktop.
+
+  # Required for Studio to be able to open most files, and for Player's screenshots folder symlink
   - --filesystem=xdg-desktop
   - --filesystem=xdg-documents
   - --filesystem=xdg-pictures
   - --filesystem=xdg-videos
   - --filesystem=xdg-download
   - --filesystem=xdg-music
-  # Read-only, and only this one file: it is where the desktop records a renamed or relocated Desktop, and the grants above follow it, so without it a translated home gets a real folder inside the drive instead of a link and the files land where nobody will look.
+
+  # Required for symlinks
   - --filesystem=xdg-config/user-dirs.dirs:ro
-  # Discord's rich presence socket, both where a native Discord puts it and where a Flatpak one
-  # does. :create because the app directory may not exist yet when TuxBlox starts.
+
+  # Required for the Discord RPC setting.
   - --filesystem=xdg-run/discord-ipc-0
   - --filesystem=xdg-run/app/com.discordapp.Discord:create
+
+  # Required for the Roblox tray icon
+  - --talk-name=org.kde.StatusNotifierWatcher
+
 
 modules:
   - name: tuxblox
     buildsystem: simple
-    # The payload is already-built release binaries, and the layer ships 1700 of them read-only, so
-    # eu-strip cannot open them through rofiles-fuse. Nothing here needs debuginfo extracted anyway.
+
     build-options:
       no-debuginfo: true
     build-commands:
       - mkdir -p /app/tuxblox
-      # An extension only mounts over a directory that already exists in the app.
-      - mkdir -p /app/lib/i386-linux-gnu/GL /app/lib/debug/lib/i386-linux-gnu
-      # TuxBloxInstaller is deliberately absent: flatpak update replaces it, and it cannot write to /app anyway.
+      - mkdir -p /app/lib/i386-linux-gnu/GL
+      - install -Dm644 ld.so.conf /app/etc/ld.so.conf
       - cp -a payload/libtuxblox payload/TuxBloxLauncher payload/studio-mcp /app/tuxblox/
-      # A file source does not carry the exec bit across, unlike a dir source.
       - chmod +x /app/tuxblox/TuxBloxLauncher /app/tuxblox/studio-mcp
       - install -Dm755 tuxblox /app/bin/tuxblox
       - install -Dm644 net.tuxblox.TuxBlox.desktop -t /app/share/applications/
@@ -82,14 +83,12 @@ modules:
       - install -Dm644 icons/128x128.png /app/share/icons/hicolor/128x128/apps/net.tuxblox.TuxBlox.png
       - install -Dm644 icons/256x256.png /app/share/icons/hicolor/256x256/apps/net.tuxblox.TuxBlox.png
       - install -Dm644 icons/512x512.png /app/share/icons/hicolor/512x512/apps/net.tuxblox.TuxBlox.png
+      - mkdir -p /app/share/licenses
+      - cp -a licenses /app/share/licenses/net.tuxblox.TuxBlox
     sources:
-      # Named one by one, never the whole of build/: that tree also holds the layer's 20G of build
-      # scratch and build/runtime, the Wine prefix, which can carry Roblox session cookies and must
-      # never be staged into anything shippable.
       - type: dir
         path: ../../build/flatpak/libtuxblox
         dest: payload/libtuxblox
-      # The Flatpak variant, kept out of build/ so the ordinary launcher stays where stage.sh looks.
       - type: file
         path: ../../build/flatpak/TuxBloxLauncher
         dest: payload
@@ -99,6 +98,8 @@ modules:
       - type: file
         path: tuxblox
       - type: file
+        path: ld.so.conf
+      - type: file
         path: net.tuxblox.TuxBlox.desktop
       - type: file
         path: net.tuxblox.TuxBlox.Player.desktop
@@ -106,10 +107,11 @@ modules:
         path: net.tuxblox.TuxBlox.Studio.desktop
       - type: file
         path: net.tuxblox.TuxBlox.Place.desktop
-      # Generated by the flatpak make target, which substitutes the release into the .in template.
       - type: file
         path: ../../build/flatpak/net.tuxblox.TuxBlox.metainfo.xml
-      # Rendered from assets/tuxblox.svg by `make assets`, so the artwork has one copy in the tree.
       - type: dir
         path: ../../build/assets/tuxblox
         dest: icons
+      - type: dir
+        path: ../../build/flatpak/licenses
+        dest: licenses

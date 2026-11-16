@@ -18,21 +18,17 @@ SHELL := /bin/bash
 ROOT := $(CURDIR)
 JOBS ?= $(shell nproc)
 
-# Local build settings, gitignored. Not .env: that file is deploy credentials.
 -include config.mk
 
-# Two builds of one commit must match, so what gets stamped is the commit date and not the clock.
 ifeq ($(origin SOURCE_DATE_EPOCH),undefined)
 SOURCE_DATE_EPOCH := $(shell git -C $(ROOT) log -1 --format=%ct 2>/dev/null)
 endif
-# A tree exported without its history cannot be released anyway, so it keeps the layer's old default.
+
 SOURCE_DATE_EPOCH := $(or $(strip $(SOURCE_DATE_EPOCH)),$(shell date +%s))
 export SOURCE_DATE_EPOCH
 
-# Build scratch is what makes a rebuild fast. Set TUXBLOX_RM_DIST=1 to free the disk instead.
 TUXBLOX_RM_DIST ?=
 
-# NODIST=1 compiles the layer and stops, leaving build/native/compat alone rather than staling it.
 NODIST ?=
 
 BUILD := $(ROOT)/build
@@ -40,9 +36,6 @@ ART := $(BUILD)/.artifacts
 PROTON := $(ART)/proton
 UI_DIST := $(ROOT)/shared/ui/dist
 
-# One directory per flavour, so a packaging build never writes over the ordinary binaries. The
-# prefix and Roblox's data stay at build/ and are symlinked into each flavour: they are a machine's
-# state, not any one flavour's output, and nobody wants a second 1.9GB prefix per flavour.
 NATIVE := $(BUILD)/native
 LAUNCHER := $(NATIVE)/TuxBloxLauncher
 INSTALLER := $(NATIVE)/TuxBloxInstaller
@@ -56,23 +49,13 @@ PODMAN := $(ART)/.podman
 
 COMPAT_VERSION := $(shell cat compat/VERSION 2>/dev/null)
 
-# The release the components bake in, seeded the way staging seeds one: root VERSION is
-# MAJOR.MINOR.PATCH on line 1 and the BUILD counter on line 2, and a release puts BUILD third, so
-# the two interleave rather than join. Staging overwrites the stamped field with the release it
-# resolves against the server, so this is what a binary reports when it was never staged. Line 3 is
-# the channel, baked in beside it. Both are read when a recipe runs rather than when this file is
-# parsed, because bump-build moves the counter mid-run and a parse-time value would be the old one.
 RELEASE_AWK = awk 'NR==1{s=$$0} NR==2{b=$$0} END{ gsub(/[ \t\r]/,"",s); gsub(/[ \t\r]/,"",b); n=split(s,v,"."); if (n==4) print s; else if (n==3) { if (b !~ /^[0-9]+$$/) b="0"; print v[1]"."v[2]"."b"."v[3] } }' VERSION
 RELEASE = $(shell $(RELEASE_AWK) 2>/dev/null)
 CHANNEL = $(shell sed -n 3p VERSION 2>/dev/null | tr -d '[:space:]')
 
-# HEAD and SHORT are the submodule's own commit, which the stack build stamps into the tarball it writes.
-# git -C an empty submodule walks up to this repository, so the toplevel has to match before trusting it.
 LIBADWAITA_DIR := $(shell cd $(ROOT)/shared/ui 2>/dev/null && pwd -P)/libadwaita
 LIBADWAITA_HEAD = $(shell d=$(LIBADWAITA_DIR); [ "$$(git -C $$d rev-parse --show-toplevel 2>/dev/null)" = "$$d" ] || exit 0; printf '%s%s' "$$(git -C $$d rev-parse HEAD)" "$$([ -n "$$(git -C $$d status --porcelain)" ] && echo -dirty)")
 LIBADWAITA_SHORT = $(shell d=$(LIBADWAITA_DIR); [ "$$(git -C $$d rev-parse --show-toplevel 2>/dev/null)" = "$$d" ] || exit 0; printf '%s%s' "$$(git -C $$d rev-parse --short HEAD)" "$$([ -n "$$(git -C $$d status --porcelain)" ] && echo -dirty)")
-# COMMIT is read back out of the tarball instead, because a stack can predate a submodule bump and the installer's copyright file has to name what it actually ships.
-# Recursive on purpose: a stack rebuilt during this run is read back, not the one parsing saw.
 LIBADWAITA_COMMIT = $(shell for t in $(UI_DIST)/ui-stack-*.tar.zst; do [ -f "$$t" ] || continue; c=$$(zstd -dc "$$t" 2>/dev/null | tar -xO LIBADWAITA_COMMIT 2>/dev/null | tr -d '[:space:]'); if [ -n "$$c" ]; then printf '%s' "$$c"; exit 0; fi; done; printf '%s' "$(LIBADWAITA_HEAD)")
 CCACHE_DIR ?= $(HOME)/.ccache
 
@@ -96,19 +79,14 @@ COMPAT_SRC := $(shell $(FIND) compat/tuxblox compat/wine/dlls compat/wine/progra
 	compat/Makefile.in compat/configure.sh compat/webkitgtk/prebuilt -type f 2>/dev/null)
 
 export TUXBLOX_SKIP_DEPS := 1
-# One job knob: the component builds read their own variable, so JOBS has to reach them too.
 export TUXBLOX_MAKE_JOBS := $(JOBS)
 export TUXBLOX_COMPAT_VERSION := $(COMPAT_VERSION)
 export TUXBLOX_RELEASE = $(RELEASE)
 export TUXBLOX_CHANNEL = $(CHANNEL)
 
-# Each sub-build already uses every core, so running two at once only thrashes.
 .NOTPARALLEL:
 
 .PHONY: all
-# packages comes after components so the layer, the gateway and the interface stack it needs are
-# already built. Set TUXBLOX_NO_PACKAGES=1 to skip it: it rebuilds both component variants and writes
-# a 400MB Flatpak repo, which is a lot to pay for on a routine build.
 all: bump-build record-provenance components check copy-include packages
 
 .PHONY: packages
@@ -123,8 +101,6 @@ endif
 components: bump-build shared-state launcher installer studio-mcp compat
 
 .PHONY: shared-state
-# The prefix and Roblox's data are the machine's state rather than any flavour's output, so they sit
-# at build/ and every flavour links to them. Made here as well as linked, so the links never dangle.
 shared-state:
 	@mkdir -p $(BUILD)/runtime $(BUILD)/roblox $(BUILD)/installers $(NATIVE) $(FLATPAK_DIR)
 	@for d in runtime roblox installers; do \
@@ -132,15 +108,10 @@ shared-state:
 	    ln -sfn ../$$d $(FLATPAK_DIR)/$$d; \
 	done
 
-# The interface stack, the shared libraries, patches and the builder image are not targets anyone
-# invokes. They are prerequisites, so they build exactly when something needs them.
 .PHONY: launcher installer studio-mcp compat deps appimage flatpak assets
 launcher: bump-build record-provenance $(LAUNCHER)
 installer: bump-build record-provenance $(INSTALLER)
 
-# assets/ holds the artwork as SVG, which is what anything drawing it should start from. The sizes
-# below are the raster copies that cannot be an SVG: a desktop entry's icon file, a Flatpak's
-# hicolor directories, and the icons the launcher embeds and hands to GTK as a pixbuf.
 ASSETS_DIR := $(BUILD)/assets
 ASSET_SIZES := 1024 512 256 128 64 32
 ASSET_SVGS := $(wildcard assets/*.svg)
@@ -152,26 +123,17 @@ $(TUXBLOX_ICONS): $(ASSETS_DIR)/tuxblox/%.png: assets/tuxblox.svg
 	@command -v rsvg-convert >/dev/null 2>&1 || { \
 	    printf '!! rsvg-convert not found, so the icons cannot be rendered. Install librsvg.\n' >&2; exit 1; }
 	@mkdir -p $(@D)
-	@# The target carries the size twice, as 512x512; rsvg-convert wants it once.
 	rsvg-convert -w $(firstword $(subst x, ,$*)) -h $(firstword $(subst x, ,$*)) $< -o $@
 
 APPIMAGE_DIR := $(BUILD)/appimage
 APPIMAGE_APPDIR := $(APPIMAGE_DIR)/TuxBloxInstaller.AppDir
 APPIMAGE := $(APPIMAGE_DIR)/TuxBloxInstaller.AppImage
 
-# The AppImage carries a different installer binary, one that takes its interface from the mounted
-# AppDir instead of unpacking its own, so this rebuilds the installer and leaves $(INSTALLER) holding
-# that variant. Run `make installer` afterwards to put the ordinary one back.
-# The smoke test is skipped because it proves the unpacked interface works, which is the one thing
-# this variant deliberately does not do.
 appimage:
-	@# Overriding INSTALLER retargets the component rule, so the variant is built straight into its
-	@# own flavour directory and build/native is never written over.
 	@mkdir -p $(APPIMAGE_DIR)
 	$(MAKE) --no-print-directory TUXBLOX_APPIMAGE=1 TUXBLOX_SKIP_SMOKE=1 INSTALLER=$(APPIMAGE_DIR)/TuxBloxInstaller installer
 	@rm -rf $(APPIMAGE_APPDIR)
 	@mkdir -p $(APPIMAGE_APPDIR)/usr/bin $(APPIMAGE_APPDIR)/usr/share/licenses
-	@# usr/ is the stack root because the interface binary's rpath is $$ORIGIN/lib/x86_64-linux-gnu.
 	tar --zstd -xf $(UI) -C $(APPIMAGE_APPDIR)/usr
 	cp $(ART)/installer/TuxBloxInstaller-ui $(APPIMAGE_APPDIR)/usr/TuxBloxInstaller-ui
 	cp $(APPIMAGE_DIR)/TuxBloxInstaller $(APPIMAGE_APPDIR)/usr/bin/TuxBloxInstaller
@@ -191,44 +153,28 @@ FLATPAK_DIR := $(BUILD)/flatpak
 FLATPAK_BUNDLE := $(FLATPAK_DIR)/net.tuxblox.TuxBlox.flatpak
 FLATPAK_MANIFEST := packaging/flatpak/net.tuxblox.TuxBlox.yml
 
-# The Flatpak carries a different launcher, one with no updater, no channel selector and no uninstall
-# control, because none of them can work from a read-only /app. So this rebuilds the launcher with
-# LAUNCHER retargeted into build/flatpak, which is what keeps the variant away from build/native.
-# It packs named pieces of build/, so the layer and the gateway must already be built. They are checked
-# rather than depended on: a patched layer package re-syncs on every make, so taking $(COMPAT) as a
-# prerequisite turns every packaging run into a multi-hour layer rebuild.
 flatpak:
-	@missing=; \
-	for f in $(COMPAT) $(STUDIO_MCP) $(NATIVE)/libtuxblox; do \
-	    [ -e "$$f" ] || missing="$$missing $$f"; \
-	done; \
-	if [ -n "$$missing" ]; then \
-	    printf '!! not built yet:%s\n' "$$missing" >&2; \
-	    printf '   run `make` first, then `make flatpak`\n' >&2; \
-	    exit 1; \
-	fi
-	@# Same as appimage: overriding LAUNCHER retargets the rule, so the Flatpak variant, which has no
-	@# updater, is never left sitting where stage.sh would pick it up.
+	@[ -e $(STUDIO_MCP) ] || { printf '!! not built yet: %s\n   run `make` first, then `make flatpak`\n' '$(STUDIO_MCP)' >&2; exit 1; }
 	@mkdir -p $(FLATPAK_DIR)
-	$(MAKE) --no-print-directory TUXBLOX_FLATPAK=1 LAUNCHER=$(FLATPAK_DIR)/TuxBloxLauncher NATIVE=$(FLATPAK_DIR) launcher
-	@# The release is only known to make, so the metainfo is a template. The date comes from the
-	@# commit rather than today, so building the same commit twice still produces the same bytes.
+	$(MAKE) --no-print-directory TUXBLOX_DONT_INCREMENT_BUILD=1 TUXBLOX_FLATPAK=1 \
+	    LAUNCHER=$(FLATPAK_DIR)/TuxBloxLauncher NATIVE=$(FLATPAK_DIR) launcher
 	@sed -e 's/@RELEASE@/$(RELEASE)/' \
 	     -e "s/@DATE@/$$(git log -1 --format=%cd --date=short 2>/dev/null || echo 1970-01-01)/" \
+	     -e 's|<description>@NOTES@</description>||' \
 	    packaging/flatpak/net.tuxblox.TuxBlox.metainfo.xml.in \
 	    > $(FLATPAK_DIR)/net.tuxblox.TuxBlox.metainfo.xml
-	@if command -v flatpak-builder >/dev/null 2>&1; then \
-	    flatpak-builder --force-clean --repo=$(FLATPAK_DIR)/repo $(FLATPAK_DIR)/build $(FLATPAK_MANIFEST); \
-	elif flatpak info org.flatpak.Builder >/dev/null 2>&1; then \
-	    flatpak run org.flatpak.Builder --force-clean --repo=$(FLATPAK_DIR)/repo $(FLATPAK_DIR)/build $(FLATPAK_MANIFEST); \
-	else \
-	    printf '!! no flatpak-builder: install it, or `flatpak install flathub org.flatpak.Builder`\n' >&2; \
-	    exit 1; \
-	fi
-	@# A repository is a directory, and a release publishes files, so the publishable form is a bundle.
-	flatpak build-bundle $(FLATPAK_DIR)/repo $(FLATPAK_BUNDLE) net.tuxblox.TuxBlox
-	@printf ':: install it with: flatpak install --user %s net.tuxblox.TuxBlox\n' '$(FLATPAK_DIR)/repo'
-	@printf ':: or from the bundle: flatpak install --user %s\n' '$(FLATPAK_BUNDLE)'
+	@rm -rf $(FLATPAK_DIR)/licenses
+	@cp -rL third_party_licenses $(FLATPAK_DIR)/licenses
+	@if command -v flatpak-builder >/dev/null 2>&1; then FB=flatpak-builder; \
+	elif flatpak info org.flatpak.Builder >/dev/null 2>&1; then FB="flatpak run org.flatpak.Builder"; \
+	else printf '!! no flatpak-builder: install it, or `flatpak install flathub org.flatpak.Builder`\n' >&2; exit 1; fi; \
+	$$FB --force-clean --default-branch=$(CHANNEL) \
+	     --state-dir=$(FLATPAK_DIR)/.flatpak-builder \
+	     --repo=$(FLATPAK_DIR)/repo $(FLATPAK_DIR)/build $(FLATPAK_MANIFEST)
+	flatpak build-bundle \
+	    --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo \
+	    $(FLATPAK_DIR)/repo $(FLATPAK_BUNDLE) net.tuxblox.TuxBlox $(CHANNEL)
+	@printf ':: install it with: flatpak install --user %s\n' '$(FLATPAK_BUNDLE)'
 	@printf ':: the Flatpak variant stays in %s, build/native/TuxBloxLauncher is untouched\n' '$(FLATPAK_DIR)'
 studio-mcp: bump-build record-provenance $(STUDIO_MCP)
 ifdef NODIST
@@ -237,9 +183,6 @@ else
 compat: bump-build record-provenance $(COMPAT)
 endif
 
-# BUILD counts builds, so building is what advances it: once per run, and before anything is
-# compiled so every component bakes the same number. Line 1 is left alone, because that is the floor
-# a release has to beat and only a published release moves it.
 .PHONY: bump-build
 bump-build:
 	@if [ -n "$$TUXBLOX_DONT_INCREMENT_BUILD" ]; then \
@@ -258,16 +201,7 @@ bump-build:
 	@printf ':: Building release %s on %s\n' \
 	    "$$($(RELEASE_AWK))" "$$(sed -n 3p VERSION | tr -d '[:space:]')"
 
-# Which source this build was made from, recorded by the build itself because nothing else can know
-# it: staging may run days later, against a build/ that was never HEAD, and reading HEAD there would
-# attribute a release to source that build never saw. deploy.sh refuses a release whose source is not
-# clean, equal to HEAD and reachable from a published branch, because TuxBlox ships LGPL code and a
-# published binary whose source nobody can fetch is a licence violation.
-#
-# Three lines: the commit, whether the tree had uncommitted changes, and the release it became. The
-# third is staging's to fill in, and is cleared here because this build has not been staged as
-# anything yet. Unknown reads as dirty, so a build with no git at all is refused rather than
-# published. Written before anything is compiled, so it names the source the compilers saw.
+
 .PHONY: record-provenance
 record-provenance:
 	@mkdir -p $(BUILD)
@@ -295,7 +229,6 @@ $(PATCHES): compat/Makefile.in $(wildcard compat/patches/*/*)
 	$(ROOT)/compat/apply-patches.sh
 	@touch $@
 
-# Each shipped library's submodule commit goes in, so the container stamps what it actually built.
 LIBS_SUBMODULES := shared/crypto/openssl:OPENSSL_COMMIT shared/network/libcurl:CURL_COMMIT \
     shared/network/nghttp2:NGHTTP2_COMMIT shared/fs/libarchive:LIBARCHIVE_COMMIT \
     shared/fs/zstd:ZSTD_COMMIT shared/fs/zlib:ZLIB_COMMIT
@@ -311,10 +244,6 @@ $(LIBS): $(wildcard shared/tools/libs-*.sh) | $(PODMAN)
 	    -v $(CCACHE_DIR):/ccache:z -e CCACHE_DIR=/ccache -e CCACHE_MAXSIZE=30G \
 	    tuxblox-builder bash /src/shared/tools/libs-build-in-container.sh
 
-# The interface stack itself, built in the container: 26 libraries in a deliberate order, each
-# skipped when its marker is already there. freetype is built twice on purpose, before and after
-# harfbuzz, because the two depend on each other. Do not reorder these to parallelise them without
-# deriving the real dependency graph first.
 define UI_BUILD
 set -euo pipefail
 
@@ -673,8 +602,6 @@ done
 endef
 export UI_BUILD
 
-# Staging the built stack into the shipped tarball: RPATHs rewritten, and the build fails if a
-# shipped library needs anything outside the stack and a short allow-list every desktop has.
 define UI_PACKAGE
 set -euo pipefail
 
@@ -814,10 +741,6 @@ checkSymbolVersions() {
     fi
 }
 
-# The stack is libraries, so it has no program to answer --version and nothing for staging to
-# stamp. This is both: it carries the same stamp field the programs do, and bakes in the stack's
-# own version. Linked without libstdc++ so the stack still needs nothing the allow-list above
-# does not already have.
 stageVersionLibrary() {
     printf ':: Building version.so\n'
     "$${CXX:-g++}" -std=c++20 -O2 -fPIC -shared -Wl,--no-undefined \
@@ -876,7 +799,6 @@ $(UI): shared/ui/versions.env shared/ui/sources.list Makefile | $(PODMAN)
 	fi
 	$(ROOT)/shared/ui/fetch-sources.sh
 	@mkdir -p $(UI_DIST)/prefix $(UI_DIST)/work $(UI_DIST)/out $(CCACHE_DIR)
-	@# A rerun skips every library that already finished, which is what the marker commit is for.
 	printf '%s' "$$UI_BUILD" | podman run -i --rm --userns=keep-id --network=none \
 	    -v $(ROOT)/shared:/src:ro -v $(ROOT)/shared/ui/sources:/sources:ro \
 	    -v $(UI_DIST)/prefix:/opt/tuxblox-ui -v $(UI_DIST)/work:/build \
@@ -943,7 +865,6 @@ $(STUDIO_MCP): $(STUDIO_MCP_SRC) $(LAUNCHER_SRC) $(SHARED_SRC) $(LIBS) | $(PODMA
 	cp $(ART)/studio-mcp/studio-mcp $@
 
 $(LAUNCHER): $(LAUNCHER_SRC) $(SHARED_SRC) $(LIBS) $(UI) $(ASSET_SVGS) $(TUXBLOX_ICONS) | $(PODMAN)
-	@# A cache configured on the host, or for another generator, cannot be reused in the container.
 	@cd launcher && if [ -f build/CMakeCache.txt ] && ! grep -q '^CMAKE_CACHEFILE_DIR:INTERNAL=/src/build$$' build/CMakeCache.txt; then \
 	    echo ":: Dropping stale host-configured launcher/build"; rm -rf build; fi
 	@cd launcher && if [ -f build/CMakeCache.txt ] && ! grep -q '^CMAKE_GENERATOR:INTERNAL=Ninja$$' build/CMakeCache.txt; then \
@@ -978,10 +899,6 @@ $(LAUNCHER): $(LAUNCHER_SRC) $(SHARED_SRC) $(LIBS) $(UI) $(ASSET_SVGS) $(TUXBLOX
 	rm -rf $(NATIVE)/libtuxblox && mkdir -p $(NATIVE)/libtuxblox
 	tar --zstd -xf $(UI) -C $(NATIVE)/libtuxblox
 
-# The layer's entry-point binary, build/compat/main. Not the layer itself: this gathers TuxBlox's
-# own sources from five places, embeds the data headers and the CA bundle the launcher generated, and
-# links one static binary. It lives here rather than in a script of its own because a file called
-# build-main.sh beside the layer reads like it builds the layer.
 define BUILD_ENTRY_POINT
 set -euo pipefail
 ROOT="$(ROOT)"
@@ -1026,19 +943,10 @@ install -m 755 "$$Work/out/main" "$$ProtonDir/dist/main"
 endef
 export BUILD_ENTRY_POINT
 
-# The layer's own launcher embeds the CA header the launcher build generates.
-# Every step up to the point the packages are compiled, shared by the staged and the build-only layer.
 define prepare_layer
 	@mkdir -p $(PROTON)
-	@# ntdll verifies the Roblox client's signature and needs a gnutls it can
-	@# count on, so the layer ships its own rather than hoping the host has one.
-	@# Extracted here because the layer's build rsyncs from a directory.
 	bash $(ROOT)/shared/tools/fetch-sources.sh --manifest $(ROOT)/compat/crypto \
 	    --sources-dir $(ROOT)/compat/sources/crypto --label "layer crypto"
-	@# The touches matter, and the order with them: these tarballs carry configure.ac and
-	@# Makefile.am newer than what was generated from them, so the build reaches for autoconf and
-	@# automake, and the container's are older than gnutls and libtasn1 ask for. Stamping each
-	@# generated file newer than its source, in that order, is what keeps the shipped ones.
 	@set -e; . $(ROOT)/compat/crypto/versions.env; \
 	mkdir -p $(ROOT)/compat/sources/crypto/src; \
 	for p in gmp-$$GMP_VERSION nettle-$$NETTLE_VERSION libtasn1-$$LIBTASN1_VERSION gnutls-$$GNUTLS_VERSION; do \
@@ -1052,9 +960,7 @@ define prepare_layer
 	    find $$d -name 'Makefile.in' -exec touch {} +; \
 	done
 	cd $(PROTON) && $(ROOT)/compat/configure.sh --enable-ccache
-	@# A command-line variable, because the layer's make re-runs in a container the environment misses.
 	cd $(PROTON) && make -j$(JOBS) TUXBLOX_COMPAT_VERSION=$(COMPAT_VERSION) all-source
-	@# known_good.json pins the commits, so its hash is the cache key.
 	cd $(PROTON)/src-glslang && rm -rf External/spirv-tools External/googletest && \
 	    key=$$(sha256sum known_good.json | cut -c1-16); \
 	    cache=$(ROOT)/compat/sources/glslang-externals-$$key.tar; \
@@ -1071,20 +977,13 @@ $(COMPAT): $(COMPAT_SRC) $(PATCHES) $(LIBS) $(LAUNCHER) $(WEBVIEW) | $(PODMAN)
 	$(prepare_layer)
 	cd $(PROTON) && make -j$(JOBS) TUXBLOX_COMPAT_VERSION=$(COMPAT_VERSION)
 	@printf '%s' "$$BUILD_ENTRY_POINT" | bash -s -- $(PROTON)
-	@# The markers describe the scratch, so they go with it or the next build configures nothing.
 	@if [ -n "$(TUXBLOX_RM_DIST)" ]; then cd $(PROTON) && rm -rf obj-* dst-* && \
 	    rm -f .*-configure .*-build .*-post-build .*-dist; fi
 	rm -rf $(NATIVE)/compat && mv $(PROTON)/dist $(NATIVE)/compat
-	@# The -dist markers describe what was staged into dist, and dist has just been moved out
-	@# from under them. Left behind, the next build skips those steps and ships a layer missing
-	@# whatever they install, the webview bundle among them, with nothing said.
 	rm -f $(PROTON)/.*-dist
 	cp -a LICENSE $(NATIVE)/compat/LICENSE
 	rm -rf $(NATIVE)/compat/third_party_licenses
 	cp -a third_party_licenses $(NATIVE)/compat/third_party_licenses
-	@# wineboot writes the moment it created each key into the skeleton registry, so the layer came
-	@# out different for every build. The skeleton's keys are all written in one pass anyway, so one
-	@# value from the commit date costs nothing and makes two builds of a commit identical.
 	@Skeleton=$(NATIVE)/compat/files/share/default_pfx; \
 	    Stamp=$$(printf '%x' $$(( ($(SOURCE_DATE_EPOCH) + 11644473600) * 10000000 ))); \
 	    sed -i -e "s/^#time=.*/#time=$$Stamp/" \
@@ -1092,15 +991,12 @@ $(COMPAT): $(COMPAT_SRC) $(PATCHES) $(LIBS) $(LAUNCHER) $(WEBVIEW) | $(PODMAN)
 	    printf '%s\n' "$(SOURCE_DATE_EPOCH)" > "$$Skeleton/.update-timestamp"
 	@python3 shared/tools/strip-pe-timestamps.py $(NATIVE)/compat
 
-# Stops once every package has compiled. Proton's own all-build does the work; the webview bundle
-# and the launcher are left out because only the staging step reads them.
 .PHONY: compat-build
 compat-build: $(COMPAT_SRC) $(PATCHES) $(LIBS) | $(PODMAN)
 	$(prepare_layer)
 	cd $(PROTON) && make -j$(JOBS) TUXBLOX_COMPAT_VERSION=$(COMPAT_VERSION) all-build
 	@echo ":: Compiled, not staged. build/compat is untouched, so run make compat to get a usable layer."
 
-# Vendored as a committed tarball, so this is a deliberate rebuild and not part of a normal build.
 .PHONY: webkitgtk
 define build_webview
 	$(ROOT)/compat/webkitgtk/bundle/fetch-sources.sh
@@ -1109,15 +1005,12 @@ define build_webview
 	mv compat/webkitgtk/bundle/out/webkitgtk-$(WEBKITGTK_VERSION)-x86_64.tar.xz $(WEBVIEW)
 endef
 
-# No prerequisites on purpose: an hour and a half of WebKit is never triggered by a bundle script
-# changing. It is built when the tarball is missing, and otherwise only by asking for it by name.
 $(WEBVIEW): | $(PODMAN)
 	$(build_webview)
 
 webkitgtk: | $(PODMAN)
 	$(build_webview)
 
-# Rebuilds only the host helper, straight into a layer that is already built.
 .PHONY: webkitgtk-host
 webkitgtk-host:
 	@if [ ! -d $(NATIVE)/compat/files ]; then \
@@ -1125,16 +1018,10 @@ webkitgtk-host:
 	fi
 	cd compat/webkitgtk/bundle && ./build-host.sh
 
-# The gate that makes the old-glibc baseline mean something: it checks every shipped binary's
-# dynamic dependencies resolve, that only the launcher links the interface stack, that nothing needs
-# a C++ runtime from the machine, and that nothing asks for a glibc above the floor TuxBlox promises.
-# Piped into one bash rather than written as recipe lines, because it is a program with functions and
-# a failure counter, and make runs each recipe line in its own shell.
 define CHECK_HOST_DEPS
 set -euo pipefail
 
 BuildDir="$${1:-build}"
-# NODIST compiles the layer without staging it, so there is no layer here to inspect.
 StagedLayer="$${2:-staged}"
 StackDirName="libtuxblox"
 GlibcFloor="GLIBC_2.29"
@@ -1271,15 +1158,12 @@ export CHECK_HOST_DEPS
 .PHONY: check
 check: components
 	@printf '%s' "$$CHECK_HOST_DEPS" | bash -s -- $(NATIVE) $(if $(NODIST),nostage,staged)
-	@# The webview bundle is checked where it is built, since its metadata never reaches a release.
 	@python3 shared/tools/check-archive.py $(UI)
 
 .PHONY: copy-include
 copy-include:
 	@if [ -d $(ROOT)/include ]; then cp -a $(ROOT)/include/. $(NATIVE)/; fi
 
-# Everything else is built in the container, so this is podman plus the few tools used to fill it and
-# to pack what comes out. make itself has to be there already to run this.
 .PHONY: deps
 deps:
 	@echo ":: Installing host build dependencies"

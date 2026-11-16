@@ -2,7 +2,7 @@
 <component type="desktop-application">
   <id>net.tuxblox.TuxBlox</id>
   <name>TuxBlox</name>
-  <summary>Run Roblox Player and Studio on Linux</summary>
+  <summary>Run Roblox on Linux</summary>
 
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>GPL-3.0-or-later AND LGPL-2.1-or-later</project_license>
@@ -13,19 +13,58 @@
 
   <description>
     <p>
-      TuxBlox runs the official Roblox Player and Roblox Studio on Linux through a compatibility layer,
-      without modifying either of them.
+      TuxBlox runs the official, unmodified Windows Roblox client on Linux, using its own compatibility layer built specifically for Roblox.
     </p>
+    <p>Features:</p>
+    <ul>
+      <li>Roblox Studio with working docking, web views and sign-in</li>
+      <li>Sessions view with live memory use and a log viewer for every session</li>
+      <li>Install the latest, previous, or a specific Roblox version</li>
+      <li>FastFlags editor</li>
+      <li>Option to choose the graphics API and the graphics card</li>
+      <li>Discord Rich Presence and Bloxstrap API support</li>
+      <li>Show where the game or Team Create server you joined is located</li>
+    </ul>
     <p>
       TuxBlox is not affiliated with or endorsed by Roblox Corporation.
     </p>
   </description>
 
   <launchable type="desktop-id">net.tuxblox.TuxBlox.desktop</launchable>
-  <content_rating type="oars-1.1"/>
 
-  <!-- The first entry is the thumbnail a software centre shows. These are absolute URLs because
-       that is what AppStream takes, so they outlive any one release and must keep resolving. -->
+  <content_rating type="oars-1.1">
+    <content_attribute id="social-chat">moderate</content_attribute>
+    <content_attribute id="social-audio">moderate</content_attribute>
+    <content_attribute id="social-info">intense</content_attribute>
+    <content_attribute id="money-purchasing">intense</content_attribute>
+    <content_attribute id="money-advertising">moderate</content_attribute>
+  </content_rating>
+
+  <requires>
+    <internet>always</internet>
+    <display_length compare="ge">768</display_length>
+  </requires>
+  <recommends>
+    <control>keyboard</control>
+    <control>pointing</control>
+  </recommends>
+  <supports>
+    <control>gamepad</control>
+  </supports>
+
+  <keywords>
+    <keyword>Roblox</keyword>
+    <keyword>Studio</keyword>
+    <keyword>Development</keyword>
+    <keyword>Game</keyword>
+    <keyword>Wine</keyword>
+    <keyword>Proton</keyword> <!-- TuxBlox is based on Proton -->
+  </keywords>
+
+  <provides>
+    <binary>tuxblox</binary>
+  </provides>
+
   <screenshots>
     <screenshot type="default">
       <caption>Running sessions, with the log from each one</caption>
@@ -51,8 +90,13 @@
 
   <url type="homepage">https://tuxblox.net</url>
   <url type="help">https://tuxblox.net/docs</url>
+  <url type="bugtracker">https://github.com/cherrypath0/tuxblox/issues</url>
+  <url type="vcs-browser">https://github.com/cherrypath0/tuxblox</url>
+  <url type="contact">mailto:contact@tuxblox.net</url>
 
   <releases>
-    <release version="@RELEASE@" date="@DATE@"/>
+    <release version="@RELEASE@" date="@DATE@">
+      <description>@NOTES@</description>
+    </release>
   </releases>
 </component>
