@@ -34,9 +34,12 @@ WINE_DECLARE_DEBUG_CHANNEL(tuxblox);
 #ifdef SONAME_LIBDBUS_1
 
 #define DBUS_FUNCS \
+    DO_FUNC(dbus_threads_init_default); \
     DO_FUNC(dbus_bus_add_match); \
-    DO_FUNC(dbus_bus_get); \
+    DO_FUNC(dbus_bus_get_private); \
     DO_FUNC(dbus_bus_get_unique_name); \
+    DO_FUNC(dbus_connection_close); \
+    DO_FUNC(dbus_connection_set_exit_on_disconnect); \
     DO_FUNC(dbus_bus_remove_match); \
     DO_FUNC(dbus_error_is_set); \
     DO_FUNC(dbus_connection_add_filter); \
@@ -80,6 +83,13 @@ static BOOL load_dbus_functions(void)
     { WARN("failed to load symbol %s\n", #f); return FALSE; }
     DBUS_FUNCS;
 #undef DO_FUNC
+
+    /* The session connection is shared, and the wait for the portal now runs on a thread of its own
+     * so the program carries on serving its windows while the dialog is up. libdbus only guards its
+     * own state once asked to, and without this the connection comes apart mid-dialog: the wait ends
+     * early reporting failure, and the caller falls back to drawing a second file dialog over the
+     * one already on screen. Asking twice is harmless. */
+    p_dbus_threads_init_default();
     return TRUE;
 }
 
@@ -303,8 +313,16 @@ static BOOL portal_open_or_save(const char *method, const char *title, const cha
     if (!load_dbus_functions()) return FALSE;
 
     p_dbus_error_init(&error);
-    conn = p_dbus_bus_get(DBUS_BUS_SESSION, &error);
+    /* A connection of this dialog's own, not the process-wide shared one. The wait below runs on a
+     * thread of its own so the program carries on serving its windows, and a shared connection is
+     * dispatched by whatever else in the process reached for the session bus: two threads taking
+     * messages off one connection lose the Response to the wrong one, and the wait then ends
+     * reporting failure, which puts Wine's own file dialog on screen over the portal's. */
+    conn = p_dbus_bus_get_private(DBUS_BUS_SESSION, &error);
     if (!conn) { p_dbus_error_free(&error); return FALSE; }
+    /* Both bus_get calls arm this, and it calls _exit() on the process. A dropped session bus must
+     * cost the dialog, never Roblox, and the wait below already reports a dead connection itself. */
+    p_dbus_connection_set_exit_on_disconnect(conn, FALSE);
 
     /* A token of its own per dialog, as the portal spec requires: the Request
      * object is named after it, and two dialogs open at once under one name
@@ -312,6 +330,7 @@ static BOOL portal_open_or_save(const char *method, const char *title, const cha
     sprintf(handle_token, "tuxblox%u", (unsigned int)InterlockedIncrement(&token_seq));
     if (!(expected_path = expected_request_path(conn, handle_token)))
     {
+        p_dbus_connection_close(conn);
         p_dbus_connection_unref(conn);
         return FALSE;
     }
@@ -334,6 +353,7 @@ static BOOL portal_open_or_save(const char *method, const char *title, const cha
         WARN("failed to subscribe to the portal response: %s\n", error.message);
         p_dbus_error_free(&error);
         free(expected_path);
+        p_dbus_connection_close(conn);
         p_dbus_connection_unref(conn);
         return FALSE;
     }
@@ -342,6 +362,7 @@ static BOOL portal_open_or_save(const char *method, const char *title, const cha
         WARN("failed to register dbus filter for portal response\n");
         p_dbus_bus_remove_match(conn, match_rule, NULL);
         free(expected_path);
+        p_dbus_connection_close(conn);
         p_dbus_connection_unref(conn);
         return FALSE;
     }
@@ -426,10 +447,8 @@ static BOOL portal_open_or_save(const char *method, const char *title, const cha
     ret = pending.done;
 
 done:
-    /* The session connection is shared and outlives every dialog, so each rule
-     * has to come off again: a token of its own per dialog means a rule of its
-     * own per dialog, and a long session would otherwise walk into the bus's
-     * own limit on how many one connection may hold. */
+    /* The connection goes with the dialog, so the rules on it go too. Taking them off first keeps
+     * the filter from being handed a message between the close and the unref. */
     p_dbus_connection_remove_filter(conn, response_filter, &pending);
     p_dbus_bus_remove_match(conn, match_rule, NULL);
     if (reply_match)
@@ -438,6 +457,9 @@ done:
         free(reply_match);
     }
     free(expected_path);
+    /* A private connection is not closed by dropping the last reference, and one left open keeps
+     * its socket and its name on the bus for as long as Roblox runs. */
+    p_dbus_connection_close(conn);
     p_dbus_connection_unref(conn);
 
     if (ret && pending.response_code == 0 && pending.uri_count)
