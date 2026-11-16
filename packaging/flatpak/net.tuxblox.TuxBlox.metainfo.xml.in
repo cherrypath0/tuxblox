@@ -24,6 +24,31 @@
   <launchable type="desktop-id">net.tuxblox.TuxBlox.desktop</launchable>
   <content_rating type="oars-1.1"/>
 
+  <!-- The first entry is the thumbnail a software centre shows. These are absolute URLs because
+       that is what AppStream takes, so they outlive any one release and must keep resolving. -->
+  <screenshots>
+    <screenshot type="default">
+      <caption>Running sessions, with the log from each one</caption>
+      <image>https://static.tuxblox.net/images/screenshots/Flatpak_Sessions.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Settings</caption>
+      <image>https://static.tuxblox.net/images/screenshots/Flatpak_Settings.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Roblox Studio, on Linux</caption>
+      <image>https://static.tuxblox.net/images/screenshots/Flatpak_Studio_Home.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Editing a place in Roblox Studio</caption>
+      <image>https://static.tuxblox.net/images/screenshots/Flatpak_Studio_ModernCity.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Editing a script in Roblox Studio</caption>
+      <image>https://static.tuxblox.net/images/screenshots/Flatpak_Studio_Script.png</image>
+    </screenshot>
+  </screenshots>
+
   <url type="homepage">https://tuxblox.net</url>
   <url type="help">https://tuxblox.net/docs</url>
 

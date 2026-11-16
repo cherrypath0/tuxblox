@@ -61,21 +61,24 @@ Known issues are listed in the [documentation](https://tuxblox.net/docs).
 
 TuxBlox installs and runs as a normal user. Root is never required.
 
+## Building From Source
+
+For a full build, run `make`, for the Flatpak only, run `make flatpak`.
+Full documentation for building from source and the requirements can be seen here: https://tuxblox.net/docs/development/building-from-source
+
 ## Installation
 
 There are two ways to install TuxBlox. Both install to `~/.tuxblox`.
 
 1. **Install script.** Open a terminal and run:
 
-   ```bash
-   curl -fsSL https://tuxblox.net/install.sh | bash
-   ```
+```bash
+curl -fsSL https://tuxblox.net/install.sh | bash
+```
 
-   You can [read the script](https://tuxblox.net/install.sh) before running it.
+You can [read the script](https://tuxblox.net/install.sh) before running it.
 
 2. **Releases page.** Download the latest stable installer from [tuxblox.net/releases](https://tuxblox.net/releases) and run it.
-
-To build TuxBlox yourself, see [Building From Source](https://tuxblox.net/docs/development/building-from-source).
 
 ## Privacy
 
@@ -89,8 +92,11 @@ No, TuxBlox is its own project. Vinegar runs the Windows client through the Wine
 **Does it work on Wayland?**
 Yes. The launcher runs natively on Wayland, and Studio runs through XWayland.
 
-**Why isn't there a Flatpak or a distro package?**
-The Flatpak sandbox gets in the way of controller access and system integration, and TuxBlox's self-update schedule doesn't fit package repositories.
+**Is there a Flatpak?**
+There is one, but it isn't published yet, so for now you can only build it yourself with `make flatpak`. The normal install is still the one to use: it updates itself part by part as soon as a release goes out, and it can reach your whole home folder, so a place saved anywhere still opens. The Flatpak asks for named folders instead, and Roblox Studio runs under it while the Player doesn't start yet. See [Building From Source](https://tuxblox.net/docs/development/building-from-source) for how to build and install it.
+
+**Why isn't there a distro package?**
+TuxBlox updates itself whenever a release is published, which is not how a distribution's package manager expects to work.
 
 **Can I run other Windows apps with it?**
 No. TuxBlox only runs programs signed by Roblox or by TuxBlox itself.
