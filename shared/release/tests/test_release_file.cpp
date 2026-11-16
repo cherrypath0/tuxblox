@@ -42,6 +42,15 @@ const char* kRelease = R"({
     "compat":     {"version": "3.3.0", "arch": {"x86_64": {"sha256": "bb", "size": 34}, "arm64": null}}
   }})";
 
+// The same release, with compat's x86_64 entry saying where its bytes are. nullptr says nothing,
+// which is what every release published before the field existed looks like.
+std::string releaseJsonWithCompatPath(const char* path) {
+    const std::string said = path == nullptr ? "" : std::string(", \"path\": \"") + path + "\"";
+    return R"({"release": "3.6.0.0", "channel": "stable", "components": {
+        "compat": {"version": "3.3.0", "arch": {"x86_64": {"sha256": "bb", "size": 34)" + said +
+           R"(}, "arm64": null}}}})";
+}
+
 class TempDir {
 public:
     TempDir() : path_(fs::temp_directory_path() / ("tuxblox-release-test-" + std::to_string(++counter_))) {
@@ -169,7 +178,63 @@ void test_urls() {
            "https://setup.tuxblox.net/client/releases/canary/latest");
     assert(releaseFileUrl("https://setup.tuxblox.net", "stable", "3.6.0.0") ==
            "https://setup.tuxblox.net/client/releases/stable/3.6.0.0.json");
+    assert(publishedUrl("https://setup.tuxblox.net", "compat/3.3.0/3.6.0.0/x86_64/compat.tar.zst") ==
+           "https://setup.tuxblox.net/client/compat/3.3.0/3.6.0.0/x86_64/compat.tar.zst");
+    assert(publishedUrl("https://setup.tuxblox.net", "").empty());
     printf("  urls\n");
+}
+
+// A path off the network becomes part of a URL, so anything that is not a relative path under
+// client/ is dropped and the address is built instead. Dropped rather than refused: the release is
+// still installable without it.
+void test_a_published_path_is_held_to_an_allow_list() {
+    const char* refused[] = {
+        "",                                    // said nothing
+        "/compat/3.3.0/x86_64/compat.tar.zst", // absolute, would leave client/
+        "../../etc/passwd",                    // climbs out
+        "compat/../../../root/x",              // climbs out further in
+        "//evil.example/x",                    // reads as a host to something joining URLs
+        "https://evil.example/x",              // a scheme of its own
+        "compat/3.3.0/x86_64/compat.tar.zst\\n",// escaped in the JSON, so it parses and is then refused
+        "compat/3.3.0/x86_64/compat tar.zst",  // a space has no business here
+    };
+    for (const char* path : refused) {
+        const std::string json = releaseJsonWithCompatPath(path);
+        assert(parseReleaseFile(json).components.at("compat").x86_64->path.empty());
+    }
+    // The shape every release actually publishes, and the one the next layout would.
+    for (const char* kept : {"compat/3.3.0/3.6.0.0/x86_64/compat.tar.zst",
+                              "releases/3.6.0.0/x86_64/compat.tar.zst"}) {
+        const std::string json = releaseJsonWithCompatPath(kept);
+        assert(parseReleaseFile(json).components.at("compat").x86_64->path == kept);
+    }
+    printf("  a published path is held to an allow-list\n");
+}
+
+// Best first, and every base is offered one tier before the next tier is reached.
+void test_component_urls_try_the_release_s_own_address_first() {
+    const ReleaseFile said = parseReleaseFile(
+        releaseJsonWithCompatPath("releases/3.6.0.0/x86_64/compat.tar.zst"));
+    const std::vector<std::string> urls =
+        componentUrls({"https://edge.tuxblox.net", "https://setup.tuxblox.net"}, said, "compat",
+                       "x86_64");
+    assert(urls.size() == 6);
+    assert(urls[0] == "https://edge.tuxblox.net/client/releases/3.6.0.0/x86_64/compat.tar.zst");
+    assert(urls[1] == "https://setup.tuxblox.net/client/releases/3.6.0.0/x86_64/compat.tar.zst");
+    assert(urls[2] == "https://edge.tuxblox.net/client/compat/3.3.0/3.6.0.0/x86_64/compat.tar.zst");
+    assert(urls[4] == "https://edge.tuxblox.net/client/compat/3.3.0/x86_64/compat.tar.zst");
+
+    // A release that says nothing still has both addresses this build can construct.
+    const ReleaseFile silent = parseReleaseFile(releaseJsonWithCompatPath(nullptr));
+    const std::vector<std::string> fallback =
+        componentUrls({"https://setup.tuxblox.net"}, silent, "compat", "x86_64");
+    assert(fallback.size() == 2);
+    assert(fallback[0] == "https://setup.tuxblox.net/client/compat/3.3.0/3.6.0.0/x86_64/compat.tar.zst");
+    assert(fallback[1] == "https://setup.tuxblox.net/client/compat/3.3.0/x86_64/compat.tar.zst");
+
+    // Nothing to try for a component this release does not publish.
+    assert(componentUrls({"https://setup.tuxblox.net"}, silent, "studio-mcp", "x86_64").empty());
+    printf("  componentUrls tries the release's own address first\n");
 }
 
 // The two sides of "does this install hold this release?" are built by one function each, so they
@@ -352,6 +417,8 @@ int main() {
     test_no_component_shadows_the_releases_path();
     test_the_layout_table();
     test_urls();
+    test_a_published_path_is_held_to_an_allow_list();
+    test_component_urls_try_the_release_s_own_address_first();
     test_releases_order_by_number_not_by_text();
     test_the_stack_answers_through_its_library();
     test_a_component_that_cannot_be_asked_has_no_version();

@@ -44,6 +44,25 @@ namespace {
 
 const char* kArches[] = {"x86_64", "arm64"};
 
+// Whether a release file's `path` is something safe to append to client/.
+//
+// It comes off the network and becomes part of a URL, so it is held to an allow-list rather than
+// checked for the ways out that come to mind: anything outside this set, a leading slash, an empty
+// component or a ".." is refused. A scheme needs a colon and a host needs a slash pair, so neither
+// survives this.
+bool isPublishedPath(const std::string& path) {
+    if (path.empty() || path.size() > 512) return false;
+    if (path.front() == '/') return false;
+    if (path.find("..") != std::string::npos) return false;
+    if (path.find("//") != std::string::npos) return false;
+    for (const char c : path) {
+        const bool allowed = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                             (c >= '0' && c <= '9') || c == '.' || c == '-' || c == '_' || c == '/';
+        if (!allowed) return false;
+    }
+    return true;
+}
+
 struct LayoutEntry {
     const char* name;
     ComponentLayout layout;
@@ -122,7 +141,14 @@ ReleaseComponent parseComponent(const std::string& name, const nlohmann::json& e
         if (!bytes.contains("size") || !bytes["size"].is_number_unsigned()) {
             throw std::runtime_error(where + "has no size");
         }
-        ComponentBytes value{bytes["sha256"].get<std::string>(), bytes["size"].get<uint64_t>()};
+        ComponentBytes value{bytes["sha256"].get<std::string>(), bytes["size"].get<uint64_t>(), ""};
+        // Ignored rather than refused when it is not a relative path under client/: the address can
+        // still be built, so a release stays installable instead of being rejected over a field
+        // that is an optimisation. It becomes part of a URL, so it is checked before it is kept.
+        if (bytes.contains("path") && bytes["path"].is_string()) {
+            const std::string said = bytes["path"].get<std::string>();
+            if (isPublishedPath(said)) value.path = said;
+        }
         if (std::string(name_of_arch) == "x86_64") {
             component.x86_64 = value;
         } else {
@@ -347,6 +373,12 @@ std::string publishedAs(const std::string& name) {
 
 } // namespace
 
+std::vector<std::string> componentBaseUrls(const std::string& baseUrl) {
+    std::vector<std::string> bases{baseUrl};
+    if (baseUrl == releasesEdgeUrl()) bases.push_back(releasesOriginUrl());
+    return bases;
+}
+
 std::string componentUrl(const std::string& baseUrl, const std::string& name,
                           const std::string& version, const std::string& release,
                           const std::string& arch) {
@@ -358,6 +390,33 @@ std::string legacyComponentUrl(const std::string& baseUrl, const std::string& na
                                 const std::string& version, const std::string& arch) {
     return baseUrl + "/client/" + name + "/" + version + "/" + arch + "/"
            + publishedAs(name);
+}
+
+std::string publishedUrl(const std::string& baseUrl, const std::string& path) {
+    return path.empty() ? "" : baseUrl + "/client/" + path;
+}
+
+std::vector<std::string> componentUrls(const std::vector<std::string>& baseUrls,
+                                        const ReleaseFile& release, const std::string& name,
+                                        const std::string& arch) {
+    std::vector<std::string> urls;
+    const auto entry = release.components.find(name);
+    if (entry == release.components.end()) return urls;
+    const std::optional<ComponentBytes>& bytes =
+        arch == "arm64" ? entry->second.arm64 : entry->second.x86_64;
+    if (!bytes.has_value()) return urls;
+
+    for (const std::string& base : baseUrls) {
+        const std::string said = publishedUrl(base, bytes->path);
+        if (!said.empty()) urls.push_back(said);
+    }
+    for (const std::string& base : baseUrls) {
+        urls.push_back(componentUrl(base, name, entry->second.version, release.release, arch));
+    }
+    for (const std::string& base : baseUrls) {
+        urls.push_back(legacyComponentUrl(base, name, entry->second.version, arch));
+    }
+    return urls;
 }
 
 std::string latestPointerUrl(const std::string& baseUrl, const std::string& channel) {

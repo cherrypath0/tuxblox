@@ -33,9 +33,12 @@ namespace tuxblox {
 struct ComponentBytes {
     std::string sha256;
     uint64_t size = 0;
-    // The file also carries a `path` saying where these bytes are published, which is deliberately
-    // not read here: this builds the address itself and falls back when it 404s, which a reader
-    // that cannot retry -- a link on the download page -- has no way to do.
+    // Where the release says these bytes are, relative to client/. Asked first, so the layout can
+    // change without stranding anyone: a client that reads this follows the release wherever it
+    // goes, where one that builds the address itself can only ever find the layout it shipped
+    // knowing. Empty when the release does not say, or says something that is not a relative path
+    // under client/, and then the address is built as before.
+    std::string path;
 };
 
 struct ReleaseComponent {
@@ -153,6 +156,25 @@ std::string componentUrl(const std::string& baseUrl, const std::string& name,
 // installable from a client that already knows the new one.
 std::string legacyComponentUrl(const std::string& baseUrl, const std::string& name,
                                 const std::string& version, const std::string& arch);
+
+// Where the release itself says a component's bytes are. Asked before either address above, so a
+// client follows the layout the release describes rather than the one it was built knowing. Empty
+// when the release said nothing usable, and then the addresses above are all there is.
+std::string publishedUrl(const std::string& baseUrl, const std::string& path);
+
+// Every address worth trying for a component, best first: where the release says its bytes are,
+// then the address this build would construct, then where one copy served every release that named
+// it. Each tier is offered on every base before the next tier is, because a base that cannot answer
+// is a different failure from an address that was never published: the edge is an optimisation and
+// the origin behind it is the truth. Empty when the release does not publish this component here.
+std::vector<std::string> componentUrls(const std::vector<std::string>& baseUrls,
+                                        const ReleaseFile& release, const std::string& name,
+                                        const std::string& arch);
+
+// The bases a download should try, in order: the one chosen, then the origin behind it when that
+// one was the edge. Every caller of componentUrls() wants this, and a caller that passes its base
+// alone turns an edge outage into a download that cannot happen rather than one that is slower.
+std::vector<std::string> componentBaseUrls(const std::string& baseUrl);
 std::string latestPointerUrl(const std::string& baseUrl, const std::string& channel);
 std::string releaseFileUrl(const std::string& baseUrl, const std::string& channel,
                             const std::string& release);

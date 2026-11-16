@@ -156,20 +156,19 @@ InstallOutcome runInstall(const ReleaseFile& release,
 
         ArtifactPlan p;
         p.name = name;
-        p.artifact.url = componentUrl(baseUrl, name, entry->second.version, release.release,
-                                       hostArch());
-        // The edge is an optimisation and the origin behind it is the truth, so the origin is
-        // always worth asking when the edge cannot answer. The legacy address is where the last
-        // release published before each one carried its own copy of every component still sits.
-        if (baseUrl == releasesEdgeUrl()) {
-            p.alternatives.push_back(componentUrl(releasesOriginUrl(), name, entry->second.version,
-                                                   release.release, hostArch()));
+        // Where the release says the bytes are, then the address this build would construct, then
+        // where one copy served every release that named it. The edge is an optimisation and the
+        // origin behind it is the truth, so the origin is asked for each of those in turn.
+        const std::vector<std::string> urls =
+            componentUrls(componentBaseUrls(baseUrl), release, name, hostArch());
+        // Checked rather than assumed: the bytes above say this component is published here, and
+        // taking the first of an empty list on the day those two disagree is a crash.
+        if (urls.empty()) {
+            return {false, false, i18n::trf("Release {0} does not say where to download {1}",
+                                            {release.release, layout.displayName}), ""};
         }
-        p.alternatives.push_back(legacyComponentUrl(baseUrl, name, entry->second.version, hostArch()));
-        if (baseUrl == releasesEdgeUrl()) {
-            p.alternatives.push_back(legacyComponentUrl(releasesOriginUrl(), name,
-                                                         entry->second.version, hostArch()));
-        }
+        p.artifact.url = urls.front();
+        p.alternatives.assign(urls.begin() + 1, urls.end());
         p.artifact.sha256 = bytes->sha256;
         p.artifact.sizeBytes = bytes->size;
         p.artifact.displayname = layout.displayName;
