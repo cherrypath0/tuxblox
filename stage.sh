@@ -135,6 +135,29 @@ staged_version="$("$INSTALL_DIR/compat/main" --version 2>/dev/null || true)"
 
 echo
 echo -e "${ORANGE}Staged${RESET} $INSTALL_DIR"
-[[ -n "$staged_version" ]] && echo "  Version:  $staged_version"
-echo "  Prefix:   $prefix_summary"
-echo "  Run:      $INSTALL_DIR/TuxBloxLauncher"
+[[ -n "$staged_version" ]] && echo "  Version:   $staged_version"
+echo "  Prefix:    $prefix_summary"
+echo "  Run:       $INSTALL_DIR/TuxBloxLauncher"
+echo "  Installer: $INSTALL_DIR/TuxBloxInstaller"
+
+flatpak_repo=""
+[[ -d build/flatpak/repo ]] && flatpak_repo="$PWD/build/flatpak/repo"
+appimage=""
+if [[ -e build/appimage/TuxBloxInstaller.AppImage ]]; then
+    appimage="$PWD/build/appimage/TuxBloxInstaller.AppImage"
+elif [[ -d build/appimage/TuxBloxInstaller.AppDir ]]; then
+    appimage="unpacked"
+fi
+
+if [[ -n "$flatpak_repo" || -n "$appimage" ]]; then
+    echo
+    echo -e "${ORANGE}Also built${RESET} not staged, each installs its own way"
+    [[ -n "$flatpak_repo" ]] &&
+        echo "  Flatpak:   flatpak install --user $flatpak_repo net.tuxblox.TuxBlox"
+    if [[ "$appimage" == "unpacked" ]]; then
+        appdir="$PWD/build/appimage/TuxBloxInstaller.AppDir"
+        echo "  AppImage:  not packed, no appimagetool; run APPDIR=$appdir $appdir/AppRun"
+    elif [[ -n "$appimage" ]]; then
+        echo "  AppImage:  $appimage"
+    fi
+fi

@@ -19,13 +19,17 @@
 set(GENERATED_DIR "${CMAKE_BINARY_DIR}/generated")
 file(MAKE_DIRECTORY ${GENERATED_DIR})
 
-function(embedAsset name headerName symbol)
-    # Defaults to png so anything that must stay a bitmap -- the logo, which is written to disk as a file -- needs nothing said about it
-    set(extension "png")
-    if(ARGC GREATER 3)
-        set(extension "${ARGV3}")
-    endif()
-    set(input "${CMAKE_SOURCE_DIR}/assets/${name}.${extension}")
+# The artwork lives at the repository root rather than beside the launcher, since the installer and
+# the packaging builds draw from the same place. The container mounts both and passes them in; a
+# host build has the repository laid out around it and finds them itself.
+if(NOT DEFINED TUXBLOX_ASSETS)
+    set(TUXBLOX_ASSETS "${CMAKE_SOURCE_DIR}/../assets")
+endif()
+if(NOT DEFINED TUXBLOX_ASSETS_BUILD)
+    set(TUXBLOX_ASSETS_BUILD "${CMAKE_SOURCE_DIR}/../build/assets")
+endif()
+
+function(embedAssetFile input headerName symbol name extension)
     set(output "${GENERATED_DIR}/${headerName}")
     add_custom_command(
         OUTPUT ${output}
@@ -40,6 +44,15 @@ function(embedAsset name headerName symbol)
     set_property(GLOBAL APPEND PROPERTY LAUNCHER_ASSET_TABLE "${name}|${headerName}|${symbol}|${extension}")
 endfunction()
 
+function(embedAsset name headerName symbol)
+    # Defaults to png so anything that must stay a bitmap needs nothing said about it
+    set(extension "png")
+    if(ARGC GREATER 3)
+        set(extension "${ARGV3}")
+    endif()
+    embedAssetFile("${TUXBLOX_ASSETS}/${name}.${extension}" "${headerName}" "${symbol}" "${name}" "${extension}")
+endfunction()
+
 embedAsset(home asset_home.h kAssetHome svg)
 embedAsset(info asset_info.h kAssetInfo svg)
 embedAsset(globe asset_globe.h kAssetGlobe svg)
@@ -52,7 +65,9 @@ embedAsset(scale asset_scale.h kAssetScale svg)
 embedAsset(download asset_download.h kAssetDownload svg)
 embedAsset(play asset_play.h kAssetPlay svg)
 embedAsset(stop asset_stop.h kAssetStop svg)
-embedAsset(tuxblox-icon asset_tuxblox_icon.h kAssetTuxbloxIcon)
+# Rendered from assets/tuxblox.svg by `make assets` rather than checked in, so the one SVG is the
+# only copy of the artwork. GTK is handed this as a pixbuf, so it has to be a raster.
+embedAssetFile("${TUXBLOX_ASSETS_BUILD}/tuxblox/256x256.png" asset_tuxblox_icon.h kAssetTuxbloxIcon tuxblox-icon png)
 embedAsset(fastflags asset_fastflags.h kAssetFastflags svg)
 embedAsset(roblox-rdd asset_roblox_rdd.h kAssetRobloxRdd svg)
 embedAsset(roblox-player asset_roblox_player.h kAssetRobloxPlayer svg)

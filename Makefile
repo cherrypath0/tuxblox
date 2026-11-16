@@ -134,12 +134,30 @@ shared-state:
 
 # The interface stack, the shared libraries, patches and the builder image are not targets anyone
 # invokes. They are prerequisites, so they build exactly when something needs them.
-.PHONY: launcher installer studio-mcp compat deps appimage flatpak
+.PHONY: launcher installer studio-mcp compat deps appimage flatpak assets
 launcher: bump-build $(LAUNCHER)
 installer: bump-build $(INSTALLER)
 
+# assets/ holds the artwork as SVG, which is what anything drawing it should start from. The sizes
+# below are the raster copies that cannot be an SVG: a desktop entry's icon file, a Flatpak's
+# hicolor directories, and the icons the launcher embeds and hands to GTK as a pixbuf.
+ASSETS_DIR := $(BUILD)/assets
+ASSET_SIZES := 1024 512 256 128 64 32
+ASSET_SVGS := $(wildcard assets/*.svg)
+TUXBLOX_ICONS := $(foreach s,$(ASSET_SIZES),$(ASSETS_DIR)/tuxblox/$(s)x$(s).png)
+
+assets: $(TUXBLOX_ICONS)
+
+$(TUXBLOX_ICONS): $(ASSETS_DIR)/tuxblox/%.png: assets/tuxblox.svg
+	@command -v rsvg-convert >/dev/null 2>&1 || { \
+	    printf '!! rsvg-convert not found, so the icons cannot be rendered. Install librsvg.\n' >&2; exit 1; }
+	@mkdir -p $(@D)
+	@# The target carries the size twice, as 512x512; rsvg-convert wants it once.
+	rsvg-convert -w $(firstword $(subst x, ,$*)) -h $(firstword $(subst x, ,$*)) $< -o $@
+
 APPIMAGE_DIR := $(BUILD)/appimage
 APPIMAGE_APPDIR := $(APPIMAGE_DIR)/TuxBloxInstaller.AppDir
+APPIMAGE := $(APPIMAGE_DIR)/TuxBloxInstaller.AppImage
 
 # The AppImage carries a different installer binary, one that takes its interface from the mounted
 # AppDir instead of unpacking its own, so this rebuilds the installer and leaves $(INSTALLER) holding
@@ -157,12 +175,12 @@ appimage:
 	tar --zstd -xf $(UI) -C $(APPIMAGE_APPDIR)/usr
 	cp $(ART)/installer/TuxBloxInstaller-ui $(APPIMAGE_APPDIR)/usr/TuxBloxInstaller-ui
 	cp $(APPIMAGE_DIR)/TuxBloxInstaller $(APPIMAGE_APPDIR)/usr/bin/TuxBloxInstaller
-	cp installer/assets/tuxblox-icon.png $(APPIMAGE_APPDIR)/tuxblox-installer.png
+	cp $(ASSETS_DIR)/tuxblox/256x256.png $(APPIMAGE_APPDIR)/tuxblox-installer.png
 	cp packaging/appimage/tuxblox-installer.desktop $(APPIMAGE_APPDIR)/tuxblox-installer.desktop
 	cp -a third_party_licenses/. $(APPIMAGE_APPDIR)/usr/share/licenses/
 	ln -sf usr/bin/TuxBloxInstaller $(APPIMAGE_APPDIR)/AppRun
 	@if command -v appimagetool >/dev/null 2>&1; then \
-	    appimagetool $(APPIMAGE_APPDIR) $(APPIMAGE_DIR)/TuxBloxInstaller-x86_64.AppImage; \
+	    appimagetool $(APPIMAGE_APPDIR) $(APPIMAGE); \
 	else \
 	    printf '!! appimagetool was not found, so the AppDir was assembled but not packed\n' >&2; \
 	    printf '   it runs in place: APPDIR=%s %s/AppRun\n' '$(APPIMAGE_APPDIR)' '$(APPIMAGE_APPDIR)' >&2; \
@@ -170,12 +188,13 @@ appimage:
 	@printf ':: the AppImage variant stays in %s, build/native/TuxBloxInstaller is untouched\n' '$(APPIMAGE_DIR)'
 
 FLATPAK_DIR := $(BUILD)/flatpak
+FLATPAK_BUNDLE := $(FLATPAK_DIR)/net.tuxblox.TuxBlox.flatpak
 FLATPAK_MANIFEST := packaging/flatpak/net.tuxblox.TuxBlox.yml
 
 # The Flatpak carries a different launcher, one with no updater, no channel selector and no uninstall
-# control, because none of them can work from a read-only /app. So this rebuilds the launcher and
-# leaves $(LAUNCHER) holding that variant. Run `make launcher` afterwards for the ordinary one.
-# It packs the whole of build/, so the layer and the gateway must already be built. They are checked
+# control, because none of them can work from a read-only /app. So this rebuilds the launcher with
+# LAUNCHER retargeted into build/flatpak, which is what keeps the variant away from build/native.
+# It packs named pieces of build/, so the layer and the gateway must already be built. They are checked
 # rather than depended on: a patched layer package re-syncs on every make, so taking $(COMPAT) as a
 # prerequisite turns every packaging run into a multi-hour layer rebuild.
 flatpak:
@@ -206,7 +225,10 @@ flatpak:
 	    printf '!! no flatpak-builder: install it, or `flatpak install flathub org.flatpak.Builder`\n' >&2; \
 	    exit 1; \
 	fi
+	@# A repository is a directory, and a release publishes files, so the publishable form is a bundle.
+	flatpak build-bundle $(FLATPAK_DIR)/repo $(FLATPAK_BUNDLE) net.tuxblox.TuxBlox
 	@printf ':: install it with: flatpak install --user %s net.tuxblox.TuxBlox\n' '$(FLATPAK_DIR)/repo'
+	@printf ':: or from the bundle: flatpak install --user %s\n' '$(FLATPAK_BUNDLE)'
 	@printf ':: the Flatpak variant stays in %s, build/native/TuxBloxLauncher is untouched\n' '$(FLATPAK_DIR)'
 studio-mcp: bump-build $(STUDIO_MCP)
 ifdef NODIST
@@ -847,7 +869,7 @@ $(UI): shared/ui/versions.env shared/ui/sources.list Makefile | $(PODMAN)
 	mv $(UI_DIST)/out/ui-stack-*.tar.zst $(UI_DIST)/
 	rm -rf $(UI_DIST)/out
 
-$(INSTALLER): $(INSTALLER_SRC) $(SHARED_SRC) $(LIBS) $(UI) | $(PODMAN)
+$(INSTALLER): $(INSTALLER_SRC) $(SHARED_SRC) $(LIBS) $(UI) $(TUXBLOX_ICONS) | $(PODMAN)
 	@cd installer && if [ -f build/CMakeCache.txt ] && ! grep -q '^CMAKE_CACHEFILE_DIR:INTERNAL=/src/build$$' build/CMakeCache.txt; then rm -rf build; fi
 	@mkdir -p $(CCACHE_DIR)
 	podman run --rm --userns=keep-id -e JOBS="$(JOBS)" \
@@ -857,13 +879,14 @@ $(INSTALLER): $(INSTALLER_SRC) $(SHARED_SRC) $(LIBS) $(UI) | $(PODMAN)
 	    -e TUXBLOX_BUILD_VERSION="$(shell cat installer/VERSION 2>/dev/null)" \
 	    -e TUXBLOX_RELEASE="$(RELEASE)" -e TUXBLOX_CHANNEL="$(CHANNEL)" \
 	    -v $(ROOT)/installer:/src:Z -v $(ART)/shared:/shared:ro,z \
+	    -v $(ROOT)/assets:/assets:ro,z -v $(ASSETS_DIR):/assets-build:ro,z \
 	    -v $(ROOT)/shared/crypto:/shared-crypto:ro,z -v $(ROOT)/shared/release:/shared-release:ro,z \
 	    -v $(ROOT)/shared/flags:/shared-flags:ro,z -v $(ROOT)/shared/i18n:/shared-i18n:ro,z \
 	    -v $(ROOT)/shared/translations:/shared-translations:ro,z $(UI_MOUNTS) \
 	    -v $(CCACHE_DIR):/ccache:z -e CCACHE_DIR=/ccache -e CCACHE_MAXSIZE=30G -w /src \
 	    tuxblox-builder bash -c 'cmake -B build -S . -G Ninja -DCMAKE_BUILD_TYPE=Release \
 	        -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-	        -DTUXBLOX_SHARED_DIR=/shared -DTUXBLOX_SHARED_CRYPTO=/shared-crypto/src \
+	        -DTUXBLOX_ASSETS=/assets -DTUXBLOX_ASSETS_BUILD=/assets-build -DTUXBLOX_SHARED_DIR=/shared -DTUXBLOX_SHARED_CRYPTO=/shared-crypto/src \
 	        -DTUXBLOX_SHARED_RELEASE=/shared-release/src -DTUXBLOX_SHARED_FLAGS=/shared-flags \
 	        -DTUXBLOX_I18N_DIR=/shared-i18n -DTUXBLOX_TRANSLATIONS_DIR=/shared-translations \
 	        $${UI_STACK_ARG:-} $${LIBADWAITA_ARG:-} $${APPIMAGE_ARG:-} && cmake --build build -j"$(JOBS)"'
@@ -893,7 +916,7 @@ $(STUDIO_MCP): $(STUDIO_MCP_SRC) $(LAUNCHER_SRC) $(SHARED_SRC) $(LIBS) | $(PODMA
 	rm -rf $(ART)/studio-mcp && mv studio-mcp/build $(ART)/studio-mcp
 	cp $(ART)/studio-mcp/studio-mcp $@
 
-$(LAUNCHER): $(LAUNCHER_SRC) $(SHARED_SRC) $(LIBS) $(UI) | $(PODMAN)
+$(LAUNCHER): $(LAUNCHER_SRC) $(SHARED_SRC) $(LIBS) $(UI) $(ASSET_SVGS) $(TUXBLOX_ICONS) | $(PODMAN)
 	@# A cache configured on the host, or for another generator, cannot be reused in the container.
 	@cd launcher && if [ -f build/CMakeCache.txt ] && ! grep -q '^CMAKE_CACHEFILE_DIR:INTERNAL=/src/build$$' build/CMakeCache.txt; then \
 	    echo ":: Dropping stale host-configured launcher/build"; rm -rf build; fi
@@ -906,6 +929,7 @@ $(LAUNCHER): $(LAUNCHER_SRC) $(SHARED_SRC) $(LIBS) $(UI) | $(PODMAN)
 	    -e TUXBLOX_BUILD_VERSION="$(shell cat launcher/VERSION 2>/dev/null)" \
 	    -e TUXBLOX_RELEASE="$(RELEASE)" -e TUXBLOX_CHANNEL="$(CHANNEL)" \
 	    -v $(ROOT)/launcher:/src:Z -v $(ROOT)/LICENSE:/LICENSE:ro,z \
+	    -v $(ROOT)/assets:/assets:ro,z -v $(ASSETS_DIR):/assets-build:ro,z \
 	    -v $(ROOT)/shared/ui/src:/ui-src:ro -v $(UI_DIST)/dev:/ui-dev:ro \
 	    -v $(ART)/shared:/shared:ro,z -v $(ROOT)/shared/crypto:/shared-crypto:ro,z \
 	    -v $(ROOT)/shared/release:/shared-release:ro,z -v $(ROOT)/shared/flags:/shared-flags:ro,z \
@@ -914,7 +938,7 @@ $(LAUNCHER): $(LAUNCHER_SRC) $(SHARED_SRC) $(LIBS) $(UI) | $(PODMAN)
 	    -v $(CCACHE_DIR):/ccache:z -e CCACHE_DIR=/ccache -e CCACHE_MAXSIZE=30G -w /src \
 	    tuxblox-builder bash -c 'cmake -B build -S . -G Ninja -DCMAKE_BUILD_TYPE=Release \
 	        -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-	        -DTUXBLOX_UI_SRC=/ui-src -DTUXBLOX_UI_STACK_DEV=/ui-dev -DTUXBLOX_SHARED_DIR=/shared \
+	        -DTUXBLOX_UI_SRC=/ui-src -DTUXBLOX_UI_STACK_DEV=/ui-dev -DTUXBLOX_ASSETS=/assets -DTUXBLOX_ASSETS_BUILD=/assets-build -DTUXBLOX_SHARED_DIR=/shared \
 	        -DTUXBLOX_SHARED_CRYPTO=/shared-crypto/src -DTUXBLOX_SHARED_RELEASE=/shared-release/src \
 	        -DTUXBLOX_SHARED_FLAGS=/shared-flags -DTUXBLOX_SHARED_PATHS=/shared-paths/src \
 	        -DTUXBLOX_I18N_DIR=/shared-i18n -DTUXBLOX_TRANSLATIONS_DIR=/shared-translations \
@@ -1256,6 +1280,7 @@ help:
 	@echo "make studio-mcp      the Studio MCP gateway only"
 	@echo "make appimage        the installer as an AppImage"
 	@echo "make flatpak         the whole of TuxBlox as a Flatpak"
+	@echo "make assets          render assets/tuxblox.svg into build/assets/ (needs librsvg)"
 	@echo "make compat          the compatibility layer only"
 	@echo "make webkitgtk       build the webview bundle (hours on a first run)"
 	@echo "make webkitgtk-host  just the webview host helper, into an existing layer"

@@ -14,14 +14,16 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-# The TuxBlox window/taskbar icon: the same local asset as the logo
-# (launcher/assets/tuxblox.png), checked into the repo directly. This used
-# to fetch a separate pre-rendered PNG from a remote server at build time --
-# using the same local asset for both removes a second network dependency
-# and guarantees the window icon and the in-app logo are pixel-identical.
+# The TuxBlox window and taskbar icon: the same rendered file as the logo, so the two are
+# pixel-identical and neither is fetched from a server at build time. See FetchLogo.cmake for why
+# the rendering step has to pass an explicit size.
 # Embedded as a C header, for desktop_integration.cpp, which writes it to the XDG icon theme directory.
 
-set(WINDOW_ICON_PNG_PATH "${CMAKE_SOURCE_DIR}/assets/tuxblox.png")
+if(NOT DEFINED TUXBLOX_ASSETS_BUILD)
+    set(TUXBLOX_ASSETS_BUILD "${CMAKE_SOURCE_DIR}/../build/assets")
+endif()
+# Rendered from assets/tuxblox.svg by `make assets`.
+set(WINDOW_ICON_PNG_PATH "${TUXBLOX_ASSETS_BUILD}/tuxblox/512x512.png")
 set(GENERATED_DIR "${CMAKE_BINARY_DIR}/generated")
 set(WINDOW_ICON_HEADER_PATH "${GENERATED_DIR}/tuxblox_window_icon_png.h")
 

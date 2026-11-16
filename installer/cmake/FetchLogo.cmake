@@ -26,8 +26,12 @@
 # artwork. Because the asset ships as a PNG there is no rasterization step,
 # which is also why the installer build no longer needs rsvg-convert.
 
-# Kept in the repository: building must not depend on the CDN being up.
-set(LOGO_PNG_SRC "${CMAKE_SOURCE_DIR}/assets/tuxblox-icon.png")
+# Rendered from assets/tuxblox.svg by `make assets`, so the one SVG at the repository root is the
+# only copy of the artwork. Still built here rather than fetched: building must not depend on the CDN.
+if(NOT DEFINED TUXBLOX_ASSETS_BUILD)
+    set(TUXBLOX_ASSETS_BUILD "${CMAKE_SOURCE_DIR}/../build/assets")
+endif()
+set(LOGO_PNG_SRC "${TUXBLOX_ASSETS_BUILD}/tuxblox/512x512.png")
 set(GENERATED_DIR "${CMAKE_BINARY_DIR}/generated")
 set(LOGO_PNG_PATH "${GENERATED_DIR}/tuxblox_logo.png")
 set(LOGO_HEADER_PATH "${GENERATED_DIR}/tuxblox_logo_png.h")
