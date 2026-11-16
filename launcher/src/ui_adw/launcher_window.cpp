@@ -68,6 +68,7 @@ struct WindowUi {
     std::string exePath;
     std::string installDir;
     GtkWindow *pWindow = nullptr;
+    GtkLabel *pBrandName = nullptr;
     AdwNavigationPage *pContentPage = nullptr;
     GtkStack *pStack = nullptr;
     GtkListBox *pMainList = nullptr;
@@ -153,7 +154,10 @@ gboolean onTick(gpointer data) {
     }
     // Said in the title because it is true of the whole window, and because a build you made is
     // easy to mistake for the install when both are open.
-    gtk_window_set_title(pUi->pWindow, snap.internalBuild ? "TuxBlox (Internal)" : "TuxBlox");
+    const char *pTitle = snap.internalBuild ? "TuxBlox (Internal)" : "TuxBlox";
+    gtk_window_set_title(pUi->pWindow, pTitle);
+    // The sidebar label is what the user actually reads: a CSD window's title only reaches the taskbar.
+    if (pUi->pBrandName) gtk_label_set_text(pUi->pBrandName, pTitle);
     if (pUi->appliedTheme != launcherThemeFor(snap.settings.theme)) {
         pUi->appliedTheme = launcherThemeFor(snap.settings.theme);
         applyLauncherTheme(pUi->appliedTheme);
@@ -251,6 +255,7 @@ GtkWidget *buildSidebar(WindowUi &ui) {
     gtk_box_append(GTK_BOX(pLists), pFooter);
 
     GtkWidget *pName = gtk_label_new("TuxBlox");
+    ui.pBrandName = GTK_LABEL(pName);
     gtk_widget_add_css_class(pName, "heading");
     // The desktop's window buttons would draw the app icon here, scaled from a much larger file; this copy is made for the size it is shown at
     GdkPaintable *pLogo = logoPaintable(kAssetTuxbloxIcon, kAssetTuxbloxIconLen, 24);

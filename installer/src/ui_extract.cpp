@@ -20,8 +20,10 @@
 #include "tar_extract.h"
 #include "ui_cache.h"
 #include "ui_payload.h"
+#include "version.h"
 #include <algorithm>
 #include <cstdint>
+#include <cstdlib>
 #include <exception>
 #include <filesystem>
 #include <fstream>
@@ -83,6 +85,14 @@ bool copyPayload(const std::string& selfExe, const UiPayloadTrailer& trailer, co
 } // namespace
 
 UiStackResult ensureUiStack(const std::string& selfExe, const std::string& version) {
+    // An AppImage mounts the interface stack already, so there is nothing to unpack and no cache to keep warm.
+    // usr/ is the stack root rather than usr/bin, because the interface binary's rpath is $ORIGIN/lib/x86_64-linux-gnu.
+    if constexpr (kAppImageBuild) {
+        const char* appDir = std::getenv("APPDIR");
+        if (appDir && appDir[0] != '\0') return succeed(std::string(appDir) + "/usr");
+        return fail(i18n::tr("This AppImage was started without APPDIR, so it cannot find its own interface. Run it with --headless instead."));
+    }
+
     const auto trailer = readUiPayloadTrailer(selfExe);
     if (!trailer.has_value()) {
         return fail(i18n::tr("This copy of the installer has no interface attached to it. Download TuxBlox again, or run this installer with --headless."));

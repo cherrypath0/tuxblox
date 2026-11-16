@@ -102,16 +102,105 @@ export TUXBLOX_CHANNEL = $(CHANNEL)
 .NOTPARALLEL:
 
 .PHONY: all
-all: bump-build components check copy-include
+# packages comes after components so the layer, the gateway and the interface stack it needs are
+# already built. Set TUXBLOX_NO_PACKAGES=1 to skip it: it rebuilds both component variants and writes
+# a 400MB Flatpak repo, which is a lot to pay for on a routine build.
+all: bump-build components check copy-include packages
+
+.PHONY: packages
+ifdef TUXBLOX_NO_PACKAGES
+packages:
+	@printf ':: TUXBLOX_NO_PACKAGES set, the AppImage and the Flatpak were NOT built\n'
+else
+packages: appimage flatpak
+endif
 
 .PHONY: components
 components: bump-build launcher installer studio-mcp compat
 
 # The interface stack, the shared libraries, patches and the builder image are not targets anyone
 # invokes. They are prerequisites, so they build exactly when something needs them.
-.PHONY: launcher installer studio-mcp compat deps
+.PHONY: launcher installer studio-mcp compat deps appimage flatpak
 launcher: bump-build $(LAUNCHER)
 installer: bump-build $(INSTALLER)
+
+APPIMAGE_DIR := $(BUILD)/appimage
+APPIMAGE_APPDIR := $(APPIMAGE_DIR)/TuxBloxInstaller.AppDir
+
+# The AppImage carries a different installer binary, one that takes its interface from the mounted
+# AppDir instead of unpacking its own, so this rebuilds the installer and leaves $(INSTALLER) holding
+# that variant. Run `make installer` afterwards to put the ordinary one back.
+# The smoke test is skipped because it proves the unpacked interface works, which is the one thing
+# this variant deliberately does not do.
+appimage:
+	@# The variant shares the component's output path, so the ordinary binary is set aside and put
+	@# back afterwards. Without this a plain `make` would leave an AppImage installer in build/,
+	@# and stage.sh would copy it into the real install, where it would look for an APPDIR.
+	@mkdir -p $(APPIMAGE_DIR)
+	@if [ -e $(INSTALLER) ]; then mv $(INSTALLER) $(APPIMAGE_DIR)/.installer-ordinary; fi
+	$(MAKE) --no-print-directory TUXBLOX_APPIMAGE=1 TUXBLOX_SKIP_SMOKE=1 installer
+	@mv $(INSTALLER) $(APPIMAGE_DIR)/TuxBloxInstaller
+	@if [ -e $(APPIMAGE_DIR)/.installer-ordinary ]; then mv $(APPIMAGE_DIR)/.installer-ordinary $(INSTALLER); fi
+	@rm -rf $(APPIMAGE_APPDIR)
+	@mkdir -p $(APPIMAGE_APPDIR)/usr/bin $(APPIMAGE_APPDIR)/usr/share/licenses
+	@# usr/ is the stack root because the interface binary's rpath is $$ORIGIN/lib/x86_64-linux-gnu.
+	tar --zstd -xf $(UI) -C $(APPIMAGE_APPDIR)/usr
+	cp $(ART)/installer/TuxBloxInstaller-ui $(APPIMAGE_APPDIR)/usr/TuxBloxInstaller-ui
+	cp $(APPIMAGE_DIR)/TuxBloxInstaller $(APPIMAGE_APPDIR)/usr/bin/TuxBloxInstaller
+	cp installer/assets/tuxblox-icon.png $(APPIMAGE_APPDIR)/tuxblox-installer.png
+	cp packaging/appimage/tuxblox-installer.desktop $(APPIMAGE_APPDIR)/tuxblox-installer.desktop
+	cp -a third_party_licenses/. $(APPIMAGE_APPDIR)/usr/share/licenses/
+	ln -sf usr/bin/TuxBloxInstaller $(APPIMAGE_APPDIR)/AppRun
+	@if command -v appimagetool >/dev/null 2>&1; then \
+	    appimagetool $(APPIMAGE_APPDIR) $(APPIMAGE_DIR)/TuxBloxInstaller-x86_64.AppImage; \
+	else \
+	    printf '!! appimagetool was not found, so the AppDir was assembled but not packed\n' >&2; \
+	    printf '   it runs in place: APPDIR=%s %s/AppRun\n' '$(APPIMAGE_APPDIR)' '$(APPIMAGE_APPDIR)' >&2; \
+	fi
+	@printf ':: the AppImage variant stays in %s, build/TuxBloxInstaller is untouched\n' '$(APPIMAGE_DIR)'
+
+FLATPAK_DIR := $(BUILD)/flatpak
+FLATPAK_MANIFEST := packaging/flatpak/net.tuxblox.TuxBlox.yml
+
+# The Flatpak carries a different launcher, one with no updater, no channel selector and no uninstall
+# control, because none of them can work from a read-only /app. So this rebuilds the launcher and
+# leaves $(LAUNCHER) holding that variant. Run `make launcher` afterwards for the ordinary one.
+# It packs the whole of build/, so the layer and the gateway must already be built. They are checked
+# rather than depended on: a patched layer package re-syncs on every make, so taking $(COMPAT) as a
+# prerequisite turns every packaging run into a multi-hour layer rebuild.
+flatpak:
+	@missing=; \
+	for f in $(COMPAT) $(STUDIO_MCP) $(BUILD)/libtuxblox; do \
+	    [ -e "$$f" ] || missing="$$missing $$f"; \
+	done; \
+	if [ -n "$$missing" ]; then \
+	    printf '!! not built yet:%s\n' "$$missing" >&2; \
+	    printf '   run `make` first, then `make flatpak`\n' >&2; \
+	    exit 1; \
+	fi
+	@# Same as appimage: the ordinary launcher is set aside so a plain `make` never leaves the
+	@# Flatpak variant, which has no updater, sitting where stage.sh would install it.
+	@mkdir -p $(FLATPAK_DIR)
+	@if [ -e $(LAUNCHER) ]; then mv $(LAUNCHER) $(FLATPAK_DIR)/.launcher-ordinary; fi
+	$(MAKE) --no-print-directory TUXBLOX_FLATPAK=1 launcher
+	@mv $(LAUNCHER) $(FLATPAK_DIR)/TuxBloxLauncher
+	@if [ -e $(FLATPAK_DIR)/.launcher-ordinary ]; then mv $(FLATPAK_DIR)/.launcher-ordinary $(LAUNCHER); fi
+	@# The release is only known to make, so the metainfo is a template. The date comes from the
+	@# commit rather than today, so building the same commit twice still produces the same bytes.
+	@sed -e 's/@RELEASE@/$(RELEASE)/' \
+	     -e "s/@DATE@/$$(git log -1 --format=%cd --date=short 2>/dev/null || echo 1970-01-01)/" \
+	    packaging/flatpak/net.tuxblox.TuxBlox.metainfo.xml.in \
+	    > $(FLATPAK_DIR)/net.tuxblox.TuxBlox.metainfo.xml
+	@if command -v flatpak-builder >/dev/null 2>&1; then \
+	    flatpak-builder --force-clean --repo=$(FLATPAK_DIR)/repo $(FLATPAK_DIR)/build $(FLATPAK_MANIFEST); \
+	elif flatpak info org.flatpak.Builder >/dev/null 2>&1; then \
+	    flatpak run org.flatpak.Builder --force-clean --repo=$(FLATPAK_DIR)/repo $(FLATPAK_DIR)/build $(FLATPAK_MANIFEST); \
+	else \
+	    printf '!! no flatpak-builder: install it, or `flatpak install flathub org.flatpak.Builder`\n' >&2; \
+	    exit 1; \
+	fi
+	@printf ':: install it with: flatpak install --user %s net.tuxblox.TuxBlox\n' '$(FLATPAK_DIR)/repo'
+	@printf ':: the Flatpak variant stays in %s, build/TuxBloxLauncher is untouched\n' '$(FLATPAK_DIR)'
 studio-mcp: bump-build $(STUDIO_MCP)
 ifdef NODIST
 compat: bump-build compat-build
@@ -757,6 +846,7 @@ $(INSTALLER): $(INSTALLER_SRC) $(SHARED_SRC) $(LIBS) $(UI) | $(PODMAN)
 	podman run --rm --userns=keep-id -e JOBS="$(JOBS)" \
 	    -e UI_STACK_ARG="$(UI_ARGS)" \
 	    -e LIBADWAITA_ARG="-DTUXBLOX_LIBADWAITA_COMMIT=$(LIBADWAITA_COMMIT)" \
+	    -e APPIMAGE_ARG="$(if $(TUXBLOX_APPIMAGE),-DTUXBLOX_APPIMAGE=ON,)" \
 	    -e TUXBLOX_BUILD_VERSION="$(shell cat installer/VERSION 2>/dev/null)" \
 	    -e TUXBLOX_RELEASE="$(RELEASE)" -e TUXBLOX_CHANNEL="$(CHANNEL)" \
 	    -v $(ROOT)/installer:/src:Z -v $(ART)/shared:/shared:ro,z \
@@ -769,7 +859,7 @@ $(INSTALLER): $(INSTALLER_SRC) $(SHARED_SRC) $(LIBS) $(UI) | $(PODMAN)
 	        -DTUXBLOX_SHARED_DIR=/shared -DTUXBLOX_SHARED_CRYPTO=/shared-crypto/src \
 	        -DTUXBLOX_SHARED_RELEASE=/shared-release/src -DTUXBLOX_SHARED_FLAGS=/shared-flags \
 	        -DTUXBLOX_I18N_DIR=/shared-i18n -DTUXBLOX_TRANSLATIONS_DIR=/shared-translations \
-	        $${UI_STACK_ARG:-} $${LIBADWAITA_ARG:-} && cmake --build build -j"$(JOBS)"'
+	        $${UI_STACK_ARG:-} $${LIBADWAITA_ARG:-} $${APPIMAGE_ARG:-} && cmake --build build -j"$(JOBS)"'
 ifndef TUXBLOX_HEADLESS_ONLY
 	cd installer && ./append-payload.sh build/TuxBloxInstaller $(UI) build/TuxBloxInstaller-ui build/TuxBloxInstaller
 	@if [ -z "$$TUXBLOX_SKIP_SMOKE" ]; then cd installer && ./smoke-test.sh build/TuxBloxInstaller; \
@@ -805,6 +895,7 @@ $(LAUNCHER): $(LAUNCHER_SRC) $(SHARED_SRC) $(LIBS) $(UI) | $(PODMAN)
 	@mkdir -p $(CCACHE_DIR)
 	podman run --rm --userns=keep-id -e JOBS="$(JOBS)" \
 	    -e LIBADWAITA_ARG="-DTUXBLOX_LIBADWAITA_COMMIT=$(LIBADWAITA_COMMIT)" \
+	    -e FLATPAK_ARG="$(if $(TUXBLOX_FLATPAK),-DTUXBLOX_FLATPAK=ON,)" \
 	    -e TUXBLOX_BUILD_VERSION="$(shell cat launcher/VERSION 2>/dev/null)" \
 	    -e TUXBLOX_RELEASE="$(RELEASE)" -e TUXBLOX_CHANNEL="$(CHANNEL)" \
 	    -v $(ROOT)/launcher:/src:Z -v $(ROOT)/LICENSE:/LICENSE:ro,z \
@@ -820,7 +911,7 @@ $(LAUNCHER): $(LAUNCHER_SRC) $(SHARED_SRC) $(LIBS) $(UI) | $(PODMAN)
 	        -DTUXBLOX_SHARED_CRYPTO=/shared-crypto/src -DTUXBLOX_SHARED_RELEASE=/shared-release/src \
 	        -DTUXBLOX_SHARED_FLAGS=/shared-flags -DTUXBLOX_SHARED_PATHS=/shared-paths/src \
 	        -DTUXBLOX_I18N_DIR=/shared-i18n -DTUXBLOX_TRANSLATIONS_DIR=/shared-translations \
-	        $${LIBADWAITA_ARG:-} && cmake --build build -j"$(JOBS)"'
+	        $${LIBADWAITA_ARG:-} $${FLATPAK_ARG:-} && cmake --build build -j"$(JOBS)"'
 	@if [ ! -f launcher/build/TuxBloxLauncher ]; then echo "!! launcher/build/TuxBloxLauncher was not built" >&2; exit 1; fi
 	@if [ -z "$$TUXBLOX_SKIP_SMOKE" ]; then cd launcher && ./smoke-test.sh build/TuxBloxLauncher $(UI); \
 	 else echo "!! TUXBLOX_SKIP_SMOKE set, the fresh-install smoke test was NOT run" >&2; fi
@@ -1156,12 +1247,15 @@ help:
 	@echo "make launcher        the launcher only"
 	@echo "make installer       the installer only"
 	@echo "make studio-mcp      the Studio MCP gateway only"
+	@echo "make appimage        the installer as an AppImage"
+	@echo "make flatpak         the whole of TuxBlox as a Flatpak"
 	@echo "make compat          the compatibility layer only"
 	@echo "make webkitgtk       build the webview bundle (hours on a first run)"
 	@echo "make webkitgtk-host  just the webview host helper, into an existing layer"
 	@echo "make clean           remove build/"
 	@echo "make distclean       also remove the interface stack and source caches"
 	@echo
+	@echo "TUXBLOX_NO_PACKAGES=1  skip the AppImage and the Flatpak in a full build"
 	@echo "TUXBLOX_RM_DIST=1    drop the layer's build scratch to free disk"
 	@echo "NODIST=1             compile the layer without staging it, for a quick check"
 	@echo "JOBS=N               parallel jobs (default: nproc)"

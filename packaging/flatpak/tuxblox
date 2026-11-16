@@ -1,0 +1,15 @@
+#!/bin/sh
+set -e
+
+# /app is read-only, so the install root has to be the app's own data directory.
+TUXBLOX_ROOT="${XDG_DATA_HOME:-$HOME/.local/share}/tuxblox"
+export TUXBLOX_ROOT
+mkdir -p "$TUXBLOX_ROOT"
+
+# installDir() builds every path from the root, so the read-only payload is pointed at from inside it.
+# Re-linked on every launch, so a flatpak update is picked up with no migration step.
+for part in compat libtuxblox TuxBloxLauncher studio-mcp; do
+    ln -sfn "/app/tuxblox/$part" "$TUXBLOX_ROOT/$part"
+done
+
+exec /app/tuxblox/TuxBloxLauncher "$@"

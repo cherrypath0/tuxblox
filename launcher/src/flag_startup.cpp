@@ -17,6 +17,7 @@
 #include "flag_startup.h"
 #include "FlagManager.h"
 #include "release_stamp.h"
+#include "version.h"
 #include <algorithm>
 #include <cstdint>
 #include "roblox_config.h"
@@ -47,6 +48,10 @@ bool settingsFilePresent(const std::string& installDir) {
 
 std::string flagChannelFor(const Settings& settings, bool settingsPresent,
                            const std::string& stamped) {
+    // A Flatpak's branch is its channel, and it has no setting that could disagree.
+    if constexpr (kFlatpakBuild) {
+        if (kBuildChannel[0] != '\0') return kBuildChannel;
+    }
     if (settingsPresent && !settings.channel.empty()) return settings.channel;
     if (!stamped.empty()) return stamped;
     if (!settings.channel.empty()) return settings.channel;

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=TuxBlox Player
+Comment=via TuxBlox
+Exec=tuxblox %u
+Icon=net.tuxblox.TuxBlox
+NoDisplay=true
+Terminal=false
+MimeType=x-scheme-handler/roblox;x-scheme-handler/roblox-player;

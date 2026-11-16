@@ -21,6 +21,9 @@ project(TuxBloxInstaller CXX)
 # see setupBaseUrl() for why an environment variable that redirects downloads must not exist there.
 option(TUXBLOX_TEST_SETUP_URL "Honour $TUXBLOX_SETUP_URL (testing only)" OFF)
 
+# Builds the AppImage variant, which takes its interface stack from the mounted AppDir instead of unpacking its own.
+option(TUXBLOX_APPIMAGE "Build the AppImage variant" OFF)
+
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -165,6 +168,12 @@ endif()
 # TODO: the installer still defaults to installing its own component version as though it were a
 # release, which it is not -- the client plan makes "latest" the default.
 message(STATUS "TuxBlox installer version: ${TUXBLOX_INSTALLER_VERSION}")
+if(TUXBLOX_APPIMAGE)
+    set(TUXBLOX_APPIMAGE_BOOL "true")
+    message(STATUS "TuxBlox AppImage variant")
+else()
+    set(TUXBLOX_APPIMAGE_BOOL "false")
+endif()
 configure_file(${CMAKE_SOURCE_DIR}/cmake/version.h.in ${CMAKE_BINARY_DIR}/generated/version.h @ONLY)
 # installer_core compiles cli.cpp, which needs the generated version/channel.
 # PUBLIC so TuxBloxInstaller inherits it, and placed after configure_file so the

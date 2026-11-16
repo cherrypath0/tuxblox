@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=TuxBlox
+Comment=Run Roblox Player and Studio on Linux
+Exec=tuxblox
+Icon=net.tuxblox.TuxBlox
+Terminal=false
+Categories=Game;

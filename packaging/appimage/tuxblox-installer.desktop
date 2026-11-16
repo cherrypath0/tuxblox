@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=TuxBlox Installer
+Comment=Install TuxBlox
+Exec=TuxBloxInstaller
+Icon=tuxblox-installer
+Categories=Utility;
+Terminal=false
+NoDisplay=true
+X-AppImage-Integrate=false

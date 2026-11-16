@@ -19,6 +19,7 @@
 #include "flag_startup.h"
 #include "i18n.h"
 #include "seasonal.h"
+#include "version.h"
 #include "widgets.h"
 
 #include <string>
@@ -188,18 +189,22 @@ void SettingsPage::buildTheme(AdwPreferencesGroup *pGroup) {
 void SettingsPage::buildUpdates() {
     AdwPreferencesGroup *pGroup = addGroup(i18n::tr("Updates"));
 
-    GtkWidget *pChannel = adw_combo_row_new();
-    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(pChannel), i18n::tr("Update channel"));
-    adw_action_row_set_subtitle(ADW_ACTION_ROW(pChannel), i18n::tr("The release channel TuxBlox updates to"));
-    GtkStringList *pChannels = gtk_string_list_new(Channels);
-    adw_combo_row_set_model(ADW_COMBO_ROW(pChannel), G_LIST_MODEL(pChannels));
-    g_object_unref(pChannels);
-    pChannel_ = ADW_COMBO_ROW(pChannel);
-    g_signal_connect(pChannel, "notify::selected", G_CALLBACK(onChannel), this);
-    adw_preferences_group_add(pGroup, pChannel);
+    // A Flatpak updates through flatpak, so neither row has anything to act on. Roblox's own updates below are unaffected.
+    if constexpr (!kFlatpakBuild) {
+        GtkWidget *pChannel = adw_combo_row_new();
+        adw_preferences_row_set_title(ADW_PREFERENCES_ROW(pChannel), i18n::tr("Update channel"));
+        adw_action_row_set_subtitle(ADW_ACTION_ROW(pChannel), i18n::tr("The release channel TuxBlox updates to"));
+        GtkStringList *pChannels = gtk_string_list_new(Channels);
+        adw_combo_row_set_model(ADW_COMBO_ROW(pChannel), G_LIST_MODEL(pChannels));
+        g_object_unref(pChannels);
+        pChannel_ = ADW_COMBO_ROW(pChannel);
+        g_signal_connect(pChannel, "notify::selected", G_CALLBACK(onChannel), this);
+        adw_preferences_group_add(pGroup, pChannel);
 
-    addToggle(pGroup, i18n::tr("Automatic updates"), i18n::tr("Install TuxBlox updates without asking."),
-              &Settings::autoUpdate);
+        addToggle(pGroup, i18n::tr("Automatic updates"), i18n::tr("Install TuxBlox updates without asking."),
+                  &Settings::autoUpdate);
+    }
+
     addToggle(pGroup, i18n::tr("Auto-Update Roblox"), "", &Settings::autoUpdateRoblox);
 }
 
@@ -284,15 +289,20 @@ void SettingsPage::buildDangerZone() {
     pWipe_ = dangerButton(pWipe, i18n::tr("Wipe"), G_CALLBACK(onWipe));
     adw_preferences_group_add(pGroup, pWipe);
 
-    GtkWidget *pUninstall = plainActionRow(i18n::tr("Uninstall TuxBlox"), "");
-    pUninstall_ = dangerButton(pUninstall, i18n::tr("Uninstall"), G_CALLBACK(onUninstall));
-    adw_preferences_group_add(pGroup, pUninstall);
+    // Uninstalling a Flatpak is flatpak uninstall, and the handoff this would need cannot write to /app anyway.
+    if constexpr (!kFlatpakBuild) {
+        GtkWidget *pUninstall = plainActionRow(i18n::tr("Uninstall TuxBlox"), "");
+        pUninstall_ = dangerButton(pUninstall, i18n::tr("Uninstall"), G_CALLBACK(onUninstall));
+        adw_preferences_group_add(pGroup, pUninstall);
+    }
 
     // Not rows, so the group places them below its list
     pWipeError_ = errorLabel();
     adw_preferences_group_add(pGroup, pWipeError_);
-    pUninstallError_ = errorLabel();
-    adw_preferences_group_add(pGroup, pUninstallError_);
+    if constexpr (!kFlatpakBuild) {
+        pUninstallError_ = errorLabel();
+        adw_preferences_group_add(pGroup, pUninstallError_);
+    }
 }
 
 void SettingsPage::onRegistryEditor(GtkButton *pButton, gpointer data) {
@@ -415,8 +425,11 @@ void SettingsPage::onUninstall(GtkButton *pButton, gpointer data) {
 
 void SettingsPage::seed(const Settings &settings) {
     seeding_ = true;
-    for (guint i = 0; Channels[i] != nullptr; ++i) {
-        if (settings.channel == Channels[i]) adw_combo_row_set_selected(pChannel_, i);
+    // pChannel_ stays null in a Flatpak build, where buildUpdates() never creates the row.
+    if constexpr (!kFlatpakBuild) {
+        for (guint i = 0; Channels[i] != nullptr; ++i) {
+            if (settings.channel == Channels[i]) adw_combo_row_set_selected(pChannel_, i);
+        }
     }
     const std::vector<std::string> tags = languageTags();
     for (guint i = 0; i < tags.size(); ++i) {
@@ -450,9 +463,11 @@ void SettingsPage::update(const AppSnapshot &snap) {
     setButtonLabel(pWipe_, snap.wipePrefix.inProgress ? i18n::tr("Wiping…") : i18n::tr("Wipe"));
     showError(pWipeError_, snap.wipePrefix.errorMessage);
 
-    gtk_widget_set_sensitive(GTK_WIDGET(pUninstall_), !snap.uninstall.inProgress);
-    setButtonLabel(pUninstall_, snap.uninstall.inProgress ? i18n::tr("Uninstalling…") : i18n::tr("Uninstall"));
-    showError(pUninstallError_, snap.uninstall.errorMessage);
+    if constexpr (!kFlatpakBuild) {
+        gtk_widget_set_sensitive(GTK_WIDGET(pUninstall_), !snap.uninstall.inProgress);
+        setButtonLabel(pUninstall_, snap.uninstall.inProgress ? i18n::tr("Uninstalling…") : i18n::tr("Uninstall"));
+        showError(pUninstallError_, snap.uninstall.errorMessage);
+    }
 
     // Closing the sessions properly takes seconds, so this follows the snapshot the way Wipe does rather than a return value, which used to freeze the window while it worked.
     if (terminateAwaited_ && !snap.terminate.inProgress && snap.terminate.signalled >= 0) {

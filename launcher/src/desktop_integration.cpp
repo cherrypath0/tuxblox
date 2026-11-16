@@ -18,6 +18,7 @@
 #include "tuxblox_logo_png.h" // generated at build time: kTuxbloxLogoPng[], kTuxbloxLogoPngLen
 #include "container_env.h"
 #include "install_paths.h"
+#include "version.h"
 #include "versions_manifest.h"
 #include "wine_shortcut_export.h"
 #include <algorithm>
@@ -455,6 +456,9 @@ void writeDesktopEntries(const std::string& launcherExePath) {
 }
 
 void ensureDesktopIntegration(const std::string& launcherExePath, const std::string& installDir) {
+    // A Flatpak's menu entry, icons and scheme handlers come from its manifest. Anything written here
+    // would land in the sandbox's own data directory, where no host desktop ever reads it.
+    if constexpr (kFlatpakBuild) return;
     if (!runningFromInstall(launcherExePath) || anotherInstallOwnsEntries(launcherExePath)) return;
     writeDesktopEntries(launcherExePath);
 

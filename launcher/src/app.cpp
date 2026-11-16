@@ -18,6 +18,7 @@
 
 #include "flag_startup.h"
 #include "i18n.h"
+#include "version.h"
 #include <cstdlib>
 #include "roblox_log_capture.h"
 #include "process_launcher.h"
@@ -160,6 +161,8 @@ App::~App() {
 }
 
 void App::startUpdateCheck() {
+    // A Flatpak updates through flatpak, so the check has nothing it could act on.
+    if constexpr (kFlatpakBuild) return;
     if (updateThread_.joinable()) return; // already started -- safe to call once
     updateThread_ = std::thread(&App::updateCheckThreadMain, this);
 }

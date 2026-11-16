@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>net.tuxblox.TuxBlox</id>
+  <name>TuxBlox</name>
+  <summary>Run Roblox Player and Studio on Linux</summary>
+
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later AND LGPL-2.1-or-later</project_license>
+
+  <developer id="net.tuxblox">
+    <name>TuxBlox Developers</name>
+  </developer>
+
+  <description>
+    <p>
+      TuxBlox runs the official Roblox Player and Roblox Studio on Linux through a compatibility layer,
+      without modifying either of them.
+    </p>
+    <p>
+      TuxBlox is not affiliated with or endorsed by Roblox Corporation.
+    </p>
+  </description>
+
+  <launchable type="desktop-id">net.tuxblox.TuxBlox.desktop</launchable>
+  <content_rating type="oars-1.1"/>
+
+  <url type="homepage">https://tuxblox.net</url>
+  <url type="help">https://tuxblox.net/docs</url>
+
+  <releases>
+    <release version="@RELEASE@" date="@DATE@"/>
+  </releases>
+</component>

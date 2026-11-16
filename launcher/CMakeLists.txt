@@ -21,6 +21,9 @@ project(TuxBloxLauncher CXX)
 # see setupBaseUrl() for why an environment variable that redirects downloads must not exist there.
 option(TUXBLOX_TEST_SETUP_URL "Honour $TUXBLOX_SETUP_URL (testing only)" OFF)
 
+# Builds the Flatpak variant, which cannot update or uninstall itself from a read-only /app and leaves both to flatpak.
+option(TUXBLOX_FLATPAK "Build the Flatpak variant" OFF)
+
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -116,6 +119,20 @@ else()
     set(TUXBLOX_LAUNCHER_VERSION "0.0.0-dev")
 endif()
 message(STATUS "TuxBlox launcher version: ${TUXBLOX_LAUNCHER_VERSION}")
+# A Flatpak build bakes the channel its branch publishes, since it has no setting to carry one.
+if(TUXBLOX_FLATPAK)
+    set(TUXBLOX_FLATPAK_BOOL "true")
+    if(NOT "$ENV{TUXBLOX_CHANNEL}" STREQUAL "")
+        set(TUXBLOX_BUILD_CHANNEL "$ENV{TUXBLOX_CHANNEL}")
+    else()
+        set(TUXBLOX_BUILD_CHANNEL "experimental")
+    endif()
+    message(STATUS "TuxBlox Flatpak variant, channel: ${TUXBLOX_BUILD_CHANNEL}")
+else()
+    set(TUXBLOX_FLATPAK_BOOL "false")
+    set(TUXBLOX_BUILD_CHANNEL "")
+endif()
+
 configure_file(${CMAKE_SOURCE_DIR}/cmake/version.h.in ${CMAKE_BINARY_DIR}/generated/version.h @ONLY)
 
 # The release and the channel the root VERSION file declares, forwarded by the Makefile the way the
