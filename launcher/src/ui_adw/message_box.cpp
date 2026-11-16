@@ -115,10 +115,18 @@ int ignoreXError(Display *, XErrorEvent *) { return 0; }
 
 // The window of the program that asked for this box. It started us, so its process id is this
 // process's parent, and the desktop's own list of windows says which window is its.
+//
+// The stacking list is asked for first, and the match taken from the top of it, because a program
+// asking a question usually has more than one window open and the box belongs to the one in front.
+// Parenting it to the first window the desktop happens to list puts the box behind the file dialog
+// that asked the question, where it waits unseen and the program looks like it has stopped.
 Window findParentAppWindow(Display *pDisplay) {
     const unsigned long parent = static_cast<unsigned long>(getppid());
-    const Atom clientList = XInternAtom(pDisplay, "_NET_CLIENT_LIST", True);
+    Atom clientList = XInternAtom(pDisplay, "_NET_CLIENT_LIST_STACKING", True);
     const Atom pidProperty = XInternAtom(pDisplay, "_NET_WM_PID", True);
+    const bool stacked = clientList != None;
+
+    if (!stacked) clientList = XInternAtom(pDisplay, "_NET_CLIENT_LIST", True);
     if (clientList == None || pidProperty == None) return None;
 
     Atom type = None;
@@ -133,7 +141,9 @@ Window findParentAppWindow(Display *pDisplay) {
 
     Window found = None;
     const Window *pWindows = reinterpret_cast<const Window *>(pBytes);
-    for (unsigned long at = 0; pWindows != nullptr && at < count && found == None; ++at) {
+    // Stacking order runs bottom to top, so the last match is the frontmost window and the loop
+    // keeps going; an unordered list has no frontmost, so there the first match stands.
+    for (unsigned long at = 0; pWindows != nullptr && at < count && (stacked || found == None); ++at) {
         unsigned char *pPid = nullptr;
         unsigned long pidCount = 0;
         if (XGetWindowProperty(pDisplay, pWindows[at], pidProperty, 0, 1, False, XA_CARDINAL, &type,
@@ -160,7 +170,12 @@ Window parentAppWindowForBox() {
     XSync(pDisplay, False);
     XSetErrorHandler(previous);
     XCloseDisplay(pDisplay);
-    if (parent != None) setenv("GDK_BACKEND", "x11", 1);
+
+    // Drawn on X11 whether or not the owner was found. The program that asked is an X11 window, and
+    // a box on the other display server is one the desktop will not put in front of it; drawn there
+    // with no owner to belong to, it was never presented at all and the program waited on a box
+    // nobody could see. Reaching here at all means there is an X display to draw it on.
+    setenv("GDK_BACKEND", "x11", 1);
     return parent;
 }
 
@@ -174,7 +189,39 @@ void markAsDialogOf(AdwDialog *pDialog, Window parent) {
     if (pSurface == nullptr || !GDK_IS_X11_SURFACE(pSurface)) return;
 
     Display *pDisplay = GDK_SURFACE_XDISPLAY(pSurface);
-    XSetTransientForHint(pDisplay, GDK_SURFACE_XID(pSurface), parent);
+    const Window box = GDK_SURFACE_XID(pSurface);
+
+    XSetTransientForHint(pDisplay, box, parent);
+
+    // Belonging to the window is not the same as blocking it, and the desktop only does the second
+    // when it is told. Without this the box is an ordinary sibling: clicking the window it came from
+    // raises that window over the box instead of bringing the box forward, and closing the box
+    // returns the focus to whatever the desktop feels like rather than to the program waiting on it.
+    // libadwaita sets this itself only for a parent in its own process, which an owner from another
+    // program is not.
+    //
+    // Asked for by message rather than written onto the window: the window is already on screen by
+    // now, and from then on the state belongs to the desktop, which ignores a window that writes its
+    // own. Writing it as well covers the case where this runs before the window is up.
+    const Atom state = XInternAtom(pDisplay, "_NET_WM_STATE", False);
+    const Atom modal = XInternAtom(pDisplay, "_NET_WM_STATE_MODAL", False);
+    if (state != None && modal != None) {
+        XEvent ask = {};
+
+        XChangeProperty(pDisplay, box, state, XA_ATOM, 32, PropModeAppend,
+                        reinterpret_cast<const unsigned char *>(&modal), 1);
+
+        ask.xclient.type = ClientMessage;
+        ask.xclient.window = box;
+        ask.xclient.message_type = state;
+        ask.xclient.format = 32;
+        ask.xclient.data.l[0] = 1; // _NET_WM_STATE_ADD
+        ask.xclient.data.l[1] = static_cast<long>(modal);
+        ask.xclient.data.l[3] = 1; // asked for by the program itself, not by a pager
+        XSendEvent(pDisplay, DefaultRootWindow(pDisplay), False,
+                   SubstructureNotifyMask | SubstructureRedirectMask, &ask);
+    }
+
     if (GTK_IS_WINDOW(pRoot)) gtk_window_present(GTK_WINDOW(pRoot));
 }
 
