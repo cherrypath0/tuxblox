@@ -130,7 +130,7 @@ pid=""
 window=""
 for _ in $(seq 1 30); do
     pid="$(pgrep -u tester -f "^$root/TuxBloxLauncher" | head -n 1 || true)"
-    window="$(xwininfo -root -tree 2>/dev/null | grep -E '"TuxBlox".*[0-9]+x[0-9]+\+' | head -n 1 | awk '{print $1}' || true)"
+    window="$(xwininfo -root -tree 2>/dev/null | grep -E '"TuxBlox( \(Internal\))?".*[0-9]+x[0-9]+\+' | head -n 1 | awk '{print $1}' || true)"
     if [[ -n "$pid" && -n "$window" ]]; then break; fi
     sleep 1
 done
@@ -168,12 +168,12 @@ run env DISPLAY=:99 "$root/TuxBloxLauncher" --preview-rbxinstaller >/tmp/rbxwind
 pid=""
 for _ in $(seq 1 30); do
     pid="$(pgrep -u tester -f 'preview-rbxinstaller' | head -n 1 || true)"
-    if [[ -n "$pid" ]] && xwininfo -root -tree 2>/dev/null | grep -qE '"TuxBlox".*[0-9]+x[0-9]+\+'; then break; fi
+    if [[ -n "$pid" ]] && xwininfo -root -tree 2>/dev/null | grep -qE '"TuxBlox( \(Internal\))?".*[0-9]+x[0-9]+\+'; then break; fi
     sleep 1
 done
 test -n "$pid" || { cat /tmp/rbxwindow.log; fail 'the Roblox progress window did not start'; }
 xwininfo -root -tree | tee /tmp/rbxtree.txt
-grep -qE '"TuxBlox".*[0-9]+x[0-9]+\+' /tmp/rbxtree.txt || { cat /tmp/rbxwindow.log; fail 'the Roblox progress window is not on the display'; }
+grep -qE '"TuxBlox( \(Internal\))?".*[0-9]+x[0-9]+\+' /tmp/rbxtree.txt || { cat /tmp/rbxwindow.log; fail 'the Roblox progress window is not on the display'; }
 printf 'OK: the Roblox progress window is on the display (pid %s)\n' "$pid"
 pkill -u tester -f 'preview-rbxinstaller' || true
 

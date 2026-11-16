@@ -5,7 +5,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: tuxblox\n"
 "Report-Msgid-Bugs-To: cherry@tuxblox.net\n"
-"POT-Creation-Date: 2026-11-15 14:35+0300\n"
+"POT-Creation-Date: 2026-11-16 04:27+0300\n"
 "Last-Translator: Yan Henridev <228758946+yanhenrique-"
 "dev@users.noreply.github.com>\n"
 "Language-Team: Spanish\n"
@@ -68,6 +68,9 @@ msgstr "Abortado"
 msgid "About"
 msgstr "Acerca de"
 
+msgid "Access Violation"
+msgstr ""
+
 msgid "Adds a button to your activity that allows others to join your server"
 msgstr ""
 "Añade un botón a tu actividad que permite que otras personas se unan a tu "
@@ -95,6 +98,9 @@ msgstr "¡Ya hay una instancia de TuxBlox Launcher en ejecución!"
 msgid "An unknown error has occurred which has crashed TuxBlox.\n"
 msgstr "Se produjo un error desconocido que bloqueó TuxBlox.\n"
 
+msgid "Assertion failed"
+msgstr ""
+
 msgid "Auto-Update Roblox"
 msgstr "Actualización automática de Roblox"
 
@@ -117,6 +123,9 @@ msgstr "Actualizaciones automáticas"
 
 msgid "Automatically close this window whenever Roblox starts."
 msgstr "Cierra esta ventana automáticamente cada vez que Roblox se inicie."
+
+msgid "Breakpoint"
+msgstr ""
 
 msgid "Cancel"
 msgstr "Cancelar"
@@ -273,6 +282,9 @@ msgstr "Registro detallado"
 msgid "Distrobox GPU Passthrough"
 msgstr "Passthrough de GPU de Distrobox"
 
+msgid "Division by Zero"
+msgstr ""
+
 msgid "Documentation"
 msgstr "Documentación"
 
@@ -428,6 +440,9 @@ msgstr "API gráfica"
 msgid "HOME environment variable is not set."
 msgstr "La variable de entorno HOME no está definida."
 
+msgid "Heap Corruption"
+msgstr ""
+
 msgid "Home"
 msgstr "Inicio"
 
@@ -456,9 +471,6 @@ msgstr "Instalar actualizaciones de TuxBlox sin preguntar."
 msgid "Installed {0}"
 msgstr "Instalado {0}"
 
-msgid "Installed, but could not record which release this is"
-msgstr "Instalado, pero no se pudo registrar qué release es este"
-
 msgid "Installing Roblox"
 msgstr "Instalando Roblox"
 
@@ -468,6 +480,9 @@ msgstr "Instalando TuxBlox"
 #, c++-format
 msgid "Installing {0}"
 msgstr "Instalando {0}"
+
+msgid "Interrupted"
+msgstr ""
 
 msgid "Jump to the end"
 msgstr "Ir al final"
@@ -500,6 +515,9 @@ msgstr "Permitir que los juegos usen la API de Rich Presence"
 msgid "Let people join your server"
 msgstr "Permitir que otras personas se unan a tu servidor"
 
+msgid "Library Failed to Start"
+msgstr ""
+
 msgid "Links"
 msgstr "Enlaces"
 
@@ -508,6 +526,12 @@ msgstr "Linux 6.7 o posterior"
 
 msgid "Minimize to background"
 msgstr "Minimizar al segundo plano"
+
+msgid "Missing Library"
+msgstr ""
+
+msgid "Missing Library Entry Point"
+msgstr ""
 
 msgid "Missing value for --channel."
 msgstr "Falta el valor de --channel."
@@ -748,6 +772,9 @@ msgstr ""
 msgid "Roblox's packages were not all unpacked."
 msgstr "No se extrajeron todos los paquetes de Roblox."
 
+msgid "Run \"flatpak update\" to install it."
+msgstr ""
+
 msgid "Run Roblox in a separate window that acts as a desktop"
 msgstr "Ejecutar Roblox en una ventana separada que actúa como escritorio"
 
@@ -816,6 +843,12 @@ msgstr ""
 
 msgid "Speed up the rendering of web panels using your graphics card"
 msgstr "Acelera el renderizado de los paneles web usando tu tarjeta gráfica"
+
+msgid "Stack Buffer Overrun"
+msgstr ""
+
+msgid "Stack Overflow"
+msgstr ""
 
 msgid "Starting"
 msgstr "Iniciando"
@@ -886,6 +919,11 @@ msgid ""
 msgstr ""
 "No hay una sesión gráfica para mostrar el instalador. Ejecuta el instalador "
 "desde tu escritorio o usa --headless para instalar desde la terminal."
+
+msgid ""
+"This AppImage was started without APPDIR, so it cannot find its own "
+"interface. Run it with --headless instead."
+msgstr ""
 
 msgid ""
 "This copy of the installer has no interface attached to it. Download TuxBlox "
@@ -1134,6 +1172,7 @@ msgid ""
 "  --latest           Accepted and ignored: installing the newest release\n"
 "                     instead of this installer's own version.\n"
 "  --version          Show the release it installs and exit.\n"
+"  --component-version Show the installer's own version and exit.\n"
 "  -h, --help         Show this help and exit.\n"
 msgstr ""
 "Uso: TuxBloxInstaller [opciones]\n"
@@ -1185,6 +1224,7 @@ msgid ""
 "anything.\n"
 "  --help                  Show this message.\n"
 "  --version               Print the TuxBlox release and exit.\n"
+"  --component-version     Print the launcher's own version and exit.\n"
 "\n"
 "Environment:\n"
 "  TUXBLOX_BOOTSTRAPPER_DOWNLOAD_SERVER      Mirror to download from.\n"
@@ -1339,6 +1379,9 @@ msgstr[1] "{} flags están listas para importar."
 #, c++-format
 msgid "· {0} channel"
 msgstr "· canal {0}"
+
+#~ msgid "Installed, but could not record which release this is"
+#~ msgstr "Instalado, pero no se pudo registrar qué release es este"
 
 #~ msgid "Wipe prefix"
 #~ msgstr "Borrar prefijo"

@@ -853,7 +853,7 @@ $(INSTALLER): $(INSTALLER_SRC) $(SHARED_SRC) $(LIBS) $(UI) | $(PODMAN)
 	podman run --rm --userns=keep-id -e JOBS="$(JOBS)" \
 	    -e UI_STACK_ARG="$(UI_ARGS)" \
 	    -e LIBADWAITA_ARG="-DTUXBLOX_LIBADWAITA_COMMIT=$(LIBADWAITA_COMMIT)" \
-	    -e APPIMAGE_ARG="$(if $(TUXBLOX_APPIMAGE),-DTUXBLOX_APPIMAGE=ON,)" \
+	    -e APPIMAGE_ARG="-DTUXBLOX_APPIMAGE=$(if $(TUXBLOX_APPIMAGE),ON,OFF)" \
 	    -e TUXBLOX_BUILD_VERSION="$(shell cat installer/VERSION 2>/dev/null)" \
 	    -e TUXBLOX_RELEASE="$(RELEASE)" -e TUXBLOX_CHANNEL="$(CHANNEL)" \
 	    -v $(ROOT)/installer:/src:Z -v $(ART)/shared:/shared:ro,z \
@@ -902,7 +902,7 @@ $(LAUNCHER): $(LAUNCHER_SRC) $(SHARED_SRC) $(LIBS) $(UI) | $(PODMAN)
 	@mkdir -p $(CCACHE_DIR)
 	podman run --rm --userns=keep-id -e JOBS="$(JOBS)" \
 	    -e LIBADWAITA_ARG="-DTUXBLOX_LIBADWAITA_COMMIT=$(LIBADWAITA_COMMIT)" \
-	    -e FLATPAK_ARG="$(if $(TUXBLOX_FLATPAK),-DTUXBLOX_FLATPAK=ON,)" \
+	    -e FLATPAK_ARG="-DTUXBLOX_FLATPAK=$(if $(TUXBLOX_FLATPAK),ON,OFF)" \
 	    -e TUXBLOX_BUILD_VERSION="$(shell cat launcher/VERSION 2>/dev/null)" \
 	    -e TUXBLOX_RELEASE="$(RELEASE)" -e TUXBLOX_CHANNEL="$(CHANNEL)" \
 	    -v $(ROOT)/launcher:/src:Z -v $(ROOT)/LICENSE:/LICENSE:ro,z \

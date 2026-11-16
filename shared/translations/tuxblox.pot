@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: TuxBlox\n"
 "Report-Msgid-Bugs-To: cherry@tuxblox.net\n"
-"POT-Creation-Date: 2026-11-15 14:35+0300\n"
+"POT-Creation-Date: 2026-11-16 04:27+0300\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -65,6 +65,9 @@ msgstr ""
 msgid "About"
 msgstr ""
 
+msgid "Access Violation"
+msgstr ""
+
 msgid "Adds a button to your activity that allows others to join your server"
 msgstr ""
 
@@ -88,6 +91,9 @@ msgstr ""
 msgid "An unknown error has occurred which has crashed TuxBlox.\n"
 msgstr ""
 
+msgid "Assertion failed"
+msgstr ""
+
 msgid "Auto-Update Roblox"
 msgstr ""
 
@@ -107,6 +113,9 @@ msgid "Automatic updates"
 msgstr ""
 
 msgid "Automatically close this window whenever Roblox starts."
+msgstr ""
+
+msgid "Breakpoint"
 msgstr ""
 
 msgid "Cancel"
@@ -249,6 +258,9 @@ msgid "Detailed logging"
 msgstr ""
 
 msgid "Distrobox GPU Passthrough"
+msgstr ""
+
+msgid "Division by Zero"
 msgstr ""
 
 msgid "Documentation"
@@ -399,6 +411,9 @@ msgstr ""
 msgid "HOME environment variable is not set."
 msgstr ""
 
+msgid "Heap Corruption"
+msgstr ""
+
 msgid "Home"
 msgstr ""
 
@@ -427,9 +442,6 @@ msgstr ""
 msgid "Installed {0}"
 msgstr ""
 
-msgid "Installed, but could not record which release this is"
-msgstr ""
-
 msgid "Installing Roblox"
 msgstr ""
 
@@ -438,6 +450,9 @@ msgstr ""
 
 #, c++-format
 msgid "Installing {0}"
+msgstr ""
+
+msgid "Interrupted"
 msgstr ""
 
 msgid "Jump to the end"
@@ -471,6 +486,9 @@ msgstr ""
 msgid "Let people join your server"
 msgstr ""
 
+msgid "Library Failed to Start"
+msgstr ""
+
 msgid "Links"
 msgstr ""
 
@@ -478,6 +496,12 @@ msgid "Linux 6.7 or newer"
 msgstr ""
 
 msgid "Minimize to background"
+msgstr ""
+
+msgid "Missing Library"
+msgstr ""
+
+msgid "Missing Library Entry Point"
 msgstr ""
 
 msgid "Missing value for --channel."
@@ -702,6 +726,9 @@ msgstr ""
 msgid "Roblox's packages were not all unpacked."
 msgstr ""
 
+msgid "Run \"flatpak update\" to install it."
+msgstr ""
+
 msgid "Run Roblox in a separate window that acts as a desktop"
 msgstr ""
 
@@ -759,6 +786,12 @@ msgid ""
 msgstr ""
 
 msgid "Speed up the rendering of web panels using your graphics card"
+msgstr ""
+
+msgid "Stack Buffer Overrun"
+msgstr ""
+
+msgid "Stack Overflow"
 msgstr ""
 
 msgid "Starting"
@@ -827,6 +860,11 @@ msgstr ""
 msgid ""
 "There is no graphical session to show the installer in. Run this installer "
 "from your desktop, or use --headless to install from the terminal."
+msgstr ""
+
+msgid ""
+"This AppImage was started without APPDIR, so it cannot find its own "
+"interface. Run it with --headless instead."
 msgstr ""
 
 msgid ""
@@ -1046,6 +1084,7 @@ msgid ""
 "  --latest           Accepted and ignored: installing the newest release\n"
 "                     instead of this installer's own version.\n"
 "  --version          Show the release it installs and exit.\n"
+"  --component-version Show the installer's own version and exit.\n"
 "  -h, --help         Show this help and exit.\n"
 msgstr ""
 
@@ -1063,6 +1102,7 @@ msgid ""
 "anything.\n"
 "  --help                  Show this message.\n"
 "  --version               Print the TuxBlox release and exit.\n"
+"  --component-version     Print the launcher's own version and exit.\n"
 "\n"
 "Environment:\n"
 "  TUXBLOX_BOOTSTRAPPER_DOWNLOAD_SERVER      Mirror to download from.\n"

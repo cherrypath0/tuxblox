@@ -28,6 +28,7 @@
 #include "desktop_notify.h"
 #include "dialog.h"
 #include "i18n.h"
+#include "version.h"
 #include "page.h"
 #include "update_changes.h"
 #include "page_about.h"
@@ -311,6 +312,15 @@ void onUpdateClicked(GtkButton *, gpointer data) {
     const AppSnapshot snap = pUi->pApp->snapshot();
     if (!snap.updateAvailableVersion) return;
     App *pApp = pUi->pApp;
+    // A Flatpak cannot apply its own update, so this says what is waiting and how to get it.
+    if constexpr (kFlatpakBuild) {
+        AdwDialog *pDialog = buildDialog(i18n::tr("Update available"),
+                                         i18n::tr("Run \"flatpak update\" to install it."),
+                                         {{i18n::tr("OK"), nullptr, nullptr, true}},
+                                         updateDetails(*snap.updateAvailableVersion, snap.updateChanges));
+        adw_dialog_present(pDialog, GTK_WIDGET(pUi->pStack));
+        return;
+    }
     AdwDialog *pDialog = buildDialog(i18n::tr("Update available"), i18n::tr("A new update is available"),
                                      {{i18n::tr("Not now"), nullptr, nullptr},
                                       {i18n::tr("Update"), "suggested-action", [pApp] { pApp->requestUpdateNow(); }, true}},

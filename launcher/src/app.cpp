@@ -161,8 +161,6 @@ App::~App() {
 }
 
 void App::startUpdateCheck() {
-    // A Flatpak updates through flatpak, so the check has nothing it could act on.
-    if constexpr (kFlatpakBuild) return;
     if (updateThread_.joinable()) return; // already started -- safe to call once
     updateThread_ = std::thread(&App::updateCheckThreadMain, this);
 }
@@ -527,6 +525,17 @@ void App::requestStopSessions(LaunchTarget target) {
 
 namespace {
 
+// The Flatpak bundle is published as a component of the release, so its presence is what says
+// `flatpak update` actually has something to fetch. Unreadable reads as absent: better to stay quiet
+// than to send somebody to a command that will tell them there is nothing to do.
+bool releaseHasFlatpakBundle(const std::string& releaseJson) {
+    try {
+        return parseReleaseFile(releaseJson).components.count("flatpak") > 0;
+    } catch (const std::exception&) {
+        return false;
+    }
+}
+
 // The logs in one folder that could belong to a session, with when each says it began.
 std::vector<LogCandidate> logCandidatesIn(const std::string& dir, bool fromNameOnly) {
     std::vector<LogCandidate> candidates;
@@ -874,9 +883,17 @@ void App::updateCheckThreadMain() {
         // agree on one build, which is broken rather than out of date, and
         // leaving it running is not a state the user chose. An ordinary
         // available update still waits to be asked for, below.
-        if (autoUpdate || result.forced) {
+        // A Flatpak always takes the offer path: /app is read-only and flatpak owns applying the
+        // update, so there is nothing here to hand off to. The check itself still runs, since it is
+        // a read-only fetch and it is where the release, the changed components and internalBuild
+        // all come from.
+        if ((autoUpdate || result.forced) && !kFlatpakBuild) {
             if (!prepareInstallerHandoff(result.release, result.releaseJson)) return;
             needsInstallerHandoff_.store(true);
+        } else if (kFlatpakBuild && !releaseHasFlatpakBundle(result.releaseJson)) {
+            // The release is out but its bundle is not, so `flatpak update` would find nothing.
+            std::lock_guard<std::mutex> lock(mutex_);
+            snapshot_.update = {UpdatePhase::UpToDate, 1.0};
         } else {
             // Nothing is fetched and nothing on disk is touched on this path: an update that is only being offered has to leave the install exactly as it was, or the next check reads it as broken and repairs it without asking.
             // pendingUpdateManifest_ is written under mutex_, in the same critical section as updateAvailableVersion -- a UI-thread caller that has observed updateAvailableVersion through snapshot() is guaranteed to see it too, so requestUpdateNow() needs nothing but mutex_ to pick it up.
