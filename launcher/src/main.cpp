@@ -335,7 +335,8 @@ int main(int argc, char** argv) {
 
     // Set before anything can make a request. Every call site reads it rather than building its
     // own, so the seven places TuxBlox talks to a server cannot come to disagree about what it is.
-    setUserAgent(UserAgentProduct::Client, reportedVersion(kTuxBloxVersion), loadSettings(dir).channel);
+    setUserAgent(UserAgentProduct::Client, reportedVersion(kTuxBloxVersion), loadSettings(dir).channel,
+                 kFlatpakBuild ? "flatpak" : "native");
 
     // Started here so the answer is on its way while the window is built, which is as early
     // as it can be: the window needs the flags to build itself -- which theme it may offer,
