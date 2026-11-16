@@ -132,6 +132,8 @@ private:
     bool readerScrolledAway_ = false;
     // A scroll the page asked for, which must not be read back as the reader moving.
     bool selfScrolling_ = false;
+    // Where the view sat at the last move, so the next one can be told from a line arriving.
+    LogScrollState lastLogScroll_;
     guint tailScrollIdle_ = 0;
     // The reader was swapped and what is on screen belongs to the old one, so it is replaced rather than cleared the moment the new one produces anything.
     bool replacingText_ = false;

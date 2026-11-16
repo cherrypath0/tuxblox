@@ -99,4 +99,11 @@ SessionsView filterSessions(const SessionsView& view, const std::string& query) 
     return kept;
 }
 
+bool readerLeftLogTail(const LogScrollState& before, const LogScrollState& now, bool wasAway) {
+    // A line's worth of slack, so resting a hair off the end still counts as being at it.
+    if (now.upper - now.pageSize - now.value < 48.0) return false;
+    if (now.upper != before.upper || now.pageSize != before.pageSize) return wasAway;
+    return true;
+}
+
 } // namespace tuxblox

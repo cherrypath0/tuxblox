@@ -870,14 +870,19 @@ void SessionsPage::onLogClick(GtkGestureClick *pGesture, int presses, double x, 
 
 void SessionsPage::onLogPositionChanged(GtkAdjustment *pPosition, gpointer data) {
     auto *pSelf = static_cast<SessionsPage *>(data);
+    const LogScrollState now{gtk_adjustment_get_upper(pPosition),
+                             gtk_adjustment_get_page_size(pPosition),
+                             gtk_adjustment_get_value(pPosition)};
     // Our own scroll, carried out after we asked for it. Reading it back as the reader moving is
-    // what stopped the log following its own tail.
-    if (pSelf->selfScrolling_) return;
-    // A line's worth of slack, so resting a hair off the end still counts as being at it.
-    const double remaining = gtk_adjustment_get_upper(pPosition) -
-                             gtk_adjustment_get_page_size(pPosition) -
-                             gtk_adjustment_get_value(pPosition);
-    pSelf->readerScrolledAway_ = remaining >= 48.0;
+    // what stopped the log following its own tail. Still recorded, or the reader's next move would
+    // be compared against where the view sat before this one and dismissed as the range changing.
+    if (pSelf->selfScrolling_) {
+        pSelf->lastLogScroll_ = now;
+        return;
+    }
+    pSelf->readerScrolledAway_ =
+        readerLeftLogTail(pSelf->lastLogScroll_, now, pSelf->readerScrolledAway_);
+    pSelf->lastLogScroll_ = now;
 }
 
 void SessionsPage::onJumpToEnd(GtkButton *, gpointer data) {
