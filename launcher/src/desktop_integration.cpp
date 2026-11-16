@@ -178,11 +178,18 @@ void runCommandBestEffort(const std::vector<std::string>& argv) {
         _exit(127);
     }
     if (devnull >= 0) close(devnull);
-    for (int i = 0; i < 30; ++i) {
+    // Checked straight away and then less and less often, up to about three seconds in total. A flat
+    // 100ms between checks cost every command 100ms however fast it answered, and the several run
+    // while the window is opening added up to the launcher freezing for about a second.
+    std::chrono::milliseconds waited{0};
+    std::chrono::milliseconds step{1};
+    while (waited < std::chrono::milliseconds(3000)) {
         int status = 0;
         pid_t r = waitpid(pid, &status, WNOHANG);
         if (r == pid || r < 0) return;
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        std::this_thread::sleep_for(step);
+        waited += step;
+        step = std::min(step * 2, std::chrono::milliseconds(100));
     }
 }
 

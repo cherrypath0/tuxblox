@@ -16,6 +16,7 @@
 
 #include "app_scope.h"
 
+#include <algorithm>
 #include <chrono>
 #include <fstream>
 #include <sstream>
@@ -67,11 +68,18 @@ void runBestEffort(const std::vector<std::string>& argv) {
         execvp(cargv[0], cargv.data());
         _exit(127);
     }
-    for (int i = 0; i < 30; ++i) {
+    // Checked straight away and then less and less often, up to about three seconds in total. A flat
+    // 100ms between checks cost this 100ms however fast busctl answered, and it runs before anything
+    // else does, so every launch paid it.
+    std::chrono::milliseconds waited{0};
+    std::chrono::milliseconds step{1};
+    while (waited < std::chrono::milliseconds(3000)) {
         int status = 0;
         pid_t r = waitpid(pid, &status, WNOHANG);
         if (r == pid || r < 0) return;
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        std::this_thread::sleep_for(step);
+        waited += step;
+        step = std::min(step * 2, std::chrono::milliseconds(100));
     }
 }
 
