@@ -362,6 +362,14 @@ void Prefix::removeTrackedFiles(Removal removal) {
     }
 }
 
+// Removing alone would gut the drive: setup() only relays the template when the version or the graphics settings changed.
+void Prefix::rebuildTrackedFiles() {
+    FileLock::Guard held(prefixLock);
+
+    removeTrackedFiles(Removal::KeepAccumulatedState);
+    copyTemplatePrefix();
+}
+
 void Prefix::copyTemplateEntry(const fs::path& src, const fs::path& dst, bool dllCopy) {
     std::error_code error;
     if (isSymlink(src)) {

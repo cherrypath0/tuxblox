@@ -277,7 +277,7 @@ int runMain(int argc, char *argv[]) {
         if (tuxblox::driveNeedsRepair(pPrefixDir, tuxblox::otherSessionsInDrive(
                                                       session.layerBinary, session.tuxbloxPrefix))) {
             tuxblox::log("The virtual drive was not closed properly last time, so it is being repaired first.");
-            prefix.removeTrackedFiles(tuxblox::Prefix::Removal::KeepAccumulatedState);
+            prefix.rebuildTrackedFiles();
         }
 
         prefix.setup(session);

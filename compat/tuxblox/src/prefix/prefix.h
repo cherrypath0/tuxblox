@@ -53,6 +53,9 @@ public:
     // the user or Roblox added.
     void removeTrackedFiles(Removal removal = Removal::All);
 
+    // Lays TuxBlox's own files in the prefix down again, keeping the registry and whatever Roblox installed.
+    void rebuildTrackedFiles();
+
     std::filesystem::path prefixDir;
 
 private:
