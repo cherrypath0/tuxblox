@@ -665,7 +665,7 @@ fs::path Prefix::robloxDataDir(const fs::path& installRoot) const {
     if (!flagBool("tbxFlagEnableExperimentalLinuxIntegration")) {
         return installRoot / "roblox";
     }
-    const std::string data = xdgBaseDir("XDG_DATA_HOME", envOrEmpty("HOME"));
+    const std::string data = xdgBaseDir("XDG_DATA_HOME", envOrEmpty("HOME"), inFlatpakSandbox());
     if (data.empty()) {
         return installRoot / "roblox"; // no home folder, so nowhere to follow the desktop into
     }
@@ -715,9 +715,10 @@ bool Prefix::moveFolderAndLink(const fs::path& from, const fs::path& to) {
 void Prefix::splitRobloxDataFolders(const fs::path& dataDir) {
     const bool wanted = flagBool("tbxFlagEnableExperimentalLinuxIntegration");
     const std::string home = envOrEmpty("HOME");
+    const bool sandboxed = inFlatpakSandbox();
 
     for (const RobloxDataSplit& split : robloxDataSplits()) {
-        const std::string base = xdgBaseDir(split.xdgKey, home);
+        const std::string base = xdgBaseDir(split.xdgKey, home, sandboxed);
         if (base.empty()) continue;
         const fs::path inData = dataDir / split.name;
         const fs::path outside = fs::path(base) / "roblox" / split.name;

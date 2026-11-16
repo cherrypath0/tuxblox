@@ -76,12 +76,17 @@ struct RobloxDataSplit {
 // Everything not named here stays in the data directory itself.
 const std::vector<RobloxDataSplit>& robloxDataSplits();
 
+// True when this is running inside a Flatpak sandbox.
+bool inFlatpakSandbox();
+
 // Where the desktop keeps one of the base directories it defines, read from the
 // environment and falling back to what the specification says to use. Knows
 // XDG_DATA_HOME, XDG_STATE_HOME and XDG_CACHE_HOME. A value that is not an
 // absolute path is ignored, as the specification requires, and a name it does
-// not know or an empty home folder give "".
-std::string xdgBaseDir(const std::string& xdgKey, const std::string& home);
+// not know or an empty home folder give "". When `sandboxed`, the value comes
+// from flatpak's HOST_XDG_ copy of the variable instead, because the ordinary
+// one names the sandbox's own private folder rather than the user's.
+std::string xdgBaseDir(const std::string& xdgKey, const std::string& home, bool sandboxed);
 
 // Removes the "TuxBlox Files" folder TuxBlox used to keep inside Documents,
 // now that files are bridged into the account's own "files" folder instead.

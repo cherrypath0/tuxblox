@@ -80,7 +80,12 @@ const std::vector<RobloxDataSplit>& robloxDataSplits() {
     return Splits;
 }
 
-std::string xdgBaseDir(const std::string& xdgKey, const std::string& home) {
+bool inFlatpakSandbox() {
+    std::error_code error;
+    return std::filesystem::exists("/.flatpak-info", error);
+}
+
+std::string xdgBaseDir(const std::string& xdgKey, const std::string& home, bool sandboxed) {
     static const std::vector<std::pair<std::string, std::string>> Defaults = {
         {"XDG_DATA_HOME", ".local/share"},
         {"XDG_STATE_HOME", ".local/state"},
@@ -94,7 +99,9 @@ std::string xdgBaseDir(const std::string& xdgKey, const std::string& home) {
     }
     if (fallback.empty()) return "";
 
-    const char* value = std::getenv(xdgKey.c_str());
+    // flatpak points XDG_ at the sandbox's own folders and copies the host's value, where it had one, into HOST_XDG_.
+    const std::string key = sandboxed ? "HOST_" + xdgKey : xdgKey;
+    const char* value = std::getenv(key.c_str());
     // The specification says to ignore a value that is not an absolute path exactly as though the variable were not set at all.
     std::string dir = (value && *value == '/') ? value : (std::filesystem::path(home) / fallback).string();
     while (dir.size() > 1 && dir.back() == '/') dir.pop_back();
