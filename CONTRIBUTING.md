@@ -82,7 +82,7 @@ Later builds are much faster: a part whose sources are untouched is not rebuilt 
 `build/` has the same layout as an install, so you can run it in place without touching your real install at `~/.tuxblox`:
 
 ```bash
-./build/TuxBloxLauncher
+./build/native/TuxBloxLauncher
 ```
 
 It uses `build/runtime` as its virtual drive and `build/logs` for its logs.
@@ -91,7 +91,7 @@ To start a program through the compatibility layer directly, skipping the launch
 
 ```bash
 TUXBLOX_PREFIX="$PWD/build/runtime" \
-  ./build/compat/main run \
+  ./build/native/compat/main run \
   "$PWD/build/runtime/pfx/drive_c/users/<your account>/AppData/Local/Roblox/Versions/version-<id>/RobloxStudioBeta.exe"
 ```
 

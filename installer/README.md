@@ -10,7 +10,7 @@ Its graphical interface is a GTK4 + libadwaita stack appended to the binary and 
 make installer
 ```
 
-This installs only the host-side tools needed to drive the containerized build (`podman`, `curl`, `git`), then configures and builds inside a pinned old-glibc-baseline container (`podman build`/`podman run` against the root `Containerfile`, shared with the launcher and the Proton-compile step) so the resulting binary stays compatible with older-glibc distros regardless of what's on the host. The actual C++ toolchain (`cmake`, a C++ compiler, `libcurl`, `libarchive`, `openssl`) lives inside that container image, not on the host. The resulting binary is at `build/TuxBloxInstaller`.
+This installs only the host-side tools needed to drive the containerized build (`podman`, `curl`, `git`), then configures and builds inside a pinned old-glibc-baseline container (`podman build`/`podman run` against the root `Containerfile`, shared with the launcher and the Proton-compile step) so the resulting binary stays compatible with older-glibc distros regardless of what's on the host. The actual C++ toolchain (`cmake`, a C++ compiler, `libcurl`, `libarchive`, `openssl`) lives inside that container image, not on the host. The resulting binary is at `build/native/TuxBloxInstaller`.
 
 ## Testing
 

@@ -62,10 +62,10 @@ INSTALL_DIR="$HOME/.tuxblox"
 
 COMPONENTS=(compat libtuxblox TuxBloxLauncher TuxBloxInstaller studio-mcp)
 
-[[ -d build ]] || fail "build/ not found, make sure to run make first"
-[[ -f build/compat/main ]] || fail "build/compat/main not found, make sure to run make first"
+[[ -d build/native ]] || fail "build/native/ not found, make sure to run make first"
+[[ -f build/native/compat/main ]] || fail "build/native/compat/main not found, make sure to run make first"
 for component in "${COMPONENTS[@]}"; do
-    [[ -e "build/$component" ]] || fail "build/$component not found, make sure to run make first"
+    [[ -e "build/native/$component" ]] || fail "build/native/$component not found, make sure to run make first"
 done
 
 if pgrep -f "$INSTALL_DIR/TuxBloxLauncher" >/dev/null 2>&1; then
@@ -77,12 +77,12 @@ mkdir -p "$INSTALL_DIR"
 
 for component in "${COMPONENTS[@]}"; do
     target="$INSTALL_DIR/$component"
-    if [[ -d "build/$component" ]]; then
+    if [[ -d "build/native/$component" ]]; then
         rm -rf "$target"
     else
         rm -f "$target"
     fi
-    cp -a "build/$component" "$target"
+    cp -a "build/native/$component" "$target"
     echo "   $component"
 done
 
@@ -96,9 +96,9 @@ if [[ -d include ]]; then
             [[ "$name" == "$component" ]] && skip=1 && break
         done
         [[ $skip -eq 1 ]] && continue
-        [[ -e "build/$name" ]] || continue
+        [[ -e "build/native/$name" ]] || continue
         rm -rf "${INSTALL_DIR:?}/$name"
-        cp -a "build/$name" "$INSTALL_DIR/$name"
+        cp -a "build/native/$name" "$INSTALL_DIR/$name"
         echo "   $name"
     done < <(find include -mindepth 1 -maxdepth 1 -print0)
 fi
