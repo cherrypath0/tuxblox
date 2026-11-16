@@ -18,6 +18,7 @@
 
 #include "flag_startup.h"
 #include "i18n.h"
+#include "release_stamp.h"
 #include "version.h"
 #include <cstdlib>
 #include "roblox_log_capture.h"
@@ -275,6 +276,13 @@ bool App::openRegistryEditor() {
     return launchRegistryEditor(installDir_);
 }
 
+std::string App::mcpGatewayPath() const {
+    const std::string path = installDir_ + "/studio-mcp";
+    std::error_code ignored;
+    // Followed rather than lstat'd: a Flatpak reaches it through a symlink into /app.
+    return fs::exists(path, ignored) ? path : std::string();
+}
+
 void App::requestTerminateProcesses() {
     if (terminateBusy_.exchange(true)) return; // already running -- ignore repeat clicks
     if (terminateThread_.joinable()) terminateThread_.join(); // an earlier run has finished -- reclaim it before reusing the slot
@@ -524,17 +532,6 @@ void App::requestStopSessions(LaunchTarget target) {
 }
 
 namespace {
-
-// The Flatpak bundle is published as a component of the release, so its presence is what says
-// `flatpak update` actually has something to fetch. Unreadable reads as absent: better to stay quiet
-// than to send somebody to a command that will tell them there is nothing to do.
-bool releaseHasFlatpakBundle(const std::string& releaseJson) {
-    try {
-        return parseReleaseFile(releaseJson).components.count("flatpak") > 0;
-    } catch (const std::exception&) {
-        return false;
-    }
-}
 
 // The logs in one folder that could belong to a session, with when each says it began.
 std::vector<LogCandidate> logCandidatesIn(const std::string& dir, bool fromNameOnly) {
@@ -883,14 +880,25 @@ void App::updateCheckThreadMain() {
         // agree on one build, which is broken rather than out of date, and
         // leaving it running is not a state the user chose. An ordinary
         // available update still waits to be asked for, below.
-        // A Flatpak always takes the offer path: /app is read-only and flatpak owns applying the
-        // update, so there is nothing here to hand off to. The check itself still runs, since it is
-        // a read-only fetch and it is where the release, the changed components and internalBuild
-        // all come from.
-        if ((autoUpdate || result.forced) && !kFlatpakBuild) {
+        // A Flatpak ships no installer to hand off to, so it fetches the one component it cannot
+        // carry itself. Its own launcher is beyond reach either way: that lives in a read-only /app
+        // and belongs to flatpak, so that case is offered rather than applied.
+        const bool flatpakLauncherBehind =
+            kFlatpakBuild && !releaseVersion().empty() && releaseVersion() != result.release.release;
+        if (kFlatpakBuild && !flatpakLauncherBehind) {
+            const EnsureCompatResult fetched = ensureCompatInstalled(
+                result.release, setupBaseUrl(), installDir_, &updateCancel_,
+                [&](UpdateProgress p) { report(p); });
+            if (!fetched.ok && !fetched.errorMessage.empty()) {
+                std::lock_guard<std::mutex> lock(mutex_);
+                snapshot_.update = {UpdatePhase::Error, 0.0, fetched.errorMessage};
+            }
+            return;
+        }
+        if ((autoUpdate || result.forced) && !flatpakLauncherBehind) {
             if (!prepareInstallerHandoff(result.release, result.releaseJson)) return;
             needsInstallerHandoff_.store(true);
-        } else if (kFlatpakBuild && !releaseHasFlatpakBundle(result.releaseJson)) {
+        } else if (flatpakLauncherBehind && result.release.components.count("flatpak") == 0) {
             // The release is out but its bundle is not, so `flatpak update` would find nothing.
             std::lock_guard<std::mutex> lock(mutex_);
             snapshot_.update = {UpdatePhase::UpToDate, 1.0};
@@ -902,6 +910,7 @@ void App::updateCheckThreadMain() {
             pendingReleaseJson_ = result.releaseJson;
             snapshot_.updateAvailableVersion = *namedRelease;
             snapshot_.updateChanges = result.changes;
+            snapshot_.flatpakLauncherBehind = flatpakLauncherBehind;
             // Without this the phase stays where runUpdateCheck()'s last report() left it -- CheckingManifest -- forever, since nothing else in this function reports again on this branch. StartTab::updateFromSnapshot() treats that as "updating" and hides the Launch buttons in favour of the progress bar for as long as it is true, so the Home tab would sit there with no way to launch anything. The branch above needs no such reset: it sets needsInstallerHandoff_, which MainWindow::poll() acts on by closing the window within one tick.
             snapshot_.update = {UpdatePhase::UpToDate, 1.0};
         }

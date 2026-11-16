@@ -34,6 +34,9 @@ enum class UpdatePhase {
     // update itself, it delegates that entirely to TuxBloxInstaller (which
     // shows its own "Upgrading Proton"/"Upgrading TuxBlox" progress).
     PreparingUpdater,
+    // Fetching the layer itself, which only a Flatpak does: it ships no installer to hand off to,
+    // and the layer is the one component that cannot live in a read-only /app.
+    FetchingCompat,
     UpToDate,
     Error
 };
@@ -93,6 +96,21 @@ struct EnsureInstallerResult {
     std::string installerPath;  // valid iff ok
     std::string errorMessage;   // valid iff !ok
 };
+
+// Puts the layer at <dir>/compat, downloading and unpacking it when what is there is not already
+// the release's own copy. Only a Flatpak calls this: every other install has an installer to hand
+// the whole job to, and only a Flatpak has a /app it cannot write the layer into.
+//
+// Returns false with errorMessage set on anything that leaves no usable layer. A cancelled download
+// returns false with an empty message, the same shape ensureInstallerBinary() uses.
+struct EnsureCompatResult {
+    bool ok = false;
+    std::string errorMessage;  // empty and !ok means cancelled
+};
+EnsureCompatResult ensureCompatInstalled(const ReleaseFile& release, const std::string& baseUrl,
+                                          const std::string& dir,
+                                          const std::atomic<bool>* cancel,
+                                          const UpdateProgressFn& onProgress);
 
 // Ensures a verified copy of the installer binary is present at <dir>/TuxBloxInstaller, fetching a
 // fresh one first if it's missing or its checksum no longer matches the one `release` names. Shared

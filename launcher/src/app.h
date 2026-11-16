@@ -100,6 +100,9 @@ struct AppSnapshot {
     // The components that move, filled in the same critical section as the version above, so a
     // reader that has seen one has seen the other. Empty until an update is offered.
     std::vector<ComponentChange> updateChanges;
+    // A Flatpak whose own launcher is behind the release. Only flatpak can replace that one, since
+    // it lives in a read-only /app, so the offer has to say so instead of offering to do it.
+    bool flatpakLauncherBehind = false;
 
     VersionsManifest versions;
     VersionInstallProgress versionInstall;
@@ -213,6 +216,11 @@ public:
     // than a session: nothing follows it, and it is not listed among the sessions. False when the
     // drive has not been built yet, which is an install nothing has been launched from.
     bool openRegistryEditor();
+
+    // Where the Studio MCP gateway is, for pasting into an MCP client's configuration. Empty when
+    // it is not installed, so the caller can say so rather than hand out a path to nothing: the
+    // point of showing it at all is that nobody should be guessing.
+    std::string mcpGatewayPath() const;
 
     AppSnapshot snapshot() const;
 

@@ -312,8 +312,8 @@ void onUpdateClicked(GtkButton *, gpointer data) {
     const AppSnapshot snap = pUi->pApp->snapshot();
     if (!snap.updateAvailableVersion) return;
     App *pApp = pUi->pApp;
-    // A Flatpak cannot apply its own update, so this says what is waiting and how to get it.
-    if constexpr (kFlatpakBuild) {
+    // Only the launcher itself is beyond reach: its components install like any other install's.
+    if (snap.flatpakLauncherBehind) {
         AdwDialog *pDialog = buildDialog(i18n::tr("Update available"),
                                          i18n::tr("Run \"flatpak update\" to install it."),
                                          {{i18n::tr("OK"), nullptr, nullptr, true}},

@@ -17,6 +17,7 @@
 #include "updater.h"
 #include "i18n.h"
 #include "checksum.h"
+#include "tar_extract.h"
 #include "downloader.h"
 #include "install_paths.h"
 #include "manifest.h"
@@ -49,6 +50,106 @@ std::string resolveInstallDir(const std::string& override) {
 double downloadProgressFraction(uint64_t now, uint64_t total, uint64_t manifestSize) {
     uint64_t effectiveTotal = total > 0 ? total : manifestSize;
     return effectiveTotal > 0 ? static_cast<double>(now) / static_cast<double>(effectiveTotal) : 0.0;
+}
+
+EnsureCompatResult ensureCompatInstalled(const ReleaseFile& release, const std::string& baseUrl,
+                                          const std::string& dir,
+                                          const std::atomic<bool>* cancel,
+                                          const UpdateProgressFn& onProgress) {
+    auto report = [&](UpdatePhase phase, double fraction, const std::string& err = "") {
+        if (onProgress) onProgress({phase, fraction, err});
+    };
+
+    const auto entry = release.components.find("compat");
+    if (entry == release.components.end() || !entry->second.x86_64.has_value()) {
+        const std::string err =
+            i18n::trf("Release {0} publishes no compatibility layer.", {release.release});
+        report(UpdatePhase::Error, 0.0, err);
+        return {false, err};
+    }
+    const ComponentBytes& wanted = *entry->second.x86_64;
+
+    // The copy on disk names the release it came from, so an install already at this one is done.
+    if (readComponentIdentity(dir, "compat").value_or("") == release.release) return {true, ""};
+
+    report(UpdatePhase::FetchingCompat, 0.0);
+    const std::string target = dir + "/compat";
+    const std::string archive = target + ".tar.zst.incoming";
+
+    auto download = [&](const std::string& from) {
+        return downloadFile(from, archive, [&](uint64_t now, uint64_t total) {
+            // The unpack is the last tenth, so the bar keeps moving through it.
+            report(UpdatePhase::FetchingCompat,
+                   0.9 * downloadProgressFraction(now, total, wanted.size));
+        }, cancel);
+    };
+
+    auto outcome = download(componentUrl(baseUrl, "compat", entry->second.version,
+                                          release.release, hostArch()));
+    if (outcome.result == DownloadResult::Failed) {
+        outcome = download(legacyComponentUrl(baseUrl, "compat", entry->second.version, hostArch()));
+    }
+    if (outcome.result == DownloadResult::Cancelled) {
+        std::error_code ignored;
+        fs::remove(archive, ignored);
+        report(UpdatePhase::Idle, 0.0);
+        return {false, ""};
+    }
+    if (outcome.result == DownloadResult::Failed) {
+        std::error_code ignored;
+        fs::remove(archive, ignored);
+        const std::string err =
+            i18n::trf("Downloading the compatibility layer failed: {0}", {outcome.errorMessage});
+        report(UpdatePhase::Error, 0.0, err);
+        return {false, err};
+    }
+
+    std::string actual;
+    try {
+        actual = sha256File(archive);
+    } catch (const std::exception&) {
+        actual.clear();
+    }
+    if (actual != wanted.sha256) {
+        std::error_code ignored;
+        fs::remove(archive, ignored);
+        const std::string err = i18n::tr("The downloaded compatibility layer did not match what the "
+                                          "release says it should be, so it was discarded.");
+        report(UpdatePhase::Error, 0.0, err);
+        return {false, err};
+    }
+
+    // Unpacked beside the old copy and swapped in, so a crash leaves either the old layer or none,
+    // never half of one. Nothing else under the install root is touched.
+    const std::string staging = target + ".unpacking";
+    std::error_code ec;
+    fs::remove_all(staging, ec);
+    try {
+        extractTarZst(archive, staging, [&](uint64_t now, uint64_t total) {
+            const double frac = total > 0 ? static_cast<double>(now) / static_cast<double>(total) : 0.0;
+            report(UpdatePhase::FetchingCompat, 0.9 + 0.1 * frac);
+        });
+    } catch (const std::exception& e) {
+        fs::remove_all(staging, ec);
+        fs::remove(archive, ec);
+        const std::string err = i18n::trf("Unpacking the compatibility layer failed: {0}", {e.what()});
+        report(UpdatePhase::Error, 0.0, err);
+        return {false, err};
+    }
+    fs::remove(archive, ec);
+
+    fs::remove_all(target, ec);
+    fs::rename(staging, target, ec);
+    if (ec) {
+        fs::remove_all(staging, ec);
+        const std::string err = i18n::trf("Putting the compatibility layer in place failed: {0}",
+                                           {ec.message()});
+        report(UpdatePhase::Error, 0.0, err);
+        return {false, err};
+    }
+
+    report(UpdatePhase::UpToDate, 1.0);
+    return {true, ""};
 }
 
 EnsureInstallerResult ensureInstallerBinary(const ReleaseFile& release, const std::string& baseUrl,
