@@ -276,6 +276,23 @@ void SettingsPage::buildAdvanced() {
     GtkWidget *pRegistry = plainActionRow(i18n::tr("Open Registry Editor"), "");
     rowButton(pRegistry, i18n::tr("Open"), G_CALLBACK(onRegistryEditor));
     adw_preferences_group_add(pGroup, pRegistry);
+
+    GtkWidget *pMcp = plainActionRow(i18n::tr("Copy MCP Gateway Location"),
+                                     i18n::tr("The path to give an MCP client, so you do not have to find it"));
+    rowButton(pMcp, i18n::tr("Copy"), G_CALLBACK(onCopyMcpPath));
+    adw_preferences_group_add(pGroup, pMcp);
+}
+
+void SettingsPage::onCopyMcpPath(GtkButton *pButton, gpointer data) {
+    auto *pSelf = static_cast<SettingsPage *>(data);
+    const std::string path = pSelf->app_.mcpGatewayPath();
+    if (path.empty()) {
+        showNotice(GTK_WIDGET(pButton), i18n::tr("Nothing to copy yet"),
+                   i18n::tr("The Studio MCP gateway is not installed."));
+        return;
+    }
+    gdk_clipboard_set_text(gtk_widget_get_clipboard(GTK_WIDGET(pButton)), path.c_str());
+    showNotice(GTK_WIDGET(pButton), i18n::tr("Copied"), path);
 }
 
 void SettingsPage::buildDangerZone() {

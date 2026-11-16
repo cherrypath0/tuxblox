@@ -71,6 +71,7 @@ private:
     static void onEnvironmentActivate(GtkEntry *, gpointer data);
     static void onEnvironmentFocusLeft(GtkEventControllerFocus *, gpointer data);
     static void onRegistryEditor(GtkButton *pButton, gpointer data);
+    static void onCopyMcpPath(GtkButton *pButton, gpointer data);
     static void onTerminate(GtkButton *pButton, gpointer data);
     static gboolean onTerminateReset(gpointer data);
     static void onWipe(GtkButton *pButton, gpointer data);
