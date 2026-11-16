@@ -109,7 +109,7 @@ export TUXBLOX_CHANNEL = $(CHANNEL)
 # packages comes after components so the layer, the gateway and the interface stack it needs are
 # already built. Set TUXBLOX_NO_PACKAGES=1 to skip it: it rebuilds both component variants and writes
 # a 400MB Flatpak repo, which is a lot to pay for on a routine build.
-all: bump-build components check copy-include packages
+all: bump-build record-provenance components check copy-include packages
 
 .PHONY: packages
 ifdef TUXBLOX_NO_PACKAGES
@@ -135,8 +135,8 @@ shared-state:
 # The interface stack, the shared libraries, patches and the builder image are not targets anyone
 # invokes. They are prerequisites, so they build exactly when something needs them.
 .PHONY: launcher installer studio-mcp compat deps appimage flatpak assets
-launcher: bump-build $(LAUNCHER)
-installer: bump-build $(INSTALLER)
+launcher: bump-build record-provenance $(LAUNCHER)
+installer: bump-build record-provenance $(INSTALLER)
 
 # assets/ holds the artwork as SVG, which is what anything drawing it should start from. The sizes
 # below are the raster copies that cannot be an SVG: a desktop entry's icon file, a Flatpak's
@@ -230,11 +230,11 @@ flatpak:
 	@printf ':: install it with: flatpak install --user %s net.tuxblox.TuxBlox\n' '$(FLATPAK_DIR)/repo'
 	@printf ':: or from the bundle: flatpak install --user %s\n' '$(FLATPAK_BUNDLE)'
 	@printf ':: the Flatpak variant stays in %s, build/native/TuxBloxLauncher is untouched\n' '$(FLATPAK_DIR)'
-studio-mcp: bump-build $(STUDIO_MCP)
+studio-mcp: bump-build record-provenance $(STUDIO_MCP)
 ifdef NODIST
-compat: bump-build compat-build
+compat: bump-build record-provenance compat-build
 else
-compat: bump-build $(COMPAT)
+compat: bump-build record-provenance $(COMPAT)
 endif
 
 # BUILD counts builds, so building is what advances it: once per run, and before anything is
@@ -257,6 +257,32 @@ bump-build:
 	fi
 	@printf ':: Building release %s on %s\n' \
 	    "$$($(RELEASE_AWK))" "$$(sed -n 3p VERSION | tr -d '[:space:]')"
+
+# Which source this build was made from, recorded by the build itself because nothing else can know
+# it: staging may run days later, against a build/ that was never HEAD, and reading HEAD there would
+# attribute a release to source that build never saw. deploy.sh refuses a release whose source is not
+# clean, equal to HEAD and reachable from a published branch, because TuxBlox ships LGPL code and a
+# published binary whose source nobody can fetch is a licence violation.
+#
+# Three lines: the commit, whether the tree had uncommitted changes, and the release it became. The
+# third is staging's to fill in, and is cleared here because this build has not been staged as
+# anything yet. Unknown reads as dirty, so a build with no git at all is refused rather than
+# published. Written before anything is compiled, so it names the source the compilers saw.
+.PHONY: record-provenance
+record-provenance:
+	@mkdir -p $(BUILD)
+	@Commit="$$(git -C $(ROOT) rev-parse HEAD 2>/dev/null)"; \
+	 Dirty=true; \
+	 if [ -n "$$Commit" ] && [ -z "$$(git -C $(ROOT) status --porcelain 2>/dev/null)" ]; then Dirty=false; fi; \
+	 printf '%s\n%s\n\n' "$$Commit" "$$Dirty" > $(BUILD)/.provenance; \
+	 if [ -z "$$Commit" ]; then \
+	     printf '!! not a git checkout, so this build cannot say what source it came from\n' >&2; \
+	 elif [ "$$Dirty" = true ]; then \
+	     printf ':: Built from %s with uncommitted changes, which a release cannot publish\n' \
+	         "$$(echo "$$Commit" | cut -c1-9)" >&2; \
+	 else \
+	     printf ':: Built from %s\n' "$$(echo "$$Commit" | cut -c1-9)"; \
+	 fi
 
 $(PODMAN): Containerfile
 	@mkdir -p $(dir $@)
