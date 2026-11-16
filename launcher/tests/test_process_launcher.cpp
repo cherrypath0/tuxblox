@@ -138,6 +138,14 @@ int main() {
         assert(std::string(exitCodeTitle(132)) == "Illegal CPU instruction");
         assert(std::string(exitCodeTitle(139)) == "Segmentation Fault");
         assert(exitCodeTitle(999999) == nullptr);
+
+        // The Windows statuses, which are the half of the table the crash popup
+        // actually reaches: findRealExitCodeInLog returns one of these, and the
+        // literal below is the number a report of a failed assertion carries.
+        assert(std::string(exitCodeTitle(-2147483391)) == "Assertion failed");
+        assert(std::string(exitCodeTitle(static_cast<int>(0x80000101))) == "Assertion failed");
+        assert(std::string(exitCodeTitle(static_cast<int>(0xC0000005))) == "Access Violation");
+        assert(std::string(exitCodeTitle(static_cast<int>(0xC0000409))) == "Stack Buffer Overrun");
     }
 
     // takeExitEvent(): a process that exits on its own reports its real

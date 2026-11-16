@@ -54,6 +54,19 @@ const char* exitCodeTitle(int exitCode) {
         case 137: return i18n::tr("Killed");
         case 139: return i18n::tr("Segmentation Fault");
         case 143: return i18n::tr("Terminated");
+        // Windows statuses, which is what a crashing Roblox exits with and so what the popup actually shows: the codes above are the host's, and findRealExitCodeInLog never returns one of them.
+        case static_cast<int>(0x80000003): return i18n::tr("Breakpoint");
+        case static_cast<int>(0x80000101): return i18n::tr("Assertion failed");
+        case static_cast<int>(0xC0000005): return i18n::tr("Access Violation");
+        case static_cast<int>(0xC000001D): return i18n::tr("Illegal CPU instruction");
+        case static_cast<int>(0xC0000094): return i18n::tr("Division by Zero");
+        case static_cast<int>(0xC00000FD): return i18n::tr("Stack Overflow");
+        case static_cast<int>(0xC0000135): return i18n::tr("Missing Library");
+        case static_cast<int>(0xC0000139): return i18n::tr("Missing Library Entry Point");
+        case static_cast<int>(0xC000013A): return i18n::tr("Interrupted");
+        case static_cast<int>(0xC0000142): return i18n::tr("Library Failed to Start");
+        case static_cast<int>(0xC0000374): return i18n::tr("Heap Corruption");
+        case static_cast<int>(0xC0000409): return i18n::tr("Stack Buffer Overrun");
         default:  return nullptr; // not in the table -- caller shows the bare code, no made-up description
     }
 }
