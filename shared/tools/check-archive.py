@@ -47,6 +47,15 @@ def opened(path):
         with tarfile.open(mode="r|", fileobj=unzstd.stdout) as archive:
             yield archive
     finally:
+        # Drained before closing, because a streaming tar stops at the end-of-archive blocks and
+        # leaves the padding behind it unread. Closing the pipe there hands zstd a write it cannot
+        # complete, which it reports as failure, and a perfectly good archive then reads as corrupt.
+        # It is only ever the trailing padding, since every caller here reads to the end.
+        try:
+            while unzstd.stdout.read(1 << 16):
+                pass
+        except OSError:
+            pass
         unzstd.stdout.close()
         if unzstd.wait() != 0:
             raise OSError("zstd could not decompress %s" % path)
