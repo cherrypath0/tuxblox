@@ -1,5 +1,5 @@
-MODULE    = winex11.drv
-UNIXLIB   = winex11.so
+MODULE    = dispumd.dll
+UNIXLIB   = dispumd.so
 UNIX_CFLAGS  = $(X_CFLAGS)
 UNIX_LIBS    = -lwin32u $(X_LIBS) $(PTHREAD_LIBS) -lm
 

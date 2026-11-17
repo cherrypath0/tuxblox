@@ -1,0 +1,2 @@
+* Added --component-version, which prints the Studio MCP's own version, while --version prints the release it was published in
+* Changed --version to answer with the release even on a build that was never published

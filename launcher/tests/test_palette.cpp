@@ -109,6 +109,11 @@ void test_dark_button_colours_pass_contrast() {
     checkWhiteTextPasses(darkPaletteCss(), "dark");
 }
 
+// The Christmas palette makes its surfaces see-through, but the buttons stay solid, so these are the colours still worth measuring.
+void test_christmas_button_colours_pass_contrast() {
+    checkWhiteTextPasses(christmasPaletteCss(), "christmas");
+}
+
 void test_light_button_colours_pass_contrast() {
     checkWhiteTextPasses(lightPaletteCss(), "light");
 }
@@ -124,5 +129,6 @@ int main() {
     test_log_colours_are_readable_in_both_palettes();
     test_dark_button_colours_pass_contrast();
     test_light_button_colours_pass_contrast();
+    test_christmas_button_colours_pass_contrast();
     return 0;
 }

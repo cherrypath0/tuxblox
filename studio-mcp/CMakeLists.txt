@@ -25,7 +25,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # every source below is one of the launcher's Qt-free, curl-free units.
 #
 # The launcher tree is a sibling in the repository, but the build container
-# mounts only this directory at /src, so build.sh mounts launcher/ separately
+# mounts only this directory at /src, so the Makefile mounts launcher/ separately
 # and points this at it.
 set(TUXBLOX_LAUNCHER_DIR "${CMAKE_SOURCE_DIR}/../launcher" CACHE PATH
     "Path to the launcher source tree this shares its path-resolution code with")
@@ -33,16 +33,25 @@ if(NOT EXISTS "${TUXBLOX_LAUNCHER_DIR}/src/launch_paths.cpp")
     message(FATAL_ERROR
         "TUXBLOX_LAUNCHER_DIR (${TUXBLOX_LAUNCHER_DIR}) is not a launcher source tree.")
 endif()
-# Not in the repository -- launcher/vendor.sh fetches it, which build.sh runs.
+# Comes from the launcher's committed third_party/, mounted read-only at /launcher.
 if(NOT EXISTS "${TUXBLOX_LAUNCHER_DIR}/third_party/json.hpp")
     message(FATAL_ERROR
         "${TUXBLOX_LAUNCHER_DIR}/third_party/json.hpp is missing. "
-        "Run launcher/vendor.sh first.")
+        "It should be committed in launcher/third_party/.")
 endif()
 
-# TUXBLOX_BUILD_VERSION is the version the root build.sh resolved, forwarded
-# into this container because the repo-root VERSION is not reachable from
-# inside it. The file is the fallback for a bare host cmake run.
+# The release this build is staged into is written into the finished binary rather than compiled in,
+# because it is not known until the build is staged. Mounted separately for the same reason the
+# launcher tree is: the container sees only this directory.
+set(TUXBLOX_SHARED_RELEASE "${CMAKE_SOURCE_DIR}/../shared/release/src" CACHE PATH
+    "Path to the shared release sources")
+if(NOT EXISTS "${TUXBLOX_SHARED_RELEASE}/release_stamp.cpp")
+    message(FATAL_ERROR
+        "TUXBLOX_SHARED_RELEASE (${TUXBLOX_SHARED_RELEASE}) does not hold release_stamp.cpp.")
+endif()
+
+# TUXBLOX_BUILD_VERSION is studio-mcp/VERSION, read on the host by the Makefile
+# and passed in. The file is the fallback for a bare host cmake run.
 file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/generated)
 if(NOT "$ENV{TUXBLOX_BUILD_VERSION}" STREQUAL "")
     set(TUXBLOX_MCP_VERSION "$ENV{TUXBLOX_BUILD_VERSION}")
@@ -55,6 +64,18 @@ message(STATUS "TuxBlox Studio MCP version: ${TUXBLOX_MCP_VERSION}")
 configure_file(${CMAKE_SOURCE_DIR}/cmake/version.h.in
                ${CMAKE_BINARY_DIR}/generated/version.h @ONLY)
 
+# The release and the channel the root VERSION file declares, forwarded by the Makefile the way the
+# component version is. Both are baked into the stamp field so a binary that was never staged still
+# reports them; staging overwrites the field regardless.
+if(NOT "$ENV{TUXBLOX_RELEASE}" STREQUAL "")
+    set(TUXBLOX_STAMP_DEFINES "TUXBLOX_RELEASE=\"$ENV{TUXBLOX_RELEASE}\"")
+    if(NOT "$ENV{TUXBLOX_CHANNEL}" STREQUAL "")
+        list(APPEND TUXBLOX_STAMP_DEFINES "TUXBLOX_CHANNEL=\"$ENV{TUXBLOX_CHANNEL}\"")
+    endif()
+    set_source_files_properties(${TUXBLOX_SHARED_RELEASE}/release_stamp.cpp PROPERTIES
+        COMPILE_DEFINITIONS "${TUXBLOX_STAMP_DEFINES}")
+endif()
+
 add_executable(studio-mcp
     src/main.cpp
     src/mcp_locate.cpp
@@ -64,6 +85,7 @@ add_executable(studio-mcp
     ${TUXBLOX_LAUNCHER_DIR}/src/pe_version.cpp
     ${TUXBLOX_LAUNCHER_DIR}/src/prefix_user.cpp
     ${TUXBLOX_LAUNCHER_DIR}/src/versions_manifest.cpp
+    ${TUXBLOX_SHARED_RELEASE}/release_stamp.cpp
 )
 # These would otherwise make every machine need a C++ runtime at least as new as this builder's, for no gain.
 target_link_options(studio-mcp PRIVATE -static-libstdc++ -static-libgcc)
@@ -71,6 +93,7 @@ target_include_directories(studio-mcp PRIVATE
     src
     ${TUXBLOX_LAUNCHER_DIR}/src
     ${TUXBLOX_LAUNCHER_DIR}/third_party
+    ${TUXBLOX_SHARED_RELEASE}
     ${CMAKE_BINARY_DIR}/generated
 )
 

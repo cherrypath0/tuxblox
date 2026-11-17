@@ -1,0 +1,25 @@
+# filename|url [fallback urls...]   versions come from versions.env beside this file
+zlib-${ZLIB_VERSION}.tar.gz|https://zlib.net/zlib-${ZLIB_VERSION}.tar.gz https://github.com/madler/zlib/releases/download/v${ZLIB_VERSION}/zlib-${ZLIB_VERSION}.tar.gz
+pcre2-${PCRE2_VERSION}.tar.bz2|https://github.com/PCRE2Project/pcre2/releases/download/pcre2-${PCRE2_VERSION}/pcre2-${PCRE2_VERSION}.tar.bz2
+expat-${EXPAT_VERSION}.tar.xz|https://github.com/libexpat/libexpat/releases/download/R_${EXPAT_VERSION//./_}/expat-${EXPAT_VERSION}.tar.xz
+libpng-${LIBPNG_VERSION}.tar.xz|https://downloads.sourceforge.net/libpng/libpng-${LIBPNG_VERSION}.tar.xz https://github.com/pnggroup/libpng/releases/download/v${LIBPNG_VERSION}/libpng-${LIBPNG_VERSION}.tar.xz
+libffi-${LIBFFI_VERSION}.tar.gz|https://github.com/libffi/libffi/releases/download/v${LIBFFI_VERSION}/libffi-${LIBFFI_VERSION}.tar.gz
+glib-${GLIB_VERSION}.tar.xz|https://download.gnome.org/sources/glib/${GLIB_VERSION%.*}/glib-${GLIB_VERSION}.tar.xz
+zstd-${ZSTD_VERSION}.tar.gz|https://github.com/facebook/zstd/releases/download/v${ZSTD_VERSION}/zstd-${ZSTD_VERSION}.tar.gz
+tiff-${TIFF_VERSION}.tar.gz|https://download.osgeo.org/libtiff/tiff-${TIFF_VERSION}.tar.gz
+libjpeg-turbo-${JPEG_TURBO_VERSION}.tar.gz|https://github.com/libjpeg-turbo/libjpeg-turbo/releases/download/${JPEG_TURBO_VERSION}/libjpeg-turbo-${JPEG_TURBO_VERSION}.tar.gz
+pixman-${PIXMAN_VERSION}.tar.gz|https://cairographics.org/releases/pixman-${PIXMAN_VERSION}.tar.gz
+fribidi-${FRIBIDI_VERSION}.tar.xz|https://github.com/fribidi/fribidi/releases/download/v${FRIBIDI_VERSION}/fribidi-${FRIBIDI_VERSION}.tar.xz
+freetype-${FREETYPE_VERSION}.tar.xz|https://download.savannah.gnu.org/releases/freetype/freetype-${FREETYPE_VERSION}.tar.xz https://downloads.sourceforge.net/project/freetype/freetype2/${FREETYPE_VERSION}/freetype-${FREETYPE_VERSION}.tar.xz
+cairo-${CAIRO_VERSION}.tar.xz|https://cairographics.org/releases/cairo-${CAIRO_VERSION}.tar.xz
+harfbuzz-${HARFBUZZ_VERSION}.tar.xz|https://github.com/harfbuzz/harfbuzz/releases/download/${HARFBUZZ_VERSION}/harfbuzz-${HARFBUZZ_VERSION}.tar.xz
+pango-${PANGO_VERSION}.tar.xz|https://download.gnome.org/sources/pango/${PANGO_VERSION%.*}/pango-${PANGO_VERSION}.tar.xz
+gdk-pixbuf-${GDK_PIXBUF_VERSION}.tar.xz|https://download.gnome.org/sources/gdk-pixbuf/${GDK_PIXBUF_VERSION%.*}/gdk-pixbuf-${GDK_PIXBUF_VERSION}.tar.xz
+graphene-${GRAPHENE_VERSION}.tar.gz|https://github.com/ebassi/graphene/archive/refs/tags/${GRAPHENE_VERSION}.tar.gz
+libepoxy-${EPOXY_VERSION}.tar.gz|https://github.com/anholt/libepoxy/archive/refs/tags/${EPOXY_VERSION}.tar.gz
+libxkbcommon-${XKBCOMMON_VERSION}.tar.xz|https://xkbcommon.org/download/libxkbcommon-${XKBCOMMON_VERSION}.tar.xz
+wayland-${WAYLAND_VERSION}.tar.xz|https://gitlab.freedesktop.org/wayland/wayland/-/releases/${WAYLAND_VERSION}/downloads/wayland-${WAYLAND_VERSION}.tar.xz https://wayland.freedesktop.org/releases/wayland-${WAYLAND_VERSION}.tar.xz
+wayland-protocols-${WAYLAND_PROTOCOLS_VERSION}.tar.xz|https://gitlab.freedesktop.org/wayland/wayland-protocols/-/releases/${WAYLAND_PROTOCOLS_VERSION}/downloads/wayland-protocols-${WAYLAND_PROTOCOLS_VERSION}.tar.xz https://wayland.freedesktop.org/releases/wayland-protocols-${WAYLAND_PROTOCOLS_VERSION}.tar.xz
+libxml2-${LIBXML2_VERSION}.tar.xz|https://download.gnome.org/sources/libxml2/${LIBXML2_VERSION%.*}/libxml2-${LIBXML2_VERSION}.tar.xz
+gtk-${GTK4_VERSION}.tar.xz|https://download.gnome.org/sources/gtk/${GTK4_VERSION%.*}/gtk-${GTK4_VERSION}.tar.xz
+adwaita-fonts-${ADWAITA_FONTS_VERSION}.tar.xz|https://download.gnome.org/sources/adwaita-fonts/${ADWAITA_FONTS_VERSION%%.*}/adwaita-fonts-${ADWAITA_FONTS_VERSION}.tar.xz

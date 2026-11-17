@@ -14,8 +14,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
+#include "flag_startup.h"
 #include "headless_launch.h"
 #include "fastflag_file.h"
+#include "i18n.h"
 #include "root_guard.h"
 #include "install_paths.h"
 #include "prefix_session.h"
@@ -36,7 +38,12 @@
 namespace tuxblox {
 
 int runHeadlessQuickLaunch(const std::string& installDir, LaunchTarget target, const std::string& uri) {
+    // Same reason as runWatchAndLaunch(): this path never reaches the window, so the flags
+    // it consults have to be loaded here or they answer from an empty table.
+    initLauncherFlags(installDir);
+
     const Settings settings = loadSettings(installDir);
+    i18n::initializeFromSetting(settings.language);
 
     // Before the exe is resolved, so a version installed by this check is the
     // one that starts.
@@ -57,6 +64,14 @@ int runHeadlessQuickLaunch(const std::string& installDir, LaunchTarget target, c
         return 1;
     }
 
+    // launchEnvPairs(), the same set the watched path builds: a desktop icon, a
+    // menu entry, a roblox: link and a place file all arrive here, and without
+    // it none of them carried the graphics-card selection, the Environment
+    // Variables box or the three switches the compatibility layer reads -- so
+    // every one of those settings applied only to a launch started from the
+    // launcher's own window.
+    const std::vector<std::string> extraEnv = launchEnvPairs(settings);
+
     // Both features are driven by reading the session log as it is written, which needs a process that outlives the launch, so when either is on the launch is tracked here rather than handed this process by the exec below -- exactly as the launcher's own window does it.
     // With both off nothing has to be watched and the exec is reached as before, which is what a default install does.
     if (presenceWatchWanted(settings)) {
@@ -65,19 +80,23 @@ int runHeadlessQuickLaunch(const std::string& installDir, LaunchTarget target, c
 
         ProcessLauncher launcher(installDir);
         const std::time_t launchStart = std::time(nullptr);
-        const LaunchOutcome outcome = launcher.launch(target, uri);
+        const LaunchOutcome outcome = launcher.launch(target, uri, extraEnv);
         if (!outcome.ok) {
             fprintf(stderr, "TuxBlox: %s\n", outcome.errorMessage.c_str());
             return 1;
         }
         runPresenceLoop(installDir, target, settings, launchStart,
                         [&] { return launcher.pollIsRunning(target); },
-                        makeServerRegionWatcher(settings.serverRegionNotify,
+                        makeServerRegionWatcher(serverRegionNotifyEnabled(settings.serverRegionNotify),
                                                 presenceNotificationIcon(target)));
         return 0;
     }
 
-    for (const auto& kv : launchEnvVars(installDir, target)) {
+    std::vector<std::string> launchEnv = launchEnvVars(installDir, target);
+    for (const std::string& kv : flagEnvVars(installDir)) launchEnv.push_back(kv);
+    // Last, so a variable the user typed in wins over one TuxBlox chose for them -- the order ProcessLauncher::launch() applies the same three in.
+    for (const std::string& kv : extraEnv) launchEnv.push_back(kv);
+    for (const auto& kv : launchEnv) {
         auto pos = kv.find('=');
         setenv(kv.substr(0, pos).c_str(), kv.substr(pos + 1).c_str(), 1);
     }

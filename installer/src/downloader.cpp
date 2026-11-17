@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "downloader.h"
+#include "FlagManager.h"
 #include "user_agent.h"
 #include "ca_bundle.h"
 #include <curl/curl.h>
@@ -76,6 +77,7 @@ DownloadOutcome downloadFile(const std::string& url,
     char errBuf[CURL_ERROR_SIZE] = {0};
 
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+    applyFlaggedHttpVersion(curl, url);
     tuxblox::applyCaBundle(curl);
     curl_easy_setopt(curl, CURLOPT_USERAGENT, userAgent().c_str());
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curlWriteToFile);

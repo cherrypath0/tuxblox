@@ -21,6 +21,9 @@ project(TuxBloxLauncher CXX)
 # see setupBaseUrl() for why an environment variable that redirects downloads must not exist there.
 option(TUXBLOX_TEST_SETUP_URL "Honour $TUXBLOX_SETUP_URL (testing only)" OFF)
 
+# Builds the Flatpak variant, which cannot update or uninstall itself from a read-only /app and leaves both to flatpak.
+option(TUXBLOX_FLATPAK "Build the Flatpak variant" OFF)
+
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -31,16 +34,16 @@ if(NOT TUXBLOX_UI_SRC)
 endif()
 
 if(NOT EXISTS "${CMAKE_SOURCE_DIR}/third_party/json.hpp")
-    message(FATAL_ERROR "third_party/json.hpp is missing. Run ./vendor.sh first.")
+    message(FATAL_ERROR "third_party/json.hpp is missing from the repository.")
 endif()
 if(NOT EXISTS "${CMAKE_SOURCE_DIR}/third_party/stb_image.h")
-    message(FATAL_ERROR "third_party/stb_image.h is missing. Run ./vendor.sh first.")
+    message(FATAL_ERROR "third_party/stb_image.h is missing from the repository.")
 endif()
 
 # Still needed by the interface stack's UiStack.cmake, which finds GTK and libadwaita through pkg-config.
 find_package(PkgConfig REQUIRED)
 
-# TuxBlox's own code that uses those libraries, mounted read-only by build.sh.
+# TuxBlox's own code that uses those libraries, mounted read-only into the build container.
 if(NOT TUXBLOX_SHARED_CRYPTO)
     set(TUXBLOX_SHARED_CRYPTO "${CMAKE_SOURCE_DIR}/../shared/crypto/src")
 endif()
@@ -51,18 +54,23 @@ if(NOT TUXBLOX_SHARED_RELEASE)
     set(TUXBLOX_SHARED_RELEASE "${CMAKE_SOURCE_DIR}/../shared/release/src")
 endif()
 
+# TuxBlox's own feature flags, shared with the installer and the compatibility layer.
+if(NOT TUXBLOX_SHARED_FLAGS)
+    set(TUXBLOX_SHARED_FLAGS "${CMAKE_SOURCE_DIR}/../shared/flags")
+endif()
+
 # The capitalisation Windows uses for the folders on the virtual drive, shared with the
 # compatibility layer so a path built here is spelled the way the layer spells one.
 if(NOT TUXBLOX_SHARED_PATHS)
     set(TUXBLOX_SHARED_PATHS "${CMAKE_SOURCE_DIR}/../shared/paths/src")
 endif()
 
-# The libraries TuxBlox ships rather than taking from the machine, built by shared/tools/libs-build.sh and mounted read-only by build.sh.
+# The libraries TuxBlox ships rather than taking from the machine, built by the Makefile's $(LIBS) rule and mounted read-only into the build container.
 if(NOT TUXBLOX_SHARED_DIR)
     set(TUXBLOX_SHARED_DIR "${CMAKE_SOURCE_DIR}/../build/.artifacts/shared")
 endif()
 if(NOT EXISTS "${TUXBLOX_SHARED_DIR}/lib/libcurl.a")
-    message(FATAL_ERROR "${TUXBLOX_SHARED_DIR}/lib/libcurl.a is missing. Run ../shared/tools/libs-build.sh first.")
+    message(FATAL_ERROR "${TUXBLOX_SHARED_DIR}/lib/libcurl.a is missing. Run `make launcher` from the repository root.")
 endif()
 set(TUXBLOX_SHARED_INCLUDE "${TUXBLOX_SHARED_DIR}/include")
 # Static archives are order sensitive: each must come before whatever it calls into.
@@ -82,14 +90,25 @@ set(TUXBLOX_SHARED_LIBS
 # old-glibc-baseline safety makes it cheap insurance).
 find_package(Threads REQUIRED)
 
+# Translation catalogs shared by the launcher and the installer. The generated
+# header is a plain C++ table, so no JSON file is read at runtime.
+if(NOT TUXBLOX_I18N_DIR)
+    set(TUXBLOX_I18N_DIR "${CMAKE_SOURCE_DIR}/../shared/i18n")
+endif()
+if(NOT TUXBLOX_TRANSLATIONS_DIR)
+    set(TUXBLOX_TRANSLATIONS_DIR "${CMAKE_SOURCE_DIR}/../shared/translations")
+endif()
+include(${TUXBLOX_I18N_DIR}/src/EmbedTranslations.cmake)
+include(${TUXBLOX_SHARED_FLAGS}/EmbedFlags.cmake)
+
 file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/generated)
-# TUXBLOX_BUILD_VERSION carries the LAUNCHER's own version, which launcher/build.sh reads from
+# TUXBLOX_BUILD_VERSION carries the LAUNCHER's own version, which the Makefile reads from
 # launcher/VERSION on the host and forwards in, because cmake runs inside a container where only
 # this directory is mounted. It is no longer a number shared with the installer and the layer:
 # each component carries its own, and the release is derived from their bump levels at staging.
 #
-# launcher/VERSION is only the second choice because build.sh reads it on the
-# host and passes it in. It still resolves for a bare `cmake -B build -S .` run,
+# launcher/VERSION is only the second choice because the Makefile reads it on
+# the host and passes it in. It still resolves for a bare `cmake -B build -S .` run,
 # which is the one case that reaches it. Anything else gets a version that is
 # obviously a placeholder rather than a plausible-looking wrong number.
 if(NOT "$ENV{TUXBLOX_BUILD_VERSION}" STREQUAL "")
@@ -100,13 +119,41 @@ else()
     set(TUXBLOX_LAUNCHER_VERSION "0.0.0-dev")
 endif()
 message(STATUS "TuxBlox launcher version: ${TUXBLOX_LAUNCHER_VERSION}")
+# A Flatpak build bakes the channel its branch publishes, since it has no setting to carry one.
+if(TUXBLOX_FLATPAK)
+    set(TUXBLOX_FLATPAK_BOOL "true")
+    if(NOT "$ENV{TUXBLOX_CHANNEL}" STREQUAL "")
+        set(TUXBLOX_BUILD_CHANNEL "$ENV{TUXBLOX_CHANNEL}")
+    else()
+        set(TUXBLOX_BUILD_CHANNEL "experimental")
+    endif()
+    message(STATUS "TuxBlox Flatpak variant, channel: ${TUXBLOX_BUILD_CHANNEL}")
+else()
+    set(TUXBLOX_FLATPAK_BOOL "false")
+    set(TUXBLOX_BUILD_CHANNEL "")
+endif()
+
 configure_file(${CMAKE_SOURCE_DIR}/cmake/version.h.in ${CMAKE_BINARY_DIR}/generated/version.h @ONLY)
+
+# The release and the channel the root VERSION file declares, forwarded by the Makefile the way the
+# component version is. Both are baked into the stamp field so a binary that was never staged still
+# reports them; staging overwrites the field regardless.
+if(NOT "$ENV{TUXBLOX_RELEASE}" STREQUAL "")
+    set(TUXBLOX_STAMP_DEFINES "TUXBLOX_RELEASE=\"$ENV{TUXBLOX_RELEASE}\"")
+    if(NOT "$ENV{TUXBLOX_CHANNEL}" STREQUAL "")
+        list(APPEND TUXBLOX_STAMP_DEFINES "TUXBLOX_CHANNEL=\"$ENV{TUXBLOX_CHANNEL}\"")
+    endif()
+    set_source_files_properties(${TUXBLOX_SHARED_RELEASE}/release_stamp.cpp PROPERTIES
+        COMPILE_DEFINITIONS "${TUXBLOX_STAMP_DEFINES}")
+endif()
 
 add_library(launcher_core STATIC
     ${TUXBLOX_SHARED_CRYPTO}/ca_bundle.cpp
     ${TUXBLOX_SHARED_RELEASE}/release_file.cpp
+    ${TUXBLOX_SHARED_RELEASE}/release_stamp.cpp
     ${TUXBLOX_SHARED_PATHS}/windows_paths.cpp
     ${TUXBLOX_SHARED_RELEASE}/user_agent.cpp
+    ${TUXBLOX_I18N_DIR}/src/i18n.cpp
     src/app.cpp
     src/discord_rpc.cpp
     src/about_versions.cpp
@@ -117,6 +164,9 @@ add_library(launcher_core STATIC
     src/player_presence.cpp
     src/presence_loop.cpp
     src/server_region.cpp
+    ${TUXBLOX_SHARED_FLAGS}/FlagManager.cpp
+    src/flag_startup.cpp
+    src/roblox_config.cpp
     src/roblox_http.cpp
     src/roblox_universe.cpp
     src/roblox_place_info.cpp
@@ -126,6 +176,7 @@ add_library(launcher_core STATIC
     src/prefix_user.cpp
     src/checksum.cpp
     src/downloader.cpp
+    src/install_concurrency.cpp
     src/tar_extract.cpp
     src/manifest.cpp
     src/lnk_resolver.cpp
@@ -164,6 +215,7 @@ add_library(launcher_core STATIC
     ${TUXBLOX_UI_SRC}/adw_env.cpp
     ${TUXBLOX_UI_SRC}/svg_raster.cpp
     ${TUXBLOX_UI_SRC}/palette.cpp
+    ${TUXBLOX_UI_SRC}/seasonal.cpp
     src/session_facts.cpp
     src/session_list.cpp
     src/session_log_match.cpp
@@ -177,7 +229,7 @@ endif()
 include(${TUXBLOX_SHARED_CRYPTO}/EmbedCaBundle.cmake)
 
 target_include_directories(launcher_core PUBLIC
-    src third_party ${CMAKE_BINARY_DIR}/generated ${TUXBLOX_UI_SRC}
+    src third_party ${TUXBLOX_SHARED_FLAGS} ${TUXBLOX_I18N_DIR}/src ${CMAKE_BINARY_DIR}/generated ${TUXBLOX_UI_SRC}
     ${TUXBLOX_SHARED_INCLUDE} ${TUXBLOX_SHARED_CRYPTO} ${TUXBLOX_SHARED_RELEASE}
     ${TUXBLOX_SHARED_PATHS} ${CMAKE_BINARY_DIR}/generated)
 if(TUXBLOX_TEST_SETUP_URL)
@@ -215,9 +267,9 @@ include(cmake/EmbedAssets.cmake)
 # and copyright_file.cpp/license_file.cpp embed license text. Declared here
 # on launcher_core itself, not duplicated on every consumer, since these
 # are launcher_core's own compile-time requirements.
-add_dependencies(launcher_core generate_ca_bundle_header generate_logo_header generate_font_header generate_thirdparty_license_headers generate_license_header)
+add_dependencies(launcher_core generate_ca_bundle_header generate_logo_header generate_font_header generate_thirdparty_license_headers generate_license_header generate_i18n_header generate_default_flags_header)
 
-# The window needs the interface stack's development tree, which only exists once shared/tools/ui-build.sh has run; without it only launcher_core and its tests build, and build.sh refuses to finish.
+# The window needs the interface stack's development tree, which only exists once the Makefile's $(UI) rule has run; without it only launcher_core and its tests build, and the Makefile refuses to finish.
 if(TUXBLOX_UI_STACK_DEV)
     include(${TUXBLOX_UI_SRC}/UiStack.cmake)
 
@@ -234,16 +286,24 @@ if(TUXBLOX_UI_STACK_DEV)
         src/ui_adw/versions_tab_state.cpp
         src/ui_adw/home_card_state.cpp
         src/ui_adw/sessions_page_state.cpp
+        src/ui_adw/welcome_tour_state.cpp
+        src/ui_adw/welcome_tour.cpp
+        src/ui_adw/fastflags_page_state.cpp
         src/ui_adw/page_sessions.cpp
+        src/ui_adw/snow.cpp
         src/bootstrap/ui_adw.cpp
         src/bootstrap/command.cpp
         ${TUXBLOX_UI_SRC}/adw_look.cpp
         ${TUXBLOX_UI_SRC}/host_icons.cpp
     )
+    # A message box another program asked for says which of that program's windows it belongs to, so
+    # the desktop brings the two up together. Saying so is an X11 property, and GTK 4 dropped the
+    # API for pointing at a window belonging to another program.
+    pkg_check_modules(X11 REQUIRED x11)
     target_include_directories(launcher_ui_adw PUBLIC
-        src src/ui_adw ${CMAKE_BINARY_DIR}/generated ${ADWAITA_INCLUDE_DIRS})
+        src src/ui_adw ${CMAKE_BINARY_DIR}/generated ${ADWAITA_INCLUDE_DIRS} ${X11_INCLUDE_DIRS})
     target_compile_options(launcher_ui_adw PUBLIC ${ADWAITA_CFLAGS_OTHER})
-    target_link_libraries(launcher_ui_adw PUBLIC launcher_core ${ADWAITA_LINK_LIBRARIES})
+    target_link_libraries(launcher_ui_adw PUBLIC launcher_core ${ADWAITA_LINK_LIBRARIES} ${X11_LINK_LIBRARIES})
     add_dependencies(launcher_ui_adw generate_asset_headers generate_logo_header)
 
     add_executable(TuxBloxLauncher

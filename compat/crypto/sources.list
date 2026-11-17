@@ -1,0 +1,10 @@
+# filename|url [mirrors...]
+#
+# The layer's own gnutls, built far smaller than the webview bundle's: no
+# p11-kit, idn2, zlib, zstd or brotli, which takes it from eleven libraries to
+# five. The configure flags are in compat/Makefile.in. gmp stays whatever else
+# goes: gnutls calls into it directly, so nettle's mini-gmp does not replace it.
+gmp-${GMP_VERSION}.tar.xz|https://gmplib.org/download/gmp/gmp-${GMP_VERSION}.tar.xz https://ftp.gnu.org/gnu/gmp/gmp-${GMP_VERSION}.tar.xz
+nettle-${NETTLE_VERSION}.tar.gz|https://ftp.gnu.org/gnu/nettle/nettle-${NETTLE_VERSION}.tar.gz
+libtasn1-${LIBTASN1_VERSION}.tar.gz|https://ftp.gnu.org/gnu/libtasn1/libtasn1-${LIBTASN1_VERSION}.tar.gz
+gnutls-${GNUTLS_VERSION}.tar.xz|https://www.gnupg.org/ftp/gcrypt/gnutls/v${GNUTLS_VERSION%.*}/gnutls-${GNUTLS_VERSION}.tar.xz

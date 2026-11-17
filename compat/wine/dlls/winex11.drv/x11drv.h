@@ -411,6 +411,9 @@ struct x11drv_thread_data
     XFontSet font_set;             /* international text drawing font set */
     Window   selection_wnd;        /* window used for selection interactions */
     unsigned long warp_serial;     /* serial number of last pointer warp request */
+    POINT    last_pointer_root;    /* root position the last pointer event reported */
+    BOOL     have_pointer_root;    /* whether last_pointer_root has been filled in yet */
+    BOOL     warp_pending;         /* an application pointer warp is waiting for the next event */
     Window   clip_window;          /* window used for cursor clipping */
     BOOL     clipping_cursor;      /* whether thread is currently clipping the cursor */
     Atom    *net_supported;        /* list of _NET_SUPPORTED atoms */
@@ -704,6 +707,9 @@ struct x11drv_win_data
     UINT        net_wm_state_hack : 1; /* hacking around KWin sticky fullscreen windows */
     UINT        force_below_hack : 1; /* hacking fullscreen black window which is supposed to be order after another window */
     UINT        frame_sync_pending : 1; /* window manager is waiting for a frame at the new size */
+    UINT        map_released : 1;  /* the first map has been let through, so later shows are not held */
+    UINT        map_deferred : 1;  /* first map held back until the window has lasted a frame */
+    UINT        map_defer_activate : 1; /* the activate flag the held-back map was asked for with */
     Window      embedder;       /* window id of embedder */
     /* Frame synchronisation, _NET_WM_SYNC_REQUEST. The window manager hands us
      * a value before it resizes us and holds the new size back until we set the
@@ -724,6 +730,7 @@ struct x11drv_win_data
     unsigned long wm_state_serial;     /* serial of last pending WM_STATE request */
     unsigned long net_wm_state_serial; /* serial of last pending _NET_WM_STATE request */
     DWORD         net_wm_state_time;   /* when that request went out, to give up waiting on a window manager that never answers */
+    DWORD         map_defer_time;      /* when the first map was held back, to bound how long it waits */
     unsigned long monitors_serial;     /* serial of last pending _NET_WM_FULLSCREEN_MONITORS request */
     unsigned long wm_hints_serial;     /* serial of last pending WM_HINTS request */
     unsigned long mwm_hints_serial;    /* serial of last pending _MOTIF_WM_HINTS request */
@@ -739,6 +746,8 @@ extern Window X11DRV_get_whole_window( HWND hwnd );
 extern Window get_dummy_parent(void);
 
 extern void set_surface_window_rects( struct window_surface *window_surface, const struct window_rects *rects );
+extern void window_flush_deferred_maps( void );
+extern BOOL window_has_deferred_map( void );
 extern BOOL window_is_reparenting( HWND hwnd );
 extern BOOL window_should_take_focus( HWND hwnd, Time time );
 extern BOOL window_has_pending_wm_state( HWND hwnd, UINT state );
@@ -792,6 +801,7 @@ extern XContext cursor_context;
 extern BOOL is_current_process_focused(void);
 extern void X11DRV_ActivateWindow( HWND hwnd, HWND previous );
 extern void reapply_cursor_clipping(void);
+extern void retry_pending_cursor_clipping(void);
 extern void ungrab_clipping_window(void);
 extern void move_resize_window( HWND hwnd, int dir, POINT pos );
 extern void X11DRV_InitKeyboard( Display *display );

@@ -18,7 +18,6 @@
 
 #include "release_file.h"
 
-#include <algorithm>
 
 namespace tuxblox {
 
@@ -36,24 +35,15 @@ std::string listed(const std::vector<std::string>& names) {
     return out;
 }
 
-// Component order rather than the map's, because this ends up in a line somebody reads and
-// compares against another run.
-std::vector<std::string> inComponentOrder(const std::map<std::string, std::string>& recorded) {
-    std::vector<std::string> ordered;
-    for (const std::string& name : componentNames()) {
-        if (recorded.count(name)) ordered.push_back(name);
-    }
-    // A release cannot name anything outside the five -- parseReleaseFile refuses it -- but this
-    // state is built by callers, and silently dropping a component from the coherence check is the
-    // one failure mode that would never show up as a wrong answer, only as a missing one.
-    for (const auto& [name, version] : recorded) {
-        (void)version;
-        if (std::find(ordered.begin(), ordered.end(), name) == ordered.end()) ordered.push_back(name);
-    }
-    return ordered;
-}
-
 } // namespace
+
+std::vector<std::string> channelsAbove(const std::string& channel) {
+    // Written out rather than derived from an index into the ladder, because the ladder is
+    // three names and the question only ever has three answers.
+    if (channel == "experimental") return {"canary", "stable"};
+    if (channel == "canary") return {"stable"};
+    return {};
+}
 
 UpdateDecision decideUpdate(const InstallState& state, const std::string& namedRelease,
                              bool noRollback) {
@@ -62,19 +52,41 @@ UpdateDecision decideUpdate(const InstallState& state, const std::string& namedR
     // Nothing published on this channel yet. Not an error, and not something to repair towards.
     if (namedRelease.empty()) return decision;
 
-    if (!state.releaseRecorded) {
+    // Ahead of the channel in the release or in any single component: built here, not downloaded.
+    // Repairing it would fetch the published release over the top of the build, and offering it an
+    // older release is not an update, so nothing is done at all.
+    if (compareDottedVersions(state.installedRelease, namedRelease) > 0) {
+        decision.internal = true;
+        decision.reason = "this install is ahead of " + namedRelease + ", so it is left alone";
+        return decision;
+    }
+    for (const auto& [name, version] : state.installedVersions) {
+        const auto published = state.publishedVersions.find(name);
+        if (published == state.publishedVersions.end()) continue;
+        if (compareDottedVersions(version, published->second) > 0) {
+            decision.internal = true;
+            decision.reason = listed({name}) + " " + version + " is ahead of the published " +
+                              published->second + ", so this install is left alone";
+            return decision;
+        }
+    }
+
+    if (state.installedRelease.empty()) {
         // There is nothing to check coherence against, so the only question left is whether
         // something is published -- and it is. Offered rather than forced: the install works, it
         // just cannot say what it is, and that is not a reason to replace it without asking.
         decision.update = true;
-        decision.reason = "this install does not record which release it is";
+        decision.reason = "this install cannot say which release it is";
         return decision;
     }
 
-    for (const std::string& name : inComponentOrder(state.recordedVersions)) {
-        const auto installed = state.installedVersions.find(name);
-        if (installed == state.installedVersions.end() ||
-            installed->second != state.recordedVersions.at(name)) {
+    // Every component of a release carries that release inside it, so an install is coherent when
+    // all of them name the same one. A component that is absent, or that cannot be asked, is as
+    // much a half-applied update as one naming a different release.
+    for (const std::string& name : componentNames()) {
+        const auto installed = state.installedIdentities.find(name);
+        if (installed == state.installedIdentities.end() ||
+            installed->second != state.installedRelease) {
             decision.incoherent.push_back(name);
         }
     }
@@ -87,10 +99,10 @@ UpdateDecision decideUpdate(const InstallState& state, const std::string& namedR
             // over the top of the local build. The cost is that a genuinely half-applied update is
             // left alone too, which is why this is off by default and has no switch in the window.
             decision.reason = "the " + listed(decision.incoherent) + agrees +
-                               " match release " + state.recordedRelease + ", but norollback is set";
+                               " match release " + state.installedRelease + ", but norollback is set";
             // Deciding the repair first means an ordinary update is not reached either, so say so
             // rather than leaving someone who set this by hand wondering why a release never comes.
-            if (state.recordedRelease != namedRelease) {
+            if (state.installedRelease != namedRelease) {
                 decision.reason += " -- release " + namedRelease + " is published and is not being taken";
             }
             return decision;
@@ -98,15 +110,15 @@ UpdateDecision decideUpdate(const InstallState& state, const std::string& namedR
         decision.update = true;
         decision.forced = true;
         decision.reason = "the " + listed(decision.incoherent) + agrees +
-                           " match release " + state.recordedRelease + ", so this install is being repaired";
+                           " match release " + state.installedRelease + ", so this install is being repaired";
         return decision;
     }
 
     // No direction to this: a channel pointed back at an earlier release is taking that release
     // back, and the installs that already have it are the ones that have to follow.
-    if (state.recordedRelease != namedRelease) {
+    if (state.installedRelease != namedRelease) {
         decision.update = true;
-        decision.reason = "this install is release " + state.recordedRelease + " and " +
+        decision.reason = "this install is release " + state.installedRelease + " and " +
                            namedRelease + " is published";
     }
     return decision;

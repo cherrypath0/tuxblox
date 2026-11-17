@@ -2,7 +2,7 @@
 
 One-time (or per-version-bump) build tooling for the WebKitGTK tarball vendored at
 `../prebuilt/webkitgtk-<version>-x86_64.tar.xz`. This is release
-engineering, not part of the normal `./build.sh` a user or contributor runs.
+engineering, not part of the normal `make` a user or contributor runs.
 
 ## When to run this
 
@@ -12,7 +12,24 @@ engineering, not part of the normal `./build.sh` a user or contributor runs.
 ## How to run it
 
     cd compat/webkitgtk/bundle
+    ./fetch-sources.sh      # once, and after any version bump
     ./build.sh
+
+The build downloads nothing. Every source archive comes out of `sources/` (gitignored,
+about 250 MB), which `fetch-sources.sh` fills from `sources.list` and checksums into
+`sha256sums`; `build-in-container.sh` resolves each package from there by name, checks
+it against the recorded checksum, and stops if an archive is missing or its bytes have
+changed. `build.sh` runs the container with `--network=none`, so that is enforced
+rather than merely intended -- a package that slipped back to fetching its own source,
+or a meson wrap that still wants downloading, fails instead of quietly pulling bytes
+nothing recorded. `build.sh` verifies `sources/` before it starts the hours-long part,
+so a missing archive costs one command rather than an hour.
+
+A version bump in `versions.env` therefore means: `./fetch-sources.sh` to pull the new
+archive, then `./fetch-sources.sh --relock` to re-record `sha256sums`, and commit
+`sha256sums` with the bump. `--relock` is the only thing that rewrites recorded
+checksums and is never part of a build; `./fetch-sources.sh --verify` checks what is on
+disk without touching the network.
 
 Takes a long time (building the full GTK4/WebKitGTK stack from source) on a genuinely
 clean run -- expect multiple hours, most of it a single-threaded (`JOBS=1`, see the
@@ -20,7 +37,7 @@ memory-history comment in `build-in-container.sh`) WebKitGTK compile. A re-run w
 webkitgtk itself is unchanged (no patch/version bump) finishes in well under a minute:
 its own source+build tree persists in the `webkitgtk-src-build` volume, so `ninja`
 does a true incremental build and correctly does nothing. Every *other* dependency
-(glib, gtk4, libsoup, icu, ...) still re-fetches and rebuilds from scratch on every
+(glib, gtk4, libsoup, icu, ...) still re-extracts and rebuilds from scratch on every
 run regardless -- that's fine, since all of them combined take well under an hour, and
 none of them get the same persistent-source treatment webkitgtk does. Produces
 `out/webkitgtk-<version>-x86_64.tar.xz`. Copy it into `../prebuilt/`,
@@ -34,12 +51,12 @@ doesn't force starting over from nothing:
   you want a genuinely clean build.
 - `webkitgtk-src-build` -- webkitgtk's own extracted source tree AND its cmake
   `_build` directory (mounted at `/build/webkitgtk`, the one dependency whose /build
-  subdirectory isn't ephemeral -- see the comment at its `fetch_and_extract` call site
+  subdirectory isn't ephemeral -- see the comment at its `extract_source` call site
   in `build-in-container.sh`). This is what makes an unchanged re-run fast. Delete it
   to force a genuinely clean webkitgtk rebuild (e.g. if you suspect the persisted tree
   itself is corrupted) -- a version bump in `versions.env` does NOT require deleting
   this manually, the script detects the version change itself via a marker file and
-  re-fetches automatically.
+  re-extracts automatically.
 - `webkitgtk-ccache` -- compiler cache for the WebKitGTK step only, a second line of
   defense for cases the persisted `_build` tree doesn't cover on its own (e.g. after
   deleting `webkitgtk-src-build` but not this). Not part of the shippable artifact;
@@ -78,8 +95,9 @@ terms):
 | `WEBKIT_INJECTED_BUNDLE_PATH` | Where `libwebkitgtk-6.0.so` looks for the web-process injected bundle (`libwebkitgtkinjectedbundle.so`) | `<extract-dir>/lib/webkitgtk-6.0/injected-bundle` | **Required** to avoid a load-time warning (page loads either way, but the injected bundle -- used for WebKit's internal JS-side extension hooks -- silently fails to load without it). Not in the original brief; found during WEBKIT_EXEC_PATH verification. |
 | `GIO_EXTRA_MODULES` | GIO's TLS backend module (glib-networking's GnuTLS module) | `<extract-dir>/lib/x86_64-linux-gnu/gio/modules` | **Required.** Verified: `GTlsBackendDummy` (no TLS at all) without it, `GTlsBackendGnutls` (real) with it. |
 | `GBM_BACKENDS_PATH` | Mesa's GBM backend search path (`libgbm`) | `<extract-dir>/lib/x86_64-linux-gnu/gbm` | **Required.** Verified against a real DRM render node: `gbm_create_device()` fails (logs the exact compiled-in `/opt/tuxblox-webview/...` path it tried) without it, succeeds with it. |
+| `__EGL_VENDOR_LIBRARY_DIRS` | Where the bundle's own libglvnd dispatcher looks for vendor descriptions (`*.json`) naming a real EGL driver | the host's `/usr/share/glvnd/egl_vendor.d` (plus `/etc/glvnd/egl_vendor.d` and `/usr/local/share/glvnd/egl_vendor.d` when present), then `<extract-dir>/share/glvnd/egl_vendor.d` as a last resort | **Required.** The dispatcher is built with `--prefix=/opt/tuxblox-webview`, so its compiled-in vendor directories do not exist outside the build container; without this it finds no vendor, `eglGetDisplay()` returns `EGL_NO_DISPLAY`, and WebKit's content process aborts in `PlatformDisplayDefault::create()`. See issue #8. |
 | `LIBGL_DRIVERS_PATH` | Mesa's DRI driver search path (`libGL`/`libEGL`) | `<extract-dir>/lib/x86_64-linux-gnu/dri` | **Not load-bearing for this specific build** (see below) -- set anyway, it's free insurance. |
-| `GST_PLUGIN_SCANNER` | Where `libgstreamer-1.0.so` looks for the `gst-plugin-scanner` helper it spawns to introspect plugins out-of-process | `<extract-dir>/libexec/gstreamer-1.0/gst-plugin-scanner` | **Recommended, not independently verified to the same standard as the five above.** `libgstreamer-1.0.so` has a compiled-in absolute default (`/opt/tuxblox-webview/libexec/gstreamer-1.0/gst-plugin-scanner`) and its own `strings` output documents `GST_PLUGIN_SCANNER` as a real runtime override ("Trying GST_PLUGIN_SCANNER env var: %s") -- confirmed the mechanism exists, not exercised end-to-end with a real relocated GStreamer plugin load the way WEBKIT_EXEC_PATH was. |
+| `GST_PLUGIN_SCANNER` | Where `libgstreamer-1.0.so` looks for the `gst-plugin-scanner` helper it spawns to introspect plugins out-of-process | `<extract-dir>/libexec/gstreamer-1.0/gst-plugin-scanner` | **Recommended, not independently verified to the same standard as the six above.** `libgstreamer-1.0.so` has a compiled-in absolute default (`/opt/tuxblox-webview/libexec/gstreamer-1.0/gst-plugin-scanner`) and its own `strings` output documents `GST_PLUGIN_SCANNER` as a real runtime override ("Trying GST_PLUGIN_SCANNER env var: %s") -- confirmed the mechanism exists, not exercised end-to-end with a real relocated GStreamer plugin load the way WEBKIT_EXEC_PATH was. |
 | `GST_PLUGIN_SYSTEM_PATH` | Where GStreamer looks for its own plugin `.so`s (`libgst*.so` under `lib/x86_64-linux-gnu/gstreamer-1.0/`) | `<extract-dir>/lib/x86_64-linux-gnu/gstreamer-1.0` | Same confidence tier as `GST_PLUGIN_SCANNER` above -- a real, standard GStreamer env var (confirmed present in `libgstreamer-1.0.so`'s own strings output), not independently exercised end-to-end here. |
 | `XDG_DATA_DIRS` | The general, standard freedesktop.org mechanism GLib/GTK use to find shared data (icon themes, mime info, and -- see below -- GSettings schemas) relative to an install prefix | `<extract-dir>/share` | Recommended as the general-purpose fallback; confirmed as a real, standard mechanism (present in `libgio-2.0.so`'s own strings output) but not independently exercised end-to-end here. |
 | `GSETTINGS_SCHEMA_DIR` | The more specific GIO override for where compiled GSettings schemas (`share/glib-2.0/schemas/gschemas.compiled`) are found, taking precedence over `XDG_DATA_DIRS`-based discovery | `<extract-dir>/share/glib-2.0/schemas` | Same confidence tier as `XDG_DATA_DIRS` above -- confirmed real and present (`gschemas.compiled` genuinely ships in the bundle, pre-compiled at build time), not independently exercised end-to-end here. |
@@ -313,6 +331,50 @@ anyway). This boundary has grown twice since the plan's original Global Constrai
   `-DBWRAP_EXECUTABLE`/`-DDBUS_PROXY_EXECUTABLE` string literals from this
   container's own `/usr/bin`, worth knowing about if that sandbox is ever
   re-enabled in a future build.
+- **Largely reversed in 3.7.1.** The boundary above kept growing because each entry
+  looked individually harmless, and the result was a bundle that borrowed 36
+  libraries on its core startup path from whatever the user's distro happened to
+  ship -- inheriting that distro's SONAMEs and build options, which is precisely the
+  shape of the `libtiff.so.6` and `libffi.so.7`-vs-`.so.8` failures. Three of those
+  36 (`libpcre2-8`, `libthai`, `libfribidi`) were never on this list at all and were
+  load-bearing: absent, nothing in the bundle starts. All of it is now built from
+  source in `build-in-container.sh` -- the compression and text libraries, pcre2,
+  gcrypt, epoxy, pixman, png, expat, idn2, the whole X11 client stack, xkbcommon,
+  and libglvnd. What is deliberately left on the host is now only:
+  - **glibc** -- `libc`, `ld-linux`, `libm`, `libpthread`, `librt`, `libresolv`.
+  - **The device and init layer** -- `libudev` (speaks to the udev daemon socket and
+    reads `/run/udev`'s on-disk format; eudev provides it on non-systemd distros),
+    `libmount`, `libatomic`.
+  - **The driver loaders** -- `libvulkan`, `libva`, `libva-drm`. These dispatch to
+    the user's own GPU driver, so bundling them would break acceleration everywhere
+    rather than fix it anywhere. Note this is *not* true of EGL/GLX: the bundle
+    already shipped its own Mesa and pinned it via `__EGL_VENDOR_LIBRARY_FILENAMES`,
+    so vendoring glvnd puts the dispatch layer and the driver behind it both under
+    our control.
+  - **The audio daemons and their codecs** -- `libasound`, `libpulse`, `libmpg123`,
+    `libsndfile`, `libogg`/`libvorbis`/`libopus`/`libspeex`/`libtheora`, `libv4l2`,
+    `libusb`. All reachable only through GStreamer plugins; absent, they cost sound
+    or video rather than the webview.
+  - **fontconfig, freetype and wayland**, all three built from source here -- listed
+    only because the entries above describe them as system-provided and that is no
+    longer accurate. freetype was vendored in 3.7.1; fontconfig followed it, having
+    been left until then to cairo's meson subproject, which turned out never to
+    build at all when the container's own copy satisfied cairo. See the fontconfig
+    step in `build-in-container.sh` for why its config paths point at the host.
+
+    wayland is the one that had already been shipping without being built. The 3.7.0
+    tarball contains `libwayland-client.so.0.23.0` and nothing in this repository
+    built it: Debian 11 has 1.18.0, gtk4 requires `>= 1.23.0`, and the gap had been
+    closed by modifying the builder image by hand, so a library inside a published
+    release could not be rebuilt from the repository it shipped from. Shipping a
+    newer libwayland than the user's compositor is safe -- the client library speaks
+    a stable wire protocol, so the two do not have to match -- but shipping one
+    nobody could rebuild was not.
+
+  `libsystemd` is gone rather than vendored: it came from WebKit's
+  `ENABLE_JOURNALD_LOG`, now `OFF`. `libgtk-3` and `libcups` are gone the same way,
+  with the two plugins that pulled them in (`libgstgtk.so`, the GTK CUPS print
+  backend), neither of which this bundle uses.
 
 Deliberately vendored instead of relying on this boundary, despite being common
 system libraries elsewhere, because a real WebKitGTK requirement made them
@@ -475,25 +537,44 @@ straightforward:
   per-user location, alongside the other environment variables in the contract table
   above.
 
-## Supply-chain hardening gap (known limitation, not blocking)
+## Supply-chain hardening (sources CLOSED in 3.7.1, toolchain still open)
 
-Nothing in this pipeline verifies what it downloads:
+The source side of this is now closed. It used to be that nothing verified anything:
+every package was a bare `curl -fL` straight into `tar` at build time, and
+`versions.env` pinned *versions*, which protects against upstream drift but not
+against a compromised or substituted mirror. That mattered more here than it looks,
+because several of these upstreams are mirror redirectors onto volunteer hosts rather
+than single origins, and one of them has already served a dead mirror mid-build.
 
-- `build-in-container.sh` fetches ~28 source tarballs with a bare `curl -fL` and no
-  checksum or signature check. `versions.env` pins *versions*, which protects against
-  upstream drift but not against a compromised or substituted mirror.
-- `Containerfile` uses the moving `FROM debian:12` tag rather than a digest, and
-  `pip3 install --break-system-packages --upgrade 'meson>=1.4.0'` is unpinned -- so
-  two runs months apart can legitimately produce different toolchains.
+What replaced it:
 
-For a component that renders live web content and handles Roblox login sessions,
-this is worth closing before the bundle ships in an actual release: add a
-`sha256sums` file next to `versions.env` and verify it inside `fetch_and_extract`,
-pin the base image by digest, and pin the meson version exactly. Not blocking today
-(the artifact in `compat/webkitgtk/prebuilt/` was built and verified by hand), but it is
-the difference between "pinned" and "reproducible", and the whole point of this
-directory is that someone can rebuild it in six months for a security update and
-trust the result.
+- `sources.list` holds every archive and where to get it; `fetch-sources.sh` fills
+  `sources/` on the host and records a checksum per archive in `sha256sums`.
+- `build-in-container.sh` resolves each package from `sources/` by name and verifies
+  it against `sha256sums` before unpacking. A missing archive, or one whose bytes
+  changed, stops the build -- it is never fetched or built anyway.
+- `build.sh` runs the container with `--network=none`, which makes "downloads nothing"
+  a property of the build rather than a claim about the script. It also closes meson's
+  own configure-time wrap downloads, which were a second, quieter path to the network:
+  `MESON_PACKAGE_CACHE_DIR` points meson at the same directory for any wrap that is a
+  tarball. No wrap is load-bearing any more: fontconfig, the only one that ever was, is
+  a package of its own now. That also closed a path the cache could not have covered --
+  pango's fontconfig wrap is a *git* wrap, and a `git clone` is not a cached download.
+- `fetch-sources.sh` pins the whole exchange to https including redirects, so a
+  redirector cannot hand an archive to plain http.
+
+What is still open is the *toolchain*, not the sources:
+
+- `Containerfile` uses the moving `FROM registry.gitlab.steamos.cloud/steamrt/sniper/sdk:latest`
+  tag rather than a digest, and `pip3 install --upgrade 'meson>=1.4.0'` is unpinned, so
+  two runs months apart can still legitimately produce different compilers and a
+  different meson. Pinning the base image by digest and the meson version exactly is
+  what remains before this directory can claim a reproducible build rather than a
+  verified set of inputs.
+- The image is also installed from Debian 11's archive, which is end-of-life and
+  frozen. That is good for reproducibility and bad for security updates, and it is
+  the direct reason the glibc floor is 2.31; it is a deliberate trade, not an
+  oversight. See the `FROM` comment in `Containerfile`.
 
 ## Third-party license attribution needed before release
 

@@ -173,6 +173,12 @@ bool imageIsInstaller(const std::string& image) {
            InstallerHolderImages.end();
 }
 
+const char* const SessionIdVariable = "TUXBLOX_SESSION_ID";
+
+std::string currentSessionId() {
+    return std::to_string(::getpid());
+}
+
 std::vector<SessionHolder> prefixSessionHoldersIn(const fs::path& procRoot, const fs::path& prefixDir) {
     std::vector<SessionHolder> holders;
     const std::string wanted = normalized(prefixDir.string());
@@ -202,6 +208,7 @@ std::vector<SessionHolder> prefixSessionHoldersIn(const fs::path& procRoot, cons
         holder.pid = pid;
         holder.image = image;
         holder.client = client;
+        holder.sessionId = envValue(entry.path() / "environ", SessionIdVariable);
         holders.push_back(holder);
     }
     return holders;
@@ -209,6 +216,20 @@ std::vector<SessionHolder> prefixSessionHoldersIn(const fs::path& procRoot, cons
 
 std::vector<SessionHolder> prefixSessionHolders(const fs::path& prefixDir) {
     return prefixSessionHoldersIn("/proc", prefixDir);
+}
+
+std::vector<SessionHolder> holdersOfSession(const std::vector<SessionHolder>& holders,
+                                            const std::string& sessionId) {
+    std::vector<SessionHolder> mine;
+    if (sessionId.empty()) {
+        return mine;
+    }
+    for (const SessionHolder& holder : holders) {
+        if (holder.sessionId == sessionId) {
+            mine.push_back(holder);
+        }
+    }
+    return mine;
 }
 
 std::vector<std::string> sessionsToReplace(const std::string& image,
@@ -225,11 +246,8 @@ std::vector<std::string> sessionsToReplace(const std::string& image,
     return pids;
 }
 
-DriveExit driveExitOnClose(bool ownsPrefix, const std::vector<SessionHolder>& remaining) {
-    if (!ownsPrefix) {
-        return DriveExit::Leave;
-    }
-    return remaining.empty() ? DriveExit::TearDownNow : DriveExit::WaitThenTearDown;
+DriveExit driveExitOnClose(bool otherSessionsInDrive) {
+    return otherSessionsInDrive ? DriveExit::Leave : DriveExit::TearDownNow;
 }
 
 std::vector<std::string> otherLayerProcesses(const fs::path& procRoot, const fs::path& layerBinary,
@@ -256,7 +274,7 @@ std::vector<std::string> otherLayerProcesses(const fs::path& procRoot, const fs:
         if (linkError || resolved(exe.string()) != wantedBinary) {
             continue;
         }
-        if (toLower(pidLayerTarget(procRoot, pid)) != wantedImage) {
+        if (!wantedImage.empty() && toLower(pidLayerTarget(procRoot, pid)) != wantedImage) {
             continue;
         }
         if (resolved(envValue(entry.path() / "environ", "TUXBLOX_PREFIX")) != wantedPrefix) {
@@ -265,6 +283,38 @@ std::vector<std::string> otherLayerProcesses(const fs::path& procRoot, const fs:
         pids.push_back(pid);
     }
     return pids;
+}
+
+namespace {
+
+// Beside the drive rather than inside it, so it is never something the virtual drive's own contents can shadow.
+fs::path driveInUseMarker(const fs::path& baseDir) {
+    return baseDir / ".tuxblox-drive-in-use";
+}
+
+} // namespace
+
+void markDriveInUse(const fs::path& baseDir) {
+    std::error_code error;
+    fs::create_directories(baseDir, error);
+    std::ofstream(driveInUseMarker(baseDir)) << "in use\n";
+}
+
+void markDriveClosed(const fs::path& baseDir) {
+    std::error_code error;
+    fs::remove(driveInUseMarker(baseDir), error);
+}
+
+bool driveNeedsRepair(const fs::path& baseDir, bool otherSessionsInDrive) {
+    if (otherSessionsInDrive) {
+        return false;
+    }
+    std::error_code error;
+    return fs::exists(driveInUseMarker(baseDir), error) && !error;
+}
+
+bool otherSessionsInDrive(const fs::path& layerBinary, const std::string& tuxbloxPrefix) {
+    return !otherLayerProcesses("/proc", layerBinary, tuxbloxPrefix, "", ::getpid()).empty();
 }
 
 void replaceRunningSession(const fs::path& prefixDir, const std::string& image,

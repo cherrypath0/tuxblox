@@ -37,6 +37,7 @@ int main() {
         assert(s.sendCrashReports == false);
         assert(s.channel == "stable");
         assert(s.autoUpdate == false);
+        assert(s.language == "system");
     }
 
     // Round-trip, including sendCrashReports = false and a non-default channel.
@@ -258,6 +259,33 @@ int main() {
         auto pairs = launchEnvPairs(s);
         assert(!pairs.empty());
         assert(pairs.back() == "DRI_PRIME=9");
+    }
+
+    // exportedEnvPairs(): the launcher sets these on its own process, so it
+    // must carry nothing but the user's own box. Everything else in
+    // launchEnvPairs() describes how Roblox should run, and the card picker
+    // in particular would move the launcher's own window onto a card that is
+    // not driving the screen. TUXBLOX_WEBVIEW_GPU stands in for the rest
+    // because it is the one entry launchEnvPairs() always emits, so this
+    // holds on a machine with any number of graphics cards.
+    {
+        Settings s;
+        s.envVars = "FOO=bar";
+
+        auto launch = launchEnvPairs(s);
+        assert(std::find(launch.begin(), launch.end(), "TUXBLOX_WEBVIEW_GPU=1") != launch.end());
+
+        auto exported = exportedEnvPairs(s);
+        assert(exported.size() == 1);
+        assert(exported[0] == "FOO=bar");
+    }
+
+    // exportedEnvPairs(): an empty box exports nothing at all, so a default
+    // install leaves the launcher's own environment exactly as it found it.
+    {
+        Settings s;
+        s.gpu = "0000:01:00.0";
+        assert(exportedEnvPairs(s).empty());
     }
 
     // parseEnvPairs: empty string.
@@ -621,6 +649,50 @@ int main() {
             out << "{\"send_crash_reports\": false, \"discord_rpc\": true}";
         }
         assert(loadSettings(dir).discordGameStatus == true);
+    }
+
+    // An existing settings.json naming neither new field must read as tour-unseen and
+    // A file that says nothing about the tour keeps everything else it does say.
+    {
+        fs::create_directories(dir);
+        {
+            std::ofstream out(dir + "/settings.json");
+            out << R"({"send_crash_reports":true,"channel":"canary","theme":"dark"})";
+        }
+        Settings s = loadSettings(dir);
+        assert(s.welcomeSeen == false);
+        assert(s.sendCrashReports == true);
+        assert(s.channel == "canary");
+        assert(s.theme == "dark");
+        fs::remove_all(dir);
+    }
+    // This file can be edited by hand, so a typo in it must not throw the whole thing away.
+    // A number where welcome_seen wants a boolean is the obvious slip.
+    //
+    // enable_player_button was a setting here once, and the Player button is a flag now --
+    // tbxFlagDisablePlayerButton -- so a file that still names it is one more key that is
+    // simply not read. It is left in this fixture on purpose: ignoring it must stay free.
+    {
+        fs::create_directories(dir);
+        {
+            std::ofstream out(dir + "/settings.json");
+            out << R"({"send_crash_reports":false,"enable_player_button":"true","welcome_seen":1,)"
+                   R"("channel":"canary","env_vars":"A=1"})";
+        }
+        Settings s = loadSettings(dir);
+        assert(s.welcomeSeen == false);
+        assert(s.channel == "canary");   // and everything else survives
+        assert(s.envVars == "A=1");
+        fs::remove_all(dir);
+    }
+    // It round-trips.
+    {
+        Settings s;
+        s.welcomeSeen = true;
+        saveSettings(dir, s);
+        Settings back = loadSettings(dir);
+        assert(back.welcomeSeen == true);
+        fs::remove_all(dir);
     }
 
     fs::remove_all(dir);

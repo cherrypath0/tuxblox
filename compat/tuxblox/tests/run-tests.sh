@@ -23,6 +23,24 @@ cd "$(dirname "$0")"
 out="$(mktemp -d)"
 trap 'rm -rf "$out"' EXIT
 
+# The flag defaults are generated, so the test needs them built first -- the same script
+# the real build runs, so a default that would fail the build fails here too.
+python3 ../../../shared/flags/tools/embed-flags.py \
+    ../../../shared/flags/DefaultFlags-x86_64.json \
+    "$out/tuxblox_default_flags.h" kTuxBloxDefaultFlagsJson
+# ca_bundle.cpp carries a built-in certificate list; the real build reuses the launcher's
+# generated copy, and a one-entry stand-in is enough to compile the unit under test.
+printf 'static const unsigned char kTuxBloxCaBundlePem[] = "";\nstatic const unsigned int kTuxBloxCaBundlePemLen = 0;\n' \
+    > "$out/tuxblox_ca_bundle_pem.h"
+g++ -std=c++17 -O0 -g -Wall -Wextra -UNDEBUG \
+    -I ../src/support -I ../src/third_party -I ../../../shared/flags \
+    -I ../../../shared/crypto/src -I "$out" \
+    -o "$out/test_flags" test_flags.cpp ../src/support/flag_startup.cpp \
+    ../../../shared/flags/FlagManager.cpp \
+    ../../../shared/crypto/src/ca_bundle.cpp \
+    -lcurl -lpthread
+"$out/test_flags"
+
 g++ -std=c++17 -O0 -g -Wall -Wextra -UNDEBUG \
     -o "$out/test_account_name" test_account_name.cpp ../src/support/account_name.cpp
 "$out/test_account_name"

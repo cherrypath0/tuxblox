@@ -25,7 +25,7 @@ Upstream gates the `WEBKIT_EXEC_PATH` environment-variable override behind
 on and changes several other `ENABLE_*` defaults), but `WEBKIT_EXEC_PATH` is the only
 available *runtime* override for the compile-time `PKGLIBEXECDIR` absolute-path
 constant -- which patchelf/RPATH rewriting cannot touch -- and this bundle's real
-install location isn't known until TuxBlox's own top-level `build.sh` runs, long after
+install location isn't known until TuxBlox's own top-level build runs, long after
 this container image was built. Ungated only this one check; every other
 `DEVELOPER_MODE`-gated branch in the same function (the `getExecutablePath()`
 dev-convenience fallback) is untouched.

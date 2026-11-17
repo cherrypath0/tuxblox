@@ -1,0 +1,20 @@
+{
+    "tbxFlagDisablePlayerButton": true,
+    "tbxFlagEnableCustomThemes": false,
+    "tbxFlagEnableRobloxNextVersionDownload": true,
+    "tbxFlagEnableParallelWorkersForRobloxInstaller": true,
+    "tbxFlagEnableChristmasTheme": true,
+    "tbxFlagDisableGeoTool": false,
+    "tbxFlagDisableCrashTelemetry": false,
+    "tbxFlagDisableUpdater": false,
+    "tbxFlagEnableChannelToUpperChannelUpgradeOnBuildPromotion": true,
+    "tbxFlagEnableExperimentalLinuxIntegration": false,
+    "tbxFlagBypassSystemRequirements": false,
+    "tbxFlagTranslateWindowsShortcuts": true,
+    "tbxStringPrivacyPolicyVersion": "2026-11-11",
+    "tbxStringTermsOfUseVersion": "2026-10-17",
+    "tbxStringHttpProtocolOther": "2",
+    "tbxStringHttpProtocolCdn": "1.1",
+    "tbxStringHttpProtocolRbxCdn": "2",
+    "tbxIntRobloxInstallerParallelWorkers": 6
+}

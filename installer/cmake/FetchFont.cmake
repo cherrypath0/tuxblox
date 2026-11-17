@@ -17,7 +17,8 @@
 # Fetches the Inter OFL-1.1 license text and embeds it, so the installer can write it into the
 # installed COPYRIGHT.txt (the launcher still ships Inter). No font is embedded any more.
 
-set(INTER_OFL_URL "https://raw.githubusercontent.com/google/fonts/main/ofl/inter/OFL.txt")
+# Kept in the repository: a build must not need the network, and a licence notice must not come from a moving target.
+set(INTER_OFL_TXT_SRC "${CMAKE_SOURCE_DIR}/assets/Inter-OFL.txt")
 set(GENERATED_DIR "${CMAKE_BINARY_DIR}/generated")
 set(INTER_OFL_TXT_PATH "${GENERATED_DIR}/Inter-OFL.txt")
 set(INTER_OFL_HEADER_PATH "${GENERATED_DIR}/inter_ofl_license_txt.h")
@@ -26,8 +27,7 @@ file(MAKE_DIRECTORY ${GENERATED_DIR})
 
 add_custom_command(
     OUTPUT ${INTER_OFL_HEADER_PATH}
-    COMMAND ${CMAKE_COMMAND} -DURL=${INTER_OFL_URL} -DDEST=${INTER_OFL_TXT_PATH}
-            -P ${CMAKE_SOURCE_DIR}/cmake/DownloadFile.cmake
+    COMMAND ${CMAKE_COMMAND} -E copy ${INTER_OFL_TXT_SRC} ${INTER_OFL_TXT_PATH}
     COMMAND ${CMAKE_COMMAND} -DINPUT=${INTER_OFL_TXT_PATH} -DOUTPUT=${INTER_OFL_HEADER_PATH}
             -DSYMBOL=kInterOflLicenseTxt
             -P ${CMAKE_SOURCE_DIR}/cmake/BinToHeader.cmake

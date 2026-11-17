@@ -18,6 +18,7 @@
 #include "adw_env.h"
 #include "adw_look.h"
 #include "config.h"
+#include "i18n.h"
 #include "install_paths.h"
 #include "tuxblox_logo_png.h"
 
@@ -49,11 +50,11 @@ gboolean onTick(gpointer data) {
 
     if (snap.phase == Phase::Error) {
         pUi->tickId = 0;
-        gtk_label_set_text(pUi->pStatus, "TuxBlox could not finish updating Roblox");
+        gtk_label_set_text(pUi->pStatus, i18n::tr("TuxBlox could not finish updating Roblox"));
         gtk_label_set_text(pUi->pErrorLabel, snap.errorMessage.c_str());
         gtk_widget_set_visible(GTK_WIDGET(pUi->pErrorLabel), TRUE);
         gtk_widget_set_visible(GTK_WIDGET(pUi->pBar), FALSE);
-        gtk_button_set_label(pUi->pButton, "Close");
+        gtk_button_set_label(pUi->pButton, i18n::tr("Close"));
         return G_SOURCE_REMOVE;
     }
 
@@ -102,7 +103,7 @@ void onActivate(GtkApplication *pGtkApp, gpointer data) {
     gtk_widget_set_hexpand(pPicture, FALSE);
     gtk_widget_set_vexpand(pPicture, FALSE);
 
-    GtkWidget *pStatus = gtk_label_new("Starting");
+    GtkWidget *pStatus = gtk_label_new(i18n::tr("Starting"));
     pUi->pStatus = GTK_LABEL(pStatus);
     gtk_label_set_xalign(pUi->pStatus, 0.0);
     gtk_label_set_wrap(pUi->pStatus, TRUE);
@@ -138,7 +139,7 @@ void onActivate(GtkApplication *pGtkApp, gpointer data) {
     gtk_box_append(GTK_BOX(pRow), pPicture);
     gtk_box_append(GTK_BOX(pRow), pText);
 
-    GtkWidget *pButton = gtk_button_new_with_label("Cancel");
+    GtkWidget *pButton = gtk_button_new_with_label(i18n::tr("Cancel"));
     pUi->pButton = GTK_BUTTON(pButton);
     gtk_widget_set_halign(pButton, GTK_ALIGN_END);
     gtk_widget_set_margin_end(pButton, 18);

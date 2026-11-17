@@ -241,6 +241,35 @@ void wayland_surface_destroy(struct wayland_surface *surface)
     free(surface);
 }
 
+static void xdg_toplevel_decoration_handle_configure(void *private,
+                                                    struct zxdg_toplevel_decoration_v1 *decoration,
+                                                    uint32_t mode)
+{
+    HWND hwnd = private;
+    struct wayland_win_data *data;
+    struct wayland_surface *surface;
+
+    TRACE("hwnd=%p mode=%u\n", hwnd, mode);
+
+    if (!(data = wayland_win_data_get(hwnd))) return;
+    if ((surface = data->wayland_surface) && surface->xdg_toplevel_decoration == decoration)
+    {
+        BOOL decorated = mode == ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE;
+
+        /* The window was already measured for the frame we asked for, so a compositor that gives
+         * us the other one leaves that window either bare or wearing two title bars. */
+        if (decorated != surface->server_decorated)
+            ERR("compositor refused %s decorations for hwnd=%p\n",
+                surface->server_decorated ? "server-side" : "client-side", hwnd);
+    }
+    wayland_win_data_release(data);
+}
+
+static const struct zxdg_toplevel_decoration_v1_listener xdg_toplevel_decoration_listener =
+{
+    xdg_toplevel_decoration_handle_configure
+};
+
 /**********************************************************************
  *          wayland_surface_make_toplevel
  *
@@ -266,6 +295,30 @@ void wayland_surface_make_toplevel(struct wayland_surface *surface)
     surface->xdg_toplevel = xdg_surface_get_toplevel(surface->xdg_surface);
     if (!surface->xdg_toplevel) goto err;
     xdg_toplevel_add_listener(surface->xdg_toplevel, &xdg_toplevel_listener, surface->hwnd);
+
+    /* Ask the desktop to draw the frame, for the windows that have one. The protocol leaves it to
+     * the client otherwise, and Wine then paints a title bar that matches nothing on the desktop.
+     * The same answer decides how the window is measured, in GetWindowStyleMasks. */
+    if (process_wayland.zxdg_decoration_manager_v1)
+    {
+        surface->xdg_toplevel_decoration =
+            zxdg_decoration_manager_v1_get_toplevel_decoration(
+                process_wayland.zxdg_decoration_manager_v1, surface->xdg_toplevel);
+        if (surface->xdg_toplevel_decoration)
+        {
+            UINT style = NtUserGetWindowLongW(surface->hwnd, GWL_STYLE);
+            UINT ex_style = NtUserGetWindowLongW(surface->hwnd, GWL_EXSTYLE);
+
+            surface->server_decorated = wayland_style_is_decorated(style, ex_style);
+            zxdg_toplevel_decoration_v1_add_listener(surface->xdg_toplevel_decoration,
+                                                     &xdg_toplevel_decoration_listener,
+                                                     surface->hwnd);
+            zxdg_toplevel_decoration_v1_set_mode(surface->xdg_toplevel_decoration,
+                                                 surface->server_decorated ?
+                                                 ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE :
+                                                 ZXDG_TOPLEVEL_DECORATION_V1_MODE_CLIENT_SIDE);
+        }
+    }
 
     if (process_name)
         xdg_toplevel_set_app_id(surface->xdg_toplevel, process_name);
@@ -344,6 +397,13 @@ void wayland_surface_clear_role(struct wayland_surface *surface)
         break;
 
     case WAYLAND_SURFACE_ROLE_TOPLEVEL:
+        if (surface->xdg_toplevel_decoration)
+        {
+            zxdg_toplevel_decoration_v1_destroy(surface->xdg_toplevel_decoration);
+            surface->xdg_toplevel_decoration = NULL;
+            surface->server_decorated = FALSE;
+        }
+
         if (surface->xdg_toplevel_icon)
         {
             xdg_toplevel_icon_manager_v1_set_icon(

@@ -1505,6 +1505,12 @@ static NTSTATUS WINAPI wow64_NtUserDragDropPost( void *arg, ULONG size )
     return dispatch_callback( NtUserDragDropPost, params32, size );
 }
 
+/* Nothing to convert: the params are a unixlib handle and an index, the same bytes either way. */
+static NTSTATUS WINAPI wow64_NtUserStartDriverThread( void *arg, ULONG size )
+{
+    return dispatch_callback( NtUserStartDriverThread, arg, size );
+}
+
 ntuser_callback user_callbacks[NtUserCallCount] =
 {
 #define USER32_CALLBACK_ENTRY(name) wow64_NtUser##name,

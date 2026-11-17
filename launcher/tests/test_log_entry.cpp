@@ -38,6 +38,9 @@ const std::vector<std::string> kTraceback = {
 const char kPlainRoblox[] =
     "2026-10-22T18:30:08.334Z,399.334290,e9d90000,12 [DFLog::HttpTraceError] CURLOPT_ERRORBUFFER: Connection timed out";
 const char kTuxBloxLine[] = "TuxBlox: Running TuxBlox version 3.5.0-stable";
+// The layer stamps its own lines the way Roblox stamps its, so they share one run of times.
+const char kStampedTuxBloxLine[] =
+    "2026-11-15T00:45:46.559Z,0.559123,2e78,6,Info TuxBlox: Session ID is 4242";
 const char kWineFixme[] = "0b94:fixme:ntdll:RtlGetDeviceFamilyInfoEnum 000000000051D378: stub";
 const char kWineErr[] = "0024:err:module:import_dll Library not found";
 
@@ -120,6 +123,23 @@ void test_tidy_leaves_a_tuxblox_line_alone() {
 void test_a_tuxblox_line_is_tagged_as_ours() {
     const std::vector<LogEntry> entries = groupLogEntries({kTuxBloxLine});
     assert(entries[0].source == LogSource::TuxBlox);
+}
+
+void test_a_stamped_tuxblox_line_is_still_ours() {
+    const std::vector<LogEntry> entries = groupLogEntries({kStampedTuxBloxLine});
+    assert(entries.size() == 1);
+    assert(entries[0].source == LogSource::TuxBlox);
+    // The stamp is read like Roblox's, so the line carries a time of its own.
+    assert(entries[0].time == "00:45:46.559");
+    // And the date goes, leaving the message where every other line's message starts.
+    assert(entries[0].text == "TuxBlox: Session ID is 4242");
+}
+
+void test_a_stamped_tuxblox_line_opens_its_own_entry() {
+    // Roblox's line first: without the stamp being understood, ours folded into it as a continuation.
+    const std::vector<LogEntry> entries = groupLogEntries({kPlainRoblox, kStampedTuxBloxLine});
+    assert(entries.size() == 2);
+    assert(entries[1].source == LogSource::TuxBlox);
 }
 
 void test_a_wine_fixme_line_is_tagged_as_ours() {
@@ -276,6 +296,8 @@ int main() {
     test_continuations_keep_their_raw_lines_too();
     test_tidy_leaves_a_tuxblox_line_alone();
     test_a_tuxblox_line_is_tagged_as_ours();
+    test_a_stamped_tuxblox_line_is_still_ours();
+    test_a_stamped_tuxblox_line_opens_its_own_entry();
     test_a_wine_fixme_line_is_tagged_as_ours();
     test_a_roblox_line_is_tagged_as_roblox();
     test_invalid_utf8_becomes_replacement_characters();

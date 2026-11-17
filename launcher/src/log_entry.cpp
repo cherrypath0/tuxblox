@@ -44,6 +44,12 @@ bool hasRobloxStamp(const std::string& line) {
 // The compatibility layer's own output: either TuxBlox saying something itself, or Wine's channel form "002c:fixme:ntdll:...".
 bool isOurOwnLine(const std::string& line) {
     if (line.rfind("TuxBlox:", 0) == 0) return true;
+    // The layer writes its lines the way Roblox writes its own, naming itself where Roblox names a
+    // category. The older unstamped form is above and still understood, for logs already written.
+    if (hasRobloxStamp(line)) {
+        const size_t message = line.find(' ');
+        if (message != std::string::npos && line.compare(message + 1, 8, "TuxBlox:") == 0) return true;
+    }
     const size_t firstColon = line.find(':');
     if (firstColon == std::string::npos || firstColon == 0 || firstColon > 8) return false;
     for (size_t i = 0; i < firstColon; ++i) {
@@ -138,10 +144,12 @@ bool LogFilter::shows(LogCategory category) const {
 
 std::string tidyLine(const std::string& line) {
     if (!hasRobloxStamp(line)) return line;
-    const size_t category = line.find(" [");
-    if (category == std::string::npos) return line;
-    // The time of day is all of the stamp worth keeping; the date is the same for every line on screen.
-    return line.substr(11, 12) + line.substr(category);
+    // Nothing before the message carries a space, in Roblox's lines or in ours, so the first one
+    // ends the head. The time of day is all of the stamp worth keeping: the date is the same for
+    // every line on screen.
+    const size_t message = line.find(' ');
+    if (message == std::string::npos) return line;
+    return line.substr(11, 12) + line.substr(message);
 }
 
 std::string toDisplayableText(const std::string& raw) {

@@ -47,6 +47,87 @@ int main() {
     assert(normalizedChannel("live") == "live");
     assert(normalizedChannel("") == "");
 
+    // The version Roblox reports and the channel, and nothing else. The install
+    // date and the size on disk are deliberately left out.
+    {
+        InstalledVersion v;
+        v.hash = "version-abc";
+        v.channel = "live";
+        v.installedAt = "2026-10-18T00:00:00Z";
+        v.versionString = "0.742.0.7421053";
+        assert(versionRowMeta(v) == "0.742.0.7421053 \xC2\xB7 live");
+    }
+    // A manually entered hash has no channel.
+    {
+        InstalledVersion v;
+        v.versionString = "0.742.0.7421053";
+        assert(versionRowMeta(v) == "0.742.0.7421053");
+    }
+    // An exe that carries no version leaves only the channel; the row title is the hash.
+    {
+        InstalledVersion v;
+        v.channel = "live";
+        assert(versionRowMeta(v) == "live");
+    }
+    {
+        InstalledVersion v;
+        assert(versionRowMeta(v).empty());
+    }
+
+    // Active is the pinned hash, and nothing is active before one is pinned.
+    {
+        AppVersions pinned;
+        pinned.installed = {{"version-a", "live", "t1"}};
+        pinned.activeHash = "version-a";
+        assert(versionIsActive(pinned, "version-a"));
+        assert(!versionIsActive(pinned, "version-b"));
+        pinned.activeHash.clear();
+        assert(!versionIsActive(pinned, "version-a"));
+        // An empty hash must not match an empty activeHash.
+        assert(!versionIsActive(pinned, ""));
+    }
+
+    // A hash pasted out of a log or a web page usually brings whitespace with it, and a URL
+    // built with that in it is refused by the CDN -- which reads as "this version was purged".
+    {
+        assert(trimmedHash("  version-ffe2a3bd56e14e69 \n") == "version-ffe2a3bd56e14e69");
+        assert(trimmedHash("version-ffe2a3bd56e14e69\n") == "version-ffe2a3bd56e14e69");
+        assert(trimmedHash("\tversion-ffe2a3bd56e14e69") == "version-ffe2a3bd56e14e69");
+        assert(trimmedHash("version-ffe2a3bd56e14e69") == "version-ffe2a3bd56e14e69");
+        assert(trimmedHash("   ").empty());
+        assert(trimmedHash("").empty());
+    }
+
+    // Which of the install sheet's fields each mode actually uses. Kept out of the page
+    // so the rule can be checked without a display.
+    {
+        // Latest and Custom are the two where a channel is a real question.
+        assert(channelBoxVisibleFor(VersionSelectMode::Latest));
+        assert(channelBoxVisibleFor(VersionSelectMode::ManualHash));
+        // Next is defined by Roblox's unreleased channel, and Previous is only served
+        // for the channels TuxBlox records -- neither has a channel to type.
+        assert(!channelBoxVisibleFor(VersionSelectMode::Previous));
+        assert(!channelBoxVisibleFor(VersionSelectMode::Next));
+
+        // The warning belongs to Next alone.
+        assert(nextWarningVisibleFor(VersionSelectMode::Next));
+        assert(!nextWarningVisibleFor(VersionSelectMode::Latest));
+        assert(!nextWarningVisibleFor(VersionSelectMode::Previous));
+        assert(!nextWarningVisibleFor(VersionSelectMode::ManualHash));
+    }
+
+    // Which mark each mode leaves on the installed version. Swapping two of these used
+    // to break nothing, because nothing asserted the mapping.
+    {
+        assert(sourceForMode(VersionSelectMode::Latest) == "latest");
+        assert(sourceForMode(VersionSelectMode::Previous) == "previous");
+        assert(sourceForMode(VersionSelectMode::Next) == "next");
+        assert(sourceForMode(VersionSelectMode::ManualHash) == "manual");
+        // Only "next" is kept from collection on its own; the rest rely on being active.
+        assert(!wasChosenDeliberately(InstalledVersion{"h", "live", "", "", sourceForMode(VersionSelectMode::Latest)}));
+        assert(wasChosenDeliberately(InstalledVersion{"h", "live", "", "", sourceForMode(VersionSelectMode::Next)}));
+    }
+
     printf("versions_tab_state: all tests passed\n");
     return 0;
 }

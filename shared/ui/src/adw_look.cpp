@@ -19,6 +19,7 @@
 #include "adw_env.h"
 #include "host_icons.h"
 #include "palette.h"
+#include "seasonal.h"
 #include "svg_raster.h"
 
 #include <algorithm>
@@ -41,11 +42,13 @@ namespace {
 
 // Grey is libadwaita's own colours, which is what TuxBlox looked like before the website palette existed
 bool isKnownTheme(const std::string &theme) {
+    // Christmas stops being a known name once its season is over, which is what makes every caller fall back to the system theme on its own
+    if (theme == "christmas") return christmasThemeAvailable();
     return theme == "system" || theme == "dark" || theme == "grey" || theme == "light";
 }
 
 AdwColorScheme colourSchemeFor(const std::string &theme) {
-    if (theme == "dark") return ADW_COLOR_SCHEME_FORCE_DARK;
+    if (theme == "dark" || theme == "christmas") return ADW_COLOR_SCHEME_FORCE_DARK;
     if (theme == "light") return ADW_COLOR_SCHEME_FORCE_LIGHT;
     if (theme == "grey") return ADW_COLOR_SCHEME_PREFER_DARK;
     return ADW_COLOR_SCHEME_DEFAULT;
@@ -57,7 +60,9 @@ std::string CurrentTheme = "system";
 void loadPalette() {
     if (pPalette == nullptr) return;
     std::string css;
-    if (CurrentTheme != "grey") {
+    if (CurrentTheme == "christmas") {
+        css = std::string(christmasPaletteCss()) + paletteStylesCss();
+    } else if (CurrentTheme != "grey") {
         const bool dark = CurrentTheme == "dark" ||
                           (CurrentTheme == "system" && adw_style_manager_get_dark(adw_style_manager_get_default()));
         css = std::string(dark ? darkPaletteCss() : lightPaletteCss()) + paletteStylesCss();

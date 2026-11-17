@@ -22,6 +22,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <dlfcn.h>
 #include <netdb.h>
 #include <sys/socket.h>
 #include <filesystem>
@@ -42,6 +43,25 @@ namespace tuxblox {
 namespace {
 
 const char* kArches[] = {"x86_64", "arm64"};
+
+// Whether a release file's `path` is something safe to append to client/.
+//
+// It comes off the network and becomes part of a URL, so it is held to an allow-list rather than
+// checked for the ways out that come to mind: anything outside this set, a leading slash, an empty
+// component or a ".." is refused. A scheme needs a colon and a host needs a slash pair, so neither
+// survives this.
+bool isPublishedPath(const std::string& path) {
+    if (path.empty() || path.size() > 512) return false;
+    if (path.front() == '/') return false;
+    if (path.find("..") != std::string::npos) return false;
+    if (path.find("//") != std::string::npos) return false;
+    for (const char c : path) {
+        const bool allowed = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                             (c >= '0' && c <= '9') || c == '.' || c == '-' || c == '_' || c == '/';
+        if (!allowed) return false;
+    }
+    return true;
+}
 
 struct LayoutEntry {
     const char* name;
@@ -121,7 +141,14 @@ ReleaseComponent parseComponent(const std::string& name, const nlohmann::json& e
         if (!bytes.contains("size") || !bytes["size"].is_number_unsigned()) {
             throw std::runtime_error(where + "has no size");
         }
-        ComponentBytes value{bytes["sha256"].get<std::string>(), bytes["size"].get<uint64_t>()};
+        ComponentBytes value{bytes["sha256"].get<std::string>(), bytes["size"].get<uint64_t>(), ""};
+        // Ignored rather than refused when it is not a relative path under client/: the address can
+        // still be built, so a release stays installable instead of being rejected over a field
+        // that is an optimisation. It becomes part of a URL, so it is checked before it is kept.
+        if (bytes.contains("path") && bytes["path"].is_string()) {
+            const std::string said = bytes["path"].get<std::string>();
+            if (isPublishedPath(said)) value.path = said;
+        }
         if (std::string(name_of_arch) == "x86_64") {
             component.x86_64 = value;
         } else {
@@ -136,6 +163,42 @@ ReleaseComponent parseComponent(const std::string& name, const nlohmann::json& e
 }
 
 } // namespace
+
+namespace {
+
+// The four fields of a release, or empty when it does not have four numbers.
+std::vector<long long> releaseFields(const std::string& release) {
+    std::vector<long long> fields;
+    std::string digits;
+    for (std::string::size_type at = 0; at <= release.size(); ++at) {
+        if (at == release.size() || release[at] == '.') {
+            if (digits.empty()) return {};
+            fields.push_back(std::stoll(digits));
+            digits.clear();
+            continue;
+        }
+        if (release[at] < '0' || release[at] > '9') return {};
+        digits.push_back(release[at]);
+        // Longer than any real field, and what stops stoll throwing on something absurd.
+        if (digits.size() > 9) return {};
+    }
+    return fields.size() == 4 ? fields : std::vector<long long>();
+}
+
+} // namespace
+
+int compareReleases(const std::string& a, const std::string& b) {
+    const std::vector<long long> left = releaseFields(a);
+    const std::vector<long long> right = releaseFields(b);
+    if (left.empty() || right.empty()) {
+        if (left.empty() && right.empty()) return 0;
+        return left.empty() ? -1 : 1;
+    }
+    for (size_t at = 0; at < left.size(); ++at) {
+        if (left[at] != right[at]) return left[at] < right[at] ? -1 : 1;
+    }
+    return 0;
+}
 
 const std::vector<std::string>& componentNames() {
     static const std::vector<std::string> names = [] {
@@ -296,13 +359,64 @@ const char* hostArch() {
 #endif
 }
 
-std::string componentUrl(const std::string& baseUrl, const std::string& name,
-                          const std::string& version, const std::string& arch) {
+namespace {
+
+// The name a component is published under. Throws rather than building a URL under a name nothing
+// publishes, which would 404 at the end of a download somebody had already been told was starting.
+std::string publishedAs(const std::string& name) {
     const std::optional<ComponentLayout> layout = componentLayout(name);
     if (!layout.has_value()) {
         throw std::runtime_error("\"" + name + "\" is not a component of TuxBlox");
     }
-    return baseUrl + "/client/" + name + "/" + version + "/" + arch + "/" + layout->publishedAs;
+    return layout->publishedAs;
+}
+
+} // namespace
+
+std::vector<std::string> componentBaseUrls(const std::string& baseUrl) {
+    std::vector<std::string> bases{baseUrl};
+    if (baseUrl == releasesEdgeUrl()) bases.push_back(releasesOriginUrl());
+    return bases;
+}
+
+std::string componentUrl(const std::string& baseUrl, const std::string& name,
+                          const std::string& version, const std::string& release,
+                          const std::string& arch) {
+    return baseUrl + "/client/" + name + "/" + version + "/" + release + "/" + arch + "/"
+           + publishedAs(name);
+}
+
+std::string legacyComponentUrl(const std::string& baseUrl, const std::string& name,
+                                const std::string& version, const std::string& arch) {
+    return baseUrl + "/client/" + name + "/" + version + "/" + arch + "/"
+           + publishedAs(name);
+}
+
+std::string publishedUrl(const std::string& baseUrl, const std::string& path) {
+    return path.empty() ? "" : baseUrl + "/client/" + path;
+}
+
+std::vector<std::string> componentUrls(const std::vector<std::string>& baseUrls,
+                                        const ReleaseFile& release, const std::string& name,
+                                        const std::string& arch) {
+    std::vector<std::string> urls;
+    const auto entry = release.components.find(name);
+    if (entry == release.components.end()) return urls;
+    const std::optional<ComponentBytes>& bytes =
+        arch == "arm64" ? entry->second.arm64 : entry->second.x86_64;
+    if (!bytes.has_value()) return urls;
+
+    for (const std::string& base : baseUrls) {
+        const std::string said = publishedUrl(base, bytes->path);
+        if (!said.empty()) urls.push_back(said);
+    }
+    for (const std::string& base : baseUrls) {
+        urls.push_back(componentUrl(base, name, entry->second.version, release.release, arch));
+    }
+    for (const std::string& base : baseUrls) {
+        urls.push_back(legacyComponentUrl(base, name, entry->second.version, arch));
+    }
+    return urls;
 }
 
 std::string latestPointerUrl(const std::string& baseUrl, const std::string& channel) {
@@ -314,50 +428,8 @@ std::string releaseFileUrl(const std::string& baseUrl, const std::string& channe
     return baseUrl + "/client/releases/" + channel + "/" + release + ".json";
 }
 
-std::string recordedReleasePath(const std::string& installDir) {
-    return installDir + "/release.json";
-}
-
-RecordedRelease readRecordedRelease(const std::string& installDir) {
-    try {
-        RecordedRelease recorded;
-        recorded.file = parseReleaseFile(readWholeFile(recordedReleasePath(installDir)));
-        recorded.present = true;
-        return recorded;
-    } catch (const std::exception&) {
-        // Every failure is the same answer to the caller: this install does not say what it is.
-        return {};
-    }
-}
-
-bool writeRecordedRelease(const std::string& installDir, const std::string& publishedJson) {
-    const std::string target = recordedReleasePath(installDir);
-    const std::string incoming = target + ".incoming";
-    try {
-        {
-            std::ofstream out(incoming, std::ios::binary | std::ios::trunc);
-            if (!out) return false;
-            out << publishedJson;
-            if (!out) return false;
-        }
-        // Renamed into place, so a launcher reading it while an update writes it never sees half a
-        // release -- which would read as an install that does not know what it is.
-        std::error_code ec;
-        fs::rename(incoming, target, ec);
-        if (ec) {
-            fs::remove(incoming, ec);
-            return false;
-        }
-        return true;
-    } catch (const std::exception&) {
-        std::error_code ec;
-        fs::remove(incoming, ec);
-        return false;
-    }
-}
-
 // fork/exec rather than popen: no shell is involved, so an install path needs no quoting.
-std::optional<std::string> askBinaryVersion(const std::string& bin) {
+std::optional<std::string> askBinaryVersion(const std::string& bin, const char *flag) {
     if (access(bin.c_str(), X_OK) != 0) return std::nullopt;
 
     int fds[2];
@@ -375,7 +447,7 @@ std::optional<std::string> askBinaryVersion(const std::string& bin) {
         dup2(fds[1], STDOUT_FILENO);
         close(fds[0]);
         close(fds[1]);
-        execl(bin.c_str(), bin.c_str(), "--version", static_cast<char*>(nullptr));
+        execl(bin.c_str(), bin.c_str(), flag, static_cast<char*>(nullptr));
         _exit(127);
     }
     close(fds[1]);
@@ -431,27 +503,90 @@ std::optional<std::string> askBinaryVersion(const std::string& bin) {
     return version;
 }
 
+std::optional<std::string> readComponentIdentity(const std::string& installDir,
+                                                  const std::string& name) {
+    const std::optional<ComponentLayout> layout = componentLayout(name);
+    if (!layout.has_value()) return std::nullopt;
+    if (layout->versionPath.empty()) {
+        const std::optional<StackVersions> stack = readStackVersions(installDir);
+        if (!stack.has_value() || stack->release.empty()) return std::nullopt;
+        return stack->release;
+    }
+
+    const std::optional<std::string> version =
+        askBinaryVersion(installDir + "/" + layout->versionPath, "--version");
+    if (version.has_value() || name != "compat") return version;
+    // An install made before the layer's folder was renamed still has it under the old name.
+    return askBinaryVersion(installDir + "/proton/main", "--version");
+}
+
 std::optional<std::string> readComponentVersion(const std::string& installDir,
                                                  const std::string& name) {
     const std::optional<ComponentLayout> layout = componentLayout(name);
     if (!layout.has_value()) return std::nullopt;
-    if (layout->versionPath.empty()) return readStackVersion(installDir);
+    if (layout->versionPath.empty()) {
+        const std::optional<StackVersions> stack = readStackVersions(installDir);
+        if (!stack.has_value()) return std::nullopt;
+        return stack->component;
+    }
 
     const std::optional<std::string> version =
-        askBinaryVersion(installDir + "/" + layout->versionPath);
+        askBinaryVersion(installDir + "/" + layout->versionPath, "--component-version");
     if (version.has_value() || name != "compat") return version;
-    // An install made before the layer's folder was renamed still has it under the old name.
-    return askBinaryVersion(installDir + "/proton/main");
+    return askBinaryVersion(installDir + "/proton/main", "--component-version");
 }
 
-std::optional<std::string> readStackVersion(const std::string& installDir) {
-    try {
-        const std::string version = trimmed(readWholeFile(fs::path(installDir) / "libtuxblox" / "VERSION"));
-        if (version.empty()) return std::nullopt;
-        return version;
-    } catch (const std::exception&) {
-        return std::nullopt;
+int compareDottedVersions(const std::string& left, const std::string& right) {
+    const auto fields = [](const std::string& text) {
+        std::vector<long long> out;
+        size_t at = 0;
+        while (at <= text.size()) {
+            const size_t dot = text.find('.', at);
+            const std::string part = text.substr(at, dot == std::string::npos ? std::string::npos : dot - at);
+            if (part.empty() || part.find_first_not_of("0123456789") != std::string::npos) return std::vector<long long>();
+            out.push_back(std::stoll(part));
+            if (dot == std::string::npos) break;
+            at = dot + 1;
+        }
+        return out;
+    };
+    const std::vector<long long> a = fields(left);
+    const std::vector<long long> b = fields(right);
+    if (a.empty() || b.empty()) return 0;
+    for (size_t i = 0; i < a.size() || i < b.size(); i++) {
+        const long long one = i < a.size() ? a[i] : 0;
+        const long long two = i < b.size() ? b[i] : 0;
+        if (one != two) return one < two ? -1 : 1;
     }
+    return 0;
+}
+
+std::optional<StackVersions> readStackVersions(const std::string& installDir) {
+    const std::string path = installDir + "/libtuxblox/version.so";
+    std::error_code error;
+    if (!fs::is_regular_file(path, error) || error) return std::nullopt;
+
+    // RTLD_LOCAL because nothing else here has any business resolving against it, and it needs
+    // nothing of ours: the library carries only its own answers and the field they are read from.
+    void *library = dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
+    if (library == nullptr) return std::nullopt;
+
+    using Answer = const char *(*)();
+    const auto ask = [library](const char *name) {
+        const Answer answer = reinterpret_cast<Answer>(dlsym(library, name));
+        // Copied before the library is closed, because what it returns lives inside it.
+        return answer == nullptr ? std::string() : std::string(answer());
+    };
+
+    StackVersions found;
+    found.release = ask("tuxblox_release_version");
+    found.component = ask("tuxblox_component_version");
+    found.channel = ask("tuxblox_release_channel");
+    dlclose(library);
+
+    // A library that answers nothing is one of ours in name only.
+    if (found.component.empty()) return std::nullopt;
+    return found;
 }
 
 } // namespace tuxblox

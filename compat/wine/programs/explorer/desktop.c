@@ -993,31 +993,18 @@ static BOOL get_no_tray_items_display(void)
     return FALSE;
 }
 
-/* The graphics driver is the one module in the prefix whose file name says Wine,
- * and Roblox's protection layer reads the name of every module it finds mapped.
- * Load it under a neutral name instead: an unremarkable third-party DLL in
- * system32 is a thing every real machine has, and "winex11.drv" is not.
- *
- * The name has to exist as a file, not just be reported, because the layer
- * re-opens and re-maps each module's backing file. build.sh aliases it in both
- * of Wine's library directories and the prefix links it into system32.
+/* No graphics driver module is loaded here any more, so there is no name to map: Windows keeps this
+ * work in the kernel and has no user-space module for it, and win32u now loads the backend on the
+ * unix side. The backend list and the library each name maps to live in dlls/win32u/driver.c.
  */
-static void graphics_driver_module( WCHAR *libname, size_t len, const WCHAR *name )
-{
-    if (!wcscmp( name, L"x11" )) lstrcpynW( libname, L"dispumd.dll", len );
-    else swprintf( libname, len, L"wine%s.drv", name );
-}
-
 static void load_graphics_driver( const WCHAR *driver, GUID *guid )
 {
     static const WCHAR device_keyW[] = L"System\\CurrentControlSet\\Control\\Video\\{%08x-%04x-%04x-%02x%02x-%02x%02x%02x%02x%02x%02x}\\0000";
 
-    WCHAR buffer[MAX_PATH], libname[32], *name, *next;
+    WCHAR buffer[MAX_PATH], libname[32] = {0}, *name, *next;
     WCHAR key[ARRAY_SIZE( device_keyW ) + 39];
     BOOL null_driver = FALSE;
-    HMODULE module = 0;
     HKEY hkey;
-    char error[80];
 
     if (!driver)
     {
@@ -1048,21 +1035,13 @@ static void load_graphics_driver( const WCHAR *driver, GUID *guid )
             break;
         }
 
-        graphics_driver_module( libname, ARRAY_SIZE( libname ), name );
-        if ((module = LoadLibraryW( libname )) != 0) break;
-        switch (GetLastError())
-        {
-        case ERROR_MOD_NOT_FOUND:
-            strcpy( error, "The graphics driver is missing. Check your build!" );
-            break;
-        case ERROR_DLL_INIT_FAILED:
-            strcpy( error, "Make sure that your display server is running and that its variables are set." );
-            break;
-        default:
-            sprintf( error, "Unknown error (%lu).", GetLastError() );
-            break;
-        }
-        name = next;
+        /* Nothing is published for a real backend any more. Only the side that loads it can know
+           which one works, and that is win32u now, so it resolves the list itself in every process.
+           Publishing a guess here is worse than publishing nothing: it sent every process off to
+           load the first name in the list, which on this platform is a driver that does not exist.
+           The name is kept for the trace below, which is all it is good for now. */
+        lstrcpynW( libname, name, ARRAY_SIZE( libname ) );
+        break;
     }
 
     TRACE( "display %s driver %s\n", debugstr_guid(guid), debugstr_w(libname) );
@@ -1074,11 +1053,12 @@ static void load_graphics_driver( const WCHAR *driver, GUID *guid )
     if (!RegCreateKeyExW( HKEY_LOCAL_MACHINE, key, 0, NULL,
                           REG_OPTION_VOLATILE, KEY_SET_VALUE, NULL, &hkey, NULL  ))
     {
-        if (module || null_driver)
+        /* Only the null driver is published: it is a decision, not a guess about what will load.
+           No DriverError counterpart either, because whether a backend comes up is only known where
+           it is loaded now, so win32u records that failure itself. */
+        if (null_driver)
             RegSetValueExW( hkey, L"GraphicsDriver", 0, REG_SZ,
                             (BYTE *)libname, (lstrlenW(libname) + 1) * sizeof(WCHAR) );
-        else
-            RegSetValueExA( hkey, "DriverError", 0, REG_SZ, (BYTE *)error, strlen(error) + 1 );
         RegCloseKey( hkey );
     }
 }

@@ -18,7 +18,10 @@
 #include "tuxblox_logo_png.h" // generated at build time: kTuxbloxLogoPng[], kTuxbloxLogoPngLen
 #include "container_env.h"
 #include "install_paths.h"
+#include "version.h"
+#include "versions_manifest.h"
 #include "wine_shortcut_export.h"
+#include <algorithm>
 #include <cctype>
 #include <chrono>
 #include <cstdlib>
@@ -175,11 +178,18 @@ void runCommandBestEffort(const std::vector<std::string>& argv) {
         _exit(127);
     }
     if (devnull >= 0) close(devnull);
-    for (int i = 0; i < 30; ++i) {
+    // Checked straight away and then less and less often, up to about three seconds in total. A flat
+    // 100ms between checks cost every command 100ms however fast it answered, and the several run
+    // while the window is opening added up to the launcher freezing for about a second.
+    std::chrono::milliseconds waited{0};
+    std::chrono::milliseconds step{1};
+    while (waited < std::chrono::milliseconds(3000)) {
         int status = 0;
         pid_t r = waitpid(pid, &status, WNOHANG);
         if (r == pid || r < 0) return;
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        std::this_thread::sleep_for(step);
+        waited += step;
+        step = std::min(step * 2, std::chrono::milliseconds(100));
     }
 }
 
@@ -241,6 +251,20 @@ std::string explicitDefaultFor(const std::string& mimeappsText, const std::strin
     return "";
 }
 
+std::vector<std::string> schemesToClaim(bool playerInstalled, bool studioInstalled) {
+    std::vector<std::string> wanted;
+    for (const auto& handler : installedHandlers()) {
+        const bool player = std::string(handler.desktopId) == "tuxblox-player-handler.desktop";
+        if (player ? !playerInstalled : !studioInstalled) continue;
+        for (const char* scheme : handler.schemes) wanted.push_back(scheme);
+    }
+    return wanted;
+}
+
+bool shouldClaimPlaceFiles(bool studioInstalled) {
+    return studioInstalled;
+}
+
 bool shouldClaimAssociation(const std::string& currentDefault, bool currentDefaultInstalled) {
     if (currentDefault.empty()) return true;
     // Not installed, so it opens nothing -- a leftover rather than a choice, whoever left it.
@@ -258,6 +282,50 @@ bool shouldClaimAssociation(const std::string& currentDefault, bool currentDefau
 // often -- is not the one the shortcuts should start. Writing its own path into them repoints every
 // shortcut at a binary that is no part of the install, and they break the moment it moves, so it
 // leaves the whole of the desktop integration alone instead.
+std::string launcherNamedByEntry(const std::string& execLine) {
+    const size_t equals = execLine.find('=');
+    std::string value = equals == std::string::npos ? execLine : execLine.substr(equals + 1);
+    while (!value.empty() && value.front() == ' ') value.erase(0, 1);
+    if (value.empty()) return std::string();
+
+    if (value.front() == '"') {
+        const size_t close = value.find('"', 1);
+        return close == std::string::npos ? std::string() : value.substr(1, close - 1);
+    }
+    const size_t space = value.find(' ');
+    return space == std::string::npos ? value : value.substr(0, space);
+}
+
+bool entriesOwnedByAnother(const std::string& entryText, const std::string& launcherExePath,
+                           const std::function<bool(const std::string&)>& exists) {
+    if (launcherExePath.empty()) return false;
+
+    size_t at = 0;
+    while (at < entryText.size()) {
+        const size_t eol = entryText.find('\n', at);
+        const std::string line = entryText.substr(at, eol == std::string::npos ? std::string::npos : eol - at);
+        at = eol == std::string::npos ? entryText.size() : eol + 1;
+        if (line.compare(0, 5, "Exec=") != 0) continue;
+
+        const std::string named = launcherNamedByEntry(line);
+        if (named.empty() || named == launcherExePath) return false;
+        return exists(named);
+    }
+    return false;
+}
+
+// The entries this launcher would write over, read from where they live.
+static bool anotherInstallOwnsEntries(const std::string& launcherExePath) {
+    const char *home = std::getenv("HOME");
+    if (home == nullptr || home[0] == '\0') return false;
+    const std::string entry =
+        readWholeFile(std::string(home) + "/.local/share/applications/tuxblox-launcher.desktop");
+    return entriesOwnedByAnother(entry, launcherExePath, [](const std::string& path) {
+        std::error_code error;
+        return fs::exists(path, error) && !error;
+    });
+}
+
 static bool runningFromInstall(const std::string& launcherExePath) {
     if (launcherExePath.empty()) return true; // nothing to compare against, behave as before
 
@@ -277,7 +345,7 @@ static bool runningFromInstall(const std::string& launcherExePath) {
 }
 
 void writeDesktopEntries(const std::string& launcherExePath) {
-    if (!runningFromInstall(launcherExePath)) return;
+    if (!runningFromInstall(launcherExePath) || anotherInstallOwnsEntries(launcherExePath)) return;
     try {
         const char* home = std::getenv("HOME");
         if (!home || home[0] == '\0') return;
@@ -395,7 +463,10 @@ void writeDesktopEntries(const std::string& launcherExePath) {
 }
 
 void ensureDesktopIntegration(const std::string& launcherExePath, const std::string& installDir) {
-    if (!runningFromInstall(launcherExePath)) return;
+    // A Flatpak's menu entry, icons and scheme handlers come from its manifest. Anything written here
+    // would land in the sandbox's own data directory, where no host desktop ever reads it.
+    if constexpr (kFlatpakBuild) return;
+    if (!runningFromInstall(launcherExePath) || anotherInstallOwnsEntries(launcherExePath)) return;
     writeDesktopEntries(launcherExePath);
 
     try {
@@ -406,16 +477,23 @@ void ensureDesktopIntegration(const std::string& launcherExePath, const std::str
         exportPrefixShortcuts(installDir, launcherExePath);
 
         if (!std::getenv("TUXBLOX_SKIP_XDG_MIME")) { // escape hatch for sandboxed test/CI runs
+            // Read off the virtual drive rather than versions.json, so a stale file cannot make an installed Roblox look missing.
+            const VersionsManifest versions = loadInstalledVersions(installDir);
+            const std::vector<std::string> wanted =
+                schemesToClaim(!versions.player.installed.empty(), !versions.studio.installed.empty());
             for (const auto& h : installedHandlers()) {
                 for (const char* scheme : h.schemes) {
+                    if (std::find(wanted.begin(), wanted.end(), scheme) == wanted.end()) continue;
                     claimDefaultIfFree(scheme, h.desktopId);
                 }
             }
 
             // Before claiming the file types: the types have to exist in the database before anything can be made their default.
             runCommandBestEffort({"update-mime-database", std::string(home) + "/.local/share/mime"});
-            for (const char* mimeType : placeFileMimeTypes()) {
-                claimDefaultIfFree(mimeType, "tuxblox-studio-place.desktop");
+            if (shouldClaimPlaceFiles(!versions.studio.installed.empty())) {
+                for (const char* mimeType : placeFileMimeTypes()) {
+                    claimDefaultIfFree(mimeType, "tuxblox-studio-place.desktop");
+                }
             }
             runCommandBestEffort({"update-desktop-database", appsDir});
 

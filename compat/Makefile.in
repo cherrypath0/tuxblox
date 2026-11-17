@@ -26,13 +26,13 @@ SHELL := /bin/bash
 #
 TARGET_ARCH ?= x86_64
 
-# Built from Containerfile.compat at the repo root: the sniper SDK (glibc 2.31)
+# Built from Containerfile at the repo root, the one build image: the sniper SDK (glibc 2.31)
 # plus a newer meson. Upstream's steamrt4 SDK is glibc 2.41, which real Proton
 # gets from the Steam runtime container it runs inside; TuxBlox runs on the
 # user's own system, so that number becomes the oldest distro TuxBlox can start
 # on at all.
 ifeq ($(TARGET_ARCH),x86_64)
-	STEAMRT_IMAGE ?= tuxblox-compat-builder
+	STEAMRT_IMAGE ?= tuxblox-builder
 else ifeq ($(TARGET_ARCH),arm64)
 	STEAMRT_IMAGE ?= registry.gitlab.steamos.cloud/proton/steamrt4/sdk/arm64-llvm:4.0.20260331.220802-0
 else
@@ -427,6 +427,13 @@ $(eval $(call rules-cmake,glslang,aarch64,unix))
 # HACK: glib 2.0 in the runtime is old and causes a lot of errors with a newer GCC
 WINE_CFLAGS += -Wno-discarded-qualifiers -std=gnu11
 
+# ntdll's tuxblox_get_version answers with this, so TuxBlox identifies itself
+# with a compiled-in number rather than one anybody could edit on disk. Passed
+# in as a make variable because only MAKEFLAGS crosses into the build container,
+# and unquoted because quotes do not survive the chain down to the compiler --
+# version.c stringifies the token instead.
+WINE_CFLAGS += -DTUXBLOX_LAYER_VERSION=$(TUXBLOX_COMPAT_VERSION)
+
 WINE_SOURCE_ARGS = \
   --exclude configure \
   --exclude autom4te.cache \
@@ -476,7 +483,9 @@ WINE_x86_64_AUTOCONF_ARGS += \
 
 WINE_DEPENDS = gst_orc gstreamer gst_base ffmpeg
 WINE_i386_DEPENDS = vkd3d
-WINE_x86_64_DEPENDS = vkd3d
+## gnutls is here for its headers only. ntdll loads it at runtime instead of
+## linking it, so that nothing new is mapped into every process.
+WINE_x86_64_DEPENDS = vkd3d gnutls
 
 WINE_i386_LIBDIR = $(WINE_i386_DST)/lib
 WINE_x86_64_LIBDIR = $(WINE_x86_64_DST)/lib
@@ -499,6 +508,10 @@ $(OBJ)/.wine-post-source:
 	touch $@
 
 $(OBJ)/.wine-x86_64-post-build:
+	@# Wine only warns when a backend's headers are missing, and one backend is no fallback chain.
+	for drv in dispumd.so winewayland.so; do \
+	  test -f $(WINE_x86_64_DST)/lib/wine/x86_64-unix/$$drv || { echo "display backend $$drv was not built" >&2; exit 1; }; \
+	done
 	mkdir -p $(DST_DIR)/bin
 	$(call install-strip,$(WINE_x86_64_DST)/bin/wine,$(DST_DIR)/bin)
 	$(call install-strip,$(WINE_x86_64_DST)/bin/wineserver,$(DST_DIR)/bin)
@@ -509,6 +522,10 @@ $(OBJ)/.wine-x86_64-post-build:
 
 	mkdir -p $(DST_DIR)/share
 	cp -a $(WINE_x86_64_DST)/share/wine $(DST_DIR)/share
+	@# The roots ntdll checks the Roblox client's signature against. It reads
+	@# them from beside itself rather than from anywhere a caller could name.
+	mkdir -p $(DST_DIR)/share/tuxblox
+	cp -a $(SRCDIR)/tuxblox/data/roots.pem $(DST_DIR)/share/tuxblox/roots.pem
 	touch $@
 
 $(OBJ)/.wine-aarch64-post-build:
@@ -655,6 +672,71 @@ $(OBJ)/.vkd3d-i386-post-build: $(OBJ)/.wine-$(HOST_ARCH)-tools
 ## prefix keeps Wine's own builtin d3d12, which sits on the vkd3d we still ship,
 ## so a D3D12 caller still gets an answer.
 ##
+
+
+##
+## crypto: gmp, nettle, libtasn1, gnutls
+##
+## ntdll verifies the signature on the Roblox client, and the host cannot be
+## relied on for that: Wine dlopens gnutls and carries on without it, so a check
+## built on the host's copy would simply not run where there is none.
+##
+## x86_64 only. The only image verified is the Roblox client, which is a 64-bit
+## PE, so the 32-bit ntdll never sees one as its main image.
+##
+## Far smaller than the webview bundle's gnutls, which carries eleven libraries
+## because WebKit wants the compression and p11-kit anyway. Without those this is
+## five: gnutls, tasn1, nettle, hogweed, gmp.
+##
+
+include $(SRC)/crypto/versions.env
+CRYPTO_SRCS = $(SRCDIR)/sources/crypto/src
+
+## Installed under the architecture directory the rest of the build links and
+## reads pkg-config from. rules-autoconf names a plain lib/, and the -L, the
+## rpath-link and PKG_CONFIG_PATH all look one level deeper, so without this
+## nettle cannot find gmp and gnutls cannot find nettle.
+CRYPTO_LIBDIR = lib/$(x86_64-unix_LIBDIR)
+
+## --enable-fat or the result SIGILLs on anything older than Broadwell.
+GMP_AUTOCONF_ARGS = --enable-fat --disable-static --enable-shared
+GMP_x86_64_AUTOCONF_ARGS = --libdir=$(GMP_x86_64_DST)/$(CRYPTO_LIBDIR)
+$(eval $(call rules-source,gmp,$(CRYPTO_SRCS)/gmp-$(GMP_VERSION)))
+$(eval $(call rules-autoconf,gmp,x86_64,unix))
+
+NETTLE_DEPENDS = gmp
+NETTLE_AUTOCONF_ARGS = --disable-static --enable-shared --disable-documentation --disable-openssl
+NETTLE_x86_64_AUTOCONF_ARGS = --libdir=$(NETTLE_x86_64_DST)/$(CRYPTO_LIBDIR)
+$(eval $(call rules-source,nettle,$(CRYPTO_SRCS)/nettle-$(NETTLE_VERSION)))
+$(eval $(call rules-autoconf,nettle,x86_64,unix))
+
+LIBTASN1_AUTOCONF_ARGS = --disable-static --enable-shared --disable-doc --disable-gtk-doc
+LIBTASN1_x86_64_AUTOCONF_ARGS = --libdir=$(LIBTASN1_x86_64_DST)/$(CRYPTO_LIBDIR)
+$(eval $(call rules-source,libtasn1,$(CRYPTO_SRCS)/libtasn1-$(LIBTASN1_VERSION)))
+$(eval $(call rules-autoconf,libtasn1,x86_64,unix))
+
+## Everything switched off here is a dependency we would otherwise ship. SRP and
+## the OpenSSL compatibility layer need no flag: both are --enable-* and off by
+## default in 3.8.
+GNUTLS_DEPENDS = gmp nettle libtasn1
+GNUTLS_AUTOCONF_ARGS = \
+  --disable-static --enable-shared \
+  --without-p11-kit --without-idn --without-zlib --without-brotli --without-zstd \
+  --without-tpm --without-tpm2 --with-included-unistring \
+  --disable-doc --disable-manpages --disable-guile --disable-tools --disable-tests \
+  --disable-cxx --disable-nls --disable-libdane \
+  --disable-psk-authentication --disable-anon-authentication --disable-dtls-srtp-support \
+
+GNUTLS_x86_64_AUTOCONF_ARGS = --libdir=$(GNUTLS_x86_64_DST)/$(CRYPTO_LIBDIR)
+$(eval $(call rules-source,gnutls,$(CRYPTO_SRCS)/gnutls-$(GNUTLS_VERSION)))
+$(eval $(call rules-autoconf,gnutls,x86_64,unix))
+
+$(OBJ)/.gmp-x86_64-post-build:
+	@# The webview bundle checks the same thing, because the failure is a SIGILL
+	@# on an old CPU rather than anything the build would notice.
+	nm -D "$(GMP_x86_64_DST)/$(CRYPTO_LIBDIR)/libgmp.so" | grep -q __gmpn_cpuvec || \
+	    { echo "ERROR: libgmp built without --enable-fat" >&2; exit 1; }
+	touch $@
 
 
 ##
@@ -958,6 +1040,8 @@ $(DIST_FONTS): fonts
 	cp $(FONTS_OBJ)/ume-gothic/msgothic.ttc "$@"
 	cp $(FONTS_OBJ)/source-han/malgun.ttf "$@"
 	cp -r $(FONTS_OBJ)/alt "$@"
+	@# Shipped as they come from Microsoft: the licence reserves the name Selawik, so a renamed or edited copy could not be redistributed.
+	cp $(FONTS)/selawik/selawk.ttf $(FONTS)/selawik/selawkb.ttf $(FONTS)/selawik/selawksb.ttf "$@"
 
 all-dist: $(DIST_FONTS)
 
@@ -974,7 +1058,7 @@ all-dist: $(DIST_FONTS)
 ## webkitgtk (bundled WebView2 replacement backend)
 ##
 ## Vendored as a prebuilt, relocatable tarball -- see webkitgtk/bundle/README.md for
-## how it's built. The tarball is committed to webkitgtk/prebuilt/ rather than fetched over the
+## how it's built. The tarball is built into webkitgtk/prebuilt/ by `make webkitgtk` rather than fetched over the
 ## network at build time, because WebKitGTK isn't published anywhere as a ready-to-use
 ## relocatable x86_64 tarball -- this repo has to build and vendor its own.
 ##
@@ -1158,15 +1242,12 @@ DOCKER_BASE = $(CONTAINER_ENGINE) run --rm -v $(SRC):$(SRC)$(CONTAINER_MOUNT_OPT
                 -w $(OBJ) -e MAKEFLAGS \
                 $(DOCKER_OPTS) $(STEAMRT_IMAGE)
 
+# No rustup bootstrap: nothing here uses cargo, and it refuses beside the image's own Rust.
 .PHONY: dist
 .DEFAULT dist:
 	if [ "$(ENABLE_CCACHE)" -eq "1" ]; then mkdir -p $(CCACHE_DIR); fi
 	mkdir -p $(CARGO_HOME)
 	$(DOCKER_BASE) sh -c '\
-		if ! command -v cargo >/dev/null 2>&1 || [ "$$(cargo --version | cut -d" " -f2)" \< "1.85.0" ]; then \
-			curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.85.0 >&2; \
-		fi; \
-		export PATH="$$HOME/.cargo/bin:$$PATH"; \
 		$(MAKE) -j$(J) $(filter -j%,$(MAKEFLAGS)) -f $(firstword $(MAKEFILE_LIST)) $(MFLAGS) $(MAKEOVERRIDES) CONTAINER=1 $@ \
 	'
 

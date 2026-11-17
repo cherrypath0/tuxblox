@@ -15,6 +15,8 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "bootstrap/install_plan.h"
+#include "install_concurrency.h"
+#include "roblox_deploy.h"
 #include <filesystem>
 #include <fstream>
 #include <vector>
@@ -147,6 +149,94 @@ int main() {
         assert(!versionIsInstalled(dir, LaunchTarget::Studio));
 
         std::filesystem::remove_all(dir);
+    }
+
+    // Seven packages land in the version root and must serialise against each
+    // other; everything else owns its own directory and may extract at once.
+    {
+        std::vector<std::string> dests;
+        for (const char *name : {"RobloxApp.zip", "redist.zip", "shaders.zip", "ssl.zip"}) {
+            const auto subdir = packageInstallSubdir(name, LaunchTarget::Player);
+            assert(subdir.has_value());
+            dests.push_back(packageDestDir("/stage", *subdir));
+        }
+
+        const std::vector<std::string> distinct = distinctDestDirs(dests);
+        assert(distinct.size() == 3); // the version root, shaders/, ssl/
+
+        // The two root-bound packages share a lock; the others do not.
+        assert(destDirIndex(distinct, dests[0]) == destDirIndex(distinct, dests[1]));
+        assert(destDirIndex(distinct, dests[2]) != destDirIndex(distinct, dests[0]));
+        assert(destDirIndex(distinct, dests[3]) != destDirIndex(distinct, dests[2]));
+    }
+
+    // Order is the order first seen, so a lock index is stable across a run.
+    {
+        const std::vector<std::string> dests = {"/stage/b", "/stage/a", "/stage/b", "/stage/c"};
+        const std::vector<std::string> distinct = distinctDestDirs(dests);
+        assert(distinct.size() == 3);
+        assert(distinct[0] == "/stage/b");
+        assert(distinct[1] == "/stage/a");
+        assert(destDirIndex(distinct, "/stage/b") == 0);
+        assert(destDirIndex(distinct, "/stage/c") == 2);
+    }
+
+    // An empty plan needs no locks at all.
+    {
+        assert(distinctDestDirs({}).empty());
+    }
+
+    // With the two halves overlapping the measure must never retreat, or the bar
+    // goes backwards and reads as a failure.
+    {
+        double last = 0.0;
+        for (uint64_t bytes = 0; bytes <= 1000; bytes += 100) {
+            const double fraction = installFraction(bytes, 1000, 0, 10);
+            assert(fraction >= last);
+            last = fraction;
+        }
+        for (size_t done = 0; done <= 10; ++done) {
+            const double fraction = installFraction(1000, 1000, done, 10);
+            assert(fraction >= last);
+            last = fraction;
+        }
+        assert(last <= 1.0);
+    }
+
+    // Downloading everything is not finished -- extraction is still to come.
+    {
+        assert(installFraction(1000, 1000, 0, 10) < 1.0);
+        assert(installFraction(1000, 1000, 10, 10) == 1.0);
+        assert(installFraction(0, 1000, 0, 10) == 0.0);
+    }
+
+    // A plan with nothing to weigh must not divide by zero.
+    {
+        assert(installFraction(0, 0, 0, 0) == 1.0);
+    }
+
+    // A mirror retry restarts that package's byte count at zero, so the raw measure DOES fall.
+    // This is the case the published value has to absorb.
+    {
+        assert(installFraction(400, 1000, 0, 10) > installFraction(0, 1000, 0, 10));
+    }
+
+    // The ratchet is what a progress bar is given, and it never retreats.
+    {
+        double highest = 0.0;
+        const double climbed = monotonicInstallFraction(highest, 400, 1000, 0, 10);
+        // 400 MB in on the first mirror, that mirror dies, the second starts from nothing.
+        const double afterRetry = monotonicInstallFraction(highest, 0, 1000, 0, 10);
+        assert(afterRetry == climbed);
+        // And a later sample that genuinely is higher still moves it on.
+        assert(monotonicInstallFraction(highest, 1000, 1000, 0, 10) > climbed);
+    }
+    // Interleaving the two halves out of order cannot drop it either.
+    {
+        double highest = 0.0;
+        monotonicInstallFraction(highest, 1000, 1000, 3, 10);
+        const double peak = highest;
+        assert(monotonicInstallFraction(highest, 900, 1000, 0, 10) == peak);
     }
 
     printf("install_plan: all tests passed\n");

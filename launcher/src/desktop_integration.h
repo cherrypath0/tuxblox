@@ -15,7 +15,9 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #pragma once
+#include <functional>
 #include <string>
+#include <vector>
 
 namespace tuxblox {
 
@@ -66,7 +68,27 @@ void ensureDesktopIntegration(const std::string& launcherExePath, const std::str
 // taking the type back each time would make their choice impossible to keep. A
 // development handler is left alone for the same reason: it is put there by
 // hand and outranks the installed one.
+// The launcher a desktop entry starts, taken from its Exec line, or empty when the line names
+// none. Quoted or not, and whatever arguments follow it.
+std::string launcherNamedByEntry(const std::string& execLine);
+
+// Whether the entries on disk belong to a different launcher than `launcherExePath` that is still
+// there. There is one set of them per user rather than one per copy of TuxBlox, so a launcher run
+// out of a build tree must not repoint an installed one's shortcuts at itself -- they would start a
+// binary that is no part of any install, and stop working the moment it moves. A launcher that has
+// since gone owns nothing, so the entries are rewritten and heal themselves.
+bool entriesOwnedByAnother(const std::string& entryText, const std::string& launcherExePath,
+                           const std::function<bool(const std::string&)>& exists);
+
 bool shouldClaimAssociation(const std::string& currentDefault, bool currentDefaultInstalled);
+
+// Which link schemes TuxBlox should make itself the default for, given what the
+// virtual drive actually holds. A scheme whose app is not installed opens nothing,
+// so claiming it takes the association away from whatever would have answered.
+std::vector<std::string> schemesToClaim(bool playerInstalled, bool studioInstalled);
+
+// The .rbxl/.rbxm types, which only Studio can open.
+bool shouldClaimPlaceFiles(bool studioInstalled);
 
 // The desktop id explicitly set as the default for `mimeType` in a mimeapps.list,
 // given that file's text. Empty when it sets none.

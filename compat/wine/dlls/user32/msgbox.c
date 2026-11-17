@@ -64,9 +64,14 @@ static BOOL CALLBACK MSGBOX_EnumProc(HWND hwnd, LPARAM lParam)
  * any current desktop. */
 #define MSGBOX_MARGIN            20
 #define MSGBOX_ICON_GAP          16
-#define MSGBOX_CONTENT_GAP       16
+/* Between the message and the top of the buttons. The band starts a footer's padding above those,
+ * so what is left of this is the space between the message and the band, and it needs to be enough
+ * that the two do not read as one block. */
+#define MSGBOX_CONTENT_GAP       28
 #define MSGBOX_BUTTON_GAP         6
-#define MSGBOX_BUTTON_HEIGHT     32
+#define MSGBOX_BUTTON_HEIGHT     28
+/* Above and below the buttons, so the band they sit on is only as tall as it needs to be. */
+#define MSGBOX_FOOTER_PAD        12
 #define MSGBOX_BUTTON_MIN_WIDTH  80
 #define MSGBOX_BUTTON_PADDING    16
 #define MSGBOX_BUTTON_RADIUS      3
@@ -117,12 +122,35 @@ static COLORREF MSGBOX_Shade( COLORREF color, int percent )
     return RGB( r, g, b );
 }
 
+/* The buttons sit on a band shaded off the message's own background: separating what a dialog asks
+ * from how it is answered is what every current desktop does, and a single flat slab is most of why
+ * this box looked like a far older one. Both come from the system colours rather than a palette of
+ * their own, which is what keeps the box matching the panels Studio docks around it: the face
+ * colour is already Studio's panel grey, and darkening it lands on the grey Studio docks in. */
+static COLORREF MSGBOX_ContentColor( void )
+{
+    return GetSysColor( COLOR_3DFACE );
+}
+
+static COLORREF MSGBOX_FooterColor( void )
+{
+    COLORREF content = MSGBOX_ContentColor();
+
+    return MSGBOX_Shade( content, MSGBOX_IsDarkColor( content ) ? -12 : -6 );
+}
+
+/* Where the button band starts, nothing when the box is the classic one and has no band. */
+static int MSGBOX_FooterTop( HWND hwnd )
+{
+    return (int)(ULONG_PTR)GetPropA( hwnd, "WINE_MSGBOX_FOOTER" );
+}
+
 static void MSGBOX_DrawButton( HWND hwnd, const DRAWITEMSTRUCT *dis )
 {
     int width = dis->rcItem.right - dis->rcItem.left;
     int height = dis->rcItem.bottom - dis->rcItem.top;
     int scale = MSGBOX_SUPERSAMPLE, samples = scale * scale;
-    COLORREF back = GetSysColor( COLOR_3DFACE );
+    COLORREF back = MSGBOX_FooterColor();
     BOOL dark = MSGBOX_IsDarkColor( back );
     COLORREF face, edge;
     BITMAPINFO bmi;
@@ -259,6 +287,10 @@ static void MSGBOX_OnInit(HWND hwnd, LPMSGBOXPARAMSW lpmb)
     /* Windows draws a message box in the system message font. The dialog
      * template carries no font of its own, so without this the box is left
      * with the default GUI font and matches nothing else on the desktop. */
+    /* The default quality leaves it to the font to say how it is rendered, and the message font
+     * comes back unsmoothed, which is what makes the text look coarse beside everything around it. */
+    nclm.lfMessageFont.lfQuality = CLEARTYPE_QUALITY;
+
     if (!classic && (msgfont = CreateFontIndirectW( &nclm.lfMessageFont )))
     {
         SetPropA( hwnd, "WINE_MSGBOX_FONT", msgfont );
@@ -394,6 +426,19 @@ static void MSGBOX_OnInit(HWND hwnd, LPMSGBOXPARAMSW lpmb)
 	break;
     }
 
+    /* The desktop puts a blank placeholder in the title bar of a window carrying no icon, so the box
+     * hands over the one it is already showing rather than sitting there with an empty square. */
+    if (!classic)
+    {
+        HICON icon = (HICON)SendDlgItemMessageW( hwnd, MSGBOX_IDICON, STM_GETICON, 0, 0 );
+
+        if (icon)
+        {
+            SendMessageW( hwnd, WM_SETICON, ICON_SMALL, (LPARAM)icon );
+            SendMessageW( hwnd, WM_SETICON, ICON_BIG, (LPARAM)icon );
+        }
+    }
+
     /* Remove Help button unless MB_HELP supplied */
     if (!(lpmb->dwStyle & MB_HELP)) {
         NtUserDestroyWindow(GetDlgItem(hwnd, IDHELP));
@@ -498,8 +543,11 @@ static void MSGBOX_OnInit(HWND hwnd, LPMSGBOXPARAMSW lpmb)
         clientwidth = max(tleft + twidth + MSGBOX_MARGIN,
                           MSGBOX_MARGIN * 2 + (bw + bspace) * buttons - bspace);
         btop = MSGBOX_MARGIN + contentheight + MSGBOX_CONTENT_GAP;
+        /* Where the band behind the buttons begins. Never zero, since the message is always a
+         * margin down, and zero is what says there is no band. */
+        SetPropA( hwnd, "WINE_MSGBOX_FOOTER", (HANDLE)(ULONG_PTR)(btop - MSGBOX_FOOTER_PAD) );
         wwidth = clientwidth + borwidth;
-        wheight = btop + bh + MSGBOX_MARGIN + borheight;
+        wheight = btop + bh + MSGBOX_FOOTER_PAD + borheight;
         itop = MSGBOX_MARGIN + (contentheight - iheight) / 2;
         ttop = MSGBOX_MARGIN + (contentheight - theight) / 2;
     }
@@ -527,7 +575,8 @@ static void MSGBOX_OnInit(HWND hwnd, LPMSGBOXPARAMSW lpmb)
     if (classic)
         bpos = (wwidth - (bw + bspace) * buttons + bspace) / 2;
     else
-        bpos = clientwidth - MSGBOX_MARGIN - ((bw + bspace) * buttons - bspace);
+        /* The row is filled from the right, so the loop starts at the last slot. */
+        bpos = clientwidth - MSGBOX_MARGIN - bw;
     for (buttons = i = 0; i < ARRAY_SIZE(buttonOrder); i++) {
 
 	/* Convert the button order to ID* value to order for the buttons */
@@ -544,7 +593,10 @@ static void MSGBOX_OnInit(HWND hwnd, LPMSGBOXPARAMSW lpmb)
 		SetWindowLongW( hItem, GWL_STYLE, GetWindowLongW( hItem, GWL_STYLE ) | BS_OWNERDRAW );
 	    NtUserSetWindowPos( hItem, 0, bpos, btop, bw, bh,
                                 SWP_NOZORDER|SWP_NOACTIVATE|SWP_NOREDRAW );
-	    bpos += bw + bspace;
+	    /* Windows puts the button that carries on first, and so leftmost. Every current desktop
+	     * puts it last instead, in the corner the eye finishes at, so the row is filled backwards.
+	     * Only where they sit changes: which one Enter presses is still counted in Windows' order. */
+	    bpos += classic ? bw + bspace : -(bw + bspace);
 	}
     }
 
@@ -580,6 +632,43 @@ static INT_PTR CALLBACK MSGBOX_DlgProc( HWND hwnd, UINT message,
        }
        break;
    }
+
+   case WM_ERASEBKGND:
+   {
+       const int footer = MSGBOX_FooterTop( hwnd );
+       HDC hdc = (HDC)wParam;
+       RECT content, band;
+       HBRUSH brush;
+
+       /* The classic box has no band and is left to erase itself in the usual grey. */
+       if (!footer) break;
+
+       GetClientRect( hwnd, &content );
+       band = content;
+       band.top = footer;
+       content.bottom = footer;
+
+       if ((brush = CreateSolidBrush( MSGBOX_ContentColor() )))
+       {
+           FillRect( hdc, &content, brush );
+           DeleteObject( brush );
+       }
+       if ((brush = CreateSolidBrush( MSGBOX_FooterColor() )))
+       {
+           FillRect( hdc, &band, brush );
+           DeleteObject( brush );
+       }
+       return TRUE;
+   }
+
+   /* The message and the icon are drawn straight onto whatever was erased above, so they need no
+    * background of their own. Without this they come with the grey one the dialog class hands out
+    * and sit in a block of it. */
+   case WM_CTLCOLORSTATIC:
+    if (!MSGBOX_FooterTop( hwnd )) break;
+    SetBkMode( (HDC)wParam, TRANSPARENT );
+    SetTextColor( (HDC)wParam, GetSysColor( COLOR_BTNTEXT ) );
+    return (INT_PTR)GetStockObject( HOLLOW_BRUSH );
 
    case WM_DRAWITEM:
     MSGBOX_DrawButton( hwnd, (const DRAWITEMSTRUCT *)lParam );
@@ -757,56 +846,6 @@ INT WINAPI MessageBoxIndirectA( LPMSGBOXPARAMSA msgbox )
     if (!IS_INTRESOURCE(iconW.Buffer)) RtlFreeUnicodeString(&iconW);
     return ret;
 }
-
-/* The box TuxBlox draws for the rest of its windows, which is another program
- * and so is asked for through the one call that reaches it. It answers with
- * the response a hard error uses; each set of buttons gives every answer a
- * different one, so which button was pressed comes back unambiguously.
- * Returns 0 when there was no way to draw it and the dialog below must do it. */
-static INT MSGBOX_TuxBloxBox( LPMSGBOXPARAMSW msgbox )
-{
-    static const struct { HARDERROR_RESPONSE response; INT id; } answers[] =
-    {
-        { ResponseAbort,  IDABORT },
-        { ResponseCancel, IDCANCEL },
-        { ResponseIgnore, IDIGNORE },
-        { ResponseNo,     IDNO },
-        { ResponseOk,     IDOK },
-        { ResponseRetry,  IDRETRY },
-        { ResponseYes,    IDYES },
-    };
-    UNICODE_STRING text, caption;
-    HARDERROR_RESPONSE response = ResponseNotHandled;
-    PVOID params[3];
-    UINT i;
-
-    if (MSGBOX_ClassicStyle()) return 0;
-
-    RtlInitUnicodeString( &text, msgbox->lpszText ? msgbox->lpszText : L"" );
-    RtlInitUnicodeString( &caption, msgbox->lpszCaption ? msgbox->lpszCaption : L"" );
-    params[0] = &text;
-    params[1] = &caption;
-    params[2] = (PVOID)(ULONG_PTR)msgbox->dwStyle;
-
-    /* 0x40000018 is the status a program uses to say "show this to the user",
-     * and 3 marks the two strings among the parameters as strings. */
-    if (NtRaiseHardError( 0x40000018, 3, 3, params, 0, &response )) return 0;
-
-    for (i = 0; i < ARRAY_SIZE(answers); i++)
-    {
-        if (answers[i].response != response) continue;
-        /* The two answers Windows added later share a response with an older
-         * one, and only the set that was asked for tells them apart. */
-        if ((msgbox->dwStyle & MB_TYPEMASK) == MB_CANCELTRYCONTINUE)
-        {
-            if (answers[i].id == IDRETRY) return IDTRYAGAIN;
-            if (answers[i].id == IDIGNORE) return IDCONTINUE;
-        }
-        return answers[i].id;
-    }
-    return 0;
-}
-
 /**************************************************************************
  *		MessageBoxIndirectW (USER32.@)
  */
@@ -818,20 +857,12 @@ INT WINAPI MessageBoxIndirectW( LPMSGBOXPARAMSW msgbox )
     UINT i;
     struct ThreadWindows threadWindows;
 
-    /* Drawn by TuxBlox where it can be, so that every window the user is shown
-     * is the same window. The owner is disabled for as long as it is up, which
-     * is what makes it modal -- a box drawn by another program cannot belong to
-     * this one's window the way the dialog below does. */
-    {
-        HWND owner = msgbox->hwndOwner;
-        BOOL held = owner && IsWindow( owner ) && IsWindowEnabled( owner );
-
-        if (held) NtUserEnableWindow( owner, FALSE );
-        ret = MSGBOX_TuxBloxBox( msgbox );
-        if (held) NtUserEnableWindow( owner, TRUE );
-        if (ret) return ret;
-    }
-
+    /* Drawn in this process, by the dialog below. TuxBlox used to draw it instead, which looked like
+     * the rest of TuxBlox but could not behave like a message box: the box was another program's
+     * window, so it could not belong to the asking window, could not be raised by clicking it, and
+     * the focus it took had to be guessed back afterwards against the desktop handing it over. The
+     * dialog below is a window of the asking program, so Windows' own modal handling does all of
+     * that, and the styling it is given here is what makes it look like the rest. */
     if (!(hRes = FindResourceExW(user32_module, (LPWSTR)RT_DIALOG, L"MSGBOX", msgbox->dwLanguageId)))
     {
         if (!msgbox->dwLanguageId ||

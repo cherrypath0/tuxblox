@@ -33,7 +33,7 @@ using namespace tuxblox;
 
 namespace {
 
-// A release as shared/tools/stage_tree.py writes it.
+// A release as the release staging writes it.
 const char* kRelease = R"({
   "release": "3.6.0.0", "channel": "stable", "changelog": "components",
   "source_commit": "abc123", "source_dirty": false,
@@ -41,6 +41,15 @@ const char* kRelease = R"({
     "launcher":   {"version": "3.5.0", "arch": {"x86_64": {"sha256": "aa", "size": 12}, "arm64": null}},
     "compat":     {"version": "3.3.0", "arch": {"x86_64": {"sha256": "bb", "size": 34}, "arm64": null}}
   }})";
+
+// The same release, with compat's x86_64 entry saying where its bytes are. nullptr says nothing,
+// which is what every release published before the field existed looks like.
+std::string releaseJsonWithCompatPath(const char* path) {
+    const std::string said = path == nullptr ? "" : std::string(", \"path\": \"") + path + "\"";
+    return R"({"release": "3.6.0.0", "channel": "stable", "components": {
+        "compat": {"version": "3.3.0", "arch": {"x86_64": {"sha256": "bb", "size": 34)" + said +
+           R"(}, "arm64": null}}}})";
+}
 
 class TempDir {
 public:
@@ -157,52 +166,109 @@ void test_the_layout_table() {
 }
 
 void test_urls() {
-    assert(componentUrl("https://setup.tuxblox.net", "compat", "3.3.0", "x86_64") ==
+    // Addressed by the release as well as the component version: every release publishes its own
+    // copy of a component, because each copy carries the release it was published in.
+    assert(componentUrl("https://setup.tuxblox.net", "compat", "3.3.0", "3.6.0.0", "x86_64") ==
+           "https://setup.tuxblox.net/client/compat/3.3.0/3.6.0.0/x86_64/compat.tar.zst");
+    // Where one copy served every release that named it, which is still where the last release
+    // published before that sits.
+    assert(legacyComponentUrl("https://setup.tuxblox.net", "compat", "3.3.0", "x86_64") ==
            "https://setup.tuxblox.net/client/compat/3.3.0/x86_64/compat.tar.zst");
     assert(latestPointerUrl("https://setup.tuxblox.net", "canary") ==
            "https://setup.tuxblox.net/client/releases/canary/latest");
     assert(releaseFileUrl("https://setup.tuxblox.net", "stable", "3.6.0.0") ==
            "https://setup.tuxblox.net/client/releases/stable/3.6.0.0.json");
+    assert(publishedUrl("https://setup.tuxblox.net", "compat/3.3.0/3.6.0.0/x86_64/compat.tar.zst") ==
+           "https://setup.tuxblox.net/client/compat/3.3.0/3.6.0.0/x86_64/compat.tar.zst");
+    assert(publishedUrl("https://setup.tuxblox.net", "").empty());
     printf("  urls\n");
 }
 
-// Review Focus 4: an install whose record is absent or damaged is an ordinary case, not an error.
-void test_a_damaged_record_reads_as_no_record() {
-    TempDir d;
-    assert(readRecordedRelease(d.path()).present == false);          // nothing written yet
-    for (const char* body : {"", "   ", "{", R"({"release": "3.6.0.0"})", "not json"}) {
-        writeFile(d.path() + "/release.json", body);
-        assert(readRecordedRelease(d.path()).present == false);
+// A path off the network becomes part of a URL, so anything that is not a relative path under
+// client/ is dropped and the address is built instead. Dropped rather than refused: the release is
+// still installable without it.
+void test_a_published_path_is_held_to_an_allow_list() {
+    const char* refused[] = {
+        "",                                    // said nothing
+        "/compat/3.3.0/x86_64/compat.tar.zst", // absolute, would leave client/
+        "../../etc/passwd",                    // climbs out
+        "compat/../../../root/x",              // climbs out further in
+        "//evil.example/x",                    // reads as a host to something joining URLs
+        "https://evil.example/x",              // a scheme of its own
+        "compat/3.3.0/x86_64/compat.tar.zst\\n",// escaped in the JSON, so it parses and is then refused
+        "compat/3.3.0/x86_64/compat tar.zst",  // a space has no business here
+    };
+    for (const char* path : refused) {
+        const std::string json = releaseJsonWithCompatPath(path);
+        assert(parseReleaseFile(json).components.at("compat").x86_64->path.empty());
     }
-    printf("  a damaged record reads as no record\n");
+    // The shape every release actually publishes, and the one the next layout would.
+    for (const char* kept : {"compat/3.3.0/3.6.0.0/x86_64/compat.tar.zst",
+                              "releases/3.6.0.0/x86_64/compat.tar.zst"}) {
+        const std::string json = releaseJsonWithCompatPath(kept);
+        assert(parseReleaseFile(json).components.at("compat").x86_64->path == kept);
+    }
+    printf("  a published path is held to an allow-list\n");
 }
 
-// The stack ships its version as a file inside its tarball; it is read, never executed.
-void test_the_stack_version_is_read_from_its_file() {
+// Best first, and every base is offered one tier before the next tier is reached.
+void test_component_urls_try_the_release_s_own_address_first() {
+    const ReleaseFile said = parseReleaseFile(
+        releaseJsonWithCompatPath("releases/3.6.0.0/x86_64/compat.tar.zst"));
+    const std::vector<std::string> urls =
+        componentUrls({"https://edge.tuxblox.net", "https://setup.tuxblox.net"}, said, "compat",
+                       "x86_64");
+    assert(urls.size() == 6);
+    assert(urls[0] == "https://edge.tuxblox.net/client/releases/3.6.0.0/x86_64/compat.tar.zst");
+    assert(urls[1] == "https://setup.tuxblox.net/client/releases/3.6.0.0/x86_64/compat.tar.zst");
+    assert(urls[2] == "https://edge.tuxblox.net/client/compat/3.3.0/3.6.0.0/x86_64/compat.tar.zst");
+    assert(urls[4] == "https://edge.tuxblox.net/client/compat/3.3.0/x86_64/compat.tar.zst");
+
+    // A release that says nothing still has both addresses this build can construct.
+    const ReleaseFile silent = parseReleaseFile(releaseJsonWithCompatPath(nullptr));
+    const std::vector<std::string> fallback =
+        componentUrls({"https://setup.tuxblox.net"}, silent, "compat", "x86_64");
+    assert(fallback.size() == 2);
+    assert(fallback[0] == "https://setup.tuxblox.net/client/compat/3.3.0/3.6.0.0/x86_64/compat.tar.zst");
+    assert(fallback[1] == "https://setup.tuxblox.net/client/compat/3.3.0/x86_64/compat.tar.zst");
+
+    // Nothing to try for a component this release does not publish.
+    assert(componentUrls({"https://setup.tuxblox.net"}, silent, "studio-mcp", "x86_64").empty());
+    printf("  componentUrls tries the release's own address first\n");
+}
+
+// The two sides of "does this install hold this release?" are built by one function each, so they
+// cannot be made to disagree by a caller comparing the wrong pair of things.
+// Which release is ahead decides which one an install takes, so getting 3.10 and 3.9 the
+// wrong way round would walk installs backwards on the day a MINOR rolls over.
+void test_releases_order_by_number_not_by_text() {
+    assert(compareReleases("3.9.11.0", "3.10.11.0") < 0);
+    assert(compareReleases("3.10.11.0", "3.9.11.0") > 0);
+    assert(compareReleases("3.9.11.0", "3.9.11.0") == 0);
+    // The counter is the third field and the patch the last, and both order like the rest.
+    assert(compareReleases("3.9.11.0", "3.9.12.0") < 0);
+    assert(compareReleases("3.9.11.0", "3.9.11.1") < 0);
+    // Anything malformed sorts below everything well-formed rather than throwing: this runs
+    // on an answer from the server, and a bad one must not stop an install updating.
+    assert(compareReleases("not-a-release", "3.9.11.0") < 0);
+    assert(compareReleases("3.9.11", "3.9.11.0") < 0);
+    assert(compareReleases("3.9.11.0.1", "3.9.11.0") < 0);
+    assert(compareReleases("", "3.9.11.0") < 0);
+    assert(compareReleases("nonsense", "rubbish") == 0);
+    printf("  releases order by number, not by text\n");
+}
+
+// The stack is libraries, so it answers through the one thing in it that can be asked. Whether a
+// real library answers correctly is a question for a built stack; what matters here is that
+// everything else reads as "there is nothing to ask", rather than as a failure.
+void test_the_stack_answers_through_its_library() {
     TempDir d;
-    assert(!readStackVersion(d.path()).has_value());              // no libtuxblox at all
+    assert(!readStackVersions(d.path()).has_value());              // no libtuxblox at all
     makeDir(d.path() + "/libtuxblox");
-    assert(!readStackVersion(d.path()).has_value());              // no VERSION in it
-    writeFile(d.path() + "/libtuxblox/VERSION", "");
-    assert(!readStackVersion(d.path()).has_value());              // empty is not a version
-    writeFile(d.path() + "/libtuxblox/VERSION", "  3.1.0 \n");
-    assert(*readStackVersion(d.path()) == "3.1.0");               // trimmed
-    printf("  the stack version is read from its file\n");
-}
-
-void test_a_written_record_reads_back() {
-    TempDir d;
-    assert(writeRecordedRelease(d.path(), kRelease));
-    RecordedRelease r = readRecordedRelease(d.path());
-    assert(r.present);
-    assert(r.file.release == "3.6.0.0");
-    assert(r.file.components.at("compat").version == "3.3.0");
-    // The published bytes, verbatim: the record is what the server served, not a re-serialisation
-    // of it, so the coherence check compares against exactly what the release said.
-    assert(readFile(recordedReleasePath(d.path())) == kRelease);
-    // Nothing is left behind by the rename-into-place.
-    assert(!fs::exists(recordedReleasePath(d.path()) + ".incoming"));
-    printf("  a written record reads back\n");
+    assert(!readStackVersions(d.path()).has_value());              // no version.so in it
+    writeFile(d.path() + "/libtuxblox/version.so", "not a library");
+    assert(!readStackVersions(d.path()).has_value());              // and not one that can be loaded
+    printf("  the stack answers through its library\n");
 }
 
 // --------------------------------------------- asking a component its version
@@ -217,15 +283,15 @@ void writeStub(const std::string& path, const std::string& body) {
 
 void test_a_component_that_cannot_be_asked_has_no_version() {
     TempDir d;
-    assert(!readComponentVersion(d.path(), "studio-mcp").has_value());        // absent
+    assert(!readComponentIdentity(d.path(), "studio-mcp").has_value());        // absent
     writeFile(d.path() + "/studio-mcp", "not an executable");                 // present, not runnable
-    assert(!readComponentVersion(d.path(), "studio-mcp").has_value());
+    assert(!readComponentIdentity(d.path(), "studio-mcp").has_value());
     writeStub(d.path() + "/studio-mcp", "#!/bin/sh\nexit 1\n");               // runs, fails
-    assert(!readComponentVersion(d.path(), "studio-mcp").has_value());
+    assert(!readComponentIdentity(d.path(), "studio-mcp").has_value());
     writeStub(d.path() + "/studio-mcp", "#!/bin/sh\n");                       // runs, says nothing
-    assert(!readComponentVersion(d.path(), "studio-mcp").has_value());
+    assert(!readComponentIdentity(d.path(), "studio-mcp").has_value());
     writeStub(d.path() + "/studio-mcp", "#!/bin/sh\necho 2.0.1\n");
-    assert(*readComponentVersion(d.path(), "studio-mcp") == "2.0.1");
+    assert(*readComponentIdentity(d.path(), "studio-mcp") == "2.0.1");
     printf("  a component that cannot be asked has no version\n");
 }
 
@@ -234,7 +300,7 @@ void test_a_component_that_cannot_be_asked_has_no_version() {
 void test_a_version_is_trimmed_at_both_ends() {
     TempDir d;
     writeStub(d.path() + "/studio-mcp", "#!/bin/sh\nprintf '  2.0.1 \\n'\n");
-    assert(*readComponentVersion(d.path(), "studio-mcp") == "2.0.1");
+    assert(*readComponentIdentity(d.path(), "studio-mcp") == "2.0.1");
     printf("  a version is trimmed at both ends\n");
 }
 
@@ -242,9 +308,9 @@ void test_a_version_is_trimmed_at_both_ends() {
 void test_the_layer_is_found_under_either_name() {
     TempDir d;
     writeStub(d.path() + "/proton/main", "#!/bin/sh\necho 3.3.0\n");
-    assert(*readComponentVersion(d.path(), "compat") == "3.3.0");
+    assert(*readComponentIdentity(d.path(), "compat") == "3.3.0");
     writeStub(d.path() + "/compat/main", "#!/bin/sh\necho 3.4.0\n");
-    assert(*readComponentVersion(d.path(), "compat") == "3.4.0");   // the new name wins
+    assert(*readComponentIdentity(d.path(), "compat") == "3.4.0");   // the new name wins
     printf("  the layer is found under either name\n");
 }
 
@@ -255,7 +321,7 @@ void test_a_component_that_never_exits_is_given_up_on() {
     TempDir d;
     writeStub(d.path() + "/studio-mcp", "#!/bin/sh\nsleep 60\n");
     const auto start = std::chrono::steady_clock::now();
-    assert(!readComponentVersion(d.path(), "studio-mcp").has_value());
+    assert(!readComponentIdentity(d.path(), "studio-mcp").has_value());
     const auto elapsed = std::chrono::steady_clock::now() - start;
     assert(std::chrono::duration_cast<std::chrono::seconds>(elapsed).count() < 15);
     printf("  a component that never exits is given up on\n");
@@ -351,9 +417,10 @@ int main() {
     test_no_component_shadows_the_releases_path();
     test_the_layout_table();
     test_urls();
-    test_a_damaged_record_reads_as_no_record();
-    test_the_stack_version_is_read_from_its_file();
-    test_a_written_record_reads_back();
+    test_a_published_path_is_held_to_an_allow_list();
+    test_component_urls_try_the_release_s_own_address_first();
+    test_releases_order_by_number_not_by_text();
+    test_the_stack_answers_through_its_library();
     test_a_component_that_cannot_be_asked_has_no_version();
     test_a_version_is_trimmed_at_both_ends();
     test_the_layer_is_found_under_either_name();

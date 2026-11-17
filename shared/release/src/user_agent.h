@@ -33,7 +33,11 @@ namespace tuxblox {
 enum class UserAgentProduct { Client, Installer };
 
 // Call once, as early as the channel is known. `channel` may be empty or unrecognised.
-void setUserAgent(UserAgentProduct product, const std::string& version, const std::string& channel);
+// `packaging` adds a trailing token naming how this copy was installed, "native" or "flatpak", so
+// the server can tell them apart. Appended last, leaving the arch and the channel where readers
+// already expect them. Empty adds nothing, which is what a caller that has no opinion passes.
+void setUserAgent(UserAgentProduct product, const std::string& version, const std::string& channel,
+                   const std::string& packaging = "");
 
 // Never empty. Before setUserAgent() it names the product and nothing it would have to invent.
 const std::string& userAgent();

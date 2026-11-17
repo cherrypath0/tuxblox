@@ -50,22 +50,28 @@ private:
     void addToggle(AdwPreferencesGroup *pGroup, const char *pTitle, const char *pSubtitle, bool Settings::*pField);
     AdwExpanderRow *addExpander(AdwPreferencesGroup *pGroup, const char *pTitle, const char *pSubtitle, bool Settings::*pField);
     void addNestedToggle(AdwExpanderRow *pExpander, const char *pTitle, const char *pSubtitle, bool Settings::*pField);
+    void buildLanguage(AdwPreferencesGroup *pGroup);
     void buildTheme(AdwPreferencesGroup *pGroup);
     void buildUpdates();
     void buildEnvironment();
+    void buildAdvanced();
     void buildDangerZone();
     void seed(const Settings &settings);
     void commitEnvironmentVariables();
+    GtkButton *rowButton(GtkWidget *pRow, const char *pLabel, GCallback onClicked);
     GtkButton *dangerButton(GtkWidget *pRow, const char *pLabel, GCallback onClicked);
 
     static void onToggle(GObject *pRow, GParamSpec *, gpointer data);
     static void onExpander(GObject *pRow, GParamSpec *, gpointer data);
     static void onChannel(GObject *pRow, GParamSpec *, gpointer data);
+    static void onLanguage(GObject *pRow, GParamSpec *, gpointer data);
     static void onTheme(GObject *pRow, GParamSpec *, gpointer data);
     static void onGpu(GObject *pRow, GParamSpec *, gpointer data);
     static void onGraphics(GObject *pRow, GParamSpec *, gpointer data);
     static void onEnvironmentActivate(GtkEntry *, gpointer data);
     static void onEnvironmentFocusLeft(GtkEventControllerFocus *, gpointer data);
+    static void onRegistryEditor(GtkButton *pButton, gpointer data);
+    static void onCopyMcpPath(GtkButton *pButton, gpointer data);
     static void onTerminate(GtkButton *pButton, gpointer data);
     static gboolean onTerminateReset(gpointer data);
     static void onWipe(GtkButton *pButton, gpointer data);
@@ -77,6 +83,7 @@ private:
     std::vector<std::unique_ptr<Expander>> expanders_;
     // Read once when the page is built: the list cannot change without a reboot or a hotplug, neither of which happens while the window is open
     std::vector<GpuDevice> gpus_;
+    AdwComboRow *pLanguage_ = nullptr;
     AdwComboRow *pTheme_ = nullptr;
     AdwComboRow *pChannel_ = nullptr;
     AdwComboRow *pGpu_ = nullptr;

@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "page_sessions.h"
+#include "i18n.h"
 
 #include "asset_chevron_down.h"
 #include "asset_chevron_up.h"
@@ -31,6 +32,7 @@
 #include "widgets.h"
 
 #include <algorithm>
+#include <filesystem>
 #include <fstream>
 
 namespace tuxblox {
@@ -113,7 +115,7 @@ GtkWidget *SessionsPage::buildList() {
     gtk_widget_set_margin_end(pSearch_, 8);
     gtk_widget_set_margin_top(pSearch_, 8);
     gtk_widget_set_margin_bottom(pSearch_, 4);
-    gtk_search_entry_set_placeholder_text(GTK_SEARCH_ENTRY(pSearch_), "Search sessions");
+    gtk_search_entry_set_placeholder_text(GTK_SEARCH_ENTRY(pSearch_), i18n::tr("Search sessions"));
     g_signal_connect(pSearch_, "changed", G_CALLBACK(onSearchChanged), this);
     gtk_box_append(GTK_BOX(pColumn), pSearch_);
 
@@ -164,11 +166,11 @@ GtkWidget *SessionsPage::filterCheck(const char *pLabel, bool &flag) {
 
 GtkWidget *SessionsPage::buildFilterButton() {
     GtkWidget *pList = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
-    gtk_box_append(GTK_BOX(pList), filterCheck("Errors", filter_.errors));
-    gtk_box_append(GTK_BOX(pList), filterCheck("Warnings", filter_.warnings));
-    gtk_box_append(GTK_BOX(pList), filterCheck("Game output", filter_.gameOutput));
-    gtk_box_append(GTK_BOX(pList), filterCheck("Info", filter_.info));
-    gtk_box_append(GTK_BOX(pList), filterCheck("TuxBlox", filter_.tuxblox));
+    gtk_box_append(GTK_BOX(pList), filterCheck(i18n::tr("Errors"), filter_.errors));
+    gtk_box_append(GTK_BOX(pList), filterCheck(i18n::tr("Warnings"), filter_.warnings));
+    gtk_box_append(GTK_BOX(pList), filterCheck(i18n::tr("Game output"), filter_.gameOutput));
+    gtk_box_append(GTK_BOX(pList), filterCheck(i18n::tr("Info"), filter_.info));
+    gtk_box_append(GTK_BOX(pList), filterCheck(i18n::tr("TuxBlox"), filter_.tuxblox));
 
     GtkWidget *pPopover = gtk_popover_new();
     gtk_popover_set_child(GTK_POPOVER(pPopover), pList);
@@ -177,7 +179,7 @@ GtkWidget *SessionsPage::buildFilterButton() {
     gtk_menu_button_set_child(GTK_MENU_BUTTON(pButton), iconImage(kAssetFilter, kAssetFilterLen, 18));
     gtk_menu_button_set_popover(GTK_MENU_BUTTON(pButton), pPopover);
     gtk_widget_add_css_class(pButton, "flat");
-    gtk_widget_set_tooltip_text(pButton, "Choose which lines the log shows");
+    gtk_widget_set_tooltip_text(pButton, i18n::tr("Choose which lines the log shows"));
     return pButton;
 }
 
@@ -203,15 +205,15 @@ GtkWidget *SessionsPage::buildControls() {
     gtk_widget_add_css_class(pSize, "dim-label");
     gtk_box_append(GTK_BOX(pStrip), pSize);
 
-    GtkWidget *pCopy = iconButton(kAssetCopy, kAssetCopyLen, "Copy the log");
+    GtkWidget *pCopy = iconButton(kAssetCopy, kAssetCopyLen, i18n::tr("Copy the log"));
     g_signal_connect(pCopy, "clicked", G_CALLBACK(onCopyClicked), this);
     gtk_box_append(GTK_BOX(pStrip), pCopy);
 
-    GtkWidget *pSave = iconButton(kAssetSave, kAssetSaveLen, "Save the log to a file");
+    GtkWidget *pSave = iconButton(kAssetSave, kAssetSaveLen, i18n::tr("Save the log to a file"));
     g_signal_connect(pSave, "clicked", G_CALLBACK(onSaveClicked), this);
     gtk_box_append(GTK_BOX(pStrip), pSave);
 
-    GtkWidget *pFolder = iconButton(kAssetFolder, kAssetFolderLen, "Open the folder the logs are in");
+    GtkWidget *pFolder = iconButton(kAssetFolder, kAssetFolderLen, i18n::tr("Open the folder the logs are in"));
     g_signal_connect(pFolder, "clicked", G_CALLBACK(onFolderClicked), this);
     gtk_box_append(GTK_BOX(pStrip), pFolder);
 
@@ -232,7 +234,7 @@ GtkWidget *SessionsPage::buildFindBar() {
     gtk_widget_set_margin_bottom(pBar, 6);
 
     pFind_ = gtk_search_entry_new();
-    gtk_search_entry_set_placeholder_text(GTK_SEARCH_ENTRY(pFind_), "Find in log");
+    gtk_search_entry_set_placeholder_text(GTK_SEARCH_ENTRY(pFind_), i18n::tr("Find in log"));
     gtk_widget_set_size_request(pFind_, 220, -1);
     g_signal_connect(pFind_, "changed", G_CALLBACK(onFindChanged), this);
     gtk_box_append(GTK_BOX(pBar), pFind_);
@@ -243,12 +245,12 @@ GtkWidget *SessionsPage::buildFindBar() {
     gtk_widget_add_css_class(pCount, "caption");
     gtk_box_append(GTK_BOX(pBar), pCount);
 
-    GtkWidget *pPrevious = iconButton(kAssetChevronUp, kAssetChevronUpLen, "Previous match");
+    GtkWidget *pPrevious = iconButton(kAssetChevronUp, kAssetChevronUpLen, i18n::tr("Previous match"));
     g_object_set_data(G_OBJECT(pPrevious), "tuxblox-step", GINT_TO_POINTER(-1));
     g_signal_connect(pPrevious, "clicked", G_CALLBACK(onFindStep), this);
     gtk_box_append(GTK_BOX(pBar), pPrevious);
 
-    GtkWidget *pNext = iconButton(kAssetChevronDown, kAssetChevronDownLen, "Next match");
+    GtkWidget *pNext = iconButton(kAssetChevronDown, kAssetChevronDownLen, i18n::tr("Next match"));
     g_object_set_data(G_OBJECT(pNext), "tuxblox-step", GINT_TO_POINTER(1));
     g_signal_connect(pNext, "clicked", G_CALLBACK(onFindStep), this);
     gtk_box_append(GTK_BOX(pBar), pNext);
@@ -258,13 +260,21 @@ GtkWidget *SessionsPage::buildFindBar() {
     gtk_box_append(GTK_BOX(pBar), pSpacer);
 
     // Reading back through a log that is still being written should not keep yanking you to the bottom, so following stops until you ask for it again.
-    pJumpToEnd_ = gtk_button_new_with_label("Jump to the end");
+    pJumpToEnd_ = gtk_button_new_with_label(i18n::tr("Jump to the end"));
     gtk_widget_add_css_class(pJumpToEnd_, "flat");
     gtk_widget_add_css_class(pJumpToEnd_, "log-toggle");
     gtk_widget_set_visible(pJumpToEnd_, FALSE);
     g_signal_connect(pJumpToEnd_, "clicked", G_CALLBACK(onJumpToEnd), this);
     gtk_box_append(GTK_BOX(pBar), pJumpToEnd_);
-    return pBar;
+
+    // How wide the window is stays the reader's choice: the bar holds a button that comes and
+    // goes, and a window that grew and shrank with it was the result.
+    GtkWidget *pBarScroll = gtk_scrolled_window_new();
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(pBarScroll), GTK_POLICY_EXTERNAL, GTK_POLICY_NEVER);
+    gtk_scrolled_window_set_propagate_natural_width(GTK_SCROLLED_WINDOW(pBarScroll), FALSE);
+    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(pBarScroll), pBar);
+    gtk_widget_set_size_request(pBarScroll, 80, -1);
+    return pBarScroll;
 }
 
 GtkWidget *SessionsPage::buildLogPane() {
@@ -278,7 +288,7 @@ GtkWidget *SessionsPage::buildLogPane() {
     gtk_widget_set_margin_bottom(pHeader, 6);
 
     GtkWidget *pTitleRow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
-    GtkWidget *pName = gtk_label_new("No session selected");
+    GtkWidget *pName = gtk_label_new(i18n::tr("No session selected"));
     pName_ = GTK_LABEL(pName);
     gtk_label_set_xalign(GTK_LABEL(pName), 0.0f);
     gtk_widget_add_css_class(pName, "heading");
@@ -299,7 +309,7 @@ GtkWidget *SessionsPage::buildLogPane() {
     gtk_label_set_ellipsize(GTK_LABEL(pMetaInline), PANGO_ELLIPSIZE_END);
     gtk_box_append(GTK_BOX(pTitleRow), pMetaInline);
 
-    pStop_ = gtk_button_new_with_label("Stop session");
+    pStop_ = gtk_button_new_with_label(i18n::tr("Stop session"));
     gtk_widget_add_css_class(pStop_, "destructive-action");
     gtk_widget_set_visible(pStop_, FALSE);
     g_signal_connect(pStop_, "clicked", G_CALLBACK(onStopClicked), this);
@@ -336,6 +346,11 @@ GtkWidget *SessionsPage::buildLogPane() {
     gtk_text_view_set_bottom_margin(pLog_, 6);
     pBuffer_ = gtk_text_view_get_buffer(pLog_);
 
+    GtkGesture *pLineSelect = gtk_gesture_click_new();
+    gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(pLineSelect), GDK_BUTTON_PRIMARY);
+    g_signal_connect(pLineSelect, "pressed", G_CALLBACK(onLogClick), this);
+    gtk_widget_add_controller(pView, GTK_EVENT_CONTROLLER(pLineSelect));
+
     gtk_text_buffer_create_tag(pBuffer_, "time", "foreground", "#6b7687", nullptr);
     gtk_text_buffer_create_tag(pBuffer_, "warning", "foreground", "#f5b73d", nullptr);
     gtk_text_buffer_create_tag(pBuffer_, "error", "foreground", "#f87171", nullptr);
@@ -346,14 +361,23 @@ GtkWidget *SessionsPage::buildLogPane() {
     // Left gravity off, so it stays at the end as text arrives rather than being pushed along in front of it.
     gtk_text_buffer_create_mark(pBuffer_, "tail", &start, FALSE);
 
-    GtkEventController *pScrollWatch = gtk_event_controller_scroll_new(GTK_EVENT_CONTROLLER_SCROLL_VERTICAL);
-    g_signal_connect(pScrollWatch, "scroll", G_CALLBACK(onLogScrolled), this);
-    gtk_widget_add_controller(pView, pScrollWatch);
-
     pLogScroll_ = gtk_scrolled_window_new();
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(pLogScroll_), GTK_POLICY_AUTOMATIC,
+                                   GTK_POLICY_AUTOMATIC);
+    // However long a line is, it scrolls rather than widening the window.
+    gtk_scrolled_window_set_propagate_natural_width(GTK_SCROLLED_WINDOW(pLogScroll_), FALSE);
+    gtk_widget_set_size_request(pLogScroll_, 320, -1);
     gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(pLogScroll_), pView);
     gtk_widget_set_vexpand(pLogScroll_, TRUE);
     gtk_box_append(GTK_BOX(pPane), pLogScroll_);
+
+    // Where the view sits, rather than the wheel turning: dragging the bar, the keyboard and a
+    // touchscreen all move it too, and watching only the wheel left every one of those looking like
+    // somebody still reading the end. Position alone, so arriving at the end by any means follows
+    // again. Only "value-changed", never "changed": adding a line grows the range without moving
+    // the view, and treating that as the reader moving would stop it following on the first line.
+    g_signal_connect(gtk_scrolled_window_get_vadjustment(GTK_SCROLLED_WINDOW(pLogScroll_)),
+                     "value-changed", G_CALLBACK(onLogPositionChanged), this);
 
     gtk_box_append(GTK_BOX(pPane), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
     gtk_box_append(GTK_BOX(pPane), buildFindBar());
@@ -441,7 +465,7 @@ void SessionsPage::rebuildList(const SessionsView &view) {
             gtk_box_append(GTK_BOX(pBox), pText);
 
             if (entry.running) {
-                GtkWidget *pStop = iconButton(kAssetStop, kAssetStopLen, "Stop this session");
+                GtkWidget *pStop = iconButton(kAssetStop, kAssetStopLen, i18n::tr("Stop this session"));
                 gtk_widget_add_css_class(pStop, "session-stop");
                 gtk_widget_set_valign(pStop, GTK_ALIGN_CENTER);
                 g_object_set_data(G_OBJECT(pStop), "tuxblox-pid", GINT_TO_POINTER(entry.pid));
@@ -458,8 +482,8 @@ void SessionsPage::rebuildList(const SessionsView &view) {
         }
     };
 
-    addGroup("ACTIVE", view.running);
-    addGroup("ENDED", view.ended);
+    addGroup(i18n::tr("ACTIVE"), view.running);
+    addGroup(i18n::tr("ENDED"), view.ended);
 
     gtk_widget_set_visible(pEmpty_, !view.emptyMessage.empty());
     if (!view.emptyMessage.empty()) gtk_label_set_text(GTK_LABEL(pEmpty_), view.emptyMessage.c_str());
@@ -499,20 +523,19 @@ void SessionsPage::reconcileReader(const AppSnapshot &snap) {
     }
     if (pSession == nullptr) return;
 
-    // Once a session is over, TuxBlox appends Roblox's log onto the end of its own and deletes the original -- so the capture alone is the whole thing, and going on reading both would show Roblox's half a second time.
-    const bool ended = !pSession->running;
+    // Once a session is over, TuxBlox appends Roblox's log onto the end of its own and deletes the original -- so the capture alone is the whole thing, and going on reading both would show Roblox's half a second time. The file going is what says that has happened: the merge runs after the session, so dropping it on the session ending instead emptied the pane of everything Roblox wrote until it did.
     const std::string wantCaptured = pSession->capturedLogPath;
-    const std::string wantRoblox = ended ? std::string() : pSession->robloxLogPath;
+    const bool merged = !pSession->running && !pSession->robloxLogPath.empty() &&
+                        !std::filesystem::exists(pSession->robloxLogPath);
+    const std::string wantRoblox = merged ? std::string() : pSession->robloxLogPath;
 
-    const bool sameFiles = pReader_ != nullptr && wantCaptured == readerCaptured_ && wantRoblox == readerRoblox_;
-    if (sameFiles && ended == !readerSessionRunning_) return;
+    if (pReader_ != nullptr && wantCaptured == readerCaptured_ && wantRoblox == readerRoblox_) return;
 
     pReader_ = std::make_unique<SessionLogReader>(wantCaptured, wantRoblox);
     // Which file is being read is not something to spend a line on, but it is what somebody filing a bug report needs, so it stays within reach.
     gtk_widget_set_tooltip_text(GTK_WIDGET(pName_), pReader_->describeSources().c_str());
     readerCaptured_ = wantCaptured;
     readerRoblox_ = wantRoblox;
-    readerSessionRunning_ = !ended;
     // Emptying the pane here would leave it blank until the new reader produces something, which reads as the log vanishing and coming back. A reader with no files to read has nothing coming, so that one is emptied at once.
     if (wantCaptured.empty() && wantRoblox.empty()) {
         entries_.clear();
@@ -567,8 +590,9 @@ void SessionsPage::applyFilter() {
 void SessionsPage::refreshCount() {
     // Saying only what got through would read as a log that is missing lines, so when the filter hides any it says so.
     const std::string count = shownEntries_ == entries_.size()
-                                  ? std::to_string(entries_.size()) + " entries"
-                                  : std::to_string(shownEntries_) + " of " + std::to_string(entries_.size()) + " entries";
+                                  ? i18n::trn("{} entry", "{} entries", static_cast<long long>(entries_.size()))
+                                  : i18n::trf("{0} of {1} entries", {std::to_string(shownEntries_),
+                                                                    std::to_string(entries_.size())});
     gtk_label_set_text(pSize_, (count + " \xC2\xB7 " +
                                 std::to_string(gtk_text_buffer_get_char_count(pBuffer_) / 1024) + " KB").c_str());
 }
@@ -618,25 +642,28 @@ void SessionsPage::applyFind() {
     }
 
     if (found == 0) {
-        gtk_label_set_text(pFindCount_, "no matches");
+        gtk_label_set_text(pFindCount_, i18n::tr("no matches"));
         return;
     }
     if (currentMatch_ >= static_cast<size_t>(found)) currentMatch_ = 0;
     gtk_label_set_text(pFindCount_,
-                       (std::to_string(currentMatch_ + 1) + " of " + std::to_string(found)).c_str());
+                       i18n::trf("{0} of {1}", {std::to_string(currentMatch_ + 1), std::to_string(found)}).c_str());
 }
 
 void SessionsPage::refreshHeader(const AppSnapshot &snap) {
     for (const Session &session : snap.sessionList) {
         if (session.pid != selectedPid_) continue;
         gtk_label_set_text(pName_, session.target == LaunchTarget::Player ? "Roblox Player" : "Roblox Studio");
-        gtk_label_set_text(pState_, session.running ? "ACTIVE" : "ENDED");
+        gtk_label_set_text(pState_, session.running ? i18n::tr("ACTIVE") : i18n::tr("ENDED"));
         gtk_widget_remove_css_class(GTK_WIDGET(pState_), session.running ? "ended" : "running");
         gtk_widget_add_css_class(GTK_WIDGET(pState_), session.running ? "running" : "ended");
         gtk_widget_set_visible(pStop_, session.running);
 
         // The row beside it already says when a session ended, so the header keeps the version it ran and calls out only a crash.
-        std::string meta = session.endedReason;
+        std::string meta;
+        if (!session.endedReason.empty()) {
+            meta = session.endedReason == "crashed" ? i18n::tr("crashed") : session.endedReason;
+        }
         if (session.running) {
             const SessionsView view = sessionsView({session}, std::time(nullptr));
             if (!view.running.empty()) meta = view.running.front().meta;
@@ -652,7 +679,7 @@ void SessionsPage::refreshHeader(const AppSnapshot &snap) {
         gtk_label_set_text(pMeta_, meta.c_str());
         return;
     }
-    gtk_label_set_text(pName_, "No session selected");
+    gtk_label_set_text(pName_, i18n::tr("No session selected"));
     gtk_label_set_text(pState_, "");
     gtk_label_set_text(pMeta_, "");
     gtk_widget_set_visible(pStop_, FALSE);
@@ -774,7 +801,7 @@ void SessionsPage::onSaveClicked(GtkButton *, gpointer data) {
                                std::to_string(pSelf->selectedPid_) + ".log";
     std::ofstream(target) << pText;
     g_free(pText);
-    gtk_label_set_text(pSelf->pSources_, ("Saved to " + target).c_str());
+    gtk_label_set_text(pSelf->pSources_, i18n::trf("Saved to {0}", {target}).c_str());
     gtk_widget_set_visible(GTK_WIDGET(pSelf->pSources_), TRUE);
 }
 
@@ -802,23 +829,60 @@ void SessionsPage::scrollToTail() {
     GtkTextMark *pTail = gtk_text_buffer_get_mark(pBuffer_, "tail");
     if (pTail == nullptr) return;
     gtk_text_buffer_move_mark(pBuffer_, pTail, &end);
-    gtk_text_view_scroll_to_mark(pLog_, pTail, 0.0, FALSE, 0.0, 0.0);
+    // Held at the bottom rather than merely brought into view, and finished from an idle: the view
+    // lays its lines out later, so a line arriving as this runs leaves the first attempt short of
+    // the end -- which is what used to leave the reader one line up after asking for the end.
+    selfScrolling_ = true;
+    gtk_text_view_scroll_to_mark(pLog_, pTail, 0.0, TRUE, 0.0, 1.0);
+    if (tailScrollIdle_ == 0) tailScrollIdle_ = g_idle_add(finishTailScroll, this);
 }
 
-gboolean SessionsPage::onLogScrolled(GtkEventControllerScroll *, double, double dy, gpointer data) {
+gboolean SessionsPage::finishTailScroll(gpointer data) {
     auto *pSelf = static_cast<SessionsPage *>(data);
-    if (dy < 0.0) {
-        pSelf->readerScrolledAway_ = true;
-    } else if (dy > 0.0) {
-        // Back at the bottom means they want to be carried along again.
-        GtkAdjustment *pPosition =
-            gtk_scrolled_window_get_vadjustment(GTK_SCROLLED_WINDOW(pSelf->pLogScroll_));
-        const double remaining = gtk_adjustment_get_upper(pPosition) -
-                                 gtk_adjustment_get_page_size(pPosition) -
-                                 gtk_adjustment_get_value(pPosition);
-        if (remaining < 48.0) pSelf->readerScrolledAway_ = false;
+    pSelf->tailScrollIdle_ = 0;
+    GtkTextMark *pTail = gtk_text_buffer_get_mark(pSelf->pBuffer_, "tail");
+    if (pTail != nullptr) {
+        gtk_text_view_scroll_to_mark(pSelf->pLog_, pTail, 0.0, TRUE, 0.0, 1.0);
     }
-    return GDK_EVENT_PROPAGATE;
+    pSelf->selfScrolling_ = false;
+    return G_SOURCE_REMOVE;
+}
+
+void SessionsPage::onLogClick(GtkGestureClick *pGesture, int presses, double x, double y,
+                               gpointer data) {
+    if (presses != 2) return;
+    auto *pSelf = static_cast<SessionsPage *>(data);
+    int bufferX = 0;
+    int bufferY = 0;
+    gtk_text_view_window_to_buffer_coords(pSelf->pLog_, GTK_TEXT_WINDOW_WIDGET,
+                                           static_cast<int>(x), static_cast<int>(y),
+                                           &bufferX, &bufferY);
+    GtkTextIter at;
+    gtk_text_view_get_iter_at_location(pSelf->pLog_, &at, bufferX, bufferY);
+    GtkTextIter start = at;
+    GtkTextIter end = at;
+    gtk_text_iter_set_line_offset(&start, 0);
+    if (!gtk_text_iter_ends_line(&end)) gtk_text_iter_forward_to_line_end(&end);
+    gtk_text_buffer_select_range(pSelf->pBuffer_, &start, &end);
+    // Claimed, or the view's own word selection runs straight after and replaces it.
+    gtk_gesture_set_state(GTK_GESTURE(pGesture), GTK_EVENT_SEQUENCE_CLAIMED);
+}
+
+void SessionsPage::onLogPositionChanged(GtkAdjustment *pPosition, gpointer data) {
+    auto *pSelf = static_cast<SessionsPage *>(data);
+    const LogScrollState now{gtk_adjustment_get_upper(pPosition),
+                             gtk_adjustment_get_page_size(pPosition),
+                             gtk_adjustment_get_value(pPosition)};
+    // Our own scroll, carried out after we asked for it. Reading it back as the reader moving is
+    // what stopped the log following its own tail. Still recorded, or the reader's next move would
+    // be compared against where the view sat before this one and dismissed as the range changing.
+    if (pSelf->selfScrolling_) {
+        pSelf->lastLogScroll_ = now;
+        return;
+    }
+    pSelf->readerScrolledAway_ =
+        readerLeftLogTail(pSelf->lastLogScroll_, now, pSelf->readerScrolledAway_);
+    pSelf->lastLogScroll_ = now;
 }
 
 void SessionsPage::onJumpToEnd(GtkButton *, gpointer data) {

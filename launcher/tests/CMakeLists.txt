@@ -15,7 +15,7 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 # Every test in this directory checks correctness with plain assert().
-# CMAKE_BUILD_TYPE=Release (what launcher/build.sh always configures --
+# CMAKE_BUILD_TYPE=Release (what the Makefile always configures --
 # see its cmake invocation) defines -DNDEBUG, which compiles assert() to a
 # no-op -- silently turning every test in this suite into "always passes"
 # regardless of CMAKE_BUILD_TYPE. -UNDEBUG here, scoped to this directory
@@ -65,13 +65,31 @@ add_executable(test_update_changes test_update_changes.cpp)
 target_link_libraries(test_update_changes PRIVATE launcher_core)
 add_test(NAME update_changes COMMAND test_update_changes)
 
+# The interface stack answers through a library rather than a file, so a fixture install needs a
+# real one. Built from the same two sources the shipped stack is, which is what makes it a fixture
+# and not a stand-in: if the exports or the stamp move, this stops matching and the test says so.
+add_library(test_stack_version MODULE
+    ${TUXBLOX_SHARED_RELEASE}/stack_version.cpp
+    ${TUXBLOX_SHARED_RELEASE}/release_stamp.cpp)
+target_include_directories(test_stack_version PRIVATE ${TUXBLOX_SHARED_RELEASE})
+target_compile_definitions(test_stack_version PRIVATE
+    TUXBLOX_COMPONENT_VERSION="3.1.0" TUXBLOX_RELEASE="3.6.0.0")
+set_target_properties(test_stack_version PROPERTIES PREFIX "" OUTPUT_NAME "version")
+
 add_executable(test_updater test_updater.cpp)
 target_link_libraries(test_updater PRIVATE launcher_core)
+add_dependencies(test_updater test_stack_version)
+target_compile_definitions(test_updater PRIVATE
+    TUXBLOX_TEST_STACK_LIBRARY="$<TARGET_FILE:test_stack_version>")
 add_test(NAME updater COMMAND test_updater)
 
 add_executable(test_settings test_settings.cpp)
 target_link_libraries(test_settings PRIVATE launcher_core)
 add_test(NAME settings COMMAND test_settings)
+
+add_executable(test_settings_language test_settings_language.cpp)
+target_link_libraries(test_settings_language PRIVATE launcher_core)
+add_test(NAME settings_language COMMAND test_settings_language)
 
 add_executable(test_fastflag_file test_fastflag_file.cpp)
 target_link_libraries(test_fastflag_file PRIVATE launcher_core)
@@ -125,6 +143,18 @@ add_executable(test_versions_manifest test_versions_manifest.cpp)
 target_link_libraries(test_versions_manifest PRIVATE launcher_core)
 add_test(NAME versions_manifest COMMAND test_versions_manifest)
 
+add_executable(test_flags test_flags.cpp)
+target_link_libraries(test_flags PRIVATE launcher_core)
+add_test(NAME flags COMMAND test_flags)
+
+add_executable(test_flag_table test_flag_table.cpp)
+target_link_libraries(test_flag_table PRIVATE launcher_core)
+add_test(NAME flag_table COMMAND test_flag_table)
+
+add_executable(test_roblox_config test_roblox_config.cpp)
+target_link_libraries(test_roblox_config PRIVATE launcher_core)
+add_test(NAME roblox_config COMMAND test_roblox_config)
+
 add_executable(test_roblox_deploy test_roblox_deploy.cpp)
 target_link_libraries(test_roblox_deploy PRIVATE launcher_core)
 add_test(NAME roblox_deploy COMMAND test_roblox_deploy)
@@ -136,6 +166,14 @@ add_test(NAME versions_tab_state COMMAND test_versions_tab_state)
 add_executable(test_home_card_state test_home_card_state.cpp ../src/ui_adw/home_card_state.cpp)
 target_link_libraries(test_home_card_state PRIVATE launcher_core)
 add_test(NAME home_card_state COMMAND test_home_card_state)
+
+add_executable(test_welcome_tour_state test_welcome_tour_state.cpp ../src/ui_adw/welcome_tour_state.cpp)
+target_link_libraries(test_welcome_tour_state PRIVATE launcher_core)
+add_test(NAME welcome_tour_state COMMAND test_welcome_tour_state)
+
+add_executable(test_fastflags_page_state test_fastflags_page_state.cpp ../src/ui_adw/fastflags_page_state.cpp)
+target_link_libraries(test_fastflags_page_state PRIVATE launcher_core)
+add_test(NAME fastflags_page_state COMMAND test_fastflags_page_state)
 
 add_executable(test_prefix_session test_prefix_session.cpp)
 target_link_libraries(test_prefix_session PRIVATE launcher_core)
@@ -206,10 +244,6 @@ add_executable(test_fastflag_import test_fastflag_import.cpp)
 target_link_libraries(test_fastflag_import PRIVATE launcher_core)
 add_test(NAME fastflag_import COMMAND test_fastflag_import)
 
-add_executable(test_user_agent ${TUXBLOX_SHARED_RELEASE}/../tests/test_user_agent.cpp)
-target_link_libraries(test_user_agent PRIVATE launcher_core)
-add_test(NAME user_agent COMMAND test_user_agent)
-
 add_executable(test_release_file ${TUXBLOX_SHARED_RELEASE}/../tests/test_release_file.cpp)
 target_link_libraries(test_release_file PRIVATE launcher_core)
 add_test(NAME release_file COMMAND test_release_file)
@@ -274,6 +308,10 @@ add_executable(test_adw_env test_adw_env.cpp ${TUXBLOX_UI_SRC}/adw_env.cpp)
 target_include_directories(test_adw_env PRIVATE ${TUXBLOX_UI_SRC})
 add_test(NAME adw_env COMMAND test_adw_env)
 
+add_executable(test_seasonal test_seasonal.cpp ${TUXBLOX_UI_SRC}/seasonal.cpp)
+target_include_directories(test_seasonal PRIVATE ${TUXBLOX_UI_SRC})
+add_test(NAME seasonal COMMAND test_seasonal)
+
 add_executable(test_bootstrap_dispatch test_bootstrap_dispatch.cpp)
 target_link_libraries(test_bootstrap_dispatch PRIVATE launcher_core)
 add_test(NAME bootstrap_dispatch COMMAND test_bootstrap_dispatch)
@@ -319,3 +357,11 @@ add_test(NAME sessions_page_state COMMAND test_sessions_page_state)
 add_executable(test_launch_follow_up test_launch_follow_up.cpp)
 target_link_libraries(test_launch_follow_up PRIVATE launcher_core)
 add_test(NAME launch_follow_up COMMAND test_launch_follow_up)
+
+add_executable(test_i18n ${TUXBLOX_I18N_DIR}/tests/test_i18n.cpp)
+target_link_libraries(test_i18n PRIVATE launcher_core)
+add_test(NAME i18n COMMAND test_i18n)
+
+add_test(NAME translations
+    COMMAND ${PYTHON3_EXECUTABLE} "${TUXBLOX_I18N_DIR}/tools/check-translations.py"
+            --check --translations ${TUXBLOX_TRANSLATIONS_DIR})

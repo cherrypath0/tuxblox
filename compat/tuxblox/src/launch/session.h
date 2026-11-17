@@ -62,10 +62,12 @@ public:
     void startSubsystem();
     int run(const std::vector<std::string>& target);
 
-    // Waits for every process in the prefix to disconnect from wineserver.
-    // The timeout only starts once no Roblox process is left, so a live
-    // session is never cut short. True means a stop arrived during the wait, so
-    // the run ends as a success rather than reporting the drive being closed.
+    // Waits for this session's own Roblox to go, which is not always the process runProc waited on:
+    // Roblox relaunches itself. Returns as soon as somebody else is left in the drive, because they
+    // will be the last one out; otherwise it waits for the drive to empty and closes it, and the
+    // timeout only starts once no Roblox process is left, so a live session is never cut short.
+    // True means a stop arrived during the wait, so the run ends as a success rather than reporting
+    // the drive being closed.
     bool waitForPrefixDrain(int timeoutSeconds);
 
     Environment env;
@@ -77,8 +79,14 @@ public:
     // header so a bug report says how the run was launched.
     std::string invocation;
 
-    // False for a run that joined a virtual drive somebody else started, which must never tear that drive down on its way out.
-    bool ownsPrefix = true;
+    // This install's layer binary and virtual drive, for recognising the other sessions sharing the
+    // drive. Whoever is last out closes it, so a session has to be able to tell whether it is last.
+    std::filesystem::path layerBinary;
+    std::string tuxbloxPrefix;
+
+    // What this session stamps its processes with, so it can wait for its own Roblox and nobody
+    // else's. Set by initWine().
+    std::string sessionId;
 
     // DLL overrides collected before launch, written out as WINEDLLOVERRIDES.
     std::map<std::string, std::string> dllOverrides;

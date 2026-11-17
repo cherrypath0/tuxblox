@@ -26,7 +26,7 @@ namespace tuxblox {
 // Dark, and the bundled font, so the window looks the same on every desktop instead of inheriting the host's. Call once GTK is up.
 void applyLook();
 
-// The colours every TuxBlox window wears: "system" follows the desktop, "dark" and "light" pin it to one of them, and "grey" leaves libadwaita's own palette alone. Call it again whenever the choice changes; open windows redraw themselves.
+// The colours every TuxBlox window wears: "system" follows the desktop, "dark" and "light" pin it to one of them, "grey" leaves libadwaita's own palette alone, and "christmas" is the seasonal one, which is only a known name inside its own dates. Call it again whenever the choice changes; open windows redraw themselves.
 void applyTheme(const std::string &theme);
 
 // The theme chosen in the launcher's settings, for the programs that have no settings of their own to hand. "system" whenever there is nothing readable to go on, which is what a fresh install looks like.

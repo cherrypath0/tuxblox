@@ -7,10 +7,10 @@ Its graphical interface is a GTK4 + libadwaita stack appended to the binary and 
 ## Building
 
 ```bash
-./build.sh
+make installer
 ```
 
-This detects your package manager (apt/dnf/pacman/brew/apk) and installs only the host-side tools needed to drive the containerized build (`podman`, `curl`, `git`), vendors the third-party dependencies below via `./vendor.sh`, then configures and builds inside a pinned old-glibc-baseline container (`podman build`/`podman run` against `build-container/Containerfile`, shared with `launcher/build.sh` and the root `build.sh`'s Proton-compile step) so the resulting binary stays compatible with older-glibc distros regardless of what's on the host. The actual C++ toolchain (`cmake`, a C++ compiler, `libcurl`, `libarchive`, `openssl`) lives inside that container image, not on the host. The resulting binary is at `build/TuxBloxInstaller`.
+This installs only the host-side tools needed to drive the containerized build (`podman`, `curl`, `git`), then configures and builds inside a pinned old-glibc-baseline container (`podman build`/`podman run` against the root `Containerfile`, shared with the launcher and the Proton-compile step) so the resulting binary stays compatible with older-glibc distros regardless of what's on the host. The actual C++ toolchain (`cmake`, a C++ compiler, `libcurl`, `libarchive`, `openssl`) lives inside that container image, not on the host. The resulting binary is at `build/native/TuxBloxInstaller`.
 
 ## Testing
 
@@ -22,7 +22,7 @@ Covers the non-UI logic: manifest parsing, checksum verification, download handl
 
 ## Dependencies
 
-Vendored automatically by `./vendor.sh` into `third_party/` (not committed to this repo, automatically created by `vendor.sh`):
+Committed to `third_party/`, each pinned to the exact upstream commit or tag it came from:
 
 - [nlohmann/json](https://github.com/nlohmann/json) (MIT) pinned to `v3.11.3`, single-header
 

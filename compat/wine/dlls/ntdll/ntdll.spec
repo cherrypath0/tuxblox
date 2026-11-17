@@ -2161,4 +2161,10 @@
 1503 cdecl -noname wine_get_build_id()
 1504 cdecl -noname wine_get_host_version(ptr ptr)
 
+# TuxBlox identifies itself deliberately, so these are exported by name rather
+# than by ordinal: an anti-tamper vendor looks them up with GetProcAddress.
+1522 cdecl tuxblox_get_version()
+1523 cdecl tuxblox_get_kernel()
+1524 cdecl tuxblox_get_arch()
+
 

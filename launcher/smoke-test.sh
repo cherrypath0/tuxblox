@@ -23,7 +23,7 @@ StackPath="${2:-}"
 Image="${TUXBLOX_SMOKE_IMAGE:-debian:11}"
 
 if [[ ! -f "$BinaryPath" ]]; then
-    printf 'No launcher at %s. Build it with launcher/build.sh first.\n' "$BinaryPath" >&2
+    printf 'No launcher at %s. Build it with: make launcher\n' "$BinaryPath" >&2
     exit 1
 fi
 if [[ -z "$StackPath" || ! -f "$StackPath" ]]; then
@@ -36,6 +36,9 @@ StackPath="$(realpath "$StackPath")"
 
 read -r -d '' InnerScript <<'INNER' || true
 set -eu
+# The checks below compare English text. Pin the language so a host locale
+# cannot change what the binary prints.
+export TUXBLOX_LANGUAGE=en
 export DEBIAN_FRONTEND=noninteractive
 fail() { printf 'FAIL: %s\n' "$1"; exit 1; }
 
@@ -78,10 +81,12 @@ test "$status" -ne 0 || fail 'it ran without its interface libraries'
 grep -q 'error while loading shared libraries' /tmp/missing.txt || { cat /tmp/missing.txt; fail 'the failure does not name the loader'; }
 printf 'OK: a missing libtuxblox folder fails to load (exit %s)\n' "$status"
 
-# Case B: with them, the version is this component's own bare x.y.z -- no channel, because one
-# component build serves every channel and which channel an install follows is the install's setting.
+# Case B: with them, a bare numeric version and no channel, because one component build serves every
+# channel and which channel an install follows is the install's setting. Three fields or four: the
+# build bakes in the release the root VERSION declares, and staging later stamps the published one
+# over it, so an unstaged binary answers x.y.z.w and only a build with no release falls back to x.y.z.
 version="$(run "$root/TuxBloxLauncher" --version)"
-[[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "unexpected --version output: $version"
+[[ "$version" =~ ^[0-9]+(\.[0-9]+){2,3}$ ]] || fail "unexpected --version output: $version"
 printf 'OK: --version prints %s\n' "$version"
 
 # Case C: no display. The window cannot open, and the launcher must say so and exit 1 rather than let GTK exit for it.
@@ -91,18 +96,41 @@ test "$status" -eq 1 || { cat /tmp/nodisplay.txt; fail "the launcher with no dis
 grep -q 'no display to open the launcher window on' /tmp/nodisplay.txt || { cat /tmp/nodisplay.txt; fail 'the no-display failure was not reported'; }
 printf 'OK: with no display the launcher reports it and exits 1\n'
 
-# Case D: a real window, on a display.
+# Case D: a real window, on a display. A fresh install opens the welcome window first and holds the
+# launcher's own back until Get started, so the two are checked in that order.
 rm -rf "$home/.cache"
 Xvfb :99 -screen 0 1280x800x24 >/tmp/xvfb.log 2>&1 &
 sleep 2
 export DISPLAY=:99
+run env DISPLAY=:99 "$root/TuxBloxLauncher" >/tmp/welcome.log 2>&1 &
+
+pid=""
+window=""
+for _ in $(seq 1 30); do
+    pid="$(pgrep -u tester -f "^$root/TuxBloxLauncher" | head -n 1 || true)"
+    window="$(xwininfo -root -tree 2>/dev/null | grep -E '"Welcome to TuxBlox".*[0-9]+x[0-9]+\+' | head -n 1 | awk '{print $1}' || true)"
+    if [[ -n "$pid" && -n "$window" ]]; then break; fi
+    sleep 1
+done
+test -n "$pid" || { cat /tmp/welcome.log; fail 'the launcher is not running'; }
+test -n "$window" || { cat /tmp/welcome.log; fail 'the welcome window is not on the display'; }
+printf 'OK: a fresh install opens the welcome window\n'
+pkill -u tester -f "^$root/TuxBloxLauncher$" || true
+sleep 1
+
+# Once it has been seen the launcher's own window is what opens. send_crash_reports is read
+# strictly, so a settings file without it would be thrown away whole and the tour would return.
+cat > "$root/settings.json" <<'JSON'
+{"send_crash_reports": false, "welcome_seen": true}
+JSON
+chown tester "$root/settings.json"
 run env DISPLAY=:99 "$root/TuxBloxLauncher" >/tmp/launcher.log 2>&1 &
 
 pid=""
 window=""
 for _ in $(seq 1 30); do
     pid="$(pgrep -u tester -f "^$root/TuxBloxLauncher" | head -n 1 || true)"
-    window="$(xwininfo -root -tree 2>/dev/null | grep -E '"TuxBlox".*[0-9]+x[0-9]+\+' | head -n 1 | awk '{print $1}' || true)"
+    window="$(xwininfo -root -tree 2>/dev/null | grep -E '"TuxBlox( \(Internal\))?".*[0-9]+x[0-9]+\+' | head -n 1 | awk '{print $1}' || true)"
     if [[ -n "$pid" && -n "$window" ]]; then break; fi
     sleep 1
 done
@@ -140,12 +168,12 @@ run env DISPLAY=:99 "$root/TuxBloxLauncher" --preview-rbxinstaller >/tmp/rbxwind
 pid=""
 for _ in $(seq 1 30); do
     pid="$(pgrep -u tester -f 'preview-rbxinstaller' | head -n 1 || true)"
-    if [[ -n "$pid" ]] && xwininfo -root -tree 2>/dev/null | grep -qE '"TuxBlox".*[0-9]+x[0-9]+\+'; then break; fi
+    if [[ -n "$pid" ]] && xwininfo -root -tree 2>/dev/null | grep -qE '"TuxBlox( \(Internal\))?".*[0-9]+x[0-9]+\+'; then break; fi
     sleep 1
 done
 test -n "$pid" || { cat /tmp/rbxwindow.log; fail 'the Roblox progress window did not start'; }
 xwininfo -root -tree | tee /tmp/rbxtree.txt
-grep -qE '"TuxBlox".*[0-9]+x[0-9]+\+' /tmp/rbxtree.txt || { cat /tmp/rbxwindow.log; fail 'the Roblox progress window is not on the display'; }
+grep -qE '"TuxBlox( \(Internal\))?".*[0-9]+x[0-9]+\+' /tmp/rbxtree.txt || { cat /tmp/rbxwindow.log; fail 'the Roblox progress window is not on the display'; }
 printf 'OK: the Roblox progress window is on the display (pid %s)\n' "$pid"
 pkill -u tester -f 'preview-rbxinstaller' || true
 

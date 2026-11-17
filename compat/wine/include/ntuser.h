@@ -96,7 +96,8 @@ struct user_entry
     USER32_CALLBACK_ENTRY(DragDropLeave) \
     USER32_CALLBACK_ENTRY(DragDropDrag) \
     USER32_CALLBACK_ENTRY(DragDropDrop) \
-    USER32_CALLBACK_ENTRY(DragDropPost)
+    USER32_CALLBACK_ENTRY(DragDropPost) \
+    USER32_CALLBACK_ENTRY(StartDriverThread)
 
 enum
 {
@@ -118,6 +119,13 @@ static inline NTSTATUS KeUserDispatchCallback( const struct dispatch_callback_pa
     if (!params->callback) return STATUS_ENTRYPOINT_NOT_FOUND;
     return KeUserModeCallback( NtUserCallDispatchCallback, params, len, ret_ptr, ret_len );
 }
+
+/* NtUserStartDriverThread params */
+struct start_driver_thread_params
+{
+    UINT64 unix_funcs;  /* a unixlib handle is the __wine_unix_call_funcs pointer itself */
+    UINT   code;
+};
 
 /* TEB thread info, not compatible with Windows */
 struct ntuser_thread_info

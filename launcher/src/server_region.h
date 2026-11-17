@@ -62,4 +62,10 @@ private:
 // The watcher the launcher uses: a real request with a short timeout, and a desktop notification wearing the icon of the program that is running.
 ServerRegionWatcher makeServerRegionWatcher(bool enabled, const std::string& icon);
 
+// Whether the notification runs at all for this launch: what the user asked for, unless
+// tbxFlagDisableGeoTool has taken the feature away from everybody. Asked wherever the
+// setting was asked before, so the switch cannot be honoured in one place and missed in
+// another -- the lookup costs somebody else's allowance, so it has to be all or nothing.
+bool serverRegionNotifyEnabled(bool settingEnabled);
+
 } // namespace tuxblox

@@ -23,7 +23,10 @@
 #pragma makedep unix
 #endif
 
+#include "config.h"
+
 #include <assert.h>
+#include <dlfcn.h>
 #include <pthread.h>
 
 #include "ntstatus.h"
@@ -33,6 +36,7 @@
 #include "wine/winbase16.h"
 #include "wine/list.h"
 #include "wine/debug.h"
+#include "wine/unixlib.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(driver);
 WINE_DECLARE_DEBUG_CHANNEL(winediag);
@@ -40,6 +44,102 @@ WINE_DECLARE_DEBUG_CHANNEL(winediag);
 static const struct user_driver_funcs lazy_load_driver;
 static struct user_driver_funcs null_user_driver;
 static WCHAR driver_load_error[80];
+
+/* Windows keeps its windowing driver in the kernel, behind win32u, and has no user-space module for
+ * it. So the backend is loaded here as a plain library beside this one rather than as a PE nothing on
+ * Windows would have. Its entry 0 is the same init the module's DllMain used to call.
+ *
+ * The name comes from the registry as a module name, so swap the extension the way the loader does.
+ *
+ * shortcut: the backend has to sit beside this library, which holds in an installed layer but not in
+ * a Wine build tree where each dll has its own directory, to upgrade when a build-tree run is wanted.
+ */
+/* A backend that needs a thread of its own cannot make one: it has no module here to run a DllMain,
+ * and its loop calls NtUser, which a bare pthread of ours has no business entering. user32 makes it.
+ */
+static void start_driver_thread( void *handle, const unixlib_entry_t *entries, UINT code )
+{
+    struct start_driver_thread_params params = {.code = code};
+    void *ret_ptr;
+    ULONG ret_len;
+
+    /* A 32-bit caller reaches the other table, the way NtQueryVirtualMemory hands each one its own. */
+    if (NtCurrentTeb()->WowTebOffset) entries = dlsym( handle, "__wine_unix_call_wow64_funcs" );
+    if (!entries)
+    {
+        ERR( "no wow64 entry points for the display backend\n" );
+        return;
+    }
+
+    params.unix_funcs = (UINT_PTR)entries;
+    if (KeUserModeCallback( NtUserStartDriverThread, &params, sizeof(params), &ret_ptr, &ret_len ))
+        ERR( "failed to start the display backend's event thread\n" );
+}
+
+static BOOL load_unix_driver( const WCHAR *name, ULONG len )
+{
+    /* The module load this replaced was idempotent AND serialised by the loader lock: a second
+     * LoadLibraryW found the PE already there and ran no entry point. dlopen plus a call is
+     * neither, and the backend's init opens a display and takes over the global one, so two
+     * threads arriving together strand every window already made on the first connection and it
+     * never paints again. Initialise at most once, under a lock, for both reasons. */
+    static pthread_mutex_t init_mutex = PTHREAD_MUTEX_INITIALIZER;
+    static BOOL initialised;
+
+    const unixlib_entry_t *entries, *dispatch = NULL;
+    char path[MAX_PATH], *sep;
+    void *handle, *dispatch_handle = NULL;
+    Dl_info info;
+    ULONG i, n = len / sizeof(WCHAR);
+
+    pthread_mutex_lock( &init_mutex );
+    if (initialised) goto done;
+
+    if (!dladdr( (void *)load_unix_driver, &info ) || !info.dli_fname) goto done;
+    if (strlen( info.dli_fname ) >= sizeof(path)) goto done;
+    strcpy( path, info.dli_fname );
+    if (!(sep = strrchr( path, '/' ))) goto done;
+    sep++;
+
+    while (n && !name[n - 1]) n--;   /* the value is stored with its terminator */
+    for (i = 0; i < n; i++)
+    {
+        if (name[i] > 0x7f || sep - path + i + 4 >= sizeof(path)) goto done;
+        sep[i] = name[i];
+    }
+    while (i && sep[i - 1] != '.') i--;
+    if (!i) goto done;
+    strcpy( sep + i, "so" );
+
+    if (!(handle = dlopen( path, RTLD_NOW )))
+    {
+        WARN( "failed to load %s: %s\n", debugstr_a(path), dlerror() );
+        goto done;
+    }
+    if (!(entries = dlsym( handle, "__wine_unix_call_funcs" )))
+    {
+        ERR( "%s has no entry points\n", debugstr_a(path) );
+        goto done;
+    }
+    if (!entries[0]( NULL )) initialised = TRUE;
+
+    /* The compositor's event queue is dispatched nowhere else in winewayland.drv: upstream reads it
+     * on a thread its DllMain starts, and that entry point is not run here. Without the loop no
+     * surface is ever configured, so every window stays blank and the compositor's ping goes
+     * unanswered. The index is waylanddrv_unix_func_read_events, in dlls/winewayland.drv/unixlib.h.
+     */
+    if (initialised && !strcmp( sep, "winewayland.so" ))
+    {
+        dispatch = entries;
+        dispatch_handle = handle;
+    }
+
+done:
+    pthread_mutex_unlock( &init_mutex );
+    /* Outside the lock: this runs user-mode code, which has no business waiting on one of ours. */
+    if (dispatch) start_driver_thread( dispatch_handle, dispatch, 1 );
+    return initialised;
+}
 
 static INT nulldrv_AbortDoc( PHYSDEV dev )
 {
@@ -981,9 +1081,9 @@ static BOOL load_desktop_driver( HWND hwnd )
                                                   info->DataLength / sizeof(WCHAR) ));
         if (info->DataLength != sizeof(nullW) || memcmp( info->Data, nullW, sizeof(nullW) ))
         {
-            void *ret_ptr;
-            ULONG ret_len;
-            ret = !KeUserModeCallback( NtUserLoadDriver, info->Data, info->DataLength, &ret_ptr, &ret_len );
+            ret = load_unix_driver( (const WCHAR *)info->Data, info->DataLength );
+            if (!ret) asciiz_to_unicode( driver_load_error,
+                                         "Make sure that your display server is running and that its variables are set." );
         }
         else
         {
@@ -1008,12 +1108,65 @@ static BOOL load_desktop_driver( HWND hwnd )
  * Each entry point simply loads the real driver and chains to it.
  */
 
+/* Explorer publishes the chosen backend for every other process, but it cannot publish one to
+ * itself: the published name is keyed on the desktop window, and it needs a driver to make that
+ * window in the first place. Loading the driver module is what used to give explorer one directly.
+ * The backend is loaded on this side now, so resolve it here too rather than wait for a name that
+ * cannot be there yet.
+ *
+ * The list, the override and the x11 spelling are explorer's as well, in programs/explorer/desktop.c.
+ * The two copies have to agree, so each names the other.
+ */
+static BOOL load_default_driver(void)
+{
+    static const WCHAR defaultsW[] = {'m','a','c',',','x','1','1',',','w','a','y','l','a','n','d',0};
+    static const WCHAR x11W[] = {'x','1','1',0};
+    static const WCHAR dispumdW[] = {'d','i','s','p','u','m','d','.','d','l','l',0};
+    static const WCHAR wineW[] = {'w','i','n','e',0};
+    static const WCHAR drvW[] = {'.','d','r','v',0};
+    char buf[1024];
+    KEY_VALUE_PARTIAL_INFORMATION *info = (void *)buf;
+    WCHAR list[128], libname[64], *name, *next;
+    HKEY hkey;
+
+    lstrcpynW( list, defaultsW, ARRAY_SIZE(list) );
+    if ((hkey = reg_open_hkcu_key( "Software\\TuxBlox\\Drivers" )))
+    {
+        if (query_reg_ascii_value( hkey, "Graphics", info, sizeof(buf) ))
+            lstrcpynW( list, (const WCHAR *)info->Data, ARRAY_SIZE(list) );
+        NtClose( hkey );
+    }
+
+    for (name = list; name && *name; name = next)
+    {
+        next = wcschr( name, ',' );
+        if (next) *next++ = 0;
+
+        if (!wcscmp( name, x11W )) wcscpy( libname, dispumdW );
+        else if (lstrlenW( name ) + ARRAY_SIZE(wineW) + ARRAY_SIZE(drvW) < ARRAY_SIZE(libname))
+        {
+            wcscpy( libname, wineW );
+            wcscpy( libname + lstrlenW( wineW ), name );
+            wcscpy( libname + lstrlenW( wineW ) + lstrlenW( name ), drvW );
+        }
+        else continue;
+
+        TRACE( "trying default backend %s as %s\n", debugstr_w(name), debugstr_w(libname) );
+        if (load_unix_driver( libname, lstrlenW( libname ) * sizeof(WCHAR) )) return TRUE;
+    }
+    return FALSE;
+}
+
 static void load_display_driver(void)
 {
     USEROBJECTFLAGS flags;
     HWINSTA winstation;
+    /* Not get_desktop_window(): making the desktop window needs a driver, so asking for it here gives it to whichever process loads one first, and the server then books it to a process that has no window of its own for it, where it stops resolving and every window's root ancestor reads as NULL. */
+    HWND desktop = UlongToHandle( NtUserGetThreadInfo()->top_window );
 
-    if (is_service_process() || !load_desktop_driver( get_desktop_window() ) || user_driver == &lazy_load_driver)
+    if (is_service_process() ||
+        (!(desktop && load_desktop_driver( desktop )) && !load_default_driver()) ||
+        user_driver == &lazy_load_driver)
     {
         winstation = NtUserGetProcessWindowStation();
         if (!NtUserGetObjectInformation( winstation, UOI_FLAGS, &flags, sizeof(flags), NULL )

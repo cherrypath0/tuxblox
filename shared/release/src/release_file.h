@@ -33,6 +33,12 @@ namespace tuxblox {
 struct ComponentBytes {
     std::string sha256;
     uint64_t size = 0;
+    // Where the release says these bytes are, relative to client/. Asked first, so the layout can
+    // change without stranding anyone: a client that reads this follows the release wherever it
+    // goes, where one that builds the address itself can only ever find the layout it shipped
+    // knowing. Empty when the release does not say, or says something that is not a relative path
+    // under client/, and then the address is built as before.
+    std::string path;
 };
 
 struct ReleaseComponent {
@@ -42,7 +48,7 @@ struct ReleaseComponent {
 };
 
 struct ReleaseFile {
-    std::string release;   // "MAJOR.MINOR.PATCH.BUILD"
+    std::string release;   // "MAJOR.MINOR.BUILD.PATCH" -- the counter is the third field
     std::string channel;
     std::string sourceCommit;
     bool sourceDirty = false;
@@ -71,6 +77,15 @@ struct ComponentLayout {
 // does not recognise -- an old client then still takes the update, and the launcher and installer
 // it receives know the rest.
 ReleaseFile parseReleaseFile(const std::string& jsonText);
+
+// Orders two four-field release versions: negative when `a` is behind `b`, 0 when they are
+// the same, positive when it is ahead. Field by field and numerically, so 3.10.0.0 is ahead of
+// 3.9.0.0 -- which text order gets backwards, and which is the whole reason this exists.
+//
+// A version with a field that is not a number, or without four of them, sorts BELOW every
+// well-formed one rather than throwing: this decides which release an install takes, and a
+// malformed answer from the server must not be able to stop it updating.
+int compareReleases(const std::string& a, const std::string& b);
 
 // The five components a release consists of, in a fixed order. There is no bootstrapper: it was
 // folded into the launcher in 3.4.0.
@@ -127,44 +142,82 @@ const std::string& releasesBaseUrl();
 // today; arm64 is reserved in the layout, which is why a release names both and publishes one.
 const char* hostArch();
 
-// A component version's bytes are shared by every channel, so its URL carries no channel. A release
-// belongs to one channel, so both of the release URLs do.
+// Where a release's copy of a component is published. A release publishes its own copy of every
+// component, because each copy carries the release it belongs to inside it -- so one component
+// version has a file per release it appears in, and the release is part of the address. No channel:
+// a release number is the same release wherever it is published, and only the release URLs below
+// name a channel.
 std::string componentUrl(const std::string& baseUrl, const std::string& name,
-                          const std::string& version, const std::string& arch);
+                          const std::string& version, const std::string& release,
+                          const std::string& arch);
+
+// Where a component sat when one copy of it served every release it appeared in. Tried only after
+// componentUrl() has failed, which is what keeps the last release published under the old layout
+// installable from a client that already knows the new one.
+std::string legacyComponentUrl(const std::string& baseUrl, const std::string& name,
+                                const std::string& version, const std::string& arch);
+
+// Where the release itself says a component's bytes are. Asked before either address above, so a
+// client follows the layout the release describes rather than the one it was built knowing. Empty
+// when the release said nothing usable, and then the addresses above are all there is.
+std::string publishedUrl(const std::string& baseUrl, const std::string& path);
+
+// Every address worth trying for a component, best first: where the release says its bytes are,
+// then the address this build would construct, then where one copy served every release that named
+// it. Each tier is offered on every base before the next tier is, because a base that cannot answer
+// is a different failure from an address that was never published: the edge is an optimisation and
+// the origin behind it is the truth. Empty when the release does not publish this component here.
+std::vector<std::string> componentUrls(const std::vector<std::string>& baseUrls,
+                                        const ReleaseFile& release, const std::string& name,
+                                        const std::string& arch);
+
+// The bases a download should try, in order: the one chosen, then the origin behind it when that
+// one was the edge. Every caller of componentUrls() wants this, and a caller that passes its base
+// alone turns an edge outage into a download that cannot happen rather than one that is slower.
+std::vector<std::string> componentBaseUrls(const std::string& baseUrl);
 std::string latestPointerUrl(const std::string& baseUrl, const std::string& channel);
 std::string releaseFileUrl(const std::string& baseUrl, const std::string& channel,
                             const std::string& release);
 
-// --- what an install records about itself -------------------------------
+// --- what an install says it is -----------------------------------------
 
-std::string recordedReleasePath(const std::string& installDir);
+// An install says what it is through its own components: every one of them carries the release it
+// was published in, so there is nothing beside them to read and nothing to go stale.
 
-struct RecordedRelease {
-    bool present = false;  // false for an install made before this file existed, which is ordinary
-    ReleaseFile file;      // valid iff present
+// What the interface stack answers. It is libraries rather than a program, so it carries version.so
+// purely to be asked, and that library exports the release it was published in, the stack's own
+// version, and the channel that release went to. std::nullopt when the stack is absent, or carries
+// no such library, which is an install made before it did.
+struct StackVersions {
+    std::string release;    // empty for a stack that was never published
+    std::string component;  // the stack's own version, which is the one thing it always knows
+    std::string channel;    // empty for a stack that was never published
 };
+std::optional<StackVersions> readStackVersions(const std::string& installDir);
 
-// Never throws. A missing, unreadable, truncated or wrongly-shaped file all read the same way --
-// "this install does not say which release it is" -- because that is an ordinary state an install
-// can be in, and the launcher reads this on the path that decides whether it can start at all.
-RecordedRelease readRecordedRelease(const std::string& installDir);
-
-// Writes the release file's PUBLISHED bytes, not a re-serialisation of them, so what an install
-// records is exactly what the server served. Written last by the installer, which makes it the
-// "update completed" marker as well as the install's identity.
-bool writeRecordedRelease(const std::string& installDir, const std::string& publishedJson);
-
-// The interface stack has no binary to ask, so it carries its version as a file inside its tarball.
-std::optional<std::string> readStackVersion(const std::string& installDir);
-
-// What version of `name` this install holds, or std::nullopt when it holds none. One rule, shared,
-// because the launcher deciding "this install is coherent" and the installer deciding "this one is
-// already current" must not be able to reach different answers about the same install.
+// What the copy of `name` on disk says it is, or std::nullopt when this install holds none. One
+// rule, shared, because the launcher deciding "this install is coherent" and the installer deciding
+// "this one is already current" must not be able to reach different answers about the same install.
+//
+// Every component answers with the RELEASE it was published in, since that is what a binary is
+// asked for its version now, and what the interface stack's version.so exports.
 //
 // A component that is present but cannot be asked -- not executable, exits nonzero, prints nothing
-// -- answers std::nullopt, the same as one that is absent. There is no version to compare, and a
-// placeholder would differ from every real version forever.
+// -- answers std::nullopt, the same as one that is absent. There is nothing to compare, and a
+// placeholder would differ from every real answer forever.
+std::optional<std::string> readComponentIdentity(const std::string& installDir,
+                                                  const std::string& name);
+
+// The component's OWN version, which is what moved when it moved: 3.7.2 for a launcher, whatever
+// shared/ui/versions.env declares for the interface stack. Every program answers this one with
+// --component-version, and the stack's version.so exports it. std::nullopt on the same terms as
+// readComponentIdentity(): absent, or present and unable to answer.
 std::optional<std::string> readComponentVersion(const std::string& installDir,
                                                  const std::string& name);
+
+// Negative, zero or positive as `left` sorts below, with, or above `right`. Dotted numbers,
+// field by field, a missing field counting as zero, so "3.11" and "3.11.0" are the same number.
+// Anything that is not a number compares equal: an unreadable version is not evidence either way.
+int compareDottedVersions(const std::string& left, const std::string& right);
 
 } // namespace tuxblox

@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "roblox_deploy.h"
+#include "FlagManager.h"
 #include "user_agent.h"
 #include "downloader.h"
 #include "json.hpp"
@@ -31,6 +32,36 @@ namespace tuxblox {
 namespace {
 
 const char* const kDefaultChannel = "live";
+
+// Roblox's own name for the channel is "live". "production" is what people reach for,
+// and resolving it to the same thing here keeps one answer rather than two that could
+// disagree about where a download comes from.
+const char* const kDefaultChannelAlias = "production";
+
+// Roblox's one open non-live channel, which carries a build that is deployed but not
+// yet released.
+const char* const kPendingChannel = "zbeta";
+
+// Roblox's version strings are exactly four numeric fields. Anything else is not one,
+// and says so rather than being compared on whatever could be read out of it.
+bool versionFields(const std::string& version, std::vector<unsigned long long>& out) {
+    out.clear();
+    size_t start = 0;
+    while (start <= version.size()) {
+        const size_t dot = version.find('.', start);
+        const std::string field = version.substr(start, dot == std::string::npos ? std::string::npos
+                                                                                  : dot - start);
+        if (field.empty() || field.find_first_not_of("0123456789") != std::string::npos) return false;
+        try {
+            out.push_back(std::stoull(field));
+        } catch (const std::exception&) {
+            return false;
+        }
+        if (dot == std::string::npos) break;
+        start = dot + 1;
+    }
+    return out.size() == 4;
+}
 
 size_t curlWriteToString(char* ptr, size_t size, size_t nmemb, void* userdata) {
     auto* out = static_cast<std::string*>(userdata);
@@ -52,12 +83,16 @@ std::string httpGet(const std::string& url, const std::atomic<bool>* cancel) {
     char errBuf[CURL_ERROR_SIZE] = {0};
 
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+    applyFlaggedHttpVersion(curl, url);
     curl_easy_setopt(curl, CURLOPT_USERAGENT, userAgent().c_str());
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curlWriteToString);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &body);
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, errBuf);
-    curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);
+    // Deliberately not CURLOPT_FAILONERROR: it aborts the transfer on a 4xx, so the
+    // failure arrives as libcurl's own wording and the status below is never reported.
+    // Callers have to tell "Roblox has nothing pending" (401) from "that build is gone"
+    // (404) from "the network is down", and that needs the code, not prose.
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
     if (cancel) {
         curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
@@ -78,7 +113,7 @@ std::string httpGet(const std::string& url, const std::atomic<bool>* cancel) {
         throw std::runtime_error(std::string("httpGet: ") + (errBuf[0] ? errBuf : curl_easy_strerror(res)));
     }
     if (httpCode < 200 || httpCode >= 300) {
-        throw std::runtime_error("httpGet: HTTP " + std::to_string(httpCode) + " for " + url);
+        throw std::runtime_error(httpStatusErrorText(httpCode, url));
     }
     return body;
 }
@@ -172,6 +207,15 @@ std::string parseClientVersionHash(const std::string& json) {
     }
 }
 
+std::string parseClientVersionNumber(const std::string& json) {
+    try {
+        nlohmann::json j = nlohmann::json::parse(json);
+        return j.at("version").get<std::string>();
+    } catch (const nlohmann::json::exception& e) {
+        throw std::runtime_error(std::string("parseClientVersionNumber: ") + e.what());
+    }
+}
+
 std::string fetchDeployHistory(const std::string& channel, const std::atomic<bool>* cancel) {
     return httpGet(deployHistoryUrl("setup.rbxcdn.com", channel), cancel);
 }
@@ -256,6 +300,7 @@ std::string normalizeChannel(const std::string& channel) {
     std::string name = channel.substr(begin, end - begin + 1);
     std::transform(name.begin(), name.end(), name.begin(),
                     [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    if (name == kDefaultChannelAlias) return kDefaultChannel;
     return name;
 }
 
@@ -266,6 +311,39 @@ std::string setupCdnUrl(const std::string& mirrorHost, const std::string& channe
 
 std::string deployHistoryUrl(const std::string& mirrorHost, const std::string& channel) {
     return cdnBase(mirrorHost, channel) + "DeployHistory.txt";
+}
+
+const char* robloxPendingChannel() {
+    return kPendingChannel;
+}
+
+const char* robloxDefaultChannel() {
+    return kDefaultChannel;
+}
+
+std::string httpStatusErrorText(long httpCode, const std::string& url) {
+    return "httpGet: HTTP " + std::to_string(httpCode) + " for " + url;
+}
+
+bool isNotAuthorized(const std::string& errorText) {
+    return errorText.find("HTTP 401 ") != std::string::npos;
+}
+
+bool isNotFound(const std::string& errorText) {
+    return errorText.find("HTTP 404 ") != std::string::npos;
+}
+
+PendingBuild comparePendingToLive(const std::string& pendingVersion, const std::string& liveVersion) {
+    std::vector<unsigned long long> pending, live;
+    if (!versionFields(pendingVersion, pending) || !versionFields(liveVersion, live)) {
+        return PendingBuild::OlderThanLive;
+    }
+    if (pending == live) return PendingBuild::SameAsLive;
+    return pending > live ? PendingBuild::Newer : PendingBuild::OlderThanLive;
+}
+
+std::vector<std::string> pendingChannelsInOrder() {
+    return {kDefaultChannel, kPendingChannel};
 }
 
 } // namespace tuxblox

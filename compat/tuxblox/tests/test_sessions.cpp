@@ -36,11 +36,13 @@ static void writeNulJoined(const fs::path& path, const std::vector<std::string>&
 }
 
 static void makeProcEntry(const fs::path& procRoot, const std::string& pid,
-                          const std::string& cmdline, const std::string& winePrefix) {
+                          const std::string& cmdline, const std::string& winePrefix,
+                          const std::string& sessionId = "") {
     fs::create_directories(procRoot / pid);
     writeNulJoined(procRoot / pid / "cmdline", {cmdline});
     std::vector<std::string> env = {"PATH=/usr/bin"};
     if (!winePrefix.empty()) env.push_back("WINEPREFIX=" + winePrefix);
+    if (!sessionId.empty()) env.push_back(std::string(tuxblox::SessionIdVariable) + "=" + sessionId);
     writeNulJoined(procRoot / pid / "environ", env);
 }
 
@@ -83,6 +85,32 @@ int main() {
     // The layer sets WINEPREFIX with a trailing slash and normalises it away.
     assert(prefixSessionHoldersIn(procRoot, wanted + "/").size() == 3);
 
+    // holdersOfSession(): which Roblox in a shared drive belongs to which session. Two sessions are
+    // in this drive and one Roblox carries no stamp at all.
+    {
+        const fs::path shared = procRoot.parent_path() / "proc_shared";
+        const std::string drive = (tmp / "shared" / "pfx").string();
+        makeProcEntry(shared, "70", "C:\\v\\RobloxStudioBeta.exe", drive, "900");
+        // The same session's Roblox after it relaunched itself: a different process, same stamp.
+        makeProcEntry(shared, "71", "C:\\v\\RobloxStudioBeta.exe", drive, "900");
+        makeProcEntry(shared, "72", "C:\\v\\RobloxPlayerBeta.exe", drive, "901");
+        makeProcEntry(shared, "73", "C:\\v\\RobloxStudioBeta.exe", drive);
+
+        const std::vector<SessionHolder> live = prefixSessionHoldersIn(shared, drive);
+        assert(live.size() == 4);
+
+        std::vector<std::string> mine;
+        for (const SessionHolder& holder : holdersOfSession(live, "900")) mine.push_back(holder.pid);
+        std::sort(mine.begin(), mine.end()); // /proc is not walked in order
+        assert((mine == std::vector<std::string>{"70", "71"}));
+
+        assert(holdersOfSession(live, "901").size() == 1);
+        // A session whose own Roblox has gone waits for nothing, however much else is in the drive.
+        assert(holdersOfSession(live, "902").empty());
+        // The unstamped one is nobody's, and an unstamped session claims nothing.
+        assert(holdersOfSession(live, "").empty());
+    }
+
     // sessionsToReplace(): only a Player launch replaces anything, and only the
     // live Player clients -- never Studio, never an installer mid-handover.
     std::vector<std::string> replace = sessionsToReplace("RobloxPlayerBeta.exe", holders);
@@ -92,16 +120,34 @@ int main() {
     assert(sessionsToReplace("RobloxPlayerBeta.exe", {}).empty());
 
     // driveExitOnClose(): who takes the virtual drive down as a session closes.
-    // The last one out takes it down; a guest never does; and a session that owns
-    // the drive but is not the last out has to stay until the others leave --
-    // exiting then would leave the drive running with nobody left to close it.
-    std::vector<SessionHolder> studioLeft = {SessionHolder{"51", "robloxstudiobeta.exe", true}};
-    std::vector<SessionHolder> installerLeft = {SessionHolder{"52", "robloxstudioinstaller.exe", false}};
-    assert(driveExitOnClose(true, {}) == DriveExit::TearDownNow);
-    assert(driveExitOnClose(false, {}) == DriveExit::Leave);
-    assert(driveExitOnClose(false, studioLeft) == DriveExit::Leave);
-    assert(driveExitOnClose(true, studioLeft) == DriveExit::WaitThenTearDown);
-    assert(driveExitOnClose(true, installerLeft) == DriveExit::WaitThenTearDown);
+    // Whoever is last out takes it down, whether or not it started the drive;
+    // anybody who still has company leaves it up and goes, because the one that
+    // closes after it will be the last out and will close it then.
+    assert(driveExitOnClose(false) == DriveExit::TearDownNow);
+    assert(driveExitOnClose(true) == DriveExit::Leave);
+
+    // The drive is marked in use while a session is in it, so a drive still marked in use with
+    // nobody running it was cut off rather than closed -- a power cut, or the machine going down.
+    {
+        const fs::path base = tmp / "runtime_state";
+        fs::create_directories(base);
+
+        // Never launched before: nothing to repair.
+        assert(!driveNeedsRepair(base, false));
+
+        markDriveInUse(base);
+        // A session is running in it right now, which is what the mark is for -- not a fault.
+        assert(!driveNeedsRepair(base, true));
+        // Marked in use with nobody left: the last run never got to close it.
+        assert(driveNeedsRepair(base, false));
+
+        markDriveClosed(base);
+        assert(!driveNeedsRepair(base, false));
+
+        // Closing a drive that was never marked is not an error.
+        markDriveClosed(base);
+        assert(!driveNeedsRepair(base, false));
+    }
 
     // otherLayerProcesses(): which layer process is running which session.
     {
@@ -139,6 +185,19 @@ int main() {
         std::vector<std::string> studio =
             otherLayerProcesses(layerRoot, layerBinary, prefixEnv, "RobloxStudioBeta.exe", 64);
         assert((studio == std::vector<std::string>{"61"}));
+
+        // No image named means every session sharing this drive, whatever it launched. The drive's
+        // teardown asks it that way: what matters is whether anybody is left to close the drive,
+        // not which Roblox they happen to be running.
+        std::vector<std::string> any =
+            otherLayerProcesses(layerRoot, layerBinary, prefixEnv, "", 64);
+        std::sort(any.begin(), any.end()); // the answer is a set; /proc is not walked in order
+        assert((any == std::vector<std::string>{"60", "61"}));
+
+        // Still nobody else's: another install and another drive stay out of it.
+        std::vector<std::string> alone =
+            otherLayerProcesses(layerRoot, layerBinary, (tmp / "nowhere").string(), "", 63);
+        assert(alone.empty());
 
         assert(otherLayerProcesses(tmp / "nope", layerBinary, prefixEnv,
                                    "RobloxPlayerBeta.exe", 64).empty());

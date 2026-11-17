@@ -30,6 +30,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <poll.h>
 #include <pthread.h>
 #include <signal.h>
 #include <stdint.h>
@@ -294,6 +295,40 @@ static const char *const host_gbm_backend_dirs[] =
     "/usr/lib/x86_64-linux-gnu/gbm",
 };
 
+/* Where libglvnd's own EGL dispatcher looks for the vendor descriptions that
+ * name a real driver. This bundle ships its own libglvnd, built with
+ * --prefix=/opt/tuxblox-webview, so the paths compiled into that copy
+ * (/opt/tuxblox-webview/{etc,share}/glvnd/egl_vendor.d) exist only inside the
+ * build container. They do not exist on a real install, and glvnd does not
+ * fall back to the host's directories when they are missing -- it finds no
+ * vendor at all and eglGetDisplay() returns EGL_NO_DISPLAY.
+ *
+ * That is not a soft failure in WebKit. The content process calls
+ * PlatformDisplayDefault::create(), which aborts the whole WebKitWebProcess
+ * when EGL cannot come up (Source/WebCore/platform/graphics/egl/
+ * PlatformDisplayDefault.cpp). The user sees a Toolbox or login panel that
+ * never loads, plus a SIGABRT in the journal -- issue #8. It happens whenever
+ * "GPU acceleration for web pages" is on, because that is the branch that
+ * deliberately leaves __EGL_VENDOR_LIBRARY_FILENAMES unset so the host's own
+ * driver can be chosen. With it off, the bundle's JSON is pinned explicitly
+ * and this list is overridden, which is why the crash only showed up on the
+ * default setting.
+ *
+ * The host's directories come first so the person's real driver still wins
+ * (NVIDIA's 10_nvidia.json, Mesa's 50_mesa.json). The bundle's own directory
+ * is appended last as a guaranteed fallback for a machine with no glvnd
+ * vendor installed at all: its Mesa is software-only, but software EGL is
+ * infinitely better than a dead content process.
+ *
+ * Three spellings because distributions disagree and none of them is wrong;
+ * only the ones that exist are appended, same as host_gbm_backend_dirs. */
+static const char *const host_egl_vendor_dirs[] =
+{
+    "/usr/share/glvnd/egl_vendor.d",
+    "/etc/glvnd/egl_vendor.d",
+    "/usr/local/share/glvnd/egl_vendor.d",
+};
+
 /* Part B (Task 7): ported from the pre-Task-3 unixlib.c's
  * set_webkit_relocation_env(), deleted by Task 3's rewrite along with the
  * dlmopen/pthread machinery it used to run alongside. That deletion was
@@ -340,6 +375,18 @@ static void set_webkit_relocation_env(const char *dir)
             if (!stat(host_gbm_backend_dirs[i], &st))
                 append_env("GBM_BACKENDS_PATH", host_gbm_backend_dirs[i]);
     }
+
+    /* The vendor directory the bundle's own glvnd was compiled with does not
+     * exist outside the build container, so point it at the host's real ones
+     * and keep the bundle's own description as the last resort -- see
+     * host_egl_vendor_dirs' comment for the WebProcess abort this prevents.
+     * Appended rather than prepended for the same reason as the GBM backends
+     * above: a value the session already has wins. */
+    for (i = 0; i < ARRAY_SIZE(host_egl_vendor_dirs); i++)
+        if (!stat(host_egl_vendor_dirs[i], &st))
+            append_env("__EGL_VENDOR_LIBRARY_DIRS", host_egl_vendor_dirs[i]);
+    snprintf(path, sizeof(path), "%s/share/glvnd/egl_vendor.d", dir);
+    append_env("__EGL_VENDOR_LIBRARY_DIRS", path);
 
     snprintf(path, sizeof(path), "%s/libexec/gstreamer-1.0/gst-plugin-scanner", dir);
     setenv("GST_PLUGIN_SCANNER", path, 1);
@@ -416,11 +463,13 @@ static void set_webkit_relocation_env(const char *dir)
     /* Which graphics driver this process renders through, and the one thing the
      * "GPU acceleration for web pages" setting actually decides.
      *
-     * The helper links libEGL.so.1/libGLX.so.0, which belong to libglvnd and are
-     * never shipped here: they are dispatchers, and the driver behind them is
-     * chosen from the ICD descriptions in the HOST's /usr/share/glvnd/egl_vendor.d.
-     * That is deliberate. Everybody's own vendor is the one that can drive their
-     * own card, so a proprietary NVIDIA install must reach libEGL_nvidia and a
+     * The helper links libEGL.so.1/libGLX.so.0, which are libglvnd dispatchers.
+     * This bundle ships its own copy of that dispatcher (as of 3.7.1), but the
+     * driver behind it is chosen from the vendor descriptions in the HOST's
+     * /usr/share/glvnd/egl_vendor.d -- see host_egl_vendor_dirs above for why
+     * the dispatcher's own compiled-in paths cannot be used. That is
+     * deliberate. Everybody's own vendor is the one that can drive their own
+     * card, so a proprietary NVIDIA install must reach libEGL_nvidia and a
      * Mesa install must reach Mesa -- naming a vendor here would hand one of
      * those two somebody else's driver.
      *
@@ -1083,9 +1132,92 @@ static BOOL ensure_helper_locked(void)
 /* The raw round-trip: caller holds g_ipc_mutex and has already ensured a live
  * helper. Tears the helper down on any transport failure so the NEXT call
  * respawns rather than writing into a socket whose peer is gone. */
+/* Every call below is a synchronous round trip on the calling thread, and Studio
+ * makes them from the thread that runs its interface, so a helper that is still
+ * alive but has stopped answering takes the whole window down with it: nothing
+ * repaints, nothing closes, and no failure is written anywhere, because as far as
+ * this side is concerned the reply is merely late. A dead helper was always
+ * handled -- its socket closes -- and the live-but-silent one is the case that
+ * was not. Bound the wait instead. The helper bounds its own work at 30 seconds
+ * for a navigation and 10 for cookies and scripts, so a reply still missing well
+ * past all of those means its event loop is stuck rather than busy, and the
+ * helper is worth replacing. TUXBLOX_WEBVIEW_IPC_TIMEOUT overrides the seconds,
+ * and 0 waits for ever, which is what this did before. */
+#define WV2L_REPLY_TIMEOUT_SECS 45
+
+static int reply_timeout_secs(void)
+{
+    static int cached = -1;
+
+    if (cached < 0)
+    {
+        const char *env = getenv("TUXBLOX_WEBVIEW_IPC_TIMEOUT");
+        int secs = env ? atoi(env) : WV2L_REPLY_TIMEOUT_SECS;
+        cached = secs < 0 ? WV2L_REPLY_TIMEOUT_SECS : secs;
+    }
+    return cached;
+}
+
+/* Like ipc_read_full, but gives up once the deadline passes. Only the reply to a
+ * request uses this; the event pump's own read has nothing to wait for and must
+ * stay blocked until the helper sends something or the socket closes. */
+static ssize_t ipc_read_reply(int fd, void *buf, size_t len, BOOL *timed_out)
+{
+    int secs = reply_timeout_secs();
+    struct timespec deadline;
+    size_t done = 0;
+
+    *timed_out = FALSE;
+    if (!secs) return ipc_read_full(fd, buf, len);
+
+    clock_gettime(CLOCK_MONOTONIC, &deadline);
+    deadline.tv_sec += secs;
+
+    while (done < len)
+    {
+        struct pollfd pfd = { .fd = fd, .events = POLLIN };
+        struct timespec now;
+        long remaining;
+        ssize_t n;
+        int ret;
+
+        clock_gettime(CLOCK_MONOTONIC, &now);
+        remaining = (deadline.tv_sec - now.tv_sec) * 1000
+                  + (deadline.tv_nsec - now.tv_nsec) / 1000000;
+        if (remaining <= 0)
+        {
+            *timed_out = TRUE;
+            return -1;
+        }
+
+        ret = poll(&pfd, 1, (int)remaining);
+        if (ret < 0)
+        {
+            if (errno == EINTR) continue;
+            return -1;
+        }
+        if (!ret)
+        {
+            *timed_out = TRUE;
+            return -1;
+        }
+
+        n = read(fd, (char *)buf + done, len - done);
+        if (n == 0) return -1; /* peer closed -- same meaning as in ipc_read_full */
+        if (n < 0)
+        {
+            if (errno == EINTR) continue;
+            return -1;
+        }
+        done += (size_t)n;
+    }
+    return (ssize_t)done;
+}
+
 static BOOL ipc_call_locked(enum wv2l_opcode op, void *req_resp, size_t size)
 {
     uint32_t wire_op = (uint32_t)op;
+    BOOL timed_out = FALSE;
     BOOL ok;
 
     /* Logged before the write so a request that never comes back still names itself. */
@@ -1094,15 +1226,19 @@ static BOOL ipc_call_locked(enum wv2l_opcode op, void *req_resp, size_t size)
     ok = g_helper_fd >= 0
         && ipc_write_full(g_helper_fd, &wire_op, sizeof(wire_op)) == (ssize_t)sizeof(wire_op)
         && ipc_write_full(g_helper_fd, req_resp, size) == (ssize_t)size
-        && ipc_read_full(g_helper_fd, req_resp, size) == (ssize_t)size;
+        && ipc_read_reply(g_helper_fd, req_resp, size, &timed_out) == (ssize_t)size;
 
     if (!ok && g_helper_fd >= 0)
     {
         /* A partial write or a short read also lands here: once framing is
          * broken there is no way to resynchronise a stream protocol with no
          * request IDs, so the connection is finished either way. */
-        WARN("IPC round-trip for opcode %u failed (%s) -- tearing down the helper; "
-             "the next call will respawn it\n", (unsigned)op, strerror(errno));
+        if (timed_out)
+            ERR("the web view helper did not answer opcode %u within %d seconds -- restarting it; "
+                "the panel it was drawing will go blank and come back\n", (unsigned)op, reply_timeout_secs());
+        else
+            WARN("IPC round-trip for opcode %u failed (%s) -- tearing down the helper; "
+                 "the next call will respawn it\n", (unsigned)op, strerror(errno));
         helper_teardown_locked();
     }
     return ok;

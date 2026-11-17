@@ -53,6 +53,9 @@ public:
     // the user or Roblox added.
     void removeTrackedFiles(Removal removal = Removal::All);
 
+    // Lays TuxBlox's own files in the prefix down again, keeping the registry and whatever Roblox installed.
+    void rebuildTrackedFiles();
+
     std::filesystem::path prefixDir;
 
 private:
@@ -70,11 +73,17 @@ private:
     std::string accountFolder() const;
     void migrateAccountFolder();
     void recordWebViewMode();
+    void recordShortcutTranslation();
     void restoreWebViewRuntime();
     void syncWebViewVersionKeys(bool microsoft);
     void migrateUserPaths();
     void canonicaliseRegistryPaths();
     void linkHostUserFolders();
+    std::filesystem::path robloxDataDir(const std::filesystem::path& installRoot) const;
+    std::filesystem::path currentRobloxDataDir(const std::filesystem::path& robloxData,
+                                               const std::filesystem::path& installRoot) const;
+    bool moveFolderAndLink(const std::filesystem::path& from, const std::filesystem::path& to);
+    void splitRobloxDataFolders(const std::filesystem::path& dataDir);
     void linkRobloxData();
     void linkTempDir();
     void syncHostTheme();

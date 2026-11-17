@@ -1308,6 +1308,30 @@ static BOOL write_desktop_entry(const WCHAR *link, const WCHAR *location, const 
     return TRUE;
 }
 
+/* The programs whose desktop shortcut becomes a desktop entry. Mirrors the list in
+ * launcher/src/wine_shortcut_export.cpp, which writes that entry: anything else is left on the
+ * desktop as it is, because nothing would write one for it. */
+static BOOL is_translated_client( const WCHAR *image )
+{
+    return !wcsicmp( image, L"robloxplayerbeta.exe" ) || !wcsicmp( image, L"robloxstudiobeta.exe" );
+}
+
+/* Whether a shortcut on the desktop is to become a desktop entry instead. Recorded in the drive by
+ * the compatibility layer, not passed in the environment: TuxBlox's own variables are deliberately
+ * kept out of the environment block a Windows process can read.
+ *
+ * @@ Wine registry key: HKCU\Software\TuxBlox
+ */
+static BOOL translate_desktop_links(void)
+{
+    WCHAR value[8];
+    DWORD size = sizeof(value);
+
+    if (RegGetValueW( HKEY_CURRENT_USER, L"Software\\TuxBlox", L"TranslateWindowsShortcuts",
+                      RRF_RT_REG_SZ, NULL, value, &size )) return FALSE;
+    return IS_OPTION_TRUE( value[0] );
+}
+
 static BOOL write_menu_entry(const WCHAR *windows_link, const WCHAR *link, const WCHAR *path, const WCHAR *args,
                              const WCHAR *descr, const WCHAR *workdir, const WCHAR *icon, const WCHAR *wmclass)
 {
@@ -2219,6 +2243,20 @@ static BOOL InvokeShellLinker( IShellLinkW *sl, LPCWSTR link, BOOL bWait )
         r = !write_menu_entry(link, link_name, link, NULL, szDescription, szWorkDir, icon_name, szWMClass);
 
     ReleaseSemaphore( hsem, 1, NULL );
+
+    /* The user's desktop directory is their own, so a .lnk left there is a file nothing on the
+     * desktop can open. Moved beside the entry rather than deleted, because the launcher writes the
+     * desktop entry that replaces it and has to find it to know one is wanted. Only once the entry
+     * above holds the executable, never the .lnk itself; a move that fails leaves it where it is. */
+    if (r == 0 && csidl == CSIDL_DESKTOPDIRECTORY && szPath[0] &&
+        is_translated_client( PathFindFileNameW( szPath ) ) && translate_desktop_links())
+    {
+        WCHAR *taken_off = heap_wprintf( L"c:\\proton_shortcuts\\%s", PathFindFileNameW( link ) );
+        /* COPY_ALLOWED because the desktop directory is the user's own and often on another filesystem than the drive, which a plain rename refuses. */
+        if (!MoveFileExW( link, taken_off, MOVEFILE_REPLACE_EXISTING | MOVEFILE_COPY_ALLOWED ))
+            WINE_WARN("couldn't take %s off the desktop\n", wine_dbgstr_w(link));
+        heap_free( taken_off );
+    }
 
 cleanup:
     if (hsem) CloseHandle( hsem );

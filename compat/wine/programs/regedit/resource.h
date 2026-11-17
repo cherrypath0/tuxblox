@@ -79,7 +79,6 @@
 #define ID_REGISTRY_EXPORTREGISTRYFILE  32790
 #define ID_REGISTRY_PRINT               32793
 #define ID_HELP_HELPTOPICS              32794
-#define ID_HELP_ABOUT                   32795
 #define ID_WINDOW_CASCADE               32797
 #define ID_WINDOW_TILE                  32798
 #define ID_WINDOW_ARRANGEICONS          32799

@@ -46,4 +46,21 @@ SessionsView sessionsView(const std::vector<Session>& sessions, std::time_t now)
 // The same view with only what matches `query`, ignoring case, across the app's name and the line under it. An empty query keeps everything.
 SessionsView filterSessions(const SessionsView& view, const std::string& query);
 
+// Where the log view sits, taken straight from its scroll position.
+struct LogScrollState {
+    double upper = 0.0;
+    double pageSize = 0.0;
+    double value = 0.0;
+};
+
+// Whether the reader has scrolled away from the end of the log, and so should be left where they
+// are rather than pulled along by every line that arrives.
+//
+// Judged on the move rather than the distance alone, because a burst of lines opens the same gap a
+// reader scrolling up does: the range grows under a view that has not caught up to its own end yet,
+// and reading that as the reader leaving is what stopped the log following during a flood of them.
+// So a move that came with the range changing keeps whatever was decided before it, and only a move
+// within a range that stayed put is the reader's. Arriving at the end by any means follows again.
+bool readerLeftLogTail(const LogScrollState& before, const LogScrollState& now, bool wasAway);
+
 } // namespace tuxblox

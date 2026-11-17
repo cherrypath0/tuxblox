@@ -1702,8 +1702,8 @@ NTSTATUS WINAPI NtOpenThread( HANDLE *handle, ACCESS_MASK access,
      * The Roblox Player's layer branches on this call's status, and the failure side
      * releases a stack allocation made much earlier, so forcing a failure here does
      * remove its startup crash. But the same call was then measured on a real Windows
-     * machine (workspace/tests/otprobe-windows.txt) and Windows RETURNS SUCCESS for it,
-     * exactly as we do. So failing it is not what Windows does -- it only balances the
+     * machine, and Windows RETURNS SUCCESS for it, exactly as we do. So failing it is
+     * not what Windows does -- it only balances the
      * stack by hand, and shipping it would assert something false about the system.
      * TUXBLOX_TEST_OPENTHREAD_FAIL=<hex status>, self-open with ALL_ACCESS only. */
     if (!ret && access == 0x1fffff && id &&
@@ -2230,8 +2230,8 @@ static BOOL is_process_wow64( const CLIENT_ID *id )
     return ret;
 }
 
-/* How every thread information class answers, measured on Windows 11 24H2 with
- * workspace/tests/thrprobe.exe. Roblox sweeps all of them in order while
+/* How every thread information class answers, measured on Windows 11 24H2 by
+ * asking for each in turn. Roblox sweeps all of them in order while
  * starting and reads how each one refuses; what a class refuses with tells it
  * as much as what an answer contains, and answering 43 of them from one
  * "not supported yet" branch is a single flat signature no real system has.
@@ -2239,6 +2239,15 @@ static BOOL is_process_wow64( const CLIENT_ID *id )
  * Note Windows never answers a thread class with STATUS_NOT_IMPLEMENTED, and
  * that its table ends at 59 -- everything above that is an invalid class.
  * Only classes without their own case below are answered from here. */
+/* Measured on Windows 10.0.26300. Same cause as the process table's: the sweep that built this
+ * one started its size list at 8, so every class taking a plain ULONG was recorded as refusing at
+ * every size when Windows answers it. */
+static const unsigned char thr_zero_4[4];
+static const unsigned char thr_two_4[4]    = { 0x02 };
+static const unsigned char thr_five_4[4]   = { 0x05 };
+static const unsigned char thr_eight_4[4]  = { 0x08 };
+static const unsigned char thr_41_data[16] = { 0xff, 0x0f };
+
 static const unsigned char thr_11_data[8];
 static const unsigned char thr_34_data[1];
 static const unsigned char thr_37_data[16];
@@ -2246,7 +2255,7 @@ static const unsigned char thr_59_data[] = { 0x01, 0x00, 0x00, 0x00, 0x01, 0x00,
 
 static const struct known_class known_thread_classes[] =
 {
-    /* Measured on Windows 11 25H2 with workspace/tests/infoprobe. Only the
+    /* Measured on Windows 11 25H2. Only the
      * classes whose answer says nothing about the particular machine are
      * filled in; the ones carrying an affinity mask, an address or a cookie
      * are left refusing rather than given this machine's. */
@@ -2273,13 +2282,13 @@ static const struct known_class known_thread_classes[] =
     {  15, 0xc0000003, NO_LENGTH },
     {  16, 0xc0000004, NO_LENGTH },
     {  17, 0xc0000004, NO_LENGTH },
-    {  18, 0xc0000004, NO_LENGTH },
+    {  18, 0xc0000004,   4, thr_zero_4, 4 },
     {  19, 0xc0000003, NO_LENGTH },
     {  20, 0xc0000004, NO_LENGTH },
-    {  22, 0xc0000004, NO_LENGTH },
+    {  22, 0xc0000004,   4, thr_two_4, 4 },
     {  23, 0xc0000004, NO_LENGTH },
-    {  24, 0xc0000004, NO_LENGTH },
-    {  25, 0xc0000004, NO_LENGTH },
+    {  24, 0xc0000004,   4, thr_five_4, 4 },
+    {  25, 0xc0000004,   4, thr_eight_4, 4 },
     {  26, 0xc0000004, NO_LENGTH },
     {  27, 0xc0000003, NO_LENGTH },
     {  28, 0xc0000003, NO_LENGTH },
@@ -2290,16 +2299,16 @@ static const struct known_class known_thread_classes[] =
     {  33, 0xc0000004, NO_LENGTH },
     {  34, 0xc0000004, NO_LENGTH },
     {  35, 0xc0000004, NO_LENGTH },
-    {  36, 0xc0000004, NO_LENGTH },
+    {  36, 0xc0000004,   4, thr_five_4, 4 },
     {  37, 0xc0000004, NO_LENGTH },
     {  38, 0xc0000023,       16  },
     {  39, 0x00000000,        8  },
     {  40, 0xc0000004, NO_LENGTH },
-    {  41, 0xc0000004, NO_LENGTH },
-    {  42, 0xc0000004, NO_LENGTH },
-    {  43, 0xc0000004, NO_LENGTH },
+    {  41, 0xc0000004,  16, thr_41_data, 16 },
+    {  42, 0xc0000004,   4, thr_zero_4, 4 },
+    {  43, 0xc0000004,   4, thr_zero_4, 4 },
     {  44, 0xc0000004, NO_LENGTH },
-    {  45, 0xc0000004, NO_LENGTH },
+    {  45, 0xc0000004,   4, thr_zero_4, 4 },
     {  46, 0xc0000003, NO_LENGTH },
     {  47, 0xc0000003, NO_LENGTH },
     {  48, 0xc0000003, NO_LENGTH },
@@ -2308,8 +2317,8 @@ static const struct known_class known_thread_classes[] =
     {  51, 0xc0000003, NO_LENGTH },
     {  52, 0xc0000003, NO_LENGTH },
     {  53, 0xc0000003, NO_LENGTH },
-    {  54, 0xc0000004, NO_LENGTH },
-    {  55, 0xc0000004, NO_LENGTH },
+    {  54, 0xc0000004,   4, thr_two_4, 4 },
+    {  55, 0xc0000004,   4, thr_five_4, 4 },
     {  56, 0xc0000003, NO_LENGTH },
     {  57, 0xc0000004, NO_LENGTH },
     {  58, 0xc0000004, NO_LENGTH },
@@ -2620,8 +2629,8 @@ static NTSTATUS query_information_thread( HANDLE handle, THREADINFOCLASS class,
         ULONG64 first_arg = 0;
         UINT id = 0;
 
-        /* Measured on Windows 11 25H2 with workspace/tests/lastsysprobe, and
-         * every line of it contradicts the shape this class looks like it
+        /* Measured on Windows 11 25H2, and every line of that capture
+         * contradicts the shape this class looks like it
          * should have:
          *
          *  - the length must be exactly one of the two struct versions, 16 or
@@ -2837,7 +2846,7 @@ static NTSTATUS query_information_thread( HANDLE handle, THREADINFOCLASS class,
         /* Of the 91 thread classes the reference machine has, only these
          * report the length they want when the buffer is the wrong size --
          * every other class leaves the caller's variable alone. This build
-         * reported it for seven. Measured with workspace/tests/infoprobe.exe.
+         * reported it for seven, measured on Windows.
          * ThreadNameInformation answers for itself further up. */
         BOOL reports_length = (class == ThreadNameInformation ||
                                class == ThreadSelectedCpuSets ||

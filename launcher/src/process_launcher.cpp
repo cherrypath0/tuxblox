@@ -14,7 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
+#include "flag_startup.h"
 #include "process_launcher.h"
+#include "i18n.h"
 #include "root_guard.h"
 #include "launch_paths.h"
 
@@ -24,11 +26,13 @@
 #include "versions_manifest.h"
 #include <atomic>
 #include <chrono>
+#include <cerrno>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
 #include <fcntl.h>
 #include <filesystem>
+#include <cstdio>
 #include <fstream>
 #include <mutex>
 #include <signal.h>
@@ -42,16 +46,54 @@ namespace tuxblox {
 
 const char* exitCodeTitle(int exitCode) {
     switch (exitCode) {
-        case 0:   return "OK";
-        case 1:   return "General Error";
-        case 127: return "Not Executable";
-        case 132: return "Illegal CPU instruction";
-        case 134: return "Aborted";
-        case 137: return "Killed";
-        case 139: return "Segmentation Fault";
-        case 143: return "Terminated";
+        case 0:   return i18n::tr("OK");
+        case 1:   return i18n::tr("General Error");
+        case 127: return i18n::tr("Not Executable");
+        case 132: return i18n::tr("Illegal CPU instruction");
+        case 134: return i18n::tr("Aborted");
+        case 137: return i18n::tr("Killed");
+        case 139: return i18n::tr("Segmentation Fault");
+        case 143: return i18n::tr("Terminated");
+        // Windows statuses, which is what a crashing Roblox exits with and so what the popup actually shows: the codes above are the host's, and findRealExitCodeInLog never returns one of them.
+        case static_cast<int>(0x80000003): return i18n::tr("Breakpoint");
+        case static_cast<int>(0x80000101): return i18n::tr("Assertion failed");
+        case static_cast<int>(0xC0000005): return i18n::tr("Access Violation");
+        case static_cast<int>(0xC000001D): return i18n::tr("Illegal CPU instruction");
+        case static_cast<int>(0xC0000094): return i18n::tr("Division by Zero");
+        case static_cast<int>(0xC00000FD): return i18n::tr("Stack Overflow");
+        case static_cast<int>(0xC0000135): return i18n::tr("Missing Library");
+        case static_cast<int>(0xC0000139): return i18n::tr("Missing Library Entry Point");
+        case static_cast<int>(0xC000013A): return i18n::tr("Interrupted");
+        case static_cast<int>(0xC0000142): return i18n::tr("Library Failed to Start");
+        case static_cast<int>(0xC0000374): return i18n::tr("Heap Corruption");
+        case static_cast<int>(0xC0000409): return i18n::tr("Stack Buffer Overrun");
         default:  return nullptr; // not in the table -- caller shows the bare code, no made-up description
     }
+}
+
+void appendSessionLine(const std::string& logPath, const std::string& message) {
+    if (logPath.empty()) return;
+
+    // Counted from when this watcher started, which is the session it is writing about.
+    static const std::chrono::steady_clock::time_point started = std::chrono::steady_clock::now();
+    const double elapsed =
+        std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
+
+    struct timespec now {};
+    struct tm utc {};
+    if (::clock_gettime(CLOCK_REALTIME, &now) != 0 || ::gmtime_r(&now.tv_sec, &utc) == nullptr) return;
+
+    char head[96];
+    const int length = std::snprintf(
+        head, sizeof(head), "%04d-%02d-%02dT%02d:%02d:%02d.%03dZ,%.6f,%04x,6,Info TuxBlox: ",
+        utc.tm_year + 1900, utc.tm_mon + 1, utc.tm_mday, utc.tm_hour, utc.tm_min, utc.tm_sec,
+        static_cast<int>(now.tv_nsec / 1000000), elapsed,
+        static_cast<unsigned>(::getpid()) & 0xffffu);
+    if (length <= 0) return;
+
+    std::ofstream out(logPath, std::ios::binary | std::ios::app);
+    if (!out) return;
+    out << std::string(head, static_cast<size_t>(length)) << message << "\n";
 }
 
 std::optional<int> findRealExitCodeInLog(const std::string& logPath) {
@@ -270,11 +312,52 @@ std::string launchLogPath(const std::string& installDir, LaunchTarget target) {
            std::to_string(getpid()) + ".log";
 }
 
+bool launchRegistryEditor(const std::string& installDir) {
+    const std::string exePath = installDir + "/runtime/pfx/drive_c/windows/regedit.exe";
+    std::error_code ec;
+    if (!fs::exists(exePath, ec) || ec) return false;
+
+    std::vector<std::string> argv = {compatBinaryPath(installDir), "run", "--immediate"};
+    if (allowRoot()) argv.push_back("--allow-root");
+    argv.push_back(exePath);
+
+    std::vector<char*> cargv;
+    cargv.reserve(argv.size() + 1);
+    for (const std::string& argument : argv) cargv.push_back(const_cast<char*>(argument.c_str()));
+    cargv.push_back(nullptr);
+    // Either app gives the same two variables; only Studio's adds a setting for its web panels.
+    const std::vector<std::string> env = launchEnvVars(installDir, LaunchTarget::Player);
+
+    // Two forks and a session of its own, so closing the window leaves it running and no child is
+    // left for this process to collect.
+    const pid_t outer = fork();
+    if (outer < 0) return false;
+    if (outer == 0) {
+        if (fork() == 0) {
+            setsid();
+            // In the child, single-threaded: setenv() is not safe beside the launcher's own threads.
+            for (const std::string& pair : env) {
+                const size_t equals = pair.find('=');
+                if (equals != std::string::npos) {
+                    setenv(pair.substr(0, equals).c_str(), pair.substr(equals + 1).c_str(), 1);
+                }
+            }
+            execvp(cargv[0], cargv.data());
+            _exit(127);
+        }
+        _exit(0);
+    }
+    int status = 0;
+    while (waitpid(outer, &status, 0) < 0 && errno == EINTR) {
+    }
+    return true;
+}
+
 LaunchOutcome ProcessLauncher::launch(LaunchTarget target, const std::string& uri,
                                        const std::vector<std::string>& extraEnv) {
     TrackedProcess& p = processFor(target);
     if (p.isRunning()) {
-        return {false, "already running", "", false};
+        return {false, i18n::tr("already running"), "", false};
     }
 
     std::string exePath = resolveActiveVersionExePath(target, installDir_);
@@ -290,7 +373,7 @@ LaunchOutcome ProcessLauncher::launch(LaunchTarget target, const std::string& ur
         wasBootstrapInstall = !exePath.empty() && resolveExePath(target, driveC).empty();
     }
     if (exePath.empty()) {
-        return {false, "could not resolve or download the Roblox executable", "", false};
+        return {false, i18n::tr("could not resolve or download the Roblox executable"), "", false};
     }
 
     // Applied in the child (via TrackedProcess::start's env overlay) rather
@@ -298,6 +381,7 @@ LaunchOutcome ProcessLauncher::launch(LaunchTarget target, const std::string& ur
     // setenv()/getenv() are not thread-safe in glibc, and this (parent)
     // process has other threads that may call getenv() concurrently.
     std::vector<std::string> env = launchEnvVars(installDir_, target);
+    for (const std::string& kv : flagEnvVars(installDir_)) env.push_back(kv);
     env.insert(env.end(), extraEnv.begin(), extraEnv.end());
 
     // Multi-instance. A launch into a prefix that already has a live Roblox
@@ -339,7 +423,7 @@ LaunchOutcome ProcessLauncher::launch(LaunchTarget target, const std::string& ur
     const std::string logPath = launchLogPath(installDir_, target);
 
     if (!p.start(argv, env, logPath)) {
-        return {false, "failed to start Proton process", "", false};
+        return {false, i18n::tr("failed to start Proton process"), "", false};
     }
     return {true, "", logPath, wasBootstrapInstall};
 }

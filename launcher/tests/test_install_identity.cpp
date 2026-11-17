@@ -18,6 +18,7 @@
 // screens of the same window is the failure this exists to prevent.
 
 #include "install_identity.h"
+#include "release_stamp.h"
 
 #include <cassert>
 #include <cstdio>
@@ -69,9 +70,19 @@ void test_the_release_is_not_the_launcher_version() {
     printf("  the release is not the launcher version\n");
 }
 
+// These tests run against an unstamped binary, which is what every local build is, so they also
+// pin the fallback the stamp path leaves behind. The stamped path is covered by its one reachable
+// claim: whatever the record says, an unstamped build never invents a release out of nothing.
+void test_an_unstamped_build_names_no_release_of_its_own() {
+    assert(releaseVersion().empty());
+    assert(!installIdentity("", "stable", "3.5.0").isRelease);
+    printf("  an unstamped build names no release of its own\n");
+}
+
 } // namespace
 
 int main() {
+    test_an_unstamped_build_names_no_release_of_its_own();
     test_a_recorded_release_is_what_names_the_install();
     test_an_install_with_no_record_falls_back_to_this_program();
     test_a_channel_is_never_reported_without_a_release();
