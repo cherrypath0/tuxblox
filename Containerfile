@@ -71,10 +71,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         gettext \
     && rm -rf /var/lib/apt/lists/*
 
-# Wayland, for GTK rather than for Wine. The layer is configured --without-wayland, so Wine no
-# longer builds a Wayland driver, but the interface stack is built in here too and GTK silently
-# drops its Wayland backend when these are missing, leaving a stack that looks fine and is quietly
-# X11-only. Do not remove them: the Makefile's UI_BUILD fails the build over exactly that.
+# Wayland, for Wine's second display backend and for GTK. Wine falls back to it when there is no X
+# display to open, and the interface stack is built in here too, where GTK silently drops its
+# Wayland backend when these are missing, leaving a stack that looks fine and is quietly X11-only.
+# Do not remove them: the layer's post-build check and the Makefile's UI_BUILD both fail over it.
 # wayland-protocols is not needed, only wayland-scanner (libwayland-bin) to compile protocol XML.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libwayland-dev libwayland-dev:i386 \

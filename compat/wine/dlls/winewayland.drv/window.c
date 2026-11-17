@@ -154,7 +154,7 @@ static void wayland_win_data_get_config(struct wayland_win_data *data,
     enum wayland_surface_config_state window_state = 0;
     DWORD style;
 
-    conf->rect = data->rects.window;
+    conf->rect = data->rects.visible;
     conf->client_rect = data->rects.client;
     style = NtUserGetWindowLongW(data->hwnd, GWL_STYLE);
 
@@ -405,6 +405,42 @@ static BOOL is_window_managed(HWND hwnd, UINT swp_flags, BOOL fullscreen)
 }
 
 /***********************************************************************
+ *           wayland_style_is_decorated
+ *
+ * Whether the desktop draws this window's frame. Asked both when the frame is requested and when
+ * the window is measured, which have to agree or the two of us each draw a title bar.
+ */
+BOOL wayland_style_is_decorated(UINT style, UINT ex_style)
+{
+    if (ex_style & (WS_EX_TOOLWINDOW | WS_EX_LAYERED)) return FALSE;
+    return (style & WS_CAPTION) == WS_CAPTION;
+}
+
+/***********************************************************************
+ *           WAYLAND_GetWindowStyleMasks
+ *
+ * Says which parts of the frame the desktop draws, so Wine leaves them out of the window instead of
+ * drawing a title bar of its own underneath the desktop's.
+ */
+BOOL WAYLAND_GetWindowStyleMasks(HWND hwnd, UINT style, UINT ex_style, UINT *style_mask,
+                                 UINT *ex_style_mask)
+{
+    /* Answered from the style alone, never from the surface: a window is measured before it has
+     * one, and a frame that only stops being ours once the compositor replies is one the first
+     * layout draws twice. */
+    if (!process_wayland.zxdg_decoration_manager_v1) return FALSE;
+
+    *style_mask = *ex_style_mask = 0;
+    if (wayland_style_is_decorated(style, ex_style))
+    {
+        *style_mask |= WS_CAPTION | WS_DLGFRAME | WS_THICKFRAME;
+        *ex_style_mask |= WS_EX_DLGMODALFRAME;
+    }
+
+    return TRUE;
+}
+
+/***********************************************************************
  *           WAYLAND_DestroyWindow
  */
 void WAYLAND_DestroyWindow(HWND hwnd)
@@ -495,7 +531,7 @@ static void wayland_configure_window(HWND hwnd)
     BOOL needs_enter_size_move = FALSE;
     BOOL needs_exit_size_move = FALSE;
     struct wayland_win_data *data;
-    RECT rect;
+    RECT rect, window_rect, visible_rect;
 
     if (!(data = wayland_win_data_get(hwnd))) return;
     if (!(surface = data->wayland_surface))
@@ -576,6 +612,9 @@ static void wayland_configure_window(HWND hwnd)
     wayland_surface_coords_to_window(surface, width, height,
                                      &window_width, &window_height);
 
+    window_rect = data->rects.window;
+    visible_rect = data->rects.visible;
+
     wayland_win_data_release(data);
 
     TRACE("processing=%dx%d,%#x\n", width, height, state);
@@ -601,8 +640,14 @@ static void wayland_configure_window(HWND hwnd)
         flags |= SWP_NOSENDCHANGING;
     }
 
+    /* The compositor sizes the surface, which is the window without the frame the desktop draws
+     * around it, so put that frame back before this is a window rect again. */
     SetRect(&rect, 0, 0, window_width, window_height);
-    OffsetRect(&rect, data->rects.window.left, data->rects.window.top);
+    OffsetRect(&rect, visible_rect.left, visible_rect.top);
+    rect.left -= visible_rect.left - window_rect.left;
+    rect.top -= visible_rect.top - window_rect.top;
+    rect.right += window_rect.right - visible_rect.right;
+    rect.bottom += window_rect.bottom - visible_rect.bottom;
     NtUserSetRawWindowPos(hwnd, rect, flags, FALSE);
 }
 

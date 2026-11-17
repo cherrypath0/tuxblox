@@ -458,17 +458,11 @@ WINE_SOURCE_ARGS = \
 ## table of every module it finds, so a section that only a GNU toolchain emits
 ## is a fingerprint on all of them at once. It carries no meaning on Windows;
 ## only debug-info matching uses it.
-## --without-wayland drops a driver nothing here can select. explorer resolves
-## "mac,x11,wayland" in order and x11 always answers first on this platform, so
-## winewayland.drv was only ever a Wine-named file sitting in the virtual drive.
-## It also turns missing X11 development files into a configure error rather than
-## a notice, which is what this build wants: no X11 means no display driver.
 WINE_AUTOCONF_ARGS = \
   --enable-werror \
   --with-mingw=$(MINGW_TYPE) \
   --disable-tests \
   --disable-build-id \
-  --without-wayland \
   --without-ffmpeg \
   --without-vosk \
   --without-piper
@@ -514,6 +508,10 @@ $(OBJ)/.wine-post-source:
 	touch $@
 
 $(OBJ)/.wine-x86_64-post-build:
+	@# Wine only warns when a backend's headers are missing, and one backend is no fallback chain.
+	for drv in dispumd.so winewayland.so; do \
+	  test -f $(WINE_x86_64_DST)/lib/wine/x86_64-unix/$$drv || { echo "display backend $$drv was not built" >&2; exit 1; }; \
+	done
 	mkdir -p $(DST_DIR)/bin
 	$(call install-strip,$(WINE_x86_64_DST)/bin/wine,$(DST_DIR)/bin)
 	$(call install-strip,$(WINE_x86_64_DST)/bin/wineserver,$(DST_DIR)/bin)

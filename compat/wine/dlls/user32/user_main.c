@@ -18,6 +18,8 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+#include <stdlib.h>
+
 #include "ntstatus.h"
 #define WIN32_NO_STATUS
 #include "user_private.h"
@@ -25,6 +27,7 @@
 #include "imm.h"
 #include "immdev.h"
 #include "wine/debug.h"
+#include "wine/unixlib.h"
 
 
 WINE_DEFAULT_DEBUG_CHANNEL(graphics);
@@ -187,6 +190,34 @@ static NTSTATUS WINAPI User32DragDropPost( void *args, ULONG size )
 {
     const struct drag_drop_post_params *params = args;
     drag_drop_post( params->hwnd, params->drop_size, (DROPFILES *)&params->drop );
+    return STATUS_SUCCESS;
+}
+
+static DWORD WINAPI driver_thread( void *arg )
+{
+    struct start_driver_thread_params params = *(struct start_driver_thread_params *)arg;
+
+    free( arg );
+    return __wine_unix_call( params.unix_funcs, params.code, NULL );
+}
+
+/* A display backend is loaded on the unix side and has no module of its own to run a DllMain, so
+   an event loop of its that calls back into NtUser gets its Win32 thread from here instead. */
+static NTSTATUS WINAPI User32StartDriverThread( void *args, ULONG size )
+{
+    struct start_driver_thread_params *params;
+    HANDLE thread;
+
+    if (!(params = malloc( sizeof(*params) ))) return STATUS_NO_MEMORY;
+    *params = *(const struct start_driver_thread_params *)args;
+
+    if (!(thread = CreateThread( NULL, 0, driver_thread, params, 0, NULL )))
+    {
+        ERR( "failed to start a driver thread, err %lu\n", GetLastError() );
+        free( params );
+        return STATUS_UNSUCCESSFUL;
+    }
+    CloseHandle( thread );
     return STATUS_SUCCESS;
 }
 

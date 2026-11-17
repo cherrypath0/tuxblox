@@ -54,6 +54,28 @@ static WCHAR driver_load_error[80];
  * shortcut: the backend has to sit beside this library, which holds in an installed layer but not in
  * a Wine build tree where each dll has its own directory, to upgrade when a build-tree run is wanted.
  */
+/* A backend that needs a thread of its own cannot make one: it has no module here to run a DllMain,
+ * and its loop calls NtUser, which a bare pthread of ours has no business entering. user32 makes it.
+ */
+static void start_driver_thread( void *handle, const unixlib_entry_t *entries, UINT code )
+{
+    struct start_driver_thread_params params = {.code = code};
+    void *ret_ptr;
+    ULONG ret_len;
+
+    /* A 32-bit caller reaches the other table, the way NtQueryVirtualMemory hands each one its own. */
+    if (NtCurrentTeb()->WowTebOffset) entries = dlsym( handle, "__wine_unix_call_wow64_funcs" );
+    if (!entries)
+    {
+        ERR( "no wow64 entry points for the display backend\n" );
+        return;
+    }
+
+    params.unix_funcs = (UINT_PTR)entries;
+    if (KeUserModeCallback( NtUserStartDriverThread, &params, sizeof(params), &ret_ptr, &ret_len ))
+        ERR( "failed to start the display backend's event thread\n" );
+}
+
 static BOOL load_unix_driver( const WCHAR *name, ULONG len )
 {
     /* The module load this replaced was idempotent AND serialised by the loader lock: a second
@@ -64,9 +86,9 @@ static BOOL load_unix_driver( const WCHAR *name, ULONG len )
     static pthread_mutex_t init_mutex = PTHREAD_MUTEX_INITIALIZER;
     static BOOL initialised;
 
-    const unixlib_entry_t *entries;
+    const unixlib_entry_t *entries, *dispatch = NULL;
     char path[MAX_PATH], *sep;
-    void *handle;
+    void *handle, *dispatch_handle = NULL;
     Dl_info info;
     ULONG i, n = len / sizeof(WCHAR);
 
@@ -101,8 +123,21 @@ static BOOL load_unix_driver( const WCHAR *name, ULONG len )
     }
     if (!entries[0]( NULL )) initialised = TRUE;
 
+    /* The compositor's event queue is dispatched nowhere else in winewayland.drv: upstream reads it
+     * on a thread its DllMain starts, and that entry point is not run here. Without the loop no
+     * surface is ever configured, so every window stays blank and the compositor's ping goes
+     * unanswered. The index is waylanddrv_unix_func_read_events, in dlls/winewayland.drv/unixlib.h.
+     */
+    if (initialised && !strcmp( sep, "winewayland.so" ))
+    {
+        dispatch = entries;
+        dispatch_handle = handle;
+    }
+
 done:
     pthread_mutex_unlock( &init_mutex );
+    /* Outside the lock: this runs user-mode code, which has no business waiting on one of ours. */
+    if (dispatch) start_driver_thread( dispatch_handle, dispatch, 1 );
     return initialised;
 }
 

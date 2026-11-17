@@ -1123,9 +1123,10 @@ static void install_lib_dir( WCHAR *dest, WCHAR *file, const WCHAR *wildcard,
         if (!wcscmp( data.name, L"." )) continue;
         if (!wcscmp( data.name, L".." )) continue;
         if (!wcscmp( data.name, L"amd_ags_x64.dll" )) continue;
-        /* Nothing loads the graphics driver's PE: win32u loads the backend on the unix side, the
-           way Windows keeps this in the kernel. A copy in the virtual drive would serve no one. */
+        /* Nothing loads a graphics backend's PE: win32u loads them on the unix side, the way
+           Windows keeps this in the kernel. A copy in the virtual drive would serve no one. */
         if (!wcscmp( data.name, L"dispumd.dll" )) continue;
+        if (!wcscmp( data.name, L"winewayland.drv" )) continue;
         lstrcpyW( name, data.name );
         if (default_ext)  /* inside build dir */
         {
