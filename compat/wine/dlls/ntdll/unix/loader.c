@@ -38,6 +38,9 @@
 #include <sys/mman.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#ifdef HAVE_SYS_UTSNAME_H
+# include <sys/utsname.h>
+#endif
 #include <malloc.h>
 #include <dlfcn.h>
 #ifdef HAVE_PWD_H
@@ -91,6 +94,7 @@
 #include "winioctl.h"
 #include "winternl.h"
 #include "unix_private.h"
+#include "tuxblox_integrity.h"
 #include "wine/list.h"
 #include "ntsyscalls.h"
 #include "wine/debug.h"
@@ -1470,6 +1474,39 @@ static NTSTATUS unixcall_relocate_module( void *args )
     return virtual_relocate_module( params->module );
 }
 
+/* TuxBlox says what it is here on purpose. An anti-tamper vendor that wants to
+ * recognise this compatibility layer should be able to ask it directly instead
+ * of inferring it from behaviour, so ntdll exports tuxblox_get_version,
+ * tuxblox_get_kernel and tuxblox_get_arch.
+ *
+ * The version those report is the layer's own, compiled in, so that nothing on
+ * disk and no setting decides what this answers. Neither a release nor a
+ * channel is reported: one layer build ships in several releases, and the same
+ * build serves every channel, so both are properties of the install rather than
+ * of this binary and are resolved from the version instead. */
+/* The names TuxBlox's own component layout uses, not whatever the kernel calls
+ * the processor, so an answer here matches the paths a release is served from. */
+static const char *tuxblox_arch_name( const char *machine )
+{
+    if (!strcmp( machine, "aarch64" ) || !strcmp( machine, "arm64" )) return "arm64";
+    if (!strcmp( machine, "x86_64" ) || !strcmp( machine, "amd64" )) return "x86_64";
+    return "unknown";
+}
+
+NTSTATUS tuxblox_info( void *args )
+{
+    struct utsname buf;
+    char kernel[200];
+
+    memset( &buf, 0, sizeof(buf) );
+    uname( &buf );
+    /* Every field carries its own precision so the two together provably fit the
+     * caller's buffer, which a plain %s of the utsname arrays cannot show. */
+    snprintf( kernel, sizeof(kernel), "%.64s %.64s %.64s", buf.sysname, buf.release, buf.machine );
+    snprintf( args, TUXBLOX_INFO_LEN, "%.199s%c%.31s", kernel, 0, tuxblox_arch_name( buf.machine ) );
+    return STATUS_SUCCESS;
+}
+
 static const unixlib_entry_t unix_call_funcs[] =
 {
     load_so_dll,
@@ -1488,6 +1525,7 @@ static const unixlib_entry_t unix_call_funcs[] =
     unixcall_compat_wine_nt_to_unix_file_name,
     unixcall_relocate_module,
     wine_version_info,
+    tuxblox_info,
 };
 
 
@@ -1598,6 +1636,7 @@ const unixlib_entry_t unix_call_wow64_funcs[] =
     wow64_compat_wine_nt_to_unix_file_name,
     wow64_relocate_module,
     wine_version_info,
+    tuxblox_info,
 };
 
 #endif  /* _WIN64 */
@@ -1949,6 +1988,136 @@ static NTSTATUS open_main_image( UNICODE_STRING *nt_name, void **module, SECTION
 }
 
 
+/* Whether a main image is one whose signature is insisted on. Only the Roblox
+ * client: not its crash reporter, not the webview helper, not Wine's builtins,
+ * not TuxBlox's own programs.
+ *
+ * By the image's own name rather than by who started the process. A rule about
+ * parentage cannot work here: start.exe and cmd.exe are builtins, so they carry
+ * no signature and have to be exempt, and either can launch anything as a child
+ * that is then exempt for having a parent. The name also covers Roblox's
+ * relaunch of itself, which is the process that actually runs the game.
+ */
+static BOOL image_must_be_verified( const UNICODE_STRING *nt_name )
+{
+    static const char * const verified[] = { "robloxplayerbeta.exe", "robloxstudiobeta.exe" };
+    const WCHAR *name = nt_name->Buffer;
+    ULONG len = nt_name->Length / sizeof(WCHAR), i, j;
+
+    if (!name) return FALSE;
+    for (i = 0; i < ARRAY_SIZE(verified); i++)
+    {
+        ULONG want = strlen( verified[i] );
+
+        if (len < want + 1) continue;
+        /* Preceded by a separator, so "notrobloxplayerbeta.exe" is not a match. */
+        if (name[len - want - 1] != '\\' && name[len - want - 1] != '/') continue;
+        for (j = 0; j < want; j++)
+        {
+            WCHAR c = name[len - want + j];
+
+            if (c >= 'A' && c <= 'Z') c += 'a' - 'A';
+            if (c != (WCHAR)verified[i][j]) break;
+        }
+        if (j == want) return TRUE;
+    }
+    return FALSE;
+}
+
+
+/* Ends the process, and tells the launcher why.
+ *
+ * The marker is written here rather than left to the usual reporter, which
+ * reads the process environment to decide whether to say anything: this runs
+ * while that environment is still being built, so it would say nothing.
+ */
+static void refuse_to_start(void)
+{
+    MESSAGE( "TUXBLOX_REAL_EXIT_CODE=%d\n", (int)STATUS_INVALID_IMAGE_HASH );
+    NtTerminateProcess( GetCurrentProcess(), STATUS_INVALID_IMAGE_HASH );
+}
+
+
+/* Refuses to start a Roblox client that does not match its signature.
+ *
+ * Here rather than in front of the layer because every launch reaches this,
+ * however it was started: through the layer, through a loader run by hand, or
+ * through ten lines that dlopen ntdll and call __wine_main.
+ *
+ * Paths come from where this library actually is, never from the environment: a
+ * caller who could name the roots file could name one of their own.
+ */
+static void verify_main_image( UNICODE_STRING *nt_name )
+{
+    static const char *const publishers[] = { "Roblox Corporation", "TuxBlox Project" };
+    enum tuxblox_integrity_status status;
+    OBJECT_ATTRIBUTES attr;
+    UNICODE_STRING resolved;
+    char *unix_name = NULL, *roots = NULL, *gnutls = NULL, *roots_pem = NULL;
+    char publisher[256] = { 0 };
+    size_t roots_length = 0;
+    FILE *file;
+
+    if (!ntdll_dir || !image_must_be_verified( nt_name )) return;
+
+    InitializeObjectAttributes( &attr, nt_name, OBJ_CASE_INSENSITIVE, 0, NULL );
+    if (get_nt_and_unix_names( &attr, &resolved, &unix_name, FILE_OPEN, FALSE )) goto refuse;
+
+    /* Spelled out rather than derived: the only image checked is the 64-bit
+     * client, so the 32-bit loader never gets here and needs no path of its own. */
+    gnutls = build_path( ntdll_dir, "../../x86_64-linux-gnu/libgnutls.so.30" );
+    roots = build_path( ntdll_dir, "../../../share/tuxblox/roots.pem" );
+    if (!gnutls || !roots) goto refuse;
+
+    if ((file = fopen( roots, "rb" )))
+    {
+        if (!fseek( file, 0, SEEK_END ))
+        {
+            long size = ftell( file );
+
+            if (size > 0 && (roots_pem = malloc( (size_t)size )))
+            {
+                rewind( file );
+                if (fread( roots_pem, 1, (size_t)size, file ) == (size_t)size) roots_length = (size_t)size;
+                else { free( roots_pem ); roots_pem = NULL; }
+            }
+        }
+        fclose( file );
+    }
+    if (!roots_length) goto refuse;
+
+    status = tuxblox_verify_authenticode( unix_name, gnutls, roots_pem, roots_length,
+                                          publishers, ARRAY_SIZE(publishers),
+                                          publisher, sizeof(publisher) );
+    free( roots_pem );
+    free( resolved.Buffer );
+    free( unix_name );
+    free( gnutls );
+    free( roots );
+
+    if (status == TUXBLOX_INTEGRITY_VERIFIED) return;
+
+    /* Named plainly: this lands in the session log, and it is the only
+     * explanation anybody gets for Roblox not starting. */
+    MESSAGE( "TuxBlox: refusing to start %s: %s (%s)\n", debugstr_us(nt_name),
+             tuxblox_integrity_status_name( status ), tuxblox_integrity_detail() );
+    refuse_to_start();
+    return;
+
+refuse:
+    /* The check could not run. Starting anyway would make it advisory, which is
+     * worse than not having it: it would pass silently exactly when tampered
+     * with. */
+    free( roots_pem );
+    free( unix_name );
+    free( gnutls );
+    free( roots );
+    MESSAGE( "TuxBlox: refusing to start %s: its signature could not be checked\n",
+             debugstr_us(nt_name) );
+    refuse_to_start();
+}
+
+
 /***********************************************************************
  *           load_main_exe
  */
@@ -1958,6 +2127,8 @@ NTSTATUS load_main_exe( UNICODE_STRING *nt_name, USHORT load_machine, void **mod
     unsigned int status;
     SIZE_T size;
     USHORT search_machine;
+
+    verify_main_image( nt_name );
 
     status = open_main_image( nt_name, module, &main_image_info, loadorder, load_machine );
     if (status != STATUS_DLL_NOT_FOUND) return status;

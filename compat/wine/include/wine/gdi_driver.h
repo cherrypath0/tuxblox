@@ -328,6 +328,7 @@ W32KAPI void window_surface_set_shape( struct window_surface *surface, HRGN shap
 W32KAPI void window_surface_set_layered( struct window_surface *surface, COLORREF color_key, UINT alpha_bits, UINT alpha_mask );
 W32KAPI struct window_surface *window_surface_get( HWND hwnd );
 W32KAPI BOOL window_get_min_track_size( HWND hwnd, SIZE *size );
+W32KAPI BOOL window_get_max_track_size( HWND hwnd, SIZE *size );
 
 /* display manager interface, used to initialize display device registry data */
 

@@ -32,7 +32,8 @@ bool isKnownChannel(const std::string& channel) {
 
 } // namespace
 
-void setUserAgent(UserAgentProduct product, const std::string& version, const std::string& channel) {
+void setUserAgent(UserAgentProduct product, const std::string& version, const std::string& channel,
+                   const std::string& packaging) {
     std::string agent = product == UserAgentProduct::Installer ? "TuxBloxInstaller" : "TuxBloxClient";
     if (!version.empty()) agent += "/" + version;
     agent += std::string(" (") + hostArch();
@@ -40,6 +41,8 @@ void setUserAgent(UserAgentProduct product, const std::string& version, const st
     // agent and anything reading these logs keys on the channel, so a wrong one is worse than a
     // missing one.
     if (isKnownChannel(channel)) agent += "; " + channel;
+    // Last, so anything that reads the arch or the channel by position still finds them.
+    if (!packaging.empty()) agent += "; " + packaging;
     agent += ")";
     gAgent = agent;
 }

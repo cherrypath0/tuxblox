@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "wine_shortcut_export.h"
+#include "flag_startup.h"
 #include "prefix_user.h"
 #include <cctype>
 #include <cstdlib>
@@ -288,6 +289,41 @@ bool writeClientDesktopShortcut(const std::string& installDir, const std::string
     return true;
 }
 
+int translateDesktopShortcuts(const std::string& installDir, const std::string& launcherExePath) {
+    const std::string driveC = installDir + "/runtime/pfx/drive_c";
+    // The desktop itself, for a shortcut still sitting there, and the folder the compatibility layer
+    // moves one into as soon as it reads it, which is where they arrive while Roblox is running.
+    const fs::path places[] = {fs::path(driveC) / "users" / prefixUserName(driveC) / "Desktop",
+                               fs::path(driveC) / "proton_shortcuts"};
+
+    // Collected before any of them is acted on, since writing an entry adds a file to one of these folders.
+    std::vector<fs::path> shortcuts;
+    for (const fs::path& place : places) {
+        std::error_code ec;
+        if (!fs::is_directory(place, ec)) continue;
+        for (const auto& entry : fs::directory_iterator(place, ec)) {
+            if (ec) break;
+            if (toLower(entry.path().extension().string()) == ".lnk") shortcuts.push_back(entry.path());
+        }
+    }
+
+    int translated = 0;
+    for (const fs::path& shortcut : shortcuts) {
+        const std::string blob = readWholeFile(shortcut);
+        const std::vector<unsigned char> bytes(blob.begin(), blob.end());
+        for (const LaunchTarget target : {LaunchTarget::Player, LaunchTarget::Studio}) {
+            if (extractExeRelPathFromLnkBytes(bytes, targetExeName(target)).empty()) continue;
+            // Taken away only once its replacement is there, so a shortcut is never simply lost.
+            if (writeClientDesktopShortcut(installDir, launcherExePath, target)) {
+                std::error_code removeEc;
+                if (fs::remove(shortcut, removeEc)) translated++;
+            }
+            break;
+        }
+    }
+    return translated;
+}
+
 int removeGeneratedDesktopShortcuts(const std::string& desktopDir) {
     std::error_code ec;
     if (!fs::is_directory(desktopDir, ec)) return 0;
@@ -402,6 +438,10 @@ void exportPrefixShortcuts(const std::string& installDir, const std::string& lau
     exportPrefixShortcutsTo(installDir, launcherExePath,
                              std::string(home) + "/.local/share/applications",
                              std::string(home) + "/.local/share/icons/hicolor");
+    // After the entries above, because the icon on the desktop is one of them.
+    if (launcherFlags().translateWindowsShortcuts) {
+        translateDesktopShortcuts(installDir, launcherExePath);
+    }
 }
 
 } // namespace tuxblox

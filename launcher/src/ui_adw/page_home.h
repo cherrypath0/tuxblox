@@ -40,18 +40,18 @@ private:
         std::string appliedLaunchLabel;
         bool appliedStops = false;
         bool appliedInstalled = false;
+        bool appliedDisabled = false;
         bool applied = false;
     };
 
     GtkWidget *buildCard(Card &card, const char *pTitle, const unsigned char *pIcon, size_t iconLength);
-    void setCard(Card &card, bool installed, const std::string &versionLabel, int sessions, bool stopping, bool launchPending);
+    void setCard(Card &card, bool installed, const std::string &versionLabel, int sessions, bool stopping,
+                 bool launchPending, bool playerEnabled);
     GtkWidget *buildSessions();
     void setSessions(const std::vector<Session> &sessions);
-    void showUpdateButton(bool shown);
     void setUpdateState(const std::string &text, const std::string &styleClass);
     static void onLaunchClicked(GtkButton *pButton, gpointer data);
     static void onOpenSessionClicked(GtkButton *pButton, gpointer data);
-    static void onUpdateClicked(GtkButton *, gpointer data);
     // Both buttons go quiet for a moment after a launch. With "Minimize to background" off the window
     // stays open, so without this a double click would start Roblox twice.
     static gboolean onLaunchCooldownOver(gpointer data);
@@ -70,9 +70,10 @@ private:
     GtkWidget *pUpdateStatus_ = nullptr;
     GtkWidget *pUpdateBar_ = nullptr;
     GtkWidget *pError_ = nullptr;
+    // Only a Flatpak fetches its own compatibility layer, so only a Flatpak can be left without one.
+    GtkWidget *pRuntimeRetry_ = nullptr;
+    static void onRuntimeRetry(GtkButton *pButton, gpointer data);
     GtkLabel *pUpdateState_ = nullptr;
-    GtkWidget *pUpdateButton_ = nullptr;
-    GtkWidget *pUpdateDot_ = nullptr;
     std::string updateStateClass_;
     Card player_{LaunchTarget::Player};
     Card studio_{LaunchTarget::Studio};

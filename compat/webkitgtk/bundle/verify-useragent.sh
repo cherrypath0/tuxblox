@@ -15,25 +15,9 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-# compat/webkitgtk/bundle/verify-useragent.sh
-# Re-runnable, real end-to-end check that the Roblox Player's own user agent
-# survives into an HTTP request from the WebKitGTK built into the
-# webkitgtk-prefix volume -- patch 5 in compat/webkitgtk/src/README-TUXBLOX-PATCHES.md.
-# Compiles useragent-verify.c against the volume's own GTK4/WebKitGTK, then loads a
-# page from a throwaway local server and asserts on the agent that arrived, for the
-# document and for an XMLHttpRequest and an <img> subresource. A read-back from
-# WebKitSettings is not equivalent proof: the bug this guards against left the
-# setting looking plausible while every request carried WebKit's default agent.
-#
-# Usage:
-#   compat/webkitgtk/bundle/verify-useragent.sh
-#
-# Requires: the builder image and the webkitgtk-prefix volume to already exist.
-# Run this whenever WebKitGTK is rebuilt or rebased onto a new upstream release.
 set -euo pipefail
 
 ScriptDir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# The sniper migration left two possible tags for the same image.
 Image="${TUXBLOX_WEBKIT_BUILDER_IMAGE:-tuxblox-webkitgtk-builder}"
 if ! podman image exists "$Image"; then
     Image="${Image}-sniper"

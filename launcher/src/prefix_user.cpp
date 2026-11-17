@@ -77,4 +77,18 @@ std::string prefixUserDir(const std::string& installDir) {
     return driveC + "/users/" + prefixUserName(driveC);
 }
 
+std::string robloxDataDirIn(const std::string& accountDir) {
+    // The path inside the drive, deliberately, even when it is a link to somewhere else. Everything
+    // that opens a file here follows the link without noticing; the one caller that cannot is the
+    // one that names an executable for the compatibility layer to start. The virtual drive maps C:
+    // and nothing else, so an exe named by where it really is -- outside the drive, whether Roblox's
+    // files sit in the install folder or in the host's own folders -- belongs to no drive at all,
+    // and the layer dies before it has loaded anything rather than starting Roblox.
+    return accountDir + "/AppData/Local/Roblox";
+}
+
+std::string robloxDataDir(const std::string& installDir) {
+    return robloxDataDirIn(prefixUserDir(installDir));
+}
+
 } // namespace tuxblox

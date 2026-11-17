@@ -14,16 +14,22 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-# The TuxBlox logo: launcher/assets/tuxblox.png, checked into the repo
-# directly. This used to fetch a remote SVG at build time and rasterize it
-# via rsvg-convert -- that pipeline was silently producing a broken,
-# near-blank 352-byte PNG (observed for real: the Home/About tabs' logo
-# rendered as invisible), and depended on both network access and an
-# rsvg-convert install for every build. Using the local, known-good asset
-# fixes that and drops rsvg-convert as a required build dependency entirely.
+# The TuxBlox logo, rendered from assets/tuxblox.svg by `make assets`.
+#
+# This once fetched a remote SVG at build time and rasterized it here, and that pipeline silently
+# produced a broken, near-blank 352-byte PNG: the Home and About tabs' logo rendered as invisible.
+# What makes rendering safe now is that the SVG is checked in rather than fetched, and that the
+# `make assets` rule passes an explicit -w and -h. That SVG declares width="100%" height="100%",
+# so a rasterizer left to guess its size is where a near-blank PNG comes from. Do not drop those
+# flags, and do not point this at an SVG the build downloads.
 # Embedded as a C header, for desktop_integration.cpp's icon file and the launcher window's logo.
 
-set(LOGO_PNG_PATH "${CMAKE_SOURCE_DIR}/assets/tuxblox.png")
+if(NOT DEFINED TUXBLOX_ASSETS_BUILD)
+    set(TUXBLOX_ASSETS_BUILD "${CMAKE_SOURCE_DIR}/../build/assets")
+endif()
+# Rendered from assets/tuxblox.svg by `make assets`. A raster, not the SVG: this one is written to
+# disk as the desktop entry's icon file, which has to be a real PNG.
+set(LOGO_PNG_PATH "${TUXBLOX_ASSETS_BUILD}/tuxblox/512x512.png")
 set(GENERATED_DIR "${CMAKE_BINARY_DIR}/generated")
 set(LOGO_HEADER_PATH "${GENERATED_DIR}/tuxblox_logo_png.h")
 

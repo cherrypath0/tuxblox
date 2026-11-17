@@ -47,6 +47,11 @@ std::string fetchClientVersionJson(const std::string& binaryType, const std::str
 // isn't valid JSON.
 std::string parseClientVersionHash(const std::string& json);
 
+// The version number from a clientsettings v2 response body (field "version", e.g.
+// "0.747.0.7471481"). Throws std::runtime_error if it is missing or the body is not
+// valid JSON, the same contract as parseClientVersionHash().
+std::string parseClientVersionNumber(const std::string& json);
+
 // Fetches the raw DeployHistory.txt body for a channel.
 std::string fetchDeployHistory(const std::string& channel, const std::atomic<bool>* cancel = nullptr);
 
@@ -100,5 +105,44 @@ std::string setupCdnUrl(const std::string& mirrorHost, const std::string& channe
 
 // The channel's DeployHistory.txt, split the same way as setupCdnUrl().
 std::string deployHistoryUrl(const std::string& mirrorHost, const std::string& channel);
+
+// Roblox's one open non-live channel. It carries a build that has been deployed but
+// not released, and it answers only while there is one -- with nothing pending it
+// refuses the request, which is the ordinary state rather than a fault.
+const char* robloxPendingChannel();
+
+// Roblox's released channel. Next and Previous are both defined against it rather than
+// against whatever a person last typed, so neither depends on a field they cannot see.
+const char* robloxDefaultChannel();
+
+// The message a fetch throws when the server answered but not with success. Shared so
+// the matchers below are checked against what is actually produced: these used to be
+// written against a string the code never emitted, and matched nothing in the field.
+std::string httpStatusErrorText(long httpCode, const std::string& url);
+
+// True when an error from fetchClientVersionJson() is Roblox refusing the channel.
+// For a channel somebody typed that means they cannot look it up; for the pending
+// channel it means no build is upcoming, which is not a failure.
+bool isNotAuthorized(const std::string& errorText);
+
+// True when an error from a fetch is an HTTP 404. The version history answers that way
+// when it holds no earlier build for an application, which is worth explaining rather
+// than reporting as a failure.
+bool isNotFound(const std::string& errorText);
+
+// Where a build the pending channel named sits against the one that is live.
+enum class PendingBuild { Newer, SameAsLive, OlderThanLive };
+
+// Compares Roblox's four-field version strings numerically. A string that cannot be
+// read compares as OlderThanLive, so a reply nobody can parse is never installed as
+// though it were newer.
+PendingBuild comparePendingToLive(const std::string& pendingVersion, const std::string& liveVersion);
+
+// The channels to look for an unreleased build's files in, in order. Measured
+// 2026-11-10: the live mirror root served the pending build's manifest while
+// channel/zbeta/ refused it, so the root is where the files actually are and the
+// channel path is a fallback against a future change in Roblox's layout. Whichever
+// one answers is the channel the build is recorded under.
+std::vector<std::string> pendingChannelsInOrder();
 
 } // namespace tuxblox

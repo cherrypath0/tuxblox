@@ -1,0 +1,117 @@
+app-id: net.tuxblox.TuxBlox
+runtime: org.freedesktop.Platform
+runtime-version: '26.08'
+sdk: org.freedesktop.Sdk
+command: tuxblox
+
+# For the 32-bit side of TuxBlox, including Roblox's MCP server
+add-extensions:
+  org.freedesktop.Platform.Compat.i386:
+    directory: lib/i386-linux-gnu
+    version: '26.08'
+  org.freedesktop.Platform.GL32:
+    directory: lib/i386-linux-gnu/GL
+    version: '1.4'
+    versions: '26.08;26.08-extra;1.4'
+    subdirectories: true
+    no-autodownload: true
+    autodelete: false
+    add-ld-path: lib
+    merge-dirs: vulkan/icd.d;glvnd/egl_vendor.d;OpenCL/vendors;lib/dri;lib/d3d;vulkan/explicit_layer.d;vulkan/implicit_layer.d
+
+
+finish-args:
+  # --device=dri is NOT enough: /dev/ntsync needs this
+  - --device=all
+
+  # The 32-bit side of the runtime (and Studio's MCP server) will not start without this
+  - --allow=multiarch
+
+  # Network is required to get the latest runtime of TuxBlox, authenticate to Roblox and join Team Create servers, and basically everything that Roblox needs
+  - --share=network
+  - --share=ipc
+
+  # TuxBlox renders through XWayland on Wayland, so both X11 and Wayland is required
+  - --socket=x11
+  - --socket=wayland
+
+  # Required for audio to play
+  - --socket=pulseaudio
+
+  # Roblox's own data, with the Linux integration flag turned on
+  - --filesystem=xdg-data/roblox:create
+  - --filesystem=xdg-cache/roblox:create
+  - --filesystem=~/.local/state/roblox:create
+
+  # Required for Studio to be able to open most files, and for Player's screenshots folder symlink
+  - --filesystem=xdg-desktop
+  - --filesystem=xdg-documents
+  - --filesystem=xdg-pictures
+  - --filesystem=xdg-videos
+  - --filesystem=xdg-download
+  - --filesystem=xdg-music
+
+  # Required for symlinks
+  - --filesystem=xdg-config/user-dirs.dirs:ro
+
+  # Required for the Discord RPC setting.
+  - --filesystem=xdg-run/discord-ipc-0
+  - --filesystem=xdg-run/app/com.discordapp.Discord:create
+
+  # Required for the Roblox tray icon
+  - --talk-name=org.kde.StatusNotifierWatcher
+
+
+modules:
+  - name: tuxblox
+    buildsystem: simple
+
+    build-options:
+      no-debuginfo: true
+    build-commands:
+      - mkdir -p /app/tuxblox
+      - mkdir -p /app/lib/i386-linux-gnu/GL
+      - install -Dm644 ld.so.conf /app/etc/ld.so.conf
+      - cp -a payload/libtuxblox payload/TuxBloxLauncher payload/studio-mcp /app/tuxblox/
+      - chmod +x /app/tuxblox/TuxBloxLauncher /app/tuxblox/studio-mcp
+      - install -Dm755 tuxblox /app/bin/tuxblox
+      - install -Dm644 net.tuxblox.TuxBlox.desktop -t /app/share/applications/
+      - install -Dm644 net.tuxblox.TuxBlox.Player.desktop -t /app/share/applications/
+      - install -Dm644 net.tuxblox.TuxBlox.Studio.desktop -t /app/share/applications/
+      - install -Dm644 net.tuxblox.TuxBlox.Place.desktop -t /app/share/applications/
+      - install -Dm644 net.tuxblox.TuxBlox.metainfo.xml -t /app/share/metainfo/
+      - install -Dm644 icons/128x128.png /app/share/icons/hicolor/128x128/apps/net.tuxblox.TuxBlox.png
+      - install -Dm644 icons/256x256.png /app/share/icons/hicolor/256x256/apps/net.tuxblox.TuxBlox.png
+      - install -Dm644 icons/512x512.png /app/share/icons/hicolor/512x512/apps/net.tuxblox.TuxBlox.png
+      - mkdir -p /app/share/licenses
+      - cp -a licenses /app/share/licenses/net.tuxblox.TuxBlox
+    sources:
+      - type: dir
+        path: ../../build/flatpak/libtuxblox
+        dest: payload/libtuxblox
+      - type: file
+        path: ../../build/flatpak/TuxBloxLauncher
+        dest: payload
+      - type: file
+        path: ../../build/native/studio-mcp
+        dest: payload
+      - type: file
+        path: tuxblox
+      - type: file
+        path: ld.so.conf
+      - type: file
+        path: net.tuxblox.TuxBlox.desktop
+      - type: file
+        path: net.tuxblox.TuxBlox.Player.desktop
+      - type: file
+        path: net.tuxblox.TuxBlox.Studio.desktop
+      - type: file
+        path: net.tuxblox.TuxBlox.Place.desktop
+      - type: file
+        path: ../../build/flatpak/net.tuxblox.TuxBlox.metainfo.xml
+      - type: dir
+        path: ../../build/assets/tuxblox
+        dest: icons
+      - type: dir
+        path: ../../build/flatpak/licenses
+        dest: licenses

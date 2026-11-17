@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "ui_adw/sessions_page_state.h"
+#include "i18n.h"
 
 #include <cassert>
 #include <cstdio>
@@ -147,6 +148,46 @@ void test_filter_that_matches_nothing_says_so() {
     assert(!none.emptyMessage.empty());
 }
 
+void test_crashed_row_is_translated() {
+    tuxblox::i18n::setLanguage("pt_BR");
+    const SessionsView view = sessionsView({finished(LaunchTarget::Player, 11, 60, "crashed")}, kNow);
+    assert(!view.ended.empty());
+    assert(view.ended[0].meta.find("travou") != std::string::npos);
+    tuxblox::i18n::setLanguage("en");
+}
+
+// 400 lines of log in a 300-tall view, read from the bottom.
+const LogScrollState kAtTail{400.0, 300.0, 100.0};
+
+void test_sitting_at_the_end_follows() {
+    assert(!readerLeftLogTail(kAtTail, kAtTail, false));
+    // Dragged back down to the end, so it follows again.
+    assert(!readerLeftLogTail({400.0, 300.0, 0.0}, kAtTail, true));
+}
+
+void test_scrolling_up_within_the_same_log_stops_following() {
+    const LogScrollState up{400.0, 300.0, 0.0};
+    assert(readerLeftLogTail(kAtTail, up, false));
+}
+
+void test_a_burst_of_lines_does_not_stop_following() {
+    // The lines are laid out before the view catches up to its own end, so the gap to the end is
+    // wide for a moment. Reading that as the reader leaving is what used to stop the scrolling.
+    const LogScrollState grown{4000.0, 300.0, 120.0};
+    assert(!readerLeftLogTail(kAtTail, grown, false));
+}
+
+void test_a_burst_of_lines_does_not_resume_following_either() {
+    const LogScrollState up{400.0, 300.0, 0.0};
+    const LogScrollState grown{4000.0, 300.0, 20.0};
+    assert(readerLeftLogTail(up, grown, true));
+}
+
+void test_resizing_the_window_is_not_the_reader() {
+    const LogScrollState shorter{400.0, 150.0, 100.0};
+    assert(!readerLeftLogTail(kAtTail, shorter, false));
+}
+
 } // namespace
 
 int main() {
@@ -160,6 +201,12 @@ int main() {
     test_filter_matches_the_pid();
     test_filter_with_an_empty_query_keeps_everything();
     test_filter_that_matches_nothing_says_so();
+    test_crashed_row_is_translated();
+    test_sitting_at_the_end_follows();
+    test_scrolling_up_within_the_same_log_stops_following();
+    test_a_burst_of_lines_does_not_stop_following();
+    test_a_burst_of_lines_does_not_resume_following_either();
+    test_resizing_the_window_is_not_the_reader();
     std::printf("sessions_page_state: all tests passed\n");
     return 0;
 }

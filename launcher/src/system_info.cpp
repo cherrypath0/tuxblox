@@ -247,6 +247,22 @@ bool isNvidiaProprietary(const std::string& driver) {
     return driver == "nvidia";
 }
 
+// Vulkan driver files are named after the driver, so the kernel module's
+// name has to be mapped onto them by hand.
+std::vector<std::string> vulkanIcdStems(const std::string& driver) {
+    if (driver == "i915" || driver == "xe") return {"intel_icd", "intel_hasvk_icd"};
+    if (driver == "amdgpu") return {"radeon_icd", "amd_icd"};
+    if (driver == "radeon") return {"radeon_icd"};
+    if (driver == "nvidia") return {"nvidia_icd"};
+    if (driver == "nouveau") return {"nouveau_icd"};
+    if (driver == "virtio_gpu" || driver == "virtio-pci") return {"virtio_icd"};
+    return {};
+}
+
+bool hasJsonSuffix(const std::string& name) {
+    return name.size() > 5 && name.compare(name.size() - 5, 5, ".json") == 0;
+}
+
 // "0x10de" and "10de" both normalise to "10de", which is what pci.ids uses.
 std::string bareHexId(const std::string& id) {
     std::string bare = id.rfind("0x", 0) == 0 ? id.substr(2) : id;
@@ -401,7 +417,58 @@ std::vector<GpuDevice> enumerateGpus(const std::string& drmRoot,
     return gpus;
 }
 
+std::vector<std::string> defaultVulkanIcdDirs() {
+    std::vector<std::string> dirs;
+    const char* dataHome = std::getenv("XDG_DATA_HOME");
+    const char* home = std::getenv("HOME");
+    if (dataHome != nullptr && *dataHome != '\0') {
+        dirs.push_back(std::string(dataHome) + "/vulkan/icd.d");
+    } else if (home != nullptr && *home != '\0') {
+        dirs.push_back(std::string(home) + "/.local/share/vulkan/icd.d");
+    }
+    dirs.push_back("/etc/vulkan/icd.d");
+    dirs.push_back("/usr/local/share/vulkan/icd.d");
+    dirs.push_back("/usr/share/vulkan/icd.d");
+    return dirs;
+}
+
+std::vector<std::string> vulkanIcdFiles(const std::string& driver,
+                                         const std::vector<std::string>& icdDirs) {
+    const std::vector<std::string> stems = vulkanIcdStems(driver);
+    if (stems.empty()) return {};
+
+    std::vector<std::string> files;
+    for (const auto& dir : icdDirs) {
+        std::error_code ec;
+        if (!fs::is_directory(dir, ec) || ec) continue;
+
+        std::vector<std::string> found;
+        for (const auto& entry : fs::directory_iterator(dir, ec)) {
+            if (ec) break;
+            const std::string name = entry.path().filename().string();
+            if (!hasJsonSuffix(name)) continue;
+            for (const auto& stem : stems) {
+                if (name.rfind(stem, 0) == 0) {
+                    found.push_back(entry.path().string());
+                    break;
+                }
+            }
+        }
+        // Directory order is whatever the filesystem hands back, so without
+        // this one machine would be pinned differently from the next.
+        std::sort(found.begin(), found.end());
+        files.insert(files.end(), found.begin(), found.end());
+    }
+    return files;
+}
+
 std::vector<std::string> gpuSelectionEnv(const GpuDevice& gpu) {
+    return gpuSelectionEnv(gpu, {gpu}, defaultVulkanIcdDirs());
+}
+
+std::vector<std::string> gpuSelectionEnv(const GpuDevice& gpu,
+                                          const std::vector<GpuDevice>& gpus,
+                                          const std::vector<std::string>& icdDirs) {
     std::vector<std::string> env;
     if (gpu.pciAddress.empty()) return env;
 
@@ -413,27 +480,57 @@ std::vector<std::string> gpuSelectionEnv(const GpuDevice& gpu) {
         env.push_back("__NV_PRIME_RENDER_OFFLOAD=1");
         env.push_back("__VK_LAYER_NV_optimus=NVIDIA_only");
         env.push_back("__GLX_VENDOR_LIBRARY_NAME=nvidia");
-        return env;
+    } else {
+        const bool hasNvidia = std::any_of(gpus.begin(), gpus.end(), [](const GpuDevice& other) {
+            return isNvidiaProprietary(other.driver);
+        });
+        // The exact mirror of the three above, which is the only way to take
+        // an NVIDIA card out of the Vulkan device list. All three are sent
+        // rather than left out, so an environment that already asked for the
+        // NVIDIA card cannot survive the choice.
+        if (hasNvidia) {
+            env.push_back("__NV_PRIME_RENDER_OFFLOAD=0");
+            env.push_back("__VK_LAYER_NV_optimus=non_NVIDIA_only");
+            env.push_back("__GLX_VENDOR_LIBRARY_NAME=mesa");
+        }
+
+        // MESA_VK_DEVICE_SELECT wants bare hex ids, "1002:744c", where sysfs
+        // spells them "0x1002". Skipped entirely when the device id could not
+        // be read, since a half-formed value would select nothing and hide
+        // the reason.
+        auto stripHexPrefix = [](const std::string& id) {
+            return id.rfind("0x", 0) == 0 ? id.substr(2) : id;
+        };
+        if (!gpu.vendorId.empty() && !gpu.deviceId.empty()) {
+            env.push_back("MESA_VK_DEVICE_SELECT=" + stripHexPrefix(gpu.vendorId) + ":" +
+                          stripHexPrefix(gpu.deviceId));
+        }
+
+        // DRI_PRIME's pci- form spells the slot with underscores:
+        // "0000:03:00.0" becomes "pci-0000_03_00_0".
+        std::string slot = gpu.pciAddress;
+        std::replace(slot.begin(), slot.end(), ':', '_');
+        std::replace(slot.begin(), slot.end(), '.', '_');
+        env.push_back("DRI_PRIME=pci-" + slot);
     }
 
-    // MESA_VK_DEVICE_SELECT wants bare hex ids, "1002:744c", where sysfs
-    // spells them "0x1002". Skipped entirely when the device id could not be
-    // read, since a half-formed value would select nothing and hide the
-    // reason.
-    auto stripHexPrefix = [](const std::string& id) {
-        return id.rfind("0x", 0) == 0 ? id.substr(2) : id;
-    };
-    if (!gpu.vendorId.empty() && !gpu.deviceId.empty()) {
-        env.push_back("MESA_VK_DEVICE_SELECT=" + stripHexPrefix(gpu.vendorId) + ":" +
-                      stripHexPrefix(gpu.deviceId));
-    }
+    // Pinning the loader is what makes the choice stick no matter which card
+    // the game would rather have, but it can only ever cost a machine with
+    // one card, so it is kept to the machines the picker exists for.
+    if (gpus.size() < 2) return env;
 
-    // DRI_PRIME's pci- form spells the slot with underscores: "0000:03:00.0"
-    // becomes "pci-0000_03_00_0".
-    std::string slot = gpu.pciAddress;
-    std::replace(slot.begin(), slot.end(), ':', '_');
-    std::replace(slot.begin(), slot.end(), '.', '_');
-    env.push_back("DRI_PRIME=pci-" + slot);
+    const std::vector<std::string> icds = vulkanIcdFiles(gpu.driver, icdDirs);
+    if (icds.empty()) return env;
+
+    std::string joined;
+    for (const auto& path : icds) {
+        if (!joined.empty()) joined += ":";
+        joined += path;
+    }
+    env.push_back("VK_DRIVER_FILES=" + joined);
+    // What loaders older than 1.3.207 read. A loader that knows both prefers
+    // VK_DRIVER_FILES, so sending the pair costs nothing.
+    env.push_back("VK_ICD_FILENAMES=" + joined);
     return env;
 }
 
@@ -441,7 +538,9 @@ std::vector<std::string> gpuEnvForSelection(const std::string& pciAddress,
                                              const std::vector<GpuDevice>& gpus) {
     if (pciAddress.empty()) return {};
     for (const auto& gpu : gpus) {
-        if (gpu.pciAddress == pciAddress) return gpuSelectionEnv(gpu);
+        if (gpu.pciAddress == pciAddress) {
+            return gpuSelectionEnv(gpu, gpus, defaultVulkanIcdDirs());
+        }
     }
     return {};
 }

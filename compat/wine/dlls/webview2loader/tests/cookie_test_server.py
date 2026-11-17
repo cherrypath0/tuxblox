@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 # Test fixture for test_delete_all_cookies in webview2loader.c -- NOT part of
-# the DLL, NOT built or run by build.sh (this whole test suite is manual;
-# --disable-tests skips tests/ repo-wide, see CLAUDE.md). Run this by hand,
-# alongside the manual cross-compile/wine-run recipe in
-# .superpowers/sdd/2026-08-10-webview2loader-core/task-8-report.md, whenever
-# re-verifying test_delete_all_cookies.
+# the DLL, and never built or run by the layer's build: compat/Makefile.in
+# configures Wine with --disable-tests, so tests/ is skipped repo-wide. Run this
+# by hand, cross-compiled and run under the built layer, whenever re-verifying
+# test_delete_all_cookies.
 #
 # Why this exists instead of a DLL-exported "add a test cookie" hook: an
 # earlier version of that test added cookies via a

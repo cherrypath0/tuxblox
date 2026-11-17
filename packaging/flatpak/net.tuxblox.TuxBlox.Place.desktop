@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=TuxBlox Studio
+Comment=via TuxBlox
+Exec=tuxblox --open-file %f
+Icon=net.tuxblox.TuxBlox
+NoDisplay=true
+Terminal=false
+MimeType=application/x-roblox-place;application/x-roblox-place+xml;application/x-roblox-model;

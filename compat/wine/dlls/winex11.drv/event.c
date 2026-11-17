@@ -517,7 +517,13 @@ BOOL X11DRV_ProcessEvents( DWORD mask )
         overlay_enabled = TRUE;
 
     if (!data) return FALSE;
-    if (data->current_event) mask = 0;  /* don't process nested events */
+    /* A modal dialog shown from inside an event handler runs its message loop nested, and it still has to see input and paint or its window never takes a click and never redraws. Only the events that would re-enter a window state update are held back, rather than every event. */
+    if (data->current_event) mask &= QS_INPUT | QS_PAINT;
+
+    /* The program is servicing its message loop, so this is the moment to show anything whose
+     * first map was held back and which has now waited long enough. Guarded on the count so a
+     * normal pump pays one load for it. */
+    if (window_has_deferred_map()) window_flush_deferred_maps();
 
     prev_event.type = 0;
     for (;;)
@@ -569,7 +575,8 @@ BOOL X11DRV_ProcessEvents( DWORD mask )
     XFlush( gdi_display );
     if (count) TRACE( "processed %d events\n", count );
 
-    if (mask != QS_ALLINPUT || check_fd_events( ConnectionNumber( data->display ), POLLIN )) return FALSE;
+    /* Whether the connection is drained is a property of the connection, not of the mask asked for. Answering "not drained" whenever the mask was narrowed left the queue's driver bit set for ever, so the wait in win32u returned at once and the thread spun at 100% without ever consuming anything. */
+    if (check_fd_events( ConnectionNumber( data->display ), POLLIN )) return FALSE;
     XFlush( data->display ); /* all events have been processed, flush any pending request */
     return TRUE;
 }
@@ -926,6 +933,10 @@ static BOOL X11DRV_FocusIn( HWND hwnd, XEvent *xev )
     if (was_grabbed > keyboard_grabbed) reapply_cursor_clipping();
     /* ignore wm specific NotifyUngrab / NotifyGrab events w.r.t focus */
     if (event->mode == NotifyGrab || event->mode == NotifyUngrab) return FALSE;
+
+    /* The pointer lock a program asks for as it is activated usually arrives before this focus
+     * event does, too early to be put in place; now that the focus is really here, put it on. */
+    retry_pending_cursor_clipping();
 
     xim_set_focus( hwnd, TRUE );
 

@@ -1,10 +1,2 @@
-- Added an environment variable to turn off TuxBlox's XWayland fixes (no effect on native X11)
-- Added an error message for some errors that had no message
-- Added a basic render driver
-- Changed critical Windows directories to have correct capitalization
-- Changed audio devices to be named the same way they would on Windows
-- Changed error messages to look identical to Windows
-- Fixed random crashes in Roblox caused by the WebKit
-- Fixed process and thread numbers to look identical to Windows
-- Fixed some WebKit issues
-- Removed useless debug lines from the detailed logging channel
+* Fixed Roblox failing to launch on Wayland without XWayland
+* Improved the native Wayland display driver

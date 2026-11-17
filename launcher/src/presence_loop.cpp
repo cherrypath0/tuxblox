@@ -57,7 +57,7 @@ const char kStudioApplicationId[] = "1554221498925973584";
 const char kPlayerApplicationId[] = "1557149187102220362";
 
 bool presenceWatchWanted(const Settings& settings) {
-    return settings.discordRpc || settings.serverRegionNotify;
+    return settings.discordRpc || serverRegionNotifyEnabled(settings.serverRegionNotify);
 }
 
 std::string presenceNotificationIcon(LaunchTarget target) {
@@ -91,7 +91,7 @@ void runPresenceLoop(const std::string& installDir, LaunchTarget target, const S
     while (sessionIsRunning()) {
         std::this_thread::sleep_for(std::chrono::milliseconds(300));
         // The log is read for either feature, so neither one being on is what stops the work.
-        if (!presenceWanted && !settings.serverRegionNotify) {
+        if (!presenceWanted && !serverRegionNotifyEnabled(settings.serverRegionNotify)) {
             continue;
         }
 

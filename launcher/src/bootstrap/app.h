@@ -17,6 +17,7 @@
 #pragma once
 #include "cli.h"
 #include "config.h"
+#include "i18n.h"
 
 #include <atomic>
 #include <mutex>
@@ -33,7 +34,7 @@ struct Snapshot {
     // The one line of text in the window. Starts as the mode -- "Preview
     // mode", "Checking for updates..." -- then becomes the step in progress,
     // e.g. "Downloading RobloxApp.zip".
-    std::string status = "Starting";
+    std::string status = i18n::tr("Starting");
     double overallPercent = 0.0;
     std::string errorMessage;
 };

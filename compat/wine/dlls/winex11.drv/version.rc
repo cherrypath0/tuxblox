@@ -16,7 +16,12 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#define WINE_FILEDESCRIPTION_STR "Wine X11 driver"
-#define WINE_FILENAME_STR "winex11.drv"
+#pragma code_page(65001)
+
+#define WINE_FILEDESCRIPTION_STR "Display Driver"
+/* The name this ships under, so a program reading the version information is told the same
+   thing the file is called; it used to name the file the build no longer installs. */
+#define WINE_FILENAME_STR "dispumd.dll"
+#define WINE_PRODUCTNAME_STR "Microsoft® Windows® Operating System"
 
 #include "wine/wine_common_ver.rc"

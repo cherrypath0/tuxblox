@@ -23,7 +23,11 @@
 
 #include <array>
 #include <cerrno>
+#include <cstdio>
 #include <cstdlib>
+#include <ctime>
+#include <sys/syscall.h>
+#include <unistd.h>
 #include <cstring>
 #include <string_view>
 #include <system_error>
@@ -43,7 +47,6 @@ namespace tuxblox {
 
 namespace {
 
-const std::string LogPrefix = "TuxBlox: ";
 
 // Directories Wine has installed its builtin DLLs into, across the versions of
 // Proton this prefix may have been created by. A symlink pointing into any of
@@ -111,11 +114,49 @@ bool logSilenced() {
     return silenced;
 }
 
+// The head of a line, laid out the way Roblox lays out its own:
+//
+//   2026-11-15T00:45:46.872Z,0.872850,2e78,6,Info TuxBlox: the message
+//   stamp                    elapsed  tid  n level  name
+//
+// Written this way so the session log reads as one run of times rather than two, and so a reader
+// that already understands Roblox's lines understands ours without being taught anything. Our
+// own name sits where Roblox puts a category, which is what tells the two apart on sight.
+//
+// The elapsed seconds count from the first line written rather than from process start: there is no
+// cheaper honest answer here, and the first line is written within moments of starting.
+std::string logHead() {
+    static const auto started = [] {
+        struct timespec at = {};
+        ::clock_gettime(CLOCK_MONOTONIC, &at);
+        return at;
+    }();
+
+    struct timespec now = {};
+    struct tm utc = {};
+    if (::clock_gettime(CLOCK_REALTIME, &now) != 0 || ::gmtime_r(&now.tv_sec, &utc) == nullptr) {
+        return std::string();
+    }
+
+    struct timespec since = {};
+    ::clock_gettime(CLOCK_MONOTONIC, &since);
+    const double elapsed = static_cast<double>(since.tv_sec - started.tv_sec) +
+                           static_cast<double>(since.tv_nsec - started.tv_nsec) / 1e9;
+
+    char text[96];
+    const int length = std::snprintf(
+        text, sizeof(text), "%04d-%02d-%02dT%02d:%02d:%02d.%03dZ,%.6f,%04x,6,Info TuxBlox: ",
+        utc.tm_year + 1900, utc.tm_mon + 1, utc.tm_mday, utc.tm_hour, utc.tm_min, utc.tm_sec,
+        static_cast<int>(now.tv_nsec / 1000000), elapsed < 0.0 ? 0.0 : elapsed,
+        static_cast<unsigned>(::syscall(SYS_gettid)) & 0xffffu);
+    return length > 0 ? std::string(text, static_cast<size_t>(length)) : std::string();
+}
+
 void log(const std::string& message) {
     if (logSilenced()) {
         return;
     }
-    const std::string line = LogPrefix + message + "\n";
+    const std::string line = logHead() + message + "\n";
     // Deliberately ignores the result: if stderr is gone there is nothing
     // useful a second write could report.
     ssize_t written = ::write(STDERR_FILENO, line.data(), line.size());

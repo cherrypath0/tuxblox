@@ -24,6 +24,23 @@ bool canDeleteVersion(const AppVersions& av, const std::string& hash) {
                         [&](const InstalledVersion& v) { return v.hash == hash; });
 }
 
+std::string versionRowMeta(const InstalledVersion& version) {
+    if (version.versionString.empty()) return version.channel;
+    if (version.channel.empty()) return version.versionString;
+    return version.versionString + " \xC2\xB7 " + version.channel;
+}
+
+bool versionIsActive(const AppVersions& versions, const std::string& hash) {
+    return !hash.empty() && versions.activeHash == hash;
+}
+
+std::string trimmedHash(const std::string& typed) {
+    const size_t first = typed.find_first_not_of(" \t\r\n");
+    if (first == std::string::npos) return "";
+    const size_t last = typed.find_last_not_of(" \t\r\n");
+    return typed.substr(first, last - first + 1);
+}
+
 std::string normalizedChannel(const std::string& typed) {
     const size_t first = typed.find_first_not_of(" \t\r\n");
     if (first == std::string::npos) return "";
@@ -33,6 +50,14 @@ std::string normalizedChannel(const std::string& typed) {
         if (letter >= 'A' && letter <= 'Z') letter = static_cast<char>(letter - 'A' + 'a');
     }
     return channel;
+}
+
+bool channelBoxVisibleFor(VersionSelectMode mode) {
+    return mode == VersionSelectMode::Latest || mode == VersionSelectMode::ManualHash;
+}
+
+bool nextWarningVisibleFor(VersionSelectMode mode) {
+    return mode == VersionSelectMode::Next;
 }
 
 } // namespace tuxblox

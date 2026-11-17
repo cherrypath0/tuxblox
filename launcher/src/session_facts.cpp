@@ -30,11 +30,16 @@ const unsigned long long kMebibyte = 1024ULL * 1024ULL;
 const unsigned long long kGibibyte = kMebibyte * 1024ULL;
 
 std::string readWholeLineFile(const std::string& path) {
-    std::ifstream file(path);
-    if (!file) return "";
-    std::ostringstream all;
-    all << file.rdbuf();
-    return all.str();
+    // Guarded like prefix_session's reader: a /proc file whose process just exited throws on read.
+    try {
+        std::ifstream file(path);
+        if (!file) return "";
+        std::ostringstream all;
+        all << file.rdbuf();
+        return all.str();
+    } catch (const std::exception&) {
+        return "";
+    }
 }
 
 } // namespace
@@ -72,14 +77,19 @@ std::time_t processStartTime(const std::string& procRoot, int pid) {
 }
 
 unsigned long long processResidentBytes(const std::string& procRoot, int pid) {
-    std::ifstream file(procRoot + "/" + std::to_string(pid) + "/statm");
-    if (!file) return 0;
-    unsigned long long total = 0;
-    unsigned long long resident = 0;
-    if (!(file >> total >> resident)) return 0;
-    const long pageSize = sysconf(_SC_PAGESIZE);
-    if (pageSize <= 0) return 0;
-    return resident * static_cast<unsigned long long>(pageSize);
+    // Guarded for the same reason as the readers above: the process can go between open and read.
+    try {
+        std::ifstream file(procRoot + "/" + std::to_string(pid) + "/statm");
+        if (!file) return 0;
+        unsigned long long total = 0;
+        unsigned long long resident = 0;
+        if (!(file >> total >> resident)) return 0;
+        const long pageSize = sysconf(_SC_PAGESIZE);
+        if (pageSize <= 0) return 0;
+        return resident * static_cast<unsigned long long>(pageSize);
+    } catch (const std::exception&) {
+        return 0;
+    }
 }
 
 std::string formatUptime(long seconds) {

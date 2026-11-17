@@ -35,6 +35,8 @@ struct CliOptions {
     // Print the build version and exit. Matches `proton/main --version` and the
     // launcher's footer -- all three come from the same TUXBLOX_BUILD_VERSION.
     bool version = false;
+    // The installer's own number rather than the release it installs, which is what --version says.
+    bool componentVersion = false;
     // Which channel's newest release to install. It defaults to stable rather than to anything
     // about this binary: one copy of the installer is served to every channel, so "the channel this
     // was built for" is only whichever channel happened to be building. The launcher passes
@@ -57,6 +59,9 @@ struct CliOptions {
     // Installing as root leaves a folder the real user cannot write to, so
     // it has to be asked for rather than just happening.
     bool allowRoot = false;
+    // Optional interface language. Empty means follow settings.json, then the
+    // desktop locale. Validated by i18n::parseLanguage.
+    std::string language;
     // Non-empty means the arguments were unusable: the caller should print
     // this and usageText() to stderr and exit non-zero. Every other field is
     // meaningless when this is set.
@@ -67,6 +72,11 @@ struct CliOptions {
 // stray positional arguments are reported through CliOptions::error rather
 // than ignored, so a typo can't silently change what the installer does.
 CliOptions parseArgs(int argc, const char* const* argv);
+
+// Resolves --language and --dir before parseArgs runs, so --help and usage
+// errors are already in the requested language. Shared by the installer and
+// the interface binary it starts.
+void initializeLanguage(int argc, char** argv);
 
 // Where a run learns which release to install. The handoff file wins, then an explicitly named
 // release, and otherwise the channel's newest -- which is what a bare installer someone downloaded
@@ -81,6 +91,6 @@ struct ReleaseSource {
 ReleaseSource releaseSourceFor(const CliOptions& options);
 
 // Human-readable usage block, printed for --help and for any usage error.
-const char* usageText();
+std::string usageText();
 
 } // namespace tuxblox

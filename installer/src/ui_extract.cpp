@@ -16,11 +16,14 @@
 
 #include "ui_extract.h"
 #include "checksum.h"
+#include "i18n.h"
 #include "tar_extract.h"
 #include "ui_cache.h"
 #include "ui_payload.h"
+#include "version.h"
 #include <algorithm>
 #include <cstdint>
+#include <cstdlib>
 #include <exception>
 #include <filesystem>
 #include <fstream>
@@ -82,16 +85,24 @@ bool copyPayload(const std::string& selfExe, const UiPayloadTrailer& trailer, co
 } // namespace
 
 UiStackResult ensureUiStack(const std::string& selfExe, const std::string& version) {
+    // An AppImage mounts the interface stack already, so there is nothing to unpack and no cache to keep warm.
+    // usr/ is the stack root rather than usr/bin, because the interface binary's rpath is $ORIGIN/lib/x86_64-linux-gnu.
+    if constexpr (kAppImageBuild) {
+        const char* appDir = std::getenv("APPDIR");
+        if (appDir && appDir[0] != '\0') return succeed(std::string(appDir) + "/usr");
+        return fail(i18n::tr("This AppImage was started without APPDIR, so it cannot find its own interface. Run it with --headless instead."));
+    }
+
     const auto trailer = readUiPayloadTrailer(selfExe);
     if (!trailer.has_value()) {
-        return fail("This copy of the installer has no interface attached to it. Download TuxBlox again, or run this installer with --headless.");
+        return fail(i18n::tr("This copy of the installer has no interface attached to it. Download TuxBlox again, or run this installer with --headless."));
     }
 
     std::string dir;
     try {
         dir = uiCacheDir(version, trailer->sha256);
     } catch (const std::exception& e) {
-        return fail("TuxBlox could not work out where to unpack its interface. Run this installer with --headless instead.", e.what());
+        return fail(i18n::tr("TuxBlox could not work out where to unpack its interface. Run this installer with --headless instead."), e.what());
     }
 
     if (uiCacheIsComplete(dir, trailer->sha256)) {
@@ -103,14 +114,15 @@ UiStackResult ensureUiStack(const std::string& selfExe, const std::string& versi
     fs::remove_all(partial, ec);
     fs::create_directories(partial, ec);
     if (ec) {
-        return fail("TuxBlox could not create " + fs::path(dir).parent_path().string() + " to unpack its interface. Check that you are allowed to write there and that the disk is not full, or run this installer with --headless.", ec.message());
+        return fail(i18n::trf("TuxBlox could not create {0} to unpack its interface. Check that you are allowed to write there and that the disk is not full, or run this installer with --headless.",
+                              {fs::path(dir).parent_path().string()}), ec.message());
     }
 
     const fs::path archive = partial / "payload.tar.zst";
     std::string detail;
     if (!copyPayload(selfExe, *trailer, archive, detail)) {
         fs::remove_all(partial, ec);
-        return fail("TuxBlox could not read its interface out of this installer. Check that the disk is not full, or run this installer with --headless.", detail);
+        return fail(i18n::tr("TuxBlox could not read its interface out of this installer. Check that the disk is not full, or run this installer with --headless."), detail);
     }
 
     std::string actual;
@@ -118,18 +130,18 @@ UiStackResult ensureUiStack(const std::string& selfExe, const std::string& versi
         actual = sha256File(archive.string());
     } catch (const std::exception& e) {
         fs::remove_all(partial, ec);
-        return fail("TuxBlox could not check its interface. Run this installer with --headless instead.", e.what());
+        return fail(i18n::tr("TuxBlox could not check its interface. Run this installer with --headless instead."), e.what());
     }
     if (actual != trailer->sha256) {
         fs::remove_all(partial, ec);
-        return fail("This copy of the installer is damaged: its interface does not match its own checksum. Download TuxBlox again, or run this installer with --headless.");
+        return fail(i18n::tr("This copy of the installer is damaged: its interface does not match its own checksum. Download TuxBlox again, or run this installer with --headless."));
     }
 
     try {
         extractTarZst(archive.string(), partial.string());
     } catch (const std::exception& e) {
         fs::remove_all(partial, ec);
-        return fail("TuxBlox could not unpack its interface. Check that the disk is not full, or run this installer with --headless.", e.what());
+        return fail(i18n::tr("TuxBlox could not unpack its interface. Check that the disk is not full, or run this installer with --headless."), e.what());
     }
     fs::remove(archive, ec);
 
@@ -139,7 +151,7 @@ UiStackResult ensureUiStack(const std::string& selfExe, const std::string& versi
     const bool runnable = fs::is_regular_file(binary, ec) && (mode & (fs::perms::owner_exec | fs::perms::group_exec | fs::perms::others_exec)) != fs::perms::none;
     if (!runnable) {
         fs::remove_all(partial, ec);
-        return fail("This copy of the installer is damaged: its interface is missing the program that should start it. Download TuxBlox again, or run this installer with --headless.");
+        return fail(i18n::tr("This copy of the installer is damaged: its interface is missing the program that should start it. Download TuxBlox again, or run this installer with --headless."));
     }
     uiCacheMarkComplete(partial.string(), trailer->sha256);
 
@@ -152,7 +164,7 @@ UiStackResult ensureUiStack(const std::string& selfExe, const std::string& versi
         if (winnerIsComplete) {
             return succeed(dir);
         }
-        return fail("TuxBlox could not finish unpacking its interface. Run this installer with --headless instead.", renameError);
+        return fail(i18n::tr("TuxBlox could not finish unpacking its interface. Run this installer with --headless instead."), renameError);
     }
 
     // Always the cache folder itself: the prune removes every ui-* folder beside whatever it is given.

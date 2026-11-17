@@ -17,8 +17,8 @@ and TuxBlox's changes to those live in `compat/patches/` and are applied to a
 copy at build time, so the checkout stays clean.
 
 Wine is the exception. It is patched **in place**: edit the files here
-directly and commit the change. `build.sh` deliberately refuses a
-`compat/patches/wine` directory for that reason.
+directly and commit the change. `compat/apply-patches.sh` deliberately refuses
+a `compat/patches/wine` directory for that reason.
 
 ## Files here that look removable but are not
 

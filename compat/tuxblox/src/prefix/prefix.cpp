@@ -24,6 +24,7 @@
 #include "prefix/webview_mode.h"
 #include "support/account_name.h"
 #include "support/host_folders.h"
+#include "FlagManager.h"
 #include "shared_paths/windows_paths.h"
 #include "embedded_data.h"
 
@@ -361,6 +362,14 @@ void Prefix::removeTrackedFiles(Removal removal) {
     }
 }
 
+// Removing alone would gut the drive: setup() only relays the template when the version or the graphics settings changed.
+void Prefix::rebuildTrackedFiles() {
+    FileLock::Guard held(prefixLock);
+
+    removeTrackedFiles(Removal::KeepAccumulatedState);
+    copyTemplatePrefix();
+}
+
 void Prefix::copyTemplateEntry(const fs::path& src, const fs::path& dst, bool dllCopy) {
     std::error_code error;
     if (isSymlink(src)) {
@@ -655,43 +664,150 @@ void Prefix::linkHostUserFolders() {
     }
 }
 
-void Prefix::linkRobloxData() {
-    // Roblox keeps its installed versions, settings and logs here. Create it up
-    // front, empty, so it is always present -- even a brand-new prefix has the
-    // folder, and Roblox fills it in on first launch.
-    const std::string account = accountFolder();
-    const fs::path robloxData =
-        prefixDir / "drive_c/users" / account / "AppData/Local/Roblox";
-    makeDirs(robloxData);
-
-    // A "roblox" shortcut in the install folder, so that data is reachable
-    // without walking down through the virtual drive. It sits outside the
-    // drive, where Roblox never sees it -- which is the point of pointing the
-    // shortcut inward rather than moving the data out and linking back to it:
-    // the folder Roblox runs from stays an ordinary directory, not a link the
-    // anti-tamper could notice.
-    const fs::path installRoot = baseDir.parent_path();
-    const std::string runtimeName = baseDir.filename().string();
-    if (installRoot.empty() || runtimeName.empty()) {
-        return; // an unusual prefix path; skip the shortcut rather than guess
+// Where Roblox's own data is kept. Normally a folder in the install folder, so that
+// rebuilding the virtual drive does not take a few gigabytes of installed Roblox down
+// with it. With the experimental Linux integration turned on it is the folder the
+// desktop names for application data instead, with the folders in robloxDataSplits()
+// carved out of it into the state and cache folders beside it.
+fs::path Prefix::robloxDataDir(const fs::path& installRoot) const {
+    if (!flagBool("tbxFlagEnableExperimentalLinuxIntegration")) {
+        return installRoot / "roblox";
     }
-    const fs::path target =
-        fs::path(runtimeName) / "pfx/drive_c/users" / account / "AppData/Local/Roblox";
-
-    std::error_code error;
-    const fs::path link = installRoot / "roblox";
-    if (fileExists(link, false)) {
-        if (!isSymlink(link)) {
-            return; // something real is there; leave it alone
-        }
-        if (fs::read_symlink(link, error) == target) {
-            return; // already points where we want
-        }
-        fs::remove(link, error);
+    const std::string data = xdgBaseDir("XDG_DATA_HOME", envOrEmpty("HOME"), inFlatpakSandbox());
+    if (data.empty()) {
+        return installRoot / "roblox"; // no home folder, so nowhere to follow the desktop into
     }
-    fs::create_symlink(target, link, error);
+    return fs::path(data) / "roblox";
 }
 
+// Where the data is now, which is not always where it belongs: it moves when the
+// experimental Linux integration is switched either way, and a drive built before 3.10.0
+// kept it inside the drive. Empty when there is none yet.
+fs::path Prefix::currentRobloxDataDir(const fs::path& robloxData,
+                                      const fs::path& installRoot) const {
+    std::error_code error;
+    const fs::path candidates[] = {robloxData, installRoot / "roblox"};
+    for (const fs::path& candidate : candidates) {
+        if (isSymlink(candidate)) {
+            const fs::path target = fs::read_symlink(candidate, error);
+            if (!error && target.is_absolute() && fs::is_directory(target, error)) return target;
+        } else if (fs::is_directory(candidate, error)) {
+            return candidate;
+        }
+    }
+    return {};
+}
+
+// Moves a folder to where it belongs and leaves a link behind in its place. One rename
+// wherever that is possible, which is instant however large the folder is and keeps every
+// folder in it, the empty ones included; linkHostFolder() moves entry by entry otherwise,
+// which is needed only when there is already something on both sides to merge. False when
+// something had to stay behind, which the caller reports.
+bool Prefix::moveFolderAndLink(const fs::path& from, const fs::path& to) {
+    std::error_code error;
+    const bool spare = !fileExists(to, false) ||
+                       (fs::is_directory(to, error) && fs::is_empty(to, error));
+    if (spare && !isSymlink(from) && fs::is_directory(from, error)) {
+        makeDirs(to.parent_path());
+        fs::remove(to, error);
+        fs::rename(from, to, error);
+    }
+    makeDirs(to);
+    // A rename above leaves nothing at `from`, so this only creates the link; without one it moves what is there across first.
+    return linkHostFolder(from, to) != HostFolderLink::Kept;
+}
+
+// Points the carved-out folders at the desktop's state and cache folders, or puts them
+// back when the integration is switched off again -- which has to be done either way, or
+// a folder would go on being written somewhere TuxBlox no longer believes it is.
+void Prefix::splitRobloxDataFolders(const fs::path& dataDir) {
+    const bool wanted = flagBool("tbxFlagEnableExperimentalLinuxIntegration");
+    const std::string home = envOrEmpty("HOME");
+    const bool sandboxed = inFlatpakSandbox();
+
+    for (const RobloxDataSplit& split : robloxDataSplits()) {
+        const std::string base = xdgBaseDir(split.xdgKey, home, sandboxed);
+        if (base.empty()) continue;
+        const fs::path inData = dataDir / split.name;
+        const fs::path outside = fs::path(base) / "roblox" / split.name;
+        std::error_code error;
+
+        if (wanted) {
+            if (!moveFolderAndLink(inData, outside)) {
+                log("Keeping Roblox's \"" + split.name + "\" folder where it is: something in "
+                    "it could not be moved to " + outside.string());
+            }
+            continue;
+        }
+
+        // Switched off: only a link this made is undone, and only back into the folder it came out of.
+        if (!isSymlink(inData) || fs::read_symlink(inData, error) != outside || error) continue;
+        fs::remove(inData, error);
+        if (!moveFolderAndLink(outside, inData)) {
+            log("Leaving Roblox's \"" + split.name + "\" folder in " + outside.string() +
+                ": something in it could not be moved back");
+            continue;
+        }
+        fs::remove(outside, error); // the link left in its place leads back into the drive's own data, and nothing should follow it there
+        fs::remove(outside.parent_path(), error); // fails harmlessly while a folder that could not be moved back is still in it
+    }
+}
+
+void Prefix::linkRobloxData() {
+    // Roblox keeps its installed versions, settings and logs here. It is always
+    // present, even in a brand-new prefix, and Roblox fills it in on first launch.
+    const fs::path robloxData =
+        prefixDir / "drive_c/users" / accountFolder() / "AppData/Local/Roblox";
+
+    std::error_code error;
+    const fs::path installRoot = fs::weakly_canonical(baseDir.parent_path(), error);
+    if (error || !installRoot.is_absolute()) {
+        makeDirs(robloxData);
+        return; // without a dependable path outside the drive the data stays inside it
+    }
+    const fs::path inInstall = installRoot / "roblox";
+    const fs::path dataDir = robloxDataDir(installRoot);
+    const fs::path current = currentRobloxDataDir(robloxData, installRoot);
+
+    if (!current.empty() && current != dataDir) {
+        // Put the folders back before the data moves, so they travel with it rather than
+        // being left behind pointing into the place it moved out of.
+        splitRobloxDataFolders(current);
+        // The data belongs at this path now, and what is there is TuxBlox's own shortcut to where it used to be.
+        if (dataDir == inInstall && isSymlink(inInstall)) fs::remove(inInstall, error);
+
+        if (!moveFolderAndLink(current, dataDir)) {
+            log("Keeping Roblox's data in " + current.string() +
+                ": something in it could not be moved to " + dataDir.string());
+        } else if (current != inInstall) {
+            fs::remove(current, error); // a link back is wanted in the install folder and nowhere else
+        }
+    }
+
+    makeDirs(dataDir);
+    makeDirs(robloxData.parent_path());
+
+    switch (linkHostFolder(robloxData, dataDir)) {
+    case HostFolderLink::Kept:
+        log("Keeping Roblox's data inside the virtual drive: something in it could not "
+            "be moved to " + dataDir.string());
+        break;
+    case HostFolderLink::NoHostFolder:
+        makeDirs(robloxData); // nowhere outside the drive to keep it, so it stays inside
+        break;
+    case HostFolderLink::Linked:
+    case HostFolderLink::AlreadyLinked:
+        break;
+    }
+
+    // Nothing of TuxBlox's own is left in the install folder when the data is kept in the
+    // desktop's folders instead: every program finds it by following the folder inside the
+    // drive, which robloxDataDir() is the one rule for, so a second way to the same place
+    // would only be another thing able to go stale.
+    if (dataDir != inInstall && isSymlink(inInstall)) fs::remove(inInstall, error);
+
+    splitRobloxDataFolders(dataDir);
+}
 // The account folder this drive uses. Whatever Wine created is the truth, and when the drive holds more than one the host's own name settles it -- that is the folder %USERPROFILE% names, so it is where Windows programs will actually be writing.
 std::string Prefix::accountFolder() const {
     const std::string wanted = accountName();
@@ -737,6 +853,14 @@ void Prefix::syncWebViewVersionKeys(bool microsoft) {
         log("The virtual drive already has a Microsoft browser runtime; leaving it alone, so programs that go "
             "looking for one will use Microsoft's rather than TuxBlox's.");
     }
+}
+
+// Recorded in the drive for the same reason as the line below: the part of the runtime that turns a
+// Windows shortcut on the desktop into a desktop entry runs Windows-side.
+void Prefix::recordShortcutTranslation() {
+    setRegKeyValues(prefixDir / "user.reg", "Software\\\\TuxBlox",
+                    {{"TranslateWindowsShortcuts",
+                      flagBool("tbxFlagTranslateWindowsShortcuts") ? "\"Y\"" : "\"N\""}});
 }
 
 // Recorded in the drive because the parts of the runtime that act on it are Windows-side, where TuxBlox's own environment variables are deliberately not visible.
@@ -810,65 +934,6 @@ const char *const kPlayStationPads[] = {
     "054C/0DF2", // DualSense Edge
 };
 
-// The desktop's interface font, as a family name and a size in points.
-std::pair<std::string, int> detectHostFont() {
-    const char* home = std::getenv("HOME");
-
-    // KDE keeps it as "Noto Sans,10,-1,5,50,0,0,0,0,0". The line is absent
-    // when the user has never changed it, which is why this falls through.
-    if (home != nullptr) {
-        std::ifstream kdeglobals(fs::path(home) / ".config" / "kdeglobals");
-        std::string line;
-        bool inGeneral = false;
-        while (std::getline(kdeglobals, line)) {
-            if (!line.empty() && line[0] == '[') {
-                inGeneral = (line.rfind("[General]", 0) == 0);
-                continue;
-            }
-            if (!inGeneral || line.rfind("font=", 0) != 0) {
-                continue;
-            }
-            const std::string value = line.substr(5);
-            const size_t comma = value.find(',');
-            if (comma == std::string::npos) {
-                continue;
-            }
-            const std::string family = trimmed(value.substr(0, comma));
-            const std::string rest = value.substr(comma + 1);
-            const int points = std::atoi(rest.c_str());
-            if (!family.empty() && points > 0) {
-                return {family, points};
-            }
-        }
-    }
-
-    // GNOME and anything else following it answer "Noto Sans 10", where the
-    // size is the last space-separated word.
-    const std::string gnome = trimmed(runHostCmd({"gsettings", "get",
-            "org.gnome.desktop.interface", "font-name"}));
-    if (!gnome.empty()) {
-        std::string value = gnome;
-        if (value.size() >= 2 && value.front() == '\'' && value.back() == '\'') {
-            value = value.substr(1, value.size() - 2);
-        }
-        const size_t space = value.find_last_of(' ');
-        if (space != std::string::npos) {
-            const int points = std::atoi(value.substr(space + 1).c_str());
-            const std::string family = trimmed(value.substr(0, space));
-            if (!family.empty() && points > 0) {
-                return {family, points};
-            }
-        }
-    }
-
-    const std::string matched = trimmed(runHostCmd({"fc-match", "--format=%{family}", "sans"}));
-    if (!matched.empty()) {
-        // fc-match can answer with a comma-separated list of aliases.
-        return {trimmed(matched.substr(0, matched.find(','))), 10};
-    }
-    return {"", 0};
-}
-
 // The desktop's subpixel layout, as one of rgb, bgr, none or "" when the
 // desktop does not say. This is the same X resource the graphics driver reads
 // when it decides how to rasterise a glyph, so reading it here is what keeps
@@ -930,14 +995,15 @@ int detectHostDpi() {
 // A LOGFONTW for the registry: five LONGs, eight bytes of flags, then the
 // face name as 32 UTF-16 characters. Wine reads these back for the fonts it
 // reports through SystemParametersInfo.
-std::string logFontValue(const std::string& family, int points, int dpi) {
+std::string logFontValue(const std::string& family, int points) {
     std::array<unsigned char, 92> blob{};
 
     // Negative asks for a character height rather than a cell height, which is
-    // what a point size means. The height is in the drive's own pixels, so it
-    // has to follow the LogPixels the drive reports or the text comes out the
-    // wrong size against everything sized from it.
-    const int height = -((points * dpi + 36) / 72);
+    // what a point size means. Always at the unscaled size: Windows keeps these
+    // fonts normalised to 96 DPI and scales them to the live one as it hands
+    // them out, so writing the scaled height here is what made the menus and
+    // the title bars come out twice the size on a desktop at 200%.
+    const int height = -((points * kUnscaledDpi + 36) / 72);
     const unsigned int cellHeight = static_cast<unsigned int>(height);
     const unsigned int weight = 400;
     for (int byte = 0; byte < 4; byte++) {
@@ -987,24 +1053,30 @@ void Prefix::syncHostDpi() {
     }
 }
 
-void Prefix::syncHostFont() {
-    const auto [family, points] = detectHostFont();
-    if (family.empty() || points <= 0) {
-        return;
-    }
+// Studio's own interface font, which it ships and loads itself, so it draws here exactly
+// as it does on Windows. Windows reports Segoe UI for these, and naming that instead is
+// close but visibly not the same face -- Studio's menus are the one place it shows.
+constexpr const char* kStudioUiFont = "Source Sans Pro";
+constexpr int kStudioUiPoints = 9;
 
-    const int detected = detectHostDpi();
-    const std::string font = logFontValue(family, points, detected > 0 ? detected : kUnscaledDpi);
+void Prefix::syncHostFont() {
+    const std::string font = logFontValue(kStudioUiFont, kStudioUiPoints);
     const fs::path userReg = prefixDir / "user.reg";
 
-    // Only the fonts Wine reports for dialogs and menus. The caption font is
-    // left alone because the window's title bar is the desktop's to draw.
-    const bool changed = setRegKeyValues(userReg,
+    // All six, because Studio takes its menus from one, its docked panel titles from
+    // another and its dialogs from a third, and on Windows they are the same font.
+    bool changed = setRegKeyValues(userReg,
             "Control Panel\\\\Desktop\\\\WindowMetrics",
-            {{"MessageFont", font}, {"MenuFont", font}, {"StatusFont", font}});
+            {{"MessageFont", font}, {"MenuFont", font}, {"StatusFont", font},
+             {"CaptionFont", font}, {"SmCaptionFont", font}, {"IconFont", font}});
+
+    // A drive built before this sent that name to Times New Roman, so the interface
+    // came out in a serif. New drives get this from the layer's own setup script.
+    changed |= setRegKeyValues(userReg, "Software\\\\TuxBlox\\\\Fonts\\\\Replacements",
+            {{"Segoe UI", "\"Selawik\""}, {"Segoe UI Semibold", "\"Selawik Semibold\""}});
 
     if (changed) {
-        log("Synced prefix to host font " + family + " " + std::to_string(points));
+        log(std::string("Synced prefix to Studio's interface font, ") + kStudioUiFont);
     }
 }
 
@@ -1223,6 +1295,7 @@ void Prefix::setup(Session& session) {
 
     // Last, because copyTemplatePrefix() and updateBuiltinLibs() both lay the WebView2 runtime back down from the template whenever the drive is missing it.
     recordWebViewMode();
+    recordShortcutTranslation();
 
     writeVersion();
     createFontSymlinks();

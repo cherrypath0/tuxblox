@@ -26,7 +26,12 @@
 # artwork. Because the asset ships as a PNG there is no rasterization step,
 # which is also why the installer build no longer needs rsvg-convert.
 
-set(LOGO_PNG_URL "https://static.tuxblox.net/images/icon/tuxblox-icon.png")
+# Rendered from assets/tuxblox.svg by `make assets`, so the one SVG at the repository root is the
+# only copy of the artwork. Still built here rather than fetched: building must not depend on the CDN.
+if(NOT DEFINED TUXBLOX_ASSETS_BUILD)
+    set(TUXBLOX_ASSETS_BUILD "${CMAKE_SOURCE_DIR}/../build/assets")
+endif()
+set(LOGO_PNG_SRC "${TUXBLOX_ASSETS_BUILD}/tuxblox/512x512.png")
 set(GENERATED_DIR "${CMAKE_BINARY_DIR}/generated")
 set(LOGO_PNG_PATH "${GENERATED_DIR}/tuxblox_logo.png")
 set(LOGO_HEADER_PATH "${GENERATED_DIR}/tuxblox_logo_png.h")
@@ -35,9 +40,7 @@ file(MAKE_DIRECTORY ${GENERATED_DIR})
 
 add_custom_command(
     OUTPUT ${LOGO_HEADER_PATH}
-    COMMAND ${CMAKE_COMMAND} -DURL=${LOGO_PNG_URL} -DDEST=${LOGO_PNG_PATH}
-            -DUSERAGENT=TuxBlox-Client/1.0
-            -P ${CMAKE_SOURCE_DIR}/cmake/DownloadFile.cmake
+    COMMAND ${CMAKE_COMMAND} -E copy ${LOGO_PNG_SRC} ${LOGO_PNG_PATH}
     COMMAND ${CMAKE_COMMAND} -DINPUT=${LOGO_PNG_PATH} -DOUTPUT=${LOGO_HEADER_PATH}
             -DSYMBOL=kTuxbloxLogoPng
             -P ${CMAKE_SOURCE_DIR}/cmake/BinToHeader.cmake

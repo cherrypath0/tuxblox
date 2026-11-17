@@ -20,7 +20,11 @@ namespace tuxblox {
 constexpr const char* kTuxBloxVersion = "@TUXBLOX_LAUNCHER_VERSION@";
 
 // "x.y.z", this component's own version and what it answers --version with.
-// It carries no channel: the same component build serves every channel, and
-// which channel an install follows is the install's setting, not the binary's.
 constexpr const char* kTuxBloxBuildId = "@TUXBLOX_LAUNCHER_VERSION@";
+
+// True only in the Flatpak variant, which drops everything that cannot work from a read-only /app: the updater, the channel selector and the uninstall control.
+constexpr bool kFlatpakBuild = @TUXBLOX_FLATPAK_BOOL@;
+
+// A Flatpak carries its channel because its branch is its channel and it has no setting to change one. Empty everywhere else, where the channel stays the install's setting rather than the binary's.
+constexpr const char* kBuildChannel = "@TUXBLOX_BUILD_CHANNEL@";
 } // namespace tuxblox

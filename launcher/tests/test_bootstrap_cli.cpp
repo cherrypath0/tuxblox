@@ -113,7 +113,7 @@ int main() {
     assert(!parse({"version-abc123"}).error.empty());
     assert(!parse({"--preview-rbxinstaller", "--nonsense"}).error.empty());
 
-    assert(usageText() != nullptr);
+    assert(!usageText().empty());
 
     printf("cli: all tests passed\n");
     return 0;

@@ -1,0 +1,123 @@
+# TuxBlox - Linux Compatibility Layer for the Roblox Engine
+# Copyright (C) 2026 TuxBlox Developers
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+# Every source archive the bundle is built from, and where to get it.
+#
+# The build itself downloads nothing. fetch-sources.sh reads this file on the host,
+# fills the sources/ directory and records a checksum for each archive in sha256sums;
+# build-in-container.sh then resolves every package out of that directory by name and
+# refuses to build if an archive is missing or its checksum does not match. That split
+# is what makes a build reproducible from a known set of bytes rather than from
+# whatever the upstream mirrors happen to be serving at the time, and it is why a
+# compromised or hijacked mirror cannot reach a release unnoticed.
+#
+#   <local filename>|<url> [fallback url...]
+#
+# The local filename is this project's own choice and is what both scripts agree on,
+# so it does not have to match the last path component of the URL -- GitHub's
+# /archive/ URLs end in a bare tag like "v1.1.0.tar.gz", which says nothing about
+# what is inside. ${VAR} references are expanded against versions.env. A fallback is
+# tried only when the one before it fails, and is expected to serve the same bytes;
+# an upstream that cannot is a reason to drop it, not to add it.
+
+zlib-${ZLIB_VERSION}.tar.gz|https://zlib.net/fossils/zlib-${ZLIB_VERSION}.tar.gz https://github.com/madler/zlib/releases/download/v${ZLIB_VERSION}/zlib-${ZLIB_VERSION}.tar.gz
+bzip2-${BZIP2_VERSION}.tar.gz|https://sourceware.org/pub/bzip2/bzip2-${BZIP2_VERSION}.tar.gz
+zstd-${ZSTD_VERSION}.tar.gz|https://github.com/facebook/zstd/releases/download/v${ZSTD_VERSION}/zstd-${ZSTD_VERSION}.tar.gz
+brotli-${BROTLI_VERSION}.tar.gz|https://github.com/google/brotli/archive/refs/tags/v${BROTLI_VERSION}.tar.gz
+expat-${EXPAT_VERSION}.tar.xz|https://github.com/libexpat/libexpat/releases/download/R_${EXPAT_VERSION//./_}/expat-${EXPAT_VERSION}.tar.xz
+libpng-${LIBPNG_VERSION}.tar.xz|https://download.sourceforge.net/libpng/libpng-${LIBPNG_VERSION}.tar.xz
+pcre2-${PCRE2_VERSION}.tar.gz|https://github.com/PCRE2Project/pcre2/releases/download/pcre2-${PCRE2_VERSION}/pcre2-${PCRE2_VERSION}.tar.gz
+libgpg-error-${LIBGPG_ERROR_VERSION}.tar.bz2|https://gnupg.org/ftp/gcrypt/libgpg-error/libgpg-error-${LIBGPG_ERROR_VERSION}.tar.bz2
+libgcrypt-${LIBGCRYPT_VERSION}.tar.bz2|https://gnupg.org/ftp/gcrypt/libgcrypt/libgcrypt-${LIBGCRYPT_VERSION}.tar.bz2
+libidn2-${LIBIDN2_VERSION}.tar.gz|https://ftp.gnu.org/gnu/libidn/libidn2-${LIBIDN2_VERSION}.tar.gz
+fribidi-${FRIBIDI_VERSION}.tar.xz|https://github.com/fribidi/fribidi/releases/download/v${FRIBIDI_VERSION}/fribidi-${FRIBIDI_VERSION}.tar.xz
+libdatrie-${LIBDATRIE_VERSION}.tar.xz|https://github.com/tlwg/libdatrie/releases/download/v${LIBDATRIE_VERSION}/libdatrie-${LIBDATRIE_VERSION}.tar.xz
+libthai-${LIBTHAI_VERSION}.tar.xz|https://github.com/tlwg/libthai/releases/download/v${LIBTHAI_VERSION}/libthai-${LIBTHAI_VERSION}.tar.xz
+pixman-${PIXMAN_VERSION}.tar.gz|https://www.cairographics.org/releases/pixman-${PIXMAN_VERSION}.tar.gz
+xorgproto-${XORGPROTO_VERSION}.tar.xz|https://xorg.freedesktop.org/releases/individual/proto/xorgproto-${XORGPROTO_VERSION}.tar.xz
+libXau-${LIBXAU_VERSION}.tar.xz|https://xorg.freedesktop.org/releases/individual/lib/libXau-${LIBXAU_VERSION}.tar.xz
+libXdmcp-${LIBXDMCP_VERSION}.tar.xz|https://xorg.freedesktop.org/releases/individual/lib/libXdmcp-${LIBXDMCP_VERSION}.tar.xz
+xcb-proto-${XCBPROTO_VERSION}.tar.xz|https://xorg.freedesktop.org/releases/individual/proto/xcb-proto-${XCBPROTO_VERSION}.tar.xz
+libxcb-${LIBXCB_VERSION}.tar.xz|https://xorg.freedesktop.org/releases/individual/lib/libxcb-${LIBXCB_VERSION}.tar.xz
+libX11-${LIBX11_VERSION}.tar.xz|https://xorg.freedesktop.org/releases/individual/lib/libX11-${LIBX11_VERSION}.tar.xz
+libXext-${LIBXEXT_VERSION}.tar.xz|https://xorg.freedesktop.org/releases/individual/lib/libXext-${LIBXEXT_VERSION}.tar.xz
+libXrender-${LIBXRENDER_VERSION}.tar.xz|https://xorg.freedesktop.org/releases/individual/lib/libXrender-${LIBXRENDER_VERSION}.tar.xz
+libXfixes-${LIBXFIXES_VERSION}.tar.xz|https://xorg.freedesktop.org/releases/individual/lib/libXfixes-${LIBXFIXES_VERSION}.tar.xz
+libXdamage-${LIBXDAMAGE_VERSION}.tar.xz|https://xorg.freedesktop.org/releases/individual/lib/libXdamage-${LIBXDAMAGE_VERSION}.tar.xz
+libXi-${LIBXI_VERSION}.tar.xz|https://xorg.freedesktop.org/releases/individual/lib/libXi-${LIBXI_VERSION}.tar.xz
+libXrandr-${LIBXRANDR_VERSION}.tar.xz|https://xorg.freedesktop.org/releases/individual/lib/libXrandr-${LIBXRANDR_VERSION}.tar.xz
+libXcursor-${LIBXCURSOR_VERSION}.tar.xz|https://xorg.freedesktop.org/releases/individual/lib/libXcursor-${LIBXCURSOR_VERSION}.tar.xz
+libXinerama-${LIBXINERAMA_VERSION}.tar.xz|https://xorg.freedesktop.org/releases/individual/lib/libXinerama-${LIBXINERAMA_VERSION}.tar.xz
+libXxf86vm-${LIBXXF86VM_VERSION}.tar.xz|https://xorg.freedesktop.org/releases/individual/lib/libXxf86vm-${LIBXXF86VM_VERSION}.tar.xz
+libXtst-${LIBXTST_VERSION}.tar.xz|https://xorg.freedesktop.org/releases/individual/lib/libXtst-${LIBXTST_VERSION}.tar.xz
+libXv-${LIBXV_VERSION}.tar.xz|https://xorg.freedesktop.org/releases/individual/lib/libXv-${LIBXV_VERSION}.tar.xz
+libxshmfence-${LIBXSHMFENCE_VERSION}.tar.xz|https://xorg.freedesktop.org/releases/individual/lib/libxshmfence-${LIBXSHMFENCE_VERSION}.tar.xz
+libxkbcommon-${XKBCOMMON_VERSION}.tar.xz|https://xkbcommon.org/download/libxkbcommon-${XKBCOMMON_VERSION}.tar.xz
+libglvnd-v${LIBGLVND_VERSION}.tar.gz|https://gitlab.freedesktop.org/glvnd/libglvnd/-/archive/v${LIBGLVND_VERSION}/libglvnd-v${LIBGLVND_VERSION}.tar.gz
+libepoxy-${LIBEPOXY_VERSION}.tar.xz|https://download.gnome.org/sources/libepoxy/${LIBEPOXY_VERSION%.*}/libepoxy-${LIBEPOXY_VERSION}.tar.xz https://github.com/anholt/libepoxy/archive/refs/tags/${LIBEPOXY_VERSION}.tar.gz
+libffi-${LIBFFI_VERSION}.tar.gz|https://github.com/libffi/libffi/releases/download/v${LIBFFI_VERSION}/libffi-${LIBFFI_VERSION}.tar.gz
+glib-${GLIB_VERSION}.tar.xz|https://download.gnome.org/sources/glib/${GLIB_VERSION%.*}/glib-${GLIB_VERSION}.tar.xz
+icu4c-${ICU_VERSION//-/_}-src.tgz|https://github.com/unicode-org/icu/releases/download/release-${ICU_VERSION//./-}/icu4c-${ICU_VERSION//-/_}-src.tgz
+libtasn1-${LIBTASN1_VERSION}.tar.gz|https://ftp.gnu.org/gnu/libtasn1/libtasn1-${LIBTASN1_VERSION}.tar.gz
+lcms2-${LCMS2_VERSION}.tar.gz|https://github.com/mm2/Little-CMS/releases/download/lcms${LCMS2_VERSION}/lcms2-${LCMS2_VERSION}.tar.gz
+libwebp-${LIBWEBP_VERSION}.tar.gz|https://storage.googleapis.com/downloads.webmproject.org/releases/webp/libwebp-${LIBWEBP_VERSION}.tar.gz
+openjpeg-${OPENJPEG_VERSION}.tar.gz|https://github.com/uclouvain/openjpeg/archive/refs/tags/v${OPENJPEG_VERSION}.tar.gz
+libjpeg-turbo-${LIBJPEG_TURBO_VERSION}.tar.gz|https://github.com/libjpeg-turbo/libjpeg-turbo/releases/download/${LIBJPEG_TURBO_VERSION}/libjpeg-turbo-${LIBJPEG_TURBO_VERSION}.tar.gz
+tiff-${LIBTIFF_VERSION}.tar.gz|https://download.osgeo.org/libtiff/tiff-${LIBTIFF_VERSION}.tar.gz
+libxml2-${LIBXML2_VERSION}.tar.xz|https://download.gnome.org/sources/libxml2/${LIBXML2_VERSION%.*}/libxml2-${LIBXML2_VERSION}.tar.xz
+libxslt-${LIBXSLT_VERSION}.tar.xz|https://download.gnome.org/sources/libxslt/${LIBXSLT_VERSION%.*}/libxslt-${LIBXSLT_VERSION}.tar.xz
+freetype-${FREETYPE_VERSION}.tar.xz|https://download.savannah.gnu.org/releases/freetype/freetype-${FREETYPE_VERSION}.tar.xz https://downloads.sourceforge.net/project/freetype/freetype2/${FREETYPE_VERSION}/freetype-${FREETYPE_VERSION}.tar.xz
+cairo-${CAIRO_VERSION}.tar.xz|https://cairographics.org/releases/cairo-${CAIRO_VERSION}.tar.xz
+harfbuzz-${HARFBUZZ_VERSION}.tar.xz|https://github.com/harfbuzz/harfbuzz/releases/download/${HARFBUZZ_VERSION}/harfbuzz-${HARFBUZZ_VERSION}.tar.xz
+pango-${PANGO_VERSION}.tar.xz|https://download.gnome.org/sources/pango/${PANGO_VERSION%.*}/pango-${PANGO_VERSION}.tar.xz
+gdk-pixbuf-${GDK_PIXBUF_VERSION}.tar.xz|https://download.gnome.org/sources/gdk-pixbuf/${GDK_PIXBUF_VERSION%.*}/gdk-pixbuf-${GDK_PIXBUF_VERSION}.tar.xz
+graphene-${GRAPHENE_VERSION}.tar.gz|https://github.com/ebassi/graphene/archive/refs/tags/${GRAPHENE_VERSION}.tar.gz
+libpsl-${LIBPSL_VERSION}.tar.gz|https://github.com/rockdaboot/libpsl/releases/download/${LIBPSL_VERSION}/libpsl-${LIBPSL_VERSION}.tar.gz
+libgudev-${LIBGUDEV_VERSION}.tar.xz|https://download.gnome.org/sources/libgudev/${LIBGUDEV_VERSION%%.*}/libgudev-${LIBGUDEV_VERSION}.tar.xz
+libsecret-${LIBSECRET_VERSION}.tar.xz|https://download.gnome.org/sources/libsecret/${LIBSECRET_VERSION%.*}/libsecret-${LIBSECRET_VERSION}.tar.xz
+nghttp2-${LIBNGHTTP2_VERSION}.tar.xz|https://github.com/nghttp2/nghttp2/releases/download/v${LIBNGHTTP2_VERSION}/nghttp2-${LIBNGHTTP2_VERSION}.tar.xz
+libsoup-${LIBSOUP_VERSION}.tar.xz|https://download.gnome.org/sources/libsoup/${LIBSOUP_VERSION%.*}/libsoup-${LIBSOUP_VERSION}.tar.xz
+gtk-${GTK4_VERSION}.tar.xz|https://download.gnome.org/sources/gtk/${GTK4_VERSION%.*}/gtk-${GTK4_VERSION}.tar.xz
+gmp-${GMP_VERSION}.tar.xz|https://gmplib.org/download/gmp/gmp-${GMP_VERSION}.tar.xz https://ftp.gnu.org/gnu/gmp/gmp-${GMP_VERSION}.tar.xz
+nettle-${NETTLE_VERSION}.tar.gz|https://ftp.gnu.org/gnu/nettle/nettle-${NETTLE_VERSION}.tar.gz
+p11-kit-${P11KIT_VERSION}.tar.xz|https://github.com/p11-glue/p11-kit/releases/download/${P11KIT_VERSION}/p11-kit-${P11KIT_VERSION}.tar.xz
+gnutls-${GNUTLS_VERSION}.tar.xz|https://www.gnupg.org/ftp/gcrypt/gnutls/v${GNUTLS_VERSION%.*}/gnutls-${GNUTLS_VERSION}.tar.xz
+glib-networking-${GLIB_NETWORKING_VERSION}.tar.xz|https://download.gnome.org/sources/glib-networking/${GLIB_NETWORKING_VERSION%.*}/glib-networking-${GLIB_NETWORKING_VERSION}.tar.xz
+libdrm-${LIBDRM_VERSION}.tar.xz|https://dri.freedesktop.org/libdrm/libdrm-${LIBDRM_VERSION}.tar.xz
+mesa-${MESA_VERSION}.tar.xz|https://archive.mesa3d.org/mesa-${MESA_VERSION}.tar.xz
+gstreamer-${GSTREAMER_VERSION}.tar.xz|https://gstreamer.freedesktop.org/src/gstreamer/gstreamer-${GSTREAMER_VERSION}.tar.xz
+gst-plugins-base-${GSTREAMER_VERSION}.tar.xz|https://gstreamer.freedesktop.org/src/gst-plugins-base/gst-plugins-base-${GSTREAMER_VERSION}.tar.xz
+gst-plugins-good-${GSTREAMER_VERSION}.tar.xz|https://gstreamer.freedesktop.org/src/gst-plugins-good/gst-plugins-good-${GSTREAMER_VERSION}.tar.xz
+gst-plugins-bad-${GSTREAMER_VERSION}.tar.xz|https://gstreamer.freedesktop.org/src/gst-plugins-bad/gst-plugins-bad-${GSTREAMER_VERSION}.tar.xz
+sqlite-autoconf-${SQLITE_VERSION}.tar.gz|https://www.sqlite.org/${SQLITE_YEAR}/sqlite-autoconf-${SQLITE_VERSION}.tar.gz
+
+# Meson subproject archives, resolved by meson rather than by extract_source.
+#
+# A meson project declares optional dependencies as wrap files and downloads them at
+# configure time when the dependency is not already present. Almost every wrap in
+# these tarballs resolves against a library this bundle now vendors itself, so it is
+# never fetched -- but cairo ships no subproject sources at all and genuinely needs
+# fontconfig is built from source like everything else here as of 3.7.1. It used to be
+# left to cairo's meson subproject, which only triggers when the container's own copy
+# is too old for cairo -- and Debian 11's 2.13.1 is not, so nothing was ever built and
+# cairo and libXft linked the host's instead. pango wants >= 2.15.0 and falls back to a
+# git clone, which an offline build cannot serve at all.
+fontconfig-${FONTCONFIG_VERSION}.tar.xz|https://www.freedesktop.org/software/fontconfig/release/fontconfig-${FONTCONFIG_VERSION}.tar.xz
+
+# wayland and wayland-protocols. freedesktop retired wayland.freedesktop.org/releases for
+# these, so the GitLab release download is the origin rather than a mirror of one.
+wayland-${WAYLAND_VERSION}.tar.xz|https://gitlab.freedesktop.org/wayland/wayland/-/releases/${WAYLAND_VERSION}/downloads/wayland-${WAYLAND_VERSION}.tar.xz
+wayland-protocols-${WAYLAND_PROTOCOLS_VERSION}.tar.xz|https://gitlab.freedesktop.org/wayland/wayland-protocols/-/releases/${WAYLAND_PROTOCOLS_VERSION}/downloads/wayland-protocols-${WAYLAND_PROTOCOLS_VERSION}.tar.xz

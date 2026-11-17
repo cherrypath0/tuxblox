@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "console_ui.h"
+#include "i18n.h"
 #include <atomic>
 #include <chrono>
 #include <csignal>
@@ -28,7 +29,7 @@ namespace tuxblox {
 namespace {
 
 constexpr int kBarWidth = 28;
-constexpr int kLabelWidth = 32;
+constexpr int kLabelWidth = 40;
 constexpr auto kPollInterval = std::chrono::milliseconds(100);
 
 // Set from the SIGINT handler, which may do nothing else -- only
@@ -43,17 +44,17 @@ void onSigint(int) {
 std::string phaseLabel(const AppSnapshot& snapshot) {
     switch (snapshot.phase) {
         case AppPhase::Init:
-            return "Preparing";
+            return i18n::tr("Preparing");
         case AppPhase::FetchingManifest:
-            return "Fetching release manifest";
+            return i18n::tr("Fetching release manifest");
         case AppPhase::Installing:
             // Already resolved to fresh-install vs "Upgrading ..." wording
             // by installer_steps.cpp -- print it as-is.
             return snapshot.currentStepLabel;
         case AppPhase::Done:
-            return "Done";
+            return i18n::tr("Done");
         case AppPhase::Error:
-            return "Failed";
+            return i18n::tr("Failed");
     }
     return snapshot.currentStepLabel;
 }
@@ -120,7 +121,7 @@ bool runConsoleInstall(App& app) {
         if (gInterrupted.load()) {
             app.cancel();
             renderer.endBar();
-            fprintf(stderr, "Cancelled. Cleaning up...\n");
+            fprintf(stderr, "%s\n", i18n::tr("Cancelled. Cleaning up..."));
             // Returning is enough: ~App joins the install thread, which stops
             // at its next checkpoint and removes whatever it created.
             break;
@@ -137,17 +138,17 @@ bool runConsoleInstall(App& app) {
 
         if (snapshot.phase == AppPhase::Error) {
             renderer.endBar();
-            fprintf(stderr, "Error: %s\n", snapshot.errorMessage.c_str());
+            fprintf(stderr, "%s: %s\n", i18n::tr("Error"), snapshot.errorMessage.c_str());
             break;
         }
 
         // readyToLaunch() is set just before the phase flips to Done, so
         // check both rather than racing on which one this poll observes.
         if (snapshot.phase == AppPhase::Done || app.readyToLaunch()) {
-            renderer.draw("Done", 100);
+            renderer.draw(i18n::tr("Done"), 100);
             renderer.endBar();
-            printf(snapshot.isUpgrade ? "TuxBlox upgraded successfully.\n"
-                                      : "TuxBlox installed successfully.\n");
+            printf("%s\n", snapshot.isUpgrade ? i18n::tr("TuxBlox upgraded successfully.")
+                                             : i18n::tr("TuxBlox installed successfully."));
             fflush(stdout);
             succeeded = true;
             break;

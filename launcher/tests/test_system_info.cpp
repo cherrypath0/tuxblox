@@ -459,6 +459,223 @@ int main() {
         assert(gpuEnvForSelection("0000:09:00.0", gpus).empty());
     }
 
+    // A Vulkan driver directory in the shape the loader scans: one .json per
+    // driver, and a separate file per architecture where the driver ships
+    // both.
+    auto makeIcdDir = [](const fs::path& dir, const std::vector<std::string>& files) {
+        fs::remove_all(dir);
+        fs::create_directories(dir);
+        for (const auto& name : files) { std::ofstream(dir / name) << "{}\n"; }
+    };
+
+    // vulkanIcdFiles(): an Intel card takes every Intel driver file, both
+    // architectures, and none of the cards it sits beside. Dropping the
+    // 32-bit file would leave a 32-bit process in the prefix with no driver
+    // at all.
+    {
+        fs::path dir = fs::temp_directory_path() / "tuxblox_test_icd_intel";
+        makeIcdDir(dir, {"intel_icd.x86_64.json", "intel_icd.i686.json",
+                         "intel_hasvk_icd.x86_64.json", "nvidia_icd.json",
+                         "radeon_icd.x86_64.json"});
+
+        auto files = vulkanIcdFiles("i915", {dir.string()});
+        assert(files.size() == 3);
+        assert(files[0] == (dir / "intel_hasvk_icd.x86_64.json").string());
+        assert(files[1] == (dir / "intel_icd.i686.json").string());
+        assert(files[2] == (dir / "intel_icd.x86_64.json").string());
+
+        // The newer Intel kernel driver is the same Vulkan driver.
+        assert(vulkanIcdFiles("xe", {dir.string()}) == files);
+        fs::remove_all(dir);
+    }
+
+    // vulkanIcdFiles(): directories are searched in the order given, so a
+    // driver file installed locally comes before the system's copy.
+    {
+        fs::path first = fs::temp_directory_path() / "tuxblox_test_icd_first";
+        fs::path second = fs::temp_directory_path() / "tuxblox_test_icd_second";
+        makeIcdDir(first, {"nvidia_icd.json"});
+        makeIcdDir(second, {"nvidia_icd.json"});
+
+        auto files = vulkanIcdFiles("nvidia", {first.string(), second.string()});
+        assert(files.size() == 2);
+        assert(files[0] == (first / "nvidia_icd.json").string());
+        assert(files[1] == (second / "nvidia_icd.json").string());
+        fs::remove_all(first);
+        fs::remove_all(second);
+    }
+
+    // vulkanIcdFiles(): a driver with no Vulkan driver file, a missing
+    // directory and a non-JSON file all yield nothing rather than a
+    // half-formed list -- the caller turns an empty list into "change
+    // nothing", which is the only safe answer.
+    {
+        fs::path dir = fs::temp_directory_path() / "tuxblox_test_icd_odd";
+        makeIcdDir(dir, {"intel_icd.x86_64.json.bak", "README"});
+
+        assert(vulkanIcdFiles("i915", {dir.string()}).empty());
+        assert(vulkanIcdFiles("vmwgfx", {dir.string()}).empty());
+        assert(vulkanIcdFiles("", {dir.string()}).empty());
+        assert(vulkanIcdFiles("i915", {"/nonexistent/icd.d"}).empty());
+        fs::remove_all(dir);
+    }
+
+    // gpuSelectionEnv(): the hybrid laptop, integrated card chosen. The
+    // NVIDIA card is still in the machine, so hiding it is the whole job:
+    // MESA_VK_DEVICE_SELECT only orders Mesa's own devices and cannot
+    // remove another driver's, and DRI_PRIME does nothing to Vulkan at all.
+    {
+        fs::path dir = fs::temp_directory_path() / "tuxblox_test_icd_hybrid";
+        makeIcdDir(dir, {"intel_icd.x86_64.json", "nvidia_icd.json"});
+
+        GpuDevice intel;
+        intel.pciAddress = "0000:00:02.0";
+        intel.vendorId = "0x8086";
+        intel.deviceId = "0x9a49";
+        intel.driver = "i915";
+        GpuDevice nvidia;
+        nvidia.pciAddress = "0000:01:00.0";
+        nvidia.vendorId = "0x10de";
+        nvidia.deviceId = "0x2520";
+        nvidia.driver = "nvidia";
+
+        auto env = gpuSelectionEnv(intel, {intel, nvidia}, {dir.string()});
+        auto has = [&](const std::string& pair) {
+            return std::find(env.begin(), env.end(), pair) != env.end();
+        };
+        assert(has("__VK_LAYER_NV_optimus=non_NVIDIA_only"));
+        assert(has("__NV_PRIME_RENDER_OFFLOAD=0"));
+        assert(has("__GLX_VENDOR_LIBRARY_NAME=mesa"));
+        assert(has("MESA_VK_DEVICE_SELECT=8086:9a49"));
+        assert(has("DRI_PRIME=pci-0000_00_02_0"));
+        // The loader is pinned to the chosen card's driver, so nothing else
+        // is enumerated whatever the game would have preferred.
+        assert(has("VK_DRIVER_FILES=" + (dir / "intel_icd.x86_64.json").string()));
+        // The older loaders read the other name, and a loader that knows
+        // both prefers VK_DRIVER_FILES, so sending both is safe.
+        assert(has("VK_ICD_FILENAMES=" + (dir / "intel_icd.x86_64.json").string()));
+        fs::remove_all(dir);
+    }
+
+    // gpuSelectionEnv(): the same laptop, discrete card chosen. The NVIDIA
+    // variables are unchanged, and the loader is pinned the same way.
+    {
+        fs::path dir = fs::temp_directory_path() / "tuxblox_test_icd_hybrid_nv";
+        makeIcdDir(dir, {"intel_icd.x86_64.json", "nvidia_icd.json"});
+
+        GpuDevice intel;
+        intel.pciAddress = "0000:00:02.0";
+        intel.vendorId = "0x8086";
+        intel.deviceId = "0x9a49";
+        intel.driver = "i915";
+        GpuDevice nvidia;
+        nvidia.pciAddress = "0000:01:00.0";
+        nvidia.vendorId = "0x10de";
+        nvidia.deviceId = "0x2520";
+        nvidia.driver = "nvidia";
+
+        auto env = gpuSelectionEnv(nvidia, {intel, nvidia}, {dir.string()});
+        auto has = [&](const std::string& pair) {
+            return std::find(env.begin(), env.end(), pair) != env.end();
+        };
+        assert(has("__NV_PRIME_RENDER_OFFLOAD=1"));
+        assert(has("__VK_LAYER_NV_optimus=NVIDIA_only"));
+        assert(has("__GLX_VENDOR_LIBRARY_NAME=nvidia"));
+        assert(has("VK_DRIVER_FILES=" + (dir / "nvidia_icd.json").string()));
+        for (const auto& pair : env) assert(pair.rfind("MESA_VK_DEVICE_SELECT", 0) != 0);
+        fs::remove_all(dir);
+    }
+
+    // gpuSelectionEnv(): one card in the machine, so there is nothing to
+    // hide and nothing to pin. Pinning the loader cannot help a machine with
+    // a single card and could only ever break it.
+    {
+        fs::path dir = fs::temp_directory_path() / "tuxblox_test_icd_single";
+        makeIcdDir(dir, {"radeon_icd.x86_64.json"});
+
+        GpuDevice amd;
+        amd.pciAddress = "0000:03:00.0";
+        amd.vendorId = "0x1002";
+        amd.deviceId = "0x744c";
+        amd.driver = "amdgpu";
+
+        auto env = gpuSelectionEnv(amd, {amd}, {dir.string()});
+        for (const auto& pair : env) {
+            assert(pair.rfind("__VK_LAYER_NV_optimus", 0) != 0);
+            assert(pair.rfind("VK_DRIVER_FILES", 0) != 0);
+            assert(pair.rfind("VK_ICD_FILENAMES", 0) != 0);
+        }
+        assert(std::find(env.begin(), env.end(), "DRI_PRIME=pci-0000_03_00_0") != env.end());
+        fs::remove_all(dir);
+    }
+
+    // gpuSelectionEnv(): two Mesa cards and no NVIDIA. Nothing needs hiding,
+    // but the loader is still pinned, and the NVIDIA variables must stay out
+    // of an environment that has no NVIDIA card to steer.
+    {
+        fs::path dir = fs::temp_directory_path() / "tuxblox_test_icd_amd_pair";
+        makeIcdDir(dir, {"radeon_icd.x86_64.json", "intel_icd.x86_64.json"});
+
+        GpuDevice intel;
+        intel.pciAddress = "0000:00:02.0";
+        intel.vendorId = "0x8086";
+        intel.deviceId = "0x9a49";
+        intel.driver = "i915";
+        GpuDevice amd;
+        amd.pciAddress = "0000:03:00.0";
+        amd.vendorId = "0x1002";
+        amd.deviceId = "0x744c";
+        amd.driver = "amdgpu";
+
+        auto env = gpuSelectionEnv(amd, {intel, amd}, {dir.string()});
+        auto has = [&](const std::string& pair) {
+            return std::find(env.begin(), env.end(), pair) != env.end();
+        };
+        assert(has("VK_DRIVER_FILES=" + (dir / "radeon_icd.x86_64.json").string()));
+        assert(has("MESA_VK_DEVICE_SELECT=1002:744c"));
+        for (const auto& pair : env) {
+            assert(pair.rfind("__VK_LAYER_NV_optimus", 0) != 0);
+            assert(pair.rfind("__NV_PRIME_RENDER_OFFLOAD", 0) != 0);
+            assert(pair.rfind("__GLX_VENDOR_LIBRARY_NAME", 0) != 0);
+        }
+        fs::remove_all(dir);
+    }
+
+    // gpuSelectionEnv(): no driver file for the chosen card anywhere. The
+    // card is still hidden from NVIDIA's layer, but the loader is left
+    // alone -- pinning it to nothing would leave the game with no Vulkan
+    // driver whatsoever, which is far worse than the wrong card.
+    {
+        GpuDevice intel;
+        intel.pciAddress = "0000:00:02.0";
+        intel.vendorId = "0x8086";
+        intel.deviceId = "0x9a49";
+        intel.driver = "i915";
+        GpuDevice nvidia;
+        nvidia.pciAddress = "0000:01:00.0";
+        nvidia.vendorId = "0x10de";
+        nvidia.driver = "nvidia";
+
+        auto env = gpuSelectionEnv(intel, {intel, nvidia}, {"/nonexistent/icd.d"});
+        auto has = [&](const std::string& pair) {
+            return std::find(env.begin(), env.end(), pair) != env.end();
+        };
+        assert(has("__VK_LAYER_NV_optimus=non_NVIDIA_only"));
+        for (const auto& pair : env) {
+            assert(pair.rfind("VK_DRIVER_FILES", 0) != 0);
+            assert(pair.rfind("VK_ICD_FILENAMES", 0) != 0);
+        }
+    }
+
+    // defaultVulkanIcdDirs(): the loader's own search path, most specific
+    // first, so a driver file a person installed for themselves wins.
+    {
+        auto dirs = defaultVulkanIcdDirs();
+        assert(!dirs.empty());
+        assert(std::find(dirs.begin(), dirs.end(), "/usr/share/vulkan/icd.d") != dirs.end());
+        assert(std::find(dirs.begin(), dirs.end(), "/etc/vulkan/icd.d") != dirs.end());
+    }
+
     printf("system_info: all tests passed\n");
     return 0;
 }

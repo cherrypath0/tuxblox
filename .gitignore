@@ -4,18 +4,15 @@ releases/
 launcher/build/
 launcher/build-test/
 launcher/build-*/
-launcher/third_party/
 
 .env
 
 push.sh
-install-handler.sh
 deploy.sh
 
 __pycache__/
 
 installer/build/
-installer/third_party/
 studio-mcp/build/
 
 *.log
@@ -25,6 +22,7 @@ studio-mcp/build/
 *.so
 *.archived
 
+compat/sources/
 compat/dist
 compat/dist-*
 compat/obj-*
@@ -34,13 +32,17 @@ compat/syn-*
 .claude/
 .superpowers/
 workspace/
-CLAUDE.md
 SKILL.md
+CLAUDE.local.md
+AGENTS.local.md
 
 /*.tar.gz
 /*.tar.zst
 
 compat/webkitgtk/bundle/out/
-compat/webkitgtk/bundle/host/webview2loader_ipc_protocol.h
 logs/
 shared/ui/dist/
+shared/ui/sources/
+compat/webkitgtk/bundle/sources/
+compat/webkitgtk/prebuilt/
+compat/webkitgtk/wpe/sources/

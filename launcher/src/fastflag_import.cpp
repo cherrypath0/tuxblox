@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "fastflag_import.h"
+#include "i18n.h"
 #include "json.hpp"
 
 namespace tuxblox {
@@ -36,30 +37,32 @@ std::string withoutCode(const std::string &message) {
 } // namespace
 
 FastFlagImport parseFastFlagJson(const std::string &text) {
-    if (text.find_first_not_of(" \t\r\n") == std::string::npos) return refused("Paste the flags as JSON.");
+    if (text.find_first_not_of(" \t\r\n") == std::string::npos) return refused(i18n::tr("Paste the flags as JSON."));
 
     nlohmann::ordered_json parsed;
     try {
         parsed = nlohmann::ordered_json::parse(text);
     } catch (const nlohmann::json::exception &problem) {
-        return refused("This is not valid JSON: " + withoutCode(problem.what()));
+        return refused(i18n::trf("This is not valid JSON: {0}", {withoutCode(problem.what())}));
     }
 
-    if (!parsed.is_object()) return refused("The flags need to be in curly brackets, like {\"FlagName\": \"true\"}.");
-    if (parsed.empty()) return refused("There are no flags in this JSON.");
+    if (!parsed.is_object()) {
+        return refused(i18n::tr("The flags need to be in curly brackets, like {\"FlagName\": \"true\"}."));
+    }
+    if (parsed.empty()) return refused(i18n::tr("There are no flags in this JSON."));
 
     FastFlagImport result;
     for (const auto &entry : parsed.items()) {
         const std::string &name = entry.key();
         const auto &value = entry.value();
-        if (name.empty()) return refused("A flag has no name.");
+        if (name.empty()) return refused(i18n::tr("A flag has no name."));
 
         if (value.is_string()) {
             result.flags.push_back({name, value.get<std::string>()});
         } else if (value.is_boolean() || value.is_number()) {
             result.flags.push_back({name, value.dump()});
         } else {
-            return refused("The value of " + name + " must be text, a number, true or false.");
+            return refused(i18n::trf("The value of {0} must be text, a number, true or false.", {name}));
         }
     }
     result.ok = true;

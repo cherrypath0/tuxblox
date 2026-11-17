@@ -34,8 +34,14 @@ WINE_DECLARE_DEBUG_CHANNEL(tuxblox);
 #ifdef SONAME_LIBDBUS_1
 
 #define DBUS_FUNCS \
+    DO_FUNC(dbus_threads_init_default); \
     DO_FUNC(dbus_bus_add_match); \
-    DO_FUNC(dbus_bus_get); \
+    DO_FUNC(dbus_bus_get_private); \
+    DO_FUNC(dbus_bus_get_unique_name); \
+    DO_FUNC(dbus_connection_close); \
+    DO_FUNC(dbus_connection_set_exit_on_disconnect); \
+    DO_FUNC(dbus_bus_remove_match); \
+    DO_FUNC(dbus_error_is_set); \
     DO_FUNC(dbus_connection_add_filter); \
     DO_FUNC(dbus_connection_read_write_dispatch); \
     DO_FUNC(dbus_connection_remove_filter); \
@@ -77,6 +83,13 @@ static BOOL load_dbus_functions(void)
     { WARN("failed to load symbol %s\n", #f); return FALSE; }
     DBUS_FUNCS;
 #undef DO_FUNC
+
+    /* The session connection is shared, and the wait for the portal now runs on a thread of its own
+     * so the program carries on serving its windows while the dialog is up. libdbus only guards its
+     * own state once asked to, and without this the connection comes apart mid-dialog: the wait ends
+     * early reporting failure, and the caller falls back to drawing a second file dialog over the
+     * one already on screen. Asking twice is harmless. */
+    p_dbus_threads_init_default();
     return TRUE;
 }
 
@@ -87,7 +100,8 @@ static BOOL load_dbus_functions(void)
 
 struct pending_response
 {
-    const char *request_path;
+    const char *request_path;   /* the path subscribed to before the call was made */
+    const char *reply_path;     /* the path the portal handed back, when it is a different one */
     BOOL done;
     dbus_uint32_t response_code;
     char **uris;     /* malloc'd array of malloc'd strings, NULL if none returned */
@@ -192,7 +206,9 @@ static DBusHandlerResult response_filter(DBusConnection *conn, DBusMessage *msg,
         return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
 
     path = p_dbus_message_get_path(msg);
-    if (!path || strcmp(path, pending->request_path))
+    if (!path) return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
+    if (strcmp(path, pending->request_path) &&
+        (!pending->reply_path || strcmp(path, pending->reply_path)))
         return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
 
     p_dbus_message_iter_init(msg, &args);
@@ -234,6 +250,30 @@ static DBusHandlerResult response_filter(DBusConnection *conn, DBusMessage *msg,
     return DBUS_HANDLER_RESULT_HANDLED;
 }
 
+/* The object path the portal will give this request, worked out the way the
+ * portal spec says it is built: the caller's bus name with the leading ':'
+ * dropped and every '.' turned into '_', then the handle_token. Knowing it in
+ * advance is what lets the Response be subscribed to before the call is made.
+ * NULL if the bus name cannot be read, which the caller treats as
+ * portal-unreachable. */
+static char *expected_request_path(DBusConnection *conn, const char *token)
+{
+    const char *unique = p_dbus_bus_get_unique_name(conn);
+    char *path, *p;
+
+    size_t prefix;
+
+    if (!unique) return NULL;
+    if (*unique == ':') unique++;
+    if (!(path = malloc(strlen(PORTAL_OBJECT_PATH) + strlen(unique) + strlen(token) + 16)))
+        return NULL;
+    prefix = sprintf(path, PORTAL_OBJECT_PATH "/request/");
+    strcpy(path + prefix, unique);
+    for (p = path + prefix; *p; p++) if (*p == '.') *p = '_';
+    sprintf(p, "/%s", token);
+    return path;
+}
+
 /* Calls FileChooser.OpenFile or FileChooser.SaveFile and blocks for the
  * Response signal. Returns FALSE only if the portal itself couldn't be
  * reached (caller should fall back to Wine's native dialog); returns TRUE
@@ -242,6 +282,7 @@ static DBusHandlerResult response_filter(DBusConnection *conn, DBusMessage *msg,
  * each entry and the array. */
 static BOOL portal_open_or_save(const char *method, const char *title, const char *initial_dir_path,
                                  const char *initial_name, BOOL directory, BOOL multiple,
+                                 UINT64 parent_xid,
                                  UINT filter_count, const char **names_utf8, const char **patterns_utf8,
                                  char ***out_uris, UINT *out_count)
 {
@@ -249,19 +290,82 @@ static BOOL portal_open_or_save(const char *method, const char *title, const cha
     DBusConnection *conn;
     DBusMessage *msg, *reply;
     DBusMessageIter args, options;
+    /* The window the dialog belongs to, in the form the portal spec gives for X11. Empty means no
+     * parent, which leaves the dialog owned by nothing and the focus with the window manager. */
+    char parent_window_buf[32];
     const char *parent_window = "";
-    const char *handle_token = "tuxblox1";
+    static LONG token_seq;
+    char handle_token[32];
+    char *expected_path;
+    char *reply_match = NULL;
     const char *request_path;
     struct pending_response pending = { 0 };
     char match_rule[512];
+    BOOL ret = FALSE;
 
     *out_uris = NULL;
     *out_count = 0;
+    if (parent_xid)
+    {
+        snprintf(parent_window_buf, sizeof(parent_window_buf), "x11:%llx", (unsigned long long)parent_xid);
+        parent_window = parent_window_buf;
+    }
     if (!load_dbus_functions()) return FALSE;
 
     p_dbus_error_init(&error);
-    conn = p_dbus_bus_get(DBUS_BUS_SESSION, &error);
+    /* A connection of this dialog's own, not the process-wide shared one. The wait below runs on a
+     * thread of its own so the program carries on serving its windows, and a shared connection is
+     * dispatched by whatever else in the process reached for the session bus: two threads taking
+     * messages off one connection lose the Response to the wrong one, and the wait then ends
+     * reporting failure, which puts Wine's own file dialog on screen over the portal's. */
+    conn = p_dbus_bus_get_private(DBUS_BUS_SESSION, &error);
     if (!conn) { p_dbus_error_free(&error); return FALSE; }
+    /* Both bus_get calls arm this, and it calls _exit() on the process. A dropped session bus must
+     * cost the dialog, never Roblox, and the wait below already reports a dead connection itself. */
+    p_dbus_connection_set_exit_on_disconnect(conn, FALSE);
+
+    /* A token of its own per dialog, as the portal spec requires: the Request
+     * object is named after it, and two dialogs open at once under one name
+     * collide on that object. */
+    sprintf(handle_token, "tuxblox%u", (unsigned int)InterlockedIncrement(&token_seq));
+    if (!(expected_path = expected_request_path(conn, handle_token)))
+    {
+        p_dbus_connection_close(conn);
+        p_dbus_connection_unref(conn);
+        return FALSE;
+    }
+
+    /* Subscribed to before the call is made, and with the error argument passed
+     * so the bus has acknowledged the rule before anything is sent. The portal
+     * may emit Response the instant the method returns, and the bus drops a
+     * signal that no rule yet asks for -- so a rule added afterwards, or added
+     * without waiting for the bus, loses the Response of a portal that answers
+     * quickly and leaves the wait below running for ever on the thread that
+     * opened the dialog. Measured: a portal answering with no delay hung the
+     * caller indefinitely, every time. */
+    pending.request_path = expected_path;
+    snprintf(match_rule, sizeof(match_rule),
+             "type='signal',interface='%s',member='Response',path='%s'",
+             PORTAL_REQUEST_IFACE, expected_path);
+    p_dbus_bus_add_match(conn, match_rule, &error);
+    if (p_dbus_error_is_set(&error))
+    {
+        WARN("failed to subscribe to the portal response: %s\n", error.message);
+        p_dbus_error_free(&error);
+        free(expected_path);
+        p_dbus_connection_close(conn);
+        p_dbus_connection_unref(conn);
+        return FALSE;
+    }
+    if (!p_dbus_connection_add_filter(conn, response_filter, &pending, NULL))
+    {
+        WARN("failed to register dbus filter for portal response\n");
+        p_dbus_bus_remove_match(conn, match_rule, NULL);
+        free(expected_path);
+        p_dbus_connection_close(conn);
+        p_dbus_connection_unref(conn);
+        return FALSE;
+    }
 
     msg = p_dbus_message_new_method_call(PORTAL_BUS_NAME, PORTAL_OBJECT_PATH,
                                           PORTAL_FILECHOOSER_IFACE, method);
@@ -285,28 +389,32 @@ static BOOL portal_open_or_save(const char *method, const char *title, const cha
 
     reply = p_dbus_connection_send_with_reply_and_block(conn, msg, -1, &error);
     p_dbus_message_unref(msg);
-    if (!reply) { p_dbus_error_free(&error); p_dbus_connection_unref(conn); return FALSE; }
+    if (!reply) { p_dbus_error_free(&error); goto done; }
 
     if (!p_dbus_message_get_args(reply, &error, DBUS_TYPE_OBJECT_PATH, &request_path,
                                   DBUS_TYPE_INVALID))
     {
         p_dbus_error_free(&error);
         p_dbus_message_unref(reply);
-        p_dbus_connection_unref(conn);
-        return FALSE;
+        goto done;
     }
 
-    pending.request_path = request_path;
-    snprintf(match_rule, sizeof(match_rule),
-             "type='signal',interface='%s',member='Response',path='%s'",
-             PORTAL_REQUEST_IFACE, request_path);
-    p_dbus_bus_add_match(conn, match_rule, NULL);
-    if (!p_dbus_connection_add_filter(conn, response_filter, &pending, NULL))
+    /* A portal is free to hand back a path other than the one its own naming
+     * rule gives -- it renames around a token already in use, and an older one
+     * may not follow the rule at all -- so whatever it named is listened to as
+     * well rather than waiting for a signal that is never coming. The window
+     * this one reopens is the small one between the call returning and here,
+     * which is why the predicted path is still the one subscribed to first. */
+    if (strcmp(request_path, expected_path))
     {
-        WARN("failed to register dbus filter for portal response\n");
-        p_dbus_message_unref(reply);
-        p_dbus_connection_unref(conn);
-        return FALSE;
+        pending.reply_path = request_path;
+        if ((reply_match = malloc(sizeof(match_rule))))
+        {
+            snprintf(reply_match, sizeof(match_rule),
+                     "type='signal',interface='%s',member='Response',path='%s'",
+                     PORTAL_REQUEST_IFACE, request_path);
+            p_dbus_bus_add_match(conn, reply_match, NULL);
+        }
     }
 
     /* read_write_dispatch() returns FALSE once the connection has been
@@ -317,11 +425,12 @@ static BOOL portal_open_or_save(const char *method, const char *title, const cha
      * portal-unreachable failure below, rather than reporting a false
      * "reachable, cancelled" result. */
     /* This wait has no timeout (dbus_connection_read_write_dispatch's second
-     * arg is -1): if the portal backend never surfaces a dialog or never
-     * fires a Response signal for some reason, this blocks indefinitely.
-     * Bracketed with tuxblox trace markers (item 6 investigation) so a
-     * WINEDEBUG=+tuxblox capture can show whether a hang is stuck in here
-     * specifically -- a BEGIN with no matching END means yes. */
+     * arg is -1), because the thing it is waiting for is a person deciding
+     * what to call a file, which has no deadline worth setting. Everything
+     * that could make the Response never arrive is therefore handled above
+     * rather than here. Bracketed with tuxblox trace markers (item 6
+     * investigation) so a WINEDEBUG=+tuxblox capture can show whether a hang
+     * is stuck in here specifically -- a BEGIN with no matching END means yes. */
     TRACE_(tuxblox)("portal wait BEGIN method=%s title=%s\n", method, title);
     while (!pending.done)
     {
@@ -334,19 +443,26 @@ static BOOL portal_open_or_save(const char *method, const char *title, const cha
     TRACE_(tuxblox)("portal wait END method=%s done=%d code=%u\n",
                     method, pending.done, (unsigned int)pending.response_code);
 
-    p_dbus_connection_remove_filter(conn, response_filter, &pending);
     p_dbus_message_unref(reply);
+    ret = pending.done;
+
+done:
+    /* The connection goes with the dialog, so the rules on it go too. Taking them off first keeps
+     * the filter from being handed a message between the close and the unref. */
+    p_dbus_connection_remove_filter(conn, response_filter, &pending);
+    p_dbus_bus_remove_match(conn, match_rule, NULL);
+    if (reply_match)
+    {
+        p_dbus_bus_remove_match(conn, reply_match, NULL);
+        free(reply_match);
+    }
+    free(expected_path);
+    /* A private connection is not closed by dropping the last reference, and one left open keeps
+     * its socket and its name on the bus for as long as Roblox runs. */
+    p_dbus_connection_close(conn);
     p_dbus_connection_unref(conn);
 
-    if (!pending.done)
-    {
-        UINT i;
-        for (i = 0; i < pending.uri_count; i++) free(pending.uris[i]);
-        free(pending.uris);
-        return FALSE;
-    }
-
-    if (pending.response_code == 0 && pending.uri_count)
+    if (ret && pending.response_code == 0 && pending.uri_count)
     {
         *out_uris = pending.uris;
         *out_count = pending.uri_count;
@@ -357,7 +473,7 @@ static BOOL portal_open_or_save(const char *method, const char *title, const cha
         for (i = 0; i < pending.uri_count; i++) free(pending.uris[i]);
         free(pending.uris);
     }
-    return TRUE;
+    return ret;
 }
 
 static char *wcs_to_utf8(const WCHAR *src)
@@ -388,7 +504,17 @@ static BOOL run_portal_request(const char *method, struct portal_open_save_param
 
     title_utf8 = wcs_to_utf8(params->title);
     if (params->initial_dir)
+    {
+        char *host;
+
         ntdll_get_unix_file_name(params->initial_dir, &initial_dir_unix, FILE_OPEN_IF);
+        /* The folder on the computer that one stands for, so the window opens on the user's own Documents rather than on the drive's copy of the path to it. */
+        if (initial_dir_unix && (host = ntdll_host_folder_to_show(initial_dir_unix)))
+        {
+            free(initial_dir_unix);
+            initial_dir_unix = host;
+        }
+    }
     initial_name_utf8 = wcs_to_utf8(params->initial_name);
 
     for (i = 0; i < filter_count; i++)
@@ -400,7 +526,7 @@ static BOOL run_portal_request(const char *method, struct portal_open_save_param
     }
 
     ok = portal_open_or_save(method, title_utf8 ? title_utf8 : "", initial_dir_unix, initial_name_utf8,
-                              directory, multiple, filter_count, names_ptr, patterns_ptr,
+                              directory, multiple, params->parent_xid, filter_count, names_ptr, patterns_ptr,
                               out_uris, out_count);
 
     free(title_utf8);

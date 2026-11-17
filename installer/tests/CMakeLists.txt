@@ -15,7 +15,7 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 # Every test in this directory checks correctness with plain assert().
-# CMAKE_BUILD_TYPE=Release (what installer/build.sh always configures --
+# CMAKE_BUILD_TYPE=Release (what the Makefile always configures --
 # see its cmake invocation) defines -DNDEBUG, which compiles assert() to a
 # no-op -- silently turning every test in this suite into "always passes"
 # regardless of CMAKE_BUILD_TYPE. -UNDEBUG here, scoped to this directory
@@ -25,10 +25,6 @@
 # outside this directory's scope).
 add_compile_options(-UNDEBUG)
 
-add_executable(test_user_agent ${TUXBLOX_SHARED_RELEASE}/../tests/test_user_agent.cpp)
-target_link_libraries(test_user_agent PRIVATE installer_core)
-add_test(NAME user_agent COMMAND test_user_agent)
-
 add_executable(test_release_file ${TUXBLOX_SHARED_RELEASE}/../tests/test_release_file.cpp)
 target_link_libraries(test_release_file PRIVATE installer_core)
 add_test(NAME release_file COMMAND test_release_file)
@@ -36,6 +32,10 @@ add_test(NAME release_file COMMAND test_release_file)
 add_executable(test_release_source test_release_source.cpp)
 target_link_libraries(test_release_source PRIVATE installer_core)
 add_test(NAME release_source COMMAND test_release_source)
+
+add_executable(test_flags test_flags.cpp)
+target_link_libraries(test_flags PRIVATE installer_core)
+add_test(NAME installer_flags COMMAND test_flags)
 
 add_executable(test_cli test_cli.cpp)
 target_link_libraries(test_cli PRIVATE installer_core)
@@ -65,8 +65,21 @@ add_executable(test_tar_extract test_tar_extract.cpp)
 target_link_libraries(test_tar_extract PRIVATE installer_core)
 add_test(NAME tar_extract COMMAND test_tar_extract)
 
+# A real interface-stack library to install into a fixture, built from the two sources the shipped
+# one is built from, so this stops matching if the exports or the stamp move.
+add_library(test_stack_version MODULE
+    ${TUXBLOX_SHARED_RELEASE}/stack_version.cpp
+    ${TUXBLOX_SHARED_RELEASE}/release_stamp.cpp)
+target_include_directories(test_stack_version PRIVATE ${TUXBLOX_SHARED_RELEASE})
+target_compile_definitions(test_stack_version PRIVATE
+    TUXBLOX_COMPONENT_VERSION="3.1.0" TUXBLOX_RELEASE="3.6.0.0")
+set_target_properties(test_stack_version PROPERTIES PREFIX "" OUTPUT_NAME "version")
+
 add_executable(test_installer_steps test_installer_steps.cpp)
 target_link_libraries(test_installer_steps PRIVATE installer_core)
+add_dependencies(test_installer_steps test_stack_version)
+target_compile_definitions(test_installer_steps PRIVATE
+    TUXBLOX_TEST_STACK_LIBRARY="$<TARGET_FILE:test_stack_version>")
 add_test(NAME installer_steps COMMAND test_installer_steps)
 
 add_executable(test_container_env test_container_env.cpp)
@@ -106,3 +119,11 @@ add_test(NAME ui_extract COMMAND test_ui_extract)
 add_executable(test_ca_bundle ${TUXBLOX_SHARED_CRYPTO}/../tests/test_ca_bundle.cpp)
 target_link_libraries(test_ca_bundle PRIVATE installer_core)
 add_test(NAME ca_bundle COMMAND test_ca_bundle)
+
+add_executable(test_i18n ${TUXBLOX_I18N_DIR}/tests/test_i18n.cpp)
+target_link_libraries(test_i18n PRIVATE installer_core)
+add_test(NAME i18n COMMAND test_i18n)
+
+add_test(NAME translations
+    COMMAND ${PYTHON3_EXECUTABLE} "${TUXBLOX_I18N_DIR}/tools/check-translations.py"
+            --check --translations ${TUXBLOX_TRANSLATIONS_DIR})

@@ -426,6 +426,71 @@ int main() {
         fs::remove_all(dir);
     }
 
+    // How a version got here. The auto-update may replace a build it installed itself,
+    // but not one somebody picked on purpose -- so the two have to be told apart, and
+    // that cannot be read back off the disk the way the version string can.
+    {
+        assert(!wasChosenDeliberately(InstalledVersion{"version-a", "live", "", "", ""}));
+        assert(!wasChosenDeliberately(InstalledVersion{"version-a", "live", "", "", "auto"}));
+        assert(!wasChosenDeliberately(InstalledVersion{"version-a", "live", "", "", "latest"}));
+        assert(wasChosenDeliberately(InstalledVersion{"version-a", "live", "", "", "previous"}));
+        assert(wasChosenDeliberately(InstalledVersion{"version-a", "live", "", "", "next"}));
+        assert(wasChosenDeliberately(InstalledVersion{"version-a", "live", "", "", "manual"}));
+    }
+
+    // A versions.json written before this existed has no "source" at all, and every
+    // version in it must read as one the updater may still tidy away -- otherwise the
+    // change would quietly stop cleaning up for everyone who already has an install.
+    {
+        fs::path old = fs::temp_directory_path() / "tuxblox_test_versions_source_old";
+        fs::remove_all(old);
+        fs::create_directories(old);
+        std::ofstream(old / "versions.json") << R"({"player":{"active":"version-a","installed":[
+            {"hash":"version-a","channel":"live","installed_at":"2026-01-01T00:00:00Z"}]},
+            "studio":{"active":"","installed":[]}})";
+        VersionsManifest m = loadVersionsManifest(old.string());
+        assert(m.player.installed.size() == 1);
+        assert(m.player.installed[0].source.empty());
+        assert(!wasChosenDeliberately(m.player.installed[0]));
+        fs::remove_all(old);
+    }
+
+    // It survives a save/load round trip, because nothing on disk can reconstruct it.
+    {
+        fs::path round = fs::temp_directory_path() / "tuxblox_test_versions_source_round";
+        fs::remove_all(round);
+        fs::create_directories(round);
+        VersionsManifest m;
+        m.player.installed.push_back({"version-next", "live", "2026-11-10T00:00:00Z", "", "next"});
+        m.player.installed.push_back({"version-auto", "live", "2026-11-10T00:00:00Z", "", "auto"});
+        saveVersionsManifest(round.string(), m);
+        VersionsManifest back = loadVersionsManifest(round.string());
+        assert(back.player.installed.size() == 2);
+        assert(back.player.installed[0].source == "next");
+        assert(back.player.installed[1].source == "auto");
+        fs::remove_all(round);
+    }
+
+    // And it survives reconcileWithPrefix(), which keeps only the metadata that cannot
+    // be recovered from the prefix. Without this the mark would be wiped on every
+    // launch and the auto-update protection with it.
+    {
+        fs::path keep = fs::temp_directory_path() / "tuxblox_test_versions_source_reconcile";
+        fs::remove_all(keep);
+        fs::path versionsDir = keep / "runtime/pfx/drive_c/users/user/AppData/Local/Roblox/Versions";
+        fs::create_directories(versionsDir / "version-pinned");
+        std::ofstream(versionsDir / "version-pinned" / "RobloxPlayerBeta.exe") << "not a windows program";
+
+        VersionsManifest m;
+        m.player.installed.push_back({"version-pinned", "live", "2026-11-10T00:00:00Z", "", "previous"});
+        reconcileWithPrefix(keep.string(), m);
+
+        assert(m.player.installed.size() == 1);
+        assert(m.player.installed[0].source == "previous");
+        assert(wasChosenDeliberately(m.player.installed[0]));
+        fs::remove_all(keep);
+    }
+
     printf("versions_manifest: all tests passed\n");
     return 0;
 }

@@ -2631,7 +2631,7 @@ static HRESULT build_results_from_portal_paths(FileDialogImpl *This, WCHAR *buf)
  * from. Falls through to create_dialog() unchanged if the portal is
  * unreachable, the result didn't fit the buffer, or the result couldn't be
  * turned into shell items. */
-static HRESULT try_portal_show(FileDialogImpl *This)
+static HRESULT try_portal_show(FileDialogImpl *This, HWND hwndOwner)
 {
     struct filechooser_request req = { 0 };
     struct filechooser_result res = { 0 };
@@ -2642,6 +2642,7 @@ static HRESULT try_portal_show(FileDialogImpl *This)
     BOOL ok;
     HRESULT hr;
 
+    req.owner = hwndOwner;
     req.title = This->custom_title;
     req.directory = (This->options & FOS_PICKFOLDERS) != 0;
     req.multiple = (This->options & FOS_ALLOWMULTISELECT) != 0;
@@ -2726,7 +2727,7 @@ static HRESULT WINAPI IFileDialog2_fnShow(IFileDialog2 *iface, HWND hwndOwner)
 
     This->opendropdown_has_selection = FALSE;
 
-    hr = try_portal_show(This);
+    hr = try_portal_show(This, hwndOwner);
     if (SUCCEEDED(hr) || hr == HRESULT_FROM_WIN32(ERROR_CANCELLED))
         return hr;
 

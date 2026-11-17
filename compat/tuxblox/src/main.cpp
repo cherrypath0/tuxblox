@@ -32,14 +32,14 @@
 #include <signal.h>
 #include <unistd.h>
 
-#include "integrity/authenticode.h"
+#include "release_stamp.h"
+#include "support/flag_startup.h"
 #include "prefix/prefix.h"
 #include "support/account_name.h"
 #include "launch/proton.h"
 #include "launch/session.h"
 #include "support/log_limit.h"
 #include "support/util.h"
-#include "third_party/json.hpp"
 
 #include "embedded_data.h"
 
@@ -67,10 +67,11 @@ const std::array<std::string, 6> RobloxProcesses = {
     "StudioMCP.exe",
 };
 
-const std::array<std::string, 8> HelpOutput = {
+const std::array<std::string, 9> HelpOutput = {
     "Options:",
     "--help                  Show this help message",
-    "--version               Show TuxBlox version",
+    "--version               Show the TuxBlox release this was published in",
+    "--component-version     Show the layer's own version",
     "--immediate             Run TuxBlox without draining the prefix, must be used with the \"run\" argument",
     "--destroy               Destroys the prefix",
     "--allow-root            Allow running as root, which is not recommended",
@@ -78,9 +79,6 @@ const std::array<std::string, 8> HelpOutput = {
     "run <executable>        Runs the specified executable"
 };
 
-const std::string TuxBloxPublisher = "TuxBlox Project";
-const std::string RobloxPublisher = "Roblox Corporation";
-const int IntegrityFailureExit = 3;
 
 enum class RunMode {
     None,
@@ -106,59 +104,6 @@ std::filesystem::path installDir(const char *pArgv0) {
     return std::filesystem::absolute(std::filesystem::path(pArgv0).parent_path(), error);
 }
 
-// Which release this install belongs to, or empty when it does not say. One build of the runtime is published in several releases, so the number cannot be compiled in; the installer records it beside the programs instead, and an install made before it started doing that simply has nothing to report.
-std::string recordedRelease(const std::filesystem::path& layerDir) {
-    std::error_code error;
-    const std::filesystem::path path = layerDir.parent_path() / "release.json";
-    if (!std::filesystem::is_regular_file(path, error) || error) {
-        return std::string();
-    }
-    try {
-        std::ifstream file(path);
-        return nlohmann::json::parse(file).at("release").get<std::string>();
-    } catch (const std::exception&) {
-        return std::string();
-    }
-}
-
-// True when the program being launched is one TuxBlox installed itself, rather than
-// something that arrived from outside. The folder the layer is installed in is already
-// the boundary that matters: anything able to write a file next to the layer could
-// replace the layer itself, so requiring a signature in there protects nothing the
-// install's own permissions do not. The path is taken from the running binary and not
-// from the environment or argv[0], both of which whoever starts the process chooses.
-bool isLayerOwnProgram(const std::filesystem::path& target) {
-    std::error_code error;
-    const std::filesystem::path self =
-        std::filesystem::read_symlink("/proc/self/exe", error);
-    if (error || self.empty()) {
-        return false;
-    }
-    const std::filesystem::path own =
-        std::filesystem::weakly_canonical(self.parent_path() / "files", error);
-    if (error || own.empty()) {
-        return false;
-    }
-
-    // The real file has to be inside, so a link pointing out of the folder does not
-    // count as being in it.
-    const std::filesystem::path real = std::filesystem::canonical(target, error);
-    if (error) {
-        return false;
-    }
-
-    // Compared a component at a time, so a sibling whose name merely starts the same
-    // is not mistaken for a child.
-    auto mine = own.begin();
-    auto theirs = real.begin();
-    for (; mine != own.end(); ++mine, ++theirs) {
-        if (theirs == real.end() || *theirs != *mine) {
-            return false;
-        }
-    }
-    return true;
-}
-
 void printHelp() {
     for (const std::string& line : HelpOutput) {
         std::cout << line << std::endl;
@@ -179,6 +124,13 @@ CommandLine parseCommandLine(int argc, char *argv[]) {
         }
 
         if (argument == "--version") {
+            std::cout << tuxblox::reportedVersion(TuxBloxVersion) << std::endl;
+            parsed.handled = true;
+            return parsed;
+        }
+
+        // The release is what --version answers; this is the layer's own number.
+        if (argument == "--component-version") {
             std::cout << TuxBloxVersion << std::endl;
             parsed.handled = true;
             return parsed;
@@ -257,27 +209,26 @@ int runMain(int argc, char *argv[]) {
 
     const std::string invocation = tuxblox::joinCommandLine({argv, argv + argc});
 
-    const std::string release = recordedRelease(installDir(argv[0]));
+    // From the binary's own stamp: staging writes the release into every component, so each one says
+    // which release it is part of without reading anything beside it.
+    const std::string& release = tuxblox::releaseVersion();
     tuxblox::log("Runtime version " + TuxBloxVersion +
                  (release.empty() ? "" : " (release " + release + ")"));
+    // Named up front because it is what ties a line in this log to the processes it started: every
+    // one of them carries it, and it is how a session tells its own Roblox from one beside it.
+    tuxblox::log("Session ID is " + tuxblox::currentSessionId());
 
-    // Authenticode verification to ensure the Roblox executables used are legitimate and not tampered with
-    // TODO: Expand this to all third-party executables instead of just the one being launched (including DLLs), potentially even TuxBlox's own DLLs.
-    // TuxBlox's own publisher is accepted too, so the project can sign and run its own programs in the virtual drive.
-    if (command.mode == RunMode::Run && isLayerOwnProgram(command.target.front())) {
-        tuxblox::log("Integrity check skipped: " + command.target.front() +
-                     " is part of this TuxBlox installation.");
-    } else if (command.mode == RunMode::Run) {
-        const tuxblox::IntegrityReport report = tuxblox::verifyAuthenticode(
-            command.target.front(), {RobloxPublisher, TuxBloxPublisher},
-            tuxblox_data::find("roots.pem"));
-        if (report.status != tuxblox::IntegrityStatus::Verified) {
-            tuxblox::log(std::string("Integrity check FAILED (") +
-                         tuxblox::integrityStatusName(report.status) + "): " + report.detail);
-            return IntegrityFailureExit;
-        }
-        tuxblox::log("Integrity check passed: " + report.detail);
-    }
+    // Started here so the answer is on its way while the prefix and the executable are
+    // resolved. Only a later flag read can wait, and a run the launcher did not start --
+    // which is every `main run something.exe` by hand -- asks nobody at all.
+    // parent_path(), like recordedRelease() above: installDir() is the folder holding
+    // this binary, which is <root>/compat, and flags.json lives beside settings.json.
+    tuxblox::initLayerFlags(installDir(argv[0]).parent_path().string());
+
+    // The Roblox client's signature is checked by the compatibility layer itself, as the process
+    // starts, rather than here. Here only covered a launch that came through this program, and the
+    // layer can be reached without it: by running a loader directly, or by loading ntdll and
+    // calling into it. Checking where every launch arrives covers all of them.
 
     tuxblox::Proton proton(installDir(argv[0]));
     proton.cleanupLegacyDist();
@@ -287,7 +238,8 @@ int runMain(int argc, char *argv[]) {
     tuxblox::Session session(proton, prefixDir);
     session.buildVersion = TuxBloxVersion;
     session.invocation = invocation;
-    session.ownsPrefix = !command.runImmediately;
+    session.layerBinary = installDir(argv[0]) / "main";
+    session.tuxbloxPrefix = pPrefixDir;
     session.initWine();
 
     tuxblox::Prefix prefix(proton, std::filesystem::path(pPrefixDir), TuxBloxVersion);
@@ -319,6 +271,15 @@ int runMain(int argc, char *argv[]) {
     }
 
     if (!command.runImmediately) {
+        // Marked in use with no session left means the last run was cut off mid-write rather than
+        // closed, so TuxBlox's own files in the drive are rebuilt before anything starts. Installed
+        // Roblox versions, logs, shortcuts and documents are kept.
+        if (tuxblox::driveNeedsRepair(pPrefixDir, tuxblox::otherSessionsInDrive(
+                                                      session.layerBinary, session.tuxbloxPrefix))) {
+            tuxblox::log("The virtual drive was not closed properly last time, so it is being repaired first.");
+            prefix.rebuildTrackedFiles();
+        }
+
         prefix.setup(session);
 
         // setup() may have just renamed the drive's account folder, and whoever asked for this launch worked the path out before that happened.
@@ -330,10 +291,17 @@ int runMain(int argc, char *argv[]) {
 
     session.applyDllOverrides();
 
+    tuxblox::markDriveInUse(pPrefixDir);
+
     const int rc = session.run(target);
 
+    // Every session waits here, whether or not it has company: Roblox relaunches itself, so the
+    // process waited on above is not always the one still running, and a session that left at this
+    // point would go on being reported as running with nothing left watching it. Only the last
+    // session out goes on to close the drive, because whoever closes after it will be the last out.
+    //
     // A stop that arrives while the drive is draining ends the run as a success: the user asked for it, so it is not a failure to report.
-    if (!command.runImmediately && session.waitForPrefixDrain(tuxblox::PrefixDrainTimeoutSeconds)) {
+    if (session.waitForPrefixDrain(tuxblox::PrefixDrainTimeoutSeconds)) {
         return 0;
     }
 
@@ -341,7 +309,8 @@ int runMain(int argc, char *argv[]) {
     //   0 - OK (successful)
     //   1 - TuxBlox error
     //   2 - Launched process error
-    //   3 - Authenticode verification failure
+    // A refused signature arrives as the launched process's own exit code, since the layer is
+    // what refuses it; the launcher reads that out of the log.
     return rc == 0 ? 0 : 2;
 }
 

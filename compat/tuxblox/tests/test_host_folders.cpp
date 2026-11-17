@@ -17,6 +17,7 @@
 #include "../src/support/host_folders.h"
 #include <cassert>
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -210,6 +211,64 @@ int main() {
         std::ofstream(old / "someones-file.txt").put('x');
         assert(!removeLegacyBridgeRoot(docs));
         assert(fs::exists(old / "someones-file.txt"));
+    }
+
+    // The base directories the desktop defines, for the experimental Linux
+    // integration. Unset means the place the specification names under $HOME.
+    {
+        unsetenv("XDG_DATA_HOME");
+        unsetenv("XDG_STATE_HOME");
+        unsetenv("XDG_CACHE_HOME");
+        assert(xdgBaseDir("XDG_DATA_HOME", home.string(), false) == (home / ".local/share").string());
+        assert(xdgBaseDir("XDG_STATE_HOME", home.string(), false) == (home / ".local/state").string());
+        assert(xdgBaseDir("XDG_CACHE_HOME", home.string(), false) == (home / ".cache").string());
+
+        // Set, and an absolute path, so it is followed. A trailing separator goes.
+        setenv("XDG_DATA_HOME", "/somewhere/share/", 1);
+        assert(xdgBaseDir("XDG_DATA_HOME", home.string(), false) == "/somewhere/share");
+
+        // The specification says a relative value is invalid and must be ignored
+        // exactly as though the variable were not set at all.
+        setenv("XDG_STATE_HOME", "relative/state", 1);
+        assert(xdgBaseDir("XDG_STATE_HOME", home.string(), false) == (home / ".local/state").string());
+
+        // No home folder to fall back into, and a name this does not know.
+        assert(xdgBaseDir("XDG_DATA_HOME", "", false).empty());
+        assert(xdgBaseDir("XDG_RUNTIME_DIR", home.string(), false).empty());
+        unsetenv("XDG_DATA_HOME");
+        unsetenv("XDG_STATE_HOME");
+    }
+
+    // Sandboxed, where XDG_ names the sandbox's own folder and must be ignored
+    // whatever it says, because following it would put the user's Roblox data
+    // somewhere only this one app can reach.
+    {
+        setenv("XDG_DATA_HOME", "/sandbox/app/data", 1);
+        unsetenv("HOST_XDG_DATA_HOME");
+        assert(xdgBaseDir("XDG_DATA_HOME", home.string(), true) == (home / ".local/share").string());
+
+        // flatpak copies the host's value here, but only where the host set one at all.
+        setenv("HOST_XDG_DATA_HOME", "/elsewhere/share", 1);
+        assert(xdgBaseDir("XDG_DATA_HOME", home.string(), true) == "/elsewhere/share");
+
+        // A relative HOST_ value is as invalid as a relative XDG_ one.
+        setenv("HOST_XDG_DATA_HOME", "relative/share", 1);
+        assert(xdgBaseDir("XDG_DATA_HOME", home.string(), true) == (home / ".local/share").string());
+        unsetenv("HOST_XDG_DATA_HOME");
+        unsetenv("XDG_DATA_HOME");
+    }
+
+    // Every folder carved out of Roblox's data directory goes to a base directory
+    // xdgBaseDir() knows, or it would silently never be carved out at all.
+    {
+        assert(!robloxDataSplits().empty());
+        for (const RobloxDataSplit& split : robloxDataSplits()) {
+            assert(!split.name.empty());
+            assert(!xdgBaseDir(split.xdgKey, home.string(), false).empty());
+            assert(!xdgBaseDir(split.xdgKey, home.string(), true).empty());
+            // A name with a separator in it would escape the data directory.
+            assert(split.name.find('/') == std::string::npos);
+        }
     }
 
     fs::remove_all(base);

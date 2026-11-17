@@ -103,8 +103,8 @@ static USHORT cs32_sel;  /* selector for %cs in 32-bit mode */
 static USHORT cs64_sel;  /* selector for %cs in 64-bit mode */
 static USHORT ds64_sel;  /* selector for %ds/%es/%ss in 64-bit mode */
 
-/* Measured on Windows 11 25H2 with workspace/tests/dispprobe: every CONTEXT a
- * native 64-bit thread is handed carries %fs = 0x53. Linux reaches fs through
+/* Measured on Windows 11 25H2: every CONTEXT a native 64-bit thread is handed
+ * there carries %fs = 0x53. Linux reaches fs through
  * the MSR and loads no selector at all, so this came back as zero -- a value no
  * Windows machine reports, in a structure every exception handler reads. A
  * thread that really has a WoW64 selector keeps it; only the empty case is
@@ -434,9 +434,9 @@ struct machine_frame
 };
 
 /* Windows leaves this much of the interrupted stack alone before it places
- * anything on it. Measured with workspace/tests/dispprobe, which reports the
- * exception record and the context thirty-two bytes further down on Windows
- * than they were here; a program that walks its own stack across a handled
+ * anything on it. Measured by faulting on purpose and reading back where the
+ * exception record and the context landed: thirty-two bytes further down on
+ * Windows than they were here; a program that walks its own stack across a handled
  * fault sees the difference. */
 #define EXC_STACK_HEADROOM 0x20
 
@@ -1065,9 +1065,9 @@ static inline void leave_handler( ucontext_t *sigcontext )
  *
  * Bit 10 of the real register always reads as one, so a thread that has armed a
  * hardware breakpoint sees it set. Wine hands back exactly what was written,
- * which is a difference a program can see: measured on the reference machine
- * with workspace/tests/dbgprobe, arming one watchpoint and reading DR7 out of
- * the fault it causes gives 0xd0401 there and gave 0xd0001 here. With nothing
+ * which is a difference a program can see: on the reference machine, arming one
+ * watchpoint and reading DR7 out of the fault it causes gives 0xd0401 there and
+ * gave 0xd0001 here. With nothing
  * armed both report a plain zero -- the saved value rather than the register --
  * so the bit is only added once something is enabled.
  */
@@ -1834,10 +1834,14 @@ static void setup_raise_exception( ucontext_t *sigcontext, EXCEPTION_RECORD *rec
              * target sits here, and the return address says who transferred */
             {
                 const ULONG64 *sp = (const ULONG64 *)(ULONG_PTR)context->Rsp;
-                char st[256];
+                char st[512];
                 int n = 0, i;
 
-                for (i = -2; i < 6 && n < (int)sizeof(st) - 20; i++)
+                /* Wide enough to reach the calling function's own frame: a ret that
+                   popped one slot too low leaves the intended return address just
+                   above rsp and its caller's return address above that, and naming
+                   that caller is what says which call went wrong. */
+                for (i = -4; i < 16 && n < (int)sizeof(st) - 24; i++)
                 {
                     ULONG64 v = 0;
                     virtual_uninterrupted_read_memory( sp + i, &v, sizeof(v) );
@@ -1948,6 +1952,58 @@ static void setup_raise_exception( ucontext_t *sigcontext, EXCEPTION_RECORD *rec
         }
     }
 
+    /* TuxBlox experiment (TUXBLOX_TEST_CALLSKIP=<rva>[,<max>]): the Player's wall
+     * is an indirect call whose target is garbage, made from a loop that walks
+     * 0x30-byte records. The pushed return address names the site, so skipping
+     * the call and resuming there censuses every target the loop would have
+     * called instead of stopping at the first. Diagnostic only. */
+    if (rec->ExceptionCode == EXCEPTION_ACCESS_VIOLATION && rec->NumberParameters > 1 &&
+        rec->ExceptionInformation[0] == EXCEPTION_EXECUTE_FAULT)
+    {
+        const char *cs = tuxblox_dev_getenv( "TUXBLOX_TEST_CALLSKIP" );
+
+        if (cs && *cs)
+        {
+            static int skipped;
+            char *end;
+            ULONG64 rva = strtoull( cs, &end, 16 );
+            int max = (*end == ',') ? atoi( end + 1 ) : 1;
+            ULONG64 rsp = context->Rsp, lay = tuxblox_roblox_dll_base();
+
+            if (max <= 0) max = 1;
+            if (skipped < max && lay && rsp > 0x10000 && !(rsp & 7) &&
+                *(ULONG64 *)(ULONG_PTR)rsp == lay + rva)
+            {
+                char hex[320];
+                unsigned int k, o;
+                const unsigned char *code = (const unsigned char *)(ULONG_PTR)(lay + rva - 16);
+
+                skipped++;
+                ERR_(seh)( "tuxblox: callskip #%d target=%llx rax=%llx rbx=%llx r12=%llx rsp=%llx\n",
+                           skipped, (unsigned long long)context->Rip,
+                           (unsigned long long)context->Rax, (unsigned long long)context->Rbx,
+                           (unsigned long long)context->R12, (unsigned long long)rsp );
+                /* The sixteen bytes ending at the pushed return address contain
+                 * the call itself, which names where the target came from. */
+                for (k = 0, o = 0; k < 16 && o + 4 < sizeof(hex); k++)
+                    o += snprintf( hex + o, sizeof(hex) - o, "%02x ", code[k] );
+                ERR_(seh)( "tuxblox: callskip #%d site[-16..0] %s\n", skipped, hex );
+                for (k = 0, o = 0; k < 10 && o + 20 < sizeof(hex); k++)
+                    o += snprintf( hex + o, sizeof(hex) - o, "%llx ", (unsigned long long)
+                                   ((ULONG64 *)(ULONG_PTR)context->R12)[k] );
+                ERR_(seh)( "tuxblox: callskip #%d r12[0..9] %s\n", skipped, hex );
+                for (k = 0, o = 0; k < 6 && o + 20 < sizeof(hex); k++)
+                    o += snprintf( hex + o, sizeof(hex) - o, "%llx ", (unsigned long long)
+                                   ((ULONG64 *)(ULONG_PTR)context->Rbx)[k] );
+                ERR_(seh)( "tuxblox: callskip #%d rbx[0..5] %s\n", skipped, hex );
+                context->Rip = lay + rva;
+                context->Rsp = rsp + 8;
+                restore_context( xcontext, sigcontext );
+                return;
+            }
+        }
+    }
+
     status = send_debug_event( rec, context, TRUE, TRUE );
     if (status == DBG_CONTINUE || status == DBG_EXCEPTION_HANDLED)
     {
@@ -1965,6 +2021,13 @@ static void setup_raise_exception( ucontext_t *sigcontext, EXCEPTION_RECORD *rec
      * state cannot follow it any more -- that would lose the 64-byte alignment
      * XSAVE needs -- so it goes underneath instead, which the context's own
      * offset to it describes either way. */
+    /* Resolved before the branch below reads it: these start at -1, which is truthy, so leaving
+       the resolution until afterwards gave the first exception in every process a different frame
+       geometry from all the later ones -- the record, the context and the extended state all moved
+       between exception one and exception two. */
+    if (no_xstate == -1) no_xstate = tuxblox_dev_getenv( "TUXBLOX_TEST_NO_XSTATE_EXC" ) ? 1 : 0;
+    if (xstate_above == -1) xstate_above = tuxblox_dev_getenv( "TUXBLOX_TEST_XSTATE_ABOVE" ) ? 1 : 0;
+
     if (xstate_above)
     {
         /* Probe: the extended state in the gap above the frame instead of
@@ -1991,9 +2054,6 @@ static void setup_raise_exception( ucontext_t *sigcontext, EXCEPTION_RECORD *rec
     stack->context           = *context;
     stack->machine_frame.rip = context->Rip;
     stack->machine_frame.rsp = context->Rsp;
-
-    if (no_xstate == -1) no_xstate = tuxblox_dev_getenv( "TUXBLOX_TEST_NO_XSTATE_EXC" ) ? 1 : 0;
-    if (xstate_above == -1) xstate_above = tuxblox_dev_getenv( "TUXBLOX_TEST_XSTATE_ABOVE" ) ? 1 : 0;
 
     if (!no_xstate && (src_xs = xstate_from_context( context )))
     {
@@ -2558,8 +2618,11 @@ static unsigned int align_faulted_mask = ARRAY_SIZE(align_faulted) / 4 - 1;
  * is not semantics-preserving: a legacy SSE instruction leaves bits 255:128 of
  * the destination alone and its VEX.128 spelling zeroes them, so any value the
  * layer is keeping in the upper half of that register is destroyed. The move
- * rewrite has no such problem -- movdqu does exactly what movdqa did. */
-static BOOL vex_rewrite_allowed = TRUE;
+ * rewrite has no such problem -- movdqu does exactly what movdqa did.
+ *
+ * Off by default for the same reason as the move rewrite below: Windows does not
+ * edit the instruction. TUXBLOX_VEX_REWRITE=1 turns it back on. */
+static BOOL vex_rewrite_allowed = FALSE;
 
 /* Whether a general protection fault from an instruction fetch reports execute
  * rather than read. Wine reports read for every #GP; Windows distinguishes, and
@@ -2573,24 +2636,37 @@ static BOOL vex_rewrite_allowed = TRUE;
  * behaviour, since the Windows value has never been measured. */
 static BOOL gp_reports_execute = FALSE;
 
-/* Whether a faulted move may be rewritten where it stands. The layer hashes its
- * own code, so a run with TUXBLOX_NO_ALIGN_REWRITE set separates "the rewrite is
- * seen" from every other reason a run can fail. Read once at startup, because
- * nothing on the fault path may call getenv. */
-static BOOL align_rewrite_allowed = TRUE;
+/* Whether a faulted move may be rewritten where it stands.
+ *
+ * OFF, because Windows does not do it. Its kernel decodes the faulted
+ * instruction and performs the access in software -- RtlpIcParseInstruction,
+ * RtlpIcDecodeModRm, RtlpIcReadOperandValue, RtlpIcAccessMemory,
+ * RtlpIcWriteRegisterValue, RtlpIcEmulateInstruction -- and counts every one in
+ * KeAlignmentFixupCount, a per-occurrence counter that would be meaningless if a
+ * site were patched once. There is no routine anywhere in it that edits an
+ * instruction. Measured 2026-11-06 from the shipping kernel's own symbols, and
+ * corroborated by a healthy Windows process: 15,751,030 bytes of the Roblox
+ * layer's code in memory are byte-identical to the file it was mapped from.
+ *
+ * Emulating every fault is what Windows charges for too -- its own documentation
+ * warns of "severe performance degradation" when a process keeps generating
+ * them. Ours cost far more than its, so this is only affordable because the
+ * faults are themselves a symptom: a correctly aligned run barely makes any.
+ *
+ * TUXBLOX_ALIGN_REWRITE=1 turns the rewrite back on for a comparison.
+ * Read once at startup, because nothing on the fault path may call getenv. */
+static BOOL align_rewrite_allowed = FALSE;
 
 /* Whether a faulted move inside a mapped image may be rewritten.
  *
- * Windows never needs to: the Roblox layer's misaligned accesses do not trap
- * there, so its image in memory always matches the file it was mapped from, and
- * the layer checks. Ours trap 194 million times a run, and rewriting them edits
- * an image the program can compare against its own file -- which is measurably
- * what stops its start-up. Leaving images alone fixes that and costs every one
- * of those faults back: seconds become tens of minutes. So rewriting stays on.
+ * Moot while align_rewrite_allowed is off, and kept for the comparison runs that
+ * turn it back on. The claim this comment used to carry -- that movdqa is "the
+ * one spelling Windows is known to produce" -- was never measured and is wrong:
+ * Windows produces none, it emulates. See align_rewrite_allowed above.
  *
  * TUXBLOX_ALIGN_REWRITE_IMAGES=none leaves images alone, =movdqa allows only the
- * one spelling Windows is known to produce. Read once at startup, because
- * nothing on the fault path may call getenv. */
+ * movdqa/movdqu pair. Read once at startup, because nothing on the fault path
+ * may call getenv. */
 static BOOL align_rewrite_images = TRUE;
 static BOOL align_rewrite_images_dq = FALSE;
 /* Whether a move inside an image must fault twice before it is rewritten.
@@ -3945,17 +4021,6 @@ static void trap_handler( int signal, siginfo_t *siginfo, void *sigcontext )
          * breakpoint dump so a snapshot carries the layer's live XMM state. */
         const void *bp_xmm = FPU_sig(ucontext) ? (const char *)FPU_sig(ucontext) + 0xa0 : NULL;
 
-        /* Always-on Roblox stack-drift shim: forces r11=0 at the layer's
-         * integrity check so its match path is taken. Checked before the
-         * diagnostic breakpoints, which are off in an ordinary run. */
-        if (tuxblox_roblox_stackfix_hit( RIP_sig(ucontext), regs ))
-        {
-            RIP_sig(ucontext) = RIP_sig(ucontext) - 1;  /* back onto the restored instruction */
-            R11_sig(ucontext) = regs[11];
-            leave_handler( ucontext );
-            return;
-        }
-
         if (tuxblox_diag_bp_hit( RIP_sig(ucontext), regs, &rsp_delta, bp_xmm ))
         {
             ULONG64 redir = tuxblox_diag_bp_take_redirect();
@@ -4039,9 +4104,8 @@ static void trap_handler( int signal, siginfo_t *siginfo, void *sigcontext )
     case TRAP_x86_TRCTRAP:
         /* No DR6 is filled in here, on purpose. The processor does record why
          * it stopped, but Windows does not pass that on for a single step the
-         * program asked for itself: measured on the reference machine with
-         * workspace/tests/dbgprobe, both report an empty DR6, and only a
-         * hardware watchpoint hit reports a real one. */
+         * program asked for itself: on the reference machine both report an
+         * empty DR6, and only a hardware watchpoint hit reports a real one. */
         rec.ExceptionCode = EXCEPTION_SINGLE_STEP;
         break;
     case TRAP_x86_BPTFLT:
@@ -4373,7 +4437,10 @@ void signal_init_process(void)
     void *ptr, *kernel_stack = (char *)thread_data->kernel_stack + kernel_stack_size;
     unsigned int i;
 
-    align_rewrite_allowed = !getenv( "TUXBLOX_NO_ALIGN_REWRITE" );
+    /* Opt-in now that the default is Windows' behaviour, emulate and leave the
+     * instruction alone. The old negative knob still forces it off, so a note or
+     * a script that sets it still means what it said. */
+    align_rewrite_allowed = getenv( "TUXBLOX_ALIGN_REWRITE" ) && !getenv( "TUXBLOX_NO_ALIGN_REWRITE" );
     {
         const char *v = getenv( "TUXBLOX_ALIGN_REWRITE_IMAGES" );
 
@@ -4405,7 +4472,7 @@ void signal_init_process(void)
     }
     align_image_needs_repeat = !getenv( "TUXBLOX_ALIGN_IMAGE_FIRST_FAULT" );
     gp_reports_execute = !!tuxblox_dev_getenv( "TUXBLOX_TEST_GP_EXEC" );
-    vex_rewrite_allowed = !getenv( "TUXBLOX_NO_VEX_REWRITE" );
+    vex_rewrite_allowed = getenv( "TUXBLOX_VEX_REWRITE" ) && !getenv( "TUXBLOX_NO_VEX_REWRITE" );
     {
         const char *v = getenv( "TUXBLOX_ALIGN_TABLE" );
         unsigned int want = v ? atoi( v ) : 0;

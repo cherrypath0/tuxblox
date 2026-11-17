@@ -975,7 +975,7 @@ static void load_steam_overlay(const char *unix_lib_path)
     unsigned int len;
     void *handle;
 
-    if (!strstr(unix_lib_path, "winex11.so")) return;
+    if (!strstr(unix_lib_path, "dispumd.so")) return;
     if (getenv("LD_PRELOAD") || !(preload = getenv("WINE_LD_PRELOAD"))) return;
 
     p = preload;
@@ -4162,7 +4162,7 @@ void virtual_get_system_info( SYSTEM_BASIC_INFORMATION *info, BOOL wow64 )
 #endif
 
     info->unknown                 = 0;
-    info->KeMaximumIncrement      = 0;  /* FIXME */
+    info->KeMaximumIncrement      = 156250;  /* the clock increment, as SystemTimeAdjustmentInformation already reports */
     info->PageSize                = page_size;
     info->MmLowestPhysicalPage    = 1;
     info->MmNumberOfPhysicalPages = info->MmHighestPhysicalPage - info->MmLowestPhysicalPage;
@@ -4428,6 +4428,9 @@ static TEB *init_teb( void *ptr, BOOL is_wow )
 #endif
     teb->Peb = peb;
     teb->Tib.Self = &teb->Tib;
+    /* Measured as 0xfffe on every one of the reference machine's threads and never written
+       here at all, so reading four bytes of your own TEB told a program what this was. */
+    teb->TxFsContext = 0xfffe;
     teb->Tib.StackBase = (void *)~0ul;
     /* Windows leaves this constant in the union until the thread becomes a
      * fiber; zero here is visible to anything reading %gs:0x20 directly. */
@@ -4495,8 +4498,8 @@ TEB *virtual_alloc_first_teb(void)
      *
      * The band is one difference and the *arrangement* is another, and only the
      * first had been tried. Windows puts the PEB one page below the TEB --
-     * workspace/tests/tebprobe reads "peb - teb = -4096" on the reference
-     * machine -- while this put it a whole 64 KB block above, reading +65536.
+     * "peb - teb = -4096" on the reference machine -- while this put it a whole
+     * 64 KB block above, reading +65536.
      * Roblox's protection layer reads both pointers through gs: and does
      * arithmetic on them, so the arrangement is worth matching even though the
      * band is not. The 32-bit build keeps its own layout, where the 64-bit PEB
@@ -4962,7 +4965,8 @@ NTSTATUS virtual_alloc_thread_stack( INITIAL_TEB *stack, ULONG_PTR limit_low, UL
      * the guard page, so a thread reports StackBase - StackLimit of a few pages
      * until it has actually used more. This committed the whole reservation up
      * front, which reads as 0x1FE000 against 0x4000 on the reference machine
-     * (workspace/tests/tebprobe). grow_thread_stack() below already implements
+     * (measured on the reference machine). grow_thread_stack() below already
+     * implements
      * the growth correctly -- it commits the faulting page, moves the guard
      * down and updates Tib.StackLimit -- it was simply never reached, because
      * nothing was left uncommitted to fault on.
@@ -4997,8 +5001,8 @@ NTSTATUS virtual_alloc_thread_stack( INITIAL_TEB *stack, ULONG_PTR limit_low, UL
     {
         /* Leave room below the guard page for a thread that runs out of stack
          * to be told about it and do something about it. Windows enters such a
-         * handler with about 16 KB of the reservation still usable (measured on
-         * Windows 10 22H2 with workspace/tests/stackprobe.exe). Putting the
+         * handler with about 16 KB of the reservation still usable (measured
+         * on Windows 10 22H2). Putting the
          * guard immediately above the bottom, as this used to, leaves a handler
          * nowhere to run: it faults again on the page below and the thread is
          * killed with nothing reported. */
@@ -5177,8 +5181,8 @@ void virtual_init_user_shared_data(void)
 
     /* This page sits at a fixed address and needs no system call to read, so
      * anything in the process can compare it against a real machine at any
-     * moment. Every constant below was read off Windows 11 25H2 with
-     * workspace/tests/infoprobe.exe; a field left at zero that Windows always
+     * moment. Every constant below was read off Windows 11 25H2; a field left
+     * at zero that Windows always
      * fills is as much of a difference as a field with the wrong value in it. */
     /* Windows keeps 0x0fa00000 here and counts TickCount in 15.625 ms units,
      * so that (TickCount * TickCountMultiplier) >> 24 is milliseconds. Wine
@@ -5234,7 +5238,7 @@ void virtual_init_user_shared_data(void)
     data->Reserved3                      = 0x80000000;
     /* Measured as 1 on the reference machine, not the ~0 "nobody set this" that
      * was assumed here. */
-    data->ComPlusPackage                 = 1;
+    data->ComPlusPackage                 = ~0u;
     data->TestRetInstruction             = 0xc3;
     data->QpcFrequency                   = 10000000;
     data->QpcSystemTimeIncrement         = (ULONGLONG)1 << 63;
@@ -5243,7 +5247,7 @@ void virtual_init_user_shared_data(void)
     data->QpcInterruptTimeIncrementShift = 1;
     data->TelemetryCoverageRound         = 1;
     data->LangGenerationCount            = 1;
-    data->CyclesPerYield                 = 0x34;
+    data->CyclesPerYield                 = 0x42;
     data->UnparkedProcessorCount         = peb->NumberOfProcessors;
     /* the interactive session, which is 1 on any machine somebody has logged
      * into; zero is the session services run in and no user process sees it */
@@ -5256,7 +5260,11 @@ void virtual_init_user_shared_data(void)
      * ordinary install. The secure boot and multi-session bits Windows also
      * reports here describe that machine's firmware and SKU, so they are left
      * alone rather than claimed. */
-    data->SharedDataFlags                = 0x0e;
+    data->SharedDataFlags                = 0x10e;
+    /* Set on the reference machine and never written here at all, so a page every program can
+       read without a system call disagreed with it in three places. */
+    data->VirtualizationFlags            = 1;
+    data->EnclaveFeatureMask[0]          = 0x100;
     /* a second copy of the page count, as a 64-bit field */
     data->SystemCallPad[0]               = info.MmNumberOfPhysicalPages;
 
@@ -5302,12 +5310,12 @@ static BOOL is_inside_thread_stack( void *ptr, struct thread_stack_info *stack )
 {
     TEB *teb = NtCurrentTeb();
     WOW_TEB *wow_teb = get_wow_teb( teb );
-    /* How much stack is kept in reserve so that a thread which runs out still
-     * has room to be told about it. Measured on Windows 10 22H2 with
-     * workspace/tests/stackprobe.exe: a handler there is entered with 16 KB of
-     * the reservation left. Keeping less means the overflow is reported so late
-     * that the report itself does not fit, and the thread is killed instead. */
-    size_t min_guaranteed = max( page_size * (is_win64 ? 4 : 2), host_page_size );
+    /* How much stack is kept in reserve so that a thread which runs out still has room to be
+     * told about it. This is upstream's value. It was once doubled, which pushed the no-grow
+     * threshold above the point where a program that tidies its own stack right up to the edge
+     * of the reserve writes, and such a program was then stopped with an overflow it should
+     * never have seen. Do not raise it without a program to test against. */
+    size_t min_guaranteed = max( page_size * (is_win64 ? 2 : 1), host_page_size );
 
     stack->start = teb->DeallocationStack;
     stack->limit = teb->Tib.StackLimit;
@@ -7150,11 +7158,22 @@ static unsigned int get_memory_region_info( HANDLE process, LPCVOID addr, MEMORY
 
     server_enter_uninterrupted_section( &virtual_mutex, &sigset );
 
+    /* Every byte the length reported below claims was written has to be written, or the fields
+       this does not fill keep whatever the caller's buffer held and the answer is not even
+       stable between two identical queries. */
+    memset( info, 0, min( len, sizeof(*info) ) );
+
     if ((view = get_memory_region_size( base, &region_start, &region_end, &fake_reserved )))
     {
         info->AllocationBase = view->base;
         info->AllocationProtect = get_win32_prot( view->protect, view->protect );
-        info->RegionType = 0; /* FIXME */
+        /* Windows names what backs the region, and always exactly one of these; reporting none
+           of them is an answer no Windows machine gives. */
+        info->RegionType = 0;
+        if (is_view_valloc( view )) info->Private = 1;
+        else if (view->protect & SEC_IMAGE) info->MappedImage = 1;
+        else if (view->protect & SEC_FILE) info->MappedDataFile = 1;
+        else info->MappedPageFile = 1;
         if (len >= FIELD_OFFSET(MEMORY_REGION_INFORMATION, CommitSize))
             info->RegionSize = view->size;
         if (len >= FIELD_OFFSET(MEMORY_REGION_INFORMATION, PartitionId))
@@ -7180,7 +7199,8 @@ static unsigned int get_memory_region_info( HANDLE process, LPCVOID addr, MEMORY
         }
         info->AllocationBase = region_start;
         info->AllocationProtect = PAGE_NOACCESS;
-        info->RegionType = 0; /* FIXME */
+        info->RegionType = 0;
+        info->Private = 1;
         info->RegionSize = region_end - region_start;
         info->CommitSize = 0;
     }
@@ -7258,7 +7278,8 @@ static void fill_working_set_info( struct fill_working_set_info_data *d, struct 
         }
 
         p->VirtualAttributes.Valid = !(vprot & VPROT_GUARD) && (vprot & 0x0f) && entry && entry->kve_type != KVME_TYPE_SWAP;
-        p->VirtualAttributes.Shared = !is_view_valloc( view );
+        p->VirtualAttributes.SharedOriginal = !is_view_valloc( view );
+        p->VirtualAttributes.Shared = !is_view_valloc( view ) && !(vprot & VPROT_COPIED);
         if (p->VirtualAttributes.Shared && p->VirtualAttributes.Valid)
             p->VirtualAttributes.ShareCount = 1; /* FIXME */
         if (p->VirtualAttributes.Valid)
@@ -7331,7 +7352,13 @@ static void fill_working_set_info( struct fill_working_set_info_data *d, struct 
         pagemap = d->pm_buffer[page - d->buffer_start];
 
         p->VirtualAttributes.Valid = !(vprot & VPROT_GUARD) && (vprot & 0x0f) && (pagemap >> 63);
-        p->VirtualAttributes.Shared = !is_view_valloc( view ) && ((pagemap >> 61) & 1);
+        /* Windows distinguishes the two halves of copy-on-write, measured on 26300: a page still
+           shared with its section answers Shared=1 even when it is not resident, and one that has
+           been written is private and answers Shared=0, while SharedOriginal stays set either way
+           to record where it came from. Linux's file-page bit cannot express that, because Wine
+           maps an image into anonymous memory, so it reads false for a clean page too. */
+        p->VirtualAttributes.SharedOriginal = !is_view_valloc( view );
+        p->VirtualAttributes.Shared = !is_view_valloc( view ) && !(vprot & VPROT_COPIED);
         if (p->VirtualAttributes.Shared && p->VirtualAttributes.Valid)
             p->VirtualAttributes.ShareCount = 1; /* FIXME */
         if (p->VirtualAttributes.Valid)
@@ -7396,6 +7423,15 @@ static NTSTATUS get_working_set_ex( HANDLE process, LPCVOID addr,
     while (view && (char *)view->base < end)
     {
         if (start < (char *)view->base) start = view->base;
+        /* The Shared bit reported below turns on which write-copy pages have already been
+         * written, and that state was only ever refreshed on the MemoryBasicInformation path.
+         * Without this every resident image page reads back shared however much of the image
+         * has been written, which is not what Windows reports. */
+        if (view->protect & SEC_IMAGE)
+        {
+            char *view_end = (char *)view->base + view->size;
+            update_writecopy_state( start, end < view_end ? end : view_end );
+        }
         while (r != ref + count && r->addr < start) ++r;
         while (start != (char *)view->base + view->size && r != ref + count
                && r->addr < (char *)view->base + view->size)
@@ -7427,8 +7463,49 @@ static NTSTATUS get_working_set_ex( HANDLE process, LPCVOID addr,
         if (test) for (i = 0; i < count; i++)
         {
             if (!strcmp( test, "invalid" )) info[i].VirtualAttributes.Flags = 0;
+            else if (!strcmp( test, "shared" ))
+            {
+                /* Wine only sets Shared when Linux calls the page file-backed, which an
+                   image page that has been written to no longer is. This asks whether that
+                   bit is what sends the Player down the arm that leaks 0x20 of stack. */
+                if (info[i].VirtualAttributes.Valid)
+                {
+                    info[i].VirtualAttributes.Shared = 1;
+                    info[i].VirtualAttributes.ShareCount = 1;
+                }
+            }
+            else if (!strcmp( test, "private" ))
+            {
+                /* The opposite of "shared", and the arm nothing has ever produced: the Player's walk
+                   stops at the first page that is resident and NOT shared, and every page we report
+                   resident is shared, so it always walks to the end. This says whether that early
+                   exit is what skips the block leaving the stack high -- if it is not, residency is
+                   not the lever and the whole line of enquiry closes. */
+                if (info[i].VirtualAttributes.Valid) info[i].VirtualAttributes.Shared = 0;
+            }
             else if (info[i].VirtualAttributes.Valid) info[i].VirtualAttributes.Flags |= 5u << 24;
         }
+    }
+
+    /* The Roblox Player walks this answer looking for the first resident page and branches on
+     * whether that page is shared, so the shape of the whole answer is what decides the branch. */
+    if (tuxblox_diag_enabled())
+    {
+        SIZE_T valid = 0, valid_shared = 0, first = ~(SIZE_T)0;
+
+        for (i = 0; i < count; i++)
+        {
+            if (!info[i].VirtualAttributes.Valid) continue;
+            if (first == ~(SIZE_T)0) first = i;
+            valid++;
+            if (info[i].VirtualAttributes.Shared) valid_shared++;
+        }
+        ERR( "DIAG wsex count=%u valid=%u valid_shared=%u first_valid=%d addr0=%p flags0=%#llx first_addr=%p first_flags=%#llx\n",
+             (unsigned int)count, (unsigned int)valid, (unsigned int)valid_shared,
+             first == ~(SIZE_T)0 ? -1 : (int)first, info[0].VirtualAddress,
+             (unsigned long long)info[0].VirtualAttributes.Flags,
+             first == ~(SIZE_T)0 ? NULL : info[first].VirtualAddress,
+             first == ~(SIZE_T)0 ? 0ull : (unsigned long long)info[first].VirtualAttributes.Flags );
     }
 
     if (res_len)
@@ -7705,8 +7782,8 @@ static NTSTATUS query_virtual_memory( HANDLE process, LPCVOID addr,
          * The answer does not depend on what the address is: most of what the
          * layer asks about is private memory it built a module into, not a
          * mapped image. What a successful call writes back is not known -- the
-         * trace carries the status only -- so the buffer is cleared;
-         * `workspace/tests/vmprobe.c` sweeps the keys to settle it. */
+         * trace carries the status only -- so the buffer is cleared until a
+         * sweep of the keys settles it. */
         case MemoryImageExtensionInformation:
             if (len < 24) return STATUS_INFO_LENGTH_MISMATCH;
             if (!buffer) return STATUS_ACCESS_VIOLATION;

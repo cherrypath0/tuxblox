@@ -28,6 +28,9 @@ struct SessionHolder {
     std::string image;
     // The Player or Studio client itself, rather than one of the installers.
     bool client = false;
+    // Which session started it, from the stamp every process a session launches inherits. Empty for
+    // one that carries no stamp, which is nobody's.
+    std::string sessionId;
 };
 
 // The bare file name of a path, for matching against the image lists.
@@ -44,6 +47,19 @@ bool imageIsInstaller(const std::string& image);
 // because the two halves carry different licences.
 std::vector<SessionHolder> prefixSessionHolders(const std::filesystem::path& prefixDir);
 
+// The name of the stamp, and the holders carrying one session's. Roblox relaunches itself, so the
+// process a session waited on is not the one still running, and several sessions share the drive:
+// the stamp is the only thing that says which Roblox belongs to which session. An unstamped holder
+// is never anybody's, so it is treated like a session that joined the drive without setting it up.
+extern const char* const SessionIdVariable;
+
+// What this session stamps its processes with. The process number, because that already identifies
+// a session; here rather than at either use so the one printed is the one inherited.
+std::string currentSessionId();
+
+std::vector<SessionHolder> holdersOfSession(const std::vector<SessionHolder>& holders,
+                                            const std::string& sessionId);
+
 // The sessions a launch of `image` has to replace. Roblox runs one Player
 // session at a time and closes the running one when a new Player starts, so a
 // new Player launch stands the running one down first; a second Player that
@@ -55,20 +71,35 @@ std::vector<std::string> sessionsToReplace(const std::string& image,
 
 // What a session closing must do with the virtual drive.
 enum class DriveExit {
-    // A session that joined somebody else's drive: never its to close.
+    // Somebody else is still in the drive, so they will be the last one out and will close it.
     Leave,
     // The last one out closes the drive behind it.
-    TearDownNow,
-    // This session owns the drive but others are still using it, so it has to
-    // stay until the last of them leaves and close the drive then. Leaving now
-    // would leave the drive running with nobody left who will ever close it.
-    WaitThenTearDown
+    TearDownNow
 };
 
-DriveExit driveExitOnClose(bool ownsPrefix, const std::vector<SessionHolder>& remaining);
+// Decided by who is left rather than by who started the drive, so no session ever has to outlive
+// its own Roblox just to close the drive for the others.
+DriveExit driveExitOnClose(bool otherSessionsInDrive);
+
+// True when another TuxBlox session is still running in this virtual drive, whichever Roblox
+// program it launched. A Roblox that relaunched itself is not one: it has no session of its own, so
+// leaving the drive to it would leave nobody who will ever close it.
+bool otherSessionsInDrive(const std::filesystem::path& layerBinary, const std::string& tuxbloxPrefix);
+
+// The drive is marked in use for as long as a session is in it, and the last one out clears the
+// mark as it closes the drive. So a drive still marked in use with no session left was cut off
+// rather than closed -- the machine lost power, or something killed it outright -- and whatever it
+// was in the middle of writing was never finished.
+void markDriveInUse(const std::filesystem::path& baseDir);
+void markDriveClosed(const std::filesystem::path& baseDir);
+
+// Whether the next launch has to put the drive back in order before it starts anything. A session
+// running right now is what the mark is for, so it is not a fault.
+bool driveNeedsRepair(const std::filesystem::path& baseDir, bool otherSessionsInDrive);
 
 // The other compatibility-layer processes running `image` for this virtual
-// drive. Matched on the resolved exe rather than the command line, so another
+// drive, or every one of them whatever it launched when `image` is empty.
+// Matched on the resolved exe rather than the command line, so another
 // install's processes are left alone whatever they were invoked as.
 std::vector<std::string> otherLayerProcesses(const std::filesystem::path& procRoot,
                                              const std::filesystem::path& layerBinary,

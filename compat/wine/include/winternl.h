@@ -2509,6 +2509,13 @@ typedef union _MEMORY_WORKING_SET_EX_BLOCK {
         ULONG_PTR Node : 6;
         ULONG_PTR Locked : 1;
         ULONG_PTR LargePage : 1;
+        ULONG_PTR Priority : 3;
+        ULONG_PTR Reserved : 3;
+        ULONG_PTR SharedOriginal : 1;
+        ULONG_PTR Bad : 1;
+#ifdef _WIN64
+        ULONG_PTR ReservedUlong : 32;
+#endif
     } DUMMYSTRUCTNAME;
 } MEMORY_WORKING_SET_EX_BLOCK, *PMEMORY_WORKING_SET_EX_BLOCK;
 

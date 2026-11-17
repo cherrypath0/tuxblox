@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 #include "ui_adw.h"
 #include "adw_look.h"
+#include "i18n.h"
 #include <cstdio>
 #include <string>
 #include "tuxblox_logo_png.h"
@@ -49,10 +50,10 @@ gboolean onTick(gpointer data) {
 
     gtk_progress_bar_set_fraction(pUi->pBar, snap.overallPercent / 100.0);
     gtk_label_set_text(pUi->pStep, snap.currentStepLabel.c_str());
-    gtk_label_set_text(pUi->pTitle, snap.isUpgrade ? "Updating TuxBlox" : "Installing TuxBlox");
+    gtk_label_set_text(pUi->pTitle, snap.isUpgrade ? i18n::tr("Updating TuxBlox") : i18n::tr("Installing TuxBlox"));
 
     if (snap.phase == AppPhase::Error) {
-        gtk_label_set_text(pUi->pTitle, "TuxBlox could not be installed");
+        gtk_label_set_text(pUi->pTitle, i18n::tr("TuxBlox could not be installed"));
         gtk_widget_set_visible(GTK_WIDGET(pUi->pStep), FALSE);
         gtk_label_set_text(pUi->pErrorLabel, snap.errorMessage.c_str());
         gtk_widget_set_visible(GTK_WIDGET(pUi->pErrorLabel), TRUE);
@@ -76,7 +77,7 @@ void onActivate(GtkApplication *pGtkApp, gpointer data) {
 
     GtkWidget *pWindow = adw_application_window_new(pGtkApp);
     pUi->pWindow = GTK_WINDOW(pWindow);
-    gtk_window_set_title(pUi->pWindow, "TuxBlox Installer");
+    gtk_window_set_title(pUi->pWindow, i18n::tr("TuxBlox Installer"));
     gtk_window_set_default_size(pUi->pWindow, 520, 180);
     gtk_window_set_resizable(pUi->pWindow, FALSE);
 
@@ -92,13 +93,13 @@ void onActivate(GtkApplication *pGtkApp, gpointer data) {
     gtk_widget_set_hexpand(pPicture, FALSE);
     gtk_widget_set_vexpand(pPicture, FALSE);
 
-    GtkWidget *pTitle = gtk_label_new("Installing TuxBlox");
+    GtkWidget *pTitle = gtk_label_new(i18n::tr("Installing TuxBlox"));
     pUi->pTitle = GTK_LABEL(pTitle);
     gtk_label_set_xalign(pUi->pTitle, 0.0);
     gtk_label_set_wrap(pUi->pTitle, TRUE);
     gtk_widget_add_css_class(pTitle, "title-2");
 
-    GtkWidget *pStep = gtk_label_new("Preparing");
+    GtkWidget *pStep = gtk_label_new(i18n::tr("Preparing"));
     pUi->pStep = GTK_LABEL(pStep);
     gtk_label_set_xalign(pUi->pStep, 0.0);
     gtk_label_set_wrap(pUi->pStep, TRUE);
@@ -135,7 +136,7 @@ void onActivate(GtkApplication *pGtkApp, gpointer data) {
     gtk_box_append(GTK_BOX(pRow), pPicture);
     gtk_box_append(GTK_BOX(pRow), pText);
 
-    GtkWidget *pCancel = gtk_button_new_with_label("Cancel");
+    GtkWidget *pCancel = gtk_button_new_with_label(i18n::tr("Cancel"));
     gtk_widget_set_halign(pCancel, GTK_ALIGN_END);
     gtk_widget_set_margin_end(pCancel, 18);
     gtk_widget_set_margin_bottom(pCancel, 14);
@@ -168,11 +169,11 @@ void onResultActivate(GtkApplication *pGtkApp, gpointer data) {
     gtk_window_set_default_size(pUi->pWindow, 480, 360);
 
     AdwDialog *pDialog = adw_alert_dialog_new(
-        pUi->ok ? "TuxBlox Uninstalled" : "TuxBlox Error",
-        pUi->ok ? "TuxBlox has been completely removed from this system."
-                : "Desktop shortcuts and URL handlers were removed, but the TuxBlox folder could "
-                  "not be fully deleted. You may need to remove it manually.");
-    adw_alert_dialog_add_response(ADW_ALERT_DIALOG(pDialog), "close", "Close");
+        pUi->ok ? i18n::tr("TuxBlox Uninstalled") : i18n::tr("TuxBlox Error"),
+        pUi->ok ? i18n::tr("TuxBlox has been completely removed from this system.")
+                : i18n::tr("Desktop shortcuts and URL handlers were removed, but the TuxBlox folder could "
+                           "not be fully deleted. You may need to remove it manually."));
+    adw_alert_dialog_add_response(ADW_ALERT_DIALOG(pDialog), "close", i18n::tr("Close"));
     adw_alert_dialog_set_default_response(ADW_ALERT_DIALOG(pDialog), "close");
     // Closing the dialog is the only way out, so the window goes with it rather than being left behind empty.
     g_signal_connect_swapped(pDialog, "closed", G_CALLBACK(gtk_window_close), pWindow);
@@ -192,7 +193,7 @@ int runAdwInstall(App &app, const CliOptions &) {
     g_object_unref(pGtkApp);
     // A window that never appeared means nothing was installed, which must not look like the user closing it.
     if (!ui.activated) {
-        fprintf(stderr, "TuxBlox could not open its window, so nothing was installed.\n");
+        fprintf(stderr, "%s\n", i18n::tr("TuxBlox could not open its window, so nothing was installed."));
         return 1;
     }
     return ui.result;

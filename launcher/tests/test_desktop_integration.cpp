@@ -15,8 +15,19 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "desktop_integration.h"
+#include <algorithm>
 #include <cassert>
 #include <cstdio>
+#include <string>
+#include <vector>
+
+namespace {
+
+bool claims(const std::vector<std::string>& schemes, const std::string& wanted) {
+    return std::find(schemes.begin(), schemes.end(), wanted) != schemes.end();
+}
+
+} // namespace
 
 int main() {
     using namespace tuxblox;
@@ -85,6 +96,64 @@ int main() {
     assert(explicitDefaultFor("[Default Applications]\napplication/x-roblox-place=\n",
                               "application/x-roblox-place")
                .empty());
+
+    // Nothing installed: TuxBlox claims nothing. A fresh install must not own
+    // roblox:// before there is a Player to answer it.
+    {
+        assert(schemesToClaim(false, false).empty());
+        assert(!shouldClaimPlaceFiles(false));
+    }
+    // A Player claims roblox:// and roblox-player:// only.
+    {
+        const std::vector<std::string> schemes = schemesToClaim(true, false);
+        assert(schemes.size() == 2);
+        assert(claims(schemes, "x-scheme-handler/roblox"));
+        assert(claims(schemes, "x-scheme-handler/roblox-player"));
+        assert(!claims(schemes, "x-scheme-handler/roblox-studio"));
+        assert(!shouldClaimPlaceFiles(false));
+    }
+    // Studio claims its own two and the place files, never roblox://.
+    {
+        const std::vector<std::string> schemes = schemesToClaim(false, true);
+        assert(schemes.size() == 2);
+        assert(claims(schemes, "x-scheme-handler/roblox-studio"));
+        assert(claims(schemes, "x-scheme-handler/roblox-studio-auth"));
+        assert(!claims(schemes, "x-scheme-handler/roblox"));
+        assert(shouldClaimPlaceFiles(true));
+    }
+    // Both installed: all four.
+    {
+        assert(schemesToClaim(true, true).size() == 4);
+    }
+
+    // One set of desktop entries per user, not one per copy of TuxBlox: a launcher run out of a
+    // build tree must not repoint an installed one's shortcuts at itself. It cost a session of
+    // "my shortcuts launch nothing" to find, because the dev build it pointed them at launches
+    // into the dev drive, which is not the one the installed TuxBlox uses.
+    {
+        const auto there = [](const std::string&) { return true; };
+        const auto gone = [](const std::string&) { return false; };
+        const std::string installed =
+            "[Desktop Entry]\nName=TuxBlox\nExec=\"/home/a/.tuxblox/TuxBloxLauncher\" %u\n";
+
+        assert(launcherNamedByEntry("Exec=\"/home/a/.tuxblox/TuxBloxLauncher\" %u") ==
+               "/home/a/.tuxblox/TuxBloxLauncher");
+        assert(launcherNamedByEntry("Exec=/home/a/.tuxblox/TuxBloxLauncher --launch-studio") ==
+               "/home/a/.tuxblox/TuxBloxLauncher");
+        assert(launcherNamedByEntry("Exec=").empty());
+
+        // A build tree's launcher leaves the installed one's entries alone.
+        assert(entriesOwnedByAnother(installed, "/home/a/src/build/TuxBloxLauncher", there));
+        // The installed one still maintains its own.
+        assert(!entriesOwnedByAnother(installed, "/home/a/.tuxblox/TuxBloxLauncher", there));
+        // A launcher that has since gone owns nothing, so the entries heal themselves.
+        assert(!entriesOwnedByAnother(installed, "/home/a/src/build/TuxBloxLauncher", gone));
+        // Nothing written yet is nobody's.
+        assert(!entriesOwnedByAnother("", "/home/a/src/build/TuxBloxLauncher", there));
+        assert(!entriesOwnedByAnother("[Desktop Entry]\nName=TuxBlox\n",
+                                      "/home/a/src/build/TuxBloxLauncher", there));
+        printf("  entries stay with the launcher that owns them\n");
+    }
 
     printf("desktop_integration: all tests passed\n");
     return 0;

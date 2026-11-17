@@ -16,24 +16,29 @@
 
 #include "about_versions.h"
 
+#include "i18n.h"
 #include "release_file.h"
+#include "version.h"
 
 namespace tuxblox {
 
-AboutVersions aboutVersions(const std::string& installDir, const std::string& launcherVersion) {
+AboutVersions aboutVersions(const std::string& installDir, const std::string& launcherVersion,
+                             const std::string& release, const std::string& channel) {
     AboutVersions about;
 
-    const RecordedRelease recorded = readRecordedRelease(installDir);
-    if (recorded.present) {
-        about.release = recorded.file.release;
-        about.channel = recorded.file.channel;
-    }
+    // The caller's own stamp: every component of a release carries it, so there is nothing beside
+    // them to read and nothing that can go stale against what is actually installed.
+    about.release = release;
+    about.channel = channel;
 
     for (const std::string& name : componentNames()) {
         // Left out on purpose: the interface stack is GTK and libadwaita built from source, so its
         // version tracks theirs and says nothing a reader of this screen can act on. It is still a
         // component, still downloaded and still named while it installs -- just not listed here.
         if (name == "libtuxblox") continue;
+        // A Flatpak ships no installer, so listing it names a part that is never coming rather than
+        // one that is missing: flatpak replaces the whole app, and nothing here ever installs it.
+        if (kFlatpakBuild && name == "installer") continue;
         const std::string display = componentLayout(name)->displayName;
         // The launcher is the one asking, so it answers from the binary that is running rather
         // than from a copy on disk, which may not be the one that was started.
@@ -41,8 +46,10 @@ AboutVersions aboutVersions(const std::string& installDir, const std::string& la
             about.components.push_back({display, launcherVersion});
             continue;
         }
+        // The component's own number, not the release it was published in: the release is one
+        // number for all of them and is shown above, while this list is for what moved.
         about.components.push_back(
-            {display, readComponentVersion(installDir, name).value_or("not installed")});
+            {display, readComponentVersion(installDir, name).value_or(i18n::tr("not installed"))});
     }
     return about;
 }

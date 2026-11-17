@@ -15,25 +15,6 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-# compat/webkitgtk/bundle/verify-tls.sh
-# Re-runnable, real end-to-end verification that the TLS backend built into the
-# webkitgtk-prefix volume (glib-networking + GnuTLS, see build-in-container.sh's
-# "TLS backend for libsoup/GIO" section) actually works, not just that its
-# libraries exist. Compiles tls-verify.c against the volume's own real
-# libsoup-3.0/gio-2.0 inside the tuxblox-webkitgtk-builder container and runs it
-# against a real HTTPS URL. See tls-verify.c's own header comment for exactly
-# what each check proves (non-dummy TLS backend, real handshake, validated
-# certificate).
-#
-# Usage:
-#   compat/webkitgtk/bundle/verify-tls.sh [URL]     # URL defaults to https://example.com
-#
-# Requires: the tuxblox-webkitgtk-builder image and webkitgtk-prefix volume to
-# already exist (built via compat/webkitgtk/bundle/Containerfile and
-# compat/webkitgtk/bundle/build-in-container.sh). Run this any time that chain is
-# rebuilt or a TLS-related dependency version is bumped in versions.env, to
-# confirm TLS still actually works end-to-end -- pkg-config reporting a
-# version number is not equivalent proof.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

@@ -30,17 +30,6 @@ using namespace tuxblox;
 
 namespace {
 
-const char* kRelease = R"({
-  "release": "3.6.0.0", "channel": "stable", "changelog": "components",
-  "source_commit": "abc123", "source_dirty": false,
-  "components": {
-    "launcher":   {"version": "3.5.0", "arch": {"x86_64": {"sha256": "aa", "size": 1}, "arm64": null}},
-    "installer":  {"version": "3.1.0", "arch": {"x86_64": {"sha256": "bb", "size": 1}, "arm64": null}},
-    "studio-mcp": {"version": "2.0.1", "arch": {"x86_64": {"sha256": "cc", "size": 1}, "arm64": null}},
-    "compat":     {"version": "3.3.0", "arch": {"x86_64": {"sha256": "dd", "size": 1}, "arm64": null}},
-    "libtuxblox": {"version": "3.1.0", "arch": {"x86_64": {"sha256": "ee", "size": 1}, "arm64": null}}
-  }})";
-
 class TempDir {
 public:
     TempDir() : path_(fs::temp_directory_path() / ("tuxblox-about-test-" + std::to_string(++counter_))) {
@@ -71,9 +60,8 @@ bool contains(const std::vector<std::pair<std::string, std::string>>& rows,
 
 void test_the_release_and_its_components() {
     TempDir d;
-    writeRecordedRelease(d.path(), kRelease);
     installFakeComponent(d, "compat/main", "3.3.0");
-    AboutVersions a = aboutVersions(d.path(), "3.5.0");
+    AboutVersions a = aboutVersions(d.path(), "3.5.0", "3.6.0.0", "stable");
     assert(a.release == "3.6.0.0");
     assert(a.channel == "stable");
     // The launcher first, and its version is the one the running binary knows rather than one read
@@ -86,7 +74,7 @@ void test_the_release_and_its_components() {
 // An install with no record still has components, and the screen still has to say something.
 void test_an_install_with_no_record_says_so_rather_than_showing_nothing() {
     TempDir d;
-    AboutVersions a = aboutVersions(d.path(), "3.5.0");
+    AboutVersions a = aboutVersions(d.path(), "3.5.0", "", "");
     assert(a.release.empty());
     assert(!a.components.empty());
     assert(a.components.front() == std::make_pair(std::string("Launcher"), std::string("3.5.0")));
@@ -95,8 +83,7 @@ void test_an_install_with_no_record_says_so_rather_than_showing_nothing() {
 
 void test_a_component_that_is_not_installed_is_named_as_such() {
     TempDir d;
-    writeRecordedRelease(d.path(), kRelease);
-    AboutVersions a = aboutVersions(d.path(), "3.5.0");
+    AboutVersions a = aboutVersions(d.path(), "3.5.0", "3.6.0.0", "stable");
     // Named rather than omitted: the list is always the same rows, so an absence is something a
     // person can see instead of something they have to notice is missing.
     assert(contains(a.components, {"Studio MCP", "not installed"}));
@@ -111,7 +98,7 @@ void test_a_component_that_is_not_installed_is_named_as_such() {
 // still named while it installs, and still in the release file.
 void test_the_rows_are_the_components_a_person_can_act_on() {
     TempDir d;
-    AboutVersions a = aboutVersions(d.path(), "3.5.0");
+    AboutVersions a = aboutVersions(d.path(), "3.5.0", "3.6.0.0", "stable");
     std::vector<std::string> names;
     for (const auto& [name, version] : a.components) names.push_back(name);
     assert((names == std::vector<std::string>{"Launcher", "Installer", "Studio MCP", "Runtime"}));

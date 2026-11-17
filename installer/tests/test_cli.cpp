@@ -185,6 +185,21 @@ int main() {
         assert(o.error.empty() && o.dir.empty());
     }
 
+    // The interface language is optional, validated, and never confused with
+    // the release channel.
+    {
+        CliOptions o = parse({"--language", "pt_BR"});
+        assert(o.error.empty() && o.language == "pt_BR");
+    }
+    {
+        CliOptions o = parse({"--language", "fr"});
+        assert(!o.error.empty() && o.language == "fr");
+    }
+    {
+        CliOptions o = parse({"--language"});
+        assert(!o.error.empty());
+    }
+
     // Installing as root leaves a folder the real user cannot write to, so
     // it has to be asked for rather than just happening.
     {
@@ -207,6 +222,7 @@ int main() {
         assert(usage.find("--latest") != std::string::npos);
         assert(usage.find("--dir") != std::string::npos);
         assert(usage.find("--allow-root") != std::string::npos);
+        assert(usage.find("--language") != std::string::npos);
     }
 
     printf("cli: all tests passed\n");

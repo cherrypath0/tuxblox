@@ -111,14 +111,44 @@ std::vector<GpuDevice> enumerateGpus(const std::string& drmRoot);
 std::vector<GpuDevice> enumerateGpus(const std::string& drmRoot,
                                       const std::vector<std::string>& pciIdsCandidates);
 
-// The environment that steers rendering onto `gpu`, as "VAR=VALUE" pairs.
+// The Vulkan driver directories the loader itself searches, most specific
+// first, so a driver file someone installed for themselves comes first.
+std::vector<std::string> defaultVulkanIcdDirs();
+
+// Every Vulkan driver file under `icdDirs` that belongs to `driver`, as
+// full paths in search order. A driver file is named after the driver that
+// installs it rather than after the kernel module that binds the card, so
+// the two are mapped by hand. A card whose driver has no known Vulkan
+// counterpart gives an empty list, which callers must read as "leave the
+// loader alone" and never as "this machine has no Vulkan driver".
+std::vector<std::string> vulkanIcdFiles(const std::string& driver,
+                                         const std::vector<std::string>& icdDirs);
+
+// The environment that steers rendering onto `gpu`, as "VAR=VALUE" pairs,
+// for a machine whose only card is `gpu`. The overload below is the one
+// that knows what else is installed.
+std::vector<std::string> gpuSelectionEnv(const GpuDevice& gpu);
+
+// As above, for `gpu` chosen out of the machine's `gpus`, reading Vulkan
+// driver files from `icdDirs`.
 //
-// Which variables those are depends on the driver, and the two sets are
+// Which variables are emitted depends on the driver, and the two sets are
 // disjoint: MESA_VK_DEVICE_SELECT does nothing to the NVIDIA proprietary
 // Vulkan driver, and the __NV_PRIME/__VK_LAYER_NV_optimus variables do
 // nothing to Mesa. Emitting the wrong set is not merely useless, it is
 // indistinguishable from the feature being broken, so the driver decides.
-std::vector<std::string> gpuSelectionEnv(const GpuDevice& gpu);
+//
+// Steering *away* from a card needs the whole machine, not just the chosen
+// one. MESA_VK_DEVICE_SELECT only orders Mesa's own devices and cannot
+// remove a device another driver provides, and DRI_PRIME is an OpenGL
+// mechanism that does nothing to Vulkan at all -- so on a hybrid laptop
+// neither of them can keep the game off the discrete card. Hiding an
+// NVIDIA card takes __VK_LAYER_NV_optimus=non_NVIDIA_only, and the Vulkan
+// loader is pinned to the chosen card's own driver files on top, which is
+// the only part of this that no vendor's driver can ignore.
+std::vector<std::string> gpuSelectionEnv(const GpuDevice& gpu,
+                                          const std::vector<GpuDevice>& gpus,
+                                          const std::vector<std::string>& icdDirs);
 
 // gpuSelectionEnv() for whichever entry of `gpus` has this PCI slot. Empty
 // when `pciAddress` is empty (the "Automatic" default, which must leave the

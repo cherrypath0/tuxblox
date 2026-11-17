@@ -325,7 +325,7 @@ static NTSTATUS query_information_token( HANDLE token, TOKEN_INFORMATION_CLASS c
                                          void *info, ULONG length, ULONG *retlen )
 {
     /* What Windows answers for every token class, measured on Windows 11 25H2
-     * with workspace/tests/tokenprobe.exe. Two rules come straight out of that
+     * by asking for each of them in turn. Two rules come straight out of that
      * capture and this build broke both:
      *
      *   - It never answers a token class with STATUS_NOT_IMPLEMENTED. Not once
@@ -778,8 +778,7 @@ static NTSTATUS query_information_token( HANDLE token, TOKEN_INFORMATION_CLASS c
      * from the reference machine's own security data: nothing under Wine is
      * restricted, sandbox-inert, virtualised, in an app container or in a silo,
      * and no capabilities, device groups or claim attributes are granted. The
-     * sizes are the ones Windows reports for the same classes.
-     * Measured with workspace/tests/tokenprobe.exe. */
+     * sizes are the ones Windows reports for the same classes, measured there. */
     case TokenIsRestricted:            /* 40 */
     case TokenSandBoxInert:            /* 15 */
     case TokenAppContainerNumber:      /* 32 */
@@ -835,9 +834,9 @@ static NTSTATUS query_information_token( HANDLE token, TOKEN_INFORMATION_CLASS c
     case TokenSecurityAttributes:      /* 39 */
         /* Not empty on Windows: every process token carries one attribute,
          * "TSA://ProcUnique", holding a pair of 64-bit values that identify the
-         * process. Measured on the reference machine with
-         * workspace/tests/tokenprobe.exe, which reads 104 bytes laid out as
-         * below; an empty list here was a difference any program could see.
+         * process. Measured on the reference machine, which answers with 104
+         * bytes laid out as below; an empty list here was a difference any
+         * program could see.
          *
          * The pair is unique per process and constant within one, which is what
          * it is for; the numbers themselves are ours, since Windows' are its

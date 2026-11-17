@@ -183,6 +183,7 @@ struct _FILE_FS_DEVICE_INFORMATION;
 
 extern const char wine_build[];
 extern NTSTATUS wine_version_info( void *args );
+extern NTSTATUS tuxblox_info( void *args );
 
 extern const char *home_dir;
 extern const char *data_dir;
@@ -256,8 +257,6 @@ extern void tuxblox_diag_swatch_start( void );
 extern BOOL tuxblox_diag_swatch_fault( ULONG64 addr, ULONG64 rip, const ULONG64 *regs, ULONG kind );
 extern BOOL tuxblox_diag_swatch_step_pending( void );
 extern BOOL tuxblox_diag_swatch_step_rearm( void );
-extern void tuxblox_roblox_stackfix_arm( void );
-extern BOOL tuxblox_roblox_stackfix_hit( ULONG64 rip, ULONG64 *regs );
 extern void tuxblox_diag_hww_start( void );
 extern void tuxblox_diag_hww_dump( void );
 extern void tuxblox_diag_note_open_section( const OBJECT_ATTRIBUTES *attr, unsigned int status );
@@ -462,9 +461,8 @@ extern BOOL virtual_check_buffer_for_write( void *ptr, SIZE_T size );
  * fails as from what one returns, and answering "no such class" to all of them
  * describes a system that does not exist. These are failures only: a class
  * Windows answers successfully is left to a real implementation rather than
- * being made up. Captured from Windows 10 22H2 with workspace/tests/sysprobe,
- * and extended with the payloads measured on Windows 11 25H2 with
- * workspace/tests/infoprobe.
+ * being made up. Captured from Windows 10 22H2, and extended with the payloads
+ * measured on Windows 11 25H2.
  * NO_LENGTH means Windows leaves the caller's returned-length alone.
  *
  * An entry with a payload answers the query as well as the probe. Only classes

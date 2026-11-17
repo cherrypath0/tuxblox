@@ -67,6 +67,7 @@ SOURCES = \
 	unix/system.c \
 	unix/tape.c \
 	unix/thread.c \
+	unix/tuxblox_integrity.c \
 	unix/tuxblox_msgbox.c \
 	unix/tuxblox_path_case.c \
 	unix/tuxblox_trace.c \

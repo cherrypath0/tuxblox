@@ -302,6 +302,45 @@ int main() {
         fs::remove_all(desktop);
     }
 
+    // A Windows shortcut Roblox leaves on the desktop becomes the entry that replaces it, and
+    // anything else there is left exactly as it was.
+    {
+        const fs::path lnkInstall = tmp / "lnk-install";
+        const fs::path desktop =
+            lnkInstall / "runtime" / "pfx" / "drive_c" / "users" / "user" / "Desktop";
+
+        writeAll(desktop / "Roblox Player.lnk",
+                 std::string("\0\0L\0\0", 5) +
+                     "C:\\users\\user\\AppData\\Local\\Roblox\\Versions\\version-abc\\RobloxPlayerBeta.exe");
+        writeAll(desktop / "Solitaire.lnk", "C:\\windows\\system32\\solitaire.exe");
+        writeAll(desktop / "Notes.txt", "mine");
+
+        assert(translateDesktopShortcuts(lnkInstall.string(), "/opt/tuxblox/TuxBloxLauncher") == 1);
+        assert(!fs::exists(desktop / "Roblox Player.lnk"));
+
+        const std::string entry = readAll(desktop / "Roblox Player.desktop");
+        assert(entry.find("--launch-player\n") != std::string::npos);
+        assert(entry.find("X-TuxBlox-Generated=true") != std::string::npos);
+
+        // Not one of ours to translate, so neither of these is touched.
+        assert(fs::exists(desktop / "Solitaire.lnk"));
+        assert(fs::exists(desktop / "Notes.txt"));
+
+        // Nothing left to do, and nothing to report.
+        assert(translateDesktopShortcuts(lnkInstall.string(), "/opt/tuxblox/TuxBloxLauncher") == 0);
+
+        // The compatibility layer takes a shortcut off the desktop as soon as it reads one, so the
+        // entry replacing it is written from where it was moved to.
+        writeAll(lnkInstall / "runtime" / "pfx" / "drive_c" / "proton_shortcuts" / "Roblox Studio.lnk",
+                 std::string("\0\0L\0\0", 5) +
+                     "C:\\users\\user\\AppData\\Local\\Roblox\\Versions\\version-def\\RobloxStudioBeta.exe");
+        assert(translateDesktopShortcuts(lnkInstall.string(), "/opt/tuxblox/TuxBloxLauncher") == 1);
+        assert(readAll(desktop / "Roblox Studio.desktop").find("--launch-studio\n") != std::string::npos);
+        assert(!fs::exists(lnkInstall / "runtime" / "pfx" / "drive_c" / "proton_shortcuts" / "Roblox Studio.lnk"));
+        // A drive with no desktop folder at all.
+        assert(translateDesktopShortcuts((tmp / "no-drive").string(), "/opt/tuxblox/TuxBloxLauncher") == 0);
+    }
+
     fs::remove_all(tmp);
     std::printf("wine_shortcut_export: all tests passed\n");
     return 0;

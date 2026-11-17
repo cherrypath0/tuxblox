@@ -67,6 +67,49 @@ const char DarkPalette[] =
     "@define-color destructive_bg_color #dc2626;\n"
     "@define-color destructive_fg_color #ffffff;\n";
 
+// The dark palette taken deeper, with every raised surface made see-through so the snow drawn behind the window shows through it
+const char ChristmasPalette[] =
+    "@define-color window_bg_color #05070b;\n"
+    "@define-color window_fg_color #e9ecf1;\n"
+    "@define-color view_bg_color rgba(13, 18, 28, 0.38);\n"
+    "@define-color view_fg_color #e9ecf1;\n"
+    "@define-color headerbar_bg_color rgba(13, 18, 28, 0.42);\n"
+    "@define-color headerbar_fg_color #e9ecf1;\n"
+    "@define-color headerbar_backdrop_color rgba(5, 7, 11, 0.42);\n"
+    "@define-color sidebar_bg_color rgba(13, 18, 28, 0.50);\n"
+    "@define-color sidebar_fg_color #e9ecf1;\n"
+    "@define-color sidebar_backdrop_color rgba(5, 7, 11, 0.50);\n"
+    "@define-color sidebar_border_color rgba(255, 255, 255, 0.13);\n"
+    "@define-color sidebar_selected_color rgba(255, 255, 255, 0.11);\n"
+    "@define-color log_time_color #9aa3b2;\n"
+    "@define-color log_warning_color #f5b73d;\n"
+    "@define-color log_error_color #f87171;\n"
+    "@define-color log_ours_color #7fd1a8;\n"
+    "@define-color secondary_sidebar_bg_color rgba(13, 18, 28, 0.50);\n"
+    "@define-color secondary_sidebar_fg_color #e9ecf1;\n"
+    "@define-color secondary_sidebar_backdrop_color rgba(5, 7, 11, 0.50);\n"
+    "@define-color secondary_sidebar_border_color rgba(255, 255, 255, 0.13);\n"
+    "@define-color card_bg_color rgba(13, 18, 28, 0.44);\n"
+    "@define-color card_fg_color #e9ecf1;\n"
+    "@define-color card_shade_color rgba(255, 255, 255, 0.14);\n"
+    // A dialog sits over the snow and has to stay readable, so it is the one surface that is nearly solid
+    "@define-color dialog_bg_color rgba(19, 23, 31, 0.97);\n"
+    "@define-color dialog_fg_color #e9ecf1;\n"
+    "@define-color popover_bg_color rgba(26, 31, 41, 0.97);\n"
+    "@define-color popover_fg_color #e9ecf1;\n"
+    "@define-color thumbnail_bg_color rgba(20, 26, 38, 0.55);\n"
+    "@define-color thumbnail_fg_color #e9ecf1;\n"
+    "@define-color accent_bg_color #0273ae;\n"
+    "@define-color accent_fg_color #ffffff;\n"
+    "@define-color success_bg_color #047857;\n"
+    "@define-color success_fg_color #ffffff;\n"
+    "@define-color warning_bg_color #f59e0b;\n"
+    "@define-color warning_fg_color rgb(0 0 6 / 80%);\n"
+    "@define-color error_bg_color #dc2626;\n"
+    "@define-color error_fg_color #ffffff;\n"
+    "@define-color destructive_bg_color #dc2626;\n"
+    "@define-color destructive_fg_color #ffffff;\n";
+
 const char LightPalette[] =
     "@define-color window_bg_color #f5f6f8;\n"
     "@define-color window_fg_color #15181d;\n"
@@ -143,6 +186,10 @@ const char* darkPaletteCss() {
 
 const char* lightPaletteCss() {
     return LightPalette;
+}
+
+const char* christmasPaletteCss() {
+    return ChristmasPalette;
 }
 
 const char* paletteStylesCss() {

@@ -16,6 +16,7 @@
 
 #pragma once
 #include "cli.h"
+#include "i18n.h"
 #include "version.h"
 
 #include <atomic>
@@ -39,7 +40,7 @@ struct AppSnapshot {
     // decided at the point it's generated -- see installer_steps.cpp) since
     // the label set isn't fixed at compile time, it's built per-artifact
     // from whatever the manifest lists.
-    std::string currentStepLabel = "Preparing";
+    std::string currentStepLabel = i18n::tr("Preparing");
     double overallPercent = 0.0;
     std::string errorMessage;
     // True if an existing install was found and this run is upgrading it in

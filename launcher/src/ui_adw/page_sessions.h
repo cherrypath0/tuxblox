@@ -86,7 +86,9 @@ private:
     static void onFindChanged(GtkEditable *pEditable, gpointer data);
     static void onFindStep(GtkButton *pButton, gpointer data);
     static void onJumpToEnd(GtkButton *pButton, gpointer data);
-    static gboolean onLogScrolled(GtkEventControllerScroll *pController, double dx, double dy, gpointer data);
+    static void onLogPositionChanged(GtkAdjustment *pPosition, gpointer data);
+    static void onLogClick(GtkGestureClick *pGesture, int presses, double x, double y, gpointer data);
+    static gboolean finishTailScroll(gpointer data);
 
     App &app_;
     GtkWidget *pRoot_ = nullptr;
@@ -122,13 +124,17 @@ private:
     std::unique_ptr<SessionLogReader> pReader_;
     std::string readerCaptured_;
     std::string readerRoblox_;
-    bool readerSessionRunning_ = true;
     std::vector<LogEntry> entries_;
     // How many of them the filter let through, so the count can say what is being hidden.
     size_t shownEntries_ = 0;
     int selectedPid_ = 0;
     // Set only when the reader actually scrolls. Working it out from the scrollbar instead latches: the scroll the page asks for is carried out later, so the next tick reads a stale position, decides the reader moved away, and then never scrolls again.
     bool readerScrolledAway_ = false;
+    // A scroll the page asked for, which must not be read back as the reader moving.
+    bool selfScrolling_ = false;
+    // Where the view sat at the last move, so the next one can be told from a line arriving.
+    LogScrollState lastLogScroll_;
+    guint tailScrollIdle_ = 0;
     // The reader was swapped and what is on screen belongs to the old one, so it is replaced rather than cleared the moment the new one produces anything.
     bool replacingText_ = false;
     std::string renderedQuery_;

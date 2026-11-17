@@ -15,6 +15,11 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "app.h"
+
+#include "flag_startup.h"
+#include "i18n.h"
+#include "release_stamp.h"
+#include "version.h"
 #include <cstdlib>
 #include "roblox_log_capture.h"
 #include "process_launcher.h"
@@ -25,22 +30,39 @@
 #include "checksum.h"
 #include "container_env.h"
 #include "downloader.h"
+#include "install_concurrency.h"
 #include "manifest.h"
 #include "prefix_session.h"
 #include "roblox_deploy.h"
+#include "roblox_config.h"
 #include "tar_extract.h"
+#include "update_decision.h"
 #include <algorithm>
 #include <chrono>
+#include <condition_variable>
 #include <ctime>
+#include <deque>
 #include <filesystem>
 #include <fstream>
+#include <mutex>
 #include <optional>
+#include <thread>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
 #include <vector>
 
 namespace tuxblox {
+
+std::string sourceForMode(VersionSelectMode mode) {
+    switch (mode) {
+        case VersionSelectMode::Previous:   return "previous";
+        case VersionSelectMode::Next:       return "next";
+        case VersionSelectMode::ManualHash: return "manual";
+        case VersionSelectMode::Latest:     break;
+    }
+    return "latest";
+}
 
 namespace fs = std::filesystem;
 
@@ -104,10 +126,10 @@ App::App(std::string installDir, std::string launcherExePath)
     // message before the user even tries to launch.
     if (isInsideDistrobox() && !std::filesystem::exists("/dev/dri")) {
         snapshot_.containerWarning =
-            "Running inside a Distrobox container without GPU passthrough -- "
-            "Roblox will likely fail to render. Recreate the container with "
-            "GPU access, e.g. `distrobox create --nvidia ...` or "
-            "`--additional-flags \"--device /dev/dri\"`.";
+            i18n::tr("Running inside a Distrobox container without GPU passthrough -- "
+                     "Roblox will likely fail to render. Recreate the container with "
+                     "GPU access, e.g. `distrobox create --nvidia ...` or "
+                     "`--additional-flags \"--device /dev/dri\"`.");
     }
 
     // Taken once here rather than only on the poll thread, so the first frame
@@ -134,6 +156,7 @@ App::~App() {
     if (terminateThread_.joinable()) terminateThread_.join();
     if (updateThread_.joinable()) updateThread_.join();
     if (updateApplyThread_.joinable()) updateApplyThread_.join();
+    if (runtimeInstallThread_.joinable()) runtimeInstallThread_.join();
     if (uninstallThread_.joinable()) uninstallThread_.join();
     if (wipePrefixThread_.joinable()) wipePrefixThread_.join();
     if (versionInstallThread_.joinable()) versionInstallThread_.join();
@@ -250,6 +273,17 @@ void App::requestLaunch(LaunchTarget target) {
     if (closeWindow) shouldQuit_.store(true);
 }
 
+bool App::openRegistryEditor() {
+    return launchRegistryEditor(installDir_);
+}
+
+std::string App::mcpGatewayPath() const {
+    const std::string path = installDir_ + "/studio-mcp";
+    std::error_code ignored;
+    // Followed rather than lstat'd: a Flatpak reaches it through a symlink into /app.
+    return fs::exists(path, ignored) ? path : std::string();
+}
+
 void App::requestTerminateProcesses() {
     if (terminateBusy_.exchange(true)) return; // already running -- ignore repeat clicks
     if (terminateThread_.joinable()) terminateThread_.join(); // an earlier run has finished -- reclaim it before reusing the slot
@@ -314,11 +348,11 @@ void App::uninstallThreadMain() {
     try {
         latestRelease = fetchLatestRelease(setupBaseUrl(), channel, &uninstallCancel_);
     } catch (const std::exception& e) {
-        fail(std::string("Couldn't reach tuxblox.net to prepare the uninstaller: ") + e.what());
+        fail(i18n::trf("Couldn't reach tuxblox.net to prepare the uninstaller: {0}", {e.what()}));
         return;
     }
     if (!latestRelease.has_value()) {
-        fail("No published release found for the current channel -- can't fetch an uninstaller.");
+        fail(i18n::tr("No published release found for the current channel -- can't fetch an uninstaller."));
         return;
     }
 
@@ -327,14 +361,14 @@ void App::uninstallThreadMain() {
         release = parseReleaseFile(fetchManifestJson(
             releaseFileUrl(setupBaseUrl(), channel, *latestRelease), &uninstallCancel_));
     } catch (const std::exception& e) {
-        fail(std::string("Couldn't fetch the release: ") + e.what());
+        fail(i18n::trf("Couldn't fetch the release: {0}", {e.what()}));
         return;
     }
 
     EnsureInstallerResult ensured =
         ensureInstallerBinary(release, setupBaseUrl(), installDir_, &uninstallCancel_, nullptr);
     if (!ensured.ok) {
-        fail(ensured.errorMessage.empty() ? "Failed to prepare the uninstaller." : ensured.errorMessage);
+        fail(ensured.errorMessage.empty() ? i18n::tr("Failed to prepare the uninstaller.") : ensured.errorMessage);
         return;
     }
 
@@ -381,12 +415,12 @@ void App::wipePrefixThreadMain() {
             std::error_code removeEc;
             fs::remove_all(entry.path(), removeEc); // best-effort per entry
             if (removeEc && error.empty()) {
-                error = "Failed to remove " + entry.path().string() + ": " + removeEc.message();
+                error = i18n::trf("Failed to remove {0}: {1}", {entry.path().string(), removeEc.message()});
             }
         }
     }
     if (ec && error.empty()) {
-        error = "Failed to read " + runtimeDir + ": " + ec.message();
+        error = i18n::trf("Failed to read {0}: {1}", {runtimeDir, ec.message()});
     }
 
     // Wiping runtime/ deletes every Roblox version directory it contained --
@@ -530,27 +564,49 @@ std::vector<LogCandidate> logCandidatesIn(const std::string& dir, bool fromNameO
     return candidates;
 }
 
+// The log this session's capture says Roblox created, the crash reporter's aside.
+std::string announcedRobloxLog(const std::string& capturedLogPath, const std::string& logsDir) {
+    for (const std::string& name : announcedLogFileNames(capturedLogPath)) {
+        if (isCrashHandlerLog(name)) continue;
+        const std::string path = logsDir + "/" + name;
+        std::error_code error;
+        if (std::filesystem::is_regular_file(path, error)) return path;
+    }
+    return "";
+}
+
 } // namespace
 
 void App::resolveSessionLogs(std::vector<Session>& sessions) {
-    const bool wantRoblox = std::any_of(sessions.begin(), sessions.end(),
-                                        [](const Session& s) { return s.robloxLogPath.empty(); });
     const bool wantCaptured = std::any_of(sessions.begin(), sessions.end(),
                                           [](const Session& s) { return s.capturedLogPath.empty(); });
+    auto anyRobloxMissing = [&sessions] {
+        return std::any_of(sessions.begin(), sessions.end(),
+                           [](const Session& s) { return s.robloxLogPath.empty(); });
+    };
 
-    // Walking two folders is far too much work for a session whose files are already known, so it only happens while something is still unmatched.
-    if (wantRoblox) {
-        const std::vector<std::string> matched =
-            matchSessionLogs(logCandidatesIn(robloxLogsDir(installDir_), true), sessions);
-        for (size_t i = 0; i < sessions.size(); ++i) {
-            if (sessions[i].robloxLogPath.empty()) sessions[i].robloxLogPath = matched[i];
-        }
-    }
+    // Walking a folder is far too much work for a session whose files are already known, so it only happens while something is still unmatched. The capture comes first because Roblox's log name is read out of it.
     if (wantCaptured) {
         const std::vector<std::string> matched =
             matchCapturedLogs(logCandidatesIn(installDir_ + "/logs", false), sessions);
         for (size_t i = 0; i < sessions.size(); ++i) {
             if (sessions[i].capturedLogPath.empty()) sessions[i].capturedLogPath = matched[i];
+        }
+    }
+
+    if (anyRobloxMissing()) {
+        const std::string logsDir = robloxLogsDir(installDir_);
+        for (Session& session : sessions) {
+            if (!session.robloxLogPath.empty()) continue;
+            session.robloxLogPath = announcedRobloxLog(session.capturedLogPath, logsDir);
+        }
+        // Left over from a layer that announces nothing, so back to names and timestamps.
+        if (anyRobloxMissing()) {
+            const std::vector<std::string> matched =
+                matchSessionLogs(logCandidatesIn(logsDir, true), sessions);
+            for (size_t i = 0; i < sessions.size(); ++i) {
+                if (sessions[i].robloxLogPath.empty()) sessions[i].robloxLogPath = matched[i];
+            }
         }
     }
 
@@ -631,11 +687,12 @@ void App::updateSettings(Settings settings) {
     bool envChanged;
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        // The card picker feeds the same environment, so a change to it has
-        // to re-apply too -- otherwise picking a card would do nothing until
-        // the launcher was restarted.
-        envChanged = snapshot_.settings.envVars != settings.envVars ||
-                     snapshot_.settings.gpu != settings.gpu;
+        // Only the Environment Variables box: it is the one setting this
+        // process exports. The card picker reaches a launch through
+        // launchEnvPairs(), which every launch reads for itself, so a card
+        // picked here applies to the next launch without this process
+        // changing anything about its own window.
+        envChanged = snapshot_.settings.envVars != settings.envVars;
         snapshot_.settings = settings;
     }
     if (envChanged) {
@@ -652,6 +709,40 @@ void App::requestUpdateNow() {
     // A failed attempt clears the flag again, so this joins that finished thread before replacing it.
     if (updateApplyThread_.joinable()) updateApplyThread_.join();
     updateApplyThread_ = std::thread(&App::updateApplyThreadMain, this);
+}
+
+void App::requestRuntimeInstall() {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        // Nothing to fetch against yet: the update check has not reached a release this run.
+        if (pendingRelease_.release.empty()) return;
+    }
+    if (runtimeInstallStarted_.exchange(true)) return; // already fetching -- ignore repeat clicks
+    if (runtimeInstallThread_.joinable()) runtimeInstallThread_.join();
+    runtimeInstallThread_ = std::thread(&App::runtimeInstallThreadMain, this);
+}
+
+void App::runtimeInstallThreadMain() {
+    ReleaseFile release;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        release = pendingRelease_;
+    }
+    const EnsureCompatResult fetched = ensureCompatInstalled(
+        release, setupBaseUrl(), installDir_, &updateCancel_,
+        [&](UpdateProgress p) {
+            std::lock_guard<std::mutex> lock(mutex_);
+            snapshot_.update = p;
+        });
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        snapshot_.runtimeMissing = !fetched.ok;
+        if (!fetched.ok && !fetched.errorMessage.empty()) {
+            snapshot_.update = {UpdatePhase::Error, 0.0, fetched.errorMessage};
+        }
+    }
+    // Last, so a click arriving now starts a fresh attempt rather than being swallowed by this one.
+    runtimeInstallStarted_.store(false);
 }
 
 void App::updateApplyThreadMain() {
@@ -692,7 +783,8 @@ bool App::prepareInstallerHandoff(const ReleaseFile& release, const std::string&
     const std::string problem = writeReleaseHandoff(installDir_, releaseJson);
     if (!problem.empty()) {
         std::lock_guard<std::mutex> lock(mutex_);
-        snapshot_.update = {UpdatePhase::Error, 0.0, "Could not prepare the update: " + problem + "."};
+        snapshot_.update = {UpdatePhase::Error, 0.0,
+                            i18n::trf("Could not prepare the update: {0}.", {problem})};
         return false;
     }
     const std::string handoff = installDir_ + "/.release-incoming.json";
@@ -721,7 +813,9 @@ void App::applyEnvVars(const Settings& settings) {
     // later calls from updateSettings() (user edits, on the render thread)
     // accept the same small, already-documented race rather than adding
     // cross-thread coordination for a rare, user-initiated edit.
-    for (const auto& kv : launchEnvPairs(settings)) {
+    // exportedEnvPairs(), not launchEnvPairs(): see its declaration for why
+    // the rest of a launch's environment must not reach this process.
+    for (const auto& kv : exportedEnvPairs(settings)) {
         auto pos = kv.find('=');
         setenv(kv.substr(0, pos).c_str(), kv.substr(pos + 1).c_str(), 1);
     }
@@ -743,12 +837,48 @@ void App::updateCheckThreadMain() {
 
     report({UpdatePhase::CheckingManifest, 0.0});
 
+    // Asked of the install rather than inferred from a fetch, because the fetch may never happen:
+    // with no network there is no release to fetch against and the check below returns early, so a
+    // Flatpak with no layer at all would otherwise look ready and launch nothing. Refined once a
+    // release is known, where the question becomes whether the layer matches it.
+    if constexpr (kFlatpakBuild) {
+        const bool haveLayer = readComponentIdentity(installDir_, "compat").has_value();
+        std::lock_guard<std::mutex> lock(mutex_);
+        snapshot_.runtimeMissing = !haveLayer;
+    }
+
     std::optional<std::string> namedRelease;
+    // Which channel the release being aimed at is published on. The install's own, until a
+    // calmer one turns out to have published something ahead of it -- the install's channel
+    // setting does not move, only the build it takes does.
+    std::string releaseChannel = channel;
     try {
         namedRelease = fetchLatestRelease(setupBaseUrl(), channel, &updateCancel_);
     } catch (const std::exception& e) {
-        report({UpdatePhase::Error, 0.0, e.what()});
+        report({UpdatePhase::Error, 0.0, i18n::trf("Could not check for updates: {0}", {e.what()})});
         return;
+    }
+
+    if (launcherFlags().followPromotedBuild) {
+        for (const std::string& above : channelsAbove(channel)) {
+            std::optional<std::string> promoted;
+            try {
+                promoted = fetchLatestRelease(setupBaseUrl(), above, &updateCancel_);
+            } catch (const std::exception&) {
+                // The install's own channel has already answered, so a calmer one that cannot
+                // be reached is a build not taken rather than an update that failed.
+                continue;
+            }
+            if (!promoted.has_value()) continue;
+            if (namedRelease.has_value() && compareReleases(*promoted, *namedRelease) <= 0) continue;
+            namedRelease = promoted;
+            releaseChannel = above;
+        }
+        if (releaseChannel != channel) {
+            fprintf(stderr, "TuxBlox: %s is published on %s and is ahead of %s, so this install "
+                            "is taking it; the channel it follows is still %s\n",
+                    namedRelease->c_str(), releaseChannel.c_str(), channel.c_str(), channel.c_str());
+        }
     }
     if (!namedRelease.has_value()) {
         // No releases published for this channel yet -- there's nothing to
@@ -757,9 +887,24 @@ void App::updateCheckThreadMain() {
         return;
     }
 
-    auto result = runUpdateCheck(setupBaseUrl(), channel, *namedRelease,
+    // tbxFlagDisableUpdater is the one flag the server may not set, because serving it
+    // wrongly would stop every install updating and updating is how that gets corrected.
+    // So this is somebody's own flags.json, and it is how you keep a build you are
+    // testing from being replaced under you.
+    if (!launcherFlags().updater) {
+        fprintf(stderr, "TuxBlox: not checking for updates; tbxFlagDisableUpdater is set\n");
+        report({UpdatePhase::UpToDate, 1.0});
+        return;
+    }
+
+    auto result = runUpdateCheck(setupBaseUrl(), releaseChannel, *namedRelease,
         [&](UpdateProgress p) { report(p); },
         &updateCancel_, installDir_);
+    {
+        // Recorded whatever else is decided, because the window title is drawn from it.
+        std::lock_guard<std::mutex> lock(mutex_);
+        snapshot_.internalBuild = result.internal;
+    }
     if (result.needsHandoff) {
         // Deliberately gated on autoUpdate alone, even when
         // result.protonMissing is true (no Proton install at all, e.g. a
@@ -780,9 +925,36 @@ void App::updateCheckThreadMain() {
         // agree on one build, which is broken rather than out of date, and
         // leaving it running is not a state the user chose. An ordinary
         // available update still waits to be asked for, below.
-        if (autoUpdate || result.forced) {
+        // A Flatpak ships no installer to hand off to, so it fetches the one component it cannot
+        // carry itself. Its own launcher is beyond reach either way: that lives in a read-only /app
+        // and belongs to flatpak, so that case is offered rather than applied.
+        const bool bundleBehind = kFlatpakBuild && flatpakBundleBehind(result.release, installDir_);
+        if (kFlatpakBuild && !bundleBehind) {
+            {
+                // Kept so a retry has a release to fetch against: the check that produced this one
+                // runs once per launch, and a failed fetch must not need another to be tried again.
+                std::lock_guard<std::mutex> lock(mutex_);
+                pendingRelease_ = result.release;
+                pendingReleaseJson_ = result.releaseJson;
+            }
+            const EnsureCompatResult fetched = ensureCompatInstalled(
+                result.release, setupBaseUrl(), installDir_, &updateCancel_,
+                [&](UpdateProgress p) { report(p); });
+            std::lock_guard<std::mutex> lock(mutex_);
+            // Cancelled leaves no layer either, so it is missing by the same test rather than by why.
+            snapshot_.runtimeMissing = !fetched.ok;
+            if (!fetched.ok && !fetched.errorMessage.empty()) {
+                snapshot_.update = {UpdatePhase::Error, 0.0, fetched.errorMessage};
+            }
+            return;
+        }
+        if ((autoUpdate || result.forced) && !bundleBehind) {
             if (!prepareInstallerHandoff(result.release, result.releaseJson)) return;
             needsInstallerHandoff_.store(true);
+        } else if (bundleBehind && result.release.components.count("flatpak") == 0) {
+            // The release is out but its bundle is not, so `flatpak update` would find nothing.
+            std::lock_guard<std::mutex> lock(mutex_);
+            snapshot_.update = {UpdatePhase::UpToDate, 1.0};
         } else {
             // Nothing is fetched and nothing on disk is touched on this path: an update that is only being offered has to leave the install exactly as it was, or the next check reads it as broken and repairs it without asking.
             // pendingUpdateManifest_ is written under mutex_, in the same critical section as updateAvailableVersion -- a UI-thread caller that has observed updateAvailableVersion through snapshot() is guaranteed to see it too, so requestUpdateNow() needs nothing but mutex_ to pick it up.
@@ -791,6 +963,7 @@ void App::updateCheckThreadMain() {
             pendingReleaseJson_ = result.releaseJson;
             snapshot_.updateAvailableVersion = *namedRelease;
             snapshot_.updateChanges = result.changes;
+            snapshot_.flatpakBundleBehindRelease = bundleBehind;
             // Without this the phase stays where runUpdateCheck()'s last report() left it -- CheckingManifest -- forever, since nothing else in this function reports again on this branch. StartTab::updateFromSnapshot() treats that as "updating" and hides the Launch buttons in favour of the progress bar for as long as it is true, so the Home tab would sit there with no way to launch anything. The branch above needs no such reset: it sets needsInstallerHandoff_, which MainWindow::poll() acts on by closing the window within one tick.
             snapshot_.update = {UpdatePhase::UpToDate, 1.0};
         }
@@ -840,36 +1013,90 @@ void App::versionInstallThreadMain(LaunchTarget target, VersionSelectMode mode, 
     channel = normalizeChannel(channel);
 
     std::string hash;
+    // How this build was picked, so the update check knows later whether it may replace it.
+    std::string source = sourceForMode(mode);
+    // Where to look for its files. Only an unreleased build is served from more than one place.
+    std::vector<std::string> channelsToTry{channel};
     try {
         if (mode == VersionSelectMode::ManualHash) {
             hash = manualHash;
         } else if (mode == VersionSelectMode::Latest) {
             hash = parseClientVersionHash(fetchClientVersionJson(binaryType, channel, &versionInstallCancel_));
-        } else { // Previous
-            std::string latestHash =
-                parseClientVersionHash(fetchClientVersionJson(binaryType, channel, &versionInstallCancel_));
-            std::string history = fetchDeployHistory(channel, &versionInstallCancel_);
-            auto prev = previousVersionFromDeployHistory(history, binaryType, latestHash);
-            if (!prev.has_value()) {
-                fail("No earlier version found in Roblox's deploy history for this channel. "
-                      "Roblox hides the version list for its private channels, so this only "
-                      "works on the live channel.");
+        } else if (mode == VersionSelectMode::Next) {
+            // Against the released channel, never against the Channel box: it is hidden for
+            // this mode and still holds whatever was typed for an earlier install, so a
+            // stale name here would send someone to a field they cannot see.
+            const std::string released = robloxDefaultChannel();
+            std::string pending;
+            try {
+                pending = fetchClientVersionJson(binaryType, robloxPendingChannel(), &versionInstallCancel_);
+            } catch (const std::exception& e) {
+                // Roblox answers this channel only while a build is waiting to be released, so
+                // being refused is the ordinary "nothing upcoming" state rather than a fault.
+                if (isNotAuthorized(e.what())) {
+                    fail(i18n::tr("Roblox has no upcoming version right now. There is nothing newer "
+                                  "than the current release to install yet."));
+                    return;
+                }
+                throw;
+            }
+            const std::string pendingVersion = parseClientVersionNumber(pending);
+            const std::string liveVersion = parseClientVersionNumber(
+                fetchClientVersionJson(binaryType, released, &versionInstallCancel_));
+            const PendingBuild standing = comparePendingToLive(pendingVersion, liveVersion);
+            if (standing == PendingBuild::SameAsLive) {
+                // Nothing is pending, so the newest there is, is the released one. Installing
+                // it is the honest outcome; refusing would be refusing a version that exists.
+                source = sourceForMode(VersionSelectMode::Latest);
+                channel = released;
+            }
+            if (standing == PendingBuild::OlderThanLive) {
+                // Installing it would hand over an older build under a label promising a newer one.
+                fail(i18n::tr("Roblox is not offering a newer version than the current release right "
+                              "now, so there is nothing to install."));
                 return;
             }
-            hash = *prev;
+            hash = parseClientVersionHash(pending);
+            if (standing == PendingBuild::Newer) channelsToTry = pendingChannelsInOrder();
+        } else { // Previous
+            // Released channel, for the same reason as Next: the Channel box is hidden here.
+            channel = robloxDefaultChannel();
+            channelsToTry = {channel};
+            std::string body;
+            try {
+                body = fetchText(configPreviousUrl(channel, binaryType), &versionInstallCancel_);
+            } catch (const std::exception& e) {
+                if (isNotFound(e.what())) {
+                    fail(i18n::tr("TuxBlox hasn't recorded an earlier version of this app yet. It notes "
+                                  "each new Roblox version as it is released, so this will work once "
+                                  "Roblox releases its next one."));
+                    return;
+                }
+                fail(i18n::trf("Couldn't reach TuxBlox's version list, so there is no earlier version "
+                               "to install right now: {0}", {std::string(e.what())}));
+                return;
+            }
+            const std::optional<std::string> previous = parsePreviousHash(body);
+            if (!previous.has_value()) {
+                fail(i18n::tr("TuxBlox hasn't recorded an earlier version of this app yet. It notes "
+                              "each new Roblox version as it is released, so this will work once "
+                              "Roblox releases its next one."));
+                return;
+            }
+            hash = *previous;
         }
     } catch (const std::exception& e) {
         const std::string detail = e.what();
-        if (detail.find("401") != std::string::npos) {
-            fail("Roblox does not allow this channel to be looked up, so TuxBlox cannot find its "
-                  "latest version. Type an exact version instead, or use the live channel.");
+        if (isNotAuthorized(detail)) {
+            fail(i18n::tr("Roblox does not allow this channel to be looked up, so TuxBlox cannot find its "
+                          "latest version. Type an exact version instead, or use the live channel."));
         } else {
-            fail(std::string("Couldn't resolve a version: ") + detail);
+            fail(i18n::trf("Couldn't resolve a version: {0}", {detail}));
         }
         return;
     }
     if (hash.empty()) {
-        fail("No version hash to install.");
+        fail(i18n::tr("No version hash to install."));
         return;
     }
 
@@ -881,80 +1108,235 @@ void App::versionInstallThreadMain(LaunchTarget target, VersionSelectMode mode, 
         std::string manifestText;
         std::string lastError;
         bool ok = false;
-        for (const char* mirror : kMirrors) {
-            try {
-                manifestText = fetchText(setupCdnUrl(mirror, channel, hash, "rbxPkgManifest.txt"),
-                                          &versionInstallCancel_);
-                ok = true;
-                break;
-            } catch (const std::exception& e) {
-                lastError = e.what();
+        // An unreleased build is served from the release mirror's root rather than from its
+        // own channel folder, so whichever one answers decides where the packages come from
+        // too -- and is the channel this build is listed under afterwards.
+        for (const std::string& candidate : channelsToTry) {
+            for (const char* mirror : kMirrors) {
+                const std::string url = setupCdnUrl(mirror, candidate, hash, "rbxPkgManifest.txt");
+                try {
+                    manifestText = fetchText(url, &versionInstallCancel_);
+                    channel = candidate;
+                    ok = true;
+                    break;
+                } catch (const std::exception& e) {
+                    // Every attempt, not just the last: the last is the unreleased channel's
+                    // own 403, which is expected and says nothing about why this failed.
+                    if (!lastError.empty()) lastError += "; ";
+                    lastError += std::string(e.what());
+                }
             }
+            if (ok) break;
         }
         if (!ok) throw std::runtime_error(lastError);
         packages = parsePackageManifest(manifestText);
     } catch (const std::exception& e) {
-        fail(std::string("Couldn't fetch the package manifest (this version may have been purged from "
-                          "Roblox's CDN): ") + e.what());
+        fail(i18n::trf("Couldn't fetch the package manifest (this version may have been purged from "
+                       "Roblox's CDN): {0}", {e.what()}));
         return;
     }
 
-    const std::string versionDir =
-        prefixUserDir(installDir_) + "/AppData/Local/Roblox/Versions/" + hash;
+    const std::string versionDir = robloxDataDir(installDir_) + "/Versions/" + hash;
     const std::string stagingDir = installDir_ + "/RobloxPackageStaging/" + hash;
     std::error_code ec;
     fs::create_directories(stagingDir, ec);
 
     report({VersionInstallPhase::DownloadingPackages, 0.1, "", target});
 
-    for (size_t i = 0; i < packages.size(); ++i) {
-        const auto& pkg = packages[i];
+    // One entry per package TuxBlox knows where to put; the rest are skipped
+    // (see packageInstallSubdir's doc).
+    struct PackageWork {
+        std::string name;
+        std::string md5;
+        std::string archivePath;
+        std::string destDir;
+        uint64_t packedSize = 0;
+    };
+    std::vector<PackageWork> work;
+    uint64_t totalBytes = 0;
+    for (const auto& pkg : packages) {
         auto subdir = packageInstallSubdir(pkg.name, target);
-        if (!subdir.has_value()) continue; // unknown package -- skip (see packageInstallSubdir's doc)
+        if (!subdir.has_value()) continue;
+        work.push_back({pkg.name, pkg.md5, stagingDir + "/" + pkg.name,
+                        versionDir + (subdir->empty() ? "" : ("/" + *subdir)), pkg.packedSize});
+        totalBytes += pkg.packedSize;
+    }
+    if (work.empty()) {
+        fs::remove_all(stagingDir, ec);
+        fail(i18n::tr("Roblox's package list had nothing TuxBlox knows how to install."));
+        return;
+    }
 
-        const std::string destZip = stagingDir + "/" + pkg.name;
+    // One lock per destination: several packages share the version root and must
+    // never write it at once, while the rest own a directory each.
+    std::vector<std::string> workDests;
+    workDests.reserve(work.size());
+    for (const PackageWork& item : work) workDests.push_back(item.destDir);
+    const std::vector<std::string> dests = distinctDestDirs(workDests);
+    std::vector<std::mutex> destLocks(dests.size());
+
+    std::vector<std::atomic<uint64_t>> received(work.size());
+    for (auto& value : received) value = 0;
+
+    std::atomic<size_t> nextJob{0};
+    std::atomic<size_t> extracted{0};
+    std::atomic<size_t> downloadersLeft{0};
+    std::atomic<bool> stop{false};
+    std::mutex failureMutex;
+    std::string failure;
+
+    std::mutex queueMutex;
+    std::condition_variable queueReady;
+    std::deque<size_t> ready;
+
+    double highestFraction = 0.0;
+    std::mutex publishMutex;
+
+    auto noteFailure = [&](const std::string& message) {
+        {
+            std::lock_guard<std::mutex> lock(failureMutex);
+            if (failure.empty()) failure = message;
+        }
+        {
+            // Set under the queue lock, or a waiter can miss the notify and never wake.
+            std::lock_guard<std::mutex> lock(queueMutex);
+            stop = true;
+        }
+        queueReady.notify_all();
+    };
+
+    auto publish = [&]() {
+        uint64_t done = 0;
+        for (const auto& value : received) done += value;
+        const size_t unpacked = extracted.load();
+        const VersionInstallPhase phase = downloadersLeft.load() == 0 ? VersionInstallPhase::Extracting
+                                                                       : VersionInstallPhase::DownloadingPackages;
+        double fraction = 0.0;
+        {
+            // Ratcheted under its own lock: a mirror retry restarts a package at zero bytes.
+            std::lock_guard<std::mutex> lock(publishMutex);
+            fraction = monotonicInstallFraction(highestFraction, done, totalBytes, unpacked, work.size());
+        }
+        report({phase, 0.1 + 0.85 * fraction, "", target});
+    };
+
+    auto downloadWorker = [&]() {
         static const char* kMirrors[] = {"setup.rbxcdn.com", "setup-aws.rbxcdn.com"};
-        DownloadOutcome outcome{DownloadResult::Failed, "no mirror attempted"};
-        for (const char* mirror : kMirrors) {
-            outcome = downloadFile(setupCdnUrl(mirror, channel, hash, pkg.name), destZip,
-                [&](uint64_t now, uint64_t total) {
-                    double pkgFraction = total > 0 ? static_cast<double>(now) / total : 0.0;
-                    double overall = 0.1 + 0.6 * ((i + pkgFraction) / std::max<size_t>(1, packages.size()));
-                    report({VersionInstallPhase::DownloadingPackages, overall, "", target});
-                },
-                &versionInstallCancel_);
-            if (outcome.result == DownloadResult::Ok) break;
-        }
-        if (outcome.result != DownloadResult::Ok) {
-            // Also remove versionDir, not just stagingDir (Finding 6,
-            // 2026-08-16 final review): an earlier package in this same loop
-            // may have already extracted into it before this one failed,
-            // which would otherwise leave a partial, unregistered version
-            // directory on disk. fs::remove_all is a no-op if it was never
-            // created yet.
-            fs::remove_all(versionDir, ec);
-            fs::remove_all(stagingDir, ec);
-            fail("Failed to download " + pkg.name + ": " + outcome.errorMessage);
-            return;
-        }
-        if (md5File(destZip) != pkg.md5) {
-            fs::remove_all(versionDir, ec); // see the matching comment above
-            fs::remove_all(stagingDir, ec);
-            fail("Checksum mismatch for " + pkg.name + " -- refusing to install a corrupted package.");
-            return;
+        for (;;) {
+            const size_t index = nextJob++;
+            if (index >= work.size() || stop || versionInstallCancel_) break;
+            const PackageWork& item = work[index];
+
+            DownloadOutcome outcome{DownloadResult::Failed, "no mirror attempted"};
+            for (const char* mirror : kMirrors) {
+                outcome = downloadFile(setupCdnUrl(mirror, channel, hash, item.name), item.archivePath,
+                    [&](uint64_t now, uint64_t) {
+                        received[index] = now;
+                        publish();
+                    },
+                    &versionInstallCancel_);
+                if (outcome.result == DownloadResult::Ok) break;
+                if (stop || versionInstallCancel_) break;
+            }
+            if (stop || versionInstallCancel_) break;
+
+            if (outcome.result != DownloadResult::Ok) {
+                noteFailure(i18n::trf("Failed to download {0}: {1}", {item.name, outcome.errorMessage}));
+                break;
+            }
+            // Still before extraction, so a corrupted package never reaches the drive.
+            if (md5File(item.archivePath) != item.md5) {
+                noteFailure(i18n::trf("Checksum mismatch for {0} -- refusing to install a corrupted package.", {item.name}));
+                break;
+            }
+            received[index] = item.packedSize;
+
+            {
+                std::lock_guard<std::mutex> lock(queueMutex);
+                ready.push_back(index);
+            }
+            queueReady.notify_one();
         }
 
-        report({VersionInstallPhase::Extracting, 0.7 + 0.25 * (static_cast<double>(i) / packages.size()),
-                "", target});
-        const std::string destDir = versionDir + (subdir->empty() ? "" : ("/" + *subdir));
-        try {
-            extractZip(destZip, destDir);
-        } catch (const std::exception& e) {
-            fs::remove_all(versionDir, ec);
-            fs::remove_all(stagingDir, ec);
-            fail(std::string("Failed to extract ") + pkg.name + ": " + e.what());
-            return;
+        // Every exit path passes here, or an extractor could wait on work that never comes.
+        {
+            std::lock_guard<std::mutex> lock(queueMutex);
+            --downloadersLeft;
         }
+        queueReady.notify_all();
+    };
+
+    auto extractWorker = [&]() {
+        for (;;) {
+            size_t index = 0;
+            {
+                std::unique_lock<std::mutex> lock(queueMutex);
+                // Timed, because versionInstallCancel_ is set from outside and cannot take this lock to notify.
+                // On the wall clock rather than wait_for, because libstdc++ routes wait_for through pthread_cond_clockwait, which glibc only grew in 2.30.
+                queueReady.wait_until(lock, std::chrono::system_clock::now() + std::chrono::milliseconds(100), [&] {
+                    return !ready.empty() || stop || versionInstallCancel_ || downloadersLeft.load() == 0;
+                });
+                if (stop || versionInstallCancel_) return;
+                if (ready.empty() && downloadersLeft.load() != 0) continue;
+                if (ready.empty()) {
+                    if (downloadersLeft.load() == 0) return;
+                    continue;
+                }
+                index = ready.front();
+                ready.pop_front();
+            }
+
+            const PackageWork& item = work[index];
+            try {
+                std::lock_guard<std::mutex> guard(destLocks[destDirIndex(dests, item.destDir)]);
+                extractZip(item.archivePath, item.destDir);
+            } catch (const std::exception& e) {
+                noteFailure(i18n::trf("Failed to extract {0}: {1}", {item.name, e.what()}));
+                return;
+            }
+
+            std::error_code removeError;
+            fs::remove(item.archivePath, removeError);
+            ++extracted;
+            publish();
+        }
+    };
+
+    {
+        const size_t downloaders = std::min<size_t>(4, work.size());
+        const unsigned int cores = std::thread::hardware_concurrency();
+        const size_t extractors = std::min<size_t>(cores > 0 ? cores : 1, work.size());
+        downloadersLeft = downloaders;
+
+        std::vector<std::thread> pool;
+        pool.reserve(downloaders + extractors);
+        for (size_t at = 0; at < downloaders; ++at) pool.emplace_back(downloadWorker);
+        for (size_t at = 0; at < extractors; ++at) pool.emplace_back(extractWorker);
+        // Joined before any cleanup below, so nothing is still writing into a directory being removed.
+        for (auto& worker : pool) worker.join();
+    }
+
+    // Also removes versionDir, not just stagingDir (Finding 6, 2026-08-16 final
+    // review): a package that already extracted would otherwise leave a partial,
+    // unregistered version directory behind. remove_all is a no-op if it was
+    // never created.
+    if (!failure.empty()) {
+        fs::remove_all(versionDir, ec);
+        fs::remove_all(stagingDir, ec);
+        fail(failure);
+        return;
+    }
+    if (versionInstallCancel_) {
+        fs::remove_all(versionDir, ec);
+        fs::remove_all(stagingDir, ec);
+        fail(i18n::tr("Cancelled."));
+        return;
+    }
+    if (extracted.load() != work.size()) {
+        fs::remove_all(versionDir, ec);
+        fs::remove_all(stagingDir, ec);
+        fail(i18n::tr("Roblox's packages were not all unpacked."));
+        return;
     }
     fs::remove_all(stagingDir, ec);
 
@@ -970,7 +1352,7 @@ void App::versionInstallThreadMain(LaunchTarget target, VersionSelectMode mode, 
         std::ofstream appSettings(versionDir + "/AppSettings.xml", std::ios::binary);
         if (!appSettings) {
             fs::remove_all(versionDir, ec);
-            fail("Failed to write AppSettings.xml into " + versionDir);
+            fail(i18n::trf("Failed to write AppSettings.xml into {0}", {versionDir}));
             return;
         }
         appSettings << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
@@ -980,7 +1362,7 @@ void App::versionInstallThreadMain(LaunchTarget target, VersionSelectMode mode, 
                        "</Settings>";
         if (!appSettings) {
             fs::remove_all(versionDir, ec);
-            fail("Failed to write AppSettings.xml into " + versionDir);
+            fail(i18n::trf("Failed to write AppSettings.xml into {0}", {versionDir}));
             return;
         }
     }
@@ -1002,12 +1384,16 @@ void App::versionInstallThreadMain(LaunchTarget target, VersionSelectMode mode, 
         auto it = std::find_if(av.installed.begin(), av.installed.end(),
                                 [&](const InstalledVersion& v) { return v.hash == hash; });
         if (it == av.installed.end()) {
-            av.installed.push_back({hash, channel, isoNowUtc()});
+            av.installed.push_back({hash, channel, isoNowUtc(), "", source});
         } else {
             it->channel = channel;
             it->installedAt = isoNowUtc();
+            it->source = source;
         }
-        if (av.activeHash.empty()) av.activeHash = hash; // first version for this app type -- pin it
+        // Choosing Latest is how somebody stops following a build they picked earlier, so it
+        // takes the pin. Without this the only way back is three steps through Settings, and
+        // two of them are disabled while the update check is on.
+        if (av.activeHash.empty() || mode == VersionSelectMode::Latest) av.activeHash = hash;
     }
     saveVersionsManifest(installDir_, fresh);
     {

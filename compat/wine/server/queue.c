@@ -3953,20 +3953,23 @@ DECL_HANDLER(set_foreground_window)
     struct thread *thread = NULL;
     struct desktop *desktop;
     struct msg_queue *queue = get_current_queue();
-    int is_desktop = 0, set_foreground = 0;
+    int is_desktop = 0;
 
     if (!queue || !(desktop = get_thread_desktop( current, 0 ))) return;
 
-    if (!(thread = make_window_foreground( desktop, req->handle, &is_desktop, &set_foreground )) ||
+    if (!(thread = make_window_foreground( desktop, req->handle, &is_desktop )) ||
         !thread->queue || !thread->queue->input)
     {
         set_win32_error( ERROR_INVALID_WINDOW_HANDLE );
         goto done;
     }
 
-    if (set_foreground && !req->internal)
+    if (!req->internal)
     {
-        /* allow a process to set foreground after changing desktop, or each window to be set foreground at least once */
+        /* Every window used to be allowed one unconditional go at the foreground, which let any
+         * window that appeared take the keyboard from whatever the user was using. The checks below
+         * already let a process that is foreground, or was started by the one that is, activate its
+         * own windows, so a first window still comes forward without the free pass. */
         if (!is_current_process_foreground( desktop ) && queue->input && desktop->foreground_input &&
             queue->input->user_time < desktop->foreground_input->user_time)
         {

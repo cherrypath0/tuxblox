@@ -1108,6 +1108,7 @@ static void xdg_open_sanitize_env(void)
         "XDG_DATA_DIRS",
         "FONTCONFIG_PATH", "GDK_PIXBUF_MODULE_FILE", "GDK_PIXBUF_MODULEDIR",
         "LIBGL_DRIVERS_PATH", "LIBGL_ALWAYS_SOFTWARE",
+        "__EGL_VENDOR_LIBRARY_DIRS", "__EGL_VENDOR_LIBRARY_FILENAMES",
         "GDK_BACKEND", "GSK_RENDERER", "EGL_PLATFORM",
         /* Not loader paths, but they name THIS process's private IPC fds and
          * would be a lie in any other process's environment. */

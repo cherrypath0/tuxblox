@@ -18,6 +18,7 @@
 #include "adw_env.h"
 #include "adw_look.h"
 #include "dialog.h"
+#include "i18n.h"
 #include "install_paths.h"
 #include "widgets.h"
 
@@ -28,6 +29,10 @@
 #include <vector>
 
 #include <unistd.h>
+
+// Third Parties
+#include <gdk/x11/gdkx.h>
+#include <X11/Xatom.h>
 
 // Third Parties
 #include <adwaita.h>
@@ -44,6 +49,7 @@ void onClosed(AdwDialog *, gpointer data) {
 bool startInterface(bool *pStarted) {
     // GTK cannot be started again after it failed to find a display, so the second message goes straight to stderr
     static bool noDisplay = false;
+    i18n::ensureInitialized();
 
     *pStarted = false;
     if (noDisplay) return false;
@@ -103,12 +109,130 @@ GdkTexture *readIconFd(int fd) {
 }
 
 // Shows the dialog and returns once it is closed, however it was closed.
-void runDialog(AdwDialog *pDialog, GdkTexture *pIcon) {
+// A window in the desktop's list can close between it being read and being asked about, and the
+// default answer to that is to end this program. Nothing here is worth that, so it is ignored.
+int ignoreXError(Display *, XErrorEvent *) { return 0; }
+
+// The window of the program that asked for this box. It started us, so its process id is this
+// process's parent, and the desktop's own list of windows says which window is its.
+//
+// The stacking list is asked for first, and the match taken from the top of it, because a program
+// asking a question usually has more than one window open and the box belongs to the one in front.
+// Parenting it to the first window the desktop happens to list puts the box behind the file dialog
+// that asked the question, where it waits unseen and the program looks like it has stopped.
+Window findParentAppWindow(Display *pDisplay) {
+    const unsigned long parent = static_cast<unsigned long>(getppid());
+    Atom clientList = XInternAtom(pDisplay, "_NET_CLIENT_LIST_STACKING", True);
+    const Atom pidProperty = XInternAtom(pDisplay, "_NET_WM_PID", True);
+    const bool stacked = clientList != None;
+
+    if (!stacked) clientList = XInternAtom(pDisplay, "_NET_CLIENT_LIST", True);
+    if (clientList == None || pidProperty == None) return None;
+
+    Atom type = None;
+    int format = 0;
+    unsigned long count = 0;
+    unsigned long remaining = 0;
+    unsigned char *pBytes = nullptr;
+    if (XGetWindowProperty(pDisplay, DefaultRootWindow(pDisplay), clientList, 0, 4096, False,
+                           XA_WINDOW, &type, &format, &count, &remaining, &pBytes) != Success) {
+        return None;
+    }
+
+    Window found = None;
+    const Window *pWindows = reinterpret_cast<const Window *>(pBytes);
+    // Stacking order runs bottom to top, so the last match is the frontmost window and the loop
+    // keeps going; an unordered list has no frontmost, so there the first match stands.
+    for (unsigned long at = 0; pWindows != nullptr && at < count && (stacked || found == None); ++at) {
+        unsigned char *pPid = nullptr;
+        unsigned long pidCount = 0;
+        if (XGetWindowProperty(pDisplay, pWindows[at], pidProperty, 0, 1, False, XA_CARDINAL, &type,
+                               &format, &pidCount, &remaining, &pPid) != Success) {
+            continue;
+        }
+        if (pPid != nullptr && pidCount == 1 && *reinterpret_cast<unsigned long *>(pPid) == parent) {
+            found = pWindows[at];
+        }
+        if (pPid != nullptr) XFree(pPid);
+    }
+    if (pBytes != nullptr) XFree(pBytes);
+    return found;
+}
+
+// Looked up before the interface starts, because the box has to be on the same display server as
+// the program that asked for it before the desktop will treat it as that program's own window.
+Window parentAppWindowForBox() {
+    Display *pDisplay = XOpenDisplay(nullptr);
+    if (pDisplay == nullptr) return None;
+
+    XErrorHandler previous = XSetErrorHandler(ignoreXError);
+    const Window parent = findParentAppWindow(pDisplay);
+    XSync(pDisplay, False);
+    XSetErrorHandler(previous);
+    XCloseDisplay(pDisplay);
+
+    // Drawn on X11 whether or not the owner was found. The program that asked is an X11 window, and
+    // a box on the other display server is one the desktop will not put in front of it; drawn there
+    // with no owner to belong to, it was never presented at all and the program waited on a box
+    // nobody could see. Reaching here at all means there is an X display to draw it on.
+    setenv("GDK_BACKEND", "x11", 1);
+    return parent;
+}
+
+// Says the box belongs to the window that asked for it, so the desktop keeps the two together and
+// brings the box up in front of it rather than leaving it behind, unfocused and easily missed.
+void markAsDialogOf(AdwDialog *pDialog, Window parent) {
+    if (parent == None) return;
+
+    GtkRoot *pRoot = gtk_widget_get_root(GTK_WIDGET(pDialog));
+    GdkSurface *pSurface = GTK_IS_NATIVE(pRoot) ? gtk_native_get_surface(GTK_NATIVE(pRoot)) : nullptr;
+    if (pSurface == nullptr || !GDK_IS_X11_SURFACE(pSurface)) return;
+
+    Display *pDisplay = GDK_SURFACE_XDISPLAY(pSurface);
+    const Window box = GDK_SURFACE_XID(pSurface);
+
+    XSetTransientForHint(pDisplay, box, parent);
+
+    // Belonging to the window is not the same as blocking it, and the desktop only does the second
+    // when it is told. Without this the box is an ordinary sibling: clicking the window it came from
+    // raises that window over the box instead of bringing the box forward, and closing the box
+    // returns the focus to whatever the desktop feels like rather than to the program waiting on it.
+    // libadwaita sets this itself only for a parent in its own process, which an owner from another
+    // program is not.
+    //
+    // Asked for by message rather than written onto the window: the window is already on screen by
+    // now, and from then on the state belongs to the desktop, which ignores a window that writes its
+    // own. Writing it as well covers the case where this runs before the window is up.
+    const Atom state = XInternAtom(pDisplay, "_NET_WM_STATE", False);
+    const Atom modal = XInternAtom(pDisplay, "_NET_WM_STATE_MODAL", False);
+    if (state != None && modal != None) {
+        XEvent ask = {};
+
+        XChangeProperty(pDisplay, box, state, XA_ATOM, 32, PropModeAppend,
+                        reinterpret_cast<const unsigned char *>(&modal), 1);
+
+        ask.xclient.type = ClientMessage;
+        ask.xclient.window = box;
+        ask.xclient.message_type = state;
+        ask.xclient.format = 32;
+        ask.xclient.data.l[0] = 1; // _NET_WM_STATE_ADD
+        ask.xclient.data.l[1] = static_cast<long>(modal);
+        ask.xclient.data.l[3] = 1; // asked for by the program itself, not by a pager
+        XSendEvent(pDisplay, DefaultRootWindow(pDisplay), False,
+                   SubstructureNotifyMask | SubstructureRedirectMask, &ask);
+    }
+
+    if (GTK_IS_WINDOW(pRoot)) gtk_window_present(GTK_WINDOW(pRoot));
+}
+
+void runDialog(AdwDialog *pDialog, GdkTexture *pIcon, Window parent = None) {
     GMainLoop *pLoop = g_main_loop_new(nullptr, FALSE);
 
     g_signal_connect(pDialog, "closed", G_CALLBACK(onClosed), pLoop);
     // With no parent, libadwaita gives the dialog a small window of its own
     adw_dialog_present(pDialog, nullptr);
+
+    markAsDialogOf(pDialog, parent);
 
     // Only once it is on screen does the window exist to carry an icon. A desktop that has no way to show one ignores it.
     if (pIcon != nullptr) {
@@ -136,7 +260,7 @@ bool showErrorMessageBoxWithAction(const std::string &title, const std::string &
 
     bool actionChosen = false;
     std::vector<DialogButton> buttons;
-    buttons.push_back({"OK", nullptr, nullptr, false});
+    buttons.push_back({i18n::tr("OK"), nullptr, nullptr, false});
     if (!actionLabel.empty()) {
         buttons.push_back({actionLabel, "suggested-action", [&actionChosen] { actionChosen = true; }, false});
     }
@@ -160,14 +284,14 @@ void showErrorMessageBoxWithCopy(const std::string &title, const std::string &me
 
     std::vector<DialogButton> buttons;
     if (!copyText.empty()) {
-        buttons.push_back({"Copy", nullptr,
+        buttons.push_back({i18n::tr("Copy"), nullptr,
                            [copyText] {
                                GdkDisplay *pDisplay = gdk_display_get_default();
                                if (pDisplay != nullptr) gdk_clipboard_set_text(gdk_display_get_clipboard(pDisplay), copyText.c_str());
                            },
                            false});
     }
-    buttons.push_back({"OK", nullptr, nullptr, false});
+    buttons.push_back({i18n::tr("OK"), nullptr, nullptr, false});
 
     runDialog(buildDialog(title, message, std::move(buttons)), nullptr);
 
@@ -178,6 +302,9 @@ MessageBoxOutcome showRequestedMessageBox(const std::string &title, const std::s
                                           const std::string &buttons, int defaultButton, bool canDismiss,
                                           int iconFd) {
     MessageBoxOutcome outcome;
+
+    // Looked up before the interface starts, because finding it decides which display server the box is drawn on.
+    const Window parent = parentAppWindowForBox();
 
     bool startedGtk = false;
     if (!startInterface(&startedGtk)) return outcome;
@@ -191,7 +318,7 @@ MessageBoxOutcome showRequestedMessageBox(const std::string &title, const std::s
         if (comma == std::string::npos) break;
         at = comma + 1;
     }
-    if (labels.empty()) labels.push_back("OK");
+    if (labels.empty()) labels.push_back(i18n::tr("OK"));
 
     std::vector<DialogButton> made;
     for (size_t at = 0; at < labels.size(); ++at) {
@@ -209,7 +336,7 @@ MessageBoxOutcome showRequestedMessageBox(const std::string &title, const std::s
     outcome.how = MessageBoxOutcome::Dismissed;
     AdwDialog *pDialog = buildDialog(title, message, std::move(made));
     adw_dialog_set_can_close(pDialog, canDismiss);
-    runDialog(pDialog, pIcon);
+    runDialog(pDialog, pIcon, parent);
     if (pIcon != nullptr) g_object_unref(pIcon);
 
     if (startedGtk) restoreBundledEnvironment();

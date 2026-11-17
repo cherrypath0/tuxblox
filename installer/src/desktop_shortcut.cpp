@@ -208,11 +208,10 @@ void refreshUrlHandlers(const std::string& launcherExePath) {
         fs::create_directories(appsDir, ec);
         if (ec) return;
 
-        // Remove first, then set again: an install/update is a deliberate
-        // top-level action, so it should force TuxBlox back as the default
-        // even over an active repo-local dev handler, and it should never
-        // leave a stale file from a previous version's naming scheme
-        // behind (e.g. the pre-rename shared "tuxblox-url-handler.desktop").
+        // Remove first, then write fresh, so no stale file from an older naming
+        // scheme is left behind (e.g. the pre-rename "tuxblox-url-handler.desktop").
+        // The entries are written but never claimed: making one the default is the
+        // launcher's job, and only once the Roblox app that answers it is installed.
         for (const auto& h : installedHandlers()) fs::remove(appsDir + "/" + h.desktopId, ec);
         fs::remove(appsDir + "/tuxblox-url-handler.desktop", ec);
         fs::remove(appsDir + "/tuxblox-roblox-handler.desktop", ec);
@@ -231,11 +230,6 @@ void refreshUrlHandlers(const std::string& launcherExePath) {
         }
 
         if (!std::getenv("TUXBLOX_SKIP_XDG_MIME")) { // escape hatch for sandboxed test/CI runs
-            for (const auto& h : installedHandlers()) {
-                for (const char* scheme : h.schemes) {
-                    runCommandBestEffort({"xdg-mime", "default", h.desktopId, scheme});
-                }
-            }
             runCommandBestEffort({"update-desktop-database", appsDir});
         }
 

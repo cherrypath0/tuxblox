@@ -34,6 +34,9 @@ enum class UpdatePhase {
     // update itself, it delegates that entirely to TuxBloxInstaller (which
     // shows its own "Upgrading Proton"/"Upgrading TuxBlox" progress).
     PreparingUpdater,
+    // Fetching the layer itself, which only a Flatpak does: it ships no installer to hand off to,
+    // and the layer is the one component that cannot live in a read-only /app.
+    FetchingCompat,
     UpToDate,
     Error
 };
@@ -46,22 +49,25 @@ struct UpdateProgress {
 
 using UpdateProgressFn = std::function<void(UpdateProgress)>;
 
-// One component of an install, and the version it reports.
+// One component of an install, and what it says it is.
 struct ComponentVersion {
     std::string component;  // the release file's key for it, e.g. "compat"
     std::string name;       // as a user would read it, e.g. "compatibility layer"
     std::string path;       // the binary asked; empty for the one that is read from a file instead
-    std::string version;    // its bare "x.y.z", empty if it is not installed
+    // The release it was published in, which is what a binary answers when it is asked its
+    // version; the interface stack has no binary and answers with its own "x.y.z". Empty if it is
+    // not installed.
+    std::string version;
 };
 
-// Asks every TuxBlox component in `installDir` what version it is. Four of them: the launcher is
-// the one asking and knows its own answer, so the caller supplies that. The interface stack has no
-// binary to ask and is read from the file its tarball carries.
+// Asks every TuxBlox component in `installDir` what it is. Four of them: the launcher is the one
+// asking and knows its own answer, so the caller supplies that. The interface stack has no binary
+// to ask and is read from the file its tarball carries.
 //
 // A component that is present but cannot be asked -- not executable, exits nonzero, prints nothing
-// -- reports an EMPTY version, the same as one that is absent. An install cannot be repaired
-// towards a version nobody can read, and a non-empty placeholder would differ from every recorded
-// version and force a repair on every launch forever.
+// -- reports an EMPTY answer, the same as one that is absent. An install cannot be repaired towards
+// something nobody can read, and a non-empty placeholder would differ from every recorded answer
+// and force a repair on every launch forever.
 std::vector<ComponentVersion> readComponentVersions(const std::string& installDir);
 
 struct UpdateResult {
@@ -75,6 +81,8 @@ struct UpdateResult {
     // True iff the update bypasses the Auto-Update setting: the installed components do not match
     // the release this install records, which is broken rather than merely out of date.
     bool forced = false;
+    // True when the install is ahead of its channel, so nothing was done and the window says so.
+    bool internal = false;
     // True iff there is no compatibility layer at all, as opposed to an outdated one -- nothing can
     // be launched yet, which App::updateCheckThreadMain() treats differently from an ordinary update.
     bool compatMissing = false;
@@ -88,6 +96,33 @@ struct EnsureInstallerResult {
     std::string installerPath;  // valid iff ok
     std::string errorMessage;   // valid iff !ok
 };
+
+// Puts the layer at <dir>/compat, downloading and unpacking it when what is there is not already
+// the release's own copy. Only a Flatpak calls this: every other install has an installer to hand
+// the whole job to, and only a Flatpak has a /app it cannot write the layer into.
+//
+// Returns false with errorMessage set on anything that leaves no usable layer. A cancelled download
+// returns false with an empty message, the same shape ensureInstallerBinary() uses.
+struct EnsureCompatResult {
+    bool ok = false;
+    std::string errorMessage;  // empty and !ok means cancelled
+};
+EnsureCompatResult ensureCompatInstalled(const ReleaseFile& release, const std::string& baseUrl,
+                                          const std::string& dir,
+                                          const std::atomic<bool>* cancel,
+                                          const UpdateProgressFn& onProgress);
+
+// Whether the parts a Flatpak carries inside its read-only /app are older than the ones `release`
+// names, which is the one update TuxBlox cannot apply itself and has to ask flatpak for.
+//
+// Judged on each part's OWN version, never on the release: a Flatpak bundle is an OSTree delta and
+// cannot be stamped, so the release it reports is whatever it was compiled with and would differ
+// from the published one forever, which read as permanently out of date.
+//
+// Only older counts. A bundle built locally can be ahead of the channel, and telling that user to
+// run `flatpak update` would send them after something that does not exist. A part that cannot be
+// asked its version is no evidence either way and is passed over.
+bool flatpakBundleBehind(const ReleaseFile& release, const std::string& installDir);
 
 // Ensures a verified copy of the installer binary is present at <dir>/TuxBloxInstaller, fetching a
 // fresh one first if it's missing or its checksum no longer matches the one `release` names. Shared
