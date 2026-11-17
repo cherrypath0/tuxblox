@@ -75,8 +75,11 @@ SHARED_SRC := $(shell $(FIND) shared -type f \
 LAUNCHER_SRC := $(shell $(FIND) launcher/src launcher/CMakeLists.txt -type f 2>/dev/null)
 INSTALLER_SRC := $(shell $(FIND) installer/src installer/CMakeLists.txt -type f 2>/dev/null)
 STUDIO_MCP_SRC := $(shell $(FIND) studio-mcp/src studio-mcp/CMakeLists.txt -type f 2>/dev/null)
+# third_party_licenses and LICENSE are staged into the layer below, so a licence that arrives or
+# leaves has to rebuild it: the layer ships its own copy and nothing else would notice.
 COMPAT_SRC := $(shell $(FIND) compat/tuxblox compat/wine/dlls compat/wine/programs compat/patches \
-	compat/Makefile.in compat/configure.sh compat/webkitgtk/prebuilt -type f 2>/dev/null)
+	compat/Makefile.in compat/configure.sh compat/webkitgtk/prebuilt \
+	third_party_licenses LICENSE -type f 2>/dev/null)
 
 export TUXBLOX_SKIP_DEPS := 1
 export TUXBLOX_MAKE_JOBS := $(JOBS)
