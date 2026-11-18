@@ -929,24 +929,39 @@ void App::updateCheckThreadMain() {
         // carry itself. Its own launcher is beyond reach either way: that lives in a read-only /app
         // and belongs to flatpak, so that case is offered rather than applied.
         const bool bundleBehind = kFlatpakBuild && flatpakBundleBehind(result.release, installDir_);
-        if (kFlatpakBuild && !bundleBehind) {
+        if (kFlatpakBuild) {
+            // A bundle waiting on its store to catch up still needs a layer, and the one that goes
+            // with it is its own release's.
+            ReleaseFile layer = result.release;
+            std::string layerJson = result.releaseJson;
+            const std::string wanted =
+                flatpakLayerRelease(bundleBehind, releaseVersion(), result.release.release);
+            if (wanted != result.release.release) {
+                const UpdateResult own = runUpdateCheck(setupBaseUrl(), releaseChannel, wanted,
+                    [&](UpdateProgress p) { report(p); }, &updateCancel_, installDir_);
+                layer = own.release;
+                layerJson = own.releaseJson;
+            }
             {
                 // Kept so a retry has a release to fetch against: the check that produced this one
                 // runs once per launch, and a failed fetch must not need another to be tried again.
                 std::lock_guard<std::mutex> lock(mutex_);
-                pendingRelease_ = result.release;
-                pendingReleaseJson_ = result.releaseJson;
+                pendingRelease_ = layer;
+                pendingReleaseJson_ = layerJson;
             }
             const EnsureCompatResult fetched = ensureCompatInstalled(
-                result.release, setupBaseUrl(), installDir_, &updateCancel_,
+                layer, setupBaseUrl(), installDir_, &updateCancel_,
                 [&](UpdateProgress p) { report(p); });
-            std::lock_guard<std::mutex> lock(mutex_);
-            // Cancelled leaves no layer either, so it is missing by the same test rather than by why.
-            snapshot_.runtimeMissing = !fetched.ok;
-            if (!fetched.ok && !fetched.errorMessage.empty()) {
-                snapshot_.update = {UpdatePhase::Error, 0.0, fetched.errorMessage};
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                // Cancelled leaves no layer either, so it is missing by the same test rather than by why.
+                snapshot_.runtimeMissing = !fetched.ok;
+                if (!fetched.ok && !fetched.errorMessage.empty()) {
+                    snapshot_.update = {UpdatePhase::Error, 0.0, fetched.errorMessage};
+                }
             }
-            return;
+            // A behind bundle carries on, so the window still offers the update it cannot apply itself.
+            if (!bundleBehind) return;
         }
         if ((autoUpdate || result.forced) && !bundleBehind) {
             if (!prepareInstallerHandoff(result.release, result.releaseJson)) return;

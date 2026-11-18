@@ -390,6 +390,16 @@ void test_a_flatpak_bundle_is_judged_on_component_versions_not_the_release() {
     printf("  a Flatpak bundle is judged on component versions, not the release\n");
 }
 
+// A Flathub bundle lags its channel until the update PR lands, and during that window it still has
+// to be able to fetch a layer. The one it needs is its own release's, never the channel's newer one.
+void test_a_behind_flatpak_fetches_the_layer_for_its_own_release() {
+    assert(flatpakLayerRelease(false, "3.12.15.1", "3.12.16.0") == "3.12.16.0");
+    assert(flatpakLayerRelease(true, "3.12.15.1", "3.12.16.0") == "3.12.15.1");
+    // An unstamped build knows no release of its own, so the channel's is all there is to go on.
+    assert(flatpakLayerRelease(true, "", "3.12.16.0") == "3.12.16.0");
+    printf("  a behind Flatpak fetches the layer for its own release\n");
+}
+
 // A layer from a release published before stamping answers with its own component version, not the
 // release. Comparing against the release alone made every launch re-download the whole layer.
 void test_a_layer_naming_its_component_version_is_not_refetched() {
@@ -421,6 +431,7 @@ int main() {
 
     test_download_progress_fraction();
     test_a_flatpak_bundle_is_judged_on_component_versions_not_the_release();
+    test_a_behind_flatpak_fetches_the_layer_for_its_own_release();
     test_a_layer_naming_its_component_version_is_not_refetched();
     test_reads_the_four_components_it_can_ask();
     test_a_component_that_cannot_be_asked_counts_as_absent();
