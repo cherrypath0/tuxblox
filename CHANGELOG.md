@@ -1,0 +1,1 @@
+Updated the Flatpak packaging for Flathub. No changes to TuxBlox itself.

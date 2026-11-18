@@ -1,7 +1,7 @@
 app-id: net.tuxblox.TuxBlox
-runtime: org.freedesktop.Platform
-runtime-version: '26.08'
-sdk: org.freedesktop.Sdk
+runtime: org.gnome.Platform
+runtime-version: '51'
+sdk: org.gnome.Sdk
 command: tuxblox
 
 # For the 32-bit side of TuxBlox, including Roblox's MCP server
@@ -18,7 +18,6 @@ add-extensions:
     autodelete: false
     add-ld-path: lib
     merge-dirs: vulkan/icd.d;glvnd/egl_vendor.d;OpenCL/vendors;lib/dri;lib/d3d;vulkan/explicit_layer.d;vulkan/implicit_layer.d
-
 
 finish-args:
   # --device=dri is NOT enough: /dev/ntsync needs this
@@ -61,57 +60,30 @@ finish-args:
   # Required for the Roblox tray icon
   - --talk-name=org.kde.StatusNotifierWatcher
 
-
 modules:
   - name: tuxblox
     buildsystem: simple
 
     build-options:
       no-debuginfo: true
+      strip: true
+      env:
+        TUXBLOX_DONT_INCREMENT_BUILD: '1'
+
     build-commands:
-      - mkdir -p /app/tuxblox
-      - mkdir -p /app/lib/i386-linux-gnu/GL
-      - install -Dm644 ld.so.conf /app/etc/ld.so.conf
-      - cp -a payload/libtuxblox payload/TuxBloxLauncher payload/studio-mcp /app/tuxblox/
-      - chmod +x /app/tuxblox/TuxBloxLauncher /app/tuxblox/studio-mcp
-      - install -Dm755 tuxblox /app/bin/tuxblox
-      - install -Dm644 net.tuxblox.TuxBlox.desktop -t /app/share/applications/
-      - install -Dm644 net.tuxblox.TuxBlox.Player.desktop -t /app/share/applications/
-      - install -Dm644 net.tuxblox.TuxBlox.Studio.desktop -t /app/share/applications/
-      - install -Dm644 net.tuxblox.TuxBlox.Place.desktop -t /app/share/applications/
-      - install -Dm644 net.tuxblox.TuxBlox.metainfo.xml -t /app/share/metainfo/
-      - install -Dm644 icons/128x128.png /app/share/icons/hicolor/128x128/apps/net.tuxblox.TuxBlox.png
-      - install -Dm644 icons/256x256.png /app/share/icons/hicolor/256x256/apps/net.tuxblox.TuxBlox.png
-      - install -Dm644 icons/512x512.png /app/share/icons/hicolor/512x512/apps/net.tuxblox.TuxBlox.png
-      - mkdir -p /app/share/licenses
-      - cp -a licenses /app/share/licenses/net.tuxblox.TuxBlox
+      - make flatpak
+
     sources:
       - type: dir
-        path: ../../build/flatpak/libtuxblox
-        dest: payload/libtuxblox
-      - type: file
-        path: ../../build/flatpak/TuxBloxLauncher
-        dest: payload
-      - type: file
-        path: ../../build/native/studio-mcp
-        dest: payload
-      - type: file
-        path: tuxblox
-      - type: file
-        path: ld.so.conf
-      - type: file
-        path: net.tuxblox.TuxBlox.desktop
-      - type: file
-        path: net.tuxblox.TuxBlox.Player.desktop
-      - type: file
-        path: net.tuxblox.TuxBlox.Studio.desktop
-      - type: file
-        path: net.tuxblox.TuxBlox.Place.desktop
-      - type: file
-        path: ../../build/flatpak/net.tuxblox.TuxBlox.metainfo.xml
-      - type: dir
-        path: ../../build/assets/tuxblox
-        dest: icons
-      - type: dir
-        path: ../../build/flatpak/licenses
-        dest: licenses
+        path: ../..
+        skip:
+          - .git
+          - .flatpak-builder
+          - compat
+          - shared/crypto/openssl
+          - shared/fs/libarchive
+          - shared/fs/zlib
+          - shared/fs/zstd
+          - shared/network/libcurl
+          - shared/network/nghttp2
+          - shared/ui/libadwaita

@@ -124,6 +124,13 @@ EnsureCompatResult ensureCompatInstalled(const ReleaseFile& release, const std::
 // asked its version is no evidence either way and is passed over.
 bool flatpakBundleBehind(const ReleaseFile& release, const std::string& installDir);
 
+// A behind bundle pairs with its own release's layer, never the channel's newer one.
+std::string flatpakLayerRelease(bool bundleBehind, const std::string& ownRelease,
+                                 const std::string& channelRelease);
+
+// True only if the release that answered is the one asked for, so no other layer is installed by accident.
+bool flatpakLayerResolved(const ReleaseFile& answered, const std::string& wanted);
+
 // Ensures a verified copy of the installer binary is present at <dir>/TuxBloxInstaller, fetching a
 // fresh one first if it's missing or its checksum no longer matches the one `release` names. Shared
 // by runUpdateCheck (below) and the uninstall path (App::requestUninstall()) -- both need a working
