@@ -50,8 +50,11 @@ PODMAN := $(ART)/.podman
 COMPAT_VERSION := $(shell cat compat/VERSION 2>/dev/null)
 
 RELEASE_AWK = awk 'NR==1{s=$$0} NR==2{b=$$0} END{ gsub(/[ \t\r]/,"",s); gsub(/[ \t\r]/,"",b); n=split(s,v,"."); if (n==4) print s; else if (n==3) { if (b !~ /^[0-9]+$$/) b="0"; print v[1]"."v[2]"."b"."v[3] } }' VERSION
-RELEASE = $(shell $(RELEASE_AWK) 2>/dev/null)
-CHANNEL = $(shell sed -n 3p VERSION 2>/dev/null | tr -d '[:space:]')
+# A Flatpak build is handed these by the manifest
+RELEASE_ENV := $(TUXBLOX_RELEASE)
+CHANNEL_ENV := $(TUXBLOX_CHANNEL)
+RELEASE = $(or $(RELEASE_ENV),$(shell $(RELEASE_AWK) 2>/dev/null))
+CHANNEL = $(or $(CHANNEL_ENV),$(shell sed -n 3p VERSION 2>/dev/null | tr -d '[:space:]'))
 
 LIBADWAITA_DIR := $(shell cd $(ROOT)/shared/ui 2>/dev/null && pwd -P)/libadwaita
 LIBADWAITA_HEAD = $(shell d=$(LIBADWAITA_DIR); [ "$$(git -C $$d rev-parse --show-toplevel 2>/dev/null)" = "$$d" ] || exit 0; printf '%s%s' "$$(git -C $$d rev-parse HEAD)" "$$([ -n "$$(git -C $$d status --porcelain)" ] && echo -dirty)")
@@ -155,30 +158,86 @@ appimage:
 FLATPAK_DIR := $(BUILD)/flatpak
 FLATPAK_BUNDLE := $(FLATPAK_DIR)/net.tuxblox.TuxBlox.flatpak
 FLATPAK_MANIFEST := packaging/flatpak/net.tuxblox.TuxBlox.yml
+FLATPAK_LOCAL_MANIFEST := $(FLATPAK_DIR)/net.tuxblox.TuxBlox.local.yml
+# Only a working tree holds these, so a published manifest cannot name them
+FLATPAK_LOCAL_SKIPS := .superpowers build build.log logs workspace shared/ui/dist shared/ui/sources
 
+FLATPAK_CMAKE_ARGS = -G Ninja -DCMAKE_BUILD_TYPE=Release \
+    -DTUXBLOX_SYSTEM_LIBS=ON -DTUXBLOX_SYSTEM_UI=ON -DTUXBLOX_FLATPAK=ON \
+    -DTUXBLOX_UI_SRC=$(ROOT)/shared/ui/src -DTUXBLOX_ASSETS=$(ROOT)/assets \
+    -DTUXBLOX_ASSETS_BUILD=$(ASSETS_DIR) -DTUXBLOX_SHARED_CRYPTO=$(ROOT)/shared/crypto/src \
+    -DTUXBLOX_SHARED_RELEASE=$(ROOT)/shared/release/src -DTUXBLOX_SHARED_FLAGS=$(ROOT)/shared/flags \
+    -DTUXBLOX_SHARED_PATHS=$(ROOT)/shared/paths/src -DTUXBLOX_I18N_DIR=$(ROOT)/shared/i18n \
+    -DTUXBLOX_TRANSLATIONS_DIR=$(ROOT)/shared/translations
+
+FLATPAK_DESKTOP_FILES = net.tuxblox.TuxBlox net.tuxblox.TuxBlox.Player \
+    net.tuxblox.TuxBlox.Studio net.tuxblox.TuxBlox.Place
+
+# Only flatpak-builder sets FLATPAK_DEST
+ifdef FLATPAK_DEST
+flatpak: $(TUXBLOX_ICONS)
+	cmake -B $(FLATPAK_DIR)/launcher-build -S $(ROOT)/launcher $(FLATPAK_CMAKE_ARGS)
+	cmake --build $(FLATPAK_DIR)/launcher-build -j$(JOBS)
+	cmake -B $(FLATPAK_DIR)/studio-mcp-build -S $(ROOT)/studio-mcp -G Ninja -DCMAKE_BUILD_TYPE=Release \
+	    -DTUXBLOX_LAUNCHER_DIR=$(ROOT)/launcher -DTUXBLOX_SHARED_RELEASE=$(ROOT)/shared/release/src
+	cmake --build $(FLATPAK_DIR)/studio-mcp-build -j$(JOBS)
+	cd $(FLATPAK_DIR)/studio-mcp-build && ctest --output-on-failure
+	install -Dm755 $(FLATPAK_DIR)/launcher-build/TuxBloxLauncher $(FLATPAK_DEST)/tuxblox/TuxBloxLauncher
+	install -Dm755 $(FLATPAK_DIR)/studio-mcp-build/studio-mcp $(FLATPAK_DEST)/tuxblox/studio-mcp
+	install -Dm755 packaging/flatpak/tuxblox $(FLATPAK_DEST)/bin/tuxblox
+	install -Dm644 packaging/flatpak/ld.so.conf $(FLATPAK_DEST)/etc/ld.so.conf
+	for d in $(FLATPAK_DESKTOP_FILES); do \
+	    install -Dm644 packaging/flatpak/$$d.desktop $(FLATPAK_DEST)/share/applications/$$d.desktop; \
+	done
+	install -Dm644 packaging/flatpak/net.tuxblox.TuxBlox.metainfo.xml \
+	    $(FLATPAK_DEST)/share/metainfo/net.tuxblox.TuxBlox.metainfo.xml
+	for s in 128 256 512; do \
+	    install -Dm644 $(ASSETS_DIR)/tuxblox/$${s}x$${s}.png \
+	        $(FLATPAK_DEST)/share/icons/hicolor/$${s}x$${s}/apps/net.tuxblox.TuxBlox.png; \
+	done
+	rm -rf $(FLATPAK_DEST)/share/licenses/net.tuxblox.TuxBlox
+	mkdir -p $(FLATPAK_DEST)/share/licenses
+	cp -rL third_party_licenses $(FLATPAK_DEST)/share/licenses/net.tuxblox.TuxBlox
+	mkdir -p $(FLATPAK_DEST)/lib/i386-linux-gnu/GL
+	@printf ':: Installed TuxBlox %s (%s) into %s\n' '$(RELEASE)' '$(CHANNEL)' '$(FLATPAK_DEST)'
+else
 flatpak:
-	@[ -e $(STUDIO_MCP) ] || { printf '!! not built yet: %s\n   run `make` first, then `make flatpak`\n' '$(STUDIO_MCP)' >&2; exit 1; }
 	@mkdir -p $(FLATPAK_DIR)
-	$(MAKE) --no-print-directory TUXBLOX_DONT_INCREMENT_BUILD=1 TUXBLOX_FLATPAK=1 \
-	    LAUNCHER=$(FLATPAK_DIR)/TuxBloxLauncher NATIVE=$(FLATPAK_DIR) launcher
-	@sed -e 's/@RELEASE@/$(RELEASE)/' \
-	     -e "s/@DATE@/$$(git log -1 --format=%cd --date=short 2>/dev/null || echo 1970-01-01)/" \
-	     -e 's|<description>@NOTES@</description>||' \
-	    packaging/flatpak/net.tuxblox.TuxBlox.metainfo.xml.in \
-	    > $(FLATPAK_DIR)/net.tuxblox.TuxBlox.metainfo.xml
-	@rm -rf $(FLATPAK_DIR)/licenses
-	@cp -rL third_party_licenses $(FLATPAK_DIR)/licenses
+	@# flatpak-builder forwards no environment, so what this build is has to be written into its manifest
+	@awk -v rel='$(RELEASE)' -v ch='$(CHANNEL)' -v skips='$(FLATPAK_LOCAL_SKIPS)' ' \
+	    { print } \
+	    /^        skip:$$/ { n = split(skips, s, " "); for (i = 1; i <= n; i++) print "          - " s[i] } \
+	    /TUXBLOX_DONT_INCREMENT_BUILD/ { \
+	        printf "        TUXBLOX_RELEASE: %c%s%c\n", 39, rel, 39; \
+	        print "        TUXBLOX_CHANNEL: " ch } \
+	' $(FLATPAK_MANIFEST) > $(FLATPAK_LOCAL_MANIFEST)
 	@if command -v flatpak-builder >/dev/null 2>&1; then FB=flatpak-builder; \
 	elif flatpak info org.flatpak.Builder >/dev/null 2>&1; then FB="flatpak run org.flatpak.Builder"; \
 	else printf '!! no flatpak-builder: install it, or `flatpak install flathub org.flatpak.Builder`\n' >&2; exit 1; fi; \
 	$$FB --force-clean --default-branch=$(CHANNEL) \
 	     --state-dir=$(FLATPAK_DIR)/.flatpak-builder \
-	     --repo=$(FLATPAK_DIR)/repo $(FLATPAK_DIR)/build $(FLATPAK_MANIFEST)
+	     --repo=$(FLATPAK_DIR)/repo $(FLATPAK_DIR)/build $(FLATPAK_LOCAL_MANIFEST)
 	flatpak build-bundle \
 	    --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo \
 	    $(FLATPAK_DIR)/repo $(FLATPAK_BUNDLE) net.tuxblox.TuxBlox $(CHANNEL)
+	@# Staging reads this binary's compiled-in release
+	cp $(FLATPAK_DIR)/build/files/tuxblox/TuxBloxLauncher $(FLATPAK_DIR)/TuxBloxLauncher
+	@# flatpak-builder --run nests a sandbox that bwrap refuses
+	@if [ -z "$$TUXBLOX_SKIP_SMOKE" ]; then \
+	    printf ':: Smoke testing the bundle\n'; \
+	    flatpak build $(FLATPAK_DIR)/build /app/tuxblox/TuxBloxLauncher --version | grep -qE '^[0-9]+(\.[0-9]+)+$$' \
+	        || { printf '!! --version did not answer a bare version\n' >&2; exit 1; }; \
+	    env -u DISPLAY -u WAYLAND_DISPLAY flatpak build $(FLATPAK_DIR)/build /app/tuxblox/TuxBloxLauncher \
+	        >/dev/null 2>$(FLATPAK_DIR)/smoke-nodisplay.txt; \
+	    [ $$? -eq 1 ] || { printf '!! a run with no display should exit 1\n' >&2; exit 1; }; \
+	    grep -q TuxBlox $(FLATPAK_DIR)/smoke-nodisplay.txt \
+	        || { printf '!! a run with no display said nothing of its own\n' >&2; exit 1; }; \
+	    printf ':: Smoke test passed\n'; \
+	 else echo "!! TUXBLOX_SKIP_SMOKE set, the bundle was NOT smoke tested" >&2; fi
 	@printf ':: install it with: flatpak install --user %s\n' '$(FLATPAK_BUNDLE)'
 	@printf ':: the Flatpak variant stays in %s, build/native/TuxBloxLauncher is untouched\n' '$(FLATPAK_DIR)'
+endif
+
 studio-mcp: bump-build record-provenance $(STUDIO_MCP)
 ifdef NODIST
 compat: bump-build record-provenance compat-build

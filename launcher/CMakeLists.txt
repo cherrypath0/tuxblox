@@ -24,6 +24,10 @@ option(TUXBLOX_TEST_SETUP_URL "Honour $TUXBLOX_SETUP_URL (testing only)" OFF)
 # Builds the Flatpak variant, which cannot update or uninstall itself from a read-only /app and leaves both to flatpak.
 option(TUXBLOX_FLATPAK "Build the Flatpak variant" OFF)
 
+# The Flatpak runtime already carries these
+option(TUXBLOX_SYSTEM_LIBS "Link the system curl, archive, zstd, zlib and openssl" OFF)
+option(TUXBLOX_SYSTEM_UI "Find GTK and libadwaita with pkg-config, shipping no stack" OFF)
+
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -66,6 +70,11 @@ if(NOT TUXBLOX_SHARED_PATHS)
 endif()
 
 # The libraries TuxBlox ships rather than taking from the machine, built by the Makefile's $(LIBS) rule and mounted read-only into the build container.
+if(TUXBLOX_SYSTEM_LIBS)
+    pkg_check_modules(SYSLIBS REQUIRED libcurl libarchive libzstd zlib openssl)
+    set(TUXBLOX_SHARED_INCLUDE ${SYSLIBS_INCLUDE_DIRS})
+    set(TUXBLOX_SHARED_LIBS ${SYSLIBS_LINK_LIBRARIES})
+else()
 if(NOT TUXBLOX_SHARED_DIR)
     set(TUXBLOX_SHARED_DIR "${CMAKE_SOURCE_DIR}/../build/.artifacts/shared")
 endif()
@@ -82,6 +91,7 @@ set(TUXBLOX_SHARED_LIBS
     "${TUXBLOX_SHARED_DIR}/lib/libz.a"
     "${TUXBLOX_SHARED_DIR}/lib/libssl.a"
     "${TUXBLOX_SHARED_DIR}/lib/libcrypto.a")
+endif()
 # glibc >= 2.34 merged libpthread/libdl's symbols into libc.so itself, so std::thread
 # links "for free" on a newer-glibc host -- but the old-glibc-baseline container this
 # project builds inside (see build-container/Containerfile) still needs them explicit.
@@ -244,11 +254,14 @@ target_link_libraries(launcher_core PUBLIC
 # both load. Exported, our static inflate and crc32 would be handed to them instead of the
 # stack's. A SIGSEGV in EC_GROUP_order_bits from exactly this mechanism, when a static OpenSSL
 # 1.1 met a machine's libcurl built against OpenSSL 3, is why the flag was first added.
+# Only static archives need hiding
+if(NOT TUXBLOX_SYSTEM_LIBS)
 target_link_options(launcher_core PUBLIC
     -Wl,--exclude-libs=libcurl.a -Wl,--exclude-libs=libnghttp2.a
     -Wl,--exclude-libs=libarchive.a -Wl,--exclude-libs=libzstd.a
     -Wl,--exclude-libs=libz.a
     -Wl,--exclude-libs=libssl.a -Wl,--exclude-libs=libcrypto.a)
+endif()
 # These would otherwise make every machine need a C++ runtime at least as new as this builder's, for no gain. The interface stack TuxBlox loads is all C, so nothing throws across a library boundary.
 target_link_options(launcher_core PUBLIC -static-libstdc++ -static-libgcc)
 
@@ -270,8 +283,12 @@ include(cmake/EmbedAssets.cmake)
 add_dependencies(launcher_core generate_ca_bundle_header generate_logo_header generate_font_header generate_thirdparty_license_headers generate_license_header generate_i18n_header generate_default_flags_header)
 
 # The window needs the interface stack's development tree, which only exists once the Makefile's $(UI) rule has run; without it only launcher_core and its tests build, and the Makefile refuses to finish.
-if(TUXBLOX_UI_STACK_DEV)
-    include(${TUXBLOX_UI_SRC}/UiStack.cmake)
+if(TUXBLOX_UI_STACK_DEV OR TUXBLOX_SYSTEM_UI)
+    if(TUXBLOX_SYSTEM_UI)
+        pkg_check_modules(ADWAITA REQUIRED libadwaita-1)
+    else()
+        include(${TUXBLOX_UI_SRC}/UiStack.cmake)
+    endif()
 
     add_library(launcher_ui_adw STATIC
         src/ui_adw/widgets.cpp
@@ -313,9 +330,11 @@ if(TUXBLOX_UI_STACK_DEV)
     target_include_directories(TuxBloxLauncher PRIVATE ${CMAKE_BINARY_DIR}/generated)
     target_link_libraries(TuxBloxLauncher PRIVATE launcher_core launcher_ui_adw ${CMAKE_DL_LIBS} Threads::Threads)
     # The interface libraries are installed in the libtuxblox folder beside this binary
-    set_target_properties(TuxBloxLauncher PROPERTIES
-        BUILD_WITH_INSTALL_RPATH TRUE
-        INSTALL_RPATH "$ORIGIN/libtuxblox/lib/x86_64-linux-gnu:$ORIGIN/libtuxblox/lib")
+    if(NOT TUXBLOX_SYSTEM_UI)
+        set_target_properties(TuxBloxLauncher PROPERTIES
+            BUILD_WITH_INSTALL_RPATH TRUE
+            INSTALL_RPATH "$ORIGIN/libtuxblox/lib/x86_64-linux-gnu:$ORIGIN/libtuxblox/lib")
+    endif()
     add_dependencies(TuxBloxLauncher generate_thirdparty_license_headers generate_license_header generate_font_header)
 endif()
 
