@@ -158,6 +158,9 @@ appimage:
 FLATPAK_DIR := $(BUILD)/flatpak
 FLATPAK_BUNDLE := $(FLATPAK_DIR)/net.tuxblox.TuxBlox.flatpak
 FLATPAK_MANIFEST := packaging/flatpak/net.tuxblox.TuxBlox.yml
+FLATPAK_LOCAL_MANIFEST := $(FLATPAK_DIR)/net.tuxblox.TuxBlox.local.yml
+# Only a working tree holds these, so a published manifest cannot name them
+FLATPAK_LOCAL_SKIPS := .superpowers build build.log logs workspace shared/ui/dist shared/ui/sources
 
 FLATPAK_CMAKE_ARGS = -G Ninja -DCMAKE_BUILD_TYPE=Release \
     -DTUXBLOX_SYSTEM_LIBS=ON -DTUXBLOX_SYSTEM_UI=ON -DTUXBLOX_FLATPAK=ON \
@@ -200,18 +203,26 @@ flatpak: $(TUXBLOX_ICONS)
 else
 flatpak:
 	@mkdir -p $(FLATPAK_DIR)
+	@# flatpak-builder forwards no environment, so what this build is has to be written into its manifest
+	@awk -v rel='$(RELEASE)' -v ch='$(CHANNEL)' -v skips='$(FLATPAK_LOCAL_SKIPS)' ' \
+	    { print } \
+	    /^        skip:$$/ { n = split(skips, s, " "); for (i = 1; i <= n; i++) print "          - " s[i] } \
+	    /TUXBLOX_DONT_INCREMENT_BUILD/ { \
+	        printf "        TUXBLOX_RELEASE: %c%s%c\n", 39, rel, 39; \
+	        print "        TUXBLOX_CHANNEL: " ch } \
+	' $(FLATPAK_MANIFEST) > $(FLATPAK_LOCAL_MANIFEST)
 	@if command -v flatpak-builder >/dev/null 2>&1; then FB=flatpak-builder; \
 	elif flatpak info org.flatpak.Builder >/dev/null 2>&1; then FB="flatpak run org.flatpak.Builder"; \
 	else printf '!! no flatpak-builder: install it, or `flatpak install flathub org.flatpak.Builder`\n' >&2; exit 1; fi; \
 	$$FB --force-clean --default-branch=$(CHANNEL) \
 	     --state-dir=$(FLATPAK_DIR)/.flatpak-builder \
-	     --repo=$(FLATPAK_DIR)/repo $(FLATPAK_DIR)/build $(FLATPAK_MANIFEST)
+	     --repo=$(FLATPAK_DIR)/repo $(FLATPAK_DIR)/build $(FLATPAK_LOCAL_MANIFEST)
 	flatpak build-bundle \
 	    --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo \
 	    $(FLATPAK_DIR)/repo $(FLATPAK_BUNDLE) net.tuxblox.TuxBlox $(CHANNEL)
 	@# Staging reads this binary's compiled-in release
 	cp $(FLATPAK_DIR)/build/files/tuxblox/TuxBloxLauncher $(FLATPAK_DIR)/TuxBloxLauncher
-	@# flatpak-builder --run nests a sandbox bwrap refuses
+	@# flatpak-builder --run nests a sandbox that bwrap refuses
 	@if [ -z "$$TUXBLOX_SKIP_SMOKE" ]; then \
 	    printf ':: Smoke testing the bundle\n'; \
 	    flatpak build $(FLATPAK_DIR)/build /app/tuxblox/TuxBloxLauncher --version | grep -qE '^[0-9]+(\.[0-9]+)+$$' \

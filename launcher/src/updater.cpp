@@ -176,6 +176,10 @@ std::string flatpakLayerRelease(bool bundleBehind, const std::string& ownRelease
     return bundleBehind && !ownRelease.empty() ? ownRelease : channelRelease;
 }
 
+bool flatpakLayerResolved(const ReleaseFile& answered, const std::string& wanted) {
+    return !answered.release.empty() && answered.release == wanted;
+}
+
 EnsureInstallerResult ensureInstallerBinary(const ReleaseFile& release, const std::string& baseUrl,
                                              const std::string& dir,
                                              const std::atomic<bool>* cancel,

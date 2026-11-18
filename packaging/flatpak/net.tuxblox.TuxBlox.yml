@@ -79,18 +79,11 @@ modules:
         skip:
           - .git
           - .flatpak-builder
-          - .superpowers
-          - build
-          - build.log
           - compat
-          - logs
-          - workspace
           - shared/crypto/openssl
           - shared/fs/libarchive
           - shared/fs/zlib
           - shared/fs/zstd
           - shared/network/libcurl
           - shared/network/nghttp2
-          - shared/ui/dist
           - shared/ui/libadwaita
-          - shared/ui/sources

@@ -92,7 +92,6 @@
   <url type="help">https://tuxblox.net/docs</url>
   <url type="bugtracker">https://github.com/cherrypath0/tuxblox/issues</url>
   <url type="vcs-browser">https://github.com/cherrypath0/tuxblox</url>
-  <url type="contact">mailto:contact@tuxblox.net</url>
 
   <releases>
     <release version="3.12.15.1" date="2026-11-17">

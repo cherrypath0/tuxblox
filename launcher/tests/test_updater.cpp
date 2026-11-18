@@ -400,6 +400,16 @@ void test_a_behind_flatpak_fetches_the_layer_for_its_own_release() {
     printf("  a behind Flatpak fetches the layer for its own release\n");
 }
 
+// Asking for one release and being handed another, or nothing, must not install that other layer.
+void test_a_release_that_did_not_answer_as_asked_is_not_installed() {
+    ReleaseFile answered;
+    answered.release = "3.12.15.1";
+    assert(flatpakLayerResolved(answered, "3.12.15.1"));
+    assert(!flatpakLayerResolved(answered, "3.12.14.0"));
+    assert(!flatpakLayerResolved(ReleaseFile{}, "3.12.15.1"));
+    printf("  a release that did not answer as asked is not installed\n");
+}
+
 // A layer from a release published before stamping answers with its own component version, not the
 // release. Comparing against the release alone made every launch re-download the whole layer.
 void test_a_layer_naming_its_component_version_is_not_refetched() {
@@ -432,6 +442,7 @@ int main() {
     test_download_progress_fraction();
     test_a_flatpak_bundle_is_judged_on_component_versions_not_the_release();
     test_a_behind_flatpak_fetches_the_layer_for_its_own_release();
+    test_a_release_that_did_not_answer_as_asked_is_not_installed();
     test_a_layer_naming_its_component_version_is_not_refetched();
     test_reads_the_four_components_it_can_ask();
     test_a_component_that_cannot_be_asked_counts_as_absent();
