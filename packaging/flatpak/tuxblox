@@ -1,20 +1,10 @@
 #!/bin/sh
 set -e
 
-# /app is read-only, so the install root has to be the app's own data directory. Always this one
-# path: flatpak always sets XDG_DATA_HOME, and the fallback names the same place rather than
-# $HOME/.local/share, which is where a native install lives and must never be written to from here.
 TUXBLOX_ROOT="${XDG_DATA_HOME:-$HOME/.var/app/net.tuxblox.TuxBlox/data}/tuxblox"
 export TUXBLOX_ROOT
 mkdir -p "$TUXBLOX_ROOT"
 
-# installDir() builds every path from the root, so the read-only payload is pointed at from inside it.
-# Re-linked on every launch, so a flatpak update is picked up with no migration step.
-# compat is deliberately absent: flatpak would have to carry 1.2GB that cannot be updated piecemeal,
-# so the launcher fetches it into the root itself, the same way it fetches Roblox.
-# TuxBloxLauncher's link is load-bearing beyond launching: the layer execs it through TUXBLOX_ROOT
-# to draw every Windows dialog, and find_launcher() has no other fallback that reaches /app.
-# libtuxblox is absent: the interface comes from the runtime's own GTK and libadwaita here.
 for part in TuxBloxLauncher studio-mcp; do
     ln -sfn "/app/tuxblox/$part" "$TUXBLOX_ROOT/$part"
 done

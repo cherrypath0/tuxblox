@@ -50,7 +50,7 @@ PODMAN := $(ART)/.podman
 COMPAT_VERSION := $(shell cat compat/VERSION 2>/dev/null)
 
 RELEASE_AWK = awk 'NR==1{s=$$0} NR==2{b=$$0} END{ gsub(/[ \t\r]/,"",s); gsub(/[ \t\r]/,"",b); n=split(s,v,"."); if (n==4) print s; else if (n==3) { if (b !~ /^[0-9]+$$/) b="0"; print v[1]"."v[2]"."b"."v[3] } }' VERSION
-# A Flatpak build is handed its release and channel by the manifest, so an inherited value wins over this tree's VERSION.
+# A Flatpak build is handed these by the manifest
 RELEASE_ENV := $(TUXBLOX_RELEASE)
 CHANNEL_ENV := $(TUXBLOX_CHANNEL)
 RELEASE = $(or $(RELEASE_ENV),$(shell $(RELEASE_AWK) 2>/dev/null))
@@ -170,7 +170,7 @@ FLATPAK_CMAKE_ARGS = -G Ninja -DCMAKE_BUILD_TYPE=Release \
 FLATPAK_DESKTOP_FILES = net.tuxblox.TuxBlox net.tuxblox.TuxBlox.Player \
     net.tuxblox.TuxBlox.Studio net.tuxblox.TuxBlox.Place
 
-# flatpak-builder sets FLATPAK_DEST and nothing else does, so this half is the build inside the sandbox.
+# Only flatpak-builder sets FLATPAK_DEST
 ifdef FLATPAK_DEST
 flatpak: $(TUXBLOX_ICONS)
 	cmake -B $(FLATPAK_DIR)/launcher-build -S $(ROOT)/launcher $(FLATPAK_CMAKE_ARGS)
@@ -209,9 +209,9 @@ flatpak:
 	flatpak build-bundle \
 	    --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo \
 	    $(FLATPAK_DIR)/repo $(FLATPAK_BUNDLE) net.tuxblox.TuxBlox $(CHANNEL)
-	@# The release tooling reads this binary's compiled-in release, and a file it cannot open passes that check silently
+	@# Staging reads this binary's compiled-in release
 	cp $(FLATPAK_DIR)/build/files/tuxblox/TuxBloxLauncher $(FLATPAK_DIR)/TuxBloxLauncher
-	@# `flatpak build` rather than `flatpak-builder --run`, which nests a sandbox bwrap refuses to enter
+	@# flatpak-builder --run nests a sandbox bwrap refuses
 	@if [ -z "$$TUXBLOX_SKIP_SMOKE" ]; then \
 	    printf ':: Smoke testing the bundle\n'; \
 	    flatpak build $(FLATPAK_DIR)/build /app/tuxblox/TuxBloxLauncher --version | grep -qE '^[0-9]+(\.[0-9]+)+$$' \

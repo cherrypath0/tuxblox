@@ -24,7 +24,7 @@ option(TUXBLOX_TEST_SETUP_URL "Honour $TUXBLOX_SETUP_URL (testing only)" OFF)
 # Builds the Flatpak variant, which cannot update or uninstall itself from a read-only /app and leaves both to flatpak.
 option(TUXBLOX_FLATPAK "Build the Flatpak variant" OFF)
 
-# Inside a Flatpak the runtime already carries these, so shipping a second copy would be dead weight.
+# The Flatpak runtime already carries these
 option(TUXBLOX_SYSTEM_LIBS "Link the system curl, archive, zstd, zlib and openssl" OFF)
 option(TUXBLOX_SYSTEM_UI "Find GTK and libadwaita with pkg-config, shipping no stack" OFF)
 
@@ -254,7 +254,7 @@ target_link_libraries(launcher_core PUBLIC
 # both load. Exported, our static inflate and crc32 would be handed to them instead of the
 # stack's. A SIGSEGV in EC_GROUP_order_bits from exactly this mechanism, when a static OpenSSL
 # 1.1 met a machine's libcurl built against OpenSSL 3, is why the flag was first added.
-# Nothing to hide when the libraries are the runtime's own shared ones, loaded once for everybody.
+# Only static archives need hiding
 if(NOT TUXBLOX_SYSTEM_LIBS)
 target_link_options(launcher_core PUBLIC
     -Wl,--exclude-libs=libcurl.a -Wl,--exclude-libs=libnghttp2.a

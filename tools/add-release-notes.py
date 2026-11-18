@@ -24,8 +24,7 @@ import re
 import sys
 import xml.etree.ElementTree as ET
 
-# The names a reader knows them by, in the order the download page lists them. libtuxblox keeps no
-# changelog: its version tracks GTK's and says nothing anyone can act on.
+# libtuxblox keeps no changelog of its own
 TITLES = (("compat", "Runtime"), ("launcher", "Launcher"),
           ("installer", "Installer"), ("studio-mcp", "Studio MCP"))
 
@@ -147,10 +146,10 @@ def main():
     parser.add_argument("--date", default=datetime.date.today().isoformat())
     parser.add_argument("--notes-file", help="read the notes from here, or - for standard input")
     parser.add_argument("--replace", action="store_true", help="rewrite an entry this version already has")
-    parser.add_argument("--metainfo", default=os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                                           "..", "net.tuxblox.TuxBlox.metainfo.xml"))
-    parser.add_argument("--root", default=os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                                       "..", "..", ".."))
+    here = os.path.dirname(os.path.abspath(__file__))
+    parser.add_argument("--metainfo", default=os.path.join(here, "..", "packaging", "flatpak",
+                                                           "net.tuxblox.TuxBlox.metainfo.xml"))
+    parser.add_argument("--root", default=os.path.join(here, ".."))
     args = parser.parse_args()
 
     body = to_appstream(gather(args.root, args.notes_file))

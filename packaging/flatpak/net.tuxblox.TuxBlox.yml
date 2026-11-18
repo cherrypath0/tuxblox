@@ -19,7 +19,6 @@ add-extensions:
     add-ld-path: lib
     merge-dirs: vulkan/icd.d;glvnd/egl_vendor.d;OpenCL/vendors;lib/dri;lib/d3d;vulkan/explicit_layer.d;vulkan/implicit_layer.d
 
-
 finish-args:
   # --device=dri is NOT enough: /dev/ntsync needs this
   - --device=all
@@ -61,18 +60,15 @@ finish-args:
   # Required for the Roblox tray icon
   - --talk-name=org.kde.StatusNotifierWatcher
 
-
 modules:
   - name: tuxblox
     buildsystem: simple
 
     build-options:
       no-debuginfo: true
-      # flatpak-builder compiles with -g by default, which leaves the launcher five times its size
       strip: true
       env:
         TUXBLOX_DONT_INCREMENT_BUILD: '1'
-
 
     build-commands:
       - make flatpak
