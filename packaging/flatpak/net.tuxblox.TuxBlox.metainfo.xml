@@ -94,6 +94,11 @@
   <url type="vcs-browser">https://github.com/cherrypath0/tuxblox</url>
 
   <releases>
+    <release version="3.12.15.2" date="2026-11-19">
+      <description>
+        <p>Updated the Flatpak packaging for Flathub. No changes to TuxBlox itself.</p>
+      </description>
+    </release>
     <release version="3.12.15.1" date="2026-11-17">
       <description>
         <p>This release adds fixes and more support for native Wayland desktops.</p>
