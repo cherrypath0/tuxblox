@@ -5,7 +5,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: tuxblox\n"
 "Report-Msgid-Bugs-To: cherry@tuxblox.net\n"
-"POT-Creation-Date: 2026-11-16 20:00+0300\n"
+"POT-Creation-Date: 2026-11-19 00:16+0300\n"
 "Last-Translator: Yan Henridev <228758946+yanhenrique-"
 "dev@users.noreply.github.com>\n"
 "Language-Team: Brazilian Portuguese\n"
@@ -210,6 +210,10 @@ msgid ""
 msgstr ""
 "Não foi possível buscar a lista de pacotes (o Roblox pode ter removido esta "
 "versão): {0}"
+
+#, fuzzy, c++-format
+msgid "Could not find release {0}."
+msgstr "Não foi possível buscar o release: {0}"
 
 #, c++-format
 msgid "Could not move the finished version into place: {0}"

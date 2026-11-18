@@ -534,6 +534,14 @@ void App::requestStopSessions(LaunchTarget target) {
 
 namespace {
 
+// Whether a compatibility layer is on disk at all, which decides if a failed fetch leaves nothing to run.
+bool layerInstalled(const std::string& installDir) {
+    for (const ComponentVersion& component : readComponentVersions(installDir)) {
+        if (component.component == "compat") return !component.version.empty();
+    }
+    return false;
+}
+
 // The logs in one folder that could belong to a session, with when each says it began.
 std::vector<LogCandidate> logCandidatesIn(const std::string& dir, bool fromNameOnly) {
     std::vector<LogCandidate> candidates;
@@ -929,24 +937,47 @@ void App::updateCheckThreadMain() {
         // carry itself. Its own launcher is beyond reach either way: that lives in a read-only /app
         // and belongs to flatpak, so that case is offered rather than applied.
         const bool bundleBehind = kFlatpakBuild && flatpakBundleBehind(result.release, installDir_);
-        if (kFlatpakBuild && !bundleBehind) {
-            {
-                // Kept so a retry has a release to fetch against: the check that produced this one
-                // runs once per launch, and a failed fetch must not need another to be tried again.
+        if (kFlatpakBuild) {
+            // A bundle waiting on its store to catch up still needs its own release's layer.
+            ReleaseFile layer = result.release;
+            std::string layerJson = result.releaseJson;
+            const std::string wanted =
+                flatpakLayerRelease(bundleBehind, releaseVersion(), result.release.release);
+            bool fetchable = true;
+            if (wanted != result.release.release) {
+                // This install's own channel, never the promoted one, which never published it.
+                const UpdateResult own = runUpdateCheck(setupBaseUrl(), channel, wanted,
+                    [&](UpdateProgress p) { report(p); }, &updateCancel_, installDir_);
+                fetchable = flatpakLayerResolved(own.release, wanted);
+                layer = own.release;
+                layerJson = own.releaseJson;
+            }
+            if (fetchable) {
+                {
+                    // Kept so a retry has a release to fetch against: the check that produced this one
+                    // runs once per launch, and a failed fetch must not need another to be tried again.
+                    std::lock_guard<std::mutex> lock(mutex_);
+                    pendingRelease_ = layer;
+                    pendingReleaseJson_ = layerJson;
+                }
+                const EnsureCompatResult fetched = ensureCompatInstalled(
+                    layer, setupBaseUrl(), installDir_, &updateCancel_,
+                    [&](UpdateProgress p) { report(p); });
                 std::lock_guard<std::mutex> lock(mutex_);
-                pendingRelease_ = result.release;
-                pendingReleaseJson_ = result.releaseJson;
+                // Cancelled leaves no layer either, so it is missing by the same test rather than by why.
+                snapshot_.runtimeMissing = !fetched.ok;
+                if (!fetched.ok && !fetched.errorMessage.empty()) {
+                    snapshot_.update = {UpdatePhase::Error, 0.0, fetched.errorMessage};
+                }
+            } else {
+                // Installing nothing beats installing a layer this bundle was never built against.
+                std::lock_guard<std::mutex> lock(mutex_);
+                snapshot_.runtimeMissing = !layerInstalled(installDir_);
+                snapshot_.update = {UpdatePhase::Error, 0.0,
+                                    i18n::trf("Could not find release {0}.", {wanted})};
             }
-            const EnsureCompatResult fetched = ensureCompatInstalled(
-                result.release, setupBaseUrl(), installDir_, &updateCancel_,
-                [&](UpdateProgress p) { report(p); });
-            std::lock_guard<std::mutex> lock(mutex_);
-            // Cancelled leaves no layer either, so it is missing by the same test rather than by why.
-            snapshot_.runtimeMissing = !fetched.ok;
-            if (!fetched.ok && !fetched.errorMessage.empty()) {
-                snapshot_.update = {UpdatePhase::Error, 0.0, fetched.errorMessage};
-            }
-            return;
+            // A behind bundle carries on, so the window still offers the update it cannot apply itself.
+            if (!bundleBehind) return;
         }
         if ((autoUpdate || result.forced) && !bundleBehind) {
             if (!prepareInstallerHandoff(result.release, result.releaseJson)) return;
@@ -954,18 +985,22 @@ void App::updateCheckThreadMain() {
         } else if (bundleBehind && result.release.components.count("flatpak") == 0) {
             // The release is out but its bundle is not, so `flatpak update` would find nothing.
             std::lock_guard<std::mutex> lock(mutex_);
-            snapshot_.update = {UpdatePhase::UpToDate, 1.0};
+            if (!snapshot_.runtimeMissing) snapshot_.update = {UpdatePhase::UpToDate, 1.0};
         } else {
             // Nothing is fetched and nothing on disk is touched on this path: an update that is only being offered has to leave the install exactly as it was, or the next check reads it as broken and repairs it without asking.
             // pendingUpdateManifest_ is written under mutex_, in the same critical section as updateAvailableVersion -- a UI-thread caller that has observed updateAvailableVersion through snapshot() is guaranteed to see it too, so requestUpdateNow() needs nothing but mutex_ to pick it up.
             std::lock_guard<std::mutex> lock(mutex_);
-            pendingRelease_ = result.release;
-            pendingReleaseJson_ = result.releaseJson;
+            // A Flatpak already recorded the release its own layer comes from, which is not this one.
+            if (!kFlatpakBuild) {
+                pendingRelease_ = result.release;
+                pendingReleaseJson_ = result.releaseJson;
+            }
             snapshot_.updateAvailableVersion = *namedRelease;
             snapshot_.updateChanges = result.changes;
             snapshot_.flatpakBundleBehindRelease = bundleBehind;
             // Without this the phase stays where runUpdateCheck()'s last report() left it -- CheckingManifest -- forever, since nothing else in this function reports again on this branch. StartTab::updateFromSnapshot() treats that as "updating" and hides the Launch buttons in favour of the progress bar for as long as it is true, so the Home tab would sit there with no way to launch anything. The branch above needs no such reset: it sets needsInstallerHandoff_, which MainWindow::poll() acts on by closing the window within one tick.
-            snapshot_.update = {UpdatePhase::UpToDate, 1.0};
+            // A layer that could not be fetched has already said so, and that is the more useful message.
+            if (!snapshot_.runtimeMissing) snapshot_.update = {UpdatePhase::UpToDate, 1.0};
         }
     }
 }

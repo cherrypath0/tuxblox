@@ -1,0 +1,210 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>net.tuxblox.TuxBlox</id>
+  <name>TuxBlox</name>
+  <summary>Run Roblox on Linux</summary>
+
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later AND LGPL-2.1-or-later</project_license>
+
+  <developer id="net.tuxblox">
+    <name>TuxBlox Developers</name>
+  </developer>
+
+  <description>
+    <p>
+      TuxBlox runs the official, unmodified Windows Roblox client on Linux, using its own compatibility layer built specifically for Roblox.
+    </p>
+    <p>Features:</p>
+    <ul>
+      <li>Roblox Studio with working docking, web views and sign-in</li>
+      <li>Sessions view with live memory use and a log viewer for every session</li>
+      <li>Install the latest, previous, or a specific Roblox version</li>
+      <li>FastFlags editor</li>
+      <li>Option to choose the graphics API and the graphics card</li>
+      <li>Discord Rich Presence and Bloxstrap API support</li>
+      <li>Show where the game or Team Create server you joined is located</li>
+    </ul>
+    <p>
+      TuxBlox is not affiliated with or endorsed by Roblox Corporation.
+    </p>
+  </description>
+
+  <launchable type="desktop-id">net.tuxblox.TuxBlox.desktop</launchable>
+
+  <content_rating type="oars-1.1">
+    <content_attribute id="social-chat">moderate</content_attribute>
+    <content_attribute id="social-audio">moderate</content_attribute>
+    <content_attribute id="social-info">intense</content_attribute>
+    <content_attribute id="money-purchasing">intense</content_attribute>
+    <content_attribute id="money-advertising">moderate</content_attribute>
+  </content_rating>
+
+  <requires>
+    <internet>always</internet>
+    <display_length compare="ge">768</display_length>
+  </requires>
+  <recommends>
+    <control>keyboard</control>
+    <control>pointing</control>
+  </recommends>
+  <supports>
+    <control>gamepad</control>
+  </supports>
+
+  <keywords>
+    <keyword>Roblox</keyword>
+    <keyword>Studio</keyword>
+    <keyword>Development</keyword>
+    <keyword>Game</keyword>
+    <keyword>Wine</keyword>
+    <keyword>Proton</keyword> <!-- TuxBlox is based on Proton -->
+  </keywords>
+
+  <provides>
+    <binary>tuxblox</binary>
+  </provides>
+
+  <screenshots>
+    <screenshot type="default">
+      <caption>Running sessions, with the log from each one</caption>
+      <image>https://static.tuxblox.net/images/screenshots/Flatpak_Sessions.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Settings</caption>
+      <image>https://static.tuxblox.net/images/screenshots/Flatpak_Settings.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Roblox Studio, on Linux</caption>
+      <image>https://static.tuxblox.net/images/screenshots/Flatpak_Studio_Home.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Editing a place in Roblox Studio</caption>
+      <image>https://static.tuxblox.net/images/screenshots/Flatpak_Studio_ModernCity.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Editing a script in Roblox Studio</caption>
+      <image>https://static.tuxblox.net/images/screenshots/Flatpak_Studio_Script.png</image>
+    </screenshot>
+  </screenshots>
+
+  <url type="homepage">https://tuxblox.net</url>
+  <url type="help">https://tuxblox.net/docs</url>
+  <url type="bugtracker">https://github.com/cherrypath0/tuxblox/issues</url>
+  <url type="vcs-browser">https://github.com/cherrypath0/tuxblox</url>
+
+  <releases>
+    <release version="3.12.15.1" date="2026-11-17">
+      <description>
+        <p>This release adds fixes and more support for native Wayland desktops.</p>
+        <p>Runtime 3.11.2</p>
+        <ul>
+          <li>Fixed Roblox failing to launch on Wayland without XWayland</li>
+          <li>Improved the native Wayland display driver</li>
+        </ul>
+      </description>
+    </release>
+    <release version="3.12.15.0" date="2026-11-16">
+      <description>
+        <p>This is a very big stable release for TuxBlox with some of the biggest changes TuxBlox has ever seen.</p>
+        <p>Flags system</p>
+        <p>We have introduced a new system to TuxBlox, and it's called flags, it is a set of internal TuxBlox settings that are far more advanced than the normal settings, it allows you to internally change some things without having to rebuild or get a different version of TuxBlox.</p>
+        <p>Our servers can also change some of your flags, however your on-disk flags override the server's flags, we only change flags on our side if we want to lock a feature until a certain point, or if we want to fix issues without releasing a new version of TuxBlox.</p>
+        <p>More documentation on TuxBlox's flags feature can be found here: https://tuxblox.net/docs/advanced/tuxblox-flags</p>
+        <p>We're introducing 3 new installation options:</p>
+        <p>1. GitHub releases</p>
+        <p><em>TuxBlox is now available from GitHub releases.</em> Every release is published there with all its files and changelogs. Installing works exactly the same either way, so use whichever you prefer.</p>
+        <p>https://github.com/cherrypath0/tuxblox/releases</p>
+        <p>2. Flatpak Installation</p>
+        <p><em>TuxBlox is now available as a Flatpak!</em> You can install the Flatpak locally.</p>
+        <p>Some features in Flatpak had to deliberately be disabled because of its sandbox, and since Flatpak handles updates itself, TuxBlox's auto-updater is disabled on Flatpak builds.</p>
+        <p>First, obtain the Flatpak for this release, either through GitHub releases, or the website. After you obtain the Flatpak file (<code>.flatpak</code> extension), run:</p>
+        <p><code>flatpak install --user ./net.tuxblox.TuxBlox.flatpak</code></p>
+        <p>3. AppImage installers</p>
+        <p><em>We now distribute the TuxBlox installer as an AppImage!</em> Obtaining it is very easy, go to either the website or the GitHub releases, then obtain the <code>TuxBloxInstaller.AppImage</code> file. Make sure that the AppImage has permissions to run on your system:</p>
+        <p><code>cd ~/Downloads # or whatever folder you have downloaded it to</code></p>
+        <p><code>chmod +x ./TuxBloxInstaller.AppImage</code></p>
+        <p>After that, either double click the AppImage through your file manager, or run this in your terminal:</p>
+        <p><code>./TuxBloxInstaller.AppImage</code></p>
+        <p>***</p>
+        <p>This release didn't only affect how you install TuxBlox, but also <em>how you build TuxBlox</em>.</p>
+        <p>An easier way to build TuxBlox</p>
+        <p>Building TuxBlox used to be complicated: a <code>build.sh</code> script, assets fetched online on every build, and a full rebuild every time. All of that is gone, replaced by simple <code>make</code> commands.</p>
+        <ul>
+          <li><em>Offline builds.</em> Sources are downloaded once, checked against recorded checksums, and reused. The build itself runs with no network access.</li>
+          <li><em>Faster rebuilds.</em> Only what changed gets rebuilt. Building the launcher a second time takes about two seconds.</li>
+          <li><em>Reproducible.</em> Building the same source twice now produces the same download.</li>
+        </ul>
+        <p>Full documentation: https://tuxblox.net/docs/development/building-from-source</p>
+        <p>(This step is not required for anyone who just wants to download and run TuxBlox)</p>
+        <p>Runtime 3.11.1</p>
+        <ul>
+          <li>Added improvements for handling and repairing the virtual drive</li>
+          <li>Added the flag <code>tbxFlagTranslateWindowsShortcuts</code>, on by default, which translates Roblox's Windows-formatted desktop shortcuts to Linux desktop shortcuts</li>
+          <li>Added session identifiers for each Roblox instance</li>
+          <li>Changed the way Roblox renders pixels to match Windows</li>
+          <li>Changed the check that Roblox's files are genuine to run as Roblox starts, rather than in the launcher beforehand</li>
+          <li>Changed the look of the message dialogs</li>
+          <li>Fixed a crash corrupting the entire virtual drive and requiring a reset</li>
+          <li>Fixed issues with message dialogs</li>
+          <li>Fixed closing one instance of Roblox waiting for the others to close</li>
+          <li>Fixed closing one instance of Roblox automatically focusing to the other ones</li>
+          <li>Fixed focus not working whenever a file manager is opened by Roblox</li>
+          <li>Fixed menus and title bars incorrectly doubling in size at higher desktop scales</li>
+          <li>Fixed Roblox freezing forever whenever it raises a dialog</li>
+          <li>Fixed the mouse lock sometimes not locking properly whenever focusing back to Roblox</li>
+          <li>Fixed the integrated file manager appearing a minute after the native file manager appears</li>
+          <li>Fixed TuxBlox refusing to launch some official Roblox builds that were signed differently</li>
+          <li>Fixed new windows randomly stealing focus</li>
+          <li>Fixed Roblox being unable to flash in the taskbar</li>
+          <li>Fixed Studio camera issues on GNOME XWayland</li>
+          <li>Fixed Studio freezing when a built-in web panel stopped loading</li>
+          <li>Fixed Studio freezing when opening a file picker</li>
+          <li>Fixed files saved into nested directories ending up in the wrong place</li>
+          <li>Fixed file pickers opening on internal paths instead of the real folders</li>
+          <li>Fixed Roblox failing to clear its cache</li>
+          <li>Renamed TuxBlox's server process to "tuxblox-server"</li>
+          <li>Removed two uninformative session log lines</li>
+          <li>Removed uninformative window-related web engine logs</li>
+        </ul>
+        <p>Launcher 3.10.2</p>
+        <ul>
+          <li>Added a seasonal theme that will be turned on later</li>
+          <li>Added an <em>Advanced</em> section in the settings</li>
+          <li>Added a button in the Advanced section that opens the virtual drive's registry editor</li>
+          <li>Added the <code>tbxFlagBypassSystemRequirements</code> flag, which bypasses the system requirements for TuxBlox</li>
+          <li>Added a line to the session log after the session ends, displaying the exit code</li>
+          <li>Added translations for Brazilian Portuguese and Spanish.</li>
+          <li>Added the option to install upcoming Roblox versions that are not live yet</li>
+          <li>Added an experimental option to store Roblox files in standard Linux folders</li>
+          <li>Changed update notices to be a button instead of a popup</li>
+          <li>Improved detection for Roblox's logs</li>
+          <li>Fixed emojis in session logs appearing very large</li>
+          <li>Fixed Roblox's session logs disappearing when a session ends</li>
+          <li>Fixed all sessions closing whenever only one session of Roblox is closed</li>
+          <li>Fixed an issue where the session log viewer would stop scrolling when a burst of lines appeared</li>
+          <li>Fixed the launcher freezing the entire desktop for a second on its update checks</li>
+          <li>Fixed installing the previous Roblox version always erroring</li>
+          <li>Fixed auto-update replacing a Roblox version that was manually picked</li>
+          <li>Fixed resetting the virtual drive deleting the installed Roblox versions</li>
+          <li>Fixed the settings being ignored when launching Roblox from desktop shortcuts, links or place files</li>
+          <li>Fixed the TuxBlox window turning garbled on laptops with multiple graphics cards</li>
+          <li>Renamed the <em>Wipe prefix</em> button to just <em>Wipe</em></li>
+          <li>Removed an empty space in the <em>Previous</em> Roblox version install dialog</li>
+        </ul>
+        <p>Installer 3.5.2</p>
+        <ul>
+          <li>Added detection for an unfinished or mismatched install</li>
+          <li>Following an experimental or canary release channel now automatically promotes to the higher more stable channel without changing the release channel</li>
+          <li>Updated the layout the client downloads binaries for</li>
+          <li>Removed the release information file that the installer creates</li>
+        </ul>
+        <p>Studio MCP 2.2.0</p>
+        <ul>
+          <li>Added --component-version, which prints the Studio MCP's own version, while --version prints the release it was published in</li>
+          <li>Changed --version to answer with the release even on a build that was never published</li>
+        </ul>
+      </description>
+    </release>
+  </releases>
+</component>
