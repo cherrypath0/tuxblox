@@ -1,1 +1,0 @@
-This release adds fixes and more support for native Wayland desktops.
