@@ -1,7 +1,8 @@
 app-id: net.tuxblox.TuxBlox
-runtime: org.freedesktop.Platform
-runtime-version: '26.08'
-sdk: org.freedesktop.Sdk
+# GNOME 51 is built on freedesktop 26.08, so the extension versions below are unchanged by it
+runtime: org.gnome.Platform
+runtime-version: '51'
+sdk: org.gnome.Sdk
 command: tuxblox
 
 # For the 32-bit side of TuxBlox, including Roblox's MCP server
@@ -68,50 +69,37 @@ modules:
 
     build-options:
       no-debuginfo: true
+      env:
+        TUXBLOX_DONT_INCREMENT_BUILD: '1'
+        # Rewritten per branch by the Flathub manifest generator, and overridden by a local build
+        TUXBLOX_RELEASE: '0.0.0.0'
+        TUXBLOX_CHANNEL: stable
+
+    # Every build step lives in the Makefile, so this manifest and the Flathub one cannot describe a build that no longer exists
     build-commands:
-      - mkdir -p /app/tuxblox
-      - mkdir -p /app/lib/i386-linux-gnu/GL
-      - install -Dm644 ld.so.conf /app/etc/ld.so.conf
-      - cp -a payload/libtuxblox payload/TuxBloxLauncher payload/studio-mcp /app/tuxblox/
-      - chmod +x /app/tuxblox/TuxBloxLauncher /app/tuxblox/studio-mcp
-      - install -Dm755 tuxblox /app/bin/tuxblox
-      - install -Dm644 net.tuxblox.TuxBlox.desktop -t /app/share/applications/
-      - install -Dm644 net.tuxblox.TuxBlox.Player.desktop -t /app/share/applications/
-      - install -Dm644 net.tuxblox.TuxBlox.Studio.desktop -t /app/share/applications/
-      - install -Dm644 net.tuxblox.TuxBlox.Place.desktop -t /app/share/applications/
-      - install -Dm644 net.tuxblox.TuxBlox.metainfo.xml -t /app/share/metainfo/
-      - install -Dm644 icons/128x128.png /app/share/icons/hicolor/128x128/apps/net.tuxblox.TuxBlox.png
-      - install -Dm644 icons/256x256.png /app/share/icons/hicolor/256x256/apps/net.tuxblox.TuxBlox.png
-      - install -Dm644 icons/512x512.png /app/share/icons/hicolor/512x512/apps/net.tuxblox.TuxBlox.png
-      - mkdir -p /app/share/licenses
-      - cp -a licenses /app/share/licenses/net.tuxblox.TuxBlox
+      - make flatpak
+
     sources:
       - type: dir
-        path: ../../build/flatpak/libtuxblox
-        dest: payload/libtuxblox
-      - type: file
-        path: ../../build/flatpak/TuxBloxLauncher
-        dest: payload
-      - type: file
-        path: ../../build/native/studio-mcp
-        dest: payload
-      - type: file
-        path: tuxblox
-      - type: file
-        path: ld.so.conf
-      - type: file
-        path: net.tuxblox.TuxBlox.desktop
-      - type: file
-        path: net.tuxblox.TuxBlox.Player.desktop
-      - type: file
-        path: net.tuxblox.TuxBlox.Studio.desktop
-      - type: file
-        path: net.tuxblox.TuxBlox.Place.desktop
-      - type: file
-        path: ../../build/flatpak/net.tuxblox.TuxBlox.metainfo.xml
-      - type: dir
-        path: ../../build/assets/tuxblox
-        dest: icons
-      - type: dir
-        path: ../../build/flatpak/licenses
-        dest: licenses
+        path: ../..
+        # Only what the launcher and the Studio MCP server compile from. The layer, the interface
+        # stack's sources and the static libraries are all the runtime's job or no longer built here,
+        # and without these the copy is gigabytes rather than megabytes.
+        skip:
+          - .git
+          - .flatpak-builder
+          - .superpowers
+          - build
+          - build.log
+          - compat
+          - logs
+          - workspace
+          - shared/crypto/openssl
+          - shared/fs/libarchive
+          - shared/fs/zlib
+          - shared/fs/zstd
+          - shared/network/libcurl
+          - shared/network/nghttp2
+          - shared/ui/dist
+          - shared/ui/libadwaita
+          - shared/ui/sources
