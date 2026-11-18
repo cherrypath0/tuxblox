@@ -34,8 +34,8 @@ class WriteFlathubManifest(unittest.TestCase):
         self.out = os.path.join(self.dir.name, "net.tuxblox.TuxBlox.yml")
         self.addCleanup(self.dir.cleanup)
 
-    def run_script(self, channel="stable", version="3.12.15.1"):
-        done = subprocess.run([sys.executable, SCRIPT, "--channel", channel, "--version", version,
+    def run_script(self, version="3.12.15.1"):
+        done = subprocess.run([sys.executable, SCRIPT, "--version", version,
                                "--out", self.out, "--sha256", SHA],
                               capture_output=True, text=True)
         written = None
@@ -53,21 +53,17 @@ class WriteFlathubManifest(unittest.TestCase):
         self.assertTrue(sources[0]["url"].endswith("/refs/tags/3.12.15.1.tar.gz"), sources[0]["url"])
         self.assertEqual(sources[0]["sha256"], SHA)
 
-    def test_the_checker_points_at_the_requested_channel(self):
-        _, err, stable = self.run_script(channel="stable")
-        checker = stable["modules"][0]["sources"][0]["x-checker-data"]
+    def test_the_checker_follows_the_stable_channel_only(self):
+        _, err, out = self.run_script()
+        checker = out["modules"][0]["sources"][0]["x-checker-data"]
         self.assertEqual(checker["type"], "json")
-        self.assertIn("/client/stable/latest", checker["url"])
+        self.assertIn("/client/stable/latest", checker["url"], err)
         self.assertEqual(checker["version-query"], ".release")
         self.assertTrue(checker["is-main-source"])
-        _, err, canary = self.run_script(channel="canary")
-        self.assertIn("/client/canary/latest", canary["modules"][0]["sources"][0]["x-checker-data"]["url"], err)
 
-    def test_the_baked_channel_matches_the_branch(self):
-        _, _, stable = self.run_script(channel="stable")
-        _, _, canary = self.run_script(channel="canary")
-        self.assertEqual(stable["modules"][0]["build-options"]["env"]["TUXBLOX_CHANNEL"], "stable")
-        self.assertEqual(canary["modules"][0]["build-options"]["env"]["TUXBLOX_CHANNEL"], "canary")
+    def test_the_baked_channel_is_stable(self):
+        _, _, out = self.run_script()
+        self.assertEqual(out["modules"][0]["build-options"]["env"]["TUXBLOX_CHANNEL"], "stable")
 
     def test_the_release_env_is_the_pinned_version(self):
         _, err, out = self.run_script(version="3.12.15.1")

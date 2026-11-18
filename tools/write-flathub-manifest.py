@@ -15,7 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-"""Write the Flathub copy of the manifest: the same build, pinned to a release's source tarball."""
+"""Write the Flathub copy of the manifest: the same build, pinned to a stable release's source tarball."""
 
 import argparse
 import hashlib
@@ -29,7 +29,8 @@ import yaml
 HERE = os.path.dirname(os.path.abspath(__file__))
 PACKAGING = os.path.join(HERE, "..", "packaging", "flatpak")
 TARBALL = "https://github.com/tuxblox/tuxblox/archive/refs/tags/%s.tar.gz"
-CHECKER_URL = "https://config.tuxblox.net/v1/tuxblox/client/%s/latest"
+# Flathub carries stable alone, so this is the only channel the checker ever follows
+CHECKER_URL = "https://config.tuxblox.net/v1/tuxblox/client/stable/latest"
 ENV_ANCHOR = "        TUXBLOX_DONT_INCREMENT_BUILD: '1'\n"
 
 SOURCES = """    sources:
@@ -57,7 +58,6 @@ def hashed(url):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--channel", required=True, choices=("stable", "canary"))
     parser.add_argument("--version", required=True)
     parser.add_argument("--out", required=True)
     parser.add_argument("--sha256", help="the tarball's hash, instead of downloading it to find out")
@@ -79,7 +79,7 @@ def main():
     text = re.sub(r"\n{3,}", "\n\n", text)
     text = text.replace(ENV_ANCHOR, ENV_ANCHOR
                         + "        TUXBLOX_RELEASE: '%s'\n" % args.version
-                        + "        TUXBLOX_CHANNEL: %s\n" % args.channel)
+                        + "        TUXBLOX_CHANNEL: stable\n")
 
     marker = "\n    sources:\n"
     if marker not in text:
@@ -88,7 +88,7 @@ def main():
     text = text[:text.index(marker) + 1] + SOURCES % {
         "tarball": tarball,
         "sha256": args.sha256 or hashed(tarball),
-        "checker": CHECKER_URL % args.channel,
+        "checker": CHECKER_URL,
     }
 
     # A key lost to the surgery above would be silent
