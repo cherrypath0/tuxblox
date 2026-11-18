@@ -2,7 +2,7 @@
 > **Roblox Player support is still in progress!** TuxBlox currently supports Roblox Studio. Updates will be posted on our [Discord](https://tuxblox.net/discord).
 
 <p align="center">
-  <img src="https://static.tuxblox.net/images/banner/tuxblox-banner.png" width="600">
+  <img src="https://tuxblox.net/static/images/banner/tuxblox-banner.png" width="600">
 </p>
 
 ***
@@ -13,7 +13,7 @@ TuxBlox is a free, open-source compatibility layer and launcher that runs Roblox
 
 ## How It Works
 
-Similar to [Wine](https://www.winehq.org/), TuxBlox doesn't emulate Windows or use a virtual machine. It runs the official Windows version of Roblox on Linux by translating its Windows API calls at runtime.
+TuxBlox doesn't emulate Windows or use a virtual machine. It runs the official Windows version of Roblox on Linux by translating its Windows API calls at runtime.
 
 TuxBlox maintains its own Wine build (based on Wine 11.0 and Proton) made specifically for Roblox, and bundles it. You don't need Wine installed. Targeting a single application lets us fix problems at the source, including upstream Wine bugs that affect Roblox, instead of working around them with configuration.
 
@@ -61,24 +61,51 @@ Known issues are listed in the [documentation](https://tuxblox.net/docs).
 
 TuxBlox installs and runs as a normal user. Root is never required.
 
-## Building From Source
-
-For a full build, run `make`, for the Flatpak only, run `make flatpak`.
-Full documentation for building from source and the requirements can be seen here: https://tuxblox.net/docs/development/building-from-source
-
 ## Installation
 
-There are two ways to install TuxBlox. Both install to `~/.tuxblox`.
+### 1. Install from the Releases page
+We distribute TuxBlox files here in [GitHub releases](https://github.com/tuxblox/tuxblox/releases) and [tuxblox.net/releases](https://tuxblox.net/releases). Head over to whichever page you prefer, then download the `TuxBloxInstaller` binary.
 
-1. **Install script.** Open a terminal and run:
+Make sure to set `chmod +x` on the installer:
+```bash
+chmod +x TuxBloxInstaller
+```
+Then run the installer.
+
+We also distribute the `.AppImage` variant of the installer. The steps to download and run are the exact same.
+
+### 2. Install from the command line
+
+This will automatically install the latest stable version of TuxBlox for you. Open a terminal and run:
 
 ```bash
 curl -fsSL https://tuxblox.net/install.sh | bash
 ```
 
-You can [read the script](https://tuxblox.net/install.sh) before running it.
+Feel free to inspect the script first:
 
-2. **Releases page.** Download the latest stable installer from [tuxblox.net/releases](https://tuxblox.net/releases) and run it.
+```bash
+curl -fsSL https://tuxblox.net/install.sh -o install.sh
+less install.sh
+bash install.sh
+```
+
+### 3. Install the Flatpak
+We also release Flatpak versions of TuxBlox, however **they are very experimental and Flatpak's sandbox might break TuxBlox**. We recommend using the releases page or the command-line.
+
+Head over to [GitHub Releases](https://github.com/tuxblox/tuxblox/releases) or [tuxblox.net/releases](https://tuxblox.net/releases), and download `net.tuxblox.TuxBlox.flatpak`.
+
+Then open a terminal, and go to your Downloads folder:
+```bash
+cd ~/Downloads # change this to where you downloaded the flatpak to
+flatpak install --user ./net.tuxblox.TuxBlox.flatpak
+```
+Note that the Flatpak releases do not automatically update, so you'll need to manually reinstall the Flatpak every time.
+
+## Building From Source
+
+For a full build, run `make`. For the Flatpak only, run `make flatpak`.
+Full documentation for building from source and the requirements can be seen here: https://tuxblox.net/docs/development/building-from-source
 
 ## Privacy
 
@@ -87,22 +114,24 @@ Some features contact TuxBlox's own servers: self-updates, the optional server-l
 ## FAQ
 
 **Is TuxBlox a fork of Vinegar or Sober?**
+
 No, TuxBlox is its own project. Vinegar runs the Windows client through the Wine you install yourself, while TuxBlox bundles its own compatibility layer built for Roblox. Sober runs the Android version of Roblox instead.
 
 **Does it work on Wayland?**
+
 Yes. The launcher runs natively on Wayland, and Studio runs through XWayland.
 
-**Is there a Flatpak?**
-There is one, but it isn't published yet, so for now you can only build it yourself with `make flatpak`. The normal install is still the one to use: it updates itself part by part as soon as a release goes out, and it can reach your whole home folder, so a place saved anywhere still opens. The Flatpak asks for named folders instead, and Roblox Studio runs under it while the Player doesn't start yet. See [Building From Source](https://tuxblox.net/docs/development/building-from-source) for how to build and install it.
-
 **Why isn't there a distro package?**
+
 TuxBlox updates itself whenever a release is published, which is not how a distribution's package manager expects to work.
 
 **Can I run other Windows apps with it?**
+
 No. TuxBlox only runs programs signed by Roblox or by TuxBlox itself.
 
 **Is it free?**
-Yes. TuxBlox is free and open source under GPLv3.
+
+Yes. TuxBlox is free and open source under GPL-3.0-or-later.
 
 Additional questions are answered in [tuxblox.net/docs/getting-started/faq](https://tuxblox.net/docs/getting-started/faq).
 
@@ -119,6 +148,6 @@ Join our [Discord server](https://tuxblox.net/discord) for support, development 
 ## Legal & Disclaimer
 
 - **TuxBlox is an independent, unofficial community project.** It is not affiliated with, authorized or endorsed by Roblox Corporation. Roblox is a trademark of Roblox Corporation.
-- **TuxBlox's own code is licensed under GPLv3.**
-- **This project includes a modified version of WineHQ's [Wine](https://gitlab.winehq.org/wine/wine) and parts of Valve's [Proton](https://github.com/ValveSoftware/Proton)**, which remain licensed under LGPLv2.1. TuxBlox's own code inside `compat/` (`compat/tuxblox/` and `compat/webkitgtk/bundle/`) is GPLv3.
+- **TuxBlox's own code is licensed under GPL-3.0-or-later.**
+- **This project includes a modified version of WineHQ's [Wine](https://gitlab.winehq.org/wine/wine) and parts of Valve's [Proton](https://github.com/ValveSoftware/Proton)**, which remain licensed under LGPL-2.1-or-later. TuxBlox's own code inside `compat/` (`compat/tuxblox/` and `compat/webkitgtk/bundle/`) is GPL-3.0-or-later.
 - See [`third_party_licenses/`](third_party_licenses/) for the full licence text of all third-party code in this repository.
