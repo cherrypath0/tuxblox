@@ -1,5 +1,4 @@
 app-id: net.tuxblox.TuxBlox
-# GNOME 51 is built on freedesktop 26.08, so the extension versions below are unchanged by it
 runtime: org.gnome.Platform
 runtime-version: '51'
 sdk: org.gnome.Sdk
@@ -69,22 +68,18 @@ modules:
 
     build-options:
       no-debuginfo: true
+      # flatpak-builder compiles with -g by default, which leaves the launcher five times its size
+      strip: true
       env:
         TUXBLOX_DONT_INCREMENT_BUILD: '1'
-        # Rewritten per branch by the Flathub manifest generator, and overridden by a local build
-        TUXBLOX_RELEASE: '0.0.0.0'
-        TUXBLOX_CHANNEL: stable
 
-    # Every build step lives in the Makefile, so this manifest and the Flathub one cannot describe a build that no longer exists
+
     build-commands:
       - make flatpak
 
     sources:
       - type: dir
         path: ../..
-        # Only what the launcher and the Studio MCP server compile from. The layer, the interface
-        # stack's sources and the static libraries are all the runtime's job or no longer built here,
-        # and without these the copy is gigabytes rather than megabytes.
         skip:
           - .git
           - .flatpak-builder

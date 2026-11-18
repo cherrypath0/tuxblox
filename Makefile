@@ -199,17 +199,7 @@ flatpak: $(TUXBLOX_ICONS)
 	@printf ':: Installed TuxBlox %s (%s) into %s\n' '$(RELEASE)' '$(CHANNEL)' '$(FLATPAK_DEST)'
 else
 flatpak:
-	@[ -e $(STUDIO_MCP) ] || { printf '!! not built yet: %s\n   run `make` first, then `make flatpak`\n' '$(STUDIO_MCP)' >&2; exit 1; }
 	@mkdir -p $(FLATPAK_DIR)
-	$(MAKE) --no-print-directory TUXBLOX_DONT_INCREMENT_BUILD=1 TUXBLOX_FLATPAK=1 \
-	    LAUNCHER=$(FLATPAK_DIR)/TuxBloxLauncher NATIVE=$(FLATPAK_DIR) launcher
-	@sed -e 's/@RELEASE@/$(RELEASE)/' \
-	     -e "s/@DATE@/$$(git log -1 --format=%cd --date=short 2>/dev/null || echo 1970-01-01)/" \
-	     -e 's|<description>@NOTES@</description>||' \
-	    packaging/flatpak/net.tuxblox.TuxBlox.metainfo.xml.in \
-	    > $(FLATPAK_DIR)/net.tuxblox.TuxBlox.metainfo.xml
-	@rm -rf $(FLATPAK_DIR)/licenses
-	@cp -rL third_party_licenses $(FLATPAK_DIR)/licenses
 	@if command -v flatpak-builder >/dev/null 2>&1; then FB=flatpak-builder; \
 	elif flatpak info org.flatpak.Builder >/dev/null 2>&1; then FB="flatpak run org.flatpak.Builder"; \
 	else printf '!! no flatpak-builder: install it, or `flatpak install flathub org.flatpak.Builder`\n' >&2; exit 1; fi; \
@@ -219,6 +209,20 @@ flatpak:
 	flatpak build-bundle \
 	    --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo \
 	    $(FLATPAK_DIR)/repo $(FLATPAK_BUNDLE) net.tuxblox.TuxBlox $(CHANNEL)
+	@# The release tooling reads this binary's compiled-in release, and a file it cannot open passes that check silently
+	cp $(FLATPAK_DIR)/build/files/tuxblox/TuxBloxLauncher $(FLATPAK_DIR)/TuxBloxLauncher
+	@# `flatpak build` rather than `flatpak-builder --run`, which nests a sandbox bwrap refuses to enter
+	@if [ -z "$$TUXBLOX_SKIP_SMOKE" ]; then \
+	    printf ':: Smoke testing the bundle\n'; \
+	    flatpak build $(FLATPAK_DIR)/build /app/tuxblox/TuxBloxLauncher --version | grep -qE '^[0-9]+(\.[0-9]+)+$$' \
+	        || { printf '!! --version did not answer a bare version\n' >&2; exit 1; }; \
+	    env -u DISPLAY -u WAYLAND_DISPLAY flatpak build $(FLATPAK_DIR)/build /app/tuxblox/TuxBloxLauncher \
+	        >/dev/null 2>$(FLATPAK_DIR)/smoke-nodisplay.txt; \
+	    [ $$? -eq 1 ] || { printf '!! a run with no display should exit 1\n' >&2; exit 1; }; \
+	    grep -q TuxBlox $(FLATPAK_DIR)/smoke-nodisplay.txt \
+	        || { printf '!! a run with no display said nothing of its own\n' >&2; exit 1; }; \
+	    printf ':: Smoke test passed\n'; \
+	 else echo "!! TUXBLOX_SKIP_SMOKE set, the bundle was NOT smoke tested" >&2; fi
 	@printf ':: install it with: flatpak install --user %s\n' '$(FLATPAK_BUNDLE)'
 	@printf ':: the Flatpak variant stays in %s, build/native/TuxBloxLauncher is untouched\n' '$(FLATPAK_DIR)'
 endif
