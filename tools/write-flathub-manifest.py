@@ -29,21 +29,12 @@ import yaml
 HERE = os.path.dirname(os.path.abspath(__file__))
 PACKAGING = os.path.join(HERE, "..", "packaging", "flatpak")
 TARBALL = "https://github.com/tuxblox/tuxblox/archive/refs/tags/%s.tar.gz"
-# Flathub carries stable alone, so this is the only channel the checker ever follows
-CHECKER_URL = "https://config.tuxblox.net/v1/tuxblox/client/stable/latest"
 ENV_ANCHOR = "        TUXBLOX_DONT_INCREMENT_BUILD: '1'\n"
 
 SOURCES = """    sources:
       - type: archive
         url: %(tarball)s
         sha256: '%(sha256)s'
-        x-checker-data:
-          type: json
-          url: %(checker)s
-          version-query: .release
-          url-query: '"https://github.com/tuxblox/tuxblox/archive/refs/tags/" + $version + ".tar.gz"'
-          timestamp-query: .published
-          is-main-source: true
 """
 
 
@@ -88,7 +79,6 @@ def main():
     text = text[:text.index(marker) + 1] + SOURCES % {
         "tarball": tarball,
         "sha256": args.sha256 or hashed(tarball),
-        "checker": CHECKER_URL,
     }
 
     # A key lost to the surgery above would be silent

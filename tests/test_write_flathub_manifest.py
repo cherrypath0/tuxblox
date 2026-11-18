@@ -53,13 +53,9 @@ class WriteFlathubManifest(unittest.TestCase):
         self.assertTrue(sources[0]["url"].endswith("/refs/tags/3.12.15.1.tar.gz"), sources[0]["url"])
         self.assertEqual(sources[0]["sha256"], SHA)
 
-    def test_the_checker_follows_the_stable_channel_only(self):
+    def test_no_update_checker_is_published(self):
         _, err, out = self.run_script()
-        checker = out["modules"][0]["sources"][0]["x-checker-data"]
-        self.assertEqual(checker["type"], "json")
-        self.assertIn("/client/stable/latest", checker["url"], err)
-        self.assertEqual(checker["version-query"], ".release")
-        self.assertTrue(checker["is-main-source"])
+        self.assertNotIn("x-checker-data", out["modules"][0]["sources"][0], err)
 
     def test_the_baked_channel_is_stable(self):
         _, _, out = self.run_script()
