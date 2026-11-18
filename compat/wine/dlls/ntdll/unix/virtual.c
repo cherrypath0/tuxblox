@@ -7215,6 +7215,20 @@ static unsigned int get_memory_region_info( HANDLE process, LPCVOID addr, MEMORY
     return STATUS_SUCCESS;
 }
 
+/* MemoryRegionInformationEx is MemoryRegionInformation that also reports the
+ * partition and node fields, and needs a buffer large enough to hold CommitSize. */
+static unsigned int get_memory_region_info_ex( HANDLE process, LPCVOID addr,
+                                               MEMORY_REGION_INFORMATION *info, SIZE_T len, SIZE_T *res_len )
+{
+    unsigned int status;
+
+    if (len < FIELD_OFFSET(MEMORY_REGION_INFORMATION, PartitionId))
+        return STATUS_INFO_LENGTH_MISMATCH;
+    status = get_memory_region_info( process, addr, info, len, res_len );
+    if (!status && len >= sizeof(*info)) info->NodePreference = 0xffffffff;  /* no preferred node */
+    return status;
+}
+
 struct working_set_info_ref
 {
     char *addr;
@@ -7736,6 +7750,10 @@ static NTSTATUS query_virtual_memory( HANDLE process, LPCVOID addr,
         case MemoryBasicInformation:
             return get_basic_memory_info( process, addr, buffer, len, res_len );
 
+        /* Windows answers this the same as MemoryBasicInformation. */
+        case MemoryPrivilegedBasicInformation:
+            return get_basic_memory_info( process, addr, buffer, len, res_len );
+
         case MemoryWorkingSetExInformation:
             return get_working_set_ex( process, addr, buffer, len, res_len );
 
@@ -7744,6 +7762,9 @@ static NTSTATUS query_virtual_memory( HANDLE process, LPCVOID addr,
 
         case MemoryRegionInformation:
             return get_memory_region_info( process, addr, buffer, len, res_len );
+
+        case MemoryRegionInformationEx:
+            return get_memory_region_info_ex( process, addr, buffer, len, res_len );
 
         case MemoryImageInformation:
             return get_memory_image_info( process, addr, buffer, len, res_len );
