@@ -139,6 +139,11 @@ std::string writeMacPlayerIcon(const std::string& installDir, const std::string&
             const fs::path dir = fs::path(iconsDir) / "256x256" / "apps";
             fs::create_directories(dir, ec);
             if (!ec && !png.empty() && writeFileAtomic(dir / (name + ".png"), png)) {
+                // An older fallback SVG would otherwise win the theme lookup on
+                // desktops that prefer scalable icons, bringing back the
+                // unreadable black-on-dark artwork.
+                std::error_code rmEc;
+                fs::remove(fs::path(iconsDir) / "scalable" / "apps" / (name + ".svg"), rmEc);
                 return name;
             }
         }
