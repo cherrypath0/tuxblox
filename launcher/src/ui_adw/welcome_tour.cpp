@@ -17,6 +17,7 @@
 #include "welcome_tour.h"
 #include "adw_look.h"
 #include "app.h"
+#include "flag_startup.h"
 #include "i18n.h"
 #include "version.h"
 #include "open_url.h"
@@ -49,6 +50,16 @@ const ThemeChoice Themes[] = {
     {"grey", "Grey", "theme-swatch-grey"},
     {"light", "Light", "theme-swatch-light"},
 };
+
+// The label each theme carries. Literals rather than theme.pLabel: xgettext
+// can only extract a string it sees at the tr() call, not one reached through
+// a variable.
+const char *themeLabel(const char *pId) {
+    if (std::string(pId) == "system") return i18n::tr("System");
+    if (std::string(pId) == "dark") return i18n::tr("Dark");
+    if (std::string(pId) == "grey") return i18n::tr("Grey");
+    return i18n::tr("Light");
+}
 
 const char *swatchClassFor(const ThemeChoice &choice) {
     if (choice.pSwatchClass != nullptr) return choice.pSwatchClass;
@@ -88,9 +99,15 @@ struct Tour {
     GtkLabel *pStudioMeta = nullptr;
     GtkButton *pStudioButton = nullptr;
     GtkWidget *pStudioBar = nullptr;
+    // The macOS backend installs the Player itself, outside the Windows
+    // version list the Studio row follows.
+    GtkLabel *pPlayerMeta = nullptr;
+    GtkButton *pPlayerButton = nullptr;
+    GtkWidget *pPlayerBar = nullptr;
     std::vector<GtkWidget *> pThemeTiles;
     std::vector<AdwSwitchRow *> pSwitchRows;
     std::string appliedStudioMeta;
+    std::string appliedPlayerMeta;
     guint tickId = 0;
     std::function<void(bool)> onDone;
 };
@@ -188,11 +205,18 @@ void onDownloadStudio(GtkButton *, gpointer data) {
     pTour->pApp->requestInstallVersion(LaunchTarget::Studio, VersionSelectMode::Latest, "live", "");
 }
 
+void onPreparePlayer(GtkButton *, gpointer data) {
+    auto *pTour = static_cast<Tour *>(data);
+    // The macOS client is fetched, verified and installed by the launch path;
+    // starting it here also finishes the first-run setup.
+    pTour->pApp->requestLaunch(LaunchTarget::Player);
+}
+
 // Page 1: who TuxBlox is, the launcher's colours, and an offer to fetch Studio.
 GtkWidget *buildWelcomePage(Tour &tour) {
     GtkWidget *pBox = pageBox();
 
-    GtkWidget *pHeading = gtk_label_new("Welcome to TuxBlox");
+    GtkWidget *pHeading = gtk_label_new(i18n::tr("Welcome to TuxBlox"));
     gtk_label_set_xalign(GTK_LABEL(pHeading), 0.0f);
     gtk_widget_add_css_class(pHeading, "title-2");
 
@@ -201,14 +225,15 @@ GtkWidget *buildWelcomePage(Tour &tour) {
     gtk_widget_set_valign(pText, GTK_ALIGN_CENTER);
     gtk_box_append(GTK_BOX(pText), pHeading);
     gtk_box_append(GTK_BOX(pText),
-                   bodyLabel("TuxBlox is an open-source launcher and compatibility layer for Roblox.", "dim-label"));
+                   bodyLabel(i18n::tr("TuxBlox is an open-source launcher and compatibility layer "
+                                      "for Roblox."), "dim-label"));
 
     GtkWidget *pHeader = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 15);
     gtk_box_append(GTK_BOX(pHeader), tourLogo(54));
     gtk_box_append(GTK_BOX(pHeader), pText);
     gtk_box_append(GTK_BOX(pBox), pHeader);
 
-    GtkWidget *pAppearance = caption("Appearance");
+    GtkWidget *pAppearance = caption(i18n::tr("Appearance"));
     gtk_widget_set_margin_top(pAppearance, 22);
     gtk_widget_set_margin_bottom(pAppearance, 9);
     gtk_box_append(GTK_BOX(pBox), pAppearance);
@@ -222,7 +247,7 @@ GtkWidget *buildWelcomePage(Tour &tour) {
         gtk_widget_add_css_class(pSwatch, "theme-swatch");
         gtk_widget_add_css_class(pSwatch, swatchClassFor(choice));
 
-        GtkWidget *pLabel = gtk_label_new(choice.pLabel);
+        GtkWidget *pLabel = gtk_label_new(themeLabel(choice.pId));
         gtk_widget_add_css_class(pLabel, "caption");
 
         GtkWidget *pInner = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
@@ -248,12 +273,56 @@ GtkWidget *buildWelcomePage(Tour &tour) {
     }
     gtk_box_append(GTK_BOX(pBox), pTiles);
 
-    GtkWidget *pStudioCaption = caption("Roblox Studio");
+    // With the macOS backend enabled the Player is installable too, not just
+    // Studio. It appears above the Studio row and follows its own install
+    // state, which is not in the Windows version list.
+    if (launcherFlags().macClient) {
+        GtkWidget *pPlayerCaption = caption(i18n::tr("Roblox Player"));
+        gtk_widget_set_margin_top(pPlayerCaption, 22);
+        gtk_widget_set_margin_bottom(pPlayerCaption, 9);
+        gtk_box_append(GTK_BOX(pBox), pPlayerCaption);
+
+        GtkWidget *pPlayerName = gtk_label_new(i18n::tr("Roblox Player"));
+        gtk_label_set_xalign(GTK_LABEL(pPlayerName), 0.0f);
+        tour.pPlayerMeta = GTK_LABEL(bodyLabel("", "caption"));
+        gtk_widget_add_css_class(GTK_WIDGET(tour.pPlayerMeta), "dim-label");
+
+        tour.pPlayerBar = gtk_progress_bar_new();
+        gtk_widget_set_margin_top(tour.pPlayerBar, 6);
+        gtk_widget_set_visible(tour.pPlayerBar, FALSE);
+
+        GtkWidget *pPlayerText = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+        gtk_widget_set_hexpand(pPlayerText, TRUE);
+        gtk_box_append(GTK_BOX(pPlayerText), pPlayerName);
+        gtk_box_append(GTK_BOX(pPlayerText), GTK_WIDGET(tour.pPlayerMeta));
+        gtk_box_append(GTK_BOX(pPlayerText), tour.pPlayerBar);
+
+        GtkWidget *pPlayerButton = gtk_button_new_with_label(i18n::tr("Install & Launch"));
+        gtk_widget_add_css_class(pPlayerButton, "suggested-action");
+        gtk_widget_set_valign(pPlayerButton, GTK_ALIGN_CENTER);
+        tour.pPlayerButton = GTK_BUTTON(pPlayerButton);
+        g_signal_connect(pPlayerButton, "clicked", G_CALLBACK(onPreparePlayer), &tour);
+
+        GtkWidget *pPlayerRow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
+        gtk_widget_set_margin_start(pPlayerRow, 14);
+        gtk_widget_set_margin_end(pPlayerRow, 14);
+        gtk_widget_set_margin_top(pPlayerRow, 12);
+        gtk_widget_set_margin_bottom(pPlayerRow, 12);
+        gtk_box_append(GTK_BOX(pPlayerRow), pPlayerText);
+        gtk_box_append(GTK_BOX(pPlayerRow), pPlayerButton);
+
+        GtkWidget *pPlayerCard = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+        gtk_widget_add_css_class(pPlayerCard, "card");
+        gtk_box_append(GTK_BOX(pPlayerCard), pPlayerRow);
+        gtk_box_append(GTK_BOX(pBox), pPlayerCard);
+    }
+
+    GtkWidget *pStudioCaption = caption(i18n::tr("Roblox Studio"));
     gtk_widget_set_margin_top(pStudioCaption, 22);
     gtk_widget_set_margin_bottom(pStudioCaption, 9);
     gtk_box_append(GTK_BOX(pBox), pStudioCaption);
 
-    GtkWidget *pName = gtk_label_new("Roblox Studio");
+    GtkWidget *pName = gtk_label_new(i18n::tr("Roblox Studio"));
     gtk_label_set_xalign(GTK_LABEL(pName), 0.0f);
     GtkWidget *pMeta = bodyLabel("", "caption");
     gtk_widget_add_css_class(pMeta, "dim-label");
@@ -269,7 +338,7 @@ GtkWidget *buildWelcomePage(Tour &tour) {
     gtk_box_append(GTK_BOX(pStudioText), pMeta);
     gtk_box_append(GTK_BOX(pStudioText), tour.pStudioBar);
 
-    GtkWidget *pDownload = gtk_button_new_with_label("Download");
+    GtkWidget *pDownload = gtk_button_new_with_label(i18n::tr("Download"));
     gtk_widget_add_css_class(pDownload, "suggested-action");
     gtk_widget_set_valign(pDownload, GTK_ALIGN_CENTER);
     tour.pStudioButton = GTK_BUTTON(pDownload);
@@ -288,7 +357,8 @@ GtkWidget *buildWelcomePage(Tour &tour) {
     gtk_box_append(GTK_BOX(pCard), pStudioRow);
     gtk_box_append(GTK_BOX(pBox), pCard);
 
-    GtkWidget *pHelp = bodyLabel("Optional, you can install it later from the Home page instead.", "caption");
+    GtkWidget *pHelp = bodyLabel(
+        i18n::tr("Optional, you can install it later from the Home page instead."), "caption");
     gtk_widget_add_css_class(pHelp, "dim-label");
     gtk_widget_set_margin_top(pHelp, 10);
     gtk_box_append(GTK_BOX(pBox), pHelp);
@@ -299,13 +369,14 @@ GtkWidget *buildWelcomePage(Tour &tour) {
 GtkWidget *buildOptionalPage(Tour &tour) {
     GtkWidget *pBox = pageBox();
 
-    GtkWidget *pHeading = gtk_label_new("Optional extras");
+    GtkWidget *pHeading = gtk_label_new(i18n::tr("Optional extras"));
     gtk_label_set_xalign(GTK_LABEL(pHeading), 0.0f);
     gtk_widget_add_css_class(pHeading, "title-2");
     gtk_box_append(GTK_BOX(pBox), pHeading);
 
     // Not "all four are off": every existing install sees this tour once, and theirs may already be on.
-    GtkWidget *pBody = bodyLabel("Each of these sends something off your machine. None is required.", "dim-label");
+    GtkWidget *pBody = bodyLabel(
+        i18n::tr("Each of these sends something off your machine. None is required."), "dim-label");
     gtk_widget_set_margin_top(pBody, 4);
     gtk_widget_set_margin_bottom(pBody, 12);
     gtk_box_append(GTK_BOX(pBox), pBody);
@@ -315,7 +386,10 @@ GtkWidget *buildOptionalPage(Tour &tour) {
     gtk_list_box_set_selection_mode(GTK_LIST_BOX(pList), GTK_SELECTION_NONE);
     gtk_widget_add_css_class(pList, "boxed-list");
     for (const SwitchChoice &choice : Switches) {
-        GtkWidget *pRow = plainSwitchRow(choice.pTitle, choice.pSubtitle);
+        // tr() here rather than on the static table: the table is built before
+        // the language is initialised, and xgettext already sees these strings
+        // through the Settings page.
+        GtkWidget *pRow = plainSwitchRow(i18n::tr(choice.pTitle), i18n::tr(choice.pSubtitle));
         adw_switch_row_set_active(ADW_SWITCH_ROW(pRow), settings.*choice.pField);
         auto *pBinding = new SwitchBinding{&tour, choice.pField};
         g_signal_connect_data(pRow, "notify::active", G_CALLBACK(onSwitchToggled), pBinding,
@@ -326,9 +400,9 @@ GtkWidget *buildOptionalPage(Tour &tour) {
     }
     gtk_box_append(GTK_BOX(pBox), pList);
 
-    GtkWidget *pPolicy = gtk_label_new(
+    GtkWidget *pPolicy = gtk_label_new(i18n::tr(
         "TuxBlox's <a href=\"https://tuxblox.net/privacy\">Privacy Policy</a> and "
-        "<a href=\"https://tuxblox.net/terms\">Terms of Use</a> apply to these features.");
+        "<a href=\"https://tuxblox.net/terms\">Terms of Use</a> apply to these features."));
     gtk_label_set_use_markup(GTK_LABEL(pPolicy), TRUE);
     gtk_label_set_xalign(GTK_LABEL(pPolicy), 0.0f);
     gtk_label_set_wrap(GTK_LABEL(pPolicy), TRUE);
@@ -348,12 +422,12 @@ GtkWidget *buildFinishPage(Tour &) {
     gtk_widget_set_halign(pLogo, GTK_ALIGN_CENTER);
     gtk_box_append(GTK_BOX(pBox), pLogo);
 
-    GtkWidget *pHeading = gtk_label_new("You are all set");
+    GtkWidget *pHeading = gtk_label_new(i18n::tr("You are all set"));
     gtk_widget_add_css_class(pHeading, "title-2");
     gtk_widget_set_margin_top(pHeading, 10);
     gtk_box_append(GTK_BOX(pBox), pHeading);
 
-    GtkWidget *pBody = gtk_label_new("Everything here is in the About tab too.");
+    GtkWidget *pBody = gtk_label_new(i18n::tr("Everything here is in the About tab too."));
     gtk_label_set_wrap(GTK_LABEL(pBody), TRUE);
     gtk_label_set_justify(GTK_LABEL(pBody), GTK_JUSTIFY_CENTER);
     gtk_widget_add_css_class(pBody, "dim-label");
@@ -442,7 +516,7 @@ void applyRuntime(Tour &tour) {
         setLabelText(tour.pRuntimeStatus, snap.update.errorMessage.empty()
                                               ? i18n::tr("Not installed yet")
                                               : snap.update.errorMessage);
-        setButtonLabel(tour.pRuntimeButton, "Try again");
+        setButtonLabel(tour.pRuntimeButton, i18n::tr("Try again"));
     } else {
         setLabelText(tour.pRuntimeStatus, i18n::tr("Installed"));
         gtk_widget_set_visible(GTK_WIDGET(tour.pRuntimeButton), FALSE);
@@ -457,7 +531,7 @@ void applyFooter(Tour &tour) {
     const bool mayAdvance = tourMayAdvance(tourPageAt(at), tour.pApp->snapshot().runtimeMissing);
     gtk_widget_set_visible(tour.pSkip, !last && mayAdvance);
     gtk_widget_set_sensitive(GTK_WIDGET(tour.pNext), mayAdvance);
-    setButtonLabel(tour.pNext, last ? "Get started" : "Next");
+    setButtonLabel(tour.pNext, last ? i18n::tr("Get started") : i18n::tr("Next"));
 }
 
 void onCarouselMoved(AdwCarousel *, GParamSpec *, gpointer data) {
@@ -511,14 +585,15 @@ gboolean onTourTick(gpointer data) {
                        snap.versionInstall.phase == VersionInstallPhase::DownloadingPackages ||
                        snap.versionInstall.phase == VersionInstallPhase::Extracting);
 
-    std::string meta = "Latest \xC2\xB7 LIVE";
+    std::string meta = i18n::tr("Latest \xC2\xB7 LIVE");
     if (busy) {
-        meta = "Downloading\xE2\x80\xA6";
+        meta = i18n::tr("Downloading\xE2\x80\xA6");
     } else if (installed) {
-        meta = "Installed";
+        meta = i18n::tr("Installed");
         for (const InstalledVersion &version : snap.versions.studio.installed) {
             if (version.hash != snap.versions.studio.activeHash) continue;
-            if (!version.versionString.empty()) meta = "Installed \xC2\xB7 " + version.versionString;
+            if (!version.versionString.empty())
+                meta = std::string(i18n::tr("Installed")) + " \xC2\xB7 " + version.versionString;
             break;
         }
     }
@@ -530,9 +605,33 @@ gboolean onTourTick(gpointer data) {
     gtk_widget_set_visible(pTour->pStudioBar, busy);
     if (busy) gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(pTour->pStudioBar), snap.versionInstall.fraction);
 
-    const char *pLabel = busy ? "Downloading\xE2\x80\xA6" : (installed ? "Installed" : "Download");
+    const char *pLabel = busy ? i18n::tr("Downloading\xE2\x80\xA6")
+                              : (installed ? i18n::tr("Installed") : i18n::tr("Download"));
     setButtonLabel(pTour->pStudioButton, pLabel);
     gtk_widget_set_sensitive(GTK_WIDGET(pTour->pStudioButton), !busy && !installed);
+
+    // The Player row exists only with the macOS backend. It follows the
+    // install state and the pending launch instead of the Windows version list.
+    if (pTour->pPlayerButton != nullptr) {
+        const bool playerInstalling =
+            snap.launchPending && snap.launchTarget == LaunchTarget::Player;
+        const bool playerInstalled = snap.macClientInstalled;
+        std::string playerMeta = playerInstalled ? i18n::tr("Installed") : i18n::tr("Not installed yet");
+        if (playerInstalling) playerMeta = i18n::tr("Downloading…");
+        if (playerMeta != pTour->appliedPlayerMeta) {
+            pTour->appliedPlayerMeta = playerMeta;
+            setLabelText(pTour->pPlayerMeta, playerMeta);
+        }
+        gtk_widget_set_visible(pTour->pPlayerBar, playerInstalling);
+        gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(pTour->pPlayerBar),
+                                      snap.launchPending ? 0.5 : 1.0);
+        setButtonLabel(pTour->pPlayerButton,
+                       playerInstalling ? i18n::tr("Starting…")
+                                        : (playerInstalled ? i18n::tr("Launch Player")
+                                                           : i18n::tr("Install & Launch")));
+        gtk_widget_set_sensitive(GTK_WIDGET(pTour->pPlayerButton),
+                                 !playerInstalling && !playerInstalled);
+    }
     return G_SOURCE_CONTINUE;
 }
 
@@ -559,12 +658,12 @@ void presentWelcomeTour(App &app, GtkApplication *pGtkApp, std::function<void(bo
     GtkWidget *pDots = adw_carousel_indicator_dots_new();
     adw_carousel_indicator_dots_set_carousel(ADW_CAROUSEL_INDICATOR_DOTS(pDots), pTour->pCarousel);
 
-    pTour->pBack = gtk_button_new_with_label("Back");
+    pTour->pBack = gtk_button_new_with_label(i18n::tr("Back"));
     g_signal_connect(pTour->pBack, "clicked", G_CALLBACK(onBack), pTour);
-    pTour->pSkip = gtk_button_new_with_label("Skip");
+    pTour->pSkip = gtk_button_new_with_label(i18n::tr("Skip"));
     gtk_widget_add_css_class(pTour->pSkip, "flat");
     g_signal_connect(pTour->pSkip, "clicked", G_CALLBACK(onSkip), pTour);
-    GtkWidget *pNext = gtk_button_new_with_label("Next");
+    GtkWidget *pNext = gtk_button_new_with_label(i18n::tr("Next"));
     gtk_widget_add_css_class(pNext, "suggested-action");
     pTour->pNext = GTK_BUTTON(pNext);
     g_signal_connect(pNext, "clicked", G_CALLBACK(onNext), pTour);

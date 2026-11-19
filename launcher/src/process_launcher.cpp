@@ -19,6 +19,9 @@
 #include "i18n.h"
 #include "root_guard.h"
 #include "launch_paths.h"
+#include "fastflag_file.h"
+#include "mac_client.h"
+#include "settings.h"
 
 #include "downloader.h"
 #include "install_paths.h"
@@ -353,12 +356,64 @@ bool launchRegistryEditor(const std::string& installDir) {
     return true;
 }
 
+// The experimental macOS Player backend. The client is downloaded, verified
+// and installed by macclient::ensureCurrent() before anything is started; a
+// refusal there is a hard failure, never a reason to fall back to an
+// unverified bundle. The Windows path below is untouched.
+static LaunchOutcome launchMacPlayer(const std::string& installDir, TrackedProcess& p,
+                                     const std::string& uri,
+                                     const std::vector<std::string>& extraEnv) {
+    const macclient::EnsureResult prepared = macclient::ensureCurrent(installDir, "");
+    if (!prepared.ok)
+        return {false, std::string(i18n::tr("could not prepare the Roblox client")) + ": " +
+                           prepared.error,
+                "", false};
+
+    const Settings settings = loadSettings(installDir);
+    // The graphics choice writes Windows renderer flags (D3D11/Vulkan/OpenGL);
+    // the macOS client renders through Metal and ignores them. Only the
+    // flags the user actually entered are carried over.
+    const std::string flags = renderClientAppSettings(settings.fastFlags.player);
+    const std::string flagError = macclient::writeAppSettings(prepared.build, flags);
+    if (!flagError.empty())
+        return {false, std::string(i18n::tr("could not write the Roblox settings")) + ": " +
+                           flagError,
+                "", false};
+
+    std::vector<std::string> env = launchEnvVars(installDir, LaunchTarget::Player);
+    for (const std::string& kv : flagEnvVars(installDir)) env.push_back(kv);
+    env.insert(env.end(), extraEnv.begin(), extraEnv.end());
+    env.push_back(std::string("ROSEMARY_PREFIX=") +
+                  (fs::path(installDir) / "mac-client" / "prefix").string());
+    env.push_back("ROSEMARY_PREFIX_SETUP=download");
+    // The Player must see an Intel Mac so it downloads the x86-64 build the
+    // native backend runs directly.
+    env.push_back("ROSEMARY_PROC_TRANSLATED=0");
+    env.push_back("SDL_APP_ID=net.tuxblox.TuxBlox.Player");
+    // Marks this process as a macOS-client session so the window's session
+    // census can find it without the Windows prefix's WINEPREFIX match.
+    env.push_back("TUXBLOX_MAC_CLIENT=1");
+
+    std::error_code ec;
+    fs::create_directories(installDir + "/logs", ec);
+    const std::string logPath = launchLogPath(installDir, LaunchTarget::Player);
+    std::vector<std::string> argv{macclient::resolveRosemary(installDir)};
+    const auto guestArgs = macclient::playerLaunchArgs(prepared.build.exe, uri);
+    argv.insert(argv.end(), guestArgs.begin(), guestArgs.end());
+
+    if (!p.start(argv, env, logPath))
+        return {false, i18n::tr("failed to start the client process"), "", false};
+    return {true, "", logPath, false};
+}
+
 LaunchOutcome ProcessLauncher::launch(LaunchTarget target, const std::string& uri,
                                        const std::vector<std::string>& extraEnv) {
     TrackedProcess& p = processFor(target);
     if (p.isRunning()) {
         return {false, i18n::tr("already running"), "", false};
     }
+    if (target == LaunchTarget::Player && launcherFlags().macClient)
+        return launchMacPlayer(installDir_, p, uri, extraEnv);
 
     std::string exePath = resolveActiveVersionExePath(target, installDir_);
     bool wasBootstrapInstall = false;

@@ -17,6 +17,7 @@
 #include "app.h"
 
 #include "flag_startup.h"
+#include "mac_client.h"
 #include "i18n.h"
 #include "release_stamp.h"
 #include "version.h"
@@ -38,6 +39,9 @@
 #include "tar_extract.h"
 #include "update_decision.h"
 #include <algorithm>
+#include <cerrno>
+#include <csignal>
+#include <cstdio>
 #include <chrono>
 #include <condition_variable>
 #include <ctime>
@@ -236,6 +240,7 @@ void App::requestLaunch(LaunchTarget target) {
         // Not moved yet: a first launch installs Roblox before anything runs, and being thrown at an empty log for the minutes that takes is worse than staying where the button was.
         if (!closeWindow) {
             snapshot_.launchPending = true;
+            snapshot_.launchTarget = target;
             showSessionWhenItStarts_.store(true);
             launchRequestedAt_.store(static_cast<long long>(std::time(nullptr)));
             launchRequestedTarget_.store(static_cast<int>(target));
@@ -251,9 +256,21 @@ void App::requestLaunch(LaunchTarget target) {
     // Wine is started by the process this becomes, so it must not inherit the interface libraries' font and settings paths
     ChildEnvironment environment;
 
+    // The inner process reports its own pid before detaching, so the window
+    // can tell when a launch that never produced a session has failed.
+    int report[2] = {-1, -1};
+    if (pipe(report) != 0) report[0] = report[1] = -1;
+
     pid_t pid = fork();
-    if (pid < 0) return; // fork failed -- nothing else to do, stay open
+    if (pid < 0) {
+        if (report[0] >= 0) {
+            close(report[0]);
+            close(report[1]);
+        }
+        return; // fork failed -- nothing else to do, stay open
+    }
     if (pid == 0) {
+        if (report[0] >= 0) close(report[0]);
         // Double-fork detach: the immediate child exits right away, the
         // grandchild (the actual --watch-launch process) is re-parented to
         // init so it outlives this whole launcher cleanly, with no zombie
@@ -261,11 +278,30 @@ void App::requestLaunch(LaunchTarget target) {
         pid_t inner = fork();
         if (inner == 0) {
             setsid();
+            if (report[1] >= 0) {
+                char text[32];
+                const int n = snprintf(text, sizeof(text), "%ld", static_cast<long>(getpid()));
+                if (n > 0) {
+                    ssize_t wrote = write(report[1], text, static_cast<size_t>(n));
+                    (void)wrote;
+                }
+                close(report[1]);
+            }
             execve(launcherExePath_.c_str(), argv.data(), environment.envp());
             _exit(127); // only reached if execve itself failed
         }
         _exit(0);
     }
+    if (report[1] >= 0) close(report[1]);
+    int watcherPid = -1;
+    if (report[0] >= 0) {
+        char text[32] = {};
+        const ssize_t got = read(report[0], text, sizeof(text) - 1);
+        close(report[0]);
+        if (got > 0) watcherPid = atoi(text);
+    }
+    launchWatcherPid_.store(watcherPid);
+
     int status = 0;
     waitpid(pid, &status, 0); // reap the immediate child; it exits almost instantly
 
@@ -449,7 +485,17 @@ void App::sessionPollThreadMain() {
         if (sessionPollStop_.load()) return;
 
         PrefixSessions sessions = prefixSessions(installDir_ + "/runtime/pfx");
-        std::vector<Session> live = liveSessionsIn("/proc", installDir_ + "/runtime/pfx");
+        std::vector<Session> live = allLiveSessionsIn("/proc", installDir_);
+
+        // A watcher that exits without a session means the launch failed (no
+        // runtime, a refused install). Clear "Starting" instead of leaving it
+        // there until the fifteen-minute fallback.
+        const int watcher = launchWatcherPid_.load();
+        if (watcher > 0 && kill(watcher, 0) != 0 && errno == ESRCH) {
+            launchWatcherPid_.store(-1);
+            std::lock_guard<std::mutex> lock(mutex_);
+            snapshot_.launchPending = false;
+        }
 
         std::vector<Session> previous;
         {
@@ -465,7 +511,17 @@ void App::sessionPollThreadMain() {
         // Giving up after a while, so a launch that never starts does not leave the button saying "Starting" for the rest of the run.
         const long long waited = static_cast<long long>(std::time(nullptr)) - launchRequestedAt_.load();
         const bool wanted = showSessionWhenItStarts_.load();
-        const bool settled = wanted && (arrived != 0 || waited > 900);
+        // A short session can come and go between two censuses and never be
+        // seen as "arrived". Its ended row is just as good an answer: the
+        // launch is over, so the button must stop saying it is starting.
+        const int requestedTarget = launchRequestedTarget_.load();
+        bool endedSinceRequest = false;
+        for (const Session& s : merged)
+            if (!s.running && static_cast<int>(s.target) == requestedTarget &&
+                s.endedAt >= launchRequestedAt_.load())
+                endedSinceRequest = true;
+        const bool settled =
+            wanted && (arrived != 0 || endedSinceRequest || waited > 900);
         if (settled) showSessionWhenItStarts_.store(false);
 
         // One lock for all of it: the page takes the request as soon as it is set, and asking it to show a session the list does not hold yet would land it on an empty pane for a tick.
@@ -473,6 +529,10 @@ void App::sessionPollThreadMain() {
             std::lock_guard<std::mutex> lock(mutex_);
             snapshot_.sessions = sessions;
             snapshot_.sessionList = merged;
+            macclient::Build macBuild;
+            snapshot_.macClientInstalled = macclient::installedBuild(installDir_, macBuild);
+            snapshot_.macClientUpload = snapshot_.macClientInstalled ? macBuild.upload : std::string();
+            snapshot_.macClientVersion = snapshot_.macClientInstalled ? macBuild.version : std::string();
             if (settled) snapshot_.launchPending = false;
             if (wanted && arrived != 0) {
                 snapshot_.activeTab = Tab::Sessions;
@@ -1477,6 +1537,17 @@ void App::requestDeleteVersion(LaunchTarget target, const std::string& hash) {
     saveVersionsManifest(installDir_, fresh);
     std::lock_guard<std::mutex> lock(mutex_);
     snapshot_.versions = fresh;
+}
+
+void App::requestDeleteMacClient() {
+    // The verified bundle only. Rosemary and its prefix stay: the next launch
+    // downloads and verifies the client again into the same place.
+    std::error_code ec;
+    fs::remove_all(fs::path(installDir_) / "mac-client", ec);
+    std::lock_guard<std::mutex> lock(mutex_);
+    snapshot_.macClientInstalled = false;
+    snapshot_.macClientUpload.clear();
+    snapshot_.macClientVersion.clear();
 }
 
 } // namespace tuxblox

@@ -58,7 +58,10 @@ int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const 
 
     // Runs before the active version is resolved below, so a freshly
     // installed version is the one that launches and gets its FastFlags.
-    runRobloxUpdateCheck(installDir, target, settings);
+    // The Windows deploy has nothing to do with the macOS client: that
+    // backend gets its build from ensureCurrent() on the launch path instead.
+    if (!launcherFlags().macClient)
+        runRobloxUpdateCheck(installDir, target, settings);
     // Straight after the install rather than only once the session ends, so a
     // first-ever install gets its menu entry right away.
     exportPrefixShortcuts(installDir, selfExePath());
@@ -82,10 +85,15 @@ int runWatchAndLaunch(const std::string& installDir, LaunchTarget target, const 
 
     const bool player = target == LaunchTarget::Player;
     // This is also the wait for the session to end, so it runs whether or not either feature is on.
+    // The macOS client writes into the captured Rosemary output, not into the
+    // Windows Roblox log folder findSessionLog() looks in.
+    const std::string presenceLog =
+        launcherFlags().macClient && target == LaunchTarget::Player ? outcome.logPath : "";
     runPresenceLoop(installDir, target, settings, launchStart,
                     [&] { return launcher.pollIsRunning(target); },
                     makeServerRegionWatcher(serverRegionNotifyEnabled(settings.serverRegionNotify),
-                                            presenceNotificationIcon(target)));
+                                            presenceNotificationIcon(target)),
+                    presenceLog);
 
     auto ev = launcher.takeExitEvent(target);
 

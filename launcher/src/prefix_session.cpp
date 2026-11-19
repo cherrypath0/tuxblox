@@ -312,6 +312,24 @@ int layerProcessForSessionIn(const std::string& procRoot, const std::string& ins
 }
 
 bool stopPrefixSession(const std::string& installDir, LaunchTarget target, int robloxPid) {
+    // The macOS backend runs the client directly: there is no compatibility
+    // layer process to signal, so stop the marked process itself.
+    {
+        std::ifstream environ("/proc/" + std::to_string(robloxPid) + "/environ", std::ios::binary);
+        std::istreambuf_iterator<char> first(environ), last;
+        const std::string blob(first, last);
+        if (envValueFromEnviron(blob, "TUXBLOX_MAC_CLIENT") == "1") {
+            const std::vector<int> client{robloxPid};
+            ::kill(robloxPid, SIGTERM);
+            for (int waited = 0; waited < 3000; waited += 100) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                if (!anyAlive(client)) return true;
+            }
+            ::kill(robloxPid, SIGKILL);
+            return true;
+        }
+    }
+
     const int layer = layerProcessForSessionIn("/proc", installDir, target, robloxPid);
     if (layer <= 0) return false;
 

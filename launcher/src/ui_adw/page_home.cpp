@@ -382,10 +382,26 @@ void HomePage::setUpdateState(const std::string &text, const std::string &styleC
 }
 
 void HomePage::update(const AppSnapshot &snap) {
-    setCard(player_, !snap.versions.player.activeHash.empty(), versionLabel(snap.versions.player),
-            snap.sessions.player, snap.stoppingPlayer, snap.launchPending, launcherFlags().playerButton);
+    // The macOS backend has no Windows version hash: when it is enabled the
+    // Player card is ready even though the Windows version list is empty, and
+    // the flag that gates the unfinished Windows Player must not hold it back.
+    const bool macBackend = launcherFlags().macClient;
+    const bool playerPending =
+        snap.launchPending && snap.launchTarget == LaunchTarget::Player;
+    const bool studioPending =
+        snap.launchPending && snap.launchTarget == LaunchTarget::Studio;
+    // The card names the version the way the Studio card does; the backend
+    // is not something the user needs to read on the home screen.
+    const std::string macVersion = snap.macClientVersion.empty()
+                                       ? std::string()
+                                       : snap.macClientVersion + " \xC2\xB7 live";
+    setCard(player_, macBackend ? snap.macClientInstalled
+                                : !snap.versions.player.activeHash.empty(),
+            macBackend ? macVersion : versionLabel(snap.versions.player),
+            snap.sessions.player, snap.stoppingPlayer, playerPending,
+            macBackend || launcherFlags().playerButton);
     setCard(studio_, !snap.versions.studio.activeHash.empty(), versionLabel(snap.versions.studio),
-            snap.sessions.studio, snap.stoppingStudio, snap.launchPending, launcherFlags().playerButton);
+            snap.sessions.studio, snap.stoppingStudio, studioPending, launcherFlags().playerButton);
 
     // A Flatpak fetches its own compatibility layer, and one that does not match this release is
     // no use: after a flatpak update the layer on disk belongs to the release before it. So the

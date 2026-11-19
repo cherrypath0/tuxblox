@@ -42,6 +42,15 @@ struct Session {
 // Every Roblox process alive in the drive, oldest first, whoever started it -- a session started from a link before the launcher opened is as real as one started from its buttons.
 std::vector<Session> liveSessionsIn(const std::string& procRoot, const std::string& prefixDir);
 
+// Sessions of the experimental macOS-client backend. The emulator process is
+// marked with TUXBLOX_MAC_CLIENT and carries the install's ROSEMARY_PREFIX, so
+// it can be found without the Windows prefix's WINEPREFIX match. Only Player
+// is served by that backend in this build.
+std::vector<Session> macSessionsIn(const std::string& procRoot, const std::string& installDir);
+
+// Both backends' sessions, oldest first, for the window's census.
+std::vector<Session> allLiveSessionsIn(const std::string& procRoot, const std::string& installDir);
+
 // How a session that is over ended, in words for the row underneath its name. Empty for anything that ended the way it was meant to.
 std::string describeExit(bool stopRequested, std::optional<int> markerExitCode);
 

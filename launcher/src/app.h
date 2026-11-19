@@ -124,6 +124,14 @@ struct AppSnapshot {
     bool stoppingStudio = false;
     // A launch started from the window that has not produced a session yet. Most of an install looks like this, since Roblox has to be fetched before anything can run.
     bool launchPending = false;
+    // Which card started that pending launch. Only that card says "Starting".
+    LaunchTarget launchTarget = LaunchTarget::Player;
+    // Whether the macOS client is already installed, for the Player card and
+    // the welcome tour. The full integrity check still runs when it is used.
+    bool macClientInstalled = false;
+    // The installed macOS build, so Versions can name it. Empty when there is none.
+    std::string macClientUpload;
+    std::string macClientVersion;
 };
 
 class App {
@@ -265,6 +273,9 @@ public:
     // versions.json entry. A no-op if `hash` is the currently active
     // version (must pin a different one first) or isn't installed.
     void requestDeleteVersion(LaunchTarget target, const std::string& hash);
+    // Removes the installed macOS client (the verified bundle, not the
+    // Rosemary binary). The next launch downloads and verifies it again.
+    void requestDeleteMacClient();
 
 private:
     void updateCheckThreadMain();
@@ -318,6 +329,10 @@ private:
     // Set when a launch from the window should land on its session once one exists, cleared when it does or when waiting any longer stops being reasonable.
     std::atomic<bool> stopOneBusy_{false};
     std::atomic<bool> showSessionWhenItStarts_{false};
+    // The detached --watch-launch process for the pending launch, or -1 when
+    // none was recorded. Used to clear "Starting" when it exits without ever
+    // producing a session (a failed install, a missing runtime).
+    std::atomic<int> launchWatcherPid_{-1};
     int sessionToShow_ = 0;
     std::atomic<long long> launchRequestedAt_{0};
     // Which app the pending launch was for, so an unrelated session starting in the same pass is not mistaken for it.

@@ -20,7 +20,15 @@
 #include "session_facts.h"
 
 #include <algorithm>
+#include <cctype>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <string>
+#include <system_error>
+#include <vector>
+#include <unistd.h>
 
 namespace tuxblox {
 
@@ -50,6 +58,69 @@ std::vector<Session> liveSessionsIn(const std::string& procRoot, const std::stri
     std::vector<Session> sessions;
     appendTarget(sessions, procRoot, census.playerPids, LaunchTarget::Player);
     appendTarget(sessions, procRoot, census.studioPids, LaunchTarget::Studio);
+    std::sort(sessions.begin(), sessions.end(), [](const Session& a, const Session& b) {
+        if (a.startedAt != b.startedAt) return a.startedAt < b.startedAt;
+        return a.pid < b.pid;
+    });
+    return sessions;
+}
+
+std::vector<Session> macSessionsIn(const std::string& procRoot, const std::string& installDir) {
+    std::vector<Session> sessions;
+    const std::string wantedPrefix =
+        (std::filesystem::path(installDir) / "mac-client" / "prefix").string();
+    const pid_t self = ::getpid();
+    std::error_code ec;
+    std::filesystem::directory_iterator it(procRoot, ec), end;
+    for (; it != end; it.increment(ec)) {
+        if (ec) break;
+        if (!it->is_directory(ec)) continue;
+        const std::string name = it->path().filename().string();
+        if (name.empty() || !std::isdigit(static_cast<unsigned char>(name[0]))) continue;
+        const int pid = std::atoi(name.c_str());
+        if (pid <= 0 || pid == self) continue;
+
+        std::ifstream environ(it->path() / "environ", std::ios::binary);
+        std::istreambuf_iterator<char> first(environ), last;
+        const std::string blob(first, last);
+        if (envValueFromEnviron(blob, "TUXBLOX_MAC_CLIENT") != "1") continue;
+        const std::string prefix = envValueFromEnviron(blob, "ROSEMARY_PREFIX");
+        if (!prefix.empty() && prefix != wantedPrefix) continue;
+
+        // Every guest Rosemary starts inherits the marker above: the crash
+        // handler, the menu bar app and the prefix services would otherwise
+        // each show up as a separate Roblox session. Only the process running
+        // the main client executable is one.
+        std::ifstream cmdlineFile(it->path() / "cmdline", std::ios::binary);
+        std::istreambuf_iterator<char> cmdFirst(cmdlineFile), cmdLast;
+        const std::string cmdline(cmdFirst, cmdLast);
+        const std::string clientRoot =
+            (std::filesystem::path(installDir) / "mac-client" / "player").string();
+        if (cmdline.find(clientRoot) == std::string::npos ||
+            cmdline.find("RobloxPlayer.app/Contents/MacOS/RobloxPlayer") == std::string::npos)
+            continue;
+
+        Session session;
+        session.target = LaunchTarget::Player;
+        session.pid = pid;
+        session.startedAt = processStartTime(procRoot, pid);
+        session.residentBytes = processResidentBytes(procRoot, pid);
+        session.running = true;
+        sessions.push_back(session);
+    }
+    std::sort(sessions.begin(), sessions.end(), [](const Session& a, const Session& b) {
+        if (a.startedAt != b.startedAt) return a.startedAt < b.startedAt;
+        return a.pid < b.pid;
+    });
+    return sessions;
+}
+
+std::vector<Session> allLiveSessionsIn(const std::string& procRoot,
+                                       const std::string& installDir) {
+    std::vector<Session> sessions =
+        liveSessionsIn(procRoot, installDir + "/runtime/pfx");
+    std::vector<Session> mac = macSessionsIn(procRoot, installDir);
+    sessions.insert(sessions.end(), mac.begin(), mac.end());
     std::sort(sessions.begin(), sessions.end(), [](const Session& a, const Session& b) {
         if (a.startedAt != b.startedAt) return a.startedAt < b.startedAt;
         return a.pid < b.pid;

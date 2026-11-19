@@ -356,11 +356,53 @@ void VersionsPage::applyReadOnly(bool readOnly) {
     gtk_widget_set_sensitive(pInstallButton_, !readOnly);
 }
 
-void VersionsPage::rebuild(List &list, const AppVersions &versions) {
+void VersionsPage::rebuild(List &list, const AppVersions &versions,
+                           const std::string &macVersion) {
     for (GtkWidget *pRow : list.rows) adw_preferences_group_remove(list.pGroup, pRow);
     list.rows.clear();
 
-    if (versions.installed.empty()) {
+    // The macOS backend keeps its build outside the Windows version list, so
+    // it needs a row of its own. It has no Windows actions: it is managed by
+    // the launch path, which re-downloads and verifies it.
+    if (list.target == LaunchTarget::Player && !macVersion.empty()) {
+        GtkWidget *pMacRow = adw_action_row_new();
+        adw_preferences_row_set_title(ADW_PREFERENCES_ROW(pMacRow),
+                                      i18n::tr("Roblox Player"));
+        const std::string subtitle = macVersion + " \xC2\xB7 live";
+        adw_action_row_set_subtitle(ADW_ACTION_ROW(pMacRow), subtitle.c_str());
+
+        GtkWidget *pActive = gtk_label_new(i18n::tr("ACTIVE"));
+        gtk_widget_add_css_class(pActive, "accent");
+        gtk_widget_add_css_class(pActive, "caption-heading");
+        gtk_widget_set_valign(pActive, GTK_ALIGN_CENTER);
+        adw_action_row_add_suffix(ADW_ACTION_ROW(pMacRow), pActive);
+
+        GtkWidget *pDelete = gtk_button_new_with_label(i18n::tr("Remove"));
+        gtk_widget_add_css_class(pDelete, "destructive-action");
+        gtk_widget_add_css_class(pDelete, "flat");
+        g_signal_connect(pDelete, "clicked", G_CALLBACK(onDeleteMacClient), this);
+
+        GtkWidget *pMenuBox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+        gtk_widget_set_margin_start(pMenuBox, 6);
+        gtk_widget_set_margin_end(pMenuBox, 6);
+        gtk_widget_set_margin_top(pMenuBox, 6);
+        gtk_widget_set_margin_bottom(pMenuBox, 6);
+        gtk_box_append(GTK_BOX(pMenuBox), pDelete);
+        GtkWidget *pPopover = gtk_popover_new();
+        gtk_popover_set_child(GTK_POPOVER(pPopover), pMenuBox);
+
+        GtkWidget *pMore = gtk_menu_button_new();
+        gtk_menu_button_set_icon_name(GTK_MENU_BUTTON(pMore), "view-more-symbolic");
+        gtk_menu_button_set_popover(GTK_MENU_BUTTON(pMore), pPopover);
+        gtk_widget_add_css_class(pMore, "flat");
+        gtk_widget_set_valign(pMore, GTK_ALIGN_CENTER);
+        adw_action_row_add_suffix(ADW_ACTION_ROW(pMacRow), pMore);
+
+        adw_preferences_group_add(list.pGroup, pMacRow);
+        list.rows.push_back(pMacRow);
+    }
+
+    if (versions.installed.empty() && list.rows.empty()) {
         GtkWidget *pEmpty = plainActionRow(i18n::tr("No versions installed"), "");
         adw_preferences_group_add(list.pGroup, pEmpty);
         list.rows.push_back(pEmpty);
@@ -387,6 +429,15 @@ void VersionsPage::onDelete(GtkButton *pButton, gpointer data) {
     confirmDestructive(GTK_WIDGET(pButton), i18n::tr("Delete this version?"),
                        i18n::trf("{0} will be removed from the virtual drive.", {hash}), i18n::tr("Delete"),
                        [pApp, target, hash] { pApp->requestDeleteVersion(target, hash); });
+}
+
+void VersionsPage::onDeleteMacClient(GtkButton *pButton, gpointer data) {
+    auto *pOwner = static_cast<VersionsPage *>(data);
+    App *pApp = &pOwner->app_;
+    confirmDestructive(
+        GTK_WIDGET(pButton), i18n::tr("Delete this version?"),
+        i18n::tr("The macOS client will be downloaded and verified again on the next launch."),
+        i18n::tr("Remove"), [pApp] { pApp->requestDeleteMacClient(); });
 }
 
 void VersionsPage::freeRowAction(gpointer data, GClosure *) {
@@ -424,12 +475,14 @@ void VersionsPage::update(const AppSnapshot &snap) {
 
     // Only when the installed versions change, or a confirm dialog opened from a row would lose that row every tick
     if (renderedOnce_ && !readOnlyChanged && sameVersions(snap.versions.player, rendered_.player) &&
-        sameVersions(snap.versions.studio, rendered_.studio)) {
+        sameVersions(snap.versions.studio, rendered_.studio) &&
+        renderedMacVersion_ == snap.macClientVersion) {
         return;
     }
-    rebuild(player_, snap.versions.player);
-    rebuild(studio_, snap.versions.studio);
+    rebuild(player_, snap.versions.player, snap.macClientVersion);
+    rebuild(studio_, snap.versions.studio, "");
     rendered_ = snap.versions;
+    renderedMacVersion_ = snap.macClientVersion;
     renderedOnce_ = true;
 }
 

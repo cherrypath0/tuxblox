@@ -63,7 +63,7 @@ private:
     GtkWidget *buildToolbar();
     void buildProgressGroup();
     AdwPreferencesGroup *buildList(List &list, const char *pTitle);
-    void rebuild(List &list, const AppVersions &versions);
+    void rebuild(List &list, const AppVersions &versions, const std::string &macVersion);
     GtkWidget *versionRow(LaunchTarget target, const AppVersions &versions, const InstalledVersion &version);
     LaunchTarget selectedTarget() const;
     // Which list is on screen.
@@ -80,6 +80,7 @@ private:
     static void onSheetClosed(AdwDialog *, gpointer data);
     static void onSetActive(GtkButton *, gpointer data);
     static void onDelete(GtkButton *pButton, gpointer data);
+    static void onDeleteMacClient(GtkButton *pButton, gpointer data);
     static void freeRowAction(gpointer data, GClosure *);
 
     App &app_;
@@ -96,6 +97,7 @@ private:
     List player_{LaunchTarget::Player};
     List studio_{LaunchTarget::Studio};
     VersionsManifest rendered_;
+    std::string renderedMacVersion_;
     bool readOnly_ = false;
     bool renderedOnce_ = false;
 };
