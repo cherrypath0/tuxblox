@@ -20,7 +20,9 @@
 #include "mac_client.h"
 #include "prefix_user.h"
 #include <cctype>
+#include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -121,6 +123,35 @@ bool writeFileAtomic(const fs::path& dest, const std::string& contents) {
     return true;
 }
 
+// An .icns is a flat container of typed entries. Modern ones carry their
+// bitmaps as ordinary PNG files, so the largest one can be handed straight to
+// the icon theme without an image library. Older ARGB entries are ignored.
+std::string pngFromIcns(const std::string& icns) {
+    auto bigEndian = [](const unsigned char *p) {
+        return (static_cast<uint32_t>(p[0]) << 24) | (static_cast<uint32_t>(p[1]) << 16) |
+               (static_cast<uint32_t>(p[2]) << 8) | static_cast<uint32_t>(p[3]);
+    };
+    if (icns.size() < 8 || icns.compare(0, 4, "icns") != 0) return std::string();
+    const auto *bytes = reinterpret_cast<const unsigned char *>(icns.data());
+    const uint32_t total = bigEndian(bytes + 4);
+    if (total < 8 || total > icns.size()) return std::string();
+
+    std::string best;
+    std::size_t at = 8;
+    while (at + 8 <= total) {
+        const uint32_t length = bigEndian(bytes + at + 4);
+        if (length < 8 || at + length > total) break;
+        const unsigned char *payload = bytes + at + 8;
+        const std::size_t payloadLength = length - 8;
+        const bool isPng = payloadLength >= 8 && std::memcmp(payload, "\x89PNG\r\n\x1a\n", 8) == 0;
+        if (isPng && payloadLength > best.size()) {
+            best.assign(reinterpret_cast<const char *>(payload), payloadLength);
+        }
+        at += length;
+    }
+    return best;
+}
+
 // The macOS client has no Windows shortcut to copy an icon out of. Prefer the
 // Player icon the client itself ships, which is the artwork people recognise
 // and stays legible on both light and dark panels; fall back to the embedded
@@ -130,12 +161,10 @@ std::string writeMacPlayerIcon(const std::string& installDir, const std::string&
 
     macclient::Build build;
     if (macclient::installedBuild(installDir, build)) {
-        const fs::path shipped = fs::path(build.app) / "Contents" / "MacOS" /
-                                 "RobloxPlayerInstaller.app" / "Contents" / "Resources" /
-                                 "Roblox_Player_254.png";
+        const fs::path icns = fs::path(build.app) / "Contents" / "Resources" / "AppIcon.icns";
         std::error_code ec;
-        if (fs::is_regular_file(shipped, ec) && !ec) {
-            const std::string png = readWholeFile(shipped);
+        if (fs::is_regular_file(icns, ec) && !ec) {
+            const std::string png = pngFromIcns(readWholeFile(icns));
             const fs::path dir = fs::path(iconsDir) / "256x256" / "apps";
             fs::create_directories(dir, ec);
             if (!ec && !png.empty() && writeFileAtomic(dir / (name + ".png"), png)) {

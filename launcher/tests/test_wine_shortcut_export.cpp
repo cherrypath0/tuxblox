@@ -17,6 +17,7 @@
 #include "wine_shortcut_export.h"
 #include "flag_startup.h"
 #include <cassert>
+#include <cstdint>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -272,8 +273,20 @@ int main() {
         writeAll(macRoot / "current", "version-abc123\n0.748.0.7481526\n");
         const fs::path app = macRoot / "version-abc123" / "RobloxPlayer.app";
         writeAll(app / "Contents" / "MacOS" / "RobloxPlayer", "MZ");
-        writeAll(app / "Contents" / "MacOS" / "RobloxPlayerInstaller.app" / "Contents" /
-                     "Resources" / "Roblox_Player_254.png", "PNG254");
+
+        auto bigEndian = [](uint32_t value) {
+            std::string out;
+            out.push_back(static_cast<char>((value >> 24) & 0xff));
+            out.push_back(static_cast<char>((value >> 16) & 0xff));
+            out.push_back(static_cast<char>((value >> 8) & 0xff));
+            out.push_back(static_cast<char>(value & 0xff));
+            return out;
+        };
+        const std::string png = std::string("\x89PNG\r\n\x1a\n", 8) + "ICON";
+        const std::string icnsEntry = "ic13" + bigEndian(static_cast<uint32_t>(8 + png.size())) + png;
+        const std::string icns =
+            "icns" + bigEndian(static_cast<uint32_t>(8 + icnsEntry.size())) + icnsEntry;
+        writeAll(app / "Contents" / "Resources" / "AppIcon.icns", icns);
 
         exportPrefixShortcutsTo(macInstall.string(), "/opt/tuxblox/TuxBloxLauncher",
                                 macApps.string(), macIcons.string());
@@ -287,8 +300,8 @@ int main() {
         assert(entry.find("Icon=tuxblox-roblox-player\n") != std::string::npos);
         // The SDL app id the mac client is started with, not a Windows exe name.
         assert(entry.find("StartupWMClass=net.tuxblox.TuxBlox.Player\n") != std::string::npos);
-        // The client's own icon is used when the bundle carries it.
-        assert(readAll(macIcons / "256x256" / "apps" / "tuxblox-roblox-player.png") == "PNG254");
+        // The PNG is taken out of the client's own .icns.
+        assert(readAll(macIcons / "256x256" / "apps" / "tuxblox-roblox-player.png") == png);
         assert(!fs::exists(macIcons / "scalable" / "apps" / "tuxblox-roblox-player.svg"));
 
         // Removing the client takes the entry away again.
