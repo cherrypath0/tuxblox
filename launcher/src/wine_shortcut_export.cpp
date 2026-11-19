@@ -19,11 +19,13 @@
 #include "flag_startup.h"
 #include "mac_client.h"
 #include "prefix_user.h"
+#include <algorithm>
 #include <cctype>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <gdk-pixbuf/gdk-pixbuf.h>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -152,6 +154,82 @@ std::string pngFromIcns(const std::string& icns) {
     return best;
 }
 
+// The app icon carries the transparent margin Apple's icon grid asks for.
+// On a Linux panel that makes it look smaller than the Studio icon, which
+// fills its canvas. Crop to the opaque square and scale to the icon size
+// the menu will ask for; the rounded corners and the artwork stay as shipped.
+std::string trimIconPng(const std::string& png) {
+    GError *pError = nullptr;
+    GdkPixbufLoader *pLoader = gdk_pixbuf_loader_new();
+    bool ok = gdk_pixbuf_loader_write(pLoader,
+                                      reinterpret_cast<const guchar *>(png.data()), png.size(),
+                                      &pError);
+    if (ok) ok = gdk_pixbuf_loader_close(pLoader, &pError);
+    GdkPixbuf *pPixbuf = ok ? gdk_pixbuf_loader_get_pixbuf(pLoader) : nullptr;
+    if (pPixbuf != nullptr) g_object_ref(pPixbuf);
+    g_object_unref(pLoader);
+    if (pError != nullptr) g_error_free(pError);
+    if (pPixbuf == nullptr || !gdk_pixbuf_get_has_alpha(pPixbuf)) {
+        if (pPixbuf != nullptr) g_object_unref(pPixbuf);
+        return std::string();
+    }
+
+    const int width = gdk_pixbuf_get_width(pPixbuf);
+    const int height = gdk_pixbuf_get_height(pPixbuf);
+    const int channels = gdk_pixbuf_get_n_channels(pPixbuf);
+    const int stride = gdk_pixbuf_get_rowstride(pPixbuf);
+    const guchar *pPixels = gdk_pixbuf_get_pixels(pPixbuf);
+
+    int minX = width, minY = height, maxX = -1, maxY = -1;
+    for (int y = 0; y < height; y++) {
+        const guchar *pRow = pPixels + y * stride;
+        for (int x = 0; x < width; x++) {
+            // The shadow fades out well below this; the icon itself is opaque.
+            if (pRow[x * channels + 3] <= 128) continue;
+            minX = std::min(minX, x);
+            maxX = std::max(maxX, x);
+            minY = std::min(minY, y);
+            maxY = std::max(maxY, y);
+        }
+    }
+    if (maxX < minX || maxY < minY) {
+        g_object_unref(pPixbuf);
+        return std::string();
+    }
+    if (minX == 0 && minY == 0 && maxX == width - 1 && maxY == height - 1 &&
+        width == 256 && height == 256) {
+        g_object_unref(pPixbuf);
+        return png;
+    }
+
+    int side = std::max(maxX - minX + 1, maxY - minY + 1);
+    side = std::min(side, std::min(width, height));
+    int left = (minX + maxX + 1) / 2 - side / 2;
+    int top = (minY + maxY + 1) / 2 - side / 2;
+    left = std::clamp(left, 0, width - side);
+    top = std::clamp(top, 0, height - side);
+
+    GdkPixbuf *pSub = gdk_pixbuf_new_subpixbuf(pPixbuf, left, top, side, side);
+    GdkPixbuf *pScaled = pSub == nullptr
+                             ? nullptr
+                             : gdk_pixbuf_scale_simple(pSub, 256, 256, GDK_INTERP_BILINEAR);
+    std::string out;
+    if (pScaled != nullptr) {
+        gchar *pBuffer = nullptr;
+        gsize size = 0;
+        pError = nullptr;
+        if (gdk_pixbuf_save_to_buffer(pScaled, &pBuffer, &size, "png", &pError, nullptr)) {
+            out.assign(pBuffer, size);
+        }
+        g_free(pBuffer);
+        if (pError != nullptr) g_error_free(pError);
+    }
+    if (pScaled != nullptr) g_object_unref(pScaled);
+    if (pSub != nullptr) g_object_unref(pSub);
+    g_object_unref(pPixbuf);
+    return out;
+}
+
 // The macOS client has no Windows shortcut to copy an icon out of. Prefer the
 // Player icon the client itself ships, which is the artwork people recognise
 // and stays legible on both light and dark panels; fall back to the embedded
@@ -165,9 +243,11 @@ std::string writeMacPlayerIcon(const std::string& installDir, const std::string&
         std::error_code ec;
         if (fs::is_regular_file(icns, ec) && !ec) {
             const std::string png = pngFromIcns(readWholeFile(icns));
+            const std::string trimmed = png.empty() ? std::string() : trimIconPng(png);
+            const std::string &icon = trimmed.empty() ? png : trimmed;
             const fs::path dir = fs::path(iconsDir) / "256x256" / "apps";
             fs::create_directories(dir, ec);
-            if (!ec && !png.empty() && writeFileAtomic(dir / (name + ".png"), png)) {
+            if (!ec && !icon.empty() && writeFileAtomic(dir / (name + ".png"), icon)) {
                 // An older fallback SVG would otherwise win the theme lookup on
                 // desktops that prefer scalable icons, bringing back the
                 // unreadable black-on-dark artwork.

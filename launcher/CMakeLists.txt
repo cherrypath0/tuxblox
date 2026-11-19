@@ -46,6 +46,7 @@ endif()
 
 # Still needed by the interface stack's UiStack.cmake, which finds GTK and libadwaita through pkg-config.
 find_package(PkgConfig REQUIRED)
+pkg_check_modules(GDK_PIXBUF REQUIRED IMPORTED_TARGET gdk-pixbuf-2.0)
 
 # TuxBlox's own code that uses those libraries, mounted read-only into the build container.
 if(NOT TUXBLOX_SHARED_CRYPTO)
@@ -261,7 +262,7 @@ if(TUXBLOX_TEST_SETUP_URL)
     target_compile_definitions(launcher_core PUBLIC TUXBLOX_TEST_SETUP_URL)
 endif()
 target_link_libraries(launcher_core PUBLIC
-    ${TUXBLOX_SHARED_LIBS} ${CMAKE_DL_LIBS} Threads::Threads)
+    ${TUXBLOX_SHARED_LIBS} ${CMAKE_DL_LIBS} Threads::Threads PkgConfig::GDK_PIXBUF)
 # --exclude-libs keeps these archives' symbols out of the binary's dynamic symbol table. They are
 # still linked in and callable from our own code; this only controls whether they are exported.
 # It is load-bearing for zlib, which this process holds twice on purpose: a static copy inside
