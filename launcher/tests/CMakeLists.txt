@@ -151,6 +151,10 @@ add_executable(test_flag_table test_flag_table.cpp)
 target_link_libraries(test_flag_table PRIVATE launcher_core)
 add_test(NAME flag_table COMMAND test_flag_table)
 
+add_executable(test_mac_client test_mac_client.cpp)
+target_link_libraries(test_mac_client PRIVATE launcher_core)
+add_test(NAME mac_client COMMAND test_mac_client)
+
 add_executable(test_roblox_config test_roblox_config.cpp)
 target_link_libraries(test_roblox_config PRIVATE launcher_core)
 add_test(NAME roblox_config COMMAND test_roblox_config)

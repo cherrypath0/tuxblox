@@ -231,12 +231,27 @@ add_library(launcher_core STATIC
     src/session_log_match.cpp
     src/log_entry.cpp
     src/session_log_reader.cpp
+    src/mac_signature.cpp
+    src/mac_client.cpp
 )
 if(TUXBLOX_LIBADWAITA_COMMIT)
     target_compile_definitions(launcher_core PRIVATE TUXBLOX_LIBADWAITA_COMMIT="${TUXBLOX_LIBADWAITA_COMMIT}")
 endif()
 
 include(${TUXBLOX_SHARED_CRYPTO}/EmbedCaBundle.cmake)
+
+# The Apple root is kept in the tree and pinned: the client bundle's signature
+# is checked against this certificate and nothing the machine happens to trust.
+set(APPLE_ROOT_CA_SRC "${CMAKE_CURRENT_SOURCE_DIR}/resources/apple-root-ca.cer")
+set(APPLE_ROOT_CA_HEADER "${CMAKE_BINARY_DIR}/generated/apple_root_ca.h")
+add_custom_command(
+    OUTPUT ${APPLE_ROOT_CA_HEADER}
+    COMMAND ${CMAKE_COMMAND} -DINPUT=${APPLE_ROOT_CA_SRC} -DOUTPUT=${APPLE_ROOT_CA_HEADER}
+            -DSYMBOL=kAppleRootCaDer -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/BinToHeader.cmake
+    DEPENDS ${APPLE_ROOT_CA_SRC}
+    COMMENT "Embedding the pinned Apple root certificate"
+    VERBATIM)
+add_custom_target(generate_apple_root_ca_header DEPENDS ${APPLE_ROOT_CA_HEADER})
 
 target_include_directories(launcher_core PUBLIC
     src third_party ${TUXBLOX_SHARED_FLAGS} ${TUXBLOX_I18N_DIR}/src ${CMAKE_BINARY_DIR}/generated ${TUXBLOX_UI_SRC}
@@ -280,7 +295,7 @@ include(cmake/EmbedAssets.cmake)
 # and copyright_file.cpp/license_file.cpp embed license text. Declared here
 # on launcher_core itself, not duplicated on every consumer, since these
 # are launcher_core's own compile-time requirements.
-add_dependencies(launcher_core generate_ca_bundle_header generate_logo_header generate_font_header generate_thirdparty_license_headers generate_license_header generate_i18n_header generate_default_flags_header)
+add_dependencies(launcher_core generate_ca_bundle_header generate_apple_root_ca_header generate_logo_header generate_font_header generate_thirdparty_license_headers generate_license_header generate_i18n_header generate_default_flags_header)
 
 # The window needs the interface stack's development tree, which only exists once the Makefile's $(UI) rule has run; without it only launcher_core and its tests build, and the Makefile refuses to finish.
 if(TUXBLOX_UI_STACK_DEV OR TUXBLOX_SYSTEM_UI)
