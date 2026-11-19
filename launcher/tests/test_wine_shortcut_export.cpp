@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "wine_shortcut_export.h"
+#include "flag_startup.h"
 #include <cassert>
 #include <cstdio>
 #include <filesystem>
@@ -92,6 +93,13 @@ int main() {
     const fs::path appsDir = tmp / "applications";
     const fs::path iconsDir = tmp / "icons" / "hicolor";
     fs::create_directories(appsDir);
+
+    // The macOS backend switch is read once for the process. Turning it on
+    // here lets the export exercise both the Windows and the macOS branches;
+    // the Windows fixtures below have no mac-client directory, so they are
+    // unaffected.
+    writeAll(installDir / "flags.json", "{\"tbxFlagEnableExperimentalMacClient\": true}\n");
+    initLauncherFlags(installDir.string());
 
     writeAll(shortcuts / "Roblox Studio.desktop",
              sourceEntry("Roblox Studio", "RobloxStudioBeta.exe", "393D_RobloxStudioBeta.0"));
@@ -249,6 +257,45 @@ int main() {
         exportPrefixShortcutsTo(renamedInstall.string(), "/opt/tuxblox/TuxBloxLauncher",
                                 renamedApps.string(), renamedIcons.string());
         assert(!fs::exists(renamedApps / "tuxblox-roblox-studio.desktop"));
+    }
+
+    // The macOS backend keeps the Player outside the Windows version tree, and
+    // its client creates no Windows shortcut to translate. The menu entry still
+    // has to appear, with the artwork the launcher already carries.
+    {
+        const fs::path macTmp = tmp / "mac";
+        const fs::path macInstall = macTmp / "install";
+        const fs::path macApps = macTmp / "applications";
+        const fs::path macIcons = macTmp / "icons" / "hicolor";
+        const fs::path macRoot = macInstall / "mac-client" / "player";
+
+        writeAll(macRoot / "current", "version-abc123\n0.748.0.7481526\n");
+        const fs::path app = macRoot / "version-abc123" / "RobloxPlayer.app";
+        writeAll(app / "Contents" / "MacOS" / "RobloxPlayer", "MZ");
+        writeAll(app / "Contents" / "MacOS" / "RobloxPlayerInstaller.app" / "Contents" /
+                     "Resources" / "Roblox_Player_254.png", "PNG254");
+
+        exportPrefixShortcutsTo(macInstall.string(), "/opt/tuxblox/TuxBloxLauncher",
+                                macApps.string(), macIcons.string());
+
+        assert(fs::exists(macApps / "tuxblox-roblox-player.desktop"));
+        const std::string entry = readAll(macApps / "tuxblox-roblox-player.desktop");
+        assert(entry.find("Name=Roblox Player\n") != std::string::npos);
+        assert(entry.find("Comment=via TuxBlox\n") != std::string::npos);
+        assert(entry.find("Exec=\"/opt/tuxblox/TuxBloxLauncher\" --launch-player\n") !=
+               std::string::npos);
+        assert(entry.find("Icon=tuxblox-roblox-player\n") != std::string::npos);
+        // The SDL app id the mac client is started with, not a Windows exe name.
+        assert(entry.find("StartupWMClass=net.tuxblox.TuxBlox.Player\n") != std::string::npos);
+        // The client's own icon is used when the bundle carries it.
+        assert(readAll(macIcons / "256x256" / "apps" / "tuxblox-roblox-player.png") == "PNG254");
+        assert(!fs::exists(macIcons / "scalable" / "apps" / "tuxblox-roblox-player.svg"));
+
+        // Removing the client takes the entry away again.
+        fs::remove_all(macRoot);
+        exportPrefixShortcutsTo(macInstall.string(), "/opt/tuxblox/TuxBloxLauncher",
+                                macApps.string(), macIcons.string());
+        assert(!fs::exists(macApps / "tuxblox-roblox-player.desktop"));
     }
 
     // The icon a client installs on the desktop. It carries a mark of its own, because the file is

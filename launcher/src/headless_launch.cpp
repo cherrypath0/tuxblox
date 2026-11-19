@@ -45,14 +45,50 @@ int runHeadlessQuickLaunch(const std::string& installDir, LaunchTarget target, c
     const Settings settings = loadSettings(installDir);
     i18n::initializeFromSetting(settings.language);
 
+    // launchEnvPairs(), the same set the watched path builds: a desktop icon, a
+    // menu entry, a roblox: link and a place file all arrive here, and without
+    // it none of them carried the graphics-card selection, the Environment
+    // Variables box or the three switches the compatibility layer reads -- so
+    // every one of those settings applied only to a launch started from the
+    // launcher's own window.
+    const std::vector<std::string> extraEnv = launchEnvPairs(settings);
+
+    // The macOS Player has its own install, verification and launch path. The
+    // Windows updater and version tree must not run for it: a menu entry or a
+    // roblox: link would otherwise download the Windows Player and never start
+    // the client that is actually installed.
+    const bool macPlayer = target == LaunchTarget::Player && launcherFlags().macClient;
+
     // Before the exe is resolved, so a version installed by this check is the
     // one that starts.
-    runRobloxUpdateCheck(installDir, target, settings);
+    if (!macPlayer) runRobloxUpdateCheck(installDir, target, settings);
     // Needed here as much as on the watched path: a link in a web browser, a menu entry and a desktop icon all come through here, and without it the file keeps whatever the last launch from the TuxBlox window put in it, so a flag deleted since then goes on applying.
-    applyFastFlags(installDir, target, settings);
+    if (!macPlayer) applyFastFlags(installDir, target, settings);
     // This process execs into the game below, so the menu entry has to be
     // written here rather than after the session, as the watched path does.
     exportPrefixShortcuts(installDir, selfExePath());
+
+    if (macPlayer) {
+        // Rosemary and the client are children of this process, and the
+        // session has to be watched until they finish: there is no Proton
+        // binary to exec into. The captured log is also what the server-region
+        // watcher reads, because the client writes there, not into the
+        // Windows log folder.
+        setProcessName("tuxbloxWatcher");
+        ProcessLauncher launcher(installDir);
+        const std::time_t launchStart = std::time(nullptr);
+        const LaunchOutcome outcome = launcher.launch(target, uri, extraEnv);
+        if (!outcome.ok) {
+            fprintf(stderr, "TuxBlox: %s\n", outcome.errorMessage.c_str());
+            return 1;
+        }
+        runPresenceLoop(installDir, target, settings, launchStart,
+                        [&] { return launcher.pollIsRunning(target); },
+                        makeServerRegionWatcher(serverRegionNotifyEnabled(settings.serverRegionNotify),
+                                                presenceNotificationIcon(target)),
+                        outcome.logPath);
+        return 0;
+    }
 
     // The version picked in the Versions tab, not whatever the prefix scan
     // reaches first: a menu entry or a roblox: link has to start the same
@@ -63,14 +99,6 @@ int runHeadlessQuickLaunch(const std::string& installDir, LaunchTarget target, c
         fprintf(stderr, "TuxBlox: could not resolve or download the Roblox executable\n");
         return 1;
     }
-
-    // launchEnvPairs(), the same set the watched path builds: a desktop icon, a
-    // menu entry, a roblox: link and a place file all arrive here, and without
-    // it none of them carried the graphics-card selection, the Environment
-    // Variables box or the three switches the compatibility layer reads -- so
-    // every one of those settings applied only to a launch started from the
-    // launcher's own window.
-    const std::vector<std::string> extraEnv = launchEnvPairs(settings);
 
     // Both features are driven by reading the session log as it is written, which needs a process that outlives the launch, so when either is on the launch is tracked here rather than handed this process by the exec below -- exactly as the launcher's own window does it.
     // With both off nothing has to be watched and the exec is reached as before, which is what a default install does.

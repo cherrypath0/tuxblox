@@ -22,6 +22,7 @@
 #include "fastflag_file.h"
 #include "mac_client.h"
 #include "settings.h"
+#include "wine_shortcut_export.h"
 
 #include "downloader.h"
 #include "install_paths.h"
@@ -368,6 +369,10 @@ static LaunchOutcome launchMacPlayer(const std::string& installDir, TrackedProce
         return {false, std::string(i18n::tr("could not prepare the Roblox client")) + ": " +
                            prepared.error,
                 "", false};
+
+    // The install is complete now, so the menu entry can be written before
+    // the first session ends rather than only when the watcher next runs.
+    exportPrefixShortcuts(installDir, selfExePath());
 
     const Settings settings = loadSettings(installDir);
     // The graphics choice writes Windows renderer flags (D3D11/Vulkan/OpenGL);

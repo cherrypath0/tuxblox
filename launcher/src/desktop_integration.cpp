@@ -17,7 +17,9 @@
 #include "desktop_integration.h"
 #include "tuxblox_logo_png.h" // generated at build time: kTuxbloxLogoPng[], kTuxbloxLogoPngLen
 #include "container_env.h"
+#include "flag_startup.h"
 #include "install_paths.h"
+#include "mac_client.h"
 #include "version.h"
 #include "versions_manifest.h"
 #include "wine_shortcut_export.h"
@@ -479,8 +481,14 @@ void ensureDesktopIntegration(const std::string& launcherExePath, const std::str
         if (!std::getenv("TUXBLOX_SKIP_XDG_MIME")) { // escape hatch for sandboxed test/CI runs
             // Read off the virtual drive rather than versions.json, so a stale file cannot make an installed Roblox look missing.
             const VersionsManifest versions = loadInstalledVersions(installDir);
+            // The macOS backend keeps the Player outside the Windows version
+            // tree. While it is on, that build is what --launch-player starts,
+            // so it has to count as installed for the roblox: handlers too.
+            const bool macPlayer = launcherFlags().macClient &&
+                                   macclient::hasInstalledClient(installDir);
             const std::vector<std::string> wanted =
-                schemesToClaim(!versions.player.installed.empty(), !versions.studio.installed.empty());
+                schemesToClaim(!versions.player.installed.empty() || macPlayer,
+                               !versions.studio.installed.empty());
             for (const auto& h : installedHandlers()) {
                 for (const char* scheme : h.schemes) {
                     if (std::find(wanted.begin(), wanted.end(), scheme) == wanted.end()) continue;

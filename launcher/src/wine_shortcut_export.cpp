@@ -15,7 +15,9 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "wine_shortcut_export.h"
+#include "asset_roblox_player.h"
 #include "flag_startup.h"
+#include "mac_client.h"
 #include "prefix_user.h"
 #include <cctype>
 #include <cstdlib>
@@ -119,6 +121,38 @@ bool writeFileAtomic(const fs::path& dest, const std::string& contents) {
     return true;
 }
 
+// The macOS client has no Windows shortcut to copy an icon out of. Prefer the
+// Player icon the client itself ships, which is the artwork people recognise
+// and stays legible on both light and dark panels; fall back to the embedded
+// one if a build ever stops carrying it.
+std::string writeMacPlayerIcon(const std::string& installDir, const std::string& iconsDir) {
+    const std::string name = "tuxblox-roblox-player";
+
+    macclient::Build build;
+    if (macclient::installedBuild(installDir, build)) {
+        const fs::path shipped = fs::path(build.app) / "Contents" / "MacOS" /
+                                 "RobloxPlayerInstaller.app" / "Contents" / "Resources" /
+                                 "Roblox_Player_254.png";
+        std::error_code ec;
+        if (fs::is_regular_file(shipped, ec) && !ec) {
+            const std::string png = readWholeFile(shipped);
+            const fs::path dir = fs::path(iconsDir) / "256x256" / "apps";
+            fs::create_directories(dir, ec);
+            if (!ec && !png.empty() && writeFileAtomic(dir / (name + ".png"), png)) {
+                return name;
+            }
+        }
+    }
+
+    const fs::path dir = fs::path(iconsDir) / "scalable" / "apps";
+    std::error_code ec;
+    fs::create_directories(dir, ec);
+    if (ec) return std::string();
+    const std::string svg(reinterpret_cast<const char *>(kAssetRobloxPlayer), kAssetRobloxPlayerLen);
+    if (!writeFileAtomic(dir / (name + ".svg"), svg)) return std::string();
+    return name;
+}
+
 // Copies the icon named by the source entry into every size bucket that has
 // one, under a deterministic TuxBlox-owned name. Returns the Icon= value to
 // write, or "" if nothing was copied. Each copy lands via a temp file +
@@ -205,11 +239,12 @@ bool isTargetInstalled(const std::string& installDir, const char* exeLeaf) {
 // recognise the window and offer to pin it. The Exec launches through TuxBlox
 // rather than a recorded path, so it follows whichever version is installed.
 std::string builtinEntry(const ExportTarget& target, const std::string& launcherExePath,
-                         const std::string& iconsDir) {
+                         const std::string& iconsDir, const char *pWindowClass) {
     const std::string slugIcon = std::string("tuxblox-roblox-") + target.slug;
     std::error_code ec;
     const bool haveSlugIcon =
-        fs::exists(fs::path(iconsDir) / "256x256" / "apps" / (slugIcon + ".png"), ec);
+        fs::exists(fs::path(iconsDir) / "256x256" / "apps" / (slugIcon + ".png"), ec) ||
+        fs::exists(fs::path(iconsDir) / "scalable" / "apps" / (slugIcon + ".svg"), ec);
 
     std::ostringstream out;
     out << "[Desktop Entry]\n"
@@ -221,7 +256,7 @@ std::string builtinEntry(const ExportTarget& target, const std::string& launcher
            "Icon=" << (haveSlugIcon ? slugIcon : "tuxblox") << "\n"
            "Terminal=false\n"
            "StartupNotify=true\n"
-           "StartupWMClass=" << target.exeLeaf << "\n"
+           "StartupWMClass=" << pWindowClass << "\n"
            "Categories=Game;\n";
     return out.str();
 }
@@ -419,9 +454,18 @@ void exportPrefixShortcutsTo(const std::string& installDir, const std::string& l
             bool stillThere = false;
             for (const auto& p : produced) if (p == id) stillThere = true;
             if (stillThere) continue;
-            if (isTargetInstalled(installDir, t.exeLeaf)) {
+            // The macOS backend keeps the Player outside the Windows version
+            // tree, so the usual check cannot see it. The entry is only useful
+            // while the backend is on: with the flag off, --launch-player would
+            // look for a Windows Player that was never installed.
+            const bool macPlayer = std::string(t.slug) == "player" &&
+                                   launcherFlags().macClient &&
+                                   macclient::hasInstalledClient(installDir);
+            if (macPlayer || isTargetInstalled(installDir, t.exeLeaf)) {
+                if (macPlayer) writeMacPlayerIcon(installDir, iconsDir);
                 writeFileAtomic(fs::path(appsDir) / id,
-                                builtinEntry(t, launcherExePath, iconsDir));
+                                builtinEntry(t, launcherExePath, iconsDir,
+                                             macPlayer ? "net.tuxblox.TuxBlox.Player" : t.exeLeaf));
                 continue;
             }
             std::error_code rmEc;
