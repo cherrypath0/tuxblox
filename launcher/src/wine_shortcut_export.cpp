@@ -420,6 +420,12 @@ void exportPrefixShortcutsTo(const std::string& installDir, const std::string& l
         std::error_code mkEc;
         fs::create_directories(appsDir, mkEc);
 
+        // While the macOS backend is active, a Windows Player shortcut must
+        // not replace the entry that starts through it. The macOS client is
+        // the Player this install would launch.
+        const bool macPlayer = launcherFlags().macClient &&
+                               macclient::hasInstalledClient(installDir);
+
         std::vector<std::string> produced;
 
         std::error_code ec;
@@ -445,6 +451,7 @@ void exportPrefixShortcutsTo(const std::string& installDir, const std::string& l
                 for (const auto& t : exportTargets())
                     if (leaf == t.exeLeaf) slug = t.slug;
                 if (!slug) continue; // not Roblox -- don't publish it
+                if (macPlayer && std::string(slug) == "player") continue;
 
                 std::string name = desktopValue(contents, "Name");
                 if (name.empty()) name = windowsBasename(exe);
@@ -492,14 +499,12 @@ void exportPrefixShortcutsTo(const std::string& installDir, const std::string& l
             // tree, so the usual check cannot see it. The entry is only useful
             // while the backend is on: with the flag off, --launch-player would
             // look for a Windows Player that was never installed.
-            const bool macPlayer = std::string(t.slug) == "player" &&
-                                   launcherFlags().macClient &&
-                                   macclient::hasInstalledClient(installDir);
-            if (macPlayer || isTargetInstalled(installDir, t.exeLeaf)) {
-                if (macPlayer) writeMacPlayerIcon(installDir, iconsDir);
+            const bool macPlayerTarget = macPlayer && std::string(t.slug) == "player";
+            if (macPlayerTarget || isTargetInstalled(installDir, t.exeLeaf)) {
+                if (macPlayerTarget) writeMacPlayerIcon(installDir, iconsDir);
                 writeFileAtomic(fs::path(appsDir) / id,
                                 builtinEntry(t, launcherExePath, iconsDir,
-                                             macPlayer ? "net.tuxblox.TuxBlox.Player" : t.exeLeaf));
+                                             macPlayerTarget ? "net.tuxblox.TuxBlox.Player" : t.exeLeaf));
                 continue;
             }
             std::error_code rmEc;

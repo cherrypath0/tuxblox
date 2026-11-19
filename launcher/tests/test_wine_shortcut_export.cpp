@@ -288,6 +288,13 @@ int main() {
             "icns" + bigEndian(static_cast<uint32_t>(8 + icnsEntry.size())) + icnsEntry;
         writeAll(app / "Contents" / "Resources" / "AppIcon.icns", icns);
 
+        // A Windows Player left a shortcut behind. It must not replace the
+        // entry that starts the macOS client.
+        const fs::path macShortcuts =
+            macInstall / "runtime" / "pfx" / "drive_c" / "proton_shortcuts";
+        writeAll(macShortcuts / "Roblox Player.desktop",
+                 sourceEntry("Roblox Player", "RobloxPlayerBeta.exe", "393D_RobloxPlayerBeta.0"));
+
         exportPrefixShortcutsTo(macInstall.string(), "/opt/tuxblox/TuxBloxLauncher",
                                 macApps.string(), macIcons.string());
 
@@ -297,6 +304,7 @@ int main() {
         assert(entry.find("Comment=via TuxBlox\n") != std::string::npos);
         assert(entry.find("Exec=\"/opt/tuxblox/TuxBloxLauncher\" --launch-player\n") !=
                std::string::npos);
+        assert(entry.find("--run-exe") == std::string::npos);
         assert(entry.find("Icon=tuxblox-roblox-player\n") != std::string::npos);
         // The SDL app id the mac client is started with, not a Windows exe name.
         assert(entry.find("StartupWMClass=net.tuxblox.TuxBlox.Player\n") != std::string::npos);
@@ -304,7 +312,9 @@ int main() {
         assert(readAll(macIcons / "256x256" / "apps" / "tuxblox-roblox-player.png") == png);
         assert(!fs::exists(macIcons / "scalable" / "apps" / "tuxblox-roblox-player.svg"));
 
-        // Removing the client takes the entry away again.
+        // Removing the client and its leftover Windows shortcut takes the
+        // entry away again.
+        fs::remove_all(macShortcuts);
         fs::remove_all(macRoot);
         exportPrefixShortcutsTo(macInstall.string(), "/opt/tuxblox/TuxBloxLauncher",
                                 macApps.string(), macIcons.string());
