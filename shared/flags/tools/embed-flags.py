@@ -38,7 +38,8 @@ PREFIXES = (("tbxFlag", bool), ("tbxString", str), ("tbxInt", int))
 # Mirrors kLocalOnly in shared/flags/FlagManager.cpp. The client drops these from a
 # server answer anyway; dropping them here as well means the server is never told a value
 # it would be ignored for, and the published set says only what it can decide.
-LOCAL_ONLY = ("tbxFlagDisableUpdater", "tbxFlagBypassSystemRequirements")
+LOCAL_ONLY = ("tbxFlagDisableUpdater", "tbxFlagBypassSystemRequirements",
+              "tbxFlagEnableExperimentalMacClient")
 # A delimiter that cannot occur inside JSON, so the literal cannot be closed early.
 DELIM = "TBXFLAGS"
 

@@ -127,8 +127,10 @@ std::optional<FlagType> flagTypeForName(const std::string& name);
 
 // True for a flag the server may not set. tbxFlagDisableUpdater is the one that matters:
 // served wrongly it stops every install updating, and updating is how that would be
-// corrected. The list is compiled in and the client filters the server's answer against
-// it, because the server is not trusted to respect its own rule.
+// corrected. The client-runtime switch is local-only for the same reason: a server that
+// could flip it would move every install without their say. The list is compiled in and
+// the client filters the server's answer against it, because the server is not trusted
+// to respect its own rule.
 bool isLocalOnlyFlag(const std::string& name);
 
 // The flags in a JSON object, dropping any whose value contradicts its name, any name

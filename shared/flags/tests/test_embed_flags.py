@@ -44,7 +44,8 @@ def run(flags_text):
 
 
 # Mirrors LOCAL_ONLY in tools/embed-flags.py.
-LOCAL_ONLY = {"tbxFlagDisableUpdater", "tbxFlagBypassSystemRequirements"}
+LOCAL_ONLY = {"tbxFlagDisableUpdater", "tbxFlagBypassSystemRequirements",
+              "tbxFlagEnableExperimentalMacClient"}
 
 GOOD = json.dumps({
     "tbxFlagEnableChristmasTheme": True,

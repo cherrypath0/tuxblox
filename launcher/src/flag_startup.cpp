@@ -89,6 +89,7 @@ const LauncherFlags& launcherFlags() {
         out.followPromotedBuild =
             flagBool("tbxFlagEnableChannelToUpperChannelUpgradeOnBuildPromotion");
         out.translateWindowsShortcuts = flagBool("tbxFlagTranslateWindowsShortcuts");
+        out.macClient = flagBool("tbxFlagEnableExperimentalMacClient");
         if (flagBool("tbxFlagEnableParallelWorkersForRobloxInstaller")) {
             const int64_t asked = flagInt("tbxIntRobloxInstallerParallelWorkers");
             // Clamped rather than trusted: this is a thread count, and a set of flags that

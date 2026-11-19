@@ -114,6 +114,26 @@ int main() {
         assert(flagBool("tbxFlagDisableUpdater") == false);
     }
 
+    // The client-runtime switch is local-only too: the server cannot move an install
+    // onto the experimental path, whatever it sends.
+    {
+        resetFlags();
+        initFlags(rootWith("tuxblox_test_flags_macclient_server", nullptr), "stable", true, 5,
+                  [](const std::string&, int) {
+                      return std::string(R"({"tbxFlagEnableExperimentalMacClient":true})");
+                  });
+        assert(flagBool("tbxFlagEnableExperimentalMacClient") == false);
+    }
+
+    // The install's own flags.json can turn it on.
+    {
+        resetFlags();
+        initFlags(rootWith("tuxblox_test_flags_macclient_local",
+                           R"({"tbxFlagEnableExperimentalMacClient":true})"),
+                  "stable", true, 5, [](const std::string&, int) { return std::string("{}"); });
+        assert(flagBool("tbxFlagEnableExperimentalMacClient") == true);
+    }
+
     // flags.json wins over the server, per key.
     {
         resetFlags();

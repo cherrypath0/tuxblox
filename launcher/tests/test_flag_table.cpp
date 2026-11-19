@@ -74,6 +74,8 @@ int main() {
         assert(isLocalOnlyFlag("tbxFlagDisableUpdater"));
         // Read before any route has loaded the flags, so a value from the server could not be seen anyway.
         assert(isLocalOnlyFlag("tbxFlagBypassSystemRequirements"));
+        assert(isLocalOnlyFlag("tbxFlagEnableExperimentalMacClient"));
+        assert(parseFlagJson(R"({"tbxFlagEnableExperimentalMacClient":true})", true).empty());
         assert(!isLocalOnlyFlag("tbxFlagEnableChristmasTheme"));
         assert(parseFlagJson(R"({"tbxFlagDisableUpdater":true})", true).empty());
         assert(parseFlagJson(R"({"tbxFlagDisableUpdater":true})", false).size() == 1);

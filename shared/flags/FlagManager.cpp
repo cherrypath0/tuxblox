@@ -43,9 +43,12 @@ constexpr std::array<std::pair<const char*, FlagType>, 3> kPrefixes = {{
 
 // Flags the server may not set, enforced here rather than trusted to the server. Adding
 // to this list takes a release, which is the point.
-constexpr std::array<const char*, 2> kLocalOnly = {{
+constexpr std::array<const char*, 3> kLocalOnly = {{
     "tbxFlagDisableUpdater",
     "tbxFlagBypassSystemRequirements",
+    // Switching the client runtime is not a remote switch: a server that could flip
+    // it would move every install onto an experimental path with no local say.
+    "tbxFlagEnableExperimentalMacClient",
 }};
 
 bool startsWith(const std::string& name, const char* prefix) {

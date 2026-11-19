@@ -9,6 +9,7 @@
     "tbxFlagDisableUpdater": false,
     "tbxFlagEnableChannelToUpperChannelUpgradeOnBuildPromotion": true,
     "tbxFlagEnableExperimentalLinuxIntegration": false,
+    "tbxFlagEnableExperimentalMacClient": false,
     "tbxFlagBypassSystemRequirements": false,
     "tbxFlagTranslateWindowsShortcuts": true,
     "tbxStringPrivacyPolicyVersion": "2026-11-11",

@@ -69,6 +69,9 @@ struct LauncherFlags {
     bool updater = true;              // tbxFlagDisableUpdater, which only this machine may set
     bool followPromotedBuild = false; // tbxFlagEnableChannelToUpperChannelUpgradeOnBuildPromotion
     bool translateWindowsShortcuts = true; // tbxFlagTranslateWindowsShortcuts
+    // Local-only: enables the macOS client runtime. Off unless the install's own
+    // flags.json asks for it; the config server cannot turn this one on.
+    bool macClient = false;               // tbxFlagEnableExperimentalMacClient
     // How many of the Roblox installer's downloads run at once. 1 when the flag that
     // enables them is off, so the switch is "parallel or not" and the number is "how much".
     int robloxInstallerWorkers = 1;
