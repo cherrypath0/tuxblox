@@ -75,6 +75,14 @@ fi
 step "Staging into $INSTALL_DIR"
 mkdir -p "$INSTALL_DIR"
 
+# Optional experimental macOS backend. `make rosemary` puts it here; installs
+# that never built it keep working exactly as before.
+if [[ -f build/native/rosemary/rosemary ]]; then
+    step "Staging Rosemary (experimental macOS client)"
+    mkdir -p "$INSTALL_DIR/rosemary"
+    cp -a build/native/rosemary/rosemary "$INSTALL_DIR/rosemary/rosemary"
+fi
+
 for component in "${COMPONENTS[@]}"; do
     target="$INSTALL_DIR/$component"
     if [[ -d "build/native/$component" ]]; then

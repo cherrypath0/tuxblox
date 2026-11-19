@@ -121,15 +121,18 @@ installer: bump-build record-provenance $(INSTALLER)
 ASSETS_DIR := $(BUILD)/assets
 ASSET_SIZES := 1024 512 256 128 64 32
 ASSET_SVGS := $(wildcard assets/*.svg)
-TUXBLOX_ICONS := $(foreach s,$(ASSET_SIZES),$(ASSETS_DIR)/tuxblox/$(s)x$(s).png)
-
-assets: $(TUXBLOX_ICONS)
-
-$(TUXBLOX_ICONS): $(ASSETS_DIR)/tuxblox/%.png: assets/tuxblox.svg
+# Rendering is a phony target rather than file targets: make cannot parse a
+# target list containing paths with spaces (this checkout does have spaces in
+# its path), and a static pattern rule fails outright in that situation.
+.PHONY: assets
+assets:
 	@command -v rsvg-convert >/dev/null 2>&1 || { \
 	    printf '!! rsvg-convert not found, so the icons cannot be rendered. Install librsvg.\n' >&2; exit 1; }
-	@mkdir -p $(@D)
-	rsvg-convert -w $(firstword $(subst x, ,$*)) -h $(firstword $(subst x, ,$*)) $< -o $@
+	@mkdir -p "$(ASSETS_DIR)/tuxblox"
+	@for size in $(ASSET_SIZES); do \
+	    rsvg-convert -w $$size -h $$size assets/tuxblox.svg \
+	        -o "$(ASSETS_DIR)/tuxblox/$${size}x$${size}.png"; \
+	done
 
 APPIMAGE_DIR := $(BUILD)/appimage
 APPIMAGE_APPDIR := $(APPIMAGE_DIR)/TuxBloxInstaller.AppDir
@@ -143,6 +146,12 @@ appimage:
 	tar --zstd -xf $(UI) -C $(APPIMAGE_APPDIR)/usr
 	cp $(ART)/installer/TuxBloxInstaller-ui $(APPIMAGE_APPDIR)/usr/TuxBloxInstaller-ui
 	cp $(APPIMAGE_DIR)/TuxBloxInstaller $(APPIMAGE_APPDIR)/usr/bin/TuxBloxInstaller
+	@if [ -f $(ROSEMARY) ]; then \
+	    mkdir -p $(APPIMAGE_APPDIR)/usr/bin/rosemary; \
+	    cp "$(ROSEMARY)" "$(APPIMAGE_APPDIR)/usr/bin/rosemary/rosemary"; \
+	else \
+	    echo "!! Rosemary was not built; the AppImage has no macOS client backend" >&2; \
+	fi
 	cp $(ASSETS_DIR)/tuxblox/256x256.png $(APPIMAGE_APPDIR)/tuxblox-installer.png
 	cp packaging/appimage/tuxblox-installer.desktop $(APPIMAGE_APPDIR)/tuxblox-installer.desktop
 	cp -a third_party_licenses/. $(APPIMAGE_APPDIR)/usr/share/licenses/
@@ -883,7 +892,7 @@ $(UI): shared/ui/versions.env shared/ui/sources.list Makefile | $(PODMAN)
 	mv $(UI_DIST)/out/ui-stack-*.tar.zst $(UI_DIST)/
 	rm -rf $(UI_DIST)/out
 
-$(INSTALLER): $(INSTALLER_SRC) $(SHARED_SRC) $(LIBS) $(UI) $(TUXBLOX_ICONS) | $(PODMAN)
+$(INSTALLER): $(INSTALLER_SRC) $(SHARED_SRC) $(LIBS) $(UI) assets | $(PODMAN)
 	@cd installer && if [ -f build/CMakeCache.txt ] && ! grep -q '^CMAKE_CACHEFILE_DIR:INTERNAL=/src/build$$' build/CMakeCache.txt; then rm -rf build; fi
 	@mkdir -p $(CCACHE_DIR)
 	podman run --rm --userns=keep-id -e JOBS="$(JOBS)" \
@@ -930,7 +939,7 @@ $(STUDIO_MCP): $(STUDIO_MCP_SRC) $(LAUNCHER_SRC) $(SHARED_SRC) $(LIBS) | $(PODMA
 	rm -rf $(ART)/studio-mcp && mv studio-mcp/build $(ART)/studio-mcp
 	cp $(ART)/studio-mcp/studio-mcp $@
 
-$(LAUNCHER): $(LAUNCHER_SRC) $(SHARED_SRC) $(LIBS) $(UI) $(ASSET_SVGS) $(TUXBLOX_ICONS) | $(PODMAN)
+$(LAUNCHER): $(LAUNCHER_SRC) $(SHARED_SRC) $(LIBS) $(UI) $(ASSET_SVGS) assets | $(PODMAN)
 	@cd launcher && if [ -f build/CMakeCache.txt ] && ! grep -q '^CMAKE_CACHEFILE_DIR:INTERNAL=/src/build$$' build/CMakeCache.txt; then \
 	    echo ":: Dropping stale host-configured launcher/build"; rm -rf build; fi
 	@cd launcher && if [ -f build/CMakeCache.txt ] && ! grep -q '^CMAKE_GENERATOR:INTERNAL=Ninja$$' build/CMakeCache.txt; then \
@@ -1062,6 +1071,15 @@ compat-build: $(COMPAT_SRC) $(PATCHES) $(LIBS) | $(PODMAN)
 	$(prepare_layer)
 	cd $(PROTON) && make -j$(JOBS) TUXBLOX_COMPAT_VERSION=$(COMPAT_VERSION) all-build
 	@echo ":: Compiled, not staged. build/compat is untouched, so run make compat to get a usable layer."
+
+# Experimental macOS-client backend: a pinned upstream Rosemary executable,
+# kept as a separate binary next to the launcher. Not part of `components`:
+# adding a 130 MB download to every build would be wrong for a local-only flag.
+ROSEMARY := $(NATIVE)/rosemary/rosemary
+.PHONY: rosemary
+rosemary:
+	@mkdir -p "$$(dirname "$(ROSEMARY)")"
+	bash "$(ROOT)/shared/tools/fetch-rosemary.sh" "$$(dirname "$(ROSEMARY)")"
 
 .PHONY: webkitgtk
 define build_webview
