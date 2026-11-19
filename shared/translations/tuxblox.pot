@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: TuxBlox\n"
 "Report-Msgid-Bugs-To: cherry@tuxblox.net\n"
-"POT-Creation-Date: 2026-11-19 00:16+0300\n"
+"POT-Creation-Date: 2026-11-18 22:23-0300\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -91,6 +91,9 @@ msgstr ""
 msgid "An unknown error has occurred which has crashed TuxBlox.\n"
 msgstr ""
 
+msgid "Appearance"
+msgstr ""
+
 msgid "Assertion failed"
 msgstr ""
 
@@ -113,6 +116,9 @@ msgid "Automatic updates"
 msgstr ""
 
 msgid "Automatically close this window whenever Roblox starts."
+msgstr ""
+
+msgid "Back"
 msgstr ""
 
 msgid "Breakpoint"
@@ -253,6 +259,9 @@ msgstr ""
 msgid "Danger zone"
 msgstr ""
 
+msgid "Dark"
+msgstr ""
+
 msgid "Delete"
 msgstr ""
 
@@ -277,6 +286,9 @@ msgid "Documentation"
 msgstr ""
 
 msgid "Done"
+msgstr ""
+
+msgid "Download"
 msgstr ""
 
 msgid "Downloading Roblox Player"
@@ -313,6 +325,9 @@ msgstr ""
 msgid "ENDED"
 msgstr ""
 
+msgid "Each of these sends something off your machine. None is required."
+msgstr ""
+
 msgid "Enable Discord Rich Presence"
 msgstr ""
 
@@ -333,6 +348,9 @@ msgstr ""
 
 msgid ""
 "Every installed Roblox goes with it. Your settings and FastFlags are kept."
+msgstr ""
+
+msgid "Everything here is in the About tab too."
 msgstr ""
 
 #, c++-format
@@ -425,7 +443,13 @@ msgstr ""
 msgid "General Error"
 msgstr ""
 
+msgid "Get started"
+msgstr ""
+
 msgid "Graphics API"
+msgstr ""
+
+msgid "Grey"
 msgstr ""
 
 msgid "HOME environment variable is not set."
@@ -493,6 +517,9 @@ msgstr ""
 msgid "Language"
 msgstr ""
 
+msgid "Latest · LIVE"
+msgstr ""
+
 msgid "Launch Player"
 msgstr ""
 
@@ -516,6 +543,9 @@ msgid "Let people join your server"
 msgstr ""
 
 msgid "Library Failed to Start"
+msgstr ""
+
+msgid "Light"
 msgstr ""
 
 msgid "Links"
@@ -550,6 +580,9 @@ msgstr ""
 
 #, c++-format
 msgid "NVIDIA driver {0} or newer"
+msgstr ""
+
+msgid "Next"
 msgstr ""
 
 msgid "Next match"
@@ -638,6 +671,12 @@ msgid "Open sessions"
 msgstr ""
 
 msgid "Open the folder the logs are in"
+msgstr ""
+
+msgid "Optional extras"
+msgstr ""
+
+msgid "Optional, you can install it later from the Home page instead."
 msgstr ""
 
 msgid "Paste the flags as JSON, like {\"FlagName\": \"true\"}."
@@ -733,6 +772,12 @@ msgstr ""
 msgid "Roblox Error"
 msgstr ""
 
+msgid "Roblox Player"
+msgstr ""
+
+msgid "Roblox Studio"
+msgstr ""
+
 msgid ""
 "Roblox does not allow this channel to be looked up, so TuxBlox cannot find "
 "its latest version. Type an exact version instead, or use the live channel."
@@ -821,6 +866,9 @@ msgstr ""
 msgid "Show this session and its log"
 msgstr ""
 
+msgid "Skip"
+msgstr ""
+
 msgid "Something went wrong"
 msgstr ""
 
@@ -860,6 +908,9 @@ msgstr ""
 msgid "Stopping…"
 msgstr ""
 
+msgid "System"
+msgstr ""
+
 msgid "System language"
 msgstr ""
 
@@ -891,6 +942,10 @@ msgid ""
 msgstr ""
 
 msgid "The flags need to be in curly brackets, like {\"FlagName\": \"true\"}."
+msgstr ""
+
+msgid ""
+"The macOS client will be downloaded and verified again on the next launch."
 msgstr ""
 
 msgid "The new language will be used the next time TuxBlox starts."
@@ -949,6 +1004,9 @@ msgid "This is not valid JSON: {0}"
 msgstr ""
 
 msgid "Troubleshooting"
+msgstr ""
+
+msgid "Try again"
 msgstr ""
 
 msgid "TuxBlox"
@@ -1025,6 +1083,9 @@ msgstr ""
 msgid "TuxBlox installed successfully."
 msgstr ""
 
+msgid "TuxBlox is an open-source launcher and compatibility layer for Roblox."
+msgstr ""
+
 msgid "TuxBlox is not supported on your system"
 msgstr ""
 
@@ -1053,6 +1114,11 @@ msgstr ""
 msgid ""
 "TuxBlox was installed successfully, but failed to launch {0}. You can try "
 "running it manually."
+msgstr ""
+
+msgid ""
+"TuxBlox's <a href=\"https://tuxblox.net/privacy\">Privacy Policy</a> and <a "
+"href=\"https://tuxblox.net/terms\">Terms of Use</a> apply to these features."
 msgstr ""
 
 msgid ""
@@ -1206,6 +1272,9 @@ msgstr ""
 msgid "Website"
 msgstr ""
 
+msgid "Welcome to TuxBlox"
+msgstr ""
+
 msgid "Wipe"
 msgstr ""
 
@@ -1221,10 +1290,19 @@ msgstr ""
 msgid "Would you like to update?"
 msgstr ""
 
+msgid "You are all set"
+msgstr ""
+
 msgid "already running"
 msgstr ""
 
+msgid "could not prepare the Roblox client"
+msgstr ""
+
 msgid "could not resolve or download the Roblox executable"
+msgstr ""
+
+msgid "could not write the Roblox settings"
 msgstr ""
 
 msgid "crashed"
@@ -1235,6 +1313,9 @@ msgid "ended {0} ago"
 msgstr ""
 
 msgid "failed to start Proton process"
+msgstr ""
+
+msgid "failed to start the client process"
 msgstr ""
 
 msgid "no matches"

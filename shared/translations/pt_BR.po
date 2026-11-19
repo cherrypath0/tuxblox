@@ -5,7 +5,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: tuxblox\n"
 "Report-Msgid-Bugs-To: cherry@tuxblox.net\n"
-"POT-Creation-Date: 2026-11-19 00:16+0300\n"
+"POT-Creation-Date: 2026-11-18 22:23-0300\n"
 "Last-Translator: Yan Henridev <228758946+yanhenrique-"
 "dev@users.noreply.github.com>\n"
 "Language-Team: Brazilian Portuguese\n"
@@ -68,15 +68,15 @@ msgid "About"
 msgstr "Sobre"
 
 msgid "Access Violation"
-msgstr ""
+msgstr "Violação de acesso"
 
 msgid "Adds a button to your activity that allows others to join your server"
-msgstr ""
+msgstr "Adiciona um botão à sua atividade que permite que outros entrem no seu servidor"
 "Adiciona um botão à sua atividade que permite que outras pessoas entrem no "
 "seu servidor"
 
 msgid "Advanced"
-msgstr ""
+msgstr "Avançado"
 
 msgid ""
 "Allows games you join to set more advanced activity. Only works on games "
@@ -89,7 +89,7 @@ msgid "Always send crash reports"
 msgstr "Sempre enviar relatórios de falhas"
 
 msgid "An experimental feature that lets Roblox vibrate your controller"
-msgstr ""
+msgstr "Um recurso experimental que permite que o Roblox vibre seu controle"
 "Um recurso experimental que permite que o Roblox faça seu controle vibrar"
 
 msgid "An instance of the TuxBlox Launcher is already running!"
@@ -98,8 +98,11 @@ msgstr "Uma instância do TuxBlox Launcher já está em execução!"
 msgid "An unknown error has occurred which has crashed TuxBlox.\n"
 msgstr "Ocorreu um erro desconhecido que travou o TuxBlox.\n"
 
+msgid "Appearance"
+msgstr "Aparência"
+
 msgid "Assertion failed"
-msgstr ""
+msgstr "Falha de asserção"
 
 msgid "Auto-Update Roblox"
 msgstr "Atualização automática do Roblox"
@@ -124,8 +127,11 @@ msgstr "Atualizações automáticas"
 msgid "Automatically close this window whenever Roblox starts."
 msgstr "Fecha esta janela automaticamente sempre que o Roblox iniciar."
 
+msgid "Back"
+msgstr "Voltar"
+
 msgid "Breakpoint"
-msgstr ""
+msgstr "Ponto de interrupção"
 
 msgid "Cancel"
 msgstr "Cancelar"
@@ -144,7 +150,7 @@ msgstr "Verificando…"
 
 #, c++-format
 msgid "Checksum mismatch for {0} -- refusing to install a corrupted package."
-msgstr ""
+msgstr "O checksum de {0} não confere — recusando instalar um pacote corrompido."
 "Checksum incorreto para {0} -- recusando-se a instalar um pacote corrompido."
 
 #, c++-format
@@ -181,13 +187,13 @@ msgid "Controller"
 msgstr "Controle"
 
 msgid "Copied"
-msgstr ""
+msgstr "Copiado"
 
 msgid "Copy"
 msgstr "Copiar"
 
 msgid "Copy MCP Gateway Location"
-msgstr ""
+msgstr "Copiar local do gateway MCP"
 
 msgid "Copy the log"
 msgstr "Copiar o log"
@@ -260,7 +266,7 @@ msgstr ""
 
 #, c++-format
 msgid "Couldn't reach tuxblox.net to prepare the uninstaller: {0}"
-msgstr ""
+msgstr "Não foi possível acessar tuxblox.net para preparar o desinstalador: {0}"
 "Não foi possível acessar tuxblox.net para preparar o desinstalador: {0}"
 
 #, c++-format
@@ -272,6 +278,9 @@ msgstr "Criando o diretório do TuxBlox"
 
 msgid "Danger zone"
 msgstr "Zona de perigo"
+
+msgid "Dark"
+msgstr "Escuro"
 
 msgid "Delete"
 msgstr "Excluir"
@@ -294,13 +303,17 @@ msgid "Distrobox GPU Passthrough"
 msgstr "Passthrough de GPU do Distrobox"
 
 msgid "Division by Zero"
-msgstr ""
+msgstr "Divisão por zero"
 
 msgid "Documentation"
 msgstr "Documentação"
 
 msgid "Done"
 msgstr "Concluído"
+
+#, fuzzy
+msgid "Download"
+msgstr "Baixar"
 
 msgid "Downloading Roblox Player"
 msgstr "Baixando o Roblox Player"
@@ -336,6 +349,9 @@ msgstr "Baixando…"
 msgid "ENDED"
 msgstr "ENCERRADO"
 
+msgid "Each of these sends something off your machine. None is required."
+msgstr "Cada um destes envia algo do seu computador. Nenhum é obrigatório."
+
 msgid "Enable Discord Rich Presence"
 msgstr "Ativar Discord Rich Presence"
 
@@ -359,6 +375,9 @@ msgid ""
 msgstr ""
 "Todo o Roblox instalado será removido. Suas configurações e FastFlags são "
 "mantidas."
+
+msgid "Everything here is in the About tab too."
+msgstr "Tudo isso também está na aba Sobre."
 
 #, c++-format
 msgid "Exit Code: {0}"
@@ -456,14 +475,20 @@ msgstr "Saída do jogo"
 msgid "General Error"
 msgstr "Erro geral"
 
+msgid "Get started"
+msgstr "Começar"
+
 msgid "Graphics API"
 msgstr "API gráfica"
+
+msgid "Grey"
+msgstr "Cinza"
 
 msgid "HOME environment variable is not set."
 msgstr "A variável de ambiente HOME não está definida."
 
 msgid "Heap Corruption"
-msgstr ""
+msgstr "Corrupção de heap"
 
 msgid "Home"
 msgstr "Início"
@@ -498,7 +523,7 @@ msgstr "Instalar e iniciar"
 
 #, fuzzy
 msgid "Installed"
-msgstr "Instalar"
+msgstr "Instalado"
 
 #, c++-format
 msgid "Installed {0}"
@@ -515,7 +540,7 @@ msgid "Installing {0}"
 msgstr "Instalando {0}"
 
 msgid "Interrupted"
-msgstr ""
+msgstr "Interrompido"
 
 msgid "Jump to the end"
 msgstr "Ir para o fim"
@@ -525,6 +550,9 @@ msgstr "Encerrado à força"
 
 msgid "Language"
 msgstr "Idioma"
+
+msgid "Latest · LIVE"
+msgstr "Mais recente · LIVE"
 
 msgid "Launch Player"
 msgstr "Iniciar Player"
@@ -549,7 +577,10 @@ msgid "Let people join your server"
 msgstr "Permitir que outras pessoas entrem no seu servidor"
 
 msgid "Library Failed to Start"
-msgstr ""
+msgstr "Falha ao iniciar biblioteca"
+
+msgid "Light"
+msgstr "Claro"
 
 msgid "Links"
 msgstr "Links"
@@ -561,10 +592,10 @@ msgid "Minimize to background"
 msgstr "Minimizar para segundo plano"
 
 msgid "Missing Library"
-msgstr ""
+msgstr "Biblioteca ausente"
 
 msgid "Missing Library Entry Point"
-msgstr ""
+msgstr "Ponto de entrada da biblioteca ausente"
 
 msgid "Missing value for --channel."
 msgstr "Valor ausente para --channel."
@@ -584,6 +615,9 @@ msgstr "Valor ausente para --release."
 #, c++-format
 msgid "NVIDIA driver {0} or newer"
 msgstr "Driver NVIDIA {0} ou mais recente"
+
+msgid "Next"
+msgstr "Próximo"
 
 msgid "Next match"
 msgstr "Próxima correspondência"
@@ -641,7 +675,7 @@ msgid "Nothing is running right now."
 msgstr "Nada está em execução agora."
 
 msgid "Nothing is running. Launch Roblox from Home and it will appear here."
-msgstr ""
+msgstr "Nada está em execução. Inicie o Roblox na aba Início e ele aparecerá aqui."
 "Nada está em execução. Inicie o Roblox na página Início e ele aparecerá aqui."
 
 msgid "Nothing running"
@@ -662,7 +696,7 @@ msgstr ""
 "rbxinstaller."
 
 msgid "Nothing to open yet"
-msgstr ""
+msgstr "Nada para abrir ainda"
 
 msgid "Notify server location"
 msgstr "Notificar localização do servidor"
@@ -674,13 +708,19 @@ msgid "Open"
 msgstr "Abrir"
 
 msgid "Open Registry Editor"
-msgstr ""
+msgstr "Abrir editor de registro"
 
 msgid "Open sessions"
 msgstr "Sessões abertas"
 
 msgid "Open the folder the logs are in"
 msgstr "Abrir a pasta dos logs"
+
+msgid "Optional extras"
+msgstr "Extras opcionais"
+
+msgid "Optional, you can install it later from the Home page instead."
+msgstr "Opcional: você pode instalá-lo depois pela página Início."
 
 msgid "Paste the flags as JSON, like {\"FlagName\": \"true\"}."
 msgstr "Cole as flags como JSON, por exemplo {\"FlagName\": \"true\"}."
@@ -717,7 +757,7 @@ msgstr "Política de Privacidade"
 
 #, c++-format
 msgid "Putting the compatibility layer in place failed: {0}"
-msgstr ""
+msgstr "Falha ao instalar a camada de compatibilidade: {0}"
 
 msgid ""
 "Records much more information in session logs. Turn this on if you're "
@@ -732,7 +772,7 @@ msgstr "Versão {0}"
 
 #, c++-format
 msgid "Release {0} does not say where to download {1}"
-msgstr ""
+msgstr "A versão {0} não informa onde baixar {1}"
 
 #, c++-format
 msgid "Release {0} has no {1} for this computer's processor"
@@ -779,6 +819,14 @@ msgstr "Reinicialização necessária"
 msgid "Roblox Error"
 msgstr "Erro do Roblox"
 
+#, fuzzy
+msgid "Roblox Player"
+msgstr "Roblox Player"
+
+#, fuzzy
+msgid "Roblox Studio"
+msgstr "Baixando o Roblox Studio"
+
 msgid ""
 "Roblox does not allow this channel to be looked up, so TuxBlox cannot find "
 "its latest version. Type an exact version instead, or use the live channel."
@@ -815,7 +863,7 @@ msgid "Roblox is up to date"
 msgstr "O Roblox está atualizado"
 
 msgid "Roblox's package list had nothing TuxBlox knows how to install."
-msgstr ""
+msgstr "A lista de pacotes do Roblox não tinha nada que o TuxBlox soubesse instalar."
 "A lista de pacotes do Roblox não tinha nada que o TuxBlox saiba instalar."
 
 msgid "Roblox's packages were not all unpacked."
@@ -825,7 +873,7 @@ msgid "Run \"flatpak update\" to install it."
 msgstr ""
 
 msgid "Run Roblox in a separate window that acts as a desktop"
-msgstr ""
+msgstr "Executar o Roblox em uma janela separada que funciona como área de trabalho"
 "Executar o Roblox em uma janela separada que funciona como uma área de "
 "trabalho"
 
@@ -882,6 +930,9 @@ msgstr "Configurações"
 msgid "Show this session and its log"
 msgstr "Mostrar esta sessão e seu log"
 
+msgid "Skip"
+msgstr "Pular"
+
 msgid "Something went wrong"
 msgstr "Algo deu errado"
 
@@ -896,10 +947,10 @@ msgid "Speed up the rendering of web panels using your graphics card"
 msgstr "Acelera a renderização dos painéis web usando sua placa de vídeo"
 
 msgid "Stack Buffer Overrun"
-msgstr ""
+msgstr "Estouro de buffer na pilha"
 
 msgid "Stack Overflow"
-msgstr ""
+msgstr "Estouro de pilha"
 
 msgid "Starting"
 msgstr "Iniciando"
@@ -922,6 +973,10 @@ msgstr "Parou {0}"
 
 msgid "Stopping…"
 msgstr "Parando…"
+
+#, fuzzy
+msgid "System"
+msgstr "Sistema"
 
 msgid "System language"
 msgstr "Idioma do sistema"
@@ -946,7 +1001,7 @@ msgid "That release cannot be read: {0}"
 msgstr "Esse release não pode ser lido: {0}"
 
 msgid "The Studio MCP gateway is not installed."
-msgstr ""
+msgstr "O gateway MCP do Studio não está instalado."
 
 msgid ""
 "The downloaded compatibility layer did not match what the release says it "
@@ -956,11 +1011,15 @@ msgstr ""
 msgid "The flags need to be in curly brackets, like {\"FlagName\": \"true\"}."
 msgstr "As flags precisam estar entre chaves, como {\"FlagName\": \"true\"}."
 
+msgid ""
+"The macOS client will be downloaded and verified again on the next launch."
+msgstr ""
+
 msgid "The new language will be used the next time TuxBlox starts."
 msgstr "O novo idioma será usado na próxima vez que o TuxBlox iniciar."
 
 msgid "The path to give an MCP client, so you do not have to find it"
-msgstr ""
+msgstr "O caminho para informar a um cliente MCP, para que você não precise procurá-lo"
 
 msgid "The release channel TuxBlox updates to"
 msgstr "O canal de release para o qual o TuxBlox atualiza"
@@ -970,14 +1029,14 @@ msgid "The runtime is not installed"
 msgstr "não instalado"
 
 msgid "The runtime is not ready"
-msgstr ""
+msgstr "O ambiente não está pronto"
 
 #, c++-format
 msgid "The value of {0} must be text, a number, true or false."
 msgstr "O valor de {0} precisa ser texto, um número, true ou false."
 
 msgid "The virtual drive is built the first time you start Roblox."
-msgstr ""
+msgstr "A unidade virtual é criada na primeira vez que você inicia o Roblox."
 
 msgid "There are no flags in this JSON."
 msgstr "Não há flags neste JSON."
@@ -1024,6 +1083,9 @@ msgstr "Este não é um JSON válido: {0}"
 
 msgid "Troubleshooting"
 msgstr "Solução de problemas"
+
+msgid "Try again"
+msgstr "Tentar novamente"
 
 msgid "TuxBlox"
 msgstr "TuxBlox"
@@ -1112,6 +1174,12 @@ msgstr ""
 msgid "TuxBlox installed successfully."
 msgstr "TuxBlox instalado com sucesso."
 
+#, fuzzy
+msgid "TuxBlox is an open-source launcher and compatibility layer for Roblox."
+msgstr "O TuxBlox é um launcher e camada de compatibilidade de código aberto para o Roblox."
+"Um launcher e uma camada de compatibilidade gratuitos e de código aberto "
+"para executar o Roblox no Linux."
+
 msgid "TuxBlox is not supported on your system"
 msgstr "O TuxBlox não é compatível com o seu sistema"
 
@@ -1146,6 +1214,11 @@ msgid ""
 msgstr ""
 "O TuxBlox foi instalado com sucesso, mas não foi possível iniciar {0}. Tente "
 "executá-lo manualmente."
+
+msgid ""
+"TuxBlox's <a href=\"https://tuxblox.net/privacy\">Privacy Policy</a> and <a "
+"href=\"https://tuxblox.net/terms\">Terms of Use</a> apply to these features."
+msgstr ""
 
 msgid ""
 "TuxBlox's Privacy Policy and Terms of Use apply to these features. See "
@@ -1217,7 +1290,7 @@ msgid "Updating TuxBlox"
 msgstr "Atualizando o TuxBlox"
 
 msgid "Updating the runtime"
-msgstr ""
+msgstr "Atualizando o ambiente"
 
 #, c++-format
 msgid "Upgrading {0}"
@@ -1356,6 +1429,9 @@ msgstr "Avisos"
 msgid "Website"
 msgstr "Site"
 
+msgid "Welcome to TuxBlox"
+msgstr "Bem-vindo ao TuxBlox"
+
 msgid "Wipe"
 msgstr "Apagar"
 
@@ -1371,10 +1447,21 @@ msgstr "Apagando…"
 msgid "Would you like to update?"
 msgstr "Deseja atualizar?"
 
+msgid "You are all set"
+msgstr "Tudo pronto"
+
 msgid "already running"
 msgstr "já em execução"
 
+#, fuzzy
+msgid "could not prepare the Roblox client"
+msgstr "não foi possível resolver ou baixar o executável do Roblox"
+
 msgid "could not resolve or download the Roblox executable"
+msgstr "não foi possível resolver ou baixar o executável do Roblox"
+
+#, fuzzy
+msgid "could not write the Roblox settings"
 msgstr "não foi possível resolver ou baixar o executável do Roblox"
 
 msgid "crashed"
@@ -1385,6 +1472,10 @@ msgid "ended {0} ago"
 msgstr "encerrada há {0}"
 
 msgid "failed to start Proton process"
+msgstr "falha ao iniciar o processo do Proton"
+
+#, fuzzy
+msgid "failed to start the client process"
 msgstr "falha ao iniciar o processo do Proton"
 
 msgid "no matches"
@@ -1404,7 +1495,7 @@ msgid "value"
 msgstr "valor"
 
 msgid "writing the update details failed, which usually means the disk is full"
-msgstr ""
+msgstr "falha ao gravar os detalhes da atualização, o que geralmente significa que o disco está cheio"
 "falha ao escrever os detalhes da atualização, o que geralmente significa que "
 "o disco está cheio"
 
@@ -1488,23 +1579,11 @@ msgstr "· canal {0}"
 #~ msgid "Could not extract {0}: {1}"
 #~ msgstr "Não foi possível extrair {0}: {1}"
 
-#~ msgid "Dark"
-#~ msgstr "Escuro"
-
-#~ msgid "Grey"
-#~ msgstr "Cinza"
-
 #~ msgid "Import JSON"
 #~ msgstr "Importar JSON"
 
 #~ msgid "Install previous version"
 #~ msgstr "Instalar versão anterior"
-
-#~ msgid "Light"
-#~ msgstr "Claro"
-
-#~ msgid "System theme"
-#~ msgstr "Tema do sistema"
 
 #~ msgid "Version hash (leave blank for latest)"
 #~ msgstr "Hash da versão (deixe em branco para a mais recente)"
