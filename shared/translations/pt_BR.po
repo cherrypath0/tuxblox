@@ -521,7 +521,6 @@ msgstr "Instalar atualizações do TuxBlox sem perguntar."
 msgid "Install the runtime"
 msgstr "Instalar e iniciar"
 
-#, fuzzy
 msgid "Installed"
 msgstr "Instalado"
 
@@ -974,7 +973,6 @@ msgstr "Parou {0}"
 msgid "Stopping…"
 msgstr "Parando…"
 
-#, fuzzy
 msgid "System"
 msgstr "Sistema"
 

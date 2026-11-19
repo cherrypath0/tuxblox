@@ -617,6 +617,10 @@ gboolean onTourTick(gpointer data) {
             snap.launchPending && snap.launchTarget == LaunchTarget::Player;
         const bool playerInstalled = snap.macClientInstalled;
         std::string playerMeta = playerInstalled ? i18n::tr("Installed") : i18n::tr("Not installed yet");
+        // The Studio row names the build it has; the Player row should too,
+        // rather than making somebody open Home to find out what is installed.
+        if (playerInstalled && !snap.macClientVersion.empty())
+            playerMeta = std::string(i18n::tr("Installed")) + " \xC2\xB7 " + snap.macClientVersion;
         if (playerInstalling) playerMeta = i18n::tr("Downloading…");
         if (playerMeta != pTour->appliedPlayerMeta) {
             pTour->appliedPlayerMeta = playerMeta;
@@ -625,9 +629,11 @@ gboolean onTourTick(gpointer data) {
         gtk_widget_set_visible(pTour->pPlayerBar, playerInstalling);
         gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(pTour->pPlayerBar),
                                       snap.launchPending ? 0.5 : 1.0);
+        // Once it is installed the tour says so and stops offering another
+        // launch, exactly as the Studio row does. Home is where a session starts.
         setButtonLabel(pTour->pPlayerButton,
                        playerInstalling ? i18n::tr("Starting…")
-                                        : (playerInstalled ? i18n::tr("Launch Player")
+                                        : (playerInstalled ? i18n::tr("Installed")
                                                            : i18n::tr("Install & Launch")));
         gtk_widget_set_sensitive(GTK_WIDGET(pTour->pPlayerButton),
                                  !playerInstalling && !playerInstalled);
