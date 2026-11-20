@@ -442,8 +442,9 @@ void HomePage::update(const AppSnapshot &snap) {
     if (checking) {
         setUpdateState(i18n::tr("Checking…"), "dim-label");
     } else if (snap.updateAvailableVersion) {
-        // Nothing: the button is the message, and the release it offers is named in the dialog.
-        setUpdateState("", "warning");
+        // Nothing: the button is the message, and the release it offers is named in the dialog. A
+        // Flatpak has no button, so the strip has to say it rather than going blank.
+        setUpdateState(kFlatpakBuild ? i18n::tr("Update available") : "", "warning");
     } else {
         setUpdateState(i18n::tr("Up to date"), "success");
     }

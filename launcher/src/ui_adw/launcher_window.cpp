@@ -335,17 +335,21 @@ GtkWidget *buildContent(WindowUi &ui) {
     // Packed at the end, so it sits just inside the window's own buttons rather than beyond them,
     // and it is in the header rather than on one page because an update is waiting whatever tab
     // you are looking at.
-    GtkWidget *pUpdate = gtk_button_new();
-    gtk_button_set_child(GTK_BUTTON(pUpdate), iconImage(kAssetDownload, kAssetDownloadLen, 14));
-    gtk_widget_add_css_class(pUpdate, "update-button");
-    gtk_widget_set_valign(pUpdate, GTK_ALIGN_CENTER);
-    gtk_widget_set_visible(pUpdate, FALSE);
-    gtk_widget_set_tooltip_text(pUpdate, i18n::tr("Update available"));
-    g_signal_connect(pUpdate, "clicked", G_CALLBACK(onUpdateClicked), &ui);
-    ui.pUpdateButton = pUpdate;
+    // Not in a Flatpak: flatpak installs its own updates, and the only thing a button could do
+    // there is fetch an installer that cannot write to a read-only /app.
+    if constexpr (!kFlatpakBuild) {
+        GtkWidget *pUpdate = gtk_button_new();
+        gtk_button_set_child(GTK_BUTTON(pUpdate), iconImage(kAssetDownload, kAssetDownloadLen, 14));
+        gtk_widget_add_css_class(pUpdate, "update-button");
+        gtk_widget_set_valign(pUpdate, GTK_ALIGN_CENTER);
+        gtk_widget_set_visible(pUpdate, FALSE);
+        gtk_widget_set_tooltip_text(pUpdate, i18n::tr("Update available"));
+        g_signal_connect(pUpdate, "clicked", G_CALLBACK(onUpdateClicked), &ui);
+        ui.pUpdateButton = pUpdate;
+    }
 
     GtkWidget *pHeader = adw_header_bar_new();
-    adw_header_bar_pack_end(ADW_HEADER_BAR(pHeader), pUpdate);
+    if (ui.pUpdateButton != nullptr) adw_header_bar_pack_end(ADW_HEADER_BAR(pHeader), ui.pUpdateButton);
 
     GtkWidget *pView = adw_toolbar_view_new();
     adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(pView), pHeader);

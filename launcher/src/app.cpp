@@ -976,9 +976,18 @@ void App::updateCheckThreadMain() {
                 snapshot_.update = {UpdatePhase::Error, 0.0,
                                     i18n::trf("Could not find release {0}.", {wanted})};
             }
+            // A bundle that is not behind has no update anyone could take: the layer was the only
+            // thing out of step and it has been dealt with above. Said here rather than falling
+            // through, or the branches below offer a release this Flatpak already is.
+            if (!bundleBehind) {
+                std::lock_guard<std::mutex> lock(mutex_);
+                // Leaving the phase where runUpdateCheck left it reads as "Checking..." forever.
+                if (!snapshot_.runtimeMissing) snapshot_.update = {UpdatePhase::UpToDate, 1.0};
+                return;
+            }
         }
-        // A Flatpak checks exactly as a native client does and reports the same way; what it cannot
-        // do is apply, because its own files live in a read-only /app that belongs to flatpak.
+        // A Flatpak never applies one itself: its own files live in a read-only /app that belongs
+        // to flatpak, so a behind bundle is offered below rather than installed here.
         if (!kFlatpakBuild && (autoUpdate || result.forced) && !bundleBehind) {
             if (!prepareInstallerHandoff(result.release, result.releaseJson)) return;
             needsInstallerHandoff_.store(true);
