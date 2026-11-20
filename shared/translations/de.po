@@ -4,7 +4,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: tuxblox\n"
 "Report-Msgid-Bugs-To: cherry@tuxblox.net\n"
-"POT-Creation-Date: 2026-11-19 00:16+0300\n"
+"POT-Creation-Date: 2026-11-20 10:38+0300\n"
 "Language-Team: German\n"
 "Language: de\n"
 "MIME-Version: 1.0\n"
@@ -778,6 +778,9 @@ msgid ""
 "dri\"`."
 msgstr ""
 
+msgid "Runtime"
+msgstr ""
+
 msgid "Save the log to a file"
 msgstr ""
 
@@ -1029,6 +1032,9 @@ msgid ""
 msgstr ""
 
 msgid "TuxBlox needs:"
+msgstr ""
+
+msgid "TuxBlox runtime"
 msgstr ""
 
 msgid ""

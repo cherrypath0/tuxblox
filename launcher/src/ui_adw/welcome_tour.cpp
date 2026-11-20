@@ -188,7 +188,64 @@ void onDownloadStudio(GtkButton *, gpointer data) {
     pTour->pApp->requestInstallVersion(LaunchTarget::Studio, VersionSelectMode::Latest, "live", "");
 }
 
-// Page 1: who TuxBlox is, the launcher's colours, and an offer to fetch Studio.
+void onRuntimeInstall(GtkButton *, gpointer data) {
+    static_cast<Tour *>(data)->pApp->requestRuntimeInstall();
+}
+
+// A Flatpak carries no compatibility layer: it is fetched on first run, and nothing can launch
+// until it is there, so the tour will not move past this page until it succeeds.
+void appendRuntimeCard(Tour &tour, GtkWidget *pBox) {
+    GtkWidget *pCaption = caption(i18n::tr("Runtime"));
+    gtk_widget_set_margin_top(pCaption, 22);
+    gtk_widget_set_margin_bottom(pCaption, 9);
+    gtk_box_append(GTK_BOX(pBox), pCaption);
+
+    GtkWidget *pName = gtk_label_new(i18n::tr("TuxBlox runtime"));
+    gtk_label_set_xalign(GTK_LABEL(pName), 0.0f);
+
+    GtkWidget *pStatus = bodyLabel("", "caption");
+    gtk_widget_add_css_class(pStatus, "dim-label");
+    tour.pRuntimeStatus = GTK_LABEL(pStatus);
+
+    tour.pRuntimeBar = gtk_progress_bar_new();
+    gtk_widget_set_margin_top(tour.pRuntimeBar, 6);
+    gtk_widget_set_visible(tour.pRuntimeBar, FALSE);
+
+    GtkWidget *pText = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+    gtk_widget_set_hexpand(pText, TRUE);
+    gtk_box_append(GTK_BOX(pText), pName);
+    gtk_box_append(GTK_BOX(pText), pStatus);
+    gtk_box_append(GTK_BOX(pText), tour.pRuntimeBar);
+
+    GtkWidget *pInstall = gtk_button_new_with_label(i18n::tr("Install"));
+    gtk_widget_add_css_class(pInstall, "suggested-action");
+    gtk_widget_set_valign(pInstall, GTK_ALIGN_CENTER);
+    tour.pRuntimeButton = GTK_BUTTON(pInstall);
+    g_signal_connect(pInstall, "clicked", G_CALLBACK(onRuntimeInstall), &tour);
+
+    GtkWidget *pRow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
+    gtk_widget_set_margin_start(pRow, 14);
+    gtk_widget_set_margin_end(pRow, 14);
+    gtk_widget_set_margin_top(pRow, 12);
+    gtk_widget_set_margin_bottom(pRow, 12);
+    gtk_box_append(GTK_BOX(pRow), pText);
+    gtk_box_append(GTK_BOX(pRow), pInstall);
+
+    GtkWidget *pCard = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    gtk_widget_add_css_class(pCard, "card");
+    gtk_box_append(GTK_BOX(pCard), pRow);
+    gtk_box_append(GTK_BOX(pBox), pCard);
+
+    GtkWidget *pHelp = bodyLabel(
+        i18n::tr("TuxBlox needs its compatibility layer before it can start Roblox. It is "
+                 "downloaded once and kept up to date for you."), "caption");
+    gtk_widget_add_css_class(pHelp, "dim-label");
+    gtk_widget_set_margin_top(pHelp, 10);
+    gtk_box_append(GTK_BOX(pBox), pHelp);
+}
+
+// Page 1: who TuxBlox is, the runtime a Flatpak still needs, the launcher's colours, and an offer
+// to fetch Studio.
 GtkWidget *buildWelcomePage(Tour &tour) {
     GtkWidget *pBox = pageBox();
 
@@ -247,6 +304,8 @@ GtkWidget *buildWelcomePage(Tour &tour) {
         gtk_box_append(GTK_BOX(pTiles), pTile);
     }
     gtk_box_append(GTK_BOX(pBox), pTiles);
+
+    if constexpr (kFlatpakBuild) appendRuntimeCard(tour, pBox);
 
     GtkWidget *pStudioCaption = caption("Roblox Studio");
     gtk_widget_set_margin_top(pStudioCaption, 22);
@@ -387,44 +446,7 @@ void scrollTo(Tour &tour, int index) {
     if (pPage != nullptr) adw_carousel_scroll_to(tour.pCarousel, pPage, TRUE);
 }
 
-void onRuntimeInstall(GtkButton *, gpointer data) {
-    static_cast<Tour *>(data)->pApp->requestRuntimeInstall();
-}
-
-// A Flatpak carries no compatibility layer: it is fetched on first run, and nothing can launch
-// until it is there. Shown first, and the tour will not move past it until it succeeds.
-GtkWidget *buildRuntimePage(Tour &tour) {
-    GtkWidget *pBox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
-    gtk_widget_set_valign(pBox, GTK_ALIGN_CENTER);
-
-    GtkWidget *pTitle = bodyLabel(i18n::tr("Install the runtime"), "title-1");
-    gtk_box_append(GTK_BOX(pBox), pTitle);
-
-    GtkWidget *pBody = bodyLabel(
-        i18n::tr("TuxBlox needs its compatibility layer before it can start Roblox. It is "
-                 "downloaded once and kept up to date for you."), "body");
-    gtk_label_set_wrap(GTK_LABEL(pBody), TRUE);
-    gtk_label_set_justify(GTK_LABEL(pBody), GTK_JUSTIFY_CENTER);
-    gtk_box_append(GTK_BOX(pBox), pBody);
-
-    tour.pRuntimeBar = gtk_progress_bar_new();
-    gtk_widget_set_visible(tour.pRuntimeBar, FALSE);
-    gtk_box_append(GTK_BOX(pBox), tour.pRuntimeBar);
-
-    GtkWidget *pStatus = bodyLabel("", "caption");
-    tour.pRuntimeStatus = GTK_LABEL(pStatus);
-    gtk_box_append(GTK_BOX(pBox), pStatus);
-
-    GtkWidget *pButton = gtk_button_new_with_label(i18n::tr("Install"));
-    gtk_widget_add_css_class(pButton, "suggested-action");
-    gtk_widget_set_halign(pButton, GTK_ALIGN_CENTER);
-    g_signal_connect(pButton, "clicked", G_CALLBACK(onRuntimeInstall), &tour);
-    tour.pRuntimeButton = GTK_BUTTON(pButton);
-    gtk_box_append(GTK_BOX(pBox), pButton);
-    return pBox;
-}
-
-// Keeps the runtime page honest about what is happening, and is what re-enables Next once the
+// Keeps the runtime card honest about what is happening, and is what re-enables Next once the
 // layer is there. Called from the tour's own tick, so it follows the fetch without a signal.
 void applyRuntime(Tour &tour) {
     if (tour.pRuntimeStatus == nullptr) return;
@@ -501,7 +523,7 @@ void onNext(GtkButton *, gpointer data) {
 gboolean onTourTick(gpointer data) {
     auto *pTour = static_cast<Tour *>(data);
     const AppSnapshot snap = pTour->pApp->snapshot();
-    // The runtime page and the footer follow the fetch, which nothing else signals.
+    // The runtime card and the footer follow the fetch, which nothing else signals.
     applyRuntime(*pTour);
     applyFooter(*pTour);
     const bool installed = !snap.versions.studio.activeHash.empty();
@@ -547,9 +569,6 @@ void presentWelcomeTour(App &app, GtkApplication *pGtkApp, std::function<void(bo
     pTour->pCarousel = ADW_CAROUSEL(pCarousel);
     // Off, or a scroll over the switch list would change the page under the pointer.
     adw_carousel_set_allow_scroll_wheel(pTour->pCarousel, FALSE);
-    if constexpr (kFlatpakBuild) {
-        adw_carousel_append(pTour->pCarousel, clampedPage(buildRuntimePage(*pTour)));
-    }
     adw_carousel_append(pTour->pCarousel, clampedPage(buildWelcomePage(*pTour)));
     adw_carousel_append(pTour->pCarousel, clampedPage(buildOptionalPage(*pTour)));
     adw_carousel_append(pTour->pCarousel, clampedPage(buildFinishPage(*pTour)));

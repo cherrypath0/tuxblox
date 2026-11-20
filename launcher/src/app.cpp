@@ -976,10 +976,10 @@ void App::updateCheckThreadMain() {
                 snapshot_.update = {UpdatePhase::Error, 0.0,
                                     i18n::trf("Could not find release {0}.", {wanted})};
             }
-            // A behind bundle carries on, so the window still offers the update it cannot apply itself.
-            if (!bundleBehind) return;
         }
-        if ((autoUpdate || result.forced) && !bundleBehind) {
+        // A Flatpak checks exactly as a native client does and reports the same way; what it cannot
+        // do is apply, because its own files live in a read-only /app that belongs to flatpak.
+        if (!kFlatpakBuild && (autoUpdate || result.forced) && !bundleBehind) {
             if (!prepareInstallerHandoff(result.release, result.releaseJson)) return;
             needsInstallerHandoff_.store(true);
         } else if (bundleBehind && result.release.components.count("flatpak") == 0) {

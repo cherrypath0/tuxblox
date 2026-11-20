@@ -1,0 +1,1 @@
+This release adds patches for the Flatpak version of TuxBlox, native versions are not affected.
