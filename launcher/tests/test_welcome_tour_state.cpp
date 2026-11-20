@@ -53,19 +53,18 @@ int main() {
         assert(std::strcmp(links[5].pUrl, "https://tuxblox.net/terms") == 0);
     }
 
-    // The runtime page is the only one that can hold the tour, and only while the layer is
-    // missing: a Flatpak that finished the tour without one would look ready and launch nothing.
+    // The welcome page carries the runtime card, so it is the only one that can hold the tour, and
+    // only while the layer is missing: a Flatpak that finished the tour without one would look
+    // ready and launch nothing.
     {
-        assert(!tourMayAdvance(TourPage::Runtime, true));
-        assert(tourMayAdvance(TourPage::Runtime, false));
+        assert(!tourMayAdvance(TourPage::Welcome, true));
+        assert(tourMayAdvance(TourPage::Welcome, false));
         // Every other page is free either way, so a missing layer cannot strand the tour elsewhere.
-        for (const TourPage page : {TourPage::Welcome, TourPage::Optional, TourPage::Finish}) {
+        for (const TourPage page : {TourPage::Optional, TourPage::Finish}) {
             assert(tourMayAdvance(page, true));
             assert(tourMayAdvance(page, false));
         }
-        // This build is not a Flatpak, so the page is not in the list at all.
-        assert(tourPageAt(0) == TourPage::Welcome);
-        std::printf("  the runtime page is the only one that can hold the tour\n");
+        std::printf("  the welcome page is the only one that can hold the tour\n");
     }
 
     std::printf("welcome_tour_state: all tests passed\n");

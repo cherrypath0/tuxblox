@@ -233,3 +233,12 @@ endif()
 
 enable_testing()
 add_subdirectory(tests)
+
+# The stand-in published at the address a pre-layout client asks for. It carries that client to an
+# installer that understands the current layout, so it must stay free of anything release-specific.
+add_executable(TuxBloxInstallerBridge
+    bridge/main.cpp
+    bridge/bridge.cpp
+)
+target_include_directories(TuxBloxInstallerBridge PRIVATE src)
+target_link_libraries(TuxBloxInstallerBridge PRIVATE installer_core ${CMAKE_DL_LIBS} Threads::Threads)
