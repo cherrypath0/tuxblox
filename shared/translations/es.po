@@ -5,7 +5,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: tuxblox\n"
 "Report-Msgid-Bugs-To: cherry@tuxblox.net\n"
-"POT-Creation-Date: 2026-11-19 00:16+0300\n"
+"POT-Creation-Date: 2026-11-20 10:38+0300\n"
 "Last-Translator: Yan Henridev <228758946+yanhenrique-"
 "dev@users.noreply.github.com>\n"
 "Language-Team: Spanish\n"
@@ -836,6 +836,9 @@ msgstr ""
 "acceso a la GPU, por ejemplo `distrobox create --nvidia ...` o `--additional-"
 "flags \"--device /dev/dri\"`."
 
+msgid "Runtime"
+msgstr ""
+
 msgid "Save the log to a file"
 msgstr "Guardar el registro en un archivo"
 
@@ -1116,6 +1119,10 @@ msgid ""
 msgstr ""
 
 msgid "TuxBlox needs:"
+msgstr "TuxBlox necesita:"
+
+#, fuzzy
+msgid "TuxBlox runtime"
 msgstr "TuxBlox necesita:"
 
 msgid ""

@@ -127,3 +127,7 @@ add_test(NAME i18n COMMAND test_i18n)
 add_test(NAME translations
     COMMAND ${PYTHON3_EXECUTABLE} "${TUXBLOX_I18N_DIR}/tools/check-translations.py"
             --check --translations ${TUXBLOX_TRANSLATIONS_DIR})
+
+add_executable(test_bridge test_bridge.cpp ${CMAKE_CURRENT_SOURCE_DIR}/../bridge/bridge.cpp)
+target_link_libraries(test_bridge PRIVATE installer_core)
+add_test(NAME bridge COMMAND test_bridge)

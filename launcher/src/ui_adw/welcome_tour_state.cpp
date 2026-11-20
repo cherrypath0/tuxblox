@@ -16,24 +16,14 @@
 
 #include "welcome_tour_state.h"
 
-#include "version.h"
 #include <vector>
 
 namespace tuxblox {
 
 namespace {
 
-// The runtime page is first and exists only in a Flatpak, which is the only build that fetches its
-// own compatibility layer: everywhere else the installer has already put one there.
 const std::vector<TourPage>& pages() {
-    static const std::vector<TourPage> list = [] {
-        std::vector<TourPage> out;
-        if (kFlatpakBuild) out.push_back(TourPage::Runtime);
-        out.push_back(TourPage::Welcome);
-        out.push_back(TourPage::Optional);
-        out.push_back(TourPage::Finish);
-        return out;
-    }();
+    static const std::vector<TourPage> list = {TourPage::Welcome, TourPage::Optional, TourPage::Finish};
     return list;
 }
 
@@ -44,7 +34,7 @@ bool shouldShowWelcome(const Settings& settings) {
 }
 
 bool tourMayAdvance(TourPage page, bool runtimeMissing) {
-    return page != TourPage::Runtime || !runtimeMissing;
+    return page != TourPage::Welcome || !runtimeMissing;
 }
 
 int tourPageCount() {
