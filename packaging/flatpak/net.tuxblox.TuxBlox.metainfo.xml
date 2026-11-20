@@ -90,8 +90,8 @@
 
   <url type="homepage">https://tuxblox.net</url>
   <url type="help">https://tuxblox.net/docs</url>
-  <url type="bugtracker">https://github.com/cherrypath0/tuxblox/issues</url>
-  <url type="vcs-browser">https://github.com/cherrypath0/tuxblox</url>
+  <url type="bugtracker">https://github.com/tuxblox/tuxblox/issues</url>
+  <url type="vcs-browser">https://github.com/tuxblox/tuxblox</url>
 
   <releases>
     <release version="3.12.15.2" date="2026-11-19">
