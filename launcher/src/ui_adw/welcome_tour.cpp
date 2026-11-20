@@ -265,8 +265,6 @@ GtkWidget *buildWelcomePage(Tour &tour) {
     gtk_box_append(GTK_BOX(pHeader), pText);
     gtk_box_append(GTK_BOX(pBox), pHeader);
 
-    if constexpr (kFlatpakBuild) appendRuntimeCard(tour, pBox);
-
     GtkWidget *pAppearance = caption("Appearance");
     gtk_widget_set_margin_top(pAppearance, 22);
     gtk_widget_set_margin_bottom(pAppearance, 9);
@@ -306,6 +304,8 @@ GtkWidget *buildWelcomePage(Tour &tour) {
         gtk_box_append(GTK_BOX(pTiles), pTile);
     }
     gtk_box_append(GTK_BOX(pBox), pTiles);
+
+    if constexpr (kFlatpakBuild) appendRuntimeCard(tour, pBox);
 
     GtkWidget *pStudioCaption = caption("Roblox Studio");
     gtk_widget_set_margin_top(pStudioCaption, 22);
