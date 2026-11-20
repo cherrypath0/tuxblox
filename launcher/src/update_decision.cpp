@@ -24,10 +24,12 @@ namespace tuxblox {
 
 namespace {
 
-// A Flatpak has neither: flatpak replaces the whole app rather than handing off to an installer,
-// and the interface comes from the desktop's own libraries. Absent is correct, not half-applied.
+// The installer is a tool fetched to apply an update rather than part of the running install, and
+// ensureInstallerBinary() checks it against the release before running it, so its release says
+// nothing about whether this install is whole. A Flatpak carries no interface libraries either.
 bool carriedHere(const std::string& name) {
-    if constexpr (kFlatpakBuild) return name != "installer" && name != "libtuxblox";
+    if (name == "installer") return false;
+    if constexpr (kFlatpakBuild) return name != "libtuxblox";
     return true;
 }
 
