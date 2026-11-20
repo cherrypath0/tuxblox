@@ -94,6 +94,11 @@
   <url type="vcs-browser">https://github.com/tuxblox/tuxblox</url>
 
   <releases>
+    <release version="3.12.15.3" date="2026-11-20">
+      <description>
+        <p>This release adds patches for the Flatpak version of TuxBlox, native versions are not affected.</p>
+      </description>
+    </release>
     <release version="3.12.15.2" date="2026-11-19">
       <description>
         <p>Updated the Flatpak packaging for Flathub. No changes to TuxBlox itself.</p>
